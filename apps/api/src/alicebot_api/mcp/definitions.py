@@ -274,24 +274,29 @@ _CORE_TOOL_DEFINITIONS: list[dict[str, object]] = [
         "name": "alice_memory_commit",
         "description": (
             "Record one fact as durable, immediately recallable memory. Use this whenever you learn something worth keeping, including when the user has not asked you to remember it. This is the write verb for ordinary memory. The write "
-            "is policy-checked, never blind: the outcome is 'committed', 'confirmation_required' "
-            "(finish with alice_memory_manage action 'confirm'), 'review_required' (waits for "
-            "human review), or 'rejected'. Every outcome is recorded with provenance, a "
+            "is policy-checked, never blind: the outcome is 'committed', 'confirmation_required', "
+            "'review_required' (waits for human review), or 'rejected'. A new write needs title "
+            "and canonical_text. On 'confirmation_required' the fact is not stored yet: ask the "
+            "user, showing them the proposed text. Then call this tool again with "
+            "confirmation_id, confirmation_action ('confirm' if they agreed, 'reject' if they "
+            "did not) and the same identity fields you sent with the write, and no memory "
+            "fields. Alice cannot tell whether you asked, so never answer for the user. To "
+            "change the text, reject it and commit the corrected text as a new write. A pending "
+            "write expires after 24 hours. Every outcome is recorded with provenance, a "
             "revision, and an audit event. For source documents and raw notes use "
             "alice_capture instead."
         ),
         "inputSchema": {
             "type": "object",
             "additionalProperties": False,
-            "required": ["title", "canonical_text"],
             "properties": {
                 "title": {
                     "type": "string",
-                    "description": "Short human-readable title for the memory.",
+                    "description": "Short human-readable title for the memory. Required for a new write; leave it out when sending confirmation_id.",
                 },
                 "canonical_text": {
                     "type": "string",
-                    "description": "The memory content, phrased as a standalone statement.",
+                    "description": "The memory content, phrased as a standalone statement. Required for a new write; leave it out when sending confirmation_id.",
                 },
                 "memory_type": {
                     "type": "string",
@@ -325,11 +330,31 @@ _CORE_TOOL_DEFINITIONS: list[dict[str, object]] = [
                 },
                 "rationale": {
                     "type": "string",
-                    "description": "Why this memory is being committed. Stored in the audit trail.",
+                    "description": "Why this memory is being committed, or why a pending write is being confirmed or rejected. Stored in the audit trail.",
                 },
                 "idempotency_key": {
                     "type": "string",
                     "description": "Unique key that makes retries safe; a replay returns the original result.",
+                },
+                "confirmation_id": {
+                    "type": "string",
+                    "description": (
+                        "Finishes a pending write: the confirmation_id from an earlier "
+                        "'confirmation_required' result. Send it with confirmation_action and "
+                        "the same identity fields as the write, without title, canonical_text "
+                        "or any other memory field. Ask the user first."
+                    ),
+                },
+                "confirmation_action": {
+                    "type": "string",
+                    "enum": ["confirm", "reject"],
+                    "description": (
+                        "Required with confirmation_id, and it must be the user's answer. "
+                        "'confirm' stores the pending text as a recallable fact; 'reject' "
+                        "discards it. The confirmation is policy-checked like a write: a "
+                        "read-only identity, a key bound to another project, or a pending write "
+                        "above the calling agent's sensitivity ceiling is refused."
+                    ),
                 },
                 **_AGENT_IDENTITY_SCHEMA_PROPERTIES,
             },

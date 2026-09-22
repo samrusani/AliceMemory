@@ -46,15 +46,17 @@ NOT_A_TOOL_PAYLOAD = "n/a"
 DOCUMENTED_PAYLOADS: dict[tuple[str, int], str] = {
     ("agent-skills/hermes/alice-memory/SKILL.md", 0): "alice_memory_commit",
     ("agent-skills/hermes/alice-memory/SKILL.md", 1): "alice_memory_commit",
-    ("agent-skills/hermes/alice-memory/SKILL.md", 2): "alice_memory_commit",
+    ("agent-skills/hermes/alice-memory/SKILL.md", 2): "alice_memory_commit",  # finishes block 1
     ("agent-skills/hermes/alice-memory/SKILL.md", 3): "alice_memory_commit",
+    ("agent-skills/hermes/alice-memory/SKILL.md", 4): "alice_memory_commit",
     ("agent-skills/openclaw/alice-project-memory/SKILL.md", 0): "alice_memory_commit",
     ("agent-skills/openclaw/alice-project-memory/SKILL.md", 1): "alice_capture",
     ("agent-skills/openclaw/alice-project-memory/SKILL.md", 2): "alice_memory_commit",
     ("docs/alpha/hermes-skill.md", 0): "alice_memory_commit",
     ("docs/alpha/hermes-skill.md", 1): "alice_memory_commit",
     ("docs/alpha/hermes-skill.md", 2): "alice_memory_commit",
-    ("docs/alpha/hermes-skill.md", 3): "alice_memory_commit",
+    ("docs/alpha/hermes-skill.md", 3): "alice_memory_commit",  # finishes block 2
+    ("docs/alpha/hermes-skill.md", 4): "alice_memory_commit",
     ("docs/alpha/openclaw-skill.md", 0): "alice_memory_commit",
     ("docs/alpha/openclaw-skill.md", 1): "alice_context_pack",
     ("docs/alpha/openclaw-skill.md", 2): "alice_capture",
@@ -180,3 +182,50 @@ def test_documented_payload_carries_every_required_property(
         f"{relative_path} json block {index} omits required {sorted(missing)} for {tool}. "
         "An agent copying this example gets a hard failure."
     )
+
+
+@pytest.mark.parametrize(
+    ("relative_path", "index", "tool", "payload"),
+    [
+        case
+        for case in _cases()
+        if case[2] == "alice_memory_commit" and (case[0], case[1]) not in IDENTITY_FRAGMENTS
+    ],
+    ids=lambda value: f"{value}" if isinstance(value, (str, int)) else "",
+)
+def test_documented_commit_payload_is_a_whole_write_or_a_whole_confirmation(
+    relative_path: str, index: int, tool: str, payload: dict
+) -> None:
+    """Added 2026-09-22 with the D8 fix.
+
+    alice_memory_commit no longer lists title and canonical_text as required,
+    because a confirmation call carries neither. The handler still refuses a
+    new write without them, so the check above stopped covering commit
+    examples. This puts it back, and checks the confirmation shape too.
+    """
+
+    if "confirmation_id" in payload:
+        assert payload.get("confirmation_action") in ("confirm", "reject"), (
+            f"{relative_path} json block {index} sends confirmation_id without "
+            "confirmation_action; the handler refuses it"
+        )
+        mixed = {"title", "canonical_text", "confidence", "domain", "sensitivity"} & set(payload)
+        assert not mixed, (
+            f"{relative_path} json block {index} mixes a confirmation with write fields "
+            f"{sorted(mixed)}; the handler refuses it"
+        )
+        return
+    missing = {"title", "canonical_text"} - set(payload)
+    assert not missing, (
+        f"{relative_path} json block {index} omits {sorted(missing)}, which a new "
+        "alice_memory_commit write needs. An agent copying this example gets a hard failure."
+    )
+
+
+def test_the_commit_shape_check_sees_both_kinds_of_payload() -> None:
+    """Guards the guard: the check above must be exercising at least one
+    documented confirmation and at least one documented new write."""
+
+    commit_cases = [case for case in _cases() if case[2] == "alice_memory_commit"]
+    assert any("confirmation_id" in case[3] for case in commit_cases)
+    assert any("canonical_text" in case[3] for case in commit_cases)

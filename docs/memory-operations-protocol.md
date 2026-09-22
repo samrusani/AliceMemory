@@ -154,11 +154,24 @@ revision history, and correction history accumulates on the memory record.
 Completes a write that policy held as `confirmation_required` (the pending
 memory is not searchable until confirmed).
 
-- MCP: `alice_memory_manage` with `action: "confirm"` and the
-  `confirmation_id` from the commit response; pass `canonical_text` to
-  confirm with a correction
+- MCP, default three tools: `alice_memory_commit` with only the
+  `confirmation_id` from the commit response and `confirmation_action`
+  (`confirm` or `reject`), plus identity fields and an optional
+  `rationale`. A memory field on that call is refused, and there is no
+  edit: to change the text, reject it and commit the corrected text.
+- MCP, full surface: `alice_memory_manage` with `action: "confirm"` and the
+  `confirmation_id`; pass `canonical_text` to confirm with a correction
 - HTTP: `POST /v0/vnext/memories/confirm`
 - CLI: `alicebot vnext memories confirm <confirmation_id> [--action confirm|reject|edit]`
+
+Both MCP routes call `VNextMemoryCommitService.confirm` through the same
+handler code, so identity, the policy check on the pending row's domain,
+sensitivity and project scope, and the audit below are the same. The
+`alice_memory_commit` route adds one refusal: an agent cannot confirm or
+reject a pending write above its own sensitivity ceiling, which
+`alice_memory_manage` still allows. Neither route can tell whether the
+user was asked; the tool description tells the agent to ask, and the audit
+records which identity answered.
 
 Outcomes: `committed` (memory becomes active) or `rejected`. Confirmations
 expire after 24 hours; an expired confirmation resolves to `rejected` with

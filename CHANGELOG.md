@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- `alice_memory_commit` can finish its own `confirmation_required`
+  result. Call it again with `confirmation_id`, `confirmation_action`
+  (`confirm` or `reject`) and the same identity fields as the write, and
+  no memory fields. Before this, the tool
+  pointed agents at `alice_memory_manage`, which the default three-tool
+  server refuses, so a write below 0.85 confidence, in a sensitive
+  domain, or above `private` stayed invisible to recall until it expired
+  (wiki D8). The confirmation runs the same service call as
+  `alice_memory_manage` `confirm`, and it also refuses an agent whose
+  sensitivity ceiling is below the pending write. There is no edit on
+  this call. `title` and `canonical_text` are no longer listed as
+  required in the schema, because a confirmation carries neither; a new
+  write without them is still refused.
+
 ## v0.16.0 — 2026-08-19
 
 - README leads with `alice-memory install` and `demo --vault`, then a

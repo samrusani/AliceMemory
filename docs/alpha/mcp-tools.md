@@ -68,7 +68,10 @@ Remember, recall, continue. These are the only tools in a default
   the outcome is `committed`, `confirmation_required`, `review_required`, or
   `rejected`, always with provenance, a revision, and an audit event. Print
   the `receipt` field after a capture or commit so the user sees what was
-  stored.
+  stored. A `confirmation_required` write is finished on this same tool:
+  ask the user, then send the returned `confirmation_id` with
+  `confirmation_action` `confirm` or `reject` (see
+  [Explicit memory commits](#explicit-memory-commits)).
 - `alice_recall` — search memory. Full-text plus semantic vector search,
   merged with reciprocal-rank fusion. Falls back to full-text only (and
   says so) when no embedding endpoint is configured. Accepts optional
@@ -274,12 +277,25 @@ Who is calling decides what to pass:
 
 Alice decides the outcome, never the caller:
 
-- `committed` — direct active memory with provenance, event log, revision.
-- `confirmation_required` — sensitive or ambiguous memory waits for
-  `alice_memory_manage` with `action: "confirm"`.
-- `review_required` — external, generated, or low-confidence memory waits
+- `committed`: direct active memory with provenance, event log, revision.
+- `confirmation_required`: sensitive or ambiguous memory is held, not
+  stored, until someone answers. Ask the user, then call
+  `alice_memory_commit` again with only the returned `confirmation_id` and
+  `confirmation_action` (`confirm` or `reject`), plus identity fields and
+  an optional `rationale`. Any memory field on that call is refused; to
+  change the text, reject it and commit the corrected text. Alice cannot
+  tell whether the agent asked, so the tool description tells it to ask
+  and the audit trail records which identity answered. The confirmation
+  runs the same service call as `alice_memory_manage` `confirm` on the
+  full surface, with the same identity check, policy check, project fence,
+  revision and events. It is stricter in one place: an agent cannot
+  confirm or reject a pending write above its own sensitivity ceiling
+  (`alice_memory_manage` still lets it through). On a server with no agent
+  key, a call with no agent identity can; so can an `admin_agent` key.
+  A pending write expires after 24 hours and then resolves to `rejected`.
+- `review_required`: external, generated, or low-confidence memory waits
   for human review in the console.
-- `rejected` — out-of-scope, unsafe, or policy-bypass attempts are blocked.
+- `rejected`: out-of-scope, unsafe, or policy-bypass attempts are blocked.
 
 Use canonical schema values for persisted labels: `memory_type=semantic`
 for quote saves, `memory_type=procedure` for repeatable playbooks. Avoid
@@ -323,7 +339,8 @@ With the flag set, `tools/list` includes the full long tail — for example
 `alice_vnext_ingest_agent_output` for structured agent-output ingestion,
 `alice_recall_debug` for the legacy continuity recall view, and the
 granular queue/graph/belief tools. `alice_vnext_commit_memory` remains a
-direct alias of the handler behind core `alice_memory_commit`;
+direct alias of the handler behind core `alice_memory_commit`, though its
+schema does not accept `confirmation_id`, so it cannot finish a pending write;
 `alice_vnext_confirm_memory`, `alice_vnext_undo_memory`, and
 `alice_vnext_forget_memory` remain available as distinct legacy handlers
 whose lifecycle actions the core `alice_memory_manage` tool covers through

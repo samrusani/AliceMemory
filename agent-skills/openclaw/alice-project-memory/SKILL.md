@@ -19,6 +19,7 @@ Default loop: remember, recall, continue.
 4. Call `alice_resume` to pick work back up: last decision, next action, open loops, recent changes.
 5. `alice_capture` and `alice_context_pack` are full-surface. Use them only when the server lists them. Capture stores a source; its passages come back from `alice_recall` under `sources`, as material to read and quote rather than as facts Alice asserts. Candidates stay unsearchable until a reviewer promotes them. Import is a source. Commit is a fact. Print the `receipt` field after a capture or commit so the user sees what was stored. Do not tell the user they must clear a review queue before a note is usable.
 6. Do not access or write non-project personal domains.
+7. If `alice_memory_commit` returns `confirmation_required`, finish it on the same tool with the user's answer, as described below.
 
 Your host may prefix these tool names with the server name. In OpenClaw a server configured as `alice` exposes `alice_recall` as `alice__alice_recall`. Read the names from the host's own tool list rather than assuming the bare form.
 
@@ -46,6 +47,8 @@ Project memory commit:
 {"agent_id":"openclaw","agent_type":"coding_agent","permission_profile":"project_scoped_agent","project_scope":["Alice"],"title":"Release gate decision","canonical_text":"Alice public alpha release gates require doctor, smokes, evals, and git diff checks before merge.","domain":"project","sensitivity":"private","confidence":0.94,"source_type":"direct_user_instruction"}
 ```
 
-`title` and `canonical_text` are the only required fields on a commit. Everything else is optional, and any field not in the server's `tools/list` schema is rejected outright rather than ignored. A `project_scoped_agent` must send `domain: "project"`, or the commit is rejected.
+A new commit needs `title` and `canonical_text`. Everything else is optional, and any field not in the server's `tools/list` schema is rejected outright rather than ignored. A `project_scoped_agent` must send `domain: "project"`, or the commit is rejected.
+
+If Alice returns `confirmation_required` (for example at a confidence between 0.5 and 0.85), nothing is stored yet. Ask the user, showing them the proposed text, then call `alice_memory_commit` again with only the returned `confirmation_id`, `confirmation_action` set to `confirm` or `reject` from their answer, and your identity fields. Never answer for the user. To change the text, reject it and commit the corrected text. A pending write expires after 24 hours, and a key bound to another project cannot confirm it. Keep project facts at `private` or below: a `project_scoped_agent` cannot confirm a pending write above its sensitivity ceiling.
 
 See `docs/alpha/openclaw-skill.md` for full recipes.

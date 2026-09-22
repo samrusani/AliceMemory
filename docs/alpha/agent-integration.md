@@ -57,7 +57,9 @@ reviewer promotes them. Import is a source. Commit is a fact. Print the
 Do not tell the user they must clear a review queue before a note is usable.
 
 Lifecycle tools (`alice_memory_manage`, review, correct) are also
-full-surface.
+full-surface. Finishing a `confirmation_required` write is not: it happens
+on `alice_memory_commit` itself (see
+[Explicit Memory Commits](#explicit-memory-commits)).
 
 Respect domain and sensitivity policy on every call, and use `/vnext` for
 review, audit, undo, correction, forget, and troubleshooting.
@@ -290,10 +292,19 @@ on the core MCP surface (or `POST /v0/vnext/memories/commit` over HTTP,
 agent learns something worth keeping and the user has not asked: an explicit
 instruction is one reason to commit, not a precondition. The commit is
 policy-checked
-and returns one of four outcomes — `committed`, `confirmation_required`
-(finish with `alice_memory_manage` action `confirm`), `review_required`, or
-`rejected` — never a silent write. Follow-up lifecycle verbs (`confirm`,
-`undo`, `forget`) live on `alice_memory_manage`.
+and returns one of four outcomes: `committed`, `confirmation_required`,
+`review_required`, or `rejected`. It is never a silent write.
+
+A `confirmation_required` write is not stored yet. The agent asks the user,
+then calls `alice_memory_commit` again with only the returned
+`confirmation_id` and `confirmation_action` (`confirm` or `reject`), plus its
+identity fields and an optional `rationale`. That works on the default three
+tools. It runs the same service call as `alice_memory_manage` action
+`confirm`, with the same policy check, project fence and audit trail, and it
+also refuses an agent whose sensitivity ceiling is below the pending write.
+Alice cannot tell whether the user was asked; the audit trail records which
+identity answered. Other follow-up lifecycle verbs (`undo`, `forget`) live on
+`alice_memory_manage`, which is full-surface.
 
 Identity requirements:
 

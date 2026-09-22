@@ -32,7 +32,7 @@ From a human client (Claude Desktop, an IDE) connected to the Alice MCP server, 
 Alice returns one of:
 
 - `committed`
-- `confirmation_required` (finish with `alice_memory_manage`, action `confirm`)
+- `confirmation_required` (nothing is stored yet; finish it by calling `alice_memory_commit` again with the returned `confirmation_id`, `confirmation_action` set to `confirm` or `reject`, the same identity fields if the write carried any, and no memory fields)
 - `review_required`
 - `rejected`
 
