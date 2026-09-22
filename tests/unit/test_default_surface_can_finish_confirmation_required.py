@@ -6,8 +6,10 @@ Wiki D8, audit 2026-09-03 finding 13. Written 2026-09-22.
 confidence, in a sensitive domain, or above `private`. The tool description told
 the agent to finish with `alice_memory_manage`. The default registry refuses that
 tool unless `ALICE_MCP_FULL_TOOLS=1`, and `alice-memory install` never sets it. The
-row sat in `needs_review`, invisible to recall and resume, until it expired after
-24 hours. The Hermes skill's own ambient example commits at 0.84.
+row sat in `needs_review`, invisible to recall and resume, with nothing on the
+default tools able to finish it. (Its 24 hour `expires_at` is read only by
+`VNextMemoryCommitService.confirm`; nothing expires it in the background.) The
+Hermes skill's own ambient example commits at 0.84.
 
 Reproduced on the unmodified code through `call_mcp_tool`, default surface,
 real SQLite store:
@@ -30,12 +32,15 @@ The fix, decided by the owner on 2026-09-04: finish the write on the same verb.
 `VNextMemoryCommitService.confirm`, the function `alice_memory_manage` calls.
 A new route to an existing write is the defect class this repo keeps shipping,
 so each control the old route applies is tested here through the new one:
-identity, the policy check, the project fence, and the audit trail. The
-route is also stricter than manage in one place. Manage turns a row above the
-caller's sensitivity ceiling into `allowed_with_filtering` and confirms it
-anyway (finding 8). This route refuses that confirm. After review the same day
-it allows a reject there, which grants nothing and lets a keyed agent clear its
-own above-ceiling write; the reject still passes identity and the project fence.
+identity, the policy check, the project fence (a key-bound scope; a keyless
+server trusts the declared scope), and the audit trail. The route is also
+stricter than manage in one place. Manage turns a row above the caller's
+sensitivity ceiling into `allowed_with_filtering` and confirms it anyway
+(finding 8). This route refuses that confirm. After review the same day it
+allows a reject there, which stores nothing, lowers exposure and lets a keyed
+agent clear its own above-ceiling write. The reject response still echoes the
+pending row, including the text the writer sent, as manage and the HTTP
+confirm route do. The reject still passes identity and the key-bound fence.
 
 Every test here deletes `ALICE_MCP_FULL_TOOLS`, and the first one proves it.
 """
@@ -286,8 +291,11 @@ def test_a_rejected_pending_write_never_becomes_searchable(tmp_path: Path, defau
 
 
 def test_an_expired_confirmation_resolves_to_rejected(tmp_path: Path, default_surface) -> None:
-    """The 24 hour expiry is enforced by the shared service, so the new route
-    inherits it rather than letting a stale pending row through."""
+    """The 24 hour expiry is applied by VNextMemoryCommitService.confirm, so the
+    new route inherits it rather than letting a stale pending row through. It
+    is lazy: applied when a confirm or reject reaches the row, never in the
+    background. The review approve path does not read it, so a reviewer can
+    still approve the row after 24 hours; that path is outside this route."""
 
     context = _context(tmp_path)
     pending = _commit_pending(context, agent_id="hermes")
@@ -634,8 +642,11 @@ def test_a_key_cannot_confirm_its_own_write_above_its_ceiling_but_can_reject_it(
     tmp_path: Path, default_surface, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Review correction 1, 2026-09-22. Confirming past the ceiling is refused.
-    Rejecting is allowed: it grants nothing, and without it a keyed Hermes
-    could not clear its own confidential pending write before expiry."""
+    Rejecting is allowed: it stores nothing and lowers exposure, and without
+    it a keyed Hermes could not clear its own confidential pending write on
+    this route at all. The reject response does echo the pending row back,
+    as manage and the HTTP confirm route do; S4.5 is scheduled to make that
+    echo author-only."""
 
     from alicebot_api.mcp_tools import MCPToolError
 

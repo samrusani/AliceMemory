@@ -51,7 +51,7 @@ Ask the user, showing them the proposed text. If they agree, call `alice_memory_
 {"confirmation_id":"confirm-...","confirmation_action":"confirm"}
 ```
 
-If they do not agree, send `"confirmation_action":"reject"`. Alice cannot tell whether you asked, so never answer for the user. To change the text, reject it and commit the corrected text as a new write. After 24 hours a pending write can no longer be confirmed; the next confirm or reject that passes the policy check resolves it to `rejected`. This example sends no identity fields, so on a keyless server the answer is recorded as the local user, not as Hermes.
+If they do not agree, send `"confirmation_action":"reject"`. Alice cannot tell whether you asked, so never answer for the user. To change the text, reject it and commit the corrected text as a new write. After 24 hours it can no longer be confirmed on `alice_memory_commit`: the next confirm or reject there that passes the policy check resolves it to `rejected`. This example sends no identity fields, so on a keyless server the answer is recorded as the local user, not as Hermes.
 
 Good explicit commit, the user said to remember it:
 
@@ -61,7 +61,7 @@ Good explicit commit, the user said to remember it:
 
 A new write needs `title` and `canonical_text`. Everything else is optional, and any field not in the server's `tools/list` schema is rejected outright rather than ignored.
 
-If Alice returns `confirmation_required`, finish it on `alice_memory_commit` as shown above, only with the user's answer. Alice refuses both confirm and reject for a read-only identity and for a key bound to another project. It refuses confirm, but not reject, when the pending write is above your sensitivity ceiling (anything above `private` for `trusted_local_agent`), so you can clear such a write but not store it. If Alice returns `review_required`, do not tell the user to clear a review queue.
+If Alice returns `confirmation_required`, finish it on `alice_memory_commit` as shown above, only with the user's answer. Alice refuses both confirm and reject for a read-only identity and for a key bound to another project (a keyless server trusts whatever `project_scope` the call declares). It refuses confirm, but not reject, when the pending write is above your sensitivity ceiling (anything above `private` for `trusted_local_agent`), so you can clear such a write but not store it. If Alice returns `review_required`, do not tell the user to clear a review queue.
 
 Bad commit, too low confidence to be worth storing:
 

@@ -282,8 +282,9 @@ _CORE_TOOL_DEFINITIONS: list[dict[str, object]] = [
             "did not) and the same identity fields you sent with the write, and no memory "
             "fields. Alice cannot tell whether you asked, so never answer for the user. To "
             "change the text, reject it and commit the corrected text as a new write. After 24 "
-            "hours a pending write can no longer be confirmed: the next confirm or reject that "
-            "passes the policy check resolves it to 'rejected'. Every outcome is recorded with provenance, a "
+            "hours a pending write can no longer be confirmed on this tool: the next confirm or "
+            "reject here that passes the policy check resolves it to 'rejected'. Every outcome is "
+            "recorded with provenance, a "
             "revision, and an audit event. For source documents and raw notes use "
             "alice_capture instead."
         ),
@@ -353,7 +354,8 @@ _CORE_TOOL_DEFINITIONS: list[dict[str, object]] = [
                         "Required with confirmation_id, and it must be the user's answer. "
                         "'confirm' stores the pending text as a recallable fact; 'reject' "
                         "discards it. Both are policy-checked like a write: a read-only "
-                        "identity or a key bound to another project is refused. 'confirm' is also "
+                        "identity or a key bound to another project is refused (a keyless server "
+                        "does not check a declared project_scope). 'confirm' is also "
                         "refused for a pending write above the calling agent's sensitivity "
                         "ceiling; 'reject' is allowed there."
                     ),

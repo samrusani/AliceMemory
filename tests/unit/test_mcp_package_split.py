@@ -144,7 +144,11 @@ def test_mcp_registry_order_definitions_and_alias_identity_are_frozen() -> None:
     # description and confirmation_action description, which now say reject
     # is allowed past the sensitivity ceiling and describe expiry as applied
     # on the next confirm or reject rather than in the background.
-    assert _digest(core_definitions) == "8de5d49b69246565ca2b7b3b094fba00f7ab4d9d624cbd518b467510c9c01cf6"
+    # And once more after the second review, wording only: the expiry sentence
+    # now says "on this tool" (the review approve path does not read the 24
+    # hours), and confirmation_action says a keyless server does not check a
+    # declared project_scope.
+    assert _digest(core_definitions) == "541acd9b9ba49ab116e8ceb4e1c5664bf7e93dca30c45170bbed32b738f94ebb"
     assert _digest(legacy_definitions) == "ca3d747e552bdece52c22d76332fc69f499878290edf3f236a8a7ea6a2e34e41"
     ordered_handler_map = [(name, handler.__name__) for name, handler in handlers.items()]
     assert _digest(ordered_handler_map) == "d864c98bb914bbc6ace464fa8020b3ed264f17f2061a6101aae677d801032ae5"

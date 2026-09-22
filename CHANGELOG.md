@@ -17,9 +17,12 @@
   identity that wrote it. A pending write above `private` is only partly
   fixed: an agent below `admin_agent`, whether keyed or declared by
   `agent_id` on a keyless server, still cannot confirm it through
-  `alice_memory_commit`. Only an `admin_agent` key, or a call with no
-  agent identity on a keyless server (the owner), can. That agent can
-  now reject it, which clears the pending row without storing it.
+  `alice_memory_commit`. Only an `admin_agent` identity can: an
+  `admin_agent` key, or, on a keyless server, any call that declares
+  `permission_profile: admin_agent` or carries no agent identity. A
+  keyless server does not verify a declared profile. The agent below
+  `admin_agent` can now reject it, which clears the pending row without
+  storing it.
   `alice_memory_manage` still lets such an agent confirm it on the full
   surface (audit finding 8, unchanged here).
 - `title` and `canonical_text` are no longer listed as required in the

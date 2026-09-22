@@ -114,19 +114,26 @@ identity fields as the write (none here), with no memory fields:
 
 Use `"confirmation_action": "reject"` when the user says no. Alice cannot tell whether you
 asked, so never answer for the user. There is no edit on this call: to change the text, reject
-it and commit the corrected text as a new write. After 24 hours a pending write can no longer
-be confirmed; the next confirm or reject that passes the policy check resolves it to
-`rejected`. Nothing expires it in the background, and until then it stays out of recall.
+it and commit the corrected text as a new write. A pending write stays out of recall until it
+is answered, and nothing expires it in the background. After 24 hours it can no longer be
+confirmed on `alice_memory_commit`: the next confirm or reject there that passes the policy
+check resolves it to `rejected`. A reviewer using `alice_memory_correct` `approve` on the full
+surface, which does not check the 24 hours, can still approve it.
 
 Alice refuses both `confirm` and `reject` for a read-only identity and for a key bound to
-another project. It also refuses `confirm`, but not `reject`, when the pending write is above
-the calling agent's sensitivity ceiling (anything above `private` for `trusted_local_agent`),
-so Hermes can clear such a write but cannot store it. On a server with no agent key
-configured, a call with no agent identity can still confirm it; so can an `admin_agent` key.
+another project. That project check applies to a key-bound scope only; a keyless server
+trusts whatever `project_scope` the call declares. Alice also refuses `confirm`, but not
+`reject`, when the pending write is above the calling agent's sensitivity ceiling (anything
+above `private` for `trusted_local_agent`), so Hermes can clear such a write but cannot store
+it. Only an `admin_agent` identity can confirm it: an `admin_agent` key, or, on a keyless
+server, any call that declares `permission_profile: admin_agent` or carries no agent identity.
+A keyless server does not verify a declared profile.
 
 This example sends no identity fields. On a keyless server the confirmation is then recorded
-as the local user (`actor_type: user`, no actor id) and the audit does not name Hermes. With
-`ALICE_AGENT_API_KEY` set, it is recorded under the key's `agent_id`.
+as the local user (`actor_type: user`, no `actor_id`) on every row and the audit does not name
+Hermes. With `ALICE_AGENT_API_KEY` set, the revision, the policy event and the
+`agent.memory_confirmed` event carry the key's `agent_id`; the `memory.updated` and
+`memory_revision.created` events carry no `actor_id` in either case.
 
 Bad proposal:
 

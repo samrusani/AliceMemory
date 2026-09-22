@@ -239,16 +239,21 @@ def _finish_pending_commit(context: MCPRuntimeContext, arguments: Mapping[str, o
 
     Confirms through ``_confirm_pending_memory``, the same code path
     ``alice_memory_manage`` action ``confirm`` takes, so identity, the policy
-    check, the project fence and the audit trail are the service's own. It is
-    stricter than manage in one respect: it refuses to let an agent confirm a
-    row above that agent's sensitivity ceiling (see
-    ``_refuse_confirmation_above_sensitivity_ceiling``). Rejecting such a row
-    is allowed.
+    check, the project fence and the audit trail are the service's own. The
+    project fence binds a key-bound scope only; a keyless server trusts
+    whatever project_scope the caller declares. It is stricter than manage in
+    one respect: it refuses to let an agent confirm a row above that agent's
+    sensitivity ceiling (see ``_refuse_confirmation_above_sensitivity_ceiling``).
+    Rejecting such a row is allowed.
 
     Nothing here can tell whether the user was asked. The tool description
-    tells the agent to ask. The audit names whoever the call resolved to: the
-    key's agent on a keyed server, the declared agent_id on a keyless one, and
-    the local user with no agent named when a keyless call carries no agent_id.
+    tells the agent to ask. The revision row, the policy.decision event and the
+    agent.memory_confirmed or agent.memory_confirmation_rejected event name the
+    caller as it resolved: the key's agent_id on a keyed server, the declared
+    and unverified agent_id on a keyless one. The memory.updated and
+    memory_revision.created events carry no actor_id. A keyless call with no
+    agent_id is recorded as actor_type user with no actor_id on every row and
+    no policy event.
     """
 
     mixed = [key for key in _COMMIT_WRITE_FIELDS if key in arguments]
@@ -301,10 +306,14 @@ def _refuse_confirmation_above_sensitivity_ceiling(
     evaluates, records and enforces exactly as it does for manage. So this
     check can add a refusal and can never grant anything.
 
-    Only ``confirm`` is refused. ``reject`` discards the pending row, which
-    grants no access and lowers exposure, and without it a keyed agent could
-    not clear its own above-ceiling write. A reject still goes through the
-    service's policy check, so identity and the project fence still apply.
+    Only ``confirm`` is refused. ``reject`` stores nothing and lowers
+    exposure, and without it a keyed agent could not clear its own
+    above-ceiling write. It is not free of disclosure: like manage and the
+    HTTP confirm route, the response echoes the pending row, including the
+    text the writer sent. Restricting who may resolve a pending write is
+    scheduled for S4.5. A reject still goes through the service's policy
+    check, so identity and the project fence still apply (a key-bound scope;
+    a keyless server trusts the declared scope).
     """
 
     if identity is None or action != "confirm":

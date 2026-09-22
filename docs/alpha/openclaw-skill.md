@@ -99,9 +99,12 @@ nothing is stored yet. Ask the user, showing them the proposed text, then call
 `alice_memory_commit` again with only the returned `confirmation_id`, `confirmation_action`
 set to `confirm` or `reject` from their answer, and your identity fields. Never answer for the
 user; Alice cannot tell whether you asked. There is no edit on this call: to change the text,
-reject it and commit the corrected text. After 24 hours a pending write can no longer be
-confirmed; the next confirm or reject that passes the policy check resolves it to `rejected`.
-A key bound to another project can neither confirm nor reject it. A `project_scoped_agent`
+reject it and commit the corrected text. After 24 hours it can no longer be confirmed on
+`alice_memory_commit`: the next confirm or reject there that passes the policy check resolves
+it to `rejected`. A reviewer using `alice_memory_correct` `approve` on the full surface, which
+does not check the 24 hours, can still approve it. A key bound to another project can neither
+confirm nor reject it; a keyless server trusts whatever `project_scope` the call declares, so
+this fence needs a project-bound key. A `project_scoped_agent`
 cannot confirm a pending write above its sensitivity ceiling, only reject it, so keep project
 facts at `private` or below.
 
