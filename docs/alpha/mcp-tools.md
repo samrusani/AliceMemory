@@ -70,7 +70,7 @@ Remember, recall, continue. These are the only tools in a default
   the `receipt` field after a capture or commit so the user sees what was
   stored. A `confirmation_required` write is finished on this same tool:
   ask the user, then send the returned `confirmation_id` with
-  `confirmation_action` `confirm` or `reject` (see
+  `confirmation_action` `confirm` or `reject` from their answer (see
   [Explicit memory commits](#explicit-memory-commits)).
 - `alice_recall` — search memory. Full-text plus semantic vector search,
   merged with reciprocal-rank fusion. Falls back to full-text only (and
@@ -284,15 +284,25 @@ Alice decides the outcome, never the caller:
   `confirmation_action` (`confirm` or `reject`), plus identity fields and
   an optional `rationale`. Any memory field on that call is refused; to
   change the text, reject it and commit the corrected text. Alice cannot
-  tell whether the agent asked, so the tool description tells it to ask
-  and the audit trail records which identity answered. The confirmation
-  runs the same service call as `alice_memory_manage` `confirm` on the
-  full surface, with the same identity check, policy check, project fence,
-  revision and events. It is stricter in one place: an agent cannot
-  confirm or reject a pending write above its own sensitivity ceiling
-  (`alice_memory_manage` still lets it through). On a server with no agent
-  key, a call with no agent identity can; so can an `admin_agent` key.
-  A pending write expires after 24 hours and then resolves to `rejected`.
+  tell whether the agent asked, so the tool description tells it to ask.
+  What the audit names depends on how the call was identified. With
+  `ALICE_AGENT_API_KEY` set, the revision and events carry the key's
+  `agent_id` and the policy event records `auth: agent_api_key`. On a
+  keyless server they carry whatever `agent_id` the call declared,
+  unverified, with `auth: unauthenticated_local`; a keyless call with no
+  `agent_id` is recorded as `actor_type: user` with no actor id and no
+  policy event, so the audit cannot say which agent, if any, answered.
+  The confirmation runs the same service call as `alice_memory_manage`
+  `confirm` on the full surface, with the same identity check, policy
+  check, project fence, revision and events. It is stricter in one
+  place: an agent cannot confirm a pending write above its own
+  sensitivity ceiling, which `alice_memory_manage` `confirm` still lets
+  it do. It can reject one. On a server with no agent key, a call with no
+  agent identity can confirm it; so can an `admin_agent` key. A pending
+  write stays out of recall until it is answered. Nothing expires it in
+  the background: after 24 hours, the next confirm or reject on it that
+  passes the policy check resolves it to `rejected` with reason
+  `confirmation_expired` instead of acting on it.
 - `review_required`: external, generated, or low-confidence memory waits
   for human review in the console.
 - `rejected`: out-of-scope, unsafe, or policy-bypass attempts are blocked.

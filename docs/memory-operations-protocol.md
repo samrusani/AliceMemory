@@ -167,17 +167,25 @@ memory is not searchable until confirmed).
 Both MCP routes call `VNextMemoryCommitService.confirm` through the same
 handler code, so identity, the policy check on the pending row's domain,
 sensitivity and project scope, and the audit below are the same. The
-`alice_memory_commit` route adds one refusal: an agent cannot confirm or
-reject a pending write above its own sensitivity ceiling, which
-`alice_memory_manage` still allows. Neither route can tell whether the
-user was asked; the tool description tells the agent to ask, and the audit
-records which identity answered.
+`alice_memory_commit` route adds one refusal: an agent cannot confirm a
+pending write above its own sensitivity ceiling, which
+`alice_memory_manage` `confirm` still allows. It may reject one; the
+reject still passes the identity check and the project fence. Neither
+route can tell whether the user was asked; the tool description tells the
+agent to ask. The audit names the caller as it was identified: the key's
+`agent_id` when `ALICE_AGENT_API_KEY` is set, the declared and unverified
+`agent_id` on a keyless server, and `actor_type: user` with no actor id
+and no policy event for a keyless call that declares no `agent_id`.
 
-Outcomes: `committed` (memory becomes active) or `rejected`. Confirmations
-expire after 24 hours; an expired confirmation resolves to `rejected` with
-reason `confirmation_expired`. Audit: a `promoted` (or `corrected`, when
-text was edited) revision and an `agent.memory_confirmed` or
-`agent.memory_confirmation_rejected` event.
+Outcomes: `committed` (memory becomes active) or `rejected`. A pending
+confirmation stays out of recall until it is answered, and nothing
+expires it in the background. After 24 hours, the next confirm or reject
+on it that passes the policy check resolves it to `rejected` with reason
+`confirmation_expired` instead of acting on it. Audit: a `promoted`
+revision (`corrected` when text was edited, `rejected` for a reject or an
+expiry) and an `agent.memory_confirmed`,
+`agent.memory_confirmation_rejected` or
+`agent.memory_confirmation_expired` event.
 
 ## undo
 

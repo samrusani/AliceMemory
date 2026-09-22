@@ -32,8 +32,10 @@ A new route to an existing write is the defect class this repo keeps shipping,
 so each control the old route applies is tested here through the new one:
 identity, the policy check, the project fence, and the audit trail. The
 route is also stricter than manage in one place. Manage turns a row above the
-caller's sensitivity ceiling into `allowed_with_filtering` and writes it anyway
-(finding 8). This route refuses it.
+caller's sensitivity ceiling into `allowed_with_filtering` and confirms it
+anyway (finding 8). This route refuses that confirm. After review the same day
+it allows a reject there, which grants nothing and lets a keyed agent clear its
+own above-ceiling write; the reject still passes identity and the project fence.
 
 Every test here deletes `ALICE_MCP_FULL_TOOLS`, and the first one proves it.
 """
@@ -604,33 +606,258 @@ def test_a_project_scoped_agent_cannot_confirm_a_restricted_domain(tmp_path: Pat
 # --- stricter than manage: the sensitivity ceiling -------------------------
 
 
-def test_a_key_cannot_confirm_a_write_above_its_sensitivity_ceiling(
+SALARY = {
+    "title": "Salary band",
+    "canonical_text": "The user's salary band is confidential.",
+    "sensitivity": "confidential",
+    "confidence": 0.95,
+}
+SALARY_QUERY = "salary band confidential"
+
+
+def _owner_recall_ids(context, monkeypatch: pytest.MonkeyPatch, query: str) -> set[str]:
+    """Recall as the keyless owner, allowed to see confidential rows, so a
+    confidential row that became searchable could not hide behind a filter."""
+
+    from alicebot_api.mcp_tools import AGENT_API_KEY_ENV
+
+    with monkeypatch.context() as scoped:
+        scoped.delenv(AGENT_API_KEY_ENV, raising=False)
+        return _recalled_ids(
+            context,
+            query=query,
+            sensitivity_allowed=["public", "internal", "private", "confidential", "unknown"],
+        )
+
+
+def test_a_key_cannot_confirm_its_own_write_above_its_ceiling_but_can_reject_it(
     tmp_path: Path, default_surface, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Review correction 1, 2026-09-22. Confirming past the ceiling is refused.
+    Rejecting is allowed: it grants nothing, and without it a keyed Hermes
+    could not clear its own confidential pending write before expiry."""
+
     from alicebot_api.mcp_tools import MCPToolError
 
     context = _context(tmp_path)
-    pending = _commit_pending(
-        context,
-        title="Salary band",
-        canonical_text="The user's salary band is confidential.",
-        sensitivity="confidential",
-        confidence=0.95,
-    )
-    memory_id = str(pending["memory"]["id"])
     _mint_key(context, monkeypatch, agent_id="hermes", permission_profile="trusted_local_agent")
+    pending = _commit_pending(context, **SALARY)
+    memory_id = str(pending["memory"]["id"])
+    assert _row(context, memory_id)["created_by_agent_id"] == "hermes", "the key's own write"
 
-    for action in ("confirm", "reject"):
-        with pytest.raises(MCPToolError, match="sensitivity_above_agent_ceiling"):
-            _call(
-                context,
-                "alice_memory_commit",
-                confirmation_id=pending["confirmation_id"],
-                confirmation_action=action,
-            )
+    with pytest.raises(MCPToolError, match="sensitivity_above_agent_ceiling"):
+        _call(context, "alice_memory_commit", confirmation_id=pending["confirmation_id"], confirmation_action="confirm")
     assert _row(context, memory_id)["status"] == "needs_review"
     blocked = _blocked_reasons(context, memory_id)
     assert blocked and all("sensitivity_above_agent_ceiling" in reasons for reasons in blocked), blocked
+
+    rejected = _call(
+        context, "alice_memory_commit", confirmation_id=pending["confirmation_id"], confirmation_action="reject"
+    )
+    assert rejected["status"] == "rejected", rejected
+    assert rejected["receipt"] == "rejected."
+    assert _row(context, memory_id)["status"] == "rejected"
+    assert len(_blocked_reasons(context, memory_id)) == len(blocked), "the reject was refused somewhere"
+
+    # A committed confidential control under the same query, so an empty owner
+    # recall cannot pass this by accident.
+    with monkeypatch.context() as scoped:
+        from alicebot_api.mcp_tools import AGENT_API_KEY_ENV
+
+        scoped.delenv(AGENT_API_KEY_ENV, raising=False)
+        control = _commit_pending(
+            context, **{**SALARY, "canonical_text": "The salary band for the user is confidential and reviewed yearly."}
+        )
+        _call(context, "alice_memory_commit", confirmation_id=control["confirmation_id"], confirmation_action="confirm")
+    recalled = _owner_recall_ids(context, monkeypatch, SALARY_QUERY)
+    assert str(control["memory"]["id"]) in recalled
+    assert memory_id not in recalled
+
+
+def test_a_reject_past_the_ceiling_writes_the_services_own_audit(
+    tmp_path: Path, default_surface, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The reject goes through VNextMemoryCommitService.confirm, not a side
+    door: its trail matches a direct service call with the same identity."""
+
+    from alicebot_api.vnext_agent_control import AgentIdentity
+    from alicebot_api.vnext_memory_commit import VNextMemoryCommitService
+
+    def trail(context, memory_id: str) -> tuple:
+        events = Counter(
+            (event["event_type"], event["actor_type"], event["actor_id"]) for event in _events(context, memory_id)
+        )
+        decisions = sorted(
+            (event["payload_json"]["policy_decision"]["decision"], tuple(event["payload_json"]["policy_decision"]["reasons"]))
+            for event in _events(context, memory_id)
+            if event["event_type"] == "policy.decision"
+        )
+        revisions = sorted(
+            (str(r["revision_type"]), str(r["action"]), str(r["reason"]), str(r["actor_type"]), str(r["actor_id"]))
+            for r in _revisions(context, memory_id)
+        )
+        return events, decisions, revisions, _row(context, memory_id)["status"]
+
+    via_route = _context(tmp_path / "route")
+    pending = _commit_pending(via_route, **SALARY)
+    _mint_key(via_route, monkeypatch, agent_id="hermes", permission_profile="trusted_local_agent")
+    _call(via_route, "alice_memory_commit", confirmation_id=pending["confirmation_id"], confirmation_action="reject")
+    route_trail = trail(via_route, str(pending["memory"]["id"]))
+
+    from alicebot_api.mcp_tools import AGENT_API_KEY_ENV
+
+    monkeypatch.delenv(AGENT_API_KEY_ENV)
+    via_service = _context(tmp_path / "service")
+    pending = _commit_pending(via_service, **SALARY)
+    hermes = AgentIdentity(agent_id="hermes", permission_profile="trusted_local_agent", auth="agent_api_key")
+    _store_read(
+        via_service,
+        lambda store: VNextMemoryCommitService(store).confirm(
+            identity=hermes, confirmation_id=pending["confirmation_id"], action="reject"
+        ),
+    )
+    service_trail = trail(via_service, str(pending["memory"]["id"]))
+
+    assert ("agent.memory_confirmation_rejected", "agent", "hermes") in route_trail[0]
+    assert route_trail[1] == [("allowed_with_filtering", ("restricted_sensitivity_filtered",))]
+    assert route_trail == service_trail
+
+
+@pytest.mark.parametrize(
+    ("key_fields", "reason"),
+    (
+        ({"agent_id": "reader", "permission_profile": "read_only_agent"}, "read_only_agent_cannot_write"),
+        (
+            {"agent_id": "alpha-bot", "permission_profile": "trusted_local_agent", "project_scope": "alpha"},
+            "project_scope_binding_violation",
+        ),
+    ),
+)
+def test_a_reject_past_the_ceiling_still_needs_identity_and_the_project_fence(
+    tmp_path: Path, default_surface, monkeypatch: pytest.MonkeyPatch, key_fields: dict, reason: str
+) -> None:
+    """Only the ceiling refusal is lifted for reject. The service's policy
+    check still refuses an identity that could not write, and a key bound to
+    another project."""
+
+    from alicebot_api.mcp_tools import MCPToolError
+
+    context = _context(tmp_path)
+    pending = _commit_pending(context, **SALARY, domain="project", project_scope=["beta"])
+    memory_id = str(pending["memory"]["id"])
+    _mint_key(context, monkeypatch, **key_fields)
+
+    with pytest.raises(MCPToolError, match=reason):
+        _call(context, "alice_memory_commit", confirmation_id=pending["confirmation_id"], confirmation_action="reject")
+    assert _row(context, memory_id)["status"] == "needs_review"
+
+
+def test_a_ceiling_refusal_records_the_agent_like_a_service_refusal(
+    tmp_path: Path, default_surface, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review correction 7. The service's own refusals upsert the refused
+    agent into agent_identities before logging. The ceiling refusal must
+    leave the same record, or an agent refused only here is invisible in the
+    operator's agent list."""
+
+    def agent_ids(context) -> set[str]:
+        return {str(row["agent_id"]) for row in _store_read(context, lambda store: store.list_agent_identities(limit=50))}
+
+    from alicebot_api.mcp_tools import MCPToolError
+
+    context = _context(tmp_path)
+    pending = _commit_pending(context, **SALARY)
+    _mint_key(context, monkeypatch, agent_id="hermes", permission_profile="trusted_local_agent")
+    assert "hermes" not in agent_ids(context), "guard: nothing else may have recorded hermes yet"
+
+    with pytest.raises(MCPToolError, match="sensitivity_above_agent_ceiling"):
+        _call(context, "alice_memory_commit", confirmation_id=pending["confirmation_id"], confirmation_action="confirm")
+    assert "hermes" in agent_ids(context)
+
+    # The service's own refusal, for comparison: it records the agent too.
+    _mint_key(context, monkeypatch, agent_id="reader", permission_profile="read_only_agent")
+    assert "reader" not in agent_ids(context)
+    with pytest.raises(MCPToolError, match="read_only_agent_cannot_write"):
+        _call(context, "alice_memory_commit", confirmation_id=pending["confirmation_id"], confirmation_action="confirm")
+    assert "reader" in agent_ids(context)
+
+
+def test_the_ceiling_judges_the_row_as_read_under_the_lock(
+    tmp_path: Path, default_surface, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review correction 7, time of check against time of use.
+
+    The check first looks the row up by confirmation_id, then re-reads it
+    under the row lock the service will hold. A write that raises the row's
+    sensitivity between those two reads must be judged. SQLite cannot stage a
+    real concurrent writer here, so the patch below makes that write happen
+    inside the first get_memory_for_update call, just before the lock.
+    """
+
+    from alicebot_api.mcp_tools import MCPToolError
+    from alicebot_api.sqlite_store import SQLiteVNextStore
+
+    context = _context(tmp_path)
+    pending = _commit_pending(context)
+    memory_id = str(pending["memory"]["id"])
+    assert _row(context, memory_id)["sensitivity"] == "unknown"
+    _mint_key(context, monkeypatch, agent_id="hermes", permission_profile="trusted_local_agent")
+
+    original = SQLiteVNextStore.get_memory_for_update
+    raised: list[str] = []
+
+    def a_write_lands_just_before_the_lock(self, target_id: str):
+        if not raised:
+            self.conn.execute("UPDATE memories SET sensitivity = 'confidential' WHERE id = ?", (target_id,))
+            raised.append(target_id)
+        return original(self, target_id)
+
+    monkeypatch.setattr(SQLiteVNextStore, "get_memory_for_update", a_write_lands_just_before_the_lock)
+    with pytest.raises(MCPToolError, match="sensitivity_above_agent_ceiling"):
+        _call(context, "alice_memory_commit", confirmation_id=pending["confirmation_id"], confirmation_action="confirm")
+    assert raised == [memory_id], "guard: the simulated write never happened"
+    assert _row(context, memory_id)["status"] == "needs_review"
+
+
+def test_the_ceiling_takes_the_graph_lock_before_the_row_lock(
+    tmp_path: Path, default_surface, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review correction 7, lock order.
+
+    VNextMemoryCommitService.confirm takes the per-user graph lock and then
+    the row lock. The ceiling check runs first and must take them in the same
+    order, or on Postgres it would hold a row lock while waiting for the
+    advisory lock other writers take first. SQLite's graph lock is a no-op, so
+    this pins the order with a spy rather than a real deadlock.
+    """
+
+    from alicebot_api.sqlite_store import SQLiteVNextStore
+
+    context = _context(tmp_path)
+    pending = _commit_pending(context)
+    _mint_key(context, monkeypatch, agent_id="hermes", permission_profile="trusted_local_agent")
+
+    order: list[str] = []
+    original_graph = SQLiteVNextStore.lock_graph_mutation
+    original_row = SQLiteVNextStore.get_memory_for_update
+
+    def graph_lock(self):
+        order.append("graph")
+        return original_graph(self)
+
+    def row_lock(self, target_id: str):
+        order.append("row")
+        return original_row(self, target_id)
+
+    monkeypatch.setattr(SQLiteVNextStore, "lock_graph_mutation", graph_lock)
+    monkeypatch.setattr(SQLiteVNextStore, "get_memory_for_update", row_lock)
+    confirmed = _call(
+        context, "alice_memory_commit", confirmation_id=pending["confirmation_id"], confirmation_action="confirm"
+    )
+
+    assert confirmed["status"] == "committed", confirmed
+    assert order.count("row") == 2, f"guard: expected the check's row lock and the service's, got {order}"
+    assert order[0] == "graph", f"the check took a row lock before the graph lock: {order}"
 
 
 def test_an_undeclared_caller_or_an_admin_key_can_confirm_above_private(

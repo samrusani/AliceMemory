@@ -114,11 +114,19 @@ identity fields as the write (none here), with no memory fields:
 
 Use `"confirmation_action": "reject"` when the user says no. Alice cannot tell whether you
 asked, so never answer for the user. There is no edit on this call: to change the text, reject
-it and commit the corrected text as a new write. A pending write expires after 24 hours.
-Alice refuses the confirmation for a read-only identity, for a key bound to another project,
-and when the pending write is above the calling agent's sensitivity ceiling (anything above
-`private` for `trusted_local_agent`). On a server with no agent key configured, a call with no
-agent identity can still confirm such a write; so can an `admin_agent` key.
+it and commit the corrected text as a new write. After 24 hours a pending write can no longer
+be confirmed; the next confirm or reject that passes the policy check resolves it to
+`rejected`. Nothing expires it in the background, and until then it stays out of recall.
+
+Alice refuses both `confirm` and `reject` for a read-only identity and for a key bound to
+another project. It also refuses `confirm`, but not `reject`, when the pending write is above
+the calling agent's sensitivity ceiling (anything above `private` for `trusted_local_agent`),
+so Hermes can clear such a write but cannot store it. On a server with no agent key
+configured, a call with no agent identity can still confirm it; so can an `admin_agent` key.
+
+This example sends no identity fields. On a keyless server the confirmation is then recorded
+as the local user (`actor_type: user`, no actor id) and the audit does not name Hermes. With
+`ALICE_AGENT_API_KEY` set, it is recorded under the key's `agent_id`.
 
 Bad proposal:
 

@@ -300,11 +300,14 @@ then calls `alice_memory_commit` again with only the returned
 `confirmation_id` and `confirmation_action` (`confirm` or `reject`), plus its
 identity fields and an optional `rationale`. That works on the default three
 tools. It runs the same service call as `alice_memory_manage` action
-`confirm`, with the same policy check, project fence and audit trail, and it
-also refuses an agent whose sensitivity ceiling is below the pending write.
-Alice cannot tell whether the user was asked; the audit trail records which
-identity answered. Other follow-up lifecycle verbs (`undo`, `forget`) live on
-`alice_memory_manage`, which is full-surface.
+`confirm`, with the same policy check, project fence and audit trail. It
+also refuses to let an agent confirm a pending write above that agent's
+sensitivity ceiling; the agent may still reject it. Alice cannot tell
+whether the user was asked. The audit names the key's `agent_id` when
+`ALICE_AGENT_API_KEY` is set, the declared and unverified `agent_id` on a
+keyless server, and no agent at all (`actor_type: user`) for a keyless call
+without an `agent_id`. Other follow-up lifecycle verbs (`undo`, `forget`)
+live on `alice_memory_manage`, which is full-surface.
 
 Identity requirements:
 

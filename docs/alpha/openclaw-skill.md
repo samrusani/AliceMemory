@@ -99,9 +99,11 @@ nothing is stored yet. Ask the user, showing them the proposed text, then call
 `alice_memory_commit` again with only the returned `confirmation_id`, `confirmation_action`
 set to `confirm` or `reject` from their answer, and your identity fields. Never answer for the
 user; Alice cannot tell whether you asked. There is no edit on this call: to change the text,
-reject it and commit the corrected text. A pending write expires after 24 hours. A key bound to
-another project cannot confirm it, and a `project_scoped_agent` cannot confirm a pending write
-above its sensitivity ceiling, so keep project facts at `private` or below.
+reject it and commit the corrected text. After 24 hours a pending write can no longer be
+confirmed; the next confirm or reject that passes the policy check resolves it to `rejected`.
+A key bound to another project can neither confirm nor reject it. A `project_scoped_agent`
+cannot confirm a pending write above its sensitivity ceiling, only reject it, so keep project
+facts at `private` or below.
 
 If Alice returns `review_required`, leave the item. Do not tell the user to clear a review
 queue. If Alice returns `rejected`, do not retry outside the `project` domain. Use

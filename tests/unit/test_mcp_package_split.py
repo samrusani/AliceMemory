@@ -140,7 +140,11 @@ def test_mcp_registry_order_definitions_and_alias_identity_are_frozen() -> None:
     # requires both for a new write), and its description and the title,
     # canonical_text and rationale descriptions now say how to finish a
     # pending write on the same tool instead of naming alice_memory_manage.
-    assert _digest(core_definitions) == "a27d246355fe76e789ad41d8dffde2b8fd855484354a663198fa23113f702579"
+    # Moved once more the same day after review: only alice_memory_commit's
+    # description and confirmation_action description, which now say reject
+    # is allowed past the sensitivity ceiling and describe expiry as applied
+    # on the next confirm or reject rather than in the background.
+    assert _digest(core_definitions) == "8de5d49b69246565ca2b7b3b094fba00f7ab4d9d624cbd518b467510c9c01cf6"
     assert _digest(legacy_definitions) == "ca3d747e552bdece52c22d76332fc69f499878290edf3f236a8a7ea6a2e34e41"
     ordered_handler_map = [(name, handler.__name__) for name, handler in handlers.items()]
     assert _digest(ordered_handler_map) == "d864c98bb914bbc6ace464fa8020b3ed264f17f2061a6101aae677d801032ae5"

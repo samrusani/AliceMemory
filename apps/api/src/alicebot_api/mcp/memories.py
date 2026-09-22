@@ -240,11 +240,15 @@ def _finish_pending_commit(context: MCPRuntimeContext, arguments: Mapping[str, o
     Confirms through ``_confirm_pending_memory``, the same code path
     ``alice_memory_manage`` action ``confirm`` takes, so identity, the policy
     check, the project fence and the audit trail are the service's own. It is
-    stricter than manage in one respect: it refuses a row above the caller's
-    sensitivity ceiling (see ``_refuse_confirmation_above_sensitivity_ceiling``).
+    stricter than manage in one respect: it refuses to let an agent confirm a
+    row above that agent's sensitivity ceiling (see
+    ``_refuse_confirmation_above_sensitivity_ceiling``). Rejecting such a row
+    is allowed.
 
     Nothing here can tell whether the user was asked. The tool description
-    tells the agent to ask; the audit trail records which agent answered.
+    tells the agent to ask. The audit names whoever the call resolved to: the
+    key's agent on a keyed server, the declared agent_id on a keyless one, and
+    the local user with no agent named when a keyless call carries no agent_id.
     """
 
     mixed = [key for key in _COMMIT_WRITE_FIELDS if key in arguments]
@@ -281,14 +285,15 @@ def _refuse_confirmation_above_sensitivity_ceiling(
     *,
     identity: AgentIdentity | None,
     confirmation_id: str,
+    action: str,
 ) -> None:
-    """Block an agent from confirming or rejecting a row it could not read back.
+    """Block an agent from confirming a row it could not read back.
 
     ``VNextMemoryCommitService.confirm`` evaluates policy on the pending row's
     own domain, sensitivity and project scope. A single restricted domain comes
     back ``blocked``. A sensitivity above the caller's ceiling comes back
     ``allowed_with_filtering``, and the service only stops on ``blocked``, so
-    manage lets such an agent finish the write (audit 2026-09-03 finding 8).
+    manage lets such an agent confirm the write (audit 2026-09-03 finding 8).
 
     This runs the same evaluation first and turns that one outcome into a
     block, with its own reason and the normal policy audit events on the row.
@@ -296,12 +301,25 @@ def _refuse_confirmation_above_sensitivity_ceiling(
     evaluates, records and enforces exactly as it does for manage. So this
     check can add a refusal and can never grant anything.
 
-    It takes the service's lock and row lock first, in the service's order, so
-    the row it judges is the row the service then confirms.
+    Only ``confirm`` is refused. ``reject`` discards the pending row, which
+    grants no access and lowers exposure, and without it a keyed agent could
+    not clear its own above-ceiling write. A reject still goes through the
+    service's policy check, so identity and the project fence still apply.
     """
 
-    if identity is None:
+    if identity is None or action != "confirm":
         return
+    # Lock order is the service's own: the graph lock (a per-user advisory
+    # lock on Postgres), then the row lock. Taking the row lock first and
+    # letting the service take the advisory lock afterwards would invert the
+    # order other writers use, which on Postgres can deadlock. The row is then
+    # judged as read under the row lock, not as first looked up, so a
+    # sensitivity change committed between the lookup and the lock cannot slip
+    # past the check (a time-of-check to time-of-use gap). SQLite has one
+    # writer and lock_graph_mutation is a no-op there, so no real race can be
+    # staged in the unit suite. The tests pin both properties instead: a call
+    # order spy for the lock order, and a simulated change between lookup and
+    # lock for the re-read. Neither was run against Postgres.
     service.lock_supersession_graph()
     memory = store.get_memory_by_confirmation_id(confirmation_id)
     if memory is None:
@@ -326,6 +344,10 @@ def _refuse_confirmation_above_sensitivity_ceiling(
         decision="blocked",
         reasons=tuple(dict.fromkeys((*decision.reasons, "sensitivity_above_agent_ceiling"))),
     )
+    # The service's own refusals record the refused agent in agent_identities
+    # (_policy_checked_write upserts before it logs). This refusal does the
+    # same, so an agent refused here is as visible to the operator as one the
+    # service refused.
     store.upsert_agent_identity(
         {
             "agent_id": identity.agent_id,
@@ -376,6 +398,7 @@ def _confirm_pending_memory(
                     service,
                     identity=identity,
                     confirmation_id=confirmation_id,
+                    action=action,
                 )
             payload = service.confirm(
                 identity=identity,
