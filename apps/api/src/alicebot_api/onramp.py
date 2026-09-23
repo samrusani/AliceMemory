@@ -53,8 +53,11 @@ Export/import round-trip contract ("you own the memory"):
   except a memory named by ``--quarantine``. That memory is stored with
   status ``rejected``, its text is replaced by ``[quarantined on import]``,
   and the integrity hash of each event that belongs to it is cleared
-  because the hash is derived from the original payload. Append-only
-  triggers on ``event_log``/``memory_revisions`` only block UPDATE/DELETE.
+  because that hash is a SHA-256 of the event record, including the
+  payload, so a reconstructed original payload could be checked against
+  it. ``commit_digest`` is the caller's idempotency key and is kept.
+  Append-only triggers on ``event_log``/``memory_revisions`` only block
+  UPDATE/DELETE.
 - Soft-deleted rows are omitted. Nullable references to omitted parents are
   cleared, and graph edges with omitted known endpoints are left behind, so
   the portable record set can be restored into a fresh database.
@@ -1936,9 +1939,8 @@ def _redact_quarantined_memory(record: dict[str, object]) -> dict[str, object]:
         redacted[field] = _redact_text(redacted.get(field))
     redacted["value"] = _redact_json_column(redacted.get("value"))
     redacted["metadata_json"] = _redact_json_column(redacted.get("metadata_json"))
-    # commit_digest is derived from the original text. Keeping it would let
-    # a guess of that text be checked against the restored row.
-    redacted["commit_digest"] = None
+    # commit_digest is the caller's idempotency key, not a hash of the memory
+    # text. It stays. Keeping it does not put the credential text back.
     return redacted
 
 
@@ -1956,8 +1958,8 @@ def _redact_quarantined_event(record: dict[str, object]) -> dict[str, object]:
     redacted = dict(record)
     if "payload_json" in redacted:
         redacted["payload_json"] = _redact_json_column(redacted.get("payload_json"))
-    # integrity_hash is derived from the original payload. A kept hash would
-    # let a guess of the removed text be confirmed.
+    # integrity_hash is a SHA-256 of the event record, including the payload.
+    # A reconstructed original payload could be checked against a kept hash.
     redacted["integrity_hash"] = None
     return redacted
 
@@ -2059,7 +2061,8 @@ def _import_records(
     appended. Event rows use the same direct path, preserving occurred_at
     and integrity_hash text exactly, except events quarantined with a
     memory: those payloads are replaced and their integrity hash is
-    cleared. ``user_id`` is rebound to the importing user. ``skip`` accepts
+    cleared, because it is a SHA-256 of the event record, including the
+    payload. ``user_id`` is rebound to the importing user. ``skip`` accepts
     only field-for-field identical collisions; divergent content with the
     same id is never merged. A second import of the same file with the
     same ``--quarantine`` ids therefore skips the redacted rows. Raises

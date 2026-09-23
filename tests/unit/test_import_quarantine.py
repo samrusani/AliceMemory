@@ -353,7 +353,10 @@ def test_import_quarantine_rejects_the_memory_and_removes_the_secret(tmp_path, c
         assert secret_row["summary"] == PLACEHOLDER
         assert secret_row["trust_reason"] == PLACEHOLDER
         assert secret_row["fact_keys"] == PLACEHOLDER
-        assert secret_row["commit_digest"] is None
+        exported_secret = next(row for row in exported["memory"] if row["id"] == secret_id)
+        assert exported_secret["commit_digest"] == "sha256:not-the-credential"
+        assert secret_row["commit_digest"] == exported_secret["commit_digest"]
+        assert SECRET not in str(secret_row["commit_digest"])
         assert secret_row["value"] == {"text": PLACEHOLDER, "nested": [PLACEHOLDER, {"n": 1}]}
         corrections = secret_row["metadata_json"]["agentic_memory"]["corrections"]
         assert corrections[0]["previous_text"] == PLACEHOLDER

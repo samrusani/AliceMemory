@@ -106,10 +106,14 @@ Every string inside the payload of every event that belongs to the memory
 is replaced the same way. An event belongs to the memory when its target is
 that memory, or when its payload `memory_id` or `candidate_memory_id` is
 that memory's id. Object keys are left in place so the JSON object stays
-valid. `commit_digest` on the memory, and `integrity_hash` on those events,
-are cleared. Both are derived from the original text, and keeping either one
-would let a guess of the removed text be checked against the restored row.
-Memory ids, memory keys, timestamps, and links are kept. Source text,
+valid. `commit_digest` on the memory is kept. It is the caller's idempotency
+key, not a hash of the memory text, so a guess of the removed text cannot
+be checked against it. `integrity_hash` on those events is cleared. It is a
+SHA-256 of the event record, including the payload, so a reconstructed
+original payload could be checked against a kept hash. Column ids,
+`memory_key`, `target_id`, and column timestamps stay. Strings inside JSON,
+including timestamps and ids stored as text, are replaced with
+`[quarantined on import]`. Source text,
 provenance quotes, open-loop titles, and graph explanations are not
 rewritten. A credential that also sits in those records is still imported.
 Every other record is imported exactly as it is without the flag.
