@@ -84,7 +84,7 @@ import sqlite3
 import sys
 import tempfile
 import unicodedata
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from functools import lru_cache
@@ -93,6 +93,7 @@ from typing import IO
 from uuid import UUID
 
 from alicebot_api import __version__
+from alicebot_api.credential_floor import VERDICT_EXPANSION, credential_verdict, is_derived_copy, string_values
 from alicebot_api.mcp_server import _DEFAULT_MCP_USER_ID, MCPServer
 from alicebot_api.mcp_tools import MCPRuntimeContext
 from alicebot_api.sqlite_schema import bootstrap_sqlite_schema
@@ -169,6 +170,14 @@ _ERROR_CONTRACTS: dict[str, str] = {
     "sqlite_db_path_required": (
         "alice-memory --db takes a SQLite file path. A Postgres URL is not a database file."
     ),
+    "import_credential_material": (
+        "Memories listed above carry credential material; no records were written. In the "
+        "source vault, redact each listed memory, then export again. SQLite: alice_memory_manage "
+        "with action=redact (needs ALICE_MCP_FULL_TOOLS=1). Postgres: alicebot vnext memories "
+        "redact <memory_id> --reason <why>. Forget or correct is not enough: the old text stays "
+        "in the row or its correction history. Do not edit the export by hand; that breaks its "
+        "SHA-256 footer"
+    ),
     "restore_failed": "The import was aborted before publication; no records were written",
     "restore_committed_hardening_failed": (
         "The restore committed, but database permissions were not hardened; do not retry blindly"
@@ -192,6 +201,10 @@ _ERROR_CONTRACTS: dict[str, str] = {
     "demo_failed": "The demo could not complete after import",
     "sleep_failed": "The sleep pass could not complete",
     "install_failed": "The host install could not complete",
+    "install_refused": (
+        "A host config was left unchanged because install could not edit it safely; "
+        "add the printed snippet by hand"
+    ),
 }
 
 
@@ -783,11 +796,17 @@ def bootstrap_database(
     _secure_sqlite_files(db_path)
 
 
-def _add_database_arguments(parser: argparse.ArgumentParser) -> None:
+def _add_database_arguments(
+    parser: argparse.ArgumentParser,
+    *,
+    data_dir_default: str | None = DEFAULT_DATA_DIR,
+    data_dir_help: str | None = None,
+) -> None:
     parser.add_argument(
         "--data-dir",
-        default=DEFAULT_DATA_DIR,
-        help=f"Directory holding {DEFAULT_DB_FILENAME}. Defaults to {DEFAULT_DATA_DIR}.",
+        default=data_dir_default,
+        help=data_dir_help
+        or f"Directory holding {DEFAULT_DB_FILENAME}. Defaults to {DEFAULT_DATA_DIR}.",
     )
     parser.add_argument(
         "--db",
@@ -984,7 +1003,16 @@ def build_parser() -> argparse.ArgumentParser:
             "and OpenClaw. Hermes is --host hermes. Does not import a vault."
         ),
     )
-    _add_database_arguments(install_parser)
+    # install needs to know whether --data-dir was passed: without it, each
+    # host keeps the data dir its existing Alice entry already uses.
+    _add_database_arguments(
+        install_parser,
+        data_dir_default=None,
+        data_dir_help=(
+            "Vault directory for the host entries. Without it, install keeps the "
+            f"data dir an existing Alice entry uses, else {DEFAULT_DATA_DIR}."
+        ),
+    )
     install_parser.add_argument(
         "--host",
         action="append",
@@ -1139,7 +1167,12 @@ def _run_sleep(args: argparse.Namespace) -> int:
 
 
 def _run_install(args: argparse.Namespace) -> int:
-    from alicebot_api.host_install import InstallError, run_host_install
+    from alicebot_api.host_install import (
+        InstallError,
+        InstallFailed,
+        InstallRefused,
+        run_host_install,
+    )
 
     try:
         print(
@@ -1151,6 +1184,14 @@ def _run_install(args: argparse.Namespace) -> int:
                 write_mcpb=args.write_mcpb,
             )
         )
+    except InstallFailed as failed:
+        print(failed.output)
+        _emit_error("install_failed")
+        return 1
+    except InstallRefused as refused:
+        print(refused.output)
+        _emit_error("install_refused")
+        return 1
     except InstallError:
         _emit_error("install_failed")
         return 1
@@ -1495,8 +1536,19 @@ def _export_schema() -> dict[str, object]:
     }
 
 
-def _write_export(stream: IO[str], *, db_path: Path, user_id: UUID) -> int:
-    """Write a versioned export from a read-only private SQLite snapshot."""
+def _write_export(
+    stream: IO[str],
+    *,
+    db_path: Path,
+    user_id: UUID,
+    credential_findings: list["_CredentialFinding"] | None = None,
+) -> int:
+    """Write a versioned export from a read-only private SQLite snapshot.
+
+    When ``credential_findings`` is given, every memory row is also run
+    through the same credential check import applies, so the owner hears
+    about a row import will refuse while the source vault still exists.
+    """
     with _prepared_export_connection(db_path, user_id) as conn:
         header = {
             "format": _EXPORT_FORMAT,
@@ -1516,6 +1568,11 @@ def _write_export(stream: IO[str], *, db_path: Path, user_id: UUID) -> int:
         written = 0
         for record_type, row in _export_rows(conn, user_id):
             line = _export_line(record_type, row) + "\n"
+            if credential_findings is not None and record_type == "memory" and isinstance(row, Mapping):
+                # The header is line 1, so this record lands on line written + 2.
+                finding = _memory_record_credential_finding(row, line_no=written + 2)
+                if finding is not None:
+                    credential_findings.append(finding)
             stream.write(line)
             digest.update(line.encode("utf-8"))
             counts[record_type] += 1
@@ -1544,6 +1601,7 @@ def _run_export(args: argparse.Namespace) -> int:
             return 1
         out_path = requested_out_path.resolve()
         temp_path: Path | None = None
+        credential_findings: list[_CredentialFinding] = []
         try:
             _ensure_private_directory(out_path.parent)
             fd, raw_temp_path = tempfile.mkstemp(
@@ -1555,7 +1613,12 @@ def _run_export(args: argparse.Namespace) -> int:
             temp_path = Path(raw_temp_path)
             with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as stream:
                 os.fchmod(stream.fileno(), 0o600)
-                written = _write_export(stream, db_path=db_path, user_id=args.user_id)
+                written = _write_export(
+                    stream,
+                    db_path=db_path,
+                    user_id=args.user_id,
+                    credential_findings=credential_findings,
+                )
                 stream.flush()
                 os.fsync(stream.fileno())
             os.replace(temp_path, out_path)
@@ -1585,11 +1648,30 @@ def _run_export(args: argparse.Namespace) -> int:
                 file=sys.stderr,
                 flush=True,
             )
+            if credential_findings:
+                for line in _credential_finding_lines(credential_findings):
+                    print(line, file=sys.stderr, flush=True)
+                print(
+                    "alice-memory: warning: alice-memory import will refuse this export. Redact "
+                    "the memories listed above in this vault (alice_memory_manage action=redact, "
+                    "with ALICE_MCP_FULL_TOOLS=1), then export again.",
+                    file=sys.stderr,
+                    flush=True,
+                )
         except (OSError, ValueError):
             return 2
     else:
+        stdout_findings: list[_CredentialFinding] = []
         try:
-            _write_export(sys.stdout, db_path=db_path, user_id=args.user_id)
+            _write_export(sys.stdout, db_path=db_path, user_id=args.user_id, credential_findings=stdout_findings)
+            for line in _credential_finding_lines(stdout_findings):
+                _stderr_line(line)
+            if stdout_findings:
+                _stderr_line(
+                    "alice-memory: warning: alice-memory import will refuse this export. Redact "
+                    "the memories listed above in this vault (alice_memory_manage action=redact, "
+                    "with ALICE_MCP_FULL_TOOLS=1), then export again."
+                )
         except (
             _BackupError,
             OSError,
@@ -1610,6 +1692,15 @@ def _run_export(args: argparse.Namespace) -> int:
 
 class _ImportError(Exception):
     """A user-facing import failure; the message names the offending line."""
+
+
+class _ImportCredentialError(_ImportError):
+    """Memory records carry credential material. Reported under its own code,
+    naming every offender's line and memory id, never the matched text."""
+
+    def __init__(self, findings: Sequence["_CredentialFinding"]) -> None:
+        super().__init__(f"{len(findings)} memory record(s) carry credential material")
+        self.findings = tuple(findings)
 
 
 @dataclass(frozen=True)
@@ -1716,12 +1807,135 @@ def _decode_import_envelope(
     return record_type, record
 
 
-def _validate_import_file(path: Path) -> _ValidatedImport:
+def _json_column(value: object) -> object:
+    """A JSON column as the mapping or list it holds; text that is not JSON as text."""
+
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except json.JSONDecodeError:
+            return value
+    return value
+
+
+@dataclass(frozen=True)
+class _CredentialFinding:
+    line_no: int
+    memory_id: str
+    verdict: str
+    fields: tuple[str, ...]
+
+
+# Keys the product itself writes into a memory's metadata_json that the
+# credential name rule would read as secret names. Enumerated from the vNext
+# memory writers (a test walks them and fails on a new one), not guessed:
+# a rollup card's rollup_key ("scope:<hex>:topic:<anchor>") blocked the
+# restore of the product's own export (S4.4 round 3, P2 item 7). Their
+# values are still read, by value.
+SYSTEM_METADATA_KEYS = frozenset({"rollup_key"})
+
+
+def _without_system_keys(value: object) -> object:
+    """The mapping with each system key's value wrapped in a list, so the
+    floor reads that value on its own and never as a keyed pair."""
+
+    if isinstance(value, Mapping):
+        return {
+            key: [item] if key in SYSTEM_METADATA_KEYS and isinstance(item, str) else _without_system_keys(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [_without_system_keys(item) for item in value]
+    return value
+
+
+def _memory_record_credential_fields(record: Mapping[str, object]) -> tuple[tuple[str, object], ...]:
+    """The fields of one memory record the floor reads, in reading order.
+
+    Title and canonical text; the value column by value only (owner ruling
+    C3: an importer's structural key over a digest has the same shape as a
+    secret name over a key); metadata_json as a mapping, keyed, except the
+    keys the product itself writes; then the identifiers memory_key and
+    project_id. The summary is left out when it is a derived copy of the
+    text (canonical_text[:N] or a "..." preview); a summary that says
+    something else is read.
+    """
+
+    text = record.get("canonical_text")
+    summary = record.get("summary")
+    fields: list[tuple[str, object]] = [("title", record.get("title")), ("canonical_text", text)]
+    if summary is not None and not is_derived_copy(summary, text):
+        fields.append(("summary", summary))
+    fields.extend(
+        [
+            ("value", string_values(_json_column(record.get("value")))),
+            ("metadata_json", _without_system_keys(_json_column(record.get("metadata_json")))),
+            ("memory_key", record.get("memory_key")),
+            ("project_id", record.get("project_id")),
+        ]
+    )
+    return tuple(fields)
+
+
+def _memory_record_credential_finding(record: Mapping[str, object], *, line_no: int) -> _CredentialFinding | None:
+    """The credential floor for one restored memory row, or None when it is clean.
+
+    Until 2026-09-22 import restored a backup with no credential check, so a
+    crafted export planted a secret as an active memory. Every memory record
+    is checked whatever its status: a retired row's title and text can still
+    be rendered through a supersession chain, and a correction's previous
+    text stays in metadata_json. The finding names the fields, never the text.
+    """
+
+    fields = _memory_record_credential_fields(record)
+    verdict = credential_verdict(*(value for _name, value in fields))
+    if verdict is None:
+        return None
+    named = tuple(name for name, value in fields if value is not None and credential_verdict(value) is not None)
+    return _CredentialFinding(
+        line_no=line_no,
+        memory_id=str(record.get("id")),
+        verdict=verdict,
+        fields=named or ("across fields",),
+    )
+
+
+def _credential_finding_lines(findings: Sequence[_CredentialFinding]) -> list[str]:
+    lines = []
+    for finding in findings:
+        what = "expands too far under unicode normalisation" if finding.verdict == VERDICT_EXPANSION else (
+            "carries credential material"
+        )
+        lines.append(
+            f"alice-memory: line {finding.line_no}: memory {finding.memory_id} {what} "
+            f"({', '.join(finding.fields)})"
+        )
+    return lines
+
+
+_IMPORT_PROGRESS_EVERY = 10_000
+
+
+def _stderr_line(line: str) -> None:
+    print(line, file=sys.stderr, flush=True)
+
+
+def _validate_import_file(
+    path: Path,
+    *,
+    progress: Callable[[str], None] | None = None,
+    enforce_credential_floor: bool = True,
+) -> _ValidatedImport:
     """Validate the complete file before opening or creating the target DB.
 
     Version 2 exports carry schema, counts, and a canonical SHA-256 footer;
     a missing footer therefore detects truncation. Legacy headerless JSONL
     remains accepted, but cannot offer an integrity guarantee it never had.
+
+    ``enforce_credential_floor`` is false only for ``--quarantine``. That
+    path still checks the footer on the file as given, then rewrites the
+    named memory before deciding whether any memory row would still carry
+    credential material. A normal import refuses here, before any write.
     """
     versioned: bool | None = None
     footer: dict[str, object] | None = None
@@ -1734,6 +1948,7 @@ def _validate_import_file(path: Path) -> _ValidatedImport:
         raise _ImportError(f"could not create validated import spool: {exc}") from exc
     spool_complete = False
     record_count = 0
+    credential_findings: list[_CredentialFinding] = []
     saw_nonblank = False
     export_user_id: str | None = None
     try:
@@ -1837,6 +2052,12 @@ def _validate_import_file(path: Path) -> _ValidatedImport:
                             f"line {line_no}: legacy {record_type} has unknown fields that "
                             f"this Alice version cannot restore: {unknown_columns}"
                         )
+                if record_type == "memory":
+                    finding = _memory_record_credential_finding(record, line_no=line_no)
+                    if finding is not None:
+                        credential_findings.append(finding)
+                if progress is not None and (record_count + 1) % _IMPORT_PROGRESS_EVERY == 0:
+                    progress(f"alice-memory: validated {record_count + 1} records")
                 counts[record_type] += 1
                 spool.execute(
                     """
@@ -1867,6 +2088,9 @@ def _validate_import_file(path: Path) -> _ValidatedImport:
                 raise _ImportError("export integrity per-type counts do not match its contents")
             if footer.get("sha256") != digest.hexdigest():
                 raise _ImportError("export integrity SHA-256 does not match its contents")
+        if enforce_credential_floor and credential_findings:
+            # Every offender in one pass, so a user fixes the vault once.
+            raise _ImportCredentialError(credential_findings)
         spool.commit()
         spool.close()
         spool_complete = True
@@ -2229,6 +2453,27 @@ def _apply_import_quarantine(
     return record, {}
 
 
+def _credential_findings_after_quarantine(
+    validated_import: _ValidatedImport,
+    plan: _QuarantinePlan,
+) -> tuple[_CredentialFinding, ...]:
+    """S4.4's memory check on each memory as quarantine will store it.
+
+    A named memory, a rollup instance, and a successor's copied fields are
+    rewritten first. A memory that still carries credential material after
+    that rewrite is refused, and nothing is written. Shared chunks and
+    shared entity names are not memories, so they are not refused here.
+    """
+
+    findings: list[_CredentialFinding] = []
+    for line_no, record in _iter_spooled_records(validated_import, "memory"):
+        rewritten, _added = _apply_import_quarantine("memory", record, plan)
+        finding = _memory_record_credential_finding(rewritten, line_no=line_no)
+        if finding is not None:
+            findings.append(finding)
+    return tuple(findings)
+
+
 def _missing_quarantine_memory_ids(
     validated_import: _ValidatedImport,
     quarantine_ids: tuple[str, ...],
@@ -2491,8 +2736,25 @@ def _run_import_snapshot(
     display_path: Path,
     db_path: Path,
 ) -> int:
+    # Quarantine rewrites the named memory after the footer check. The
+    # credential floor still refuses any memory that would be stored with
+    # credential material, judged on the rewritten row. Other imports
+    # refuse during validation, before the spool is committed.
+    quarantine_ids = _normalized_quarantine_ids(getattr(args, "quarantine", None))
     try:
-        validated_import = _validate_import_file(in_path)
+        _stderr_line(f"alice-memory: validating {display_path}")
+        validated_import = _validate_import_file(
+            in_path,
+            progress=_stderr_line,
+            enforce_credential_floor=not quarantine_ids,
+        )
+    except _ImportCredentialError as exc:
+        # User-visible, on stderr: the line and memory id of every offender
+        # and which fields carried it. Never the matched text.
+        for line in _credential_finding_lines(exc.findings):
+            _stderr_line(line)
+        _emit_error("import_credential_material")
+        return 1
     except _ImportError as exc:
         logger.debug(
             "SQLite import validation failed",
@@ -2510,7 +2772,6 @@ def _run_import_snapshot(
 
     # The footer check above hashed the file as given. Quarantine replacement
     # starts here, and only for ids that are memory records in that file.
-    quarantine_ids = _normalized_quarantine_ids(getattr(args, "quarantine", None))
     try:
         missing_quarantine_ids = _missing_quarantine_memory_ids(validated_import, quarantine_ids)
     except _ImportError as exc:
@@ -2526,6 +2787,32 @@ def _run_import_snapshot(
         _remove_sqlite_files(validated_import.spool_path)
         _emit_error("import_quarantine_unknown")
         return 1
+
+    try:
+        quarantine_plan = (
+            _build_quarantine_plan(validated_import, quarantine_ids)
+            if quarantine_ids
+            else _EMPTY_QUARANTINE_PLAN
+        )
+        leftover_memory_findings = (
+            _credential_findings_after_quarantine(validated_import, quarantine_plan) if quarantine_ids else ()
+        )
+    except _ImportError as exc:
+        logger.debug(
+            "SQLite import quarantine plan failed",
+            exc_info=(type(exc), exc, exc.__traceback__),
+        )
+        _remove_sqlite_files(validated_import.spool_path)
+        _emit_error("import_validation_failed")
+        return 1
+    if leftover_memory_findings:
+            # Same refusal as a normal import: the rewritten file would still
+            # store a memory that carries credential material. Nothing is written.
+            _remove_sqlite_files(validated_import.spool_path)
+            for line in _credential_finding_lines(leftover_memory_findings):
+                _stderr_line(line)
+            _emit_error("import_credential_material")
+            return 1
 
     target_existed = db_path.exists()
     working_path: Path | None = None
@@ -2551,7 +2838,6 @@ def _run_import_snapshot(
             user_email=args.user_email,
             secure_parent=args.db is None,
         )
-        quarantine_plan = _build_quarantine_plan(validated_import, quarantine_ids)
         quarantine_counts = {key: 0 for key, _singular, _plural in _QUARANTINE_COUNT_LABELS}
         with sqlite_user_connection(working_path, args.user_id) as conn:
             store = SQLiteVNextStore(conn, args.user_id)

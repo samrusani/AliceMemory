@@ -26,8 +26,13 @@ Do not propose memory for:
 
 ## Payload shape for `alice_memory_commit`
 
-`title` and `canonical_text` are required. Every other property must appear in the
+A new write needs `title` and `canonical_text`. Every other property must appear in the
 server's `tools/list` schema for the tool; an unrecognised property is rejected outright.
+
+The project-update, belief, open-loop and contradiction examples below are under 0.85
+confidence, so they come back `confirmation_required` and are not stored yet: ask the user, then call
+`alice_memory_commit` again with the returned `confirmation_id` and `confirmation_action` from
+their answer, as described in [mcp-tools.md](mcp-tools.md#explicit-memory-commits).
 
 ```json
 {

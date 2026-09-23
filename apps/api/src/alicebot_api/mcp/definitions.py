@@ -24,6 +24,14 @@ from alicebot_api.vnext_memory_commit import (
     VNEXT_MEMORY_TYPES,
     VNEXT_SENSITIVITY_LEVELS,
 )
+from alicebot_api.write_bounds import (
+    MAX_CAPTURE_CANDIDATE_CHARS,
+    MAX_CAPTURE_COMMIT_CANDIDATES,
+    MAX_COMMIT_SOURCE_REF_CHARS,
+    MAX_COMMIT_SOURCE_REFS,
+    MAX_CORRECTION_FIELD_CHARS,
+    MAX_CORRECTION_TITLE_CHARS,
+)
 from alicebot_api.vnext_retrieval import (
     BUDGET_STRATEGIES,
     CONTEXT_DEPTHS,
@@ -141,21 +149,25 @@ _SENSITIVITY_ALLOWED_SCHEMA: dict[str, object] = {
 }
 
 
+# Bounded per string (review finding 8); the services also bound the whole
+# mapping by serialized size, with the same constant.
+_CORRECTION_TEXT_SCHEMA: dict[str, object] = {"type": "string", "maxLength": MAX_CORRECTION_FIELD_CHARS}
+_CORRECTION_TITLE_SCHEMA: dict[str, object] = {"type": "string", "maxLength": MAX_CORRECTION_TITLE_CHARS}
 _CORRECTION_BODY_SCHEMA: dict[str, object] = {
     "type": "object",
     "additionalProperties": False,
     "minProperties": 1,
     "properties": {
-        "text": {"type": "string"},
-        "body": {"type": "string"},
-        "fact_text": {"type": "string"},
-        "decision_text": {"type": "string"},
-        "commitment_text": {"type": "string"},
-        "waiting_for_text": {"type": "string"},
-        "blocking_reason": {"type": "string"},
-        "action_text": {"type": "string"},
-        "raw_content": {"type": "string"},
-        "explicit_signal": {"type": ["string", "null"]},
+        "text": _CORRECTION_TEXT_SCHEMA,
+        "body": _CORRECTION_TEXT_SCHEMA,
+        "fact_text": _CORRECTION_TEXT_SCHEMA,
+        "decision_text": _CORRECTION_TEXT_SCHEMA,
+        "commitment_text": _CORRECTION_TEXT_SCHEMA,
+        "waiting_for_text": _CORRECTION_TEXT_SCHEMA,
+        "blocking_reason": _CORRECTION_TEXT_SCHEMA,
+        "action_text": _CORRECTION_TEXT_SCHEMA,
+        "raw_content": _CORRECTION_TEXT_SCHEMA,
+        "explicit_signal": {"type": ["string", "null"], "maxLength": MAX_CORRECTION_FIELD_CHARS},
     },
 }
 
@@ -274,24 +286,34 @@ _CORE_TOOL_DEFINITIONS: list[dict[str, object]] = [
         "name": "alice_memory_commit",
         "description": (
             "Record one fact as durable, immediately recallable memory. Use this whenever you learn something worth keeping, including when the user has not asked you to remember it. This is the write verb for ordinary memory. The write "
-            "is policy-checked, never blind: the outcome is 'committed', 'confirmation_required' "
-            "(finish with alice_memory_manage action 'confirm'), 'review_required' (waits for "
-            "human review), or 'rejected'. Every outcome is recorded with provenance, a "
+            "is policy-checked, never blind: the outcome is 'committed', 'confirmation_required', "
+            "'review_required' (waits for human review), or 'rejected'. A new write needs title "
+            "and canonical_text. On 'confirmation_required' the fact is not stored yet: ask the "
+            "user, showing them the proposed text. Then call this tool again with "
+            "confirmation_id, confirmation_action ('confirm' if they agreed, 'reject' if they "
+            "did not) and the same identity fields you sent with the write, and no memory "
+            "fields. Alice cannot tell whether you asked, so never answer for the user. To "
+            "change the text, reject it and commit the corrected text as a new write. After 24 "
+            "hours a pending write can no longer be confirmed on this tool: the next confirm or "
+            "reject here that passes the policy check resolves it to 'rejected'. Before that, a "
+            "confirm is refused when the pending text or your rationale carries credential "
+            "material, such as an API token or a private key, while a reject still completes and "
+            "stores such a rationale as a fixed placeholder, with rationale_withheld: true in the "
+            "result. Every outcome is recorded with provenance, a "
             "revision, and an audit event. For source documents and raw notes use "
             "alice_capture instead."
         ),
         "inputSchema": {
             "type": "object",
             "additionalProperties": False,
-            "required": ["title", "canonical_text"],
             "properties": {
                 "title": {
                     "type": "string",
-                    "description": "Short human-readable title for the memory.",
+                    "description": "Short human-readable title for the memory. Required for a new write; leave it out when sending confirmation_id.",
                 },
                 "canonical_text": {
                     "type": "string",
-                    "description": "The memory content, phrased as a standalone statement.",
+                    "description": "The memory content, phrased as a standalone statement. Required for a new write; leave it out when sending confirmation_id.",
                 },
                 "memory_type": {
                     "type": "string",
@@ -320,16 +342,47 @@ _CORE_TOOL_DEFINITIONS: list[dict[str, object]] = [
                 },
                 "source_refs": {
                     "type": "array",
-                    "items": {"type": "string"},
-                    "description": "Ids or URLs of supporting sources, stored as provenance links.",
+                    "maxItems": MAX_COMMIT_SOURCE_REFS,
+                    "items": {"type": "string", "maxLength": MAX_COMMIT_SOURCE_REF_CHARS},
+                    "description": "Ids or URLs of supporting sources, stored as provenance links. At most 64.",
                 },
                 "rationale": {
                     "type": "string",
-                    "description": "Why this memory is being committed. Stored in the audit trail.",
+                    "description": (
+                        "Why this memory is being committed, or why a pending write is being confirmed "
+                        "or rejected. Stored in the audit trail. Leave credential material out: it gets "
+                        "a new write rejected and a confirm refused, and a reject stores a fixed "
+                        "placeholder in its place."
+                    ),
                 },
                 "idempotency_key": {
                     "type": "string",
                     "description": "Unique key that makes retries safe; a replay returns the original result.",
+                },
+                "confirmation_id": {
+                    "type": "string",
+                    "description": (
+                        "Finishes a pending write: the confirmation_id from an earlier "
+                        "'confirmation_required' result. Send it with confirmation_action and "
+                        "the same identity fields as the write, without title, canonical_text "
+                        "or any other memory field. Ask the user first."
+                    ),
+                },
+                "confirmation_action": {
+                    "type": "string",
+                    "enum": ["confirm", "reject"],
+                    "description": (
+                        "Required with confirmation_id, and it must be the user's answer. "
+                        "'confirm' stores the pending text as a recallable fact; 'reject' "
+                        "discards it. Both are policy-checked like a write: a read-only "
+                        "identity or a key bound to another project is refused (a keyless server "
+                        "does not check a declared project_scope). 'confirm' is also "
+                        "refused for a pending write above the calling agent's sensitivity "
+                        "ceiling; 'reject' is allowed there. Within the 24 hours, 'confirm' is refused "
+                        "when the pending text or the rationale carries credential material; 'reject' "
+                        "is not, and stores such a rationale as a fixed placeholder "
+                        "(rationale_withheld: true)."
+                    ),
                 },
                 **_AGENT_IDENTITY_SCHEMA_PROPERTIES,
             },
@@ -773,7 +826,7 @@ _CORE_TOOL_DEFINITIONS: list[dict[str, object]] = [
                     "description": "Why the change is being made. Stored in the audit trail.",
                 },
                 "title": {
-                    "type": "string",
+                    **_CORRECTION_TITLE_SCHEMA,
                     "description": "For edit-and-approve: corrected title.",
                 },
                 "body": {
@@ -791,7 +844,7 @@ _CORE_TOOL_DEFINITIONS: list[dict[str, object]] = [
                     "description": "For edit-and-approve: corrected confidence, between 0 and 1.",
                 },
                 "replacement_title": {
-                    "type": "string",
+                    **_CORRECTION_TITLE_SCHEMA,
                     "description": "For supersede-existing: title of the replacement memory.",
                 },
                 "replacement_body": {
@@ -952,7 +1005,12 @@ _LEGACY_TOOL_DEFINITIONS: list[dict[str, object]] = [
                 "source_kind": {"type": "string"},
                 "candidates": {
                     "type": "array",
+                    "maxItems": MAX_CAPTURE_COMMIT_CANDIDATES,
                     "items": _CONTINUITY_CAPTURE_CANDIDATE_SCHEMA,
+                    "description": (
+                        f"At most {MAX_CAPTURE_COMMIT_CANDIDATES}, each at most "
+                        f"{MAX_CAPTURE_CANDIDATE_CHARS} serialized characters."
+                    ),
                 },
             },
         },
@@ -1312,7 +1370,7 @@ _LEGACY_TOOL_DEFINITIONS: list[dict[str, object]] = [
                 "continuity_object_id": {"type": "string", "format": "uuid"},
                 "action": {"type": "string", "enum": list(_REVIEW_APPLY_ACTION_CHOICES)},
                 "reason": {"type": "string"},
-                "title": {"type": "string"},
+                "title": _CORRECTION_TITLE_SCHEMA,
                 "body": _CORRECTION_BODY_SCHEMA,
                 "provenance": _CONTINUITY_PROVENANCE_SCHEMA,
                 "confidence": {
@@ -1320,7 +1378,7 @@ _LEGACY_TOOL_DEFINITIONS: list[dict[str, object]] = [
                     "minimum": 0.0,
                     "maximum": 1.0,
                 },
-                "replacement_title": {"type": "string"},
+                "replacement_title": _CORRECTION_TITLE_SCHEMA,
                 "replacement_body": _CORRECTION_BODY_SCHEMA,
                 "replacement_provenance": _CONTINUITY_PROVENANCE_SCHEMA,
                 "replacement_confidence": {
@@ -1819,7 +1877,11 @@ _LEGACY_TOOL_DEFINITIONS: list[dict[str, object]] = [
                 "sensitivity": {"type": "string", "enum": list(VNEXT_SENSITIVITY_LEVELS)},
                 "confidence": {"type": "number", "minimum": 0.0, "maximum": 1.0},
                 "source_type": {"type": "string"},
-                "source_refs": {"type": "array", "items": {"type": "string"}},
+                "source_refs": {
+                    "type": "array",
+                    "maxItems": MAX_COMMIT_SOURCE_REFS,
+                    "items": {"type": "string", "maxLength": MAX_COMMIT_SOURCE_REF_CHARS},
+                },
                 "conversation_excerpt": {"type": "string"},
                 "rationale": {"type": "string"},
                 "idempotency_key": {"type": "string"},

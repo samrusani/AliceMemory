@@ -43,6 +43,23 @@ def _credential() -> str:
     return "".join(("sk", "-live-", "QUARANTINE", "-SECRET-", "9f3a"))
 
 
+def _store_searchable_secret(
+    conn: sqlite3.Connection,
+    store: SQLiteVNextStore,
+    memory: dict[str, object],
+) -> dict[str, object]:
+    """A searchable row that holds credential text, as a vault from before the floor.
+
+    The store refuses to create that row directly in a searchable status.
+    Create it as a candidate, then set the status in SQL.
+    """
+
+    planted = store.create_memory({**memory, "status": "candidate"})
+    status = str(memory.get("status") or "active")
+    conn.execute("UPDATE memories SET status = ? WHERE id = ?", (status, str(planted["id"])))
+    return {**planted, "status": status}
+
+
 SECRET = _credential()
 PLACEHOLDER = "[quarantined on import]"
 QUARANTINE_JSON = {"quarantined": True}
@@ -115,7 +132,9 @@ def _seed_credential_backup(db_path: Path) -> dict[str, dict[str, object]]:
                 "value": {"text": KEPT_TEXT},
             }
         )
-        secret = store.create_memory(
+        secret = _store_searchable_secret(
+            conn,
+            store,
             {
                 "memory_key": "decision.credential-floor",
                 "status": "active",
@@ -141,7 +160,7 @@ def _seed_credential_backup(db_path: Path) -> dict[str, dict[str, object]]:
                         ]
                     }
                 },
-            }
+            },
         )
         store.update_memory_fact_keys(memory_id=str(secret["id"]), fact_keys=f"token {SECRET}")
         source = store.create_source(
@@ -996,7 +1015,9 @@ def test_derived_records_lose_the_secret_and_shared_copies_are_reported(tmp_path
                 "value": {"text": KEPT_TEXT},
             }
         )
-        secret = store.create_memory(
+        secret = _store_searchable_secret(
+            conn,
+            store,
             {
                 "memory_key": "decision.derived-secret",
                 "status": "active",
@@ -1007,7 +1028,7 @@ def test_derived_records_lose_the_secret_and_shared_copies_are_reported(tmp_path
                 "sensitivity": "internal",
                 "value": {"text": f"Value {SECRET}"},
                 "metadata_json": {"note": SECRET},
-            }
+            },
         )
         secret_id = str(secret["id"])
         kept_id = str(kept["id"])

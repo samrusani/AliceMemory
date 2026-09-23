@@ -5801,7 +5801,14 @@ def test_new_core_tool_schemas_reuse_canonical_enums(core_surface) -> None:
     tools = {tool["name"]: tool for tool in list_mcp_tools()}
 
     commit_schema = tools["alice_memory_commit"]["inputSchema"]
-    assert commit_schema["required"] == ["title", "canonical_text"]
+    # 2026-09-22 (D8): title and canonical_text are no longer schema-required,
+    # because a confirmation call (confirmation_id + confirmation_action)
+    # carries neither. The handler still refuses a new write without them;
+    # test_default_surface_can_finish_confirmation_required pins that.
+    assert "required" not in commit_schema
+    assert {"title", "canonical_text", "confirmation_id", "confirmation_action"} <= set(
+        commit_schema["properties"]
+    )
     assert commit_schema["properties"]["memory_type"]["enum"] == list(VNEXT_MEMORY_TYPES)
 
     manage_schema = tools["alice_memory_manage"]["inputSchema"]

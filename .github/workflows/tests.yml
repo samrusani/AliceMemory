@@ -197,6 +197,18 @@ jobs:
           alicebot --version
           alice-memory --version
           alicebot-mcp --help
+      - name: Hermes install smoke without PyYAML
+        run: |
+          # The wheel does not depend on PyYAML; only the dev extra has it, as
+          # a test oracle. This proves install --host hermes edits a real
+          # config.yaml from the built wheel with no YAML library present.
+          python -c 'import importlib.util, sys; sys.exit(importlib.util.find_spec("yaml") is not None)'
+          tmp="$(mktemp -d)"
+          mkdir -p "$tmp/.hermes"
+          printf 'model: gpt-4o  # kept\nmcp_servers:\n  other:\n    command: node\n' > "$tmp/.hermes/config.yaml"
+          alice-memory install --host hermes --home "$tmp" --data-dir "$tmp/data"
+          grep -qx 'model: gpt-4o  # kept' "$tmp/.hermes/config.yaml"
+          grep -qx '  alice:' "$tmp/.hermes/config.yaml"
       - name: Representative installed-wheel functional tests
         env:
           # The repository pytest config adds apps/api/src for normal source

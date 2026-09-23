@@ -11,6 +11,7 @@ from alicebot_api.contracts import (
     ContinuityObjectRecord,
     ContinuityObjectType,
 )
+from alicebot_api.credential_floor import refuse_credential_material, string_values
 from alicebot_api.store import ContinuityObjectRow, ContinuityStore, JsonObject
 
 
@@ -110,6 +111,14 @@ def create_continuity_object_record(
     _validate_object_type(object_type)
     _validate_title(title)
     _validate_confidence(confidence)
+    # The credential floor. Every legacy path that creates a continuity
+    # object comes through here: /v1 memory operation commit (ADD), capture
+    # commit, and explicit-signal capture. Until 2026-09-22 none of them
+    # consulted it. Raising rolls back the caller's transaction, including
+    # the capture event written just before this call. Provenance is
+    # metadata the product writes, so only its values are read; see
+    # credential_floor.string_values.
+    refuse_credential_material(title, body, string_values(provenance), error=ContinuityObjectValidationError)
     resolved_is_searchable = (
         default_continuity_searchable(object_type)
         if is_searchable is None

@@ -63,14 +63,18 @@ randomness, no clock.
 
 from __future__ import annotations
 
-import base64
-import binascii
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass, field
 import os
 import re
 import unicodedata
 
+from alicebot_api.credential_floor import carries_credential_material, stored_text_fields
+from alicebot_api.legacy_credential_check import (
+    looks_like_secret_value as looks_like_secret_value,
+    promotion_floor_refuses as legacy_promotion_floor_refuses,
+    secret_assignment_values as secret_assignment_values,
+)
 from alicebot_api.vnext_repositories import JsonObject
 
 
@@ -247,139 +251,18 @@ class PromotionSettingsValidationError(ValueError):
 # Layer 3 detectors. These take only the candidate. No settings, no toggles.
 # --------------------------------------------------------------------------
 
-# Multi-word phrases that only appear when someone is writing down a secret.
-# Matched anywhere, because they cannot occur mid-word.
-# Phrases that only occur when a secret is actually present. "Authorization:
-# Bearer" alone is the name of a header shape, and documentation says it
-# constantly; the token after it is what makes it a credential, which
-# _CREDENTIAL_PATTERNS already requires.
-_CREDENTIAL_PHRASES = (
-    "begin openssh private key",
-    "begin private key",
-    "begin rsa private key",
-)
+# The credential rule this layer used to run was retired in S4.4 round 2
+# (addendum F1, 2026-09-23), when hard_floor_hits began calling
+# credential_floor.carries_credential_material, the check every write door
+# calls. Round 5 (ruling H1) put it back beside that check, re-implemented
+# in linear time with four carve-outs: see hard_floor_hits.
 
-# Token prefixes and key names. These MUST start at a token boundary. Matching
-# them as bare substrings gated "task-list" and "risk-based testing" on the
-# "sk-" fragment, which is a false positive on the unconfigurable tier and so
-# unrelievable by any setting. "akia" is absent entirely: the AWS key id has a
-# precise shape and _CREDENTIAL_PATTERNS carries it, so the bare acronym no
-# longer gates a sentence that merely mentions it.
-# Only prefixes that are themselves the start of a key. A key NAME with no
-# key after it ("the api_key rotation policy is quarterly", "the access_token
-# lifetime is fifteen minutes") is a sentence about credentials, not a
-# credential, and it was landing on the unconfigurable tier. Names are still
-# caught with a value attached, by the assignment and prose patterns below.
-_CREDENTIAL_TOKEN_MARKERS = (
-    "ghp_",
-    "gho_",
-    "ghs_",
-    "ghu_",
-    "github_pat_",
-    "glpat-",
-    "npm_",
-    # "password=" is deliberately NOT here. It is a credential NAME with no
-    # value, and as a bare marker it floored "her password= convention in the
-    # wiki is outdated" on the unconfigurable tier. Every form that carries an
-    # actual value is caught by SECRET_ASSIGNMENT_PATTERN, which reads the
-    # value rather than counting characters after the sign.
-    "sk-",
-    "ssh-rsa ",
-    "ssh-ed25519 ",
-    "xoxb-",
-    "xoxp-",
-    "xoxa-",
-    "xoxs-",
-)
-# A token boundary is the start of the text or any character that is not a
-# letter, digit or underscore. Hyphen counts as a boundary so "sk-live-..."
-# matches while "task-list" does not.
-_CREDENTIAL_TOKEN_PATTERNS = tuple(
-    re.compile(r"(?<![0-9A-Za-z_])" + re.escape(marker), re.IGNORECASE)
-    for marker in _CREDENTIAL_TOKEN_MARKERS
-)
+# The NAME=value rule (secret_assignment_values, looks_like_secret_value)
+# moved to alicebot_api.legacy_credential_check in S4.4 round 5: it is
+# v0.16.0's rule, and that module is where v0.16.0's rule now runs, at the
+# commit gate and in the credential clause below. Both names are
+# re-exported here.
 
-_CREDENTIAL_PATTERNS = (
-    re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"),
-    # Case-insensitive but shape-exact: the full 20 character key id is
-    # caught however it was transcribed, while a sentence that merely
-    # mentions the AKIA acronym is not.
-    re.compile(r"\b(?:AKIA|ASIA)[0-9A-Za-z]{16}\b", re.IGNORECASE),
-    re.compile(r"\bAIza[0-9A-Za-z_\-]{30,}"),
-    re.compile(r"\bxox[baprs]-[0-9A-Za-z-]{10,}"),
-    re.compile(r"\beyJ[0-9A-Za-z_\-]{8,}\.[0-9A-Za-z_\-]{8,}\.[0-9A-Za-z_\-]{4,}"),
-    re.compile(r"\bssh-(?:rsa|dss|ed25519)\s+AAAA[0-9A-Za-z+/=]{20,}"),
-    re.compile(r"\bBearer\s+[0-9A-Za-z._\-]{16,}"),
-    # The key = value shape is NOT here. It needs its value inspected rather
-    # than merely counted, so it lives in SECRET_ASSIGNMENT_PATTERN below and
-    # is applied through looks_like_secret_value.
-    #
-    # Prose form: "the password for the vault is hunter2hunter2". The value
-    # must carry a digit or a symbol, so "the api key rotation policy is
-    # quarterly" is a sentence about a policy rather than a disclosed secret.
-    re.compile(
-        r"\b(?:password|passphrase|api\s+key|access\s+key|secret\s+key|private\s+key"
-        r"|auth\s+token|access\s+token|credential)\b[^.\n]{0,24}?\b(?:is|was|are|were)\s+"
-        r"(?=\S{6,})\S*[0-9!@#$%^&*_+=/\\-]\S*",
-        re.IGNORECASE,
-    ),
-)
-
-# The assignment rule, shared with the memory-commit reject path.
-#
-# This module owns it because the reject path already imports from here and
-# the reverse would be a cycle. Two implementations of "is this an
-# assignment of a secret" would drift, and the round 7 branch proved that in
-# miniature: the floor and the reject path disagreed on twelve shapes.
-#
-# "password" or "secret" embedded in a longer word is still a credential
-# name, as in PGPASSWORD. "key" is not: monkey, turkey and keyboard all
-# contain it, so it only counts as a whole underscore or hyphen separated
-# segment.
-_SECRET_NAME_EMBEDDABLE = r"(?:password|passwd|secret|token|credentials?|apikey)"
-_SECRET_NAME_SEGMENTED = r"key"
-
-SECRET_ASSIGNMENT_PATTERN = re.compile(
-    r"(?<![0-9A-Za-z])"
-    r"(?:[A-Za-z0-9]+[_-])*"
-    r"(?:[A-Za-z0-9]*" + _SECRET_NAME_EMBEDDABLE + r"|" + _SECRET_NAME_SEGMENTED + r")"
-    r"(?:[_-][A-Za-z0-9]+)*"
-    r"[\"']?\s*[:=]\s*[\"']?"
-    r"(?P<value>[A-Za-z0-9_\-+/=.]{6,})",
-    re.IGNORECASE,
-)
-
-
-def looks_like_secret_value(value: str) -> bool:
-    """Tell a credential from an ordinary word sitting after a colon.
-
-    Real credentials carry entropy: a digit, a capital, punctuation, or
-    simple length. Without this, "the password= convention in the wiki"
-    reads as an assignment of the secret "convention".
-    """
-
-    if len(value) >= 24:
-        return True
-    if any(character.isdigit() or character.isupper() for character in value):
-        return True
-    return any(character in "_-+/=." for character in value)
-
-
-def _matches_secret_assignment(text: str) -> bool:
-    return any(looks_like_secret_value(match.group("value")) for match in SECRET_ASSIGNMENT_PATTERN.finditer(text))
-
-
-# Tokens long enough to be worth decoding when hunting for wrapped secrets.
-# The alphabet covers standard and URL-safe base64; both decoders are tried.
-_BASE64_TOKEN = re.compile(r"(?<![A-Za-z0-9+/_=-])[A-Za-z0-9+/_-]{16,512}={0,2}(?![A-Za-z0-9+/_=-])")
-_HEX_TOKEN = re.compile(r"\b[0-9a-fA-F]{24,512}\b")
-# A run of at least eight single characters held apart by whitespace or light
-# punctuation is the classic "s k - a b c d e" evasion and is vanishingly rare
-# in prose. The separator class deliberately excludes "-" and "_", which are
-# part of real credential prefixes and must survive the collapse.
-_RUN_SEPARATORS = " \t\r\n.·,;|/"
-_SPACED_OUT_RUN = re.compile(r"(?:\S[" + re.escape(_RUN_SEPARATORS) + r"]{1,3}){7,}\S")
-_RUN_SEPARATOR_STRIP = str.maketrans({char: None for char in _RUN_SEPARATORS})
 
 # Agent-directed instruction shapes that no owner would plausibly file as
 # their own durable memory. These fire regardless of declared provenance.
@@ -731,7 +614,12 @@ _INJECTION_ALWAYS_PATTERNS = (
 # operator who writes such notes constantly can turn them off.
 _AGENT_CONTROL_PATTERNS = (
     re.compile(r"\bdo\s+not\s+tell\s+(?:the\s+)?(?:user|owner|anyone)\b", re.IGNORECASE),
-    re.compile(r"^\s*(?:system|assistant)\s*:", re.IGNORECASE | re.MULTILINE),
+    # The leading run is [^\S\n]*, not \s* (owner ruling R5, 2026-09-23):
+    # with MULTILINE, \s* at every line start ran across every later newline,
+    # so a run of newlines cost time quadratic in its length. [^\S\n] is every
+    # whitespace character but the line break, so no match is lost: a match
+    # that used to span blank lines is found at its own line start instead.
+    re.compile(r"^[^\S\n]*(?:system|assistant)\s*:", re.IGNORECASE | re.MULTILINE),
     re.compile(r"\bnew\s+instructions?\s*[:\-]", re.IGNORECASE),
     # Demoted from the floor in round 5 and kept here. Each has an ordinary
     # declarative reading: "treat this as a system of record" is architecture
@@ -745,7 +633,7 @@ _AGENT_CONTROL_PATTERNS = (
         r"(?:system\s+(?:prompt|message|instruction)|trusted\s+input|verified\s+source)\b",
         re.IGNORECASE,
     ),
-    re.compile(r"^\s*#{2,}\s*instructions?\b", re.IGNORECASE | re.MULTILINE),
+    re.compile(r"^[^\S\n]*#{2,}\s*instructions?\b", re.IGNORECASE | re.MULTILINE),
 )
 
 # Layer 2 authority-claim shapes. These are NOT floor rules. "Remember that
@@ -929,101 +817,16 @@ def _deleet(text: str) -> str:
     return text.translate(_LEET_TABLE)
 
 
-def _decoded_variants(text: str) -> list[str]:
-    """Base64 and hex decodings of long opaque tokens found in the text.
-
-    Bounded and deterministic: only tokens between 16 and 512 characters are
-    decoded, and only into UTF-8 text that decodes cleanly.
-    """
-
-    variants: list[str] = []
-    for match in _BASE64_TOKEN.finditer(text):
-        token = match.group(0)
-        if len(token) % 4:
-            continue
-        # Standard and URL-safe alphabets are two spellings of one encoding,
-        # so both decoders run rather than only the one the corpus happened
-        # to exercise.
-        for decoder in (base64.b64decode, base64.urlsafe_b64decode):
-            try:
-                variants.append(decoder(token).decode("utf-8"))
-            except (binascii.Error, UnicodeDecodeError, ValueError):
-                continue
-    for match in _HEX_TOKEN.finditer(text):
-        token = match.group(0)
-        if len(token) % 2:
-            continue
-        try:
-            decoded = bytes.fromhex(token).decode("utf-8")
-        except (UnicodeDecodeError, ValueError):
-            continue
-        variants.append(decoded)
-    return variants
-
-
-def _despaced_runs(text: str) -> list[str]:
-    """Collapse "s k - a b c d e" style runs back into single tokens.
-
-    Any whitespace or light punctuation counts as the separator, so two
-    spaces, a newline or a dot between characters collapse the same way one
-    space does.
-    """
-
-    return [match.group(0).translate(_RUN_SEPARATOR_STRIP) for match in _SPACED_OUT_RUN.finditer(text)]
-
-
-def _matches_credential(text: str, *, require_token_boundary: bool = True) -> bool:
-    folded = text.casefold()
-    if any(phrase in folded for phrase in _CREDENTIAL_PHRASES):
-        return True
-    if require_token_boundary:
-        if any(pattern.search(text) for pattern in _CREDENTIAL_TOKEN_PATTERNS):
-            return True
-    elif any(marker in folded for marker in _CREDENTIAL_TOKEN_MARKERS):
-        # Collapsing a spaced-out run destroys the token boundaries that made
-        # the marker readable in the first place, so the collapsed form is
-        # matched as a substring. Only genuinely spread-out runs reach here,
-        # which prose does not produce.
-        return True
-    if any(pattern.search(text) for pattern in _CREDENTIAL_PATTERNS):
-        return True
-    return _matches_secret_assignment(text)
-
-
 def looks_like_credential(*texts: str | None) -> bool:
     """True when the supplied texts carry credential-shaped material.
 
-    Every field is checked on its own, joined in reading order with a space,
-    and joined with no separator at all. The empty join is what catches a
-    marker split mid-token across a title and a body ("gh" + "p_0123..."),
-    which the space join reassembles as two words and therefore misses.
-
-    Each surface is checked as written and after unicode normalisation. Long
-    base64 (standard and URL-safe) and hex tokens are decoded and rechecked,
-    and character-spaced runs are collapsed, so a wrapped or spread-out key
-    does not read as opaque noise.
+    A thin alias of credential_floor.carries_credential_material since
+    2026-09-23 (S4.4 round 2, addendum F1), so the promotion floor and the
+    write floor cannot disagree. The rule it replaced missed real OpenSSH and
+    PGP private keys and read toy fixtures as keys.
     """
 
-    present = [text for text in texts if text]
-    if not present:
-        return False
-    normalized = [normalize_for_matching(text) for text in present]
-    surfaces = [
-        *present,
-        *normalized,
-        " ".join(normalized),
-        "".join(normalized),
-    ]
-    for text in surfaces:
-        if _matches_credential(text):
-            return True
-        for variant in _decoded_variants(text):
-            if _matches_credential(variant):
-                return True
-        for variant in _despaced_runs(text):
-            if _matches_credential(variant, require_token_boundary=False):
-                return True
-    return False
+    return carries_credential_material(*texts)
 
 
 def _source_ref_strings(refs: Iterable[object]) -> list[str]:
@@ -1080,6 +883,10 @@ class PromotionCandidate:
     source_refs: tuple[object, ...] = ()
     contradiction_refs: tuple[str, ...] = ()
     conversation_excerpt: str | None = None
+    # Persisted with the row (proposal metadata and revision reason, commit
+    # metadata), so the credential clause reads them (addendum F1).
+    rationale: str | None = None
+    project_scope: tuple[str, ...] = ()
     # Recorded for provenance. It is deliberately NOT a trust input: whether
     # an agent may write is decided by how its identity was established, not
     # by what it wrote. See writer_trust_for.
@@ -1134,15 +941,29 @@ def hard_floor_hits(candidate: PromotionCandidate) -> tuple[str, ...]:
 
     hits: list[str] = []
 
-    # Reading order matters: the joined form must read title, then body, then
-    # excerpt, or a marker split across the boundary reassembles backwards.
-    # source_refs are scanned too: they are persisted on the memory row, so a
-    # key parked in a ref is just as durable as one in the body.
-    if looks_like_credential(
+    # The same detector every write door calls (addendum F1, 2026-09-23),
+    # over every field the write persists, in reading order: the title
+    # (dropped when it is a prefix of the text), the text, the excerpt, the
+    # rationale, the source refs and the project scope. Until then this
+    # clause ran its own rule, which disagreed with the write floor in both
+    # directions.
+    #
+    # OR v0.16.0's own floor rule, looks_like_credential over the fields it
+    # read, less the four carve-outs (S4.4 round 5, ruling H1): this is one of
+    # the two doors v0.16.0 checked, and the detector alone let through names
+    # v0.16.0 refused here (TOKEN_GITHUB=, API_KEY_RAW=). The floor gets
+    # v0.16.0's floor rule only, never the commit gate's prefix patterns.
+    if carries_credential_material(
+        *stored_text_fields(candidate.title, candidate.canonical_text),
+        candidate.conversation_excerpt,
+        candidate.rationale,
+        list(candidate.source_refs),
+        list(candidate.project_scope),
+    ) or legacy_promotion_floor_refuses(
         candidate.title,
         candidate.canonical_text,
         candidate.conversation_excerpt,
-        *_source_ref_strings(candidate.source_refs),
+        candidate.source_refs,
     ):
         hits.append("credential_material")
 
@@ -1555,6 +1376,8 @@ def promotion_candidate_for_proposal(
     source_refs: Iterable[object] = (),
     contradiction_refs: Iterable[str] = (),
     conversation_excerpt: str | None = None,
+    rationale: str | None = None,
+    project_scope: Iterable[str] = (),
 ) -> PromotionCandidate:
     """Build the candidate for a ``memory.propose`` call.
 
@@ -1573,6 +1396,8 @@ def promotion_candidate_for_proposal(
         source_refs=tuple(source_refs),
         contradiction_refs=tuple(contradiction_refs),
         conversation_excerpt=conversation_excerpt,
+        rationale=rationale,
+        project_scope=tuple(project_scope),
         written_by_agent=True,
     )
 
@@ -1742,6 +1567,7 @@ __all__ = [
     "evaluate_promotion",
     "hard_floor_hits",
     "looks_like_credential",
+    "looks_like_secret_value",
     "memory_write_provenance",
     "normalize_for_matching",
     "promotion_candidate_for_proposal",
@@ -1749,4 +1575,5 @@ __all__ = [
     "promotion_settings_from_env",
     "writer_trust_for",
     "resolve_promotion_settings",
+    "secret_assignment_values",
 ]
