@@ -3,8 +3,9 @@
 A Linux trial ran ``claude doctor`` and ``hermes config get`` headless
 with no credentials, and the two real-host tests passed. The pinned job
 is therefore a failing check on the pull requests that touch host
-install. These tests read the workflow file. They do not call GitHub,
-claude, or hermes.
+install. Pytest calls the setup-python interpreter that installed Alice,
+not the Hermes virtualenv. These tests read the workflow file. They do
+not call GitHub, claude, or hermes.
 
 Mutation notes live on each test. A miss raises AssertionError.
 """
@@ -29,6 +30,12 @@ PINNED_IF = "${{ github.event_name == 'pull_request' || github.event_name == 'wo
 CANARY_IF = "${{ github.event_name == 'schedule' }}"
 OPS_TITLE = "[ops] real-host canary failure"
 ACTION_SHA = re.compile(r"^[0-9a-f]{40}$")
+_SETUP_PYTHON = "setup-python"
+_HERMES_VENV_PYTHON = "hermes-venv"
+_HERMES_VENV_BIN = "$RUNNER_TEMP/hermes-venv/bin"
+_ALICE_PYTHON_RECORD = (
+    'echo "ALICE_PYTHON=$(python -c \'import sys; print(sys.executable)\')" >> "$GITHUB_ENV"'
+)
 
 
 class _WorkflowLoader(yaml.SafeLoader):
@@ -253,6 +260,127 @@ def test_weekly_canary_opens_an_ops_issue_on_failure() -> None:
     assert "!issue.pull_request" in script
     assert job.get("permissions") == {"contents": "read", "issues": "write"}
     _assert_failure_fails_the_job(job)
+
+
+def _steps(job: dict) -> list[dict]:
+    steps = job.get("steps")
+    assert isinstance(steps, list)
+    return [step for step in steps if isinstance(step, dict)]
+
+
+def _github_path_additions(script: str) -> list[str]:
+    return re.findall(r'echo\s+"([^"]+)"\s*>>\s*"\$GITHUB_PATH"', script)
+
+
+def _same_step_path_prefixes(script: str, end: int) -> list[str]:
+    """PATH directories this step prepends before ``end``.
+
+    A ``GITHUB_PATH`` line applies on the next step. ``PATH="dir:$PATH"``
+    applies to later lines in this step. The last prepend is first.
+    """
+
+    prefixes: list[str] = []
+    pattern = re.compile(r'(?:export\s+)?PATH="([^"]+):\$PATH"')
+    for match in pattern.finditer(script[:end]):
+        prefixes.insert(0, match.group(1))
+    return prefixes
+
+
+def _python_provider(directory: str) -> str | None:
+    if directory == _SETUP_PYTHON:
+        return _SETUP_PYTHON
+    if directory.rstrip("/") == _HERMES_VENV_BIN:
+        return _HERMES_VENV_PYTHON
+    return None
+
+
+def _first_python(path: list[str]) -> str | None:
+    for directory in path:
+        provider = _python_provider(directory)
+        if provider:
+            return provider
+    return None
+
+
+def _interpreter_tokens(header: str) -> list[tuple[str, int]]:
+    pattern = re.compile(
+        r'("\$ALICE_PYTHON"|\$RUNNER_TEMP/hermes-venv/bin/python|\bpython)(?=\s+-)'
+    )
+    return [(match.group(1), match.start()) for match in pattern.finditer(header)]
+
+
+def _resolve_token(token: str, path: list[str], recorded: str | None) -> str:
+    if token == '"$ALICE_PYTHON"':
+        assert recorded is not None
+        return recorded
+    if token == "$RUNNER_TEMP/hermes-venv/bin/python":
+        return _HERMES_VENV_PYTHON
+    resolved = _first_python(path)
+    assert token == "python"
+    assert resolved is not None
+    return resolved
+
+
+def _pytest_interpreters(job: dict) -> list[str]:
+    """Interpreters the pytest step would run, in order.
+
+    ``setup-python`` is the interpreter that ran ``pip install -e '.[dev]'``.
+    ``hermes-venv`` is ``$RUNNER_TEMP/hermes-venv/bin/python``. GitHub prepends
+    each ``GITHUB_PATH`` entry, so that virtualenv hides ``python``.
+    """
+
+    path = [_SETUP_PYTHON]
+    recorded: str | None = None
+    install = "python -m pip install -e '.[dev]'"
+    for step in _steps(job):
+        script = step.get("run") or ""
+        if install in script:
+            record_at = script.find(_ALICE_PYTHON_RECORD)
+            install_at = script.find(install)
+            assert record_at != -1 and install_at < record_at
+            path_at_record = _same_step_path_prefixes(script, record_at) + path
+            recorded = _first_python(path_at_record)
+            assert recorded is not None
+        if (
+            "test_real_claude_doctor_accepts_the_written_settings" in script
+            and "test_real_hermes_loads_the_written_config" in script
+        ):
+            header, marker, _body = script.partition("<<'PY'")
+            assert marker == "<<'PY'"
+            tokens = _interpreter_tokens(header)
+            assert tokens
+            resolved: list[str] = []
+            for token, index in tokens:
+                live = _same_step_path_prefixes(header, index) + path
+                resolved.append(_resolve_token(token, live, recorded))
+            return resolved
+        for addition in _github_path_additions(script):
+            path.insert(0, addition)
+    raise AssertionError("pytest step not found")
+
+
+def _assert_hermes_stays_on_path(job: dict) -> None:
+    additions: list[str] = []
+    for step in _steps(job):
+        additions.extend(_github_path_additions(step.get("run") or ""))
+    assert _HERMES_VENV_BIN in additions
+    assert "command -v hermes" in _pytest_step(job)["run"]
+
+
+def test_pytest_uses_the_setup_python_interpreter_not_the_hermes_venv() -> None:
+    """Pytest uses the interpreter that installed Alice, not the Hermes venv.
+
+    The Hermes virtualenv bin is first on PATH so ``hermes`` resolves, and
+    that install does not include pytest. Mutation: in the pinned job,
+    change the pytest command to ``python -m pytest``. This test fails.
+    """
+
+    for name in ("pinned", "canary"):
+        job = _job(name)
+        resolved = _pytest_interpreters(job)
+        assert resolved, name
+        assert all(item == _SETUP_PYTHON for item in resolved), (name, resolved)
+        _assert_hermes_stays_on_path(job)
 
 
 def test_real_host_workflow_grants_contents_read_and_no_secrets() -> None:
