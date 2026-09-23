@@ -7,6 +7,7 @@ at the SQLite store.
 
 from __future__ import annotations
 
+import copy
 import json
 import sqlite3
 from pathlib import Path
@@ -21,6 +22,11 @@ from alicebot_api.vnext_embeddings import (
     EMBEDDINGS_API_KEY_ENV,
     EMBEDDINGS_BASE_URL_ENV,
     EMBEDDINGS_MODEL_ENV,
+)
+from alicebot_api.vnext_memory_commit import (
+    MemoryCommitRequest,
+    VNextMemoryCommitService,
+    VNextMemoryCommitValidationError,
 )
 from tests.unit.test_sqlite_onramp import (
     USER_ID,
@@ -661,3 +667,60 @@ def test_second_quarantine_import_with_mode_fail_aborts_and_leaves_the_row(tmp_p
         ).fetchone()
     assert row["status"] == "rejected"
     assert row["canonical_text"] == PLACEHOLDER
+
+
+def test_later_commit_with_the_same_idempotency_key_does_not_replay_the_quarantined_row(
+    tmp_path, _no_embeddings
+) -> None:
+    """A later commit finds the rejected row and raises. It does not replay it or insert another."""
+    idempotency_key = "harbour-watch-commit-1"
+    original = MemoryCommitRequest(
+        user_id=str(USER_ID),
+        title="Keep the harbour watch",
+        canonical_text=KEPT_TEXT,
+        memory_type="decision",
+        domain="project",
+        sensitivity="internal",
+        idempotency_key=idempotency_key,
+    )
+    origin = tmp_path / "origin.db"
+    bootstrap_database(origin, user_id=USER_ID, user_email="local@alice")
+    with sqlite_user_connection(origin, USER_ID) as conn:
+        first = VNextMemoryCommitService(SQLiteVNextStore(conn, USER_ID)).commit(
+            identity=None,
+            request=original,
+        )
+    memory_id = str(first["memory"]["id"])
+    fingerprint = first["memory"]["metadata_json"]["agentic_memory"]["request_fingerprint"]
+    assert isinstance(fingerprint, str) and fingerprint != PLACEHOLDER
+    assert first["memory"]["commit_digest"] == idempotency_key
+    memory_key = f"agentic_memory.decision.{idempotency_key}"
+    assert first["memory"]["memory_key"] == memory_key
+
+    dump = tmp_path / "backup.jsonl"
+    _export_to(origin, dump)
+    fresh = tmp_path / "fresh.db"
+    assert _import_quarantine(dump, fresh, memory_id) == 0
+
+    with sqlite_user_connection(fresh, USER_ID) as conn:
+        store = SQLiteVNextStore(conn, USER_ID)
+        rejected = store.get_memory(memory_id)
+        assert rejected is not None
+        assert rejected["status"] == "rejected"
+        assert rejected["title"] == PLACEHOLDER
+        assert rejected["canonical_text"] == PLACEHOLDER
+        assert rejected["commit_digest"] == idempotency_key
+        assert rejected["memory_key"] == memory_key
+        assert rejected["metadata_json"]["agentic_memory"]["request_fingerprint"] == PLACEHOLDER
+        assert store.get_memory_by_commit_digest(idempotency_key)["id"] == memory_id
+        before = copy.deepcopy(rejected)
+        with pytest.raises(
+            VNextMemoryCommitValidationError,
+            match="idempotency_key was already used for a different memory request",
+        ):
+            VNextMemoryCommitService(store).commit(identity=None, request=original)
+        after = store.get_memory(memory_id)
+        assert after == before
+        listed = store.list_memories(status=None)
+        assert [row["id"] for row in listed] == [memory_id]
+        assert store.get_memory_by_commit_digest(idempotency_key)["status"] == "rejected"
