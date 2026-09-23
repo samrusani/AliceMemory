@@ -10,7 +10,9 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping, Sequence
 
+from alicebot_api.store import JsonObject, JsonValue
 from alicebot_api.vnext_agent_keys import AGENT_KEY_AUTH
+from alicebot_api.vnext_json import json_safe
 
 # The SessionStart brief on the credential-floor branch was not on this base.
 # This sentence is the retrieval framing from the sprint ticket.
@@ -29,6 +31,8 @@ _MODEL_TEXT_KEYS = frozenset(
         "description",
         "excerpt",
         "quote",
+        "quote_new",
+        "quote_belief",
         "text",
     }
 )
@@ -144,16 +148,41 @@ def frame_text_fields(item: Mapping[str, object]) -> dict[str, object]:
     return presented
 
 
+def _json_model_value(value: object) -> JsonValue:
+    """Rebuild one value as JSON the same way the MCP boundary does.
+
+    Compact rows are already JSON, so this is a copy for those. Datetimes and
+    other row objects become the same strings ``json_safe`` would produce at
+    the tool boundary, which keeps the returned object a ``JsonObject``.
+    """
+
+    normalized = json_safe(value)
+    if normalized is None or isinstance(normalized, str | int | float | bool):
+        return normalized
+    if isinstance(normalized, list):
+        return [_json_model_value(child) for child in normalized]
+    if isinstance(normalized, dict):
+        return {str(key): _json_model_value(child) for key, child in normalized.items()}
+    raise TypeError(f"model item contains unsupported JSON value {type(normalized).__name__}")
+
+
+def _json_model_object(value: Mapping[str, object]) -> JsonObject:
+    normalized = _json_model_value(dict(value))
+    if not isinstance(normalized, dict):
+        raise TypeError("model item must be a JSON object")
+    return normalized
+
+
 def present_model_item(
     item: Mapping[str, object],
     *,
     source: Mapping[str, object] | None = None,
-) -> dict[str, object]:
+) -> JsonObject:
     """Frame model-facing text and attach writer. ``source`` is the stored row."""
 
     presented = frame_text_fields(item)
     presented["writer"] = writer_attribution(source if source is not None else item)
-    return presented
+    return _json_model_object(presented)
 
 
 def present_model_items(items: object) -> list[object]:

@@ -317,6 +317,73 @@ def test_instruction_shaped_memory_is_framed_and_attributed_on_each_surface(
     assert FRAMING not in blob
 
 
+def test_contradiction_quotes_are_framed_from_the_store_and_memory_text_stays(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """quote_new and quote_belief are framed on the context-pack tool result.
+
+    The SQLite on-ramp has no list_beliefs, so the test supplies the active
+    belief. The context-pack compiler turns that belief and the stored memory
+    into the contradiction record the renderer receives. The stored note is
+    unchanged.
+    """
+
+    from alicebot_api.sqlite_store import SQLiteVNextStore
+
+    context = _context(tmp_path)
+    memory_text = (
+        f"{INSTRUCTION} The deployment pipeline is ready for production launch. {TOKEN}"
+    )
+    belief_claim = f"{INSTRUCTION} The deployment pipeline is not ready for production launch."
+    committed = _commit(
+        context,
+        title=f"Pipeline note {TOKEN}",
+        canonical_text=memory_text,
+        memory_type="decision",
+        domain="personal",
+        sensitivity="private",
+        confidence=0.95,
+        source_type="direct_user_instruction",
+    )
+    memory_id = committed["memory"]["id"]
+
+    def list_beliefs(self, **_kwargs: object) -> list[dict[str, object]]:
+        return [
+            {
+                "id": "belief-framing",
+                "memory_id": "belief-memory-framing",
+                "claim": belief_claim,
+                "status": "active",
+                "memory_type": "belief",
+            }
+        ]
+
+    monkeypatch.setattr(SQLiteVNextStore, "list_beliefs", list_beliefs, raising=False)
+
+    before = _ranking_snapshot(context)
+    pack = _call(
+        context,
+        "alice_context_pack",
+        query=TOKEN,
+        max_items=10,
+        include_contradictions=True,
+    )
+    after = _ranking_snapshot(context)
+    assert after == before
+
+    evidence = pack.get("contradicting_evidence")
+    assert isinstance(evidence, list) and len(evidence) == 1, pack
+    record = evidence[0]
+    _assert_framed(record["quote_new"], memory_text)
+    _assert_framed(record["quote_belief"], belief_claim)
+    assert record.get("writer") == {"id": "owner", "established": "declared_on_keyless_install"}
+
+    stored = _store_read(context, lambda store: store.get_memory(memory_id))
+    assert stored["canonical_text"] == memory_text
+    assert FRAMING not in stored["canonical_text"]
+    assert INSTRUCTION in stored["canonical_text"]
+
+
 def _recall_item(title: str) -> dict:
     return {
         "id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
