@@ -36,6 +36,7 @@ import pytest
 from alicebot_api.host_install import SESSION_START_COMMAND, host_file_map
 from alicebot_api.onramp import main as onramp_main
 
+pytestmark = pytest.mark.usefixtures("uvx_on_path")
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CLAUDE_CODE_EXAMPLE = REPO_ROOT / "docs" / "examples" / "claude-code-session-start-hooks.json"
 

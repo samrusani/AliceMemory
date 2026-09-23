@@ -11,6 +11,8 @@ import json
 import zipfile
 from pathlib import Path
 
+import pytest
+
 import yaml
 
 from alicebot_api.host_install import (
@@ -30,6 +32,7 @@ from alicebot_api.onramp import (
     main as onramp_main,
 )
 
+pytestmark = pytest.mark.usefixtures("uvx_on_path")
 USER_ID = "00000000-0000-0000-0000-000000000001"
 REPO_ROOT = Path(__file__).resolve().parents[2]
 README_PATH = REPO_ROOT / "README.md"

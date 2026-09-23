@@ -7,8 +7,12 @@ break ``uvx alice-memory install --host hermes`` for every user while the
 dev suite, which has PyYAML, stayed green. A dev-only dependency cannot be
 caught by the tests that need it.
 
-Two guards. An AST scan fails on any yaml import under apps/api/src or
-workers, including one wrapped in try/except with a fallback. A subprocess
+Two guards. An AST scan of every tree the wheel ships (apps/api/src,
+workers, and apps/api/alembic, which setup.py copies into the wheel) fails
+on a yaml import named by a string constant: ``import yaml``, ``from yaml
+import ...``, and ``importlib.import_module("yaml")`` or
+``__import__("yaml")``, including one wrapped in try/except with a
+fallback. A module name computed at run time is not caught. A subprocess
 runs the Hermes install path with ``sys.modules["yaml"] = None``, so an
 unguarded import fails at import time. The helpers take the source roots
 as arguments, so the same guards can be pointed at a planted copy.
@@ -20,11 +24,14 @@ import ast
 import os
 import subprocess
 import sys
+import tomllib
 from collections.abc import Sequence
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SOURCE_ROOTS = (REPO_ROOT / "apps" / "api" / "src", REPO_ROOT / "workers")
+# setup.py copies apps/api/alembic into the wheel, so its code ships too.
+SHIPPED_ROOTS = (*SOURCE_ROOTS, REPO_ROOT / "apps" / "api" / "alembic")
 _DYNAMIC_IMPORTERS = frozenset({"import_module", "__import__"})
 
 
@@ -98,13 +105,50 @@ def run_hermes_install_without_yaml(
 
 
 def test_no_runtime_module_imports_yaml() -> None:
-    """No ``yaml`` import under apps/api/src or workers.
+    """No string-named ``yaml`` import in any tree the wheel ships.
 
     Mutation: add ``import yaml`` to host_install.py, bare or inside
-    try/except with a fallback. This test fails.
+    try/except with a fallback, or to an alembic migration. This test fails.
     """
 
-    assert yaml_imports_under(SOURCE_ROOTS) == []
+    assert all(root.is_dir() for root in SHIPPED_ROOTS)
+    assert yaml_imports_under(SHIPPED_ROOTS) == []
+
+
+def _wheel_code_trees() -> set[Path]:
+    """Trees whose Python the wheel ships: the package roots and setup.py copytrees."""
+
+    config = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    trees = {REPO_ROOT / where for where in config["tool"]["setuptools"]["packages"]["find"]["where"]}
+    setup_tree = ast.parse((REPO_ROOT / "setup.py").read_text(encoding="utf-8"))
+    for node in ast.walk(setup_tree):
+        if not (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "copytree"
+        ):
+            continue
+        parts: list[str] = []
+        source = node.args[0]
+        while isinstance(source, ast.BinOp) and isinstance(source.op, ast.Div):
+            assert isinstance(source.right, ast.Constant), ast.dump(source)
+            parts.insert(0, str(source.right.value))
+            source = source.left
+        assert isinstance(source, ast.Name) and source.id == "ROOT", ast.dump(source)
+        trees.add(REPO_ROOT.joinpath(*parts))
+    return trees
+
+
+def test_the_scan_covers_every_tree_the_wheel_ships() -> None:
+    """Guards the guard: a tree setup.py or pyproject adds to the wheel is scanned.
+
+    Review round 3 finding 17, 2026-09-23: the scan covered apps/api/src and
+    workers but not apps/api/alembic, which setup.py copies into the wheel.
+    A clean tree cannot show that gap, so this reads the build config.
+    Mutation: drop alembic (or workers) from SHIPPED_ROOTS. This test fails.
+    """
+
+    assert _wheel_code_trees() <= set(SHIPPED_ROOTS)
 
 
 def test_ast_guard_sees_every_import_form() -> None:

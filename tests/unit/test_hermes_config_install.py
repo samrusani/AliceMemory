@@ -45,6 +45,7 @@ from alicebot_api import host_install
 from alicebot_api.host_install import host_file_map, mcp_server_payload
 from alicebot_api.onramp import _ERROR_CONTRACTS, main as onramp_main
 
+pytestmark = pytest.mark.usefixtures("uvx_on_path")
 BS = chr(92)  # one backslash, spelled so no escape processing can touch it
 E_ACUTE = chr(0xE9)
 BACKUP_GLOB = "config.yaml.alice-backup-*"
@@ -141,8 +142,17 @@ def _single_insertion(before: str, after: str) -> str:
     return after[prefix : len(after) - suffix]
 
 
-def _backups(config: Path) -> list[Path]:
-    return sorted(config.parent.glob(BACKUP_GLOB))
+def _backups(config: Path, data_dir: Path | None = None) -> list[Path]:
+    """Backups of config.yaml: in <data dir>/backups/host-configs, and never beside it.
+
+    Since review round 4 (tower decision) every backup goes to one 0700
+    directory under the data dir. Without ``data_dir`` this lists what
+    sits next to the file, which must stay empty.
+    """
+
+    if data_dir is None:
+        return sorted(config.parent.glob(BACKUP_GLOB))
+    return sorted((data_dir / "backups" / "host-configs").glob(f"hermes-{BACKUP_GLOB}"))
 
 
 def _error_records(stderr: str) -> list[object]:
@@ -222,10 +232,13 @@ def test_backup_is_byte_identical_private_and_named_in_the_receipt(
 
     code, out, err = _install(home, vault, capsys)
     assert code == 0, err
-    backups = _backups(config)
+    assert _backups(config) == []
+    backups = _backups(config, vault)
     assert len(backups) == 1
     assert backups[0].read_bytes() == original
     assert stat.S_IMODE(backups[0].stat().st_mode) == 0o600
+    assert stat.S_IMODE(backups[0].parent.stat().st_mode) == 0o700
+    assert stat.S_IMODE(backups[0].parent.parent.stat().st_mode) == 0o700
     assert f"backup: {backups[0]}" in out
     assert config.read_bytes() != original
 
@@ -248,7 +261,7 @@ def test_second_run_changes_nothing_and_takes_no_second_backup(
     code, out, err = _install(home, vault, capsys)
     assert code == 0, err
     assert config.read_bytes() == first
-    assert len(_backups(config)) == 1
+    assert len(_backups(config, vault)) == 1
     assert "action: unchanged" in out
     assert first.decode("utf-8").count("\n  alice:\n") == 1
 
@@ -510,13 +523,10 @@ def test_unsafe_files_are_refused_untouched_with_the_snippet(
     assert "was not changed" in out
 
 
-def test_non_utf8_and_symlinked_configs_are_refused(
-    tmp_path: Path, capsys
-) -> None:
-    """Bytes that are not UTF-8, and a config.yaml that is a symlink, are refused.
+def test_non_utf8_config_is_refused(tmp_path: Path, capsys) -> None:
+    """Bytes that are not UTF-8 are refused, byte-identical.
 
-    Mutation: decode with errors="replace", or follow the link and replace it
-    with a regular file. This test fails.
+    Mutation: decode with errors="replace". This test fails.
     """
 
     home = tmp_path / "home"
@@ -528,16 +538,59 @@ def test_non_utf8_and_symlinked_configs_are_refused(
     assert "not UTF-8" in out
     assert config.read_bytes() == latin1
 
-    config.unlink()
+
+def test_symlinked_config_is_written_through_and_the_link_kept(tmp_path: Path, capsys) -> None:
+    """A dotfiles symlink stays a symlink; the target is edited and backed up.
+
+    Review round 3 finding 15, 2026-09-23: Hermes refused symlinks and the
+    JSON hosts replaced them with regular files. Since round 4 the backup
+    goes to the data dir, never next to the target, which may be in a
+    dotfiles repo. Mutation: write to the link path instead of its target,
+    or back up next to the target. This test fails.
+    """
+
+    home = tmp_path / "home"
+    vault = tmp_path / "vault"
     target = tmp_path / "dotfiles" / "hermes.yaml"
     target.parent.mkdir()
     target.write_text("model: gpt-4o\n", encoding="utf-8")
+    config = _config_path(home)
+    config.parent.mkdir(parents=True)
     config.symlink_to(target)
-    code, out, _err = _install(home, vault, capsys)
-    assert code == 1
-    assert "symbolic link" in out
+
+    code, out, err = _install(home, vault, capsys)
+    assert code == 0, (out, err)
     assert config.is_symlink()
-    assert target.read_text(encoding="utf-8") == "model: gpt-4o\n"
+    assert config.resolve() == target.resolve()
+    loaded = yaml.safe_load(target.read_text(encoding="utf-8"))
+    assert loaded["mcp_servers"]["alice"] == _expected_alice(vault)
+    assert f"target: {target.resolve()}" in out
+    assert sorted(path.name for path in target.parent.iterdir()) == ["hermes.yaml"]
+    backups = sorted(
+        (vault / "backups" / "host-configs").glob(f"hermes-hermes.yaml{host_install.HERMES_BACKUP_MARKER}*")
+    )
+    assert len(backups) == 1 and backups[0].read_text(encoding="utf-8") == "model: gpt-4o\n"
+    assert sorted(path.name for path in config.parent.iterdir()) == ["config.yaml"]
+
+
+def test_dangling_symlinked_config_is_refused(tmp_path: Path, capsys) -> None:
+    """A link to nothing refuses the host; the link stays as it was.
+
+    Mutation: create the target, or replace the link. This test fails.
+    """
+
+    home = tmp_path / "home"
+    vault = tmp_path / "vault"
+    config = _config_path(home)
+    config.parent.mkdir(parents=True)
+    missing = tmp_path / "dotfiles" / "gone.yaml"
+    config.symlink_to(missing)
+
+    code, out, err = _install(home, vault, capsys)
+    assert code == 1
+    assert _error_records(err) == [INSTALL_REFUSED]
+    assert "symbolic link whose target is missing or loops" in out
+    assert config.is_symlink() and not missing.exists()
 
 
 def test_backup_that_fails_partway_leaves_no_backup_and_no_edit(
@@ -617,6 +670,8 @@ def test_dry_run_writes_nothing_and_prints_only_the_alice_block(
     assert "action: dry-run" in out
     assert "sk-not-real-but-private" not in out
     snippet = out.split("snippet:\n", 1)[1]
+    # ALICE_MEMORY_DATA_DIR is install's own value, the --data-dir shown in
+    # args, so it is printed; values from the user's file are not (round 4 P7).
     assert yaml.safe_load(snippet) == {"mcp_servers": {"alice": _expected_alice(vault)}}
 
 
@@ -729,9 +784,9 @@ def test_old_alice_with_keys_install_never_wrote_is_refused_and_they_are_named(
             "    env:\n"
             "      ALICE_MEMORY_DATA_DIR: /old/vault\n"
         ),
-        "  alice: {command: uvx, args: [alice-memory, mcp], env: {ALICE_MEMORY_DATA_DIR: /old/vault}}\n",
+        "  alice: {command: uvx, args: [alice-memory, mcp, --data-dir, /old/vault]}\n",
     ],
-    ids=["absolute-uvx-and-pin", "v0.16.0-block", "flow-with-env-only"],
+    ids=["absolute-uvx-and-pin", "v0.16.0-block", "flow"],
 )
 def test_hermes_rerun_without_flag_keeps_the_old_data_dir(
     tmp_path: Path, capsys, old_alice: str
@@ -744,7 +799,9 @@ def test_hermes_rerun_without_flag_keeps_the_old_data_dir(
     """
 
     home = tmp_path / "home"
-    original = "model: gpt-4o\nmcp_servers:\n" + old_alice
+    # A real dir, since the backup goes into <data dir>/backups (round 4).
+    old_vault = str((tmp_path / "old-vault").resolve())
+    original = ("model: gpt-4o\nmcp_servers:\n" + old_alice).replace("/old/vault", old_vault)
     before = yaml.safe_load(original)["mcp_servers"]["alice"]
     config = _seed(home, original)
 
@@ -752,9 +809,9 @@ def test_hermes_rerun_without_flag_keeps_the_old_data_dir(
     assert code == 0, (out, err)
     alice = yaml.safe_load(config.read_text(encoding="utf-8"))["mcp_servers"]["alice"]
     assert alice["command"] == before["command"]
-    assert alice["env"] == {"ALICE_MEMORY_DATA_DIR": "/old/vault"}
+    assert alice["env"] == {"ALICE_MEMORY_DATA_DIR": old_vault}
     args = alice["args"]
-    assert args[args.index("--data-dir") + 1] == "/old/vault"
+    assert args[args.index("--data-dir") + 1] == old_vault
     assert args[: len(before["args"])][:2] == before["args"][:2]
     assert "data_dir:" not in out
 
@@ -799,9 +856,9 @@ def test_hermes_rerun_with_flag_moves_only_the_data_dir(tmp_path: Path, capsys) 
             "the existing mcp_servers.alice uses YAML this writer does not read",
         ),
         (
-            "data dir behind an alias, no flag",
-            "  alice:\n    command: uvx\n    args: [alice-memory, mcp, --data-dir, *vault]\n",
-            "the data dir of the existing mcp_servers.alice cannot be read",
+            "args behind an alias to a list",
+            "  alice:\n    command: uvx\n    args: *listed\n",
+            "the command or args of the existing mcp_servers.alice cannot be read",
         ),
     ],
 )
@@ -814,7 +871,7 @@ def test_hermes_old_entry_it_cannot_read_is_refused(
     """
 
     home = tmp_path / "home"
-    original = "vaults: &vault /aliased/vault\nmcp_servers:\n" + old_alice
+    original = "vaults: &vault /aliased/vault\nlisted: &listed [a, b]\nmcp_servers:\n" + old_alice
     yaml.safe_load(original)
     config = _seed(home, original)
 
@@ -825,22 +882,183 @@ def test_hermes_old_entry_it_cannot_read_is_refused(
     assert reason in out, out
 
 
-def test_bare_data_dir_flag_at_the_end_of_args_gets_one_value(tmp_path: Path, capsys) -> None:
-    """Old args ending in a bare --data-dir get the value, not a second flag.
+def test_bare_data_dir_flag_at_the_end_of_args_is_left_alone(tmp_path: Path, capsys) -> None:
+    """Old args ending in a bare --data-dir: the server would not start, so install keeps them.
 
-    Found by the seeded fuzz pass on 2026-09-22 while wiring the Hermes data
-    dir rule: the args became [..., "--data-dir", "--data-dir", dir]. The
-    same helper serves the JSON hosts. Mutation: append the pair whenever
-    --data-dir has no value after it. This test fails.
+    Found by the seeded fuzz pass on 2026-09-22, when the args became
+    [..., "--data-dir", "--data-dir", dir]. Since review round 4 (S1) the
+    server's parser reads the args: without the flag the entry stays byte
+    for byte; with it, install refuses rather than guess. Mutation: rewrite
+    args the parser rejects. This test fails.
     """
 
     home = tmp_path / "home"
     vault = (tmp_path / "vault").resolve()
-    config = _seed(home, "mcp_servers:\n  alice:\n    command: uvx\n    args: [alice-memory, mcp, --data-dir]\n")
-    code, out, err = _install(home, vault, capsys)
+    original = "mcp_servers:\n  alice:\n    command: uvx\n    args: [alice-memory, mcp, --data-dir]\n"
+    config = _seed(home, original)
+    code, out, err = _install_without_flag(home, capsys)
     assert code == 0, (out, err)
-    args = yaml.safe_load(config.read_text(encoding="utf-8"))["mcp_servers"]["alice"]["args"]
-    assert args == ["alice-memory", "mcp", "--data-dir", str(vault)]
+    assert config.read_text(encoding="utf-8") == original
+    assert "alice-memory mcp would not start" in out
+    code, out, err = _install(home, vault, capsys)
+    assert code == 1
+    assert config.read_text(encoding="utf-8") == original
+
+
+def test_extra_keys_refusal_snippet_keeps_the_entrys_own_launcher(
+    tmp_path: Path, capsys
+) -> None:
+    """Review round 3 finding 3: the snippet dropped an absolute uvx and a pin.
+
+    For an install-shaped entry the snippet is the entry's own command and
+    args with the data dir applied. Mutation: build the snippet from
+    install's default payload. This test fails.
+    """
+
+    home = tmp_path / "home"
+    uvx = tmp_path / "tools" / "uvx"
+    uvx.parent.mkdir(parents=True)
+    uvx.write_text("", encoding="utf-8")
+    uvx.chmod(0o755)
+    original = (
+        "mcp_servers:\n  alice:\n"
+        f"    command: {uvx}\n"
+        "    args: [alice-memory==0.16.0, mcp, --data-dir, /old/vault]\n"
+        "    timeout: 30\n"
+    )
+    config = _seed(home, original)
+    code, out, err = _install_without_flag(home, capsys)
+    assert code == 1
+    assert config.read_text(encoding="utf-8") == original
+    snippet = out.split("snippet:\n", 1)[1].split("\nextra_keys:", 1)[0]
+    assert yaml.safe_load(snippet)["mcp_servers"]["alice"] == {
+        "command": str(uvx),
+        "args": ["alice-memory==0.16.0", "mcp", "--data-dir", "/old/vault"],
+        "env": {"ALICE_MEMORY_DATA_DIR": "/old/vault"},
+    }
+    assert "carry over your timeout" in out
+
+
+@pytest.mark.parametrize(
+    ("label", "old_alice"),
+    [
+        ("python -m entry", "  alice:\n    command: python\n    args: [-m, alicebot_api.mcp_server]\n"),
+        ("npx server named alice", "  alice:\n    command: npx\n    args: [other-server, mcp]\n"),
+        (
+            "uvx look-alike",
+            "  alice:\n    command: uvx\n    args: [mcp-proxy, mcp, --name, alice-memory]\n",
+        ),
+    ],
+)
+def test_hermes_entry_install_did_not_write_is_refused(
+    tmp_path: Path, capsys, label: str, old_alice: str
+) -> None:
+    """Review round 3 finding 4: the same shape check as the JSON hosts.
+
+    Mutation: replace any alice entry whose keys look like install's. This
+    test fails.
+    """
+
+    home = tmp_path / "home"
+    original = "mcp_servers:\n" + old_alice
+    config = _seed(home, original)
+    code, out, err = _install(home, tmp_path / "vault", capsys)
+    assert code == 1, (label, out)
+    assert _error_records(err) == [INSTALL_REFUSED]
+    assert config.read_text(encoding="utf-8") == original
+    assert "mcp_servers.alice exists and install did not write it" in out
+
+
+def test_anchored_entry_snippet_uses_the_entrys_visible_data_dir(
+    tmp_path: Path, capsys
+) -> None:
+    """Review round 3 finding 6: the snippet pointed at ~/.alice.
+
+    The strict reader refuses the anchor, a lenient read still sees the
+    data dir. Mutation: fall back to ~/.alice. This test fails.
+    """
+
+    home = tmp_path / "home"
+    original = (
+        "mcp_servers:\n  alice:\n    command: &c uvx\n"
+        "    args: [alice-memory, mcp, --data-dir, /anchored/vault]\n"
+        "other: *c\n"
+    )
+    _seed(home, original)
+    code, out, err = _install_without_flag(home, capsys)
+    assert code == 1
+    snippet = out.split("snippet:\n", 1)[1].split("\nnext:", 1)[0]
+    assert yaml.safe_load(snippet)["mcp_servers"]["alice"]["args"][-1] == "/anchored/vault"
+
+
+@pytest.mark.parametrize(
+    "original",
+    [
+        "mcp_servers:\n  alice:\n    command: |\n      uvx\n",
+        "note:\ttabbed\nmcp_servers:\n  alice:\n    command: uvx\n",
+    ],
+    ids=["unreadable-entry", "file-refused-before-alice"],
+)
+def test_snippet_uses_a_placeholder_when_the_data_dir_is_not_visible(
+    tmp_path: Path, capsys, original: str
+) -> None:
+    """Never a snippet on ~/.alice when an alice entry exists but cannot be read.
+
+    Mutation: fall back to ~/.alice. This test fails.
+    """
+
+    home = tmp_path / "home"
+    _seed(home, original)
+    code, out, err = _install_without_flag(home, capsys)
+    assert code == 1
+    assert "<the data dir your existing alice entry uses>" in out
+    assert "keep: replace the placeholder" in out
+    assert str(home.resolve() / ".alice") not in out
+
+
+def test_nested_list_item_is_refused_not_flattened(tmp_path: Path, capsys) -> None:
+    """Review round 3 finding 7: ``- - x`` is a list inside a list, not "x".
+
+    Mutation: read a multi-dash item as its text. This test fails.
+    """
+
+    home = tmp_path / "home"
+    original = (
+        "mcp_servers:\n  alice:\n    command: uvx\n    args:\n"
+        "      - - alice-memory\n      - mcp\n"
+    )
+    assert yaml.safe_load(original)["mcp_servers"]["alice"]["args"][0] == ["alice-memory"]
+    config = _seed(home, original)
+    code, out, err = _install(home, tmp_path / "vault", capsys)
+    assert code == 1
+    assert config.read_text(encoding="utf-8") == original
+    assert "uses YAML this writer does not read" in out
+
+
+def test_hermes_env_only_entry_runs_on_the_default_dir(tmp_path: Path, capsys) -> None:
+    """Review round 3 finding 1 on Hermes: env is not where the server looks.
+
+    ``args: [alice-memory, mcp]`` with env on /custom runs on ~/.alice. The
+    env install writes is set to that dir, with a note, and --data-dir is
+    not invented. Mutation: take the data dir from the env. This test fails.
+    """
+
+    home = tmp_path / "home"
+    original = (
+        "mcp_servers:\n  alice:\n    command: uvx\n    args: [alice-memory, mcp]\n"
+        "    env:\n      ALICE_MEMORY_DATA_DIR: /custom\n"
+    )
+    config = _seed(home, original)
+    code, out, err = _install_without_flag(home, capsys)
+    assert code == 0, (out, err)
+    default = str(home.resolve() / ".alice")
+    alice = yaml.safe_load(config.read_text(encoding="utf-8"))["mcp_servers"]["alice"]
+    assert alice == {
+        "command": "uvx",
+        "args": ["alice-memory", "mcp"],
+        "env": {"ALICE_MEMORY_DATA_DIR": default},
+    }
+    assert "env ALICE_MEMORY_DATA_DIR was <hidden>" in out and "/custom" not in out
 
 
 def test_install_refused_error_contract_is_registered() -> None:
@@ -899,8 +1117,14 @@ def test_seeded_fuzz_run_finds_no_meaning_change() -> None:
     mutant is written with its meaning kept or refused. The anchor mutation
     puts an ``&anchor`` inside an old alice entry, often in a flow value,
     and an alias to it outside; replacing alice would leave that alias
-    undefined, which is review finding 1 of 2026-09-22. Mutation: stop
-    reporting anchors from flow values. This test fails.
+    undefined, which is review finding 1 of 2026-09-22.
+
+    Since round 3 (2026-09-23) the entry reader refuses an anchored entry on
+    its own, so dropping the scanner's flow-anchor report no longer fails
+    this pass; the two flow-anchor refusal cases in
+    test_unsafe_files_are_refused_untouched_with_the_snippet still do.
+    Mutation that this pass does catch: stop tracking block scalar text in
+    the scanner.
     """
 
     counts = fuzz.run(range(5), configs_per_seed=100, mutants_per_config=6)

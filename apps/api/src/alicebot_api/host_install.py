@@ -6,6 +6,9 @@ runtime, or call ``openclaw``. Import stays a source. Commit stays a fact.
 
 from __future__ import annotations
 
+import argparse
+import contextlib
+import io
 import json
 import os
 import re
@@ -14,18 +17,46 @@ import sys
 import tempfile
 import tomllib
 import zipfile
-from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
-from pathlib import Path, PureWindowsPath
+from pathlib import Path
 from typing import Any
 
 from alicebot_api import __version__
+from alicebot_api.host_launcher import (
+    DOCS_DATA_DIR_PLACEHOLDER,
+    FIRST_SESSION_START_VERSION,
+    HIDDEN,
+    MCP_COMMAND,
+    MCP_SCRIPT,
+    SESSION_START_COMMAND,
+    UVX_LAUNCHER,
+    UVX_MISSING_WARNING_PREFIX,
+    UV_TEMP_ENV_WARNING,
+    HookDataDir,
+    Launcher,
+    LauncherSearch,
+    find_launcher,
+    format_command,
+    hook_command,
+    hook_script_problem,
+    is_install_shaped_entry,
+    is_session_start_command,
+    last_option,
+    launcher_in_uv_cache,
+    launcher_problem,
+    mask_text,
+    masked_args,
+    parse_launcher,
+    read_hook_data_dir,
+    replace_hook_data_dir,
+    shell_path,
+    shown_hook_words,
+    split_command,
+)
 
 ALICE_MEMORY_DATA_DIR_ENV = "ALICE_MEMORY_DATA_DIR"
-SESSION_START_COMMAND = "alice-memory-session-start"
-MCP_COMMAND = "uvx"
-MCP_ARGS_PREFIX = ("alice-memory", "mcp", "--data-dir")
 DEFAULT_DATA_DIR = "~/.alice"
 MCPB_SUFFIX = ".mcpb"
 MCPB_MANIFEST_NAME = "manifest.json"
@@ -34,11 +65,6 @@ MCPB_AUTHOR_NAME = "Sami Rusani"
 BRIEF_HINT = (
     "Run alice-memory brief or alice-memory-session-start --format markdown"
 )
-UVX_MISSING_WARNING = (
-    "warning: uvx is not on PATH. The host entries and hooks start Alice with uvx, "
-    "so the hosts cannot start it until uv is installed: https://docs.astral.sh/uv/"
-)
-
 INSTALL_HOSTS = (
     "claude-desktop",
     "claude-code",
@@ -118,42 +144,69 @@ def host_file_map(home: Path, platform: str | None = None) -> dict[str, dict[str
     }
 
 
-def mcp_server_payload(data_dir: str, *, with_env: bool) -> dict[str, object]:
+def mcp_server_payload(
+    data_dir: str, *, with_env: bool, launcher: Launcher = UVX_LAUNCHER
+) -> dict[str, object]:
     payload: dict[str, object] = {
-        "command": MCP_COMMAND,
-        "args": [MCP_ARGS_PREFIX[0], MCP_ARGS_PREFIX[1], MCP_ARGS_PREFIX[2], data_dir],
+        "command": launcher.command,
+        "args": [*launcher.prefix, "--data-dir", data_dir],
     }
     if with_env:
         payload["env"] = {ALICE_MEMORY_DATA_DIR_ENV: data_dir}
     return payload
 
 
-def openclaw_add_line(data_dir: str) -> str:
+def openclaw_add_line(
+    data_dir: str, launcher: Launcher = UVX_LAUNCHER, *, hide_values: bool = False
+) -> str:
+    """The one-line ``openclaw mcp add``, quoted for the shell like the hooks.
+
+    On Windows it follows the hook rules: forward slashes, and no line at
+    all when a word could not be written the same for cmd, PowerShell and
+    Git Bash; a note with the argv takes its place. ``hide_values`` shows
+    every URL after its scheme and secret flag values as <hidden>, for a receipt.
+    """
+
+    prefix = masked_args(launcher.prefix)[0] if hide_values else list(launcher.prefix)
+    command = mask_text(launcher.command) if hide_values else launcher.command
+    argv = ["openclaw", "mcp", "add", "alice", "--command", shell_path(command)]
+    for arg in (*prefix, "--data-dir", shell_path(data_dir)):
+        argv += ["--arg", arg]
+    text, problem = format_command(argv)
+    if problem is None:
+        return text
     return (
-        "openclaw mcp add alice --command uvx --arg alice-memory "
-        f"--arg mcp --arg --data-dir --arg {data_dir}"
+        f"note: install did not print an openclaw mcp add line ({problem}); add the server "
+        f"with this argv: {json.dumps(argv)}"
     )
 
 
-def session_start_hook_command(data_dir: str) -> str:
-    """SessionStart argv that still works after ``uvx alice-memory install`` exits."""
+def session_start_hook_command(data_dir: str, launcher: Launcher = UVX_LAUNCHER) -> str:
+    """SessionStart command that still works after ``uvx alice-memory install`` exits."""
 
-    return f"uvx --from alice-memory {SESSION_START_COMMAND} --data-dir {data_dir}"
+    text, problem = hook_command(launcher, data_dir)
+    if problem is not None:
+        raise InstallError(problem)
+    return text
+
+
+def _cursor_session_start_item(command: str) -> dict[str, str]:
+    return {"command": command}
 
 
 def session_start_hook_entry(data_dir: str) -> dict[str, str]:
     """Cursor's ``hooks.sessionStart`` item: a flat ``{"command": ...}`` object."""
 
-    return {"command": session_start_hook_command(data_dir)}
+    return _cursor_session_start_item(session_start_hook_command(data_dir))
 
 
-def claude_code_session_start_handler(data_dir: str) -> dict[str, str]:
-    """One Claude Code hook handler. Claude Code requires ``type``."""
+def claude_code_session_start_handler(command: str) -> dict[str, str]:
+    """One Claude Code hook handler that runs ``command``. Claude Code requires ``type``."""
 
-    return {"type": "command", "command": session_start_hook_command(data_dir)}
+    return {"type": "command", "command": command}
 
 
-def claude_code_session_start_group(data_dir: str) -> dict[str, object]:
+def claude_code_session_start_group(command: str) -> dict[str, object]:
     """Claude Code's ``hooks.SessionStart`` item: a matcher group.
 
     Claude Code nests handlers under ``hooks``. It ignores Cursor's flat
@@ -162,14 +215,11 @@ def claude_code_session_start_group(data_dir: str) -> dict[str, object]:
     matching every SessionStart source.
     """
 
-    return {"hooks": [claude_code_session_start_handler(data_dir)]}
+    return {"hooks": [claude_code_session_start_handler(command)]}
 
 
 def _is_session_start_command(command: str) -> bool:
-    for part in command.split():
-        if Path(part).name == SESSION_START_COMMAND:
-            return True
-    return False
+    return is_session_start_command(command)
 
 
 def _contains_session_start(node: object) -> bool:
@@ -219,13 +269,19 @@ def _read_host_file(path: Path) -> bytes | None:
 
 
 def _parse_json_host(raw: bytes | None) -> dict[str, Any]:
-    """A JSON host file as a dict. An absent or empty file is ``{}``."""
+    """A JSON host file as a dict. An absent or empty file is ``{}``.
+
+    Any ValueError from decoding or parsing, and RecursionError from JSON
+    nested too deeply, make the file malformed, which refuses only its host.
+    """
 
     if not raw:
         return {}
     try:
         loaded = json.loads(raw.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+    except RecursionError as exc:
+        raise _MalformedHostFile("the file is nested too deeply to read") from exc
+    except ValueError as exc:
         raise _MalformedHostFile("the file is not valid JSON") from exc
     if not isinstance(loaded, dict):
         raise _MalformedHostFile("the top level is not an object")
@@ -297,7 +353,7 @@ def _merge_cursor_session_start(doc: dict[str, Any], command: str) -> str:
     doc["hooks"] = hooks
     key = "sessionStart"
     existing = hooks.get(key)
-    entry = {"command": command}
+    entry = _cursor_session_start_item(command)
     desired = command
     if existing is None:
         hooks[key] = [entry]
@@ -324,7 +380,12 @@ def _merge_cursor_session_start(doc: dict[str, Any], command: str) -> str:
     for index, item in enumerate(existing):
         if index in alice_indexes:
             if not replaced:
-                kept.append(entry)
+                if isinstance(item, Mapping) and isinstance(item.get("command"), str):
+                    updated = dict(item)
+                    updated["command"] = command
+                    kept.append(updated)
+                else:
+                    kept.append(entry)
                 replaced = True
             continue
         kept.append(item)
@@ -355,8 +416,8 @@ def _merge_claude_code_session_start(doc: dict[str, Any], command: str) -> str:
     doc["hooks"] = hooks
     key = "SessionStart"
     existing = hooks.get(key)
-    desired = {"type": "command", "command": command}
-    group: dict[str, object] = {"hooks": [dict(desired)]}
+    desired = claude_code_session_start_handler(command)
+    group = claude_code_session_start_group(command)
     if existing is None:
         hooks[key] = [group]
         return "added"
@@ -421,92 +482,30 @@ def _merge_claude_code_session_start(doc: dict[str, Any], command: str) -> str:
 
 def _new_hooks_document(host: str, command: str) -> dict[str, Any]:
     if host == "cursor":
-        return {"version": 1, "hooks": {"sessionStart": [{"command": command}]}}
-    return {"hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": command}]}]}}
+        return {"version": 1, "hooks": {"sessionStart": [_cursor_session_start_item(command)]}}
+    return {"hooks": {"SessionStart": [claude_code_session_start_group(command)]}}
 
 
 # --- JSON hosts: re-runs keep what the user set --------------------------------
 #
-# An alice entry install wrote (uvx running alice-memory mcp, pinned or not)
-# is kept key for key on a re-run: env, type, timeout, cwd and an absolute
-# uvx path all stay. Only the --data-dir value can change, and only when
-# --data-dir is passed. Any other alice entry is not install's to rewrite,
-# so that file is left alone and the host is refused.
-
-_UVX_NAMES = frozenset({"uvx", "uvx.exe"})
-_ALICE_PACKAGE_ARG = re.compile(r"alice-memory(?:\[[^\]]*\])?(?:(?:==|@|>=|<=|~=|!=).*)?\Z")
-
-
-def is_install_shaped_entry(entry: object) -> bool:
-    """True for an alice entry of the shape install writes: uvx alice-memory mcp.
-
-    The command's basename is ``uvx`` or ``uvx.exe`` at any path, and the
-    string args include the alice-memory package (pinned or not) and ``mcp``.
-    """
-
-    if not isinstance(entry, Mapping):
-        return False
-    command = entry.get("command")
-    args = entry.get("args")
-    if not isinstance(command, str) or PureWindowsPath(command).name.lower() not in _UVX_NAMES:
-        return False
-    if not isinstance(args, list) or not all(isinstance(arg, str) for arg in args):
-        return False
-    return "mcp" in args and any(_ALICE_PACKAGE_ARG.match(arg) for arg in args)
+# An alice entry install wrote (see host_launcher.parse_launcher) is kept key
+# for key on a re-run: env, type, timeout, cwd all stay. Its data dir is the
+# one alice-memory mcp opens: the last --data-dir in its args, else ~/.alice.
+# Its launcher stays while it can run here; a dead one is swapped for the
+# working launcher install found, unless it is pinned or customised. Any
+# other alice entry is not install's to rewrite, so that file is left alone
+# and the host is refused.
 
 
-def _entry_data_dir(entry: Mapping[str, Any]) -> str | None:
-    """The data dir an install-shaped entry runs with: --data-dir, else its env."""
-
-    args = entry.get("args")
-    if isinstance(args, list):
-        for index, arg in enumerate(args):
-            if arg == "--data-dir" and index + 1 < len(args) and isinstance(args[index + 1], str):
-                return str(args[index + 1])
-            if isinstance(arg, str) and arg.startswith("--data-dir="):
-                return arg.split("=", 1)[1]
-    env = entry.get("env")
-    if isinstance(env, Mapping) and isinstance(env.get(ALICE_MEMORY_DATA_DIR_ENV), str):
-        return str(env[ALICE_MEMORY_DATA_DIR_ENV])
-    return None
-
-
-def _args_with_data_dir(args: Sequence[str], data_dir: str) -> list[str]:
-    """``args`` with only the --data-dir value replaced, or the pair appended."""
-
-    updated = list(args)
-    for index, arg in enumerate(updated):
-        if arg == "--data-dir":
-            if index + 1 < len(updated):
-                updated[index + 1] = data_dir
-            else:
-                updated.append(data_dir)
-            return updated
-        if arg.startswith("--data-dir="):
-            updated[index] = f"--data-dir={data_dir}"
-            return updated
-    return [*updated, "--data-dir", data_dir]
-
-
-def _kept_keys(entry: Mapping[str, Any]) -> list[str]:
+def _kept_keys(entry: Mapping[str, Any], *, command_kept: bool) -> list[str]:
     """The user's keys in an install-shaped entry, for the receipt."""
 
-    kept = ["command"] if entry.get("command") != MCP_COMMAND else []
+    kept = ["command"] if command_kept and entry.get("command") != MCP_COMMAND else []
     for key, value in entry.items():
         if key in {"command", "args"}:
             continue
         kept.append(f"{key} ({len(value)} keys)" if isinstance(value, Mapping) else str(key))
     return kept
-
-
-def _hook_command_data_dir(command: str) -> str | None:
-    parts = command.split()
-    for index, part in enumerate(parts):
-        if part == "--data-dir" and index + 1 < len(parts):
-            return parts[index + 1]
-        if part.startswith("--data-dir="):
-            return part.split("=", 1)[1]
-    return None
 
 
 def _existing_alice_hook_command(doc: Mapping[str, Any], host: str) -> str | None:
@@ -532,6 +531,538 @@ def _existing_alice_hook_command(doc: Mapping[str, Any], host: str) -> str | Non
         if _is_alice_hook_item(item):
             return _hook_item_command(item)
     return None
+
+
+def _alice_hook_items(doc: Mapping[str, Any], host: str) -> list[object]:
+    """Only Alice's SessionStart items, for a dry-run receipt."""
+
+    hooks = doc.get("hooks")
+    items = hooks.get("SessionStart" if host == "claude-code" else "sessionStart") if isinstance(
+        hooks, Mapping
+    ) else None
+    found: list[object] = []
+    for item in items if isinstance(items, list) else []:
+        if not isinstance(item, Mapping):
+            continue
+        handlers = item.get("hooks")
+        if host == "claude-code" and isinstance(handlers, list):
+            alice = [handler for handler in handlers if _is_alice_hook_item(handler)]
+            if alice:
+                found.append({**item, "hooks": alice})
+        elif _is_alice_hook_item(item):
+            found.append(item)
+    return found
+
+
+_HIDDEN = HIDDEN
+# Keys whose values install prints as they are; every other value from the
+# user's entry is hidden.
+_SHOWN_KEYS = frozenset({"command", "type", "timeout", "cwd"})
+
+
+def _masked(
+    entry: Mapping[str, Any], *, own_env: Mapping[str, str] | None = None
+) -> tuple[dict[str, Any], list[str]]:
+    """``entry`` as install prints it, and the list of what it hid.
+
+    Shown: command, type, timeout and cwd; args with every URL after its
+    scheme and secret flag values hidden (host_launcher.masked_args); the
+    names under env, headers and other maps. Every other value is hidden,
+    except ``own_env``: the ALICE_MEMORY_DATA_DIR install writes itself,
+    which equals the --data-dir in args.
+    """
+
+    shown: dict[str, Any] = {}
+    hidden: list[str] = []
+    for key, value in entry.items():
+        if key in _SHOWN_KEYS:
+            shown[key] = value
+        elif key == "args" and isinstance(value, list) and all(isinstance(arg, str) for arg in value):
+            args, what = masked_args(value)
+            shown[key] = args
+            hidden.extend(f"args ({item})" for item in what)
+        elif isinstance(value, Mapping):
+            inner: dict[str, Any] = {}
+            for name, item in value.items():
+                if key == "env" and own_env is not None and own_env.get(name) == item:
+                    inner[name] = item
+                else:
+                    inner[name] = _HIDDEN
+                    hidden.append(f"{key}.{name}")
+            shown[key] = inner
+        else:
+            shown[key] = _HIDDEN
+            hidden.append(str(key))
+    return shown, list(dict.fromkeys(hidden))
+
+
+def _keep_line(hidden: Sequence[str]) -> str:
+    return (
+        f"keep: install printed these values from your file as <hidden>: {', '.join(hidden)}; "
+        "copy them from your existing alice entry"
+    )
+
+
+def _hidden_line(hidden: Sequence[str]) -> str:
+    return f"hidden: install printed these values from your file as <hidden>: {', '.join(hidden)}"
+
+
+def _masked_hook_command(command: str, hidden: list[str]) -> str:
+    """A hook command for printing: only allowlisted words shown
+    (host_launcher.shown_hook_words), every other word <hidden>."""
+
+    shown, count = shown_hook_words(split_command(command))
+    if count:
+        hidden.append(f"hook command ({count} word{'s' if count != 1 else ''} install does not print)")
+    return mask_text(" ".join(shown))
+
+
+def _masked_hook_item(item: object, hidden: list[str]) -> object:
+    """An Alice hook item for printing: its command masked, and every key but
+    command, type and hooks shown as <hidden>."""
+
+    if isinstance(item, Mapping):
+        shown: dict[str, object] = {}
+        for key, value in item.items():
+            if key == "command" and isinstance(value, str):
+                shown[key] = _masked_hook_command(value, hidden)
+            elif key == "hooks":
+                shown[key] = _masked_hook_item(value, hidden)
+            elif key == "type":
+                shown[key] = value
+            else:
+                shown[key] = _HIDDEN
+                hidden.append(f"hook {key}")
+        return shown
+    if isinstance(item, list):
+        return [_masked_hook_item(value, hidden) for value in item]
+    return item
+
+
+def _own_env(payload: Mapping[str, object]) -> dict[str, str]:
+    """The env value install writes for ``payload``: ALICE_MEMORY_DATA_DIR = its --data-dir."""
+
+    args = payload.get("args")
+    if isinstance(args, list) and all(isinstance(arg, str) for arg in args):
+        value = last_option(args, "--data-dir")
+        if value is not None:
+            return {ALICE_MEMORY_DATA_DIR_ENV: value}
+    return {}
+
+
+def _host_target(path: Path) -> Path:
+    """Where writes to ``path`` go: the path itself, or a symlink's target.
+
+    Writing through keeps a dotfiles symlink intact. A dangling or looping
+    link, or one that points at something other than a regular file, makes
+    the host file malformed.
+    """
+
+    if not path.is_symlink():
+        return path
+    try:
+        target = path.resolve(strict=True)
+    except (OSError, RuntimeError) as exc:
+        raise _MalformedHostFile(
+            f"{path.name} is a symbolic link whose target is missing or loops"
+        ) from exc
+    if not target.is_file():
+        raise _MalformedHostFile(f"{path.name} links to something that is not a regular file")
+    return target
+
+
+@dataclass
+class _JsonFile:
+    """One JSON host file: where writes go, what is there, and the planned doc."""
+
+    path: Path
+    target: Path
+    raw: bytes | None
+    doc: dict[str, Any]
+    original: dict[str, Any]
+
+    def changed(self) -> bool:
+        """True when the planned doc differs, as parsed JSON, from the file."""
+
+        return self.raw is None or self.doc != self.original
+
+
+def _load_json_file(path: Path) -> _JsonFile:
+    target = _host_target(path)
+    raw = _read_host_file(target)
+    return _JsonFile(path, target, raw, _parse_json_host(raw), _parse_json_host(raw))
+
+
+@dataclass
+class _EntryPlan:
+    """What install will do with one alice entry."""
+
+    entry: dict[str, Any] | None  # None: leave the entry as it is (refused, or kept)
+    launcher: Launcher  # what the entry runs after install
+    data_dir: str  # the dir alice-memory mcp opens after install
+    db: str | None  # the entry's --db, when it has one
+    refusal: str | None
+    details: list[str]
+    used_fallback: bool  # the entry runs a launcher install could not confirm here
+    # How the SessionStart hook follows: "follow" (launcher and data dir),
+    # "own-dir" (launcher only; a --db entry), or "repair" (shape only).
+    hook_mode: str = "follow"
+    # For a refusal: the entry to paste by hand, and what to do next, when
+    # install's own entry on data_dir is the wrong thing to offer.
+    paste: dict[str, Any] | None = None
+    next_step: str | None = None
+    # The launcher the entry ran before install replaced it, if it did.
+    replaced: Launcher | None = None
+
+
+_FOREIGN_NEXT = (
+    "Rename or remove that alice entry, or add the entry above under a different name by hand."
+)
+
+
+@dataclass(frozen=True)
+class _Store:
+    """The store an entry's ``alice-memory mcp`` opens, read with the server's own parser."""
+
+    data_dir: str | None  # absolute and resolved like the server; None with --db or a problem
+    raw_dir: str | None  # the --data-dir value as written, None when there is none
+    db: str | None  # the --db value as written
+    count: int  # how many args bind to --data-dir
+    problem: str | None = None
+    relative: bool = False
+
+
+def _mcp_option_strings() -> list[str]:
+    """Every option string ``alice-memory mcp`` accepts, from the real parser."""
+
+    from alicebot_api.onramp import build_parser  # onramp imports this module
+
+    for action in build_parser()._actions:
+        if isinstance(action, argparse._SubParsersAction):
+            mcp = action.choices["mcp"]
+            return [option for sub in mcp._actions for option in sub.option_strings]
+    raise AssertionError("alice-memory has no mcp subcommand")
+
+
+def _option_spans(tokens: Sequence[str], options: Sequence[str]) -> list[tuple[str, int, int]]:
+    """(option, start, stop) for args that parsed: argparse's exact, = and prefix rules.
+
+    Only called on args ``alice-memory mcp`` accepted, where every word is an
+    option with its value, joined by = or in the next word.
+    """
+
+    spans: list[tuple[str, int, int]] = []
+    index = 0
+    while index < len(tokens):
+        token = tokens[index]
+        name = token.split("=", 1)[0] if token.startswith("--") else token
+        if name in options:
+            option = name
+        else:
+            matches = [candidate for candidate in options if candidate.startswith(name)]
+            option = matches[0] if len(matches) == 1 else token
+        step = 1 if "=" in token and token.startswith("--") else 2
+        spans.append((option, index, index + step))
+        index += step
+    return spans
+
+
+def _store_args(
+    server_args: Sequence[str], *, data_dir: str | None, drop_db: bool = False
+) -> list[str]:
+    """``server_args`` with every --data-dir (any spelling) replaced by one ``data_dir``."""
+
+    out: list[str] = []
+    insert_at: int | None = None
+    for option, start, stop in _option_spans(server_args, _mcp_option_strings()):
+        if option == "--data-dir":
+            if insert_at is None:
+                insert_at = len(out)
+            continue
+        if drop_db and option == "--db":
+            continue
+        out.extend(server_args[start:stop])
+    if data_dir is not None:
+        position = len(out) if insert_at is None else insert_at
+        out[position:position] = ["--data-dir", data_dir]
+    return out
+
+
+def _expand_user(raw: str, home: Path) -> str:
+    if raw == "~":
+        return str(home)
+    if raw.startswith("~/") or raw.startswith("~\\"):
+        return str(home / raw[2:])
+    return raw
+
+
+def _entry_store(server_args: Sequence[str], home: Path) -> _Store:
+    """Parse ``server_args`` the way ``alice-memory mcp`` does, and resolve its store.
+
+    The real parser and resolve_db_path decide, so abbreviations
+    (``--data``), ``=`` forms, repeated flags and ``--db`` read as the server
+    reads them. ``~`` expands against ``home``. A relative --data-dir is a
+    problem: the server resolves it against the host's working directory,
+    which install cannot know.
+    """
+
+    from alicebot_api.onramp import build_parser, resolve_db_path
+
+    try:
+        with contextlib.redirect_stderr(io.StringIO()), contextlib.redirect_stdout(io.StringIO()):
+            args = build_parser().parse_args(["mcp", *server_args])
+    except SystemExit:
+        # The args are the user's: print them the way every receipt line is printed.
+        shown = " ".join(masked_args(server_args)[0]) or "(none)"
+        return _Store(None, None, None, 0, f"alice-memory mcp would not start with the args {shown}")
+    spans = _option_spans(server_args, _mcp_option_strings())
+    count = sum(1 for option, _, _ in spans if option == "--data-dir")
+    raw_dir = args.data_dir if count else None
+    if args.db is not None:
+        return _Store(None, raw_dir, args.db, count)
+    expanded = _expand_user(args.data_dir, home)
+    if not Path(expanded).is_absolute():
+        return _Store(
+            None,
+            raw_dir,
+            None,
+            count,
+            f"--data-dir {args.data_dir} is a relative path, which alice-memory mcp resolves "
+            "against the host's working directory; install cannot know that directory",
+            relative=True,
+        )
+    data_dir = str(resolve_db_path(data_dir=expanded, db=None).parent)
+    return _Store(data_dir, raw_dir, None, count)
+
+
+def _visible_dir(entry: object, home: Path) -> str | None:
+    """The data dir an entry's ``mcp`` args open, when the server's parser can read them."""
+
+    if not isinstance(entry, Mapping):
+        return None
+    args = entry.get("args")
+    if not isinstance(args, list) or not all(isinstance(arg, str) for arg in args):
+        return None
+    if "mcp" not in args:
+        return None
+    store = _entry_store(args[args.index("mcp") + 1 :], home)
+    return store.data_dir if store.problem is None and store.db is None else None
+
+
+def _plan_entry(
+    existing: object,
+    *,
+    key_label: str,
+    explicit_dir: str | None,
+    new_entry_dir: str,
+    default_dir: str,
+    home: Path,
+    search: LauncherSearch,
+    with_env: bool,
+    needs_hook: bool = True,
+    problem_of: Callable[[Launcher], str | None] | None = None,
+) -> _EntryPlan:
+    """Plan one alice entry: shape, store, launcher. Shared by every host.
+
+    ``new_entry_dir`` is the data dir for a new entry when --data-dir was
+    not passed (an existing Alice hook's, else ~/.alice). ``needs_hook``
+    says the host runs a SessionStart hook, so a script launcher needs its
+    alice-memory-session-start beside it to count as alive.
+    """
+
+    if problem_of is None:
+
+        def problem_of(launcher: Launcher) -> str | None:
+            return launcher_problem(launcher, needs_hook=needs_hook)
+
+    details: list[str] = []
+    working = search.launcher
+    if existing is None:
+        launcher = working or UVX_LAUNCHER
+        data_dir = explicit_dir or new_entry_dir
+        problem = None if working is not None else problem_of(launcher)
+        note = f" (cannot run here: {problem})" if problem else ""
+        details.append(f"launcher: {launcher.describe()}{note}")
+        entry = mcp_server_payload(data_dir, with_env=with_env, launcher=launcher)
+        return _EntryPlan(entry, launcher, data_dir, None, None, details, problem is not None)
+
+    parsed = parse_launcher(existing)
+    if parsed is None:
+        visible = None if explicit_dir is not None else _visible_dir(existing, home)
+        return _EntryPlan(
+            None,
+            working or UVX_LAUNCHER,
+            explicit_dir or visible or new_entry_dir,
+            None,
+            f"{key_label} exists and install did not write it ({_describe_entry(existing)})",
+            details,
+            False,
+            hook_mode="repair",
+            next_step=_FOREIGN_NEXT,
+        )
+    launcher, server_args = parsed
+    assert isinstance(existing, Mapping)
+    store = _entry_store(server_args, home)
+
+    if store.problem is not None and not store.relative:
+        if explicit_dir is not None:
+            return _EntryPlan(
+                None,
+                launcher,
+                explicit_dir,
+                None,
+                f"{key_label}: {store.problem}, so install cannot move its data dir",
+                details,
+                False,
+                hook_mode="repair",
+                next_step="Fix that entry's args, or replace the entry with the one above.",
+            )
+        details.append(
+            f"warning: {store.problem}; install left this entry, and its SessionStart hook, "
+            "as they were"
+        )
+        return _EntryPlan(None, launcher, default_dir, None, None, details, False, "repair")
+
+    if store.relative and explicit_dir is None:
+        assert store.raw_dir is not None
+        marker = f"<an absolute path for {store.raw_dir}>"
+        paste = dict(existing)
+        paste["args"] = [*launcher.prefix, *_store_args(server_args, data_dir=marker)]
+        if with_env:
+            paste["env"] = {ALICE_MEMORY_DATA_DIR_ENV: marker}
+        return _EntryPlan(
+            None,
+            launcher,
+            default_dir,
+            None,
+            f"{key_label}: {store.problem}",
+            details,
+            False,
+            hook_mode="repair",
+            paste=paste,
+            next_step=(
+                "Put an absolute --data-dir in that entry (the entry above marks where), "
+                "or run install with --data-dir."
+            ),
+        )
+
+    if store.db is not None and explicit_dir is not None:
+        # The paste is this entry on the dir the user asked for, never
+        # install's entry on ~/.alice, which may be an empty store.
+        paste = dict(existing)
+        paste["args"] = [
+            *launcher.prefix,
+            *_store_args(server_args, data_dir=explicit_dir, drop_db=True),
+        ]
+        if with_env:
+            env_map = existing.get("env")
+            paste["env"] = {
+                **(dict(env_map) if isinstance(env_map, Mapping) else {}),
+                ALICE_MEMORY_DATA_DIR_ENV: explicit_dir,
+            }
+        return _EntryPlan(
+            None,
+            launcher,
+            default_dir,
+            store.db,
+            f"{key_label} opens the database --db {store.db}, which --data-dir does not move; "
+            "run install without --data-dir, or remove --db from the entry",
+            details,
+            False,
+            hook_mode="repair",
+            paste=paste,
+            next_step=(
+                f"Run install without --data-dir to keep --db {store.db}, or replace the alice "
+                f"entry with the one above to use {explicit_dir}."
+            ),
+        )
+
+    # The docs' example data dir, pasted as is, names no store: treat it as unset.
+    placeholder = store.raw_dir == DOCS_DATA_DIR_PLACEHOLDER
+    current = None if placeholder else store.data_dir
+    data_dir = explicit_dir or current or default_dir
+    if placeholder or (explicit_dir is not None and (explicit_dir != current or store.count > 1)):
+        server_args = _store_args(server_args, data_dir=data_dir)
+        if placeholder:
+            details.append(
+                f"data_dir: {DOCS_DATA_DIR_PLACEHOLDER} (the placeholder from the docs) -> "
+                f"{data_dir}"
+            )
+        else:
+            before = store.raw_dir if store.raw_dir is not None else f"{DEFAULT_DATA_DIR} (no --data-dir)"
+            details.append(f"data_dir: {before} -> {explicit_dir}")
+        if store.count > 1:
+            details.append(
+                f"note: the entry had {store.count} --data-dir options; install left one"
+            )
+
+    env = existing.get("env")
+    env_value = env.get(ALICE_MEMORY_DATA_DIR_ENV) if isinstance(env, Mapping) else None
+    if store.db is None and isinstance(env_value, str) and _resolved_dir(env_value, home) != data_dir:
+        if with_env:
+            details.append(
+                f"note: env {ALICE_MEMORY_DATA_DIR_ENV} was {_HIDDEN}; install set it to "
+                f"{data_dir}, the dir alice-memory mcp opens (it reads --data-dir, not this env)"
+            )
+        else:
+            details.append(
+                f"note: env {ALICE_MEMORY_DATA_DIR_ENV} is set to another dir ({_HIDDEN}), but "
+                f"alice-memory mcp opens {data_dir} (it reads --data-dir, not this env); "
+                "install left the env"
+            )
+
+    problem = problem_of(launcher)
+    final = launcher
+    used_fallback = False
+    if problem is None:
+        details.append(f"launcher: kept {launcher.describe()}")
+    elif launcher_in_uv_cache(launcher):
+        # A program in a uv cache is dead with no exceptions, pinned or not:
+        # the entry gets the launcher a new entry would get.
+        final = working or UVX_LAUNCHER
+        used_fallback = working is None
+        still = f"; {final.command} is not on PATH here" if working is None else ""
+        details.append(f"launcher: {launcher.describe()} -> {final.describe()} ({problem}{still})")
+    elif launcher.customised:
+        used_fallback = True
+        details.append(
+            f"warning: {problem}; install kept {launcher.describe()} because it "
+            f"{launcher.customisation}"
+        )
+    elif working is not None:
+        final = working
+        details.append(f"launcher: {launcher.describe()} -> {working.describe()} ({problem})")
+    else:
+        used_fallback = True
+        details.append(
+            f"warning: {problem}, and install found no working launcher, so it kept "
+            f"{launcher.describe()}"
+        )
+
+    entry = dict(existing)
+    entry["command"] = final.command
+    entry["args"] = [*final.prefix, *server_args]
+    if with_env and store.db is None:
+        entry["env"] = {ALICE_MEMORY_DATA_DIR_ENV: data_dir}
+    kept = _kept_keys(entry, command_kept=final is launcher)
+    if kept and not with_env:
+        details.append("kept: " + ", ".join(kept))
+    if store.db is not None:
+        details.append(
+            f"note: this entry opens --db {store.db}; install left it, and the SessionStart "
+            "hook's store, as they were"
+        )
+    return _EntryPlan(
+        entry,
+        final,
+        data_dir,
+        store.db,
+        None,
+        details,
+        used_fallback,
+        hook_mode="own-dir" if store.db is not None else "follow",
+        replaced=None if final is launcher else launcher,
+    )
 
 
 def _alice_container(doc: dict[str, Any], host: str) -> dict[str, Any] | None:
@@ -566,7 +1097,7 @@ def _describe_entry(entry: object) -> str:
     if isinstance(entry, Mapping):
         command = entry.get("command")
         if isinstance(command, str):
-            return f"its command is {command}"
+            return f"its command is {masked_args([command])[0][0]}"
         return "it has no string command"
     return "it is not an object"
 
@@ -595,8 +1126,10 @@ class HermesConfigRefused(InstallError):
     """install left config.yaml untouched because it could not edit it safely.
 
     ``extra_keys`` names keys in an old alice entry that install did not
-    write, so the receipt can tell the user to keep them when pasting.
-    ``data_dir``, when set, is the data dir the pasted entry should use.
+    write, so the receipt can tell the user to carry them over when pasting.
+    The snippet is ``payload`` when set; else install's entry on ``data_dir``;
+    else, with ``placeholder``, install's entry with a placeholder where the
+    existing entry's data dir goes, so a paste never points at an empty store.
     """
 
     def __init__(
@@ -606,12 +1139,21 @@ class HermesConfigRefused(InstallError):
         *,
         extra_keys: Sequence[str] = (),
         data_dir: str | None = None,
+        payload: Mapping[str, object] | None = None,
+        placeholder: bool = False,
+        located: bool = False,
+        next_step: str | None = None,
     ) -> None:
         detail = reason if line is None else f"{reason} (line {line})"
         super().__init__(detail)
         self.detail = detail
         self.extra_keys = tuple(extra_keys)
         self.data_dir = data_dir
+        self.payload = payload
+        self.placeholder = placeholder
+        self.next_step = next_step
+        # True once the scanner found mcp_servers.alice: its snippet is set here.
+        self.located = located
 
 
 class InstallRefused(InstallError):
@@ -644,6 +1186,7 @@ class _YamlLine:
     block_owner: int | None = None
     anchor: bool = False
     item: str = ""
+    dashes: int = 0
 
 
 @dataclass(frozen=True)
@@ -788,6 +1331,7 @@ def _lex_yaml_line(line: str, number: int) -> _YamlLine:
     node_kind = ""
     after_node = False
     item_start = -1
+    dashes = 0
     index = indent
     while index < size:
         char = line[index]
@@ -821,6 +1365,7 @@ def _lex_yaml_line(line: str, number: int) -> _YamlLine:
             if colon >= 0 or has_properties:
                 raise HermesConfigRefused("a list entry follows a key on the same line", number)
             dash = True
+            dashes += 1
             owner = index
             index += 1
             item_start = index
@@ -904,6 +1449,7 @@ def _lex_yaml_line(line: str, number: int) -> _YamlLine:
         block_owner=block_owner,
         anchor=anchor,
         item=item,
+        dashes=dashes,
     )
 
 
@@ -997,10 +1543,14 @@ def _yaml_double_quoted(text: str) -> str:
     return "".join(out)
 
 
-def _hermes_alice_lines(data_dir: str, indent: int) -> list[str]:
+def _hermes_alice_lines(
+    data_dir: str, indent: int, launcher: Launcher = UVX_LAUNCHER
+) -> list[str]:
     """Install's own mcp_servers.alice block at ``indent``."""
 
-    return _hermes_block_lines(mcp_server_payload(data_dir, with_env=True), indent)
+    return _hermes_block_lines(
+        mcp_server_payload(data_dir, with_env=True, launcher=launcher), indent
+    )
 
 
 def _hermes_block_lines(payload: Mapping[str, object], indent: int) -> list[str]:
@@ -1022,10 +1572,10 @@ def _hermes_block_lines(payload: Mapping[str, object], indent: int) -> list[str]
     return lines
 
 
-def hermes_snippet(data_dir: str) -> str:
+def hermes_snippet(data_dir: str, launcher: Launcher = UVX_LAUNCHER) -> str:
     """What to paste into config.yaml by hand."""
 
-    return "\n".join(["mcp_servers:", *_hermes_alice_lines(data_dir, 2)]) + "\n"
+    return "\n".join(["mcp_servers:", *_hermes_alice_lines(data_dir, 2, launcher)]) + "\n"
 
 
 def _render_yaml_text(doc: _YamlText, lines: list[str], final_newline: bool) -> str:
@@ -1096,22 +1646,50 @@ def _decode_double_quoted(inner: str) -> str:
     return "".join(out)
 
 
-def _read_scalar_text(text: str) -> object:
+@dataclass(frozen=True)
+class _ReadContext:
+    """How the entry reader treats anchors and aliases.
+
+    ``aliases`` maps anchor names defined on plain or quoted scalars in the
+    file to their values, so ``*name`` reads as that value; any other alias
+    stays opaque. ``lenient`` skips ``&name`` properties instead of refusing,
+    which is only used to recover a data dir for a refusal snippet.
+    """
+
+    aliases: Mapping[str, object] = field(default_factory=dict)
+    lenient: bool = False
+
+
+_STRICT = _ReadContext()
+_ANCHOR_THEN_SCALAR = re.compile(r"&([^\s,\[\]{}]+)\s+(\S.*)\Z")
+
+
+def _strip_anchors(text: str) -> str:
+    text = text.strip(" ")
+    while text.startswith("&"):
+        text = text.split(" ", 1)[1].strip(" ") if " " in text else ""
+    return text
+
+
+def _read_scalar_text(text: str, context: _ReadContext = _STRICT) -> object:
     """One scalar or single-line flow value, as PyYAML would read it for our keys.
 
     Plain scalars are read as their text (install only needs strings back),
-    YAML nulls as None, aliases and tags as opaque.
+    YAML nulls as None, a known alias as its anchor's value, other aliases
+    and tags as opaque.
     """
 
-    text = text.strip(" ")
+    text = _strip_anchors(text) if context.lenient else text.strip(" ")
     if text in _YAML_NULLS:
         return None
-    if text[0] in "*!":
+    if text[0] == "*":
+        return context.aliases.get(text[1:].strip(" "), _OPAQUE)
+    if text[0] == "!":
         return _OPAQUE
     if text[0] in "&?|>":
         raise _UnreadableEntry
     if text[0] in "[{":
-        value, end = _read_flow_node(text, 0)
+        value, end = _read_flow_node(text, 0, context)
         if text[end:].strip(" "):
             raise _UnreadableEntry
         return value
@@ -1122,12 +1700,16 @@ def _read_scalar_text(text: str) -> object:
     return text
 
 
-def _read_flow_node(text: str, index: int) -> tuple[object, int]:
+def _read_flow_node(text: str, index: int, context: _ReadContext = _STRICT) -> tuple[object, int]:
     while index < len(text) and text[index] == " ":
         index += 1
     if index >= len(text):
         raise _UnreadableEntry
     char = text[index]
+    if char == "&" and context.lenient:
+        while index < len(text) and text[index] not in " ,[]{}":
+            index += 1
+        return _read_flow_node(text, index, context)
     if char in "[{":
         closing = "]" if char == "[" else "}"
         items: list[object] = []
@@ -1138,7 +1720,7 @@ def _read_flow_node(text: str, index: int) -> tuple[object, int]:
                 index += 1
             if index < len(text) and text[index] == closing:
                 return (items if char == "[" else mapping), index + 1
-            node, index = _read_flow_node(text, index)
+            node, index = _read_flow_node(text, index, context)
             while index < len(text) and text[index] == " ":
                 index += 1
             if char == "[":
@@ -1154,7 +1736,7 @@ def _read_flow_node(text: str, index: int) -> tuple[object, int]:
                     if after < len(text) and text[after] in ",}":
                         index = after
                     else:
-                        value, index = _read_flow_node(text, index + 1)
+                        value, index = _read_flow_node(text, index + 1, context)
                         while index < len(text) and text[index] == " ":
                             index += 1
                 mapping[node] = value
@@ -1176,14 +1758,73 @@ def _read_flow_node(text: str, index: int) -> tuple[object, int]:
         if text[end] == ":" and (end + 1 == len(text) or text[end + 1] in " ,[]{}"):
             break
         end += 1
-    if char in "*!":
+    if char == "*":
+        return context.aliases.get(text[index + 1 : end].strip(" "), _OPAQUE), end
+    if char == "!":
         return _OPAQUE, end
     plain = text[index:end].strip(" ")
     return (None if plain in _YAML_NULLS else plain), end
 
 
+def _node_column(raw: str, line: _YamlLine) -> int:
+    """The column a value on this line is indented against: the key's, or the dash's."""
+
+    if not line.dash or line.colon < 0:
+        return line.indent
+    column = line.indent
+    while raw[column : column + 1] == "-" and raw[column + 1 : column + 2] in (" ", "\t"):
+        column += 1
+        while raw[column : column + 1] in (" ", "\t"):
+            column += 1
+    return column
+
+
+def _continues_on_next_line(doc: _YamlText, index: int, column: int) -> bool:
+    """True when the next non-blank line is indented past ``column``.
+
+    A plain scalar goes on over such lines (PyYAML folds them into one
+    value), so the text on the anchor's own line is not the whole value.
+    Comment lines count too, which can only refuse more, never read wrong.
+    """
+
+    for raw in doc.lines[index + 1 :]:
+        if raw.strip(" \t"):
+            return _leading_spaces(raw) > column
+    return False
+
+
+def _anchor_values(doc: _YamlText, lexed: Mapping[int, _YamlLine]) -> dict[str, object]:
+    """Anchors defined on one-line plain or quoted scalars (``key: &a value``, ``- &a value``).
+
+    An anchor whose plain scalar continues onto the next line is left out,
+    so an alias to it stays unreadable and the entry is refused.
+    """
+
+    values: dict[str, object] = {}
+    for index, line in lexed.items():
+        if not line.anchor:
+            continue
+        if _continues_on_next_line(doc, index, _node_column(doc.lines[index], line)):
+            continue
+        text = line.value if line.colon >= 0 else line.item
+        match = _ANCHOR_THEN_SCALAR.match(text.strip(" "))
+        if match is None:
+            continue
+        try:
+            value = _read_scalar_text(match.group(2))
+        except _UnreadableEntry:
+            continue
+        if isinstance(value, str):
+            values[match.group(1)] = value
+    return values
+
+
 def _read_alice_block(
-    doc: _YamlText, lexed: Mapping[int, _YamlLine], start: int, last: int
+    doc: _YamlText,
+    lexed: Mapping[int, _YamlLine],
+    start: int,
+    last: int,
+    context: _ReadContext = _STRICT,
 ) -> dict[str, object]:
     """The old mcp_servers.alice entry as a dict, or _UnreadableEntry.
 
@@ -1194,15 +1835,16 @@ def _read_alice_block(
     """
 
     head = lexed[start]
+    head_value = _strip_anchors(head.value) if context.lenient else head.value
     body = [
         index
         for index in range(start + 1, last + 1)
         if doc.info[index] is None or index in lexed
     ]
-    if head.value not in _YAML_NULLS:
-        if body or not head.value.startswith("{"):
+    if head_value not in _YAML_NULLS:
+        if body or not head_value.startswith("{"):
             raise _UnreadableEntry
-        parsed = _read_scalar_text(head.value)
+        parsed = _read_scalar_text(head_value, context)
         if not isinstance(parsed, dict):
             raise _UnreadableEntry
         return parsed
@@ -1226,18 +1868,25 @@ def _read_alice_block(
         ):
             nested.append(lines[position])
             position += 1
-        if line.value:
+        value = _strip_anchors(line.value) if context.lenient else line.value
+        if value:
             if nested:
                 raise _UnreadableEntry
-            result[line.key] = _read_scalar_text(line.value)
+            result[line.key] = _read_scalar_text(value, context)
         elif not nested:
             result[line.key] = None
         elif nested[0].dash:
             values: list[object] = []
             for item in nested:
-                if item.indent != nested[0].indent or not item.dash or item.colon >= 0 or not item.item:
+                if (
+                    item.indent != nested[0].indent
+                    or not item.dash
+                    or item.dashes != 1
+                    or item.colon >= 0
+                    or not item.item
+                ):
                     raise _UnreadableEntry
-                values.append(_read_scalar_text(item.item))
+                values.append(_read_scalar_text(item.item, context))
             result[line.key] = values
         else:
             entries: dict[str, object] = {}
@@ -1249,7 +1898,7 @@ def _read_alice_block(
                     or item.key in entries
                 ):
                     raise _UnreadableEntry
-                entries[item.key] = _read_scalar_text(item.value)
+                entries[item.key] = _read_scalar_text(item.value, context)
             result[line.key] = entries
     return result
 
@@ -1266,50 +1915,90 @@ def _alice_block_extra_keys(block: Mapping[str, object]) -> list[str]:
     return extra
 
 
-def _alice_block_data_dir(block: Mapping[str, object]) -> object:
-    """The data dir an old alice entry runs with: a str, None, or _OPAQUE."""
+_HERMES_DIR_PLACEHOLDER = "<the data dir your existing alice entry uses>"
+_MENTIONS_ALICE = re.compile(r"(?m)^[ \t]+['\"]?alice['\"]?[ \t]*:")
 
-    args = block.get("args")
-    if isinstance(args, list):
-        for index, arg in enumerate(args):
-            if arg == "--data-dir":
-                if index + 1 < len(args):
-                    value = args[index + 1]
-                    return value if isinstance(value, str) else _OPAQUE
-                return None
-            if isinstance(arg, str) and arg.startswith("--data-dir="):
-                return arg.split("=", 1)[1]
-        if any(not isinstance(arg, str) for arg in args):
-            return _OPAQUE
-    elif args is not None:
-        return _OPAQUE
-    env = block.get("env")
-    if isinstance(env, Mapping):
-        value = env.get(ALICE_MEMORY_DATA_DIR_ENV)
-        if isinstance(value, str):
-            return value
-        if value is not None:
-            return _OPAQUE
-    return None
+
+def _has_opaque(value: object) -> bool:
+    if value is _OPAQUE:
+        return True
+    if isinstance(value, list):
+        return any(_has_opaque(item) for item in value)
+    return False
+
+
+def _recover_alice_dir(
+    doc: _YamlText,
+    lexed: Mapping[int, _YamlLine],
+    start: int,
+    last: int,
+    aliases: Mapping[str, object],
+    home: Path,
+    default_dir: str,
+) -> str | None:
+    """The data dir an entry the strict reader refused runs with, if visible."""
+
+    try:
+        block = _read_alice_block(doc, lexed, start, last, _ReadContext(aliases, lenient=True))
+    except (_UnreadableEntry, RecursionError):
+        return None
+    return _visible_dir(block, home)
 
 
 @dataclass(frozen=True)
 class HermesPlan:
-    """What install --host hermes would write, and with which data dir."""
+    """What install --host hermes would write, and what the receipt says about it."""
 
     text: str | None
     data_dir: str
-    previous_data_dir: str | None = None
+    payload: Mapping[str, object]
+    details: tuple[str, ...] = ()
+    used_fallback: bool = False
 
 
-def _plan_hermes(text: str, explicit_dir: str | None, default_dir: str) -> HermesPlan:
+def _hermes_payload(plan: _EntryPlan) -> dict[str, object]:
+    """The alice block install writes for ``plan``: command, args, and env when it has one.
+
+    _plan_entry sets env to ALICE_MEMORY_DATA_DIR = the data dir, except for
+    a --db entry, whose env stays as the user wrote it.
+    """
+
+    assert plan.entry is not None
+    payload: dict[str, object] = {"command": plan.entry["command"], "args": plan.entry["args"]}
+    if "env" in plan.entry:
+        payload["env"] = plan.entry["env"]
+    return payload
+
+
+def _plan_hermes(
+    text: str,
+    explicit_dir: str | None,
+    default_dir: str,
+    *,
+    home: Path,
+    search: LauncherSearch,
+    problem_of: Callable[[Launcher], str | None] | None = None,
+) -> HermesPlan:
     """Plan mcp_servers.alice in ``text``; see plan_hermes_config.
 
     ``explicit_dir`` is --data-dir when it was passed. Without it, an old
     alice entry keeps the data dir it runs with, else ``default_dir``.
     """
 
-    new_dir = explicit_dir or default_dir
+    def plan_entry(existing: object) -> _EntryPlan:
+        return _plan_entry(
+            existing,
+            key_label="mcp_servers.alice",
+            explicit_dir=explicit_dir,
+            new_entry_dir=default_dir,
+            default_dir=default_dir,
+            home=home,
+            search=search,
+            with_env=True,
+            needs_hook=False,
+            problem_of=problem_of,
+        )
+
     doc = _scan_yaml_text(text)
     lexed: dict[int, _YamlLine] = {
         index: item
@@ -1351,11 +2040,16 @@ def _plan_hermes(text: str, explicit_dir: str | None, default_dir: str) -> Herme
             raise HermesConfigRefused(
                 "the file ends inside a block scalar with no final line break", len(lines)
             )
+        fresh = plan_entry(None)
+        payload = _hermes_payload(fresh)
         return HermesPlan(
             _render_yaml_text(
-                doc, [*lines, "mcp_servers:", *_hermes_alice_lines(new_dir, 2)], True
+                doc, [*lines, "mcp_servers:", *_hermes_block_lines(payload, 2)], True
             ),
-            new_dir,
+            fresh.data_dir,
+            payload,
+            tuple(fresh.details),
+            fresh.used_fallback,
         )
 
     head_index = mcp[0]
@@ -1405,51 +2099,71 @@ def _plan_hermes(text: str, explicit_dir: str | None, default_dir: str) -> Herme
         start = alice[0]
         stop = next((index for index in children if index > start), end)
         last = max(index for index in range(start, stop) if doc.substantive(index))
+        aliases = _anchor_values(doc, lexed)
+
+        def refuse_unread(reason: str) -> HermesConfigRefused:
+            recovered = explicit_dir or _recover_alice_dir(
+                doc, lexed, start, last, aliases, home, default_dir
+            )
+            return HermesConfigRefused(
+                reason, start + 1, data_dir=recovered, placeholder=recovered is None, located=True
+            )
+
         if any(lexed[index].anchor for index in range(start, last + 1) if index in lexed):
-            raise HermesConfigRefused(
-                "mcp_servers.alice defines an anchor that other keys may use", start + 1
-            )
+            raise refuse_unread("mcp_servers.alice defines an anchor that other keys may use")
         try:
-            old = _read_alice_block(doc, lexed, start, last)
+            old = _read_alice_block(doc, lexed, start, last, _ReadContext(aliases))
         except _UnreadableEntry:
-            raise HermesConfigRefused(
-                "the existing mcp_servers.alice uses YAML this writer does not read",
-                start + 1,
-                data_dir=explicit_dir,
+            raise refuse_unread(
+                "the existing mcp_servers.alice uses YAML this writer does not read"
             ) from None
-        old_dir = _alice_block_data_dir(old)
-        if explicit_dir is not None:
-            new_dir = explicit_dir
-        elif isinstance(old_dir, str):
-            new_dir = old_dir
-        elif old_dir is _OPAQUE:
-            raise HermesConfigRefused(
-                "the data dir of the existing mcp_servers.alice cannot be read; "
-                "run install again with --data-dir",
-                start + 1,
+        if _has_opaque(old.get("command")) or _has_opaque(old.get("args")):
+            raise refuse_unread(
+                "the command or args of the existing mcp_servers.alice cannot be read"
             )
+        entry_plan = plan_entry(old)
+        if entry_plan.entry is None and entry_plan.refusal is None:
+            # alice-memory mcp would not start with these args: leave the entry.
+            return HermesPlan(
+                None, entry_plan.data_dir, dict(old), tuple(entry_plan.details), False
+            )
+        if entry_plan.refusal is not None:
+            raise HermesConfigRefused(
+                entry_plan.refusal,
+                start + 1,
+                data_dir=entry_plan.data_dir,
+                payload=entry_plan.paste,
+                located=True,
+                next_step=entry_plan.next_step,
+            )
+        payload = _hermes_payload(entry_plan)
         extra = _alice_block_extra_keys(old)
         if extra:
             raise HermesConfigRefused(
                 "mcp_servers.alice has keys install did not write",
                 start + 1,
                 extra_keys=extra,
-                data_dir=new_dir,
+                data_dir=entry_plan.data_dir,
+                payload=payload,
+                located=True,
             )
-        payload = mcp_server_payload(new_dir, with_env=True)
-        if is_install_shaped_entry(old):
-            assert isinstance(old["args"], list)
-            payload["command"] = old["command"]
-            payload["args"] = _args_with_data_dir(old["args"], new_dir)
         block = _hermes_block_lines(payload, child_indent)
-        previous = old_dir if isinstance(old_dir, str) else None
+        plan = HermesPlan(
+            None,
+            entry_plan.data_dir,
+            payload,
+            tuple(entry_plan.details),
+            entry_plan.used_fallback,
+        )
         if lines[start : last + 1] == block:
-            return HermesPlan(None, new_dir, previous)
+            return plan
         lines[start : last + 1] = block
         final_newline = doc.final_newline or last == len(doc.lines) - 1
-        return HermesPlan(_render_yaml_text(doc, lines, final_newline), new_dir, previous)
+        return replace(plan, text=_render_yaml_text(doc, lines, final_newline))
 
-    block = _hermes_alice_lines(new_dir, child_indent)
+    fresh = plan_entry(None)
+    payload = _hermes_payload(fresh)
+    block = _hermes_block_lines(payload, child_indent)
 
     if head.value:
         rebuilt = lines[head_index][: head.colon + 1]
@@ -1474,39 +2188,84 @@ def _plan_hermes(text: str, explicit_dir: str | None, default_dir: str) -> Herme
             "the file ends inside a block scalar with no final line break", len(lines)
         )
     lines[insert_at:insert_at] = block
-    return HermesPlan(_render_yaml_text(doc, lines, doc.final_newline or at_eof), new_dir)
+    return HermesPlan(
+        _render_yaml_text(doc, lines, doc.final_newline or at_eof),
+        fresh.data_dir,
+        payload,
+        tuple(fresh.details),
+        fresh.used_fallback,
+    )
 
 
 def plan_hermes_config(text: str, data_dir: str) -> str | None:
     """Return ``text`` with mcp_servers.alice on ``data_dir``, or None when it already is.
 
-    This is install with --data-dir passed. Only the alice lines are added
-    or replaced; every other byte is kept. The one other edit is an empty
-    ``mcp_servers: {}`` / ``~`` / ``null`` value, which becomes
-    ``mcp_servers:`` so the block can go under it. An old alice entry is
-    replaced only when its keys are within what install writes (command,
-    args, env.ALICE_MEMORY_DATA_DIR); an install-shaped one keeps its
-    command and args apart from the data dir. Raises HermesConfigRefused
-    for a file outside the subset this scanner reads.
+    This is install with --data-dir passed, uvx on PATH, and every existing
+    launcher treated as able to run, so the result does not depend on the
+    machine. Only the alice lines are added or replaced; every other byte
+    is kept. The one other edit is an empty ``mcp_servers: {}`` / ``~`` /
+    ``null`` value, which becomes ``mcp_servers:`` so the block can go
+    under it. An old alice entry is replaced only when it is of a shape
+    install writes and its keys are within command, args and
+    env.ALICE_MEMORY_DATA_DIR; its command and args stay apart from the
+    data dir. Raises HermesConfigRefused for a file outside the subset this
+    scanner reads.
     """
 
-    return _plan_hermes(text, data_dir, data_dir).text
+    home = Path.home()
+    return _plan_hermes(
+        text,
+        data_dir,
+        str(resolve_user_path(DEFAULT_DATA_DIR, home)),
+        home=home,
+        search=LauncherSearch(UVX_LAUNCHER, None, True),
+        problem_of=lambda _launcher: None,
+    ).text
 
 
-def _backup_host_file(path: Path, original: bytes) -> Path:
-    """Write ``original`` next to ``path`` as a new, private, timestamped file.
+def _backup_dir(data_dir: str) -> Path:
+    """Where install keeps host-config backups: one private directory in the data dir."""
 
+    return Path(data_dir) / "backups" / "host-configs"
+
+
+class _BackupFailed(Exception):
+    """The backup directory could not be created or written; the host file was not touched."""
+
+    def __init__(self, directory: Path) -> None:
+        super().__init__(str(directory))
+        self.directory = directory
+
+    def reason(self) -> str:
+        return (
+            f"the backup directory {self.directory} could not be created or written, so "
+            "install did not change the file"
+        )
+
+
+def _backup_host_file(path: Path, original: bytes, *, backup_dir: Path, host: str) -> Path:
+    """Write ``original`` into ``backup_dir`` as a new, private, timestamped file.
+
+    Never next to the host file or a symlink's target, which may sit in a
+    dotfiles repo: ``backup_dir`` is <data dir>/backups/host-configs, 0700.
     The bytes go to a temp file first and are fsynced; only then does the
     backup name appear, as a hard link to the complete file. A write that
     fails partway leaves no file under a backup name, and the temp file is
     removed on every path.
     """
 
-    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-    base = f"{path.name}{HERMES_BACKUP_MARKER}{stamp}"
-    descriptor, temp_name = tempfile.mkstemp(
-        dir=path.parent, prefix=f".{base}.", suffix=".alice-install.tmp"
-    )
+    try:
+        # Missing levels are created 0700; of the existing ones, only
+        # host-configs, install's own directory, is tightened.
+        _ensure_private_parents(backup_dir / "placeholder")
+        backup_dir.chmod(0o700)
+        stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+        base = f"{host}-{path.name}{HERMES_BACKUP_MARKER}{stamp}"
+        descriptor, temp_name = tempfile.mkstemp(
+            dir=backup_dir, prefix=f".{base}.", suffix=".alice-install.tmp"
+        )
+    except OSError as problem:
+        raise _BackupFailed(backup_dir) from problem
     temp_path = Path(temp_name)
     try:
         with os.fdopen(descriptor, "wb") as handle:
@@ -1514,41 +2273,87 @@ def _backup_host_file(path: Path, original: bytes) -> Path:
             handle.flush()
             os.fsync(handle.fileno())
         for attempt in range(1, 100):
-            candidate = path.with_name(base if attempt == 1 else f"{base}-{attempt}")
+            candidate = backup_dir / (base if attempt == 1 else f"{base}-{attempt}")
             try:
                 os.link(temp_path, candidate)
             except FileExistsError:
                 continue
             return candidate
-        raise InstallError("no free backup file name")
+        raise _BackupFailed(backup_dir)
+    except OSError as problem:
+        raise _BackupFailed(backup_dir) from problem
     finally:
         temp_path.unlink(missing_ok=True)
 
 
 def _plan_hermes_file(
-    path: Path, explicit_dir: str | None, default_dir: str
-) -> tuple[HermesPlan, bytes | None]:
-    """The plan, and the original bytes (None when there is no file)."""
+    path: Path,
+    explicit_dir: str | None,
+    default_dir: str,
+    *,
+    home: Path,
+    search: LauncherSearch,
+) -> tuple[HermesPlan, bytes | None, Path]:
+    """The plan, the original bytes (None when there is no file), and the write target."""
 
-    if path.is_symlink():
-        raise HermesConfigRefused(f"{path.name} is a symbolic link")
-    new_dir = explicit_dir or default_dir
-    if not path.exists():
-        return HermesPlan(hermes_snippet(new_dir), new_dir), None
-    if not path.is_file():
+    try:
+        target = _host_target(path)
+    except _MalformedHostFile as problem:
+        raise HermesConfigRefused(str(problem)) from None
+    if not target.exists():
+        fresh = _plan_entry(
+            None,
+            key_label="mcp_servers.alice",
+            explicit_dir=explicit_dir,
+            new_entry_dir=default_dir,
+            default_dir=default_dir,
+            home=home,
+            search=search,
+            with_env=True,
+            needs_hook=False,
+        )
+        payload = _hermes_payload(fresh)
+        text = "\n".join(["mcp_servers:", *_hermes_block_lines(payload, 2)]) + "\n"
+        plan = HermesPlan(text, fresh.data_dir, payload, tuple(fresh.details), fresh.used_fallback)
+        return plan, None, target
+    if not target.is_file():
         raise HermesConfigRefused(f"{path.name} is not a regular file")
-    original = path.read_bytes()
+    original = target.read_bytes()
     try:
         text = original.decode("utf-8")
     except UnicodeDecodeError as exc:
         raise HermesConfigRefused(f"{path.name} is not UTF-8") from exc
-    return _plan_hermes(text, explicit_dir, default_dir), original
+    try:
+        return (
+            _plan_hermes(text, explicit_dir, default_dir, home=home, search=search),
+            original,
+            target,
+        )
+    except RecursionError:
+        raise HermesConfigRefused(
+            "the existing mcp_servers.alice is nested too deeply to read",
+            placeholder=explicit_dir is None,
+            data_dir=explicit_dir,
+        ) from None
+    except HermesConfigRefused as refusal:
+        if (
+            not refusal.located
+            and refusal.payload is None
+            and refusal.data_dir is None
+            and explicit_dir is None
+            and _MENTIONS_ALICE.search(text)
+        ):
+            # The scanner stopped before it reached an alice entry that may
+            # exist: never offer a snippet on ~/.alice in its place.
+            refusal.placeholder = True
+        raise
 
 
 @dataclass(frozen=True)
 class _HostResult:
     receipt: str
     status: str  # "ok", "refused" or "failed"
+    used_fallback: bool = False  # an entry runs a launcher install could not confirm here
 
 
 _FAILED_REASON = "the file could not be read or written"
@@ -1559,11 +2364,22 @@ def _refusal_action(dry_run: bool) -> str:
     return "would-refuse" if dry_run else "refused"
 
 
+def _hermes_payload_snippet(payload: Mapping[str, object]) -> str:
+    return "\n".join(["mcp_servers:", *_hermes_block_lines(payload, 2)]) + "\n"
+
+
 def _install_hermes_host(
-    *, home: Path, explicit_dir: str | None, default_dir: str, dry_run: bool
+    *,
+    home: Path,
+    explicit_dir: str | None,
+    default_dir: str,
+    dry_run: bool,
+    search: LauncherSearch,
 ) -> _HostResult:
     path = host_file_map(home)["hermes"]["mcp"]
     data_dir = explicit_dir or default_dir
+    launcher = search.launcher or UVX_LAUNCHER
+    target: Path | None = None
 
     def receipt(action: str, details: Sequence[str], **extra: Any) -> str:
         return _format_host_receipt(
@@ -1574,30 +2390,48 @@ def _install_hermes_host(
             details=details,
             session_start="none",
             data_dir=data_dir,
+            target=target,
             **extra,
         )
 
     details: list[str] = []
     try:
-        plan, original = _plan_hermes_file(path, explicit_dir, default_dir)
+        plan, original, target = _plan_hermes_file(
+            path, explicit_dir, default_dir, home=home, search=search
+        )
     except HermesConfigRefused as refusal:
         extra_keys = ", ".join(refusal.extra_keys)
         trailer: list[str] = []
+        if refusal.payload is not None:
+            shown, hidden = _masked(refusal.payload, own_env=_own_env(refusal.payload))
+            snippet = _hermes_payload_snippet(shown)
+            if hidden:
+                trailer.append(_keep_line(hidden))
+        elif refusal.placeholder:
+            snippet = hermes_snippet(_HERMES_DIR_PLACEHOLDER, launcher)
+            trailer.append(
+                "keep: replace the placeholder with the data dir your existing alice entry "
+                "uses; install could not read it, and ~/.alice may be an empty store"
+            )
+        else:
+            snippet = hermes_snippet(refusal.data_dir or data_dir, launcher)
         if extra_keys:
             trailer.append(f"extra_keys: {extra_keys}")
         if dry_run:
             trailer.append(_DRY_RUN_REFUSAL)
         else:
-            keep = f", keeping your {extra_keys}" if extra_keys else ""
+            carry = f", and carry over your {extra_keys}" if extra_keys else ""
             trailer.append(
-                f"next: {path.name} was not changed. Add the alice entry above under "
-                f"mcp_servers by hand{keep}, then check it with: hermes mcp list"
+                f"next: {path.name} was not changed. {refusal.next_step}"
+                if refusal.next_step
+                else f"next: {path.name} was not changed. Add the alice entry above under "
+                f"mcp_servers by hand{carry}, then check it with: hermes mcp list"
             )
         return _HostResult(
             receipt(
                 _refusal_action(dry_run),
                 (f"reason: {refusal.detail}",),
-                snippet=hermes_snippet(refusal.data_dir or data_dir),
+                snippet=snippet,
                 trailer=trailer,
             ),
             "refused",
@@ -1610,9 +2444,7 @@ def _install_hermes_host(
 
     new_text = plan.text
     data_dir = plan.data_dir
-    snippet = hermes_snippet(data_dir)
-    if plan.previous_data_dir is not None and plan.previous_data_dir != data_dir:
-        details.append(f"data_dir: {plan.previous_data_dir} -> {data_dir}")
+    details.extend(plan.details)
     if dry_run:
         if new_text is None:
             details.append("planned: unchanged")
@@ -1620,23 +2452,35 @@ def _install_hermes_host(
             details.append("planned: create")
         else:
             details.append("planned: edit, with a backup first")
-        return _HostResult(receipt("dry-run", details, snippet=snippet), "ok")
+        shown, hidden = _masked(plan.payload, own_env=_own_env(plan.payload))
+        snippet = _hermes_payload_snippet(shown)
+        dry_trailer = (_hidden_line(hidden),) if hidden else ()
+        return _HostResult(
+            receipt("dry-run", details, snippet=snippet, trailer=dry_trailer),
+            "ok",
+            plan.used_fallback,
+        )
     if new_text is None:
-        return _HostResult(receipt("unchanged", details, snippet=None), "ok")
+        return _HostResult(receipt("unchanged", details, snippet=None), "ok", plan.used_fallback)
     try:
         if original is not None:
-            details.append(f"backup: {_backup_host_file(path, original)}")
-        _write_text(path, new_text, newline="")
-    except (OSError, InstallError):
+            backup = _backup_host_file(
+                target, original, backup_dir=_backup_dir(plan.data_dir), host="hermes"
+            )
+            details.append(f"backup: {backup}")
+        _write_text(target, new_text, newline="")
+    except (_BackupFailed, OSError, InstallError) as problem:
+        reason = problem.reason() if isinstance(problem, _BackupFailed) else _FAILED_REASON
         return _HostResult(
             receipt(
                 "failed",
-                (f"file: {path}", f"reason: {_FAILED_REASON}", *details),
+                (f"file: {target}", f"reason: {reason}", *details),
                 snippet=None,
             ),
             "failed",
+            plan.used_fallback,
         )
-    return _HostResult(receipt("written", details, snippet=None), "ok")
+    return _HostResult(receipt("written", details, snippet=None), "ok", plan.used_fallback)
 
 
 def _package_version() -> str:
@@ -1764,24 +2608,36 @@ def _format_host_receipt(
     data_dir: str,
     details: Sequence[str] = (),
     trailer: Sequence[str] = (),
+    launcher: Launcher = UVX_LAUNCHER,
+    target: Path | None = None,
+    hooks_target: Path | None = None,
+    hook_details: Sequence[str] = (),
 ) -> str:
-    lines = [
-        f"host: {host}",
-        f"path: {mcp_path}",
-        f"action: {action}",
-        *details,
-        f"session_start: {session_start}",
-    ]
+    lines = [f"host: {host}", f"path: {mcp_path}"]
+    if target is not None and target != mcp_path:
+        lines.append(f"target: {target}")
+    # Every line install composes passes through mask_text, so no URL reaches
+    # the terminal past its scheme; snippets are masked whole.
+    lines += [f"action: {action}", *map(mask_text, details), f"session_start: {session_start}"]
     if hooks_path is not None:
         lines.append(f"session_start_path: {hooks_path}")
+        if hooks_target is not None and hooks_target != hooks_path:
+            lines.append(f"session_start_target: {hooks_target}")
+    lines.extend(map(mask_text, hook_details))
     if host in {"openclaw", "hermes"}:
         lines.append(f"note: {BRIEF_HINT}")
     if snippet is not None:
         lines.append("snippet:")
         lines.append(snippet.rstrip())
-    lines.extend(trailer)
+    lines.extend(map(mask_text, trailer))
     if host == "openclaw":
-        lines.append(openclaw_add_line(data_dir))
+        shown_line = openclaw_add_line(data_dir, launcher, hide_values=True)
+        lines.append(shown_line)
+        if shown_line != openclaw_add_line(data_dir, launcher):
+            lines.append(
+                "note: the line above shows <hidden> in place of values from your entry; "
+                "put them back before running it"
+            )
     return "\n".join(lines)
 
 
@@ -1797,6 +2653,278 @@ def _resolved_dir(raw: str | None, home: Path) -> str | None:
     return None if raw is None else str(resolve_user_path(raw, home))
 
 
+_INDEX_ADVICE = (
+    "Move the index into your user-level uv config, ~/.config/uv/uv.toml as [[index]] "
+    "(%APPDATA%\\uv\\uv.toml on Windows), not a project uv.toml, since the hook runs from "
+    "the project's directory; keep its credentials in a keyring, .netrc, or "
+    "UV_INDEX_<NAME>_USERNAME and UV_INDEX_<NAME>_PASSWORD. Then remove the option from the "
+    "entry's args and run install again"
+)
+
+
+def _hook_block(launcher: Launcher) -> str | None:
+    """Why install must not write this launcher into a hook, or None.
+
+    Install never writes a URL into a hook file, so an entry whose uvx
+    options name an index or hold a URL gets no new hook; nor does one with
+    any option off the carry list (host_launcher.CARRY_OPTIONS_WITH_VALUE and
+    CARRY_FLAGS), which could make the hook resolve a different
+    alice-memory than the server. A spec that can only resolve below 0.16.0
+    has no alice-memory-session-start, so a hook would fail on every session.
+    """
+
+    if launcher.kind == "uvx":
+        index_words, off_list = launcher.uncarried_options
+        if index_words:
+            return (
+                f"the entry's uvx options name an index or a URL ({', '.join(index_words)}), "
+                f"and install never writes a URL into a hook file. {_INDEX_ADVICE}"
+            )
+        if off_list:
+            return (
+                f"the entry's uvx options include {', '.join(off_list)}, which install does not "
+                "carry into a hook (it carries only --prerelease, --python and "
+                "--python-preference, and the flags --native-tls, --offline, --no-cache and "
+                "--refresh), so the hook could resolve a different alice-memory than the server. "
+                "Remove the option from the entry's args and run install again"
+            )
+    if launcher.package_has_url:
+        return (
+            f"the entry's package spec is a URL ({launcher.shown_package}), and install never "
+            "writes a URL into a hook file. Use a plain alice-memory spec, with its index in your "
+            "user-level uv config, ~/.config/uv/uv.toml as [[index]], if it needs one, then run "
+            "install again"
+        )
+    support = launcher.session_start_support
+    if support == "no":
+        return (
+            f"{launcher.shown_package} has no alice-memory-session-start (it first shipped in "
+            f"alice-memory {FIRST_SESSION_START_VERSION}); pin alice-memory>=0.16 or remove "
+            "the pin, then run install again"
+        )
+    if support == "unknown":
+        return (
+            f"install cannot tell whether {launcher.shown_package} has alice-memory-session-start "
+            f"(it first shipped in alice-memory {FIRST_SESSION_START_VERSION})"
+        )
+    return None
+
+
+def _argv_after_change(plan: _EntryPlan) -> str | None:
+    """The plain hook argv install would add once the entry's uncarried options are gone.
+
+    Carried options only, so no URL and nothing to hide; None when the
+    entry's spec still has no session-start script, or the hook keeps its
+    own store (a --db entry).
+    """
+
+    launcher = plan.launcher
+    if launcher.kind != "uvx" or plan.hook_mode != "follow":
+        return None
+    index_words, off_list = launcher.uncarried_options
+    if not (index_words or off_list) or launcher.session_start_support != "yes":
+        return None
+    argv = [
+        launcher.command,
+        *launcher.carry_options,
+        "--from",
+        launcher.package,
+        SESSION_START_COMMAND,
+        "--data-dir",
+        plan.data_dir,
+    ]
+    return f"session_start_argv_after_change: {json.dumps(argv)}"
+
+
+def _refuse_kept_hook(
+    old_command: str,
+    old: HookDataDir | None,
+    data_dir: str,
+    reason: str | None,
+    details: list[str],
+    block: str | None = None,
+) -> tuple[str, str]:
+    """Refuse a hook install must keep but cannot point at the entry's new dir.
+
+    The receipt names both dirs and prints the hook's argv, with the new
+    --data-dir, to add by hand; values that may be secrets are hidden.
+    """
+
+    argv = split_command(old_command)
+    located = None
+    for index, word in enumerate(argv):
+        if word == "--data-dir" and index + 1 < len(argv):
+            located = (index + 1, False)
+        elif word.startswith("--data-dir="):
+            located = (index, True)
+    if located is None:
+        argv += ["--data-dir", data_dir]
+    else:
+        index, equals = located
+        argv[index] = f"--data-dir={data_dir}" if equals else data_dir
+    old_raw = old.raw if old is not None and old.raw is not None else "(none)"
+    details.append(
+        f"warning: the MCP entry now opens {data_dir}, but the SessionStart hook's --data-dir "
+        f"{old_raw} cannot be moved safely ({reason}), so install did not change the hook; "
+        f"change its --data-dir to {data_dir} by hand"
+        + (f". It keeps its own command because {block}" if block else "")
+    )
+    shown, hidden = shown_hook_words(argv)
+    if not hidden:
+        # Never a masked argv: one could only be used by pasting the hidden
+        # values back into the hooks file by hand.
+        details.append(f"session_start_argv: {json.dumps(shown)}")
+    return "refused", f"the SessionStart hook still points at {old_raw}, not {data_dir}"
+
+
+def _plan_hook(
+    hooks: _JsonFile,
+    host: str,
+    plan: _EntryPlan,
+    old_command: str | None,
+    old: HookDataDir | None,
+    old_dir: str | None,
+    explicit: bool,
+    details: list[str],
+) -> tuple[str, str | None]:
+    """Plan the Alice SessionStart hook from the entry's plan: (status, refusal).
+
+    "follow": the hook takes the entry's launcher and data dir. "own-dir"
+    (a --db entry): the launcher, keeping its own data dir. "repair": only
+    the shape of an existing hook is repaired. A hook keeps its own command,
+    shape repaired, and none is added, when the launcher must not go into a
+    hook (_hook_block), and in "follow" when its --data-dir is not read
+    literally by the shell and --data-dir was not passed. When a kept
+    command sits beside an entry whose launcher install replaced, the
+    receipt says so.
+    """
+
+    command: str | None = None
+    built = False  # the command runs the entry's launcher, as install wrote it
+    if plan.hook_mode == "repair":
+        if old_command is None:
+            return "none", None
+        command = old_command
+    else:
+        script_problem = hook_script_problem(plan.launcher)
+        block = _hook_block(plan.launcher)
+        if plan.hook_mode == "own-dir" and old_command is None:
+            details.append("note: the entry opens --db, so install added no SessionStart hook")
+            return "none", None
+        if script_problem is not None:
+            if old_command is None or plan.hook_mode == "follow":
+                details.append(
+                    f"warning: {script_problem}, so install left the SessionStart hook as it was"
+                )
+                return "skipped", None
+            details.append(
+                f"warning: {script_problem}, so install kept the SessionStart hook's command"
+            )
+            command = old_command
+        elif block is not None:
+            after = _argv_after_change(plan)
+            if old_command is None:
+                details.append(f"warning: install added no SessionStart hook: {block}")
+                if after is not None:
+                    details.append(after)
+                return "skipped", None
+            if after is not None:
+                details.append(after)
+            command = old_command
+            # A --db entry's hook keeps its own store ("own-dir"): only a
+            # hook that follows the entry's data dir is moved or refused.
+            follows = plan.hook_mode == "follow"
+            if follows and old is not None and old.trusted and old_dir != plan.data_dir:
+                # Keep the launcher text; move only the --data-dir value.
+                moved, problem = replace_hook_data_dir(old_command, plan.data_dir)
+                if moved is None:
+                    return _refuse_kept_hook(old_command, old, plan.data_dir, problem, details)
+                command = moved
+                details.append(
+                    "warning: install kept the SessionStart hook's launcher and changed only "
+                    f"its --data-dir: {block}"
+                )
+                details.append(f"session_start_data_dir: {old.raw} -> {plan.data_dir}")
+            elif follows and explicit and (old is None or not old.trusted):
+                reason = old.reason if old is not None and old.reason else "it has no --data-dir"
+                return _refuse_kept_hook(old_command, old, plan.data_dir, reason, details, block)
+            else:
+                details.append(
+                    f"warning: install left the SessionStart hook's command as it was: {block}"
+                )
+        elif plan.hook_mode == "own-dir":
+            assert old_command is not None
+            if old is None or not old.trusted:
+                if old is not None and old.raw is not None:
+                    details.append(
+                        f"warning: the SessionStart hook's --data-dir {old.raw} cannot be relied "
+                        f"on ({old.reason}), so install kept the hook's command"
+                    )
+                command = old_command
+            else:
+                assert old.raw is not None
+                text, problem = hook_command(plan.launcher, old.raw)
+                if problem is not None:
+                    return "refused", problem
+                command, built = text, True
+        elif old is not None and old.shell and not explicit:
+            assert old_command is not None
+            details.append(
+                f"warning: the SessionStart hook's --data-dir {old.raw} is not read literally "
+                "by the shell, so install left the hook's command as it was"
+            )
+            command = old_command
+        else:
+            text, problem = hook_command(plan.launcher, plan.data_dir)
+            if problem is not None:
+                argv = [*plan.launcher.hook_argv(), "--data-dir", plan.data_dir]
+                details.append(f"session_start_argv: {json.dumps(masked_args(argv)[0])}")
+                return "refused", problem
+            command, built = text, True
+            if old is not None and old.raw is not None:
+                if old.trusted and old_dir != plan.data_dir:
+                    details.append(f"session_start_data_dir: {old.raw} -> {plan.data_dir}")
+                elif not old.trusted:
+                    details.append(
+                        f"warning: the SessionStart hook's --data-dir {old.raw} could not be "
+                        f"relied on ({old.reason}); the hook now uses {plan.data_dir}"
+                    )
+        if built:
+            details.append(
+                "session_start_launcher: "
+                + " ".join(masked_args(plan.launcher.hook_argv())[0])
+            )
+        elif plan.replaced is not None:
+            details.append(
+                f"warning: the MCP entry's launcher changed from {plan.replaced.describe()} to "
+                f"{plan.launcher.describe()}, but the SessionStart hook kept its own command, "
+                "which may still run the old one"
+            )
+    assert command is not None
+    if not hooks.doc:
+        hooks.doc.update(_new_hooks_document(host, command))
+        return "added", None
+    return _merge_session_start(hooks.doc, host, command), None
+
+
+def _dry_run_json_snippet(
+    host: str, entry: Mapping[str, Any] | None, hooks: _JsonFile | None
+) -> tuple[str, list[str]]:
+    """Only the alice entry and only the Alice hook, values from the file hidden."""
+
+    parts: list[str] = []
+    hidden: list[str] = []
+    if entry is not None:
+        shown, hidden = _masked(entry)
+        parts.append(_alice_entry_snippet(host, shown))
+    if hooks is not None:
+        items = _alice_hook_items(hooks.doc, host)
+        if items:
+            key = "SessionStart" if host == "claude-code" else "sessionStart"
+            parts.append(_dump_json({"hooks": {key: _masked_hook_item(items, hidden)}}))
+    return "\n---\n".join(part.rstrip() for part in parts) + "\n", list(dict.fromkeys(hidden))
+
+
 def _install_json_host(
     host: str,
     *,
@@ -1804,6 +2932,7 @@ def _install_json_host(
     explicit_dir: str | None,
     default_dir: str,
     dry_run: bool,
+    search: LauncherSearch,
 ) -> _HostResult:
     """Plan both files of one JSON host, then write them; never raise for one host.
 
@@ -1811,15 +2940,21 @@ def _install_json_host(
     whole host and nothing is written for it. An alice entry that install did
     not write refuses the MCP file; an existing Alice hook is still repaired
     with its own --data-dir, and no hook is added. An OSError fails the host
-    with a static message naming the file.
+    with a static message naming the file. The receipt says what happened
+    to each file.
     """
 
     files = host_file_map(home)[host]
     mcp_path = files["mcp"]
     hooks_path = files.get("hooks") if host in _SESSION_START_HOSTS else None
+    key_label = ".".join(_alice_server_keys(host))
     details: list[str] = []
+    hook_details: list[str] = []
     session_start = "none"
     data_dir = explicit_dir or default_dir
+    launcher = search.launcher or UVX_LAUNCHER
+    mcp: _JsonFile | None = None
+    hooks: _JsonFile | None = None
 
     def receipt(action: str, **extra: Any) -> str:
         return _format_host_receipt(
@@ -1828,72 +2963,81 @@ def _install_json_host(
             hooks_path=hooks_path,
             action=action,
             details=details,
+            hook_details=hook_details,
             session_start=session_start,
             data_dir=data_dir,
+            launcher=launcher,
+            target=mcp.target if mcp is not None else None,
+            hooks_target=hooks.target if hooks is not None else None,
             **extra,
         )
 
     current = mcp_path
+    hook_problem: str | None = None
     try:
-        mcp_raw = _read_host_file(mcp_path)
-        mcp_doc = _parse_json_host(mcp_raw)
-        container = _alice_container(mcp_doc, host)
-        hooks_raw: bytes | None = None
-        hooks_doc: dict[str, Any] | None = None
+        mcp = _load_json_file(mcp_path)
+        container = _alice_container(mcp.doc, host)
         if hooks_path is not None:
             current = hooks_path
-            hooks_raw = _read_host_file(hooks_path)
-            hooks_doc = _parse_json_host(hooks_raw)
-            _check_hooks_file(hooks_doc, host)
-
+            hooks = _load_json_file(hooks_path)
+            _check_hooks_file(hooks.doc, host)
         existing = container.get("alice") if container is not None else None
-        foreign = existing is not None and not is_install_shaped_entry(existing)
-        existing_dir = _entry_data_dir(existing) if existing is not None and not foreign else None
-        hook_command = (
-            _existing_alice_hook_command(hooks_doc, host) if hooks_doc is not None else None
+        old_hook = _existing_alice_hook_command(hooks.doc, host) if hooks is not None else None
+        old_read = read_hook_data_dir(old_hook) if old_hook is not None else None
+        old_hook_dir = (
+            _resolved_dir(old_read.raw, home)
+            if old_read is not None and old_read.trusted
+            else None
         )
-        hook_dir = _hook_command_data_dir(hook_command) if hook_command else None
-        data_dir = (
-            explicit_dir
-            or _resolved_dir(existing_dir, home)
-            or _resolved_dir(hook_dir, home)
-            or default_dir
+        plan = _plan_entry(
+            existing,
+            key_label=key_label,
+            explicit_dir=explicit_dir,
+            new_entry_dir=old_hook_dir or default_dir,
+            default_dir=default_dir,
+            home=home,
+            search=search,
+            with_env=False,
+            needs_hook=host in _SESSION_START_HOSTS,
         )
-
-        refusal: str | None = None
-        mcp_text: str | None = None
-        if foreign:
-            refusal = (
-                f"{'.'.join(_alice_server_keys(host))} exists and install did not write it "
-                f"({_describe_entry(existing)})"
+        data_dir, launcher = plan.data_dir, plan.launcher
+        details.extend(plan.details)
+        if (
+            existing is None
+            and explicit_dir is None
+            and old_read is not None
+            and old_read.raw is not None
+            and not old_read.trusted
+        ):
+            details.append(
+                f"warning: the existing SessionStart hook's --data-dir {old_read.raw} cannot "
+                f"be relied on ({old_read.reason}), so the new entry uses {plan.data_dir}"
             )
-        elif existing is None:
-            _set_nested(mcp_doc, _alice_server_keys(host), mcp_server_payload(data_dir, with_env=False))
-            mcp_text = _dump_json(mcp_doc)
-        else:
-            assert container is not None and isinstance(existing, Mapping)
-            entry = dict(existing)
-            if explicit_dir is not None and _resolved_dir(existing_dir, home) != explicit_dir:
-                entry["args"] = _args_with_data_dir(entry["args"], explicit_dir)
-                details.append(f"data_dir: {existing_dir or '(not set)'} -> {explicit_dir}")
-            kept = _kept_keys(entry)
-            if kept:
-                details.append("kept: " + ", ".join(kept))
-            container["alice"] = entry
-            mcp_text = _dump_json(mcp_doc)
-
-        hooks_text: str | None = None
-        if hooks_path is not None and hooks_doc is not None:
-            command = hook_command if foreign else session_start_hook_command(data_dir)
-            if command is not None:
-                if not hooks_doc:
-                    hooks_doc = _new_hooks_document(host, command)
-                    session_start = "added"
-                else:
-                    session_start = _merge_session_start(hooks_doc, host, command)
-                hooks_text = _dump_json(hooks_doc)
-    except _MalformedHostFile as problem:
-        details[:] = [f"reason: {problem}", f"file: {current}"]
+        if plan.entry is not None:
+            _set_nested(mcp.doc, _alice_server_keys(host), plan.entry)
+        if hooks is not None:
+            session_start, hook_problem = _plan_hook(
+                hooks,
+                host,
+                plan,
+                old_hook,
+                old_read,
+                old_hook_dir,
+                explicit_dir is not None,
+                hook_details,
+            )
+        mcp_changed = plan.entry is not None and mcp.changed()
+        hooks_changed = (
+            hooks is not None and session_start in {"added", "updated"} and hooks.changed()
+        )
+    except (_MalformedHostFile, RecursionError) as problem:
+        reason = (
+            str(problem)
+            if isinstance(problem, _MalformedHostFile)
+            else "the file is nested too deeply to read"
+        )
+        details[:] = [f"reason: {reason}", f"file: {current}"]
+        hook_details.clear()
         session_start = "none"
         trailer = (
             _DRY_RUN_REFUSAL
@@ -1908,75 +3052,127 @@ def _install_json_host(
         )
     except OSError:
         details[:] = [f"file: {current}", f"reason: {_FAILED_REASON}"]
+        hook_details.clear()
+        session_start = "none"
         return _HostResult(receipt("failed", snippet=None), "failed")
 
-    if refusal is not None:
-        details.insert(0, f"reason: {refusal}")
-    snippet_for_refusal = _alice_entry_snippet(host, mcp_server_payload(data_dir, with_env=False))
+    assert mcp is not None
+    refused = plan.refusal is not None or hook_problem is not None
+    if plan.refusal is not None:
+        details.insert(0, f"reason: {plan.refusal}")
+    if hook_problem is not None:
+        hook_details.insert(0, f"session_start_reason: {hook_problem}")
+    paste_entry = plan.paste or mcp_server_payload(
+        plan.data_dir, with_env=False, launcher=plan.launcher
+    )
+    shown_paste, paste_hidden = _masked(paste_entry)
+    paste = _alice_entry_snippet(host, shown_paste)
+    paste_keep: tuple[str, ...] = (_keep_line(paste_hidden),) if paste_hidden else ()
+    status = "refused" if refused else "ok"
+    backup_dir = _backup_dir(
+        plan.data_dir if plan.hook_mode == "follow" else (explicit_dir or default_dir)
+    )
 
     if dry_run:
-        if hooks_text is not None:
-            session_start = "planned"
-        if refusal is not None:
+        if hooks_changed:
+            session_start = f"planned ({session_start})"
+        if plan.refusal is not None:
             return _HostResult(
-                receipt(
-                    _refusal_action(True),
-                    snippet=snippet_for_refusal,
-                    trailer=(_DRY_RUN_REFUSAL,),
-                ),
-                "refused",
+                receipt("would-refuse", snippet=paste, trailer=(*paste_keep, _DRY_RUN_REFUSAL)),
+                status,
+                plan.used_fallback,
             )
-        assert mcp_text is not None
-        snippet = mcp_text
-        if hooks_text is not None:
-            snippet = f"{mcp_text.rstrip()}\n---\n{hooks_text.rstrip()}\n"
-        return _HostResult(receipt("dry-run", snippet=snippet), "ok")
+        snippet, hidden = _dry_run_json_snippet(host, plan.entry, hooks)
+        dry_trailer: tuple[str, ...] = (
+            *((_hidden_line(hidden),) if hidden else ()),
+            *((_DRY_RUN_REFUSAL,) if hook_problem is not None else ()),
+        )
+        return _HostResult(
+            receipt("dry-run", snippet=snippet, trailer=dry_trailer), status, plan.used_fallback
+        )
 
-    action = "refused" if refusal is not None else "unchanged"
-    try:
-        if mcp_text is not None and (mcp_raw is None or mcp_text.encode("utf-8") != mcp_raw):
-            current = mcp_path
-            if mcp_raw is not None:
-                details.append(f"backup: {_backup_host_file(mcp_path, mcp_raw)}")
-            _write_text(mcp_path, mcp_text)
-            action = "written"
-        if hooks_path is not None and hooks_text is not None and (
-            hooks_raw is None or hooks_text.encode("utf-8") != hooks_raw
-        ):
-            current = hooks_path
-            if hooks_raw is not None:
-                details.append(f"session_start_backup: {_backup_host_file(hooks_path, hooks_raw)}")
-            _write_text(hooks_path, hooks_text)
-    except (OSError, InstallError):
-        details[:0] = [f"file: {current}", f"reason: {_FAILED_REASON}"]
-        return _HostResult(receipt("failed", snippet=None), "failed")
+    action = "refused" if plan.refusal is not None else "unchanged"
+    if mcp_changed:
+        try:
+            if mcp.raw is not None:
+                backup = _backup_host_file(mcp.target, mcp.raw, backup_dir=backup_dir, host=host)
+                details.append(f"backup: {backup}")
+            _write_text(mcp.target, _dump_json(mcp.doc))
+        except _BackupFailed as failure:
+            details[:0] = [f"file: {mcp.target}", f"reason: {failure.reason()}"]
+            if hooks_changed:
+                session_start = "not attempted"
+            return _HostResult(receipt("failed", snippet=None), "failed", plan.used_fallback)
+        except (OSError, InstallError):
+            details[:0] = [f"file: {mcp.target}", f"reason: {_FAILED_REASON}"]
+            if hooks_changed:
+                session_start = "not attempted"
+            return _HostResult(receipt("failed", snippet=None), "failed", plan.used_fallback)
+        action = "written"
+    if hooks_changed:
+        assert hooks is not None
+        try:
+            if hooks.raw is not None:
+                backup = _backup_host_file(
+                    hooks.target, hooks.raw, backup_dir=backup_dir, host=host
+                )
+                hook_details.append(f"session_start_backup: {backup}")
+            _write_text(hooks.target, _dump_json(hooks.doc))
+        except (_BackupFailed, OSError, InstallError) as problem:
+            reason = problem.reason() if isinstance(problem, _BackupFailed) else _FAILED_REASON
+            hook_details[:0] = [
+                f"session_start_file: {hooks.target}",
+                f"session_start_reason: {reason}",
+            ]
+            session_start = "failed"
+            return _HostResult(receipt(action, snippet=None), "failed", plan.used_fallback)
 
-    if refusal is not None:
+    if plan.refusal is not None:
         return _HostResult(
             receipt(
                 "refused",
-                snippet=snippet_for_refusal,
+                snippet=paste,
                 trailer=(
-                    f"next: {mcp_path.name} was not changed. Rename or remove that alice "
-                    "entry, or add the entry above under a different name by hand.",
+                    *paste_keep,
+                    f"next: {mcp_path.name} was not changed. {plan.next_step or _FOREIGN_NEXT}",
                 ),
             ),
-            "refused",
+            status,
+            plan.used_fallback,
         )
-    return _HostResult(receipt(action, snippet=None), "ok")
+    if hook_problem is not None:
+        return _HostResult(
+            receipt(
+                action,
+                snippet=None,
+                trailer=(
+                    "next: install did not write the SessionStart hook. Add a hook that runs "
+                    "session_start_argv above, quoted for the shell your host uses.",
+                ),
+            ),
+            status,
+            plan.used_fallback,
+        )
+    return _HostResult(receipt(action, snippet=None), status, plan.used_fallback)
 
 
-def _uvx_on_path() -> bool:
-    return shutil.which(MCP_COMMAND) is not None
+_MCPB_UVX_WARNING = (
+    "warning: the bundle runs uvx, which is not on PATH here; Claude Desktop cannot "
+    "start it until uv is installed: https://docs.astral.sh/uv/"
+)
 
 
-def _install_mcpb(path: Path, *, dry_run: bool) -> _HostResult:
+def _install_mcpb(path: Path, *, dry_run: bool, uvx_on_path: bool) -> _HostResult:
     try:
-        return _HostResult(write_mcpb_bundle(path, dry_run=dry_run), "ok")
+        receipt = write_mcpb_bundle(path, dry_run=dry_run)
     except InstallError as problem:
         reason = str(problem)
     except OSError:
         reason = _FAILED_REASON
+    else:
+        if not uvx_on_path:
+            receipt = f"{receipt}\n{_MCPB_UVX_WARNING}"
+        return _HostResult(receipt, "ok")
     return _HostResult("\n".join((f"mcpb: {path}", "action: failed", f"reason: {reason}")), "failed")
 
 
@@ -2002,8 +3198,10 @@ def run_host_install(
         str(resolve_user_path(data_dir, resolved_home)) if data_dir is not None else None
     )
     default_dir = str(resolve_user_path(DEFAULT_DATA_DIR, resolved_home))
+    planned = _plan_hosts(hosts)
+    search = find_launcher()
     results: list[_HostResult] = []
-    for host in _plan_hosts(hosts):
+    for host in planned:
         if host == "hermes":
             results.append(
                 _install_hermes_host(
@@ -2011,6 +3209,7 @@ def run_host_install(
                     explicit_dir=explicit_dir,
                     default_dir=default_dir,
                     dry_run=dry_run,
+                    search=search,
                 )
             )
         else:
@@ -2021,14 +3220,17 @@ def run_host_install(
                     explicit_dir=explicit_dir,
                     default_dir=default_dir,
                     dry_run=dry_run,
+                    search=search,
                 )
             )
     if write_mcpb:
-        results.append(_install_mcpb(Path(write_mcpb), dry_run=dry_run))
+        results.append(
+            _install_mcpb(Path(write_mcpb), dry_run=dry_run, uvx_on_path=search.uvx_on_path)
+        )
     blocks = [result.receipt for result in results]
-    if not _uvx_on_path():
+    if search.warning is not None and any(result.used_fallback for result in results):
         # A warning, not a refusal: the files are still right once uv is installed.
-        blocks.insert(0, UVX_MISSING_WARNING)
+        blocks.insert(0, search.warning)
     output = "\n\n".join(blocks)
     statuses = {result.status for result in results}
     if "failed" in statuses:
@@ -2049,9 +3251,14 @@ __all__ = [
     "InstallError",
     "InstallFailed",
     "InstallRefused",
+    "Launcher",
+    "MCP_SCRIPT",
     "SESSION_START_COMMAND",
-    "UVX_MISSING_WARNING",
+    "UVX_LAUNCHER",
+    "UVX_MISSING_WARNING_PREFIX",
+    "UV_TEMP_ENV_WARNING",
     "build_mcpb_manifest",
+    "find_launcher",
     "claude_code_session_start_group",
     "claude_code_session_start_handler",
     "claude_desktop_config_path",

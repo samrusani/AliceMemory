@@ -37,6 +37,7 @@ from alicebot_api.host_install import (
 )
 from alicebot_api.onramp import _ERROR_CONTRACTS, main as onramp_main
 
+pytestmark = pytest.mark.usefixtures("uvx_on_path")
 JSON_HOSTS = ("claude-desktop", "claude-code", "cursor", "openclaw")
 HOOK_HOSTS = ("claude-code", "cursor")
 POSTGRES_ENTRY = {
@@ -48,13 +49,27 @@ POSTGRES_ENTRY = {
         "ALICEBOT_AUTH_USER_ID": "00000000-0000-0000-0000-000000000001",
     },
 }
-USER_ENTRY = {
-    "command": "/opt/homebrew/bin/uvx",
-    "args": ["alice-memory==0.16.0", "mcp", "--data-dir", "/custom/vault"],
-    "env": {"ALICE_MCP_FULL_TOOLS": "1", "EXTRA_FLAG": "on"},
-    "type": "stdio",
-    "timeout": 30,
-}
+
+
+def _executable(path: Path) -> Path:
+    """An empty executable file, standing in for an installed program. Never run."""
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("", encoding="utf-8")
+    path.chmod(0o755)
+    return path
+
+
+def _user_entry(uvx: Path) -> dict:
+    """An install-shaped entry with every kind of user key and an absolute uvx."""
+
+    return {
+        "command": str(uvx),
+        "args": ["alice-memory==0.16.0", "mcp", "--data-dir", "/custom/vault"],
+        "env": {"ALICE_MCP_FULL_TOOLS": "1", "EXTRA_FLAG": "on"},
+        "type": "stdio",
+        "timeout": 30,
+    }
 
 
 def _error(code: str) -> dict:
@@ -129,8 +144,9 @@ def test_rerun_without_flag_keeps_every_user_key_and_the_data_dir(
     """
 
     home = tmp_path / "home"
+    uvx = _executable(tmp_path / "tools" / "uvx")
     mcp_path = _files(home, host)["mcp"]
-    original = _dump(_with_alice(host, USER_ENTRY))
+    original = _dump(_with_alice(host, _user_entry(uvx)))
     _seed(mcp_path, original)
 
     code, out, records = _install(capsys, home, "--host", host)
@@ -139,10 +155,13 @@ def test_rerun_without_flag_keeps_every_user_key_and_the_data_dir(
     block = _block(out, host)
     assert "action: unchanged" in block
     assert "kept: command, env (2 keys), type, timeout" in block
+    assert f"launcher: kept {uvx} alice-memory==0.16.0 mcp" in block
     assert HERMES_BACKUP_MARKER not in block
     if host in HOOK_HOSTS:
+        # The hook follows the entry: its uvx, and its pin.
         assert _hook_commands(home, host) == [
-            "uvx --from alice-memory alice-memory-session-start --data-dir /custom/vault"
+            f"{uvx} --from alice-memory==0.16.0 alice-memory-session-start "
+            "--data-dir /custom/vault"
         ]
 
 
@@ -158,19 +177,24 @@ def test_rerun_with_flag_rewrites_only_the_data_dir_and_backs_up_first(
 
     home = tmp_path / "home"
     new_vault = (tmp_path / "new-vault").resolve()
+    uvx = _executable(tmp_path / "tools" / "uvx")
     mcp_path = _files(home, host)["mcp"]
-    original = _dump(_with_alice(host, USER_ENTRY))
+    original = _dump(_with_alice(host, _user_entry(uvx)))
     _seed(mcp_path, original)
 
     code, out, records = _install(capsys, home, "--host", host, "--data-dir", str(new_vault))
     assert code == 0, (out, records)
     written = json.loads(mcp_path.read_text(encoding="utf-8"))
-    expected = dict(USER_ENTRY)
+    expected = _user_entry(uvx)
     expected["args"] = ["alice-memory==0.16.0", "mcp", "--data-dir", str(new_vault)]
     assert _alice(host, written) == expected
     block = _block(out, host)
     assert f"data_dir: /custom/vault -> {new_vault}" in block
-    backups = sorted(mcp_path.parent.glob(f"{mcp_path.name}{HERMES_BACKUP_MARKER}*"))
+    # Since review round 4 backups live in <data dir>/backups/host-configs.
+    assert not list(mcp_path.parent.glob(f"{mcp_path.name}{HERMES_BACKUP_MARKER}*"))
+    backups = sorted(
+        (new_vault / "backups" / "host-configs").glob(f"{host}-{mcp_path.name}{HERMES_BACKUP_MARKER}*")
+    )
     assert len(backups) == 1
     assert backups[0].read_text(encoding="utf-8") == original
     assert f"backup: {backups[0]}" in block
@@ -454,23 +478,31 @@ def test_malformed_alice_group_is_left_alone(
 
 
 @pytest.mark.parametrize("host", JSON_HOSTS)
-def test_bare_data_dir_at_the_end_of_args_gets_one_value(
+def test_bare_data_dir_at_the_end_of_args_is_left_alone(
     tmp_path: Path, capsys, host: str
 ) -> None:
-    """An install-shaped entry whose args end in a bare --data-dir gets the value.
+    """Args ending in a bare --data-dir: alice-memory mcp would not start, so install keeps them.
 
-    Found on 2026-09-22 by the Hermes fuzz pass, which shares the helper:
-    the args became [..., "--data-dir", "--data-dir", dir]. Mutation: append
-    the pair whenever --data-dir has no value after it. This test fails.
+    Found on 2026-09-22 by the Hermes fuzz pass, when the args became
+    [..., "--data-dir", "--data-dir", dir]. Since review round 4 (S1) the
+    server's own parser reads the args; when it rejects them, install keeps
+    the entry and its hook, and refuses when --data-dir asks it to move
+    them. Mutation: rewrite args the parser rejects. This test fails.
     """
 
     home = tmp_path / "home"
     vault = (tmp_path / "vault").resolve()
     mcp_path = _files(home, host)["mcp"]
     entry = {"command": "uvx", "args": ["alice-memory", "mcp", "--data-dir"]}
-    _seed(mcp_path, _dump(_with_alice(host, entry)))
+    original = _dump(_with_alice(host, entry))
+    _seed(mcp_path, original)
+
+    code, out, records = _install(capsys, home, "--host", host)
+    assert code == 0, (out, records)
+    assert mcp_path.read_text(encoding="utf-8") == original
+    assert "alice-memory mcp would not start with the args --data-dir" in out
 
     code, out, records = _install(capsys, home, "--host", host, "--data-dir", str(vault))
-    assert code == 0, (out, records)
-    written = json.loads(mcp_path.read_text(encoding="utf-8"))
-    assert _alice(host, written)["args"] == ["alice-memory", "mcp", "--data-dir", str(vault)]
+    assert code == 1
+    assert mcp_path.read_text(encoding="utf-8") == original
+    assert "so install cannot move its data dir" in out

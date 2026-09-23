@@ -14,30 +14,152 @@
   removed; a group whose `hooks` is not a list is left as it is.
 
 - Re-running `alice-memory install` keeps what the user set. An `alice`
-  entry install wrote (uvx running `alice-memory mcp`, pinned or not)
-  keeps every key: env, type, timeout, cwd and an absolute uvx path.
+  entry of install's shape keeps every key: env, type, timeout, cwd.
+  Install's shape is uvx running `alice-memory mcp` (pinned or ranged,
+  such as `alice-memory==0.16.0` or `alice-memory>0.15`, or
+  `--from <spec> alice-memory mcp`, with uvx options before it), or an
+  `alice-memory` script run by path with `mcp` first. Look-alikes such as
+  `uvx mcp-proxy mcp --name alice-memory` or `uvx alice-memory-foo mcp`
+  are not. An entry's store is read with `alice-memory mcp`'s own
+  argument parser, so abbreviations (`--data`), `=` forms, the last of
+  repeated options and `--db` read the way the server reads them. Without
+  `--data-dir` in the args the server opens `~/.alice`.
+  `ALICE_MEMORY_DATA_DIR` in the entry's env is not read, because the
+  server does not read it; when it differs, the receipt prints a note,
+  with the old value hidden, and install leaves it. An entry whose
+  `--data-dir` is a relative path is refused: the server resolves it
+  against the host's working directory, which install cannot know. The
+  paste marks where an absolute path goes, and with `--data-dir` the entry
+  moves as usual. An entry whose args the server would reject is left as
+  it is, with its hook, and a warning; with `--data-dir` it is refused.
+  The data dir the README's example shows, `/ABSOLUTE/PATH/TO/.alice`,
+  pasted as is, counts as unset: install replaces it with `--data-dir` or
+  `~/.alice` and prints `data_dir: /ABSOLUTE/PATH/TO/.alice (the
+  placeholder from the docs) -> <dir>`; a hook on that placeholder is not
+  relied on either.
   `--data-dir` no longer defaults to `~/.alice` for install: without the
-  flag, each host keeps the data dir its entry already uses, and the
-  Claude Code and Cursor hooks follow it (then an existing Alice hook's
-  data dir, then `~/.alice`). With the flag, only the `--data-dir` value
-  changes and the receipt prints `data_dir: old -> new`. An `alice`
-  entry install did not write, such as the documented Postgres entry,
-  is left byte-identical and that host is refused with the entry to add
-  by hand; an existing Alice hook there is only repaired, keeping its
-  own data dir. Each JSON host file is backed up
-  (`<file>.alice-backup-<UTC time>`) before it is rewritten, and a file
-  that would not change is not written. The receipt lists the user keys
-  it kept.
+  flag, each host keeps its entry's data dir. With the flag, only the
+  data dir changes (every spelling of `--data-dir` becomes one) and the
+  receipt prints `data_dir: old -> new`. An entry that opens `--db` is
+  kept as it is, with a note, and its hook keeps its own data dir; no hook
+  is added for it. Passing `--data-dir` for a `--db` entry is refused, and
+  the paste offered is that entry with `--db` replaced by the new dir. The
+  Claude Code and Cursor hooks follow the MCP entry's data dir, and a hook
+  that pointed elsewhere prints `session_start_data_dir: old -> new`. This
+  holds for a hook that keeps its own command (see the launcher entry
+  below): install changes only its `--data-dir` word, leaving the rest of
+  the text as written, and when that word cannot be read literally, or is
+  missing, while `--data-dir` moves the entry, it refuses the hook for
+  that host (`session_start: refused`, exit 1 with `install_refused`),
+  names both dirs, and says to change the hook's `--data-dir` by hand; it
+  prints the argv to add only when nothing in it would be hidden, never a
+  masked one. A `--db` entry's hook is
+  the exception: its store is never moved, kept command or not. A
+  new entry takes an existing Alice hook's data dir, else `~/.alice`. An
+  `alice` entry install did not write, such as the documented Postgres
+  entry, is left byte-identical and that host is refused with the entry
+  to add by hand, on that entry's data dir when the server's parser can
+  read it from the args after `mcp`; an existing Alice hook there is only
+  repaired, keeping its own command. Before a JSON host file is
+  rewritten it is backed up into `<data dir>/backups/host-configs/`, a
+  0700 directory, as `<host>-<file>.alice-backup-<UTC time>`; no backup
+  goes next to the host file or a symlink's target, which can sit in a
+  dotfiles repo. Install tightens only `host-configs` itself; an existing
+  `<data dir>/backups` keeps its mode. When the backup directory cannot be
+  created or written, the host fails with a reason naming that directory,
+  and the host file is not changed. A file whose parsed JSON would not change is neither
+  written nor backed up, so a file the host has reformatted is left
+  alone. The receipt lists the user keys it kept, and the Cursor hook item
+  keeps any keys the user added to it.
 
 - One host no longer stops the others. A JSON file that does not parse,
-  or whose `hooks` or `SessionStart` has the wrong type, refuses that
-  host with a receipt naming the file, and nothing is written for it. A
-  file that cannot be read or written fails that host with a static
-  reason naming the file. Every receipt prints; the exit code is 1 with
+  is nested too deeply to parse, or whose `hooks` or `SessionStart` has
+  the wrong type, refuses that host with a receipt naming the file, and
+  nothing is written for it. A file that cannot be read or written fails
+  that host with a static reason naming the file. The receipt reports
+  each file: when the MCP file was written and the hooks file then
+  failed, it says `action: written` and `session_start: failed` with
+  `session_start_file:`; when the MCP write failed, the hook is `not
+  attempted`. Every receipt prints; the exit code is 1 with
   `install_failed` if any host failed, else `install_refused` if any was
   refused. A dry run that would refuse says `action: would-refuse` and
   ends with "dry run: install would refuse this file; nothing was
   attempted", and exits 1 like the real run.
+
+- A host config that is a symbolic link, such as a dotfiles link, stays
+  a link. Install edits the file it points to, replacing it atomically
+  from a temp file in that file's own directory; the backup goes to the
+  data dir's backup directory, not next to the target. The receipt adds
+  `target:` (or `session_start_target:`). A link whose target is missing,
+  or that loops, refuses that host and nothing is written. This holds for
+  the JSON hosts and for Hermes.
+
+- `--dry-run` prints only what install would write for Alice: the
+  `alice` entry and the Alice hook (for Hermes, the alice lines). Every
+  value that comes from your entry is shown as `<hidden>` except
+  `command`, `type`, `timeout` and `cwd`: env and headers keep their names
+  with their values hidden, and any other key's value is hidden whole.
+  `args` is shown except for two things: every URL prints as its scheme
+  and `<hidden>` (`https://<hidden>`), host included, since no content
+  test can tell a token from a repo name or a host label; and the value
+  after any flag whose name contains `key`, `token`, `secret` or
+  `password` is hidden. Wherever a hook's words are printed (the
+  dry-run snippet, the argv offered when a hook is refused), install
+  shows only its own words: `uvx`, an absolute path to uvx,
+  `alice-memory` or `alice-memory-session-start`, the bare
+  `alice-memory-session-start` uvx runs, `--from` with a plain
+  alice-memory spec, `--data-dir` and its value, and the carried uvx
+  options with their values. Every other word prints as `<hidden>`: an
+  assignment in any shell's syntax (`FOO=bar`, PowerShell `$env:FOO="bar"`),
+  a curl header, anything unknown. The argv is offered only when no word
+  in it is hidden. In a kept Alice hook every key but `command` and
+  `type` is hidden too. The one value shown is the `ALICE_MEMORY_DATA_DIR` install
+  writes itself, which equals the `--data-dir` in the args. A `hidden:`
+  line lists exactly what was hidden. A refused host's paste, when it is
+  built from your existing entry, hides the same values, and its `keep:`
+  line names each one to copy back from that entry. Every other receipt
+  line, warning and launcher line prints every URL the same way, the URL
+  running to the end of its whitespace-delimited word, since RFC 3986
+  allows `'` and `)` in user info; a package spec that holds a URL
+  (`alice-memory@https://...`) prints only its scheme too,
+  and the `openclaw mcp add` line shows `<hidden>` in their place with a
+  note to put the values back before running it. Whole host files are no
+  longer printed, so other servers' tokens stay off the screen.
+
+- The SessionStart hook command is quoted for the shell that runs it.
+  On macOS and Linux each word is quoted with `shlex.join`, so a data dir
+  or script path with spaces, quotes, `$`, `;`, `&` or parentheses
+  reaches `alice-memory-session-start` as one argument and nothing else
+  runs; ordinary paths are written exactly as before. On Windows,
+  install cannot know whether cmd, PowerShell or Git Bash runs the hook,
+  so it writes forward slashes and double-quotes a word only when it
+  holds a space or a shell operator. It does not write the hook when a
+  word holds `"`, `$`, a backtick, `%`, `!`, `'`, `{`, `}`, `,`, `[`, `]`,
+  a line break or a quote PowerShell reads as one (U+2018, U+2019,
+  U+201A, U+201B, U+201C, U+201D, U+201E), or when the script path itself would
+  need quotes; the receipt prints the hook's argv (`session_start_argv:`)
+  to add by hand, and the exit code is 1. The printed `openclaw mcp add`
+  line follows the same rules; on Windows, when a word cannot be written,
+  a note with the argv takes its place. A hook is recognised as Alice's
+  by its script's name, quoted or not, including v0.16.0's, and running
+  install twice leaves one Alice SessionStart group. Its `--data-dir` is
+  read the way its shell reads it. On macOS and Linux the word is taken
+  literally when every `$`, backtick and backslash in it sits inside
+  single quotes, or it has none (so install's own `'.../a$b'` and a
+  hand-written `"/Users/me/My Vault"` are literal); an unquoted leading
+  `~`, glob character, `{`, redirection or parenthesis also makes it not
+  literal. Reading stops at the first unquoted `;`, `&&`, `||`, `|`, `&`
+  or line break, and at a word starting with `#`, so a `--data-dir` in a
+  second command or a comment is never read. On Windows, a word with `$`,
+  a backtick, `%` or `{`, or a leading `~`, is not literal; quoted and
+  bare pieces with no space between are one word, so `--data-dir="C:/x
+  y"` reads as `C:/x y`; and reading stops at a bare word holding `;`,
+  `&` or `|`. A literal absolute dir is relied on, however the text is
+  spaced or quoted. A `--data-dir` the shell does not read literally is
+  never relied on: such a hook keeps its own command unless `--data-dir`
+  is passed, and a new entry does not take its dir. When a hook keeps its
+  own command while install replaced the entry's launcher, the receipt
+  says so.
 
 - `alice-memory install --host hermes` no longer rewrites
   `~/.hermes/config.yaml` from a hand parser. v0.16.0 turned
@@ -49,38 +171,134 @@
   keeps every other byte (an empty `mcp_servers: {}`, `~` or `null`
   becomes `mcp_servers:`, and a last line with no line break gets one
   when lines are added after it). It writes a private timestamped backup
-  (`config.yaml.alice-backup-<UTC time>`) first, through a temp file, so
+  first, into the data dir's backup directory
+  (`hermes-config.yaml.alice-backup-<UTC time>`), through a temp file, so
   a failed write leaves no partial backup, and it does nothing on a
   re-run when alice is already current. A file that uses YAML the
   installer does not edit is left unchanged: a quoted or flow value
   spanning lines, an anchor anywhere inside an old alice entry, an
   anchor, tag or alias on `mcp_servers`, a merge key at the top level or
-  under `mcp_servers`, a block scalar header on a line of its own, a tab outside a quoted value or comment, several
-  documents, and similar. Install then prints the lines to add by hand
-  and exits 1 with `install_refused`. `--dry-run` for Hermes
-  prints the alice lines, not the whole file.
+  under `mcp_servers`, a block scalar header on a line of its own, a tab
+  outside a quoted value or comment, a list item that is itself a list
+  (`- - x`) inside the alice entry, several documents, and similar.
+  Install then prints the lines to add by hand and exits 1 with
+  `install_refused`. An alias inside the alice entry is read as its
+  anchor's value only when that anchor sits on a one-line plain or quoted
+  scalar elsewhere in the file; an alias to a plain scalar that continues
+  on the next line, which PyYAML reads as one longer value, or to
+  anything else, makes the entry unreadable.
 
 - Re-running `install --host hermes` follows the same rules as the JSON
-  hosts. An existing `mcp_servers.alice` is replaced only when its keys
-  are within what install writes (`command`, `args`,
-  `env.ALICE_MEMORY_DATA_DIR`); quoting, style and indentation do not
-  matter. Without `--data-dir` it keeps the data dir that entry runs
-  with, and an entry of install's shape (uvx running alice-memory mcp)
-  keeps its command and args, so an absolute uvx path and a pinned
-  version stay. An entry with any other key is left alone; install
-  prints the snippet on that entry's data dir and names the extra keys
-  (`extra_keys: env.ALICE_MCP_FULL_TOOLS`) so they are not lost when
-  pasting. An entry the installer cannot read is left alone too.
+  hosts: the same shape check, the same store and data dir rules, the
+  same launcher rules. An existing `mcp_servers.alice` of install's shape
+  is replaced only when its keys are within what install writes
+  (`command`, `args`, `env.ALICE_MEMORY_DATA_DIR`); quoting, style and
+  indentation do not matter. Without `--data-dir` it keeps the data dir
+  that entry runs with, and it keeps its command and args, so an
+  absolute uvx path and a pinned version stay. An entry that opens `--db`
+  keeps its env as written. An `alice` entry of any other shape, such as
+  `python -m alicebot_api mcp`, is left byte-identical and refused with
+  the JSON hosts' words: rename or remove that entry, or add the one
+  printed under another name. An entry with any other key is left alone
+  too; install prints that entry's own command and args with its data
+  dir and names the extra keys (`extra_keys: env.ALICE_MCP_FULL_TOOLS`)
+  so they can be carried over when pasting. For an entry the installer
+  cannot read, the paste uses the entry's data dir when a lenient read
+  can see it; otherwise it shows a placeholder and says to replace it
+  with that dir, never `~/.alice`, which may be an empty store.
 
 - The README no longer says the packaged path needs "Python 3.12+ and
   nothing else": `uvx` needs uv, which fetches Python itself, and the
   pip path needs Python 3.12+. `install` prints a warning, not an
-  error, when `uvx` is not on PATH, because the host entries it writes
-  start Alice with uvx. The exit code does not change.
+  error, when it finds neither `uvx` nor the installed alice-memory
+  scripts, because the hosts then cannot start Alice. The exit code
+  does not change.
+
+- `pip install alice-memory && alice-memory install` works without uv,
+  and each host's entry and hook run one launcher. A new entry runs
+  `uvx alice-memory mcp` when uvx is on PATH. Otherwise install writes
+  the absolute path of the installed `alice-memory` script, with args
+  `mcp --data-dir <dir>`, and the hooks run `alice-memory-session-start`
+  from the same directory. Install looks for the two scripts in the
+  running Python's scripts directory, next to the Python executable, in
+  the user scripts directory (`pip install --user`), then on PATH, and
+  takes the first directory that holds both. It never writes a path
+  inside a uv cache, which uv may delete: anything under `$UV_CACHE_DIR`,
+  a `cache-dir` set in uv.toml, `~/.cache/uv`, `$XDG_CACHE_HOME/uv`,
+  `~/Library/Caches/uv` or `%LOCALAPPDATA%\uv\cache`, or uv's own layout
+  anywhere: an `archive-vN` or `environments-vN` directory followed by an
+  id and more path, whose parent is one of those roots, is named `uv`, or
+  holds uv's `CACHEDIR.TAG` (which is how a `uvx --cache-dir` cache is
+  found). A user's own `Archive-V2` folder or a project venv under
+  `environments-v3` is not a cache. This is checked on the path as found,
+  on its resolved path, and on the running Python's prefix. When install itself runs from such a temporary uv environment
+  and uvx is not on PATH, it writes uvx by name and warns that the hosts
+  will start Alice once uvx is on PATH. On a re-run, an entry whose
+  launcher still works is kept: uvx on PATH, an absolute uvx that exists
+  and is executable, or an absolute `alice-memory` that exists, is
+  executable and is not in a uv cache. On Claude Code and Cursor, which
+  run a hook, a script launcher also needs an executable
+  `alice-memory-session-start` beside it that is not in a uv cache;
+  Claude Desktop, OpenClaw and Hermes run no hook, so a working
+  `alice-memory` alone is enough there. A launcher in a uv cache is dead with no
+  exceptions: pinned or not, the entry gets the launcher a new entry
+  would get, uvx by name when nothing else works. Any other launcher
+  that no longer works is replaced with a working one if install found
+  one: only `command` and the launcher part of `args` change, the file is
+  backed up, and the receipt prints `launcher: <old> -> <new>`. A uvx
+  entry that asks for a version constraint, extras or uvx options is kept
+  with a warning that names what it asks for; `alice-memory@latest`,
+  `alice_memory` and `--from alice-memory` are the default spelled
+  another way and do not count. With no working launcher the entry is
+  kept and a warning says so. The Claude Code and Cursor hooks run the
+  launcher of the entry as written: `uvx <the entry's uvx options> --from
+  <the entry's package spec> alice-memory-session-start`, so the hook
+  resolves the same version from the same index, or
+  `alice-memory-session-start` next to the entry's `alice-memory`. When
+  that script is missing, install leaves the hook as it was and prints a
+  warning. alice-memory-session-start first shipped in 0.16.0, so a uvx
+  entry whose spec can only resolve below it (`==0.15.7`, `@0.15.3`,
+  `<0.16`, `~=0.15.0` and so on) gets no new hook, and an existing hook
+  keeps its command, shape repaired, with a warning to pin
+  `alice-memory>=0.16` or remove the pin. A spec install cannot read (an
+  `===` on a non-version, or a `!=` wildcard) is treated the same way,
+  with a warning that it cannot tell. Install never writes a URL into a
+  hook file and never prints one unmasked. It carries into a hook only
+  the uvx options on an allowlist: `--prerelease`, `--python` or `-p`,
+  `--python-preference`, and the flags `--native-tls`, `--offline`,
+  `--no-cache` and `--refresh`. An entry with any other uvx option gets
+  no new hook, so the hook and the server cannot resolve different
+  releases: a word holding `scheme://` in any form (a separate value,
+  `--opt=value`, or an attached short option such as `-fhttps://...`), an
+  index option (`--index`, `--index-url`, `-i`, `--extra-index-url`,
+  `--default-index`, `--find-links`, `-f`, even with a local path, which
+  would resolve against the hook's working directory), or any other
+  option off the list (`--with`, `--exclude-newer`, `--constraint` and
+  so on, in long, `=` or attached short form; none of them makes the
+  entry one install did not write). An existing hook keeps its launcher
+  text, and its `--data-dir` still follows the entry as the re-run entry
+  above describes; the MCP entry keeps its options. For an index, the
+  warning says to move it into the user-level uv config,
+  `~/.config/uv/uv.toml` as `[[index]]` (`%APPDATA%\uv\uv.toml` on Windows), not a
+  project uv.toml, since the hook runs from the project's directory; to
+  keep its credentials in a keyring, `.netrc`, or
+  `UV_INDEX_<NAME>_USERNAME` and `UV_INDEX_<NAME>_PASSWORD`; and then to
+  remove the option from the entry's args and run install again. The
+  receipt also prints the plain hook argv install would add after that
+  change (`session_start_argv_after_change:`, allowlisted options only,
+  no URL), never a masked argv to add by hand. A direct-URL package spec
+  (`alice-memory@https://...`, positional or after `--from`) gets no new
+  hook for the same reason, and says so. The receipt's `launcher:` and `session_start_launcher:` lines
+  say what each file runs. `--write-mcpb` warns when uvx is not on PATH,
+  since the bundle runs uvx.
 
 - PyYAML stays in the dev extra only, as the Hermes test oracle. Two
-  guards keep it out of runtime code: an AST scan of `apps/api/src` and
-  `workers` for any yaml import, and a subprocess that runs the Hermes
+  guards keep it out of runtime code. An AST scan of every tree the
+  wheel ships (`apps/api/src`, `workers`, and `apps/api/alembic`, which
+  setup.py copies into the wheel) fails on a yaml import named by a
+  string constant: `import yaml`, `from yaml import ...`,
+  `importlib.import_module("yaml")` or `__import__("yaml")`. A module
+  name computed at run time is not caught. A subprocess runs the Hermes
   install path with `sys.modules["yaml"] = None`. The wheel-only CI job
   runs `alice-memory install --host hermes` against a temp home with no
   YAML library installed.
