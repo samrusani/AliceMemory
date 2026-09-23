@@ -60,6 +60,7 @@ from tests.unit import legacy_v0160_credential_oracle as oracle
 from tests.unit.fixtures_benign_corpus import CREDENTIAL_VOCABULARY_SENTENCES, DOC_SENTENCES
 from tests.unit.fixtures_promotion_corpus import ALL_NOTES
 from tests.unit.fixtures_throwaway_keys import PRIVATE_KEY_NAMES, PUBLIC_KEY_NAMES, throwaway_key
+from tests.unit.fixtures_timing import budget, tracer_active
 from tests.unit.test_credential_floor_design import _T3_FALSE
 
 
@@ -997,6 +998,22 @@ def test_harness_v4_benign_refusals_against_v0160_are_pinned(group: str) -> None
 # Linear time, door-7 style: 50 KB and 200 KB through both doors.
 # ---------------------------------------------------------------------------
 
+
+def test_harness_v4_the_budget_scales_only_under_a_tracer(monkeypatch) -> None:
+    """Guards the guard: untraced the budget is the number written, and the
+    scaling needs an active tracer, not just any environment."""
+
+    import sys
+
+    monkeypatch.setattr(sys, "gettrace", lambda: None)
+    monitoring = getattr(sys, "monitoring", None)
+    if monitoring is not None:
+        monkeypatch.setattr(monitoring, "get_tool", lambda _tool_id: None)
+    assert budget(_BUDGET_SECONDS) == _BUDGET_SECONDS
+    monkeypatch.setattr(sys, "gettrace", lambda: object())
+    assert budget(_BUDGET_SECONDS) > _BUDGET_SECONDS
+
+
 _ADVERSARIAL_UNITS = {
     "underscore run": "a_",
     "key segments": "key_",
@@ -1008,6 +1025,9 @@ _ADVERSARIAL_UNITS = {
     "structural pairs": "cache_key=abc_def ",
     "code references": "api_key=settings.X ",
 }
+# The untraced budget. Under coverage (as in CI) it scales by
+# fixtures_timing.TRACED_SLOWDOWN: CI measured 2.55 s and 2.73 s here traced.
+# The ratio assertion below is what proves linear time, traced or not.
 _BUDGET_SECONDS = 2.0
 
 
@@ -1025,7 +1045,7 @@ def test_harness_v4_the_reimplementation_is_linear(label: str) -> None:
     large = (unit * (200_000 // len(unit) + 1))[:200_000]
     small_seconds = min(_door_seconds(small) for _ in range(3))
     large_seconds = min(_door_seconds(large) for _ in range(3))
-    assert large_seconds < _BUDGET_SECONDS, (label, large_seconds)
+    assert large_seconds < budget(_BUDGET_SECONDS), (label, large_seconds, tracer_active())
     # Linear is 4x; quadratic is 16x.
     assert large_seconds < max(8 * small_seconds, 0.02), (label, small_seconds, large_seconds)
     # Guards the guard: the same path still finds a real assignment after it.
