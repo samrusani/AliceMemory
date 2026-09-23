@@ -18,6 +18,8 @@ from alicebot_api.vnext_stores.memory_lifecycle_common import (
     is_redacted_memory,
     is_redacted_project_update_artifact,
     redacted_memory_metadata,
+    refuse_created_credential_activation,
+    refuse_updated_credential_activation,
 )
 from alicebot_api.vnext_stores.postgres.columns import (
     ARTIFACT_COLUMNS,
@@ -33,6 +35,7 @@ from alicebot_api.vnext_stores.postgres.primitives import (
 VNextRow = dict[str, object]
 
 def create_memory(self, memory: JsonObject, *, actor_type: str = "system") -> VNextRow:
+    refuse_created_credential_activation(memory)
     row = self._fetch_one(
         "create_memory",
         f"""
@@ -413,6 +416,7 @@ def list_memories_missing_fact_keys(self, *, limit: int = 100, after_id: str | N
     )
 
 def update_memory(self, *, memory_id: str, patch: JsonObject, actor_type: str = "system") -> VNextRow:
+    refuse_updated_credential_activation(patch, lambda: self.get_memory(str(memory_id)))
     row = self._fetch_one(
         "update_memory",
         f"""

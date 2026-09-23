@@ -24,6 +24,14 @@ from alicebot_api.continuity_review import (
     list_continuity_review_queue,
 )
 from alicebot_api.continuity_trust import list_trust_signals
+from alicebot_api.credential_floor import (
+    refuse_credential_activation,
+    refuse_credential_material,
+    stored_text_fields,
+    string_values,
+    withhold_credential_text,
+)
+from alicebot_api.write_bounds import MAX_CORRECTION_FIELD_CHARS, first_oversized
 from alicebot_api.contracts import (
     CONTINUITY_REVIEW_QUEUE_ORDER,
     DEFAULT_CONTINUITY_REVIEW_LIMIT,
@@ -395,6 +403,14 @@ def _vnext_review_revision(
     )
 
 
+def _refuse_oversized_correction(**fields: object) -> None:
+    """Bound a correction's mappings before the credential floor reads them."""
+
+    oversized = first_oversized(fields, MAX_CORRECTION_FIELD_CHARS)
+    if oversized is not None:
+        raise MCPToolError(f"{oversized} must serialize to {MAX_CORRECTION_FIELD_CHARS} characters or fewer")
+
+
 def _vnext_memory_correct(context: MCPRuntimeContext, arguments: Mapping[str, object]) -> JsonObject:
     identity = _agent_identity_from_arguments(context, arguments)
     requested_action = _parse_required_text(arguments, "action")
@@ -519,6 +535,23 @@ def _vnext_memory_correct(context: MCPRuntimeContext, arguments: Mapping[str, ob
             "reason": reason,
         }
 
+        rationale_withheld = False
+        if resolved_action == "confirm":
+            # Approve is an activation (ruling C2): the shared check reads the
+            # row as it will become searchable, and the reason persisted with
+            # it in the revision and the event.
+            refuse_credential_activation(
+                memory.get("title"),
+                memory.get("canonical_text"),
+                memory.get("summary"),
+                reason,
+                error=MCPToolError,
+            )
+        elif resolved_action == "delete":
+            # A reject always completes (ruling C6): a reason carrying
+            # credential material is stored as a fixed placeholder.
+            reason, rationale_withheld = withhold_credential_text(reason)
+            event_payload["reason"] = reason
         if resolved_action == "confirm":
             updated = store.update_memory(
                 memory_id=memory_id,
@@ -604,6 +637,23 @@ def _vnext_memory_correct(context: MCPRuntimeContext, arguments: Mapping[str, ob
                     )
             if confidence is not None:
                 patch["confidence"] = confidence
+            # The credential floor, on the row as it will be stored. This
+            # handler writes the row itself, so it calls the shared check
+            # here. A title-only edit is read against the stored text; derived
+            # previews of the text are left out, and provenance is read by
+            # value only.
+            _refuse_oversized_correction(body=body, provenance=provenance)
+            refuse_credential_material(
+                *stored_text_fields(
+                    patch.get("title", memory.get("title")),
+                    patch.get("canonical_text", memory.get("canonical_text")),
+                    patch.get("summary", memory.get("summary")),
+                ),
+                body,
+                string_values(provenance),
+                reason,
+                error=MCPToolError,
+            )
             updated = store.update_memory(memory_id=memory_id, patch=patch, actor_type=actor_type)
             if validated_provenance is not None:
                 store.create_provenance_link(
@@ -661,6 +711,18 @@ def _vnext_memory_correct(context: MCPRuntimeContext, arguments: Mapping[str, ob
             )
             if validated_replacement_provenance is not None:
                 replacement_metadata["replacement_provenance"] = validated_replacement_provenance
+            # The credential floor, on the new row as it will be stored. The
+            # superseded row keeps its text, so it needs no second call.
+            _refuse_oversized_correction(
+                replacement_body=replacement_body, replacement_provenance=replacement_provenance
+            )
+            refuse_credential_material(
+                *stored_text_fields(replacement_title or canonical_text[:120], canonical_text, canonical_text[:280]),
+                replacement_body,
+                string_values(replacement_provenance),
+                reason,
+                error=MCPToolError,
+            )
             replacement_object = store.create_memory(
                 {
                     "memory_key": f"vnext.correction.supersede.{uuid4().hex[:16]}",
@@ -770,6 +832,7 @@ def _vnext_memory_correct(context: MCPRuntimeContext, arguments: Mapping[str, ob
             "memory": updated,
             "replacement_object": replacement_object,
             "mode": "vnext",
+            **({"rationale_withheld": rationale_withheld} if resolved_action == "delete" else {}),
         }
     )
 

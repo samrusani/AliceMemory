@@ -6,6 +6,7 @@ import logging
 from pathlib import Path
 from typing import Protocol
 
+from alicebot_api.credential_floor import refuse_credential_material
 from alicebot_api.vnext_event_log import append_event
 from alicebot_api.vnext_agent_control import resource_project_scope
 from alicebot_api.vnext_project_update_guard import is_project_update_artifact
@@ -399,6 +400,12 @@ class VNextQueueService:
         content = str(artifact.get("content_markdown") or "").strip()
         if not content:
             raise VNextQueueValidationError("artifact content must not be empty before promotion")
+        title = str(artifact.get("title") or "Promoted artifact")
+        # The credential floor, before the memory is created. Promotion makes
+        # an active, human_curated, confidence 1.0 memory, and artifact text
+        # is caller-influenced through queue-task instructions. Until
+        # 2026-09-22 this path never consulted the floor.
+        refuse_credential_material(title, content, error=VNextQueueValidationError)
         create_memory = getattr(self.store, "create_memory", None)
         if not callable(create_memory):
             raise VNextQueueValidationError(
@@ -420,7 +427,7 @@ class VNextQueueService:
                 "confidence": 1.0,
                 "trust_class": "human_curated",
                 "promotion_eligibility": "promotable",
-                "title": str(artifact.get("title") or "Promoted artifact"),
+                "title": title,
                 "canonical_text": content,
                 "summary": content[:280],
                 "domain": str(artifact.get("domain") or "unknown"),

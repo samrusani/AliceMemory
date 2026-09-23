@@ -4,7 +4,7 @@
   "backend": "sqlite",
   "scale": 10000,
   "seed": 42,
-  "store": "/Users/samirusani/Desktop/Codex/AliceBot/eval/scale/data/scale_42_10000.db",
+  "store": "eval/scale/data/scale_42_10000.db",
   "store_size_bytes": 142553088,
   "environment": {
     "platform": "macOS-26.5.2-arm64-arm-64bit",

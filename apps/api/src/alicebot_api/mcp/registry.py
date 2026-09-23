@@ -153,7 +153,8 @@ from .synthesis import (
 _TOOL_HANDLERS = {
     "alice_capture": _handle_alice_vnext_capture,
     # Core front door for explicit agent writes; same handler as the legacy
-    # alice_vnext_commit_memory alias below.
+    # alice_vnext_commit_memory alias below. Only this name's schema admits
+    # confirmation_id, so only this name reaches the confirmation route.
     "alice_memory_commit": _handle_alice_vnext_commit_memory,
     "alice_memory_manage": _handle_alice_memory_manage,
     "alice_capture_candidates": _handle_alice_capture_candidates,
@@ -370,6 +371,12 @@ def _validate_mcp_arguments_against_advertised_schema(
         pattern = candidate_schema.get("pattern")
         if isinstance(value, str) and isinstance(pattern, str) and re.fullmatch(pattern, value) is None:
             fail(path, f"must match pattern {pattern}")
+
+        # Enforced since 2026-09-23 (S4.4 round 2, ruling R4). Before that a
+        # maxLength in a schema was advertised and never checked.
+        maximum_length = candidate_schema.get("maxLength")
+        if isinstance(value, str) and isinstance(maximum_length, int) and len(value) > maximum_length:
+            fail(path, f"must be at most {maximum_length} characters")
 
         if isinstance(value, (int, float)) and not isinstance(value, bool):
             minimum = candidate_schema.get("minimum")

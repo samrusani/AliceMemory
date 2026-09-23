@@ -6,6 +6,7 @@ from typing import cast
 from uuid import UUID, uuid4
 
 from alicebot_api.continuity_capture import capture_continuity_candidates
+from alicebot_api.credential_floor import refuse_credential_material
 from alicebot_api.continuity_objects import (
     create_continuity_object_record,
     default_continuity_promotable,
@@ -488,6 +489,16 @@ def generate_memory_operation_candidates(
             candidate_payload=cast(JsonObject, candidate),
             operation_type=operation_type,
             mode=mode,
+        )
+        # The credential floor, before the candidate row persists the text.
+        # Until 2026-09-22 this path never consulted it, so a GitHub token in
+        # "Decision: ..." became a stored candidate and, on commit, an active
+        # Decision read back through the brief and recall. Raising here rolls
+        # the whole request back.
+        refuse_credential_material(
+            candidate["normalized_text"],
+            candidate["evidence_snippet"],
+            error=MemoryMutationValidationError,
         )
         created = store.create_memory_operation_candidate(
             sync_fingerprint=sync_fingerprint,

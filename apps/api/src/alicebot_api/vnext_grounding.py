@@ -1,7 +1,7 @@
 """Query-entity grounding: a pack-level retrieval STATISTIC, not advice.
 
 When a query names a specific entity ("Sapiens", "Marcus Chen",
-type3.capital) that the corpus has never seen, the context pack should
+northwind.example) that the corpus has never seen, the context pack should
 say so explicitly: an answer synthesized about an entity with zero
 retrieval support is a hallucination waiting to happen. This module
 computes that statistic; ``compile_context_pack`` attaches it as

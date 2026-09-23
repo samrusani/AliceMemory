@@ -13,7 +13,7 @@ deliberately inside the 0.5-0.8 band because every rule is a heuristic,
 never certainty):
 
 - ``capitalized_span`` (0.75): two or more consecutive capitalized
-  tokens ("Sami Rusani", "Type3 Capital") that carry POSITIVE type
+  tokens ("Jane Doe", "Northwind Capital") that carry POSITIVE type
   evidence (org suffix, honorific, or a person-context cue -- see the
   type table below). Leading/trailing blocklisted tokens are stripped
   ("The Alice Core" -> "Alice Core"); the span is dropped if fewer than
@@ -23,7 +23,7 @@ never certainty):
   are typed 'other' -- a bare "Two Capitalized Words" shape is NOT
   evidence of a person; LongMemEval-style shopping chatter is full of
   brandish two-token spans.
-- ``domain`` (0.70): bare domains such as ``type3.capital``. The final
+- ``domain`` (0.70): bare domains such as ``northwind.example``. The final
   label must be alphabetic, and common file suffixes (``notes.md``,
   ``node.js``) are excluded via ``_FILE_SUFFIX_PSEUDO_TLDS``.
 - ``handle`` (0.65): ``@handles`` not embedded in an email address.
@@ -70,9 +70,9 @@ count, no duplicate edge).
 Alias growth: aliases store NORMALIZED variants (the store convention),
 so an alias is only appended when it adds resolution power. The
 deterministic path that produces one is the honorific fallback: "Dr
-Sami Rusani" fails its primary lookup, matches the existing "Sami
-Rusani" entity via the honorific-stripped key, records the mention
-there, and appends ``dr sami rusani`` to the entity's aliases so the
+Jane Doe" fails its primary lookup, matches the existing "Jane
+Doe" entity via the honorific-stripped key, records the mention
+there, and appends ``dr jane doe`` to the entity's aliases so the
 next occurrence resolves in one lookup.
 
 Sensitivity: entity rows leak content into ``entities.name`` (a name
@@ -116,7 +116,7 @@ ENTITY_EXTRACTION_BLOCKLIST = frozenset(
         "yes", "no", "please", "thanks", "thank", "hello", "hi", "hey", "dear",
         "today", "tomorrow", "yesterday", "tonight",
         # sentence-starting adverbs/imperatives that otherwise glue onto a
-        # following capitalized name ("Later Sami Rusani", "Ask Hermes")
+        # following capitalized name ("Later Jane Doe", "Ask Hermes")
         "later", "earlier", "soon", "now", "here", "finally", "suddenly",
         "maybe", "perhaps", "everyone", "someone", "anyone",
         "ask", "tell", "call", "ping", "email", "check",
@@ -209,9 +209,9 @@ _HONORIFICS = frozenset({"mr", "mrs", "ms", "dr", "prof", "professor"})
 
 # Person-context cues: cheap positive evidence that a two-token
 # capitalized span names a person. BEFORE cues may appear anywhere in
-# the 3 tokens preceding the span ("met up with Sami Rusani", "my
+# the 3 tokens preceding the span ("met up with Jane Doe", "my
 # friend Alice Rivers"); AFTER cues must be the FIRST token following
-# the span ("Marcus Chen said", "Sami Rusani, who ..."), because speech
+# the span ("Marcus Chen said", "Jane Doe, who ..."), because speech
 # verbs further out stop being about the span. Deliberately small and
 # relational -- generic subject verbs ("runs", "has", "launched") are
 # things brands do in shopping chatter and stay out of this table.
@@ -389,7 +389,7 @@ def extract_entity_candidates(text: str) -> tuple[EntityCandidate, ...]:
             continue
         found.extend(group)
 
-    # Rule: bare domains (type3.capital) -> organization.
+    # Rule: bare domains (northwind.example) -> organization.
     for match in _DOMAIN_RE.finditer(text):
         if _overlaps(covered, match.start(), match.end()):
             continue
@@ -489,8 +489,8 @@ def derive_person_name_from_title(title: str) -> str | None:
     """Title-derived person name for ``person``-type memories.
 
     Takes the head of the title before the first separator (em dash,
-    spaced hyphen, colon, comma, or opening bracket): "Sami Rusani --
-    Type3 intro" -> "Sami Rusani". Returns None when nothing usable
+    spaced hyphen, colon, comma, or opening bracket): "Jane Doe --
+    Northwind intro" -> "Jane Doe". Returns None when nothing usable
     survives normalization.
     """
     head = re.split(r"—|–|\s-\s|:|,|\(|\[", title, maxsplit=1)[0].strip()

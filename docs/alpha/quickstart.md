@@ -4,7 +4,7 @@ This is the canonical local setup walkthrough for Alice. Other quickstart pages 
 
 ## Zero-Infrastructure Trial (SQLite)
 
-To try Alice before setting up the full stack, run the MCP server against a single local SQLite file — Python 3.12+ only, no Docker, Node, or Postgres. Straight from PyPI:
+To try Alice before setting up the full stack, run the MCP server against a single local SQLite file. The `uvx` line needs [uv](https://docs.astral.sh/uv/), which fetches Python for you; the `pip` line needs Python 3.12+. No Docker, Node or Postgres. Straight from PyPI:
 
 ```bash
 uvx alice-memory mcp --data-dir ~/.alice

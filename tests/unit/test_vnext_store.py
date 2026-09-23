@@ -890,6 +890,9 @@ def test_memory_revision_provenance_and_graph_methods_write_audit_events() -> No
             {"id": memory_id},
             _event_row(memory_id),
             {"id": memory_id},
+            # update_memory to a searchable status reads the stored row first,
+            # for the credential activation check (S4.4 round 2, ruling C2).
+            {"id": memory_id, "status": "candidate", "canonical_text": "Alice vNext is being built."},
             {"id": memory_id},
             _event_row(memory_id),
             {"id": revision_id, "memory_id": memory_id},
@@ -3029,7 +3032,7 @@ def test_find_entities_by_names_matches_normalized_names_and_aliases_in_one_quer
     )
     store = PostgresVNextStore(RecordingConnection(cursor))
 
-    rows = store.find_entities_by_names(("openai", "type3.capital"))
+    rows = store.find_entities_by_names(("openai", "northwind.example"))
 
     assert rows[0]["id"] == "entity-1"
     assert len(cursor.executed) == 1  # one round trip covers both match paths
@@ -3039,7 +3042,7 @@ def test_find_entities_by_names_matches_normalized_names_and_aliases_in_one_quer
     assert "aliases ?| %s::text[]" in query
     assert "deleted_at IS NULL" in query
     assert "ORDER BY mention_count DESC, updated_at DESC, id DESC" in query
-    assert params == (["openai", "type3.capital"], ["openai", "type3.capital"])
+    assert params == (["openai", "northwind.example"], ["openai", "northwind.example"])
 
     # An empty name tuple short-circuits without touching the database.
     assert store.find_entities_by_names(()) == []

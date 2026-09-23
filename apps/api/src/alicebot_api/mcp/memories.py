@@ -3,27 +3,27 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from uuid import uuid4
+from dataclasses import replace
 from alicebot_api.store import JsonObject
 from alicebot_api.vnext_agent_control import (
     AgentIdentity,
     AgentPolicyBlockedError,
     PolicyDecision,
-    agent_metadata,
-    append_promotion_event,
+    append_policy_events,
     evaluate_agent_policy,
     resource_project_scope,
 )
 from alicebot_api.vnext_embeddings import DeferredMemoryEmbedding
-from alicebot_api.vnext_event_log import append_event
 from alicebot_api.vnext_memory_commit import (
     VNextMemoryCommitService,
     VNextMemoryCommitValidationError,
     _brain_charter_row,
     load_promotion_settings,
+    memory_commit_receipt,
     memory_commit_request_from_payload,
 )
-from alicebot_api.vnext_promotion_policy import promotion_candidate_for_proposal
+from alicebot_api.vnext_memory_propose import MemoryProposal, propose_memory
+from alicebot_api.vnext_promotion_policy import PromotionCandidate
 from alicebot_api.vnext_project_update_guard import (
     PENDING_PROJECT_UPDATE_MEMORY_MUTATION_MESSAGE,
     is_pending_project_update_memory,
@@ -60,101 +60,68 @@ def _handle_alice_vnext_propose_memory(context: MCPRuntimeContext, arguments: Ma
     canonical_text = _parse_required_text(arguments, "canonical_text")
     domain = _parse_optional_text(arguments, "domain") or "unknown"
     sensitivity = _parse_optional_text(arguments, "sensitivity") or "unknown"
-    blocked_decision: PolicyDecision | None = None
-    memory: VNextJsonObject | None = None
-    decision: PolicyDecision | None = None
+    proposal = MemoryProposal(
+        proposal_type=proposal_type,
+        title=_parse_optional_text(arguments, "title") or canonical_text[:120],
+        canonical_text=canonical_text,
+        memory_type={
+            "decision": "decision",
+            "project_update": "project_state",
+            "belief_update": "belief",
+            "contradiction": "contradiction",
+            "artifact_summary": "artifact_summary",
+            "open_loop": "open_loop",
+        }.get(proposal_type, "semantic"),
+        domain=domain,
+        sensitivity=sensitivity,
+        confidence=_parse_optional_float(arguments, "confidence") or 0.5,
+        rationale=_parse_optional_text(arguments, "rationale"),
+        source_refs=tuple(_parse_string_list(arguments, "source_refs")),
+        project_scope=tuple(_parse_string_list(arguments, "project_scope")),
+        source_type=_parse_optional_text(arguments, "source_type") or "trusted_agent",
+        contradiction_refs=tuple(_parse_string_list(arguments, "contradiction_refs")),
+        conversation_excerpt=_parse_optional_text(arguments, "conversation_excerpt"),
+        proposal_id=_parse_optional_text(arguments, "proposal_id"),
+        trace_id=_parse_optional_text(arguments, "trace_id"),
+    )
     with _vnext_store_context(context) as store:
-        _actor_type, _actor_id, decision = _policy_checked(
-            store,
-            identity=identity,
-            action="memory.propose",
-            domains=(domain,),
-            sensitivity_allowed=(sensitivity,),
-            project_scope=_parse_string_list(arguments, "project_scope"),
-            promotion_settings=load_promotion_settings(brain_charter=_brain_charter_row(store)),
-            promotion_candidate=promotion_candidate_for_proposal(
-                canonical_text=canonical_text,
-                title=_parse_optional_text(arguments, "title") or "",
-                domain=domain,
-                sensitivity=sensitivity,
-                source_type=_parse_optional_text(arguments, "source_type") or "trusted_agent",
-                source_refs=_parse_string_list(arguments, "source_refs"),
-                contradiction_refs=_parse_string_list(arguments, "contradiction_refs"),
-                conversation_excerpt=_parse_optional_text(arguments, "conversation_excerpt"),
-            ),
-            # MCP never authenticates a human. Without ALICE_AGENT_API_KEY
-            # it honours payload identity outright, so an absent agent_id is
-            # nobody in particular rather than the owner.
-            owner_verified=False,
-        )
-        if decision.decision == "blocked":
-            blocked_decision = decision
-        else:
-            # A promoted proposal is a live memory, not a review item. With no
-            # persona configured review_required stays True and this is the
-            # candidate row it always was.
-            review_required = decision.review_required
-            proposal_id = _parse_optional_text(arguments, "proposal_id") or str(uuid4())
-            memory = store.create_memory(
-                {
-                    "memory_type": {
-                        "decision": "decision",
-                        "project_update": "project_state",
-                        "belief_update": "belief",
-                        "contradiction": "contradiction",
-                        "artifact_summary": "artifact_summary",
-                        "open_loop": "open_loop",
-                    }.get(proposal_type, "semantic"),
-                    "memory_key": f"agent_proposal.{proposal_type}.{proposal_id}",
-                    "value": {"proposal_type": proposal_type, "text": canonical_text},
-                    "status": "candidate" if review_required else "active",
-                    "confidence": _parse_optional_float(arguments, "confidence") or 0.5,
-                    "title": _parse_optional_text(arguments, "title") or canonical_text[:120],
-                    "canonical_text": canonical_text,
-                    "summary": canonical_text[:280],
-                    "domain": domain,
-                    "sensitivity": sensitivity,
-                    "metadata_json": {
-                        "proposal_type": proposal_type,
-                        "review_required": review_required,
-                        **agent_metadata(identity, decision),
-                    },
-                },
-                actor_type="agent",
-            )
-            append_event(
-                store,
-                event_type="agent.memory_proposed",
-                actor_type="agent",
-                actor_id=identity.agent_id,
-                target_type="memory",
-                target_id=str(memory["id"]),
-                trace_id=_parse_optional_text(arguments, "trace_id") or decision.trace_id,
-                run_id=identity.agent_run_id,
-                payload={"proposal_type": proposal_type, "agent_identity": identity.to_record()},
-            )
-            append_promotion_event(
+
+        def authorize(candidate: PromotionCandidate) -> tuple[AgentIdentity | None, PolicyDecision]:
+            _actor_type, _actor_id, decision = _policy_checked(
                 store,
                 identity=identity,
-                decision=decision,
-                target_type="memory",
-                target_id=str(memory["id"]),
-                trace_id=_parse_optional_text(arguments, "trace_id") or decision.trace_id,
+                action="memory.propose",
+                domains=(domain,),
+                sensitivity_allowed=(sensitivity,),
+                project_scope=proposal.project_scope,
+                promotion_settings=load_promotion_settings(brain_charter=_brain_charter_row(store)),
+                promotion_candidate=candidate,
+                # MCP never authenticates a human. Without ALICE_AGENT_API_KEY
+                # it honours payload identity outright, so an absent agent_id
+                # is nobody in particular rather than the owner.
+                owner_verified=False,
             )
-    if blocked_decision is not None:
-        _raise_mcp_policy_blocked(blocked_decision)
-    if memory is None or decision is None:
-        raise MCPToolError("vNext memory proposal did not complete")
+            return identity, decision
+
+        # One propose function for all three doors (ruling C2(ii)).
+        outcome = propose_memory(store, proposal=proposal, authorize=authorize)
+    if outcome.memory is None:
+        _raise_mcp_policy_blocked(outcome.decision)
     return _json_object(
         {
-            "proposal": memory,
-            "policy_decision": decision.to_record(),
-            "review_required": decision.review_required,
+            "proposal": outcome.memory,
+            "policy_decision": outcome.decision.to_record(),
+            "review_required": outcome.decision.review_required,
         }
     )
 
 
 def _handle_alice_vnext_commit_memory(context: MCPRuntimeContext, arguments: Mapping[str, object]) -> JsonObject:
+    if any(key in arguments for key in _COMMIT_CONFIRMATION_FIELDS):
+        # Only alice_memory_commit advertises these fields. The legacy
+        # alice_vnext_commit_memory alias shares this handler, but its schema
+        # refuses them before any handler runs.
+        return _finish_pending_commit(context, arguments)
     identity = _agent_identity_from_arguments(context, arguments)
     payload: VNextJsonObject | None = None
     confidence = _parse_optional_float(arguments, "confidence")
@@ -193,6 +160,198 @@ def _handle_alice_vnext_commit_memory(context: MCPRuntimeContext, arguments: Map
 
 
 def _handle_alice_vnext_confirm_memory(context: MCPRuntimeContext, arguments: Mapping[str, object]) -> JsonObject:
+    return _confirm_pending_memory(
+        context,
+        arguments,
+        action=_parse_optional_text(arguments, "action") or "confirm",
+        canonical_text=_parse_optional_text(arguments, "canonical_text"),
+        refuse_above_sensitivity_ceiling=False,
+    )
+
+
+# alice_memory_commit finishes its own confirmation_required result (wiki D8).
+# A confirmation call names the pending write and the user's answer, nothing
+# else. There is no "edit": confirm(action="edit") rewrites the stored text,
+# and an edited fact goes through the full commit gate as a fresh write instead.
+_COMMIT_CONFIRMATION_FIELDS = ("confirmation_id", "confirmation_action")
+_COMMIT_CONFIRMATION_ACTIONS = ("confirm", "reject")
+# Everything memory_commit_request_from_payload reads to build a new write.
+# Identity fields, trace_id and rationale are allowed on both calls.
+_COMMIT_WRITE_FIELDS = (
+    "title",
+    "canonical_text",
+    "memory_type",
+    "domain",
+    "sensitivity",
+    "confidence",
+    "intent",
+    "source_type",
+    "source_refs",
+    "conversation_excerpt",
+    "idempotency_key",
+    "contradiction_refs",
+)
+
+
+def _finish_pending_commit(context: MCPRuntimeContext, arguments: Mapping[str, object]) -> JsonObject:
+    """Confirm or reject a pending alice_memory_commit write.
+
+    Confirms through ``_confirm_pending_memory``, the same code path
+    ``alice_memory_manage`` action ``confirm`` takes, so identity, the policy
+    check, the project fence and the audit trail are the service's own. The
+    project fence binds a key-bound scope only; a keyless server trusts
+    whatever project_scope the caller declares. It is stricter than manage in
+    one respect: it refuses to let an agent confirm a row above that agent's
+    sensitivity ceiling (see ``_refuse_confirmation_above_sensitivity_ceiling``).
+    Rejecting such a row is allowed.
+
+    Nothing here can tell whether the user was asked. The tool description
+    tells the agent to ask. The revision row, the policy.decision event and the
+    agent.memory_confirmed or agent.memory_confirmation_rejected event name the
+    caller as it resolved: the key's agent_id on a keyed server, the declared
+    and unverified agent_id on a keyless one. The memory.updated and
+    memory_revision.created events carry no actor_id. A keyless call with no
+    agent_id is recorded as actor_type user with no actor_id on every row and
+    no policy event.
+    """
+
+    mixed = [key for key in _COMMIT_WRITE_FIELDS if key in arguments]
+    if mixed:
+        raise MCPToolError(
+            "a confirmation takes only confirmation_id and confirmation_action (plus identity, "
+            f"rationale and trace_id); it does not accept {', '.join(mixed)}. To change a pending "
+            "write, reject it and commit the corrected text as a new write."
+        )
+    confirmation_id = _parse_optional_text(arguments, "confirmation_id")
+    if confirmation_id is None:
+        raise MCPToolError(
+            "confirmation_action needs the confirmation_id from the earlier confirmation_required result"
+        )
+    action = _parse_optional_text(arguments, "confirmation_action")
+    if action not in _COMMIT_CONFIRMATION_ACTIONS:
+        raise MCPToolError(
+            "confirmation_action is required with confirmation_id: 'confirm' when the user agreed "
+            "to store the pending text, 'reject' when they did not"
+        )
+    payload = _confirm_pending_memory(
+        context,
+        arguments,
+        action=action,
+        canonical_text=None,
+        refuse_above_sensitivity_ceiling=True,
+    )
+    return {**payload, "receipt": memory_commit_receipt(str(payload.get("status") or ""))}
+
+
+def _refuse_confirmation_above_sensitivity_ceiling(
+    store,
+    service: VNextMemoryCommitService,
+    *,
+    identity: AgentIdentity | None,
+    confirmation_id: str,
+    action: str,
+) -> None:
+    """Block an agent from confirming a row it could not read back.
+
+    ``VNextMemoryCommitService.confirm`` evaluates policy on the pending row's
+    own domain, sensitivity and project scope. A single restricted domain comes
+    back ``blocked``. A sensitivity above the caller's ceiling comes back
+    ``allowed_with_filtering``, and the service only stops on ``blocked``, so
+    manage lets such an agent confirm the write (audit 2026-09-03 finding 8).
+
+    This runs the same evaluation first and turns that one outcome into a
+    block, with its own reason and the normal policy audit events on the row.
+    Every other outcome falls through to the service untouched, which then
+    evaluates, records and enforces exactly as it does for manage. So this
+    check can add a refusal and can never grant anything.
+
+    Only ``confirm`` is refused. ``reject`` stores nothing and lowers
+    exposure, and without it a keyed agent could not clear its own
+    above-ceiling write. It is not free of disclosure: like manage and the
+    HTTP confirm route, the response echoes the pending row, including the
+    text the writer sent. Restricting who may resolve a pending write is
+    scheduled for S4.5. A reject still goes through the service's policy
+    check, so identity and the project fence still apply (a key-bound scope;
+    a keyless server trusts the declared scope).
+    """
+
+    if identity is None or action != "confirm":
+        return
+    # Lock order is the service's own: the graph lock (a per-user advisory
+    # lock on Postgres), then the row lock. Taking the row lock first and
+    # letting the service take the advisory lock afterwards would invert the
+    # order other writers use, which on Postgres can deadlock. The row is then
+    # judged as read under the row lock, not as first looked up, so a
+    # sensitivity change committed between the lookup and the lock cannot slip
+    # past the check (a time-of-check to time-of-use gap). SQLite has one
+    # writer and lock_graph_mutation is a no-op there, so no real race can be
+    # staged in the unit suite. The tests pin both properties instead: a call
+    # order spy for the lock order, and a simulated change between lookup and
+    # lock for the re-read. Neither was run against Postgres.
+    service.lock_supersession_graph()
+    memory = store.get_memory_by_confirmation_id(confirmation_id)
+    if memory is None:
+        return
+    get_memory_for_update = getattr(store, "get_memory_for_update", None)
+    if callable(get_memory_for_update):
+        memory = get_memory_for_update(str(memory["id"]))
+        if memory is None:
+            return
+    decision = evaluate_agent_policy(
+        identity=identity,
+        action="memory.confirm",
+        domains=(str(memory.get("domain") or "unknown"),),
+        sensitivity_allowed=(str(memory.get("sensitivity") or "unknown"),),
+        project_scope=resource_project_scope(memory),
+        require_explicit_project_scope=True,
+    )
+    if decision.decision == "blocked" or "restricted_sensitivity_filtered" not in decision.reasons:
+        return
+    blocked = replace(
+        decision,
+        decision="blocked",
+        reasons=tuple(dict.fromkeys((*decision.reasons, "sensitivity_above_agent_ceiling"))),
+    )
+    # The service's own refusals record the refused agent in agent_identities
+    # (_policy_checked_write upserts before it logs). This refusal does the
+    # same, so an agent refused here is as visible to the operator as one the
+    # service refused.
+    store.upsert_agent_identity(
+        {
+            "agent_id": identity.agent_id,
+            "agent_type": identity.agent_type,
+            "permission_profile": identity.permission_profile,
+            "project_scope_json": list(identity.project_scope),
+            "metadata_json": {"last_agent_run_id": identity.agent_run_id, "last_task_id": identity.task_id},
+        },
+        actor_type="agent",
+    )
+    append_policy_events(
+        store,
+        identity=identity,
+        decision=blocked,
+        target_type="memory",
+        target_id=str(memory["id"]),
+    )
+    raise AgentPolicyBlockedError(blocked)
+
+
+def _confirm_pending_memory(
+    context: MCPRuntimeContext,
+    arguments: Mapping[str, object],
+    *,
+    action: str,
+    canonical_text: str | None,
+    refuse_above_sensitivity_ceiling: bool,
+) -> JsonObject:
+    """The one MCP path to ``VNextMemoryCommitService.confirm``.
+
+    ``alice_memory_manage`` action ``confirm``, the legacy
+    ``alice_vnext_confirm_memory`` tool and ``alice_memory_commit`` with a
+    ``confirmation_id`` all land here, so a control added to this wrapper
+    reaches every route at once.
+    """
+
     identity = _agent_identity_from_arguments(context, arguments)
     blocked_decision: PolicyDecision | None = None
     payload: VNextJsonObject | None = None
@@ -200,11 +359,20 @@ def _handle_alice_vnext_confirm_memory(context: MCPRuntimeContext, arguments: Ma
     with _vnext_store_context(context) as store:
         try:
             service = VNextMemoryCommitService(store, defer_embeddings=True)
+            confirmation_id = _parse_required_text(arguments, "confirmation_id")
+            if refuse_above_sensitivity_ceiling:
+                _refuse_confirmation_above_sensitivity_ceiling(
+                    store,
+                    service,
+                    identity=identity,
+                    confirmation_id=confirmation_id,
+                    action=action,
+                )
             payload = service.confirm(
                 identity=identity,
-                confirmation_id=_parse_required_text(arguments, "confirmation_id"),
-                action=_parse_optional_text(arguments, "action") or "confirm",
-                canonical_text=_parse_optional_text(arguments, "canonical_text"),
+                confirmation_id=confirmation_id,
+                action=action,
+                canonical_text=canonical_text,
                 rationale=_parse_optional_text(arguments, "rationale"),
             )
             deferred_embedding_inputs = service.deferred_embedding_inputs

@@ -98,7 +98,8 @@ A full port would fork every query. The scoped approach below avoids that.
 
 ## Acceptance
 
-- `uvx alice-memory mcp` works on a clean machine with only Python 3.12+.
+- `uvx alice-memory mcp` works on a clean machine with only uv installed (uv
+  fetches Python 3.12+ itself); `pip install alice-memory` works with Python 3.12+.
 - The core tools pass an integration smoke against the SQLite backend.
 - Retrieval evals (recall@k on the seeded corpus) run against both backends
   and report both numbers side by side.

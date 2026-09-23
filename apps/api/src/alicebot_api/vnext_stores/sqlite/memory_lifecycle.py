@@ -17,6 +17,8 @@ from alicebot_api.vnext_stores.memory_lifecycle_common import (
     is_prior_redacted_memory_marker,
     is_redacted_memory,
     redacted_memory_metadata,
+    refuse_created_credential_activation,
+    refuse_updated_credential_activation,
 )
 from alicebot_api.vnext_stores.sqlite.columns import MEMORY_COLUMNS, PROVENANCE_COLUMNS
 from alicebot_api.vnext_stores.sqlite.primitives import (
@@ -34,6 +36,7 @@ from alicebot_api.vnext_stores.sqlite.vector_scan import bump_embedding_stamp
 VNextRow = dict[str, object]
 
 def create_memory(self, memory: JsonObject, *, actor_type: str = "system") -> VNextRow:
+    refuse_created_credential_activation(memory)
     memory_id = _new_id(memory.get("id"))
     now = _utc_now_iso()
     self._execute(
@@ -259,6 +262,7 @@ def memory_redaction_bundle_is_exact(self, memory_id: str, artifact_ids: Sequenc
     return bool(row.get("exact"))
 
 def update_memory(self, *, memory_id: str, patch: JsonObject, actor_type: str = "system") -> VNextRow:
+    refuse_updated_credential_activation(patch, lambda: self.get_memory(str(memory_id)))
     cursor = self._execute(
         """
                 UPDATE memories
