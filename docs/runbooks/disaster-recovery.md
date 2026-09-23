@@ -134,8 +134,22 @@ alice-memory import --db ~/alice-restore-test/memory.db \
 alice-memory reindex-embeddings --db ~/alice-restore-test/memory.db
 ```
 
+If the backup holds a credential and the source vault is gone,
+`--quarantine <memory_id>[,<memory_id>...]` is the owner's recovery path.
+It removes the credential from the named memory and from the records
+derived from it, and it reports any other copies it finds. The SHA-256
+footer is still checked on the file as given. Each named memory is stored
+as `rejected`, so recall, resume, and a context pack do not return it.
+`commit_digest` is cleared, and a later commit with the old idempotency
+key creates a fresh row through the normal checks. The receipt lists the
+ids and counts, not the removed text. A second import of the same file
+with the same ids skips those identical redacted rows. `--db` is a SQLite
+file path. A Postgres URL is refused. See
+[Backup and restore](../alpha/backup-and-restore.md).
+
 Require the export/import/re-export canonical SHA-256 footer and record counts
-to match. FTS recall works immediately after import. Vector recall does not:
+to match. A quarantined memory will not match its original export, because
+its text was replaced. FTS recall works immediately after import. Vector recall does not:
 portable JSONL omits embedding vectors, so configure the intended embedding
 provider and reindex before cutover.
 

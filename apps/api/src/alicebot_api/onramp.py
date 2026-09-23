@@ -13,7 +13,9 @@ Subcommands:
   provenance links, open loops, and the event log.
 - ``import``: load an export JSONL file into a (new or existing) local
   database, preserving ids and timestamps so provenance references and
-  the audit trail survive the round trip.
+  the audit trail survive the round trip. ``--quarantine`` removes the
+  credential from each named memory and from the records derived from it,
+  and reports any other copies it finds.
 - ``reindex-embeddings``: rebuild missing or provider/model-incompatible
   vectors in place after an import, upgrade, or embedding-model change.
 - ``brief``: print a labelled session brief (committed facts and imported
@@ -46,8 +48,17 @@ Export/import round-trip contract ("you own the memory"):
   ``create_*`` methods: those methods re-stamp ``created_at``/``updated_at``
   and append fresh ``*.created`` mutation events, which would corrupt the
   imported audit trail. Historical events also use direct INSERT so their
-  ids, occurred_at values, and integrity hashes remain byte-for-byte exact;
-  append-only triggers on ``event_log``/``memory_revisions`` only block
+  ids, occurred_at values, and integrity hashes remain byte-for-byte exact,
+  except a memory named by ``--quarantine``. That memory is stored with
+  status ``rejected``. Its text is replaced by ``[quarantined on import]``,
+  its JSON columns become ``{"quarantined": true}``, its ``memory_key``
+  becomes ``quarantined.<memory_id>``, and ``commit_digest`` is cleared.
+  The integrity hash of each event that belongs to it is cleared because
+  that hash is a SHA-256 of the event record, including the payload, so a
+  reconstructed original payload could be checked against it. The event
+  payload keeps ``memory_id`` and ``candidate_memory_id`` when they name a
+  quarantined memory, so a later redact can still update the row.
+  Append-only triggers on ``event_log``/``memory_revisions`` only block
   UPDATE/DELETE.
 - Soft-deleted rows are omitted. Nullable references to omitted parents are
   cleared, and graph edges with omitted known endpoints are left behind, so
@@ -155,6 +166,10 @@ _ERROR_CONTRACTS: dict[str, str] = {
     "import_path_conflict": "The import input conflicts with the database or a SQLite sidecar",
     "import_snapshot_failed": "The import file could not be read into a stable snapshot",
     "import_validation_failed": "The import file is invalid or incompatible",
+    "import_quarantine_unknown": "A --quarantine memory id is not in the import file",
+    "sqlite_db_path_required": (
+        "alice-memory --db takes a SQLite file path. A Postgres URL is not a database file."
+    ),
     "import_credential_material": (
         "Memories listed above carry credential material; no records were written. In the "
         "source vault, redact each listed memory, then export again. SQLite: alice_memory_manage "
@@ -248,6 +263,30 @@ _EMBEDDING_NOTE = (
     "(FTS keyword recall works immediately)"
 )
 
+# One fixed string for every text field replaced by --quarantine. Recall,
+# resume, and context packs do not return status ``rejected``, so this
+# placeholder is not a way to import the credential it replaced.
+_QUARANTINE_PLACEHOLDER = "[quarantined on import]"
+_QUARANTINE_JSON_OBJECT: dict[str, bool] = {"quarantined": True}
+_QUARANTINE_TEXT_FIELDS = ("title", "canonical_text", "summary", "trust_reason", "fact_keys")
+_QUARANTINE_REVISION_TEXT_FIELDS = ("text_before", "text_after", "reason")
+_QUARANTINE_REVISION_JSON_FIELDS = ("previous_value", "new_value", "candidate", "metadata_json")
+_QUARANTINE_EVENT_LINK_KEYS = ("memory_id", "candidate_memory_id", "replacement_memory_id")
+_QUARANTINE_EVENT_KEPT_KEYS = ("memory_id", "candidate_memory_id")
+_SUCCESSOR_COPIED_FIELDS = frozenset({"rationale", "idempotency_key", "request_fingerprint"})
+_QUARANTINE_COUNT_LABELS = (
+    ("memory", "memory", "memories"),
+    ("memory_revision", "revision", "revisions"),
+    ("event", "event", "events"),
+    ("provenance_link", "provenance quote", "provenance quotes"),
+    ("open_loop", "open loop", "open loops"),
+    ("graph_edge", "graph edge", "graph edges"),
+    ("entity", "entity", "entities"),
+    ("rollup_instance", "rollup instance", "rollup instances"),
+    ("successor", "successor", "successors"),
+)
+_NO_QUARANTINE_REMOVAL_COMMAND = "no command removes this today"
+
 
 def _parse_uuid(value: str) -> UUID:
     try:
@@ -256,11 +295,32 @@ def _parse_uuid(value: str) -> UUID:
         raise argparse.ArgumentTypeError(f"invalid UUID value: {value}") from exc
 
 
+def _is_postgres_database_url(value: str) -> bool:
+    """True for a ``postgres`` or ``postgresql`` URL, including driver suffixes."""
+    scheme = value.strip().partition(":")[0].lower()
+    return scheme == "postgres" or scheme.startswith("postgresql")
+
+
 def resolve_db_path(*, data_dir: str, db: str | None) -> Path:
-    """The database file path: ``--db`` wins, else ``<data-dir>/memory.db``."""
+    """The database file path: ``--db`` wins, else ``<data-dir>/memory.db``.
+
+    A Postgres URL is not a SQLite file. ``Path`` would otherwise treat it as
+    a relative path and the command would create that file.
+    """
     if db is not None:
+        if _is_postgres_database_url(db):
+            raise ValueError("alice-memory --db takes a SQLite file path, not a Postgres URL")
         return Path(db).expanduser().resolve()
     return Path(data_dir).expanduser().resolve() / DEFAULT_DB_FILENAME
+
+
+def _refuse_postgres_db_argument(args: argparse.Namespace) -> bool:
+    """Refuse ``--db`` when it is a Postgres URL. Nothing is written."""
+    db = getattr(args, "db", None)
+    if not isinstance(db, str) or not _is_postgres_database_url(db):
+        return False
+    _emit_error("sqlite_db_path_required")
+    return True
 
 
 def sqlite_url_for_path(path: Path) -> str:
@@ -860,6 +920,21 @@ def build_parser() -> argparse.ArgumentParser:
             "only an identical existing row (default); 'fail' aborts on every "
             "collision. Different content with the same id always aborts, and "
             "existing rows are never overwritten."
+        ),
+    )
+    import_parser.add_argument(
+        "--quarantine",
+        default=None,
+        type=_quarantine_arg,
+        help=(
+            "Comma-separated memory ids to store as rejected. Removes the "
+            "credential from each named memory and from the records derived "
+            "from it, and reports any other copies it finds. After a successful "
+            "import, credential_verdict scans every imported text column that "
+            "was not replaced, and prints table, id, and column only. The "
+            "SHA-256 footer is checked on the file as given before any "
+            "replacement. An id that is not in the file is an error and "
+            "nothing is written."
         ),
     )
 
@@ -1849,13 +1924,21 @@ def _stderr_line(line: str) -> None:
 
 
 def _validate_import_file(
-    path: Path, *, progress: Callable[[str], None] | None = None
+    path: Path,
+    *,
+    progress: Callable[[str], None] | None = None,
+    enforce_credential_floor: bool = True,
 ) -> _ValidatedImport:
     """Validate the complete file before opening or creating the target DB.
 
     Version 2 exports carry schema, counts, and a canonical SHA-256 footer;
     a missing footer therefore detects truncation. Legacy headerless JSONL
     remains accepted, but cannot offer an integrity guarantee it never had.
+
+    ``enforce_credential_floor`` is false only for ``--quarantine``. That
+    path still checks the footer on the file as given, then rewrites the
+    named memory before deciding whether any memory row would still carry
+    credential material. A normal import refuses here, before any write.
     """
     versioned: bool | None = None
     footer: dict[str, object] | None = None
@@ -2008,7 +2091,7 @@ def _validate_import_file(
                 raise _ImportError("export integrity per-type counts do not match its contents")
             if footer.get("sha256") != digest.hexdigest():
                 raise _ImportError("export integrity SHA-256 does not match its contents")
-        if credential_findings:
+        if enforce_credential_floor and credential_findings:
             # Every offender in one pass, so a user fixes the vault once.
             raise _ImportCredentialError(credential_findings)
         spool.commit()
@@ -2034,6 +2117,442 @@ def _validate_import_file(
         manifest_sha256=manifest_sha256,
         spool_path=spool_path,
     )
+
+
+def _quarantine_arg(value: str) -> tuple[str, ...]:
+    """Parse ``--quarantine id[,id...]`` without reading the import file."""
+    parts = tuple(part.strip() for part in value.split(","))
+    if not parts or any(not part for part in parts):
+        raise argparse.ArgumentTypeError(
+            "--quarantine needs one or more memory ids, separated by commas"
+        )
+    return parts
+
+
+def _normalized_quarantine_ids(raw: object) -> tuple[str, ...]:
+    """Dedupe ids, preserving the order the owner typed them."""
+    if raw is None:
+        return ()
+    parts = raw if isinstance(raw, tuple) else _quarantine_arg(str(raw))
+    ordered: list[str] = []
+    for part in parts:
+        if part not in ordered:
+            ordered.append(part)
+    return tuple(ordered)
+
+
+@dataclass(frozen=True)
+class _QuarantinePlan:
+    """What one import must rewrite, and which shared copies it only reports."""
+
+    ids: frozenset[str]
+    exclusive_entity_ids: frozenset[str]
+    successor_ids: frozenset[str]
+    reports: tuple[tuple[str, str, str], ...]
+
+
+_EMPTY_QUARANTINE_PLAN = _QuarantinePlan(frozenset(), frozenset(), frozenset(), ())
+
+
+def _redact_text(value: object) -> object:
+    if isinstance(value, str):
+        return _QUARANTINE_PLACEHOLDER
+    return value
+
+
+def _quarantine_json_object(value: object) -> object:
+    """Replace a present JSON value. NULL stays NULL."""
+    if value is None:
+        return None
+    return dict(_QUARANTINE_JSON_OBJECT)
+
+
+def _event_belongs_to_quarantine(record: dict[str, object], quarantine_ids: frozenset[str]) -> bool:
+    """True when an event is about one of the named memories.
+
+    Membership is the memory target, or a payload ``memory_id``,
+    ``candidate_memory_id``, or ``replacement_memory_id`` equal to one of
+    those ids. The check reads the file record, before the payload is replaced.
+    """
+    if str(record.get("target_type") or "") == "memory" and str(record.get("target_id") or "") in quarantine_ids:
+        return True
+    payload = record.get("payload_json")
+    if isinstance(payload, dict):
+        for key in _QUARANTINE_EVENT_LINK_KEYS:
+            if str(payload.get(key) or "") in quarantine_ids:
+                return True
+    return False
+
+
+def _edge_endpoints(record: dict[str, object]) -> tuple[tuple[str, str], tuple[str, str]]:
+    return (
+        (str(record.get("from_type") or ""), str(record.get("from_id") or "")),
+        (str(record.get("to_type") or ""), str(record.get("to_id") or "")),
+    )
+
+
+def _edge_touches_quarantine(record: dict[str, object], quarantine_ids: frozenset[str]) -> bool:
+    return any(kind == "memory" and endpoint in quarantine_ids for kind, endpoint in _edge_endpoints(record))
+
+
+def _memory_entity_link(record: dict[str, object]) -> tuple[str, str] | None:
+    entity_id = ""
+    memory_id = ""
+    for kind, endpoint in _edge_endpoints(record):
+        if not endpoint:
+            continue
+        if kind == "entity":
+            entity_id = endpoint
+        elif kind == "memory":
+            memory_id = endpoint
+    if entity_id and memory_id:
+        return entity_id, memory_id
+    return None
+
+
+def _metadata_pointer(record: dict[str, object], key: str) -> str:
+    metadata = record.get("metadata_json")
+    if not isinstance(metadata, dict):
+        return ""
+    value = metadata.get(key)
+    return value if isinstance(value, str) else ""
+
+
+def _build_quarantine_plan(
+    validated_import: _ValidatedImport,
+    quarantine_ids: tuple[str, ...],
+) -> _QuarantinePlan:
+    """Classify derived rows before insert. Shared chunks and entities stay."""
+    ids = frozenset(quarantine_ids)
+    if not ids:
+        return _EMPTY_QUARANTINE_PLAN
+    memories = [record for _line_no, record in _iter_spooled_records(validated_import, "memory")]
+    edges = [record for _line_no, record in _iter_spooled_records(validated_import, "graph_edge")]
+    links = [record for _line_no, record in _iter_spooled_records(validated_import, "provenance_link")]
+
+    successors: set[str] = set()
+    for record in memories:
+        memory_id = str(record.get("id") or "")
+        supersedes_ids = {
+            pointer
+            for pointer in (
+                str(record.get("supersedes") or ""),
+                _metadata_pointer(record, "supersedes"),
+            )
+            if pointer
+        }
+        if memory_id and memory_id not in ids and supersedes_ids & ids:
+            successors.add(memory_id)
+        if memory_id in ids:
+            for successor_id in (
+                str(record.get("superseded_by") or ""),
+                _metadata_pointer(record, "superseded_by"),
+            ):
+                if successor_id and successor_id not in ids:
+                    successors.add(successor_id)
+
+    linked: dict[str, set[str]] = {}
+    for edge in edges:
+        pair = _memory_entity_link(edge)
+        if pair is None:
+            continue
+        entity_id, memory_id = pair
+        linked.setdefault(entity_id, set()).add(memory_id)
+    exclusive = frozenset(
+        entity_id for entity_id, memory_ids in linked.items() if memory_ids and memory_ids <= ids
+    )
+    shared_entities = frozenset(
+        entity_id for entity_id, memory_ids in linked.items() if memory_ids & ids and not memory_ids <= ids
+    )
+
+    chunk_targets: dict[str, set[str]] = {}
+    for link in links:
+        if str(link.get("target_type") or "") != "memory":
+            continue
+        chunk_id = str(link.get("source_chunk_id") or "")
+        target_id = str(link.get("target_id") or "")
+        if chunk_id and target_id:
+            chunk_targets.setdefault(chunk_id, set()).add(target_id)
+    shared_chunks = frozenset(
+        chunk_id
+        for chunk_id, targets in chunk_targets.items()
+        if targets & ids and not targets <= ids
+    )
+
+    reports: list[tuple[str, str, str]] = []
+    for chunk_id in sorted(shared_chunks):
+        reports.append(("source_chunks", chunk_id, "text"))
+    for entity_id in sorted(shared_entities):
+        for column in ("aliases", "name", "normalized_name"):
+            reports.append(("vnext_entities", entity_id, column))
+    reports.sort()
+    return _QuarantinePlan(
+        ids=ids,
+        exclusive_entity_ids=exclusive,
+        successor_ids=frozenset(successors),
+        reports=tuple(reports),
+    )
+
+
+def _redact_quarantined_memory(record: dict[str, object]) -> dict[str, object]:
+    redacted = dict(record)
+    memory_id = str(record.get("id") or "")
+    # Rejected rows are outside recall, resume, and context packs.
+    redacted["status"] = "rejected"
+    redacted["memory_key"] = f"quarantined.{memory_id}"
+    # Cleared, matching product redaction, so the old idempotency key can
+    # create a fresh row through the normal checks.
+    redacted["commit_digest"] = None
+    for field in _QUARANTINE_TEXT_FIELDS:
+        redacted[field] = _redact_text(redacted.get(field))
+    if isinstance(redacted.get("extracted_by_model"), str):
+        redacted["extracted_by_model"] = _QUARANTINE_PLACEHOLDER
+    redacted["value"] = dict(_QUARANTINE_JSON_OBJECT)
+    redacted["metadata_json"] = dict(_QUARANTINE_JSON_OBJECT)
+    return redacted
+
+
+def _redact_quarantined_revision(record: dict[str, object]) -> dict[str, object]:
+    redacted = dict(record)
+    redacted["memory_key"] = f"quarantined.{record.get('memory_id') or ''}"
+    for field in _QUARANTINE_REVISION_TEXT_FIELDS:
+        redacted[field] = _redact_text(redacted.get(field))
+    for field in _QUARANTINE_REVISION_JSON_FIELDS:
+        if field in redacted:
+            redacted[field] = _quarantine_json_object(redacted.get(field))
+    return redacted
+
+
+def _redact_quarantined_event(
+    record: dict[str, object],
+    quarantine_ids: frozenset[str],
+) -> dict[str, object]:
+    redacted = dict(record)
+    payload = redacted.get("payload_json")
+    kept: dict[str, str] = {}
+    if isinstance(payload, dict):
+        for key in _QUARANTINE_EVENT_KEPT_KEYS:
+            value = payload.get(key)
+            if isinstance(value, str) and value in quarantine_ids:
+                kept[key] = value
+    redacted["payload_json"] = {"quarantined": True, **kept}
+    # integrity_hash is a SHA-256 of the event record, including the payload.
+    # A reconstructed original payload could be checked against a kept hash.
+    redacted["integrity_hash"] = None
+    return redacted
+
+
+def _replace_successor_fields(value: object) -> tuple[object, int]:
+    """Replace copied successor fields. Leave every other key in place."""
+    if isinstance(value, dict):
+        replaced = 0
+        rewritten: dict[str, object] = {}
+        for key, item in value.items():
+            if key in _SUCCESSOR_COPIED_FIELDS and isinstance(item, str):
+                rewritten[key] = _QUARANTINE_PLACEHOLDER
+                replaced += 1
+            else:
+                nested, nested_count = _replace_successor_fields(item)
+                rewritten[key] = nested
+                replaced += nested_count
+        return rewritten, replaced
+    if isinstance(value, list):
+        replaced = 0
+        items: list[object] = []
+        for item in value:
+            nested, nested_count = _replace_successor_fields(item)
+            items.append(nested)
+            replaced += nested_count
+        return items, replaced
+    return value, 0
+
+
+def _replace_quarantined_rollup_instances(
+    value: object,
+    quarantine_ids: frozenset[str],
+) -> tuple[object, int]:
+    """Replace rollup instance entries that belong to a quarantined memory."""
+    if not isinstance(value, dict):
+        return value, 0
+    rollup = value.get("rollup")
+    if not isinstance(rollup, dict):
+        return value, 0
+    instances = rollup.get("instances")
+    if not isinstance(instances, list):
+        return value, 0
+    replaced = 0
+    rewritten_instances: list[object] = []
+    for item in instances:
+        memory_id = item.get("memory_id") if isinstance(item, dict) else None
+        if isinstance(memory_id, str) and memory_id in quarantine_ids:
+            rewritten_instances.append({"quarantined": True, "memory_id": memory_id})
+            replaced += 1
+        else:
+            rewritten_instances.append(item)
+    if replaced == 0:
+        return value, 0
+    rewritten = dict(value)
+    rewritten_rollup = dict(rollup)
+    rewritten_rollup["instances"] = rewritten_instances
+    rewritten["rollup"] = rewritten_rollup
+    return rewritten, replaced
+
+
+def _apply_import_quarantine(
+    record_type: str,
+    record: dict[str, object],
+    plan: _QuarantinePlan,
+) -> tuple[dict[str, object], dict[str, int]]:
+    """Return the row to insert and the receipt counts that row adds."""
+    if not plan.ids:
+        return record, {}
+    if record_type == "memory":
+        memory_id = str(record.get("id") or "")
+        if memory_id in plan.ids:
+            return _redact_quarantined_memory(record), {"memory": 1}
+        rewritten = dict(record)
+        counts: dict[str, int] = {}
+        if memory_id in plan.successor_ids:
+            metadata, replaced = _replace_successor_fields(rewritten.get("metadata_json"))
+            if replaced:
+                rewritten["metadata_json"] = metadata
+                counts["successor"] = 1
+        new_value, instance_count = _replace_quarantined_rollup_instances(rewritten.get("value"), plan.ids)
+        if instance_count:
+            rewritten["value"] = new_value
+            counts["rollup_instance"] = instance_count
+        return (rewritten if counts else record), counts
+    if record_type == "memory_revision" and str(record.get("memory_id") or "") in plan.ids:
+        return _redact_quarantined_revision(record), {"memory_revision": 1}
+    if record_type == "event" and _event_belongs_to_quarantine(record, plan.ids):
+        return _redact_quarantined_event(record, plan.ids), {"event": 1}
+    if (
+        record_type == "provenance_link"
+        and str(record.get("target_type") or "") == "memory"
+        and str(record.get("target_id") or "") in plan.ids
+        and isinstance(record.get("quote"), str)
+    ):
+        redacted = dict(record)
+        redacted["quote"] = _QUARANTINE_PLACEHOLDER
+        return redacted, {"provenance_link": 1}
+    if record_type == "open_loop" and str(record.get("memory_id") or "") in plan.ids:
+        redacted = dict(record)
+        for field in ("title", "description", "resolution_note"):
+            if isinstance(redacted.get(field), str):
+                redacted[field] = _QUARANTINE_PLACEHOLDER
+        return redacted, {"open_loop": 1}
+    if record_type == "graph_edge" and _edge_touches_quarantine(record, plan.ids):
+        redacted = dict(record)
+        if isinstance(redacted.get("explanation"), str):
+            redacted["explanation"] = _QUARANTINE_PLACEHOLDER
+        redacted["metadata_json"] = dict(_QUARANTINE_JSON_OBJECT)
+        return redacted, {"graph_edge": 1}
+    if record_type == "entity" and str(record.get("id") or "") in plan.exclusive_entity_ids:
+        redacted = dict(record)
+        redacted["name"] = _QUARANTINE_PLACEHOLDER
+        redacted["normalized_name"] = f"quarantined.{record.get('id') or ''}"
+        redacted["aliases"] = []
+        return redacted, {"entity": 1}
+    return record, {}
+
+
+def _credential_findings_after_quarantine(
+    validated_import: _ValidatedImport,
+    plan: _QuarantinePlan,
+) -> tuple[_CredentialFinding, ...]:
+    """S4.4's memory check on each memory as quarantine will store it.
+
+    A named memory, a rollup instance, and a successor's copied fields are
+    rewritten first. A memory that still carries credential material after
+    that rewrite is refused, and nothing is written. Shared chunks and
+    shared entity names are not memories, so they are not refused here.
+    """
+
+    findings: list[_CredentialFinding] = []
+    for line_no, record in _iter_spooled_records(validated_import, "memory"):
+        rewritten, _added = _apply_import_quarantine("memory", record, plan)
+        finding = _memory_record_credential_finding(rewritten, line_no=line_no)
+        if finding is not None:
+            findings.append(finding)
+    return tuple(findings)
+
+
+def _column_replaced_by_quarantine(value: object) -> bool:
+    """True when quarantine replaced this column with the placeholder or the fixed object."""
+
+    if value == _QUARANTINE_PLACEHOLDER:
+        return True
+    decoded = value
+    if isinstance(value, str):
+        try:
+            decoded = json.loads(value)
+        except json.JSONDecodeError:
+            return False
+    return isinstance(decoded, Mapping) and dict(decoded) == _QUARANTINE_JSON_OBJECT
+
+
+def _quarantine_text_column(value: object) -> bool:
+    """A stored text or JSON column the post-import scan should read."""
+
+    if value is None or isinstance(value, (bool, int, float)):
+        return False
+    if _column_replaced_by_quarantine(value):
+        return False
+    return isinstance(value, (str, Mapping, list, tuple))
+
+
+def _quarantine_credential_reports(
+    validated_import: _ValidatedImport,
+    plan: _QuarantinePlan,
+) -> tuple[tuple[str, str, str], ...]:
+    """Leftover text columns ``credential_verdict`` still flags, as table, id, column.
+
+    Runs on the row quarantine will store. Columns replaced by the placeholder
+    or ``{"quarantined": true}`` are not passed to the detector. The matched
+    text is not returned. Shared source chunks and shared entity names are
+    scanned here too; the receipt already lists those from the plan, so a hit
+    on one of them is not repeated.
+    """
+
+    if not plan.ids:
+        return ()
+    already = set(plan.reports)
+    found: list[tuple[str, str, str]] = []
+    for record_type, (table, columns) in _RECORD_SPECS.items():
+        for _line_no, record in _iter_spooled_records(validated_import, record_type):
+            rewritten, _added = _apply_import_quarantine(record_type, record, plan)
+            row_id = str(rewritten.get("id") or "")
+            for column in columns:
+                value = rewritten.get(column)
+                if not _quarantine_text_column(value):
+                    continue
+                if credential_verdict(value) is None:
+                    continue
+                item = (table, row_id, column)
+                if item in already:
+                    continue
+                already.add(item)
+                found.append(item)
+    found.sort()
+    return tuple(found)
+
+
+def _missing_quarantine_memory_ids(
+    validated_import: _ValidatedImport,
+    quarantine_ids: tuple[str, ...],
+) -> tuple[str, ...]:
+    """Ids the owner named that are not memory records in the validated file."""
+    if not quarantine_ids:
+        return ()
+    wanted = frozenset(quarantine_ids)
+    found: set[str] = set()
+    for _line_no, record in _iter_spooled_records(validated_import, "memory"):
+        memory_id = str(record.get("id") or "")
+        if memory_id in wanted:
+            found.add(memory_id)
+    return tuple(memory_id for memory_id in quarantine_ids if memory_id not in found)
+
+
 def _encode_column_value(column: str, value: object) -> object:
     """TEXT-encode JSON columns the way the store writes them; pass the rest."""
     if column in _JSON_COLUMNS and value is not None and not isinstance(value, str):
@@ -2088,22 +2607,35 @@ def _import_records(
     validated_import: _ValidatedImport,
     *,
     mode: str,
+    plan: _QuarantinePlan | None = None,
+    quarantine_tally: dict[str, int] | None = None,
 ) -> dict[str, dict[str, int]]:
     """Insert parsed records in FK-safe order; returns per-type counts.
 
     Direct INSERT (not the store ``create_*`` methods) so ids and
     timestamps land exactly as exported and no fresh mutation events are
     appended. Event rows use the same direct path, preserving occurred_at
-    and integrity_hash text exactly. ``user_id`` is rebound to the importing
-    user. ``skip`` accepts only field-for-field identical collisions;
-    divergent content with the same id is never merged. Raises
+    and integrity_hash text exactly, except events quarantined with a
+    memory: those payloads are replaced and their integrity hash is
+    cleared, because it is a SHA-256 of the event record, including the
+    payload. ``user_id`` is rebound to the importing user. ``skip`` accepts
+    only field-for-field identical collisions; divergent content with the
+    same id is never merged. A second import of the same file with the
+    same ``--quarantine`` ids therefore skips the redacted rows. Raises
     ``_ImportError`` on the first collision in ``fail`` mode and on any
     constraint violation; the staged transaction rolls back on failure.
+    Quarantine replacement happens after the file's SHA-256 check, on the
+    row about to be inserted, and is what ``skip`` compares.
     """
+    quarantine_plan = plan if plan is not None else _EMPTY_QUARANTINE_PLAN
     counts: dict[str, dict[str, int]] = {}
     for record_type, (table, columns) in _RECORD_SPECS.items():
         for line_no, record in _iter_spooled_records(validated_import, record_type):
             tally = counts.setdefault(record_type, {"imported": 0, "skipped": 0})
+            record, added = _apply_import_quarantine(record_type, record, quarantine_plan)
+            if quarantine_tally is not None:
+                for key, amount in added.items():
+                    quarantine_tally[key] = quarantine_tally.get(key, 0) + amount
             row_id = str(record["id"])
             existing = conn.execute(
                 f"SELECT {', '.join(columns)} FROM {table} WHERE id = ?", (row_id,)
@@ -2145,8 +2677,30 @@ def _import_records(
     return counts
 
 
+def _count_phrase(count: int, singular: str, plural: str) -> str:
+    noun = singular if count == 1 else plural
+    return f"{count} {noun}"
+
+
+def _quarantine_removal_line(table: str, row_id: str) -> str:
+    """The command that removes this leftover, or the fixed no-command line.
+
+    Shared source chunks and shared entity names have no removal command.
+    ``alicebot vnext memories redact`` keeps source and source-chunk text.
+    """
+    if table == "memories":
+        return f"alicebot vnext memories redact {row_id}"
+    return _NO_QUARANTINE_REMOVAL_COMMAND
+
+
 def _print_import_summary(
-    counts: dict[str, dict[str, int]], *, in_path: Path, db_path: Path
+    counts: dict[str, dict[str, int]],
+    *,
+    in_path: Path,
+    db_path: Path,
+    quarantine_ids: tuple[str, ...] = (),
+    quarantine_counts: dict[str, int] | None = None,
+    quarantine_reports: tuple[tuple[str, str, str], ...] = (),
 ) -> None:
     imported_total = sum(tally["imported"] for tally in counts.values())
     skipped_total = sum(tally["skipped"] for tally in counts.values())
@@ -2159,6 +2713,19 @@ def _print_import_summary(
         if tally is None:
             continue
         print(f"  {record_type}: {tally['imported']} imported, {tally['skipped']} skipped")
+    if quarantine_ids:
+        tallies = quarantine_counts or {}
+        print(
+            "quarantine: "
+            + ", ".join(
+                _count_phrase(tallies.get(key, 0), singular, plural)
+                for key, singular, plural in _QUARANTINE_COUNT_LABELS
+            )
+        )
+        print("quarantined memory ids: " + ", ".join(quarantine_ids))
+        for table, row_id, column in quarantine_reports:
+            print(f"quarantine report: {table} {row_id} {column}")
+            print(_quarantine_removal_line(table, row_id))
     memories_imported = counts.get("memory", {}).get("imported", 0)
     if memories_imported:
         plural = "memory" if memories_imported == 1 else "memories"
@@ -2232,9 +2799,18 @@ def _run_import_snapshot(
     display_path: Path,
     db_path: Path,
 ) -> int:
+    # Quarantine rewrites the named memory after the footer check. The
+    # credential floor still refuses any memory that would be stored with
+    # credential material, judged on the rewritten row. Other imports
+    # refuse during validation, before the spool is committed.
+    quarantine_ids = _normalized_quarantine_ids(getattr(args, "quarantine", None))
     try:
         _stderr_line(f"alice-memory: validating {display_path}")
-        validated_import = _validate_import_file(in_path, progress=_stderr_line)
+        validated_import = _validate_import_file(
+            in_path,
+            progress=_stderr_line,
+            enforce_credential_floor=not quarantine_ids,
+        )
     except _ImportCredentialError as exc:
         # User-visible, on stderr: the line and memory id of every offender
         # and which fields carried it. Never the matched text.
@@ -2257,8 +2833,53 @@ def _run_import_snapshot(
         _emit_error("import_snapshot_failed")
         return 1
 
+    # The footer check above hashed the file as given. Quarantine replacement
+    # starts here, and only for ids that are memory records in that file.
+    try:
+        missing_quarantine_ids = _missing_quarantine_memory_ids(validated_import, quarantine_ids)
+    except _ImportError as exc:
+        logger.debug(
+            "SQLite import quarantine check failed",
+            exc_info=(type(exc), exc, exc.__traceback__),
+        )
+        _remove_sqlite_files(validated_import.spool_path)
+        _emit_error("import_validation_failed")
+        return 1
+    if missing_quarantine_ids:
+        logger.debug("quarantine ids not in the import file: %s", ", ".join(missing_quarantine_ids))
+        _remove_sqlite_files(validated_import.spool_path)
+        _emit_error("import_quarantine_unknown")
+        return 1
+
+    try:
+        quarantine_plan = (
+            _build_quarantine_plan(validated_import, quarantine_ids)
+            if quarantine_ids
+            else _EMPTY_QUARANTINE_PLAN
+        )
+        leftover_memory_findings = (
+            _credential_findings_after_quarantine(validated_import, quarantine_plan) if quarantine_ids else ()
+        )
+    except _ImportError as exc:
+        logger.debug(
+            "SQLite import quarantine plan failed",
+            exc_info=(type(exc), exc, exc.__traceback__),
+        )
+        _remove_sqlite_files(validated_import.spool_path)
+        _emit_error("import_validation_failed")
+        return 1
+    if leftover_memory_findings:
+            # Same refusal as a normal import: the rewritten file would still
+            # store a memory that carries credential material. Nothing is written.
+            _remove_sqlite_files(validated_import.spool_path)
+            for line in _credential_finding_lines(leftover_memory_findings):
+                _stderr_line(line)
+            _emit_error("import_credential_material")
+            return 1
+
     target_existed = db_path.exists()
     working_path: Path | None = None
+    credential_reports: tuple[tuple[str, str, str], ...] = ()
     try:
         _ensure_private_directory(db_path.parent)
         fd, raw_working_path = tempfile.mkstemp(
@@ -2281,9 +2902,21 @@ def _run_import_snapshot(
             user_email=args.user_email,
             secure_parent=args.db is None,
         )
+        quarantine_counts = {key: 0 for key, _singular, _plural in _QUARANTINE_COUNT_LABELS}
         with sqlite_user_connection(working_path, args.user_id) as conn:
             store = SQLiteVNextStore(conn, args.user_id)
-            counts = _import_records(conn, store, validated_import, mode=args.mode)
+            counts = _import_records(
+                conn,
+                store,
+                validated_import,
+                mode=args.mode,
+                plan=quarantine_plan,
+                quarantine_tally=quarantine_counts,
+            )
+        if quarantine_ids:
+            # The spool still holds the file. Scan the rewritten rows before
+            # publication deletes that spool. Never include the matched text.
+            credential_reports = _quarantine_credential_reports(validated_import, quarantine_plan)
         # Move all committed WAL pages into the staged main file before
         # atomic publication, then durably persist it.
         checkpoint = sqlite3.connect(str(working_path))
@@ -2344,7 +2977,14 @@ def _run_import_snapshot(
     _fsync_directory(db_path.parent)
     summary_error: OSError | ValueError | None = None
     try:
-        _print_import_summary(counts, in_path=display_path, db_path=db_path)
+        _print_import_summary(
+            counts,
+            in_path=display_path,
+            db_path=db_path,
+            quarantine_ids=quarantine_ids,
+            quarantine_counts=quarantine_counts,
+            quarantine_reports=tuple(sorted({*quarantine_plan.reports, *credential_reports})),
+        )
         sys.stdout.flush()
     except (OSError, ValueError) as exc:
         summary_error = exc
@@ -2459,6 +3099,8 @@ def main(argv: list[str] | None = None) -> int:
         logger.debug("alice-memory argument parsing failed: %s", parser_stderr.getvalue().strip())
         _emit_error("invalid_request")
         return int(exc.code) if isinstance(exc.code, int) else 2
+    if _refuse_postgres_db_argument(args):
+        return 2
     try:
         if args.command == "export":
             return _run_export(args)

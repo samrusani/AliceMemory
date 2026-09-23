@@ -2,6 +2,34 @@
 
 ## Unreleased
 
+- `alice-memory import --quarantine <memory_id>[,<memory_id>...]` removes
+  the credential from the named memory and from the records derived from
+  it, and reports any other copies it finds. The SHA-256 footer is checked
+  on the file as given. An id that is not a memory in the file is an error
+  and nothing is written. Each named memory is stored with status
+  `rejected`, so recall, resume, and a context pack do not return it.
+  What survives is ids, status, timestamps, and numeric columns outside
+  JSON. `memory_key` becomes `quarantined.<memory_id>`, `commit_digest`
+  is cleared, and `extracted_by_model` is replaced. Text fields become
+  `[quarantined on import]`. `value`, `metadata_json`, the four revision
+  JSON columns, and event payloads become `{"quarantined": true}`. An
+  event payload keeps `memory_id` and `candidate_memory_id` when they name
+  a quarantined memory, so a later redact can still update that event.
+  Provenance quotes, open loops, graph edges, exclusive entity names,
+  rollup instances, and copied successor fields are rewritten and counted.
+  Shared source chunks and shared entity names are reported and left in
+  place. After a successful import, `credential_verdict` scans every
+  imported text column that was not replaced by `[quarantined on import]`
+  or `{"quarantined": true}`, and the receipt prints table, id, and column
+  for each hit, never the matched text, then the command that removes that
+  record or `no command removes this today`. A later commit with the old
+  idempotency key creates a fresh row
+  through the normal checks. The receipt lists ids and counts, not the
+  removed text. A second import of the same file with the same ids skips
+  those identical rows under the default `--mode skip`. Importing the same
+  file again without the flag aborts and leaves the rejected row in place.
+  `--db` is a SQLite file path. A Postgres URL is refused. The command
+  restores SQLite only.
 - **Correction to v0.15.1 to v0.16.0.** The v0.15.1 release notes said
   credential material and agent-directed instructions always require review,
   and that the floor "still refuses credentials and agent-directed
@@ -453,7 +481,6 @@
 - Instruction-shaped content is unchanged: it is still only kept from
   skipping review, and a note the ordinary commit gate already commits is
   stored.
-
 ## v0.16.0 — 2026-08-19
 
 - README leads with `alice-memory install` and `demo --vault`, then a
