@@ -295,8 +295,11 @@ _CORE_TOOL_DEFINITIONS: list[dict[str, object]] = [
             "fields. Alice cannot tell whether you asked, so never answer for the user. To "
             "change the text, reject it and commit the corrected text as a new write. After 24 "
             "hours a pending write can no longer be confirmed on this tool: the next confirm or "
-            "reject here that passes the policy check resolves it to 'rejected'. Every outcome is "
-            "recorded with provenance, a "
+            "reject here that passes the policy check resolves it to 'rejected'. Before that, a "
+            "confirm is refused when the pending text or your rationale carries credential "
+            "material, such as an API token or a private key, while a reject still completes and "
+            "stores such a rationale as a fixed placeholder, with rationale_withheld: true in the "
+            "result. Every outcome is recorded with provenance, a "
             "revision, and an audit event. For source documents and raw notes use "
             "alice_capture instead."
         ),
@@ -345,7 +348,12 @@ _CORE_TOOL_DEFINITIONS: list[dict[str, object]] = [
                 },
                 "rationale": {
                     "type": "string",
-                    "description": "Why this memory is being committed, or why a pending write is being confirmed or rejected. Stored in the audit trail.",
+                    "description": (
+                        "Why this memory is being committed, or why a pending write is being confirmed "
+                        "or rejected. Stored in the audit trail. Leave credential material out: it gets "
+                        "a new write rejected and a confirm refused, and a reject stores a fixed "
+                        "placeholder in its place."
+                    ),
                 },
                 "idempotency_key": {
                     "type": "string",
@@ -370,7 +378,10 @@ _CORE_TOOL_DEFINITIONS: list[dict[str, object]] = [
                         "identity or a key bound to another project is refused (a keyless server "
                         "does not check a declared project_scope). 'confirm' is also "
                         "refused for a pending write above the calling agent's sensitivity "
-                        "ceiling; 'reject' is allowed there."
+                        "ceiling; 'reject' is allowed there. Within the 24 hours, 'confirm' is refused "
+                        "when the pending text or the rationale carries credential material; 'reject' "
+                        "is not, and stores such a rationale as a fixed placeholder "
+                        "(rationale_withheld: true)."
                     ),
                 },
                 **_AGENT_IDENTITY_SCHEMA_PROPERTIES,

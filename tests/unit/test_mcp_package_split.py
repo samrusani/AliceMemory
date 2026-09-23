@@ -172,7 +172,16 @@ def test_mcp_registry_order_definitions_and_alias_identity_are_frozen() -> None:
     # legacy tool, so the legacy pin is S4.4's. Checked by comparing each tool
     # of the combined tree against both branches, not only by re-hashing. No
     # tool added, removed, or renamed.
-    assert _digest(core_definitions) == "db398e8604797451d71b107ab3bcb2cf41c3a8c47599050e9c2a997c74b72321"
+    # Moved 2026-09-23 (Sprint 4 integration follow-up, text only). The combined
+    # tree runs S4.4's credential check on S4.3's confirmation route, so
+    # alice_memory_commit's description, and its rationale and
+    # confirmation_action descriptions, now say that a confirm is refused when
+    # the pending text or the rationale carries credential material, and that a
+    # reject still completes and stores such a rationale as a fixed placeholder
+    # (rationale_withheld). No type, enum, bound or required list moved; no
+    # other tool changed; legacy and handler map digests unchanged. No tool
+    # added, removed, or renamed.
+    assert _digest(core_definitions) == "dbfbf6bbb02d24aca02f94d94aff1fb3970aa6a1c08ecb03a3812ba72f9f58e4"
     assert _digest(legacy_definitions) == "2c21d4d624da448969554137e0b9cbae14c34cfaa0454e76d22ae480a6a29a58"
     ordered_handler_map = [(name, handler.__name__) for name, handler in handlers.items()]
     assert _digest(ordered_handler_map) == "d864c98bb914bbc6ace464fa8020b3ed264f17f2061a6101aae677d801032ae5"

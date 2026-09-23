@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- **Correction to v0.15.1 to v0.16.0.** The v0.15.1 release notes said
+  credential material and agent-directed instructions always require review,
+  and that the floor "still refuses credentials and agent-directed
+  instructions". That was false. The floor only kept such writes from being
+  auto-promoted; the memory commit refused a credential in a single field,
+  but a credential split across fields, `correct()`, `confirm()` with new
+  text, the review edit, the `/v1` memory operations, artifact promotion and
+  `alice-memory import` did not check at all. Versions v0.15.1 to v0.16.0 are
+  affected. To check a vault, export it (`alice-memory export`, which now
+  lists every memory import would refuse), then redact each listed row: on
+  SQLite with `alice_memory_manage action=redact` (needs
+  `ALICE_MCP_FULL_TOOLS=1`), on Postgres with
+  `alicebot vnext memories redact <memory_id> --reason <why>`. Forget and
+  correct are not enough: they keep the old text in the row's history.
+
 - `alice-memory install` writes Claude Code's SessionStart hook in the
   shape Claude Code reads: a group whose `hooks` array holds
   `{"type": "command", "command": ...}`. v0.16.0 wrote Cursor's flat
@@ -330,20 +345,6 @@
   `alice_memory_commit` schema, because a confirmation carries neither;
   a new write without them is still refused.
 
-- **Correction to v0.15.1 to v0.16.0.** The v0.15.1 release notes said
-  credential material and agent-directed instructions always require review,
-  and that the floor "still refuses credentials and agent-directed
-  instructions". That was false. The floor only kept such writes from being
-  auto-promoted; the memory commit refused a credential in a single field,
-  but a credential split across fields, `correct()`, `confirm()` with new
-  text, the review edit, the `/v1` memory operations, artifact promotion and
-  `alice-memory import` did not check at all. Versions v0.15.1 to v0.16.0 are
-  affected. To check a vault, export it (`alice-memory export`, which now
-  lists every memory import would refuse), then redact each listed row: on
-  SQLite with `alice_memory_manage action=redact` (needs
-  `ALICE_MCP_FULL_TOOLS=1`), on Postgres with
-  `alicebot vnext memories redact <memory_id> --reason <why>`. Forget and
-  correct are not enough: they keep the old text in the row's history.
 - Credential material is refused on the memory write paths listed in
   `docs/memory/promotion-personas.md`, through one check
   (`alicebot_api.credential_floor`): commit, proposal (all three doors,

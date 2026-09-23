@@ -61,7 +61,7 @@ Good explicit commit, the user said to remember it:
 
 A new write needs `title` and `canonical_text`. Everything else is optional, and any field not in the server's `tools/list` schema is rejected outright rather than ignored.
 
-If Alice returns `confirmation_required`, finish it on `alice_memory_commit` as shown above, only with the user's answer. Alice refuses both confirm and reject for a read-only identity and for a key bound to another project (a keyless server trusts whatever `project_scope` the call declares). It refuses confirm, but not reject, when the pending write is above your sensitivity ceiling (anything above `private` for `trusted_local_agent`), so you can clear such a write but not store it. If Alice returns `review_required`, do not tell the user to clear a review queue.
+If Alice returns `confirmation_required`, finish it on `alice_memory_commit` as shown above, only with the user's answer. Alice refuses both confirm and reject for a read-only identity and for a key bound to another project (a keyless server trusts whatever `project_scope` the call declares). It refuses confirm, but not reject, when the pending write is above your sensitivity ceiling (anything above `private` for `trusted_local_agent`), so you can clear such a write but not store it. Alice refuses credential material, such as an API token or a private key, on a commit and on a confirm: leave the secret out, and never retry with it reworded, split or encoded. If Alice returns `review_required`, do not tell the user to clear a review queue.
 
 Bad commit, too low confidence to be worth storing:
 
