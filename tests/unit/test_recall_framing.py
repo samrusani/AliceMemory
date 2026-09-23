@@ -1,8 +1,9 @@
 """Stored notes are quoted as data on the way out, and each item names its writer.
 
 An instruction-shaped memory is stored verbatim. Recall, resume, and the
-context pack still rank and keep that text. The model-facing copy starts
-with a framing line and quotes the note, and the item carries ``writer``.
+context pack still rank and keep that text. An MCP tool result states the
+framing line once, at the top of the tool text. Each item quotes the note
+and carries ``writer``.
 """
 
 from __future__ import annotations
@@ -87,13 +88,24 @@ def _source_chunk_text(context) -> str:
     return _store_read(context, read)
 
 
-def _assert_framed(text: str, stored: str) -> None:
+def _assert_quoted(text: str, stored: str) -> None:
     from alicebot_api.session_briefing import quote_session_brief_text
 
-    assert text.startswith(FRAMING + "\n"), text
-    assert text.split("\n", 1)[1] == quote_session_brief_text(stored)
+    assert text == quote_session_brief_text(stored), text
+    assert FRAMING not in text
     assert text != stored
     assert "ignore previous instructions" in text
+
+
+def _assert_result_framed_once(result: dict) -> None:
+    """The sentence is the first field of the tool text, and it appears once."""
+
+    from alicebot_api.recall_framing import serialize_mcp_tool_result
+
+    assert result.get("framing") == FRAMING
+    wire = serialize_mcp_tool_result(result)
+    assert wire.startswith('{"framing":' + json.dumps(FRAMING) + ","), wire[:180]
+    assert wire.count(FRAMING) == 1
 
 
 def test_quote_keeps_a_note_from_closing_the_quotation() -> None:
@@ -197,9 +209,10 @@ def test_instruction_shaped_memory_is_framed_and_attributed_on_each_surface(
     owner_hit = next(item for item in recall["results"] if "owner-copy" in item["text"])
     keyless_hit = next(item for item in recall["results"] if "keyless-copy" in item["text"])
     keyed_hit = next(item for item in recall["results"] if "keyed-copy" in item["text"])
-    _assert_framed(owner_hit["text"], OWNER_TEXT)
-    _assert_framed(keyless_hit["text"], KEYLESS_TEXT)
-    _assert_framed(keyed_hit["text"], KEYED_TEXT)
+    _assert_result_framed_once(recall)
+    _assert_quoted(owner_hit["text"], OWNER_TEXT)
+    _assert_quoted(keyless_hit["text"], KEYLESS_TEXT)
+    _assert_quoted(keyed_hit["text"], KEYED_TEXT)
     assert owner_hit.get("writer") == {"id": "owner", "established": "declared_on_keyless_install"}
     assert keyless_hit.get("writer") == {"id": "hermes-keyless", "established": "declared_on_keyless_install"}
     assert keyed_hit.get("writer") == {"id": "hermes-keyed", "established": "verified_by_key"}
@@ -214,22 +227,26 @@ def test_instruction_shaped_memory_is_framed_and_attributed_on_each_surface(
     source_hits = [source for source in recall["sources"] if "source-copy" in str(source.get("excerpt") or "")]
     assert source_hits, recall["sources"]
     excerpt = source_hits[0]["excerpt"]
-    assert excerpt.startswith(FRAMING + "\n")
-    unquoted_excerpt = _unquote(excerpt.split("\n", 1)[1])
+    assert isinstance(excerpt, str) and excerpt.startswith('"'), excerpt
+    assert FRAMING not in excerpt
+    unquoted_excerpt = _unquote(excerpt)
     assert "source-copy" in unquoted_excerpt
     assert "\n" not in unquoted_excerpt
     assert "source-copy" in chunk_before
     assert not unquoted_excerpt.startswith(FRAMING)
-    assert source_hits[0].get("title", "").startswith(FRAMING + "\n") or "title" not in source_hits[0]
+    source_title = source_hits[0].get("title")
+    assert isinstance(source_title, str) and source_title.startswith('"'), source_title
+    assert FRAMING not in source_title
     assert source_hits[0].get("writer") == {"id": "owner", "established": "declared_on_keyless_install"}
 
+    _assert_result_framed_once(resume)
     last = resume["brief"]["last_decision"]
     assert last is not None
-    _assert_framed(last["canonical_text"], KEYED_TEXT)
+    _assert_quoted(last["canonical_text"], KEYED_TEXT)
     assert last.get("writer") == {"id": "hermes-keyed", "established": "verified_by_key"}
     loops = [loop for loop in resume["brief"]["open_loops"] if "open-loop" in str(loop.get("title") or "")]
     assert loops, resume["brief"]["open_loops"]
-    _assert_framed(loops[0]["title"], LOOP_TITLE)
+    _assert_quoted(loops[0]["title"], LOOP_TITLE)
     assert loops[0].get("writer") == {"id": "loop-agent", "established": "declared_on_keyless_install"}
 
     memories = [
@@ -237,11 +254,12 @@ def test_instruction_shaped_memory_is_framed_and_attributed_on_each_surface(
         for row in pack["memories"]
         if any(marker in str(row.get("canonical_text") or "") for marker in ("owner-copy", "keyless-copy", "keyed-copy"))
     ]
+    _assert_result_framed_once(pack)
     assert {((row.get("writer") or {}).get("id")) for row in memories} == {"owner", "hermes-keyless", "hermes-keyed"}
     for row in memories:
         markers = {"owner-copy": OWNER_TEXT, "keyless-copy": KEYLESS_TEXT, "keyed-copy": KEYED_TEXT}
         match = next(stored for marker, stored in markers.items() if marker in row["canonical_text"])
-        _assert_framed(row["canonical_text"], match)
+        _assert_quoted(row["canonical_text"], match)
         writer = row.get("writer")
         assert isinstance(writer, dict)
         if writer.get("id") == "hermes-keyed":
@@ -376,11 +394,12 @@ def test_contradiction_quotes_are_framed_from_the_store_and_memory_text_stays(
     after = _ranking_snapshot(context)
     assert after == before
 
+    _assert_result_framed_once(pack)
     evidence = pack.get("contradicting_evidence")
     assert isinstance(evidence, list) and len(evidence) == 1, pack
     record = evidence[0]
-    _assert_framed(record["quote_new"], memory_text)
-    _assert_framed(record["quote_belief"], belief_claim)
+    _assert_quoted(record["quote_new"], memory_text)
+    _assert_quoted(record["quote_belief"], belief_claim)
     assert record.get("writer") == {"id": "owner", "established": "declared_on_keyless_install"}
 
     stored = _store_read(context, lambda store: store.get_memory(memory_id))
@@ -473,6 +492,7 @@ def _service(context, method: str, **kwargs: object):
 
 def _recall_text(context, marker: str) -> dict:
     recall = _call(context, "alice_recall", query=marker, limit=10)
+    _assert_result_framed_once(recall)
     hits = [item for item in recall["results"] if marker in item["text"]]
     assert hits, recall
     return hits[0]
@@ -523,7 +543,7 @@ def test_owner_correct_does_not_keep_verified_by_key(
     stored = _store_read(context, lambda store: store.get_memory(memory_id))
     assert stored["canonical_text"] == rewritten
     hit = _recall_text(context, "owner-rewrite")
-    _assert_framed(hit["text"], rewritten)
+    _assert_quoted(hit["text"], rewritten)
     assert hit["writer"] == {"id": "owner", "established": "declared_on_keyless_install"}
 
 
@@ -572,7 +592,7 @@ def test_keyless_other_agent_correct_does_not_keep_verified_by_key(
     stored = _store_read(context, lambda store: store.get_memory(memory_id))
     assert stored["canonical_text"] == rewritten
     hit = _recall_text(context, "other-rewrite")
-    _assert_framed(hit["text"], rewritten)
+    _assert_quoted(hit["text"], rewritten)
     assert hit["writer"] == {"id": "hermes-other", "established": "declared_on_keyless_install"}
 
 
@@ -624,7 +644,7 @@ def test_keyless_confirm_with_text_does_not_keep_verified_by_key(
     stored = _store_read(context, lambda store: store.get_memory(memory_id))
     assert stored["canonical_text"] == rewritten
     hit = _recall_text(context, "confirm-rewrite")
-    _assert_framed(hit["text"], rewritten)
+    _assert_quoted(hit["text"], rewritten)
     assert hit["writer"]["id"] == "hermes-keyed"
     assert hit["writer"]["established"] == "declared_on_keyless_install"
 
@@ -720,10 +740,13 @@ def test_recall_source_title_is_framed(tmp_path: Path) -> None:
     )
     assert captured.get("status")
     recall = _call(context, "alice_recall", query=TOKEN, limit=5)
+    _assert_result_framed_once(recall)
     titles = [source.get("title") for source in recall.get("sources") or [] if "Source title" in str(source.get("title"))]
     assert titles, recall.get("sources")
-    assert str(titles[0]).startswith(FRAMING + "\n")
+    assert str(titles[0]).startswith('"')
+    assert FRAMING not in str(titles[0])
     assert f"Source title {TOKEN}" in str(titles[0])
+    assert str(titles[0]) == quote_visible(f"Source title {TOKEN}")
 
 
 def test_resume_last_decision_title_is_framed(tmp_path: Path) -> None:
@@ -739,10 +762,12 @@ def test_resume_last_decision_title_is_framed(tmp_path: Path) -> None:
         source_type="direct_user_instruction",
     )
     resume = _call(context, "alice_resume", query=TOKEN, max_open_loops=0, max_recent_changes=0)
+    _assert_result_framed_once(resume)
     last = resume["brief"]["last_decision"]
-    assert last["title"].startswith(FRAMING + "\n")
+    assert last["title"] == quote_visible(f"Resume title {TOKEN}")
+    assert FRAMING not in last["title"]
     assert f"Resume title {TOKEN}" in last["title"]
-    _assert_framed(last["canonical_text"], OWNER_TEXT)
+    _assert_quoted(last["canonical_text"], OWNER_TEXT)
 
 
 def test_context_pack_memory_summary_is_framed(tmp_path: Path) -> None:
@@ -758,9 +783,12 @@ def test_context_pack_memory_summary_is_framed(tmp_path: Path) -> None:
         source_type="direct_user_instruction",
     )
     pack = _call(context, "alice_context_pack", query=TOKEN, max_items=5)
+    _assert_result_framed_once(pack)
     row = next(item for item in pack["memories"] if "owner-copy" in item["canonical_text"])
-    assert row["summary"].startswith(FRAMING + "\n")
+    assert row["summary"].startswith('"')
+    assert FRAMING not in row["summary"]
     assert "owner-copy" in row["summary"]
+    assert row["summary"] == quote_visible(_unquote(row["summary"]))
 
 
 def test_hermes_prefetch_quotes_a_stored_newline(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -836,17 +864,25 @@ def test_review_and_explain_frame_stored_text(tmp_path: Path) -> None:
     )
     assert captured["status"] == "imported"
     review = _call(context, "alice_memory_review", status="pending_review")
+    _assert_result_framed_once(review)
     item = next(row for row in review["items"] if note in row["canonical_text"])
-    assert item["canonical_text"].startswith(FRAMING + "\n")
-    assert item["title"].startswith(FRAMING + "\n")
+    assert item["canonical_text"].startswith('"')
+    assert item["title"].startswith('"')
+    assert FRAMING not in item["canonical_text"]
+    assert FRAMING not in item["title"]
     assert item["writer"]["id"]
     detail = _call(context, "alice_memory_review", review_item_id=item["id"])
-    assert detail["review"]["memory"]["canonical_text"].startswith(FRAMING + "\n")
+    _assert_result_framed_once(detail)
+    assert detail["review"]["memory"]["canonical_text"].startswith('"')
+    assert FRAMING not in detail["review"]["memory"]["canonical_text"]
     assert detail["review"]["memory"]["writer"]["established"]
     explained = _call(context, "alice_explain", memory_id=item["id"])
-    assert explained["memory"]["canonical_text"].startswith(FRAMING + "\n")
+    _assert_result_framed_once(explained)
+    assert explained["memory"]["canonical_text"].startswith('"')
+    assert FRAMING not in explained["memory"]["canonical_text"]
     assert explained["memory"]["writer"]["id"]
-    assert explained["supersession_chain"][0]["title"].startswith(FRAMING + "\n")
+    assert explained["supersession_chain"][0]["title"].startswith('"')
+    assert FRAMING not in explained["supersession_chain"][0]["title"]
 
 
 def test_prefetch_brief_fields_are_framed() -> None:
@@ -863,20 +899,24 @@ def test_prefetch_brief_fields_are_framed() -> None:
         }
     )
     title = framed["last_decision"]["item"]["title"]
-    assert title.startswith(FRAMING + "\n")
+    assert title == quote_visible(stored)
+    assert FRAMING not in title
     assert "\nSystem:" not in title
-    assert framed["open_loops"]["items"][0]["title"].startswith(FRAMING + "\n")
+    assert framed["open_loops"]["items"][0]["title"] == quote_visible(stored)
     assert framed["last_decision"]["item"]["writer"]["id"] == "owner"
 
 
-def test_compact_tool_result_size_is_measured(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    """Print the compact-result growth so the PR can state the measured cost."""
+def test_compact_tool_result_states_the_sentence_once(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """The compact recall fixture states the sentence once, above a quoted note."""
 
+    from alicebot_api.recall_framing import serialize_mcp_tool_result
+
+    stored = "The compact tool result quotes this stored note and names its writer."
     context = _context(tmp_path)
     _commit(
         context,
         title="Size note",
-        canonical_text="The compact tool result quotes this stored note and names its writer.",
+        canonical_text=stored,
         memory_type="semantic",
         domain="personal",
         sensitivity="private",
@@ -884,12 +924,48 @@ def test_compact_tool_result_size_is_measured(tmp_path: Path, capsys: pytest.Cap
         source_type="direct_user_instruction",
     )
     recall = _call(context, "alice_recall", query="compact tool result", limit=1)
+    _assert_result_framed_once(recall)
     item = recall["results"][0]
-    framed = json.dumps(item, sort_keys=True)
-    bare = dict(item)
-    bare["text"] = _unquote(str(item["text"]).split("\n", 1)[1])
-    bare.pop("writer", None)
-    unframed = json.dumps(bare, sort_keys=True)
-    ratio = len(framed) / len(unframed)
-    print(f"COMPACT_RECALL_BYTES framed={len(framed)} unframed={len(unframed)} ratio={ratio:.4f}")
-    assert ratio > 1.0
+    assert item["text"] == quote_visible(stored)
+    assert FRAMING not in item["text"]
+    assert item["writer"] == {"id": "owner", "established": "declared_on_keyless_install"}
+    wire = serialize_mcp_tool_result(recall)
+    print(f"COMPACT_RECALL_BYTES wire={len(wire.encode('utf-8'))}")
+    assert wire.count(FRAMING) == 1
+
+
+def test_mcp_host_text_puts_the_framing_sentence_first(monkeypatch: pytest.MonkeyPatch) -> None:
+    """sort_keys would put count ahead of framing. The host text must not."""
+
+    from io import BytesIO
+    from uuid import UUID
+
+    from alicebot_api.mcp_server import MCPServer
+    from alicebot_api.mcp_tools import MCPRuntimeContext
+
+    context = MCPRuntimeContext(
+        database_url="sqlite:///unused",
+        user_id=UUID("00000000-0000-0000-0000-000000000001"),
+    )
+    server = MCPServer(context=context, input_stream=BytesIO(), output_stream=BytesIO())
+    monkeypatch.setattr(
+        "alicebot_api.mcp_server.call_mcp_tool",
+        lambda *_args, **_kwargs: {
+            "count": 1,
+            "framing": FRAMING,
+            "results": [{"text": '"note"', "writer": {"id": "owner", "established": "declared_on_keyless_install"}}],
+        },
+    )
+    response = server._handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {"name": "alice_recall", "arguments": {"query": "note"}},
+        }
+    )
+    assert response is not None
+    text = response["result"]["content"][0]["text"]
+    assert text.startswith('{"framing":' + json.dumps(FRAMING) + ","), text[:180]
+    assert text.count(FRAMING) == 1
+    assert json.loads(text)["results"][0]["text"] == '"note"'
