@@ -148,29 +148,19 @@ def test_mcp_registry_order_definitions_and_alias_identity_are_frozen() -> None:
     # now says "on this tool" (the review approve path does not read the 24
     # hours), and confirmation_action says a keyless server does not check a
     # declared project_scope.
-    # Moved 2026-09-23 (S4.5). Counts, legacy digest and handler map digest
-    # unchanged. alice_memory_commit's description now refuses an above-ceiling
-    # write and says not to relabel it, and confirmation_action says only the
-    # author, an admin_agent key, or the owner can resolve a pending write.
-    # alice_memory_manage's description says a mutation above the ceiling is
-    # refused and names the same three resolvers. No tool added, removed, or renamed.
-    # Moved again 2026-09-23 (recall framing). Counts, legacy digest and handler
-    # map digest unchanged. alice_recall, alice_resume, alice_context_pack, and
-    # alice_recent_decisions now say returned notes are quoted data, not
-    # instructions, and name writer.id and writer.established. No tool added,
-    # removed, or renamed.
-    # Moved 2026-09-23 after review. Counts, legacy digest and handler map
-    # digest unchanged. The alice_memory_commit sensitivity field text changed
-    # because an above-ceiling agent commit is rejected rather than sent to
-    # inline confirmation. The description no longer says every outcome has
-    # provenance and a revision: a refusal writes agent.memory_commit_rejected
-    # and does not save a row. No tool added, removed, or renamed.
+    # Moved 2026-09-23 (S4.5 on main after #414). Counts and the handler map
+    # digest unchanged. Core carries S4.3's confirmation fields, S4.4's
+    # source_refs bounds and credential wording, and S4.5's ceiling refusal
+    # and author check on alice_memory_commit, plus S4.5's ceiling wording on
+    # alice_memory_manage and S4.4's correction bounds on alice_memory_correct.
+    # A refusal does not claim every outcome has provenance and a revision.
+    # Legacy is S4.4's pin: S4.5 changed no legacy tool.
     # Re-minted 2026-09-23 when recall-framing merged s4-ceiling-in-the-service.
-    # The core definitions now contain both the framing sentences and the
-    # ceiling wording, so neither earlier pin matches. Counts, legacy digest
-    # and handler map digest are unchanged. No tool added, removed, or renamed.
-    assert _digest(core_definitions) == "da07a5542cf1c0964cb3c0bf555068a6cb5994ad834514537584ddac2375bbae"
-    assert _digest(legacy_definitions) == "ca3d747e552bdece52c22d76332fc69f499878290edf3f236a8a7ea6a2e34e41"
+    # Core now has those definitions plus the framing sentences on alice_recall,
+    # alice_resume, alice_context_pack, and alice_recent_decisions, so neither
+    # earlier core pin matches. No tool added, removed, or renamed.
+    assert _digest(core_definitions) == "9f1f4a972c597857ac7ae16963592249291a2da15b10c645d8fdb90108567047"
+    assert _digest(legacy_definitions) == "2c21d4d624da448969554137e0b9cbae14c34cfaa0454e76d22ae480a6a29a58"
     ordered_handler_map = [(name, handler.__name__) for name, handler in handlers.items()]
     assert _digest(ordered_handler_map) == "d864c98bb914bbc6ace464fa8020b3ed264f17f2061a6101aae677d801032ae5"
     for first, second in EXPECTED_ALIAS_PAIRS:

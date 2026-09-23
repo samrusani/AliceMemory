@@ -3,19 +3,15 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from uuid import uuid4
 from alicebot_api.store import JsonObject
 from alicebot_api.vnext_agent_control import (
     AgentIdentity,
     AgentPolicyBlockedError,
     PolicyDecision,
-    agent_metadata,
-    append_promotion_event,
     evaluate_agent_policy,
     resource_project_scope,
 )
 from alicebot_api.vnext_embeddings import DeferredMemoryEmbedding
-from alicebot_api.vnext_event_log import append_event
 from alicebot_api.vnext_memory_commit import (
     VNextMemoryCommitService,
     VNextMemoryCommitValidationError,
@@ -24,7 +20,8 @@ from alicebot_api.vnext_memory_commit import (
     memory_commit_receipt,
     memory_commit_request_from_payload,
 )
-from alicebot_api.vnext_promotion_policy import promotion_candidate_for_proposal
+from alicebot_api.vnext_memory_propose import MemoryProposal, propose_memory
+from alicebot_api.vnext_promotion_policy import PromotionCandidate
 from alicebot_api.vnext_project_update_guard import (
     PENDING_PROJECT_UPDATE_MEMORY_MUTATION_MESSAGE,
     is_pending_project_update_memory,
@@ -61,96 +58,58 @@ def _handle_alice_vnext_propose_memory(context: MCPRuntimeContext, arguments: Ma
     canonical_text = _parse_required_text(arguments, "canonical_text")
     domain = _parse_optional_text(arguments, "domain") or "unknown"
     sensitivity = _parse_optional_text(arguments, "sensitivity") or "unknown"
-    blocked_decision: PolicyDecision | None = None
-    memory: VNextJsonObject | None = None
-    decision: PolicyDecision | None = None
+    proposal = MemoryProposal(
+        proposal_type=proposal_type,
+        title=_parse_optional_text(arguments, "title") or canonical_text[:120],
+        canonical_text=canonical_text,
+        memory_type={
+            "decision": "decision",
+            "project_update": "project_state",
+            "belief_update": "belief",
+            "contradiction": "contradiction",
+            "artifact_summary": "artifact_summary",
+            "open_loop": "open_loop",
+        }.get(proposal_type, "semantic"),
+        domain=domain,
+        sensitivity=sensitivity,
+        confidence=_parse_optional_float(arguments, "confidence") or 0.5,
+        rationale=_parse_optional_text(arguments, "rationale"),
+        source_refs=tuple(_parse_string_list(arguments, "source_refs")),
+        project_scope=tuple(_parse_string_list(arguments, "project_scope")),
+        source_type=_parse_optional_text(arguments, "source_type") or "trusted_agent",
+        contradiction_refs=tuple(_parse_string_list(arguments, "contradiction_refs")),
+        conversation_excerpt=_parse_optional_text(arguments, "conversation_excerpt"),
+        proposal_id=_parse_optional_text(arguments, "proposal_id"),
+        trace_id=_parse_optional_text(arguments, "trace_id"),
+    )
     with _vnext_store_context(context) as store:
-        _actor_type, _actor_id, decision = _policy_checked(
-            store,
-            identity=identity,
-            action="memory.propose",
-            domains=(domain,),
-            sensitivity_allowed=(sensitivity,),
-            project_scope=_parse_string_list(arguments, "project_scope"),
-            promotion_settings=load_promotion_settings(brain_charter=_brain_charter_row(store)),
-            promotion_candidate=promotion_candidate_for_proposal(
-                canonical_text=canonical_text,
-                title=_parse_optional_text(arguments, "title") or "",
-                domain=domain,
-                sensitivity=sensitivity,
-                source_type=_parse_optional_text(arguments, "source_type") or "trusted_agent",
-                source_refs=_parse_string_list(arguments, "source_refs"),
-                contradiction_refs=_parse_string_list(arguments, "contradiction_refs"),
-                conversation_excerpt=_parse_optional_text(arguments, "conversation_excerpt"),
-            ),
-            # MCP never authenticates a human. Without ALICE_AGENT_API_KEY
-            # it honours payload identity outright, so an absent agent_id is
-            # nobody in particular rather than the owner.
-            owner_verified=False,
-        )
-        if decision.decision == "blocked":
-            blocked_decision = decision
-        else:
-            # A promoted proposal is a live memory, not a review item. With no
-            # persona configured review_required stays True and this is the
-            # candidate row it always was.
-            review_required = decision.review_required
-            proposal_id = _parse_optional_text(arguments, "proposal_id") or str(uuid4())
-            memory = store.create_memory(
-                {
-                    "memory_type": {
-                        "decision": "decision",
-                        "project_update": "project_state",
-                        "belief_update": "belief",
-                        "contradiction": "contradiction",
-                        "artifact_summary": "artifact_summary",
-                        "open_loop": "open_loop",
-                    }.get(proposal_type, "semantic"),
-                    "memory_key": f"agent_proposal.{proposal_type}.{proposal_id}",
-                    "value": {"proposal_type": proposal_type, "text": canonical_text},
-                    "status": "candidate" if review_required else "active",
-                    "confidence": _parse_optional_float(arguments, "confidence") or 0.5,
-                    "title": _parse_optional_text(arguments, "title") or canonical_text[:120],
-                    "canonical_text": canonical_text,
-                    "summary": canonical_text[:280],
-                    "domain": domain,
-                    "sensitivity": sensitivity,
-                    "metadata_json": {
-                        "proposal_type": proposal_type,
-                        "review_required": review_required,
-                        **agent_metadata(identity, decision),
-                    },
-                },
-                actor_type="agent",
-            )
-            append_event(
-                store,
-                event_type="agent.memory_proposed",
-                actor_type="agent",
-                actor_id=identity.agent_id,
-                target_type="memory",
-                target_id=str(memory["id"]),
-                trace_id=_parse_optional_text(arguments, "trace_id") or decision.trace_id,
-                run_id=identity.agent_run_id,
-                payload={"proposal_type": proposal_type, "agent_identity": identity.to_record()},
-            )
-            append_promotion_event(
+
+        def authorize(candidate: PromotionCandidate) -> tuple[AgentIdentity | None, PolicyDecision]:
+            _actor_type, _actor_id, decision = _policy_checked(
                 store,
                 identity=identity,
-                decision=decision,
-                target_type="memory",
-                target_id=str(memory["id"]),
-                trace_id=_parse_optional_text(arguments, "trace_id") or decision.trace_id,
+                action="memory.propose",
+                domains=(domain,),
+                sensitivity_allowed=(sensitivity,),
+                project_scope=proposal.project_scope,
+                promotion_settings=load_promotion_settings(brain_charter=_brain_charter_row(store)),
+                promotion_candidate=candidate,
+                # MCP never authenticates a human. Without ALICE_AGENT_API_KEY
+                # it honours payload identity outright, so an absent agent_id
+                # is nobody in particular rather than the owner.
+                owner_verified=False,
             )
-    if blocked_decision is not None:
-        _raise_mcp_policy_blocked(blocked_decision)
-    if memory is None or decision is None:
-        raise MCPToolError("vNext memory proposal did not complete")
+            return identity, decision
+
+        # One propose function for all three doors (ruling C2(ii)).
+        outcome = propose_memory(store, proposal=proposal, authorize=authorize)
+    if outcome.memory is None:
+        _raise_mcp_policy_blocked(outcome.decision)
     return _json_object(
         {
-            "proposal": memory,
-            "policy_decision": decision.to_record(),
-            "review_required": decision.review_required,
+            "proposal": outcome.memory,
+            "policy_decision": outcome.decision.to_record(),
+            "review_required": outcome.decision.review_required,
         }
     )
 

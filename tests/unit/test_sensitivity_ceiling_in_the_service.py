@@ -504,6 +504,358 @@ def test_second_confirm_on_the_commit_route_refuses_and_writes_nothing(
     assert _store_read(context, lambda store: store.list_events(target_type="memory", target_id=memory_id)) == events_before
 
 
+def _credential_assignment() -> str:
+    """A fake credential in the detector's assignment shape, built at runtime.
+
+    The source must not contain the assembled value. The scanner reads the
+    file as text and also decodes base64.
+    """
+
+    name = "api" + "_key"
+    value = "zz" + "99" + "qq"
+    return f"The staging {name}={value} is tucked in the note."
+
+
+def _events(context) -> list[dict]:
+    return _store_read(context, lambda store: store.list_events())
+
+
+@pytest.mark.parametrize("action", ["close", "reopen", "snooze", "edit"])
+def test_http_open_loop_review_refuses_above_the_caller_ceiling(
+    monkeypatch: pytest.MonkeyPatch, action: str
+) -> None:
+    from alicebot_api.routers import vnext_projects as vnext_projects_router
+
+    store, user_id, _memory_id, authorization = _http_confidential_target(monkeypatch)
+    status = "resolved" if action == "reopen" else "open"
+    fields = {
+        "title": "Highly sensitive follow-up",
+        "status": status,
+        "domain": "personal",
+        "sensitivity": "highly_sensitive",
+    }
+    if status == "resolved":
+        fields["resolved_at"] = "2026-09-01T00:00:00Z"
+    loop = store.create_open_loop(fields)
+    loop_id = str(loop["id"])
+    request_fields = {"user_id": user_id, "action": action}
+    if action == "snooze":
+        request_fields["due_at"] = "2026-12-01T00:00:00Z"
+    if action == "edit":
+        request_fields["title"] = "Renamed above the ceiling"
+    response = vnext_projects_router.review_vnext_open_loop(
+        loop_id,
+        vnext_projects_router.VNextOpenLoopReviewRequest(**request_fields),
+        authorization=authorization,
+    )
+    assert response.status_code == 403, response.body
+    body = json.loads(response.body)
+    assert "sensitivity_above_agent_ceiling" in body["policy_decision"]["reasons"]
+    after = store.get_open_loop(loop_id)
+    assert after["status"] == status
+    assert after["title"] == "Highly sensitive follow-up"
+    assert after["sensitivity"] == "highly_sensitive"
+    blocked = [
+        event
+        for event in store.events
+        if event.get("event_type") == "agent.policy_blocked" and event.get("target_id") == loop_id
+    ]
+    assert blocked
+    assert all(event.get("target_type") == "open_loop" for event in blocked)
+
+
+def test_hermes_confidential_secret_keeps_the_credential_refusal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A secret above the ceiling stays a credential refusal.
+
+    The receipt must not tell the owner to store it themselves.
+    """
+
+    context = _context(tmp_path)
+    _mint_key(context, monkeypatch, agent_id="hermes", permission_profile="trusted_local_agent")
+    text = _credential_assignment()
+    refused = _call(
+        context,
+        "alice_memory_commit",
+        title="Do not store",
+        canonical_text=text,
+        sensitivity="confidential",
+        confidence=0.95,
+    )
+    assert refused["status"] == "rejected", refused
+    assert refused["reason"] == "unsafe_secret_storage"
+    assert "unsafe_secret_storage" in refused["reasons"]
+    assert refused["receipt"] == "rejected."
+    assert "store the memory themselves" not in refused["receipt"]
+    assert _memory_count(context) == 0
+    assert text not in _stored_blob(context)
+
+
+def test_policy_blocked_confidential_commit_keeps_agent_policy_blocked(tmp_path: Path) -> None:
+    """A caller the policy engine already stopped keeps that reason.
+
+    Confidential sensitivity must not replace it with the ceiling receipt.
+    """
+
+    context = _context(tmp_path)
+    refused = _call(
+        context,
+        "alice_memory_commit",
+        title="Do not store",
+        canonical_text=SECRET,
+        sensitivity="confidential",
+        confidence=0.95,
+        agent_id="hermes",
+        permission_profile="read_only_agent",
+    )
+    assert refused["status"] == "rejected", refused
+    assert refused["reason"] == "agent_policy_blocked"
+    assert "agent_policy_blocked" in refused["reasons"]
+    assert refused["receipt"] == "rejected."
+    assert "store the memory themselves" not in refused["receipt"]
+    assert _memory_count(context) == 0
+
+
+def test_ceiling_refusal_writes_agent_memory_commit_rejected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    context = _context(tmp_path)
+    _mint_key(context, monkeypatch, agent_id="hermes", permission_profile="trusted_local_agent")
+    refused = _call(
+        context,
+        "alice_memory_commit",
+        title="Do not store",
+        canonical_text=SECRET,
+        sensitivity="confidential",
+        confidence=0.95,
+    )
+    assert refused["status"] == "rejected", refused
+    rejected = [event for event in _events(context) if event["event_type"] == "agent.memory_commit_rejected"]
+    assert rejected, "expected agent.memory_commit_rejected"
+    assert rejected[0]["payload_json"]["reason"] == "sensitivity_above_agent_ceiling"
+    assert _memory_count(context) == 0
+
+
+def test_ceiling_refusal_writes_filtered_policy_events(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The base decision is filtering, so the audit is policy_filtered.
+
+    A blocked decision would write agent.policy_blocked instead.
+    """
+
+    context = _context(tmp_path)
+    _mint_key(context, monkeypatch, agent_id="hermes", permission_profile="trusted_local_agent")
+    refused = _call(
+        context,
+        "alice_memory_commit",
+        title="Do not store",
+        canonical_text=SECRET,
+        sensitivity="confidential",
+        confidence=0.95,
+    )
+    assert refused["reason"] == "sensitivity_above_agent_ceiling"
+    types = {event["event_type"] for event in _events(context)}
+    assert "policy.decision" in types
+    assert "agent.policy_filtered" in types
+    assert "agent.policy_blocked" not in types
+
+
+def test_keyless_declared_admin_skips_the_commit_ceiling(tmp_path: Path) -> None:
+    """A keyless call that declares admin_agent is keyless owner mode.
+
+    It is not held to the commit ceiling. A keyless server does not verify
+    the declared profile.
+    """
+
+    context = _context(tmp_path)
+    pending = _call(
+        context,
+        "alice_memory_commit",
+        title="Declared admin",
+        canonical_text="A keyless declared admin stored a confidential note.",
+        sensitivity="confidential",
+        confidence=0.95,
+        agent_id="operator",
+        permission_profile="admin_agent",
+    )
+    assert pending["status"] == "confirmation_required", pending
+    assert _row(context, str(pending["memory"]["id"]))["status"] == "needs_review"
+
+
+def test_keyless_declared_admin_cannot_resolve_another_agents_pending_write(tmp_path: Path) -> None:
+    """Declaring admin_agent without a key is not an admin resolver."""
+
+    from alicebot_api.mcp_tools import MCPToolError
+
+    context = _context(tmp_path)
+    held = _call(
+        context,
+        "alice_memory_commit",
+        title="Held by hermes",
+        canonical_text="Hermes asked to keep a private note a declared admin must not resolve.",
+        sensitivity="private",
+        confidence=0.7,
+        agent_id="hermes",
+        permission_profile="trusted_local_agent",
+    )
+    memory_id = str(held["memory"]["id"])
+    with pytest.raises(MCPToolError, match=RESOLVER_REASON):
+        _call(
+            context,
+            "alice_memory_commit",
+            confirmation_id=held["confirmation_id"],
+            confirmation_action="confirm",
+            agent_id="operator",
+            permission_profile="admin_agent",
+        )
+    assert _row(context, memory_id)["status"] == "needs_review"
+
+
+def test_unauthorized_confirm_of_a_finished_row_is_an_author_refusal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Authorization runs before the pending check.
+
+    A stranger confirming a finished row hears the author reason and the
+    refusal is audited. The error does not say the row is not pending.
+    """
+
+    from alicebot_api.mcp_tools import AGENT_API_KEY_ENV, MCPToolError
+
+    context = _context(tmp_path)
+    _mint_key(context, monkeypatch, agent_id="hermes", permission_profile="trusted_local_agent")
+    pending = _call(
+        context,
+        "alice_memory_commit",
+        title="Confirm once",
+        canonical_text="Hermes noted a private preference that is confirmed once.",
+        sensitivity="private",
+        confidence=0.7,
+    )
+    memory_id = str(pending["memory"]["id"])
+    first = _call(
+        context,
+        "alice_memory_commit",
+        confirmation_id=pending["confirmation_id"],
+        confirmation_action="confirm",
+    )
+    assert first["status"] == "committed", first
+    monkeypatch.delenv(AGENT_API_KEY_ENV, raising=False)
+    _mint_key(context, monkeypatch, agent_id="other", permission_profile="trusted_local_agent")
+    with pytest.raises(MCPToolError, match=RESOLVER_REASON) as raised:
+        _call(
+            context,
+            "alice_memory_commit",
+            confirmation_id=pending["confirmation_id"],
+            confirmation_action="confirm",
+        )
+    assert "confirmation is not pending" not in str(raised.value)
+    assert _row(context, memory_id)["status"] == "active"
+    blocked = _blocked_for(context, target_type="memory", target_id=memory_id)
+    assert blocked
+    assert RESOLVER_REASON in blocked[-1]["payload_json"]["policy_decision"]["reasons"]
+
+
+def test_authorized_reject_keeps_the_credential_placeholder(tmp_path: Path) -> None:
+    """An authorized reject stores S4.4's placeholder, not the credential text.
+
+    The author passes authorization and the ceiling. The credential check
+    still replaces the rationale and says so.
+    """
+
+    from alicebot_api.credential_floor import RATIONALE_WITHHELD_PLACEHOLDER
+    from alicebot_api.mcp_tools import _sqlite_path_from_url
+    from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
+    from alicebot_api.vnext_agent_control import AgentIdentity
+    from alicebot_api.vnext_memory_commit import VNextMemoryCommitService, memory_commit_request_from_payload
+
+    context = _context(tmp_path)
+    author = AgentIdentity(
+        agent_id="hermes",
+        agent_type="personal_assistant",
+        permission_profile="trusted_local_agent",
+    )
+    credential = _credential_assignment()
+    rationale = f"stop, {credential}"
+
+    def reject(store):
+        service = VNextMemoryCommitService(store)
+        pending = service.commit(
+            identity=author,
+            request=memory_commit_request_from_payload(
+                {
+                    "title": "Pending note",
+                    "canonical_text": "Deploys stay on Tuesdays.",
+                    "domain": "personal",
+                    "sensitivity": "private",
+                    "confidence": 0.7,
+                },
+                user_id=USER_ID,
+            ),
+        )
+        assert pending["status"] == "confirmation_required", pending
+        rejected = service.confirm(
+            identity=author,
+            confirmation_id=str(pending["confirmation_id"]),
+            action="reject",
+            rationale=rationale,
+        )
+        tables: dict[str, str] = {}
+        for table in ("memories", "memory_revisions", "event_log"):
+            rows = store.conn.execute(f"SELECT * FROM {table}").fetchall()
+            tables[table] = json.dumps(rows, default=str)
+        return rejected, tables
+
+    with sqlite_user_connection(_sqlite_path_from_url(context.database_url), USER_ID) as conn:
+        rejected, tables = reject(SQLiteVNextStore(conn, USER_ID))
+
+    assert rejected.get("status") == "rejected"
+    assert rejected.get("rationale_withheld") is True
+    assert RATIONALE_WITHHELD_PLACEHOLDER in tables["memory_revisions"]
+    for table, blob in tables.items():
+        assert credential not in blob, table
+        assert rationale not in blob, table
+
+
+def test_agentic_memory_commit_smoke_keeps_private_health_and_refuses_confidential(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import argparse
+    from contextlib import contextmanager
+    from uuid import UUID
+
+    import alicebot_api.cli.smokes as smokes
+    from alicebot_api.cli.models import CLIContext
+    from alicebot_api.config import Settings
+    from alicebot_api.mcp_tools import _sqlite_path_from_url
+    from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
+
+    context = _context(tmp_path)
+
+    @contextmanager
+    def sqlite_store(_ctx):
+        with sqlite_user_connection(_sqlite_path_from_url(context.database_url), USER_ID) as conn:
+            yield SQLiteVNextStore(conn, USER_ID)
+
+    monkeypatch.setattr(smokes, "_vnext_store_context", sqlite_store)
+    ctx = CLIContext(
+        settings=Settings(database_url=context.database_url),
+        database_url=context.database_url,
+        user_id=UUID(USER_ID),
+    )
+    try:
+        output = smokes._run_vnext_smoke_agentic_memory_commit(ctx, argparse.Namespace())
+    except RuntimeError as exc:
+        pytest.fail(str(exc))
+    payload = json.loads(output)
+    assert payload["status"] == "passed"
+    assert payload["gates"]["sensitive_memory_requires_confirmation"] is True
+    assert payload["gates"]["inline_confirmation_commits"] is True
+    assert payload["gates"].get("confidential_hermes_commit_refused") is True
+
+
 def test_refusal_wording_is_in_the_tool_and_both_skill_packs() -> None:
     from alicebot_api.mcp.registry import list_mcp_tools
 

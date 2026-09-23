@@ -371,7 +371,12 @@ Alice decides the outcome, never the caller:
   any, answered.
   The confirmation runs the same service call as `alice_memory_manage`
   `confirm` on the full surface, with the same identity check, policy
-  check, project fence, revision and events. The project fence binds a
+  check, project fence, revision and events. The same call reads
+  credential material: a confirm whose pending text or rationale carries
+  it is refused and the write stays pending, and a reject stores such a
+  rationale as a fixed placeholder and returns `rationale_withheld: true`
+  (see [Memory Operations Protocol](../memory-operations-protocol.md#confirm)).
+  The project fence binds a
   key-bound scope; a keyless server trusts whatever `project_scope` the
   caller declares. Forget, expire, undo, confirm and open-loop updates
   of a target above the caller's sensitivity ceiling are blocked in that
@@ -380,8 +385,11 @@ Alice decides the outcome, never the caller:
   rejected at commit time with no pending row. The receipt says: This
   was not saved. Do not retry with a lower sensitivity label. Tell the
   user. The owner can raise this agent's clearance or store the memory
-  themselves. The owner (a keyless call with no agent identity) and an
-  `admin_agent` key are not held to that ceiling. Only the author of a
+  themselves. The owner (a keyless call with no agent identity), an
+  `admin_agent` key, and a keyless call that declares
+  `permission_profile: admin_agent` are not held to that ceiling. A
+  keyless server does not verify a declared profile. That is keyless
+  owner mode. Only the author of a
   pending write, an `admin_agent` key, or the owner can confirm or
   reject it. On a keyless install that limit is not protection: the
   caller can declare the author's agent_id. The author can still reject

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from typing import Literal
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from fastapi import APIRouter, Header, Query
 from fastapi.encoders import jsonable_encoder
@@ -15,6 +15,17 @@ from alicebot_api.browser_clip_capabilities import (
     issue_browser_clip_capability,
 )
 from alicebot_api.config import get_settings
+from alicebot_api.vnext_memory_propose import MemoryProposal, MemoryProposalRefused, propose_memory
+from alicebot_api.write_bounds import MAX_COMMIT_SOURCE_REFS
+from alicebot_api.credential_floor import (
+    SEARCHABLE_STATUSES,
+    TEXT_WITHHELD_PLACEHOLDER,
+    CredentialActivationRefused,
+    carries_credential_material,
+    refuse_credential_activation,
+    stored_text_fields,
+    withhold_credential_text,
+)
 from alicebot_api.db import user_connection
 from alicebot_api.mcp_tools import redact_memory_flow
 from alicebot_api.public_errors import public_exception_response
@@ -39,11 +50,11 @@ from alicebot_api.routers._vnext_shared import (
 )
 from alicebot_api.store import ContinuityStoreInvariantError
 from alicebot_api.vnext_agent_control import (
+    AgentIdentity,
     AgentIdentityValidationError,
     AgentPolicyBlockedError,
-    agent_metadata,
+    PolicyDecision,
     append_policy_events,
-    append_promotion_event,
     resource_project_scope,
 )
 from alicebot_api.vnext_agent_keys import (
@@ -71,7 +82,7 @@ from alicebot_api.vnext_memory_commit import (
     load_promotion_settings,
     memory_commit_request_from_payload,
 )
-from alicebot_api.vnext_promotion_policy import promotion_candidate_for_proposal
+from alicebot_api.vnext_promotion_policy import PromotionCandidate
 from alicebot_api.vnext_project_update_guard import (
     PENDING_PROJECT_UPDATE_MEMORY_MUTATION_MESSAGE,
     is_pending_project_update_memory,
@@ -216,7 +227,10 @@ class VNextMemoryCommitRequest(VNextAgentRequest):
     sensitivity: VNextSensitivity = "unknown"
     confidence: float = Field(default=0.9, ge=0.0, le=1.0)
     source_type: str = Field(default="direct_user_instruction", min_length=1, max_length=120)
-    source_refs: list[object] = Field(default_factory=list)
+    # The count is advertised here from the service constant; the per-ref
+    # length is enforced by the service every surface calls, which answers
+    # 400 (owner ruling R4). list[object] cannot express a per-item rule.
+    source_refs: list[object] = Field(default_factory=list, max_length=MAX_COMMIT_SOURCE_REFS)
     conversation_excerpt: str | None = Field(default=None, min_length=1, max_length=4000)
     rationale: str | None = Field(default=None, min_length=1, max_length=4000)
     idempotency_key: str | None = Field(default=None, min_length=1, max_length=200)
@@ -862,7 +876,6 @@ def review_vnext_memory(
     action = request.action.strip().casefold()
     if action not in {"accept", "edit", "reject", "private", "assign_project", "promote"}:
         return _vnext_public_error_response(status_code=400, detail="vNext memory review action is invalid")
-
     try:
         _vnext_agent_identity(request)
         with user_connection(settings.database_url, request.user_id) as conn:
@@ -1144,6 +1157,52 @@ def review_vnext_memory(
         if request.sensitivity is not None:
             patch["sensitivity"] = request.sensitivity
 
+        # The credential floor, on the row as it will be stored. This route
+        # writes the row itself rather than through a service method, so it
+        # calls the shared checks here. Until 2026-09-22 an edit rewrote
+        # title, text and summary with no credential check. A title-only edit
+        # is read against the stored body, because that is the row a reader
+        # will see; derived previews of the text are left out.
+        #
+        # accept, promote and edit move the row into a searchable status, so
+        # they take the shared activation check over the row and the reason
+        # (ruling C2). A reject always completes (ruling C6): a reason, or
+        # edited text, that carries credential material is stored as a fixed
+        # placeholder and the response says so. private and assign_project
+        # keep the plain check.
+        text_edit = any(value is not None for value in (request.title, request.canonical_text, request.summary))
+        stored_title = patch.get("title", existing.get("title"))
+        stored_text = patch.get("canonical_text", existing.get("canonical_text"))
+        stored_summary = patch.get("summary", existing.get("summary"))
+        review_reason = request.reason
+        rationale_withheld = False
+        text_withheld = False
+        if action == "reject":
+            review_reason, rationale_withheld = withhold_credential_text(request.reason)
+            if text_edit and carries_credential_material(request.title, request.canonical_text, request.summary):
+                for text_field in ("title", "canonical_text", "summary"):
+                    if text_field in patch:
+                        patch[text_field] = TEXT_WITHHELD_PLACEHOLDER
+                edited_value = patch.get("value")
+                if isinstance(edited_value, dict):
+                    patch["value"] = {**edited_value, "text": TEXT_WITHHELD_PLACEHOLDER}
+                text_withheld = True
+        elif patch.get("status") in SEARCHABLE_STATUSES:
+            try:
+                refuse_credential_activation(stored_title, stored_text, stored_summary, request.reason)
+            except CredentialActivationRefused:
+                return _vnext_public_error_response(
+                    status_code=400, detail="vNext memory review text carries credential material"
+                )
+        else:
+            review_fields: tuple[object, ...] = (request.reason,)
+            if text_edit:
+                review_fields = (*stored_text_fields(stored_title, stored_text, stored_summary), request.reason)
+            if carries_credential_material(*review_fields):
+                return _vnext_public_error_response(
+                    status_code=400, detail="vNext memory review text carries credential material"
+                )
+
         updated = store.update_memory(memory_id=str(memory_id), patch=patch, actor_type=actor_type)
         if action in ("accept", "edit", "promote"):
             memory_service.refresh_memory_derived_state(
@@ -1177,7 +1236,7 @@ def review_vnext_memory(
                 "action": f"memory_review_{action}",
                 "text_before": existing.get("canonical_text"),
                 "text_after": str(updated.get("canonical_text", "")),
-                "reason": request.reason or f"vNext workspace memory review action: {action}",
+                "reason": review_reason or f"vNext workspace memory review action: {action}",
                 "actor_type": actor_type,
                 "actor_id": actor_id,
                 "metadata_json": {"action": action, "project_id": request.project_id},
@@ -1209,7 +1268,11 @@ def review_vnext_memory(
         actor_type=actor_type,
         actor_id=actor_id,
     )
-    return JSONResponse(status_code=200, content=jsonable_encoder({"memory": updated}))
+    review_payload: dict[str, object] = {"memory": updated}
+    if action == "reject":
+        review_payload["rationale_withheld"] = rationale_withheld
+        review_payload["text_withheld"] = text_withheld
+    return JSONResponse(status_code=200, content=jsonable_encoder(review_payload))
 
 
 def _vnext_memory_type_for_proposal(proposal_type: str) -> str:
@@ -1238,6 +1301,20 @@ def create_vnext_memory_proposal(
     except AgentIdentityValidationError as exc:
         return public_exception_response(exc, status_code=400)
 
+    proposal = MemoryProposal(
+        proposal_type=request.proposal_type,
+        title=request.title,
+        canonical_text=request.canonical_text,
+        memory_type=_vnext_memory_type_for_proposal(request.proposal_type),
+        domain=request.domain,
+        sensitivity=request.sensitivity,
+        confidence=request.confidence,
+        rationale=request.rationale,
+        source_refs=tuple(request.source_refs),
+        project_scope=tuple(request.project_scope),
+        source_type=getattr(request, "source_type", None) or "trusted_agent",
+        trace_id=request.trace_id,
+    )
     try:
         with user_connection(settings.database_url, request.user_id) as conn:
             store = PostgresVNextStore(conn)
@@ -1248,114 +1325,31 @@ def create_vnext_memory_proposal(
                 return _vnext_public_error_response(
                     status_code=400, detail="agent identity is required for memory proposals"
                 )
-            decision = _vnext_policy_checked(
-                store=store,
-                identity=identity,
-                action="memory.propose",
-                domains=(request.domain,),
-                sensitivity_allowed=(request.sensitivity,),
-                project_scope=tuple(request.project_scope),
-                promotion_settings=load_promotion_settings(brain_charter=_brain_charter_row(store)),
-                promotion_candidate=promotion_candidate_for_proposal(
-                    canonical_text=request.canonical_text,
-                    title=request.title,
-                    domain=request.domain,
-                    sensitivity=request.sensitivity,
-                    source_type=getattr(request, "source_type", None) or "trusted_agent",
-                    source_refs=request.source_refs,
-                ),
-                owner_verified=agent_api_keys_provisioned(store),
-            )
-            if decision.decision == "blocked":
-                return _vnext_permission_response(decision)
-            # A promoted proposal is a live memory, not a review item. With no
-            # persona configured review_required stays True and this stays the
-            # candidate row it always was.
-            review_required = decision.review_required
-            proposal_id = str(uuid4())
-            metadata = {
-                "proposal_id": proposal_id,
-                "proposal_type": request.proposal_type,
-                "source_refs": request.source_refs,
-                "project_scope": list(decision.effective_project_scope),
-                "rationale": request.rationale,
-                "review_required": review_required,
-                **agent_metadata(identity, decision),
-            }
-            memory = store.create_memory(
-                {
-                    "memory_type": _vnext_memory_type_for_proposal(request.proposal_type),
-                    "memory_key": f"agent_proposal.{request.proposal_type}.{proposal_id}",
-                    "value": {
-                        "proposal_type": request.proposal_type,
-                        "text": request.canonical_text,
-                        "source_refs": request.source_refs,
-                        "rationale": request.rationale,
-                    },
-                    "status": "candidate" if review_required else "active",
-                    "project_id": (
-                        decision.effective_project_scope[0] if len(decision.effective_project_scope) == 1 else None
-                    ),
-                    "confidence": request.confidence,
-                    "title": request.title,
-                    "canonical_text": request.canonical_text,
-                    "summary": request.canonical_text[:280],
-                    "domain": request.domain,
-                    "sensitivity": request.sensitivity,
-                    "metadata_json": metadata,
-                },
-                actor_type="agent",
-            )
-            store.append_revision(
-                {
-                    "memory_id": str(memory["id"]),
-                    "memory_key": str(memory["memory_key"]),
-                    "new_value": memory.get("value"),
-                    "revision_type": "created",
-                    "action": "agent_memory_proposal",
-                    "text_after": request.canonical_text,
-                    "reason": request.rationale or "Agent proposed memory for human review.",
-                    "actor_type": "agent",
-                    "actor_id": identity.agent_id,
-                    "metadata_json": metadata,
-                },
-                actor_type="agent",
-            )
-            append_event(
-                store,
-                event_type="agent.memory_proposed",
-                actor_type="agent",
-                actor_id=identity.agent_id,
-                target_type="memory",
-                target_id=str(memory["id"]),
-                trace_id=request.trace_id or decision.trace_id,
-                run_id=identity.agent_run_id,
-                payload={
-                    "proposal_type": request.proposal_type,
-                    "agent_identity": identity.to_record(),
-                    "policy_decision": decision.to_record(),
-                },
-            )
-            if review_required:
-                append_event(
-                    store,
-                    event_type="review.item_created",
-                    actor_type="agent",
-                    actor_id=identity.agent_id,
-                    target_type="memory",
-                    target_id=str(memory["id"]),
-                    trace_id=request.trace_id or decision.trace_id,
-                    run_id=identity.agent_run_id,
-                    payload={"review_required": True, "proposal_type": request.proposal_type},
+            proposing_identity = identity
+
+            def authorize(candidate: PromotionCandidate) -> tuple[AgentIdentity | None, PolicyDecision]:
+                return proposing_identity, _vnext_policy_checked(
+                    store=store,
+                    identity=proposing_identity,
+                    action="memory.propose",
+                    domains=(request.domain,),
+                    sensitivity_allowed=(request.sensitivity,),
+                    project_scope=tuple(request.project_scope),
+                    promotion_settings=load_promotion_settings(brain_charter=_brain_charter_row(store)),
+                    promotion_candidate=candidate,
+                    owner_verified=agent_api_keys_provisioned(store),
                 )
-            append_promotion_event(
-                store,
-                identity=identity,
-                decision=decision,
-                target_type="memory",
-                target_id=str(memory["id"]),
-                trace_id=request.trace_id or decision.trace_id,
-            )
+
+            # One propose function for all three doors (ruling C2(ii)): it
+            # refuses credential material over every persisted field before
+            # anything is written, then authorizes, then writes the row.
+            outcome = propose_memory(store, proposal=proposal, authorize=authorize)
+            if outcome.memory is None:
+                return _vnext_permission_response(outcome.decision)
+    except MemoryProposalRefused:
+        return _vnext_public_error_response(
+            status_code=400, detail="vNext memory proposal carries credential material"
+        )
     except AgentKeyAuthenticationError as exc:
         return _vnext_agent_auth_error_response(exc)
     except AgentPolicyBlockedError as exc:
@@ -1365,9 +1359,9 @@ def create_vnext_memory_proposal(
         status_code=201,
         content=jsonable_encoder(
             {
-                "proposal": memory,
-                "policy_decision": decision.to_record(),
-                "review_required": review_required,
+                "proposal": outcome.memory,
+                "policy_decision": outcome.decision.to_record(),
+                "review_required": outcome.decision.review_required,
             }
         ),
     )
@@ -1441,17 +1435,20 @@ def confirm_vnext_memory(
                 store, request, user_id=request.user_id, authorization=authorization
             )
             service = VNextMemoryCommitService(store, defer_embeddings=True)
-            payload = service.confirm(
-                identity=identity,
-                confirmation_id=request.confirmation_id,
-                action=request.action,
-                canonical_text=request.canonical_text,
-                rationale=request.rationale,
-            )
+            # Return inside the connection so a refusal's policy event
+            # commits. Raising out of user_connection rolls it back.
+            try:
+                payload = service.confirm(
+                    identity=identity,
+                    confirmation_id=request.confirmation_id,
+                    action=request.action,
+                    canonical_text=request.canonical_text,
+                    rationale=request.rationale,
+                )
+            except AgentPolicyBlockedError as exc:
+                return _vnext_permission_response(exc.decision)
     except AgentKeyAuthenticationError as exc:
         return _vnext_agent_auth_error_response(exc)
-    except AgentPolicyBlockedError as exc:
-        return _vnext_permission_response(exc.decision)
     except VNextMemoryCommitValidationError as exc:
         return public_exception_response(exc, status_code=400)
 
@@ -1482,15 +1479,16 @@ def undo_vnext_memory(
             identity = _vnext_authenticated_agent_identity(
                 store, request, user_id=request.user_id, authorization=authorization
             )
-            payload = VNextMemoryCommitService(store).undo(
-                identity=identity,
-                memory_id=str(request.memory_id) if request.memory_id is not None else None,
-                reason=request.reason,
-            )
+            try:
+                payload = VNextMemoryCommitService(store).undo(
+                    identity=identity,
+                    memory_id=str(request.memory_id) if request.memory_id is not None else None,
+                    reason=request.reason,
+                )
+            except AgentPolicyBlockedError as exc:
+                return _vnext_permission_response(exc.decision)
     except AgentKeyAuthenticationError as exc:
         return _vnext_agent_auth_error_response(exc)
-    except AgentPolicyBlockedError as exc:
-        return _vnext_permission_response(exc.decision)
     except VNextMemoryCommitValidationError as exc:
         return public_exception_response(exc, status_code=400)
 
@@ -1515,16 +1513,17 @@ def correct_vnext_memory(
                 store, request, user_id=request.user_id, authorization=authorization
             )
             service = VNextMemoryCommitService(store, defer_embeddings=True)
-            payload = service.correct(
-                identity=identity,
-                memory_id=str(request.memory_id),
-                canonical_text=request.canonical_text,
-                reason=request.reason,
-            )
+            try:
+                payload = service.correct(
+                    identity=identity,
+                    memory_id=str(request.memory_id),
+                    canonical_text=request.canonical_text,
+                    reason=request.reason,
+                )
+            except AgentPolicyBlockedError as exc:
+                return _vnext_permission_response(exc.decision)
     except AgentKeyAuthenticationError as exc:
         return _vnext_agent_auth_error_response(exc)
-    except AgentPolicyBlockedError as exc:
-        return _vnext_permission_response(exc.decision)
     except VNextMemoryCommitValidationError as exc:
         return public_exception_response(exc, status_code=400)
 
@@ -1555,15 +1554,16 @@ def forget_vnext_memory(
             identity = _vnext_authenticated_agent_identity(
                 store, request, user_id=request.user_id, authorization=authorization
             )
-            payload = VNextMemoryCommitService(store).forget(
-                identity=identity,
-                memory_id=str(request.memory_id),
-                reason=request.reason,
-            )
+            try:
+                payload = VNextMemoryCommitService(store).forget(
+                    identity=identity,
+                    memory_id=str(request.memory_id),
+                    reason=request.reason,
+                )
+            except AgentPolicyBlockedError as exc:
+                return _vnext_permission_response(exc.decision)
     except AgentKeyAuthenticationError as exc:
         return _vnext_agent_auth_error_response(exc)
-    except AgentPolicyBlockedError as exc:
-        return _vnext_permission_response(exc.decision)
     except VNextMemoryCommitValidationError as exc:
         return public_exception_response(exc, status_code=400)
 

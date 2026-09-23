@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import cast
 from uuid import UUID
 
 from alicebot_api.continuity_objects import serialize_continuity_lifecycle_state_from_record
+from alicebot_api.credential_floor import refuse_credential_activation, withhold_credential_text
 from alicebot_api.continuity_recall import query_continuity_recall
 from alicebot_api.contracts import (
     CONTINUITY_DAILY_BRIEF_ASSEMBLY_VERSION_V0,
@@ -525,6 +527,16 @@ def apply_continuity_open_loop_review_action(
         )
 
     transition = _REVIEW_ACTION_TRANSITIONS[action]
+    # S4.4 round 3 (P2 item 8). still_blocked moves the object to active, so
+    # it takes the shared activation check over the object's text first. The
+    # note is stored on the correction event whatever the action, so a note
+    # carrying credential material is withheld there, as every other review
+    # surface does (owner ruling C6), and the response says so.
+    if transition.lifecycle_outcome == "active":
+        refuse_credential_activation(
+            current["title"], current["body"], None, error=ContinuityOpenLoopValidationError
+        )
+    note, rationale_withheld = withhold_credential_text(note)
     next_last_confirmed_at = current["last_confirmed_at"]
     if action == "still_blocked":
         next_last_confirmed_at = _utcnow()
@@ -567,12 +579,16 @@ def apply_continuity_open_loop_review_action(
     if updated is None:
         raise ContinuityOpenLoopNotFoundError(f"continuity object {continuity_object_id} was not found")
 
-    return {
+    response: dict[str, object] = {
         "continuity_object": _serialize_review_object(updated),
         "correction_event": _serialize_correction_event(correction_event),
         "review_action": action,
         "lifecycle_outcome": transition.lifecycle_outcome,
+        # The response contract class is frozen by the contracts split test,
+        # so the flag rides on it rather than widening it here.
+        "rationale_withheld": rationale_withheld,
     }
+    return cast(ContinuityOpenLoopReviewActionResponse, response)
 
 
 def build_default_continuity_open_loop_query() -> ContinuityOpenLoopDashboardQueryInput:

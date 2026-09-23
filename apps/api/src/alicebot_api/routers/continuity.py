@@ -175,6 +175,7 @@ from alicebot_api.public_evals import (
 )
 from alicebot_api.retrieval_evaluation import get_retrieval_evaluation_summary
 from alicebot_api.store import ContinuityStore
+from alicebot_api.write_bounds import MAX_CAPTURE_COMMIT_CANDIDATES
 from alicebot_api.task_briefing import TaskBriefValidationError
 from alicebot_api.temporal_state import (
     TemporalStateNotFoundError,
@@ -221,7 +222,8 @@ class ContinuityCaptureCandidatesRequest(BaseModel):
 class ContinuityCaptureCommitRequest(BaseModel):
     user_id: UUID
     mode: str = Field(default="assist", min_length=1, max_length=20)
-    candidates: list[dict[str, object]] = Field(default_factory=list)
+    # The service also bounds each candidate by serialized size (write_bounds).
+    candidates: list[dict[str, object]] = Field(default_factory=list, max_length=MAX_CAPTURE_COMMIT_CANDIDATES)
     sync_fingerprint: str | None = Field(default=None, min_length=1, max_length=200)
     source_kind: str = Field(default="sync_turn", min_length=1, max_length=80)
 

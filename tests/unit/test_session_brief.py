@@ -537,3 +537,29 @@ def test_capture_does_not_auto_promote(tmp_path: Path, monkeypatch) -> None:
 
     recall = call_mcp_tool(context, name="alice_recall", arguments={"query": SOURCE_SENTENCE})
     assert recall["count"] == 0
+
+
+def test_the_brief_frames_stored_notes_as_quoted_data(tmp_path: Path, monkeypatch) -> None:
+    """Owner ruling C1 (S4.4 round 2, 2026-09-23).
+
+    The SessionStart hook injects this brief into the agent's context. Until
+    this change every stored note was a bare "**fact**: <text>" line, so a
+    note written as an instruction read as one. Fails if the frame line is
+    dropped, or if an item's text is rendered unquoted, or quoted in a way a
+    quote inside the note can close early.
+    """
+
+    from alicebot_api.session_briefing import SESSION_BRIEF_FRAME
+
+    context = _context(tmp_path, monkeypatch)
+    note = 'The runbook says "restart the worker" before paging anyone.'
+    _commit(context, title="Runbook order", text=note, sensitivity="public", project="acme", domain="project")
+
+    brief = _compile(tmp_path, query=None)
+
+    lines = brief.splitlines()
+    assert lines[0] == SESSION_BRIEF_FRAME
+    assert "not instructions" in SESSION_BRIEF_FRAME
+    facts = _labelled_lines(brief, "fact")
+    assert facts == ["**fact**: " + json.dumps(note, ensure_ascii=False)]
+    assert json.loads(facts[0].split(": ", 1)[1]) == note

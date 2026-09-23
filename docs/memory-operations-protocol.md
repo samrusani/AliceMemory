@@ -39,7 +39,7 @@ one of four outcomes, decided by the memory commit policy engine:
 What routes where (from `evaluate_memory_commit_policy`):
 
 - Blocked policy, a read-only caller, or secret-looking content (API keys,
-  tokens, passwords) → `rejected`.
+  tokens, passwords) in any field, or split across fields → `rejected`.
 - Confidence below 0.5, external source types (email, web pages, generated
   artifacts), non-explicit intent, or bulk source references → `review_required`.
 - Confidence between 0.5 and 0.85, sensitive domains (health, family,
@@ -49,9 +49,11 @@ What routes where (from `evaluate_memory_commit_policy`):
   above its sensitivity ceiling is `rejected` with reason
   `sensitivity_above_agent_ceiling` and no pending row, including when the
   checks above would have returned `confirmation_required` or
-  `review_required`. The owner (a keyless call with no agent identity) and
-  an `admin_agent` key still get `confirmation_required` for a confidential
-  write.
+  `review_required`. The owner (a keyless call with no agent identity), an
+  `admin_agent` key, and a keyless call that declares
+  `permission_profile: admin_agent` still get `confirmation_required` for
+  a confidential write. A keyless server does not verify a declared
+  profile. That is keyless owner mode.
 - Everything else from a trusted or project-scoped agent → `committed`.
 
 ## Audit guarantees
@@ -161,6 +163,24 @@ revision storing the text before and after, and an
 `agent.memory_corrected` event. The pre-correction text is preserved in the
 revision history, and correction history accumulates on the memory record.
 
+New text that carries credential material is refused on both surfaces and
+the memory is left unchanged. Approving a memory also reads the text it
+already holds: approve, accept and promote refuse a memory whose title, text
+or summary carries credential material, or whose approval reason does, and
+leave it where it was. Both memory stores refuse to create a memory in, or
+move one into, `active` or `accepted` while its text carries credential
+material, whichever surface asks.
+
+A reject always completes. If the reason carries credential material, the
+memory's metadata and the revision store the fixed text `rationale withheld:
+it carried credential material` instead, and the response carries
+`rationale_withheld: true`. Text supplied with a reject (a caller's
+`canonical_text`, or an edited title or summary) is never stored when it
+carries credential material: it is replaced by `text withheld: it carried
+credential material` and the response carries `text_withheld: true`. The
+same holds for `alice_review_apply` delete and mark_stale on continuity
+objects.
+
 ## confirm
 
 Completes a write that policy held as `confirmation_required` (the pending
@@ -186,7 +206,11 @@ ceiling is blocked, including confirm, forget, expire and undo. An agent
 commit above that ceiling is rejected with no pending row. The receipt
 says this was not saved, do not retry with a lower sensitivity label,
 tell the user, and the owner can raise this agent's clearance or store
-the memory themselves. Only the author, an `admin_agent` key, or the
+the memory themselves. The owner (a keyless call with no agent identity),
+an `admin_agent` key, and a keyless call that declares
+`permission_profile: admin_agent` are not held to that ceiling. A keyless
+server does not verify a declared profile. That is keyless owner mode.
+Only the author, an `admin_agent` key, or the
 owner (a keyless call with no agent identity) can confirm or reject a
 pending write. On a keyless install that limit is not protection: the
 caller can declare the author's agent_id. The author can still reject
@@ -215,6 +239,17 @@ revision (`corrected` when text was edited, `rejected` for a reject or an
 expiry) and an `agent.memory_confirmed`,
 `agent.memory_confirmation_rejected` or
 `agent.memory_confirmation_expired` event.
+
+Credential material, on every route above. Before the 24 hours, a confirm
+whose new text, whose pending text, or whose rationale carries credential
+material is refused and the write stays pending. A reject always completes;
+a rationale, or `canonical_text`, carrying credential material is stored as
+a fixed placeholder and the response carries `rationale_withheld` and
+`text_withheld` (see [correct](#correct)). `alice_memory_commit` takes no
+`canonical_text`, so on that route only the rationale can be withheld. After
+the 24 hours, the call resolves the row to `rejected` as described above
+whatever its text or rationale: the revision stores a fixed expiry reason,
+not the caller's rationale, and the response carries neither flag.
 
 ## undo
 
@@ -296,7 +331,11 @@ temporal exclusion, not a lifecycle judgment: the row's status stays
 
 Outcomes: `expired` (with the effective `valid_to`) and `active`.
 Unexpiring a memory that has no validity end replays as a no-op with a
-note. Superseded and rejected rows cannot be expired or unexpired. Audit:
+note. Expire always completes: a reason carrying credential material is
+stored as `rationale withheld: it carried credential material` and the
+response carries `rationale_withheld: true`; forget, undo and the quarantine
+sweep do the same. Unexpire makes the memory retrievable again, so it is
+refused when the memory's text, or the reason, carries credential material. Superseded and rejected rows cannot be expired or unexpired. Audit:
 an `edited` revision plus an `agent.memory_expired` /
 `agent.memory_unexpired` event recording the window change and reason.
 
