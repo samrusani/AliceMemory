@@ -305,7 +305,11 @@ project fence binds a key-bound scope; a keyless server trusts whatever
 `project_scope` the caller declares. An agent write above that agent's
 sensitivity ceiling is rejected and not saved. Do not retry it with a
 lower sensitivity label. Tell the user. The owner can raise this agent's
-clearance or store the memory themselves. Only the author, an
+clearance or store the memory themselves. The owner (a keyless call
+with no agent identity), an `admin_agent` key, and a keyless call that
+declares `permission_profile: admin_agent` are not held to that ceiling.
+A keyless server does not verify a declared profile. That is keyless
+owner mode. Only the author, an
 `admin_agent` key, or the owner can confirm or reject a pending write.
 On a keyless install that limit is not protection: the caller can declare
 the author's agent_id. The author can still reject their own pending

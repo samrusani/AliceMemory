@@ -25,9 +25,11 @@
   sensitivity label. Tell the user. The owner can raise this agent's
   clearance or store the memory themselves. This applies to a keyed
   agent and to a keyless call that declares an agent identity. The owner
-  (a keyless call with no agent identity) and an `admin_agent` key are
-  unchanged: a confidential write from them is still
-  `confirmation_required`, not refused for the ceiling.
+  (a keyless call with no agent identity), an `admin_agent` key, and a
+  keyless call that declares `permission_profile: admin_agent` are not
+  held to that ceiling. A keyless server does not verify a declared
+  profile. That is keyless owner mode. A confidential write from those
+  callers is still `confirmation_required`, not refused for the ceiling.
 - Only the author of a pending write, an `admin_agent` key, or the owner
   can confirm or reject it. Everyone else is refused with reason
   `only_the_author_an_admin_key_or_the_owner_may_confirm_or_reject`.

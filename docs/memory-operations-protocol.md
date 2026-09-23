@@ -49,9 +49,11 @@ What routes where (from `evaluate_memory_commit_policy`):
   above its sensitivity ceiling is `rejected` with reason
   `sensitivity_above_agent_ceiling` and no pending row, including when the
   checks above would have returned `confirmation_required` or
-  `review_required`. The owner (a keyless call with no agent identity) and
-  an `admin_agent` key still get `confirmation_required` for a confidential
-  write.
+  `review_required`. The owner (a keyless call with no agent identity), an
+  `admin_agent` key, and a keyless call that declares
+  `permission_profile: admin_agent` still get `confirmation_required` for
+  a confidential write. A keyless server does not verify a declared
+  profile. That is keyless owner mode.
 - Everything else from a trusted or project-scoped agent → `committed`.
 
 ## Audit guarantees
@@ -186,7 +188,11 @@ ceiling is blocked, including confirm, forget, expire and undo. An agent
 commit above that ceiling is rejected with no pending row. The receipt
 says this was not saved, do not retry with a lower sensitivity label,
 tell the user, and the owner can raise this agent's clearance or store
-the memory themselves. Only the author, an `admin_agent` key, or the
+the memory themselves. The owner (a keyless call with no agent identity),
+an `admin_agent` key, and a keyless call that declares
+`permission_profile: admin_agent` are not held to that ceiling. A keyless
+server does not verify a declared profile. That is keyless owner mode.
+Only the author, an `admin_agent` key, or the
 owner (a keyless call with no agent identity) can confirm or reject a
 pending write. On a keyless install that limit is not protection: the
 caller can declare the author's agent_id. The author can still reject

@@ -314,8 +314,11 @@ Alice decides the outcome, never the caller:
   rejected at commit time with no pending row. The receipt says: This
   was not saved. Do not retry with a lower sensitivity label. Tell the
   user. The owner can raise this agent's clearance or store the memory
-  themselves. The owner (a keyless call with no agent identity) and an
-  `admin_agent` key are not held to that ceiling. Only the author of a
+  themselves. The owner (a keyless call with no agent identity), an
+  `admin_agent` key, and a keyless call that declares
+  `permission_profile: admin_agent` are not held to that ceiling. A
+  keyless server does not verify a declared profile. That is keyless
+  owner mode. Only the author of a
   pending write, an `admin_agent` key, or the owner can confirm or
   reject it. On a keyless install that limit is not protection: the
   caller can declare the author's agent_id. The author can still reject
