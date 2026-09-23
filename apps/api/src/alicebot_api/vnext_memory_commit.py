@@ -869,6 +869,18 @@ def evaluate_memory_commit_policy(
             mode = "propose_review"
             status = "review_required"
 
+    # Above the caller's ceiling the write is a refusal, not a pending row.
+    # Confirmation would ask the agent to store something it cannot confirm,
+    # and the default SQLite install has no review console to finish it.
+    # The owner (identity is None) and an admin_agent key are not filtered.
+    mode, status = _reject_agent_commit_above_sensitivity_ceiling(
+        identity=identity,
+        base_decision=base_decision,
+        mode=mode,
+        status=status,
+        reasons=reasons,
+    )
+
     # Promotion runs strictly after the existing gate, on the gate's own
     # result. It can lift "this needs a human" to "write it"; it can never
     # lift a rejection, so every authorization, scope and secret-marker
@@ -903,9 +915,18 @@ def evaluate_memory_commit_policy(
 
 
 COMMITTED_FACT_RECEIPT = "saved as a fact."
+# The same sentence is in the alice_memory_commit tool description and both
+# skill packs. Relabelling the text as private would store it for more agents.
+SENSITIVITY_ABOVE_CEILING_RECEIPT = (
+    "This was not saved. Do not retry with a lower sensitivity label. "
+    "Tell the user. The owner can raise this agent's clearance or store the memory themselves."
+)
+PENDING_WRITE_RESOLVER_REASON = "only_the_author_an_admin_key_or_the_owner_may_confirm_or_reject"
+# Reported as themselves when a commit is also above the ceiling.
+_KEPT_REJECTION_REASONS = ("unsafe_secret_storage", "agent_policy_blocked")
 
 
-def memory_commit_receipt(status: str) -> str:
+def memory_commit_receipt(status: str, *, reason: str | None = None) -> str:
     """One line a host can print. Only a committed row is a fact."""
 
     if status == "committed":
@@ -914,13 +935,109 @@ def memory_commit_receipt(status: str) -> str:
         return "needs confirmation."
     if status == "review_required":
         return "waiting in review."
+    if status == "rejected" and reason == "sensitivity_above_agent_ceiling":
+        return SENSITIVITY_ABOVE_CEILING_RECEIPT
     if status == "rejected":
         return "rejected."
     return "not recorded as a fact."
 
 
 def _with_commit_receipt(payload: JsonObject) -> JsonObject:
-    return {**payload, "receipt": memory_commit_receipt(str(payload.get("status") or ""))}
+    reason = payload.get("reason")
+    return {
+        **payload,
+        "receipt": memory_commit_receipt(
+            str(payload.get("status") or ""),
+            reason=str(reason) if isinstance(reason, str) else None,
+        ),
+    }
+
+
+def _reject_agent_commit_above_sensitivity_ceiling(
+    *,
+    identity: AgentIdentity | None,
+    base_decision: PolicyDecision,
+    mode: str,
+    status: str,
+    reasons: list[str],
+) -> tuple[str, str]:
+    """Refuse an agent write the caller is not cleared to store.
+
+    Runs after the confidence and sensitivity gates and before promotion.
+    Promotion does not lift a rejection. A keyless call with an agent
+    identity is an agent here; the owner is ``identity is None``.
+    """
+
+    if identity is None or "restricted_sensitivity_filtered" not in base_decision.reasons:
+        return mode, status
+    # Leave a refusal the policy engine or the credential check already
+    # recorded. Replacing it would tell the owner they can store a
+    # credential, or hide the reason the caller was stopped.
+    if mode == "reject" and any(reason in _KEPT_REJECTION_REASONS for reason in reasons):
+        return mode, status
+    reasons.append("sensitivity_above_agent_ceiling")
+    return "reject", "rejected"
+
+
+def pending_write_author_agent_id(memory: Mapping[str, object]) -> str | None:
+    """The agent recorded as the author of a pending write, if there is one.
+
+    Owner writes leave this empty. A keyless caller can claim an agent id;
+    that claim is not checked, so matching it is not protection without keys.
+    """
+
+    created_by = memory.get("created_by_agent_id")
+    if isinstance(created_by, str) and created_by.strip():
+        return created_by.strip()
+    agentic = _agentic_metadata(memory)
+    identity_record = agentic.get("agent_identity")
+    if isinstance(identity_record, Mapping):
+        agent_id = identity_record.get("agent_id")
+        if isinstance(agent_id, str) and agent_id.strip():
+            return agent_id.strip()
+    confirmation = agentic.get("confirmation")
+    if isinstance(confirmation, Mapping):
+        agent_id = confirmation.get("agent_id")
+        if isinstance(agent_id, str) and agent_id.strip():
+            return agent_id.strip()
+    return None
+
+
+def caller_may_resolve_pending_write(
+    identity: AgentIdentity | None,
+    memory: Mapping[str, object],
+) -> bool:
+    """Author, an admin_agent key, or the owner.
+
+    The owner is a keyless call with no agent identity. An admin_agent key
+    is ``auth == agent_api_key``; a keyless call that only declares
+    ``permission_profile: admin_agent`` is not an admin key. On a keyless
+    install the author check is not protection, because the caller can
+    declare the author's agent id.
+    """
+
+    if identity is None:
+        return True
+    if identity.auth == "agent_api_key" and identity.permission_profile == "admin_agent":
+        return True
+    author = pending_write_author_agent_id(memory)
+    return author is not None and identity.agent_id == author
+
+
+def _block_mutation_above_sensitivity_ceiling(decision: PolicyDecision) -> PolicyDecision:
+    """Block a write aimed at one target above the caller's ceiling.
+
+    Recall and list stay ``allowed_with_filtering``. This runs only from
+    ``_policy_checked_write``, which is a mutation of one stored row.
+    """
+
+    if decision.decision == "blocked" or "restricted_sensitivity_filtered" not in decision.reasons:
+        return decision
+    return replace(
+        decision,
+        decision="blocked",
+        reasons=tuple(dict.fromkeys((*decision.reasons, "sensitivity_above_agent_ceiling"))),
+    )
 
 
 class VNextMemoryCommitService:
@@ -1176,7 +1293,25 @@ class VNextMemoryCommitService:
             if locked is None:
                 raise VNextMemoryCommitValidationError("confirmation was not found")
             memory = locked
-        self._policy_checked_write(identity=identity, action="memory.confirm", memory=memory)
+        # Authorization first, then the pending check, then the ceiling,
+        # then S4.4's credential check on the accept or reject write.
+        # An unauthorized caller is refused with an audit event and is not
+        # told whether the row is pending. An authorized confirm of a row
+        # that is not pending still raises before any write.
+        if not caller_may_resolve_pending_write(identity, memory):
+            self._refuse_unauthorized_pending_resolver(identity=identity, memory=memory)
+        confirmation_now = _agentic_metadata(memory).get("confirmation")
+        confirmation_status = confirmation_now.get("status") if isinstance(confirmation_now, Mapping) else None
+        if normalized_action in {"confirm", "edit"} and confirmation_status != "pending":
+            raise VNextMemoryCommitValidationError("confirmation is not pending")
+        # Reject of the caller's own pending write stays allowed above the
+        # ceiling: it stores nothing. Every other mutation is blocked.
+        self._policy_checked_write(
+            identity=identity,
+            action="memory.confirm",
+            memory=memory,
+            allow_above_ceiling=normalized_action == "reject",
+        )
         metadata = _memory_metadata(memory)
         agentic = _agentic_metadata(memory)
         confirmation_value = agentic.get("confirmation")
@@ -1404,30 +1539,14 @@ class VNextMemoryCommitService:
         confirmation_id: str,
         action: str,
     ) -> JsonObject | None:
-        """Handle repeated confirmation calls idempotently.
+        """Handle a repeated reject idempotently.
 
-        Re-confirming an already-confirmed memory does not create a second
-        memory or flip lifecycle state; it refreshes ``last_confirmed_at``
-        (the staleness sweep's freshness signal) and notes the refresh with a
-        revision. Re-rejecting an already-rejected/expired confirmation is a
-        no-op replay. Mismatched actions still raise in the caller.
+        Confirm of a row that is not pending is refused in ``confirm``
+        before this runs, and it writes nothing. Re-rejecting an
+        already-rejected or expired confirmation is a no-op replay.
+        Mismatched actions still raise in the caller.
         """
         status = confirmation.get("status")
-        if status == "confirmed" and action == "confirm":
-            refreshed = self._refresh_last_confirmed(
-                identity=identity,
-                memory=memory,
-                action="agentic_memory_reconfirm",
-                reason="Repeated inline confirmation replayed; last_confirmed_at refreshed.",
-                metadata={"confirmation_id": confirmation_id, "idempotent_replay": True},
-            )
-            return {
-                "status": "committed",
-                "write_mode": "confirm_inline",
-                "confirmation_id": confirmation_id,
-                "memory": refreshed,
-                "idempotent_replay": True,
-            }
         if status in {"rejected", "expired"} and action == "reject":
             return {
                 "status": "rejected",
@@ -2212,19 +2331,65 @@ class VNextMemoryCommitService:
             "rationale_withheld": history_withheld,
         }
 
+    def _refuse_unauthorized_pending_resolver(
+        self,
+        *,
+        identity: AgentIdentity | None,
+        memory: Mapping[str, object],
+    ) -> None:
+        """Refuse confirm or reject before the caller can learn the row state.
+
+        Runs the policy check and records it, then blocks with the resolver
+        reason. The ceiling is not applied here: authorization is the first
+        refusal, and a stranger is not told that the row is above a ceiling.
+        """
+
+        self._upsert_identity(identity)
+        decision = evaluate_agent_policy(
+            identity=identity,
+            action="memory.confirm",
+            domains=(str(memory.get("domain") or "unknown"),),
+            sensitivity_allowed=(str(memory.get("sensitivity") or "unknown"),),
+            project_scope=resource_project_scope(memory),
+            require_explicit_project_scope=True,
+        )
+        decision = replace(
+            decision,
+            decision="blocked",
+            reasons=tuple(dict.fromkeys((*decision.reasons, PENDING_WRITE_RESOLVER_REASON))),
+        )
+        target_id = str(memory.get("id")) if memory.get("id") is not None else None
+        append_policy_events(
+            self.store,
+            identity=identity,
+            decision=decision,
+            target_type="memory",
+            target_id=target_id,
+        )
+        raise AgentPolicyBlockedError(decision)
+
     def _policy_checked_write(
         self,
         *,
         identity: AgentIdentity | None,
         action: str,
         memory: Mapping[str, object],
+        target_type: str = "memory",
+        allow_above_ceiling: bool = False,
     ) -> PolicyDecision:
-        """Mirror the undo/forget policy treatment for service-layer writes.
+        """Authorize one mutation of a stored target and record the decision.
 
-        Upserts the identity, evaluates the policy scoped to the target
-        memory's domain/sensitivity, appends the policy audit events, and
-        raises ``AgentPolicyBlockedError`` when blocked. ``identity=None``
+        Upserts the identity, evaluates the policy scoped to the target's
+        domain, sensitivity and project scope, appends the policy audit
+        events with that target type and id, and raises
+        ``AgentPolicyBlockedError`` when blocked. ``identity=None``
         (human/system callers) always evaluates as allowed.
+
+        A mutation whose target sensitivity is above the caller's ceiling
+        is blocked with ``sensitivity_above_agent_ceiling``. Pass
+        ``allow_above_ceiling`` only for a reject of a pending write: that
+        stores nothing. Confirm and reject of a pending write are also
+        limited to the author, an admin_agent key, or the owner.
         """
         self._upsert_identity(identity)
         # memory.expire / memory.unexpire / memory.accept_consolidation are
@@ -2238,12 +2403,25 @@ class VNextMemoryCommitService:
             project_scope=resource_project_scope(memory),
             require_explicit_project_scope=True,
         )
+        if not allow_above_ceiling:
+            decision = _block_mutation_above_sensitivity_ceiling(decision)
+        if (
+            action == "memory.confirm"
+            and decision.decision != "blocked"
+            and not caller_may_resolve_pending_write(identity, memory)
+        ):
+            decision = replace(
+                decision,
+                decision="blocked",
+                reasons=tuple(dict.fromkeys((*decision.reasons, PENDING_WRITE_RESOLVER_REASON))),
+            )
+        target_id = str(memory.get("id")) if memory.get("id") is not None else None
         append_policy_events(
             self.store,
             identity=identity,
             decision=decision,
-            target_type="memory",
-            target_id=str(memory.get("id")) if memory.get("id") is not None else None,
+            target_type=target_type,
+            target_id=target_id,
         )
         if decision.decision == "blocked":
             raise AgentPolicyBlockedError(decision)
@@ -2255,10 +2433,18 @@ class VNextMemoryCommitService:
         identity: AgentIdentity | None,
         action: str,
         memory: Mapping[str, object],
+        target_type: str = "memory",
+        allow_above_ceiling: bool = False,
     ) -> PolicyDecision:
-        """Authorize a persisted memory target for a cross-surface lifecycle adapter."""
+        """Authorize a persisted target for a cross-surface lifecycle adapter."""
 
-        return self._policy_checked_write(identity=identity, action=action, memory=memory)
+        return self._policy_checked_write(
+            identity=identity,
+            action=action,
+            memory=memory,
+            target_type=target_type,
+            allow_above_ceiling=allow_above_ceiling,
+        )
 
     def auto_promoted_by_agent(
         self,

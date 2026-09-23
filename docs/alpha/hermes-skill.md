@@ -122,12 +122,13 @@ surface, which does not check the 24 hours, can still approve it.
 
 Alice refuses both `confirm` and `reject` for a read-only identity and for a key bound to
 another project. That project check applies to a key-bound scope only; a keyless server
-trusts whatever `project_scope` the call declares. Alice also refuses `confirm`, but not
-`reject`, when the pending write is above the calling agent's sensitivity ceiling (anything
-above `private` for `trusted_local_agent`), so Hermes can clear such a write but cannot store
-it. Only an `admin_agent` identity can confirm it: an `admin_agent` key, or, on a keyless
-server, any call that declares `permission_profile: admin_agent` or carries no agent identity.
-A keyless server does not verify a declared profile.
+trusts whatever `project_scope` the call declares. Only the agent that authored the pending
+write, an `admin_agent` key, or the owner (a keyless call with no agent identity) can confirm
+or reject it. On a keyless install that limit is not protection: the caller can declare the
+author's agent_id. A write above the calling agent's sensitivity ceiling (anything above
+`private` for `trusted_local_agent`) is rejected: This was not saved. Do not retry with a
+lower sensitivity label. Tell the user. The owner can raise this agent's clearance or store
+the memory themselves. Hermes can still reject its own pending write above that ceiling.
 
 This example sends no identity fields. On a keyless server the confirmation is then recorded
 as the local user (`actor_type: user`, no `actor_id`) on every row and the audit does not name

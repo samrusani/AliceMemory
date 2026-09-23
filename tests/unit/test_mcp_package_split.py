@@ -148,40 +148,15 @@ def test_mcp_registry_order_definitions_and_alias_identity_are_frozen() -> None:
     # now says "on this tool" (the review approve path does not read the 24
     # hours), and confirmation_action says a keyless server does not check a
     # declared project_scope.
-    # Moved 2026-09-22 (S4.4). alice_memory_commit's source_refs gained
-    # maxItems 64 and an item maxLength of 4000, mirroring the service bound
-    # (MAX_COMMIT_SOURCE_REFS, MAX_COMMIT_SOURCE_REF_CHARS). No tool added,
+    # Moved 2026-09-23 (S4.5 on main after #414). Counts and the handler map
+    # digest unchanged. Core carries S4.3's confirmation fields, S4.4's
+    # source_refs bounds and credential wording, and S4.5's ceiling refusal
+    # and author check on alice_memory_commit, plus S4.5's ceiling wording on
+    # alice_memory_manage and S4.4's correction bounds on alice_memory_correct.
+    # A refusal does not claim every outcome has provenance and a revision.
+    # Legacy is S4.4's pin: S4.5 changed no legacy tool. No tool added,
     # removed, or renamed.
-    # Moved 2026-09-23 (S4.4 round 2, review finding 8). Correction titles
-    # gained maxLength 280 and correction body strings maxLength 20000 on
-    # alice_memory_correct and alice_review_apply, and alice_commit_captures'
-    # candidates gained maxItems 100 (write_bounds). No tool added, removed,
-    # or renamed.
-    # Moved 2026-09-23 (S4.4 round 2, owner ruling R4). The legacy alias
-    # alice_vnext_commit_memory's source_refs gained the same maxItems 64
-    # and item maxLength 4000 as alice_memory_commit, both now read from
-    # write_bounds. Legacy only; the core digest is unchanged. No tool added,
-    # removed, or renamed.
-    # Moved 2026-09-23 (Sprint 4 integration, s4-sprint). The S4.3 (D8) and
-    # S4.4 pins above were each minted on their own branch from 880915a, so
-    # neither holds for the combined tree. Core: alice_memory_commit carries
-    # both changes, S4.3's confirmation_id, confirmation_action, dropped
-    # "required" list and new descriptions, and S4.4's source_refs maxItems 64
-    # and item maxLength 4000; alice_memory_correct carries S4.4's correction
-    # bounds. Every other core tool matches 880915a. Legacy: S4.3 changed no
-    # legacy tool, so the legacy pin is S4.4's. Checked by comparing each tool
-    # of the combined tree against both branches, not only by re-hashing. No
-    # tool added, removed, or renamed.
-    # Moved 2026-09-23 (Sprint 4 integration follow-up, text only). The combined
-    # tree runs S4.4's credential check on S4.3's confirmation route, so
-    # alice_memory_commit's description, and its rationale and
-    # confirmation_action descriptions, now say that a confirm is refused when
-    # the pending text or the rationale carries credential material, and that a
-    # reject still completes and stores such a rationale as a fixed placeholder
-    # (rationale_withheld). No type, enum, bound or required list moved; no
-    # other tool changed; legacy and handler map digests unchanged. No tool
-    # added, removed, or renamed.
-    assert _digest(core_definitions) == "dbfbf6bbb02d24aca02f94d94aff1fb3970aa6a1c08ecb03a3812ba72f9f58e4"
+    assert _digest(core_definitions) == "5a5c3fed0b466a81259ea56132752ffd97906e498b76256c753930bc290dc192"
     assert _digest(legacy_definitions) == "2c21d4d624da448969554137e0b9cbae14c34cfaa0454e76d22ae480a6a29a58"
     ordered_handler_map = [(name, handler.__name__) for name, handler in handlers.items()]
     assert _digest(ordered_handler_map) == "d864c98bb914bbc6ace464fa8020b3ed264f17f2061a6101aae677d801032ae5"

@@ -34,11 +34,11 @@ from alicebot_api.vnext_agent_control import (
     AgentIdentityValidationError,
     AgentPolicyBlockedError,
     agent_metadata,
-    resource_project_scope,
     summarize_agent_policy_telemetry,
 )
 from alicebot_api.vnext_agent_keys import AgentKeyAuthenticationError
 from alicebot_api.vnext_event_log import append_event
+from alicebot_api.vnext_memory_commit import VNextMemoryCommitService
 from alicebot_api.vnext_projects import (
     VNextProjectService,
     VNextProjectValidationError,
@@ -573,19 +573,17 @@ def review_vnext_open_loop(
             target = store.get_open_loop(loop_id)
             if target is None:
                 return _vnext_public_error_response(status_code=404, detail="vNext open loop was not found")
-            decision = _vnext_policy_checked(
-                store=store,
-                identity=identity,
-                action="open_loop.update",
-                domains=(str(target.get("domain") or "unknown"),),
-                sensitivity_allowed=(str(target.get("sensitivity") or "unknown"),),
-                project_scope=resource_project_scope(target),
-                target_type="open_loop",
-                target_id=loop_id,
-                require_explicit_project_scope=True,
-            )
-            if decision.decision == "blocked":
-                return _vnext_permission_response(decision)
+            # Same ceiling as the MCP open-loop updates. Returning the 403
+            # from inside the connection keeps the policy event committed.
+            try:
+                VNextMemoryCommitService(store).authorize_memory_action(
+                    identity=identity,
+                    action="open_loop.update",
+                    memory=target,
+                    target_type="open_loop",
+                )
+            except AgentPolicyBlockedError as exc:
+                return _vnext_permission_response(exc.decision)
             payload = VNextProjectService(store).review_open_loop(
                 loop_id=loop_id,
                 action=request.action,
