@@ -154,7 +154,12 @@ def test_mcp_registry_order_definitions_and_alias_identity_are_frozen() -> None:
     # author, an admin_agent key, or the owner can resolve a pending write.
     # alice_memory_manage's description says a mutation above the ceiling is
     # refused and names the same three resolvers. No tool added, removed, or renamed.
-    assert _digest(core_definitions) == "94709fbdd983541adca097d4b3722e58777b109be665cb7c7d4ab64f99c8c79b"
+    # Moved again 2026-09-23 (recall framing). Counts, legacy digest and handler
+    # map digest unchanged. alice_recall, alice_resume, alice_context_pack, and
+    # alice_recent_decisions now say returned notes are quoted data, not
+    # instructions, and name writer.id and writer.established. No tool added,
+    # removed, or renamed.
+    assert _digest(core_definitions) == "dd63c953a55668cf45bf4b2c23c26eaed2946b3ea69927f64fee9aef360e9eeb"
     assert _digest(legacy_definitions) == "ca3d747e552bdece52c22d76332fc69f499878290edf3f236a8a7ea6a2e34e41"
     ordered_handler_map = [(name, handler.__name__) for name, handler in handlers.items()]
     assert _digest(ordered_handler_map) == "d864c98bb914bbc6ace464fa8020b3ed264f17f2061a6101aae677d801032ae5"

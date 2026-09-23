@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from typing import TypedDict
+from alicebot_api.recall_framing import present_model_item, present_model_items
 from alicebot_api.store import JsonObject
 from alicebot_api.vnext_agent_control import PolicyDecision
 from alicebot_api.vnext_context_tree import (
@@ -104,6 +105,25 @@ def _compact_items(items: object, fields: tuple[str, ...]) -> list[JsonObject]:
     return [_compact_fields(item, fields) for item in items]
 
 
+def _present_compact_items(items: object, fields: tuple[str, ...]) -> list[JsonObject]:
+    """Compact a pack section, then frame its text and attach writer.
+
+    Writer is read from the pre-compact row, which still carries
+    ``created_by_agent_id`` and ``metadata_json``. The compact copy is what
+    the tool returns.
+    """
+
+    if not isinstance(items, list):
+        return []
+    presented: list[JsonObject] = []
+    for item in items:
+        if not isinstance(item, Mapping):
+            presented.append(present_model_item(_compact_fields(item, fields)))
+            continue
+        presented.append(present_model_item(_compact_fields(item, fields), source=item))
+    return presented
+
+
 def _handle_alice_context_pack(context: MCPRuntimeContext, arguments: Mapping[str, object]) -> JsonObject:
     debug = _parse_bool(arguments, key="debug", default=False)
     pack = _vnext_context_pack_payload(context, arguments)
@@ -114,10 +134,10 @@ def _handle_alice_context_pack(context: MCPRuntimeContext, arguments: Mapping[st
         "context_pack_id": pack.get("context_pack_id"),
         "query": interpretation.get("query"),
         "query_type": interpretation.get("query_type"),
-        "memories": _compact_items(pack.get("relevant_memories"), _COMPACT_MEMORY_FIELDS),
-        "open_loops": _compact_items(pack.get("open_loops"), _COMPACT_OPEN_LOOP_FIELDS),
-        "sources": _compact_items(pack.get("sources"), _COMPACT_SOURCE_FIELDS),
-        "supporting_evidence": pack.get("supporting_evidence", []),
+        "memories": _present_compact_items(pack.get("relevant_memories"), _COMPACT_MEMORY_FIELDS),
+        "open_loops": _present_compact_items(pack.get("open_loops"), _COMPACT_OPEN_LOOP_FIELDS),
+        "sources": _present_compact_items(pack.get("sources"), _COMPACT_SOURCE_FIELDS),
+        "supporting_evidence": present_model_items(pack.get("supporting_evidence", [])),
         "missing_information": pack.get("missing_information", []),
         "warnings": pack.get("warnings", []),
         "trace_id": pack.get("trace_id"),
@@ -132,13 +152,13 @@ def _handle_alice_context_pack(context: MCPRuntimeContext, arguments: Mapping[st
         payload["entities"] = entities
     contradictions = pack.get("contradicting_evidence")
     if isinstance(contradictions, list) and contradictions:
-        payload["contradicting_evidence"] = contradictions
+        payload["contradicting_evidence"] = present_model_items(contradictions)
     recent_changes = pack.get("recent_changes")
     if isinstance(recent_changes, list) and recent_changes:
-        payload["recent_changes"] = recent_changes
+        payload["recent_changes"] = present_model_items(recent_changes)
     supersession_context = pack.get("supersession_context")
     if isinstance(supersession_context, list) and supersession_context:
-        payload["supersession_context"] = supersession_context
+        payload["supersession_context"] = present_model_items(supersession_context)
     derived_values = pack.get("derived_values")
     if isinstance(derived_values, Mapping) and derived_values:
         # Deterministic temporal computations are not reconstructable from the
@@ -159,7 +179,7 @@ def _handle_alice_context_pack(context: MCPRuntimeContext, arguments: Mapping[st
         payload["query_interpretation"] = dict(interpretation)
         payload["trace"] = pack.get("trace")
         for section in ("procedures", "decisions", "relevant_beliefs", "current_known_state"):
-            payload[section] = pack.get(section, [])
+            payload[section] = present_model_items(pack.get(section, []))
     _attach_compact_context_pack_token_report(payload, pack)
     return _json_object(payload)
 
