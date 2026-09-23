@@ -169,7 +169,8 @@ example in `docs/examples/openai_agents_sdk_tool.py` returns both.
 | `alice_recent_changes`, `alice_brief`, `alice_task_brief`, `alice_state_at`, `alice_timeline` | no | Legacy continuity records. The vNext resume and context pack are the framed reads. |
 | `alice_review_queue`, `alice_contradictions_list`, `alice_contradictions_detect`, `alice_trust_signals`, `alice_artifact_inspect` | no | Legacy continuity and artifact records. `alice_memory_review` and `alice_explain` are the framed reads. |
 | `alice_vnext_context_pack` | text left raw | Legacy alias of the compiler pack. `writer` is attached. The framed tool is `alice_context_pack`. |
-| `alice_vnext_context_tree`, `alice_vnext_review_items`, `alice_vnext_memory_audit` | no | Legacy aliases. The framed names are `alice_memory_review` and `alice_explain`. |
+| `alice_vnext_context_tree`, `alice_vnext_review_items` | no | Legacy aliases. Neither handler frames stored text. The framed review tool is `alice_memory_review`. |
+| `alice_vnext_memory_audit` memory text, chain titles, revision text, provenance quotes | yes | A model reads those fields to decide trust. Timeline summaries and event payloads stay the audit record. |
 | `alice_belief_state`, `alice_graph_neighborhood`, `alice_project_dashboard`, `alice_capture_candidates` | no | Operator or legacy reads of stored text. Not the default tool result a model is told to paste. |
 | `alice_vnext_recent_memory_commits` | no | An audit list of commits, not the note text a model is told to follow. |
 | Context pack `debug: true` trace | no | Stage counts. Compact text fields stay framed. `metadata_json` on a debug memory section is framed with the row. |
