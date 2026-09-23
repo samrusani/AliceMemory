@@ -632,7 +632,7 @@ def test_user_scheme_scripts_are_found_and_not_called_missing(
 def test_posix_quoting_leaves_ordinary_paths_byte_identical() -> None:
     """Mutation: quote every token. This test fails."""
 
-    argv = ["/usr/local/bin/alice-memory-session-start", "--data-dir", "/Users/sam/.alice"]
+    argv = ["/usr/local/bin/alice-memory-session-start", "--data-dir", "/Users/alex/.alice"]
     assert format_command(argv, windows=False) == (" ".join(argv), None)
     assert format_command(["a b", "c"], windows=False) == ("'a b' c", None)
 
@@ -644,9 +644,9 @@ def test_windows_text_is_shell_neutral() -> None:
     """
 
     launcher = script_launcher("C:\\Tools\\alice-memory.exe")
-    text, problem = hook_command(launcher, "C:\\Users\\Sam Smith\\.alice", windows=True)
+    text, problem = hook_command(launcher, "C:\\Users\\Alex Doe\\.alice", windows=True)
     assert problem is None
-    assert text == 'C:/Tools/alice-memory-session-start.exe --data-dir "C:/Users/Sam Smith/.alice"'
+    assert text == 'C:/Tools/alice-memory-session-start.exe --data-dir "C:/Users/Alex Doe/.alice"'
 
 
 @pytest.mark.parametrize(

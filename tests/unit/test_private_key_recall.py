@@ -275,7 +275,7 @@ def test_a_copy_suffix_does_not_hide_the_secret_name(text: str) -> None:
 @pytest.mark.parametrize(
     "text",
     [
-        "[user]\n\tname = Sam\n\tsigningkey = 3AA5C34371567BD2\n[commit]\n\tgpgsign = true",
+        "[user]\n\tname = Alex\n\tsigningkey = 3AA5C34371567BD2\n[commit]\n\tgpgsign = true",
         '{"user": {"signingKey": "0x4AA5C34371567BD24AA5C34371567BD24AA5C343"}}',
         "git config --global user.signingkey 3AA5C343",
     ],
@@ -297,7 +297,7 @@ def test_a_labelled_ssh_public_key_is_not_a_secret(name: str) -> None:
 
 
 def test_url_userinfo_ends_before_the_query() -> None:
-    assert not carries_credential_material("Open http://localhost:5173?invite=sam@example.com to join.")
+    assert not carries_credential_material("Open http://localhost:5173?invite=alex@example.com to join.")
     assert carries_credential_material("postgres://app:Kd9xoYWu83nq@db.internal:5432/app")
 
 

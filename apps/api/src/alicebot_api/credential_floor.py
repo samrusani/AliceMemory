@@ -501,7 +501,7 @@ def _prose_value_ok(value: str) -> bool:
 # A password embedded in a URL: scheme://user:password@host. Anchored on "://"
 # so each attempt is bounded, whatever surrounds it.
 # The userinfo of a URL ends before the first "/", "?" or "#": a port and an
-# "@" in the query string ("http://localhost:5173?invite=sam@example.com") is
+# "@" in the query string ("http://localhost:5173?invite=alex@example.com") is
 # not user:password@host (adversary review, round 3).
 _URL_CREDENTIAL = re.compile(r"://([^\s:/?#@\x00]{0,64}):([^\s@/?#\x00]{6,128})@[A-Za-z0-9\[]")
 

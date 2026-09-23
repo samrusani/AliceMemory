@@ -228,7 +228,7 @@ def test_windows_quotes_a_data_dir_with_a_space(
     pin_launcher_search(monkeypatch, tmp_path, uvx=None, interpreter=bin_dir)
     monkeypatch.setattr(host_launcher, "WINDOWS_HOOKS", True)
     home = tmp_path / "home"
-    data = (tmp_path / "Sam Smith" / ".alice").resolve()
+    data = (tmp_path / "Alex Doe" / ".alice").resolve()
     code, out, err = _install(capsys, home, "--host", "claude-code", "--data-dir", str(data))
     assert code == 0, (out, err)
     assert _hook_commands_claude(home) == [

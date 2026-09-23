@@ -535,11 +535,11 @@ def test_windows_openclaw_line_uses_forward_slashes_and_refuses_what_hooks_refus
     """
 
     monkeypatch.setattr(host_launcher, "WINDOWS_HOOKS", True)
-    line = openclaw_add_line("C:\\Users\\Sam\\.alice", script_launcher("C:\\Py\\Scripts\\alice-memory.exe"))
+    line = openclaw_add_line("C:\\Users\\Alex\\.alice", script_launcher("C:\\Py\\Scripts\\alice-memory.exe"))
     assert line == (
         "openclaw mcp add alice --command C:/Py/Scripts/alice-memory.exe --arg mcp "
-        "--arg --data-dir --arg C:/Users/Sam/.alice"
+        "--arg --data-dir --arg C:/Users/Alex/.alice"
     )
-    refused = openclaw_add_line("C:\\Users\\S$m\\.alice", UVX_LAUNCHER)
+    refused = openclaw_add_line("C:\\Users\\A$x\\.alice", UVX_LAUNCHER)
     assert refused.startswith("note: install did not print an openclaw mcp add line")
-    assert '"C:/Users/S$m/.alice"' in refused
+    assert '"C:/Users/A$x/.alice"' in refused
