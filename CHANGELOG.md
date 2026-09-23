@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- `alice-memory import --quarantine <memory_id>[,<memory_id>...]` is the
+  owner's recovery path when a backup holds a credential and the source
+  vault is gone. It is not a way to import that credential. The SHA-256
+  footer is checked on the file as given. An id that is not a memory in
+  the file is an error and nothing is written. Each named memory is stored
+  with status `rejected`, so recall, resume, and a context pack do not
+  return it. Title, canonical text, summary, trust reason, fact keys, the
+  strings inside `value` and `metadata_json`, and the same text on that
+  memory's revisions and events are replaced by `[quarantined on import]`.
+  Revision rows are kept. The receipt lists the quarantined ids and counts,
+  not the removed text. A second import of the same file with the same ids
+  skips those identical rows under the default `--mode skip`. Importing the
+  same file again without the flag aborts and leaves the rejected row in
+  place. The command restores SQLite only.
+
 ## v0.16.0 — 2026-08-19
 
 - README leads with `alice-memory install` and `demo --vault`, then a

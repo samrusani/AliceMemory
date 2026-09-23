@@ -78,13 +78,64 @@ publication committed but a post-commit condition or reporting step failed.
 The records are present: inspect stderr and the target path, and do not
 blindly retry.
 
+`--quarantine` is the owner's recovery path when a backup holds a credential
+and the source vault is gone. It is not a way to import that credential.
+
+```bash
+alice-memory import \
+  --db ~/alice-restore-test/memory.db \
+  --in ~/alice-backups/alice-20260711-120000.jsonl \
+  --quarantine <memory_id>[,<memory_id>...]
+```
+
+The SHA-256 footer is checked on the file exactly as given, before any text
+is replaced. A tampered file fails the same way it does without the flag,
+including when the flag names an id that is not in the file. An id that is
+not a memory record in a valid file is an error and nothing is written.
+
+Each named memory is stored with status `rejected`. Recall, resume, and a
+context pack do not return that row. The row is kept. Title, canonical text,
+summary, trust reason, fact keys, every string inside `value`, and every
+string inside `metadata_json` (including correction history `previous_text`)
+are replaced by the fixed placeholder `[quarantined on import]`. The same
+placeholder replaces `text_before`, `text_after`, and `reason` on every
+revision of that memory, and every string inside that revision's
+`previous_value`, `new_value`, `candidate`, and `metadata_json`. Revision
+rows stay, because `memory_revisions.memory_id` is a required foreign key.
+Every string inside the payload of every event that belongs to the memory
+is replaced the same way. An event belongs to the memory when its target is
+that memory, or when its payload `memory_id` or `candidate_memory_id` is
+that memory's id. Object keys are left in place so the JSON object stays
+valid. `commit_digest` on the memory, and `integrity_hash` on those events,
+are cleared. Both are derived from the original text, and keeping either one
+would let a guess of the removed text be checked against the restored row.
+Memory ids, memory keys, timestamps, and links are kept. Source text,
+provenance quotes, open-loop titles, and graph explanations are not
+rewritten. A credential that also sits in those records is still imported.
+Every other record is imported exactly as it is without the flag.
+
+On success the exit code is 0. The receipt lists the quarantined ids and
+the memory, revision, and event counts. It does not print the removed text.
+
+A second import of the same file with the same `--quarantine` list follows
+`--mode skip` (the default). The stored rows already match the redacted
+records, so they are skipped, the command exits 0, and the database is
+unchanged. `--mode fail` still aborts when any id already exists, including
+a quarantined row. Importing that same file again without `--quarantine`
+aborts: the original text is not the redacted row, and existing rows are
+never overwritten. The rejected row and the placeholder stay.
+
+This command restores a SQLite database. It is not a PostgreSQL import.
+
 Portable backups include active sources and chunks, memories and fact keys,
 revisions, provenance, entities, graph edges, entity relationship events,
 open loops, and the event log. They intentionally omit users, agent API keys,
 embedding vectors, and soft-deleted content. References from retained rows to
 omitted soft-deleted parents are nulled where nullable; graph edges whose
 known endpoints were omitted are excluded. Historical event ids, timestamps,
-and integrity hashes are inserted verbatim. The restored rows are rebound to
+and integrity hashes are inserted verbatim, except an event quarantined with
+a memory: its payload strings are replaced and its integrity hash is cleared.
+The restored rows are rebound to
 the importing local user. Configure the intended embedding endpoint and run:
 
 ```bash
