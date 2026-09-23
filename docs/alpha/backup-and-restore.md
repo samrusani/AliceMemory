@@ -140,10 +140,12 @@ same placeholder, and each is counted on the receipt:
   `request_fingerprint`. The successor's own title and text stay.
 
 Shared source chunks are not rewritten. Shared entity names are not
-rewritten. The receipt reports each of those as table, id, and column, then
-the command that removes the record, or `no command removes this today`. It
-does not print the text. A scan of every other imported text column waits
-until the credential check is available to this command.
+rewritten. After a successful import, `credential_verdict` runs over every
+imported text column that was not replaced by `[quarantined on import]` or
+`{"quarantined": true}`. The receipt prints table, id, and column for each
+hit, and for each shared source chunk and shared entity name, then the
+command that removes that record, or `no command removes this today`. It
+does not print the matched text.
 
 On success the exit code is 0. The receipt lists the quarantined ids and
 the counts. It does not print the removed text.

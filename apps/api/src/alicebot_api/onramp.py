@@ -929,9 +929,12 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Comma-separated memory ids to store as rejected. Removes the "
             "credential from each named memory and from the records derived "
-            "from it, and reports any other copies it finds. The SHA-256 "
-            "footer is checked on the file as given before any replacement. "
-            "An id that is not in the file is an error and nothing is written."
+            "from it, and reports any other copies it finds. After a successful "
+            "import, credential_verdict scans every imported text column that "
+            "was not replaced, and prints table, id, and column only. The "
+            "SHA-256 footer is checked on the file as given before any "
+            "replacement. An id that is not in the file is an error and "
+            "nothing is written."
         ),
     )
 
@@ -2474,6 +2477,66 @@ def _credential_findings_after_quarantine(
     return tuple(findings)
 
 
+def _column_replaced_by_quarantine(value: object) -> bool:
+    """True when quarantine replaced this column with the placeholder or the fixed object."""
+
+    if value == _QUARANTINE_PLACEHOLDER:
+        return True
+    decoded = value
+    if isinstance(value, str):
+        try:
+            decoded = json.loads(value)
+        except json.JSONDecodeError:
+            return False
+    return isinstance(decoded, Mapping) and dict(decoded) == _QUARANTINE_JSON_OBJECT
+
+
+def _quarantine_text_column(value: object) -> bool:
+    """A stored text or JSON column the post-import scan should read."""
+
+    if value is None or isinstance(value, (bool, int, float)):
+        return False
+    if _column_replaced_by_quarantine(value):
+        return False
+    return isinstance(value, (str, Mapping, list, tuple))
+
+
+def _quarantine_credential_reports(
+    validated_import: _ValidatedImport,
+    plan: _QuarantinePlan,
+) -> tuple[tuple[str, str, str], ...]:
+    """Leftover text columns ``credential_verdict`` still flags, as table, id, column.
+
+    Runs on the row quarantine will store. Columns replaced by the placeholder
+    or ``{"quarantined": true}`` are not passed to the detector. The matched
+    text is not returned. Shared source chunks and shared entity names are
+    scanned here too; the receipt already lists those from the plan, so a hit
+    on one of them is not repeated.
+    """
+
+    if not plan.ids:
+        return ()
+    already = set(plan.reports)
+    found: list[tuple[str, str, str]] = []
+    for record_type, (table, columns) in _RECORD_SPECS.items():
+        for _line_no, record in _iter_spooled_records(validated_import, record_type):
+            rewritten, _added = _apply_import_quarantine(record_type, record, plan)
+            row_id = str(rewritten.get("id") or "")
+            for column in columns:
+                value = rewritten.get(column)
+                if not _quarantine_text_column(value):
+                    continue
+                if credential_verdict(value) is None:
+                    continue
+                item = (table, row_id, column)
+                if item in already:
+                    continue
+                already.add(item)
+                found.append(item)
+    found.sort()
+    return tuple(found)
+
+
 def _missing_quarantine_memory_ids(
     validated_import: _ValidatedImport,
     quarantine_ids: tuple[str, ...],
@@ -2816,6 +2879,7 @@ def _run_import_snapshot(
 
     target_existed = db_path.exists()
     working_path: Path | None = None
+    credential_reports: tuple[tuple[str, str, str], ...] = ()
     try:
         _ensure_private_directory(db_path.parent)
         fd, raw_working_path = tempfile.mkstemp(
@@ -2849,6 +2913,10 @@ def _run_import_snapshot(
                 plan=quarantine_plan,
                 quarantine_tally=quarantine_counts,
             )
+        if quarantine_ids:
+            # The spool still holds the file. Scan the rewritten rows before
+            # publication deletes that spool. Never include the matched text.
+            credential_reports = _quarantine_credential_reports(validated_import, quarantine_plan)
         # Move all committed WAL pages into the staged main file before
         # atomic publication, then durably persist it.
         checkpoint = sqlite3.connect(str(working_path))
@@ -2915,7 +2983,7 @@ def _run_import_snapshot(
             db_path=db_path,
             quarantine_ids=quarantine_ids,
             quarantine_counts=quarantine_counts,
-            quarantine_reports=quarantine_plan.reports,
+            quarantine_reports=tuple(sorted({*quarantine_plan.reports, *credential_reports})),
         )
         sys.stdout.flush()
     except (OSError, ValueError) as exc:

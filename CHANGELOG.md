@@ -18,7 +18,12 @@
   Provenance quotes, open loops, graph edges, exclusive entity names,
   rollup instances, and copied successor fields are rewritten and counted.
   Shared source chunks and shared entity names are reported and left in
-  place. A later commit with the old idempotency key creates a fresh row
+  place. After a successful import, `credential_verdict` scans every
+  imported text column that was not replaced by `[quarantined on import]`
+  or `{"quarantined": true}`, and the receipt prints table, id, and column
+  for each hit, never the matched text, then the command that removes that
+  record or `no command removes this today`. A later commit with the old
+  idempotency key creates a fresh row
   through the normal checks. The receipt lists ids and counts, not the
   removed text. A second import of the same file with the same ids skips
   those identical rows under the default `--mode skip`. Importing the same

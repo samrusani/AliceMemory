@@ -79,6 +79,14 @@ _ONRAMP_ERROR_MESSAGES = {
     "import_path_conflict": "The import input conflicts with the database or a SQLite sidecar",
     "import_snapshot_failed": "The import file could not be read into a stable snapshot",
     "import_validation_failed": "The import file is invalid or incompatible",
+    "import_credential_material": (
+        "Memories listed above carry credential material; no records were written. In the "
+        "source vault, redact each listed memory, then export again. SQLite: alice_memory_manage "
+        "with action=redact (needs ALICE_MCP_FULL_TOOLS=1). Postgres: alicebot vnext memories "
+        "redact <memory_id> --reason <why>. Forget or correct is not enough: the old text stays "
+        "in the row or its correction history. Do not edit the export by hand; that breaks its "
+        "SHA-256 footer"
+    ),
     "import_quarantine_unknown": "A --quarantine memory id is not in the import file",
     "sqlite_db_path_required": (
         "alice-memory --db takes a SQLite file path. A Postgres URL is not a database file."

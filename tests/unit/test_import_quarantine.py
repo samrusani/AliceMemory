@@ -1296,6 +1296,130 @@ def test_derived_records_lose_the_secret_and_shared_copies_are_reported(tmp_path
         assert successor_row["metadata_json"]["supersedes"] == secret_id
 
 
+def test_quarantine_import_runs_credential_verdict_on_text_it_did_not_replace(tmp_path, capsys) -> None:
+    """Leftover text is reported by credential_verdict, as table, id, and column.
+
+    The private chunk and the source title are not rewritten and are not shared
+    copies, so the structural report does not list them. Skipping
+    ``_quarantine_credential_reports`` drops these lines and this test fails
+    on the assertions below.
+    """
+
+    origin = tmp_path / "origin.db"
+    bootstrap_database(origin, user_id=USER_ID, user_email="local@alice")
+    with sqlite_user_connection(origin, USER_ID) as conn:
+        store = SQLiteVNextStore(conn, USER_ID)
+        secret = _store_searchable_secret(
+            conn,
+            store,
+            {
+                "memory_key": "decision.scan-secret",
+                "status": "active",
+                "memory_type": "decision",
+                "title": f"Title {SECRET}",
+                "canonical_text": f"Canonical {SECRET}",
+                "domain": "project",
+                "sensitivity": "internal",
+            },
+        )
+        secret_id = str(secret["id"])
+        source = store.create_source(
+            {
+                "source_type": "note",
+                "title": f"Source {SECRET}",
+                "content_hash": "hash-scan",
+                "domain": "project",
+                "sensitivity": "internal",
+                "metadata_json": {"note": SECRET},
+            }
+        )
+        private_chunk = store.create_source_chunk(
+            {
+                "source_id": source["id"],
+                "chunk_index": 0,
+                "text": f"Private chunk {SECRET}",
+                "token_count": 3,
+            }
+        )
+        store.create_provenance_link(
+            {
+                "target_type": "memory",
+                "target_id": secret_id,
+                "source_id": source["id"],
+                "source_chunk_id": private_chunk["id"],
+                "quote": f"Quote {SECRET}",
+                "evidence_role": "quoted_from",
+                "confidence": 0.5,
+            }
+        )
+    dump = tmp_path / "backup.jsonl"
+    _export_to(origin, dump)
+    fresh = tmp_path / "fresh.db"
+    assert _import_quarantine(dump, fresh, secret_id) == 0
+    captured = capsys.readouterr()
+    assert SECRET not in captured.out
+    assert SECRET not in captured.err
+    source_id = str(source["id"])
+    chunk_id = str(private_chunk["id"])
+    for table, row_id, column in (
+        ("source_chunks", chunk_id, "text"),
+        ("sources", source_id, "title"),
+        ("sources", source_id, "metadata_json"),
+    ):
+        assert f"quarantine report: {table} {row_id} {column}\nno command removes this today" in captured.out
+    assert f"quarantine report: memories {secret_id} " not in captured.out
+    assert f"quarantine report: provenance_links " not in captured.out
+    with sqlite_user_connection(fresh, USER_ID) as conn:
+        stored_chunk = conn.execute("SELECT text FROM source_chunks WHERE id = ?", (chunk_id,)).fetchone()
+        assert stored_chunk["text"] == f"Private chunk {SECRET}"
+        stored_source = conn.execute("SELECT title FROM sources WHERE id = ?", (source_id,)).fetchone()
+        assert stored_source["title"] == f"Source {SECRET}"
+
+
+def test_quarantine_import_refuses_a_memory_the_rewrite_does_not_clean(tmp_path, capsys) -> None:
+    """A second memory that still holds a credential is refused and nothing is written."""
+
+    origin = tmp_path / "origin.db"
+    bootstrap_database(origin, user_id=USER_ID, user_email="local@alice")
+    with sqlite_user_connection(origin, USER_ID) as conn:
+        store = SQLiteVNextStore(conn, USER_ID)
+        named = _store_searchable_secret(
+            conn,
+            store,
+            {
+                "memory_key": "decision.named-secret",
+                "status": "active",
+                "memory_type": "decision",
+                "title": f"Named {SECRET}",
+                "canonical_text": f"Named body {SECRET}",
+                "domain": "project",
+                "sensitivity": "internal",
+            },
+        )
+        other = _store_searchable_secret(
+            conn,
+            store,
+            {
+                "memory_key": "decision.other-secret",
+                "status": "active",
+                "memory_type": "decision",
+                "title": "Other title stays",
+                "canonical_text": f"Other body {SECRET}",
+                "domain": "project",
+                "sensitivity": "internal",
+            },
+        )
+    dump = tmp_path / "backup.jsonl"
+    _export_to(origin, dump)
+    fresh = tmp_path / "fresh.db"
+    assert _import_quarantine(dump, fresh, str(named["id"])) == 1
+    err = capsys.readouterr().err
+    _assert_onramp_error(err, code="import_credential_material")
+    assert SECRET not in err
+    assert f"memory {other['id']} carries credential material" in err
+    assert not fresh.exists()
+
+
 @pytest.mark.parametrize(
     "url",
     (
