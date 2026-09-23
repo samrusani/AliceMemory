@@ -153,7 +153,8 @@ from .synthesis import (
 _TOOL_HANDLERS = {
     "alice_capture": _handle_alice_vnext_capture,
     # Core front door for explicit agent writes; same handler as the legacy
-    # alice_vnext_commit_memory alias below.
+    # alice_vnext_commit_memory alias below. Only this name's schema admits
+    # confirmation_id, so only this name reaches the confirmation route.
     "alice_memory_commit": _handle_alice_vnext_commit_memory,
     "alice_memory_manage": _handle_alice_memory_manage,
     "alice_capture_candidates": _handle_alice_capture_candidates,

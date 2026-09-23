@@ -132,7 +132,23 @@ def test_mcp_registry_order_definitions_and_alias_identity_are_frozen() -> None:
     # existed on the handlers; additionalProperties is false, so the schema
     # had to name them before a caller could pass the fence. No tool added,
     # removed, or renamed.
-    assert _digest(core_definitions) == "d1a28b67f55c634518699b6c72ec23a90040ac678b23ff4f587ee69a64579cc1"
+    # Moved again 2026-09-22 (D8). Counts unchanged, legacy digest and handler
+    # map digest unchanged. Per-tool digests against the previous pin differ
+    # for alice_memory_commit only: it gained confirmation_id and
+    # confirmation_action, dropped the top-level "required" list (a
+    # confirmation call carries no title or canonical_text; the handler still
+    # requires both for a new write), and its description and the title,
+    # canonical_text and rationale descriptions now say how to finish a
+    # pending write on the same tool instead of naming alice_memory_manage.
+    # Moved once more the same day after review: only alice_memory_commit's
+    # description and confirmation_action description, which now say reject
+    # is allowed past the sensitivity ceiling and describe expiry as applied
+    # on the next confirm or reject rather than in the background.
+    # And once more after the second review, wording only: the expiry sentence
+    # now says "on this tool" (the review approve path does not read the 24
+    # hours), and confirmation_action says a keyless server does not check a
+    # declared project_scope.
+    assert _digest(core_definitions) == "541acd9b9ba49ab116e8ceb4e1c5664bf7e93dca30c45170bbed32b738f94ebb"
     assert _digest(legacy_definitions) == "ca3d747e552bdece52c22d76332fc69f499878290edf3f236a8a7ea6a2e34e41"
     ordered_handler_map = [(name, handler.__name__) for name, handler in handlers.items()]
     assert _digest(ordered_handler_map) == "d864c98bb914bbc6ace464fa8020b3ed264f17f2061a6101aae677d801032ae5"

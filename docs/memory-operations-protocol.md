@@ -154,17 +154,52 @@ revision history, and correction history accumulates on the memory record.
 Completes a write that policy held as `confirmation_required` (the pending
 memory is not searchable until confirmed).
 
-- MCP: `alice_memory_manage` with `action: "confirm"` and the
-  `confirmation_id` from the commit response; pass `canonical_text` to
-  confirm with a correction
+- MCP, default three tools: `alice_memory_commit` with only the
+  `confirmation_id` from the commit response and `confirmation_action`
+  (`confirm` or `reject`), plus identity fields and an optional
+  `rationale`. A memory field on that call is refused, and there is no
+  edit: to change the text, reject it and commit the corrected text.
+- MCP, full surface: `alice_memory_manage` with `action: "confirm"` and the
+  `confirmation_id`; pass `canonical_text` to confirm with a correction
 - HTTP: `POST /v0/vnext/memories/confirm`
 - CLI: `alicebot vnext memories confirm <confirmation_id> [--action confirm|reject|edit]`
 
-Outcomes: `committed` (memory becomes active) or `rejected`. Confirmations
-expire after 24 hours; an expired confirmation resolves to `rejected` with
-reason `confirmation_expired`. Audit: a `promoted` (or `corrected`, when
-text was edited) revision and an `agent.memory_confirmed` or
-`agent.memory_confirmation_rejected` event.
+Both MCP routes call `VNextMemoryCommitService.confirm` through the same
+handler code, so identity, the policy check on the pending row's domain,
+sensitivity and project scope, and the audit below are the same. The
+project scope check binds a key-bound scope; a keyless server trusts
+whatever `project_scope` the caller declares. The
+`alice_memory_commit` route adds one refusal: an agent cannot confirm a
+pending write above its own sensitivity ceiling, which
+`alice_memory_manage` `confirm` still allows. It may reject one; the
+reject still passes the identity check and the key-bound project fence.
+Only an `admin_agent` identity can confirm such a write: an
+`admin_agent` key, or, on a keyless server, any call that declares
+`permission_profile: admin_agent` or carries no agent identity. A
+keyless server does not verify a declared profile. Neither route can
+tell whether the user was asked; the tool description tells the agent to
+ask. The revision, the policy events and the `agent.memory_confirmed` or
+`agent.memory_confirmation_rejected` event name the caller as
+`actor_id`: the key's `agent_id` when `ALICE_AGENT_API_KEY` is set, the
+declared and unverified `agent_id` on a keyless server. The
+`memory.updated` and `memory_revision.created` events carry no
+`actor_id`. A keyless call that declares no `agent_id` is recorded as
+`actor_type: user` with no `actor_id` on every row and no policy event.
+
+Outcomes: `committed` (memory becomes active) or `rejected`. A pending
+confirmation stays out of recall until it is answered, and nothing
+expires it in the background. Only `VNextMemoryCommitService.confirm`
+reads the 24 hour `expires_at`: after it, a confirm or reject through
+either MCP route above, the HTTP confirm route or the CLI confirm that
+passes the policy check resolves the row to `rejected` with reason
+`confirmation_expired` instead of acting on it. The review paths do not
+read it: `alice_memory_correct` `approve` and a correction through
+`POST /v0/vnext/memories/correct` or `alicebot vnext memories correct`
+can still make the row active after 24 hours. Audit: a `promoted`
+revision (`corrected` when text was edited, `rejected` for a reject or an
+expiry) and an `agent.memory_confirmed`,
+`agent.memory_confirmation_rejected` or
+`agent.memory_confirmation_expired` event.
 
 ## undo
 

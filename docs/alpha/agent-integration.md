@@ -57,7 +57,9 @@ reviewer promotes them. Import is a source. Commit is a fact. Print the
 Do not tell the user they must clear a review queue before a note is usable.
 
 Lifecycle tools (`alice_memory_manage`, review, correct) are also
-full-surface.
+full-surface. Finishing a `confirmation_required` write is not: it happens
+on `alice_memory_commit` itself (see
+[Explicit Memory Commits](#explicit-memory-commits)).
 
 Respect domain and sensitivity policy on every call, and use `/vnext` for
 review, audit, undo, correction, forget, and troubleshooting.
@@ -290,10 +292,26 @@ on the core MCP surface (or `POST /v0/vnext/memories/commit` over HTTP,
 agent learns something worth keeping and the user has not asked: an explicit
 instruction is one reason to commit, not a precondition. The commit is
 policy-checked
-and returns one of four outcomes — `committed`, `confirmation_required`
-(finish with `alice_memory_manage` action `confirm`), `review_required`, or
-`rejected` — never a silent write. Follow-up lifecycle verbs (`confirm`,
-`undo`, `forget`) live on `alice_memory_manage`.
+and returns one of four outcomes: `committed`, `confirmation_required`,
+`review_required`, or `rejected`. It is never a silent write.
+
+A `confirmation_required` write is not stored yet. The agent asks the user,
+then calls `alice_memory_commit` again with only the returned
+`confirmation_id` and `confirmation_action` (`confirm` or `reject`), plus its
+identity fields and an optional `rationale`. That works on the default three
+tools. It runs the same service call as `alice_memory_manage` action
+`confirm`, with the same policy check, project fence and audit trail. The
+project fence binds a key-bound scope; a keyless server trusts whatever
+`project_scope` the caller declares. It also refuses to let an agent
+confirm a pending write above that agent's sensitivity ceiling; the agent
+may still reject it. Alice cannot tell whether the user was asked. The
+revision, the policy events and the `agent.memory_confirmed` or
+`agent.memory_confirmation_rejected` event name the key's `agent_id` when
+`ALICE_AGENT_API_KEY` is set, and the declared, unverified `agent_id` on a
+keyless server; the `memory.updated` and `memory_revision.created` events
+carry no `actor_id`. A keyless call without an `agent_id` names no agent
+on any row (`actor_type: user`). Other follow-up lifecycle verbs (`undo`,
+`forget`) live on `alice_memory_manage`, which is full-surface.
 
 Identity requirements:
 

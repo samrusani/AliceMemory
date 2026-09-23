@@ -39,11 +39,19 @@ Default identity:
 
 Default scope is broad but policy-filtered. Avoid `health`, `family`, `spiritual`, `legal`, `financial`, and `regulated` unless the user explicitly enables that scope.
 
-Good ambient commit, nobody asked for this one:
+Good ambient commit, nobody asked for this one. At 0.84 it comes back `confirmation_required`, so it is not stored until the user answers:
 
 ```json
 {"title":"Preferred daily planning format","canonical_text":"The user prefers daily planning summaries with decisions, blockers, and next actions.","domain":"personal","sensitivity":"private","confidence":0.84}
 ```
+
+Ask the user, showing them the proposed text. If they agree, call `alice_memory_commit` again with the `confirmation_id` Alice returned, the same identity fields as the write (none in this example), and no memory fields:
+
+```json
+{"confirmation_id":"confirm-...","confirmation_action":"confirm"}
+```
+
+If they do not agree, send `"confirmation_action":"reject"`. Alice cannot tell whether you asked, so never answer for the user. To change the text, reject it and commit the corrected text as a new write. After 24 hours it can no longer be confirmed on `alice_memory_commit`: the next confirm or reject there that passes the policy check resolves it to `rejected`. This example sends no identity fields, so on a keyless server the answer is recorded as the local user, not as Hermes.
 
 Good explicit commit, the user said to remember it:
 
@@ -51,9 +59,9 @@ Good explicit commit, the user said to remember it:
 {"agent_id":"hermes","agent_type":"personal_assistant","permission_profile":"trusted_local_agent","title":"Preferred daily planning format","canonical_text":"The user prefers daily planning summaries with decisions, blockers, and next actions.","domain":"personal","sensitivity":"private","confidence":0.93,"source_type":"direct_user_instruction"}
 ```
 
-`title` and `canonical_text` are the only required fields. Everything else is optional, and any field not in the server's `tools/list` schema is rejected outright rather than ignored.
+A new write needs `title` and `canonical_text`. Everything else is optional, and any field not in the server's `tools/list` schema is rejected outright rather than ignored.
 
-If Alice returns `confirmation_required`, show the proposed text and, only after the user confirms, call `alice_memory_manage` with `action: "confirm"` and the `confirmation_id` Alice returned (full-surface). If Alice returns `review_required`, do not tell the user to clear a review queue.
+If Alice returns `confirmation_required`, finish it on `alice_memory_commit` as shown above, only with the user's answer. Alice refuses both confirm and reject for a read-only identity and for a key bound to another project (a keyless server trusts whatever `project_scope` the call declares). It refuses confirm, but not reject, when the pending write is above your sensitivity ceiling (anything above `private` for `trusted_local_agent`), so you can clear such a write but not store it. If Alice returns `review_required`, do not tell the user to clear a review queue.
 
 Bad commit, too low confidence to be worth storing:
 

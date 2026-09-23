@@ -12,6 +12,8 @@ Default loop: remember, recall, continue.
 2. Call alice_recall to search memory and imported sources.
 3. Call alice_resume to pick work back up: last decision, next action, open loops, recent changes.
 
+If alice_memory_commit returns confirmation_required, nothing is stored yet. Ask the user, showing them the proposed text, then call alice_memory_commit again with the confirmation_id, confirmation_action "confirm" or "reject" from their answer, and the same identity fields as the write, and no memory fields. Never answer for the user.
+
 alice_capture and alice_context_pack are full-surface tools. Use them only when the server lists them. Capture stores a source; its passages come back from alice_recall under sources, as material to read and quote rather than as facts Alice asserts. Candidates stay unsearchable until a reviewer promotes them. Import is a source. Commit is a fact. Print the receipt field after a capture or commit so the user sees what was stored. Do not tell the user they must clear a review queue before a note is usable.
 
 Never directly mutate trusted memory.
@@ -74,17 +76,19 @@ Good explicit commit:
 Expected outcomes:
 
 - `committed`: Alice stored the memory as active and auditable.
-- `confirmation_required`: show the proposed text and, only after the user confirms, call
-  `alice_memory_manage` with `action: "confirm"` and the returned `confirmation_id` (full-surface).
+- `confirmation_required`: nothing is stored yet. Ask the user, showing them the proposed text,
+  then call `alice_memory_commit` again with the returned `confirmation_id`,
+  `confirmation_action` set to `confirm` or `reject` from their answer, and the same identity
+  fields as the write (example below).
 - `review_required`: leave the candidate. Do not tell the user to clear a review queue.
 - `rejected`: do not retry without narrowing scope or asking the user.
 
-`title` and `canonical_text` are the only required fields. Every other property must appear in
+A new write needs `title` and `canonical_text`. Every other property must appear in
 the server's `tools/list` schema for the tool you are calling; an unrecognised property is
 rejected outright rather than ignored. In particular `intent` exists only on the legacy
 `alice_vnext_commit_memory` tool and is **not** accepted by `alice_memory_commit`.
 
-Good proposal:
+Good proposal. Below 0.85 it returns `confirmation_required`:
 
 ```json
 {
@@ -96,6 +100,40 @@ Good proposal:
   "rationale": "The user stated this preference explicitly."
 }
 ```
+
+Finishing it after the user agreed. Send the id Alice returned, the user's answer, and the same
+identity fields as the write (none here), with no memory fields:
+
+```json
+{
+  "confirmation_id": "confirm-...",
+  "confirmation_action": "confirm",
+  "rationale": "The user said yes, keep it."
+}
+```
+
+Use `"confirmation_action": "reject"` when the user says no. Alice cannot tell whether you
+asked, so never answer for the user. There is no edit on this call: to change the text, reject
+it and commit the corrected text as a new write. A pending write stays out of recall until it
+is answered, and nothing expires it in the background. After 24 hours it can no longer be
+confirmed on `alice_memory_commit`: the next confirm or reject there that passes the policy
+check resolves it to `rejected`. A reviewer using `alice_memory_correct` `approve` on the full
+surface, which does not check the 24 hours, can still approve it.
+
+Alice refuses both `confirm` and `reject` for a read-only identity and for a key bound to
+another project. That project check applies to a key-bound scope only; a keyless server
+trusts whatever `project_scope` the call declares. Alice also refuses `confirm`, but not
+`reject`, when the pending write is above the calling agent's sensitivity ceiling (anything
+above `private` for `trusted_local_agent`), so Hermes can clear such a write but cannot store
+it. Only an `admin_agent` identity can confirm it: an `admin_agent` key, or, on a keyless
+server, any call that declares `permission_profile: admin_agent` or carries no agent identity.
+A keyless server does not verify a declared profile.
+
+This example sends no identity fields. On a keyless server the confirmation is then recorded
+as the local user (`actor_type: user`, no `actor_id`) on every row and the audit does not name
+Hermes. With `ALICE_AGENT_API_KEY` set, the revision, the policy event and the
+`agent.memory_confirmed` event carry the key's `agent_id`; the `memory.updated` and
+`memory_revision.created` events carry no `actor_id` in either case.
 
 Bad proposal:
 
