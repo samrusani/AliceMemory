@@ -79,6 +79,8 @@ _ONRAMP_ERROR_MESSAGES = {
     "import_path_conflict": "The import input conflicts with the database or a SQLite sidecar",
     "import_snapshot_failed": "The import file could not be read into a stable snapshot",
     "import_validation_failed": "The import file is invalid or incompatible",
+    "import_quarantine_unknown": "A --quarantine memory id is not in the import file",
+    "invalid_request": "The command request is invalid",
     "restore_failed": "The import was aborted before publication; no records were written",
     "restore_committed_hardening_failed": (
         "The restore committed, but database permissions were not hardened; do not retry blindly"
