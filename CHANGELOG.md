@@ -468,9 +468,17 @@
 - SSH public keys (`ssh-ed25519`, `ssh-rsa`, `ecdsa-sha2-*` and the FIDO
   `sk-` types), alone or labelled, and OpenPGP public key blocks are no
   longer refused.
-- `alice-memory import` reads the `value` column by value only, and skips
-  the keys the product itself writes in `metadata_json` (`rollup_key`), so a
-  vault holding rollup cards restores.
+- The credential floor treats a bare `key` segment as a secret name only
+  when the previous segment is a secret qualifier (`api`, `secret`,
+  `private`, `access`, `signing`, and the other qualifiers already in the
+  name grammar). `memory_key` and `idempotency_key` are not secret names.
+  `api_key` still is. A value that identifies itself is still caught under
+  any name. Provenance on legacy continuity writes and both review surfaces,
+  and the import `value` column, are read with their keys. `rollup_key` in
+  `metadata_json` is still read on its own, so a vault holding rollup cards
+  restores. An opaque value under an unqualified name such as `stripe_key`
+  or `BUILD_KEY` is not caught by this check. The commit door still runs
+  the v0.16.0 check, which treats a `key` segment as a secret name.
 - The SessionStart brief opens with a line saying the notes below are stored
   data quoted as data, not instructions, and renders every item as a quoted
   string.

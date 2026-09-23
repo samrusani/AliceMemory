@@ -29,7 +29,6 @@ from alicebot_api.credential_floor import (
     carries_credential_material,
     refuse_credential_activation,
     refuse_credential_material,
-    string_values,
     withhold_credential_text,
 )
 from alicebot_api.write_bounds import MAX_CORRECTION_FIELD_CHARS, MAX_CORRECTION_TITLE_CHARS, first_oversized
@@ -309,12 +308,12 @@ def _create_correction_event(
 
 def _refuse_credential_row(title: object, body: object, provenance: object, reason: object) -> None:
     """One call per object written: title, body (as a mapping), provenance
-    values, then the reason that is persisted on the correction event."""
+    with its keys, then the reason persisted on the correction event."""
 
     refuse_credential_material(
         title,
         body,
-        string_values(provenance),
+        provenance,
         reason,
         error=ContinuityReviewValidationError,
     )
@@ -404,7 +403,7 @@ def apply_continuity_correction(
         # The credential floor, on the object as it will be stored, once per
         # row written. Until 2026-09-22 this path, which /v1 memory operation
         # commit uses for UPDATE, never consulted it. A title-only edit is
-        # read against the stored body; provenance by value only.
+        # read against the stored body; provenance is read with its keys.
         _refuse_credential_row(next_title, next_body, next_provenance, reason)
 
     elif action == "delete":
@@ -550,10 +549,10 @@ def apply_continuity_correction(
         refuse_credential_material(
             request.title,
             request.body,
-            string_values(request.provenance),
+            request.provenance,
             request.replacement_title,
             request.replacement_body,
-            string_values(request.replacement_provenance),
+            request.replacement_provenance,
             error=ContinuityReviewValidationError,
         )
     elif action in {"delete", "mark_stale"}:
@@ -564,8 +563,7 @@ def apply_continuity_correction(
         event_payload["reason"] = reason
         for key in ("title", "body", "provenance", "replacement_title", "replacement_body", "replacement_provenance"):
             value = event_payload.get(key)
-            fields = string_values(value) if key.endswith("provenance") else [value]
-            if value is not None and carries_credential_material(*fields):
+            if value is not None and carries_credential_material(value):
                 event_payload[key] = TEXT_WITHHELD_PLACEHOLDER
                 text_withheld = True
     else:
@@ -573,7 +571,7 @@ def apply_continuity_correction(
         refuse_credential_material(
             request.replacement_title,
             request.replacement_body,
-            string_values(request.replacement_provenance),
+            request.replacement_provenance,
             error=ContinuityReviewValidationError,
         )
 

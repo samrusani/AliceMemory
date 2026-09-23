@@ -242,12 +242,7 @@ def test_round5_a_dotted_value_under_a_password_name_is_refused(text: str) -> No
 _FAKE_MISTRAL_KEY = "8fJ2kQzX" + "7bVn3LmP0wYcT5rHdG1sAeUo"
 
 _T4_TRUE: dict[str, tuple[object, ...]] = {
-    "mistral yaml": ("mistral_key: " + _FAKE_MISTRAL_KEY,),
-    "cohere": (_k("cohere_key = '", "9aKd82LmQzX7bVn3LmP0wYcT5rHdG1s'"),),
-    "fernet": (_k("fernet_key = ", "bXkZ9q2LmP0wYcT5rHdG1sAeUo8fJ2kQzX7bVn3LmP0="),),
-    "mistral pair (weak tier)": ({"mistral_key": _FAKE_MISTRAL_KEY},),
     "apim header": (_k("Ocp-Apim-Subscription-Key: ", "3f2a9c7e1b4d4e8f9a0b1c2d3e4f5a6b"),),
-    "functions header": (_k("x-functions-key: ", "Zq8mP2vL9kXw4TbN7cRy1uJh6fDs3aGe0oKi5"),),
     "DB_PASSWORD_RO": (_k("DB_PASSWORD_RO=", "Kd9xoYWu83nq"),),
     "MAPBOX_TOKEN_V2": (_k("MAPBOX_TOKEN_V2=", "pk9aKd82LmQzX7bVn3LmP0wYcT5"),),
     "JWT_SECRET_PREVIOUS": (_k("JWT_SECRET_PREVIOUS=", "Zq8mP2vL9kXw4TbN7cRy1u"),),
@@ -270,6 +265,59 @@ _T4_TRUE: dict[str, tuple[object, ...]] = {
 @pytest.mark.parametrize("name", sorted(_T4_TRUE))
 def test_t4_adversary_misses_are_caught(name: str) -> None:
     assert carries_credential_material(*_T4_TRUE[name]), name
+
+
+def test_memory_key_alone_is_not_a_secret_name() -> None:
+    """A bare key segment is not a secret name. memory_key and
+    idempotency_key have no secret qualifier."""
+
+    assert credential_floor._name_kind("memory_key", "", 0) is None
+    assert credential_floor._name_kind("idempotency_key", "", 0) is None
+    assert not carries_credential_material({"memory_key": "project.alice.status"})
+    assert not carries_credential_material("memory_key=project.alice.status")
+    assert not carries_credential_material("idempotency_key=" + UUID_TEXT)
+
+
+def test_api_key_is_still_a_secret_name() -> None:
+    """api is a secret qualifier, so api_key, API_KEY and apiKey stay secret names."""
+
+    opaque = _k("Xq9mZt2L", "xP9wKc4BVq7m")
+    assert credential_floor._name_kind("api_key", "", 0) == "secret"
+    assert credential_floor._name_kind("API_KEY", "", 0) == "secret"
+    assert credential_floor._name_kind("apiKey", "", 0) == "secret"
+    assert carries_credential_material({"api_key": opaque})
+    assert carries_credential_material("api_key=" + opaque)
+
+
+def test_a_credential_value_still_trips_the_value_rule() -> None:
+    """A value that identifies itself is caught under a name that is not a secret name."""
+
+    assert carries_credential_material({"memory_key": PAT})
+    assert carries_credential_material({"note": PAT})
+    assert carries_credential_material(PAT)
+    assert not carries_credential_material({"note": "Deploys go out on Tuesdays."})
+
+
+_UNQUALIFIED_KEY_ASSIGNMENTS = {
+    "mistral yaml": "mistral_key: " + _FAKE_MISTRAL_KEY,
+    "cohere": _k("cohere_key = '", "9aKd82LmQzX7bVn3LmP0wYcT5rHdG1s'"),
+    "fernet": _k("fernet_key = ", "bXkZ9q2LmP0wYcT5rHdG1sAeUo8fJ2kQzX7bVn3LmP0="),
+    "functions header": _k("x-functions-key: ", "Zq8mP2vL9kXw4TbN7cRy1uJh6fDs3aGe0oKi5"),
+    "build key": "BUILD_KEY=v2026.09.1",
+}
+
+
+@pytest.mark.parametrize("name", sorted(_UNQUALIFIED_KEY_ASSIGNMENTS))
+def test_an_unqualified_key_name_is_not_a_secret_name_on_the_floor(name: str) -> None:
+    """stripe_key, mistral_key and BUILD_KEY are not secret names. The commit
+    door still refuses the same line, because v0.16.0's check does."""
+
+    from alicebot_api.legacy_credential_check import commit_gate_refuses
+
+    text = _UNQUALIFIED_KEY_ASSIGNMENTS[name]
+    assert not carries_credential_material(text), name
+    assert not carries_credential_material({"mistral_key": _FAKE_MISTRAL_KEY})
+    assert commit_gate_refuses("Note", text)
 
 
 # ---------------------------------------------------------------------------
@@ -624,9 +672,10 @@ def test_public_key_files_are_real_and_decodable() -> None:
 # ---------------------------------------------------------------------------
 
 # Re-pinned in round 3 (2026-09-23): the base64 key-file prefix pass reads
-# every surface once more (was 36 and 2.25). Measured after round 4, with the
-# import value column read by value: 35.0 surfaces per record and 2.86
-# characters scanned per input character.
+# every surface once more (was 36 and 2.25). Measured 2026-09-23 on the
+# builder-note export (48 memory records) after the value column is read
+# with its keys: 37.0 surfaces per record and 2.89 characters scanned per
+# input character.
 _BUDGET_SURFACES_PER_RECORD = 37.0
 _BUDGET_CHARS_PER_INPUT_CHAR = 2.95
 # Adversarial shapes, per input character. The worst measured was 8.60 (5.55

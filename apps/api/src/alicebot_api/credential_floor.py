@@ -42,7 +42,9 @@ rather than scanned or truncated.
 Callers pass the row AS IT WILL BE STORED, in reading order: title, body,
 other persisted free text, structured values (mapping bodies as mappings),
 then persisted identifiers. One call per row; never two rows in one call.
-Provenance is always passed through string_values, by value only.
+Provenance and the import value column are passed as the mappings that will
+be stored, so a key is read with its value. string_values drops keys; legacy
+memory admission still uses it for the admit value.
 
 ``refuse_credential_material`` raises the caller's own validation error, so
 each surface keeps its existing error contract.
@@ -523,10 +525,10 @@ def _prose_hit(text: str) -> bool:
 
 # NAME=value inside one field. The name is a secret name only when its LAST
 # segment is one, after neutral suffixes are stripped (DB_PASSWORD_RO,
-# MAPBOX_TOKEN_V2, SECRET_KEY_BASE). A bare "key" segment counts only behind a
-# secret qualifier, or in an ALL-CAPS environment-style name whose qualifier
-# is not a structural word, so fact_key, cache_key, sort_key and
-# partition_key are schema vocabulary.
+# MAPBOX_TOKEN_V2, SECRET_KEY_BASE). A bare "key" segment counts only when
+# the previous segment is a secret qualifier, or the same words are written
+# immediately before a lone "key". memory_key, idempotency_key, stripe_key
+# and OPENAI_KEY are not secret names.
 _NAME_RUN = re.compile(r"[A-Za-z0-9_-]+")
 _OPERATOR = re.compile(r"[\"']?[ \t]*[:=]")
 _VALUE = re.compile(r"[ \t]*(?:\r?\n[ \t]*)?[\"']?([A-Za-z0-9_\-+/=.]{6,})")
@@ -604,17 +606,6 @@ _KEY_QUALIFIERS = frozenset(
         "root", "admin", "server", "live", "prod", "production", "decryption", "recovery",
     }
 )
-_KEY_STRUCTURAL = frozenset(
-    {
-        "fact", "preference", "state", "decision", "cache", "sort", "partition", "primary", "foreign",
-        "dedupe", "dedup", "idempotency", "memory", "object", "lookup", "map", "hash", "index", "group",
-        "routing", "row", "shard", "composite", "unique", "natural", "surrogate", "lock", "i18n",
-        "translation", "trace", "cursor", "page", "next", "prev", "continuation", "order",
-        "join", "dict", "record", "entity", "subject", "topic", "bucket", "s3", "redis", "hotkey",
-        "short", "shortcut", "keyboard", "music", "public", "publishable", "pub", "project", "tenant",
-        "user", "session_id", "external", "idem", "event", "message", "query", "column", "field",
-    }
-)
 _TOKEN_STRUCTURAL = frozenset(
     {
         "page", "next", "prev", "previous", "continuation", "sync", "cursor", "pagination", "max",
@@ -641,8 +632,10 @@ _DOTTED_REFERENCE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9
 
 
 def _name_kind(run: str, text: str, run_start: int) -> str | None:
-    """"password", "secret", "weak", "bare" (a lone word such as "Secret:"
-    that also labels ordinary prose), or None when the run is no secret name."""
+    """"password", "secret", "bare" (a lone word such as "Secret:" that also
+    labels ordinary prose), or None when the run is no secret name.
+
+    A last segment of "key" is "secret" only with a secret qualifier."""
 
     pieces = [piece for piece in _SEGMENT_SEP.split(run) if piece]
     while len(pieces) > 1 and _NEUTRAL_PIECE.fullmatch(pieces[-1].lower()):
@@ -665,15 +658,11 @@ def _name_kind(run: str, text: str, run_start: int) -> str | None:
             return None
         return "secret" if qualified or last != "token" else "bare"
     if last == "key":
-        if previous:
-            if previous in _KEY_QUALIFIERS:
-                return "secret"
-            if previous in _KEY_STRUCTURAL:
-                return None
-            if run.isupper() and not run.startswith(("_", "-")):
-                return "secret"  # OPENAI_KEY, MAPS_KEY: environment-variable style
-            return "weak"  # stripe_key, backup_key: only a very key-like value counts
-        return "secret" if qualified else None
+        if previous in _KEY_QUALIFIERS:
+            return "secret"
+        if not previous and _PRECEDING_QUALIFIER.search(text[max(0, run_start - 24) : run_start]):
+            return "secret"
+        return None
     return None
 
 
@@ -711,6 +700,8 @@ def _assignment_value_ok(kind: str, value: str, following: str) -> bool:
     if kind == "bare":
         return _opaque(value, 12, 20)
     if kind == "weak":
+        # _name_kind does not return "weak". A bare key segment is a secret
+        # name only with a qualifier, so this shape is unused.
         return (
             len(value) >= 20
             and bool(_DIGIT.search(value))
@@ -1255,11 +1246,9 @@ def refuse_credential_material(*fields: object, error: Callable[[str], BaseExcep
 def string_values(value: object) -> list[str]:
     """The strings inside a structure, without its keys, in reading order.
 
-    Provenance is passed this way at every door (owner ruling C3). Flattened
-    with its keys, ``openclaw_dedupe_key`` holding a SHA-256 digest reads like
-    a secret assigned to a key. The cost, stated plainly: under a key name, a
-    Stripe key, an AWS secret access key or a plain password in provenance is
-    not caught unless its value is self-identifying. Iterative, like _flatten.
+    Legacy memory admission still passes its value column this way. Provenance
+    and the import value column pass the mapping, so a secret name is read
+    with its value. Iterative, like _flatten.
     """
 
     out: list[str] = []

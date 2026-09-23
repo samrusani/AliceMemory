@@ -313,9 +313,9 @@ Verified by execution on 2026-09-23; each row names the tests that pin it.
 | Reject and retire | confirm reject, review reject, `alice_memory_correct` reject, `alice_review_apply` delete and mark_stale, the open-loop review-action note, expire, forget, undo, the quarantine sweep | always completes. A reason carrying credential material is stored as `rationale withheld: it carried credential material` in the row, the revision and the event, and the response carries `rationale_withheld: true`. Text supplied with a reject is withheld the same way (`text_withheld: true`). History entries a writer carries forward are withheld too | `test_confirm_reject_*`, `test_r2_*`, integration `test_round2_c6_*` |
 | Artifact promotion | `POST /v0/vnext/artifacts/{id}/review` action `promote`, `alice_vnext_artifact_review`, `alicebot vnext artifacts review` | refused, no memory created | door 5 tests |
 | `/v1` memory operations | `/v1/memory/operations/candidates/generate` and `/commit`, `alice_memory_mutations_generate` and `_commit` | refused, transaction rolled back | door 4 tests |
-| Legacy continuity writes | `/v0/continuity/captures` when it derives an object, `/v0/continuity/captures/commit`, `/v0/continuity/review-queue/{id}/corrections`, `alice_commit_captures`, `alice_review_apply` | refused, transaction rolled back | door 4 tests |
+| Legacy continuity writes | `/v0/continuity/captures` when it derives an object, `/v0/continuity/captures/commit`, `/v0/continuity/review-queue/{id}/corrections`, `alice_commit_captures`, `alice_review_apply` | refused, transaction rolled back. Provenance on these writes and on both review surfaces is read with its keys | door 4 tests |
 | Legacy memory admission | `POST /v0/memories/admit`, `/v0/memories/extract-explicit-preferences`, `/v0/open-loops/extract-explicit-commitments`, `/v0/memories/capture-explicit-signals`, including the open-loop title these write | refused before any branch, request rolled back | integration `test_round2_r1_*` |
-| Backup restore | `alice-memory import`, every memory record whatever its status: title, text, a summary that is not a copy of the text, the `value` column by value, `metadata_json` keyed (correction history included) except the keys the product itself writes (`rollup_key`), `memory_key` and `project_id` | refused with `import_credential_material`, no records written; stderr lists the line and memory id of every offender, never the text. A rollup card restores | door 6 tests, `test_round2_import_*`, `test_private_key_recall.py` |
+| Backup restore | `alice-memory import`, every memory record whatever its status: title, text, a summary that is not a copy of the text, the `value` column with its keys, `metadata_json` keyed (correction history included) except the keys the product itself writes (`rollup_key`), `memory_key` and `project_id` | refused with `import_credential_material`, no records written; stderr lists the line and memory id of every offender, never the text. A rollup card restores | door 6 tests, `test_round2_import_*`, `test_private_key_recall.py` |
 
 ### What is not covered
 
@@ -342,14 +342,17 @@ Stated so nobody reads the table above as "every surface".
   or history entry written before 2026-09-23 stays in rows that are never
   rewritten, until those rows are redacted. A writer that rewrites a history
   withholds what it carries forward.
-- **Provenance is read by value only** (owner ruling C3). On the legacy
-  continuity writes, the two review surfaces and the import `value` column,
-  keys are not read. A Stripe key is still caught there by its prefix, but
-  under a key name an AWS secret access key and a plain password are not
-  caught. This is not an edge case: provenance is where an agent would put a
-  secret if it wanted to. The root cause, a name rule that counts any `*_key`
-  as a secret name, is a follow-up ticket; once it lands, key and value
-  reading returns on provenance and the value column.
+- **An unqualified `key` name.** A bare `key` segment is a secret name only
+  with a secret qualifier (`api`, `secret`, `private`, `access`, `signing`,
+  and the other qualifiers already in the name grammar). `memory_key`,
+  `idempotency_key`, `stripe_key`, `mistral_key`, `OPENAI_KEY` and
+  `BUILD_KEY=v2026.09.1` are not secret names on this check, so an opaque
+  value under one of them is not caught here. A value that identifies
+  itself (a `ghp_` token, a Stripe `sk_live_` key) is still caught under
+  any name. Provenance and the import `value` column are read with their
+  keys. The commit door still runs v0.16.0's check, which treats a `key`
+  segment as a secret name, so `BUILD_KEY=v2026.09.1` in a committed note
+  is still refused there.
 - **Splits of a label and its value across two fields.** A title
   `Prod DB password:` over a body `Kd9xoYWu83nq`, the same title without the
   colon, `API_KEY=` over a value, `Authorization: Bearer` over a token, a
@@ -409,7 +412,7 @@ Stated so nobody reads the table above as "every surface".
   `PGPASSWORD='drill-password-from-your-secret-manager'` in a shell example
   are refused (owner ruling: no allow-list of toy passwords). So are "Bank
   portal password: Changed after the phishing scare.", "Password:
-  see-vault", "Secret: Launch2027PlanB", `BUILD_KEY=v2026.09.1`, the jwt.io <!-- gitleaks:allow -->
+  see-vault", "Secret: Launch2027PlanB", the jwt.io <!-- gitleaks:allow -->
   sample token, `AKIAIOSFODNN7EXAMPLE`, upper-case coincidences such as
   `SEE ASIA` over `PACIFICTEAMNOTES...`, and `password = hash_password(pw)`
   in a code note. Remove or reword the value; a vault that already holds one

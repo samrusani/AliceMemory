@@ -93,7 +93,7 @@ from typing import IO
 from uuid import UUID
 
 from alicebot_api import __version__
-from alicebot_api.credential_floor import VERDICT_EXPANSION, credential_verdict, is_derived_copy, string_values
+from alicebot_api.credential_floor import VERDICT_EXPANSION, credential_verdict, is_derived_copy
 from alicebot_api.mcp_server import _DEFAULT_MCP_USER_ID, MCPServer
 from alicebot_api.mcp_tools import MCPRuntimeContext
 from alicebot_api.sqlite_schema import bootstrap_sqlite_schema
@@ -1829,12 +1829,10 @@ class _CredentialFinding:
     fields: tuple[str, ...]
 
 
-# Keys the product itself writes into a memory's metadata_json that the
-# credential name rule would read as secret names. Enumerated from the vNext
-# memory writers (a test walks them and fails on a new one), not guessed:
-# a rollup card's rollup_key ("scope:<hex>:topic:<anchor>") blocked the
-# restore of the product's own export (S4.4 round 3, P2 item 7). Their
-# values are still read, by value.
+# Keys the product itself writes into a memory's metadata_json. A rollup
+# card's rollup_key ("scope:<hex>:topic:<anchor>") used to read as a secret
+# name. A bare key segment now counts only with a secret qualifier, so
+# rollup_key is not one. The wrap stays: the value is still read on its own.
 SYSTEM_METADATA_KEYS = frozenset({"rollup_key"})
 
 
@@ -1855,13 +1853,13 @@ def _without_system_keys(value: object) -> object:
 def _memory_record_credential_fields(record: Mapping[str, object]) -> tuple[tuple[str, object], ...]:
     """The fields of one memory record the floor reads, in reading order.
 
-    Title and canonical text; the value column by value only (owner ruling
-    C3: an importer's structural key over a digest has the same shape as a
-    secret name over a key); metadata_json as a mapping, keyed, except the
-    keys the product itself writes; then the identifiers memory_key and
-    project_id. The summary is left out when it is a derived copy of the
-    text (canonical_text[:N] or a "..." preview); a summary that says
-    something else is read.
+    Title and canonical text; the value column as a mapping, keys and values
+    (a bare key segment is a secret name only with a secret qualifier, so
+    memory_key and openclaw_dedupe_key are not); metadata_json as a mapping,
+    keyed, except the keys the product itself writes; then the identifiers
+    memory_key and project_id. The summary is left out when it is a derived
+    copy of the text (canonical_text[:N] or a "..." preview); a summary that
+    says something else is read.
     """
 
     text = record.get("canonical_text")
@@ -1871,7 +1869,7 @@ def _memory_record_credential_fields(record: Mapping[str, object]) -> tuple[tupl
         fields.append(("summary", summary))
     fields.extend(
         [
-            ("value", string_values(_json_column(record.get("value")))),
+            ("value", _json_column(record.get("value"))),
             ("metadata_json", _without_system_keys(_json_column(record.get("metadata_json")))),
             ("memory_key", record.get("memory_key")),
             ("project_id", record.get("project_id")),

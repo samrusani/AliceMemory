@@ -308,10 +308,10 @@ def test_slack_tokens_are_case_exact_and_carry_digits() -> None:
 
 
 # ---------------------------------------------------------------------------
-# P2 item 7: the import value column is read by value only (owner ruling C3),
-# and metadata_json stays keyed but skips the keys the product itself writes.
-# Round 2 read both keyed, so the product's own rollup cards
-# (rollup_key = "scope:<hex>:topic:<anchor>") blocked a restore.
+# The import value column is read with its keys. A bare key segment is a
+# secret name only with a secret qualifier, so openclaw_dedupe_key and
+# memory_key do not block a restore. metadata_json stays keyed and still
+# wraps the keys the product itself writes (rollup_key).
 # ---------------------------------------------------------------------------
 
 _GAMES = (
@@ -363,15 +363,23 @@ def test_a_rollup_card_exported_and_imported_on_sqlite_restores(tmp_path: Path, 
     assert target.exists()
 
 
-def test_the_import_value_column_is_read_by_value_and_metadata_keyed(tmp_path: Path, capsys) -> None:
+def test_the_import_value_column_is_read_with_its_keys(tmp_path: Path, capsys) -> None:
     stripe_key = "sk_" + "live_" + "51Hq8wLkT2mN9pQ4rS7vX3yZ"
     crafted, ids = _crafted_export(
         tmp_path,
         [
-            # By value: a structural key over a digest restores.
-            {"value": {"text": "Deploys go out on Tuesdays.", "openclaw_dedupe_key": "a" * 8 + "3251d492" * 7}},
-            # By value, a self-identifying key under any name is still caught.
+            # A non-secret key name over a digest, and memory_key, restore.
+            {
+                "value": {
+                    "text": "Deploys go out on Tuesdays.",
+                    "openclaw_dedupe_key": "a" * 8 + "3251d492" * 7,
+                    "memory_key": "project.alice.status",
+                }
+            },
+            # A credential value under a name that is not a secret name is caught.
             {"value": {"text": "Billing notes.", "billing": stripe_key}},
+            # An opaque value under api_key is caught by the name rule.
+            {"value": {"text": "Notes.", "api_key": "Xq9mZt2L" + "xP9wKc4BVq7m"}},
             # metadata_json stays keyed: a password under a secret name is caught.
             {"metadata_json": {"db_password": "Kd9xo" + "YWu83nq"}},
         ],
@@ -383,6 +391,7 @@ def test_the_import_value_column_is_read_by_value_and_metadata_keyed(tmp_path: P
     assert f"memory {ids[0]}" not in err
     assert f"memory {ids[1]} carries credential material" in err
     assert f"memory {ids[2]} carries credential material" in err
+    assert f"memory {ids[3]} carries credential material" in err
 
 
 def test_every_flagged_key_a_memory_writer_uses_is_accounted_for() -> None:
@@ -410,10 +419,14 @@ def test_every_flagged_key_a_memory_writer_uses_is_accounted_for() -> None:
                     if isinstance(key, ast.Constant) and isinstance(key.value, str):
                         if credential_floor._name_kind(key.value, "", 0) is not None:
                             flagged.add(key.value)
-    # "secret" is a sensitivity label in a lookup table (vnext_memory_commit);
-    # "slot_key" is a read-time currency annotation (vnext_currency), never stored.
-    never_in_memory_metadata = {"secret", "slot_key"}
-    assert flagged == set(onramp.SYSTEM_METADATA_KEYS) | never_in_memory_metadata
+    # "secret" is a sensitivity label in a lookup table (vnext_memory_commit).
+    # rollup_key and slot_key are not secret names: a bare key segment needs
+    # a secret qualifier. The rollup wrap stays so that value is still read.
+    assert "rollup_key" not in flagged
+    assert "slot_key" not in flagged
+    assert credential_floor._name_kind("rollup_key", "", 0) is None
+    assert credential_floor._name_kind("slot_key", "", 0) is None
+    assert flagged == {"secret"}
     assert onramp.SYSTEM_METADATA_KEYS == frozenset({"rollup_key"})
 
 
