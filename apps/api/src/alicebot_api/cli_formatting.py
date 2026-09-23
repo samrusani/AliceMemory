@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from typing import Mapping, Sequence, cast
 
-from alicebot_api.recall_framing import STORED_NOTE_FRAMING, quote_stored_note
+from alicebot_api.recall_framing import STORED_NOTE_FRAMING, quote_stored_note, writer_attribution
 from alicebot_api.contracts import (
     ContinuityArtifactDetailResponse,
     ContinuityBriefResponse,
@@ -226,6 +226,15 @@ def _render_recall_item(
         title = quote_stored_note(title)
     lines = [
         f"{prefix}{marker} [{item['object_type']}|{item['status']}] {title}",
+    ]
+    if quote_stored_text:
+        writer = item.get("writer") if isinstance(item.get("writer"), dict) else writer_attribution(item)
+        writer_id = writer.get("id") if isinstance(writer, dict) else None
+        established = writer.get("established") if isinstance(writer, dict) else None
+        if isinstance(writer_id, str) and isinstance(established, str):
+            lines.append(f"{prefix}  writer.id={writer_id} writer.established={established}")
+    lines.extend(
+        [
         f"{prefix}  id={item['id']} capture_event_id={item['capture_event_id']}",
         (
             f"{prefix}  lifecycle=preserved:{item['lifecycle']['is_preserved']} "
@@ -254,7 +263,8 @@ def _render_recall_item(
         f"{prefix}  source_facts={_format_explanation_source_facts(item, quote_stored_text=quote_stored_text)}",
         f"{prefix}  evidence_segments={_format_explanation_evidence(item, quote_stored_text=quote_stored_text)}",
         f"{prefix}  supersession_notes={_format_explanation_supersession(item, quote_stored_text=quote_stored_text)}",
-    ]
+        ]
+    )
     return lines
 
 

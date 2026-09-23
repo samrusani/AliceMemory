@@ -44,7 +44,7 @@ from alicebot_api.vnext_memory_commit import VNextMemoryCommitService
 from alicebot_api.vnext_project_scope import project_scope_identity
 from alicebot_api.vnext_projects import VNextProjectService
 from alicebot_api.vnext_repositories import JsonObject as VNextJsonObject
-from alicebot_api.recall_framing import present_model_item
+from alicebot_api.recall_framing import memory_writer, present_model_item, writer_for_recent_change
 from alicebot_api.vnext_retrieval import (
     CONTEXT_DEPTH_MINIMAL,
     CONTEXT_DEPTH_MINIMAL_MAX_ITEMS,
@@ -312,6 +312,7 @@ def _handle_alice_recall(context: MCPRuntimeContext, arguments: Mapping[str, obj
                         item, score=scores[str(item.get("id"))], provenance_count=provenance_count
                     ),
                     source=item,
+                    writer=memory_writer(store, item),
                 )
             )
 
@@ -602,6 +603,7 @@ def _handle_alice_prefetch_context(context: MCPRuntimeContext, arguments: Mappin
         )
 
     brief = resumption_payload["brief"]
+    framed_brief = _frame_prefetch_brief(brief)
     return _json_object(
         {
             "prefetch_context": {
@@ -612,14 +614,44 @@ def _handle_alice_prefetch_context(context: MCPRuntimeContext, arguments: Mappin
                     recent_changes_limit=max_recent_changes,
                 ),
                 "scope": brief["scope"],
-                "last_decision": brief["last_decision"],
-                "next_action": brief["next_action"],
-                "open_loops": brief["open_loops"],
-                "recent_changes": brief["recent_changes"],
-                "sources": brief["sources"],
+                "last_decision": framed_brief["last_decision"],
+                "next_action": framed_brief["next_action"],
+                "open_loops": framed_brief["open_loops"],
+                "recent_changes": framed_brief["recent_changes"],
+                "sources": framed_brief["sources"],
             }
         }
     )
+
+
+def _frame_prefetch_brief(brief: Mapping[str, object]) -> dict[str, object]:
+    """Frame stored titles in the prefetch brief. The text field is not the only copy."""
+
+    framed: dict[str, object] = {}
+    for key in ("last_decision", "next_action", "open_loops", "recent_changes"):
+        section = brief.get(key)
+        framed[key] = _frame_prefetch_section(section)
+    sources = brief.get("sources")
+    if isinstance(sources, list):
+        framed["sources"] = [
+            present_model_item(item) if isinstance(item, Mapping) else item for item in sources
+        ]
+    else:
+        framed["sources"] = sources
+    return framed
+
+
+def _frame_prefetch_section(section: object) -> object:
+    if not isinstance(section, Mapping):
+        return section
+    copied = dict(section)
+    item = copied.get("item")
+    if isinstance(item, Mapping):
+        copied["item"] = present_model_item(item)
+    items = copied.get("items")
+    if isinstance(items, list):
+        copied["items"] = [present_model_item(entry) if isinstance(entry, Mapping) else entry for entry in items]
+    return copied
 
 
 def _handle_alice_open_loops(context: MCPRuntimeContext, arguments: Mapping[str, object]) -> JsonObject:
@@ -737,6 +769,7 @@ def _vnext_recent_decisions(
             present_model_item(
                 _compact_vnext_memory(row, provenance_count=_provenance_count(store, row.get("id"))),
                 source=row,
+                writer=memory_writer(store, row),
             )
             for row in matched[:limit]
         ]
@@ -808,6 +841,7 @@ def _vnext_resume(
                         decisions[0], provenance_count=_provenance_count(store, decisions[0].get("id"))
                     ),
                     source=decisions[0],
+                    writer=memory_writer(store, decisions[0]),
                 ),
             }
 
@@ -858,6 +892,7 @@ def _vnext_resume(
                             provenance_count=_provenance_count(store, todo_memories[0].get("id")),
                         ),
                         source=todo_memories[0],
+                        writer=memory_writer(store, todo_memories[0]),
                     ),
                 }
 
@@ -917,7 +952,12 @@ def _vnext_resume(
                 reverse=True,
             )
             recent_changes = [
-                present_model_item(_compact_vnext_event(row), source=row) for row in event_rows[:max_recent_changes]
+                present_model_item(
+                    _compact_vnext_event(row),
+                    source=row,
+                    writer=writer_for_recent_change(store, row),
+                )
+                for row in event_rows[:max_recent_changes]
             ]
 
     return _json_object(

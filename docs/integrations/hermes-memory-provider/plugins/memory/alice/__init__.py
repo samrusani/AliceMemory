@@ -1080,8 +1080,14 @@ def _load_config_dict_from_values(values: Dict[str, Any]) -> tuple[Dict[str, Any
 
 
 def _quote_stored_note(text: str) -> str:
-    escaped = text.replace("\\", "\\\\").replace('"', '\\"')
-    return f'"{escaped}"'
+    """Same escaping as alicebot_api.recall_framing.quote_stored_note.
+
+    Flatten whitespace, then JSON-quote. A stored newline cannot start a
+    line that looks like a system line. This plugin cannot import the server.
+    """
+
+    flattened = " ".join(text.split())
+    return json.dumps(flattened, ensure_ascii=False)
 
 
 def _extract_single_title(section: Any) -> str:
