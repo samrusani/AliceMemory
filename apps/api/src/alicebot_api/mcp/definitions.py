@@ -275,7 +275,10 @@ _CORE_TOOL_DEFINITIONS: list[dict[str, object]] = [
         "description": (
             "Record one fact as durable, immediately recallable memory. Use this whenever you learn something worth keeping, including when the user has not asked you to remember it. This is the write verb for ordinary memory. The write "
             "is policy-checked, never blind: the outcome is 'committed', 'confirmation_required', "
-            "'review_required' (waits for human review), or 'rejected'. A new write needs title "
+            "'review_required' (waits for human review), or 'rejected'. A write above this agent's "
+            "sensitivity ceiling is rejected: This was not saved. Do not retry with a lower "
+            "sensitivity label. Tell the user. The owner can raise this agent's clearance or "
+            "store the memory themselves. A new write needs title "
             "and canonical_text. On 'confirmation_required' the fact is not stored yet: ask the "
             "user, showing them the proposed text. Then call this tool again with "
             "confirmation_id, confirmation_action ('confirm' if they agreed, 'reject' if they "
@@ -355,9 +358,12 @@ _CORE_TOOL_DEFINITIONS: list[dict[str, object]] = [
                         "'confirm' stores the pending text as a recallable fact; 'reject' "
                         "discards it. Both are policy-checked like a write: a read-only "
                         "identity or a key bound to another project is refused (a keyless server "
-                        "does not check a declared project_scope). 'confirm' is also "
-                        "refused for a pending write above the calling agent's sensitivity "
-                        "ceiling; 'reject' is allowed there."
+                        "does not check a declared project_scope). Only the agent that authored "
+                        "the pending write, an admin_agent key, or the owner (a keyless call with "
+                        "no agent identity) can confirm or reject it. On a keyless install that "
+                        "limit is not protection: the caller can declare the author's agent_id. "
+                        "The author can reject their own pending write even when it is above their "
+                        "sensitivity ceiling. Confirming a write that is no longer pending is refused."
                     ),
                 },
                 **_AGENT_IDENTITY_SCHEMA_PROPERTIES,
@@ -850,8 +856,11 @@ _CORE_TOOL_DEFINITIONS: list[dict[str, object]] = [
             "redact permanently scrubs governed memory-lifecycle copies and any coupled "
             "terminal project-update artifact copies while keeping the audit skeleton. Alice "
             "source and source-chunk evidence is retained because it may be shared and requires "
-            "separate source hygiene. Redact is restricted to a human operator or an admin agent "
-            "(as is accept_consolidation)."
+            "separate source hygiene. A mutation of a memory above the caller's sensitivity "
+            "ceiling is refused. Confirm and reject of a pending write are limited to its author, "
+            "an admin_agent key, or the owner; on a keyless install that limit is not protection, "
+            "because the caller can declare the author's agent_id. Redact is restricted to a human "
+            "operator or an admin agent (as is accept_consolidation)."
         ),
         "inputSchema": {
             "type": "object",

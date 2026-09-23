@@ -67,9 +67,11 @@ def test_trusted_explicit_direct_memory_auto_commits() -> None:
 
 
 def test_sensitive_memory_requires_inline_confirmation() -> None:
+    # private is within a trusted_local_agent ceiling. confidential is above
+    # it and is refused instead of held; that refusal is pinned separately.
     decision = evaluate_memory_commit_policy(
         identity=_identity("trusted_local_agent"),
-        request=_request(domain="health", sensitivity="confidential"),
+        request=_request(domain="health", sensitivity="private"),
     )
 
     assert decision.write_mode == "confirm_inline"
@@ -617,7 +619,7 @@ def test_confirm_refreshes_last_confirmed_at_and_notes_it_in_revision() -> None:
     assert confirm_revisions[-1]["metadata_json"]["last_confirmed_at_refreshed"] is True
 
 
-def test_repeated_confirm_is_idempotent_and_refreshes_last_confirmed_at() -> None:
+def test_repeated_confirm_of_a_committed_row_refuses_and_writes_nothing() -> None:
     store = TargetedLookupStore()
     service = VNextMemoryCommitService(store)
     identity = _identity("trusted_local_agent")
@@ -630,22 +632,18 @@ def test_repeated_confirm_is_idempotent_and_refreshes_last_confirmed_at() -> Non
     memory_id = str(pending["memory"]["id"])
 
     first = service.confirm(identity=identity, confirmation_id=confirmation_id)
-    first_confirmed_at = store.memories[memory_id]["last_confirmed_at"]
-    replay = service.confirm(identity=identity, confirmation_id=confirmation_id)
-
     assert first["status"] == "committed"
-    assert replay["status"] == "committed"
-    assert replay["idempotent_replay"] is True
-    assert replay["memory"]["id"] == memory_id
-    assert len(store.memories) == 1
-    assert store.memories[memory_id]["last_confirmed_at"] is not None
-    assert store.memories[memory_id]["last_confirmed_at"] >= first_confirmed_at
-    reconfirm_revisions = [
-        revision for revision in store.revisions if revision.get("action") == "agentic_memory_reconfirm"
-    ]
-    assert len(reconfirm_revisions) == 1
-    assert reconfirm_revisions[0]["metadata_json"]["last_confirmed_at_refreshed"] is True
-    assert reconfirm_revisions[0]["revision_type"] == "edited"
+    frozen_memory = deepcopy(store.memories[memory_id])
+    frozen_revisions = deepcopy(store.revisions)
+    frozen_events = deepcopy(store.events)
+
+    with pytest.raises(VNextMemoryCommitValidationError, match="confirmation is not pending"):
+        service.confirm(identity=identity, confirmation_id=confirmation_id)
+
+    assert store.memories[memory_id] == frozen_memory
+    assert store.revisions == frozen_revisions
+    assert store.events == frozen_events
+    assert not any(revision.get("action") == "agentic_memory_reconfirm" for revision in store.revisions)
 
 
 def test_confirm_reject_replay_is_idempotent_without_mutation() -> None:
@@ -2125,7 +2123,7 @@ def test_confirm_refuses_a_row_a_review_already_rejected() -> None:
 
     pending = service.commit(
         identity=identity,
-        request=_request(domain="health", sensitivity="confidential", confidence=0.95),
+        request=_request(domain="health", sensitivity="private", confidence=0.95),
     )
     assert pending["status"] == "confirmation_required"
     memory_id = str(pending["memory"]["id"])
@@ -2151,7 +2149,7 @@ def test_confirm_refuses_a_superseded_row_and_never_yields_two_active_memories()
 
     pending = service.commit(
         identity=identity,
-        request=_request(domain="health", sensitivity="confidential", confidence=0.95),
+        request=_request(domain="health", sensitivity="private", confidence=0.95),
     )
     assert pending["status"] == "confirmation_required"
     pending_id = str(pending["memory"]["id"])

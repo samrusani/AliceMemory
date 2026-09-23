@@ -148,7 +148,13 @@ def test_mcp_registry_order_definitions_and_alias_identity_are_frozen() -> None:
     # now says "on this tool" (the review approve path does not read the 24
     # hours), and confirmation_action says a keyless server does not check a
     # declared project_scope.
-    assert _digest(core_definitions) == "541acd9b9ba49ab116e8ceb4e1c5664bf7e93dca30c45170bbed32b738f94ebb"
+    # Moved 2026-09-23 (S4.5). Counts, legacy digest and handler map digest
+    # unchanged. alice_memory_commit's description now refuses an above-ceiling
+    # write and says not to relabel it, and confirmation_action says only the
+    # author, an admin_agent key, or the owner can resolve a pending write.
+    # alice_memory_manage's description says a mutation above the ceiling is
+    # refused and names the same three resolvers. No tool added, removed, or renamed.
+    assert _digest(core_definitions) == "94709fbdd983541adca097d4b3722e58777b109be665cb7c7d4ab64f99c8c79b"
     assert _digest(legacy_definitions) == "ca3d747e552bdece52c22d76332fc69f499878290edf3f236a8a7ea6a2e34e41"
     ordered_handler_map = [(name, handler.__name__) for name, handler in handlers.items()]
     assert _digest(ordered_handler_map) == "d864c98bb914bbc6ace464fa8020b3ed264f17f2061a6101aae677d801032ae5"
