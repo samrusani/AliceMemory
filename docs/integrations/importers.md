@@ -31,6 +31,9 @@ See [docs/integrations/openclaw.md](openclaw.md) for end-to-end before/after out
 - provenance remains explicit with importer-specific `source_kind`
 - dedupe posture is deterministic per source payload
 - replaying the same fixture returns noop duplicate skips
+- an item that holds credential material is skipped, and the import continues
+- the receipt field `skipped_credentials` is how many items were skipped
+- `skipped_credential_items` names each skipped item by id or line and does not include the matched text
 
 ## Verification Example
 
