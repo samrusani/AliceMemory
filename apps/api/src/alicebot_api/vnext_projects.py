@@ -7,6 +7,7 @@ import re
 from collections.abc import Mapping, Sequence
 from typing import Protocol, cast
 
+from alicebot_api.credential_floor import refuse_credential_activation
 from alicebot_api.vnext_agent_control import resource_project_scope
 from alicebot_api.vnext_embeddings import DeferredMemoryEmbedding
 from alicebot_api.vnext_event_log import append_event
@@ -958,6 +959,15 @@ class VNextProjectService:
         )
         if current_state.strip() == "":
             raise VNextProjectValidationError("project update candidate current state is empty")
+        # Accept makes the candidate memory active and writes the state onto
+        # the project, so it takes the shared activation check first, in this
+        # service's error contract (ruling C2).
+        refuse_credential_activation(
+            candidate_memory.get("title"),
+            current_state,
+            current_state,
+            error=VNextProjectValidationError,
+        )
         if self.store.get_project_for_update(project_id) is None:
             raise VNextProjectValidationError("project update candidate project was not found")
         self.store.update_project(

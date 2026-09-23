@@ -849,6 +849,12 @@ def test_the_vocabulary_guard_is_a_runtime_check_not_a_stripped_assertion() -> N
     assert set(HARD_FLOOR_RULES).isdisjoint(set(ESCALATION_FILTERS))
 
 
+# Realistic material for the addendum F1 fixtures, built at run time so no
+# scanner-shaped token sits in the source.
+_REALISTIC_PROJECT_KEY = "sk-" + "proj-" + "Tq3Z0vW8rK4nW8sL3zB6cD1fG5hJ0kLa9M2x"
+_SSH_RSA_PUBLIC = "ssh-rsa " + "AAAAB3NzaC1yc2EAAAADAQABAAABgQ" + "C7vbqajDhA2x9Kp4mW8sL3zB6cD1fG5h deploy@build"
+
+
 @pytest.mark.parametrize(
     "text",
     [
@@ -860,14 +866,24 @@ def test_the_vocabulary_guard_is_a_runtime_check_not_a_stripped_assertion() -> N
         "AIzaSyA1234567890abcdefghijklmnopqrstuvw",
         "client_secret: hunter2hunter2",
         "Authorization: Bearer abcdefghijklmnopqrstuvwxyz",
-        "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABg",
         "glpat-abcdefghijklmnopqrst",  # gitleaks:allow
         "The password for the vault is hunter2hunter2",
-        "key s k - a b c d e f g h i j",
+        # Addendum F1 (2026-09-23): was the toy "key s k - a b c d e f g h i j",
+        # which the unified detector rightly reads as too little material.
+        # Now a realistic project key, spread out a character at a time.
+        "key " + " ".join(_REALISTIC_PROJECT_KEY),
     ],
 )
 def test_credential_shapes_are_all_caught_by_the_floor(text: str) -> None:
     assert "credential_material" in hard_floor_hits(_candidate(canonical_text=text))
+
+
+def test_an_ssh_public_key_is_not_a_credential_to_the_floor() -> None:
+    """Addendum F2 (2026-09-23): "ssh-rsa AAAAB3..." moved here from the caught
+    list above. The floor now calls the write floor's detector, which allows a
+    full-shape public key; a private key beside it is still caught."""
+
+    assert "credential_material" not in hard_floor_hits(_candidate(canonical_text=_SSH_RSA_PUBLIC))
 
 
 @pytest.mark.parametrize(
@@ -1267,9 +1283,12 @@ def test_normalisation_strips_invisible_and_folds_lookalike_characters() -> None
 
 def test_url_safe_base64_is_decoded_like_the_standard_alphabet() -> None:
     # Chosen so the two alphabets genuinely differ: the standard encoding
-    # contains "+", the URL-safe one contains "-". A payload whose encodings
-    # coincide would pass with only one decoder wired.
-    secret = "sk-00~abcdefghijklmnop"
+    # contains "+" or "/", the URL-safe one "-" or "_". A payload whose
+    # encodings coincide would pass with only one decoder wired. Addendum F1
+    # (2026-09-23): was the toy "sk-00~abcdefghijklmnop"; now a realistic key
+    # in the query string of a relay URL, whose "?" is what makes the two
+    # alphabets differ (no key character can).
+    secret = "https://relay.example.com/v1/ingest?key=" + _REALISTIC_PROJECT_KEY
     standard = base64.b64encode(secret.encode()).decode()
     url_safe = base64.urlsafe_b64encode(secret.encode()).decode()
     assert standard != url_safe
@@ -2263,7 +2282,8 @@ def test_the_reject_path_uses_the_same_detector_as_the_floor() -> None:
     no reason recorded at all.
     """
 
-    from alicebot_api.vnext_memory_commit import _contains_secret_marker
+    # The reject path's per-text check is now the shared credential floor.
+    from alicebot_api.credential_floor import carries_credential_material as _contains_secret_marker
 
     only_the_floor_caught_these = (
         "the password = hunter2hunter2",
@@ -2271,11 +2291,14 @@ def test_the_reject_path_uses_the_same_detector_as_the_floor() -> None:
         "my api key: hunter2hunter2",
         "ASIAIOSFODNN7EXAMPLE",
         "Bearer abcdefghijklmnopqrstuv",
-        "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQ",
     )
     for text in only_the_floor_caught_these:
         assert _contains_secret_marker(text), text
         assert "credential_material" in hard_floor_hits(_candidate(canonical_text=text)), text
+    # Addendum F2 (2026-09-23): an SSH public key used to be the sixth shape
+    # here. Both surfaces now allow it, and still agree.
+    assert not _contains_secret_marker(_SSH_RSA_PUBLIC)
+    assert "credential_material" not in hard_floor_hits(_candidate(canonical_text=_SSH_RSA_PUBLIC))
 
     # Normalisation reaches the reject path now too.
     assert _contains_secret_marker("sk​-abcdefghijkl")
@@ -3048,11 +3071,18 @@ def test_the_floor_and_the_reject_path_share_one_assignment_rule() -> None:
     invariant asserted here is object identity, which a copy cannot pass.
     """
 
+    from alicebot_api import credential_floor
     from alicebot_api import vnext_memory_commit as commit
     from alicebot_api import vnext_promotion_policy as policy
 
-    assert commit.SECRET_ASSIGNMENT_PATTERN is policy.SECRET_ASSIGNMENT_PATTERN
-    assert commit.looks_like_secret_value is policy.looks_like_secret_value
+    # Since 2026-09-22 the reject path holds no copy of the rule at all: it
+    # calls the credential floor. Since 2026-09-23 (S4.4 round 2) the floor
+    # is its own detector, ported from the design round, and the old regex is
+    # gone from both modules, so nothing can scan with it again.
+    assert commit.credential_verdict is credential_floor.credential_verdict
+    assert commit.SECRET_PREFIX_PATTERNS is credential_floor.SECRET_PREFIX_PATTERNS
+    assert not hasattr(commit, "SECRET_ASSIGNMENT_PATTERN")
+    assert not hasattr(policy, "SECRET_ASSIGNMENT_PATTERN")
 
 
 @pytest.mark.parametrize(
@@ -3092,22 +3122,21 @@ def test_an_underscore_leading_the_key_name_still_opens_the_assignment(line: str
 
 
 def test_the_prefix_patterns_on_the_reject_path_are_not_dead_code() -> None:
-    """The reject path's second branch earns its place; the third does not.
+    """The exported prefix patterns are the detector's own, not a second rule.
 
-    Measured, not assumed. `SECRET_PREFIX_PATTERNS` accepts an AWS-style id
-    of twelve characters or more, while the floor requires the exact twenty
-    character shape, so the prefix branch catches strings the floor does not
-    and consulting it after the floor is not redundant.
-
-    The assignment branch below it IS redundant: the floor runs the same
-    rule on the same raw text, so it can never be the first to fire. That is
-    recorded here rather than silently relied on, and it is why the
-    corresponding mutant is retired as equivalent rather than counted killed.
+    Until 2026-09-23 `SECRET_PREFIX_PATTERNS` accepted an AWS-style id of
+    twelve characters or more, while the floor required the exact twenty
+    character shape. The design round's detector (S4.4 round 2) keeps one
+    rule: an AWS id needs sixteen characters after AKIA or ASIA, and the
+    exported tuple is the detector's compiled per-field prefix patterns.
     """
 
-    from alicebot_api.vnext_memory_commit import SECRET_PREFIX_PATTERNS, _contains_secret_marker
+    from alicebot_api.credential_floor import carries_credential_material as _contains_secret_marker
+    from alicebot_api.vnext_memory_commit import SECRET_PREFIX_PATTERNS
 
     short_aws = "akia" + "a" * 12
-    assert any(pattern.search(short_aws) for pattern in SECRET_PREFIX_PATTERNS)
-    assert looks_like_credential(short_aws) is False
-    assert _contains_secret_marker(short_aws) is True
+    full_aws = "AKIA" + "IOSFODNN7EXAMPLE"
+    assert not any(pattern.search(short_aws) for pattern in SECRET_PREFIX_PATTERNS)
+    assert _contains_secret_marker(short_aws) is False
+    assert any(pattern.search(full_aws) for pattern in SECRET_PREFIX_PATTERNS)
+    assert _contains_secret_marker(full_aws) is True

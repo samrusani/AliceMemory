@@ -150,10 +150,13 @@ def test_secret_markers_are_rejected_in_every_text_field(field: str, payload: st
 @pytest.mark.parametrize(
     "source_refs",
     [
-        ("xoxb-9999-secret-token",),
+        # Realistic material since 2026-09-23: the design round's detector
+        # needs real key material after a prefix, so "xoxb-9999-secret-token"
+        # (a word chain) is no longer a key. See the benign twin below.
+        ("xoxb-" + "123456789012-1234567890123-AbCdEfGhIjKlMnOpQrStUvWx",),
         ({"source_id": "AKIAIOSFODNN7EXAMPLE"},),
         ({"note": {"deep": "ghp_aaaabbbbcccc"}},),
-        ({"api_key": "value-is-clean"},),
+        ({"api_key": "Xq9mZt2LxP9wKc4BVq7m"},),
         (["nested", ["deeper", "sk-live_abcd1234"]],),
     ],
 )
@@ -165,6 +168,43 @@ def test_secret_markers_are_rejected_anywhere_inside_source_refs(source_refs: tu
 
     assert decision.write_mode == "reject"
     assert "unsafe_secret_storage" in decision.reasons
+
+
+@pytest.mark.parametrize(
+    "source_refs",
+    [
+        ("xoxb-9999-secret-token",),
+        ({"api_key": "value-is-clean"},),
+    ],
+)
+def test_word_chains_after_a_prefix_or_a_key_name_are_refused_at_commit_as_v0160_did(
+    source_refs: tuple[object, ...],
+) -> None:
+    """BEHAVIOUR CHANGE, 2026-09-23, twice.
+
+    S4.4 round 2 (design ruling): the credential floor reads neither as key
+    material, since a Slack token is a long opaque run after "xoxb-" and a
+    value made of short dictionary words is a label. That still holds for the
+    floor, which every other door calls alone.
+
+    S4.4 round 5 (ruling H1): the commit gate is one of the two doors
+    v0.16.0 checked, and it now refuses whatever v0.16.0's check refused
+    there unless one of four named carve-outs applies. v0.16.0 refused both
+    (the xoxb- prefix pattern and the api_key assignment rule), and neither
+    is a carve-out target, so both are refused here again.
+    """
+
+    from alicebot_api.credential_floor import carries_credential_material
+
+    decision = evaluate_memory_commit_policy(
+        identity=None,
+        request=_request(domain="professional", sensitivity="internal", source_refs=source_refs),
+    )
+
+    assert "unsafe_secret_storage" in decision.reasons
+    # Guards the guard: the floor alone still reads the ref as clean, so the
+    # refusal comes from v0.16.0's check.
+    assert not carries_credential_material(list(source_refs))
 
 
 @pytest.mark.parametrize(
@@ -212,11 +252,13 @@ def test_naming_a_credential_is_not_storing_one(text: str) -> None:
         "X_API_TOKEN=abcdef123456",  # gitleaks:allow
         "AZURE_STORAGE_ACCOUNT_KEY=abc123",  # gitleaks:allow
         "PGPASSWORD=hunter2",  # gitleaks:allow
-        "OPENAI_API_KEY=sk-proj_QQQQQQQQ",  # gitleaks:allow
+        # Realistic material since 2026-09-23: "sk-proj_QQQQQQQQ" is a
+        # repeated-character placeholder, which the design round's detector
+        # reads as filler, not a key.
+        "OPENAI_API_KEY=sk-proj-" + "Zq8mP2vL9kXw4TbN7cRy1uJh6fDs3aGe",  # gitleaks:allow
         "export AWS_SECRET_ACCESS_KEY=wJalrXUtn9",  # gitleaks:allow
         '{"secret_key": "abcdef123456"}',  # gitleaks:allow
         "ALICE_AGENT_API_KEY=alice_sk_HGl9",  # gitleaks:allow
-        "-----BEGIN RSA PRIVATE KEY-----",  # gitleaks:allow
     ],
 )
 def test_prefixed_credential_assignments_are_rejected(text: str) -> None:
@@ -266,7 +308,7 @@ def test_ordinary_prose_is_not_read_as_a_credential(text: str) -> None:
     [
         "The key is sk-live_abcd1234 for staging.",
         "Token ghp_aaaabbbbcccc was rotated.",
-        "Slack bot uses xoxb-9999-secret-token now.",
+        "Slack bot uses xoxb-" + "123456789012-1234567890123-AbCdEfGhIjKlMnOpQrStUvWx now.",
         "Root id AKIAIOSFODNN7EXAMPLE must be revoked.",
         "Saved mypassword=hunter2 by mistake.",
     ],

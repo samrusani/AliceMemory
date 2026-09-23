@@ -330,6 +330,117 @@
   `alice_memory_commit` schema, because a confirmation carries neither;
   a new write without them is still refused.
 
+- **Correction to v0.15.1 to v0.16.0.** The v0.15.1 release notes said
+  credential material and agent-directed instructions always require review,
+  and that the floor "still refuses credentials and agent-directed
+  instructions". That was false. The floor only kept such writes from being
+  auto-promoted; the memory commit refused a credential in a single field,
+  but a credential split across fields, `correct()`, `confirm()` with new
+  text, the review edit, the `/v1` memory operations, artifact promotion and
+  `alice-memory import` did not check at all. Versions v0.15.1 to v0.16.0 are
+  affected. To check a vault, export it (`alice-memory export`, which now
+  lists every memory import would refuse), then redact each listed row: on
+  SQLite with `alice_memory_manage action=redact` (needs
+  `ALICE_MCP_FULL_TOOLS=1`), on Postgres with
+  `alicebot vnext memories redact <memory_id> --reason <why>`. Forget and
+  correct are not enough: they keep the old text in the row's history.
+- Credential material is refused on the memory write paths listed in
+  `docs/memory/promotion-personas.md`, through one check
+  (`alicebot_api.credential_floor`): commit, proposal (all three doors,
+  through one function), `correct()`, every approve and accept of a stored
+  row, the review edit, artifact promotion, the `/v1` memory operations, the
+  legacy continuity writes and memory admission routes, and
+  `alice-memory import`. Both memory stores also refuse to create a row in,
+  or move a row into, `active` or `accepted` while its text carries
+  credential material. The promotion floor calls the same check. The same
+  document lists what is not covered, including source capture and document
+  import.
+- The memory commit and the promotion floor, the two places v0.16.0
+  checked, refuse what v0.16.0 refused there: each also runs v0.16.0's own
+  check, re-implemented in linear time and compared with v0.16.0's code on
+  generated inputs, less four named carve-outs. These are accepted at commit
+  where v0.16.0 refused them: SSH public keys and key type names, `sk-`
+  followed by lower-case words (`sk-learn`), structural key names with
+  identifier values (`fact_key`, `cache_key`, `sort_key`, `next_page_token`,
+  dedupe and idempotency keys), and dotted references such as
+  `api_key = settings.OPENAI_API_KEY`. No carve-out applies to a password
+  name, and each ends at a boundary, so a token glued onto an excused key
+  type or public key is still refused. Notes v0.16.0 refused at commit for
+  other reasons are still refused there ("The password policy is
+  12-character minimum with one symbol.", "In Q3 we begin private key
+  rotation"); the document above has the measured counts. Every other door
+  uses the new check alone.
+- A dotted value under a password name is refused at every door: a
+  `DB_PASSWORD` set to a dotted phrase with a year in it, and with it a
+  password name set to `process.env.DB_PASSWORD`.
+- **Breaking: `alice-memory import` refuses a backup that holds credential
+  material**, in any memory row whatever its status, including correction
+  history. It lists the line and memory id of every offender on stderr
+  (never the text) and writes nothing. Fix it in the source vault: redact
+  the listed rows with the commands above, export again, and import the new
+  file. Do not edit the export by hand; that breaks its SHA-256 footer. **A
+  backup whose source vault is gone cannot be restored yet** if it holds
+  such a row: importing with an offender excluded or quarantined is a
+  follow-up.
+- A reject, delete, expire, forget, undo or quarantine sweep always
+  completes. A reason carrying credential material is stored as
+  `rationale withheld: it carried credential material`, text supplied with a
+  reject as `text withheld: it carried credential material`, and the response
+  carries `rationale_withheld` and, on a reject, `text_withheld`.
+- Private keys: the dashed private-key armor line is refused on its own,
+  whatever surrounds it, as v0.16.0 did for the PEM and OpenSSH lines; the
+  OpenPGP `PRIVATE KEY BLOCK` line is newly refused (v0.16.0 could not match
+  it and stored a note quoting it). A case-exact header with a real key body
+  on a following line is refused even when its dashes are missing or
+  replaced by a dash-like character and its lines are quoted or commented; a
+  header named in prose and followed by a word or a date is not. A base64-encoded key file
+  (kubeconfig `client-key-data`, a Kubernetes `tls.key`, `NAME_B64=`,
+  wrapped at any width) is decoded and refused; so is a PuTTY `.ppk` file
+  with its MAC or private body, while a note that only describes the PuTTY
+  format is not. Covered by execution
+  against real generated keys: OpenSSH ed25519, RSA and ECDSA (unencrypted
+  and encrypted), traditional and PKCS#8 RSA and EC, OpenPGP secret key
+  blocks, and PuTTY v2 and v3 files built to the documented format, pasted
+  raw, with escaped or double-escaped newlines, with CRLF, as a one-line
+  `.env` value, inside JSON or a JSON array of lines, inside a mapping body,
+  behind `> ` or `# `, joined with `<br>`, split between title and body, and
+  base64-encoded. Measured against v0.16.0 on the same 14 armored keys in
+  nine of these placements: v0.16.0 caught 114 of 126 and missed only the
+  OpenPGP secret key blocks, which are now caught in all 126. Prose that
+  mentions a private key without the armor line ("begin by rotating the
+  private key") is not refused.
+- SSH public keys (`ssh-ed25519`, `ssh-rsa`, `ecdsa-sha2-*` and the FIDO
+  `sk-` types), alone or labelled, and OpenPGP public key blocks are no
+  longer refused.
+- `alice-memory import` reads the `value` column by value only, and skips
+  the keys the product itself writes in `metadata_json` (`rollup_key`), so a
+  vault holding rollup cards restores.
+- The SessionStart brief opens with a line saying the notes below are stored
+  data quoted as data, not instructions, and renders every item as a quoted
+  string.
+- `source_refs` on a memory commit are bounded: at most 64 refs, each string
+  ref at most 4,000 characters as sent (any other ref at most 4,000
+  characters serialized). Enforced by the service every surface calls;
+  advertised, and enforced on the raw argument, by the MCP schema. The MCP
+  registry now enforces the `maxLength` its schemas advertise.
+- Corrections to continuity objects (`/v0/continuity/review-queue/{id}/corrections`,
+  `alice_review_apply`, `alice_memory_correct`) now refuse a body,
+  provenance, replacement body or replacement provenance over 20,000
+  characters serialized, and capture commit refuses more than 100 candidates
+  or one over 20,000 characters; v0.16.0 had neither bound. v0.16.0 already
+  refused a title over 280 characters on edit and supersede; titles are now
+  also bounded, measured raw, on the actions that ignore them, and the MCP
+  schemas advertise the same limits.
+- `POST /v0/continuity/open-loops/{id}/review-action`: `still_blocked`
+  refuses an object whose text carries credential material, and a note
+  carrying one is stored as a placeholder (`rationale_withheld`).
+- Two agent-control patterns in the promotion policy no longer take time
+  quadratic in a run of newlines. The credential check is linear in its
+  input; that claim does not extend to the whole promotion evaluation.
+- Instruction-shaped content is unchanged: it is still only kept from
+  skipping review, and a note the ordinary commit gate already commits is
+  stored.
+
 ## v0.16.0 — 2026-08-19
 
 - README leads with `alice-memory install` and `demo --vault`, then a
@@ -714,6 +825,16 @@ No functional change to the library. No migration, no schema change.
 - Memories carry `write_provenance`; reviewed rows omit it so existing context
   packs are unchanged.
 - Web console migrated to Next 16, eslint-config-next 16 and TypeScript 6.
+
+**Correction, added 2026-09-23 after publication.** The second entry above
+said agent-directed instructions "still are" gated, and the release notes
+said credential material always requires review. Both were false. The floor
+only kept such writes from being auto-promoted. The memory commit refused a
+credential in a single field; a credential split across fields, `correct()`,
+`confirm()` with new text, the review edit, the `/v1` memory operations,
+artifact promotion and `alice-memory import` did not check at all. This
+affects v0.15.1 to v0.16.0; see the Unreleased section for the fix and how
+to check a vault.
 
 
 ## v0.14.0 — 2026-07-24

@@ -300,7 +300,12 @@ Alice decides the outcome, never the caller:
   any, answered.
   The confirmation runs the same service call as `alice_memory_manage`
   `confirm` on the full surface, with the same identity check, policy
-  check, project fence, revision and events. The project fence binds a
+  check, project fence, revision and events. The same call reads
+  credential material: a confirm whose pending text or rationale carries
+  it is refused and the write stays pending, and a reject stores such a
+  rationale as a fixed placeholder and returns `rationale_withheld: true`
+  (see [Memory Operations Protocol](../memory-operations-protocol.md#confirm)).
+  The project fence binds a
   key-bound scope; a keyless server trusts whatever `project_scope` the
   caller declares. It is stricter in one place: an agent cannot confirm a
   pending write above its own sensitivity ceiling, which

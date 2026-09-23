@@ -45,6 +45,7 @@ from alicebot_api.contracts import (
     MemoryTrustClass,
 )
 from alicebot_api.store import ContinuityCaptureEventRow, ContinuityStore, JsonObject
+from alicebot_api.write_bounds import MAX_CAPTURE_CANDIDATE_CHARS, MAX_CAPTURE_COMMIT_CANDIDATES, serialized_chars
 
 
 class ContinuityCaptureValidationError(ValueError):
@@ -667,6 +668,16 @@ def commit_continuity_captures(
     noop_count = 0
     duplicate_noop_count = 0
 
+    # Bounded before anything is read or written (review finding 8).
+    if len(request.candidates) > MAX_CAPTURE_COMMIT_CANDIDATES:
+        raise ContinuityCaptureValidationError(
+            f"candidates must hold at most {MAX_CAPTURE_COMMIT_CANDIDATES} entries"
+        )
+    for raw_candidate in request.candidates:
+        if serialized_chars(raw_candidate) > MAX_CAPTURE_CANDIDATE_CHARS:
+            raise ContinuityCaptureValidationError(
+                f"each candidate must serialize to {MAX_CAPTURE_CANDIDATE_CHARS} characters or fewer"
+            )
     normalized_candidates = [_normalize_candidate(candidate) for candidate in request.candidates]
 
     for candidate in normalized_candidates:
