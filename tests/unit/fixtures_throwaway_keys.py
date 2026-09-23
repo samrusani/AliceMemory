@@ -16,9 +16,15 @@ PuTTY does for an unencrypted file). They are structurally faithful, not
 puttygen output. The rest exist so the tests read real key output rather
 than a hand-made imitation of it.
 
-Stored base64-encoded, never as raw PEM armor lines, so secret scanners do
-not flag the repository. Decode with throwaway_key(name) at test time. Keys
-are never generated at test time, so CI does not depend on ssh-keygen or gpg.
+Stored base64-encoded, never as raw PEM armor lines. Decode with
+throwaway_key(name) at test time. Keys are never generated at test time, so
+CI does not depend on ssh-keygen or gpg.
+
+Secret scanners: gitleaks decodes base64 one level deep, so the first line of
+each armored key decodes to its BEGIN header and is read as a private key.
+These are throwaway keys generated for the tests and nothing else, so each
+such line carries an inline gitleaks:allow marker. A key cannot sensibly be
+split into parts the way a fake vendor token can.
 """
 
 from __future__ import annotations
@@ -28,7 +34,7 @@ import base64
 
 _ENCODED: dict[str, str] = {
     "openssh_ecdsa": (
-        "LS0tLS1CRUdJTiBPUEVOU1NIIFBSSVZBVEUgS0VZLS0tLS0KYjNCbGJuTnphQzFyWlhrdGRqRUFBQUFBQkc1dmJtVUFBQUFF"
+        "LS0tLS1CRUdJTiBPUEVOU1NIIFBSSVZBVEUgS0VZLS0tLS0KYjNCbGJuTnphQzFyWlhrdGRqRUFBQUFBQkc1dmJtVUFBQUFF"  # gitleaks:allow
         "Ym05dVpRQUFBQUFBQUFBQkFBQUFhQUFBQUJObFkyUnpZUwoxemFHRXlMVzVwYzNSd01qVTJBQUFBQ0c1cGMzUndNalUyQUFB"
         "QVFRUk9tZXJaSlVUdGpwaUpHOGVPRVFza2xXWG9KQTBpCk11WTJUVmZCUUtWMHVRbW1mSmhISzlJVVBadEZiSVBTQ2JyK01a"
         "VmZKVGRxaXZkaStPWVJtK1BtQUFBQXNJempvdTZNNDYKTHVBQUFBRTJWalpITmhMWE5vWVRJdGJtbHpkSEF5TlRZQUFBQUli"
@@ -58,7 +64,7 @@ _ENCODED: dict[str, str] = {
         "eGFsR2RPcU5OOTEyQjI4PSB0aHJvd2F3YXktdGVzdC1rZXkK"
     ),
     "openssh_ed25519": (
-        "LS0tLS1CRUdJTiBPUEVOU1NIIFBSSVZBVEUgS0VZLS0tLS0KYjNCbGJuTnphQzFyWlhrdGRqRUFBQUFBQkc1dmJtVUFBQUFF"
+        "LS0tLS1CRUdJTiBPUEVOU1NIIFBSSVZBVEUgS0VZLS0tLS0KYjNCbGJuTnphQzFyWlhrdGRqRUFBQUFBQkc1dmJtVUFBQUFF"  # gitleaks:allow
         "Ym05dVpRQUFBQUFBQUFBQkFBQUFNd0FBQUF0emMyZ3RaVwpReU5UVXhPUUFBQUNBL1JhelVFa1NSMEwzd2Jvb2h3R1l2VThS"
         "RFliU0ZkclRsUkY3TndWR25DQUFBQUppSGloN1FoNG9lCjBBQUFBQXR6YzJndFpXUXlOVFV4T1FBQUFDQS9SYXpVRWtTUjBM"
         "M3dib29od0dZdlU4UkRZYlNGZHJUbFJGN053VkduQ0EKQUFBRUM0VUZXaUl3MDdjYTI2WHArbXQvc1R2Y1E2ejNidWZhcUty"
@@ -70,7 +76,7 @@ _ENCODED: dict[str, str] = {
         "WHMzQlVhY0kgdGhyb3dhd2F5LXRlc3Qta2V5Cg=="
     ),
     "openssh_ed25519_encrypted": (
-        "LS0tLS1CRUdJTiBPUEVOU1NIIFBSSVZBVEUgS0VZLS0tLS0KYjNCbGJuTnphQzFyWlhrdGRqRUFBQUFBQ21GbGN6STFOaTFq"
+        "LS0tLS1CRUdJTiBPUEVOU1NIIFBSSVZBVEUgS0VZLS0tLS0KYjNCbGJuTnphQzFyWlhrdGRqRUFBQUFBQ21GbGN6STFOaTFq"  # gitleaks:allow
         "ZEhJQUFBQUdZbU55ZVhCMEFBQUFHQUFBQUJEaTRFZ1FoNApxWEx3TXhXRXA4Qk55bkFBQUFHQUFBQUFFQUFBQXpBQUFBQzNO"
         "emFDMWxaREkxTlRFNUFBQUFJTSt4STVEcVZpTHVuTXkwCndFd1dvb2gzZk5CZmNVMVZUY0lQUnhrOGxVbklBQUFBb0E4cFdy"
         "SmVyRzJIK1FkbEVtK3FCUi9nYTJYUVV6cUt6TVlPMksKeVhFSm5hOW95KzhmWUFTZkMxbFVuWjZnSWhTcmU0YWZCNmpKQk9K"
@@ -83,7 +89,7 @@ _ENCODED: dict[str, str] = {
         "UnhrOGxVbkkgdGhyb3dhd2F5LXRlc3Qta2V5Cg=="
     ),
     "openssh_rsa": (
-        "LS0tLS1CRUdJTiBPUEVOU1NIIFBSSVZBVEUgS0VZLS0tLS0KYjNCbGJuTnphQzFyWlhrdGRqRUFBQUFBQkc1dmJtVUFBQUFF"
+        "LS0tLS1CRUdJTiBPUEVOU1NIIFBSSVZBVEUgS0VZLS0tLS0KYjNCbGJuTnphQzFyWlhrdGRqRUFBQUFBQkc1dmJtVUFBQUFF"  # gitleaks:allow
         "Ym05dVpRQUFBQUFBQUFBQkFBQUJGd0FBQUFkemMyZ3RjbgpOaEFBQUFBd0VBQVFBQUFRRUFtMzcwaC9VcFVDMFYwalFqSW40"
         "ZlRRVHV5eEVoU0gyZnFDK29LeUhCWUswb2Q0SGRON3dqClhPVjg0RFVzM3FCaUI3QWN4WU9zSHJYdWdnMkRCQTYydFQ5aXlm"
         "Sm82NFZySm1xd0ViMyt5Wng5aGxUdGxlZ2NRNENNNUgKODA1NTh6UFhHRHA1VW0zbUpxZzRNblBMTzVWRE9QcU5GZ0R6NVY1"
@@ -119,7 +125,7 @@ _ENCODED: dict[str, str] = {
         "RXE0enpaR0IzSGEvU0o3eGNJVlogdGhyb3dhd2F5LXRlc3Qta2V5Cg=="
     ),
     "openssh_rsa_encrypted": (
-        "LS0tLS1CRUdJTiBPUEVOU1NIIFBSSVZBVEUgS0VZLS0tLS0KYjNCbGJuTnphQzFyWlhrdGRqRUFBQUFBQ21GbGN6STFOaTFq"
+        "LS0tLS1CRUdJTiBPUEVOU1NIIFBSSVZBVEUgS0VZLS0tLS0KYjNCbGJuTnphQzFyWlhrdGRqRUFBQUFBQ21GbGN6STFOaTFq"  # gitleaks:allow
         "ZEhJQUFBQUdZbU55ZVhCMEFBQUFHQUFBQUJDejNqQnFyMwphRzBsQlhhWlNCakUwbUFBQUFHQUFBQUFFQUFBRVhBQUFBQjNO"
         "emFDMXljMkVBQUFBREFRQUJBQUFCQVFEUlA5WkQrVXl1CnBEQS9RR0xBWEpCbmxYTEw2VWxGekZJUVd1WnQ3a0djdTFUaE1a"
         "NnFPWURsckJlTGVVRTBmRzdhZkxkbzJkNUxya2dMQ3cKaHRlQnBKNjVYTnZQYUhDRzhQcmV1Wlc5bElpc1d4UG5vQTU4dmpE"
@@ -183,7 +189,7 @@ _ENCODED: dict[str, str] = {
         "UEdQIFBVQkxJQyBLRVkgQkxPQ0stLS0tLQo="
     ),
     "pgp_rsa.asc": (
-        "LS0tLS1CRUdJTiBQR1AgUFJJVkFURSBLRVkgQkxPQ0stLS0tLQpDb21tZW50OiB0aHJvd2F3YXkgdGVzdCBrZXkKCmxRT1lC"
+        "LS0tLS1CRUdJTiBQR1AgUFJJVkFURSBLRVkgQkxPQ0stLS0tLQpDb21tZW50OiB0aHJvd2F3YXkgdGVzdCBrZXkKCmxRT1lC"  # gitleaks:allow
         "R3F6VzNVQkNBREJGbytqeldZUWwycVptWHlJODE0amZ0ZE0rZjBMR25ZRFlUUmplK29IdU9HdGZoSDIKWlJGaTlJWjkrQW1W"
         "c1dPaWhMenNHei84THVsYUljV3ZKbmh2OGRINFgyVkRENG1IVmhOOTVlUnp4MGhPRmplUQpueWV3VUNnTEZVc2lQQW9rZmZv"
         "RldiZ055Sk1acFUyTng4eFkzbWUzaVF2clA3MEZzZVFpOVhDQXRwZVI5VHB2Cld2eE1GSHZqd3ZzdVJ1L0FjVXRuelYyV0FW"
@@ -212,13 +218,13 @@ _ENCODED: dict[str, str] = {
         "Wk85RjdkYUN6bnZVK2gKT2VpYjRwU29mSnh3Cj1JU0lDCi0tLS0tRU5EIFBHUCBQUklWQVRFIEtFWSBCTE9DSy0tLS0tCg=="
     ),
     "pkcs8_ec.pem": (
-        "LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0tCk1JR0hBZ0VBTUJNR0J5cUdTTTQ5QWdFR0NDcUdTTTQ5QXdFSEJHMHdhd0lC"
+        "LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0tCk1JR0hBZ0VBTUJNR0J5cUdTTTQ5QWdFR0NDcUdTTTQ5QXdFSEJHMHdhd0lC"  # gitleaks:allow
         "QVFRZ2REcmVjTVN5ZDZXSzhzb1QKOGdsQi9Ia0NDbVJTVmx0elVPQ0k1dWQ5d1I2aFJBTkNBQVNSZUxkSFdtUDZnTXU3OSs0"
         "dDEzdnRnNUxwWHlrQwpmaGd5dThJa2prdlUyVGh5TXFmajVNOFlVMU1tNmlmN29vWEFmWWhDUzFIZHBVVVpWTzZQb3VRZAot"
         "LS0tLUVORCBQUklWQVRFIEtFWS0tLS0tCg=="
     ),
     "pkcs8_rsa.pem": (
-        "LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0tCk1JSUV2QUlCQURBTkJna3Foa2lHOXcwQkFRRUZBQVNDQktZd2dnU2lBZ0VB"
+        "LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0tCk1JSUV2QUlCQURBTkJna3Foa2lHOXcwQkFRRUZBQVNDQktZd2dnU2lBZ0VB"  # gitleaks:allow
         "QW9JQkFRQzR6OXFaZUcrVjVVMXQKNmZ2aXh3RVh6M080NGFuajFCNjNhenFCV0tJemRCRy9XaGFkckpDOVl0S2QwU2w0SEpp"
         "b3BFM0E1THR4ZFFRRwpXVUh6bzUyeFVPdDQ4RjRUZzBlRFZYRVo2ZzIvNUcrejA2VkZWREN4Wkp6VFJCbWxaMGdOdy9lZDB4"
         "T2YvNnNoCnVsTUxPQVRVTk5vc3ZadG0vMEdaQSs0MnlrMW9aRW5JY09KVnB3cjlOSC83ek9URzhVZWZtZExNUXBuNlpveWEK"
@@ -244,7 +250,7 @@ _ENCODED: dict[str, str] = {
         "Mk9xcThDbSt0SitKTkVoVXMvZz09Ci0tLS0tRU5EIFBSSVZBVEUgS0VZLS0tLS0K"
     ),
     "pkcs8_rsa_encrypted.pem": (
-        "LS0tLS1CRUdJTiBFTkNSWVBURUQgUFJJVkFURSBLRVktLS0tLQpNSUlGTlRCZkJna3Foa2lHOXcwQkJRMHdVakF4QmdrcWhr"
+        "LS0tLS1CRUdJTiBFTkNSWVBURUQgUFJJVkFURSBLRVktLS0tLQpNSUlGTlRCZkJna3Foa2lHOXcwQkJRMHdVakF4QmdrcWhr"  # gitleaks:allow
         "aUc5dzBCQlF3d0pBUVFwRmhXTk4wOWg1ejJPaXpjCm9jNHZrd0lDQ0FBd0RBWUlLb1pJaHZjTkFna0ZBREFkQmdsZ2hrZ0Ja"
         "UU1FQVNvRUVNL3V2TS92UDBCV0kzQnoKNkVWRE4xZ0VnZ1RRVEd4bGJUd3ovcWk3Vk1hL3FPTDhkNVdsL0YrU3F0VmRBZkdQ"
         "eXQvSUlnR0ZveGNiVUl2MApVeElLQVRzcitLQ2gxeTJ0OXlkTzBrK1ZUbDJNQjNPYjJwN2liUCtPOWUrYjU1ZElLRi8xckph"
@@ -302,7 +308,7 @@ _ENCODED: dict[str, str] = {
         "eVB2SGhacEFyQW89ClByaXZhdGUtTUFDOiA5ODVjOGU4Y2RiZWY2ZmFkMDc1NDI3ZDEzOTY2MjBiYmYwOTZjMDE4Cg=="
     ),
     "traditional_ec.pem": (
-        "LS0tLS1CRUdJTiBFQyBQUklWQVRFIEtFWS0tLS0tCk1IY0NBUUVFSUhRNjNuREVzbmVsaXZMS0UvSUpRZng1QWdwa1VsWmJj"
+        "LS0tLS1CRUdJTiBFQyBQUklWQVRFIEtFWS0tLS0tCk1IY0NBUUVFSUhRNjNuREVzbmVsaXZMS0UvSUpRZng1QWdwa1VsWmJj"  # gitleaks:allow
         "MURnaU9ibmZjRWVvQW9HQ0NxR1NNNDkKQXdFSG9VUURRZ0FFa1hpM1IxcGorb0RMdS9mdUxkZDc3WU9TNlY4cEFuNFlNcnZD"
         "Skk1TDFOazRjaktuNCtUUApHRk5USnVvbis2S0Z3SDJJUWt0UjNhVkZHVlR1ajZMa0hRPT0KLS0tLS1FTkQgRUMgUFJJVkFU"
         "RSBLRVktLS0tLQo="
@@ -334,7 +340,7 @@ _ENCODED: dict[str, str] = {
         "QSBQUklWQVRFIEtFWS0tLS0tCg=="
     ),
     "traditional_rsa_encrypted.pem": (
-        "LS0tLS1CRUdJTiBSU0EgUFJJVkFURSBLRVktLS0tLQpQcm9jLVR5cGU6IDQsRU5DUllQVEVECkRFSy1JbmZvOiBBRVMtMjU2"
+        "LS0tLS1CRUdJTiBSU0EgUFJJVkFURSBLRVktLS0tLQpQcm9jLVR5cGU6IDQsRU5DUllQVEVECkRFSy1JbmZvOiBBRVMtMjU2"  # gitleaks:allow
         "LUNCQyxFRDcxNzY4N0ExQUI2MUFCQzExRUVCMzc5RDE5ODlEQQoKN0hVUkFvd2lVdWJ2cXF5S0xCanRXdHlFN3U4SFNyRk1q"
         "azMwR1RhZUdwZHJrQ1Q5Y0w4RWJJaDBLdHJCN0hOegpRckYvKzVEd3M5L3JnelBKVTJvRmdrSzdPbHZMdDhaQUlKcWZIbkF5"
         "T3JZK29Ma1ltRk1McmYvMG1rcWdHd2NYCk9NTGpKMGtxK3ZGcVRZRzlXREM5VmlaOG53MU1PcEtQWDArOTlkZzJ0VGx2NDlr"

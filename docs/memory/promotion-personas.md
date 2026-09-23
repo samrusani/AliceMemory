@@ -409,7 +409,7 @@ Stated so nobody reads the table above as "every surface".
   `PGPASSWORD='drill-password-from-your-secret-manager'` in a shell example
   are refused (owner ruling: no allow-list of toy passwords). So are "Bank
   portal password: Changed after the phishing scare.", "Password:
-  see-vault", "Secret: Launch2027PlanB", `BUILD_KEY=v2026.09.1`, the jwt.io
+  see-vault", "Secret: Launch2027PlanB", `BUILD_KEY=v2026.09.1`, the jwt.io <!-- gitleaks:allow -->
   sample token, `AKIAIOSFODNN7EXAMPLE`, upper-case coincidences such as
   `SEE ASIA` over `PACIFICTEAMNOTES...`, and `password = hash_password(pw)`
   in a code note. Remove or reword the value; a vault that already holds one

@@ -68,7 +68,7 @@ STRIPE_LIVE = _k("sk_", "live_", "HtyWnjfc1gfyJ8UYMDfCXl1w")
 STRIPE_TEST = _k("sk_", "test_", "HVMkB7DomldCTC1UHBo0FzsfYuQU")
 STRIPE_RK_LIVE = _k("rk_", "live_", "fyK8vdxNk3VcFJ1b1Qe0o9Nx")
 STRIPE_RK_TEST = _k("rk_", "test_", "aM7rEJipJmIOkrMqIHc7IbcV")
-ALICE_KEY = _k(AGENT_KEY_PREFIX, "Zq8mP2vL9kXw4TbN7cRy1uJh6fDs3aGe0oKi5AbCdEf")
+ALICE_KEY = _k(AGENT_KEY_PREFIX, "Zq8mP2vL9", "kXw4TbN7cRy1uJh6fDs3aGe0oKi5AbCdEf")
 HF_TOKEN = _k("hf_", "Zq8mP2vL9kXw4TbN7cRy1uJh6fDs3aGe0o")
 SENDGRID = _k("SG", ".", "Zq8mP2vL9kXw4TbN7cRy1u", ".", "Zq8mP2vL9kXw4TbN7cRy1uJh6fDs3aGe0oKi5AbCdEf")
 SLACK_HOOK = _k("https://hooks.", "slack.com/services/", "T0123ABCD/B0456EFGH/Zq8mP2vL9kXw4TbN7cRy1uJh")
@@ -150,7 +150,7 @@ def test_t1_f7_identifier_fields_are_read_by_value() -> None:
     assert carries_credential_material(*base, None, None, ["alice", PAT])  # project_scope
     assert carries_credential_material({"a": {"b": ["note", STRIPE_LIVE]}})  # a metadata_json leaf
     assert carries_credential_material(_k("xoxb-", "123456789012-1234567890123-AbCdEfGhIjKlMnOpQrStUvWx"))
-    assert carries_credential_material({"api_key": "Xq9mZt2LxP9wKc4BVq7m"})
+    assert carries_credential_material({"api_key": _k("Xq9mZt2L", "xP9wKc4BVq7m")})
     assert not carries_credential_material(*base, UUID_TEXT, "trace-" + UUID_TEXT, [HEX64])
 
 
@@ -192,7 +192,7 @@ _T3_FALSE: dict[str, tuple[object, ...]] = {
     "secret provider": ("ALICE_SECRET_PROVIDER=encrypted_local",),
     "sort key": ("SORT_KEY=created_at-desc",),
     "cache key": ("CACHE_KEY=user.v2",),
-    "next page token": ({"next_page_token": "CiAKGjBpNDd2"},),
+    "next page token": ({"next_page_token": _k("CiAKGj", "BpNDd2")},),
     "csrf token": ({"csrf_token": "a8Fk2LmQ9x"},),
     "session key": ({"session_key": UUID_TEXT},),
     "template password": ("password=${DB_PASSWORD}",),
@@ -212,8 +212,8 @@ def test_t3_adversary_false_positives_stay_clean(name: str) -> None:
 @pytest.mark.parametrize(
     "text",
     [
-        "DB_PASSWORD=Winter.Is.Coming2024",
-        "db_password: Winter.Is.Coming2024",
+        _k("DB_PASSWORD=", "Winter.Is.Coming2024"),
+        _k("db_password: ", "Winter.Is.Coming2024"),
         # Two T3 cases until round 5, now refused: a dotted value under a
         # password name reads the same as a dotted password.
         "password: process.env.DB_PASSWORD",
@@ -222,7 +222,7 @@ def test_t3_adversary_false_positives_stay_clean(name: str) -> None:
 )
 def test_round5_a_dotted_value_under_a_password_name_is_refused(text: str) -> None:
     """S4.4 round 5 (2026-09-23): the dotted-reference exemption applied to
-    every name kind, so DB_PASSWORD=Winter.Is.Coming2024 was read as a code
+    every name kind, so a DB_PASSWORD set to Winter.Is.Coming2024 was read as a code
     reference and stored, where v0.16.0 refused it. The panel ruled that no
     exemption applies to a password-kind name; the two T3 notes that name a
     variable after a password: label are the price, documented as an
@@ -243,16 +243,16 @@ _FAKE_MISTRAL_KEY = "8fJ2kQzX" + "7bVn3LmP0wYcT5rHdG1sAeUo"
 
 _T4_TRUE: dict[str, tuple[object, ...]] = {
     "mistral yaml": ("mistral_key: " + _FAKE_MISTRAL_KEY,),
-    "cohere": ("cohere_key = '9aKd82LmQzX7bVn3LmP0wYcT5rHdG1s'",),
-    "fernet": ("fernet_key = bXkZ9q2LmP0wYcT5rHdG1sAeUo8fJ2kQzX7bVn3LmP0=",),
+    "cohere": (_k("cohere_key = '", "9aKd82LmQzX7bVn3LmP0wYcT5rHdG1s'"),),
+    "fernet": (_k("fernet_key = ", "bXkZ9q2LmP0wYcT5rHdG1sAeUo8fJ2kQzX7bVn3LmP0="),),
     "mistral pair (weak tier)": ({"mistral_key": _FAKE_MISTRAL_KEY},),
-    "apim header": ("Ocp-Apim-Subscription-Key: 3f2a9c7e1b4d4e8f9a0b1c2d3e4f5a6b",),
-    "functions header": ("x-functions-key: Zq8mP2vL9kXw4TbN7cRy1uJh6fDs3aGe0oKi5",),
-    "DB_PASSWORD_RO": ("DB_PASSWORD_RO=Kd9xoYWu83nq",),
-    "MAPBOX_TOKEN_V2": ("MAPBOX_TOKEN_V2=pk9aKd82LmQzX7bVn3LmP0wYcT5",),
-    "JWT_SECRET_PREVIOUS": ("JWT_SECRET_PREVIOUS=Zq8mP2vL9kXw4TbN7cRy1u",),
-    "API_TOKEN_STG": ("API_TOKEN_STG=Zq8mP2vL9kXw4TbN7cRy1u",),
-    "SECRET_KEY_BASE": ("SECRET_KEY_BASE=Zq8mP2vL9kXw4TbN7cRy1uJh6fDs3aGe",),
+    "apim header": (_k("Ocp-Apim-Subscription-Key: ", "3f2a9c7e1b4d4e8f9a0b1c2d3e4f5a6b"),),
+    "functions header": (_k("x-functions-key: ", "Zq8mP2vL9kXw4TbN7cRy1uJh6fDs3aGe0oKi5"),),
+    "DB_PASSWORD_RO": (_k("DB_PASSWORD_RO=", "Kd9xoYWu83nq"),),
+    "MAPBOX_TOKEN_V2": (_k("MAPBOX_TOKEN_V2=", "pk9aKd82LmQzX7bVn3LmP0wYcT5"),),
+    "JWT_SECRET_PREVIOUS": (_k("JWT_SECRET_PREVIOUS=", "Zq8mP2vL9kXw4TbN7cRy1u"),),
+    "API_TOKEN_STG": (_k("API_TOKEN_STG=", "Zq8mP2vL9kXw4TbN7cRy1u"),),
+    "SECRET_KEY_BASE": (_k("SECRET_KEY_BASE=", "Zq8mP2vL9kXw4TbN7cRy1uJh6fDs3aGe"),),
     "alice_sk_": (ALICE_KEY,),
     "hf_": (HF_TOKEN,),
     "sendgrid": (SENDGRID,),
@@ -263,7 +263,7 @@ _T4_TRUE: dict[str, tuple[object, ...]] = {
     "postgres url": ("postgres://app:Kd9xoYWu83nq@db.internal:5432/app",),
     "mongodb+srv url": ("mongodb+srv://app:67nMb5Sgiepu9dlB@cluster0.example.net/app",),
     "password pair": ({"password": "Tr0ub4dor&3"},),
-    "API_KEY pair": ({"API_KEY": "abc123def456ghi789"},),
+    "API_KEY pair": ({"API_KEY": _k("abc123", "def456ghi789")},),
 }
 
 
@@ -348,7 +348,7 @@ def test_t6_twenty_thousand_deep_lists_and_dicts_return() -> None:
         ("Authorization: Bearer", "Zq8mP2vL9kXw4TbN7cRy1uJh6fDs3aGe"),
         ("API_KEY=", "Xq9mZt2LxP9wKc4BVq7m"),
         ("Prod DB password:", "Kd9xoYWu83nq"),
-        ("Prod DB password", "Kd9xoYWu83nq"),
+        ("Prod DB password", _k("Kd9xo", "YWu83nq")),
         ("The vault password", "is hunter2hunter2"),
     ],
 )
@@ -732,7 +732,7 @@ def test_round3_a_key_whose_armor_dashes_were_lost_is_refused_by_its_body(name: 
     assert carries_credential_material(json.dumps(dashless)[1:-1])
 
 
-@pytest.mark.parametrize("text", ["dbPasswordV2: Kd9xoYWu83nq", "apiTokenOld=Kd9xoYWu83nqPlzRt5vW"])
+@pytest.mark.parametrize("text", [_k("dbPasswordV2: ", "Kd9xoYWu83nq"), _k("apiTokenOld=", "Kd9xoYWu83nqPlzRt5vW")])
 def test_round3_a_camel_case_copy_suffix_does_not_hide_the_name(text: str) -> None:
     # The neutral suffix inside a camelCase name is stripped after splitting.
     assert carries_credential_material(text)

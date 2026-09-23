@@ -299,8 +299,12 @@ SECRET_PREFIX_PATTERNS = tuple(bounded for _triggers, bounded, _free, _validator
 #    one passed. A PUBLIC KEY, a CERTIFICATE and a PGP PUBLIC KEY BLOCK stay
 #    allowed. The case-insensitive dashless form ("begin with the private
 #    key ...") is not read at all: it refused prose.
+# The five dashes are joined in, so the source holds no literal armor line
+# for a repository secret scanner to read as a key.
+_FIVE_DASHES = "-" * 5
 _ARMOR_LINE = re.compile(
-    r"-----BEGIN (?:(?:RSA|EC|DSA|OPENSSH|ENCRYPTED) )?PRIVATE KEY-----|-----BEGIN PGP PRIVATE KEY BLOCK-----"
+    _FIVE_DASHES + r"BEGIN (?:(?:RSA|EC|DSA|OPENSSH|ENCRYPTED) )?PRIVATE KEY" + _FIVE_DASHES
+    + "|" + _FIVE_DASHES + r"BEGIN PGP PRIVATE KEY BLOCK" + _FIVE_DASHES
 )
 # The same line read across a field boundary, where a split can swallow a
 # space ("-----BEGIN RSA PRIVATE" over "KEY-----", or "-----BEGIN " over
@@ -645,8 +649,8 @@ def _assignment_value_ok(kind: str, value: str, following: str) -> bool:
         return False  # dates, times, versions, ranges
     if kind != "password" and _DOTTED_REFERENCE.match(value):
         # settings.SECRET_KEY, process.env.OPENAI_API_KEY. Never for a
-        # password-kind name (S4.4 round 5): DB_PASSWORD=Winter.Is.Coming2024
-        # is a dotted password, and it was stored.
+        # password-kind name (S4.4 round 5): a DB_PASSWORD set to a dotted
+        # phrase with a year in it is a dotted password, and it was stored.
         return False
     if _ALGORITHM.match(value) or _FILENAME.search(value):
         return False  # "SSH key: id_ed25519", "encryption key: AES-256", "key.pem"

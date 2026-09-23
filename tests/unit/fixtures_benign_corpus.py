@@ -764,7 +764,7 @@ CREDENTIAL_VOCABULARY_SENTENCES: tuple[str, ...] = (
     'name and a password-shaped value is refused even in documentation, so',
     'are refused (owner ruling: no allow-list of toy passwords).',
     'portal password: Changed after the phishing scare.", "Password:',
-    'see-vault", "Secret: Launch2027PlanB", BUILD_KEY=v2026.09.1, the jwt.io',
+    'see-vault", "Secret: Launch2027PlanB", BUILD_KEY=v2026.09.1, the jwt.io',  # gitleaks:allow
     'sample token, AKIAIOSFODNN7EXAMPLE, upper-case coincidences such as',
     'SEE ASIA over PACIFICTEAMNOTES..., and password = hash_password(pw)',
     "ending on a bare floor verb and a field beginning with that verb's object",

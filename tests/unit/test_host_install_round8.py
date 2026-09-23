@@ -105,7 +105,7 @@ def test_a_direct_url_spec_is_never_printed_or_written(
 KEPT_HOOKS = {
     "powershell-quoted": '$env:X="tok-SECRET"; ' + HOOK_TAIL,
     "powershell-spaced": '$Env:X = "tok-SECRET"; ' + HOOK_TAIL,
-    "curl-header": "curl -s -H 'Authorization: Bearer tok-SECRET' https://h.example/ping && " + HOOK_TAIL,
+    "curl-header": "curl -s -H 'Authorization: Bearer " + "tok-SECRET' https://h.example/ping && " + HOOK_TAIL,
 }
 
 

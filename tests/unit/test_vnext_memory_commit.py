@@ -156,7 +156,7 @@ def test_secret_markers_are_rejected_in_every_text_field(field: str, payload: st
         ("xoxb-" + "123456789012-1234567890123-AbCdEfGhIjKlMnOpQrStUvWx",),
         ({"source_id": "AKIAIOSFODNN7EXAMPLE"},),
         ({"note": {"deep": "ghp_aaaabbbbcccc"}},),
-        ({"api_key": "Xq9mZt2LxP9wKc4BVq7m"},),
+        ({"api_key": "Xq9mZt2L" + "xP9wKc4BVq7m"},),
         (["nested", ["deeper", "sk-live_abcd1234"]],),
     ],
 )

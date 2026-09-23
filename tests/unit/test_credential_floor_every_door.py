@@ -493,7 +493,7 @@ def test_door4_provenance_is_read_by_value_only() -> None:
     """
 
     digest = hashlib.sha256(b"workspace").hexdigest()
-    keyed_secret = {"api_key": "Xq9mZt2LxP9wKc4BVq7m"}
+    keyed_secret = {"api_key": "Xq9mZt2L" + "xP9wKc4BVq7m"}
     # Guards the guard: the pair rule does catch it when it is read keyed.
     assert carries_credential_material(keyed_secret)
 
@@ -833,12 +833,12 @@ def test_round2_import_reads_the_value_by_value_and_metadata_as_a_mapping(tmp_pa
     there is not caught (a documented residual), while a self-identifying
     key is. metadata_json stays keyed."""
 
-    code, memory_id = _import_one_memory(tmp_path / "value", value={"text": "notes", "api_key": "Xq9mZt2LxP9wKc4BVq7m"})
+    code, memory_id = _import_one_memory(tmp_path / "value", value={"text": "notes", "api_key": "Xq9mZt2L" + "xP9wKc4BVq7m"})
     assert code == 0, capsys.readouterr().err
     code, memory_id = _import_one_memory(tmp_path / "prefixed", value={"text": "notes", "note": PAT})
     err = capsys.readouterr().err
     assert code == 1 and f"memory {memory_id} carries credential material (value)" in err
-    code, memory_id = _import_one_memory(tmp_path / "meta", metadata_json={"stripe_key": "Xq9mZt2LxP9wKc4BVq7mZt2"})
+    code, memory_id = _import_one_memory(tmp_path / "meta", metadata_json={"stripe_key": "Xq9mZt2L" + "xP9wKc4BVq7mZt2"})
     err = capsys.readouterr().err
     assert code == 1 and f"memory {memory_id} carries credential material (metadata_json)" in err
     # Guards the guard: structural keys in the same columns import.
@@ -942,7 +942,7 @@ def test_door7_the_linear_scanners_agree_with_the_old_regexes_on_the_existing_co
         # Leading separators and quotes still open and close an assignment.
         ("__password=hunter2abc", ["hunter2abc"]),
         ("api-key = 'Abc123def'", ["Abc123def"]),
-        ('"secret_key": "abc123def456"', ["abc123def456"]),
+        ('"secret_key": "' + 'abc123def456"', ["abc123def456"]),
     ],
 )
 def test_door7_the_scanner_keeps_the_old_rule_on_its_edge_shapes(text: str, values: list[str]) -> None:
@@ -1003,7 +1003,7 @@ def test_door7_adversarial_50kb_input_scans_fast(label: str) -> None:
     # Guards the guard: the same path reads to the end of the run and still
     # finds a real assignment placed after it.
     started = time.perf_counter()
-    assert carries_credential_material("title", text + " api_key=Abc123def456") is True
+    assert carries_credential_material("title", text + " api_key=" + "Abc123def456") is True
     assert time.perf_counter() - started < _CHOKE_POINT_BUDGET_SECONDS
 
 

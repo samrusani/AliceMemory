@@ -263,8 +263,8 @@ def test_a_v0160_export_holding_prose_about_private_keys_restores(tmp_path: Path
     [
         "DB_PASSWORD_B64=" + _b64("Kd9xoYWu83nq"),
         "GITHUB_TOKEN_B64=" + _b64("ghp_" + "0123456789abcdefghijklmnopqrstuvwxyz"),
-        "DB_PASSWORD_B2=Kd9xoYWu83nq",
-        "export SSH_PRIVATE_KEY_B64=Kd9xoYWu83nqPlzRt5vW",
+        "DB_PASSWORD_B2=" + "Kd9xoYWu83nq",
+        "export SSH_PRIVATE_KEY_B64=" + "Kd9xoYWu83nqPlzRt5vW",
     ],
     ids=["password b64", "token b64", "b2 suffix", "private key b64 name"],
 )
@@ -286,7 +286,7 @@ def test_a_gpg_key_id_under_signingkey_is_not_a_secret(text: str) -> None:
 
 
 def test_a_real_value_under_signingkey_is_still_one() -> None:
-    assert carries_credential_material("signingkey = Kd9xoYWu83nqPlzRt5vW")
+    assert carries_credential_material("signingkey = " + "Kd9xoYWu83nqPlzRt5vW")
 
 
 @pytest.mark.parametrize("name", ["openssh_ed25519.pub", "openssh_ecdsa.pub"])
@@ -373,7 +373,7 @@ def test_the_import_value_column_is_read_by_value_and_metadata_keyed(tmp_path: P
             # By value, a self-identifying key under any name is still caught.
             {"value": {"text": "Billing notes.", "billing": stripe_key}},
             # metadata_json stays keyed: a password under a secret name is caught.
-            {"metadata_json": {"db_password": "Kd9xoYWu83nq"}},
+            {"metadata_json": {"db_password": "Kd9xo" + "YWu83nq"}},
         ],
     )
     capsys.readouterr()
@@ -422,7 +422,7 @@ def test_every_flagged_key_a_memory_writer_uses_is_accounted_for() -> None:
     [
         "machine api.example.com login deploy password Kd9xoYWu83nq",
         "aws configure set aws_secret_access_key wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
-        "curl -u deploy:Kd9xoYWu83nq https://api.example.com/v1/items",
+        "curl -u deploy:" + "Kd9xoYWu83nq https://api.example.com/v1/items",
         "docker login -u deploy -p Kd9xoYWu83nq registry.example.com",
         "mysql -u root -pKd9xoYWu83nq appdb",
         "db.internal:5432:app:deploy:Kd9xoYWu83nq",

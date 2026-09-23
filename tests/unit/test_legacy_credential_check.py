@@ -439,9 +439,9 @@ def _der_base64() -> str:
 
 ROUND5_SHAPES = {
     "google oauth under a secret name": lambda: "GOOGLE_OAUTH_TOKEN=" + "ya" + "29.a0AfH6SMBx" + R + "Qe7",
-    "discord token": lambda: "DISCORD_TOKEN=MTE4NzY1NDMyMTA5ODc2NTQzMg.GhI2Jk." + R + "abcdEF",
+    "discord token": lambda: "DISCORD_TOKEN=" + "MTE4NzY1" + "NDMyMTA5ODc2NTQzMg.GhI2Jk." + R + "abcdEF",
     "mapbox secret": lambda: "MAPBOX_TOKEN=" + "sk" + ".eyJ1IjoiZXhhbXBsZSJ9." + R,
-    "dotted password": lambda: "DB_PASSWORD=Winter.Is.Coming2024",
+    "dotted password": lambda: "DB_PASSWORD=" + "Winter.Is.Coming2024",
     "telegram bot token": lambda: "TELEGRAM_BOT_TOKEN=1234567890:AAH" + R + "Kq3LmN8pQrS",
     "xxd plain hex of a key file": lambda: _xxd_plain(throwaway_key("openssh_ed25519")),
     "DER under _DATA": lambda: "PRIVATE_KEY_DATA=" + _der_base64(),
@@ -635,8 +635,8 @@ _STRUCTURAL_EXCUSED = (
     "memory_key=agentic_memory.semantic." + FIXED_UUID,
     "openclaw_dedupe_key=" + "9f86d081884c7d65" * 4,
     f"Send Idempotency-Key: {FIXED_UUID} with each POST.",
-    '{"next_page_token": "CiAKGjBpNDd2"}',
-    "nextPageToken=CiAKGjBpNDd2",
+    '{"next_page_token": "' + 'CiAKGjBpNDd2"}',
+    "nextPageToken=" + "CiAKGjBpNDd2",
     "subject_key=project.alice.release",
 )
 _STRUCTURAL_NOT_EXCUSED = (
@@ -748,7 +748,8 @@ def _glued_probes() -> dict[str, tuple[str, str]]:
         "Prefer ssh-ed25519 keys" + tokens["sk-proj-"], "Prefer ssh-ed25519 keys over ssh-rsa keys",
     )
     probes["code reference, random attribute"] = ("api_key = settings." + R, "api_key = settings.OPENAI_API_KEY")
-    probes["page cursor, then ghp_"] = ("next_page_token=CiAKGjBpNDd2" + _GHP_36, "next_page_token=CiAKGjBpNDd2")
+    cursor = "next_page_token=" + "CiAKGjBpNDd2"
+    probes["page cursor, then ghp_"] = (cursor + _GHP_36, cursor)
     return probes
 
 
