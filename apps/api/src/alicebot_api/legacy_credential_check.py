@@ -140,8 +140,8 @@ _PREFIX_PATTERNS = (
 # segment.
 # ---------------------------------------------------------------------------
 
-_SECRET_NAME_EMBEDDABLE = r"(?:password|passwd|secret|token|credentials?|apikey)"
-_SECRET_NAME_SEGMENTED = r"key"
+_SECRET_NAME_EMBEDDABLE = r"(?:password|passwd|secret|token|credentials?|apikey)"  # nosec B105 # a regex fragment naming secret words, not a password
+_SECRET_NAME_SEGMENTED = r"key"  # nosec B105 # a regex fragment naming a secret word, not a password
 
 # The rule, stated as the single regular expression it used to be:
 #

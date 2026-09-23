@@ -174,7 +174,7 @@ _FIRST_RELEASE = tuple(_release(FIRST_SESSION_START_VERSION))
 def _clause_allows_first(operator: str, value: str) -> bool | None:
     """Can a version meeting ``operator value`` be 0.16.0 or later? None: cannot tell."""
 
-    assert _FIRST is not None
+    assert _FIRST is not None  # nosec B101 # narrows the type for mypy; the module constant always parses
     if operator == "@":
         if value.lower() == "latest":
             return True
@@ -197,7 +197,7 @@ def _clause_allows_first(operator: str, value: str) -> bool | None:
         return key > _FIRST
     if operator == "~=":
         match = _VERSION.match(value)
-        assert match is not None
+        assert match is not None  # nosec B101 # narrows the type for mypy; _version_key matched this value above
         release = _release(match.group(1))
         if len(release) < 2:
             return None
@@ -909,7 +909,7 @@ def format_command(
                 f"{token!r} contains {shown}, which cmd, PowerShell and Git Bash do not "
                 "all keep literal under one quoting"
             )
-        if token == "" or set(token) & _WINDOWS_QUOTED or refused:
+        if token == "" or set(token) & _WINDOWS_QUOTED or refused:  # nosec B105 # token is a command-line word; the empty-string test is not a password
             if index == 0 and strict:
                 return "", (
                     f"{token!r} would need quotes, and PowerShell does not run a quoted "
@@ -1142,7 +1142,7 @@ def read_hook_data_dir(command: str, *, windows: bool | None = None) -> HookData
     found = _Word(word.value.split("=", 1)[1], word.literal) if equals else word
     raw = found.value
     if not found.literal:
-        return HookDataDir(raw, False, shell=True, reason="the shell does not read it literally")
+        return HookDataDir(raw, False, shell=True, reason="the shell does not read it literally")  # nosec B604 # shell is a dataclass flag (the shell does not read the word literally); nothing is run
     if raw == DOCS_DATA_DIR_PLACEHOLDER:
         return HookDataDir(raw, False, reason="it is the placeholder from the docs")
     absolute = PureWindowsPath(raw).is_absolute() if windows else raw.startswith("/")

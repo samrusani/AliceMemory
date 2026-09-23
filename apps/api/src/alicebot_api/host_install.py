@@ -901,7 +901,7 @@ def _plan_entry(
             next_step=_FOREIGN_NEXT,
         )
     launcher, server_args = parsed
-    assert isinstance(existing, Mapping)
+    assert isinstance(existing, Mapping)  # nosec B101 # narrows the type for mypy; the existing is None branch above returned
     store = _entry_store(server_args, home)
 
     if store.problem is not None and not store.relative:
@@ -924,7 +924,7 @@ def _plan_entry(
         return _EntryPlan(None, launcher, default_dir, None, None, details, False, "repair")
 
     if store.relative and explicit_dir is None:
-        assert store.raw_dir is not None
+        assert store.raw_dir is not None  # nosec B101 # narrows the type for mypy; _entry_store builds a relative store from its raw dir
         marker = f"<an absolute path for {store.raw_dir}>"
         paste = dict(existing)
         paste["args"] = [*launcher.prefix, *_store_args(server_args, data_dir=marker)]
@@ -1071,14 +1071,14 @@ def _alice_container(doc: dict[str, Any], host: str) -> dict[str, Any] | None:
     current: object = doc
     keys = _alice_server_keys(host)
     for depth, key in enumerate(keys[:-1]):
-        assert isinstance(current, dict)
+        assert isinstance(current, dict)  # nosec B101 # narrows the type for mypy; doc is a dict and each child is checked below
         child = current.get(key)
         if child is None:
             return None
         if not isinstance(child, dict):
             raise _MalformedHostFile(f"{'.'.join(keys[: depth + 1])} is not an object")
         current = child
-    assert isinstance(current, dict)
+    assert isinstance(current, dict)  # nosec B101 # narrows the type for mypy; the loop only descends into dicts
     return current
 
 
@@ -1963,7 +1963,7 @@ def _hermes_payload(plan: _EntryPlan) -> dict[str, object]:
     a --db entry, whose env stays as the user wrote it.
     """
 
-    assert plan.entry is not None
+    assert plan.entry is not None  # nosec B101 # narrows the type for mypy; each caller passes a plan that has an entry
     payload: dict[str, object] = {"command": plan.entry["command"], "args": plan.entry["args"]}
     if "env" in plan.entry:
         payload["env"] = plan.entry["env"]
@@ -2853,7 +2853,7 @@ def _plan_hook(
                     f"warning: install left the SessionStart hook's command as it was: {block}"
                 )
         elif plan.hook_mode == "own-dir":
-            assert old_command is not None
+            assert old_command is not None  # nosec B101 # narrows the type for mypy; own-dir with no command returned above
             if old is None or not old.trusted:
                 if old is not None and old.raw is not None:
                     details.append(
@@ -2862,13 +2862,13 @@ def _plan_hook(
                     )
                 command = old_command
             else:
-                assert old.raw is not None
+                assert old.raw is not None  # nosec B101 # narrows the type for mypy; only HookDataDir(None, False) lacks raw, and it is not trusted
                 text, problem = hook_command(plan.launcher, old.raw)
                 if problem is not None:
                     return "refused", problem
                 command, built = text, True
         elif old is not None and old.shell and not explicit:
-            assert old_command is not None
+            assert old_command is not None  # nosec B101 # narrows the type for mypy; old is read from old_command, so it implies one
             details.append(
                 f"warning: the SessionStart hook's --data-dir {old.raw} is not read literally "
                 "by the shell, so install left the hook's command as it was"
@@ -2900,7 +2900,7 @@ def _plan_hook(
                 f"{plan.launcher.describe()}, but the SessionStart hook kept its own command, "
                 "which may still run the old one"
             )
-    assert command is not None
+    assert command is not None  # nosec B101 # narrows the type for mypy; every branch above sets it or returns
     if not hooks.doc:
         hooks.doc.update(_new_hooks_document(host, command))
         return "added", None
@@ -3056,7 +3056,7 @@ def _install_json_host(
         session_start = "none"
         return _HostResult(receipt("failed", snippet=None), "failed")
 
-    assert mcp is not None
+    assert mcp is not None  # nosec B101 # narrows the type for mypy; the failure paths above return
     refused = plan.refusal is not None or hook_problem is not None
     if plan.refusal is not None:
         details.insert(0, f"reason: {plan.refusal}")
@@ -3110,7 +3110,7 @@ def _install_json_host(
             return _HostResult(receipt("failed", snippet=None), "failed", plan.used_fallback)
         action = "written"
     if hooks_changed:
-        assert hooks is not None
+        assert hooks is not None  # nosec B101 # narrows the type for mypy; hooks_changed is set only with hooks read
         try:
             if hooks.raw is not None:
                 backup = _backup_host_file(
