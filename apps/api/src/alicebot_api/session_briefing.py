@@ -483,6 +483,17 @@ def _flatten_excerpt(text: str) -> str:
     return " ".join(text.split())
 
 
+def quote_session_brief_text(text: str) -> str:
+    """Quote one stored note the way the SessionStart brief does.
+
+    Whitespace, including newlines, is flattened first. ``json.dumps`` then
+    escapes quotes and backslashes. A stored newline cannot start a line
+    that looks like a system line.
+    """
+
+    return json.dumps(_flatten_excerpt(text), ensure_ascii=False)
+
+
 def _render_brief(
     *,
     facts: Sequence[Mapping[str, object]],
@@ -499,7 +510,7 @@ def _render_brief(
         flattened = _flatten_excerpt(text)
         if not flattened or flattened in seen:
             return
-        line = f"**{label}**: {json.dumps(flattened, ensure_ascii=False)}"
+        line = f"**{label}**: {quote_session_brief_text(text)}"
         cost = estimate_item_tokens({"text": line})
         if used_tokens + cost > SESSION_BRIEF_TOKEN_BUDGET:
             return
@@ -548,5 +559,6 @@ __all__ = [
     "SESSION_BRIEF_TOKEN_BUDGET",
     "compile_local_session_brief",
     "compile_session_brief",
+    "quote_session_brief_text",
     "source_scope_from_project_scope",
 ]

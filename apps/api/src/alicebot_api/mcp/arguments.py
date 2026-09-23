@@ -7,6 +7,8 @@ from datetime import UTC, datetime
 from typing import TypedDict, cast
 from uuid import UUID
 
+from alicebot_api.recall_framing import frame_rendered_block
+from alicebot_api.session_briefing import quote_session_brief_text
 from alicebot_api.contracts import (
     CONTINUITY_BRIEF_TYPE_ORDER,
     CONTINUITY_CORRECTION_ACTIONS,
@@ -578,22 +580,22 @@ def _render_prefetch_context_text(
 
     last_decision = _extract_prefetch_single_title(brief.get("last_decision"))
     if last_decision:
-        lines.append(f"- Last decision: {last_decision}")
+        lines.append(f"- Last decision: {quote_session_brief_text(last_decision)}")
 
     next_action = _extract_prefetch_single_title(brief.get("next_action"))
     if next_action:
-        lines.append(f"- Next action: {next_action}")
+        lines.append(f"- Next action: {quote_session_brief_text(next_action)}")
 
     open_loop_titles = _extract_prefetch_titles(brief.get("open_loops"), limit=open_loops_limit)
     if open_loop_titles:
         lines.append("- Open loops:")
-        lines.extend([f"  - {title}" for title in open_loop_titles])
+        lines.extend([f"  - {quote_session_brief_text(title)}" for title in open_loop_titles])
 
     recent_change_titles = _extract_prefetch_titles(brief.get("recent_changes"), limit=recent_changes_limit)
     if recent_change_titles:
         lines.append("- Recent changes:")
-        lines.extend([f"  - {title}" for title in recent_change_titles])
+        lines.extend([f"  - {quote_session_brief_text(title)}" for title in recent_change_titles])
 
     if len(lines) == 1:
         return ""
-    return "\n".join(lines)
+    return frame_rendered_block("\n".join(lines))

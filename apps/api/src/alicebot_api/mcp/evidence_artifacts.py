@@ -10,6 +10,7 @@ from alicebot_api.continuity_evidence import (
 )
 from alicebot_api.contracts import TemporalExplainQueryInput
 from alicebot_api.config import get_settings
+from alicebot_api.recall_framing import frame_disclosed_tree, memory_writer
 from alicebot_api.store import JsonObject
 from alicebot_api.temporal_state import get_temporal_explain
 from alicebot_api.vnext_agent_control import (
@@ -610,11 +611,22 @@ def _handle_alice_vnext_memory_audit(context: MCPRuntimeContext, arguments: Mapp
                 identity=identity,
                 chain=audit.get("supersession_chain"),
             )
-            payload = _extend_memory_audit(
+            extended = _extend_memory_audit(
                 store,
                 audit,
                 allowed_entity_ids=allowed_entity_ids,
             )
+            # Frame the stored notes a model reads. Timeline summaries and
+            # event payloads stay the audit record Alice wrote.
+            payload = dict(extended)
+            memory = extended.get("memory")
+            framed_memory = frame_disclosed_tree(memory)
+            if isinstance(memory, Mapping) and isinstance(framed_memory, dict):
+                framed_memory["writer"] = memory_writer(store, memory)
+            payload["memory"] = framed_memory
+            payload["revisions"] = frame_disclosed_tree(extended.get("revisions"))
+            payload["provenance_links"] = frame_disclosed_tree(extended.get("provenance_links"))
+            payload["supersession_chain"] = frame_disclosed_tree(extended.get("supersession_chain"))
         except _ExplainAuthorizationError as exc:
             authorization_error = exc
         except VNextMemoryCommitValidationError as exc:

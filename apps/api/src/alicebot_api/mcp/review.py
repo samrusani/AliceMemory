@@ -49,6 +49,7 @@ from alicebot_api.contracts import (
     TrustSignalType,
     TrustSignalListQueryInput,
 )
+from alicebot_api.recall_framing import frame_disclosed_tree, memory_writer, present_model_item
 from alicebot_api.store import JsonObject
 from alicebot_api.vnext_agent_control import (
     AgentPolicyBlockedError,
@@ -147,12 +148,17 @@ def _vnext_memory_review(context: MCPRuntimeContext, arguments: Mapping[str, obj
             ):
                 raise MCPToolError("memory review item is outside the effective review filters")
             else:
+                framed_memory = frame_disclosed_tree(memory)
+                if isinstance(framed_memory, dict):
+                    framed_memory["writer"] = memory_writer(store, memory)
                 payload = {
                     "mode": "vnext_detail",
                     "review": {
-                        "memory": memory,
-                        "revisions": store.list_revisions(memory_id),
-                        "provenance_links": store.list_provenance_links(target_type="memory", target_id=memory_id),
+                        "memory": framed_memory,
+                        "revisions": frame_disclosed_tree(store.list_revisions(memory_id)),
+                        "provenance_links": frame_disclosed_tree(
+                            store.list_provenance_links(target_type="memory", target_id=memory_id)
+                        ),
                     },
                 }
         if blocked_decision is not None:
@@ -210,7 +216,14 @@ def _vnext_memory_review(context: MCPRuntimeContext, arguments: Mapping[str, obj
             and str(row.get("domain") or "unknown") in decision.effective_domains
             and str(row.get("sensitivity") or "unknown") in decision.effective_sensitivity_allowed
         ][:limit]
-        items = [_compact_vnext_memory(row, provenance_count=_provenance_count(store, row.get("id"))) for row in rows]
+        items = [
+            present_model_item(
+                _compact_vnext_memory(row, provenance_count=_provenance_count(store, row.get("id"))),
+                source=row,
+                writer=memory_writer(store, row),
+            )
+            for row in rows
+        ]
     return _json_object({"items": items, "count": len(items), "mode": "vnext_candidates"})
 
 

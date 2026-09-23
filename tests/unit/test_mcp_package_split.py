@@ -154,9 +154,13 @@ def test_mcp_registry_order_definitions_and_alias_identity_are_frozen() -> None:
     # and author check on alice_memory_commit, plus S4.5's ceiling wording on
     # alice_memory_manage and S4.4's correction bounds on alice_memory_correct.
     # A refusal does not claim every outcome has provenance and a revision.
-    # Legacy is S4.4's pin: S4.5 changed no legacy tool. No tool added,
-    # removed, or renamed.
-    assert _digest(core_definitions) == "5a5c3fed0b466a81259ea56132752ffd97906e498b76256c753930bc290dc192"
+    # Legacy is S4.4's pin: S4.5 changed no legacy tool.
+    # Re-minted 2026-09-23 when recall-framing merged s4-ceiling-in-the-service.
+    # Core now has those definitions plus the framing sentences on alice_recall,
+    # alice_resume, alice_context_pack, and alice_recent_decisions, so neither
+    # earlier core pin matches. No tool added, removed, or renamed.
+    # Re-minted 2026-09-23. The framing sentence is now the SessionStart sentence.
+    assert _digest(core_definitions) == "536ab4a3da87cd96f1da2409020b7031b0dfa07803d2e9d6f8e5cc9b09cde181"
     assert _digest(legacy_definitions) == "2c21d4d624da448969554137e0b9cbae14c34cfaa0454e76d22ae480a6a29a58"
     ordered_handler_map = [(name, handler.__name__) for name, handler in handlers.items()]
     assert _digest(ordered_handler_map) == "d864c98bb914bbc6ace464fa8020b3ed264f17f2061a6101aae677d801032ae5"

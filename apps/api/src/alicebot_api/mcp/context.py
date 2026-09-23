@@ -4,6 +4,12 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from typing import TypedDict
+from alicebot_api.recall_framing import (
+    present_model_item,
+    present_model_items,
+    writer_for_recent_change,
+    writer_for_returned_item,
+)
 from alicebot_api.store import JsonObject
 from alicebot_api.vnext_agent_control import PolicyDecision
 from alicebot_api.vnext_context_tree import (
@@ -104,20 +110,104 @@ def _compact_items(items: object, fields: tuple[str, ...]) -> list[JsonObject]:
     return [_compact_fields(item, fields) for item in items]
 
 
+def _present_stored_rows(items: object) -> list[object]:
+    """Frame a debug section of stored rows and attach each writer."""
+
+    if not isinstance(items, list):
+        return []
+    presented: list[object] = []
+    for item in items:
+        if not isinstance(item, Mapping):
+            presented.append(item)
+            continue
+        presented.append(present_model_item(item, source=item, writer=_stamped_writer(item)))
+    return presented
+
+
+def _present_compact_items(items: object, fields: tuple[str, ...]) -> list[JsonObject]:
+    """Compact a pack section, then frame its text and attach writer.
+
+    Writer is read from the pre-compact row. For a memory, that is the
+    latest text-changing revision, not the identity left on the original
+    commit. The compact copy is what the tool returns.
+    """
+
+    if not isinstance(items, list):
+        return []
+    presented: list[JsonObject] = []
+    for item in items:
+        if not isinstance(item, Mapping):
+            presented.append(present_model_item(_compact_fields(item, fields)))
+            continue
+        presented.append(
+            present_model_item(
+                _compact_fields(item, fields),
+                source=item,
+                writer=_stamped_writer(item),
+            )
+        )
+    return presented
+
+
+def _stamped_writer(item: Mapping[str, object]) -> dict[str, str] | None:
+    writer = item.get("writer")
+    if not isinstance(writer, Mapping):
+        return None
+    writer_id = writer.get("id")
+    established = writer.get("established")
+    if not isinstance(writer_id, str) or not isinstance(established, str):
+        return None
+    return {"id": writer_id, "established": established}
+
+
+def _stamp_pack_writers(store: object, pack: Mapping[str, object]) -> None:
+    """Attach writer on the compiled pack after the budget has already run."""
+
+    for section in (
+        "relevant_memories",
+        "decisions",
+        "procedures",
+        "relevant_beliefs",
+        "current_known_state",
+        "open_loops",
+        "sources",
+    ):
+        rows = pack.get(section)
+        if not isinstance(rows, list):
+            continue
+        for row in rows:
+            if isinstance(row, dict) and "writer" not in row:
+                row["writer"] = writer_for_returned_item(store, row)
+    changes = pack.get("recent_changes")
+    if isinstance(changes, list):
+        for change in changes:
+            if isinstance(change, dict) and "writer" not in change:
+                change["writer"] = writer_for_recent_change(store, change)
+
+
 def _handle_alice_context_pack(context: MCPRuntimeContext, arguments: Mapping[str, object]) -> JsonObject:
     debug = _parse_bool(arguments, key="debug", default=False)
     pack = _vnext_context_pack_payload(context, arguments)
     interpretation = pack.get("query_interpretation")
     if not isinstance(interpretation, Mapping):
         interpretation = {}
+    return _frame_context_pack_tool(pack, interpretation, debug=debug)
+
+
+def _frame_context_pack_tool(
+    pack: Mapping[str, object],
+    interpretation: Mapping[str, object],
+    *,
+    debug: bool,
+) -> JsonObject:
     payload: dict[str, object] = {
         "context_pack_id": pack.get("context_pack_id"),
         "query": interpretation.get("query"),
         "query_type": interpretation.get("query_type"),
-        "memories": _compact_items(pack.get("relevant_memories"), _COMPACT_MEMORY_FIELDS),
-        "open_loops": _compact_items(pack.get("open_loops"), _COMPACT_OPEN_LOOP_FIELDS),
-        "sources": _compact_items(pack.get("sources"), _COMPACT_SOURCE_FIELDS),
-        "supporting_evidence": pack.get("supporting_evidence", []),
+        "memories": _present_compact_items(pack.get("relevant_memories"), _COMPACT_MEMORY_FIELDS),
+        "open_loops": _present_compact_items(pack.get("open_loops"), _COMPACT_OPEN_LOOP_FIELDS),
+        "sources": _present_compact_items(pack.get("sources"), _COMPACT_SOURCE_FIELDS),
+        "supporting_evidence": present_model_items(pack.get("supporting_evidence", [])),
         "missing_information": pack.get("missing_information", []),
         "warnings": pack.get("warnings", []),
         "trace_id": pack.get("trace_id"),
@@ -132,13 +222,22 @@ def _handle_alice_context_pack(context: MCPRuntimeContext, arguments: Mapping[st
         payload["entities"] = entities
     contradictions = pack.get("contradicting_evidence")
     if isinstance(contradictions, list) and contradictions:
-        payload["contradicting_evidence"] = contradictions
+        payload["contradicting_evidence"] = present_model_items(contradictions)
     recent_changes = pack.get("recent_changes")
     if isinstance(recent_changes, list) and recent_changes:
-        payload["recent_changes"] = recent_changes
+        payload["recent_changes"] = [
+            present_model_item(
+                change,
+                source=change,
+                writer=_stamped_writer(change),
+            )
+            if isinstance(change, Mapping)
+            else change
+            for change in recent_changes
+        ]
     supersession_context = pack.get("supersession_context")
     if isinstance(supersession_context, list) and supersession_context:
-        payload["supersession_context"] = supersession_context
+        payload["supersession_context"] = present_model_items(supersession_context)
     derived_values = pack.get("derived_values")
     if isinstance(derived_values, Mapping) and derived_values:
         # Deterministic temporal computations are not reconstructable from the
@@ -159,7 +258,7 @@ def _handle_alice_context_pack(context: MCPRuntimeContext, arguments: Mapping[st
         payload["query_interpretation"] = dict(interpretation)
         payload["trace"] = pack.get("trace")
         for section in ("procedures", "decisions", "relevant_beliefs", "current_known_state"):
-            payload[section] = pack.get(section, [])
+            payload[section] = _present_stored_rows(pack.get(section, []))
     _attach_compact_context_pack_token_report(payload, pack)
     return _json_object(payload)
 
@@ -306,6 +405,7 @@ def _vnext_context_pack_payload(context: MCPRuntimeContext, arguments: Mapping[s
                     **request_kwargs,
                 )
             )
+            _stamp_pack_writers(store, payload)
     if blocked_decision is not None:
         _raise_mcp_policy_blocked(blocked_decision)
     if payload is None:

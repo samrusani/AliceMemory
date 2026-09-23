@@ -29,7 +29,8 @@ from alicebot_api.contracts import (
     TRACE_KIND_RESPONSE_GENERATE,
     TraceEventRecord,
 )
-from alicebot_api.store import ContinuityStore, JsonObject
+from alicebot_api.session_briefing import SESSION_BRIEF_FRAME, quote_session_brief_text
+from alicebot_api.store import ContinuityStore, JsonObject, JsonValue
 
 PROMPT_TRACE_EVENT_KIND = "response.prompt.assembled"
 MODEL_COMPLETED_TRACE_EVENT_KIND = "response.model.completed"
@@ -148,6 +149,45 @@ def _context_section_payload(context_pack: CompiledContextPack) -> JsonObject:
     )
 
 
+def _quote_runtime_note(value: object) -> object:
+    """Quote stored strings. Mapping keys and ids stay as stored."""
+
+    if isinstance(value, str):
+        return quote_session_brief_text(value) if value.strip() else value
+    if isinstance(value, list):
+        return [_quote_runtime_note(item) for item in value]
+    if isinstance(value, dict):
+        return {str(key): _quote_runtime_note(child) for key, child in value.items()}
+    return value
+
+
+def _frame_runtime_context_section(payload: JsonObject) -> str:
+    """Frame the context section sent to a model by ``/v1/runtime/invoke``.
+
+    The compiler pack is not rewritten. This copy quotes memory ``value``
+    text and artifact-chunk prose, then puts the framing line above the JSON.
+    """
+
+    framed = dict(payload)
+    memories = payload.get("memories")
+    if isinstance(memories, list):
+        quoted_memories: list[JsonValue] = []
+        for memory in memories:
+            if not isinstance(memory, dict):
+                quoted_memories.append(cast(JsonValue, memory))
+                continue
+            copied = dict(memory)
+            if "value" in copied:
+                copied["value"] = cast(JsonValue, _quote_runtime_note(copied["value"]))
+            quoted_memories.append(cast(JsonValue, copied))
+        framed["memories"] = quoted_memories
+    chunks = payload.get("artifact_chunks")
+    if isinstance(chunks, list):
+        framed["artifact_chunks"] = cast(JsonValue, _quote_runtime_note(chunks))
+    body = _deterministic_json(cast(JsonObject, framed))
+    return f"{SESSION_BRIEF_FRAME}\n{body}"
+
+
 def assemble_prompt(
     *,
     request: PromptAssemblyInput,
@@ -158,7 +198,7 @@ def assemble_prompt(
         PromptSection(name="developer", content=request.developer_instruction),
         PromptSection(
             name="context",
-            content=_deterministic_json(_context_section_payload(request.context_pack)),
+            content=_frame_runtime_context_section(_context_section_payload(request.context_pack)),
         ),
         PromptSection(
             name="conversation",
