@@ -79,7 +79,10 @@ The records are present: inspect stderr and the target path, and do not
 blindly retry.
 
 `--quarantine` is the owner's recovery path when a backup holds a credential
-and the source vault is gone. It is not a way to import that credential.
+and the source vault is gone. It removes the credential from the named
+memory and from the records derived from it, and it reports any other copies
+it finds. `--db` is a SQLite file path. A Postgres URL is refused and no
+file is written.
 
 ```bash
 alice-memory import \
@@ -94,32 +97,56 @@ including when the flag names an id that is not in the file. An id that is
 not a memory record in a valid file is an error and nothing is written.
 
 Each named memory is stored with status `rejected`. Recall, resume, and a
-context pack do not return that row. The row is kept. Title, canonical text,
-summary, trust reason, fact keys, every string inside `value`, and every
-string inside `metadata_json` (including correction history `previous_text`)
-are replaced by the fixed placeholder `[quarantined on import]`. The same
-placeholder replaces `text_before`, `text_after`, and `reason` on every
-revision of that memory, and every string inside that revision's
-`previous_value`, `new_value`, `candidate`, and `metadata_json`. Revision
-rows stay, because `memory_revisions.memory_id` is a required foreign key.
-Every string inside the payload of every event that belongs to the memory
-is replaced the same way. An event belongs to the memory when its target is
-that memory, or when its payload `memory_id` or `candidate_memory_id` is
-that memory's id. Object keys are left in place so the JSON object stays
-valid. `commit_digest` on the memory is kept. It is the caller's idempotency
-key, not a hash of the memory text, so a guess of the removed text cannot
-be checked against it. `integrity_hash` on those events is cleared. It is a
-SHA-256 of the event record, including the payload, so a reconstructed
-original payload could be checked against a kept hash. Column ids,
-`memory_key`, `target_id`, and column timestamps stay. Strings inside JSON,
-including timestamps and ids stored as text, are replaced with
-`[quarantined on import]`. Source text,
-provenance quotes, open-loop titles, and graph explanations are not
-rewritten. A credential that also sits in those records is still imported.
-Every other record is imported exactly as it is without the flag.
+context pack do not return that row. The row is kept. What survives on that
+row is its ids, its status, its timestamps, and numeric columns outside
+JSON. `memory_key` becomes `quarantined.<memory_id>`. `commit_digest` is
+cleared, matching product redaction, so a later commit with the old
+idempotency key creates a fresh row through the normal checks.
+`extracted_by_model` is replaced. Title, canonical text, summary, trust
+reason, and fact keys become the fixed placeholder
+`[quarantined on import]`. `value` and `metadata_json` become
+`{"quarantined": true}`.
+
+The same placeholder replaces `text_before`, `text_after`, and `reason` on
+every revision of that memory, and that revision's `memory_key` becomes
+`quarantined.<memory_id>`. The four revision JSON columns (`previous_value`,
+`new_value`, `candidate`, and `metadata_json`) become
+`{"quarantined": true}` when they were present, and stay null when they were
+null. Revision rows stay, because `memory_revisions.memory_id` is a required
+foreign key.
+
+Every event that belongs to the memory has its payload replaced with
+`{"quarantined": true}`. The payload keeps `memory_id` and
+`candidate_memory_id` when those values are a quarantined id, so explain
+and a later redact can still link the event. An event belongs to the memory
+when its target is that memory, or when its payload `memory_id`,
+`candidate_memory_id`, or `replacement_memory_id` is that memory's id.
+`integrity_hash` on those events is cleared. It is a SHA-256 of the event
+record, including the payload, so a reconstructed original payload could be
+checked against a kept hash.
+
+Records that exist only because of the named memory are rewritten with the
+same placeholder, and each is counted on the receipt:
+
+- `provenance_links.quote`, where `target_type` is `memory` and the target
+  is a named id
+- that memory's open loops (title, description, and resolution note)
+- graph edges that touch it (the explanation, and metadata set to
+  `{"quarantined": true}`)
+- names of entities linked only to quarantined memories (`name`,
+  `normalized_name`, and `aliases`)
+- rollup instance entries whose `memory_id` is a named id
+- on a successor, the copied `rationale`, `idempotency_key`, and
+  `request_fingerprint`. The successor's own title and text stay.
+
+Shared source chunks are not rewritten. Shared entity names are not
+rewritten. The receipt reports each of those as table, id, and column, then
+the command that removes the record, or `no command removes this today`. It
+does not print the text. A scan of every other imported text column waits
+until the credential check is available to this command.
 
 On success the exit code is 0. The receipt lists the quarantined ids and
-the memory, revision, and event counts. It does not print the removed text.
+the counts. It does not print the removed text.
 
 A second import of the same file with the same `--quarantine` list follows
 `--mode skip` (the default). The stored rows already match the redacted
@@ -138,7 +165,7 @@ embedding vectors, and soft-deleted content. References from retained rows to
 omitted soft-deleted parents are nulled where nullable; graph edges whose
 known endpoints were omitted are excluded. Historical event ids, timestamps,
 and integrity hashes are inserted verbatim, except an event quarantined with
-a memory: its payload strings are replaced and its integrity hash is cleared.
+a memory: its payload is replaced and its integrity hash is cleared.
 The restored rows are rebound to
 the importing local user. Configure the intended embedding endpoint and run:
 

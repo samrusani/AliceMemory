@@ -80,6 +80,9 @@ _ONRAMP_ERROR_MESSAGES = {
     "import_snapshot_failed": "The import file could not be read into a stable snapshot",
     "import_validation_failed": "The import file is invalid or incompatible",
     "import_quarantine_unknown": "A --quarantine memory id is not in the import file",
+    "sqlite_db_path_required": (
+        "alice-memory --db takes a SQLite file path. A Postgres URL is not a database file."
+    ),
     "invalid_request": "The command request is invalid",
     "restore_failed": "The import was aborted before publication; no records were written",
     "restore_committed_hardening_failed": (

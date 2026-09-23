@@ -2,20 +2,29 @@
 
 ## Unreleased
 
-- `alice-memory import --quarantine <memory_id>[,<memory_id>...]` is the
-  owner's recovery path when a backup holds a credential and the source
-  vault is gone. It is not a way to import that credential. The SHA-256
-  footer is checked on the file as given. An id that is not a memory in
-  the file is an error and nothing is written. Each named memory is stored
-  with status `rejected`, so recall, resume, and a context pack do not
-  return it. Title, canonical text, summary, trust reason, fact keys, the
-  strings inside `value` and `metadata_json`, and the same text on that
-  memory's revisions and events are replaced by `[quarantined on import]`.
-  Revision rows are kept. The receipt lists the quarantined ids and counts,
-  not the removed text. A second import of the same file with the same ids
-  skips those identical rows under the default `--mode skip`. Importing the
-  same file again without the flag aborts and leaves the rejected row in
-  place. The command restores SQLite only.
+- `alice-memory import --quarantine <memory_id>[,<memory_id>...]` removes
+  the credential from the named memory and from the records derived from
+  it, and reports any other copies it finds. The SHA-256 footer is checked
+  on the file as given. An id that is not a memory in the file is an error
+  and nothing is written. Each named memory is stored with status
+  `rejected`, so recall, resume, and a context pack do not return it.
+  What survives is ids, status, timestamps, and numeric columns outside
+  JSON. `memory_key` becomes `quarantined.<memory_id>`, `commit_digest`
+  is cleared, and `extracted_by_model` is replaced. Text fields become
+  `[quarantined on import]`. `value`, `metadata_json`, the four revision
+  JSON columns, and event payloads become `{"quarantined": true}`. An
+  event payload keeps `memory_id` and `candidate_memory_id` when they name
+  a quarantined memory, so a later redact can still update that event.
+  Provenance quotes, open loops, graph edges, exclusive entity names,
+  rollup instances, and copied successor fields are rewritten and counted.
+  Shared source chunks and shared entity names are reported and left in
+  place. A later commit with the old idempotency key creates a fresh row
+  through the normal checks. The receipt lists ids and counts, not the
+  removed text. A second import of the same file with the same ids skips
+  those identical rows under the default `--mode skip`. Importing the same
+  file again without the flag aborts and leaves the rejected row in place.
+  `--db` is a SQLite file path. A Postgres URL is refused. The command
+  restores SQLite only.
 
 ## v0.16.0 — 2026-08-19
 
