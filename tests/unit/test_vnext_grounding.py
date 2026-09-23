@@ -101,8 +101,8 @@ def test_contractions_possessives_and_weekday_plurals_are_handled() -> None:
 
 
 def test_domain_and_dedupe_and_appearance_order() -> None:
-    names = salient_query_entities("Did Marcus Chen move type3.capital to Lisbon? Ask Marcus Chen.")
-    assert names == ("Marcus Chen", "type3.capital", "Lisbon")
+    names = salient_query_entities("Did Marcus Chen move northwind.example to Lisbon? Ask Marcus Chen.")
+    assert names == ("Marcus Chen", "northwind.example", "Lisbon")
 
 
 # -- salience: attribute-qualified lowercase compounds (round 3) ---------------------
@@ -241,13 +241,13 @@ def test_corpus_support_matches_entity_aliases_on_sqlite(conn) -> None:
     store.create_entity(
         {
             "entity_type": "person",
-            "name": "Sami Rusani",
-            "normalized_name": "sami rusani",
-            "aliases": ["dr sami rusani"],
+            "name": "Jane Doe",
+            "normalized_name": "jane doe",
+            "aliases": ["dr jane doe"],
         }
     )
-    support = corpus_support(("Dr Sami Rusani",), store)
-    assert support == {"Dr Sami Rusani": True}
+    support = corpus_support(("Dr Jane Doe",), store)
+    assert support == {"Dr Jane Doe": True}
 
 
 def test_partial_token_mention_counts_as_support_on_sqlite(conn) -> None:

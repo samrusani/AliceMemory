@@ -43,6 +43,9 @@ dev = [
   "mypy>=1.16,<3.0",
   "pytest>=8.3,<10.0",
   "pytest-cov>=6.2,<8.0",
+  # Test oracle only: Hermes reads config.yaml with PyYAML, so the Hermes
+  # install tests judge the written file with it. Runtime code never imports it.
+  "pyyaml>=6.0,<7.0",
   "ruff>=0.12,<1.0",
   "twine>=6.1,<8.0",
   "virtualenv>=20.32,<22.0",

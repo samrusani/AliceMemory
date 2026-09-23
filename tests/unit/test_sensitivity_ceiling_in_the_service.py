@@ -758,6 +758,67 @@ def test_unauthorized_confirm_of_a_finished_row_is_an_author_refusal(
     assert RESOLVER_REASON in blocked[-1]["payload_json"]["policy_decision"]["reasons"]
 
 
+def test_authorized_reject_keeps_the_credential_placeholder(tmp_path: Path) -> None:
+    """An authorized reject stores S4.4's placeholder, not the credential text.
+
+    The author passes authorization and the ceiling. The credential check
+    still replaces the rationale and says so.
+    """
+
+    from alicebot_api.credential_floor import RATIONALE_WITHHELD_PLACEHOLDER
+    from alicebot_api.mcp_tools import _sqlite_path_from_url
+    from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
+    from alicebot_api.vnext_agent_control import AgentIdentity
+    from alicebot_api.vnext_memory_commit import VNextMemoryCommitService, memory_commit_request_from_payload
+
+    context = _context(tmp_path)
+    author = AgentIdentity(
+        agent_id="hermes",
+        agent_type="personal_assistant",
+        permission_profile="trusted_local_agent",
+    )
+    credential = _credential_assignment()
+    rationale = f"stop, {credential}"
+
+    def reject(store):
+        service = VNextMemoryCommitService(store)
+        pending = service.commit(
+            identity=author,
+            request=memory_commit_request_from_payload(
+                {
+                    "title": "Pending note",
+                    "canonical_text": "Deploys stay on Tuesdays.",
+                    "domain": "personal",
+                    "sensitivity": "private",
+                    "confidence": 0.7,
+                },
+                user_id=USER_ID,
+            ),
+        )
+        assert pending["status"] == "confirmation_required", pending
+        rejected = service.confirm(
+            identity=author,
+            confirmation_id=str(pending["confirmation_id"]),
+            action="reject",
+            rationale=rationale,
+        )
+        tables: dict[str, str] = {}
+        for table in ("memories", "memory_revisions", "event_log"):
+            rows = store.conn.execute(f"SELECT * FROM {table}").fetchall()
+            tables[table] = json.dumps(rows, default=str)
+        return rejected, tables
+
+    with sqlite_user_connection(_sqlite_path_from_url(context.database_url), USER_ID) as conn:
+        rejected, tables = reject(SQLiteVNextStore(conn, USER_ID))
+
+    assert rejected.get("status") == "rejected"
+    assert rejected.get("rationale_withheld") is True
+    assert RATIONALE_WITHHELD_PLACEHOLDER in tables["memory_revisions"]
+    for table, blob in tables.items():
+        assert credential not in blob, table
+        assert rationale not in blob, table
+
+
 def test_agentic_memory_commit_smoke_keeps_private_health_and_refuses_confidential(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

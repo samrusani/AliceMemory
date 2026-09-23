@@ -180,7 +180,9 @@ SEMANTIC_EVAL_CANONICAL_CORPUS_DIGESTS = {
     "correction_suppression": "sha256:96ec73e5ee4105d924663a9c7f2360c731a0c83546ef761359ef8870eb83c6c3",
     "decision_recovery": "sha256:c09a71a13b935a874d85321d9f334a1250f2dce693de2a2da0d73729ee6095a1",
     "provenance_explanation": "sha256:35ca3444929f1f883c341ec422d182abd8feb32a2e1bded14b7d4bef218b5ff1",
-    "entity_resolution": "sha256:acc0f71730c0aade44d6b43399967c1ce85879c06dacb1ff8a69683dd623f83d",
+    # 2026-09-23: re-pinned after the corpus replaced the owner's real name with
+    # "Jane Doe" (public-repo hygiene). Same cases, same expected outcomes.
+    "entity_resolution": "sha256:68aac32a78d98fbb12048f7ba7be731c791a2abc18035f9b0c4f70380b96808f",
     "graph_hop_retrieval": "sha256:4eda30203183a55ef8326ddaf33cc62974b158bbdc0601ebc541f6614b2de605",
 }
 

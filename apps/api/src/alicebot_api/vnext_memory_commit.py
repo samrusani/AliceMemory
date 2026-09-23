@@ -5,7 +5,6 @@ from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 import json
 import logging
-import re
 from typing import Callable, Mapping, cast
 from uuid import UUID, uuid4
 
@@ -52,15 +51,26 @@ from alicebot_api.vnext_lifecycle import (
     supersession_would_cycle,
 )
 from alicebot_api.vnext_memory_version import memory_matches_snapshot
+from alicebot_api.write_bounds import (
+    MAX_COMMIT_SOURCE_REF_CHARS as _MAX_COMMIT_SOURCE_REF_CHARS,
+    MAX_COMMIT_SOURCE_REFS as _MAX_COMMIT_SOURCE_REFS,
+)
+from alicebot_api.credential_floor import (
+    SECRET_PREFIX_PATTERNS as SECRET_PREFIX_PATTERNS,
+    TEXT_WITHHELD_PLACEHOLDER,
+    VERDICT_CREDENTIAL,
+    VERDICT_EXPANSION,
+    credential_verdict,
+    refuse_credential_activation,
+    withhold_credential_text,
+)
+from alicebot_api.legacy_credential_check import commit_gate_refuses as legacy_commit_gate_refuses
 from alicebot_api.vnext_promotion_policy import (
     PromotionCandidate,
     PromotionDecision,
     PromotionSettings,
     PromotionSettingsValidationError,
-    SECRET_ASSIGNMENT_PATTERN,
     evaluate_promotion,
-    looks_like_credential,
-    looks_like_secret_value,
     resolve_promotion_settings,
     writer_trust_for,
 )
@@ -238,24 +248,20 @@ EXPIRE_BLOCKED_STATUSES = ("superseded", "rejected")
 # NULL. Stores that grow a real clear_memory_valid_to seam make this
 # sentinel unnecessary; until then it is recorded in metadata_json.validity.
 VALID_TO_UNBOUNDED_SENTINEL = "9999-12-31T23:59:59Z"
-# Self-identifying credentials: the value itself announces what it is. These
-# only count when they start a token and are followed by key-shaped material,
-# because as bare substrings they read "task-list" as an `sk-` key and a person
-# named "Akia" as an AWS key id.
-SECRET_PREFIX_PATTERNS = (
-    re.compile(r"(?<![0-9a-z])sk-[0-9a-z_-]{8,}"),
-    re.compile(r"(?<![0-9a-z])ghp_[0-9a-z]{8,}"),
-    re.compile(r"(?<![0-9a-z])xoxb-[0-9a-z-]{8,}"),
-    re.compile(r"(?<![0-9a-z])akia[0-9a-z]{12,}"),
-    re.compile(r"-----begin(?: [a-z]+)* private key-----"),
-)
+# SECRET_PREFIX_PATTERNS moved to alicebot_api.credential_floor, the one
+# credential check that commit, confirm and correct call. Re-exported above
+# so the name still resolves here.
 
-# SECRET_ASSIGNMENT_PATTERN and looks_like_secret_value are imported from
-# vnext_promotion_policy rather than defined twice. The floor needs the
-# same rule and cannot import from here without a cycle, and two copies of
-# "is this an assignment of a secret" is exactly how the two guards drifted
-# apart in the first place. Re-exported here so the name still resolves on
-# this module.
+# source_refs are persisted on the row, replayed into context packs, and
+# scanned by the credential floor, so an unbounded list was both a storage
+# and a scan-time problem (the 2026-09-03 dump measured 33.9 s for a single
+# element against the old quadratic assignment regex). The HTTP model and the
+# MCP schema carry the same bounds; this is the one every caller of the
+# service meets.
+# Defined once, in write_bounds, so the HTTP model and the MCP schemas read
+# the same numbers; re-exported here, where the one enforcer lives.
+MAX_COMMIT_SOURCE_REFS = _MAX_COMMIT_SOURCE_REFS
+MAX_COMMIT_SOURCE_REF_CHARS = _MAX_COMMIT_SOURCE_REF_CHARS
 
 
 class VNextMemoryCommitValidationError(ValueError):
@@ -456,80 +462,90 @@ def _object_tuple(value: object) -> tuple[object, ...]:
         return ()
     if not isinstance(value, (list, tuple)):
         raise VNextMemoryCommitValidationError("source_refs must be an array")
+    if len(value) > MAX_COMMIT_SOURCE_REFS:
+        raise VNextMemoryCommitValidationError(
+            f"source_refs must hold at most {MAX_COMMIT_SOURCE_REFS} entries"
+        )
+    for ref in value:
+        # A string ref is measured as sent (owner ruling R4): measuring its
+        # JSON form counted every quote and newline twice, so a 2,100
+        # character ref of quotes was refused. Any other ref is measured by
+        # its serialized length.
+        size = len(ref) if isinstance(ref, str) else len(json.dumps(json_safe(ref), ensure_ascii=False))
+        if size > MAX_COMMIT_SOURCE_REF_CHARS:
+            raise VNextMemoryCommitValidationError(
+                f"each source_ref must be at most {MAX_COMMIT_SOURCE_REF_CHARS} characters"
+            )
     return tuple(value)
 
 
-def _contains_secret_marker(text: str) -> bool:
-    """Whether one text carries credential-shaped material.
-
-    Delegates to the promotion floor's detector so the two guards cannot
-    drift apart. They had: measured on eleven real credential shapes, this
-    path caught four and the floor caught ten, so six genuine secrets were
-    accepted outright by the guard whose job is to refuse them, and on an
-    unconfigured deployment the floor never runs to catch them. The floor
-    also normalises, which this path did not, so a zero-width space or a
-    fullwidth "s" defeated it.
-
-    The prefix patterns and the assignment rule are still consulted after it,
-    so this stays a strict superset rather than a replacement whose coverage
-    has to be argued. The two are complementary, not redundant: the floor
-    normalises and decodes, which catches unicode, zero-width and fullwidth
-    defeats; the assignment rule reads a secret-shaped name followed by a
-    real value, which catches X_API_TOKEN= and PGPASSWORD=. Neither catches
-    the other's set.
-    """
-
-    if looks_like_credential(text):
-        return True
-    folded = text.casefold()
-    if any(pattern.search(folded) for pattern in SECRET_PREFIX_PATTERNS):
-        return True
-    return any(
-        looks_like_secret_value(match.group("value"))
-        for match in SECRET_ASSIGNMENT_PATTERN.finditer(text)
-    )
-
-
-def _flatten_text(value: object) -> list[str]:
-    """Every string reachable inside a caller-supplied structure, keys included."""
-    if isinstance(value, str):
-        return [value]
-    if isinstance(value, Mapping):
-        flattened: list[str] = []
-        for key, item in value.items():
-            if isinstance(key, str):
-                flattened.append(key)
-                # Keep the pair adjacent as well. A credential is recognised by
-                # a secret-shaped name next to its value, and flattening a
-                # mapping into separate strings would break exactly that.
-                if isinstance(item, (str, int, float)):
-                    flattened.append(f"{key}={item}")
-            flattened.extend(_flatten_text(item))
-        return flattened
-    if isinstance(value, (list, tuple)):
-        flattened = []
-        for item in value:
-            flattened.extend(_flatten_text(item))
-        return flattened
-    if value is None:
-        return []
-    return [str(value)]
-
-
-def _request_contains_secret_marker(request: MemoryCommitRequest) -> bool:
-    """Scan every caller-supplied text field, not just the canonical body.
+def _request_contains_secret_marker(request: MemoryCommitRequest) -> str | None:
+    """Scan every persisted caller field; the credential floor's verdict or None.
 
     A credential pasted into the title, excerpt, rationale, or source refs is
     stored and later returned inside context packs exactly like body text, so
     guarding one field only moves the leak rather than closing it.
+
+    Until 2026-09-22 this scanned each field on its own, so a key split
+    across the title and the body ("id AK" + "IAIOSFODNN7EXAMPLE ...")
+    committed active while the promotion floor, which joins the fields,
+    would have caught it. It now delegates to the credential floor, in the
+    floor's reading order: title, body, free text, structured values, then
+    the persisted identifiers (idempotency_key, trace_id and project_scope,
+    read by value only). A key planted in an identifier is stored and
+    replayed like any other field.
+
+    Then v0.16.0's own check (S4.4 round 5, ruling H1). This is one of the
+    two doors v0.16.0 checked, and the floor's name grammar reads only the
+    last segment of a name, so PASSWORD_DB=, TOKEN_GITHUB=, API_KEY_RAW= and
+    GITHUB_TOKEN_WRITE= with real values, which v0.16.0 refused here, were
+    stored. The request is refused when the floor refuses OR when v0.16.0's
+    check, re-implemented in linear time over the fields v0.16.0 read, finds
+    something no carve-out excuses (see legacy_credential_check).
     """
-    fields = [request.title, request.canonical_text]
-    if request.conversation_excerpt:
-        fields.append(request.conversation_excerpt)
-    if request.rationale:
-        fields.append(request.rationale)
-    fields.extend(_flatten_text(request.source_refs))
-    return any(_contains_secret_marker(value) for value in fields)
+
+    verdict = credential_verdict(
+        request.title,
+        request.canonical_text,
+        request.conversation_excerpt,
+        request.source_refs,
+        request.rationale,
+        request.idempotency_key,
+        request.trace_id,
+        list(request.project_scope),
+    )
+    if verdict is not None:
+        return verdict
+    if legacy_commit_gate_refuses(
+        request.title,
+        request.canonical_text,
+        request.conversation_excerpt,
+        request.rationale,
+        request.source_refs,
+    ):
+        return VERDICT_CREDENTIAL
+    return None
+
+
+def _withheld_history(entries: list[object]) -> tuple[list[object], bool]:
+    """Carried-forward history entries with any credential reason withheld.
+
+    Owner ruling R2: when a writer rebuilds validity.history or
+    lifecycle_history, the entries it carries forward pass through the same
+    withhold helper as the new reason, so a reason stored before the floor
+    existed does not ride along into the rewritten row.
+    """
+
+    carried: list[object] = []
+    withheld_any = False
+    for entry in entries:
+        if isinstance(entry, Mapping) and isinstance(entry.get("reason"), str):
+            reason, withheld = withhold_credential_text(str(entry["reason"]))
+            if withheld:
+                entry = {**entry, "reason": reason}
+                withheld_any = True
+        carried.append(entry)
+    return carried, withheld_any
 
 
 def _source_ref_values(value: object) -> list[str]:
@@ -755,6 +771,8 @@ def promotion_candidate_for_request(
         source_refs=tuple(request.source_refs),
         contradiction_refs=tuple(request.contradiction_refs),
         conversation_excerpt=request.conversation_excerpt,
+        rationale=request.rationale,
+        project_scope=tuple(request.project_scope),
         written_by_agent=identity is not None,
     )
 
@@ -784,8 +802,10 @@ def evaluate_memory_commit_policy(
         reasons.append("agent_policy_blocked")
         mode = "reject"
         status = "rejected"
-    elif _request_contains_secret_marker(request):
-        reasons.append("unsafe_secret_storage")
+    elif (secret_verdict := _request_contains_secret_marker(request)) is not None:
+        reasons.append(
+            "unsafe_text_expansion" if secret_verdict == VERDICT_EXPANSION else "unsafe_secret_storage"
+        )
         mode = "reject"
         status = "rejected"
     elif request.intent.casefold() not in EXPLICIT_MEMORY_INTENTS:
@@ -1273,7 +1293,8 @@ class VNextMemoryCommitService:
             if locked is None:
                 raise VNextMemoryCommitValidationError("confirmation was not found")
             memory = locked
-        # Authorization first, then the pending check, then the ceiling.
+        # Authorization first, then the pending check, then the ceiling,
+        # then S4.4's credential check on the accept or reject write.
         # An unauthorized caller is refused with an audit event and is not
         # told whether the row is pending. An authorized confirm of a row
         # that is not pending still raises before any write.
@@ -1410,6 +1431,28 @@ class VNextMemoryCommitService:
             event_type = "agent.memory_confirmed"
             revision_type = "corrected" if normalized_action == "edit" else "promoted"
 
+        # The credential floor, before anything is written. Until 2026-09-22
+        # confirm(action=edit), and confirm with canonical_text, rewrote the
+        # row's text with no credential check, so a secret the commit gate
+        # rejects became active here. An accept is an activation: the shared
+        # activation check reads the title, text and summary the row will
+        # carry once active, plus the rationale persisted with it (ruling C2).
+        # A reject always completes (ruling C6): a rationale, or a
+        # caller-supplied canonical_text, that carries credential material is
+        # stored as a fixed placeholder and the response says so.
+        rationale_withheld = False
+        text_withheld = False
+        if next_status == "active":
+            title_after = next_text[:120] if normalized_action == "edit" else str(memory.get("title") or "")
+            refuse_credential_activation(
+                title_after, next_text, next_text[:280], rationale, error=VNextMemoryCommitValidationError
+            )
+        else:
+            rationale, rationale_withheld = withhold_credential_text(rationale)
+            if canonical_text is not None:
+                withheld_text, text_withheld = withhold_credential_text(next_text, TEXT_WITHHELD_PLACEHOLDER)
+                next_text = withheld_text or ""
+
         agentic["confirmation"] = confirmation
         agentic["status"] = response_status
         agentic["lifecycle_status"] = "inline_confirmed" if next_status == "active" else "confirmation_rejected"
@@ -1476,12 +1519,16 @@ class VNextMemoryCommitService:
             trace_id=str(agentic.get("trace_id") or ""),
             payload={"confirmation_id": confirmation_id, "action": normalized_action, "status": response_status},
         )
-        return {
+        response: JsonObject = {
             "status": response_status,
             "write_mode": "confirm_inline",
             "confirmation_id": confirmation_id,
             "memory": updated,
         }
+        if next_status != "active":
+            response["rationale_withheld"] = rationale_withheld
+            response["text_withheld"] = text_withheld
+        return response
 
     def _replay_confirmation(
         self,
@@ -1603,7 +1650,10 @@ class VNextMemoryCommitService:
                 raise VNextMemoryCommitValidationError("a memory cannot supersede itself")
             _require_project_update_decision_path(successor)
             self._policy_checked_write(identity=identity, action="memory.undo", memory=successor)
-        return self._transition_memory(
+        # A retirement always completes (owner ruling R2): a reason carrying
+        # credential material is stored as the fixed placeholder.
+        reason_text, rationale_withheld = withhold_credential_text(reason or "Agentic memory commit undone.")
+        result = self._transition_memory(
             identity=identity,
             memory=memory,
             operation=UNDO,
@@ -1612,9 +1662,11 @@ class VNextMemoryCommitService:
             event_type="agent.memory_undone",
             revision_type="superseded",
             action="agentic_memory_undo",
-            reason=reason or "Agentic memory commit undone.",
+            reason=reason_text or "Agentic memory commit undone.",
             superseded_by=successor,
         )
+        result["rationale_withheld"] = rationale_withheld or bool(result.get("rationale_withheld"))
+        return result
 
     def correct(
         self,
@@ -1643,6 +1695,16 @@ class VNextMemoryCommitService:
                 "consolidation candidates must be approved through accept_consolidation"
             )
         next_text = _normalized_text(canonical_text, field_name="canonical_text")
+        # The credential floor, before anything is written, on the row as it
+        # will be stored. Until 2026-09-22 correct() rewrote title and text
+        # with no credential check, so a secret the commit gate rejects was
+        # stored active and recalled. A correction leaves the row active, so
+        # it is an activation: title and summary are derived from the new
+        # text and dropped as copies; the reason is persisted in the
+        # corrections history and the revision, so it is read with the row.
+        refuse_credential_activation(
+            next_text[:120], next_text, next_text[:280], reason, error=VNextMemoryCommitValidationError
+        )
         self._invalidate_pending_derived_candidates(
             member_id=str(memory["id"]),
             identity=identity,
@@ -1734,7 +1796,9 @@ class VNextMemoryCommitService:
             raise VNextMemoryCommitValidationError("memory was not found")
         _require_project_update_decision_path(memory)
         self._policy_checked_write(identity=identity, action="memory.forget", memory=memory)
-        return self._transition_memory(
+        # A retirement always completes (owner ruling R2).
+        reason_text, rationale_withheld = withhold_credential_text(reason or "Agentic memory forgotten.")
+        result = self._transition_memory(
             identity=identity,
             memory=memory,
             operation=FORGET,
@@ -1743,8 +1807,10 @@ class VNextMemoryCommitService:
             event_type="agent.memory_forgotten",
             revision_type="archived",
             action="agentic_memory_forget",
-            reason=reason or "Agentic memory forgotten.",
+            reason=reason_text or "Agentic memory forgotten.",
         )
+        result["rationale_withheld"] = rationale_withheld or bool(result.get("rationale_withheld"))
+        return result
 
     def accept_consolidation_candidate(
         self,
@@ -1820,6 +1886,16 @@ class VNextMemoryCommitService:
                 "consolidation candidate must be in candidate or needs_review status"
             )
         reason_text = _normalized_text(reason, field_name="reason")
+        # The activation check (ruling C2), before any member is superseded:
+        # acceptance makes the candidate's text searchable, and the reason is
+        # persisted with it in the metadata, the revision and the event.
+        refuse_credential_activation(
+            memory.get("title"),
+            memory.get("canonical_text"),
+            memory.get("summary"),
+            reason_text,
+            error=VNextMemoryCommitValidationError,
+        )
         accepted_id = str(memory["id"])
         actor_type = "agent" if identity is not None else "user"
         actor_id = identity.agent_id if identity is not None else None
@@ -2057,7 +2133,10 @@ class VNextMemoryCommitService:
             raise VNextMemoryCommitValidationError("memory was not found")
         decision = self._policy_checked_write(identity=identity, action="memory.expire", memory=memory)
         self._require_transition(EXPIRE, str(memory.get("status") or ""))
-        reason_text = _normalized_text(reason, field_name="reason")
+        # A retirement always completes (owner ruling R2): the reason is
+        # withheld once, here, before the metadata, the revision and the event.
+        reason_text, rationale_withheld = withhold_credential_text(_normalized_text(reason, field_name="reason"))
+        reason_text = reason_text or ""
         valid_to_iso = _valid_to_iso(valid_to)
         actor_type = "agent" if identity is not None else "user"
         actor_id = identity.agent_id if identity is not None else None
@@ -2066,7 +2145,9 @@ class VNextMemoryCommitService:
         validity_value = metadata.get("validity")
         validity = dict(validity_value) if isinstance(validity_value, Mapping) else {}
         validity_history_value = validity.get("history")
-        history = list(validity_history_value) if isinstance(validity_history_value, list) else []
+        history, history_withheld = _withheld_history(
+            list(validity_history_value) if isinstance(validity_history_value, list) else []
+        )
         history.append(
             {"op": "expired", "at": now, "valid_to": valid_to_iso, "reason": reason_text, "actor_id": actor_id}
         )
@@ -2114,6 +2195,7 @@ class VNextMemoryCommitService:
             "memory": updated,
             "valid_to": valid_to_iso,
             "policy_decision": decision.to_record(),
+            "rationale_withheld": rationale_withheld or history_withheld,
         }
 
     def unexpire(
@@ -2162,6 +2244,17 @@ class VNextMemoryCommitService:
                 "policy_decision": decision.to_record(),
                 "note": "memory has no validity end to clear; replay changed nothing",
             }
+        # Clearing valid_to makes the row retrievable again whether or not
+        # its status changes, so unexpire is an activation (owner ruling R2):
+        # one call over the row text and the reason, before anything is
+        # written.
+        refuse_credential_activation(
+            memory.get("title"),
+            memory.get("canonical_text"),
+            memory.get("summary"),
+            reason_text,
+            error=VNextMemoryCommitValidationError,
+        )
         actor_type = "agent" if identity is not None else "user"
         actor_id = identity.agent_id if identity is not None else None
         now = _utc_iso()
@@ -2169,7 +2262,9 @@ class VNextMemoryCommitService:
         validity_value = metadata.get("validity")
         validity = dict(validity_value) if isinstance(validity_value, Mapping) else {}
         validity_history_value = validity.get("history")
-        history = list(validity_history_value) if isinstance(validity_history_value, list) else []
+        history, history_withheld = _withheld_history(
+            list(validity_history_value) if isinstance(validity_history_value, list) else []
+        )
         history.append({"op": "unexpired", "at": now, "reason": reason_text, "actor_id": actor_id})
         validity.update({"state": "cleared", "unexpired_at": now, "valid_to": None, "history": history})
         validity.pop("unbounded_sentinel", None)
@@ -2233,6 +2328,7 @@ class VNextMemoryCommitService:
             "memory": updated,
             "policy_decision": decision.to_record(),
             "idempotent_replay": False,
+            "rationale_withheld": history_withheld,
         }
 
     def _refuse_unauthorized_pending_resolver(
@@ -2439,6 +2535,11 @@ class VNextMemoryCommitService:
         reason_text = " ".join(str(reason).split()).strip()
         if not reason_text:
             raise VNextMemoryCommitValidationError("reason is required")
+        # A retirement always completes (owner ruling R2). Withheld once here,
+        # so the per-row expiries and the memory.quarantine_sweep event both
+        # carry the placeholder.
+        withheld_reason, rationale_withheld = withhold_credential_text(reason_text)
+        reason_text = withheld_reason or reason_text
 
         normalized_agent = " ".join(str(agent_id).split()).strip()
         if identity is not None and normalized_agent != identity.agent_id:
@@ -2494,6 +2595,7 @@ class VNextMemoryCommitService:
             "skipped": skipped,
             "reversible_via": "memory.unexpire",
             "policy_decision": decision.to_record(),
+            "rationale_withheld": rationale_withheld,
         }
         if not dry_run:
             append_event(
@@ -3494,7 +3596,9 @@ class VNextMemoryCommitService:
         metadata = _memory_metadata(memory)
         agentic = _agentic_metadata(memory)
         lifecycle_history_value = agentic.get("lifecycle_history")
-        history = list(lifecycle_history_value) if isinstance(lifecycle_history_value, list) else []
+        history, history_withheld = _withheld_history(
+            list(lifecycle_history_value) if isinstance(lifecycle_history_value, list) else []
+        )
         history.append({"status": lifecycle_status, "at": _utc_iso(), "reason": reason})
         agentic["lifecycle_status"] = lifecycle_status
         agentic["lifecycle_history"] = history
@@ -3581,7 +3685,12 @@ class VNextMemoryCommitService:
             target_id=str(updated["id"]),
             payload=event_payload,
         )
-        return {"status": lifecycle_status, "write_mode": "commit", "memory": updated}
+        return {
+            "status": lifecycle_status,
+            "write_mode": "commit",
+            "memory": updated,
+            "rationale_withheld": history_withheld,
+        }
 
 
 def memory_commit_request_from_payload(payload: Mapping[str, object], *, user_id: object) -> MemoryCommitRequest:

@@ -740,7 +740,7 @@ def test_capture_links_entities_for_source_and_candidate_memories() -> None:
     service = VNextCaptureService(store)
 
     result = service.capture_text(
-        "Fact: We met Sami Rusani of Type3 Capital.",
+        "Fact: We met Jane Doe of Northwind Capital.",
         title="Team note",
         domain="professional",
         sensitivity="internal",
@@ -748,8 +748,8 @@ def test_capture_links_entities_for_source_and_candidate_memories() -> None:
 
     assert result.status == "imported"
     assert result.candidate_memory_count == 1
-    person = store.get_entity_by_normalized_name("person", "sami rusani")
-    org = store.get_entity_by_normalized_name("organization", "type3 capital")
+    person = store.get_entity_by_normalized_name("person", "jane doe")
+    org = store.get_entity_by_normalized_name("organization", "northwind capital")
     assert person is not None and org is not None
 
     source_edges = store.list_edges(from_id=result.source_id)
@@ -773,13 +773,13 @@ def test_capture_links_entities_for_source_and_candidate_memories() -> None:
 def test_recapturing_duplicate_content_does_not_double_count_mentions() -> None:
     store = _sqlite_store()
     service = VNextCaptureService(store)
-    raw_text = "Fact: We met Sami Rusani of Type3 Capital."
+    raw_text = "Fact: We met Jane Doe of Northwind Capital."
 
     first = service.capture_text(raw_text, sensitivity="internal")
     second = service.capture_text(raw_text, sensitivity="internal")
 
     assert second.status == "duplicate"
-    person = store.get_entity_by_normalized_name("person", "sami rusani")
+    person = store.get_entity_by_normalized_name("person", "jane doe")
     # One source mention + one candidate-memory mention from the first
     # capture; the duplicate recapture added nothing.
     assert person["mention_count"] == 2
@@ -839,7 +839,7 @@ def test_private_sensitivity_skips_entity_extraction_entirely() -> None:
     service = VNextCaptureService(store)
 
     result = service.capture_text(
-        "Fact: We met Sami Rusani of Type3 Capital.",
+        "Fact: We met Jane Doe of Northwind Capital.",
         sensitivity="private",
     )
 
@@ -863,7 +863,7 @@ def test_entity_extraction_failure_never_fails_capture() -> None:
     service = VNextCaptureService(store)
 
     result = service.capture_text(
-        "Fact: We met Sami Rusani of Type3 Capital.",
+        "Fact: We met Jane Doe of Northwind Capital.",
         sensitivity="internal",
     )
 
@@ -883,7 +883,7 @@ def test_stores_without_the_entity_surface_skip_linking_silently() -> None:
     store = InMemoryVNextCaptureStore()
     service = VNextCaptureService(store)
 
-    result = service.capture_text("Fact: We met Sami Rusani of Type3 Capital.", sensitivity="internal")
+    result = service.capture_text("Fact: We met Jane Doe of Northwind Capital.", sensitivity="internal")
 
     assert result.status == "imported"
     assert not [event for event in store.events if event.get("event_type") == "entity.extraction_failed"]

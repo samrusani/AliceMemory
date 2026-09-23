@@ -9,6 +9,7 @@ from uuid import UUID
 import psycopg
 
 from alicebot_api.continuity_open_loops import compile_continuity_weekly_review
+from alicebot_api.credential_floor import refuse_credential_material, string_values
 from alicebot_api.contracts import (
     AdmissionDecisionOutput,
     AdmissionAction,
@@ -1739,6 +1740,18 @@ def admit_memory_candidate(
     candidate: MemoryCandidateInput,
 ) -> AdmissionDecisionOutput:
     del user_id
+
+    # The credential floor, before any branch (owner ruling R1, 2026-09-23).
+    # All four legacy admit routes land here, and each branch writes: ADD and
+    # UPDATE write the value, and even the NOOP-unchanged branch writes the
+    # candidate's open-loop title. Until this change none of them checked.
+    open_loop_title = candidate.open_loop.title if candidate.open_loop is not None else None
+    refuse_credential_material(
+        candidate.memory_key,
+        string_values(candidate.value),
+        open_loop_title,
+        error=MemoryAdmissionValidationError,
+    )
 
     source_event_ids, derived_agent_profile_id = _validate_source_events(
         store,

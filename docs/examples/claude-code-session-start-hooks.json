@@ -2,7 +2,12 @@
   "hooks": {
     "SessionStart": [
       {
-        "command": "alice-memory-session-start"
+        "hooks": [
+          {
+            "type": "command",
+            "command": "alice-memory-session-start"
+          }
+        ]
       }
     ]
   }

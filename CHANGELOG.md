@@ -2,6 +2,322 @@
 
 ## Unreleased
 
+- **Correction to v0.15.1 to v0.16.0.** The v0.15.1 release notes said
+  credential material and agent-directed instructions always require review,
+  and that the floor "still refuses credentials and agent-directed
+  instructions". That was false. The floor only kept such writes from being
+  auto-promoted; the memory commit refused a credential in a single field,
+  but a credential split across fields, `correct()`, `confirm()` with new
+  text, the review edit, the `/v1` memory operations, artifact promotion and
+  `alice-memory import` did not check at all. Versions v0.15.1 to v0.16.0 are
+  affected. To check a vault, export it (`alice-memory export`, which now
+  lists every memory import would refuse), then redact each listed row: on
+  SQLite with `alice_memory_manage action=redact` (needs
+  `ALICE_MCP_FULL_TOOLS=1`), on Postgres with
+  `alicebot vnext memories redact <memory_id> --reason <why>`. Forget and
+  correct are not enough: they keep the old text in the row's history.
+
+- `alice-memory install` writes Claude Code's SessionStart hook in the
+  shape Claude Code reads: a group whose `hooks` array holds
+  `{"type": "command", "command": ...}`. v0.16.0 wrote Cursor's flat
+  `{"command": ...}` item into `~/.claude/settings.json`; Claude Code
+  ignored it (`claude doctor` lists it under "Invalid settings"), so the
+  brief was never injected on Claude Code. Re-running install replaces
+  that flat item with the nested group; other hooks keep their values.
+  `docs/examples/claude-code-session-start-hooks.json` had the same flat
+  shape and is fixed. Duplicate Alice entries in well-formed groups are
+  removed; a group whose `hooks` is not a list is left as it is.
+
+- Re-running `alice-memory install` keeps what the user set. An `alice`
+  entry of install's shape keeps every key: env, type, timeout, cwd.
+  Install's shape is uvx running `alice-memory mcp` (pinned or ranged,
+  such as `alice-memory==0.16.0` or `alice-memory>0.15`, or
+  `--from <spec> alice-memory mcp`, with uvx options before it), or an
+  `alice-memory` script run by path with `mcp` first. Look-alikes such as
+  `uvx mcp-proxy mcp --name alice-memory` or `uvx alice-memory-foo mcp`
+  are not. An entry's store is read with `alice-memory mcp`'s own
+  argument parser, so abbreviations (`--data`), `=` forms, the last of
+  repeated options and `--db` read the way the server reads them. Without
+  `--data-dir` in the args the server opens `~/.alice`.
+  `ALICE_MEMORY_DATA_DIR` in the entry's env is not read, because the
+  server does not read it; when it differs, the receipt prints a note,
+  with the old value hidden, and install leaves it. An entry whose
+  `--data-dir` is a relative path is refused: the server resolves it
+  against the host's working directory, which install cannot know. The
+  paste marks where an absolute path goes, and with `--data-dir` the entry
+  moves as usual. An entry whose args the server would reject is left as
+  it is, with its hook, and a warning; with `--data-dir` it is refused.
+  The data dir the README's example shows, `/ABSOLUTE/PATH/TO/.alice`,
+  pasted as is, counts as unset: install replaces it with `--data-dir` or
+  `~/.alice` and prints `data_dir: /ABSOLUTE/PATH/TO/.alice (the
+  placeholder from the docs) -> <dir>`; a hook on that placeholder is not
+  relied on either.
+  `--data-dir` no longer defaults to `~/.alice` for install: without the
+  flag, each host keeps its entry's data dir. With the flag, only the
+  data dir changes (every spelling of `--data-dir` becomes one) and the
+  receipt prints `data_dir: old -> new`. An entry that opens `--db` is
+  kept as it is, with a note, and its hook keeps its own data dir; no hook
+  is added for it. Passing `--data-dir` for a `--db` entry is refused, and
+  the paste offered is that entry with `--db` replaced by the new dir. The
+  Claude Code and Cursor hooks follow the MCP entry's data dir, and a hook
+  that pointed elsewhere prints `session_start_data_dir: old -> new`. This
+  holds for a hook that keeps its own command (see the launcher entry
+  below): install changes only its `--data-dir` word, leaving the rest of
+  the text as written, and when that word cannot be read literally, or is
+  missing, while `--data-dir` moves the entry, it refuses the hook for
+  that host (`session_start: refused`, exit 1 with `install_refused`),
+  names both dirs, and says to change the hook's `--data-dir` by hand; it
+  prints the argv to add only when nothing in it would be hidden, never a
+  masked one. A `--db` entry's hook is
+  the exception: its store is never moved, kept command or not. A
+  new entry takes an existing Alice hook's data dir, else `~/.alice`. An
+  `alice` entry install did not write, such as the documented Postgres
+  entry, is left byte-identical and that host is refused with the entry
+  to add by hand, on that entry's data dir when the server's parser can
+  read it from the args after `mcp`; an existing Alice hook there is only
+  repaired, keeping its own command. Before a JSON host file is
+  rewritten it is backed up into `<data dir>/backups/host-configs/`, a
+  0700 directory, as `<host>-<file>.alice-backup-<UTC time>`; no backup
+  goes next to the host file or a symlink's target, which can sit in a
+  dotfiles repo. Install tightens only `host-configs` itself; an existing
+  `<data dir>/backups` keeps its mode. When the backup directory cannot be
+  created or written, the host fails with a reason naming that directory,
+  and the host file is not changed. A file whose parsed JSON would not change is neither
+  written nor backed up, so a file the host has reformatted is left
+  alone. The receipt lists the user keys it kept, and the Cursor hook item
+  keeps any keys the user added to it.
+
+- One host no longer stops the others. A JSON file that does not parse,
+  is nested too deeply to parse, or whose `hooks` or `SessionStart` has
+  the wrong type, refuses that host with a receipt naming the file, and
+  nothing is written for it. A file that cannot be read or written fails
+  that host with a static reason naming the file. The receipt reports
+  each file: when the MCP file was written and the hooks file then
+  failed, it says `action: written` and `session_start: failed` with
+  `session_start_file:`; when the MCP write failed, the hook is `not
+  attempted`. Every receipt prints; the exit code is 1 with
+  `install_failed` if any host failed, else `install_refused` if any was
+  refused. A dry run that would refuse says `action: would-refuse` and
+  ends with "dry run: install would refuse this file; nothing was
+  attempted", and exits 1 like the real run.
+
+- A host config that is a symbolic link, such as a dotfiles link, stays
+  a link. Install edits the file it points to, replacing it atomically
+  from a temp file in that file's own directory; the backup goes to the
+  data dir's backup directory, not next to the target. The receipt adds
+  `target:` (or `session_start_target:`). A link whose target is missing,
+  or that loops, refuses that host and nothing is written. This holds for
+  the JSON hosts and for Hermes.
+
+- `--dry-run` prints only what install would write for Alice: the
+  `alice` entry and the Alice hook (for Hermes, the alice lines). Every
+  value that comes from your entry is shown as `<hidden>` except
+  `command`, `type`, `timeout` and `cwd`: env and headers keep their names
+  with their values hidden, and any other key's value is hidden whole.
+  `args` is shown except for two things: every URL prints as its scheme
+  and `<hidden>` (`https://<hidden>`), host included, since no content
+  test can tell a token from a repo name or a host label; and the value
+  after any flag whose name contains `key`, `token`, `secret` or
+  `password` is hidden. Wherever a hook's words are printed (the
+  dry-run snippet, the argv offered when a hook is refused), install
+  shows only its own words: `uvx`, an absolute path to uvx,
+  `alice-memory` or `alice-memory-session-start`, the bare
+  `alice-memory-session-start` uvx runs, `--from` with a plain
+  alice-memory spec, `--data-dir` and its value, and the carried uvx
+  options with their values. Every other word prints as `<hidden>`: an
+  assignment in any shell's syntax (`FOO=bar`, PowerShell `$env:FOO="bar"`),
+  a curl header, anything unknown. The argv is offered only when no word
+  in it is hidden. In a kept Alice hook every key but `command` and
+  `type` is hidden too. The one value shown is the `ALICE_MEMORY_DATA_DIR` install
+  writes itself, which equals the `--data-dir` in the args. A `hidden:`
+  line lists exactly what was hidden. A refused host's paste, when it is
+  built from your existing entry, hides the same values, and its `keep:`
+  line names each one to copy back from that entry. Every other receipt
+  line, warning and launcher line prints every URL the same way, the URL
+  running to the end of its whitespace-delimited word, since RFC 3986
+  allows `'` and `)` in user info; a package spec that holds a URL
+  (`alice-memory@https://...`) prints only its scheme too,
+  and the `openclaw mcp add` line shows `<hidden>` in their place with a
+  note to put the values back before running it. Whole host files are no
+  longer printed, so other servers' tokens stay off the screen.
+
+- The SessionStart hook command is quoted for the shell that runs it.
+  On macOS and Linux each word is quoted with `shlex.join`, so a data dir
+  or script path with spaces, quotes, `$`, `;`, `&` or parentheses
+  reaches `alice-memory-session-start` as one argument and nothing else
+  runs; ordinary paths are written exactly as before. On Windows,
+  install cannot know whether cmd, PowerShell or Git Bash runs the hook,
+  so it writes forward slashes and double-quotes a word only when it
+  holds a space or a shell operator. It does not write the hook when a
+  word holds `"`, `$`, a backtick, `%`, `!`, `'`, `{`, `}`, `,`, `[`, `]`,
+  a line break or a quote PowerShell reads as one (U+2018, U+2019,
+  U+201A, U+201B, U+201C, U+201D, U+201E), or when the script path itself would
+  need quotes; the receipt prints the hook's argv (`session_start_argv:`)
+  to add by hand, and the exit code is 1. The printed `openclaw mcp add`
+  line follows the same rules; on Windows, when a word cannot be written,
+  a note with the argv takes its place. A hook is recognised as Alice's
+  by its script's name, quoted or not, including v0.16.0's, and running
+  install twice leaves one Alice SessionStart group. Its `--data-dir` is
+  read the way its shell reads it. On macOS and Linux the word is taken
+  literally when every `$`, backtick and backslash in it sits inside
+  single quotes, or it has none (so install's own `'.../a$b'` and a
+  hand-written `"/Users/me/My Vault"` are literal); an unquoted leading
+  `~`, glob character, `{`, redirection or parenthesis also makes it not
+  literal. Reading stops at the first unquoted `;`, `&&`, `||`, `|`, `&`
+  or line break, and at a word starting with `#`, so a `--data-dir` in a
+  second command or a comment is never read. On Windows, a word with `$`,
+  a backtick, `%` or `{`, or a leading `~`, is not literal; quoted and
+  bare pieces with no space between are one word, so `--data-dir="C:/x
+  y"` reads as `C:/x y`; and reading stops at a bare word holding `;`,
+  `&` or `|`. A literal absolute dir is relied on, however the text is
+  spaced or quoted. A `--data-dir` the shell does not read literally is
+  never relied on: such a hook keeps its own command unless `--data-dir`
+  is passed, and a new entry does not take its dir. When a hook keeps its
+  own command while install replaced the entry's launcher, the receipt
+  says so.
+
+- `alice-memory install --host hermes` no longer rewrites
+  `~/.hermes/config.yaml` from a hand parser. v0.16.0 turned
+  `model: gpt-4o  # default model` into the value
+  `"gpt-4o  # default model"`, `- name: web` items into strings, `yes` /
+  `no` into strings, and `\t` / `\u00e9` escapes into literal
+  backslashes, dropped every comment, took no backup, and exited 0.
+  Install now adds or replaces only the `mcp_servers.alice` lines and
+  keeps every other byte (an empty `mcp_servers: {}`, `~` or `null`
+  becomes `mcp_servers:`, and a last line with no line break gets one
+  when lines are added after it). It writes a private timestamped backup
+  first, into the data dir's backup directory
+  (`hermes-config.yaml.alice-backup-<UTC time>`), through a temp file, so
+  a failed write leaves no partial backup, and it does nothing on a
+  re-run when alice is already current. A file that uses YAML the
+  installer does not edit is left unchanged: a quoted or flow value
+  spanning lines, an anchor anywhere inside an old alice entry, an
+  anchor, tag or alias on `mcp_servers`, a merge key at the top level or
+  under `mcp_servers`, a block scalar header on a line of its own, a tab
+  outside a quoted value or comment, a list item that is itself a list
+  (`- - x`) inside the alice entry, several documents, and similar.
+  Install then prints the lines to add by hand and exits 1 with
+  `install_refused`. An alias inside the alice entry is read as its
+  anchor's value only when that anchor sits on a one-line plain or quoted
+  scalar elsewhere in the file; an alias to a plain scalar that continues
+  on the next line, which PyYAML reads as one longer value, or to
+  anything else, makes the entry unreadable.
+
+- Re-running `install --host hermes` follows the same rules as the JSON
+  hosts: the same shape check, the same store and data dir rules, the
+  same launcher rules. An existing `mcp_servers.alice` of install's shape
+  is replaced only when its keys are within what install writes
+  (`command`, `args`, `env.ALICE_MEMORY_DATA_DIR`); quoting, style and
+  indentation do not matter. Without `--data-dir` it keeps the data dir
+  that entry runs with, and it keeps its command and args, so an
+  absolute uvx path and a pinned version stay. An entry that opens `--db`
+  keeps its env as written. An `alice` entry of any other shape, such as
+  `python -m alicebot_api mcp`, is left byte-identical and refused with
+  the JSON hosts' words: rename or remove that entry, or add the one
+  printed under another name. An entry with any other key is left alone
+  too; install prints that entry's own command and args with its data
+  dir and names the extra keys (`extra_keys: env.ALICE_MCP_FULL_TOOLS`)
+  so they can be carried over when pasting. For an entry the installer
+  cannot read, the paste uses the entry's data dir when a lenient read
+  can see it; otherwise it shows a placeholder and says to replace it
+  with that dir, never `~/.alice`, which may be an empty store.
+
+- The README no longer says the packaged path needs "Python 3.12+ and
+  nothing else": `uvx` needs uv, which fetches Python itself, and the
+  pip path needs Python 3.12+. `install` prints a warning, not an
+  error, when it finds neither `uvx` nor the installed alice-memory
+  scripts, because the hosts then cannot start Alice. The exit code
+  does not change.
+
+- `pip install alice-memory && alice-memory install` works without uv,
+  and each host's entry and hook run one launcher. A new entry runs
+  `uvx alice-memory mcp` when uvx is on PATH. Otherwise install writes
+  the absolute path of the installed `alice-memory` script, with args
+  `mcp --data-dir <dir>`, and the hooks run `alice-memory-session-start`
+  from the same directory. Install looks for the two scripts in the
+  running Python's scripts directory, next to the Python executable, in
+  the user scripts directory (`pip install --user`), then on PATH, and
+  takes the first directory that holds both. It never writes a path
+  inside a uv cache, which uv may delete: anything under `$UV_CACHE_DIR`,
+  a `cache-dir` set in uv.toml, `~/.cache/uv`, `$XDG_CACHE_HOME/uv`,
+  `~/Library/Caches/uv` or `%LOCALAPPDATA%\uv\cache`, or uv's own layout
+  anywhere: an `archive-vN` or `environments-vN` directory followed by an
+  id and more path, whose parent is one of those roots, is named `uv`, or
+  holds uv's `CACHEDIR.TAG` (which is how a `uvx --cache-dir` cache is
+  found). A user's own `Archive-V2` folder or a project venv under
+  `environments-v3` is not a cache. This is checked on the path as found,
+  on its resolved path, and on the running Python's prefix. When install itself runs from such a temporary uv environment
+  and uvx is not on PATH, it writes uvx by name and warns that the hosts
+  will start Alice once uvx is on PATH. On a re-run, an entry whose
+  launcher still works is kept: uvx on PATH, an absolute uvx that exists
+  and is executable, or an absolute `alice-memory` that exists, is
+  executable and is not in a uv cache. On Claude Code and Cursor, which
+  run a hook, a script launcher also needs an executable
+  `alice-memory-session-start` beside it that is not in a uv cache;
+  Claude Desktop, OpenClaw and Hermes run no hook, so a working
+  `alice-memory` alone is enough there. A launcher in a uv cache is dead with no
+  exceptions: pinned or not, the entry gets the launcher a new entry
+  would get, uvx by name when nothing else works. Any other launcher
+  that no longer works is replaced with a working one if install found
+  one: only `command` and the launcher part of `args` change, the file is
+  backed up, and the receipt prints `launcher: <old> -> <new>`. A uvx
+  entry that asks for a version constraint, extras or uvx options is kept
+  with a warning that names what it asks for; `alice-memory@latest`,
+  `alice_memory` and `--from alice-memory` are the default spelled
+  another way and do not count. With no working launcher the entry is
+  kept and a warning says so. The Claude Code and Cursor hooks run the
+  launcher of the entry as written: `uvx <the entry's uvx options> --from
+  <the entry's package spec> alice-memory-session-start`, so the hook
+  resolves the same version from the same index, or
+  `alice-memory-session-start` next to the entry's `alice-memory`. When
+  that script is missing, install leaves the hook as it was and prints a
+  warning. alice-memory-session-start first shipped in 0.16.0, so a uvx
+  entry whose spec can only resolve below it (`==0.15.7`, `@0.15.3`,
+  `<0.16`, `~=0.15.0` and so on) gets no new hook, and an existing hook
+  keeps its command, shape repaired, with a warning to pin
+  `alice-memory>=0.16` or remove the pin. A spec install cannot read (an
+  `===` on a non-version, or a `!=` wildcard) is treated the same way,
+  with a warning that it cannot tell. Install never writes a URL into a
+  hook file and never prints one unmasked. It carries into a hook only
+  the uvx options on an allowlist: `--prerelease`, `--python` or `-p`,
+  `--python-preference`, and the flags `--native-tls`, `--offline`,
+  `--no-cache` and `--refresh`. An entry with any other uvx option gets
+  no new hook, so the hook and the server cannot resolve different
+  releases: a word holding `scheme://` in any form (a separate value,
+  `--opt=value`, or an attached short option such as `-fhttps://...`), an
+  index option (`--index`, `--index-url`, `-i`, `--extra-index-url`,
+  `--default-index`, `--find-links`, `-f`, even with a local path, which
+  would resolve against the hook's working directory), or any other
+  option off the list (`--with`, `--exclude-newer`, `--constraint` and
+  so on, in long, `=` or attached short form; none of them makes the
+  entry one install did not write). An existing hook keeps its launcher
+  text, and its `--data-dir` still follows the entry as the re-run entry
+  above describes; the MCP entry keeps its options. For an index, the
+  warning says to move it into the user-level uv config,
+  `~/.config/uv/uv.toml` as `[[index]]` (`%APPDATA%\uv\uv.toml` on Windows), not a
+  project uv.toml, since the hook runs from the project's directory; to
+  keep its credentials in a keyring, `.netrc`, or
+  `UV_INDEX_<NAME>_USERNAME` and `UV_INDEX_<NAME>_PASSWORD`; and then to
+  remove the option from the entry's args and run install again. The
+  receipt also prints the plain hook argv install would add after that
+  change (`session_start_argv_after_change:`, allowlisted options only,
+  no URL), never a masked argv to add by hand. A direct-URL package spec
+  (`alice-memory@https://...`, positional or after `--from`) gets no new
+  hook for the same reason, and says so. The receipt's `launcher:` and `session_start_launcher:` lines
+  say what each file runs. `--write-mcpb` warns when uvx is not on PATH,
+  since the bundle runs uvx.
+
+- PyYAML stays in the dev extra only, as the Hermes test oracle. Two
+  guards keep it out of runtime code. An AST scan of every tree the
+  wheel ships (`apps/api/src`, `workers`, and `apps/api/alembic`, which
+  setup.py copies into the wheel) fails on a yaml import named by a
+  string constant: `import yaml`, `from yaml import ...`,
+  `importlib.import_module("yaml")` or `__import__("yaml")`. A module
+  name computed at run time is not caught. A subprocess runs the Hermes
+  install path with `sys.modules["yaml"] = None`. The wheel-only CI job
+  runs `alice-memory install --host hermes` against a temp home with no
+  YAML library installed.
+
 - `alice_memory_commit` can finish its own `confirmation_required`
   result. Call it again with `confirmation_id`, `confirmation_action`
   (`confirm` or `reject`) and the same identity fields as the write, and
@@ -40,6 +356,103 @@
 - `title` and `canonical_text` are no longer listed as required in the
   `alice_memory_commit` schema, because a confirmation carries neither;
   a new write without them is still refused.
+
+- Credential material is refused on the memory write paths listed in
+  `docs/memory/promotion-personas.md`, through one check
+  (`alicebot_api.credential_floor`): commit, proposal (all three doors,
+  through one function), `correct()`, every approve and accept of a stored
+  row, the review edit, artifact promotion, the `/v1` memory operations, the
+  legacy continuity writes and memory admission routes, and
+  `alice-memory import`. Both memory stores also refuse to create a row in,
+  or move a row into, `active` or `accepted` while its text carries
+  credential material. The promotion floor calls the same check. The same
+  document lists what is not covered, including source capture and document
+  import.
+- The memory commit and the promotion floor, the two places v0.16.0
+  checked, refuse what v0.16.0 refused there: each also runs v0.16.0's own
+  check, re-implemented in linear time and compared with v0.16.0's code on
+  generated inputs, less four named carve-outs. These are accepted at commit
+  where v0.16.0 refused them: SSH public keys and key type names, `sk-`
+  followed by lower-case words (`sk-learn`), structural key names with
+  identifier values (`fact_key`, `cache_key`, `sort_key`, `next_page_token`,
+  dedupe and idempotency keys), and dotted references such as
+  `api_key = settings.OPENAI_API_KEY`. No carve-out applies to a password
+  name, and each ends at a boundary, so a token glued onto an excused key
+  type or public key is still refused. Notes v0.16.0 refused at commit for
+  other reasons are still refused there ("The password policy is
+  12-character minimum with one symbol.", "In Q3 we begin private key
+  rotation"); the document above has the measured counts. Every other door
+  uses the new check alone.
+- A dotted value under a password name is refused at every door: a
+  `DB_PASSWORD` set to a dotted phrase with a year in it, and with it a
+  password name set to `process.env.DB_PASSWORD`.
+- **Breaking: `alice-memory import` refuses a backup that holds credential
+  material**, in any memory row whatever its status, including correction
+  history. It lists the line and memory id of every offender on stderr
+  (never the text) and writes nothing. Fix it in the source vault: redact
+  the listed rows with the commands above, export again, and import the new
+  file. Do not edit the export by hand; that breaks its SHA-256 footer. **A
+  backup whose source vault is gone cannot be restored yet** if it holds
+  such a row: importing with an offender excluded or quarantined is a
+  follow-up.
+- A reject, delete, expire, forget, undo or quarantine sweep always
+  completes. A reason carrying credential material is stored as
+  `rationale withheld: it carried credential material`, text supplied with a
+  reject as `text withheld: it carried credential material`, and the response
+  carries `rationale_withheld` and, on a reject, `text_withheld`.
+- Private keys: the dashed private-key armor line is refused on its own,
+  whatever surrounds it, as v0.16.0 did for the PEM and OpenSSH lines; the
+  OpenPGP `PRIVATE KEY BLOCK` line is newly refused (v0.16.0 could not match
+  it and stored a note quoting it). A case-exact header with a real key body
+  on a following line is refused even when its dashes are missing or
+  replaced by a dash-like character and its lines are quoted or commented; a
+  header named in prose and followed by a word or a date is not. A base64-encoded key file
+  (kubeconfig `client-key-data`, a Kubernetes `tls.key`, `NAME_B64=`,
+  wrapped at any width) is decoded and refused; so is a PuTTY `.ppk` file
+  with its MAC or private body, while a note that only describes the PuTTY
+  format is not. Covered by execution
+  against real generated keys: OpenSSH ed25519, RSA and ECDSA (unencrypted
+  and encrypted), traditional and PKCS#8 RSA and EC, OpenPGP secret key
+  blocks, and PuTTY v2 and v3 files built to the documented format, pasted
+  raw, with escaped or double-escaped newlines, with CRLF, as a one-line
+  `.env` value, inside JSON or a JSON array of lines, inside a mapping body,
+  behind `> ` or `# `, joined with `<br>`, split between title and body, and
+  base64-encoded. Measured against v0.16.0 on the same 14 armored keys in
+  nine of these placements: v0.16.0 caught 114 of 126 and missed only the
+  OpenPGP secret key blocks, which are now caught in all 126. Prose that
+  mentions a private key without the armor line ("begin by rotating the
+  private key") is not refused.
+- SSH public keys (`ssh-ed25519`, `ssh-rsa`, `ecdsa-sha2-*` and the FIDO
+  `sk-` types), alone or labelled, and OpenPGP public key blocks are no
+  longer refused.
+- `alice-memory import` reads the `value` column by value only, and skips
+  the keys the product itself writes in `metadata_json` (`rollup_key`), so a
+  vault holding rollup cards restores.
+- The SessionStart brief opens with a line saying the notes below are stored
+  data quoted as data, not instructions, and renders every item as a quoted
+  string.
+- `source_refs` on a memory commit are bounded: at most 64 refs, each string
+  ref at most 4,000 characters as sent (any other ref at most 4,000
+  characters serialized). Enforced by the service every surface calls;
+  advertised, and enforced on the raw argument, by the MCP schema. The MCP
+  registry now enforces the `maxLength` its schemas advertise.
+- Corrections to continuity objects (`/v0/continuity/review-queue/{id}/corrections`,
+  `alice_review_apply`, `alice_memory_correct`) now refuse a body,
+  provenance, replacement body or replacement provenance over 20,000
+  characters serialized, and capture commit refuses more than 100 candidates
+  or one over 20,000 characters; v0.16.0 had neither bound. v0.16.0 already
+  refused a title over 280 characters on edit and supersede; titles are now
+  also bounded, measured raw, on the actions that ignore them, and the MCP
+  schemas advertise the same limits.
+- `POST /v0/continuity/open-loops/{id}/review-action`: `still_blocked`
+  refuses an object whose text carries credential material, and a note
+  carrying one is stored as a placeholder (`rationale_withheld`).
+- Two agent-control patterns in the promotion policy no longer take time
+  quadratic in a run of newlines. The credential check is linear in its
+  input; that claim does not extend to the whole promotion evaluation.
+- Instruction-shaped content is unchanged: it is still only kept from
+  skipping review, and a note the ordinary commit gate already commits is
+  stored.
 
 ## v0.16.0 — 2026-08-19
 
@@ -425,6 +838,16 @@ No functional change to the library. No migration, no schema change.
 - Memories carry `write_provenance`; reviewed rows omit it so existing context
   packs are unchanged.
 - Web console migrated to Next 16, eslint-config-next 16 and TypeScript 6.
+
+**Correction, added 2026-09-23 after publication.** The second entry above
+said agent-directed instructions "still are" gated, and the release notes
+said credential material always requires review. Both were false. The floor
+only kept such writes from being auto-promoted. The memory commit refused a
+credential in a single field; a credential split across fields, `correct()`,
+`confirm()` with new text, the review edit, the `/v1` memory operations,
+artifact promotion and `alice-memory import` did not check at all. This
+affects v0.15.1 to v0.16.0; see the Unreleased section for the fix and how
+to check a vault.
 
 
 ## v0.14.0 — 2026-07-24

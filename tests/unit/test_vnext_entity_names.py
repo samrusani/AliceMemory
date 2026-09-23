@@ -12,7 +12,7 @@ from alicebot_api.vnext_entity_names import (
 
 def test_normalize_casefolds_names() -> None:
     assert normalize_entity_name("OpenAI") == "openai"
-    assert normalize_entity_name("TYPE3 CAPITAL") == "type3 capital"
+    assert normalize_entity_name("NORTHWIND CAPITAL") == "northwind capital"
     # casefold goes beyond lower(): the German sharp s folds to "ss", so
     # "Straße" and "STRASSE" resolve to the same entity.
     assert normalize_entity_name("Straße") == "strasse"
@@ -36,10 +36,10 @@ def test_normalize_strips_punctuation_from_token_edges() -> None:
     assert normalize_entity_name('"OpenAI,"') == "openai"
     assert normalize_entity_name("(Anthropic)") == "anthropic"
     assert normalize_entity_name("Inc.") == "inc"
-    assert normalize_entity_name("«Type3»") == "type3"
+    assert normalize_entity_name("«Northwind»") == "northwind"
     # Bracketing dashes strip; multiple layers of edge punctuation strip too.
     assert normalize_entity_name("-alpha-") == "alpha"
-    assert normalize_entity_name("Type3.Capital,") == "type3.capital"
+    assert normalize_entity_name("Northwind.Example,") == "northwind.example"
 
 
 def test_normalize_drops_tokens_that_were_pure_punctuation() -> None:
@@ -51,12 +51,12 @@ def test_normalize_drops_tokens_that_were_pure_punctuation() -> None:
 
 
 def test_normalize_preserves_internal_dots_hyphens_and_apostrophes() -> None:
-    assert normalize_entity_name("type3.capital") == "type3.capital"
+    assert normalize_entity_name("northwind.example") == "northwind.example"
     assert normalize_entity_name("Agent-First") == "agent-first"
     assert normalize_entity_name("O'Brien") == "o'brien"
     # A trailing dot is edge punctuation, but the internal dot survives.
-    assert normalize_entity_name("type3.capital.") == "type3.capital"
-    assert normalize_entity_name("sam@type3.capital") == "sam@type3.capital"
+    assert normalize_entity_name("northwind.example.") == "northwind.example"
+    assert normalize_entity_name("jane@northwind.example") == "jane@northwind.example"
 
 
 # -- empty / whitespace-only input -----------------------------------------------
@@ -75,7 +75,7 @@ def test_normalize_returns_empty_string_for_empty_and_whitespace_input() -> None
 def test_normalize_is_idempotent() -> None:
     samples = [
         "OpenAI",
-        '  "Type3.Capital,"  ',
+        '  "Northwind.Example,"  ',
         "Agent-First  Continuity",
         "O'Brien (advisor)",
         "...",
