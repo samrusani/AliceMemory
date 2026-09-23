@@ -938,14 +938,14 @@ def test_committed_memory_links_entities_with_memory_mention_edges() -> None:
             domain="professional",
             sensitivity="internal",
             title="Standup preference",
-            canonical_text="We met Sami Rusani, who prefers async standups at Type3 Capital.",
+            canonical_text="We met Jane Doe, who prefers async standups at Northwind Capital.",
         ),
     )
 
     assert committed["status"] == "committed"
     memory_id = str(committed["memory"]["id"])
-    person = store.get_entity_by_normalized_name("person", "sami rusani")
-    org = store.get_entity_by_normalized_name("organization", "type3 capital")
+    person = store.get_entity_by_normalized_name("person", "jane doe")
+    org = store.get_entity_by_normalized_name("organization", "northwind capital")
     assert person is not None and org is not None
     edges = store.list_edges(from_id=memory_id)
     assert {(str(edge["to_id"]), str(edge["edge_type"])) for edge in edges} == {
@@ -967,14 +967,14 @@ def test_person_memory_creates_person_entity_and_about_edge() -> None:
             domain="professional",
             sensitivity="internal",
             memory_type="person",
-            title="Sami Rusani — Type3 intro",
+            title="Jane Doe — Northwind intro",
             canonical_text="GP at a seed fund; met about the continuity layer.",
         ),
     )
 
     assert committed["status"] == "committed"
     memory_id = str(committed["memory"]["id"])
-    person = store.get_entity_by_normalized_name("person", "sami rusani")
+    person = store.get_entity_by_normalized_name("person", "jane doe")
     assert person is not None
     assert person["entity_type"] == "person"
     about_edges = [
@@ -992,7 +992,7 @@ def test_person_memory_reuses_the_existing_person_entity() -> None:
     seeded = store.create_entity(
         {
             "entity_type": "person",
-            "name": "Sami Rusani",
+            "name": "Jane Doe",
             "first_observed_at": "2026-06-01T00:00:00Z",
             "last_observed_at": "2026-06-01T00:00:00Z",
             "mention_count": 3,
@@ -1005,7 +1005,7 @@ def test_person_memory_reuses_the_existing_person_entity() -> None:
             domain="professional",
             sensitivity="internal",
             memory_type="person",
-            title="Sami Rusani",
+            title="Jane Doe",
             canonical_text="Now leading the continuity round.",
         ),
     )
@@ -1107,11 +1107,11 @@ def test_correction_links_entities_introduced_by_the_new_text() -> None:
     service.correct(
         identity=identity,
         memory_id=memory_id,
-        canonical_text="We met Sami Rusani, who leads the continuity round.",
+        canonical_text="We met Jane Doe, who leads the continuity round.",
         reason="Lead confirmed.",
     )
 
-    person = store.get_entity_by_normalized_name("person", "sami rusani")
+    person = store.get_entity_by_normalized_name("person", "jane doe")
     assert person is not None
     assert (str(person["id"]), ENTITY_MENTION_EDGE_TYPE) in {
         (str(edge["to_id"]), str(edge["edge_type"])) for edge in store.list_edges(from_id=memory_id)
@@ -1128,11 +1128,11 @@ def test_correction_replaces_fact_keys_and_expires_obsolete_entity_edges() -> No
             domain="professional",
             sensitivity="internal",
             title="Bike-a-Thon result",
-            canonical_text="Sami Rusani said the Bike-a-Thon raised $5,000.",
+            canonical_text="Jane Doe said the Bike-a-Thon raised $5,000.",
         ),
     )
     memory_id = str(committed["memory"]["id"])
-    old_person = store.get_entity_by_normalized_name("person", "sami rusani")
+    old_person = store.get_entity_by_normalized_name("person", "jane doe")
     assert old_person is not None
     original_fact_keys = store.conn.execute("SELECT fact_keys FROM memories WHERE id = ?", (memory_id,)).fetchone()[0]
     assert "charity event fundraiser fundraising" in str(original_fact_keys)
@@ -1202,7 +1202,7 @@ def test_entity_linking_failure_never_fails_the_commit() -> None:
             domain="professional",
             sensitivity="internal",
             title="Standup preference",
-            canonical_text="Sami Rusani prefers async standups.",
+            canonical_text="Jane Doe prefers async standups.",
         ),
     )
 
@@ -1225,7 +1225,7 @@ def test_stores_without_the_entity_surface_commit_without_linking() -> None:
         request=_request(
             domain="professional",
             sensitivity="internal",
-            canonical_text="Sami Rusani prefers async standups.",
+            canonical_text="Jane Doe prefers async standups.",
         ),
     )
 
@@ -1880,11 +1880,11 @@ def test_accept_relinks_entities_on_a_live_sqlite_store() -> None:
     member = store.create_memory(
         {
             "memory_key": f"memory.{uuid4()}",
-            "value": {"text": "Sami Rusani leads Type3 Capital."},
+            "value": {"text": "Jane Doe leads Northwind Capital."},
             "status": "active",
             "memory_type": "semantic",
             "title": "Member fact",
-            "canonical_text": "We met Sami Rusani, who leads Type3 Capital.",
+            "canonical_text": "We met Jane Doe, who leads Northwind Capital.",
             "domain": "professional",
             "sensitivity": "internal",
         }
@@ -1892,11 +1892,11 @@ def test_accept_relinks_entities_on_a_live_sqlite_store() -> None:
     candidate = store.create_memory(
         {
             "memory_key": f"memory.{uuid4()}",
-            "value": {"text": "Sami Rusani is leading Type3 Capital."},
+            "value": {"text": "Jane Doe is leading Northwind Capital."},
             "status": "candidate",
             "memory_type": "semantic",
             "title": "Merge proposal",
-            "canonical_text": "We met Sami Rusani, who is leading Type3 Capital.",
+            "canonical_text": "We met Jane Doe, who is leading Northwind Capital.",
             "domain": "professional",
             "sensitivity": "internal",
             "metadata_json": {
@@ -1919,8 +1919,8 @@ def test_accept_relinks_entities_on_a_live_sqlite_store() -> None:
     result = service.accept_consolidation_candidate(candidate_id, reason="Reviewed on the dashboard.")
 
     assert result["status"] == "accepted"
-    person = store.get_entity_by_normalized_name("person", "sami rusani")
-    org = store.get_entity_by_normalized_name("organization", "type3 capital")
+    person = store.get_entity_by_normalized_name("person", "jane doe")
+    org = store.get_entity_by_normalized_name("organization", "northwind capital")
     assert person is not None and org is not None
     edges = store.list_edges(from_id=candidate_id)
     assert {(str(edge["to_id"]), str(edge["edge_type"])) for edge in edges} == {

@@ -3032,7 +3032,7 @@ def test_find_entities_by_names_matches_normalized_names_and_aliases_in_one_quer
     )
     store = PostgresVNextStore(RecordingConnection(cursor))
 
-    rows = store.find_entities_by_names(("openai", "type3.capital"))
+    rows = store.find_entities_by_names(("openai", "northwind.example"))
 
     assert rows[0]["id"] == "entity-1"
     assert len(cursor.executed) == 1  # one round trip covers both match paths
@@ -3042,7 +3042,7 @@ def test_find_entities_by_names_matches_normalized_names_and_aliases_in_one_quer
     assert "aliases ?| %s::text[]" in query
     assert "deleted_at IS NULL" in query
     assert "ORDER BY mention_count DESC, updated_at DESC, id DESC" in query
-    assert params == (["openai", "type3.capital"], ["openai", "type3.capital"])
+    assert params == (["openai", "northwind.example"], ["openai", "northwind.example"])
 
     # An empty name tuple short-circuits without touching the database.
     assert store.find_entities_by_names(()) == []

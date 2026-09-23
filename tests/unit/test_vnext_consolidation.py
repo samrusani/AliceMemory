@@ -371,7 +371,7 @@ def _seed_six_memories(store, mapping, **near_dup_kwargs) -> tuple[list[JsonObje
         for index, text in enumerate(
             (
                 "The API deploys from the main branch on Fridays",
-                "Type3 Capital quarterly review happens in October",
+                "Northwind Capital quarterly review happens in October",
                 "The staging database is reset every Sunday night",
             )
         )
@@ -1185,7 +1185,7 @@ def test_live_sqlite_smoke_clusters_near_duplicates_idempotently() -> None:
         ("Oat milk latte routine", "Sam prefers oat milk lattes every morning before standup", NEAR_DUP_VECTORS[1]),
         ("Morning latte", "Sam usually orders an oat milk latte in the mornings", NEAR_DUP_VECTORS[2]),
         ("Deploy day", "The API deploys from the main branch on Fridays", DISTINCT_VECTORS[0]),
-        ("Quarterly review", "Type3 Capital quarterly review happens in October", DISTINCT_VECTORS[1]),
+        ("Quarterly review", "Northwind Capital quarterly review happens in October", DISTINCT_VECTORS[1]),
         ("Staging reset", "The staging database is reset every Sunday night", DISTINCT_VECTORS[2]),
     ]
     rows: list[JsonObject] = []

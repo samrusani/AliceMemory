@@ -1088,7 +1088,7 @@ def test_third_party_person_catches_people_and_leaves_product_names_alone() -> N
     owner_settings = PromotionSettings(persona="personal", owner_aliases=("Dana Fields",))
     caught = (
         "Marcus Webb prefers async standups.",
-        "Sami Rusani works at the fund.",
+        "Jane Doe works at the fund.",
         "Priya Nair lives in Lisbon now.",
         "Elena Rossi told me the deal is off.",
     )
@@ -1099,7 +1099,7 @@ def test_third_party_person_catches_people_and_leaves_product_names_alone() -> N
         "Sublime Text quit unexpectedly after the update.",
         "Blue Origin signed the launch agreement in March.",
         "Docker Compose is the local default.",
-        "Type3 Capital is the fund, not the product.",
+        "Northwind Capital is the fund, not the product.",
         "Postgres 16 is required for the new migration.",
         "Standups are at 9:15 on Tuesdays.",
         "Monday Standup is at nine.",

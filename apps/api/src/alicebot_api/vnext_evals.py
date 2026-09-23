@@ -2301,12 +2301,12 @@ ENTITY_RESOLUTION_TITLE = "Entity resolution (capture pipeline extraction + cano
 _ENTITY_RESOLUTION_GROUPS: tuple[JsonObject, ...] = (
     {
         "group_key": "person-sami",
-        "canonical_name": "Sami Rusani",
+        "canonical_name": "Jane Doe",
         "entity_type": "person",
-        "expected_alias": "dr sami rusani",
+        "expected_alias": "dr jane doe",
         "source_texts": (
-            "Met with Sami Rusani about the fund strategy and follow-ups.",
-            "Dr Sami Rusani confirmed the allocation timeline yesterday.",
+            "Met with Jane Doe about the fund strategy and follow-ups.",
+            "Dr Jane Doe confirmed the allocation timeline yesterday.",
         ),
     },
     {

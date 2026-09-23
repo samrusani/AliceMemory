@@ -192,8 +192,8 @@ Metrics and targets:
 ### Suite: `entity_resolution` (Sprint D)
 
 Drives surface variants of the same entity through the REAL capture
-pipeline (`VNextCaptureService.capture_text`) — e.g. "Sami Rusani" and
-"Dr Sami Rusani" across separate sources — plus blocklist-noise probes
+pipeline (`VNextCaptureService.capture_text`) — e.g. "Jane Doe" and
+"Dr Jane Doe" across separate sources — plus blocklist-noise probes
 (repeated weekday/month capitals engineered to clear the repeat-threshold
 rule so ONLY the blocklist stops them). Asserts variants canonicalize to
 one entity row, mention counts match the capturing sources, honorific

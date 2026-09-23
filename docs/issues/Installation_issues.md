@@ -46,8 +46,8 @@
 Here the errors we got in the terminal:
 
  1. Your repo .env is a symlink to an external file, not a local file: .env:1
-     -> /home/sam/.config/alicebot/.env.
-  2. That external env has a Bash-breaking assignment at /home/sam/.config/
+     -> /home/alex/.config/alicebot/.env.
+  2. That external env has a Bash-breaking assignment at /home/alex/.config/
      alicebot/.env:50: ALICE_MCP_COMMAND=... -m ... is unquoted with spaces.
      Since startup scripts source .env (scripts/dev_up.sh:7, scripts/
      api_dev.sh:7, scripts/alice_lite_up.sh:7), this can fail immediately with
@@ -56,7 +56,7 @@ Here the errors we got in the terminal:
      system python3 (scripts/dev_up.sh:13). But required modules are not
      installed there (psycopg, alembic, fastapi, sqlalchemy, uvicorn missing),
      and python3 -m alembic --version fails.
-  4. Active env is in production mode: /home/sam/.config/alicebot/.env:4 has
+  4. Active env is in production mode: /home/alex/.config/alicebot/.env:4 has
      APP_ENV=production. In this repo, production mode enforces stricter
      settings (apps/api/src/alicebot_api/config.py:648); with your current key
      set, validation fails (for example missing required hardening vars).
