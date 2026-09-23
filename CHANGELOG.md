@@ -301,10 +301,15 @@
   found). A user's own `Archive-V2` folder or a project venv under
   `environments-v3` is not a cache. This is checked on the path as found,
   on its resolved path, and on the running Python's prefix. When install itself runs from such a temporary uv environment
-  and uvx is not on PATH, it writes the absolute path of uvx beside the
-  installed uv when that file is executable and is not a versioned
-  Homebrew Cellar path or a uv cache path, and otherwise writes uvx by
-  name and warns that the hosts will start Alice once uvx is on PATH. On a re-run, an entry whose
+  and uvx is not on PATH, it writes an absolute `uvx`. uv exports `UV`
+  to child processes as the path of the uv binary that was invoked;
+  `uvx` is the file beside it, and `uv` on PATH is the other place
+  install looks. A versioned Homebrew Cellar path
+  (`<prefix>/Cellar/uv/<version>/bin/uvx`, for example
+  `/opt/homebrew/Cellar/uv/0.11.6/bin/uvx`) is replaced by
+  `<prefix>/bin/uvx` when that file is executable. Otherwise install
+  writes the name `uvx` and warns that the hosts will start Alice once
+  uvx is on PATH. A path inside a uv cache is not written. On a re-run, an entry whose
   launcher still works is kept: uvx on PATH, an absolute uvx that exists
   and is executable, or an absolute `alice-memory` that exists, is
   executable and is not in a uv cache. On Claude Code and Cursor, which
