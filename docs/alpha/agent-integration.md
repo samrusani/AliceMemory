@@ -302,9 +302,14 @@ identity fields and an optional `rationale`. That works on the default three
 tools. It runs the same service call as `alice_memory_manage` action
 `confirm`, with the same policy check, project fence and audit trail. The
 project fence binds a key-bound scope; a keyless server trusts whatever
-`project_scope` the caller declares. It also refuses to let an agent
-confirm a pending write above that agent's sensitivity ceiling; the agent
-may still reject it. Alice cannot tell whether the user was asked. The
+`project_scope` the caller declares. An agent write above that agent's
+sensitivity ceiling is rejected and not saved. Do not retry it with a
+lower sensitivity label. Tell the user. The owner can raise this agent's
+clearance or store the memory themselves. Only the author, an
+`admin_agent` key, or the owner can confirm or reject a pending write.
+On a keyless install that limit is not protection: the caller can declare
+the author's agent_id. The author can still reject their own pending
+write above the ceiling. Alice cannot tell whether the user was asked. The
 revision, the policy events and the `agent.memory_confirmed` or
 `agent.memory_confirmation_rejected` event name the key's `agent_id` when
 `ALICE_AGENT_API_KEY` is set, and the declared, unverified `agent_id` on a

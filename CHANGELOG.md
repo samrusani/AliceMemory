@@ -11,20 +11,30 @@
   recall, with no way to finish it on the default tools (wiki D8). The
   confirmation runs the same service call as `alice_memory_manage`
   `confirm`. There is no edit on this call.
-- What is now finishable, and by whom. A pending write at `private`
-  sensitivity or below, whether held for confidence below 0.85 or for a
-  sensitive domain, can now be confirmed on the default tools by the
-  identity that wrote it. A pending write above `private` is only partly
-  fixed: an agent below `admin_agent`, whether keyed or declared by
-  `agent_id` on a keyless server, still cannot confirm it through
-  `alice_memory_commit`. Only an `admin_agent` identity can: an
-  `admin_agent` key, or, on a keyless server, any call that declares
-  `permission_profile: admin_agent` or carries no agent identity. A
-  keyless server does not verify a declared profile. The agent below
-  `admin_agent` can now reject it, which clears the pending row without
-  storing it.
-  `alice_memory_manage` still lets such an agent confirm it on the full
-  surface (audit finding 8, unchanged here).
+- A mutation of one stored target above the caller's sensitivity ceiling
+  is blocked in the commit service, reason
+  `sensitivity_above_agent_ceiling`. That covers forget, expire, undo
+  and confirm on MCP manage, the legacy forget and undo tools, the HTTP
+  memory routes, `alice_memory_commit`, and open-loop close, reopen,
+  snooze and edit. The policy event names the target type and id. The
+  author can still reject their own pending write above that ceiling,
+  because rejecting stores nothing.
+- An agent commit above that ceiling is rejected at commit time, with no
+  pending row. The receipt, the `alice_memory_commit` description and
+  both skill packs say: This was not saved. Do not retry with a lower
+  sensitivity label. Tell the user. The owner can raise this agent's
+  clearance or store the memory themselves. This applies to a keyed
+  agent and to a keyless call that declares an agent identity. The owner
+  (a keyless call with no agent identity) and an `admin_agent` key are
+  unchanged: a confidential write from them is still
+  `confirmation_required`, not refused for the ceiling.
+- Only the author of a pending write, an `admin_agent` key, or the owner
+  can confirm or reject it. Everyone else is refused with reason
+  `only_the_author_an_admin_key_or_the_owner_may_confirm_or_reject`.
+  On a keyless install that limit is not protection: the caller can
+  declare the author's agent_id, and Alice does not verify it.
+- Confirming a row that is not pending is refused and writes nothing.
+  A repeated reject of an already rejected row is still a no-op replay.
 - `title` and `canonical_text` are no longer listed as required in the
   `alice_memory_commit` schema, because a confirmation carries neither;
   a new write without them is still refused.

@@ -168,15 +168,18 @@ Both MCP routes call `VNextMemoryCommitService.confirm` through the same
 handler code, so identity, the policy check on the pending row's domain,
 sensitivity and project scope, and the audit below are the same. The
 project scope check binds a key-bound scope; a keyless server trusts
-whatever `project_scope` the caller declares. The
-`alice_memory_commit` route adds one refusal: an agent cannot confirm a
-pending write above its own sensitivity ceiling, which
-`alice_memory_manage` `confirm` still allows. It may reject one; the
-reject still passes the identity check and the key-bound project fence.
-Only an `admin_agent` identity can confirm such a write: an
-`admin_agent` key, or, on a keyless server, any call that declares
-`permission_profile: admin_agent` or carries no agent identity. A
-keyless server does not verify a declared profile. Neither route can
+whatever `project_scope` the caller declares. Both routes use the
+service ceiling: a mutation of a target above the caller's sensitivity
+ceiling is blocked, including confirm, forget, expire and undo. An agent
+commit above that ceiling is rejected with no pending row. The receipt
+says this was not saved, do not retry with a lower sensitivity label,
+tell the user, and the owner can raise this agent's clearance or store
+the memory themselves. Only the author, an `admin_agent` key, or the
+owner (a keyless call with no agent identity) can confirm or reject a
+pending write. On a keyless install that limit is not protection: the
+caller can declare the author's agent_id. The author can still reject
+their own pending write above the ceiling. Confirming a row that is not
+pending is refused and writes nothing. Neither route can
 tell whether the user was asked; the tool description tells the agent to
 ask. The revision, the policy events and the `agent.memory_confirmed` or
 `agent.memory_confirmation_rejected` event name the caller as
