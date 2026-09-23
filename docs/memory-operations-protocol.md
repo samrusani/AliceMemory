@@ -43,8 +43,15 @@ What routes where (from `evaluate_memory_commit_policy`):
 - Confidence below 0.5, external source types (email, web pages, generated
   artifacts), non-explicit intent, or bulk source references → `review_required`.
 - Confidence between 0.5 and 0.85, sensitive domains (health, family,
-  financial, legal, spiritual), sensitivity above `private`, or declared
-  contradictions → `confirmation_required`.
+  financial, legal, spiritual), or declared contradictions →
+  `confirmation_required`.
+- An agent (keyed, or keyless with a declared agent identity) committing
+  above its sensitivity ceiling is `rejected` with reason
+  `sensitivity_above_agent_ceiling` and no pending row, including when the
+  checks above would have returned `confirmation_required` or
+  `review_required`. The owner (a keyless call with no agent identity) and
+  an `admin_agent` key still get `confirmation_required` for a confidential
+  write.
 - Everything else from a trusted or project-scoped agent → `committed`.
 
 ## Audit guarantees
@@ -102,9 +109,14 @@ Two paths, one trust boundary:
 Outcomes: the four-outcome vocabulary above for commits; captures return
 `imported` with candidate memories that wait in the review queue.
 
-Audit: a `created` revision, provenance links for `source_refs`, and an
-`agent.memory_committed` / `agent.memory_confirmation_required` /
-`agent.memory_review_required` / `agent.memory_commit_rejected` event.
+Audit: a written row gets a `created` revision and an
+`agent.memory_committed`, `agent.memory_confirmation_required`, or
+`agent.memory_review_required` event. A refusal writes
+`agent.memory_commit_rejected` and does not write a memory row, a revision,
+or provenance. An agent refusal also writes `policy.decision`. A ceiling
+refusal also writes `agent.policy_filtered` when the policy decision is
+`allowed_with_filtering`, and `agent.policy_blocked` when that decision is
+`blocked`.
 Commits accept an `idempotency_key`; retries replay the original result
 instead of double-writing.
 

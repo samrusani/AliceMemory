@@ -3,7 +3,10 @@
 Wiki D8, audit 2026-09-03 finding 13. Written 2026-09-22.
 
 `alice_memory_commit` returns `confirmation_required` for a write below 0.85
-confidence, in a sensitive domain, or above `private`. The tool description told
+confidence or in a sensitive domain. An agent commit above its sensitivity
+ceiling is `rejected` with reason `sensitivity_above_agent_ceiling` and no
+pending row. The owner and an `admin_agent` key still get
+`confirmation_required` for a confidential write. The tool description told
 the agent to finish with `alice_memory_manage`. The default registry refuses that
 tool unless `ALICE_MCP_FULL_TOOLS=1`, and `alice-memory install` never sets it. The
 row sat in `needs_review`, invisible to recall and resume, with nothing on the

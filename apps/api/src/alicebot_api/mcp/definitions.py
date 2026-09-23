@@ -286,9 +286,11 @@ _CORE_TOOL_DEFINITIONS: list[dict[str, object]] = [
             "fields. Alice cannot tell whether you asked, so never answer for the user. To "
             "change the text, reject it and commit the corrected text as a new write. After 24 "
             "hours a pending write can no longer be confirmed on this tool: the next confirm or "
-            "reject here that passes the policy check resolves it to 'rejected'. Every outcome is "
-            "recorded with provenance, a "
-            "revision, and an audit event. For source documents and raw notes use "
+            "reject here that passes the policy check resolves it to 'rejected'. A refusal writes "
+            "agent.memory_commit_rejected and does not save a memory row, a revision, or provenance. "
+            "An agent ceiling refusal also writes policy.decision and agent.policy_filtered, unless "
+            "the policy decision is already blocked, which writes agent.policy_blocked instead. "
+            "For source documents and raw notes use "
             "alice_capture instead."
         ),
         "inputSchema": {
@@ -316,7 +318,7 @@ _CORE_TOOL_DEFINITIONS: list[dict[str, object]] = [
                 "sensitivity": {
                     "type": "string",
                     "enum": list(VNEXT_SENSITIVITY_LEVELS),
-                    "description": "How sensitive the content is. Levels above 'private' require inline confirmation. Defaults to 'unknown'.",
+                    "description": "How sensitive the content is. Above the caller's ceiling the commit is rejected and nothing is saved. The owner and an admin key still confirm levels above private. Defaults to 'unknown'.",
                 },
                 "confidence": {
                     "type": "number",

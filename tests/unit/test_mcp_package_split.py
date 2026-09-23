@@ -154,7 +154,13 @@ def test_mcp_registry_order_definitions_and_alias_identity_are_frozen() -> None:
     # author, an admin_agent key, or the owner can resolve a pending write.
     # alice_memory_manage's description says a mutation above the ceiling is
     # refused and names the same three resolvers. No tool added, removed, or renamed.
-    assert _digest(core_definitions) == "94709fbdd983541adca097d4b3722e58777b109be665cb7c7d4ab64f99c8c79b"
+    # Moved 2026-09-23 after review. Counts, legacy digest and handler map
+    # digest unchanged. The alice_memory_commit sensitivity field text changed
+    # because an above-ceiling agent commit is rejected rather than sent to
+    # inline confirmation. The description no longer says every outcome has
+    # provenance and a revision: a refusal writes agent.memory_commit_rejected
+    # and does not save a row. No tool added, removed, or renamed.
+    assert _digest(core_definitions) == "cf7b6fac4f50f6d8aee4ce32b6d50d132c8dcbe087154ee6073b9255a6bbb1af"
     assert _digest(legacy_definitions) == "ca3d747e552bdece52c22d76332fc69f499878290edf3f236a8a7ea6a2e34e41"
     ordered_handler_map = [(name, handler.__name__) for name, handler in handlers.items()]
     assert _digest(ordered_handler_map) == "d864c98bb914bbc6ace464fa8020b3ed264f17f2061a6101aae677d801032ae5"
