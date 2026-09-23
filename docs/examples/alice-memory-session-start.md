@@ -43,6 +43,31 @@ Copy `docs/examples/claude-code-session-start-hooks.json` into the Claude
 Code hooks file (often `~/.claude/settings.json` under `hooks`, or a
 project `.claude/settings.json`). Same environment variable.
 
+Claude Code's shape is not Cursor's. Each `SessionStart` item is a group
+whose `hooks` array holds the handler, and the handler needs
+`"type": "command"`. Claude Code ignores a flat `{"command": ...}` item;
+`claude doctor` lists it under "Invalid settings".
+
+`alice-memory install` (or `--host claude-code`) writes this group into
+`~/.claude/settings.json`. The hook's `--data-dir` is the one passed to
+install; without the flag, install keeps the data dir of the existing
+Alice MCP entry in `~/.claude.json`, then the one in an existing Alice
+hook, else `~/.alice`. Install in v0.16.0 and earlier wrote the flat
+Cursor item there, which Claude Code ignored. Re-running install from a
+version with this fix replaces that item. Duplicate Alice entries in
+well-formed groups are removed; a group whose `hooks` is not a list is
+left as it is. Hooks and settings that are not Alice's keep their
+values. Install rewrites the whole file as two-space-indented JSON, after
+saving a timestamped backup next to it
+(`settings.json.alice-backup-<UTC time>`), and does not touch the file
+when nothing would change.
+
+If the `alice` entry in `~/.claude.json` is not one install wrote (the
+Postgres entry in `docs/integrations/mcp.md`, for example), install
+leaves that file alone and exits 1. It still repairs the shape of an
+existing Alice hook, keeping that hook's own `--data-dir`, and it does
+not add a hook where there is none.
+
 ## OpenClaw
 
 OpenClaw does not need a plugin. Either:

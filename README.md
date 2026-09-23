@@ -46,13 +46,13 @@ Corrections are first-class: when a memory is corrected or superseded, future re
 
 ## Quickstart
 
-The fastest path is the packaged runtime from PyPI. Python 3.12+ and nothing else, no Docker, Node, or Postgres.
+The fastest path is the packaged runtime from PyPI. Needs [uv](https://docs.astral.sh/uv/), which fetches Python for you. Or Python 3.12+ with pip. No Docker, Node or Postgres.
 
 ```bash
 uvx alice-memory install --data-dir ~/.alice
 ```
 
-That writes Claude Desktop, Claude Code, Cursor, and OpenClaw MCP config. Claude Code and Cursor also get a SessionStart hook so the next session can inject the brief. Hermes is opt-in: add `--host hermes`. The command writes host config. It does not import a vault.
+That writes Claude Desktop, Claude Code, Cursor, and OpenClaw MCP config. Claude Code and Cursor also get a SessionStart hook so the next session can inject the brief. On those four hosts, re-running install keeps the data dir and any keys you added to an existing Alice entry (env, timeout, an absolute `uvx` path) unless you pass `--data-dir`, backs up each host file before rewriting it, and leaves alone an `alice` entry it did not write: that host is reported, the other hosts are still written, and the exit code is 1. Hermes is opt-in: add `--host hermes`. For Hermes, install writes only the `mcp_servers.alice` lines in `~/.hermes/config.yaml` and keeps every other line byte for byte (an empty `mcp_servers: {}`, `~` or `null` becomes `mcp_servers:`, and a last line with no line break gets one when lines are added after it), after saving a timestamped backup next to the file. On a re-run it keeps the existing entry's data dir, command and pinned args unless you pass `--data-dir`, which moves only the data dir; an entry with keys install never writes (such as `ALICE_MCP_FULL_TOOLS` in its env) is left alone and the receipt names those keys. If the file uses YAML the installer does not edit, it changes nothing, prints the lines to add by hand, and exits non-zero. The command writes host config. It does not import a vault.
 
 OpenClaw can also add the server in one line, which probes before saving:
 

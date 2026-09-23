@@ -177,6 +177,10 @@ _ERROR_CONTRACTS: dict[str, str] = {
     "demo_failed": "The demo could not complete after import",
     "sleep_failed": "The sleep pass could not complete",
     "install_failed": "The host install could not complete",
+    "install_refused": (
+        "A host config was left unchanged because install could not edit it safely; "
+        "add the printed snippet by hand"
+    ),
 }
 
 
@@ -723,11 +727,17 @@ def bootstrap_database(
     _secure_sqlite_files(db_path)
 
 
-def _add_database_arguments(parser: argparse.ArgumentParser) -> None:
+def _add_database_arguments(
+    parser: argparse.ArgumentParser,
+    *,
+    data_dir_default: str | None = DEFAULT_DATA_DIR,
+    data_dir_help: str | None = None,
+) -> None:
     parser.add_argument(
         "--data-dir",
-        default=DEFAULT_DATA_DIR,
-        help=f"Directory holding {DEFAULT_DB_FILENAME}. Defaults to {DEFAULT_DATA_DIR}.",
+        default=data_dir_default,
+        help=data_dir_help
+        or f"Directory holding {DEFAULT_DB_FILENAME}. Defaults to {DEFAULT_DATA_DIR}.",
     )
     parser.add_argument(
         "--db",
@@ -912,7 +922,16 @@ def build_parser() -> argparse.ArgumentParser:
             "and OpenClaw. Hermes is --host hermes. Does not import a vault."
         ),
     )
-    _add_database_arguments(install_parser)
+    # install needs to know whether --data-dir was passed: without it, each
+    # host keeps the data dir its existing Alice entry already uses.
+    _add_database_arguments(
+        install_parser,
+        data_dir_default=None,
+        data_dir_help=(
+            "Vault directory for the host entries. Without it, install keeps the "
+            f"data dir an existing Alice entry uses, else {DEFAULT_DATA_DIR}."
+        ),
+    )
     install_parser.add_argument(
         "--host",
         action="append",
@@ -1067,7 +1086,12 @@ def _run_sleep(args: argparse.Namespace) -> int:
 
 
 def _run_install(args: argparse.Namespace) -> int:
-    from alicebot_api.host_install import InstallError, run_host_install
+    from alicebot_api.host_install import (
+        InstallError,
+        InstallFailed,
+        InstallRefused,
+        run_host_install,
+    )
 
     try:
         print(
@@ -1079,6 +1103,14 @@ def _run_install(args: argparse.Namespace) -> int:
                 write_mcpb=args.write_mcpb,
             )
         )
+    except InstallFailed as failed:
+        print(failed.output)
+        _emit_error("install_failed")
+        return 1
+    except InstallRefused as refused:
+        print(refused.output)
+        _emit_error("install_refused")
+        return 1
     except InstallError:
         _emit_error("install_failed")
         return 1

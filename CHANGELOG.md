@@ -2,6 +2,89 @@
 
 ## Unreleased
 
+- `alice-memory install` writes Claude Code's SessionStart hook in the
+  shape Claude Code reads: a group whose `hooks` array holds
+  `{"type": "command", "command": ...}`. v0.16.0 wrote Cursor's flat
+  `{"command": ...}` item into `~/.claude/settings.json`; Claude Code
+  ignored it (`claude doctor` lists it under "Invalid settings"), so the
+  brief was never injected on Claude Code. Re-running install replaces
+  that flat item with the nested group; other hooks keep their values.
+  `docs/examples/claude-code-session-start-hooks.json` had the same flat
+  shape and is fixed. Duplicate Alice entries in well-formed groups are
+  removed; a group whose `hooks` is not a list is left as it is.
+
+- Re-running `alice-memory install` keeps what the user set. An `alice`
+  entry install wrote (uvx running `alice-memory mcp`, pinned or not)
+  keeps every key: env, type, timeout, cwd and an absolute uvx path.
+  `--data-dir` no longer defaults to `~/.alice` for install: without the
+  flag, each host keeps the data dir its entry already uses, and the
+  Claude Code and Cursor hooks follow it (then an existing Alice hook's
+  data dir, then `~/.alice`). With the flag, only the `--data-dir` value
+  changes and the receipt prints `data_dir: old -> new`. An `alice`
+  entry install did not write, such as the documented Postgres entry,
+  is left byte-identical and that host is refused with the entry to add
+  by hand; an existing Alice hook there is only repaired, keeping its
+  own data dir. Each JSON host file is backed up
+  (`<file>.alice-backup-<UTC time>`) before it is rewritten, and a file
+  that would not change is not written. The receipt lists the user keys
+  it kept.
+
+- One host no longer stops the others. A JSON file that does not parse,
+  or whose `hooks` or `SessionStart` has the wrong type, refuses that
+  host with a receipt naming the file, and nothing is written for it. A
+  file that cannot be read or written fails that host with a static
+  reason naming the file. Every receipt prints; the exit code is 1 with
+  `install_failed` if any host failed, else `install_refused` if any was
+  refused. A dry run that would refuse says `action: would-refuse` and
+  ends with "dry run: install would refuse this file; nothing was
+  attempted", and exits 1 like the real run.
+
+- `alice-memory install --host hermes` no longer rewrites
+  `~/.hermes/config.yaml` from a hand parser. v0.16.0 turned
+  `model: gpt-4o  # default model` into the value
+  `"gpt-4o  # default model"`, `- name: web` items into strings, `yes` /
+  `no` into strings, and `\t` / `\u00e9` escapes into literal
+  backslashes, dropped every comment, took no backup, and exited 0.
+  Install now adds or replaces only the `mcp_servers.alice` lines and
+  keeps every other byte (an empty `mcp_servers: {}`, `~` or `null`
+  becomes `mcp_servers:`, and a last line with no line break gets one
+  when lines are added after it). It writes a private timestamped backup
+  (`config.yaml.alice-backup-<UTC time>`) first, through a temp file, so
+  a failed write leaves no partial backup, and it does nothing on a
+  re-run when alice is already current. A file that uses YAML the
+  installer does not edit is left unchanged: a quoted or flow value
+  spanning lines, an anchor anywhere inside an old alice entry, an
+  anchor, tag or alias on `mcp_servers`, a merge key at the top level or
+  under `mcp_servers`, a block scalar header on a line of its own, a tab outside a quoted value or comment, several
+  documents, and similar. Install then prints the lines to add by hand
+  and exits 1 with `install_refused`. `--dry-run` for Hermes
+  prints the alice lines, not the whole file.
+
+- Re-running `install --host hermes` follows the same rules as the JSON
+  hosts. An existing `mcp_servers.alice` is replaced only when its keys
+  are within what install writes (`command`, `args`,
+  `env.ALICE_MEMORY_DATA_DIR`); quoting, style and indentation do not
+  matter. Without `--data-dir` it keeps the data dir that entry runs
+  with, and an entry of install's shape (uvx running alice-memory mcp)
+  keeps its command and args, so an absolute uvx path and a pinned
+  version stay. An entry with any other key is left alone; install
+  prints the snippet on that entry's data dir and names the extra keys
+  (`extra_keys: env.ALICE_MCP_FULL_TOOLS`) so they are not lost when
+  pasting. An entry the installer cannot read is left alone too.
+
+- The README no longer says the packaged path needs "Python 3.12+ and
+  nothing else": `uvx` needs uv, which fetches Python itself, and the
+  pip path needs Python 3.12+. `install` prints a warning, not an
+  error, when `uvx` is not on PATH, because the host entries it writes
+  start Alice with uvx. The exit code does not change.
+
+- PyYAML stays in the dev extra only, as the Hermes test oracle. Two
+  guards keep it out of runtime code: an AST scan of `apps/api/src` and
+  `workers` for any yaml import, and a subprocess that runs the Hermes
+  install path with `sys.modules["yaml"] = None`. The wheel-only CI job
+  runs `alice-memory install --host hermes` against a temp home with no
+  YAML library installed.
+
 ## v0.16.0 — 2026-08-19
 
 - README leads with `alice-memory install` and `demo --vault`, then a
