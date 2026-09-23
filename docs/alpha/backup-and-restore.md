@@ -155,7 +155,8 @@ A second import of the same file with the same `--quarantine` list follows
 records, so they are skipped, the command exits 0, and the database is
 unchanged. `--mode fail` still aborts when any id already exists, including
 a quarantined row. Importing that same file again without `--quarantine`
-aborts: the original text is not the redacted row, and existing rows are
+aborts and writes nothing. The file still carries the credential, so the
+credential refusal fires before the collision check. Existing rows are
 never overwritten. The rejected row and the placeholder stay.
 
 This command restores a SQLite database. It is not a PostgreSQL import.

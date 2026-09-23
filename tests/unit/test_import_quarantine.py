@@ -758,7 +758,11 @@ def test_second_import_without_quarantine_aborts_and_leaves_the_rejected_row(tmp
         )
         == 1
     )
-    _assert_onramp_error(capsys.readouterr().err, code="restore_failed")
+    # The file still holds the credential, so S4.4 refuses it before the
+    # collision check. Nothing is written, and the rejected row stays.
+    err = capsys.readouterr().err
+    _assert_onramp_error(err, code="import_credential_material")
+    assert SECRET not in err
     _assert_secret_absent(fresh)
     with sqlite_user_connection(fresh, USER_ID) as conn:
         secret_row = conn.execute(
