@@ -474,11 +474,12 @@ def test_ci_action_dependency_carrier_uses_exact_atomic_pins() -> None:
         workflows,
     )
 
-    # 19 since the Bandit SAST job joined security-scans.yml. The count is the
-    # point: it forces a new action usage to be reviewed rather than absorbed.
+    # 20 since the commit author check workflow joined the pull request
+    # workflows. The count is the point: it forces a new action usage to be
+    # reviewed rather than absorbed.
     assert checkout_refs == [
         "3d3c42e5aac5ba805825da76410c181273ba90b1"
-    ] * 19
+    ] * 20
     assert codeql_refs == [
         "f205ea1c3313d32999d8d6a48b4f6530d4437b38"
     ] * 3
