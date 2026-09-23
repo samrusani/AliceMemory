@@ -537,7 +537,37 @@ _PASSWORD_VALUE = re.compile(r"[ \t]*(?:\r?\n[ \t]*)?[\"']?([^\s\"'`,;)\]}]{6,})
 _PASSWORD_REFERENCE_PREFIXES = ("$", "%s", "%(", "{{", "<", "~/", "/")
 _SEGMENT_SEP = re.compile(r"[_-]")
 # nextPageToken -> next, Page, Token; PGPASSWORD stays whole; apiKey -> api, Key.
-_CAMEL_HUMP = re.compile(r"[A-Z]+(?![a-z])|[A-Z]?[a-z0-9]+|[0-9]+")
+# _camel_humps gives what re.findall(r"[A-Z]+(?![a-z])|[A-Z]?[a-z0-9]+|[0-9]+",
+# piece) gave, built from runs of capitals and runs of lower case and digits.
+# The two runs cannot overlap, so nothing backtracks however long a run is
+# (CodeQL py/polynomial-redos flagged the old pattern on a run of "A", S4 CI).
+_HUMP_RUN = re.compile(r"[A-Z]+|[a-z0-9]+")
+
+
+def _camel_humps(piece: str) -> list[str]:
+    humps: list[str] = []
+    runs = list(_HUMP_RUN.finditer(piece))
+    index = 0
+    while index < len(runs):
+        run = runs[index]
+        text = run.group(0)
+        following = runs[index + 1] if index + 1 < len(runs) else None
+        if (
+            "A" <= text[0] <= "Z"
+            and following is not None
+            and following.start() == run.end()
+            and "a" <= piece[run.end()] <= "z"
+        ):
+            # The last capital starts the next hump: "HTTPServer" is HTTP, Server.
+            if len(text) > 1:
+                humps.append(text[:-1])
+            humps.append(text[-1] + following.group(0))
+            index += 2
+            continue
+        humps.append(text)
+        index += 1
+    return humps
+
 # Suffixes that say which copy of a secret this is, not what it is (A2).
 _NEUTRAL_SUFFIX = re.compile(
     r"ro|rw|readonly|v\d*|\d+|old|new|prev|previous|current|prod|production|dev|stg|staging|test|live"
@@ -549,11 +579,23 @@ _NEUTRAL_SUFFIX = re.compile(
 # digits ("B2", "S3", "R2") is a copy or storage marker, not the secret's name.
 _NEUTRAL_PIECE = re.compile(_NEUTRAL_SUFFIX.pattern + r"|[a-z]\d+")
 
-_PASSWORD_SEGMENT = re.compile(r"[a-z0-9]*(?:password|passwd|passphrase)")
-_SECRET_SEGMENT = re.compile(
-    r"[a-z0-9]*(?:secret|credentials?|apikey|secretkey|accesskey|privatekey|signingkey|authtoken|accesstoken)"
+# A segment names a secret when it is lower case letters and digits ending in
+# one of these words. Read as a suffix test rather than the old
+# "[a-z0-9]*(?:word|...)" patterns, which CodeQL flagged on a run of "0"
+# (py/polynomial-redos, S4 CI): fullmatch kept them linear, but a search
+# with the same pattern is quadratic, and the suffix test cannot be.
+_LOWER_ALNUM = re.compile(r"[a-z0-9]+")
+_PASSWORD_WORDS = ("password", "passwd", "passphrase")
+_SECRET_WORDS = (
+    "secret", "credential", "credentials", "apikey", "secretkey", "accesskey", "privatekey", "signingkey",
+    "authtoken", "accesstoken",
 )
-_TOKEN_SEGMENT = re.compile(r"[a-z0-9]*token")
+_TOKEN_WORDS = ("token",)
+
+
+def _segment_ends_in(segment: str, words: tuple[str, ...]) -> bool:
+    return segment.endswith(words) and _LOWER_ALNUM.fullmatch(segment) is not None
+
 _KEY_QUALIFIERS = frozenset(
     {
         "api", "secret", "access", "private", "signing", "sign", "encryption", "enc", "crypt", "crypto",
@@ -605,7 +647,7 @@ def _name_kind(run: str, text: str, run_start: int) -> str | None:
     pieces = [piece for piece in _SEGMENT_SEP.split(run) if piece]
     while len(pieces) > 1 and _NEUTRAL_PIECE.fullmatch(pieces[-1].lower()):
         pieces.pop()
-    segments = [hump for piece in pieces for hump in _CAMEL_HUMP.findall(piece)]
+    segments = [hump for piece in pieces for hump in _camel_humps(piece)]
     # Addition A2: drop neutral suffixes before deciding on the last segment.
     while len(segments) > 1 and _NEUTRAL_SUFFIX.fullmatch(segments[-1].lower()):
         segments.pop()
@@ -614,11 +656,11 @@ def _name_kind(run: str, text: str, run_start: int) -> str | None:
     last = segments[-1].lower()
     previous = segments[-2].lower() if len(segments) >= 2 else ""
     qualified = bool(previous) or bool(_PRECEDING_QUALIFIER.search(text[max(0, run_start - 24) : run_start]))
-    if _PASSWORD_SEGMENT.fullmatch(last):
+    if _segment_ends_in(last, _PASSWORD_WORDS):
         return "password"
-    if _SECRET_SEGMENT.fullmatch(last):
+    if _segment_ends_in(last, _SECRET_WORDS):
         return "secret" if qualified or last not in {"secret", "credential", "credentials"} else "bare"
-    if _TOKEN_SEGMENT.fullmatch(last):
+    if _segment_ends_in(last, _TOKEN_WORDS):
         if previous in _TOKEN_STRUCTURAL:
             return None
         return "secret" if qualified or last != "token" else "bare"

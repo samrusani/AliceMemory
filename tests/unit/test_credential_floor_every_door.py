@@ -57,6 +57,7 @@ from alicebot_api.vnext_memory_commit import (
 from alicebot_api.vnext_queue import VNextQueueService, VNextQueueValidationError
 
 from tests.unit.fixtures_promotion_corpus import ALL_NOTES, BUILDER_NOTES
+from tests.unit.fixtures_timing import budget, tracer_active
 from tests.unit.test_memory_mutations import MemoryMutationStoreStub
 
 
@@ -1158,7 +1159,7 @@ def test_r5_the_patterns_changed_only_their_leading_run() -> None:
     assert new_4.pattern == _OLD_AGENT_CONTROL_4.pattern.replace("^\\s*", "^[^\\S\\n]*", 1)
     assert (new_1.flags, new_4.flags) == (_OLD_AGENT_CONTROL_1.flags, _OLD_AGENT_CONTROL_4.flags)
     # Guards the guard: the alphabet holds every character the fuzz needs.
-    for char in "\r\x0b\x0c\x1c\x1d\x1e\x1f\x85\xa0  　":
+    for char in "\r\x0b\x0c\x1c\x1d\x1e\x1f\x85\xa0\u2028\u2029\u3000":
         assert char in _EVERY_WHITESPACE
 
 
@@ -1195,7 +1196,7 @@ _NEWLINE_RUNS = {
     "newlines": "\n" * 50_000,
     "space newline": " \n" * 25_000,
     "crlf": "\r\n" * 25_000,
-    "mixed separators": "\n\x0b\x0c\x1c  " * 8_334,
+    "mixed separators": "\n\x0b\x0c\x1c\u2028 " * 8_334,
 }
 
 
@@ -1309,3 +1310,89 @@ def test_round5_the_body_after_a_header_scans_in_linear_time(label: str) -> None
     # Guards the guard: the repeated unit really holds the header whose body
     # pattern was the costly one.
     assert "BEGIN PRIVATE KEY" in small
+
+
+# ---------------------------------------------------------------------------
+# S4 CI (2026-09-23): CodeQL py/polynomial-redos, alerts 525 to 528 on PR #414.
+# The camel-hump splitter ("may run slow on strings with many repetitions of
+# 'A'") and the three secret-name suffix patterns ("... of '0'") in
+# _name_kind. Measured as used, with fullmatch, the suffix patterns were
+# linear; the same pattern under search took 4.7 s at 50 KB and 76 s at
+# 200 KB of "0". Both are now built so they cannot backtrack. The old
+# patterns are kept here as oracles, and the new code must agree with them.
+# ---------------------------------------------------------------------------
+
+_OLD_CAMEL_HUMP = re.compile(r"[A-Z]+(?![a-z])|[A-Z]?[a-z0-9]+|[0-9]+")
+_OLD_SUFFIX_PATTERNS = {
+    "password": (re.compile(r"[a-z0-9]*(?:password|passwd|passphrase)"), credential_floor._PASSWORD_WORDS),
+    "secret": (
+        re.compile(
+            r"[a-z0-9]*(?:secret|credentials?|apikey|secretkey|accesskey|privatekey|signingkey|authtoken|accesstoken)"
+        ),
+        credential_floor._SECRET_WORDS,
+    ),
+    "token": (re.compile(r"[a-z0-9]*token"), credential_floor._TOKEN_WORDS),
+}
+
+
+@pytest.mark.parametrize(
+    "piece",
+    ["nextPageToken", "PGPASSWORD", "apiKey", "HTTPServer", "B64", "AB1c", "aB", "A", "ABc", "a1B2cD", "\u00e9Ab", ""],
+)
+def test_codeql_the_hump_splitter_keeps_the_old_splits(piece: str) -> None:
+    assert credential_floor._camel_humps(piece) == _OLD_CAMEL_HUMP.findall(piece)
+
+
+def test_codeql_the_hump_splitter_matches_the_old_pattern_on_a_seeded_fuzz() -> None:
+    rng = random.Random(20260923)
+    alphabet = "AZQabzq0 9_-.\u00e9\u00c9\u212a"
+    joined_capital = 0
+    for _ in range(20_000):
+        piece = "".join(rng.choice(alphabet) for _ in range(rng.randint(0, 14)))
+        old = _OLD_CAMEL_HUMP.findall(piece)
+        assert credential_floor._camel_humps(piece) == old, piece
+        joined_capital += any(len(hump) > 1 and hump[0].isupper() and hump[1].islower() for hump in old)
+    # Guards the guard: the capital handed to the next hump is exercised.
+    assert joined_capital > 500
+
+
+def test_codeql_the_suffix_tests_match_the_old_patterns() -> None:
+    rng = random.Random(20260924)
+    words = ("password", "passwd", "passphrase", "secret", "credential", "credentials", "apikey", "token",
+             "accesstoken", "tok", "secre", "key")
+    matches = 0
+    for _ in range(20_000):
+        parts = [rng.choice(("a", "0", "9", "z", "X", "_", rng.choice(words))) for _ in range(rng.randint(0, 5))]
+        segment = "".join(parts)
+        for pattern, words_for_kind in _OLD_SUFFIX_PATTERNS.values():
+            old = pattern.fullmatch(segment) is not None
+            assert credential_floor._segment_ends_in(segment, words_for_kind) is old, segment
+            matches += old
+    assert matches > 1_000
+
+
+# The alerts' own inputs: a long run of "0" and of "A", as a NAME=value name,
+# as a mapping key, and straight into _name_kind.
+_CODEQL_UNITS = {"zeros": "0", "capitals": "A", "capital then lower": "Aa", "lower then digit": "a0"}
+
+
+def _name_seconds(name: str) -> float:
+    started = time.perf_counter()
+    credential_floor._name_kind(name, "", 0)
+    carries_credential_material(name + "=" + "Abc123def456")
+    carries_credential_material({name: "Abc123def456"})
+    return time.perf_counter() - started
+
+
+@pytest.mark.parametrize("label", sorted(_CODEQL_UNITS))
+def test_codeql_a_long_name_scans_in_linear_time(label: str) -> None:
+    unit = _CODEQL_UNITS[label]
+    small = unit * (50_000 // len(unit))
+    large = unit * (200_000 // len(unit))
+    small_seconds = min(_name_seconds(small) for _ in range(3))
+    large_seconds = min(_name_seconds(large) for _ in range(3))
+    assert large_seconds < budget(_CHOKE_POINT_BUDGET_SECONDS), (label, large_seconds, tracer_active())
+    # Linear is 4x; quadratic is 16x.
+    assert large_seconds < max(8 * small_seconds, 0.02), (label, small_seconds, large_seconds)
+    # Guards the guard: the same long name ending in a secret word is read.
+    assert credential_floor._name_kind(large + "_password", "", 0) == "password"
