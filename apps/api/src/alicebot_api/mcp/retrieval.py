@@ -37,9 +37,10 @@ from alicebot_api.task_briefing import (
     get_persisted_task_brief,
 )
 from alicebot_api.vnext_agent_control import (
+    AgentPolicyBlockedError,
     PolicyDecision,
-    resource_project_scope,
 )
+from alicebot_api.vnext_memory_commit import VNextMemoryCommitService
 from alicebot_api.vnext_project_scope import project_scope_identity
 from alicebot_api.vnext_projects import VNextProjectService
 from alicebot_api.vnext_repositories import JsonObject as VNextJsonObject
@@ -99,7 +100,6 @@ from .shared import (
     _parse_required_uuid,
     _parse_string_list,
     _parse_task_brief_request,
-    _policy_checked,
     _raise_mcp_policy_blocked,
     _render_prefetch_context_text,
     _retrieval_filter_kwargs,
@@ -626,17 +626,17 @@ def _handle_alice_open_loops(context: MCPRuntimeContext, arguments: Mapping[str,
         target = store.get_open_loop(loop_id)
         if target is None:
             raise MCPToolError(f"open loop {loop_id} was not found")
-        _actor_type, _actor_id, decision = _policy_checked(
-            store,
-            identity=identity,
-            action="open_loop.update",
-            domains=(str(target.get("domain") or "unknown"),),
-            sensitivity_allowed=(str(target.get("sensitivity") or "unknown"),),
-            project_scope=resource_project_scope(target),
-            require_explicit_project_scope=True,
-        )
-        if decision.decision == "blocked":
-            blocked_decision = decision
+        # Same ceiling block as memory mutations. The policy event names
+        # this loop; the previous check logged the decision with no target.
+        try:
+            VNextMemoryCommitService(store).authorize_memory_action(
+                identity=identity,
+                action="open_loop.update",
+                memory=target,
+                target_type="open_loop",
+            )
+        except AgentPolicyBlockedError as exc:
+            blocked_decision = exc.decision
         else:
             loop = VNextProjectService(store).review_open_loop(
                 loop_id=loop_id,

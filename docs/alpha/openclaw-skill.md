@@ -104,9 +104,12 @@ reject it and commit the corrected text. After 24 hours it can no longer be conf
 it to `rejected`. A reviewer using `alice_memory_correct` `approve` on the full surface, which
 does not check the 24 hours, can still approve it. A key bound to another project can neither
 confirm nor reject it; a keyless server trusts whatever `project_scope` the call declares, so
-this fence needs a project-bound key. A `project_scoped_agent`
-cannot confirm a pending write above its sensitivity ceiling, only reject it, so keep project
-facts at `private` or below.
+this fence needs a project-bound key. Only the agent that authored a pending write, an
+`admin_agent` key, or the owner can confirm or reject it. On a keyless install that limit is
+not protection: the caller can declare the author's agent_id. Keep project facts at `private`
+or below. A write above that ceiling is rejected: This was not saved. Do not retry with a
+lower sensitivity label. Tell the user. The owner can raise this agent's clearance or store
+the memory themselves.
 
 If Alice returns `review_required`, leave the item. Do not tell the user to clear a review
 queue. If Alice returns `rejected`, do not retry outside the `project` domain. Use

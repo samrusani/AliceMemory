@@ -898,8 +898,14 @@ _REASON_INTAKE = {
 }
 # Internal helpers that never see unchecked caller text: their reason is a
 # fixed string built in this module, or (_append_revision on commit) the
-# request rationale the commit gate has already read.
-_FIXED_REASON_HELPERS = {"_invalidate_pending_derived_candidates", "_refresh_last_confirmed", "_append_revision"}
+# request rationale the commit gate has already read. memory_commit_receipt
+# reads a reason code to choose a receipt line. It does not store the text.
+_FIXED_REASON_HELPERS = {
+    "_invalidate_pending_derived_candidates",
+    "_refresh_last_confirmed",
+    "_append_revision",
+    "memory_commit_receipt",
+}
 
 
 def test_r2_every_reason_intake_in_the_commit_service_goes_through_the_helper() -> None:

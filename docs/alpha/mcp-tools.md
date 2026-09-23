@@ -66,7 +66,11 @@ Remember, recall, continue. These are the only tools in a default
   agent should use it whenever it learns something worth keeping, including
   when the user has not asked it to remember. Policy-checked, never blind:
   the outcome is `committed`, `confirmation_required`, `review_required`, or
-  `rejected`, always with provenance, a revision, and an audit event. Print
+  `rejected`. A refusal writes `agent.memory_commit_rejected` and does not
+  write a memory row, a revision, or provenance. An agent ceiling refusal
+  also writes `policy.decision` and `agent.policy_filtered`, unless the
+  policy decision is already blocked, which writes `agent.policy_blocked`
+  instead. Print
   the `receipt` field after a capture or commit so the user sees what was
   stored. A `confirmation_required` write is finished on this same tool:
   ask the user, then send the returned `confirmation_id` with
@@ -287,9 +291,10 @@ Alice decides the outcome, never the caller:
   tell whether the agent asked, so the tool description tells it to ask.
   What the audit names depends on how the call was identified. These
   rows name the caller as `actor_id`: the revision, the `policy.decision`
-  event (plus `agent.policy_filtered` when the row is above the caller's
-  sensitivity ceiling), and the `agent.memory_confirmed` or
-  `agent.memory_confirmation_rejected` event. The `memory.updated` and
+  event (an author reject above the caller's ceiling also writes
+  `agent.policy_filtered`; a confirm above the ceiling writes
+  `agent.policy_blocked` and does not change the row), and the
+  `agent.memory_confirmed` or `agent.memory_confirmation_rejected` event. The `memory.updated` and
   `memory_revision.created` events carry `actor_type` only, with no
   `actor_id`. With `ALICE_AGENT_API_KEY` set, the named caller is the
   key's `agent_id` and the policy event records `auth: agent_api_key`.
@@ -307,13 +312,23 @@ Alice decides the outcome, never the caller:
   (see [Memory Operations Protocol](../memory-operations-protocol.md#confirm)).
   The project fence binds a
   key-bound scope; a keyless server trusts whatever `project_scope` the
-  caller declares. It is stricter in one place: an agent cannot confirm a
-  pending write above its own sensitivity ceiling, which
-  `alice_memory_manage` `confirm` still lets it do. It can reject one.
-  Only an `admin_agent` identity can confirm such a write: an
-  `admin_agent` key, or, on a keyless server, any call that declares
-  `permission_profile: admin_agent` or carries no agent identity. A
-  keyless server does not verify a declared profile.
+  caller declares. Forget, expire, undo, confirm and open-loop updates
+  of a target above the caller's sensitivity ceiling are blocked in that
+  service, reason `sensitivity_above_agent_ceiling`, and the policy
+  event names the target. An agent committing above its ceiling is
+  rejected at commit time with no pending row. The receipt says: This
+  was not saved. Do not retry with a lower sensitivity label. Tell the
+  user. The owner can raise this agent's clearance or store the memory
+  themselves. The owner (a keyless call with no agent identity), an
+  `admin_agent` key, and a keyless call that declares
+  `permission_profile: admin_agent` are not held to that ceiling. A
+  keyless server does not verify a declared profile. That is keyless
+  owner mode. Only the author of a
+  pending write, an `admin_agent` key, or the owner can confirm or
+  reject it. On a keyless install that limit is not protection: the
+  caller can declare the author's agent_id. The author can still reject
+  their own pending write above the ceiling. Confirming a row that is
+  not pending is refused and writes nothing.
   A pending write stays out of recall until it is answered, and nothing
   expires it in the background. Only `VNextMemoryCommitService.confirm`
   reads its 24 hour `expires_at`. After that time, a confirm or reject

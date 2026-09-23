@@ -3,13 +3,11 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import replace
 from alicebot_api.store import JsonObject
 from alicebot_api.vnext_agent_control import (
     AgentIdentity,
     AgentPolicyBlockedError,
     PolicyDecision,
-    append_policy_events,
     evaluate_agent_policy,
     resource_project_scope,
 )
@@ -165,7 +163,6 @@ def _handle_alice_vnext_confirm_memory(context: MCPRuntimeContext, arguments: Ma
         arguments,
         action=_parse_optional_text(arguments, "action") or "confirm",
         canonical_text=_parse_optional_text(arguments, "canonical_text"),
-        refuse_above_sensitivity_ceiling=False,
     )
 
 
@@ -200,10 +197,9 @@ def _finish_pending_commit(context: MCPRuntimeContext, arguments: Mapping[str, o
     ``alice_memory_manage`` action ``confirm`` takes, so identity, the policy
     check, the project fence and the audit trail are the service's own. The
     project fence binds a key-bound scope only; a keyless server trusts
-    whatever project_scope the caller declares. It is stricter than manage in
-    one respect: it refuses to let an agent confirm a row above that agent's
-    sensitivity ceiling (see ``_refuse_confirmation_above_sensitivity_ceiling``).
-    Rejecting such a row is allowed.
+    whatever project_scope the caller declares. The sensitivity ceiling and
+    who may confirm or reject live in ``VNextMemoryCommitService.confirm``,
+    not in this route.
 
     Nothing here can tell whether the user was asked. The tool description
     tells the agent to ask. The revision row, the policy.decision event and the
@@ -238,102 +234,8 @@ def _finish_pending_commit(context: MCPRuntimeContext, arguments: Mapping[str, o
         arguments,
         action=action,
         canonical_text=None,
-        refuse_above_sensitivity_ceiling=True,
     )
     return {**payload, "receipt": memory_commit_receipt(str(payload.get("status") or ""))}
-
-
-def _refuse_confirmation_above_sensitivity_ceiling(
-    store,
-    service: VNextMemoryCommitService,
-    *,
-    identity: AgentIdentity | None,
-    confirmation_id: str,
-    action: str,
-) -> None:
-    """Block an agent from confirming a row it could not read back.
-
-    ``VNextMemoryCommitService.confirm`` evaluates policy on the pending row's
-    own domain, sensitivity and project scope. A single restricted domain comes
-    back ``blocked``. A sensitivity above the caller's ceiling comes back
-    ``allowed_with_filtering``, and the service only stops on ``blocked``, so
-    manage lets such an agent confirm the write (audit 2026-09-03 finding 8).
-
-    This runs the same evaluation first and turns that one outcome into a
-    block, with its own reason and the normal policy audit events on the row.
-    Every other outcome falls through to the service untouched, which then
-    evaluates, records and enforces exactly as it does for manage. So this
-    check can add a refusal and can never grant anything.
-
-    Only ``confirm`` is refused. ``reject`` stores nothing and lowers
-    exposure, and without it a keyed agent could not clear its own
-    above-ceiling write. It is not free of disclosure: like manage and the
-    HTTP confirm route, the response echoes the pending row, including the
-    text the writer sent. Restricting who may resolve a pending write is
-    scheduled for S4.5. A reject still goes through the service's policy
-    check, so identity and the project fence still apply (a key-bound scope;
-    a keyless server trusts the declared scope).
-    """
-
-    if identity is None or action != "confirm":
-        return
-    # Lock order is the service's own: the graph lock (a per-user advisory
-    # lock on Postgres), then the row lock. Taking the row lock first and
-    # letting the service take the advisory lock afterwards would invert the
-    # order other writers use, which on Postgres can deadlock. The row is then
-    # judged as read under the row lock, not as first looked up, so a
-    # sensitivity change committed between the lookup and the lock cannot slip
-    # past the check (a time-of-check to time-of-use gap). SQLite has one
-    # writer and lock_graph_mutation is a no-op there, so no real race can be
-    # staged in the unit suite. The tests pin both properties instead: a call
-    # order spy for the lock order, and a simulated change between lookup and
-    # lock for the re-read. Neither was run against Postgres.
-    service.lock_supersession_graph()
-    memory = store.get_memory_by_confirmation_id(confirmation_id)
-    if memory is None:
-        return
-    get_memory_for_update = getattr(store, "get_memory_for_update", None)
-    if callable(get_memory_for_update):
-        memory = get_memory_for_update(str(memory["id"]))
-        if memory is None:
-            return
-    decision = evaluate_agent_policy(
-        identity=identity,
-        action="memory.confirm",
-        domains=(str(memory.get("domain") or "unknown"),),
-        sensitivity_allowed=(str(memory.get("sensitivity") or "unknown"),),
-        project_scope=resource_project_scope(memory),
-        require_explicit_project_scope=True,
-    )
-    if decision.decision == "blocked" or "restricted_sensitivity_filtered" not in decision.reasons:
-        return
-    blocked = replace(
-        decision,
-        decision="blocked",
-        reasons=tuple(dict.fromkeys((*decision.reasons, "sensitivity_above_agent_ceiling"))),
-    )
-    # The service's own refusals record the refused agent in agent_identities
-    # (_policy_checked_write upserts before it logs). This refusal does the
-    # same, so an agent refused here is as visible to the operator as one the
-    # service refused.
-    store.upsert_agent_identity(
-        {
-            "agent_id": identity.agent_id,
-            "agent_type": identity.agent_type,
-            "permission_profile": identity.permission_profile,
-            "project_scope_json": list(identity.project_scope),
-            "metadata_json": {"last_agent_run_id": identity.agent_run_id, "last_task_id": identity.task_id},
-        },
-        actor_type="agent",
-    )
-    append_policy_events(
-        store,
-        identity=identity,
-        decision=blocked,
-        target_type="memory",
-        target_id=str(memory["id"]),
-    )
-    raise AgentPolicyBlockedError(blocked)
 
 
 def _confirm_pending_memory(
@@ -342,14 +244,13 @@ def _confirm_pending_memory(
     *,
     action: str,
     canonical_text: str | None,
-    refuse_above_sensitivity_ceiling: bool,
 ) -> JsonObject:
     """The one MCP path to ``VNextMemoryCommitService.confirm``.
 
     ``alice_memory_manage`` action ``confirm``, the legacy
     ``alice_vnext_confirm_memory`` tool and ``alice_memory_commit`` with a
-    ``confirmation_id`` all land here, so a control added to this wrapper
-    reaches every route at once.
+    ``confirmation_id`` all land here. The ceiling and who may resolve a
+    pending write are enforced in the service, so the routes agree.
     """
 
     identity = _agent_identity_from_arguments(context, arguments)
@@ -360,14 +261,6 @@ def _confirm_pending_memory(
         try:
             service = VNextMemoryCommitService(store, defer_embeddings=True)
             confirmation_id = _parse_required_text(arguments, "confirmation_id")
-            if refuse_above_sensitivity_ceiling:
-                _refuse_confirmation_above_sensitivity_ceiling(
-                    store,
-                    service,
-                    identity=identity,
-                    confirmation_id=confirmation_id,
-                    action=action,
-                )
             payload = service.confirm(
                 identity=identity,
                 confirmation_id=confirmation_id,

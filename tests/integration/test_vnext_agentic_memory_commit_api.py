@@ -148,7 +148,7 @@ def test_agentic_memory_commit_confirmation_review_and_rejection_api(migrated_da
             "title": "Sensitive memory",
             "canonical_text": "Sensitive health preference needs confirmation before becoming context.",
             "domain": "health",
-            "sensitivity": "confidential",
+            "sensitivity": "private",
             "confidence": 0.93,
         },
     )

@@ -925,7 +925,7 @@ def test_memory_commit_confirmation_flow(sqlite_context) -> None:
             "canonical_text": "Sami is allergic to penicillin.",
             "memory_type": "identity_fact",
             "domain": "health",
-            "sensitivity": "confidential",
+            "sensitivity": "private",
             "confidence": 0.95,
         },
     )
@@ -945,18 +945,10 @@ def test_memory_commit_confirmation_flow(sqlite_context) -> None:
     assert confirmed["status"] == "committed"
     assert confirmed["memory"]["status"] == "active"
 
-    # Confidential content stays outside the default sensitivity gate and
-    # must be requested explicitly.
-    default_gate = call_mcp_tool(sqlite_context, name="alice_recall", arguments={"query": "penicillin"})
-    assert default_gate["count"] == 0
-    recall = call_mcp_tool(
-        sqlite_context,
-        name="alice_recall",
-        arguments={
-            "query": "penicillin",
-            "sensitivity_allowed": ["public", "internal", "private", "confidential"],
-        },
-    )
+    # private is inside the default sensitivity gate, so the confirmed fact
+    # is searchable. A confidential write from this agent is refused instead
+    # of held; that refusal is pinned in the ceiling tests.
+    recall = call_mcp_tool(sqlite_context, name="alice_recall", arguments={"query": "penicillin"})
     assert recall["count"] == 1
     audit = call_mcp_tool(
         sqlite_context,

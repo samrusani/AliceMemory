@@ -2966,7 +2966,7 @@ def test_alice_vnext_agentic_memory_confirm_mcp_tool(monkeypatch, legacy_tools_e
             "title": "MCP sensitive memory",
             "canonical_text": "Sensitive health facts need inline confirmation.",
             "domain": "health",
-            "sensitivity": "confidential",
+            "sensitivity": "private",
             "confidence": 0.94,
         },
     )
@@ -5137,7 +5137,7 @@ def test_alice_memory_commit_outcome_vocabulary(monkeypatch, core_surface, no_em
             "title": "Sensitive memory",
             "canonical_text": "Health facts need inline confirmation.",
             "domain": "health",
-            "sensitivity": "confidential",
+            "sensitivity": "private",
             "confidence": 0.95,
         },
     )
@@ -5158,7 +5158,7 @@ def test_alice_memory_manage_confirms_a_pending_commit(monkeypatch, core_surface
             "title": "Pending confirmation",
             "canonical_text": "Sensitive content awaits confirmation.",
             "domain": "health",
-            "sensitivity": "confidential",
+            "sensitivity": "private",
             "confidence": 0.95,
         },
     )
@@ -5191,7 +5191,7 @@ def test_alice_memory_manage_confirm_with_text_records_a_correction(
             "title": "Pending confirmation",
             "canonical_text": "Original proposed text.",
             "domain": "health",
-            "sensitivity": "confidential",
+            "sensitivity": "private",
             "confidence": 0.95,
         },
     )
