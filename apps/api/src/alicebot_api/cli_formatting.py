@@ -3,7 +3,8 @@ from __future__ import annotations
 import json
 from typing import Mapping, Sequence, cast
 
-from alicebot_api.recall_framing import STORED_NOTE_FRAMING, quote_stored_note, writer_attribution
+from alicebot_api.recall_framing import writer_attribution
+from alicebot_api.session_briefing import SESSION_BRIEF_FRAME, quote_session_brief_text
 from alicebot_api.contracts import (
     ContinuityArtifactDetailResponse,
     ContinuityBriefResponse,
@@ -111,7 +112,7 @@ def _format_explanation_source_facts(
         label = fact.get("label")
         value = fact.get("value")
         if isinstance(label, str) and isinstance(value, str):
-            shown = quote_stored_note(value) if quote_stored_text and value.strip() else value
+            shown = quote_session_brief_text(value) if quote_stored_text and value.strip() else value
             rendered.append(f"{label}={shown}")
     return " | ".join(rendered) if rendered else "(none)"
 
@@ -135,7 +136,7 @@ def _format_explanation_evidence(
         source_id = segment.get("source_id")
         snippet = segment.get("snippet")
         if isinstance(source_kind, str) and isinstance(source_id, str) and isinstance(snippet, str):
-            shown = quote_stored_note(snippet) if quote_stored_text else f'"{snippet}"'
+            shown = quote_session_brief_text(snippet) if quote_stored_text else f'"{snippet}"'
             rendered.append(f"{source_kind}:{source_id} {shown}")
     return " | ".join(rendered) if rendered else "(none)"
 
@@ -157,7 +158,7 @@ def _format_explanation_supersession(
             continue
         text = note.get("note")
         if isinstance(text, str):
-            rendered.append(quote_stored_note(text) if quote_stored_text and text.strip() else text)
+            rendered.append(quote_session_brief_text(text) if quote_stored_text and text.strip() else text)
     return " | ".join(rendered) if rendered else "(none)"
 
 
@@ -223,7 +224,7 @@ def _render_recall_item(
     marker = "-" if index is None else f"{index}."
     title = item["title"]
     if quote_stored_text and isinstance(title, str) and title.strip():
-        title = quote_stored_note(title)
+        title = quote_session_brief_text(title)
     lines = [
         f"{prefix}{marker} [{item['object_type']}|{item['status']}] {title}",
     ]
@@ -468,7 +469,7 @@ def format_resume_output(payload: ContinuityResumptionBriefResponse) -> str:
         or len(brief["recent_changes"]["items"]) > 0
     )
     if has_stored_note:
-        lines.insert(0, STORED_NOTE_FRAMING)
+        lines.insert(0, SESSION_BRIEF_FRAME)
     return "\n".join(lines)
 
 

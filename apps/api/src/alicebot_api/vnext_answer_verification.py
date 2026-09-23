@@ -45,7 +45,8 @@ import hashlib
 import logging
 import time
 
-from alicebot_api.recall_framing import frame_rendered_block, quote_stored_note, writer_attribution
+from alicebot_api.recall_framing import frame_rendered_block, writer_attribution
+from alicebot_api.session_briefing import quote_session_brief_text
 from alicebot_api.vnext_repositories import JsonObject
 
 
@@ -183,17 +184,17 @@ def render_pack_context_block(pack: Mapping[str, object]) -> str:
         suffix = f" writer.id={writer['id']} writer.established={writer['established']}"
         if title and body:
             lines.append(
-                f"- {quote_stored_note(_clip(title))}: {quote_stored_note(_clip(body))}{suffix}"
+                f"- {quote_session_brief_text(_clip(title))}: {quote_session_brief_text(_clip(body))}{suffix}"
             )
         elif title or body:
-            lines.append(f"- {quote_stored_note(_clip(title or body))}{suffix}")
+            lines.append(f"- {quote_session_brief_text(_clip(title or body))}{suffix}")
     for evidence in _pack_rows(pack, "supporting_evidence"):
         excerpt = str(evidence.get("excerpt") or evidence.get("text") or evidence.get("quote") or "").strip()
         if excerpt:
             writer = writer_attribution(evidence)
             lines.append(
                 "- Evidence: "
-                f"{quote_stored_note(_clip(excerpt))} "
+                f"{quote_session_brief_text(_clip(excerpt))} "
                 f"writer.id={writer['id']} writer.established={writer['established']}"
             )
     for source in _pack_rows(pack, "sources"):
@@ -201,7 +202,7 @@ def render_pack_context_block(pack: Mapping[str, object]) -> str:
         if title:
             writer = writer_attribution(source)
             lines.append(
-                f"- Source: {quote_stored_note(_clip(title))} "
+                f"- Source: {quote_session_brief_text(_clip(title))} "
                 f"writer.id={writer['id']} writer.established={writer['established']}"
             )
     grounding_lines: list[str] = []

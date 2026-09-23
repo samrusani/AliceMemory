@@ -29,7 +29,7 @@ from alicebot_api.contracts import (
     TRACE_KIND_RESPONSE_GENERATE,
     TraceEventRecord,
 )
-from alicebot_api.recall_framing import STORED_NOTE_FRAMING, quote_stored_note
+from alicebot_api.session_briefing import SESSION_BRIEF_FRAME, quote_session_brief_text
 from alicebot_api.store import ContinuityStore, JsonObject, JsonValue
 
 PROMPT_TRACE_EVENT_KIND = "response.prompt.assembled"
@@ -153,7 +153,7 @@ def _quote_runtime_note(value: object) -> object:
     """Quote stored strings. Mapping keys and ids stay as stored."""
 
     if isinstance(value, str):
-        return quote_stored_note(value) if value.strip() else value
+        return quote_session_brief_text(value) if value.strip() else value
     if isinstance(value, list):
         return [_quote_runtime_note(item) for item in value]
     if isinstance(value, dict):
@@ -185,7 +185,7 @@ def _frame_runtime_context_section(payload: JsonObject) -> str:
     if isinstance(chunks, list):
         framed["artifact_chunks"] = cast(JsonValue, _quote_runtime_note(chunks))
     body = _deterministic_json(cast(JsonObject, framed))
-    return f"{STORED_NOTE_FRAMING}\n{body}"
+    return f"{SESSION_BRIEF_FRAME}\n{body}"
 
 
 def assemble_prompt(

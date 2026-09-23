@@ -159,7 +159,8 @@ def test_mcp_registry_order_definitions_and_alias_identity_are_frozen() -> None:
     # Core now has those definitions plus the framing sentences on alice_recall,
     # alice_resume, alice_context_pack, and alice_recent_decisions, so neither
     # earlier core pin matches. No tool added, removed, or renamed.
-    assert _digest(core_definitions) == "9f1f4a972c597857ac7ae16963592249291a2da15b10c645d8fdb90108567047"
+    # Re-minted 2026-09-23. The framing sentence is now the SessionStart sentence.
+    assert _digest(core_definitions) == "536ab4a3da87cd96f1da2409020b7031b0dfa07803d2e9d6f8e5cc9b09cde181"
     assert _digest(legacy_definitions) == "2c21d4d624da448969554137e0b9cbae14c34cfaa0454e76d22ae480a6a29a58"
     ordered_handler_map = [(name, handler.__name__) for name, handler in handlers.items()]
     assert _digest(ordered_handler_map) == "d864c98bb914bbc6ace464fa8020b3ed264f17f2061a6101aae677d801032ae5"
