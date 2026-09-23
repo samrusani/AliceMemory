@@ -66,7 +66,11 @@ Remember, recall, continue. These are the only tools in a default
   agent should use it whenever it learns something worth keeping, including
   when the user has not asked it to remember. Policy-checked, never blind:
   the outcome is `committed`, `confirmation_required`, `review_required`, or
-  `rejected`, always with provenance, a revision, and an audit event. Print
+  `rejected`. A refusal writes `agent.memory_commit_rejected` and does not
+  write a memory row, a revision, or provenance. An agent ceiling refusal
+  also writes `policy.decision` and `agent.policy_filtered`, unless the
+  policy decision is already blocked, which writes `agent.policy_blocked`
+  instead. Print
   the `receipt` field after a capture or commit so the user sees what was
   stored. A `confirmation_required` write is finished on this same tool:
   ask the user, then send the returned `confirmation_id` with
