@@ -87,3 +87,8 @@ bf0f7a9fd2fe0d1a13c49fa11f5314015b0740a4:tests/unit/test_private_key_recall.py:g
 bf0f7a9fd2fe0d1a13c49fa11f5314015b0740a4:tests/unit/test_private_key_recall.py:generic-api-key:289
 bf0f7a9fd2fe0d1a13c49fa11f5314015b0740a4:tests/unit/test_private_key_recall.py:generic-api-key:376
 bf0f7a9fd2fe0d1a13c49fa11f5314015b0740a4:tests/unit/test_vnext_memory_commit.py:generic-api-key:159
+
+# Import quarantine tests (PR #411): a throwaway token assigned to SECRET in
+# the first test commit. The follow-up builds that token from parts at run
+# time. History is not rewritten, so the old commit stays in the scan range.
+ff4d411a6bdb85aab5c50b43dab0e6a0be544fad:tests/unit/test_import_quarantine.py:generic-api-key:31
