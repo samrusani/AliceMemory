@@ -198,9 +198,9 @@ def test_instruction_shaped_memory_is_framed_and_attributed_on_each_surface(
     _assert_framed(owner_hit["text"], OWNER_TEXT)
     _assert_framed(keyless_hit["text"], KEYLESS_TEXT)
     _assert_framed(keyed_hit["text"], KEYED_TEXT)
-    assert owner_hit["writer"] == {"id": "owner", "established": "declared_on_keyless_install"}
-    assert keyless_hit["writer"] == {"id": "hermes-keyless", "established": "declared_on_keyless_install"}
-    assert keyed_hit["writer"] == {"id": "hermes-keyed", "established": "verified_by_key"}
+    assert owner_hit.get("writer") == {"id": "owner", "established": "declared_on_keyless_install"}
+    assert keyless_hit.get("writer") == {"id": "hermes-keyless", "established": "declared_on_keyless_install"}
+    assert keyed_hit.get("writer") == {"id": "hermes-keyed", "established": "verified_by_key"}
     assert owner["memory"]["id"] == owner_hit["id"]
     assert keyless["memory"]["id"] == keyless_hit["id"]
     assert keyed["memory"]["id"] == keyed_hit["id"]
@@ -217,32 +217,33 @@ def test_instruction_shaped_memory_is_framed_and_attributed_on_each_surface(
     assert "source-copy" in unquoted_excerpt
     assert unquoted_excerpt in chunk_before
     assert not unquoted_excerpt.startswith(FRAMING)
-    assert source_hits[0]["writer"]["id"] == "owner"
-    assert source_hits[0]["writer"]["established"] == "declared_on_keyless_install"
+    assert source_hits[0].get("writer") == {"id": "owner", "established": "declared_on_keyless_install"}
 
     last = resume["brief"]["last_decision"]
     assert last is not None
     _assert_framed(last["canonical_text"], KEYED_TEXT)
-    assert last["writer"] == {"id": "hermes-keyed", "established": "verified_by_key"}
+    assert last.get("writer") == {"id": "hermes-keyed", "established": "verified_by_key"}
     loops = [loop for loop in resume["brief"]["open_loops"] if "open-loop" in str(loop.get("title") or "")]
     assert loops, resume["brief"]["open_loops"]
     _assert_framed(loops[0]["title"], LOOP_TITLE)
-    assert loops[0]["writer"] == {"id": "loop-agent", "established": "declared_on_keyless_install"}
+    assert loops[0].get("writer") == {"id": "loop-agent", "established": "declared_on_keyless_install"}
 
     memories = [
         row
         for row in pack["memories"]
         if any(marker in str(row.get("canonical_text") or "") for marker in ("owner-copy", "keyless-copy", "keyed-copy"))
     ]
-    assert {row["writer"]["id"] for row in memories} == {"owner", "hermes-keyless", "hermes-keyed"}
+    assert {((row.get("writer") or {}).get("id")) for row in memories} == {"owner", "hermes-keyless", "hermes-keyed"}
     for row in memories:
         markers = {"owner-copy": OWNER_TEXT, "keyless-copy": KEYLESS_TEXT, "keyed-copy": KEYED_TEXT}
         match = next(stored for marker, stored in markers.items() if marker in row["canonical_text"])
         _assert_framed(row["canonical_text"], match)
-        if row["writer"]["id"] == "hermes-keyed":
-            assert row["writer"]["established"] == "verified_by_key"
+        writer = row.get("writer")
+        assert isinstance(writer, dict)
+        if writer.get("id") == "hermes-keyed":
+            assert writer.get("established") == "verified_by_key"
         else:
-            assert row["writer"]["established"] == "declared_on_keyless_install"
+            assert writer.get("established") == "declared_on_keyless_install"
 
     def compiler_rows(store):
         compiled = VNextRetrievalService(store).compile_context_pack(
