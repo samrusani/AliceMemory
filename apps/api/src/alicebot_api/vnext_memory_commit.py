@@ -902,6 +902,8 @@ SENSITIVITY_ABOVE_CEILING_RECEIPT = (
     "Tell the user. The owner can raise this agent's clearance or store the memory themselves."
 )
 PENDING_WRITE_RESOLVER_REASON = "only_the_author_an_admin_key_or_the_owner_may_confirm_or_reject"
+# Reported as themselves when a commit is also above the ceiling.
+_KEPT_REJECTION_REASONS = ("unsafe_secret_storage", "agent_policy_blocked")
 
 
 def memory_commit_receipt(status: str, *, reason: str | None = None) -> str:
@@ -947,6 +949,11 @@ def _reject_agent_commit_above_sensitivity_ceiling(
     """
 
     if identity is None or "restricted_sensitivity_filtered" not in base_decision.reasons:
+        return mode, status
+    # Leave a refusal the policy engine or the credential check already
+    # recorded. Replacing it would tell the owner they can store a
+    # credential, or hide the reason the caller was stopped.
+    if mode == "reject" and any(reason in _KEPT_REJECTION_REASONS for reason in reasons):
         return mode, status
     reasons.append("sensitivity_above_agent_ceiling")
     return "reject", "rejected"
@@ -1266,10 +1273,12 @@ class VNextMemoryCommitService:
             if locked is None:
                 raise VNextMemoryCommitValidationError("confirmation was not found")
             memory = locked
-        # Confirm of a row that is not pending used to refresh
-        # last_confirmed_at, append a revision, and return committed.
-        # Reject of that row already refuses. Confirm now refuses before
-        # any policy event, revision, or memory update.
+        # Authorization first, then the pending check, then the ceiling.
+        # An unauthorized caller is refused with an audit event and is not
+        # told whether the row is pending. An authorized confirm of a row
+        # that is not pending still raises before any write.
+        if not caller_may_resolve_pending_write(identity, memory):
+            self._refuse_unauthorized_pending_resolver(identity=identity, memory=memory)
         confirmation_now = _agentic_metadata(memory).get("confirmation")
         confirmation_status = confirmation_now.get("status") if isinstance(confirmation_now, Mapping) else None
         if normalized_action in {"confirm", "edit"} and confirmation_status != "pending":
@@ -2225,6 +2234,43 @@ class VNextMemoryCommitService:
             "policy_decision": decision.to_record(),
             "idempotent_replay": False,
         }
+
+    def _refuse_unauthorized_pending_resolver(
+        self,
+        *,
+        identity: AgentIdentity | None,
+        memory: Mapping[str, object],
+    ) -> None:
+        """Refuse confirm or reject before the caller can learn the row state.
+
+        Runs the policy check and records it, then blocks with the resolver
+        reason. The ceiling is not applied here: authorization is the first
+        refusal, and a stranger is not told that the row is above a ceiling.
+        """
+
+        self._upsert_identity(identity)
+        decision = evaluate_agent_policy(
+            identity=identity,
+            action="memory.confirm",
+            domains=(str(memory.get("domain") or "unknown"),),
+            sensitivity_allowed=(str(memory.get("sensitivity") or "unknown"),),
+            project_scope=resource_project_scope(memory),
+            require_explicit_project_scope=True,
+        )
+        decision = replace(
+            decision,
+            decision="blocked",
+            reasons=tuple(dict.fromkeys((*decision.reasons, PENDING_WRITE_RESOLVER_REASON))),
+        )
+        target_id = str(memory.get("id")) if memory.get("id") is not None else None
+        append_policy_events(
+            self.store,
+            identity=identity,
+            decision=decision,
+            target_type="memory",
+            target_id=target_id,
+        )
+        raise AgentPolicyBlockedError(decision)
 
     def _policy_checked_write(
         self,

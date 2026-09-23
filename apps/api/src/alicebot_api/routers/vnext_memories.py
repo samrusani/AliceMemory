@@ -1441,17 +1441,20 @@ def confirm_vnext_memory(
                 store, request, user_id=request.user_id, authorization=authorization
             )
             service = VNextMemoryCommitService(store, defer_embeddings=True)
-            payload = service.confirm(
-                identity=identity,
-                confirmation_id=request.confirmation_id,
-                action=request.action,
-                canonical_text=request.canonical_text,
-                rationale=request.rationale,
-            )
+            # Return inside the connection so a refusal's policy event
+            # commits. Raising out of user_connection rolls it back.
+            try:
+                payload = service.confirm(
+                    identity=identity,
+                    confirmation_id=request.confirmation_id,
+                    action=request.action,
+                    canonical_text=request.canonical_text,
+                    rationale=request.rationale,
+                )
+            except AgentPolicyBlockedError as exc:
+                return _vnext_permission_response(exc.decision)
     except AgentKeyAuthenticationError as exc:
         return _vnext_agent_auth_error_response(exc)
-    except AgentPolicyBlockedError as exc:
-        return _vnext_permission_response(exc.decision)
     except VNextMemoryCommitValidationError as exc:
         return public_exception_response(exc, status_code=400)
 
@@ -1482,15 +1485,16 @@ def undo_vnext_memory(
             identity = _vnext_authenticated_agent_identity(
                 store, request, user_id=request.user_id, authorization=authorization
             )
-            payload = VNextMemoryCommitService(store).undo(
-                identity=identity,
-                memory_id=str(request.memory_id) if request.memory_id is not None else None,
-                reason=request.reason,
-            )
+            try:
+                payload = VNextMemoryCommitService(store).undo(
+                    identity=identity,
+                    memory_id=str(request.memory_id) if request.memory_id is not None else None,
+                    reason=request.reason,
+                )
+            except AgentPolicyBlockedError as exc:
+                return _vnext_permission_response(exc.decision)
     except AgentKeyAuthenticationError as exc:
         return _vnext_agent_auth_error_response(exc)
-    except AgentPolicyBlockedError as exc:
-        return _vnext_permission_response(exc.decision)
     except VNextMemoryCommitValidationError as exc:
         return public_exception_response(exc, status_code=400)
 
@@ -1515,16 +1519,17 @@ def correct_vnext_memory(
                 store, request, user_id=request.user_id, authorization=authorization
             )
             service = VNextMemoryCommitService(store, defer_embeddings=True)
-            payload = service.correct(
-                identity=identity,
-                memory_id=str(request.memory_id),
-                canonical_text=request.canonical_text,
-                reason=request.reason,
-            )
+            try:
+                payload = service.correct(
+                    identity=identity,
+                    memory_id=str(request.memory_id),
+                    canonical_text=request.canonical_text,
+                    reason=request.reason,
+                )
+            except AgentPolicyBlockedError as exc:
+                return _vnext_permission_response(exc.decision)
     except AgentKeyAuthenticationError as exc:
         return _vnext_agent_auth_error_response(exc)
-    except AgentPolicyBlockedError as exc:
-        return _vnext_permission_response(exc.decision)
     except VNextMemoryCommitValidationError as exc:
         return public_exception_response(exc, status_code=400)
 
@@ -1555,15 +1560,16 @@ def forget_vnext_memory(
             identity = _vnext_authenticated_agent_identity(
                 store, request, user_id=request.user_id, authorization=authorization
             )
-            payload = VNextMemoryCommitService(store).forget(
-                identity=identity,
-                memory_id=str(request.memory_id),
-                reason=request.reason,
-            )
+            try:
+                payload = VNextMemoryCommitService(store).forget(
+                    identity=identity,
+                    memory_id=str(request.memory_id),
+                    reason=request.reason,
+                )
+            except AgentPolicyBlockedError as exc:
+                return _vnext_permission_response(exc.decision)
     except AgentKeyAuthenticationError as exc:
         return _vnext_agent_auth_error_response(exc)
-    except AgentPolicyBlockedError as exc:
-        return _vnext_permission_response(exc.decision)
     except VNextMemoryCommitValidationError as exc:
         return public_exception_response(exc, status_code=400)
 

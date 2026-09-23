@@ -821,7 +821,17 @@ def test_a_ceiling_refusal_records_the_agent_like_a_service_refusal(
     from alicebot_api.mcp_tools import MCPToolError
 
     context = _context(tmp_path)
-    pending = _commit_pending(context, **SALARY)
+    pending = _commit_pending(context, sensitivity="private", confidence=0.7)
+    memory_id = str(pending["memory"]["id"])
+
+    def claim_hermes(store) -> None:
+        store.conn.execute(
+            "UPDATE memories SET created_by_agent_id = ? WHERE id = ?",
+            ("hermes", memory_id),
+        )
+
+    _store_read(context, claim_hermes)
+    _raise_sensitivity(context, memory_id, "confidential")
     _mint_key(context, monkeypatch, agent_id="hermes", permission_profile="trusted_local_agent")
     assert "hermes" not in agent_ids(context), "guard: nothing else may have recorded hermes yet"
 
@@ -852,10 +862,10 @@ def test_the_ceiling_judges_the_row_as_read_under_the_lock(
     from alicebot_api.sqlite_store import SQLiteVNextStore
 
     context = _context(tmp_path)
+    _mint_key(context, monkeypatch, agent_id="hermes", permission_profile="trusted_local_agent")
     pending = _commit_pending(context)
     memory_id = str(pending["memory"]["id"])
     assert _row(context, memory_id)["sensitivity"] == "unknown"
-    _mint_key(context, monkeypatch, agent_id="hermes", permission_profile="trusted_local_agent")
 
     original = SQLiteVNextStore.get_memory_for_update
     raised: list[str] = []
@@ -974,15 +984,16 @@ def test_manage_refuses_a_confirm_above_the_caller_ceiling(
     from alicebot_api.mcp_tools import MCP_FULL_TOOLS_ENV, MCPToolError
 
     context = _context(tmp_path)
+    _mint_key(context, monkeypatch, agent_id="hermes", permission_profile="trusted_local_agent")
     pending = _commit_pending(
         context,
         title="Salary band",
         canonical_text="The user's salary band is confidential.",
-        sensitivity="confidential",
-        confidence=0.95,
+        sensitivity="private",
+        confidence=0.7,
     )
     memory_id = str(pending["memory"]["id"])
-    _mint_key(context, monkeypatch, agent_id="hermes", permission_profile="trusted_local_agent")
+    _raise_sensitivity(context, memory_id, "confidential")
     monkeypatch.setenv(MCP_FULL_TOOLS_ENV, "1")
     with pytest.raises(MCPToolError, match="sensitivity_above_agent_ceiling"):
         _call(context, "alice_memory_manage", action="confirm", confirmation_id=pending["confirmation_id"])
