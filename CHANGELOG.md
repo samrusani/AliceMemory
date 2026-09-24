@@ -8,10 +8,13 @@
   other place install looks. A versioned Homebrew Cellar path
   (`<prefix>/Cellar/uv/<version>/bin/uvx`, for example
   `/opt/homebrew/Cellar/uv/0.11.6/bin/uvx`) is replaced by
-  `<prefix>/bin/uvx` when that file is executable. Otherwise install writes
-  the name `uvx` and warns. A path inside a uv cache is not written. A
-  relative `UV` value is ignored. Installed `alice-memory` scripts outside
-  a uv cache are still chosen over this absolute path.
+  `<prefix>/bin/uvx` when that file is executable. A mise or asdf path
+  under `<root>/installs/uv/<version>/` is replaced by `<root>/shims/uvx`
+  when that file is executable. A path under `/nix/store/` is not written.
+  When no stable file is written, install writes the name `uvx` and warns.
+  A path inside a uv cache is not written. A relative `UV` value is ignored.
+  Installed `alice-memory` scripts outside a uv cache are still chosen over
+  this absolute path.
 
 - The Hermes memory provider retries a failed capture with capped
   exponential backoff and drops the item after 5 attempts, counting the
@@ -332,9 +335,12 @@
   install looks. A versioned Homebrew Cellar path
   (`<prefix>/Cellar/uv/<version>/bin/uvx`, for example
   `/opt/homebrew/Cellar/uv/0.11.6/bin/uvx`) is replaced by
-  `<prefix>/bin/uvx` when that file is executable. Otherwise install
-  writes the name `uvx` and warns that the hosts will start Alice once
-  uvx is on PATH. A path inside a uv cache is not written. On a re-run, an entry whose
+  `<prefix>/bin/uvx` when that file is executable. A mise or asdf path
+  under `<root>/installs/uv/<version>/` is replaced by `<root>/shims/uvx`
+  when that file is executable. A path under `/nix/store/` is not written.
+  When no stable file is written, install writes the name `uvx` and warns
+  that the hosts will start Alice once uvx is on PATH. A path inside a uv
+  cache is not written. On a re-run, an entry whose
   launcher still works is kept: uvx on PATH, an absolute uvx that exists
   and is executable, or an absolute `alice-memory` that exists, is
   executable and is not in a uv cache. On Claude Code and Cursor, which

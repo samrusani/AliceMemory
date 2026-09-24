@@ -4,8 +4,11 @@ uv exports UV to child processes as the path of the uv binary. On Linux that
 path is the symlink target, so Homebrew's uv reports
 ``<prefix>/Cellar/uv/<version>/bin/uv``. That directory is removed on
 upgrade. Install writes ``<prefix>/bin/uvx`` when that file is executable,
-and otherwise the name uvx. A path inside a uv cache is not written.
-Scripts outside a uv cache still win. A relative UV value is ignored.
+and otherwise the name uvx. mise and asdf report a path under
+``<root>/installs/uv/<version>/``; install writes ``<root>/shims/uvx`` when
+that file is executable. A ``/nix/store/`` path is not written. A path
+inside a uv cache is not written. Scripts outside a uv cache still win. A
+relative UV value is ignored.
 
 No binary is run. The uv and uvx files are empty 0755 stand-ins.
 """
@@ -163,6 +166,135 @@ def test_a_cellar_uvx_is_not_written_when_the_stable_bin_is_missing(
     assert hook == f"uvx --from alice-memory alice-memory-session-start --data-dir {vault.resolve()}"
     assert "Cellar" not in text
     assert "Cellar" not in out
+    assert out.startswith(UV_TEMP_ENV_WARNING)
+
+
+def test_a_versioned_installs_path_maps_to_the_shim() -> None:
+    """mise and asdf keep each uv version under ``installs/uv/<version>/``.
+
+    The stable file is the shim beside ``installs``. A shim path and a
+    Homebrew bin are not rewritten. ``/opt/nix/storehouse`` is not a Nix
+    store.
+    """
+
+    assert (
+        host_launcher._installs_stable_uvx(
+            "/opt/mise/installs/uv/0.9.9/uv-x86_64-unknown-linux-musl/uv"
+        )
+        == "/opt/mise/shims/uvx"
+    )
+    assert (
+        host_launcher._installs_stable_uvx("/opt/asdf/installs/uv/0.11.6/bin/uvx")
+        == "/opt/asdf/shims/uvx"
+    )
+    assert (
+        host_launcher._installs_stable_uvx(r"C:\mise\installs\uv\0.9.9\bin\uv.exe")
+        == r"C:\mise\shims\uvx.exe"
+    )
+    assert host_launcher._installs_stable_uvx("/opt/homebrew/bin/uv") is None
+    assert host_launcher._installs_stable_uvx("/opt/mise/shims/uv") is None
+    assert host_launcher._uvx_beside("/opt/mise/shims/uv") == "/opt/mise/shims/uvx"
+    store = "/nix/store/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee-uv-0.11.6/bin/uv"
+    assert host_launcher._nix_store_uv_path(store)
+    assert host_launcher._uvx_beside(store) is None
+    assert host_launcher._uvx_beside(store[:-2] + "uvx") is None
+    assert host_launcher._nix_store_uv_path("/opt/homebrew/bin/uv") is False
+    assert host_launcher._nix_store_uv_path("/opt/nix/storehouse/bin/uv") is False
+
+
+@pytest.mark.parametrize(
+    "relative",
+    [Path("uv-x86_64-unknown-linux-musl") / "uv", Path("bin") / "uvx"],
+)
+def test_install_writes_the_shim_instead_of_an_installs_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys, relative: Path
+) -> None:
+    """UV is under ``installs/uv/<version>/``. The files name ``<root>/shims/uvx``.
+
+    Mutation: in ``_uvx_beside``, return the uvx beside the versioned path
+    instead of ``<root>/shims/uvx``. This test fails.
+    """
+
+    root = tmp_path / "mise"
+    versioned = root / "installs" / "uv" / "0.9.9" / relative
+    versioned_uvx = versioned if versioned.name == "uvx" else versioned.with_name("uvx")
+    _pair(versioned.parent)
+    shim = root / "shims" / "uvx"
+    shim.parent.mkdir(parents=True)
+    shim.symlink_to(versioned_uvx)
+    pin_launcher_search(
+        monkeypatch,
+        tmp_path,
+        uvx=None,
+        prefix=_temp_prefix(tmp_path),
+        uv_env=str(versioned),
+    )
+    home, vault = tmp_path / "home", tmp_path / "vault"
+    code, out = _install(capsys, home, vault)
+    assert code == 0, out
+    command, hook, text = _written(home)
+    assert command == str(shim)
+    assert hook.startswith(f"{shim} --from alice-memory ")
+    assert str(versioned_uvx) not in text
+    assert str(versioned_uvx) not in out
+
+
+def test_an_installs_uvx_is_not_written_when_the_shim_is_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys
+) -> None:
+    """No ``<root>/shims/uvx``: the name uvx is written, and the versioned path is not.
+
+    Mutation: in ``_uvx_beside``, return the uvx beside the versioned path
+    instead of ``<root>/shims/uvx``. This test fails.
+    """
+
+    root = tmp_path / "asdf"
+    uv_bin, versioned_uvx = _pair(root / "installs" / "uv" / "0.11.6" / "bin")
+    pin_launcher_search(
+        monkeypatch,
+        tmp_path,
+        uvx=None,
+        prefix=_temp_prefix(tmp_path),
+        uv_env=str(uv_bin),
+    )
+    home, vault = tmp_path / "home", tmp_path / "vault"
+    code, out = _install(capsys, home, vault)
+    assert code == 0, out
+    command, hook, text = _written(home)
+    assert command == "uvx"
+    assert hook == f"uvx --from alice-memory alice-memory-session-start --data-dir {vault.resolve()}"
+    assert str(versioned_uvx) not in text
+    assert str(versioned_uvx) not in out
+    assert out.startswith(UV_TEMP_ENV_WARNING)
+
+
+def test_a_nix_store_uvx_is_not_written(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys
+) -> None:
+    """UV is a Nix store uv, and uvx sits beside it. Neither path is written.
+
+    Mutation: in ``_uvx_beside``, return the uvx beside the store path.
+    This test fails.
+    """
+
+    store = tmp_path / "nix" / "store" / "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee-uv-0.11.6" / "bin"
+    uv_bin, store_uvx = _pair(store)
+    pin_launcher_search(
+        monkeypatch,
+        tmp_path,
+        uvx=None,
+        prefix=_temp_prefix(tmp_path),
+        uv_env=str(uv_bin),
+    )
+    home, vault = tmp_path / "home", tmp_path / "vault"
+    code, out = _install(capsys, home, vault)
+    assert code == 0, out
+    command, hook, text = _written(home)
+    assert command == "uvx"
+    assert hook == f"uvx --from alice-memory alice-memory-session-start --data-dir {vault.resolve()}"
+    assert str(store_uvx) not in text
+    assert str(uv_bin) not in text
+    assert str(store_uvx) not in out
     assert out.startswith(UV_TEMP_ENV_WARNING)
 
 

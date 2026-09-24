@@ -844,6 +844,20 @@ def _is_absolute_command(path: str) -> bool:
     return path.startswith("/") or PureWindowsPath(path).is_absolute()
 
 
+def _split_command(path: str) -> tuple[str, list[str], str, str]:
+    """Separator, parts, the tool name without ``.exe``, and that suffix.
+
+    The tool name is lowercased. The suffix is ``.exe`` or empty.
+    """
+
+    sep = "\\" if "\\" in path and "/" not in path else "/"
+    parts = path.replace("\\", "/").split("/")
+    tool = parts[-1] if parts else ""
+    if tool.lower().endswith(".exe"):
+        return sep, parts, tool[:-4].lower(), ".exe"
+    return sep, parts, tool.lower(), ""
+
+
 def _cellar_stable_uvx(path: str) -> str | None:
     """``<prefix>/bin/uvx`` when ``path`` is ``<prefix>/Cellar/uv/<version>/bin/uv[x]``.
 
@@ -852,25 +866,62 @@ def _cellar_stable_uvx(path: str) -> str | None:
     in that layout returns None.
     """
 
-    sep = "\\" if "\\" in path and "/" not in path else "/"
-    parts = path.replace("\\", "/").split("/")
-    if len(parts) < 6:
+    sep, parts, name, exe = _split_command(path)
+    if len(parts) < 6 or name not in {"uv", "uvx"}:
         return None
-    tool = parts[-1]
-    name = tool[:-4] if tool.lower().endswith(".exe") else tool
-    exe = ".exe" if tool.lower().endswith(".exe") else ""
     index = len(parts) - 5
     if not (
         parts[index] == "Cellar"
         and parts[index + 1] == "uv"
         and parts[index + 3] == "bin"
-        and name.lower() in {"uv", "uvx"}
     ):
         return None
     prefix = sep.join(parts[:index])
     if not prefix:
         return None
     return sep.join((prefix, "bin", f"uvx{exe}"))
+
+
+def _installs_stable_uvx(path: str) -> str | None:
+    """``<root>/shims/uvx`` when ``path`` is under ``<root>/installs/uv/<version>/``.
+
+    mise and asdf delete that version directory on upgrade. The shim beside
+    ``installs`` stays. The returned path is not checked for existence. A
+    path that is not in that layout returns None.
+    """
+
+    sep, parts, name, exe = _split_command(path)
+    if name not in {"uv", "uvx"}:
+        return None
+    for index in range(len(parts) - 3):
+        version = parts[index + 2]
+        if not (
+            parts[index] == "installs"
+            and parts[index + 1] == "uv"
+            and version not in {"", ".", ".."}
+            and index + 3 < len(parts)
+        ):
+            continue
+        prefix = sep.join(parts[:index])
+        if not prefix:
+            return None
+        return sep.join((prefix, "shims", f"uvx{exe}"))
+    return None
+
+
+def _nix_store_uv_path(path: str) -> bool:
+    """True when ``path`` is a uv or uvx binary under ``/nix/store/``.
+
+    Nix replaces that store path on upgrade. Nothing beside it stays, so
+    install must not write it.
+    """
+
+    _sep, parts, name, _exe = _split_command(path)
+    if name not in {"uv", "uvx"}:
+        return False
+    return any(
+        parts[index] == "nix" and parts[index + 1] == "store" for index in range(len(parts) - 1)
+    )
 
 
 def _uv_candidates() -> list[str]:
@@ -894,10 +945,14 @@ def _uv_candidates() -> list[str]:
 def _uvx_beside(path: str) -> str | None:
     """The uvx path install may write for an absolute uv or uvx path."""
 
-    stable = _cellar_stable_uvx(path)
-    if stable is not None:
-        # The file beside a Cellar uv is the versioned path. Do not return it.
-        return stable
+    # A /nix/store path has no stable substitute. Do not return the file
+    # beside it: that file is removed on the next Nix upgrade.
+    if _nix_store_uv_path(path):
+        return None
+    for stable in (_cellar_stable_uvx(path), _installs_stable_uvx(path)):
+        if stable is not None:
+            # The file beside a versioned uv is removed on upgrade.
+            return stable
     name = _basename(path)
     if name in {"uv", "uv.exe"}:
         return sibling_script(path, "uvx")
@@ -918,9 +973,11 @@ def _writable_uvx(path: str) -> str | None:
 def absolute_uvx() -> str | None:
     """An absolute ``uvx`` to write when ``uvx`` is not on PATH, or None.
 
-    The path is executable, absolute, outside a uv cache, and not a
-    versioned Homebrew Cellar path. A Cellar path is accepted only as a
-    clue: the path returned is ``<prefix>/bin/uvx`` when that file exists.
+    The path is executable, absolute, and outside a uv cache. A versioned
+    Homebrew Cellar path is accepted only as a clue: the path returned is
+    ``<prefix>/bin/uvx`` when that file exists. A mise or asdf path under
+    ``<root>/installs/uv/<version>/`` returns ``<root>/shims/uvx`` when that
+    file exists. A ``/nix/store/`` path is not returned.
     """
 
     for candidate in _uv_candidates():
