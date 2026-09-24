@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Continuity capture auto-save, in assist mode and in auto mode, saves only
+  a user-role candidate matched by an explicit prefix rule (`decision:`,
+  `preference:`, `commitment:`, and the other prefixes in
+  `_CANDIDATE_PREFIX_RULES`, except types that already require review).
+  A regex hit and an assistant-role candidate are queued for review in
+  both modes. `create_continuity_object_record` refuses when the
+  credential floor refuses or when `commit_gate_refuses` refuses, the
+  same pair the commit door uses. The floor alone stored a legacy
+  assignment on a throwaway Postgres; the shared check does not.
+
 - The Hermes memory provider retries a failed capture with capped
   exponential backoff and drops the item after 5 attempts, counting the
   drop. The wait starts at 0.5 seconds and doubles up to 2 seconds.

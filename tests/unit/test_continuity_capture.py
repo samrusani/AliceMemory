@@ -262,7 +262,9 @@ def test_capture_candidates_extracts_explicit_decision_and_correction_from_turn_
     assert payload["summary"]["candidate_count"] == 2
     assert payload["summary"]["explicit_count"] == 2
     assert {item["candidate_type"] for item in payload["candidates"]} == {"decision", "correction"}
-    assert all(item["proposed_action"] == "auto_save_candidate" for item in payload["candidates"])
+    by_role = {item["source_role"]: item for item in payload["candidates"]}
+    assert by_role["user"]["proposed_action"] == "auto_save_candidate"
+    assert by_role["assistant"]["proposed_action"] == "queue_for_review"
 
 
 def test_capture_candidates_returns_no_op_for_ack_only_turns() -> None:
@@ -354,7 +356,13 @@ def test_commit_captures_manual_mode_routes_explicit_items_to_review() -> None:
     assert payload["summary"]["review_queued_count"] == 1
 
 
-def test_commit_captures_auto_mode_autosaves_allowlist_candidates_above_threshold() -> None:
+def test_commit_captures_auto_mode_queues_assistant_and_regex_hits() -> None:
+    """Auto mode no longer saves an assistant hit or a regex hit.
+
+    Mutation: restore auto_mode_allowlist_high_confidence for confidence
+    at or above 0.85. The assistant candidate is auto-saved and this test fails.
+    """
+
     store = ContinuityCaptureStoreStub()
     payload = commit_continuity_captures(
         store,  # type: ignore[arg-type]
@@ -372,17 +380,56 @@ def test_commit_captures_auto_mode_autosaves_allowlist_candidates_above_threshol
                     "source_role": "assistant",
                     "admission_reason": "derived_waiting_for",
                     "evidence_snippet": "waiting on release approval",
-                }
+                },
+                {
+                    "candidate_type": "decision",
+                    "object_type": "Decision",
+                    "normalized_text": "we decided to keep the billing store on Postgres",
+                    "confidence": 0.9,
+                    "explicit": True,
+                    "source_role": "user",
+                    "admission_reason": "explicit_phrase_decision",
+                    "evidence_snippet": "we decided",
+                },
             ],
         ),
     )
 
-    assert payload["commits"][0]["decision"] == "auto_saved"
-    assert payload["commits"][0]["continuity_object"] is not None
-    assert payload["commits"][0]["continuity_object"]["status"] == "active"
-    assert payload["summary"]["auto_saved_count"] == 1
-    assert payload["summary"]["review_queued_count"] == 0
-    assert payload["summary"]["auto_saved_types"] == ["waiting_for"]
+    assert [item["decision"] for item in payload["commits"]] == ["queued_for_review", "queued_for_review"]
+    assert payload["summary"]["auto_saved_count"] == 0
+    assert payload["summary"]["review_queued_count"] == 2
+
+
+def test_commit_captures_auto_mode_saves_a_user_prefix_rule() -> None:
+    """A user who types an explicit prefix is saved in auto mode.
+
+    Mutation: queue every auto-mode candidate. This test fails.
+    """
+
+    store = ContinuityCaptureStoreStub()
+    candidates = capture_continuity_candidates(
+        store,  # type: ignore[arg-type]
+        user_id=store.user_id,
+        request=ContinuityCaptureCandidatesInput(
+            user_content="decision: use Postgres for billing",
+            assistant_content="Decision: the assistant also picked Postgres",
+        ),
+    )["candidates"]
+    payload = commit_continuity_captures(
+        store,  # type: ignore[arg-type]
+        user_id=store.user_id,
+        request=ContinuityCaptureCommitInput(
+            mode="auto",
+            sync_fingerprint="sync:auto-prefix",
+            candidates=candidates,  # type: ignore[arg-type]
+        ),
+    )
+    by_role = {item["candidate_id"]: item for item in payload["commits"]}
+    user = next(item for item in candidates if item["source_role"] == "user")
+    assistant = next(item for item in candidates if item["source_role"] == "assistant")
+    assert by_role[user["candidate_id"]]["decision"] == "auto_saved"
+    assert by_role[user["candidate_id"]]["reason"] == "user_explicit_prefix_rule"
+    assert by_role[assistant["candidate_id"]]["decision"] == "queued_for_review"
 
 
 def test_commit_captures_auto_mode_routes_below_threshold_candidates_to_review() -> None:

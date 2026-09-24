@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 from typing import cast
 from uuid import UUID
@@ -11,7 +12,12 @@ from alicebot_api.contracts import (
     ContinuityObjectRecord,
     ContinuityObjectType,
 )
-from alicebot_api.credential_floor import refuse_credential_material, string_values
+from alicebot_api.credential_floor import (
+    CREDENTIAL_MATERIAL_REFUSED_MESSAGE,
+    refuse_credential_material,
+    string_values,
+)
+from alicebot_api.legacy_credential_check import commit_gate_refuses
 from alicebot_api.store import ContinuityObjectRow, ContinuityStore, JsonObject
 
 
@@ -91,6 +97,17 @@ def _validate_confidence(confidence: float) -> None:
         raise ContinuityObjectValidationError("confidence must be between 0.0 and 1.0")
 
 
+def _legacy_commit_door_refuses(title: str, body: object, provenance: object) -> bool:
+    """The commit door's legacy half, on the same surfaces the floor reads."""
+
+    if isinstance(body, str):
+        body_text = body
+    else:
+        body_text = json.dumps(body, ensure_ascii=False, sort_keys=True)
+    provenance_text = "\n".join(string_values(provenance))
+    return commit_gate_refuses(title, body_text, None, provenance_text or None, ())
+
+
 def create_continuity_object_record(
     store: ContinuityStore,
     *,
@@ -119,6 +136,8 @@ def create_continuity_object_record(
     # metadata the product writes, so only its values are read; see
     # credential_floor.string_values.
     refuse_credential_material(title, body, string_values(provenance), error=ContinuityObjectValidationError)
+    if _legacy_commit_door_refuses(title, body, provenance):
+        raise ContinuityObjectValidationError(CREDENTIAL_MATERIAL_REFUSED_MESSAGE)
     resolved_is_searchable = (
         default_continuity_searchable(object_type)
         if is_searchable is None

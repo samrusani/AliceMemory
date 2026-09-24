@@ -11,6 +11,7 @@ from alicebot_api.continuity_objects import (
     get_continuity_object_for_capture_event,
     list_continuity_objects_for_capture_events,
 )
+from alicebot_api.credential_floor import credential_verdict
 
 
 class ContinuityObjectStoreStub:
@@ -188,3 +189,33 @@ def test_get_and_list_continuity_objects_for_capture_events_use_capture_event_sc
     assert listed == {
         str(capture_event_id): created,
     }
+
+
+def test_create_continuity_object_record_refuses_a_legacy_assignment_the_floor_stores() -> None:
+    """A PASSWORD_DB assignment is stored when only the floor runs.
+
+    On a throwaway Postgres, before this check, create_continuity_object_record
+    stored the value. Mutation: drop the commit_gate_refuses call. The stub
+    records the row and this test fails.
+    """
+
+    value = "Ab" + "12" + "cd" + "EF"
+    secret = "PASSWORD" + "_DB=" + value
+    title = f"decision: {secret}"
+    body = {"decision_text": secret}
+    assert credential_verdict(title, body) is None
+
+    store = ContinuityObjectStoreStub()
+    with pytest.raises(ContinuityObjectValidationError, match="credential material"):
+        create_continuity_object_record(
+            store,  # type: ignore[arg-type]
+            user_id=uuid4(),
+            capture_event_id=uuid4(),
+            object_type="Decision",
+            title=title,
+            body=body,
+            provenance={"source_kind": "probe"},
+            confidence=0.98,
+        )
+    assert store.created_payloads == []
+    assert secret not in str(store.rows_by_capture_event)

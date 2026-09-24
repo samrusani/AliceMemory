@@ -291,14 +291,16 @@ def test_continuity_capture_candidate_and_commit_pipeline_supports_assist_mode_a
     assert commit_payload["summary"] == {
         "mode": "assist",
         "candidate_count": 2,
-        "auto_saved_count": 2,
-        "review_queued_count": 0,
+        "auto_saved_count": 1,
+        "review_queued_count": 1,
         "noop_count": 0,
         "duplicate_noop_count": 0,
-        "auto_saved_types": ["correction", "decision"],
-        "review_queued_types": [],
+        "auto_saved_types": ["decision"],
+        "review_queued_types": ["correction"],
     }
-    assert all(item["decision"] == "auto_saved" for item in commit_payload["commits"])
+    by_type = {item["candidate_type"]: item for item in commit_payload["commits"]}
+    assert by_type["decision"]["decision"] == "auto_saved"
+    assert by_type["correction"]["decision"] == "queued_for_review"
 
 
 def test_continuity_capture_pipeline_routes_disallowed_or_low_confidence_candidates_to_review_queue(
