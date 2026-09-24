@@ -212,10 +212,11 @@
   writes itself, which equals the `--data-dir` in the args. A `hidden:`
   line lists exactly what was hidden. A refused host's paste, when it is
   built from your existing entry, hides the same values, and its `keep:`
-  line names each one to copy back from that entry. Every other receipt
-  line, warning and launcher line prints every URL the same way, the URL
-  running to the end of its whitespace-delimited word, since RFC 3986
-  allows `'` and `)` in user info; a package spec that holds a URL
+  line names each one to copy back from that entry, including a URL hidden
+  inside `args` as `args (a URL (everything after its scheme))`. Every
+  other receipt line, warning and launcher line prints every URL the same
+  way, the URL running to the end of its whitespace-delimited word, since
+  RFC 3986 allows `'` and `)` in user info; a package spec that holds a URL
   (`alice-memory@https://...`) prints only its scheme too,
   and the `openclaw mcp add` line shows `<hidden>` in their place with a
   note to put the values back before running it. Whole host files are no

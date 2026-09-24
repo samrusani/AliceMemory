@@ -603,6 +603,21 @@ def _keep_line(hidden: Sequence[str]) -> str:
     )
 
 
+def _hidden_label_in_entry(label: str, file_keys: frozenset[str]) -> bool:
+    """True when ``label`` names a value the existing entry has.
+
+    ``file_keys`` stores ``args``. ``_masked`` records a URL inside that
+    list as ``args (a URL (everything after its scheme))``, and a secret
+    flag value as ``args (the value of --flag)``. The text before `` (``
+    is the key.
+    """
+
+    if label in file_keys:
+        return True
+    key, opened, _detail = label.partition(" (")
+    return bool(opened) and label.endswith(")") and key in file_keys
+
+
 def _hidden_line(hidden: Sequence[str]) -> str:
     return f"hidden: install printed these values from your file as <hidden>: {', '.join(hidden)}"
 
@@ -1129,7 +1144,9 @@ class HermesConfigRefused(InstallError):
     write and will not carry. The receipt says install refuses while those
     keys are present. ``file_keys`` names keys the entry actually has, as
     ``env.NAME`` for a mapping, so a ``keep:`` line is not printed for a key
-    install invented. The snippet is ``payload`` when set; else install's
+    install invented. A label ``_masked`` records inside one of those keys,
+    such as ``args (a URL (everything after its scheme))``, is kept with
+    that label. The snippet is ``payload`` when set; else install's
     entry on ``data_dir``; else, with ``placeholder``, install's entry with a
     placeholder where the existing entry's data dir goes, so a paste never
     points at an empty store.
@@ -2624,8 +2641,14 @@ def _install_hermes_host(
         if refusal.payload is not None:
             shown, hidden = _masked(refusal.payload, own_env=_own_env(refusal.payload))
             if refusal.file_keys is not None:
-                invented = [item for item in hidden if item not in refusal.file_keys]
-                hidden = [item for item in hidden if item in refusal.file_keys]
+                invented = [
+                    item
+                    for item in hidden
+                    if not _hidden_label_in_entry(item, refusal.file_keys)
+                ]
+                hidden = [
+                    item for item in hidden if _hidden_label_in_entry(item, refusal.file_keys)
+                ]
                 env_shown = shown.get("env")
                 payload_env = refusal.payload.get("env")
                 if isinstance(env_shown, dict) and isinstance(payload_env, Mapping):

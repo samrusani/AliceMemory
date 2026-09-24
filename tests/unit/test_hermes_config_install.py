@@ -1252,6 +1252,69 @@ def test_hermes_keep_line_names_only_keys_the_entry_has(tmp_path: Path, capsys) 
             assert "env.ALICE_MEMORY_DATA_DIR" not in line
 
 
+_URL_KEEP = (
+    "keep: install printed these values from your file as <hidden>: "
+    "args (a URL (everything after its scheme)); "
+    "copy them from your existing alice entry"
+)
+
+
+@pytest.mark.parametrize(
+    "args_lines",
+    [
+        (
+            "    args:\n"
+            "      - alice-memory@https://example.com/alice.whl\n"
+            "      - mcp\n"
+            '      - "--data-dir"\n'
+            "      - /old/vault\n"
+        ),
+        (
+            "    args:\n"
+            '      - "--index"\n'
+            "      - https://example.com/simple\n"
+            "      - alice-memory\n"
+            "      - mcp\n"
+            '      - "--data-dir"\n'
+            "      - /old/vault\n"
+        ),
+    ],
+    ids=["package-url", "index-url"],
+)
+def test_hermes_refusal_keep_line_names_a_url_hidden_in_args(
+    tmp_path: Path, capsys, args_lines: str
+) -> None:
+    """A URL hidden inside args is named on the keep line.
+
+    file_keys stores args. _masked records the URL as
+    args (a URL (everything after its scheme)). Keeping a label only when
+    that whole string is in file_keys dropped the keep line, while the
+    snippet still showed https://<hidden>. Mutation: drop a hidden label
+    unless it equals a file_keys entry. This test fails.
+    """
+
+    home = tmp_path / "hostdir"
+    original = (
+        "mcp_servers:\n"
+        "  alice:\n"
+        "    command: uvx\n"
+        f"{args_lines}"
+        "    timeout: 30\n"
+    )
+    config = _seed(home, original)
+
+    code, out, err = _install_without_flag(home, capsys)
+    assert code == 1
+    assert _error_records(err) == [INSTALL_REFUSED]
+    assert config.read_text(encoding="utf-8") == original
+    assert "https://<hidden>" in out
+    assert "example.com" not in out
+    assert _URL_KEEP in out
+    assert "env.ALICE_MEMORY_DATA_DIR" not in out.split("keep:", 1)[-1]
+    assert "Install refuses while those keys are present" in out
+    assert "Edit the alice entry by hand instead" in out
+
+
 # --- generated configs -------------------------------------------------------
 
 
