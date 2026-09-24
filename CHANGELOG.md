@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- `alice-memory sleep-proposals` lists this user's sleep proposals in
+  sidecar order, which is oldest source first. Each excerpt is framed and
+  JSON-quoted, with its source id and the `alice_memory_commit` arguments
+  that accept it, including `source_refs`. The command applies the session
+  brief's domain, sensitivity, and project fences, runs the commit door's
+  credential check again, and writes nothing. `alice-memory doctor` adds
+  `sleep proposals`, a count of sidecar rows for this user, after
+  `candidates waiting`. A sleep row stops counting toward the cap of 8
+  once its source has an active or accepted memory. The row stays in the
+  sidecar. When the cap still leaves at least one source unproposed, the
+  receipt prints `sources not proposed` and the sidecar path.
+
 - The Hermes memory provider retries a failed capture with capped
   exponential backoff and drops the item after 5 attempts, counting the
   drop. The wait starts at 0.5 seconds and doubles up to 2 seconds.

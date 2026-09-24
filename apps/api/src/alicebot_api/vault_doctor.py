@@ -2,7 +2,9 @@
 
 Reports what is already stored for one ``user_id``. Sources and searchable
 chunks first. Committed facts next. The last brief token estimate uses
-``compile_local_session_brief`` with ``query=None``. Candidates last.
+``compile_local_session_brief`` with ``query=None``. Candidates next.
+Sleep proposals last. That count is sidecar rows for this user, not
+memory rows.
 
 This is not ``alicebot vnext doctor`` and must not wrap it. Import is a
 source. Commit is a fact. Counts bind ``user_id``.
@@ -19,6 +21,7 @@ from alicebot_api.session_briefing import (
     compile_local_session_brief,
 )
 from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
+from alicebot_api.vault_sleep import count_sleep_proposals, sleep_proposals_path
 from alicebot_api.vnext_retrieval import estimate_item_tokens
 
 CANDIDATE_STATUS = "candidate"
@@ -93,6 +96,7 @@ def compile_local_vault_doctor(
             CANDIDATE_COUNT_SQL,
             (uid, CANDIDATE_STATUS),
         )
+        proposal_count = count_sleep_proposals(sleep_proposals_path(resolved), user_id=uid)
 
     markdown = compile_local_session_brief(resolved, user_id=user_id, query=None)
     token_estimate = estimate_item_tokens({"text": markdown})
@@ -104,6 +108,7 @@ def compile_local_vault_doctor(
             f"committed facts: {fact_count}",
             f"last brief: {token_estimate} / {SESSION_BRIEF_TOKEN_BUDGET} tokens",
             f"candidates waiting: {candidate_count}",
+            f"sleep proposals: {proposal_count}",
         )
     )
 

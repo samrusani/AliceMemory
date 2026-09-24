@@ -3,6 +3,11 @@
 Writes a capped sidecar of source proposals. Import stays a source.
 Commit stays a fact. Search is unchanged. Accept is a later commit.
 
+Sleep proposes the oldest sources first (``captured_at``, then id). The
+session brief shows the newest. A row stops counting toward the cap once
+its source has an active or accepted memory. The row stays in the file.
+Accepting a proposal does not edit the sidecar.
+
 Does not create memories, does not rewrite sources or committed facts,
 and does not call consolidation. Counts and sidecar rows bind ``user_id``.
 """
@@ -13,13 +18,25 @@ import json
 from pathlib import Path
 from uuid import UUID
 
-from alicebot_api.session_briefing import COMMITTED_MEMORY_STATUSES
+from alicebot_api.credential_floor import credential_verdict
+from alicebot_api.legacy_credential_check import commit_gate_refuses
+from alicebot_api.session_briefing import (
+    COMMITTED_MEMORY_STATUSES,
+    SESSION_BRIEF_FRAME,
+    _source_honours_fence,
+    quote_session_brief_text,
+)
 from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
 
 SLEEP_PROPOSAL_CAP = 8
 SLEEP_PROPOSAL_FILENAME = "sleep_proposals.jsonl"
 SLEEP_EXCERPT_MAX = 160
 PROPOSED_STATUS = "proposed"
+NO_SLEEP_PROPOSALS = "No sleep proposals."
+CAP_FULL_WAIT = (
+    "sleep adds no proposals for this user until a counting row is removed "
+    "from the sidecar or its source has an active or accepted memory"
+)
 
 LIST_SOURCE_IDS_SQL = """
 SELECT id
@@ -46,15 +63,19 @@ def format_sleep_receipt(
     already_present: int,
     skipped_linked: int,
     cap: int,
+    sources_not_proposed: int = 0,
+    sidecar: Path | None = None,
 ) -> str:
-    return "\n".join(
-        (
-            f"proposals written: {written}",
-            f"already present: {already_present}",
-            f"skipped as already linked: {skipped_linked}",
-            f"cap: {cap}",
-        )
-    )
+    lines = [
+        f"proposals written: {written}",
+        f"already present: {already_present}",
+        f"skipped as already linked: {skipped_linked}",
+        f"cap: {cap}",
+    ]
+    if sources_not_proposed > 0:
+        lines.append(f"sources not proposed: {sources_not_proposed}")
+        lines.append(f"{CAP_FULL_WAIT}: {sidecar}")
+    return "\n".join(lines)
 
 
 def load_sleep_proposals(path: Path) -> list[dict[str, object]]:
@@ -102,14 +123,22 @@ def run_local_vault_sleep(
     with sqlite_user_connection(resolved, user_id) as connection:
         store = SQLiteVNextStore(connection, user_id)
         uid = store.user_id
-        existing_ids = {
-            str(row["source_id"])
-            for row in existing
-            if str(row.get("user_id") or "") == uid
-        }
+        existing_ids: set[str] = set()
+        counting_ids: set[str] = set()
+        for row in existing:
+            if str(row.get("user_id") or "") != uid:
+                continue
+            source_id = row.get("source_id")
+            if not isinstance(source_id, str) or source_id == "":
+                continue
+            existing_ids.add(source_id)
+            if _has_committed_fact(store, source_id):
+                continue
+            counting_ids.add(source_id)
         written_rows: list[dict[str, object]] = []
         already_present = 0
         skipped_linked = 0
+        sources_not_proposed = 0
         for source_id in _list_source_ids(store):
             if _has_committed_fact(store, source_id):
                 skipped_linked += 1
@@ -117,7 +146,8 @@ def run_local_vault_sleep(
             if source_id in existing_ids:
                 already_present += 1
                 continue
-            if len(existing_ids) + len(written_rows) >= SLEEP_PROPOSAL_CAP:
+            if len(counting_ids) + len(written_rows) >= SLEEP_PROPOSAL_CAP:
+                sources_not_proposed += 1
                 continue
             written_rows.append(
                 {
@@ -139,6 +169,8 @@ def run_local_vault_sleep(
         already_present=already_present,
         skipped_linked=skipped_linked,
         cap=SLEEP_PROPOSAL_CAP,
+        sources_not_proposed=sources_not_proposed,
+        sidecar=sidecar,
     )
 
 
@@ -171,6 +203,92 @@ def _short_excerpt(text: str) -> str:
     return flattened[:SLEEP_EXCERPT_MAX].rstrip()
 
 
+def count_sleep_proposals(path: Path, *, user_id: UUID | str) -> int:
+    """How many sidecar rows belong to ``user_id``. Missing file is zero."""
+
+    uid = str(user_id)
+    return sum(1 for row in load_sleep_proposals(path) if str(row.get("user_id") or "") == uid)
+
+
+def _commit_door_refuses_text(text: str) -> bool:
+    """The commit door's pair, on one string, without writing."""
+
+    if text == "":
+        return False
+    if credential_verdict(text) is not None:
+        return True
+    return commit_gate_refuses("", text)
+
+
+def _first_chunk_text(store: SQLiteVNextStore, source_id: str) -> str:
+    for chunk in store.list_source_chunks(source_id):
+        text = chunk.get("text")
+        if isinstance(text, str) and text.strip():
+            return text
+    return ""
+
+
+def compile_sleep_proposal_listing(
+    db_path: Path,
+    *,
+    user_id: UUID | str,
+    effective_domains: tuple[str, ...],
+    effective_sensitivity_allowed: tuple[str, ...],
+    effective_project_scope: tuple[str, ...],
+) -> str:
+    """List the caller's proposals. Writes nothing.
+
+    Rows stay in sidecar order, which is oldest source first. The brief's
+    domain, sensitivity, and project fences apply. The commit door runs
+    again on the excerpt and the first chunk. A refusal is omitted, not
+    deleted.
+    """
+
+    resolved = Path(db_path).expanduser().resolve()
+    sidecar = sleep_proposals_path(resolved)
+    rows = load_sleep_proposals(sidecar)
+    blocks: list[str] = []
+    with sqlite_user_connection(resolved, user_id) as connection:
+        store = SQLiteVNextStore(connection, user_id)
+        uid = store.user_id
+        for row in rows:
+            if str(row.get("user_id") or "") != uid:
+                continue
+            source_id = row.get("source_id")
+            excerpt = row.get("excerpt")
+            if not isinstance(source_id, str) or source_id == "" or not isinstance(excerpt, str):
+                continue
+            source = store.get_source(source_id)
+            if source is None or not _source_honours_fence(
+                source,
+                effective_domains=effective_domains,
+                effective_sensitivity_allowed=effective_sensitivity_allowed,
+                effective_project_scope=effective_project_scope,
+            ):
+                continue
+            if _commit_door_refuses_text(excerpt) or _commit_door_refuses_text(
+                _first_chunk_text(store, source_id)
+            ):
+                continue
+            arguments = {
+                "canonical_text": excerpt,
+                "source_refs": [source_id],
+                "title": excerpt[:120],
+            }
+            blocks.append(
+                "\n".join(
+                    (
+                        f"source_id: {source_id}",
+                        f"excerpt: {quote_session_brief_text(excerpt)}",
+                        "alice_memory_commit: " + json.dumps(arguments, ensure_ascii=False, sort_keys=True),
+                    )
+                )
+            )
+    if not blocks:
+        return NO_SLEEP_PROPOSALS
+    return SESSION_BRIEF_FRAME + "\n\n" + "\n\n".join(blocks)
+
+
 def _write_jsonl(path: Path, rows: list[dict[str, object]]) -> None:
     payload = "".join(
         json.dumps(row, ensure_ascii=True, separators=(",", ":"), sort_keys=True) + "\n"
@@ -182,12 +300,16 @@ def _write_jsonl(path: Path, rows: list[dict[str, object]]) -> None:
 
 
 __all__ = [
+    "CAP_FULL_WAIT",
     "LIST_SOURCE_IDS_SQL",
+    "NO_SLEEP_PROPOSALS",
     "PROPOSED_STATUS",
     "SLEEP_EXCERPT_MAX",
     "SLEEP_PROPOSAL_CAP",
     "SLEEP_PROPOSAL_FILENAME",
     "SleepError",
+    "compile_sleep_proposal_listing",
+    "count_sleep_proposals",
     "format_sleep_receipt",
     "load_sleep_proposals",
     "run_local_vault_sleep",
