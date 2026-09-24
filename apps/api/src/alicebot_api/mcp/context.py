@@ -7,6 +7,7 @@ from typing import TypedDict
 from alicebot_api.recall_framing import (
     present_model_item,
     present_model_items,
+    with_result_framing,
     writer_for_recent_change,
     writer_for_returned_item,
 )
@@ -111,7 +112,7 @@ def _compact_items(items: object, fields: tuple[str, ...]) -> list[JsonObject]:
 
 
 def _present_stored_rows(items: object) -> list[object]:
-    """Frame a debug section of stored rows and attach each writer."""
+    """Quote a debug section of stored rows and attach each writer."""
 
     if not isinstance(items, list):
         return []
@@ -125,7 +126,7 @@ def _present_stored_rows(items: object) -> list[object]:
 
 
 def _present_compact_items(items: object, fields: tuple[str, ...]) -> list[JsonObject]:
-    """Compact a pack section, then frame its text and attach writer.
+    """Compact a pack section, then quote its text and attach writer.
 
     Writer is read from the pre-compact row. For a memory, that is the
     latest text-changing revision, not the identity left on the original
@@ -259,8 +260,9 @@ def _frame_context_pack_tool(
         payload["trace"] = pack.get("trace")
         for section in ("procedures", "decisions", "relevant_beliefs", "current_known_state"):
             payload[section] = _present_stored_rows(pack.get(section, []))
-    _attach_compact_context_pack_token_report(payload, pack)
-    return _json_object(payload)
+    framed = with_result_framing(payload)
+    _attach_compact_context_pack_token_report(framed, pack)
+    return _json_object(framed)
 
 
 _TOKEN_REPORT_FIELDS = (

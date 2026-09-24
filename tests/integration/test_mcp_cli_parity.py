@@ -21,6 +21,7 @@ from alicebot_api.contracts import (
     ContinuityResumptionBriefRequestInput,
 )
 from alicebot_api.db import user_connection
+from alicebot_api.session_briefing import SESSION_BRIEF_FRAME
 from alicebot_api.store import ContinuityStore
 from alicebot_api.vnext_store import PostgresVNextStore
 
@@ -292,7 +293,14 @@ def test_mcp_recall_and_resume_match_core_and_cli_behavior(migrated_database_url
 
     # Core alice_recall searches vNext memories now (none seeded in this test);
     # legacy continuity parity is asserted through alice_recall_debug below.
-    assert mcp_recall == {"query": "release", "results": [], "count": 0}
+    # An empty result still carries framing. HTTP context packs do the same
+    # on every pack, including an empty one, so the shape stays stable.
+    assert mcp_recall == {
+        "framing": SESSION_BRIEF_FRAME,
+        "query": "release",
+        "results": [],
+        "count": 0,
+    }
     # Core resume is canonical vNext. This fixture intentionally seeds only
     # the legacy continuity store, so the core view is empty and reports the
     # legacy-only thread filter instead of silently switching backends.
