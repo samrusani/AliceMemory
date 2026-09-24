@@ -948,3 +948,45 @@ def test_post_capture_falls_back_to_legacy_endpoint_when_b2_endpoints_unavailabl
 
     assert requests[0][1] == "/v0/continuity/captures/candidates"
     assert requests[1][1] == "/v0/continuity/captures"
+
+
+def test_post_capture_does_not_fall_back_when_commit_returns_400(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A refused commit makes no legacy captures POST.
+
+    Mutation: treat HTTP 400 like HTTP 404 and fall back. The raw turn,
+    including the runtime token, is posted to /v0/continuity/captures and
+    this test fails.
+    """
+
+    token = "ghp_" + "ab12cd34ef56"
+    module = _load_provider_module(monkeypatch)
+    provider = module.AliceMemoryProvider()
+    provider._config = {
+        "bridge_mode": "auto",
+        "user_id": "00000000-0000-0000-0000-000000000001",
+        "base_url": "http://127.0.0.1:9",
+    }
+    requests: list[tuple[str, str, dict[str, object] | None]] = []
+
+    def _fake_request_json(method: str, path: str, *, params=None, payload=None, timeout=None):  # type: ignore[no-untyped-def]
+        del params, timeout
+        requests.append((method, path, payload))
+        if path == "/v0/continuity/captures/candidates":
+            return {"candidates": []}
+        if path == "/v0/continuity/captures/commit":
+            raise RuntimeError("Alice API request failed with HTTP status 400")
+        return {"ok": True}
+
+    monkeypatch.setattr(provider, "_request_json", _fake_request_json)
+    raw = f"User: decision: keep {token} out of the inbox\nAssistant: noted"
+
+    with pytest.raises(RuntimeError, match="HTTP status 400"):
+        provider._post_capture(raw)
+
+    assert token in raw
+    legacy = [item for item in requests if item[1] == "/v0/continuity/captures"]
+    assert legacy == []
+    for _method, path, payload in requests:
+        if path == "/v0/continuity/captures":
+            assert payload is not None
+            assert token not in json.dumps(payload)

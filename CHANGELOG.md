@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- The Hermes memory provider does not fall back to
+  `POST /v0/continuity/captures` when the capture commit returns HTTP 400.
+  That fallback stored the raw turn in a capture event, and that route
+  does not apply the commit door. HTTP 404 still uses the legacy capture
+  route when the candidate endpoints are absent.
+
 - The Hermes memory provider retries a failed capture with capped
   exponential backoff and drops the item after 5 attempts, counting the
   drop. The wait starts at 0.5 seconds and doubles up to 2 seconds.
