@@ -157,8 +157,11 @@ def _pytest_step(job: dict) -> dict:
 def test_pinned_job_runs_only_when_host_files_change() -> None:
     """Pull requests do not start this heavy job unless a host file changed.
 
-    Mutation: delete ``host_install.py`` from ``pull_request.paths``.
-    This test fails.
+    ``tests/unit/test_sleep_time_proposals.py`` imports
+    ``alicebot_api.session_start_hook``, so it is a trigger, listed immediately
+    after ``tests/unit/test_session_brief.py``. Mutation: delete
+    ``host_install.py`` from ``pull_request.paths``, or drop the sleep
+    proposals path. This test fails.
     """
 
     triggers = _load_workflow().get("on")
@@ -171,6 +174,10 @@ def test_pinned_job_runs_only_when_host_files_change() -> None:
     assert not pull_request.get("paths-ignore")
     expected = _host_change_paths()
     assert set(paths) == expected, sorted(set(paths) ^ expected)
+    session_brief = "tests/unit/test_session_brief.py"
+    sleep_proposals = "tests/unit/test_sleep_time_proposals.py"
+    assert session_brief in paths and sleep_proposals in paths
+    assert paths.index(sleep_proposals) == paths.index(session_brief) + 1
     assert not any(path in {"**", "*", "**/*"} for path in paths)
     for source in SOURCE_PATHS:
         assert source in paths
