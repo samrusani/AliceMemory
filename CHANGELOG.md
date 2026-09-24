@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- `alice-memory sleep` runs the commit door's credential check on each new
+  proposal's 160-character excerpt and on the full first chunk that excerpt
+  was cut from. Either refusal drops the proposal. A withheld source takes
+  no cap slot and is checked again on the next run. Before a rewrite, the
+  caller's existing rows are checked the same way (excerpt, and the first
+  chunk when the source still exists) and other users' rows are checked on
+  the excerpt. Refused rows are removed. The file is rewritten only when a
+  row was written or removed. The receipt adds `sources withheld` and
+  `existing rows removed` for the caller only, and prints no values and no
+  source ids. The sidecar is created at mode 0600 after a stale `.tmp` is
+  removed. An existing sidecar with group or other permission bits is
+  tightened to 0600 even when the bytes are left unchanged.
+
 - The Hermes memory provider retries a failed capture with capped
   exponential backoff and drops the item after 5 attempts, counting the
   drop. The wait starts at 0.5 seconds and doubles up to 2 seconds.

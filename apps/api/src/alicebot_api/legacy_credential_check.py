@@ -17,6 +17,9 @@ ruled (H1) that the two doors v0.16.0 checked get parity by construction:
 - The promotion floor (vnext_promotion_policy.hard_floor_hits) does the same
   with v0.16.0's floor check, looks_like_credential, which never had the
   commit gate's prefix patterns.
+- The sleep writer (``run_local_vault_sleep``) uses this commit check as
+  well as the floor. A sleep row exists only to be handed to the commit
+  door, so the writer refuses a proposal that door would refuse.
 - Every other door keeps credential_floor alone.
 
 What "the same as v0.16.0" means here. The rules below are v0.16.0's, with
@@ -58,7 +61,11 @@ from collections.abc import Iterable, Iterator, Mapping
 import re
 from typing import NamedTuple
 
-from alicebot_api.credential_floor import normalize_for_matching
+from alicebot_api.credential_floor import (
+    VERDICT_CREDENTIAL,
+    credential_verdict,
+    normalize_for_matching,
+)
 
 # ---------------------------------------------------------------------------
 # v0.16.0's patterns, copied from vnext_promotion_policy.py and
@@ -721,6 +728,44 @@ def commit_gate_refuses(
     )
 
 
+def commit_door_secret_verdict(
+    title: str,
+    canonical_text: str,
+    conversation_excerpt: str | None = None,
+    rationale: str | None = None,
+    source_refs: object = (),
+    *identifiers: object,
+) -> str | None:
+    """The commit door's check for one write.
+
+    Returns the floor's verdict when ``credential_verdict`` refuses, or
+    ``VERDICT_CREDENTIAL`` when ``commit_gate_refuses`` refuses. ``identifiers``
+    are read by the floor only, in the order given. The commit door passes
+    idempotency_key, trace_id, and project_scope there. A single sleep text
+    is passed as ``canonical_text``.
+    """
+
+    verdict = credential_verdict(
+        title,
+        canonical_text,
+        conversation_excerpt,
+        source_refs,
+        rationale,
+        *identifiers,
+    )
+    if verdict is not None:
+        return verdict
+    if commit_gate_refuses(
+        title,
+        canonical_text,
+        conversation_excerpt,
+        rationale,
+        source_refs,
+    ):
+        return VERDICT_CREDENTIAL
+    return None
+
+
 def promotion_floor_refuses(
     title: str,
     canonical_text: str,
@@ -743,6 +788,7 @@ __all__ = [
     "carve_out_sk_word_chain",
     "carve_out_ssh_public_key",
     "carve_out_structural_key_name",
+    "commit_door_secret_verdict",
     "commit_gate_refuses",
     "excused",
     "looks_like_secret_value",
