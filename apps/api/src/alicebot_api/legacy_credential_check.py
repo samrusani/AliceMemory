@@ -17,7 +17,9 @@ ruled (H1) that the two doors v0.16.0 checked get parity by construction:
 - The promotion floor (vnext_promotion_policy.hard_floor_hits) does the same
   with v0.16.0's floor check, looks_like_credential, which never had the
   commit gate's prefix patterns.
-- Every other door keeps credential_floor alone.
+- `create_continuity_object_record` runs `commit_gate_refuses` after the
+  credential floor and raises when that check refuses. Every remaining door
+  keeps credential_floor alone.
 
 What "the same as v0.16.0" means here. The rules below are v0.16.0's, with
 the same patterns, the same surfaces (each field raw and normalised; the
