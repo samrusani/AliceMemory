@@ -856,6 +856,74 @@ def test_session_end_drop_pass_stops_when_the_flush_timeout_passes(
     assert reported["capture_dropped_count"] == 4
 
 
+def test_session_end_starts_the_flush_deadline_once_before_the_worker_join(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The flush deadline starts once, before the worker join.
+
+    A live worker is inside a POST that hangs until its request timeout and
+    fails during the join. Four items are queued. The drop pass uses the time
+    still left on that same deadline. Mutation: start the deadline after the
+    join, or start it again later in the pass. This test fails.
+    """
+    module = _load_provider_module(monkeypatch)
+    flush_timeout = 1.5
+    request_timeout = 1.0
+    margin = 0.35
+    provider = module.AliceMemoryProvider()
+    provider._config = {
+        "base_url": "http://127.0.0.1:8000",
+        "user_id": "00000000-0000-0000-0000-000000000001",
+        "timeout_seconds": request_timeout,
+        "session_end_flush_timeout_seconds": flush_timeout,
+        "bridge_mode": "assist",
+    }
+    entered = threading.Event()
+    posts: list[tuple[float, float]] = []
+    posts_lock = threading.Lock()
+
+    def _hang(request, timeout=0):  # type: ignore[no-untyped-def]
+        del request
+        started_at = time.monotonic()
+        with posts_lock:
+            posts.append((started_at, float(timeout)))
+        entered.set()
+        time.sleep(float(timeout))
+        raise urllib.error.URLError("timed out")
+
+    monkeypatch.setattr(module.urllib.request, "urlopen", _hang)
+    provider._enqueue_capture(kind="memory_write", raw_content="memory update 0")
+    assert entered.wait(2.0), "capture worker did not enter the POST"
+    for index in range(1, 4):
+        provider._enqueue_capture(kind="memory_write", raw_content=f"memory update {index}")
+
+    thread = provider._capture_thread
+    assert thread is not None and thread.is_alive()
+    with posts_lock:
+        assert len(posts) == 1
+        hang_started, hang_timeout = posts[0]
+    assert hang_timeout == pytest.approx(request_timeout)
+    remaining_hang = request_timeout - (time.monotonic() - hang_started)
+    assert remaining_hang > 0.8
+    assert remaining_hang < flush_timeout
+
+    started = time.monotonic()
+    provider.on_session_end(session_id="deadline-once")
+    elapsed = time.monotonic() - started
+
+    with posts_lock:
+        recorded = list(posts)
+    later = [(post_started, post_timeout) for post_started, post_timeout in recorded if post_started > started]
+    assert later, "drop pass did not post after the in-flight POST failed"
+    deadline = started + flush_timeout
+    for post_started, post_timeout in later:
+        assert post_started + post_timeout <= deadline + 0.05
+    assert elapsed <= flush_timeout + margin
+    assert provider._capture_queue == []
+    assert provider._capture_dropped_count == 4
+    assert not (provider._capture_thread and provider._capture_thread.is_alive())
+
+
 def test_post_capture_falls_back_to_legacy_endpoint_when_b2_endpoints_unavailable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
