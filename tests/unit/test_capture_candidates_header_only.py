@@ -1,8 +1,8 @@
 """Header-only capture candidates through the full app.
 
-The Hermes plugin sends user_id only in X-AliceBot-User-Id. The middleware
-rewrites a new Request, and the route still validates the original body.
-This pins that 422 until the rewrite is visible to the route.
+Characterization of a known defect: header-only clients get 422. The Hermes
+plugin sends user_id only in X-AliceBot-User-Id. The middleware rewrites a
+new Request, and the route still validates the original body.
 """
 
 from __future__ import annotations
@@ -57,13 +57,18 @@ def _invoke(body: bytes, headers: dict[str, str]) -> tuple[int, dict[str, object
     return status, parsed
 
 
-def test_header_only_capture_candidates_post_returns_422(monkeypatch) -> None:
-    """A candidates POST with user_id only in the header returns 422.
+class _CaptureHandlerReached(Exception):
+    """The candidates handler ran. This pin expects it not to."""
+
+
+def test_header_only_capture_candidates_post_returns_422_known_defect(monkeypatch) -> None:
+    """Characterization of a known defect: header-only clients get 422. The header
+    rewrite fix must flip this test on purpose.
 
     The body is otherwise valid. The route reports body.user_id missing, and
     the handler does not run. Mutation: make the rewritten body the body the
-    route validates (the browser-clip path already sets request._body). This
-    test fails.
+    route validates (the browser-clip path already sets request._body). The
+    stub sets the flag and raises. This test fails on ``reached``.
     """
 
     reached = False
@@ -71,7 +76,7 @@ def test_header_only_capture_candidates_post_returns_422(monkeypatch) -> None:
     def block_database(*_args: object, **_kwargs: object) -> None:
         nonlocal reached
         reached = True
-        raise RuntimeError("capture candidates handler reached the database")
+        raise _CaptureHandlerReached("capture candidates handler ran")
 
     monkeypatch.setattr(continuity_router, "user_connection", block_database)
     monkeypatch.setattr(
@@ -89,14 +94,20 @@ def test_header_only_capture_candidates_post_returns_422(monkeypatch) -> None:
     ).encode("utf-8")
     assert b"user_id" not in body
 
-    status, payload = _invoke(
-        body,
-        {
-            "content-type": "application/json",
-            "X-AliceBot-User-Id": str(uuid4()),
-        },
-    )
+    status = -1
+    payload: dict[str, object] = {}
+    try:
+        status, payload = _invoke(
+            body,
+            {
+                "content-type": "application/json",
+                "X-AliceBot-User-Id": str(uuid4()),
+            },
+        )
+    except _CaptureHandlerReached:
+        pass
 
+    assert reached is False
     assert status == 422
     detail = payload["detail"]
     assert isinstance(detail, list) and detail
@@ -104,4 +115,3 @@ def test_header_only_capture_candidates_post_returns_422(monkeypatch) -> None:
     assert isinstance(first, dict)
     assert first["loc"] == ["body", "user_id"]
     assert first["type"] == "missing"
-    assert reached is False
