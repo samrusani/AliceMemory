@@ -743,13 +743,12 @@ OLD_ALICE_WITH_USER_KEYS = (
 def test_old_alice_with_keys_install_never_wrote_is_refused_and_they_are_named(
     tmp_path: Path, capsys
 ) -> None:
-    """An alice entry with user keys is not replaced; the keys are printed.
+    """An alice entry with a key install does not write is not replaced.
 
-    Review decision Q1, 2026-09-22: replacing it would drop
-    ALICE_MCP_FULL_TOOLS and timeout. The file keeps its bytes, and the
-    snippet keeps the entry's own data dir so pasting it does not re-point
-    the vault. Mutation: stop checking keys, or print the snippet on
-    ~/.alice. This test fails.
+    timeout is not a documented env key, so the file keeps its bytes.
+    ALICE_MCP_FULL_TOOLS is documented and is not named in extra_keys.
+    The snippet keeps the entry's own data dir. Mutation: stop checking
+    keys, or print the snippet on ~/.alice. This test fails.
     """
 
     home = tmp_path / "home"
@@ -760,7 +759,11 @@ def test_old_alice_with_keys_install_never_wrote_is_refused_and_they_are_named(
     assert _error_records(err) == [INSTALL_REFUSED]
     assert config.read_text(encoding="utf-8") == OLD_ALICE_WITH_USER_KEYS
     assert "mcp_servers.alice has keys install did not write" in out
-    assert "extra_keys: timeout, env.ALICE_MCP_FULL_TOOLS" in out
+    extra = out.split("extra_keys:", 1)[1].split("\n", 1)[0]
+    assert "timeout" in extra
+    assert "env.ALICE_MCP_FULL_TOOLS" not in extra
+    assert "Install refuses while those keys are present" in out
+    assert "carry over" not in out
     snippet = out.split("snippet:\n", 1)[1].split("\nextra_keys:", 1)[0]
     assert yaml.safe_load(snippet)["mcp_servers"]["alice"]["args"][-1] == "/old/vault"
 
@@ -936,7 +939,9 @@ def test_extra_keys_refusal_snippet_keeps_the_entrys_own_launcher(
         "args": ["alice-memory==0.16.0", "mcp", "--data-dir", "/old/vault"],
         "env": {"ALICE_MEMORY_DATA_DIR": "/old/vault"},
     }
-    assert "carry over your timeout" in out
+    assert "Install refuses while those keys are present" in out
+    assert "Edit the alice entry by hand instead" in out
+    assert "carry over" not in out
 
 
 @pytest.mark.parametrize(
@@ -1068,6 +1073,183 @@ def test_install_refused_error_contract_is_registered() -> None:
     """
 
     assert "could not edit it safely" in _ERROR_CONTRACTS["install_refused"]
+
+
+def _v016_alice(vault: str, *env_lines: str) -> str:
+    """A v0.16.0 Hermes alice block, plus extra env lines."""
+
+    lines = [
+        "mcp_servers:",
+        "  alice:",
+        "    command: uvx",
+        "    args:",
+        "      - alice-memory",
+        "      - mcp",
+        '      - "--data-dir"',
+        f"      - {vault}",
+        "    env:",
+        f"      ALICE_MEMORY_DATA_DIR: {vault}",
+        *env_lines,
+    ]
+    return "\n".join(lines) + "\n"
+
+
+def test_hermes_rerun_keeps_v016_full_tools_flag(tmp_path: Path, capsys) -> None:
+    """A v0.16.0 entry plus ALICE_MCP_FULL_TOOLS: \"1\" is kept byte for byte.
+
+    Install exits 0, the flag's scalar text stays, bytes outside the alice
+    block stay, and a backup of the original is written first.
+    Mutation: drop HERMES_DOCUMENTED_ENV_KEYS. This test fails.
+    """
+
+    home = tmp_path / "home"
+    vault = (tmp_path / "old-vault").resolve()
+    vault.mkdir()
+    prefix = "model: gpt-4o\n"
+    suffix = "other: kept\n"
+    original = prefix + _v016_alice(str(vault), '      ALICE_MCP_FULL_TOOLS: "1"') + suffix
+    config = _seed(home, original)
+
+    code, out, err = _install_without_flag(home, capsys)
+    assert code == 0, (out, err)
+    written = config.read_text(encoding="utf-8")
+    assert written.startswith(prefix)
+    assert written.endswith(suffix)
+    assert 'ALICE_MCP_FULL_TOOLS: "1"' in written
+    alice = yaml.safe_load(written)["mcp_servers"]["alice"]
+    assert alice["env"]["ALICE_MCP_FULL_TOOLS"] == "1"
+    assert alice["env"]["ALICE_MEMORY_DATA_DIR"] == str(vault)
+    backups = _backups(config, vault)
+    assert len(backups) == 1
+    assert backups[0].read_text(encoding="utf-8") == original
+    assert "kept: env.ALICE_MCP_FULL_TOOLS" in out
+
+
+def test_hermes_rerun_keeps_agent_api_key_and_does_not_print_it(tmp_path: Path, capsys) -> None:
+    """ALICE_AGENT_API_KEY is kept, and neither the receipt nor --dry-run prints it.
+
+    The value is built at runtime. Mutation: drop HERMES_DOCUMENTED_ENV_KEYS,
+    or print kept env values. This test fails.
+    """
+
+    home = tmp_path / "home"
+    vault = (tmp_path / "old-vault").resolve()
+    vault.mkdir()
+    agent_key = "kept-env-" + "9142"
+    original = _v016_alice(str(vault), f'      ALICE_AGENT_API_KEY: "{agent_key}"')
+    config = _seed(home, original)
+
+    code, out, err = _install_without_flag(home, capsys, "--dry-run")
+    assert code == 0, (out, err)
+    assert agent_key not in out + err
+    assert config.read_text(encoding="utf-8") == original
+    assert "kept: env.ALICE_AGENT_API_KEY" in out
+
+    code, out, err = _install_without_flag(home, capsys)
+    assert code == 0, (out, err)
+    assert agent_key not in out + err
+    written = config.read_text(encoding="utf-8")
+    assert f'ALICE_AGENT_API_KEY: "{agent_key}"' in written
+    assert yaml.safe_load(written)["mcp_servers"]["alice"]["env"]["ALICE_AGENT_API_KEY"] == agent_key
+
+
+def test_hermes_rerun_keeps_single_quoted_legacy_flag_bytes(tmp_path: Path, capsys) -> None:
+    """A single-quoted documented value is copied as that scalar text.
+
+    Mutation: re-quote carried env values. This test fails.
+    """
+
+    home = tmp_path / "home"
+    vault = (tmp_path / "old-vault").resolve()
+    vault.mkdir()
+    original = _v016_alice(str(vault), "      ALICE_MCP_LEGACY_TOOLS: '1'")
+    config = _seed(home, original)
+
+    code, out, err = _install_without_flag(home, capsys)
+    assert code == 0, (out, err)
+    assert "ALICE_MCP_LEGACY_TOOLS: '1'" in config.read_text(encoding="utf-8")
+    assert "kept: env.ALICE_MCP_LEGACY_TOOLS" in out
+
+
+def test_hermes_unknown_env_key_still_refuses(tmp_path: Path, capsys) -> None:
+    """env.FOO is not a documented key, so install refuses and does not write.
+
+    Mutation: accept any env key. This test fails.
+    """
+
+    home = tmp_path / "home"
+    vault = (tmp_path / "old-vault").resolve()
+    vault.mkdir()
+    original = _v016_alice(str(vault), '      FOO: "1"')
+    config = _seed(home, original)
+
+    code, out, err = _install_without_flag(home, capsys)
+    assert code == 1
+    assert _error_records(err) == [INSTALL_REFUSED]
+    assert config.read_text(encoding="utf-8") == original
+    assert "extra_keys: env.FOO" in out
+    assert "Install refuses while those keys are present" in out
+    assert "Edit the alice entry by hand instead" in out
+    assert "carry over" not in out
+
+
+@pytest.mark.parametrize(
+    ("label", "env_line"),
+    [
+        ("anchor", '      ALICE_MCP_FULL_TOOLS: &flag "1"'),
+        ("block", "      ALICE_MCP_FULL_TOOLS: |\n        1"),
+    ],
+)
+def test_hermes_documented_env_value_that_is_not_a_plain_scalar_refuses(
+    tmp_path: Path, capsys, label: str, env_line: str
+) -> None:
+    """An anchor or a block scalar on a documented env key still refuses.
+
+    Mutation: carry those values. This test fails.
+    """
+
+    home = tmp_path / "home"
+    vault = (tmp_path / "old-vault").resolve()
+    vault.mkdir()
+    original = _v016_alice(str(vault), env_line)
+    config = _seed(home, original)
+
+    code, out, err = _install_without_flag(home, capsys)
+    assert code == 1, (label, out)
+    assert _error_records(err) == [INSTALL_REFUSED]
+    assert config.read_text(encoding="utf-8") == original
+    assert "extra_keys: env.ALICE_MCP_FULL_TOOLS" in out
+    assert "Install refuses while those keys are present" in out
+    assert "Edit the alice entry by hand instead" in out
+    assert "carry over" not in out
+
+
+def test_hermes_keep_line_names_only_keys_the_entry_has(tmp_path: Path, capsys) -> None:
+    """A refusal does not tell the user to copy env.ALICE_MEMORY_DATA_DIR when it is absent.
+
+    A tilde --data-dir makes install's own env value differ from the arg, so
+    the snippet used to hide it and add a keep: line for a key the entry
+    does not have. Mutation: print keep: for every hidden snippet key.
+    This test fails.
+    """
+
+    home = tmp_path / "home"
+    original = (
+        "mcp_servers:\n"
+        "  alice:\n"
+        "    command: uvx\n"
+        "    args: [alice-memory, mcp, --data-dir, ~/vault]\n"
+        "    timeout: 30\n"
+    )
+    config = _seed(home, original)
+
+    code, out, err = _install_without_flag(home, capsys)
+    assert code == 1
+    assert config.read_text(encoding="utf-8") == original
+    assert 'ALICE_MEMORY_DATA_DIR: "<hidden>"' not in out
+    for line in out.splitlines():
+        if line.startswith("keep:"):
+            assert "env.ALICE_MEMORY_DATA_DIR" not in line
 
 
 # --- generated configs -------------------------------------------------------

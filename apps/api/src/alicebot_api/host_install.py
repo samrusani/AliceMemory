@@ -1126,10 +1126,13 @@ class HermesConfigRefused(InstallError):
     """install left config.yaml untouched because it could not edit it safely.
 
     ``extra_keys`` names keys in an old alice entry that install did not
-    write, so the receipt can tell the user to carry them over when pasting.
-    The snippet is ``payload`` when set; else install's entry on ``data_dir``;
-    else, with ``placeholder``, install's entry with a placeholder where the
-    existing entry's data dir goes, so a paste never points at an empty store.
+    write and will not carry. The receipt says install refuses while those
+    keys are present. ``file_keys`` names keys the entry actually has, as
+    ``env.NAME`` for a mapping, so a ``keep:`` line is not printed for a key
+    install invented. The snippet is ``payload`` when set; else install's
+    entry on ``data_dir``; else, with ``placeholder``, install's entry with a
+    placeholder where the existing entry's data dir goes, so a paste never
+    points at an empty store.
     """
 
     def __init__(
@@ -1143,6 +1146,7 @@ class HermesConfigRefused(InstallError):
         placeholder: bool = False,
         located: bool = False,
         next_step: str | None = None,
+        file_keys: frozenset[str] | None = None,
     ) -> None:
         detail = reason if line is None else f"{reason} (line {line})"
         super().__init__(detail)
@@ -1152,6 +1156,7 @@ class HermesConfigRefused(InstallError):
         self.payload = payload
         self.placeholder = placeholder
         self.next_step = next_step
+        self.file_keys = file_keys
         # True once the scanner found mcp_servers.alice: its snippet is set here.
         self.located = located
 
@@ -1553,9 +1558,18 @@ def _hermes_alice_lines(
     )
 
 
-def _hermes_block_lines(payload: Mapping[str, object], indent: int) -> list[str]:
-    """An alice block at ``indent`` for ``payload``, every value double-quoted."""
+def _hermes_block_lines(
+    payload: Mapping[str, object],
+    indent: int,
+    raw_env: Mapping[str, str] | None = None,
+) -> list[str]:
+    """An alice block at ``indent`` for ``payload``, every value double-quoted.
 
+    ``raw_env`` is the original scalar text of env values install carries
+    over. Those lines keep that text. Every other value is double-quoted.
+    """
+
+    carried = raw_env or {}
     pad = " " * indent
     lines = [f"{pad}alice:"]
     for key, value in payload.items():
@@ -1564,9 +1578,12 @@ def _hermes_block_lines(payload: Mapping[str, object], indent: int) -> list[str]
             lines.extend(f"{pad}    - {_yaml_double_quoted(str(item))}" for item in value)
         elif isinstance(value, dict):
             lines.append(f"{pad}  {key}:")
-            lines.extend(
-                f"{pad}    {name}: {_yaml_double_quoted(str(item))}" for name, item in value.items()
-            )
+            for name, item in value.items():
+                if key == "env" and name in carried:
+                    rendered = carried[name]
+                else:
+                    rendered = _yaml_double_quoted(str(item))
+                lines.append(f"{pad}    {name}: {rendered}")
         else:
             lines.append(f"{pad}  {key}: {_yaml_double_quoted(str(value))}")
     return lines
@@ -1615,6 +1632,25 @@ _DOUBLE_QUOTED_ESCAPES = {
 }
 _HEX_ESCAPE_WIDTH = {"x": 2, "u": 4, "U": 8}
 _ALICE_INSTALL_KEYS = frozenset({"command", "args", "env"})
+# Documented host-env keys install may carry on a Hermes re-run. Each name
+# is one our docs tell users to put in a host env map:
+# ALICE_MCP_FULL_TOOLS: docs/release/v0.16.0-release-notes.md (host env map);
+#   docs/integrations/mcp.md
+# ALICE_MCP_LEGACY_TOOLS: docs/integrations/mcp.md;
+#   docs/alpha/hermes-dogfood-ubuntu.md
+# ALICE_AGENT_API_KEY: docs/alpha/mcp-tools.md (server env);
+#   docs/integrations/hermes.md
+# ALICE_LEGACY_SURFACES: docs/integrations/mcp.md (MCP process flag; Hermes
+#   does not inherit the shell, so it belongs in the same env map)
+# Dropping this tuple makes a re-run refuse ALICE_MCP_FULL_TOOLS and
+# ALICE_AGENT_API_KEY.
+HERMES_DOCUMENTED_ENV_KEYS = (
+    "ALICE_MCP_FULL_TOOLS",
+    "ALICE_MCP_LEGACY_TOOLS",
+    "ALICE_AGENT_API_KEY",
+    "ALICE_LEGACY_SURFACES",
+)
+_DOCUMENTED_ENV_NAMES = frozenset(HERMES_DOCUMENTED_ENV_KEYS)
 
 
 class _UnreadableEntry(Exception):
@@ -1903,16 +1939,166 @@ def _read_alice_block(
     return result
 
 
-def _alice_block_extra_keys(block: Mapping[str, object]) -> list[str]:
-    """Keys in an old alice entry that install has never written."""
+def _alice_block_extra_keys(
+    block: Mapping[str, object], *, carried_env: frozenset[str] = frozenset()
+) -> list[str]:
+    """Keys in an old alice entry that install has never written.
+
+    ``carried_env`` names documented host-env keys whose values install keeps.
+    """
 
     extra = [key for key in block if key not in _ALICE_INSTALL_KEYS]
     env = block.get("env")
+    allowed = {ALICE_MEMORY_DATA_DIR_ENV, *carried_env}
     if isinstance(env, Mapping):
-        extra += [f"env.{key}" for key in env if key != ALICE_MEMORY_DATA_DIR_ENV]
+        extra += [f"env.{key}" for key in env if key not in allowed]
     elif env is not None:
         extra.append("env")
     return extra
+
+
+def _entry_print_keys(block: Mapping[str, object]) -> frozenset[str]:
+    """Keys a refusal may mention: ``env.NAME`` for a mapping, else the key."""
+
+    keys: set[str] = set()
+    for key, value in block.items():
+        if isinstance(value, Mapping):
+            keys.update(f"{key}.{name}" for name in value)
+        else:
+            keys.add(str(key))
+    return frozenset(keys)
+
+
+def _flow_documented_keys(text: str) -> list[str]:
+    """Documented env names inside a one-line flow mapping, which install will not carry."""
+
+    try:
+        parsed = _read_scalar_text(text)
+    except _UnreadableEntry:
+        return []
+    if not isinstance(parsed, dict):
+        return []
+    nested = parsed.get("env")
+    if isinstance(nested, dict):
+        mapping = nested
+    elif "env" not in parsed:
+        mapping = parsed
+    else:
+        mapping = None
+    if not isinstance(mapping, dict):
+        return []
+    return [f"env.{name}" for name in mapping if name in _DOCUMENTED_ENV_NAMES]
+
+
+def _plain_env_scalar(doc: _YamlText, index: int, line: _YamlLine) -> str | None:
+    """The line's scalar text when it is one bare, single-quoted, or double-quoted value.
+
+    None for an anchor, alias, tag, block scalar, flow value, or a scalar
+    that continues onto the next line. The returned text is the value as
+    written, not the decoded string.
+    """
+
+    if line.anchor or line.block_owner is not None or line.dash or line.key is None:
+        return None
+    if _continues_on_next_line(doc, index, _node_column(doc.lines[index], line)):
+        return None
+    value = line.value
+    if not value or value[0] in "*!&|>[{?":
+        return None
+    if value[0] in "'\"":
+        if len(value) < 2 or value[-1] != value[0]:
+            return None
+        return value
+    try:
+        decoded = _read_scalar_text(value)
+    except _UnreadableEntry:
+        return None
+    if not isinstance(decoded, str):
+        return None
+    return value
+
+
+def _documented_env_carry(
+    doc: _YamlText,
+    lexed: Mapping[int, _YamlLine],
+    start: int,
+    last: int,
+) -> tuple[dict[str, str], list[str]]:
+    """Documented env scalars to keep, and documented env keys that still refuse.
+
+    A value is kept only when it is its own one-line plain, single-quoted,
+    or double-quoted scalar. The dict maps the env name to that scalar text.
+    """
+
+    carry: dict[str, str] = {}
+    unsafe: list[str] = []
+    head = lexed[start]
+    if head.value and head.value not in _YAML_NULLS:
+        return carry, _flow_documented_keys(head.value)
+
+    indexes = [index for index in range(start + 1, last + 1) if index in lexed]
+    if not indexes:
+        return carry, unsafe
+    child_indent = lexed[indexes[0]].indent
+    position = 0
+    while position < len(indexes):
+        line = lexed[indexes[position]]
+        position += 1
+        if line.indent != child_indent or line.dash or line.key is None:
+            continue
+        nested: list[int] = []
+        while position < len(indexes) and lexed[indexes[position]].indent > child_indent:
+            nested.append(indexes[position])
+            position += 1
+        if line.key != "env":
+            continue
+        if line.value and line.value not in _YAML_NULLS:
+            unsafe.extend(_flow_documented_keys(line.value))
+            continue
+        if not nested:
+            continue
+        env_indent = lexed[nested[0]].indent
+        cursor = 0
+        while cursor < len(nested):
+            env_index = nested[cursor]
+            env_line = lexed[env_index]
+            cursor += 1
+            if env_line.indent != env_indent or env_line.key not in _DOCUMENTED_ENV_NAMES:
+                continue
+            deeper = False
+            while cursor < len(nested) and lexed[nested[cursor]].indent > env_indent:
+                deeper = True
+                cursor += 1
+            raw = None if deeper else _plain_env_scalar(doc, env_index, env_line)
+            if raw is None:
+                unsafe.append(f"env.{env_line.key}")
+            else:
+                carry[env_line.key] = raw
+    return carry, list(dict.fromkeys(unsafe))
+
+
+def _merge_carried_env(
+    payload: Mapping[str, object],
+    parsed_env: Mapping[str, object],
+    carried: Mapping[str, str],
+) -> dict[str, object]:
+    """``payload`` plus the documented env values install is keeping."""
+
+    if not carried:
+        return dict(payload)
+    current = payload.get("env")
+    env = dict(current) if isinstance(current, Mapping) else {}
+    for name in carried:
+        env[name] = parsed_env[name]
+    merged = dict(payload)
+    merged["env"] = env
+    return merged
+
+
+_HERMES_KEYS_STAY_NEXT = (
+    "Install refuses while those keys are present. "
+    "Edit the alice entry by hand instead, then check it with: hermes mcp list"
+)
 
 
 _HERMES_DIR_PLACEHOLDER = "<the data dir your existing alice entry uses>"
@@ -2100,6 +2286,20 @@ def _plan_hermes(
         stop = next((index for index in children if index > start), end)
         last = max(index for index in range(start, stop) if doc.substantive(index))
         aliases = _anchor_values(doc, lexed)
+        carried, unsafe = _documented_env_carry(doc, lexed, start, last)
+        if unsafe:
+            recovered = explicit_dir or _recover_alice_dir(
+                doc, lexed, start, last, aliases, home, default_dir
+            )
+            raise HermesConfigRefused(
+                "mcp_servers.alice has keys install did not write",
+                start + 1,
+                extra_keys=unsafe,
+                data_dir=recovered,
+                placeholder=recovered is None,
+                located=True,
+                next_step=_HERMES_KEYS_STAY_NEXT,
+            )
 
         def refuse_unread(reason: str) -> HermesConfigRefused:
             recovered = explicit_dir or _recover_alice_dir(
@@ -2135,9 +2335,19 @@ def _plan_hermes(
                 payload=entry_plan.paste,
                 located=True,
                 next_step=entry_plan.next_step,
+                file_keys=_entry_print_keys(old),
             )
         payload = _hermes_payload(entry_plan)
-        extra = _alice_block_extra_keys(old)
+        parsed_env = old.get("env")
+        if isinstance(parsed_env, Mapping):
+            carried = {
+                name: raw
+                for name, raw in carried.items()
+                if isinstance(parsed_env.get(name), str)
+            }
+        else:
+            carried = {}
+        extra = _alice_block_extra_keys(old, carried_env=frozenset(carried))
         if extra:
             raise HermesConfigRefused(
                 "mcp_servers.alice has keys install did not write",
@@ -2146,13 +2356,20 @@ def _plan_hermes(
                 data_dir=entry_plan.data_dir,
                 payload=payload,
                 located=True,
+                next_step=_HERMES_KEYS_STAY_NEXT,
+                file_keys=_entry_print_keys(old),
             )
-        block = _hermes_block_lines(payload, child_indent)
+        if isinstance(parsed_env, Mapping):
+            payload = _merge_carried_env(payload, parsed_env, carried)
+        details = list(entry_plan.details)
+        if carried:
+            details.append("kept: " + ", ".join(f"env.{name}" for name in carried))
+        block = _hermes_block_lines(payload, child_indent, carried)
         plan = HermesPlan(
             None,
             entry_plan.data_dir,
             payload,
-            tuple(entry_plan.details),
+            tuple(details),
             entry_plan.used_fallback,
         )
         if lines[start : last + 1] == block:
@@ -2206,10 +2423,12 @@ def plan_hermes_config(text: str, data_dir: str) -> str | None:
     is kept. The one other edit is an empty ``mcp_servers: {}`` / ``~`` /
     ``null`` value, which becomes ``mcp_servers:`` so the block can go
     under it. An old alice entry is replaced only when it is of a shape
-    install writes and its keys are within command, args and
-    env.ALICE_MEMORY_DATA_DIR; its command and args stay apart from the
-    data dir. Raises HermesConfigRefused for a file outside the subset this
-    scanner reads.
+    install writes and its keys are within command, args,
+    env.ALICE_MEMORY_DATA_DIR, and the documented host env keys in
+    HERMES_DOCUMENTED_ENV_KEYS whose values are one-line plain or quoted
+    scalars. Those env values are copied byte for byte. Its command and
+    args stay apart from the data dir. Raises HermesConfigRefused for a
+    file outside the subset this scanner reads.
     """
 
     home = Path.home()
@@ -2404,6 +2623,16 @@ def _install_hermes_host(
         trailer: list[str] = []
         if refusal.payload is not None:
             shown, hidden = _masked(refusal.payload, own_env=_own_env(refusal.payload))
+            if refusal.file_keys is not None:
+                invented = [item for item in hidden if item not in refusal.file_keys]
+                hidden = [item for item in hidden if item in refusal.file_keys]
+                env_shown = shown.get("env")
+                payload_env = refusal.payload.get("env")
+                if isinstance(env_shown, dict) and isinstance(payload_env, Mapping):
+                    for item in invented:
+                        name = item.removeprefix("env.")
+                        if item.startswith("env.") and name in payload_env:
+                            env_shown[name] = payload_env[name]
             snippet = _hermes_payload_snippet(shown)
             if hidden:
                 trailer.append(_keep_line(hidden))
@@ -2419,13 +2648,12 @@ def _install_hermes_host(
             trailer.append(f"extra_keys: {extra_keys}")
         if dry_run:
             trailer.append(_DRY_RUN_REFUSAL)
+        elif refusal.next_step:
+            trailer.append(f"next: {path.name} was not changed. {refusal.next_step}")
         else:
-            carry = f", and carry over your {extra_keys}" if extra_keys else ""
             trailer.append(
-                f"next: {path.name} was not changed. {refusal.next_step}"
-                if refusal.next_step
-                else f"next: {path.name} was not changed. Add the alice entry above under "
-                f"mcp_servers by hand{carry}, then check it with: hermes mcp list"
+                f"next: {path.name} was not changed. Add the alice entry above under "
+                "mcp_servers by hand, then check it with: hermes mcp list"
             )
         return _HostResult(
             receipt(

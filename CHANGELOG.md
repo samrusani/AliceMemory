@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Re-running `alice-memory install --host hermes` keeps documented Alice
+  env values on `mcp_servers.alice` when each value is a one-line plain,
+  single-quoted, or double-quoted scalar, with no anchor, alias, tag, or
+  block scalar. The keys are `ALICE_MCP_FULL_TOOLS`,
+  `ALICE_MCP_LEGACY_TOOLS`, `ALICE_AGENT_API_KEY`, and
+  `ALICE_LEGACY_SURFACES`. The name and the scalar text stay byte for byte.
+  The receipt lists the kept keys and masks printed values the same way as
+  the JSON hosts, so an API key is not printed. Any other key install did
+  not write still refuses the file. The receipt says install refuses while
+  those keys are present and to edit the entry by hand. A `keep:` line
+  names only keys the existing entry has.
+
 - The Hermes memory provider retries a failed capture with capped
   exponential backoff and drops the item after 5 attempts, counting the
   drop. The wait starts at 0.5 seconds and doubles up to 2 seconds.
@@ -275,8 +287,10 @@
   hosts: the same shape check, the same store and data dir rules, the
   same launcher rules. An existing `mcp_servers.alice` of install's shape
   is replaced only when its keys are within what install writes
-  (`command`, `args`, `env.ALICE_MEMORY_DATA_DIR`); quoting, style and
-  indentation do not matter. Without `--data-dir` it keeps the data dir
+  (`command`, `args`, `env.ALICE_MEMORY_DATA_DIR`) plus the documented
+  host env keys named above, when each of those values is a one-line
+  plain or quoted scalar. Quoting, style and indentation of the other
+  lines do not matter. Without `--data-dir` it keeps the data dir
   that entry runs with, and it keeps its command and args, so an
   absolute uvx path and a pinned version stay. An entry that opens `--db`
   keeps its env as written. An `alice` entry of any other shape, such as
@@ -284,8 +298,8 @@
   the JSON hosts' words: rename or remove that entry, or add the one
   printed under another name. An entry with any other key is left alone
   too; install prints that entry's own command and args with its data
-  dir and names the extra keys (`extra_keys: env.ALICE_MCP_FULL_TOOLS`)
-  so they can be carried over when pasting. For an entry the installer
+  dir and names the extra keys (`extra_keys: env.FOO`). It refuses while
+  those keys are present. Edit the entry by hand. For an entry the installer
   cannot read, the paste uses the entry's data dir when a lenient read
   can see it; otherwise it shows a placeholder and says to replace it
   with that dir, never `~/.alice`, which may be an empty store.
