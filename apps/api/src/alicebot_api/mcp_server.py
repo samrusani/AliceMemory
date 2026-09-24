@@ -17,6 +17,7 @@ from alicebot_api.mcp_tools import (
     call_mcp_tool,
     list_mcp_tools,
 )
+from alicebot_api.recall_framing import serialize_mcp_tool_result
 
 
 _JSONRPC_VERSION = "2.0"
@@ -319,7 +320,7 @@ class MCPServer:
                     "content": [
                         {
                             "type": "text",
-                            "text": json.dumps(structured, separators=(",", ":"), sort_keys=True),
+                            "text": serialize_mcp_tool_result(structured),
                         }
                     ],
                     "isError": False,
