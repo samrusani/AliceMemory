@@ -82,9 +82,10 @@ A plain import, without `--quarantine`, refuses a backup that holds
 credential material. The error code is `import_credential_material`, the
 exit code is 1, and nothing is written. stderr lists the line and memory
 id of every offender and does not print the matched text.
-`alice-memory export` lists those offenders on stderr and exits 0. The
-export file is still written. Redact the listed rows in the source vault
-and export again.
+`alice-memory export` lists those offenders on stderr and exits 0. A
+file is written only when `--out` is set. Without `--out`, the JSONL
+goes to stdout and no file is created. Redact the listed rows in the
+source vault and export again.
 
 `--quarantine` is the owner's recovery path when a backup holds a credential
 and the source vault is gone. It removes the credential from the named

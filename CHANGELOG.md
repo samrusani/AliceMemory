@@ -548,13 +548,22 @@
   current state it would store.
 - `POST /v0/vnext/memory-proposals`, `alice_vnext_propose_memory`, and
   `alicebot vnext agents propose-memory` call one function. The stored
-  shape is the memory, its creation revision, the proposal event, a
-  review item when review is required, and the promotion event.
-  Rationale and source refs are stored on every door. Credential
-  material is refused before anything is written.
-- An HTTP policy refusal returns 403. On Postgres the policy event is
-  kept: the response is sent from inside the connection, so the audit
-  row is not rolled back with the mutation.
+  shape is the memory, its creation revision, and
+  `agent.memory_proposed`. `review.item_created` is stored when review
+  is required. `memory.auto_promoted` is written only when the decision
+  auto-promotes and review is not required. A review-required proposal
+  has no promotion event. Rationale and source refs are stored on every
+  door. Credential material is refused before anything is written.
+- An HTTP policy refusal returns 403. Memory confirm, undo, correct,
+  forget, expire, unexpire, and redact return that 403 inside the
+  connection, so on Postgres the transaction commits and
+  `policy.decision` and `agent.policy_blocked` stay.
+  `GET /v0/vnext/artifacts/{artifact_id}`,
+  `GET /v0/vnext/traces/artifacts/{artifact_id}`, and
+  `POST /v0/vnext/artifacts/{artifact_id}/review` catch the refusal
+  outside the connection. The transaction rolls back before the 403 is
+  sent, so those audit rows are gone. No policy event is written when
+  there is no agent identity.
 - Pending writes created on v0.16.0 above an agent's sensitivity ceiling
   can only be rejected by that agent after the upgrade. Confirming one
   needs the owner or an `admin_agent` key.
