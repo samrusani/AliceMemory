@@ -5,6 +5,8 @@ import io
 import json
 from pathlib import Path
 import sys
+import threading
+import time
 import types
 import urllib.error
 
@@ -374,7 +376,12 @@ def test_sync_turn_deduplicates_repeated_callbacks_and_flushes_on_session_end(
 
     captured: list[str] = []
 
-    def _fake_post_capture(raw_content: str) -> None:
+    def _fake_post_capture(
+        raw_content: str,
+        timeout: float | None = None,
+        deadline: float | None = None,
+    ) -> None:
+        del timeout, deadline
         captured.append(raw_content)
 
     monkeypatch.setattr(provider, "_post_capture", _fake_post_capture)
@@ -397,7 +404,12 @@ def test_memory_write_deduplicates_repeated_callbacks(monkeypatch: pytest.Monkey
 
     captured: list[str] = []
 
-    def _fake_post_capture(raw_content: str) -> None:
+    def _fake_post_capture(
+        raw_content: str,
+        timeout: float | None = None,
+        deadline: float | None = None,
+    ) -> None:
+        del timeout, deadline
         captured.append(raw_content)
 
     monkeypatch.setattr(provider, "_post_capture", _fake_post_capture)
@@ -421,7 +433,12 @@ def test_sync_turn_allows_same_content_after_session_flush(monkeypatch: pytest.M
 
     captured: list[str] = []
 
-    def _fake_post_capture(raw_content: str) -> None:
+    def _fake_post_capture(
+        raw_content: str,
+        timeout: float | None = None,
+        deadline: float | None = None,
+    ) -> None:
+        del timeout, deadline
         captured.append(raw_content)
 
     monkeypatch.setattr(provider, "_post_capture", _fake_post_capture)
@@ -449,7 +466,12 @@ def test_sync_turn_skips_capture_in_manual_mode(monkeypatch: pytest.MonkeyPatch)
 
     captured: list[str] = []
 
-    def _fake_post_capture(raw_content: str) -> None:
+    def _fake_post_capture(
+        raw_content: str,
+        timeout: float | None = None,
+        deadline: float | None = None,
+    ) -> None:
+        del timeout, deadline
         captured.append(raw_content)
 
     monkeypatch.setattr(provider, "_post_capture", _fake_post_capture)
@@ -503,6 +525,333 @@ def test_post_capture_uses_b2_candidate_commit_pipeline_for_sync_turn(monkeypatc
     assert requests[1][2]["source_kind"] == "sync_turn"
     assert isinstance(requests[1][2]["sync_fingerprint"], str)
     assert requests[1][2]["sync_fingerprint"].startswith("sync_turn:")
+
+
+def test_failed_sync_turn_attempts_in_one_second_stay_at_or_under_the_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failing POST backs off, so one second stays at or under the attempt limit.
+
+    The failure is HTTP 503, which stays on the backoff path. The schedule
+    itself fits fewer attempts into that second than the per-item limit.
+    Mutation: remove the backoff wait in ``_capture_worker``. This test fails.
+    """
+    module = _load_provider_module(monkeypatch)
+    limit = module._CAPTURE_RETRY_ATTEMPT_LIMIT
+    one_second_limit = module._capture_retry_attempts_within(1.0)
+    assert module._capture_retry_delay_seconds(1) == 0.5
+    assert module._capture_retry_delay_seconds(2) == 1.0
+    assert module._capture_retry_delay_seconds(3) == 2.0
+    assert module._capture_retry_delay_seconds(4) == 2.0
+    assert one_second_limit <= limit
+    assert one_second_limit < limit
+
+    provider = module.AliceMemoryProvider()
+    provider._config = {
+        "sync_turn_capture_enabled": True,
+        "bridge_mode": "assist",
+        "session_end_flush_timeout_seconds": 2.0,
+    }
+    attempts: list[float] = []
+    attempts_lock = threading.Lock()
+
+    def _always_fail(
+        _raw_content: str,
+        timeout: float | None = None,
+        deadline: float | None = None,
+    ) -> None:
+        del timeout, deadline
+        with attempts_lock:
+            attempts.append(time.monotonic())
+        raise RuntimeError("Alice API request failed with HTTP status 503")
+
+    monkeypatch.setattr(provider, "_post_capture", _always_fail)
+    provider.sync_turn("Need decision", "Server keeps failing")
+
+    deadline = time.monotonic() + 5.0
+    while time.monotonic() < deadline:
+        with attempts_lock:
+            if attempts and time.monotonic() - attempts[0] >= 1.05:
+                break
+        time.sleep(0.02)
+    else:
+        pytest.fail("capture worker recorded no attempt")
+
+    with attempts_lock:
+        started = attempts[0]
+        attempts_in_one_second = sum(1 for stamp in attempts if stamp - started <= 1.0)
+    try:
+        assert attempts_in_one_second <= limit
+        assert attempts_in_one_second <= one_second_limit
+        assert provider._capture_dropped_count == 0
+    finally:
+        provider.on_session_end(session_id="retry-loop")
+
+
+def test_failed_capture_drops_and_counts_the_item_after_the_attempt_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Mutation: keep retrying after the attempt limit, or skip the drop count.
+
+    This test fails. The failure is HTTP 503, which stays on the backoff path.
+    The backoff wait is stubbed so the limit, not the clock, is what stops the
+    item.
+    """
+    module = _load_provider_module(monkeypatch)
+    provider = module.AliceMemoryProvider()
+    provider._config = {
+        "sync_turn_capture_enabled": True,
+        "bridge_mode": "assist",
+        "session_end_flush_timeout_seconds": 2.0,
+    }
+    attempts: list[int] = []
+    attempts_lock = threading.Lock()
+
+    def _always_fail(
+        _raw_content: str,
+        timeout: float | None = None,
+        deadline: float | None = None,
+    ) -> None:
+        del timeout, deadline
+        with attempts_lock:
+            attempts.append(1)
+        raise RuntimeError("Alice API request failed with HTTP status 503")
+
+    monkeypatch.setattr(provider, "_post_capture", _always_fail)
+    monkeypatch.setattr(provider, "_wait_capture_backoff", lambda _delay: False)
+
+    provider.sync_turn("Need decision", "Server keeps failing")
+    deadline = time.monotonic() + 2.0
+    while time.monotonic() < deadline:
+        thread = provider._capture_thread
+        if provider._capture_dropped_count == 1 and (thread is None or not thread.is_alive()):
+            break
+        time.sleep(0.01)
+
+    try:
+        with attempts_lock:
+            attempt_count = len(attempts)
+        assert attempt_count == module._CAPTURE_RETRY_ATTEMPT_LIMIT
+        assert provider._capture_dropped_count == 1
+        assert provider._capture_queue == []
+        assert not (provider._capture_thread and provider._capture_thread.is_alive())
+    finally:
+        provider.on_session_end(session_id="retry-drop")
+
+
+def _drive_failing_capture(monkeypatch: pytest.MonkeyPatch, message: str):
+    module = _load_provider_module(monkeypatch)
+    provider = module.AliceMemoryProvider()
+    provider._config = {
+        "sync_turn_capture_enabled": True,
+        "bridge_mode": "assist",
+        "session_end_flush_timeout_seconds": 2.0,
+    }
+    attempts: list[int] = []
+    waits: list[float] = []
+    lock = threading.Lock()
+
+    def _fail(
+        _raw_content: str,
+        timeout: float | None = None,
+        deadline: float | None = None,
+    ) -> None:
+        del timeout, deadline
+        with lock:
+            attempts.append(1)
+        raise RuntimeError(message)
+
+    def _wait(delay: float) -> bool:
+        waits.append(delay)
+        return False
+
+    monkeypatch.setattr(provider, "_post_capture", _fail)
+    monkeypatch.setattr(provider, "_wait_capture_backoff", _wait)
+    provider.sync_turn("Need decision", "Server keeps failing")
+    settle_deadline = time.monotonic() + 2.0
+    while time.monotonic() < settle_deadline:
+        thread = provider._capture_thread
+        if provider._capture_dropped_count >= 1 and (thread is None or not thread.is_alive()):
+            time.sleep(0.05)
+            break
+        time.sleep(0.01)
+    with lock:
+        attempt_count = len(attempts)
+    return module, provider, attempt_count, waits
+
+
+@pytest.mark.parametrize("status", [400, 422])
+def test_client_error_other_than_408_and_429_is_posted_once_and_counted(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    status: int,
+) -> None:
+    """A final HTTP 4xx is posted once and counted.
+
+    408 and 429 are not in this set. Mutation: retry every status. This
+    test fails.
+    """
+    message = f"Alice API request failed with HTTP status {status}"
+    _module, provider, attempt_count, waits = _drive_failing_capture(monkeypatch, message)
+    try:
+        assert attempt_count == 1
+        assert waits == []
+        assert provider._capture_dropped_count == 1
+        assert provider._capture_queue == []
+        reported = provider.get_status(hermes_home=str(tmp_path))
+        assert reported["capture_dropped_count"] == 1
+    finally:
+        provider.on_session_end(session_id="final-client-error")
+
+
+@pytest.mark.parametrize("status", [408, 429, 503])
+def test_retryable_http_status_uses_the_attempt_limit(
+    monkeypatch: pytest.MonkeyPatch,
+    status: int,
+) -> None:
+    """408, 429, and 503 stay on the capped backoff path."""
+    message = f"Alice API request failed with HTTP status {status}"
+    module, provider, attempt_count, waits = _drive_failing_capture(monkeypatch, message)
+    try:
+        assert attempt_count == module._CAPTURE_RETRY_ATTEMPT_LIMIT
+        assert len(waits) == module._CAPTURE_RETRY_ATTEMPT_LIMIT - 1
+        assert provider._capture_dropped_count == 1
+        assert provider._capture_queue == []
+    finally:
+        provider.on_session_end(session_id="retryable-status")
+
+
+def test_transport_failure_uses_the_attempt_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A connection failure has no HTTP status and keeps the capped backoff."""
+    module, provider, attempt_count, waits = _drive_failing_capture(
+        monkeypatch,
+        "Alice API connection failed",
+    )
+    try:
+        assert attempt_count == module._CAPTURE_RETRY_ATTEMPT_LIMIT
+        assert len(waits) == module._CAPTURE_RETRY_ATTEMPT_LIMIT - 1
+        assert provider._capture_dropped_count == 1
+    finally:
+        provider.on_session_end(session_id="transport-failure")
+
+
+def test_session_end_drop_pass_stops_when_the_flush_timeout_passes(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """The final drop pass stops at the flush timeout.
+
+    The stub hangs until the request timeout it is given. Four queued items
+    would outlast the flush timeout without a deadline. Mutation: remove the
+    deadline. This test fails.
+    """
+    module = _load_provider_module(monkeypatch)
+    flush_timeout = 0.5
+    request_timeout = 2.0
+    margin = 1.0
+    provider = module.AliceMemoryProvider()
+    provider._config = {
+        "base_url": "http://127.0.0.1:8000",
+        "user_id": "00000000-0000-0000-0000-000000000001",
+        "timeout_seconds": request_timeout,
+        "session_end_flush_timeout_seconds": flush_timeout,
+        "bridge_mode": "assist",
+    }
+    observed: list[float] = []
+
+    def _hang(request, timeout=0):  # type: ignore[no-untyped-def]
+        del request
+        observed.append(float(timeout))
+        time.sleep(float(timeout))
+        raise urllib.error.URLError("timed out")
+
+    monkeypatch.setattr(module.urllib.request, "urlopen", _hang)
+    with provider._capture_lock:
+        for index in range(4):
+            fingerprint = f"memory_write:{index}"
+            provider._capture_queue.append((fingerprint, f"memory update {index}"))
+            provider._capture_pending_fingerprints.add(fingerprint)
+
+    started = time.monotonic()
+    provider.on_session_end(session_id="drop-deadline")
+    elapsed = time.monotonic() - started
+
+    assert observed, "session end did not post"
+    assert len(observed) < 4
+    assert max(observed) <= flush_timeout + 0.05
+    assert elapsed <= flush_timeout + margin
+    assert provider._capture_queue == []
+    assert provider._capture_dropped_count == 4
+    reported = provider.get_status(hermes_home=str(tmp_path))
+    assert reported["capture_dropped_count"] == 4
+
+
+def test_session_end_starts_the_flush_deadline_once_before_the_worker_join(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The flush deadline starts once, before the worker join.
+
+    A live worker is inside a POST that hangs until its request timeout and
+    fails during the join. Four items are queued. The drop pass uses the time
+    still left on that same deadline. Mutation: start the deadline after the
+    join, or start it again later in the pass. This test fails.
+    """
+    module = _load_provider_module(monkeypatch)
+    flush_timeout = 1.5
+    request_timeout = 1.0
+    margin = 0.35
+    provider = module.AliceMemoryProvider()
+    provider._config = {
+        "base_url": "http://127.0.0.1:8000",
+        "user_id": "00000000-0000-0000-0000-000000000001",
+        "timeout_seconds": request_timeout,
+        "session_end_flush_timeout_seconds": flush_timeout,
+        "bridge_mode": "assist",
+    }
+    entered = threading.Event()
+    posts: list[tuple[float, float]] = []
+    posts_lock = threading.Lock()
+
+    def _hang(request, timeout=0):  # type: ignore[no-untyped-def]
+        del request
+        started_at = time.monotonic()
+        with posts_lock:
+            posts.append((started_at, float(timeout)))
+        entered.set()
+        time.sleep(float(timeout))
+        raise urllib.error.URLError("timed out")
+
+    monkeypatch.setattr(module.urllib.request, "urlopen", _hang)
+    provider._enqueue_capture(kind="memory_write", raw_content="memory update 0")
+    assert entered.wait(2.0), "capture worker did not enter the POST"
+    for index in range(1, 4):
+        provider._enqueue_capture(kind="memory_write", raw_content=f"memory update {index}")
+
+    thread = provider._capture_thread
+    assert thread is not None and thread.is_alive()
+    with posts_lock:
+        assert len(posts) == 1
+        hang_started, hang_timeout = posts[0]
+    assert hang_timeout == pytest.approx(request_timeout)
+    remaining_hang = request_timeout - (time.monotonic() - hang_started)
+    assert remaining_hang > 0.8
+    assert remaining_hang < flush_timeout
+
+    started = time.monotonic()
+    provider.on_session_end(session_id="deadline-once")
+    elapsed = time.monotonic() - started
+
+    with posts_lock:
+        recorded = list(posts)
+    later = [(post_started, post_timeout) for post_started, post_timeout in recorded if post_started > started]
+    assert later, "drop pass did not post after the in-flight POST failed"
+    deadline = started + flush_timeout
+    for post_started, post_timeout in later:
+        assert post_started + post_timeout <= deadline + 0.05
+    assert elapsed <= flush_timeout + margin
+    assert provider._capture_queue == []
+    assert provider._capture_dropped_count == 4
+    assert not (provider._capture_thread and provider._capture_thread.is_alive())
 
 
 def test_post_capture_falls_back_to_legacy_endpoint_when_b2_endpoints_unavailable(
