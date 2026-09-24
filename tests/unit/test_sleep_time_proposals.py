@@ -6,7 +6,12 @@ bootstrap_database and tmp_path. Do not copy the live vault.
 
 from __future__ import annotations
 
+import io
+import json
+import sys
 from pathlib import Path
+
+import pytest
 
 from alicebot_api.mcp_tools import AGENT_API_KEY_ENV, MCPRuntimeContext
 from alicebot_api.onramp import (
@@ -19,13 +24,16 @@ from alicebot_api.onramp import (
     resolve_db_path,
     sqlite_url_for_path,
 )
+from alicebot_api.session_briefing import compile_local_session_brief
 from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
 from alicebot_api.vault_doctor import compile_local_vault_doctor
 from alicebot_api.vault_sleep import (
     LIST_SOURCE_IDS_SQL,
     PROPOSED_STATUS,
     SLEEP_PROPOSAL_CAP,
+    SleepError,
     load_sleep_proposals,
+    run_local_vault_sleep,
     sleep_proposals_path,
 )
 from alicebot_api.vnext_embeddings import (
@@ -44,6 +52,8 @@ UNLINKED_PREFIX = "Unlinked harbour clipboard note"
 FACT_TEXT = "Keep the harbour radio on channel 7."
 CANDIDATE_TEXT = "Do not trust the unreviewed harbour rumour."
 UNLINKED_COUNT = SLEEP_PROPOSAL_CAP + 2
+SLEEP_ROW_KEYS = frozenset({"excerpt", "source_id", "status", "user_id"})
+TEN_UNLINKED_NOTES = 10
 
 
 def _clear_env(monkeypatch) -> None:
@@ -371,3 +381,124 @@ def test_existing_capture_candidate_stays_unsearchable(
     ), "candidate vanished; the no-promote assert is vacuous"
     assert not any(CANDIDATE_TEXT == str(row.get("canonical_text") or "") for row in committed)
     assert not any(str(row.get("id")) == seeded["candidate_id"] for row in committed)
+
+
+def _sidecar_text(tmp_path: Path) -> str:
+    database = resolve_db_path(data_dir=str(tmp_path), db=None)
+    return sleep_proposals_path(database).read_text(encoding="utf-8")
+
+
+def _parsed_sidecar_rows(tmp_path: Path) -> list[dict[str, object]]:
+    return [json.loads(line) for line in _sidecar_text(tmp_path).splitlines() if line.strip()]
+
+
+def _brief_bytes(tmp_path: Path) -> bytes:
+    database = resolve_db_path(data_dir=str(tmp_path), db=None)
+    text = compile_local_session_brief(database, user_id=USER_ID, query=None)
+    return text.encode("utf-8")
+
+
+def _hook_bytes(tmp_path: Path, monkeypatch, capsys) -> bytes:
+    import alicebot_api.session_start_hook as hook_module
+
+    monkeypatch.setattr(sys, "stdin", io.StringIO("{}"))
+    assert hook_module.main(["--data-dir", str(tmp_path), "--user-id", USER_ID]) == 0
+    return capsys.readouterr().out.encode("utf-8")
+
+
+def _seed_ten_unlinked_notes(tmp_path: Path) -> list[str]:
+    database = _database(tmp_path)
+    source_ids: list[str] = []
+    with sqlite_user_connection(database, USER_ID) as connection:
+        store = SQLiteVNextStore(connection, USER_ID)
+        for index in range(TEN_UNLINKED_NOTES):
+            source = _create_source(
+                store,
+                note=f"{UNLINKED_PREFIX} {index}.",
+                suffix=f"pin{index}",
+                minute=index + 1,
+            )
+            source_ids.append(str(source["id"]))
+    return source_ids
+
+
+def test_sleep_rows_keep_exactly_four_keys_and_an_existing_source_id(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    """Every sidecar row has exactly four keys, and its source_id exists.
+
+    The keys are excerpt, source_id, status, and user_id. source_id is an
+    id for that row's user. Mutation: add an origin key, or append a row
+    whose source_id is session:x. This test fails.
+    """
+
+    _clear_env(monkeypatch)
+    _seed_stand_in(tmp_path)
+    _sleep_stdout(tmp_path, capsys)
+    rows = _parsed_sidecar_rows(tmp_path)
+    assert rows, "sleep wrote no rows; the key set would be vacuous"
+    database = resolve_db_path(data_dir=str(tmp_path), db=None)
+    for row in rows:
+        assert set(row) == SLEEP_ROW_KEYS
+        source_id = row["source_id"]
+        assert isinstance(source_id, str) and source_id
+        user_id = str(row["user_id"])
+        with sqlite_user_connection(database, user_id) as connection:
+            store = SQLiteVNextStore(connection, user_id)
+            assert store.get_source(source_id) is not None
+
+
+def test_a_sidecar_row_without_source_id_makes_sleep_raise(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """A sidecar row with no source_id makes sleep raise.
+
+    Mutation: accept a row that omits source_id. This test fails.
+    """
+
+    _clear_env(monkeypatch)
+    database = _database(tmp_path)
+    sidecar = sleep_proposals_path(database)
+    sidecar.write_text(
+        json.dumps(
+            {"excerpt": "harbour clipboard note", "status": PROPOSED_STATUS, "user_id": USER_ID},
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    assert "source_id" not in json.loads(sidecar.read_text(encoding="utf-8"))
+
+    with pytest.raises(SleepError, match="sidecar is invalid"):
+        run_local_vault_sleep(database, user_id=USER_ID)
+
+
+def test_brief_and_hook_json_are_byte_identical_after_sleep(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    """Ten unlinked notes: brief and hook JSON stay byte-identical across sleep.
+
+    Mutation: make compile_local_session_brief read the sleep sidecar.
+    This test fails.
+    """
+
+    _clear_env(monkeypatch)
+    source_ids = _seed_ten_unlinked_notes(tmp_path)
+    assert len(source_ids) == TEN_UNLINKED_NOTES
+    brief_before = _brief_bytes(tmp_path)
+    hook_before = _hook_bytes(tmp_path, monkeypatch, capsys)
+    assert b"Unlinked harbour clipboard note" in brief_before
+    assert b"additional_context" in hook_before
+    assert b"Unlinked harbour clipboard note" in hook_before
+
+    report = _sleep_stdout(tmp_path, capsys)
+    rows = _parsed_sidecar_rows(tmp_path)
+    assert _int_value(report, "proposals written") == SLEEP_PROPOSAL_CAP
+    assert len(rows) == SLEEP_PROPOSAL_CAP
+    assert any(str(row["excerpt"]).encode("utf-8") not in brief_before for row in rows), (
+        "every sidecar excerpt is already in the brief; reading the sidecar would not change it"
+    )
+
+    assert _brief_bytes(tmp_path) == brief_before
+    assert _hook_bytes(tmp_path, monkeypatch, capsys) == hook_before

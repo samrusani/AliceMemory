@@ -34,6 +34,7 @@ on:
       - tests/unit/test_install_uv_warning.py
       - tests/unit/test_install_without_uvx.py
       - tests/unit/test_session_brief.py
+      - tests/unit/test_sleep_time_proposals.py
   schedule:
     - cron: "41 6 * * 1"
   workflow_dispatch:
