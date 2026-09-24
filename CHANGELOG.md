@@ -6,8 +6,13 @@
   `credential_verdict` before writing it. An item that holds credential
   material is skipped, and the rest of the import continues. The receipt
   reports `skipped_credentials` and `skipped_credential_items`, naming each
-  skipped item by id or line and never the matched text. A clean item is
-  stored as it was before, including its status.
+  skipped item by id or line and never the matched text. A dashed
+  private-key block in markdown is one skipped item, from its BEGIN line
+  through the matching END line, and the receipt names that line range. An
+  OpenClaw raw entry is checked by value, as provenance is, so a routing
+  `session_key` is imported. Placeholder password examples are skipped with
+  the other credential lines. A clean item is stored as it was before,
+  including its status.
 
 - The Hermes memory provider retries a failed capture with capped
   exponential backoff and drops the item after 5 attempts, counting the

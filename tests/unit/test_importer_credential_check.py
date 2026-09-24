@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import subprocess
 from typing import Callable
 from uuid import uuid4
 
@@ -371,3 +372,181 @@ def test_shipped_importer_fixtures_skip_no_credential_items(
     assert second["skipped_credentials"] == 0
     assert second["skipped_credential_items"] == []
     assert len(store.objects) == imported_count
+
+
+def _rsa_private_key_lines() -> list[str]:
+    """A 2048-bit RSA private key from openssl, traditional PEM, never stored.
+
+    OpenSSL 3 prints a PKCS#8 key unless ``-traditional`` is set. The
+    traditional form is the dashed RSA armor line plus 25 base64 body lines.
+    """
+
+    completed = subprocess.run(
+        ["openssl", "genrsa", "-traditional", "2048"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    lines = completed.stdout.splitlines()
+    assert len(lines) == 27
+    assert len(lines[1:-1]) == 25
+    return lines
+
+
+def test_markdown_armored_private_key_block_is_skipped_whole(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """A key inside a code fence is one skip, and no body line is stored.
+
+    Reverting the block collapse stores the base64 lines as their own items.
+    Reverting the skip after the verdict stores the collapsed block, body
+    lines included. Either way a body line is in the store and this fails.
+    """
+
+    _patch_archive(monkeypatch)
+    key_lines = _rsa_private_key_lines()
+    body_lines = key_lines[1:-1]
+    before = "Keep the weekly notes import deterministic."
+    after = "File the weekly notes under the project folder."
+    fence = "```"
+    body = [
+        f"- Note: {before} | id=safe-before",
+        fence,
+        *key_lines,
+        fence,
+        f"- Note: {after} | id=safe-after",
+    ]
+    source = tmp_path / "notes.md"
+    source.write_text(
+        "\n".join(
+            [
+                "---",
+                "fixture_id: importer-credential-check",
+                "workspace_id: importer-credential-workspace",
+                "---",
+                *body,
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    store = _RecordingImporterStore()
+
+    receipt = import_markdown_source(store, user_id=uuid4(), source=source)
+
+    stored = store.stored_text()
+    for line in body_lines:
+        assert line not in stored
+    assert key_lines[0] not in stored
+    assert key_lines[-1] not in stored
+    assert before in stored
+    assert after in stored
+    start = body.index(key_lines[0]) + 1
+    end = body.index(key_lines[-1]) + 1
+    assert receipt["skipped_credentials"] == 1
+    assert receipt["skipped_credential_items"] == [
+        {
+            "sequence_no": 3,
+            "line_number": start,
+            "line_end": end,
+            "source_item_id": f"notes.md:{start}-{end}",
+        }
+    ]
+    assert receipt["imported_count"] == 3
+    assert receipt["skipped_duplicates"] == 1
+    receipt_text = json.dumps(receipt)
+    for line in body_lines:
+        assert line not in receipt_text
+
+
+def test_openclaw_routing_session_key_is_imported(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """An ordinary OpenClaw entry with routing metadata is stored.
+
+    Passing ``openclaw_raw_entry`` as a mapping makes ``session_key`` a
+    secret name and this entry is skipped. v0.16.0 imported it.
+    """
+
+    _patch_archive(monkeypatch)
+    content = "Prefers short replies in Telegram."
+    source = tmp_path / "memories.json"
+    source.write_text(
+        json.dumps(
+            {
+                "fixture_id": "importer-credential-check",
+                "workspace": {
+                    "id": "importer-credential-workspace",
+                    "name": "Credential Check",
+                },
+                "durable_memory": [
+                    {
+                        "id": "oc-1",
+                        "type": "preference",
+                        "content": content,
+                        "session_key": "agent:main:telegram:dm:4471",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    store = _RecordingImporterStore()
+
+    receipt = import_openclaw_source(store, user_id=uuid4(), source=source)
+
+    assert receipt["skipped_credentials"] == 0
+    assert receipt["skipped_credential_items"] == []
+    assert receipt["imported_count"] == 1
+    assert receipt["status"] == "ok"
+    assert len(store.objects) == 1
+    assert store.objects[0]["status"] == "active"
+    assert content in store.stored_text()
+
+
+def test_openclaw_secret_named_only_in_the_raw_entry_is_skipped(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """A secret name in the raw entry is still skipped via the segment JSON.
+
+    The value is not self-identifying. The canonical JSON of the entry is the
+    segment text, and that text is what pair detection reads.
+    """
+
+    _patch_archive(monkeypatch)
+    secret = "b7" + "Qx" * 12
+    content = "Prefers short replies in Telegram."
+    source = tmp_path / "memories.json"
+    source.write_text(
+        json.dumps(
+            {
+                "fixture_id": "importer-credential-check",
+                "workspace": {
+                    "id": "importer-credential-workspace",
+                    "name": "Credential Check",
+                },
+                "durable_memory": [
+                    {
+                        "id": "oc-2",
+                        "type": "note",
+                        "content": content,
+                        "api_key": secret,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    store = _RecordingImporterStore()
+
+    receipt = import_openclaw_source(store, user_id=uuid4(), source=source)
+
+    stored = store.stored_text()
+    assert secret not in stored
+    assert content not in stored
+    assert receipt["skipped_credentials"] == 1
+    assert receipt["imported_count"] == 0
+    assert secret not in json.dumps(receipt)

@@ -6,6 +6,7 @@ from typing import cast
 from uuid import UUID
 
 from alicebot_api.continuity_evidence import SourceArtifactArchiveInput, archive_import_source_files
+from alicebot_api.credential_floor import private_key_armor_role
 from alicebot_api.importer_models import (
     ImporterNormalizedBatch,
     ImporterNormalizedItem,
@@ -105,6 +106,43 @@ def _parse_frontmatter(raw_text: str) -> tuple[dict[str, str], list[str]]:
         raise MarkdownImportValidationError("markdown frontmatter must be closed with ---")
 
     return metadata, lines[closing_index + 1 :]
+
+
+def _armored_private_key_ranges(lines: list[str]) -> dict[int, tuple[int, int]]:
+    """Map each 1-based line of a dashed private-key block to ``(start, end)``.
+
+    The importer makes one item per line, and the credential check then skips
+    only the BEGIN line. The base64 body and the END line would be stored.
+    A block is the BEGIN line through the END line with the same label. A
+    BEGIN line with no matching END is not a block: that line is still one
+    item, and the check skips it on its own.
+    """
+
+    ranges: dict[int, tuple[int, int]] = {}
+    index = 0
+    while index < len(lines):
+        role = private_key_armor_role(lines[index])
+        if role is None or role[0] != "begin":
+            index += 1
+            continue
+        label = role[1]
+        end_index: int | None = None
+        cursor = index + 1
+        while cursor < len(lines):
+            later = private_key_armor_role(lines[cursor])
+            if later is not None and later == ("end", label):
+                end_index = cursor
+                break
+            cursor += 1
+        if end_index is None:
+            index += 1
+            continue
+        start_no = index + 1
+        end_no = end_index + 1
+        for line_no in range(start_no, end_no + 1):
+            ranges[line_no] = (start_no, end_no)
+        index = end_index + 1
+    return ranges
 
 
 def _read_markdown_source(source: str | Path) -> tuple[Path, list[Path]]:
@@ -244,7 +282,66 @@ def _load_markdown_batch(
             if value is not None:
                 file_scope[key] = value if key != "confirmation_status" else value.casefold()
 
+        armored_ranges = _armored_private_key_ranges(lines)
+        consumed_through = 0
+
         for line_number, raw_line in enumerate(lines, start=1):
+            if line_number <= consumed_through:
+                continue
+            armored_span = armored_ranges.get(line_number)
+            if armored_span is not None:
+                start_no, end_no = armored_span
+                block_text = "\n".join(lines[start_no - 1 : end_no])
+                source_item_id = f"{file_path.name}:{start_no}-{end_no}"
+                title = _build_title(object_type="Note", text=block_text, explicit_title=None)
+                body: JsonObject = {
+                    "body": block_text,
+                    "raw_import_text": block_text,
+                    "markdown_raw_line": block_text,
+                    "markdown_line_number": start_no,
+                    "markdown_line_end": end_no,
+                    "markdown_source_file": file_path.name,
+                }
+                source_provenance = merge_json_objects(
+                    default_scope,
+                    file_scope,
+                    {"markdown_source_relpath": source_file.relative_path},
+                )
+                dedupe_payload: JsonObject = {
+                    "workspace_id": workspace_id or source_path.stem,
+                    "object_type": "Note",
+                    "status": default_status,
+                    "title": title,
+                    "body": {
+                        "body": block_text,
+                        "raw_import_text": block_text,
+                    },
+                    "source_provenance": source_provenance,
+                }
+                items.append(
+                    ImporterNormalizedItem(
+                        source_item_id=source_item_id,
+                        source_file=source_file.relative_path,
+                        source_locator={
+                            "line_number": start_no,
+                            "line_end": end_no,
+                            "source_item_id": source_item_id,
+                        },
+                        source_segment_text=block_text,
+                        source_segment_kind="markdown_armored_private_key",
+                        object_type="Note",
+                        status=default_status,
+                        raw_content=_build_raw_content(object_type="Note", text=block_text),
+                        title=title,
+                        body=body,
+                        confidence=default_confidence,
+                        source_provenance=source_provenance,
+                        dedupe_key=dedupe_key_for_payload(dedupe_payload),
+                    )
+                )
+                consumed_through = end_no
+                continue
+
             stripped = _strip_list_prefix(raw_line)
             normalized_line = normalize_optional_text(stripped)
             if normalized_line is None:

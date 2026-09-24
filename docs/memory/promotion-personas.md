@@ -316,17 +316,23 @@ Verified by execution on 2026-09-23; each row names the tests that pin it.
 | Legacy continuity writes | `/v0/continuity/captures` when it derives an object, `/v0/continuity/captures/commit`, `/v0/continuity/review-queue/{id}/corrections`, `alice_commit_captures`, `alice_review_apply` | refused, transaction rolled back | door 4 tests |
 | Legacy memory admission | `POST /v0/memories/admit`, `/v0/memories/extract-explicit-preferences`, `/v0/open-loops/extract-explicit-commitments`, `/v0/memories/capture-explicit-signals`, including the open-loop title these write | refused before any branch, request rolled back | integration `test_round2_r1_*` |
 | Backup restore | `alice-memory import`, every memory record whatever its status: title, text, a summary that is not a copy of the text, the `value` column by value, `metadata_json` keyed (correction history included) except the keys the product itself writes (`rollup_key`), `memory_key` and `project_id` | refused with `import_credential_material`, no records written; stderr lists the line and memory id of every offender, never the text. A rollup card restores | door 6 tests, `test_round2_import_*`, `test_private_key_recall.py` |
+| Markdown, ChatGPT, and OpenClaw import | `import_markdown_source`, `import_chatgpt_source`, `import_openclaw_source` | the item is skipped and the rest of the file is imported. The receipt counts `skipped_credentials` and names each skip in `skipped_credential_items` by id or line, never the matched text. Fields checked: title, the body with its keys, provenance by value, raw content, and the segment text. An OpenClaw raw entry is passed by value, and pair detection reads the segment's canonical JSON. A dashed private-key block in markdown is one skipped item from its BEGIN line through the matching END line, and the receipt names that line range. Placeholder password examples are skipped at import | `test_importer_credential_check.py` |
 
 ### What is not covered
 
 Stated so nobody reads the table above as "every surface".
 
-- **Source text and the document importers.** Source capture
-  (`alice_capture`, connectors) archives source text as written. The
-  markdown, ChatGPT and OpenClaw importers write continuity objects
-  directly, with the status the file gives them (active by default), so an
-  imported object is searchable at once, and nothing checks it for
-  credential material.
+- **Source text, and what import still leaves in place.** Source capture
+  (`alice_capture`, connectors) archives source text as written, and nothing
+  checks that archive. The markdown, ChatGPT, and OpenClaw importers check
+  each item and skip one that holds credential material, naming it on the
+  receipt. What remains uncovered: the archived source copy, which still
+  holds a skipped secret, and a private-key body that is not between a
+  dashed BEGIN line and its matching END line. That body is still one item
+  per line, so a line that does not itself trip the floor is stored.
+  Placeholder password examples are skipped at import. The floor cannot
+  tell a placeholder password from a real one, so the example line is named
+  on the receipt and the rest of the file is imported.
 - **Background writers' candidates.** Consolidation, rollups, brain insights,
   project updates, scheduler workflows and agent-output ingestion create
   candidate rows without checking them. None of them creates an active row;

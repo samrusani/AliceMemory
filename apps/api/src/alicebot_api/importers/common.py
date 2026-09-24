@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import cast
 from uuid import UUID
@@ -77,19 +78,35 @@ def _build_provenance(
     return provenance
 
 
+def _body_credential_fields(body: JsonObject) -> tuple[object, ...]:
+    """The body as the check should read it.
+
+    The body is passed with its keys, which is how the continuity object door
+    reads a body. An OpenClaw raw entry is the exception: it is passed by
+    value, as provenance is. Passed as a mapping, every key of the entry is a
+    name, and a routing ``session_key`` is skipped. Pair detection for that
+    entry uses the segment text, which is the entry's canonical JSON.
+    """
+
+    raw_entry = body.get("openclaw_raw_entry")
+    if not isinstance(raw_entry, Mapping):
+        return (body,)
+    rest = {key: value for key, value in body.items() if key != "openclaw_raw_entry"}
+    return (rest, string_values(raw_entry))
+
+
 def _item_credential_fields(item: ImporterNormalizedItem, provenance: JsonObject) -> tuple[object, ...]:
     """Fields of one item that the import would persist, in reading order.
 
     ``credential_verdict`` is the S4.4 check. Provenance is passed by value
     only. Its keys include the dedupe key, and the name grammar still treats
     a bare ``*_key`` name as a secret name, so a digest under that name would
-    read as a secret. The body is passed with its keys, which is how the
-    continuity object door reads a body.
+    read as a secret.
     """
 
     return (
         item.title,
-        item.body,
+        *_body_credential_fields(item.body),
         string_values(provenance),
         item.raw_content,
         item.source_segment_text,
@@ -115,6 +132,9 @@ def _credential_skip_name(item: ImporterNormalizedItem, sequence_no: int) -> Jso
     line_number = _locator_int(item.source_locator, "line_number")
     if line_number is not None:
         name["line_number"] = line_number
+    line_end = _locator_int(item.source_locator, "line_end")
+    if line_end is not None:
+        name["line_end"] = line_end
     entry_index = _locator_int(item.source_locator, "entry_index")
     if entry_index is not None:
         name["entry_index"] = entry_index
