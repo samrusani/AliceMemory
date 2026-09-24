@@ -46,6 +46,12 @@ _DEFAULT_MAX_OPEN_LOOPS = 5
 _DEFAULT_CAPTURE_CHAR_LIMIT = 3800
 _DEFAULT_SESSION_END_FLUSH_TIMEOUT_SECONDS = 5.0
 _CAPTURE_DEDUPE_WINDOW_SECONDS = 5.0
+# A failed POST used to start another worker immediately. Wait, then drop the
+# item after this many attempts. The wait starts at the base and doubles until
+# the cap.
+_CAPTURE_RETRY_ATTEMPT_LIMIT = 5
+_CAPTURE_RETRY_BACKOFF_BASE_SECONDS = 0.5
+_CAPTURE_RETRY_BACKOFF_CAP_SECONDS = 2.0
 _DEFAULT_BRIDGE_MODE = "assist"
 _BRIDGE_CAPTURE_MODES = ("manual", "assist", "auto")
 _BRIDGE_CONTRACT_VERSION = "bridge_b2"
@@ -394,6 +400,29 @@ def _validate_uuid(value: str) -> bool:
         return False
 
 
+def _capture_retry_delay_seconds(failed_attempts: int) -> float:
+    exponent = max(failed_attempts - 1, 0)
+    delay = _CAPTURE_RETRY_BACKOFF_BASE_SECONDS * (2**exponent)
+    if delay > _CAPTURE_RETRY_BACKOFF_CAP_SECONDS:
+        return _CAPTURE_RETRY_BACKOFF_CAP_SECONDS
+    return delay
+
+
+def _capture_retry_attempts_within(window_seconds: float) -> int:
+    """How many failing attempts one item can start inside window_seconds."""
+    if window_seconds < 0:
+        return 0
+    elapsed = 0.0
+    attempts = 0
+    while attempts < _CAPTURE_RETRY_ATTEMPT_LIMIT:
+        if attempts:
+            elapsed += _capture_retry_delay_seconds(attempts)
+            if elapsed > window_seconds:
+                break
+        attempts += 1
+    return attempts
+
+
 class AliceMemoryProvider(MemoryProvider):
     """Hermes external memory provider backed by Alice continuity APIs."""
 
@@ -413,6 +442,10 @@ class AliceMemoryProvider(MemoryProvider):
         self._capture_queue: List[tuple[str, str]] = []
         self._capture_pending_fingerprints: set[str] = set()
         self._capture_recent_fingerprints: Dict[str, float] = {}
+        self._capture_attempts: Dict[str, int] = {}
+        self._capture_dropped_count = 0
+        self._pending_capture_retry_delay: Optional[float] = None
+        self._capture_stop = threading.Event()
         self._capture_lock = threading.Lock()
 
     @property
@@ -439,6 +472,10 @@ class AliceMemoryProvider(MemoryProvider):
             self._capture_queue = []
             self._capture_pending_fingerprints.clear()
             self._capture_recent_fingerprints.clear()
+            self._capture_attempts.clear()
+            self._capture_dropped_count = 0
+            self._pending_capture_retry_delay = None
+        self._capture_stop.clear()
 
     def get_config_schema(self) -> List[Dict[str, Any]]:
         return [
@@ -606,14 +643,18 @@ class AliceMemoryProvider(MemoryProvider):
         if thread and thread.is_alive():
             thread.join(timeout=2.0)
 
-        if self._capture_thread and self._capture_thread.is_alive():
-            self._capture_thread.join(timeout=flush_timeout)
-        if not (self._capture_thread and self._capture_thread.is_alive()):
-            self._drain_capture_queue(drop_on_error=True)
+        self._capture_stop.set()
+        try:
+            if self._capture_thread and self._capture_thread.is_alive():
+                self._capture_thread.join(timeout=flush_timeout)
+            if not (self._capture_thread and self._capture_thread.is_alive()):
+                self._drain_capture_queue(drop_on_error=True)
+                with self._capture_lock:
+                    self._capture_pending_fingerprints.clear()
             with self._capture_lock:
-                self._capture_pending_fingerprints.clear()
-        with self._capture_lock:
-            self._capture_recent_fingerprints.clear()
+                self._capture_recent_fingerprints.clear()
+        finally:
+            self._capture_stop.clear()
 
     def get_status(self, *, hermes_home: str = "") -> Dict[str, Any]:
         selected_home = hermes_home or self._hermes_home
@@ -805,17 +846,41 @@ class AliceMemoryProvider(MemoryProvider):
         try:
             self._drain_capture_queue(drop_on_error=False)
         finally:
+            delay = self._pending_capture_retry_delay
+            self._pending_capture_retry_delay = None
+            if delay is not None and not self._capture_stop.is_set():
+                self._wait_capture_backoff(delay)
             worker_to_start: Optional[threading.Thread] = None
             with self._capture_lock:
                 self._capture_thread = None
-                if self._capture_queue:
+                if self._capture_queue and not self._capture_stop.is_set():
                     worker_to_start = self._new_capture_thread()
                     self._capture_thread = worker_to_start
             if worker_to_start is not None:
                 worker_to_start.start()
 
+    def _wait_capture_backoff(self, delay: float) -> bool:
+        return self._capture_stop.wait(timeout=delay)
+
+    def _note_capture_failure(self, fingerprint: str) -> int:
+        with self._capture_lock:
+            attempts = self._capture_attempts.get(fingerprint, 0) + 1
+            self._capture_attempts[fingerprint] = attempts
+            return attempts
+
+    def _discard_capture_head(self, fingerprint: str, *, count_drop: bool) -> None:
+        with self._capture_lock:
+            if self._capture_queue and self._capture_queue[0][0] == fingerprint:
+                self._capture_queue.pop(0)
+            self._capture_pending_fingerprints.discard(fingerprint)
+            self._capture_attempts.pop(fingerprint, None)
+            if count_drop:
+                self._capture_dropped_count += 1
+
     def _drain_capture_queue(self, *, drop_on_error: bool) -> None:
         while True:
+            if not drop_on_error and self._capture_stop.is_set():
+                return
             with self._capture_lock:
                 if not self._capture_queue:
                     return
@@ -825,19 +890,27 @@ class AliceMemoryProvider(MemoryProvider):
                 self._post_capture(raw_content)
             except Exception as exc:
                 logger.debug("Alice capture sync failed: %s", exc)
-                if not drop_on_error:
-                    return
-                with self._capture_lock:
-                    if self._capture_queue and self._capture_queue[0][0] == fingerprint:
-                        self._capture_queue.pop(0)
-                    self._capture_pending_fingerprints.discard(fingerprint)
-                continue
+                if drop_on_error:
+                    self._discard_capture_head(fingerprint, count_drop=False)
+                    continue
+                attempts = self._note_capture_failure(fingerprint)
+                if attempts >= _CAPTURE_RETRY_ATTEMPT_LIMIT:
+                    self._discard_capture_head(fingerprint, count_drop=True)
+                    logger.debug(
+                        "Alice capture dropped after %s failed attempts (dropped=%s)",
+                        attempts,
+                        self._capture_dropped_count,
+                    )
+                    continue
+                self._pending_capture_retry_delay = _capture_retry_delay_seconds(attempts)
+                return
 
             with self._capture_lock:
                 if self._capture_queue and self._capture_queue[0][0] == fingerprint:
                     self._capture_queue.pop(0)
                 self._capture_pending_fingerprints.discard(fingerprint)
                 self._capture_recent_fingerprints[fingerprint] = time.monotonic()
+                self._capture_attempts.pop(fingerprint, None)
 
     def _is_sync_turn_payload(self, raw_content: str) -> bool:
         stripped = raw_content.strip()

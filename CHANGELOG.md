@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- The Hermes memory provider retries a failed capture with capped
+  exponential backoff and drops the item after 5 attempts, counting the
+  drop. The wait starts at 0.5 seconds and doubles up to 2 seconds.
+  Previously a failed POST started another capture worker immediately,
+  so a sync turn whose server kept failing posted again in a tight loop
+  until the session ended.
+
 - MCP tool results that a model reads (`alice_recall`, `alice_resume`,
   `alice_context_pack`, `alice_recent_decisions`, `alice_prefetch_context`,
   `alice_memory_review`, `alice_explain`, and `alice_vnext_memory_audit`)

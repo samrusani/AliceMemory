@@ -5,6 +5,8 @@ import io
 import json
 from pathlib import Path
 import sys
+import threading
+import time
 import types
 import urllib.error
 
@@ -503,6 +505,107 @@ def test_post_capture_uses_b2_candidate_commit_pipeline_for_sync_turn(monkeypatc
     assert requests[1][2]["source_kind"] == "sync_turn"
     assert isinstance(requests[1][2]["sync_fingerprint"], str)
     assert requests[1][2]["sync_fingerprint"].startswith("sync_turn:")
+
+
+def test_failed_sync_turn_attempts_in_one_second_stay_at_or_under_the_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failing POST backs off, so one second stays at or under the attempt limit.
+
+    The schedule itself fits fewer attempts into that second than the per-item
+    limit. Mutation: remove the backoff wait in ``_capture_worker``. This test
+    fails.
+    """
+    module = _load_provider_module(monkeypatch)
+    limit = module._CAPTURE_RETRY_ATTEMPT_LIMIT
+    one_second_limit = module._capture_retry_attempts_within(1.0)
+    assert module._capture_retry_delay_seconds(1) == 0.5
+    assert module._capture_retry_delay_seconds(2) == 1.0
+    assert module._capture_retry_delay_seconds(3) == 2.0
+    assert module._capture_retry_delay_seconds(4) == 2.0
+    assert one_second_limit <= limit
+    assert one_second_limit < limit
+
+    provider = module.AliceMemoryProvider()
+    provider._config = {
+        "sync_turn_capture_enabled": True,
+        "bridge_mode": "assist",
+        "session_end_flush_timeout_seconds": 2.0,
+    }
+    attempts: list[float] = []
+    attempts_lock = threading.Lock()
+
+    def _always_fail(_raw_content: str) -> None:
+        with attempts_lock:
+            attempts.append(time.monotonic())
+        raise RuntimeError("HTTP status 422")
+
+    monkeypatch.setattr(provider, "_post_capture", _always_fail)
+    provider.sync_turn("Need decision", "Server keeps failing")
+
+    deadline = time.monotonic() + 5.0
+    while time.monotonic() < deadline:
+        with attempts_lock:
+            if attempts and time.monotonic() - attempts[0] >= 1.05:
+                break
+        time.sleep(0.02)
+    else:
+        pytest.fail("capture worker recorded no attempt")
+
+    with attempts_lock:
+        started = attempts[0]
+        attempts_in_one_second = sum(1 for stamp in attempts if stamp - started <= 1.0)
+    try:
+        assert attempts_in_one_second <= limit
+        assert attempts_in_one_second <= one_second_limit
+        assert provider._capture_dropped_count == 0
+    finally:
+        provider.on_session_end(session_id="retry-loop")
+
+
+def test_failed_capture_drops_and_counts_the_item_after_the_attempt_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Mutation: keep retrying after the attempt limit, or skip the drop count.
+
+    This test fails. The backoff wait is stubbed so the limit, not the clock,
+    is what stops the item.
+    """
+    module = _load_provider_module(monkeypatch)
+    provider = module.AliceMemoryProvider()
+    provider._config = {
+        "sync_turn_capture_enabled": True,
+        "bridge_mode": "assist",
+        "session_end_flush_timeout_seconds": 2.0,
+    }
+    attempts: list[int] = []
+    attempts_lock = threading.Lock()
+
+    def _always_fail(_raw_content: str) -> None:
+        with attempts_lock:
+            attempts.append(1)
+        raise RuntimeError("HTTP status 422")
+
+    monkeypatch.setattr(provider, "_post_capture", _always_fail)
+    monkeypatch.setattr(provider, "_wait_capture_backoff", lambda _delay: False)
+
+    provider.sync_turn("Need decision", "Server keeps failing")
+    deadline = time.monotonic() + 2.0
+    while time.monotonic() < deadline:
+        thread = provider._capture_thread
+        if provider._capture_dropped_count == 1 and (thread is None or not thread.is_alive()):
+            break
+        time.sleep(0.01)
+
+    try:
+        with attempts_lock:
+            attempt_count = len(attempts)
+        assert attempt_count == module._CAPTURE_RETRY_ATTEMPT_LIMIT
+        assert provider._capture_dropped_count == 1
+        assert provider._capture_queue == []
+        assert not (provider._capture_thread and provider._capture_thread.is_alive())
+    finally:
+        provider.on_session_end(session_id="retry-drop")
 
 
 def test_post_capture_falls_back_to_legacy_endpoint_when_b2_endpoints_unavailable(
