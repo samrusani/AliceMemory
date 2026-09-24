@@ -8,8 +8,10 @@ from __future__ import annotations
 import inspect
 import json
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from uuid import uuid4
 
@@ -631,25 +633,106 @@ def test_session_start_output_ignores_transcript_path(tmp_path: Path, monkeypatc
     assert SOURCE_SENTENCE in with_path
 
 
-def test_apps_tree_does_not_name_transcript_path_or_session_end() -> None:
-    """No file under apps/ contains transcript_path or SessionEnd.
+_APPS_NEEDLES = (b"transcript_path", b"SessionEnd")
+_IGNORED_SESSION_END = "apps/web/node_modules/_session_end_tripwire.js"
+_TRACKED_SESSION_END = "apps/web/_session_end_tracked_tripwire.txt"
 
-    A later approved design flips this on purpose. Mutation: mention either
-    string under apps/. This test fails.
+
+def _apps_needle_hits() -> tuple[list[str], list[str]]:
+    """Scan ``git ls-files -z apps`` for transcript_path and SessionEnd."""
+
+    completed = subprocess.run(
+        ["git", "ls-files", "-z", "apps"],
+        cwd=REPO_ROOT,
+        check=True,
+        capture_output=True,
+    )
+    tracked = [name.decode("utf-8") for name in completed.stdout.split(b"\0") if name]
+    hits: list[str] = []
+    for relative in tracked:
+        path = REPO_ROOT / relative
+        if not path.is_file():
+            continue
+        blob = path.read_bytes()
+        for needle in _APPS_NEEDLES:
+            if needle in blob:
+                hits.append(f"{relative} contains {needle.decode('ascii')}")
+    return hits, tracked
+
+
+def _git_ignores(relative: str) -> bool:
+    completed = subprocess.run(
+        ["git", "check-ignore", "-q", "--", relative],
+        cwd=REPO_ROOT,
+    )
+    assert completed.returncode in (0, 1), completed.returncode
+    return completed.returncode == 0
+
+
+def test_apps_tree_does_not_name_transcript_path_or_session_end() -> None:
+    """Tracked files under apps/ do not contain transcript_path or SessionEnd.
+
+    The scan is ``git ls-files -z apps``. An ignored file that contains
+    SessionEnd does not count. A tracked file that contains SessionEnd does.
+    An untracked file on disk does not count until it is tracked. Mutation:
+    walk apps/ with rglob, which reads the ignored file. This test fails.
     """
 
-    apps = REPO_ROOT / "apps"
-    needles = (b"transcript_path", b"SessionEnd")
-    hits: list[str] = []
-    scanned = 0
-    for path in sorted(apps.rglob("*")):
-        if not path.is_file() or "__pycache__" in path.parts:
-            continue
-        scanned += 1
-        blob = path.read_bytes()
-        for needle in needles:
-            if needle in blob:
-                relative = path.relative_to(REPO_ROOT).as_posix()
-                hits.append(f"{relative} contains {needle.decode('ascii')}")
-    assert scanned > 0
-    assert hits == []
+    ignored = REPO_ROOT / _IGNORED_SESSION_END
+    tracked_path = REPO_ROOT / _TRACKED_SESSION_END
+    created_node_modules = not ignored.parent.exists()
+    descriptor, index_name = tempfile.mkstemp(prefix="alice-apps-index-")
+    os.close(descriptor)
+    index_path = Path(index_name)
+    previous_index = os.environ.get("GIT_INDEX_FILE")
+    try:
+        located = subprocess.run(
+            ["git", "rev-parse", "--git-path", "index"],
+            cwd=REPO_ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        source = Path(located.stdout.strip())
+        if not source.is_absolute():
+            source = REPO_ROOT / source
+        shutil.copyfile(source, index_path)
+        os.environ["GIT_INDEX_FILE"] = str(index_path)
+
+        ignored.parent.mkdir(parents=True, exist_ok=True)
+        ignored.write_bytes(b"function onHttp2SessionEnd() {}\n")
+        tracked_path.write_bytes(b"SessionEnd\n")
+        assert b"SessionEnd" in ignored.read_bytes()
+        assert b"SessionEnd" in tracked_path.read_bytes()
+        assert _git_ignores(_IGNORED_SESSION_END)
+        assert not _git_ignores(_TRACKED_SESSION_END)
+
+        hits, listed = _apps_needle_hits()
+        assert listed
+        assert _IGNORED_SESSION_END not in listed
+        assert _TRACKED_SESSION_END not in listed
+        assert hits == []
+
+        subprocess.run(
+            ["git", "add", "--", _TRACKED_SESSION_END],
+            cwd=REPO_ROOT,
+            check=True,
+            capture_output=True,
+        )
+        hits_tracked, listed_tracked = _apps_needle_hits()
+        assert set(listed_tracked) == set(listed) | {_TRACKED_SESSION_END}
+        assert _IGNORED_SESSION_END not in listed_tracked
+        assert hits_tracked == [f"{_TRACKED_SESSION_END} contains SessionEnd"]
+    finally:
+        if previous_index is None:
+            os.environ.pop("GIT_INDEX_FILE", None)
+        else:
+            os.environ["GIT_INDEX_FILE"] = previous_index
+        index_path.unlink(missing_ok=True)
+        tracked_path.unlink(missing_ok=True)
+        ignored.unlink(missing_ok=True)
+        if created_node_modules:
+            try:
+                ignored.parent.rmdir()
+            except OSError:
+                pass
