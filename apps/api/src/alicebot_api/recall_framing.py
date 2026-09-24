@@ -1,8 +1,13 @@
 """How stored notes are shown to a model.
 
-Memory text is returned as quoted data, with the SessionStart framing
-sentence, and each item carries who wrote it. Quoting is
-``quote_session_brief_text``: flatten whitespace, then JSON-quote.
+MCP tool results quote each note and state the SessionStart framing
+sentence once, as the first field of the tool text. Each item still
+carries who wrote it. Quoting is ``quote_session_brief_text``: flatten
+whitespace, then JSON-quote.
+
+SessionStart, the HTTP context pack, CLI resume, and the answer-verifier
+block already state that sentence once. This module does not make them
+repeat it.
 
 Attribution may read revisions and policy events that are already stored.
 It does not write, and it does not rank.
@@ -80,9 +85,57 @@ def frame_stored_notes(notes: Sequence[str]) -> str:
 
 
 def frame_stored_note(text: str) -> str:
-    """A single text field a caller may paste into a prompt on its own."""
+    """A single text field a caller may paste into a prompt on its own.
+
+    MCP tool results do not use this. They quote the item and state the
+    sentence once on the result.
+    """
 
     return frame_stored_notes((text,))
+
+
+def with_result_framing(payload: Mapping[str, object]) -> dict[str, object]:
+    """Put the framing sentence on an MCP tool result, once.
+
+    Item text is already quoted. This does not copy the sentence into items.
+    """
+
+    rest = {key: value for key, value in payload.items() if key != "framing"}
+    return {"framing": SESSION_BRIEF_FRAME, **rest}
+
+
+def without_leading_framing_line(text: str) -> str:
+    """Drop one leading framing line so a rendered string does not repeat it.
+
+    ``_render_prefetch_context_text`` still frames a string that is pasted
+    on its own. The MCP prefetch result states the sentence once, so the
+    copy stored in that result does not keep a second copy.
+    """
+
+    prefix = f"{SESSION_BRIEF_FRAME}\n"
+    if text.startswith(prefix):
+        return text[len(prefix) :]
+    return text
+
+
+def serialize_mcp_tool_result(payload: Mapping[str, object]) -> str:
+    """JSON text an MCP host hands to the model.
+
+    When the result carries the framing sentence, that field is first.
+    ``sort_keys`` would place ``count`` or ``brief`` ahead of it. Results
+    that do not carry the sentence stay sorted, which is what the server
+    already sent.
+    """
+
+    framing = payload.get("framing")
+    if framing == SESSION_BRIEF_FRAME:
+        rest = {key: value for key, value in payload.items() if key != "framing"}
+        rest_text = json.dumps(rest, separators=(",", ":"), sort_keys=True)
+        sentence = json.dumps(SESSION_BRIEF_FRAME)
+        if rest_text == "{}":
+            return '{"framing":' + sentence + "}"
+        return '{"framing":' + sentence + "," + rest_text[1:]
+    return json.dumps(payload, separators=(",", ":"), sort_keys=True)
 
 
 def _as_mapping(value: object) -> Mapping[str, object] | None:
@@ -421,7 +474,11 @@ _DISCLOSED_TEXT_KEYS = _MODEL_TEXT_KEYS | frozenset({"text_before", "text_after"
 
 
 def frame_disclosed_tree(value: object) -> object:
-    """Frame stored prose in a review or explain payload. Leave ids and status."""
+    """Quote stored prose in a review or explain payload. Leave ids and status.
+
+    The framing sentence is not copied into each field. The MCP result
+    states it once.
+    """
 
     if isinstance(value, list):
         return [frame_disclosed_tree(item) for item in value]
@@ -429,7 +486,7 @@ def frame_disclosed_tree(value: object) -> object:
         framed: dict[str, object] = {}
         for key, child in value.items():
             if key in _DISCLOSED_TEXT_KEYS and isinstance(child, str) and child.strip():
-                framed[str(key)] = frame_stored_note(child)
+                framed[str(key)] = quote_session_brief_text(child)
             elif isinstance(child, Mapping | list):
                 framed[str(key)] = frame_disclosed_tree(child)
             else:
@@ -439,12 +496,16 @@ def frame_disclosed_tree(value: object) -> object:
 
 
 def frame_text_fields(item: Mapping[str, object]) -> dict[str, object]:
-    """Copy ``item`` and frame its model-facing strings. Does not add writer."""
+    """Copy ``item`` and quote its model-facing strings. Does not add writer.
+
+    The framing sentence is not copied into the item. The MCP result states
+    it once.
+    """
 
     presented: dict[str, object] = {}
     for key, value in item.items():
         if key in _MODEL_TEXT_KEYS and isinstance(value, str) and value.strip():
-            presented[key] = frame_stored_note(value)
+            presented[key] = quote_session_brief_text(value)
         elif key in _NESTED_NOTE_LISTS and isinstance(value, list):
             presented[key] = [
                 frame_text_fields(entry) if isinstance(entry, Mapping) else entry for entry in value
@@ -485,7 +546,7 @@ def present_model_item(
     source: Mapping[str, object] | None = None,
     writer: Mapping[str, str] | None = None,
 ) -> JsonObject:
-    """Frame model-facing text and attach writer. ``source`` is the stored row."""
+    """Quote model-facing text and attach writer. ``source`` is the stored row."""
 
     presented = frame_text_fields(item)
     if writer is not None:
@@ -526,6 +587,9 @@ __all__ = [
     "memory_writer",
     "present_model_item",
     "present_model_items",
+    "serialize_mcp_tool_result",
+    "with_result_framing",
+    "without_leading_framing_line",
     "writer_attribution",
     "writer_for_recent_change",
     "writer_for_returned_item",

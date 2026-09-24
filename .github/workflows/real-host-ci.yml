@@ -1,0 +1,234 @@
+name: Real host CI
+
+# Pinned claude and hermes for pull requests that change host install,
+# the launcher, the session-start hook, or a test that imports them.
+# The pins are the versions that ran headless on Linux with no credentials:
+# claude 2.1.281 (Claude Code), Hermes Agent v0.19.0 (2026.7.20).
+# The Monday canary installs current claude and hermes and opens an
+# [ops] issue when that run fails. The canary does not pin a version.
+# Pytest uses the setup-python interpreter recorded during the Alice
+# install. The Hermes virtualenv bin stays on PATH so hermes resolves,
+# and that package install does not include pytest.
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/real-host-ci.yml
+      - apps/api/src/alicebot_api/host_install.py
+      - apps/api/src/alicebot_api/host_launcher.py
+      - apps/api/src/alicebot_api/session_start_hook.py
+      - tests/unit/launcher_helpers.py
+      - tests/unit/test_claude_code_session_start_hook.py
+      - tests/unit/test_hermes_config_install.py
+      - tests/unit/test_hook_shell_quoting.py
+      - tests/unit/test_host_install_reruns.py
+      - tests/unit/test_host_install_round3.py
+      - tests/unit/test_host_install_round4.py
+      - tests/unit/test_host_install_round5.py
+      - tests/unit/test_host_install_round6.py
+      - tests/unit/test_host_install_round7.py
+      - tests/unit/test_host_install_round7b.py
+      - tests/unit/test_host_install_round8.py
+      - tests/unit/test_host_install_writers.py
+      - tests/unit/test_host_launcher.py
+      - tests/unit/test_install_uv_warning.py
+      - tests/unit/test_install_without_uvx.py
+      - tests/unit/test_session_brief.py
+      - tests/unit/test_sleep_time_proposals.py
+  schedule:
+    - cron: "41 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: real-host-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  pinned:
+    name: Pinned real hosts
+    if: "${{ github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      DISABLE_AUTOUPDATER: "1"
+      DISABLE_UPDATES: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22.14.0"
+
+      - name: Install Alice
+        run: |
+          python -m pip install -e '.[dev]'
+          echo "ALICE_PYTHON=$(python -c 'import sys; print(sys.executable)')" >> "$GITHUB_ENV"
+
+      - name: Install pinned Claude Code
+        run: npm install -g @anthropic-ai/claude-code@2.1.281
+
+      - name: Install pinned Hermes
+        run: |
+          python -m venv "$RUNNER_TEMP/hermes-venv"
+          "$RUNNER_TEMP/hermes-venv/bin/pip" install --disable-pip-version-check 'hermes-agent==0.19.0'
+          echo "$RUNNER_TEMP/hermes-venv/bin" >> "$GITHUB_PATH"
+
+      - name: Run real host tests
+        env:
+          ALICE_TEST_REAL_HOSTS: "1"
+        run: |
+          command -v claude
+          command -v hermes
+          claude_version="$(claude --version)"
+          hermes_report="$(hermes --version)"
+          hermes_version="${hermes_report%%$'\n'*}"
+          printf 'claude version: %s\n' "$claude_version"
+          printf 'hermes version: %s\n' "$hermes_version"
+          case "$claude_version" in
+            "2.1.281 (Claude Code)") ;;
+            *) echo "claude is not the pinned version"; exit 1 ;;
+          esac
+          case "$hermes_version" in
+            "Hermes Agent v0.19.0 (2026.7.20)") ;;
+            *) echo "hermes is not the pinned version"; exit 1 ;;
+          esac
+          "$ALICE_PYTHON" -m pytest \
+            tests/unit/test_claude_code_session_start_hook.py::test_real_claude_doctor_accepts_the_written_settings \
+            tests/unit/test_hermes_config_install.py::test_real_hermes_loads_the_written_config \
+            -q --tb=short --junitxml "$RUNNER_TEMP/real-hosts.xml"
+          "$ALICE_PYTHON" - "$RUNNER_TEMP/real-hosts.xml" <<'PY'
+          import sys
+          import xml.etree.ElementTree as ET
+
+          root = ET.parse(sys.argv[1]).getroot()
+          suites = [root] if root.tag == "testsuite" else list(root.findall("testsuite"))
+          ran = sum(int(suite.attrib.get("tests", "0")) for suite in suites)
+          skipped = sum(int(suite.attrib.get("skipped", "0")) for suite in suites)
+          if ran != 2 or skipped != 0:
+              raise SystemExit(
+                  f"real host tests did not all run: tests={ran} skipped={skipped}"
+              )
+          PY
+
+  canary:
+    name: Unpinned real-host canary
+    if: "${{ github.event_name == 'schedule' }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      issues: write
+    env:
+      DISABLE_AUTOUPDATER: "1"
+      DISABLE_UPDATES: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22.14.0"
+
+      - name: Install Alice
+        run: |
+          python -m pip install -e '.[dev]'
+          echo "ALICE_PYTHON=$(python -c 'import sys; print(sys.executable)')" >> "$GITHUB_ENV"
+
+      - name: Install current Claude Code
+        run: npm install -g @anthropic-ai/claude-code@latest
+
+      - name: Install current Hermes
+        run: |
+          python -m venv "$RUNNER_TEMP/hermes-venv"
+          "$RUNNER_TEMP/hermes-venv/bin/pip" install --disable-pip-version-check hermes-agent
+          echo "$RUNNER_TEMP/hermes-venv/bin" >> "$GITHUB_PATH"
+
+      - name: Run real host tests
+        env:
+          ALICE_TEST_REAL_HOSTS: "1"
+        run: |
+          command -v claude
+          command -v hermes
+          printf 'claude version: %s\n' "$(claude --version)"
+          printf 'hermes version: %s\n' "$(hermes --version)"
+          "$ALICE_PYTHON" -m pytest \
+            tests/unit/test_claude_code_session_start_hook.py::test_real_claude_doctor_accepts_the_written_settings \
+            tests/unit/test_hermes_config_install.py::test_real_hermes_loads_the_written_config \
+            -q --tb=short --junitxml "$RUNNER_TEMP/real-hosts.xml"
+          "$ALICE_PYTHON" - "$RUNNER_TEMP/real-hosts.xml" <<'PY'
+          import sys
+          import xml.etree.ElementTree as ET
+
+          root = ET.parse(sys.argv[1]).getroot()
+          suites = [root] if root.tag == "testsuite" else list(root.findall("testsuite"))
+          ran = sum(int(suite.attrib.get("tests", "0")) for suite in suites)
+          skipped = sum(int(suite.attrib.get("skipped", "0")) for suite in suites)
+          if ran != 2 or skipped != 0:
+              raise SystemExit(
+                  f"real host tests did not all run: tests={ran} skipped={skipped}"
+              )
+          PY
+
+      - name: Create failure alert issue
+        if: failure()
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const title = '[ops] real-host canary failure';
+            const bodyLines = [
+              'The weekly real-host canary failed.',
+              '',
+              'It installs the current claude and hermes CLIs with no version pin and runs the real-host tests.',
+              '',
+              `- workflow run: ${runUrl}`,
+              `- commit: ${context.sha}`,
+              '',
+              'The pinned pull request job is a separate check.'
+            ];
+            const body = bodyLines.join('\n');
+
+            const { data: openIssues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              per_page: 100,
+            });
+
+            const existing = openIssues.find(
+              (issue) => issue.title === title && !issue.pull_request
+            );
+            if (existing) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: existing.number,
+                body,
+              });
+              return;
+            }
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title,
+              body,
+            });
