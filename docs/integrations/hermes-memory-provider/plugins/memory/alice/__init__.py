@@ -692,16 +692,20 @@ class AliceMemoryProvider(MemoryProvider):
         if thread and thread.is_alive():
             thread.join(timeout=2.0)
 
+        # One flush deadline for this capture exit. It starts here, before the
+        # worker join, and the drop pass uses the same value. Starting it
+        # again after the join, or again per item, would add another flush
+        # timeout. The prefetch join above is separate and predates this bound.
+        deadline = time.monotonic() + flush_timeout
         self._capture_stop.set()
         try:
             if self._capture_thread and self._capture_thread.is_alive():
-                self._capture_thread.join(timeout=flush_timeout)
+                self._capture_thread.join(timeout=max(0.0, deadline - time.monotonic()))
             if not (self._capture_thread and self._capture_thread.is_alive()):
                 # The worker may already have left its backoff, so this pass
-                # runs on the session-end thread. Bound it by the flush timeout
-                # and cap each POST by the time still left.
-                drop_deadline = time.monotonic() + flush_timeout
-                self._drain_capture_queue(drop_on_error=True, deadline=drop_deadline)
+                # runs on the session-end thread. Each POST is capped by the
+                # time still left on the deadline above.
+                self._drain_capture_queue(drop_on_error=True, deadline=deadline)
                 with self._capture_lock:
                     self._capture_pending_fingerprints.clear()
             with self._capture_lock:
