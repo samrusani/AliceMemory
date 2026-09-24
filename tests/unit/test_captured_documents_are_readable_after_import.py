@@ -126,12 +126,13 @@ def test_recall_returns_the_imported_document_it_just_captured(tmp_path: Path) -
     )
 
 
-def test_include_sources_false_returns_the_pre_change_payload(tmp_path: Path) -> None:
+def test_include_sources_false_omits_sources(tmp_path: Path) -> None:
     """The opt-out has to work, or it is a lie in the schema.
 
-    An agent that only wants asserted facts must be able to say so and get a
-    payload identical in shape to what v0.15.6 returned. Untested until review
-    pointed it out: the flag was written, documented, and never exercised.
+    An agent that only wants asserted facts must be able to say so and get
+    no sources and no source_count. The framing sentence is still once on
+    the result. Untested until review pointed it out: the flag was written,
+    documented, and never exercised.
     """
 
     context = _fresh_context(tmp_path)
@@ -150,7 +151,7 @@ def test_include_sources_false_returns_the_pre_change_payload(tmp_path: Path) ->
 
     assert "sources" not in opted_out
     assert "source_count" not in opted_out
-    assert set(opted_out) == {"query", "results", "count"}
+    assert set(opted_out) == {"framing", "query", "results", "count"}
 
 
 def test_include_sources_is_declared_in_the_schema(tmp_path: Path) -> None:

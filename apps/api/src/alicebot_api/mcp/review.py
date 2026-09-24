@@ -49,7 +49,12 @@ from alicebot_api.contracts import (
     TrustSignalType,
     TrustSignalListQueryInput,
 )
-from alicebot_api.recall_framing import frame_disclosed_tree, memory_writer, present_model_item
+from alicebot_api.recall_framing import (
+    frame_disclosed_tree,
+    memory_writer,
+    present_model_item,
+    with_result_framing,
+)
 from alicebot_api.store import JsonObject
 from alicebot_api.vnext_agent_control import (
     AgentPolicyBlockedError,
@@ -165,7 +170,7 @@ def _vnext_memory_review(context: MCPRuntimeContext, arguments: Mapping[str, obj
             _raise_mcp_policy_blocked(blocked_decision)
         if payload is None:
             raise MCPToolError("vNext memory review did not complete")
-        return _json_object(payload)
+        return _json_object(with_result_framing(payload))
 
     raw_status = arguments.get("status", "correction_ready")
     if not isinstance(raw_status, str):
@@ -190,15 +195,19 @@ def _vnext_memory_review(context: MCPRuntimeContext, arguments: Mapping[str, obj
     elif normalized_status == "all":
         vnext_status = None
     else:
-        return {
-            "items": [],
-            "count": 0,
-            "mode": "vnext_candidates",
-            "note": (
-                f"status '{normalized_status}' has no canonical vNext equivalent; "
-                "use pending_review, correction_ready, active, or all"
-            ),
-        }
+        return _json_object(
+            with_result_framing(
+                {
+                    "items": [],
+                    "count": 0,
+                    "mode": "vnext_candidates",
+                    "note": (
+                        f"status '{normalized_status}' has no canonical vNext equivalent; "
+                        "use pending_review, correction_ready, active, or all"
+                    ),
+                }
+            )
+        )
 
     decision = _mcp_agent_policy_preflight(
         context,
@@ -224,7 +233,9 @@ def _vnext_memory_review(context: MCPRuntimeContext, arguments: Mapping[str, obj
             )
             for row in rows
         ]
-    return _json_object({"items": items, "count": len(items), "mode": "vnext_candidates"})
+    return _json_object(
+        with_result_framing({"items": items, "count": len(items), "mode": "vnext_candidates"})
+    )
 
 
 def _canonical_text_from_body(body: Mapping[str, object]) -> str:

@@ -44,7 +44,13 @@ from alicebot_api.vnext_memory_commit import VNextMemoryCommitService
 from alicebot_api.vnext_project_scope import project_scope_identity
 from alicebot_api.vnext_projects import VNextProjectService
 from alicebot_api.vnext_repositories import JsonObject as VNextJsonObject
-from alicebot_api.recall_framing import memory_writer, present_model_item, writer_for_recent_change
+from alicebot_api.recall_framing import (
+    memory_writer,
+    present_model_item,
+    with_result_framing,
+    without_leading_framing_line,
+    writer_for_recent_change,
+)
 from alicebot_api.vnext_retrieval import (
     CONTEXT_DEPTH_MINIMAL,
     CONTEXT_DEPTH_MINIMAL_MAX_ITEMS,
@@ -373,7 +379,7 @@ def _handle_alice_recall(context: MCPRuntimeContext, arguments: Mapping[str, obj
                 filter_payload["created_by_agent_ids"] = list(retrieval_filters["created_by_agent_ids"])
             retrieval_payload["filters"] = filter_payload
         payload["retrieval"] = retrieval_payload
-    return _json_object(payload)
+    return _json_object(with_result_framing(payload))
 
 
 def _handle_alice_recall_debug(
@@ -605,27 +611,31 @@ def _handle_alice_prefetch_context(context: MCPRuntimeContext, arguments: Mappin
     brief = resumption_payload["brief"]
     framed_brief = _frame_prefetch_brief(brief)
     return _json_object(
-        {
-            "prefetch_context": {
-                "assembly_version": _PREFETCH_CONTEXT_ASSEMBLY_VERSION_V0,
-                "text": _render_prefetch_context_text(
-                    brief=brief,
-                    open_loops_limit=max_open_loops,
-                    recent_changes_limit=max_recent_changes,
-                ),
-                "scope": brief["scope"],
-                "last_decision": framed_brief["last_decision"],
-                "next_action": framed_brief["next_action"],
-                "open_loops": framed_brief["open_loops"],
-                "recent_changes": framed_brief["recent_changes"],
-                "sources": framed_brief["sources"],
+        with_result_framing(
+            {
+                "prefetch_context": {
+                    "assembly_version": _PREFETCH_CONTEXT_ASSEMBLY_VERSION_V0,
+                    "text": without_leading_framing_line(
+                        _render_prefetch_context_text(
+                            brief=brief,
+                            open_loops_limit=max_open_loops,
+                            recent_changes_limit=max_recent_changes,
+                        )
+                    ),
+                    "scope": brief["scope"],
+                    "last_decision": framed_brief["last_decision"],
+                    "next_action": framed_brief["next_action"],
+                    "open_loops": framed_brief["open_loops"],
+                    "recent_changes": framed_brief["recent_changes"],
+                    "sources": framed_brief["sources"],
+                }
             }
-        }
+        )
     )
 
 
 def _frame_prefetch_brief(brief: Mapping[str, object]) -> dict[str, object]:
-    """Frame stored titles in the prefetch brief. The text field is not the only copy."""
+    """Quote stored titles in the prefetch brief. The text field is not the only copy."""
 
     framed: dict[str, object] = {}
     for key in ("last_decision", "next_action", "open_loops", "recent_changes"):
@@ -781,7 +791,7 @@ def _vnext_recent_decisions(
     }
     if filters_ignored:
         payload["filters_ignored"] = filters_ignored
-    return _json_object(payload)
+    return _json_object(with_result_framing(payload))
 
 
 def _vnext_resume(
@@ -961,17 +971,19 @@ def _vnext_resume(
             ]
 
     return _json_object(
-        {
-            "brief": {
-                "last_decision": last_decision,
-                "next_action": next_action,
-                "open_loops": open_loops,
-                "recent_changes": recent_changes,
-                "generated_at": _utc_now_iso_text(),
-                "mode": "vnext",
-                "filters_ignored": filters_ignored,
+        with_result_framing(
+            {
+                "brief": {
+                    "last_decision": last_decision,
+                    "next_action": next_action,
+                    "open_loops": open_loops,
+                    "recent_changes": recent_changes,
+                    "generated_at": _utc_now_iso_text(),
+                    "mode": "vnext",
+                    "filters_ignored": filters_ignored,
+                }
             }
-        }
+        )
     )
 
 
