@@ -353,6 +353,44 @@ def test_listing_applies_each_brief_control_and_writes_nothing(tmp_path: Path, m
     assert newline_id in open_listing
 
 
+def test_listing_orders_by_captured_at_when_append_order_is_reversed(tmp_path: Path) -> None:
+    """A later import with an earlier captured_at is listed first.
+
+    Mutation: print sidecar rows in file order. The earlier source lands last.
+    """
+
+    database = _database(tmp_path)
+    with sqlite_user_connection(database, USER_ID) as connection:
+        store = SQLiteVNextStore(connection, USER_ID)
+        imported_first = _create_source(
+            store,
+            note="The later harbour note was imported first.",
+            suffix="latercap",
+            minute=40,
+        )
+    first = run_local_vault_sleep(database, user_id=USER_ID)
+    assert int(_line_value(first, "proposals written")) == 1
+    with sqlite_user_connection(database, USER_ID) as connection:
+        store = SQLiteVNextStore(connection, USER_ID)
+        imported_second = _create_source(
+            store,
+            note="The earlier harbour note was imported second.",
+            suffix="earliercap",
+            minute=5,
+        )
+    second = run_local_vault_sleep(database, user_id=USER_ID)
+    assert int(_line_value(second, "proposals written")) == 1
+    sidecar_ids = [
+        str(row["source_id"]) for row in load_sleep_proposals(sleep_proposals_path(database))
+    ]
+    later_id = str(imported_first["id"])
+    earlier_id = str(imported_second["id"])
+    assert sidecar_ids == [later_id, earlier_id]
+    listing = compile_sleep_proposal_listing(database, user_id=USER_ID, **OPEN_FENCE)
+    source_lines = [line for line in listing.splitlines() if line.startswith("source_id: ")]
+    assert source_lines == [f"source_id: {earlier_id}", f"source_id: {later_id}"]
+
+
 def test_listing_of_an_empty_sidecar_is_one_quiet_line(tmp_path: Path) -> None:
     database = _database(tmp_path)
     assert compile_sleep_proposal_listing(database, user_id=USER_ID, **OPEN_FENCE) == NO_SLEEP_PROPOSALS

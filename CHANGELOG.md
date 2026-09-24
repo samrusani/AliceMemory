@@ -2,8 +2,8 @@
 
 ## Unreleased
 
-- `alice-memory sleep-proposals` lists this user's sleep proposals in
-  sidecar order, which is oldest source first. Each excerpt is framed and
+- `alice-memory sleep-proposals` lists this user's sleep proposals oldest
+  source first, by source `captured_at`, then id. Each excerpt is framed and
   JSON-quoted, with its source id and the `alice_memory_commit` arguments
   that accept it, including `source_refs`. The command applies the session
   brief's domain, sensitivity, and project fences, runs the commit door's

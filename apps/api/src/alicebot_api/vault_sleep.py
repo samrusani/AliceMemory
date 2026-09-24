@@ -238,16 +238,18 @@ def compile_sleep_proposal_listing(
 ) -> str:
     """List the caller's proposals. Writes nothing.
 
-    Rows stay in sidecar order, which is oldest source first. The brief's
-    domain, sensitivity, and project fences apply. The commit door runs
-    again on the excerpt and the first chunk. A refusal is omitted, not
-    deleted.
+    Listed oldest source first, by ``captured_at`` then id, the same order
+    the sleep writer uses when it chooses sources. A source imported later
+    with an earlier ``captured_at`` is listed before one imported earlier.
+    The brief's domain, sensitivity, and project fences apply. The commit
+    door runs again on the excerpt and the first chunk. A refusal is
+    omitted, not deleted.
     """
 
     resolved = Path(db_path).expanduser().resolve()
     sidecar = sleep_proposals_path(resolved)
     rows = load_sleep_proposals(sidecar)
-    blocks: list[str] = []
+    ranked: list[tuple[tuple[str, str], str]] = []
     with sqlite_user_connection(resolved, user_id) as connection:
         store = SQLiteVNextStore(connection, user_id)
         uid = store.user_id
@@ -275,15 +277,22 @@ def compile_sleep_proposal_listing(
                 "source_refs": [source_id],
                 "title": excerpt[:120],
             }
-            blocks.append(
-                "\n".join(
-                    (
-                        f"source_id: {source_id}",
-                        f"excerpt: {quote_session_brief_text(excerpt)}",
-                        "alice_memory_commit: " + json.dumps(arguments, ensure_ascii=False, sort_keys=True),
-                    )
+            captured_at = source.get("captured_at")
+            captured_key = captured_at if isinstance(captured_at, str) else ""
+            ranked.append(
+                (
+                    (captured_key, source_id),
+                    "\n".join(
+                        (
+                            f"source_id: {source_id}",
+                            f"excerpt: {quote_session_brief_text(excerpt)}",
+                            "alice_memory_commit: " + json.dumps(arguments, ensure_ascii=False, sort_keys=True),
+                        )
+                    ),
                 )
             )
+    ranked.sort(key=lambda item: item[0])
+    blocks = [block for _order, block in ranked]
     if not blocks:
         return NO_SLEEP_PROPOSALS
     return SESSION_BRIEF_FRAME + "\n\n" + "\n\n".join(blocks)

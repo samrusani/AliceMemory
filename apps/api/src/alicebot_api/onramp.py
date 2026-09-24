@@ -1011,10 +1011,10 @@ def build_parser() -> argparse.ArgumentParser:
     proposals_parser = subparsers.add_parser(
         "sleep-proposals",
         help=(
-            "List this user's sleep proposals, oldest first, framed and "
-            "JSON-quoted, with the alice_memory_commit arguments that accept "
-            "each one. Applies the session brief fences and the commit door "
-            "again. Writes nothing."
+            "List this user's sleep proposals oldest first by captured_at, "
+            "then id, framed and JSON-quoted, with the alice_memory_commit "
+            "arguments that accept each one. Applies the session brief fences "
+            "and the commit door again. Writes nothing."
         ),
     )
     _add_database_arguments(proposals_parser)
