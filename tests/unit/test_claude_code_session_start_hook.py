@@ -447,3 +447,41 @@ def test_real_claude_doctor_accepts_the_written_settings(tmp_path: Path, capsys)
         line for line in _invalid_settings_lines(report) if _names_file(line, project_settings)
     ]
     assert offending == [], (version, report)
+
+
+def test_fresh_install_and_rerun_keep_only_the_session_start_hook_key(
+    tmp_path: Path, capsys
+) -> None:
+    """A fake home gets one hooks key per host, fresh and on the re-run.
+
+    Claude Code's hooks object is exactly ``SessionStart``. Cursor's is
+    exactly ``sessionStart``. The re-run goes through
+    ``_merge_claude_code_session_start``. Mutation: add a SessionEnd group
+    in that function. This test fails.
+    """
+
+    home = tmp_path / "home"
+    vault = tmp_path / "vault"
+    for label in ("fresh install", "re-run"):
+        code = onramp_main(
+            [
+                "install",
+                "--home",
+                str(home),
+                "--data-dir",
+                str(vault),
+                "--host",
+                "claude-code",
+                "--host",
+                "cursor",
+            ]
+        )
+        captured = capsys.readouterr()
+        assert code == 0, (label, captured.err)
+        files = host_file_map(home.resolve())
+        claude = json.loads(files["claude-code"]["hooks"].read_text(encoding="utf-8"))
+        cursor = json.loads(files["cursor"]["hooks"].read_text(encoding="utf-8"))
+        assert set(claude["hooks"]) == {"SessionStart"}, label
+        assert set(cursor["hooks"]) == {"sessionStart"}, label
+        assert claude["hooks"]["SessionStart"], label
+        assert cursor["hooks"]["sessionStart"], label

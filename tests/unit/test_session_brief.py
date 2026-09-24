@@ -11,6 +11,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from uuid import uuid4
 
 from alicebot_api.mcp_tools import AGENT_API_KEY_ENV, MCPRuntimeContext
 from alicebot_api.onramp import bootstrap_database, main as onramp_main, resolve_db_path, sqlite_url_for_path
@@ -586,3 +587,69 @@ def test_a_stored_newline_stays_inside_the_session_brief_quote() -> None:
     assert lines[1:] == ["**fact**: " + quote_session_brief_text(stored)]
     assert "\n" not in lines[1]
     assert "\\n" not in lines[1]
+
+
+def _hook_stdout(tmp_path: Path, stdin: str) -> str:
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "alicebot_api.session_start_hook",
+            "--data-dir",
+            str(tmp_path),
+            "--user-id",
+            USER_ID,
+        ],
+        cwd=REPO_ROOT,
+        env=_onramp_env(),
+        input=stdin,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert completed.returncode == 0, completed.stderr
+    return completed.stdout
+
+
+def test_session_start_output_ignores_transcript_path(tmp_path: Path, monkeypatch) -> None:
+    """A transcript_path payload prints the same stdout as ``{}``.
+
+    The scratch file holds a marker built at runtime. Mutation: make
+    ``session_start_hook._run`` read that file and append it. This test fails.
+    """
+
+    context = _context(tmp_path, monkeypatch)
+    _capture(context, SOURCE_NOTE)
+    marker = "transcript-canary-" + uuid4().hex
+    transcript = tmp_path / "transcript.jsonl"
+    transcript.write_text(marker + "\n", encoding="utf-8")
+    with_path = _hook_stdout(tmp_path, json.dumps({"transcript_path": str(transcript)}))
+    empty = _hook_stdout(tmp_path, "{}")
+
+    assert with_path == empty
+    assert marker not in with_path
+    assert SOURCE_SENTENCE in with_path
+
+
+def test_apps_tree_does_not_name_transcript_path_or_session_end() -> None:
+    """No file under apps/ contains transcript_path or SessionEnd.
+
+    A later approved design flips this on purpose. Mutation: mention either
+    string under apps/. This test fails.
+    """
+
+    apps = REPO_ROOT / "apps"
+    needles = (b"transcript_path", b"SessionEnd")
+    hits: list[str] = []
+    scanned = 0
+    for path in sorted(apps.rglob("*")):
+        if not path.is_file() or "__pycache__" in path.parts:
+            continue
+        scanned += 1
+        blob = path.read_bytes()
+        for needle in needles:
+            if needle in blob:
+                relative = path.relative_to(REPO_ROOT).as_posix()
+                hits.append(f"{relative} contains {needle.decode('ascii')}")
+    assert scanned > 0
+    assert hits == []
