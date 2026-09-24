@@ -735,6 +735,76 @@ def test_transport_failure_uses_the_attempt_limit(monkeypatch: pytest.MonkeyPatc
         provider.on_session_end(session_id="transport-failure")
 
 
+def test_session_end_interrupts_the_backoff_and_no_post_follows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Session end returns inside the capped backoff, and no POST follows the call.
+
+    A retryable failure waits 0.5 seconds, then 1.0 seconds, then 2.0 seconds.
+    ``on_session_end`` runs inside that 2.0 second wait and returns well under
+    it. The session-end drop pass posts the queued item once during the call.
+    After the call returns, the post count does not increase. Mutation: sleep
+    the backoff instead of waiting on the stop event, or join the worker
+    before setting the stop event. This test fails.
+    """
+    module = _load_provider_module(monkeypatch)
+    provider = module.AliceMemoryProvider()
+    provider._config = {
+        "sync_turn_capture_enabled": True,
+        "bridge_mode": "assist",
+        "session_end_flush_timeout_seconds": 5.0,
+    }
+    posts: list[float] = []
+    waits: list[float] = []
+    lock = threading.Lock()
+    in_capped_wait = threading.Event()
+    original_wait = provider._capture_stop.wait
+
+    def _wait(timeout: float | None = None) -> bool:
+        with lock:
+            waits.append(-1.0 if timeout is None else float(timeout))
+            if waits == [0.5, 1.0, 2.0]:
+                in_capped_wait.set()
+        return original_wait(timeout)
+
+    def _fail(
+        _raw_content: str,
+        timeout: float | None = None,
+        deadline: float | None = None,
+    ) -> None:
+        del timeout, deadline
+        with lock:
+            posts.append(time.monotonic())
+        raise RuntimeError("Alice API request failed with HTTP status 503")
+
+    monkeypatch.setattr(provider._capture_stop, "wait", _wait)
+    monkeypatch.setattr(provider, "_post_capture", _fail)
+    provider.sync_turn("Need decision", "Server keeps failing")
+    try:
+        assert in_capped_wait.wait(timeout=5.0), "capture worker did not enter the 2.0s backoff"
+        with lock:
+            assert waits == [0.5, 1.0, 2.0]
+            posts_before_session_end = len(posts)
+        assert posts_before_session_end == 3
+
+        started = time.monotonic()
+        provider.on_session_end(session_id="interrupt-backoff")
+        elapsed = time.monotonic() - started
+        with lock:
+            posts_at_return = len(posts)
+        assert elapsed < 0.5
+        assert posts_at_return == posts_before_session_end + 1
+        time.sleep(0.3)
+        with lock:
+            assert len(posts) == posts_at_return
+            assert waits == [0.5, 1.0, 2.0]
+        assert provider._capture_queue == []
+        assert provider._capture_dropped_count == 1
+        assert not (provider._capture_thread and provider._capture_thread.is_alive())
+    finally:
+        provider.on_session_end(session_id="interrupt-backoff")
+
+
 def test_session_end_drop_pass_stops_when_the_flush_timeout_passes(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
