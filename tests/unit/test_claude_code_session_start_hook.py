@@ -33,6 +33,7 @@ from pathlib import Path
 
 import pytest
 
+from alicebot_api import host_install
 from alicebot_api.host_install import SESSION_START_COMMAND, host_file_map
 from alicebot_api.onramp import main as onramp_main
 
@@ -450,18 +451,34 @@ def test_real_claude_doctor_accepts_the_written_settings(tmp_path: Path, capsys)
 
 
 def test_fresh_install_and_rerun_keep_only_the_session_start_hook_key(
-    tmp_path: Path, capsys
+    tmp_path: Path, capsys, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A fake home gets one hooks key per host, fresh and on the re-run.
 
     Claude Code's hooks object is exactly ``SessionStart``. Cursor's is
-    exactly ``sessionStart``. The re-run goes through
-    ``_merge_claude_code_session_start``. Mutation: add a SessionEnd group
-    in that function. This test fails.
+    exactly ``sessionStart``. A clean re-run calls
+    ``_merge_claude_code_session_start`` and that call returns
+    ``already-present``. Install writes the hooks file only when the status
+    is ``added`` or ``updated``, so the on-disk re-run check cannot see a
+    group the function adds and then does not report. This test reads the
+    hooks object that call leaves behind. Mutation: add a SessionEnd group
+    in that function and leave the return value ``already-present``. This
+    test fails.
     """
 
     home = tmp_path / "home"
     vault = tmp_path / "vault"
+    merged: list[tuple[str, set[str]]] = []
+    real_merge = host_install._merge_claude_code_session_start
+
+    def _observe_merge(doc: dict[str, object], command: str) -> str:
+        status = real_merge(doc, command)
+        hooks = doc["hooks"]
+        assert isinstance(hooks, dict)
+        merged.append((status, set(hooks)))
+        return status
+
+    monkeypatch.setattr(host_install, "_merge_claude_code_session_start", _observe_merge)
     for label in ("fresh install", "re-run"):
         code = onramp_main(
             [
@@ -485,3 +502,4 @@ def test_fresh_install_and_rerun_keep_only_the_session_start_hook_key(
         assert set(cursor["hooks"]) == {"sessionStart"}, label
         assert claude["hooks"]["SessionStart"], label
         assert cursor["hooks"]["sessionStart"], label
+    assert merged == [("already-present", {"SessionStart"})]
