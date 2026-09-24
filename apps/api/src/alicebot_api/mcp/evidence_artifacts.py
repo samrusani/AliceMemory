@@ -10,7 +10,7 @@ from alicebot_api.continuity_evidence import (
 )
 from alicebot_api.contracts import TemporalExplainQueryInput
 from alicebot_api.config import get_settings
-from alicebot_api.recall_framing import frame_disclosed_tree, memory_writer
+from alicebot_api.recall_framing import frame_disclosed_tree, memory_writer, with_result_framing
 from alicebot_api.store import JsonObject
 from alicebot_api.temporal_state import get_temporal_explain
 from alicebot_api.vnext_agent_control import (
@@ -616,8 +616,9 @@ def _handle_alice_vnext_memory_audit(context: MCPRuntimeContext, arguments: Mapp
                 audit,
                 allowed_entity_ids=allowed_entity_ids,
             )
-            # Frame the stored notes a model reads. Timeline summaries and
-            # event payloads stay the audit record Alice wrote.
+            # Quote the stored notes a model reads. The result states the
+            # framing sentence once. Timeline summaries and event payloads
+            # stay the audit record Alice wrote.
             payload = dict(extended)
             memory = extended.get("memory")
             framed_memory = frame_disclosed_tree(memory)
@@ -639,7 +640,7 @@ def _handle_alice_vnext_memory_audit(context: MCPRuntimeContext, arguments: Mapp
         raise validation_error
     if payload is None:
         raise MCPToolError("vNext memory audit did not complete")
-    return _json_object(payload)
+    return _json_object(with_result_framing(payload))
 
 
 def _handle_alice_vnext_review_items(context: MCPRuntimeContext, arguments: Mapping[str, object]) -> JsonObject:
