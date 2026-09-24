@@ -251,6 +251,15 @@ the 24 hours, the call resolves the row to `rejected` as described above
 whatever its text or rationale: the revision stores a fixed expiry reason,
 not the caller's rationale, and the response carries neither flag.
 
+Over the stdio server, a refused confirm or reject, and a credential
+refusal on confirm, comes back as `tool_request_failed` with the message
+`The tool request could not be processed` and no reason code. An author
+refusal and a ceiling refusal record the reason on the policy events
+(`policy.decision` and `agent.policy_blocked`). HTTP returns 403 with
+that policy decision for those two refusals. A credential refusal on
+confirm leaves the row pending and does not keep a policy event for that
+refusal.
+
 ## undo
 
 Reverses a commit. The memory leaves recall; its history stays.
