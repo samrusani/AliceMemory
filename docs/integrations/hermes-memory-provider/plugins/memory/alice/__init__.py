@@ -46,12 +46,14 @@ _DEFAULT_MAX_OPEN_LOOPS = 5
 _DEFAULT_CAPTURE_CHAR_LIMIT = 3800
 _DEFAULT_SESSION_END_FLUSH_TIMEOUT_SECONDS = 5.0
 _CAPTURE_DEDUPE_WINDOW_SECONDS = 5.0
-# A failed POST used to start another worker immediately. Wait, then drop the
-# item after this many attempts. The wait starts at the base and doubles until
-# the cap.
+# A failed POST used to start another worker immediately. Retryable failures
+# wait, then drop the item after this many attempts. The wait starts at the
+# base and doubles until the cap. HTTP 408 and 429 can succeed later. Any
+# other HTTP 4xx is final and is not retried.
 _CAPTURE_RETRY_ATTEMPT_LIMIT = 5
 _CAPTURE_RETRY_BACKOFF_BASE_SECONDS = 0.5
 _CAPTURE_RETRY_BACKOFF_CAP_SECONDS = 2.0
+_CAPTURE_RETRYABLE_CLIENT_STATUSES = frozenset({408, 429})
 _DEFAULT_BRIDGE_MODE = "assist"
 _BRIDGE_CAPTURE_MODES = ("manual", "assist", "auto")
 _BRIDGE_CONTRACT_VERSION = "bridge_b2"
@@ -423,6 +425,50 @@ def _capture_retry_attempts_within(window_seconds: float) -> int:
     return attempts
 
 
+def _http_status_from_error(exc: BaseException) -> Optional[int]:
+    message = str(exc)
+    marker = "HTTP status "
+    start = message.find(marker)
+    if start != -1:
+        cursor = start + len(marker)
+        end = cursor
+        while end < len(message) and message[end].isdigit():
+            end += 1
+        if end > cursor:
+            return int(message[cursor:end])
+    cause = exc.__cause__
+    code = getattr(cause, "code", None) if cause is not None else None
+    if isinstance(code, int):
+        return code
+    return None
+
+
+def _capture_failure_is_final(exc: BaseException) -> bool:
+    """True when another attempt cannot succeed.
+
+    HTTP 4xx other than 408 and 429 is final. 408, 429, 5xx, and transport
+    failures stay on the capped backoff path.
+    """
+    status = _http_status_from_error(exc)
+    if status is None or status < 400 or status > 499:
+        return False
+    return status not in _CAPTURE_RETRYABLE_CLIENT_STATUSES
+
+
+def _capture_http_timeout(configured_timeout: Optional[float], deadline: Optional[float]) -> Optional[float]:
+    """Cap one capture POST by the session-end drop deadline, if one is set."""
+    if deadline is None:
+        return configured_timeout
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise TimeoutError("capture drop deadline passed")
+    if configured_timeout is None:
+        return remaining
+    if remaining < configured_timeout:
+        return remaining
+    return configured_timeout
+
+
 class AliceMemoryProvider(MemoryProvider):
     """Hermes external memory provider backed by Alice continuity APIs."""
 
@@ -536,7 +582,10 @@ class AliceMemoryProvider(MemoryProvider):
             },
             {
                 "key": "session_end_flush_timeout_seconds",
-                "description": "Session-end capture flush timeout in seconds",
+                "description": (
+                    "Seconds for the session-end capture drop pass. "
+                    "Posting stops when this elapses."
+                ),
                 "default": str(_DEFAULT_SESSION_END_FLUSH_TIMEOUT_SECONDS),
             },
         ]
@@ -648,7 +697,11 @@ class AliceMemoryProvider(MemoryProvider):
             if self._capture_thread and self._capture_thread.is_alive():
                 self._capture_thread.join(timeout=flush_timeout)
             if not (self._capture_thread and self._capture_thread.is_alive()):
-                self._drain_capture_queue(drop_on_error=True)
+                # The worker may already have left its backoff, so this pass
+                # runs on the session-end thread. Bound it by the flush timeout
+                # and cap each POST by the time still left.
+                drop_deadline = time.monotonic() + flush_timeout
+                self._drain_capture_queue(drop_on_error=True, deadline=drop_deadline)
                 with self._capture_lock:
                     self._capture_pending_fingerprints.clear()
             with self._capture_lock:
@@ -664,9 +717,12 @@ class AliceMemoryProvider(MemoryProvider):
             selected_home = str(get_hermes_home())
         loaded = _load_config_with_status(selected_home)
         config = dict(loaded["config"])
+        with self._capture_lock:
+            capture_dropped_count = self._capture_dropped_count
         return {
             "provider": self.name,
             "bridge_contract_version": _BRIDGE_CONTRACT_VERSION,
+            "capture_dropped_count": capture_dropped_count,
             "ready": bool(loaded["ready"]),
             "errors": list(loaded["errors"]),
             "legacy_config_keys": list(loaded["legacy_config_keys"]),
@@ -877,21 +933,57 @@ class AliceMemoryProvider(MemoryProvider):
             if count_drop:
                 self._capture_dropped_count += 1
 
-    def _drain_capture_queue(self, *, drop_on_error: bool) -> None:
+    def _discard_queued_captures(self) -> None:
+        """Drop everything still queued once the session-end deadline has passed."""
+        with self._capture_lock:
+            discarded = len(self._capture_queue)
+            if discarded == 0:
+                return
+            self._capture_queue.clear()
+            self._capture_pending_fingerprints.clear()
+            self._capture_attempts.clear()
+            self._capture_dropped_count += discarded
+            dropped = self._capture_dropped_count
+        logger.debug(
+            "Alice capture stopped at the flush deadline and dropped %s queued items (dropped=%s)",
+            discarded,
+            dropped,
+        )
+
+    def _drain_capture_queue(self, *, drop_on_error: bool, deadline: Optional[float] = None) -> None:
         while True:
             if not drop_on_error and self._capture_stop.is_set():
+                return
+            if deadline is not None and time.monotonic() >= deadline:
+                self._discard_queued_captures()
                 return
             with self._capture_lock:
                 if not self._capture_queue:
                     return
                 fingerprint, raw_content = self._capture_queue[0]
 
+            request_timeout: Optional[float] = None
+            if deadline is not None:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    self._discard_queued_captures()
+                    return
+                configured = float(self._config.get("timeout_seconds", _DEFAULT_TIMEOUT_SECONDS))
+                request_timeout = min(configured, remaining)
+
             try:
-                self._post_capture(raw_content)
+                self._post_capture(raw_content, timeout=request_timeout, deadline=deadline)
             except Exception as exc:
                 logger.debug("Alice capture sync failed: %s", exc)
-                if drop_on_error:
-                    self._discard_capture_head(fingerprint, count_drop=False)
+                # Session end has no further retry. A final 4xx is not retried
+                # during the session either. Both are counted.
+                if drop_on_error or _capture_failure_is_final(exc):
+                    self._discard_capture_head(fingerprint, count_drop=True)
+                    if not drop_on_error:
+                        logger.debug(
+                            "Alice capture dropped on final HTTP client error (dropped=%s)",
+                            self._capture_dropped_count,
+                        )
                     continue
                 attempts = self._note_capture_failure(fingerprint)
                 if attempts >= _CAPTURE_RETRY_ATTEMPT_LIMIT:
@@ -927,7 +1019,27 @@ class AliceMemoryProvider(MemoryProvider):
                 assistant_text = line[len("Assistant: ") :].strip()
         return user_text, assistant_text
 
-    def _post_sync_turn_capture(self, raw_content: str) -> None:
+    def _request_capture_json(
+        self,
+        method: str,
+        path: str,
+        *,
+        payload: Dict[str, Any],
+        timeout: Optional[float],
+        deadline: Optional[float],
+    ) -> Dict[str, Any]:
+        request_timeout = _capture_http_timeout(timeout, deadline)
+        if request_timeout is None:
+            return self._request_json(method, path, payload=payload)
+        return self._request_json(method, path, payload=payload, timeout=request_timeout)
+
+    def _post_sync_turn_capture(
+        self,
+        raw_content: str,
+        *,
+        timeout: Optional[float] = None,
+        deadline: Optional[float] = None,
+    ) -> None:
         user_text, assistant_text = self._split_turn_capture_payload(raw_content)
         mode = _parse_bridge_mode(
             self._config.get("bridge_mode", _DEFAULT_BRIDGE_MODE),
@@ -935,7 +1047,7 @@ class AliceMemoryProvider(MemoryProvider):
         )
         sync_fingerprint = self._capture_fingerprint(kind="sync_turn", raw_content=raw_content)
 
-        candidates_payload = self._request_json(
+        candidates_payload = self._request_capture_json(
             "POST",
             "/v0/continuity/captures/candidates",
             payload={
@@ -943,12 +1055,14 @@ class AliceMemoryProvider(MemoryProvider):
                 "assistant_content": assistant_text[:_DEFAULT_CAPTURE_CHAR_LIMIT],
                 "source_kind": "sync_turn",
             },
+            timeout=timeout,
+            deadline=deadline,
         )
         candidates = candidates_payload.get("candidates")
         if not isinstance(candidates, list):
             raise RuntimeError("Alice API returned an invalid response payload")
 
-        self._request_json(
+        self._request_capture_json(
             "POST",
             "/v0/continuity/captures/commit",
             payload={
@@ -957,9 +1071,17 @@ class AliceMemoryProvider(MemoryProvider):
                 "source_kind": "sync_turn",
                 "candidates": candidates,
             },
+            timeout=timeout,
+            deadline=deadline,
         )
 
-    def _post_capture(self, raw_content: str) -> None:
+    def _post_capture(
+        self,
+        raw_content: str,
+        *,
+        timeout: Optional[float] = None,
+        deadline: Optional[float] = None,
+    ) -> None:
         if self._is_sync_turn_payload(raw_content):
             mode = _parse_bridge_mode(
                 self._config.get("bridge_mode", _DEFAULT_BRIDGE_MODE),
@@ -967,7 +1089,7 @@ class AliceMemoryProvider(MemoryProvider):
             )
             if mode in {"assist", "auto"}:
                 try:
-                    self._post_sync_turn_capture(raw_content)
+                    self._post_sync_turn_capture(raw_content, timeout=timeout, deadline=deadline)
                     return
                 except RuntimeError as exc:
                     message = str(exc)
@@ -978,7 +1100,13 @@ class AliceMemoryProvider(MemoryProvider):
         payload = {
             "raw_content": raw_content[:_DEFAULT_CAPTURE_CHAR_LIMIT],
         }
-        self._request_json("POST", "/v0/continuity/captures", payload=payload)
+        self._request_capture_json(
+            "POST",
+            "/v0/continuity/captures",
+            payload=payload,
+            timeout=timeout,
+            deadline=deadline,
+        )
 
     def _build_turn_capture_payload(self, user_content: str, assistant_content: str) -> str:
         user_text = (user_content or "").strip()
@@ -1004,6 +1132,7 @@ class AliceMemoryProvider(MemoryProvider):
         *,
         params: Optional[Dict[str, Any]] = None,
         payload: Optional[Dict[str, Any]] = None,
+        timeout: Optional[float] = None,
     ) -> Dict[str, Any]:
         if not self._config:
             raise RuntimeError("provider is not initialized")
@@ -1033,7 +1162,8 @@ class AliceMemoryProvider(MemoryProvider):
 
         request = urllib.request.Request(url=url, data=data, headers=headers, method=method)
 
-        timeout = float(self._config.get("timeout_seconds", _DEFAULT_TIMEOUT_SECONDS))
+        if timeout is None:
+            timeout = float(self._config.get("timeout_seconds", _DEFAULT_TIMEOUT_SECONDS))
 
         try:
             with urllib.request.urlopen(request, timeout=timeout) as response:  # nosec B310

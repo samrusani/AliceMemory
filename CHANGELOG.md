@@ -5,9 +5,15 @@
 - The Hermes memory provider retries a failed capture with capped
   exponential backoff and drops the item after 5 attempts, counting the
   drop. The wait starts at 0.5 seconds and doubles up to 2 seconds.
-  Previously a failed POST started another capture worker immediately,
-  so a sync turn whose server kept failing posted again in a tight loop
-  until the session ended.
+  HTTP 408, HTTP 429, HTTP 5xx, and transport failures use that backoff.
+  Any other HTTP 4xx is final: the capture is dropped and counted on the
+  first failure, with no retry. At session end, the final drop pass stops
+  posting when the flush timeout passes. Each POST is capped by the time
+  still left. Items still queued are discarded and counted, and a last
+  attempt that fails is counted too. `get_status()` reports
+  `capture_dropped_count` for those drops. Previously a failed POST
+  started another capture worker immediately, so a sync turn whose server
+  kept failing posted again in a tight loop until the session ended.
 
 - MCP tool results that a model reads (`alice_recall`, `alice_resume`,
   `alice_context_pack`, `alice_recent_decisions`, `alice_prefetch_context`,
