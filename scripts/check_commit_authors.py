@@ -22,7 +22,8 @@ from pathlib import Path
 GITHUB_NOREPLY_DOMAIN = "users.noreply.github.com"
 
 # Exact addresses. Each one is a machine or role account.
-# noreply@github.com is GitHub's own noreply identity (history author "GitHub").
+# noreply@github.com is GitHub's own noreply identity. History records it
+# as the committer on web merges. The committer name is GitHub.
 # cursoragent@cursor.com is the Cursor agent role address. It is this
 # environment's git user.email and it already appears in history.
 EXACT_ALLOWLIST = frozenset(

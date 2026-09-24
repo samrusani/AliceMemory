@@ -2,6 +2,11 @@ name: Commit author check
 
 on:
   pull_request:
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - edited
 
 permissions:
   contents: read
@@ -15,12 +20,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          # Both pull request SHAs must be present. The default depth is the
-          # merge commit only, which is not enough to walk the merge range.
+          # Full history includes origin/<base>, the branch this pull
+          # request would merge into. The default depth is the merge
+          # commit only, which is not enough to walk that range.
           fetch-depth: 0
+          # The job only reads local history. Leave the job token out of
+          # .git/config.
+          persist-credentials: false
 
       - name: Reject emails outside the allowlist
         run: >-
           python3 scripts/check_commit_authors.py
-          --base "${{ github.event.pull_request.base.sha }}"
+          --base "origin/${{ github.base_ref }}"
           --head "${{ github.event.pull_request.head.sha }}"

@@ -243,12 +243,29 @@ def test_git_failure_is_a_failed_check(tmp_path: Path, capsys: pytest.CaptureFix
 
 
 def test_pull_request_workflow_reads_the_merge_range() -> None:
-    workflow = (REPO_ROOT / ".github/workflows/commit-author-check.yml").read_text(encoding="utf-8")
+    """The workflow checks origin/<base>..head, including after a retarget."""
 
-    assert "\n  pull_request:\n" in workflow
+    workflow = (REPO_ROOT / ".github/workflows/commit-author-check.yml").read_text(encoding="utf-8")
+    trigger = workflow.split("permissions:", 1)[0]
+    pull_request = trigger.split("pull_request:", 1)[1]
+    checkout = workflow.split("uses: actions/checkout@", 1)[1].split("- name: Reject", 1)[0]
+
+    assert "\n  pull_request:\n" in trigger
     assert "\n  push:\n" not in workflow
     assert "contents: read" in workflow
-    assert "fetch-depth: 0" in workflow
+    assert "fetch-depth: 0" in checkout
+    assert "\n          persist-credentials: false\n" in checkout
     assert "scripts/check_commit_authors.py" in workflow
-    assert "github.event.pull_request.base.sha" in workflow
-    assert "github.event.pull_request.head.sha" in workflow
+    for activity in ("opened", "reopened", "synchronize", "edited"):
+        assert f"\n      - {activity}\n" in pull_request
+    assert '--base "origin/${{ github.base_ref }}"' in workflow
+    assert '--head "${{ github.event.pull_request.head.sha }}"' in workflow
+    assert "github.event.pull_request.base.sha" not in workflow
+
+
+def test_noreply_comment_records_the_web_merge_committer() -> None:
+    source = (REPO_ROOT / "scripts/check_commit_authors.py").read_text(encoding="utf-8")
+
+    assert "noreply@github.com is GitHub's own noreply identity." in source
+    assert "as the committer on web merges." in source
+    assert 'history author "GitHub"' not in source
