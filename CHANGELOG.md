@@ -11,8 +11,9 @@
   `bridge_mode` of `assist` or `auto`, now get automatic capture. Only
   user-role explicit-prefix candidates are auto-saved. The rest are
   queued. To keep the old behavior, set `sync_turn_capture_enabled: false`.
-  A credential in the assistant reply still drops the user's valid
-  decision from the same turn.
+  When a candidate extracted from the assistant reply carries a
+  credential, the whole turn is refused, so a valid user decision from
+  that turn is not saved.
 
 - A header-only JSON write under `/v0` reaches the route with the
   authenticated `user_id` in the body. `_rewrite_user_id_json_body` sets

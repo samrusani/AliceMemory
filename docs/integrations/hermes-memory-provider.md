@@ -179,7 +179,7 @@ Practical default:
 - `bridge_mode` (string enum: `manual`, `assist`, `auto`; default `assist`)
 - `session_end_flush_timeout_seconds` (float, default `5.0`)
 
-`sync_turn_capture_enabled: false` always wins. Use that when you want bridge recall/prefetch behavior without post-turn capture, even if `bridge_mode` is `assist` or `auto`. With `sync_turn_capture_enabled` set, or with an explicit `bridge_mode` of `assist` or `auto`, user-role candidates that match an explicit prefix are auto-saved and the rest are queued. A credential in the assistant reply refuses the whole turn, so a valid user decision in that same turn is not saved. `memory_write_capture_enabled` posts to `POST /v0/continuity/captures`, which refuses credential material.
+`sync_turn_capture_enabled: false` always wins. Use that when you want bridge recall/prefetch behavior without post-turn capture, even if `bridge_mode` is `assist` or `auto`. With `sync_turn_capture_enabled` set, or with an explicit `bridge_mode` of `assist` or `auto`, user-role candidates that match an explicit prefix are auto-saved and the rest are queued. When a candidate extracted from the assistant reply carries a credential, the whole turn is refused, so a valid user decision in that same turn is not saved. `memory_write_capture_enabled` posts to `POST /v0/continuity/captures`, which refuses credential material.
 
 Legacy compatibility keys still accepted for shipped configs:
 
