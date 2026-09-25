@@ -25,6 +25,9 @@
   not run. A body `user_id` that does not match the authenticated user
   still returns 401.
 
+- Design note for Sprint 6 host adapters: OpenCode and Codex MCP entries,
+  and a Claude Code plugin as an alternative to install. No installer change.
+
 - Design note for Sprint 7 skill packs. It keeps the v0.15.4 commit rule
   and names the packs to revise. No pack ships in this note.
 
