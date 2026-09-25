@@ -8,6 +8,12 @@ session brief shows the newest. A row stops counting toward the cap once
 its source has an active or accepted memory. The row stays in the file.
 Accepting a proposal does not edit the sidecar.
 
+The commit door's credential check runs on the excerpt and on the cut
+window of the first chunk. A refusal is not written. An existing refused
+row is removed. The cap counts those kept rows, except a row whose
+source already has an active or accepted memory. The listing runs the
+same check again.
+
 Does not create memories, does not rewrite sources or committed facts,
 and does not call consolidation. Counts and sidecar rows bind ``user_id``.
 """
@@ -15,11 +21,11 @@ and does not call consolidation. Counts and sidecar rows bind ``user_id``.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from uuid import UUID
 
-from alicebot_api.credential_floor import credential_verdict
-from alicebot_api.legacy_credential_check import commit_gate_refuses
+from alicebot_api.legacy_credential_check import commit_door_secret_verdict
 from alicebot_api.session_briefing import (
     COMMITTED_MEMORY_STATUSES,
     SESSION_BRIEF_FRAME,
@@ -63,14 +69,20 @@ def format_sleep_receipt(
     already_present: int,
     skipped_linked: int,
     cap: int,
+    sources_withheld: int,
+    existing_rows_removed: int,
     sources_not_proposed: int = 0,
     sidecar: Path | None = None,
 ) -> str:
+    """Receipt counts only. No excerpts, values, or source ids."""
+
     lines = [
         f"proposals written: {written}",
         f"already present: {already_present}",
         f"skipped as already linked: {skipped_linked}",
         f"cap: {cap}",
+        f"sources withheld: {sources_withheld}",
+        f"existing rows removed: {existing_rows_removed}",
     ]
     if sources_not_proposed > 0:
         lines.append(f"sources not proposed: {sources_not_proposed}")
@@ -123,9 +135,17 @@ def run_local_vault_sleep(
     with sqlite_user_connection(resolved, user_id) as connection:
         store = SQLiteVNextStore(connection, user_id)
         uid = store.user_id
+        kept_rows: list[dict[str, object]] = []
+        existing_rows_removed = 0
+        for row in existing:
+            if _row_refused(store, row, caller_id=uid):
+                if str(row.get("user_id") or "") == uid:
+                    existing_rows_removed += 1
+                continue
+            kept_rows.append(row)
         existing_ids: set[str] = set()
         counting_ids: set[str] = set()
-        for row in existing:
+        for row in kept_rows:
             if str(row.get("user_id") or "") != uid:
                 continue
             source_id = row.get("source_id")
@@ -139,6 +159,7 @@ def run_local_vault_sleep(
         already_present = 0
         skipped_linked = 0
         sources_not_proposed = 0
+        sources_withheld = 0
         for source_id in _list_source_ids(store):
             if _has_committed_fact(store, source_id):
                 skipped_linked += 1
@@ -146,21 +167,33 @@ def run_local_vault_sleep(
             if source_id in existing_ids:
                 already_present += 1
                 continue
+            chunk = _first_chunk_text(store, source_id)
+            excerpt = _short_excerpt(chunk) if chunk else ""
+            checked = _credential_window(chunk) if chunk else ""
+            if _text_refused(excerpt) or _text_refused(checked):
+                sources_withheld += 1
+                continue
             if len(counting_ids) + len(written_rows) >= SLEEP_PROPOSAL_CAP:
                 sources_not_proposed += 1
                 continue
             written_rows.append(
                 {
-                    "excerpt": _source_excerpt(store, source_id),
+                    "excerpt": excerpt,
                     "source_id": source_id,
                     "status": PROPOSED_STATUS,
                     "user_id": uid,
                 }
             )
 
-    if written_rows:
+    dropped = len(existing) - len(kept_rows)
+    if written_rows or dropped:
         try:
-            _write_jsonl(sidecar, [*existing, *written_rows])
+            _write_jsonl(sidecar, [*kept_rows, *written_rows])
+        except OSError as exc:
+            raise SleepError("sidecar could not be written") from exc
+    else:
+        try:
+            _restrict_sidecar_mode(sidecar)
         except OSError as exc:
             raise SleepError("sidecar could not be written") from exc
 
@@ -169,6 +202,8 @@ def run_local_vault_sleep(
         already_present=already_present,
         skipped_linked=skipped_linked,
         cap=SLEEP_PROPOSAL_CAP,
+        sources_withheld=sources_withheld,
+        existing_rows_removed=existing_rows_removed,
         sources_not_proposed=sources_not_proposed,
         sidecar=sidecar,
     )
@@ -188,19 +223,78 @@ def _has_committed_fact(store: SQLiteVNextStore, source_id: str) -> bool:
     return any(str(row.get("status") or "") in COMMITTED_MEMORY_STATUSES for row in linked)
 
 
-def _source_excerpt(store: SQLiteVNextStore, source_id: str) -> str:
+def _first_chunk_text(store: SQLiteVNextStore, source_id: str) -> str:
     for chunk in store.list_source_chunks(source_id):
         text = chunk.get("text")
         if isinstance(text, str) and text.strip():
-            return _short_excerpt(text)
+            return text
     return ""
 
 
+def _text_refused(text: object) -> bool:
+    """True when the commit door would refuse this one string."""
+
+    if not isinstance(text, str) or text == "":
+        return False
+    return commit_door_secret_verdict("", text) is not None
+
+
+def _row_refused(store: SQLiteVNextStore, row: dict[str, object], *, caller_id: str) -> bool:
+    """Caller rows: stored excerpt and the source window. Other users: excerpt."""
+
+    if _text_refused(row.get("excerpt")):
+        return True
+    if str(row.get("user_id") or "") != caller_id:
+        return False
+    source_id = row.get("source_id")
+    if not isinstance(source_id, str) or source_id == "":
+        return False
+    if store.get_source(source_id) is None:
+        return False
+    chunk = _first_chunk_text(store, source_id)
+    if not chunk:
+        return False
+    return _text_refused(_short_excerpt(chunk)) or _text_refused(_credential_window(chunk))
+
+
+def _flattened(text: str) -> str:
+    return " ".join(text.split())
+
+
 def _short_excerpt(text: str) -> str:
-    flattened = " ".join(text.split())
+    flattened = _flattened(text)
     if len(flattened) <= SLEEP_EXCERPT_MAX:
         return flattened
     return flattened[:SLEEP_EXCERPT_MAX].rstrip()
+
+
+def _credential_window(text: str) -> str:
+    """Flattened text the commit door reads for one chunk.
+
+    Cut at 160 characters. When that cut falls inside a whitespace-delimited
+    token, keep the rest of the token. A later token is not in the excerpt
+    a commit would store, so it does not withhold the source.
+    """
+
+    flattened = _flattened(text)
+    if len(flattened) <= SLEEP_EXCERPT_MAX:
+        return flattened
+    cut = SLEEP_EXCERPT_MAX
+    if flattened[cut].isspace() or flattened[cut - 1].isspace():
+        return flattened[:cut].rstrip()
+    end = flattened.find(" ", cut)
+    if end == -1:
+        return flattened
+    return flattened[:end]
+
+
+def _restrict_sidecar_mode(path: Path) -> None:
+    """Tighten an existing sidecar that still has group or other bits."""
+
+    if not path.exists():
+        return
+    if path.stat().st_mode & 0o077:
+        os.chmod(path, 0o600)
 
 
 def count_sleep_proposals(path: Path, *, user_id: UUID | str) -> int:
@@ -208,24 +302,6 @@ def count_sleep_proposals(path: Path, *, user_id: UUID | str) -> int:
 
     uid = str(user_id)
     return sum(1 for row in load_sleep_proposals(path) if str(row.get("user_id") or "") == uid)
-
-
-def _commit_door_refuses_text(text: str) -> bool:
-    """The commit door's pair, on one string, without writing."""
-
-    if text == "":
-        return False
-    if credential_verdict(text) is not None:
-        return True
-    return commit_gate_refuses("", text)
-
-
-def _first_chunk_text(store: SQLiteVNextStore, source_id: str) -> str:
-    for chunk in store.list_source_chunks(source_id):
-        text = chunk.get("text")
-        if isinstance(text, str) and text.strip():
-            return text
-    return ""
 
 
 def compile_sleep_proposal_listing(
@@ -242,8 +318,8 @@ def compile_sleep_proposal_listing(
     the sleep writer uses when it chooses sources. A source imported later
     with an earlier ``captured_at`` is listed before one imported earlier.
     The brief's domain, sensitivity, and project fences apply. The commit
-    door runs again on the excerpt and the first chunk. A refusal is
-    omitted, not deleted.
+    door runs again on the stored excerpt and on the cut window of the
+    first chunk. A refusal is omitted, not deleted.
     """
 
     resolved = Path(db_path).expanduser().resolve()
@@ -268,9 +344,7 @@ def compile_sleep_proposal_listing(
                 effective_project_scope=effective_project_scope,
             ):
                 continue
-            if _commit_door_refuses_text(excerpt) or _commit_door_refuses_text(
-                _first_chunk_text(store, source_id)
-            ):
+            if _text_refused(excerpt) or _text_refused(_credential_window(_first_chunk_text(store, source_id))):
                 continue
             arguments = {
                 "canonical_text": excerpt,
@@ -304,8 +378,18 @@ def _write_jsonl(path: Path, rows: list[dict[str, object]]) -> None:
         for row in rows
     )
     tmp_path = path.with_name(f"{path.name}.tmp")
-    tmp_path.write_text(payload, encoding="utf-8")
+    # exists() is false for a dangling symlink, and O_EXCL then fails every run.
+    tmp_path.unlink(missing_ok=True)
+    fd = os.open(tmp_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+    try:
+        os.write(fd, payload.encode("utf-8"))
+    except Exception:
+        os.close(fd)
+        tmp_path.unlink(missing_ok=True)
+        raise
+    os.close(fd)
     tmp_path.replace(path)
+    os.chmod(path, 0o600)
 
 
 __all__ = [
