@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Design note for Sprint 6 host adapters: OpenCode, Codex, a Claude Code
+  plugin manifest, then Pi. Kilo stays deferred. No installer change in
+  this note.
+
 ## v0.17.0 — 2026-09-25
 
 - `alice-memory sleep-proposals` lists this user's sleep proposals oldest
