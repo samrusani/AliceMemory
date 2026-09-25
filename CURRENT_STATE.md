@@ -177,6 +177,21 @@ If you imported on `v0.15.6`, upgrade is enough for readability. If you
 imported on `v0.15.5` or earlier, delete those candidates and import
 again.
 
+## What `v0.17.0` Targets
+
+`v0.17.0` is the current release candidate. It is not published.
+
+It takes the work on `main` since `v0.16.0`. Install writes the Claude Code
+session hook in the shape Claude Code reads, edits only Alice's entry in the
+Hermes config and keeps its documented env keys, and works without uv. One
+credential check covers the memory write paths, and the importers and the
+sleep pass skip credential material. Agent commits above the sensitivity
+ceiling are refused. Recalled notes are JSON-quoted under one framing
+sentence, with a writer label on each. `alice-memory sleep-proposals` lists
+sleep proposals. There is no schema change.
+
+- [v0.17.0 release notes](https://github.com/samrusani/AliceMemory/blob/main/docs/release/v0.17.0-release-notes.md)
+
 ## What `v0.16.0` Shipped
 
 `v0.16.0` is the latest published release and remains the install, checksum,

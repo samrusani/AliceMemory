@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v0.17.0 — 2026-09-25
+
 - `alice-memory sleep-proposals` lists this user's sleep proposals oldest
   source first, by source `captured_at`, then id. Each excerpt is framed and
   JSON-quoted, with its source id and the `alice_memory_commit` arguments
