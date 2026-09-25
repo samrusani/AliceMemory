@@ -118,6 +118,19 @@ hermes mcp test alice_core
 ./.venv/bin/python scripts/run_hermes_mcp_smoke.py
 ```
 
+## Re-running install
+
+`alice-memory install --host hermes` keeps a documented Alice env value on
+`mcp_servers.alice` when that value is a one-line plain, single-quoted, or
+double-quoted scalar, with no anchor, alias, tag, or block scalar. The keys
+are `ALICE_MCP_FULL_TOOLS`, `ALICE_MCP_LEGACY_TOOLS`, `ALICE_AGENT_API_KEY`,
+and `ALICE_LEGACY_SURFACES`. The name and the scalar text stay as written.
+The receipt lists the kept keys and masks printed values the same way as the
+other hosts, so an API key is not printed. Any other key install did not
+write still refuses the file. Install refuses while those keys are present.
+Edit the alice entry by hand. A documented key whose value is an anchor, an
+alias, a tag, or a block scalar is refused the same way.
+
 ## Related Docs
 
 - `docs/integrations/hermes-bridge-operator-guide.md`

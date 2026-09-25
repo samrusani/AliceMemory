@@ -1097,9 +1097,15 @@ class AliceMemoryProvider(MemoryProvider):
                     return
                 except RuntimeError as exc:
                     message = str(exc)
-                    if "HTTP status 404" not in message and "HTTP status 400" not in message:
+                    # HTTP 400 is the commit door refusing the turn. Do not
+                    # send that body to the legacy capture route: it stores
+                    # the raw turn with no credential check. HTTP 404 still
+                    # means the candidate routes are absent.
+                    if "HTTP status 404" not in message:
                         raise
-                    logger.debug("Alice bridge capture endpoints unavailable, falling back to legacy capture path")
+                    logger.debug(
+                        "Alice candidate routes returned HTTP 404, falling back to the legacy capture path"
+                    )
 
         payload = {
             "raw_content": raw_content[:_DEFAULT_CAPTURE_CHAR_LIMIT],
