@@ -117,7 +117,7 @@ The sidecar is a persistence path. The sleep writer will apply exactly the commi
 
 Before the writer called the commit door, `run_local_vault_sleep` copied chunk text into the row and called `_write_jsonl` with no check.
 
-The commit door is `_request_contains_secret_marker` in `vnext_memory_commit.py`. It calls `credential_verdict` and then `commit_gate_refuses` in `legacy_credential_check.py`. `legacy_commit_gate_refuses` is only the import alias in `vnext_memory_commit.py` (`from alicebot_api.legacy_credential_check import commit_gate_refuses as legacy_commit_gate_refuses`). It is not the function. The earlier note named the alias as if it were the function. `legacy_credential_check`'s docstring says every other door keeps the floor alone.
+The commit door is `_request_contains_secret_marker` in `vnext_memory_commit.py`. It returns `commit_door_secret_verdict(...)`. The sleep writer calls `commit_door_secret_verdict`. That helper is what calls `credential_verdict` and then `commit_gate_refuses` in `legacy_credential_check.py`. `legacy_commit_gate_refuses` is only the import alias in `vnext_memory_commit.py` (`from alicebot_api.legacy_credential_check import commit_gate_refuses as legacy_commit_gate_refuses`). It is not the function. The earlier note named the alias as if it were the function. `legacy_credential_check`'s docstring says every other door keeps the floor alone.
 
 Ruling: factor the body of `_request_contains_secret_marker` into one helper that refuses when `credential_verdict` refuses or when `legacy_credential_check.commit_gate_refuses` refuses. The commit door and `run_local_vault_sleep` will both call it.
 
