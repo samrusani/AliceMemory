@@ -20,6 +20,7 @@ def invoke_request(
     *,
     query_params: dict[str, str] | None = None,
     payload: dict[str, Any] | None = None,
+    headers: dict[str, str] | None = None,
 ) -> tuple[int, dict[str, Any]]:
     messages: list[dict[str, object]] = []
     encoded_body = b"" if payload is None else json.dumps(payload).encode()
@@ -46,7 +47,13 @@ def invoke_request(
         "path": path,
         "raw_path": path.encode(),
         "query_string": query_string,
-        "headers": [(b"content-type", b"application/json")],
+        "headers": [
+            (b"content-type", b"application/json"),
+            *[
+                (key.lower().encode("latin-1"), value.encode("latin-1"))
+                for key, value in (headers or {}).items()
+            ],
+        ],
         "client": ("127.0.0.1", 50000),
         "server": ("testserver", 80),
         "root_path": "",
@@ -525,3 +532,64 @@ def test_refused_title_cut_assignment_leaves_no_capture_events_row(
             row = cur.fetchone()
     count = row["n"] if isinstance(row, dict) else row[0]
     assert count == 0
+
+
+def _runtime_token() -> str:
+    """A scanner-shaped token assembled at runtime. The source has no literal."""
+
+    return "ghp_" + "0123456789abcdefghijklmnopqrstuvwxyz"
+
+
+def _capture_event_count(database_url: str, user_id: UUID) -> int:
+    with user_connection(database_url, user_id) as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT count(*) AS n FROM continuity_capture_events")
+            row = cur.fetchone()
+    count = row["n"] if isinstance(row, dict) else row[0]
+    return int(count)
+
+
+def test_header_only_mirror_capture_with_a_token_returns_400_and_stores_nothing(
+    migrated_database_urls,
+    monkeypatch,
+) -> None:
+    """The memory-write mirror posts header-only to POST /v0/continuity/captures.
+
+    That route used to store the raw text with no credential check. A
+    runtime-built token returns 400 and leaves no continuity_capture_events
+    row. Ordinary mirror text still returns 201. Mutation: remove the
+    commit_door_secret_verdict check in capture_continuity_input. The token
+    post then returns 201 and the row count is 1.
+    """
+
+    user_id = seed_user(migrated_database_urls["app"], email="mirror-token@example.com")
+    settings = Settings(database_url=migrated_database_urls["app"], app_env="development", auth_user_id="")
+    monkeypatch.setattr(main_module, "get_settings", lambda: settings)
+    monkeypatch.setattr(continuity_router, "get_settings", lambda: settings)
+    token = _runtime_token()
+    raw_content = f"Hermes built-in memory update (MEMORY.md): rotate to {token}"
+    body = json.dumps({"raw_content": raw_content}, separators=(",", ":")).encode("utf-8")
+    assert b"user_id" not in body
+
+    status, payload = invoke_request(
+        "POST",
+        "/v0/continuity/captures",
+        payload={"raw_content": raw_content},
+        headers={"X-AliceBot-User-Id": str(user_id)},
+    )
+
+    assert status == 400
+    assert payload["detail"]["code"] == "invalid_request"
+    assert token not in json.dumps(payload)
+    assert _capture_event_count(migrated_database_urls["app"], user_id) == 0
+
+    ordinary = "Hermes built-in memory update (MEMORY.md): the harbour clipboard stays on the desk"
+    ordinary_status, ordinary_payload = invoke_request(
+        "POST",
+        "/v0/continuity/captures",
+        payload={"raw_content": ordinary},
+        headers={"X-AliceBot-User-Id": str(user_id)},
+    )
+    assert ordinary_status == 201
+    assert ordinary_payload["capture"]["capture_event"]["raw_content"] == ordinary
+    assert _capture_event_count(migrated_database_urls["app"], user_id) == 1
