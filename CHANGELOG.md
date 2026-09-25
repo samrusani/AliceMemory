@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Design note for Sprint 7 skill packs. It keeps the v0.15.4 commit rule
+  and names the packs to revise. No pack ships in this note.
+
 - A blocked idempotent replay of `POST /v0/vnext/memories/commit` returns
   403 and keeps its policy rows. A new commit that policy rejects still
   returns 200 with status `rejected`.
