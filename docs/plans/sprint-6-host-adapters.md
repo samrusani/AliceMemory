@@ -107,8 +107,9 @@ written for `mcp__alice__*` do not match them. The docs will name the
 
 The plugin's SessionStart hook must use exec form (a command plus args) so
 `${user_config.data_dir}` is substituted, or the hook must read
-`CLAUDE_PLUGIN_OPTION_DATA_DIR`. A shell-form hook command is not valid.
-The adapter's validate step will reject a shell-form SessionStart hook.
+`CLAUDE_PLUGIN_OPTION_DATA_DIR`. Claude Code rejects `${user_config.*}` in a
+shell-form hook command. The adapter's validate step will reject a
+shell-form SessionStart hook.
 
 Install will detect an installed Alice plugin and skip Claude Code with a
 message. The docs will say to use one or the other. The plugin will launch
@@ -147,7 +148,7 @@ all of these:
 The same constraints as the SessionEnd trial apply. Do not run this on a
 developer Mac, and do not use a real home directory.
 
-## Mutations each adapter pull request includes
+## Mutations each adapter pull request must include
 
 - A second launcher.
 - A shell-form SessionStart hook.
