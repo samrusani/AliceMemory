@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import cast
 from uuid import UUID
 
 from alicebot_api.continuity_evidence import ArchivedArtifactRef, checksum_sha256_for_text
+from alicebot_api.credential_floor import credential_verdict, string_values
 from alicebot_api.importer_models import (
     ImporterNormalizedBatch,
+    ImporterNormalizedItem,
     OBJECT_TYPE_TO_EXPLICIT_SIGNAL,
     to_string_list,
 )
@@ -75,6 +78,71 @@ def _build_provenance(
     return provenance
 
 
+def _body_credential_fields(body: JsonObject) -> tuple[object, ...]:
+    """The body as the check should read it.
+
+    The body is passed with its keys, which is how the continuity object door
+    reads a body. An OpenClaw raw entry is the exception: it is passed by
+    value, as provenance is. Passed as a mapping, every key of the entry is a
+    name, and a routing ``session_key`` is skipped. Pair detection for that
+    entry uses the segment text, which is the entry's canonical JSON.
+    """
+
+    raw_entry = body.get("openclaw_raw_entry")
+    if not isinstance(raw_entry, Mapping):
+        return (body,)
+    rest = {key: value for key, value in body.items() if key != "openclaw_raw_entry"}
+    return (rest, string_values(raw_entry))
+
+
+def _item_credential_fields(item: ImporterNormalizedItem, provenance: JsonObject) -> tuple[object, ...]:
+    """Fields of one item that the import would persist, in reading order.
+
+    ``credential_verdict`` is the S4.4 check. Provenance is passed by value
+    only. Its keys include the dedupe key, and the name grammar still treats
+    a bare ``*_key`` name as a secret name, so a digest under that name would
+    read as a secret.
+    """
+
+    return (
+        item.title,
+        *_body_credential_fields(item.body),
+        string_values(provenance),
+        item.raw_content,
+        item.source_segment_text,
+    )
+
+
+def _locator_int(locator: JsonObject, key: str) -> int | None:
+    value = locator.get(key)
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return value
+
+
+def _credential_skip_name(item: ImporterNormalizedItem, sequence_no: int) -> JsonObject:
+    """Name a skipped item by id or line. Never include the matched text.
+
+    The id is omitted when the id itself is credential material, so the
+    receipt cannot echo the secret. ``sequence_no`` is the item's place in
+    the batch and is always safe to report.
+    """
+
+    name: JsonObject = {"sequence_no": sequence_no}
+    line_number = _locator_int(item.source_locator, "line_number")
+    if line_number is not None:
+        name["line_number"] = line_number
+    line_end = _locator_int(item.source_locator, "line_end")
+    if line_end is not None:
+        name["line_end"] = line_end
+    entry_index = _locator_int(item.source_locator, "entry_index")
+    if entry_index is not None:
+        name["entry_index"] = entry_index
+    if credential_verdict(item.source_item_id) is None:
+        name["source_item_id"] = item.source_item_id
+    return name
+
+
 def import_normalized_batch(
     store: ContinuityStore,
     *,
@@ -95,8 +163,34 @@ def import_normalized_batch(
     imported_object_ids: list[str] = []
     imported_capture_ids: list[str] = []
     skipped_duplicates = 0
+    skipped_credentials = 0
+    skipped_credential_items: list[JsonObject] = []
 
     for sequence_no, item in enumerate(batch.items, start=1):
+        source_event_ids = to_string_list(item.source_provenance.get("source_event_ids"))
+        if not source_event_ids:
+            source_event_ids = [
+                _deterministic_source_event_id(
+                    source_kind=config.source_kind,
+                    workspace_id=batch.context.workspace_id,
+                    source_item_id=item.source_item_id,
+                )
+            ]
+        provenance = _build_provenance(
+            batch=batch,
+            source_file=item.source_file,
+            source_item_id=item.source_item_id,
+            source_provenance=item.source_provenance,
+            source_dedupe_key=item.dedupe_key,
+            source_event_ids=source_event_ids,
+            config=config,
+        )
+        # Skip this item and keep going. Raising would refuse the whole import.
+        if credential_verdict(*_item_credential_fields(item, provenance)) is not None:
+            skipped_credentials += 1
+            skipped_credential_items.append(_credential_skip_name(item, sequence_no))
+            continue
+
         if item.dedupe_key in existing_dedupe_keys or item.dedupe_key in run_dedupe_keys:
             skipped_duplicates += 1
             continue
@@ -125,25 +219,6 @@ def import_normalized_batch(
             admission_reason=config.admission_reason,
         )
 
-        source_event_ids = to_string_list(item.source_provenance.get("source_event_ids"))
-        if not source_event_ids:
-            source_event_ids = [
-                _deterministic_source_event_id(
-                    source_kind=config.source_kind,
-                    workspace_id=batch.context.workspace_id,
-                    source_item_id=item.source_item_id,
-                )
-            ]
-
-        provenance = _build_provenance(
-            batch=batch,
-            source_file=item.source_file,
-            source_item_id=item.source_item_id,
-            source_provenance=item.source_provenance,
-            source_dedupe_key=item.dedupe_key,
-            source_event_ids=source_event_ids,
-            config=config,
-        )
         provenance["artifact_id"] = str(archived_artifact.artifact_id)
         provenance["artifact_copy_id"] = str(archived_artifact.artifact_copy_id)
         provenance["artifact_copy_checksum_sha256"] = archived_artifact.checksum_sha256
@@ -182,6 +257,8 @@ def import_normalized_batch(
         "total_candidates": len(batch.items),
         "imported_count": imported_count,
         "skipped_duplicates": skipped_duplicates,
+        "skipped_credentials": skipped_credentials,
+        "skipped_credential_items": cast(JsonValue, skipped_credential_items),
         "dedupe_posture": config.dedupe_posture,
         "provenance_source_kind": config.source_kind,
         "provenance_source_label": config.source_label,

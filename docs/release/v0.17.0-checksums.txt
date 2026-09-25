@@ -1,0 +1,19 @@
+# Alice v0.17.0: published artifact SHA-256 digests
+#
+# These are the exact digests of the wheel and source distribution published
+# to PyPI for v0.17.0 through GitHub Trusted Publishing. They also appear on the
+# project's PyPI page and on the v0.17.0 GitHub Release assets, and are bound to
+# this repository, the v0.17.0 tag, the publishing workflow, the exact commit,
+# and the protected pypi environment by PyPI's integrity attestations (the
+# /provenance endpoints).
+#
+# Linux verify:  sha256sum -c v0.17.0-checksums.txt
+# macOS verify:  shasum -a 256 -c v0.17.0-checksums.txt
+# Run either command beside the downloaded files.
+#
+# Recorded after verifying the same digests from three independent sources:
+# the PyPI version-specific JSON API, the SHA256SUMS asset on the GitHub
+# Release, and a fresh download from PyPI hashed locally. All three agree.
+#
+98e719fa3e2248ba7d920e2f0c972ba1258f1e9128ab3fcf0f1bc79fdc02b86c  alice_memory-0.17.0-py3-none-any.whl
+1487d98ab255ee66dcbb167df1df6990bb09fee734c0b3f2fba7e4f5268abac3  alice_memory-0.17.0.tar.gz

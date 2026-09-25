@@ -2,7 +2,7 @@
 
 
 
-`v0.16.0` is the latest published release and remains the checksum/install
+`v0.17.0` is the latest published release and remains the checksum/install
 baseline.
 Preparing candidate documents does not authorize a tag, PyPI upload, or GitHub
 Release.
@@ -431,5 +431,5 @@ the tag and must not have claimed publication early.
 Verify checksum files on Linux with `sha256sum -c SHA256SUMS` and on stock
 macOS with `shasum -a 256 -c SHA256SUMS`.
 
-`v0.16.0` is the latest published release and remains the install, checksum,
+`v0.17.0` is the latest published release and remains the install, checksum,
 and baseline reference.

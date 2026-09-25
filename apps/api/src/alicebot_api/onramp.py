@@ -139,6 +139,7 @@ _KNOWN_COMMANDS = (
     "doctor",
     "demo",
     "sleep",
+    "sleep-proposals",
     "install",
 )
 
@@ -200,6 +201,8 @@ _ERROR_CONTRACTS: dict[str, str] = {
     ),
     "demo_failed": "The demo could not complete after import",
     "sleep_failed": "The sleep pass could not complete",
+    "proposals_failed": "The sleep proposal list could not be read",
+    "doctor_failed": "The vault census could not be completed",
     "install_failed": "The host install could not complete",
     "install_refused": (
         "A host config was left unchanged because install could not edit it safely; "
@@ -972,7 +975,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     doctor_parser = subparsers.add_parser(
         "doctor",
-        help="Print a local SQLite vault census: sources, chunks, facts, then candidates.",
+        help=(
+            "Print a local SQLite vault census: sources, chunks, facts, "
+            "candidates, then sleep proposals."
+        ),
     )
     _add_database_arguments(doctor_parser)
 
@@ -993,11 +999,27 @@ def build_parser() -> argparse.ArgumentParser:
     sleep_parser = subparsers.add_parser(
         "sleep",
         help=(
-            "Write a capped sidecar of source commit proposals. Does not "
-            "rewrite notes or facts, and does not open the capture inbox."
+            "Write a capped sidecar of source commit proposals, oldest "
+            "sources first. A row stops counting toward the cap once its "
+            "source has an active or accepted memory. The row stays in the "
+            "sidecar. Does not rewrite notes or facts, and does not open "
+            "the capture inbox."
         ),
     )
     _add_database_arguments(sleep_parser)
+
+    proposals_parser = subparsers.add_parser(
+        "sleep-proposals",
+        help=(
+            "List this user's sleep proposals oldest first by captured_at, "
+            "then id, framed and JSON-quoted, with the alice_memory_commit "
+            "arguments that accept each one, including the source domain, "
+            "sensitivity, and project scope. Skips a source that already has "
+            "an active or accepted memory. Applies the session brief fences "
+            "and the commit door again. Writes nothing."
+        ),
+    )
+    _add_database_arguments(proposals_parser)
 
     install_parser = subparsers.add_parser(
         "install",
@@ -1112,7 +1134,13 @@ def _run_doctor(args: argparse.Namespace) -> int:
         user_email=args.user_email,
         secure_parent=args.db is None,
     )
-    print(compile_local_vault_doctor(db_path, user_id=args.user_id))
+    from alicebot_api.vault_sleep import SleepError
+
+    try:
+        print(compile_local_vault_doctor(db_path, user_id=args.user_id))
+    except SleepError:
+        _emit_error("doctor_failed")
+        return 1
     return 0
 
 
@@ -1147,6 +1175,40 @@ def _run_demo(args: argparse.Namespace) -> int:
         )
     except (DemoVaultError, VNextCaptureValidationError):
         _emit_error("demo_failed")
+        return 1
+    return 0
+
+
+def _run_sleep_proposals(args: argparse.Namespace) -> int:
+    from alicebot_api.vnext_agent_control import DEFAULT_AGENT_SENSITIVITY, evaluate_agent_policy
+    from alicebot_api.vault_sleep import SleepError, compile_sleep_proposal_listing
+
+    db_path = resolve_db_path(data_dir=args.data_dir, db=args.db)
+    bootstrap_database(
+        db_path,
+        user_id=args.user_id,
+        user_email=args.user_email,
+        secure_parent=args.db is None,
+    )
+    decision = evaluate_agent_policy(
+        identity=None,
+        action="context_pack.request",
+        domains=(),
+        sensitivity_allowed=DEFAULT_AGENT_SENSITIVITY,
+        project_scope=(),
+    )
+    try:
+        print(
+            compile_sleep_proposal_listing(
+                db_path,
+                user_id=args.user_id,
+                effective_domains=decision.effective_domains,
+                effective_sensitivity_allowed=decision.effective_sensitivity_allowed,
+                effective_project_scope=decision.effective_project_scope,
+            )
+        )
+    except SleepError:
+        _emit_error("proposals_failed")
         return 1
     return 0
 
@@ -3116,6 +3178,8 @@ def main(argv: list[str] | None = None) -> int:
             return _run_demo(args)
         if args.command == "sleep":
             return _run_sleep(args)
+        if args.command == "sleep-proposals":
+            return _run_sleep_proposals(args)
         if args.command == "install":
             return _run_install(args)
         return _run_mcp(args)

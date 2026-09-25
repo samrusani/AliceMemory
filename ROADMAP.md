@@ -2,9 +2,9 @@
 
 ## Baseline (Not Roadmap Work)
 
-- `v0.16.0` is the latest published release. Its immutable release record is
-  `docs/release/v0.16.0-release-notes.md`, with artifact digests in
-  `docs/release/v0.16.0-checksums.txt`. (The `v0.13.0` tag was never
+- `v0.17.0` is the latest published release. Its immutable release record is
+  `docs/release/v0.17.0-release-notes.md`, with artifact digests in
+  `docs/release/v0.17.0-checksums.txt`. (The `v0.13.0` tag was never
   published; superseded.)
 - `v0.11.0` shipped the Phase 1 periphery cut; `v0.11.1` shipped the Phase 2
   debt sweep. Their tags, release records, and published artifacts are not
@@ -88,5 +88,5 @@ restore, recorded security disposition) shipped in Phases 4 and 5.
 - OCR or transcription execution; Alice accepts text extracted elsewhere.
 - Re-expanding the default MCP surface beyond the eleven core tools.
 
-`v0.16.0` is the latest published release and remains the install, checksum,
+`v0.17.0` is the latest published release and remains the install, checksum,
 and baseline reference.

@@ -306,6 +306,12 @@ _ARMOR_LINE = re.compile(
     _FIVE_DASHES + r"BEGIN (?:(?:RSA|EC|DSA|OPENSSH|ENCRYPTED) )?PRIVATE KEY" + _FIVE_DASHES
     + "|" + _FIVE_DASHES + r"BEGIN PGP PRIVATE KEY BLOCK" + _FIVE_DASHES
 )
+# The same dashed line, and its END twin, when the whole line is that line.
+# The label is captured so a BEGIN matches only its own END. Built from the
+# five dashes, like _ARMOR_LINE, so this file does not contain an armor line.
+_ARMOR_LABEL = r"(?:(?:(?:RSA|EC|DSA|OPENSSH|ENCRYPTED) )?PRIVATE KEY|PGP PRIVATE KEY BLOCK)"
+_ARMOR_BEGIN_EXACT = re.compile(_FIVE_DASHES + r"BEGIN (" + _ARMOR_LABEL + r")" + _FIVE_DASHES)
+_ARMOR_END_EXACT = re.compile(_FIVE_DASHES + r"END (" + _ARMOR_LABEL + r")" + _FIVE_DASHES)
 # The same line read across a field boundary, where a split can swallow a
 # space ("-----BEGIN RSA PRIVATE" over "KEY-----", or "-----BEGIN " over
 # "RSA PRIVATE KEY-----", round 4).
@@ -415,6 +421,34 @@ def _ppk_hit(text: str) -> bool:
     if "Private-MAC:" in text and _PPK_MAC.search(text):
         return True
     return "Private-Lines:" in text and any(_real_body(match.group(1)) for match in _PPK_BODY.finditer(text))
+
+
+def private_key_armor_role(line: str) -> tuple[str, str] | None:
+    """``("begin", label)`` or ``("end", label)`` when ``line`` is only armor.
+
+    ``label`` is the key type between the word and the closing dashes, such as
+    ``RSA PRIVATE KEY`` or ``PGP PRIVATE KEY BLOCK``. A list marker or a
+    blockquote prefix may sit in front. A sentence that merely mentions the
+    line does not match: the line, once those prefixes are removed, has to be
+    the armor line and nothing else.
+    """
+
+    text = line.strip()
+    if text.startswith("- ") or text.startswith("* "):
+        text = text[2:].strip()
+    else:
+        numbered = re.match(r"^\d+\.\s+(.*)$", text)
+        if numbered:
+            text = numbered.group(1).strip()
+    while text.startswith(">"):
+        text = text[1:].lstrip()
+    begin = _ARMOR_BEGIN_EXACT.fullmatch(text)
+    if begin:
+        return ("begin", begin.group(1))
+    end = _ARMOR_END_EXACT.fullmatch(text)
+    if end:
+        return ("end", end.group(1))
+    return None
 
 
 def _private_key_hit(text: str) -> bool:
@@ -1395,6 +1429,7 @@ __all__ = [
     "CredentialActivationRefused",
     "carries_credential_material",
     "credential_verdict",
+    "private_key_armor_role",
     "is_derived_copy",
     "normalize_for_matching",
     "refuse_credential_activation",

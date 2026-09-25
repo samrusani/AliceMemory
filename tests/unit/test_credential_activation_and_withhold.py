@@ -495,15 +495,37 @@ def test_f1_a_clean_twin_still_auto_promotes() -> None:
 
 
 def test_f1_the_label_split_residual_is_not_held_back_and_that_is_documented() -> None:
-    """The residual addendum F5 accepts, pinned so a change to it is deliberate.
+    """The no-colon title is the residual the promotion floor does not hold.
 
-    A title label over a bare value passes both floors: the defence against a
-    deliberate split is identity and trust, not the floor. See "What the
-    credential check does not catch" in docs/memory/promotion-personas.md.
+    A title "Prod DB password" over a bare value passes the credential check
+    and the promotion floor. The same title with a colon is held back by the
+    floor. See docs/memory/promotion-personas.md.
     """
 
     candidate = PromotionCandidate(title="Prod DB password", canonical_text="Kd9xoYWu83nq")
     assert "credential_material" not in hard_floor_hits(candidate)
+
+
+def test_f1_a_password_label_with_a_colon_is_still_held_by_the_promotion_floor() -> None:
+    """The promotion floor still holds a colon label with the value in the body.
+
+    carries_credential_material does not flag this split, and the commit gate
+    does not refuse it. hard_floor_hits still returns credential_material,
+    because the floor also runs v0.16.0's promotion floor rule, so an
+    auto-promote persona does not promote it.
+    """
+
+    candidate = PromotionCandidate(
+        title="Prod DB password:",
+        canonical_text="Kd9xoYWu83nq",
+        domain="professional",
+        sensitivity="internal",
+        source_type="trusted_agent",
+    )
+    assert "credential_material" in hard_floor_hits(candidate)
+    decision = evaluate_promotion(candidate=candidate, **AUTHENTICATED_PERSONAL)  # type: ignore[arg-type]
+    assert decision.tier == "hard_floor"
+    assert decision.auto_promote is False
 
 
 def test_f1_the_proposal_candidate_carries_rationale_and_project_scope() -> None:
