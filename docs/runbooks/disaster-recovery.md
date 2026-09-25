@@ -144,8 +144,9 @@ as `rejected`, so recall, resume, and a context pack do not return it.
 key creates a fresh row through the normal checks. The receipt lists the
 ids and counts, not the removed text. A second import of the same file
 with the same ids skips those identical redacted rows. `--db` is a SQLite
-file path. A Postgres URL is refused. See
-[Backup and restore](../alpha/backup-and-restore.md).
+file path. A Postgres URL is refused on every `alice-memory` subcommand,
+including `install --dry-run`, with exit 2 and `sqlite_db_path_required`.
+See [Backup and restore](../alpha/backup-and-restore.md).
 
 Require the export/import/re-export canonical SHA-256 footer and record counts
 to match. A quarantined memory will not match its original export, because

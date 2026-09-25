@@ -1171,6 +1171,54 @@ def test_hermes_rerun_keeps_single_quoted_legacy_flag_bytes(tmp_path: Path, caps
     assert "kept: env.ALICE_MCP_LEGACY_TOOLS" in out
 
 
+def test_hermes_rerun_keeps_embeddings_env_keys(tmp_path: Path, capsys) -> None:
+    """The three embeddings env keys are kept byte for byte on a re-run.
+
+    BASE_URL is a plain scalar, MODEL is single-quoted, and the API key is
+    double-quoted. The receipt lists each kept key. The API key is not
+    printed on a dry run or on a write.
+    Mutation: drop ALICE_EMBEDDINGS_BASE_URL, ALICE_EMBEDDINGS_MODEL, or
+    ALICE_EMBEDDINGS_API_KEY from HERMES_DOCUMENTED_ENV_KEYS, or print the
+    API key. This test fails.
+    """
+
+    home = tmp_path / "home"
+    vault = (tmp_path / "old-vault").resolve()
+    vault.mkdir()
+    embeddings_key = "kept-embed-" + "4417"
+    base_url = "http://embeddings.example/v1"
+    model = "embed-model"
+    env_lines = (
+        f"      ALICE_EMBEDDINGS_BASE_URL: {base_url}",
+        f"      ALICE_EMBEDDINGS_MODEL: '{model}'",
+        f'      ALICE_EMBEDDINGS_API_KEY: "{embeddings_key}"',
+    )
+    original = _v016_alice(str(vault), *env_lines)
+    config = _seed(home, original)
+    kept = (
+        "kept: env.ALICE_EMBEDDINGS_BASE_URL, env.ALICE_EMBEDDINGS_MODEL, "
+        "env.ALICE_EMBEDDINGS_API_KEY"
+    )
+
+    code, out, err = _install_without_flag(home, capsys, "--dry-run")
+    assert code == 0, (out, err)
+    assert embeddings_key not in out + err
+    assert config.read_text(encoding="utf-8") == original
+    assert kept in out
+
+    code, out, err = _install_without_flag(home, capsys)
+    assert code == 0, (out, err)
+    assert embeddings_key not in out + err
+    assert kept in out
+    written = config.read_text(encoding="utf-8")
+    for line in env_lines:
+        assert line in written
+    env = yaml.safe_load(written)["mcp_servers"]["alice"]["env"]
+    assert env["ALICE_EMBEDDINGS_BASE_URL"] == base_url
+    assert env["ALICE_EMBEDDINGS_MODEL"] == model
+    assert env["ALICE_EMBEDDINGS_API_KEY"] == embeddings_key
+
+
 def test_hermes_unknown_env_key_still_refuses(tmp_path: Path, capsys) -> None:
     """env.FOO is not a documented key, so install refuses and does not write.
 
