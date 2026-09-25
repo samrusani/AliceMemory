@@ -536,7 +536,7 @@ def test_a_symlink_into_the_cache_is_caught_by_its_resolved_path(
 def test_running_from_a_uv_cache_offers_no_script(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """sys.prefix inside a uv cache means a temporary uvx env: write uvx by name.
+    """sys.prefix inside a uv cache, with no uv binary to point at: write uvx by name.
 
     Mutation: drop the sys.prefix check. This test fails.
     """
