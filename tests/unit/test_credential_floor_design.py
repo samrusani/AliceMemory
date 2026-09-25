@@ -272,6 +272,30 @@ def test_t4_adversary_misses_are_caught(name: str) -> None:
     assert carries_credential_material(*_T4_TRUE[name]), name
 
 
+def test_unqualified_camel_case_key_names_are_refused_at_the_commit_door() -> None:
+    """v0.16.0 does not split camelCase. The commit door still refuses it.
+
+    stripeKey and openaiKey are unqualified key names. An opaque value
+    under either name is stored if the door reads the JSON as one string
+    and misses the pair.
+    """
+
+    from alicebot_api.legacy_credential_check import commit_door_secret_verdict
+
+    value = "Xq9mZt2L" + "xP9wKc4BVq7mZt2"
+    for name in ("stripeKey", "openaiKey"):
+        body = {name: value}
+        assert carries_credential_material(body)
+        assert commit_door_secret_verdict("Note", body) is not None
+
+
+def test_rollup_key_is_structural_and_not_a_secret_name() -> None:
+    from alicebot_api.credential_floor import _name_kind
+
+    assert _name_kind("rollup_key", "", 0) is None
+    assert not carries_credential_material({"rollup_key": "scope:" + "ab" * 20 + ":topic:games"})
+
+
 # ---------------------------------------------------------------------------
 # T5: linear time. A generous absolute budget and a ratio, never a tight
 # wall clock. Measured on the build machine (Apple M3 Max) after round 3, on

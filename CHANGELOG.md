@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Provenance and the import `value` column are read with their keys. A
+  secret name over a secret-shaped value is refused there. `rollup` is a
+  structural name, so a rollup card still restores. The name grammar is
+  unchanged, including ALL-CAPS env-style names and the weak tier.
+
 ## v0.17.0 — 2026-09-25
 
 - `alice-memory sleep-proposals` lists this user's sleep proposals oldest

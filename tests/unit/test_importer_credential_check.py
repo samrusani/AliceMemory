@@ -969,8 +969,9 @@ def test_each_checked_field_skips_when_only_that_field_holds_a_secret(field_name
     """A secret in only this field is skipped. Dropping the field stores it.
 
     The body holds the secret under ``api_key``. The value alone is not a
-    credential shape, so passing the body by value, the way provenance is
-    passed, stores it. The other fields hold a token at the end of a long note.
+    credential shape, so passing the body by value stores it. Provenance
+    is passed with its keys. The other fields hold a token at the end of a
+    long note.
     """
 
     token = _deploy_token()

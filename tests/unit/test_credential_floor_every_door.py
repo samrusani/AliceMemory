@@ -483,33 +483,55 @@ def test_door4_a_title_only_edit_is_read_against_the_stored_body() -> None:
     assert store.writes == []
 
 
-def test_door4_provenance_is_read_by_value_only() -> None:
-    """Owner ruling C3, and the phase 9 eval's false positive of 2026-09-22.
+def test_door4_provenance_is_read_with_its_keys() -> None:
+    """Provenance is read keyed.
 
-    An OpenClaw import writes ``openclaw_dedupe_key`` holding a SHA-256 digest
-    into provenance, and every correction of an imported object was refused.
-    Provenance is read by value. The cost is pinned as a residual: a secret
-    under a secret-shaped key whose value does not identify itself is not
-    caught in provenance, although the same pair in a body is.
+    An OpenClaw import writes ``openclaw_dedupe_key`` holding a SHA-256 digest.
+    ``dedupe`` is a structural name, so that pair is not a secret. A secret
+    under a secret name is refused, the same as in a body.
     """
 
     digest = hashlib.sha256(b"workspace").hexdigest()
+    structural = {"openclaw_dedupe_key": digest, "source_kind": "openclaw_import"}
     keyed_secret = {"api_key": "Xq9mZt2L" + "xP9wKc4BVq7m"}
-    # Guards the guard: the pair rule does catch it when it is read keyed.
     assert carries_credential_material(keyed_secret)
+    assert not carries_credential_material(structural)
 
-    for provenance in ({"openclaw_dedupe_key": digest, "source_kind": "openclaw_import"}, keyed_secret):
+    store = _StoredContinuityObject()
+    with pytest.raises(LookupError):
+        _correct(
+            store,
+            ContinuityCorrectionInput(
+                action="supersede", replacement_title="Decision: keep it", replacement_provenance=structural
+            ),
+        )
+    assert store.writes, "the write reached the store"
+    sink = _RecordingContinuityStore()
+    with pytest.raises(LookupError):
+        create_continuity_object_record(
+            sink,  # type: ignore[arg-type]
+            user_id=uuid4(),
+            capture_event_id=uuid4(),
+            object_type="Decision",
+            title="Decision: keep it",
+            body={"decision_text": "keep it"},
+            provenance=structural,
+            confidence=0.9,
+        )
+    assert sink.calls == ["create_continuity_object"]
+
+    for provenance in (keyed_secret,):
         store = _StoredContinuityObject()
-        with pytest.raises(LookupError):
+        with pytest.raises(ContinuityReviewValidationError, match="credential material"):
             _correct(
                 store,
                 ContinuityCorrectionInput(
                     action="supersede", replacement_title="Decision: keep it", replacement_provenance=provenance
                 ),
             )
-        assert store.writes, "the write reached the store"
+        assert store.writes == []
         sink = _RecordingContinuityStore()
-        with pytest.raises(LookupError):
+        with pytest.raises(ContinuityObjectValidationError, match="credential material"):
             create_continuity_object_record(
                 sink,  # type: ignore[arg-type]
                 user_id=uuid4(),
@@ -520,7 +542,7 @@ def test_door4_provenance_is_read_by_value_only() -> None:
                 provenance=provenance,
                 confidence=0.9,
             )
-        assert sink.calls == ["create_continuity_object"]
+        assert sink.calls == []
 
     # A self-identifying token in a provenance value is still refused.
     store = _StoredContinuityObject()
@@ -827,15 +849,14 @@ def _import_one_memory(tmp_path: Path, **record_fields: object) -> tuple[int, st
     return code, memory_id
 
 
-def test_round2_import_reads_the_value_by_value_and_metadata_as_a_mapping(tmp_path, capsys) -> None:
-    """Import door. Round 2 read the value column keyed, as the design spec
-    had it; round 3 (P2 item 7) follows owner ruling C3 instead: the value
-    column is read by value only, so a key recognisable only by its name
-    there is not caught (a documented residual), while a self-identifying
-    key is. metadata_json stays keyed."""
+def test_round2_import_reads_the_value_and_metadata_as_mappings(tmp_path, capsys) -> None:
+    """Import door. The value column and metadata_json are both read keyed.
+    A key recognisable only by its name is caught. A self-identifying
+    value is still caught under any name."""
 
     code, memory_id = _import_one_memory(tmp_path / "value", value={"text": "notes", "api_key": "Xq9mZt2L" + "xP9wKc4BVq7m"})
-    assert code == 0, capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert code == 1 and f"memory {memory_id} carries credential material (value)" in err
     code, memory_id = _import_one_memory(tmp_path / "prefixed", value={"text": "notes", "note": PAT})
     err = capsys.readouterr().err
     assert code == 1 and f"memory {memory_id} carries credential material (value)" in err

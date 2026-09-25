@@ -42,7 +42,9 @@ rather than scanned or truncated.
 Callers pass the row AS IT WILL BE STORED, in reading order: title, body,
 other persisted free text, structured values (mapping bodies as mappings),
 then persisted identifiers. One call per row; never two rows in one call.
-Provenance is always passed through string_values, by value only.
+Provenance and the import value column are passed as mappings, so each
+key is read with its value. string_values remains for a caller that
+wants the strings without the keys.
 
 ``refuse_credential_material`` raises the caller's own validation error, so
 each surface keeps its existing error contract.
@@ -645,6 +647,7 @@ _KEY_STRUCTURAL = frozenset(
         "routing", "row", "shard", "composite", "unique", "natural", "surrogate", "lock", "i18n",
         "translation", "trace", "cursor", "page", "next", "prev", "continuation", "order",
         "join", "dict", "record", "entity", "subject", "topic", "bucket", "s3", "redis", "hotkey",
+        "rollup",
         "short", "shortcut", "keyboard", "music", "public", "publishable", "pub", "project", "tenant",
         "user", "session_id", "external", "idem", "event", "message", "query", "column", "field",
     }
@@ -1289,11 +1292,10 @@ def refuse_credential_material(*fields: object, error: Callable[[str], BaseExcep
 def string_values(value: object) -> list[str]:
     """The strings inside a structure, without its keys, in reading order.
 
-    Provenance is passed this way at every door (owner ruling C3). Flattened
-    with its keys, ``openclaw_dedupe_key`` holding a SHA-256 digest reads like
-    a secret assigned to a key. The cost, stated plainly: under a key name, a
-    Stripe key, an AWS secret access key or a plain password in provenance is
-    not caught unless its value is self-identifying. Iterative, like _flatten.
+    Doors that should see a key with its value pass the mapping instead.
+    ``openclaw_dedupe_key`` is not a secret name, because ``dedupe`` is
+    structural. A Stripe key, an AWS secret access key, or a plain password
+    under a secret name in provenance is caught. Iterative, like _flatten.
     """
 
     out: list[str] = []

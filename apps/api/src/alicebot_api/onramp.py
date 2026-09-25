@@ -93,7 +93,7 @@ from typing import IO
 from uuid import UUID
 
 from alicebot_api import __version__
-from alicebot_api.credential_floor import VERDICT_EXPANSION, credential_verdict, is_derived_copy, string_values
+from alicebot_api.credential_floor import VERDICT_EXPANSION, credential_verdict, is_derived_copy
 from alicebot_api.mcp_server import _DEFAULT_MCP_USER_ID, MCPServer
 from alicebot_api.mcp_tools import MCPRuntimeContext
 from alicebot_api.sqlite_schema import bootstrap_sqlite_schema
@@ -1917,9 +1917,8 @@ def _without_system_keys(value: object) -> object:
 def _memory_record_credential_fields(record: Mapping[str, object]) -> tuple[tuple[str, object], ...]:
     """The fields of one memory record the floor reads, in reading order.
 
-    Title and canonical text; the value column by value only (owner ruling
-    C3: an importer's structural key over a digest has the same shape as a
-    secret name over a key); metadata_json as a mapping, keyed, except the
+    Title and canonical text; the value column as a mapping, keyed;
+    metadata_json as a mapping, keyed, except the
     keys the product itself writes; then the identifiers memory_key and
     project_id. The summary is left out when it is a derived copy of the
     text (canonical_text[:N] or a "..." preview); a summary that says
@@ -1933,7 +1932,7 @@ def _memory_record_credential_fields(record: Mapping[str, object]) -> tuple[tupl
         fields.append(("summary", summary))
     fields.extend(
         [
-            ("value", string_values(_json_column(record.get("value")))),
+            ("value", _json_column(record.get("value"))),
             ("metadata_json", _without_system_keys(_json_column(record.get("metadata_json")))),
             ("memory_key", record.get("memory_key")),
             ("project_id", record.get("project_id")),

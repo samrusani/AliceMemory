@@ -98,16 +98,15 @@ def _body_credential_fields(body: JsonObject) -> tuple[object, ...]:
 def _item_credential_fields(item: ImporterNormalizedItem, provenance: JsonObject) -> tuple[object, ...]:
     """Fields of one item that the import would persist, in reading order.
 
-    ``credential_verdict`` is the S4.4 check. Provenance is passed by value
-    only. Its keys include the dedupe key, and the name grammar still treats
-    a bare ``*_key`` name as a secret name, so a digest under that name would
-    read as a secret.
+    ``credential_verdict`` is the S4.4 check. Provenance is passed with its
+    keys. The importer dedupe fields end in ``dedupe_key``, and ``dedupe``
+    is a structural name, so a digest under that name is not a secret.
     """
 
     return (
         item.title,
         *_body_credential_fields(item.body),
-        string_values(provenance),
+        provenance,
         item.raw_content,
         item.source_segment_text,
     )

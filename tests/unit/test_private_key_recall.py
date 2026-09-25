@@ -412,8 +412,11 @@ def test_every_flagged_key_a_memory_writer_uses_is_accounted_for() -> None:
                             flagged.add(key.value)
     # "secret" is a sensitivity label in a lookup table (vnext_memory_commit);
     # "slot_key" is a read-time currency annotation (vnext_currency), never stored.
+    # rollup_key is not flagged: rollup is a structural name.
     never_in_memory_metadata = {"secret", "slot_key"}
-    assert flagged == set(onramp.SYSTEM_METADATA_KEYS) | never_in_memory_metadata
+    assert "rollup_key" not in flagged
+    assert credential_floor._name_kind("rollup_key", "", 0) is None
+    assert flagged == never_in_memory_metadata
     assert onramp.SYSTEM_METADATA_KEYS == frozenset({"rollup_key"})
 
 
