@@ -10,26 +10,37 @@ import inspect
 import json
 from pathlib import Path
 
+import pytest
+
 from alicebot_api.credential_floor import credential_verdict
-from alicebot_api.legacy_credential_check import commit_gate_refuses
+from alicebot_api.legacy_credential_check import commit_door_secret_verdict, commit_gate_refuses
+from alicebot_api.mcp_tools import AGENT_API_KEY_ENV, MCPRuntimeContext
 from alicebot_api.onramp import (
     _KNOWN_COMMANDS,
+    bootstrap_database,
     build_parser,
     main as onramp_main,
     resolve_db_path,
-    bootstrap_database,
+    sqlite_url_for_path,
 )
-from alicebot_api.session_briefing import SESSION_BRIEF_FRAME
+from alicebot_api.session_briefing import SESSION_BRIEF_FRAME, compile_session_brief
 from alicebot_api.sqlite_store import SQLiteVNextStore, ensure_sqlite_user, sqlite_user_connection
 from alicebot_api.vault_doctor import compile_local_vault_doctor
 from alicebot_api.vault_sleep import (
     NO_SLEEP_PROPOSALS,
+    SLEEP_EXCERPT_MAX,
     SLEEP_PROPOSAL_CAP,
+    SleepError,
     _write_jsonl,
     compile_sleep_proposal_listing,
     load_sleep_proposals,
     run_local_vault_sleep,
     sleep_proposals_path,
+)
+from alicebot_api.vnext_embeddings import (
+    EMBEDDINGS_API_KEY_ENV,
+    EMBEDDINGS_BASE_URL_ENV,
+    EMBEDDINGS_MODEL_ENV,
 )
 
 USER_ID = "00000000-0000-0000-0000-000000000001"
@@ -310,6 +321,9 @@ def test_listing_applies_each_brief_control_and_writes_nothing(tmp_path: Path, m
     assert arguments["canonical_text"] == public
     assert arguments["source_refs"] == [public_id]
     assert arguments["title"] == public[:120]
+    assert arguments["domain"] == "project"
+    assert arguments["sensitivity"] == "public"
+    assert arguments["project_scope"] == ["harbour"]
     first_source = next(line for line in open_listing.splitlines() if line.startswith("source_id: "))
     assert first_source == f"source_id: {public_id}"
 
@@ -454,6 +468,392 @@ def test_help_receipt_and_docstrings_do_not_say_committing_frees_a_slot() -> Non
     lowered = blob.casefold()
     assert "frees a slot" not in lowered
     assert "committing frees" not in lowered
+
+
+def test_private_commit_arguments_stay_out_of_the_public_unknown_brief(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """A private source stays hidden under ('public', 'unknown').
+
+    The printed arguments are what alice_memory_commit stores. Mutation:
+    omit domain, sensitivity, or project_scope. The fact is stored as
+    unknown and the narrow brief shows it.
+    """
+
+    private = "The private harbour salary note stays off the public brief."
+    for env_name in (
+        EMBEDDINGS_BASE_URL_ENV,
+        EMBEDDINGS_MODEL_ENV,
+        EMBEDDINGS_API_KEY_ENV,
+        AGENT_API_KEY_ENV,
+    ):
+        monkeypatch.delenv(env_name, raising=False)
+    database = _database(tmp_path)
+    with sqlite_user_connection(database, USER_ID) as connection:
+        store = SQLiteVNextStore(connection, USER_ID)
+        source = _create_source(
+            store,
+            note=private,
+            suffix="salary",
+            minute=3,
+            domain="personal",
+            sensitivity="private",
+            project="salary-desk",
+        )
+    source_id = str(source["id"])
+    run_local_vault_sleep(database, user_id=USER_ID)
+    listing = compile_sleep_proposal_listing(database, user_id=USER_ID, **OPEN_FENCE)
+    commit_line = next(
+        line
+        for line in listing.splitlines()
+        if line.startswith("alice_memory_commit: ") and source_id in line
+    )
+    arguments = json.loads(commit_line.split(": ", 1)[1])
+    from alicebot_api.mcp.registry import call_mcp_tool
+
+    context = MCPRuntimeContext(database_url=sqlite_url_for_path(database), user_id=USER_ID)
+    payload = call_mcp_tool(context, name="alice_memory_commit", arguments=arguments)
+    assert payload["status"] == "committed", payload
+    memory = payload["memory"]
+    assert memory["domain"] == "personal"
+    assert memory["sensitivity"] == "private"
+    assert memory["project_scope"] == ["salary-desk"]
+
+    with sqlite_user_connection(database, USER_ID) as connection:
+        store = SQLiteVNextStore(connection, USER_ID)
+        narrow = compile_session_brief(
+            store,
+            effective_domains=(),
+            effective_sensitivity_allowed=("public", "unknown"),
+            effective_project_scope=(),
+            query=None,
+        )
+        wide = compile_session_brief(
+            store,
+            effective_domains=(),
+            effective_sensitivity_allowed=("public", "unknown", "private"),
+            effective_project_scope=(),
+            query=None,
+        )
+    fact_line = f"**fact**: {json.dumps(private)}"
+    assert fact_line not in narrow
+    assert private not in narrow
+    assert fact_line in wide
+
+
+def test_listing_does_not_offer_a_source_that_already_has_a_fact(tmp_path: Path, monkeypatch) -> None:
+    """An accepted proposal is not printed as a fresh commit.
+
+    Mutation: list the sidecar row again after the source has an active
+    memory. The commit line comes back and a second accept duplicates the fact.
+    """
+
+    note = "The harbour checklist was already saved as a fact."
+    for env_name in (
+        EMBEDDINGS_BASE_URL_ENV,
+        EMBEDDINGS_MODEL_ENV,
+        EMBEDDINGS_API_KEY_ENV,
+        AGENT_API_KEY_ENV,
+    ):
+        monkeypatch.delenv(env_name, raising=False)
+    database = _database(tmp_path)
+    with sqlite_user_connection(database, USER_ID) as connection:
+        store = SQLiteVNextStore(connection, USER_ID)
+        source = _create_source(store, note=note, suffix="saved", minute=4)
+    source_id = str(source["id"])
+    run_local_vault_sleep(database, user_id=USER_ID)
+    listing = compile_sleep_proposal_listing(database, user_id=USER_ID, **OPEN_FENCE)
+    commit_line = next(line for line in listing.splitlines() if line.startswith("alice_memory_commit: "))
+    arguments = json.loads(commit_line.split(": ", 1)[1])
+    from alicebot_api.mcp.registry import call_mcp_tool
+
+    context = MCPRuntimeContext(database_url=sqlite_url_for_path(database), user_id=USER_ID)
+    payload = call_mcp_tool(context, name="alice_memory_commit", arguments=arguments)
+    assert payload["status"] == "committed", payload
+    again = compile_sleep_proposal_listing(database, user_id=USER_ID, **OPEN_FENCE)
+    offered = [
+        line for line in again.splitlines() if line.startswith("alice_memory_commit: ") and source_id in line
+    ]
+    assert offered == []
+    assert _line_value(again, "rows not shown") == "1"
+
+
+def test_hidden_rows_are_counted_when_nothing_is_listed(tmp_path: Path) -> None:
+    """Private rows can fill the cap while a public fence lists nothing.
+
+    Mutation: return only 'No sleep proposals.' The count of rows not shown
+    disappears, and the full cap looks empty.
+    """
+
+    database = _database(tmp_path)
+    with sqlite_user_connection(database, USER_ID) as connection:
+        store = SQLiteVNextStore(connection, USER_ID)
+        for index in range(SLEEP_PROPOSAL_CAP):
+            _create_source(
+                store,
+                note=f"Private harbour salary note {index}.",
+                suffix=f"hid{index}",
+                minute=index + 1,
+                sensitivity="private",
+            )
+        _create_source(
+            store,
+            note="The public harbour checklist stays visible.",
+            suffix="visible",
+            minute=40,
+            sensitivity="public",
+        )
+    first = run_local_vault_sleep(database, user_id=USER_ID)
+    assert int(_line_value(first, "proposals written")) == SLEEP_PROPOSAL_CAP
+    second = run_local_vault_sleep(database, user_id=USER_ID)
+    assert int(_line_value(second, "proposals written")) == 0
+    assert int(_line_value(second, "sources not proposed")) == 1
+    listing = compile_sleep_proposal_listing(
+        database,
+        user_id=USER_ID,
+        effective_domains=(),
+        effective_sensitivity_allowed=("public", "unknown"),
+        effective_project_scope=(),
+    )
+    assert listing.splitlines()[0] == NO_SLEEP_PROPOSALS
+    assert _line_value(listing, "rows not shown") == str(SLEEP_PROPOSAL_CAP)
+    assert "Private harbour salary" not in listing
+    assert "public harbour checklist" not in listing
+
+
+def test_commit_line_escapes_a_line_separator(tmp_path: Path) -> None:
+    """U+2028 in an excerpt stays inside the commit line.
+
+    Mutation: dump the commit arguments with ensure_ascii false. The line
+    separator splits the arguments and they no longer parse as one object.
+    """
+
+    database = _database(tmp_path)
+    note = "The harbour radio stays on channel 7."
+    with sqlite_user_connection(database, USER_ID) as connection:
+        store = SQLiteVNextStore(connection, USER_ID)
+        source = _create_source(store, note=note, suffix="line", minute=2)
+    source_id = str(source["id"])
+    excerpt = "Keep the harbour radio" + "\u2028" + "on one commit line."
+    _write_jsonl(
+        sleep_proposals_path(database),
+        [
+            {
+                "excerpt": excerpt,
+                "source_id": source_id,
+                "status": "proposed",
+                "user_id": USER_ID,
+            }
+        ],
+    )
+    listing = compile_sleep_proposal_listing(database, user_id=USER_ID, **OPEN_FENCE)
+    commit_lines = [line for line in listing.splitlines() if line.startswith("alice_memory_commit: ")]
+    assert len(commit_lines) == 1
+    parsed = json.loads(commit_lines[0].split(": ", 1)[1])
+    assert parsed["canonical_text"] == excerpt
+    assert "\u2028" not in commit_lines[0]
+    assert "\\u2028" in commit_lines[0]
+
+
+def test_listing_rechecks_the_stored_excerpt(tmp_path: Path) -> None:
+    """A credential that is only in the stored excerpt is left out.
+
+    The source chunk is an ordinary note. Mutation: re-check the chunk and
+    not the excerpt. The row is offered.
+    """
+
+    ordinary = "The public harbour checklist stays on channel 7."
+    planted = f"we decided {_legacy_assignment()} for the billing store"
+    assert credential_verdict(planted) is None
+    assert commit_gate_refuses("", planted) is True
+    database = _database(tmp_path)
+    with sqlite_user_connection(database, USER_ID) as connection:
+        store = SQLiteVNextStore(connection, USER_ID)
+        source = _create_source(store, note=ordinary, suffix="excerpt", minute=1)
+    source_id = str(source["id"])
+    _write_jsonl(
+        sleep_proposals_path(database),
+        [
+            {
+                "excerpt": planted,
+                "source_id": source_id,
+                "status": "proposed",
+                "user_id": USER_ID,
+            }
+        ],
+    )
+    listing = compile_sleep_proposal_listing(database, user_id=USER_ID, **OPEN_FENCE)
+    assert listing.splitlines()[0] == NO_SLEEP_PROPOSALS
+    assert _legacy_assignment() not in listing
+    assert source_id not in listing
+    assert _line_value(listing, "rows not shown") == "1"
+
+
+def test_listing_rechecks_the_first_chunk_window(tmp_path: Path) -> None:
+    """A credential that is only in the first chunk window is left out.
+
+    The stored excerpt is an ordinary sentence. Mutation: re-check the
+    excerpt and not the chunk window. The row is offered.
+    """
+
+    ordinary = "The public harbour checklist stays on channel 7."
+    planted = f"rotate {_floor_token()} before the deploy"
+    assert credential_verdict(planted) is not None
+    database = _database(tmp_path)
+    with sqlite_user_connection(database, USER_ID) as connection:
+        store = SQLiteVNextStore(connection, USER_ID)
+        source = _create_source(store, note=planted, suffix="chunk", minute=1)
+    source_id = str(source["id"])
+    _write_jsonl(
+        sleep_proposals_path(database),
+        [
+            {
+                "excerpt": ordinary,
+                "source_id": source_id,
+                "status": "proposed",
+                "user_id": USER_ID,
+            }
+        ],
+    )
+    listing = compile_sleep_proposal_listing(database, user_id=USER_ID, **OPEN_FENCE)
+    assert listing.splitlines()[0] == NO_SLEEP_PROPOSALS
+    assert _floor_token() not in listing
+    assert ordinary not in listing
+    assert _line_value(listing, "rows not shown") == "1"
+
+
+def test_listing_keeps_a_clean_excerpt_when_the_later_token_trips_the_gate(tmp_path: Path) -> None:
+    """A kept row whose chunk fails only past the cut is still listed.
+
+    Mutation: re-check the whole first chunk. The proposal disappears.
+    """
+
+    head = "n" * SLEEP_EXCERPT_MAX
+    note = head + " The password policy is 12-characters for every harbour account."
+    assert commit_door_secret_verdict("", head) is None
+    assert commit_door_secret_verdict("", note) is not None
+    database = _database(tmp_path)
+    with sqlite_user_connection(database, USER_ID) as connection:
+        store = SQLiteVNextStore(connection, USER_ID)
+        source = _create_source(store, note=note, suffix="pastcut", minute=1)
+    source_id = str(source["id"])
+    report = run_local_vault_sleep(database, user_id=USER_ID)
+    assert int(_line_value(report, "proposals written")) == 1
+    assert int(_line_value(report, "sources withheld")) == 0
+    listing = compile_sleep_proposal_listing(database, user_id=USER_ID, **OPEN_FENCE)
+    assert f"source_id: {source_id}" in listing
+    assert "12-characters" not in listing
+    assert "rows not shown:" not in listing
+
+
+def test_receipt_always_prints_six_lines(tmp_path: Path) -> None:
+    """Zero withheld and zero removed are still printed.
+
+    Mutation: print those two lines only when the count is positive.
+    """
+
+    database = _database(tmp_path)
+    _seed_unlinked(database, 1, user_id=USER_ID, suffix="six")
+    report = run_local_vault_sleep(database, user_id=USER_ID)
+    for label in (
+        "proposals written",
+        "already present",
+        "skipped as already linked",
+        "cap",
+        "sources withheld",
+        "existing rows removed",
+    ):
+        assert any(line.startswith(f"{label}: ") for line in report.splitlines())
+    assert _line_value(report, "sources withheld") == "0"
+    assert _line_value(report, "existing rows removed") == "0"
+    assert _line_value(report, "proposals written") == "1"
+
+
+def test_a_refused_sidecar_row_does_not_fill_a_cap_slot(tmp_path: Path) -> None:
+    """The cap counts kept rows, not a row the credential check drops.
+
+    Mutation: count every existing sidecar row toward the cap. Eight clean
+    sources then write only seven.
+    """
+
+    planted = f"we decided {_legacy_assignment()} for the billing store"
+    database = _database(tmp_path)
+    with sqlite_user_connection(database, USER_ID) as connection:
+        store = SQLiteVNextStore(connection, USER_ID)
+        refused = _create_source(store, note=planted, suffix="refused", minute=1)
+        for index in range(SLEEP_PROPOSAL_CAP):
+            _create_source(
+                store,
+                note=f"Unlinked harbour clipboard note cap {index}.",
+                suffix=f"cap{index}",
+                minute=index + 2,
+            )
+    _write_jsonl(
+        sleep_proposals_path(database),
+        [
+            {
+                "excerpt": planted,
+                "source_id": str(refused["id"]),
+                "status": "proposed",
+                "user_id": USER_ID,
+            }
+        ],
+    )
+    report = run_local_vault_sleep(database, user_id=USER_ID)
+    assert int(_line_value(report, "existing rows removed")) == 1
+    assert int(_line_value(report, "proposals written")) == SLEEP_PROPOSAL_CAP
+    assert "sources not proposed:" not in report
+    assert _legacy_assignment() not in sleep_proposals_path(database).read_text(encoding="utf-8")
+
+
+def test_doctor_reports_an_unreadable_sidecar_and_keeps_the_census(tmp_path: Path) -> None:
+    """An unreadable sidecar does not drop the other doctor lines.
+
+    Mutation: let the read error leave compile_local_vault_doctor. The
+    census never prints.
+    """
+
+    database = _database(tmp_path)
+    _seed_unlinked(database, 1, user_id=USER_ID, suffix="doc")
+    sidecar = sleep_proposals_path(database)
+    sidecar.mkdir()
+    report = compile_local_vault_doctor(database, user_id=USER_ID)
+    assert _line_value(report, "sleep proposals") == "unreadable"
+    assert _line_value(report, "sources") == "1"
+    assert _line_value(report, "searchable chunks") == "1"
+    assert _line_value(report, "committed facts") == "0"
+    assert _line_value(report, "candidates waiting") == "0"
+    assert "last brief:" in report
+
+
+def test_doctor_still_fails_when_the_sidecar_is_invalid(tmp_path: Path) -> None:
+    """A corrupt sidecar is not reported as unreadable.
+
+    Mutation: catch every sleep error and print unreadable. This test fails.
+    """
+
+    database = _database(tmp_path)
+    sleep_proposals_path(database).write_text("{not json}\n", encoding="utf-8")
+    with pytest.raises(SleepError, match="invalid"):
+        compile_local_vault_doctor(database, user_id=USER_ID)
+
+
+def test_listing_calls_the_shared_commit_door_helper() -> None:
+    """One first-chunk helper, and the listing uses the shared door.
+
+    Mutation: copy a second _first_chunk_text, or check the listing with
+    credential_verdict directly. This test fails.
+    """
+
+    import alicebot_api.vault_sleep as sleep
+
+    source = inspect.getsource(sleep)
+    assert source.count("def _first_chunk_text(") == 1
+    listing = inspect.getsource(sleep.compile_sleep_proposal_listing)
+    assert "_text_refused" in listing
+    assert "credential_verdict" not in listing
+    assert "commit_gate_refuses" not in listing
+    assert "commit_door_secret_verdict" in inspect.getsource(sleep._text_refused)
 
 
 def _memory_count(database: Path) -> int:

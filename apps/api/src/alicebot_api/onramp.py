@@ -1013,7 +1013,9 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "List this user's sleep proposals oldest first by captured_at, "
             "then id, framed and JSON-quoted, with the alice_memory_commit "
-            "arguments that accept each one. Applies the session brief fences "
+            "arguments that accept each one, including the source domain, "
+            "sensitivity, and project scope. Skips a source that already has "
+            "an active or accepted memory. Applies the session brief fences "
             "and the commit door again. Writes nothing."
         ),
     )

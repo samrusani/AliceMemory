@@ -12,7 +12,9 @@ The commit door's credential check runs on the excerpt and on the cut
 window of the first chunk. A refusal is not written. An existing refused
 row is removed. The cap counts those kept rows, except a row whose
 source already has an active or accepted memory. The listing runs the
-same check again.
+same check again. It prints that source's domain, sensitivity, and
+project scope on the commit line, and it does not offer a source that
+already has an active or accepted memory.
 
 Does not create memories, does not rewrite sources or committed facts,
 and does not call consolidation. Counts and sidecar rows bind ``user_id``.
@@ -33,6 +35,7 @@ from alicebot_api.session_briefing import (
     quote_session_brief_text,
 )
 from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
+from alicebot_api.vnext_project_scope import source_project_scope
 
 SLEEP_PROPOSAL_CAP = 8
 SLEEP_PROPOSAL_FILENAME = "sleep_proposals.jsonl"
@@ -319,13 +322,17 @@ def compile_sleep_proposal_listing(
     with an earlier ``captured_at`` is listed before one imported earlier.
     The brief's domain, sensitivity, and project fences apply. The commit
     door runs again on the stored excerpt and on the cut window of the
-    first chunk. A refusal is omitted, not deleted.
+    first chunk. A refusal is omitted, not deleted. A source that already
+    has an active or accepted memory is omitted too. The commit arguments
+    include that source's domain, sensitivity, and project scope. The
+    commit line is ASCII-escaped. Rows left out are counted.
     """
 
     resolved = Path(db_path).expanduser().resolve()
     sidecar = sleep_proposals_path(resolved)
     rows = load_sleep_proposals(sidecar)
     ranked: list[tuple[tuple[str, str], str]] = []
+    not_shown = 0
     with sqlite_user_connection(resolved, user_id) as connection:
         store = SQLiteVNextStore(connection, user_id)
         uid = store.user_id
@@ -336,6 +343,9 @@ def compile_sleep_proposal_listing(
             excerpt = row.get("excerpt")
             if not isinstance(source_id, str) or source_id == "" or not isinstance(excerpt, str):
                 continue
+            if _has_committed_fact(store, source_id):
+                not_shown += 1
+                continue
             source = store.get_source(source_id)
             if source is None or not _source_honours_fence(
                 source,
@@ -343,11 +353,19 @@ def compile_sleep_proposal_listing(
                 effective_sensitivity_allowed=effective_sensitivity_allowed,
                 effective_project_scope=effective_project_scope,
             ):
+                not_shown += 1
                 continue
-            if _text_refused(excerpt) or _text_refused(_credential_window(_first_chunk_text(store, source_id))):
+            window = _credential_window(_first_chunk_text(store, source_id))
+            if _text_refused(excerpt) or _text_refused(window):
+                not_shown += 1
                 continue
+            domain = source.get("domain")
+            sensitivity = source.get("sensitivity")
             arguments = {
                 "canonical_text": excerpt,
+                "domain": domain if isinstance(domain, str) and domain != "" else "unknown",
+                "project_scope": list(source_project_scope(source)),
+                "sensitivity": sensitivity if isinstance(sensitivity, str) and sensitivity != "" else "unknown",
                 "source_refs": [source_id],
                 "title": excerpt[:120],
             }
@@ -360,16 +378,20 @@ def compile_sleep_proposal_listing(
                         (
                             f"source_id: {source_id}",
                             f"excerpt: {quote_session_brief_text(excerpt)}",
-                            "alice_memory_commit: " + json.dumps(arguments, ensure_ascii=False, sort_keys=True),
+                            "alice_memory_commit: " + json.dumps(arguments, ensure_ascii=True, sort_keys=True),
                         )
                     ),
                 )
             )
     ranked.sort(key=lambda item: item[0])
     blocks = [block for _order, block in ranked]
-    if not blocks:
-        return NO_SLEEP_PROPOSALS
-    return SESSION_BRIEF_FRAME + "\n\n" + "\n\n".join(blocks)
+    if blocks:
+        text = SESSION_BRIEF_FRAME + "\n\n" + "\n\n".join(blocks)
+    else:
+        text = NO_SLEEP_PROPOSALS
+    if not_shown:
+        text = f"{text}\nrows not shown: {not_shown}"
+    return text
 
 
 def _write_jsonl(path: Path, rows: list[dict[str, object]]) -> None:
