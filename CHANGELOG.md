@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- `POST /v0/continuity/captures` runs `commit_door_secret_verdict` on the
+  normalized text and returns 400 when that check refuses. Nothing from
+  that request is stored. The memory-write mirror, the HTTP 404 fallback,
+  and a client that already sends `user_id` in the body all hit this
+  check. Ordinary prose that trips the legacy gate is refused here too.
+  Hermes users with `sync_turn_capture_enabled`, or an explicit
+  `bridge_mode` of `assist` or `auto`, now get automatic capture. Only
+  user-role explicit-prefix candidates are auto-saved. The rest are
+  queued. To keep the old behavior, set `sync_turn_capture_enabled: false`.
+  A credential in the assistant reply still drops the user's valid
+  decision from the same turn.
+
 - A header-only JSON write under `/v0` reaches the route with the
   authenticated `user_id` in the body. `_rewrite_user_id_json_body` sets
   `request._body` to the rewritten JSON before `call_next`, the same cache

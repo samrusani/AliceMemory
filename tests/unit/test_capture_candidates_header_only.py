@@ -182,3 +182,31 @@ def test_header_only_capture_candidates_post_stays_404_when_legacy_v0_is_disable
     assert reached is False
     assert status == 404
     assert payload["detail"] == "legacy v0 API is disabled outside development and test"
+
+
+def test_mismatched_body_user_id_on_capture_candidates_returns_401(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A body user_id that does not match the authenticated user returns 401.
+
+    The handler does not open the store.
+    """
+
+    header_user_id = str(uuid4())
+    body_user_id = str(uuid4())
+    assert header_user_id != body_user_id
+    reached, _seen_user, status, payload = _post_candidates(
+        monkeypatch,
+        settings=Settings(
+            app_env="development",
+            auth_user_id="",
+            legacy_v0_enabled_outside_dev=False,
+            database_url="postgresql://db.example/alice",
+        ),
+        body=_candidate_body(user_id=body_user_id),
+        header_user_id=header_user_id,
+    )
+
+    assert reached is False
+    assert status == 401
+    assert payload["detail"]["code"] == "authentication_failed"

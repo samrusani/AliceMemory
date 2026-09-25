@@ -11,6 +11,12 @@ from alicebot_api.continuity_objects import (
     get_continuity_object_for_capture_event,
     list_continuity_objects_for_capture_events,
 )
+from alicebot_api.credential_floor import (
+    CREDENTIAL_MATERIAL_REFUSED_MESSAGE,
+    EXPANSION_REFUSED_MESSAGE,
+    VERDICT_EXPANSION,
+)
+from alicebot_api.legacy_credential_check import commit_door_secret_verdict
 from alicebot_api.contracts import (
     CONTINUITY_CAPTURE_ASSIST_AUTOSAVE_TYPES,
     CONTINUITY_CAPTURE_CANDIDATE_TYPES,
@@ -835,6 +841,16 @@ def capture_continuity_input(
     normalized_text = _normalize_content(request.raw_content)
     if not normalized_text:
         raise ContinuityCaptureValidationError("raw_content must not be empty")
+
+    # The memory-write mirror, the HTTP 404 fallback, and a client that
+    # sends user_id in the body all land here. The commit door runs before
+    # the capture event is written, so a refusal leaves no row. The router
+    # maps this error to HTTP 400, which the plugin treats as final.
+    verdict = commit_door_secret_verdict("", normalized_text)
+    if verdict == VERDICT_EXPANSION:
+        raise ContinuityCaptureValidationError(EXPANSION_REFUSED_MESSAGE)
+    if verdict is not None:
+        raise ContinuityCaptureValidationError(CREDENTIAL_MATERIAL_REFUSED_MESSAGE)
 
     explicit_signal = request.explicit_signal
     if explicit_signal is not None and explicit_signal not in CONTINUITY_CAPTURE_EXPLICIT_SIGNALS:
