@@ -481,7 +481,9 @@
   confirm leaves the row pending and does not keep a policy event for
   that refusal.
 - Confirming a row that is not pending is refused and writes nothing.
-  A repeated confirm fails with `confirmation is not pending`. v0.16.0
+  A repeated confirm fails with `confirmation is not pending`. Over stdio
+  that failure arrives as `tool_request_failed` with the message
+  `The tool request could not be processed` and no reason. v0.16.0
   answered `idempotent_replay: true` and refreshed `last_confirmed_at`.
   Retrying clients should treat the new failure as final. A repeated
   reject of an already rejected row is still a no-op replay.
@@ -591,7 +593,8 @@
   from 4.3.1 to 4.3.2, for security advisories (#410). Self-hosters
   rebuild the console.
 - Text whose normalised form is longer than 1,024 characters and more
-  than four times the source is refused, not truncated. On a memory
+  than four times the source is refused, not truncated. The same cap
+  also counts the distinct strings of one write together. On a memory
   commit the reason is `unsafe_text_expansion`.
 - Unexpire and project-update accept run the credential check before
   they write. Unexpire reads the stored title, text, and summary, and
@@ -609,12 +612,16 @@
   forget, expire, unexpire, and redact return that 403 inside the
   connection, so on Postgres the transaction commits and
   `policy.decision` and `agent.policy_blocked` stay.
+  These routes catch the refusal outside the connection. The transaction
+  rolls back before the 403 is sent, so those audit rows are gone:
   `GET /v0/vnext/artifacts/{artifact_id}`,
-  `GET /v0/vnext/traces/artifacts/{artifact_id}`, and
-  `POST /v0/vnext/artifacts/{artifact_id}/review` catch the refusal
-  outside the connection. The transaction rolls back before the 403 is
-  sent, so those audit rows are gone. No policy event is written when
-  there is no agent identity.
+  `GET /v0/vnext/traces/artifacts/{artifact_id}`,
+  `POST /v0/vnext/artifacts/{artifact_id}/review`,
+  `POST /v0/vnext/artifacts/{artifact_id}/quality-ratings`,
+  `POST /v0/vnext/artifacts/{artifact_id}/export`,
+  `POST /v0/vnext/artifacts/{artifact_id}/insight-feedback`, and
+  `POST /v0/vnext/projects/update-candidates/{artifact_id}/review`.
+  No policy event is written when there is no agent identity.
 - Pending writes created on v0.16.0 above an agent's sensitivity ceiling
   can only be rejected by that agent after the upgrade. Confirming one
   needs the owner or an `admin_agent` key.
@@ -622,7 +629,11 @@
   digest was re-minted
   (`acb550253aefafed73586fcba76f6b15797e9f0c36466212fb2b286102bd6dfa`).
   No tool was added, removed, or renamed. Hosts that pin tool
-  definitions will see a change. Legacy tool definitions are unchanged.
+  definitions will see a change. Three legacy tools gained size bounds
+  since v0.16.0: `alice_commit_captures`, `alice_review_apply`, and
+  `alice_vnext_commit_memory`. The legacy tool-definition digest changed
+  from `ca3d747e552bdece52c22d76332fc69f499878290edf3f236a8a7ea6a2e34e41`
+  to `2c21d4d624da448969554137e0b9cbae14c34cfaa0454e76d22ae480a6a29a58`.
 - The Hermes and OpenClaw skill packs, and the Hermes memory provider
   in `docs/integrations/hermes-memory-provider`, changed. Anyone who
   copied those files into a host must copy them again.

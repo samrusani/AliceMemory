@@ -197,9 +197,10 @@ ten shapes of the committed linear-time test, at 200 KB each took at most
 (three runs). One scan of the assignment pattern used
 before 2026-09-22 took 43 seconds on 50 KB. A field that grows more than four
 times under unicode normalisation (and past 1,024 characters) is refused with
-its own message rather than scanned or truncated; ordinary scripts grow at
-most 1.44 times. The linear-time claim is about this check only, not the
-whole promotion evaluation.
+its own message rather than scanned or truncated. The same cap also counts
+the distinct strings of one write together. Ordinary scripts grow at most
+1.44 times. The linear-time claim is about this check only, not the whole
+promotion evaluation.
 
 Since 2026-09-23 the promotion floor's credential clause calls the same check
 (addendum F1), over every field the write persists: title, text, excerpt,
@@ -367,6 +368,9 @@ Stated so nobody reads the table above as "every surface".
   `test_f1_a_password_label_with_a_colon_is_still_held_by_the_promotion_floor`
   and
   `test_f1_the_label_split_residual_is_not_held_back_and_that_is_documented`.
+- **A `fact_key`/`value` structured body.** The promotion floor does not
+  hold one. `hard_floor_hits` does not return `credential_material` for a
+  mapping such as `{"fact_key": "deploy_owner", "value": "Platform"}`.
 - **A lower-case AWS id split across fields** (`id ak` over
   `iaiosfodnn7example`). In one field it is caught in any case.
 - **A split whose second half is a copy of another field.** Someone who builds

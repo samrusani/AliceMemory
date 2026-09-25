@@ -507,7 +507,7 @@ at most 20,000 characters serialized.
 - MCP tools create reviewable sources, artifacts, open loops, and memory
   proposals; trusted writes go through the memory commit policy engine,
   never direct database mutation.
-- A blocked confirm or reject records its reason, for example
-  `all_requested_domains_restricted`, on the policy events. Over stdio
-  the client receives `tool_request_failed` with the message
-  `The tool request could not be processed` and no reason code.
+- Over stdio, a blocked read or confirm returns `tool_request_failed`
+  with the message `The tool request could not be processed` and no
+  reason. The reason is on the policy events (`policy.decision` and
+  `agent.policy_blocked`).
