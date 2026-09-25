@@ -471,9 +471,10 @@ def test_refused_title_cut_assignment_leaves_no_capture_events_row(
 
     value = "Ab" + "12" + "cd" + "EF"
     quoted = "PASSWORD" + '_DB="' + value + '"'
-    filler = ("ship the weekly billing report " * 20).strip()
-    refused_text = "decision: " + filler + " " + quoted
+    filler = "ship the weekly billing report " * 9
+    refused_text = "decision: " + filler + quoted
     assert refused_text.find(quoted) >= 280
+    assert len(refused_text) <= 500
 
     user_id = seed_user(migrated_database_urls["app"], email="title-cut@example.com")
     monkeypatch.setattr(
