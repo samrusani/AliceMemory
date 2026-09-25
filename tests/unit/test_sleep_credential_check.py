@@ -25,6 +25,7 @@ from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
 from alicebot_api.vault_sleep import (
     SLEEP_EXCERPT_MAX,
     SleepError,
+    _credential_window,
     load_sleep_proposals,
     run_local_vault_sleep,
     sleep_proposals_path,
@@ -161,10 +162,11 @@ def test_sleep_withholds_floor_and_legacy_hits_and_keeps_the_ordinary_note(tmp_p
 
 
 def test_an_aws_key_cut_inside_the_excerpt_is_withheld(tmp_path: Path) -> None:
-    """AKIA plus 8 characters in the excerpt, the rest only in the chunk.
+    """AKIA plus 8 characters in the excerpt, the rest of that token after the cut.
 
-    The excerpt alone passes. The full chunk is refused, so the row is
-    dropped. Mutation: check the excerpt and not the chunk. This test fails.
+    The excerpt alone passes. The token the cut falls in is refused, so the
+    row is dropped. Mutation: check the excerpt and not the rest of the
+    token. This test fails.
     """
 
     key = _aws_key()
@@ -190,6 +192,140 @@ def test_an_aws_key_cut_inside_the_excerpt_is_withheld(tmp_path: Path) -> None:
     assert visible not in report
     assert int(_line_value(report, "sources withheld")) == 1
     assert int(_line_value(report, "proposals written")) == 0
+
+
+def _lead_before(visible: str) -> str:
+    """Padding that puts ``visible`` at the end of the 160-character cut."""
+
+    pad = SLEEP_EXCERPT_MAX - len(visible)
+    assert pad > 1
+    return ("n" * (pad - 1)) + " "
+
+
+def test_an_aws_key_cut_after_eleven_characters_is_withheld(tmp_path: Path) -> None:
+    """AKIA plus 11 characters in the excerpt. The rest of the token is withheld.
+
+    Eleven characters after the prefix pass the commit door. The next
+    characters of that same token do not. Mutation: check only the
+    160-character excerpt. This test fails.
+    """
+
+    key = _aws_key()
+    visible = key[:15]
+    assert len(visible) == 15
+    note = _lead_before(visible) + key
+    excerpt = _short_excerpt(note)
+    assert excerpt.endswith(visible)
+    assert key not in excerpt
+    assert len(excerpt) == SLEEP_EXCERPT_MAX
+    assert commit_door_secret_verdict("", excerpt) is None
+    assert commit_door_secret_verdict("", _credential_window(note)) is not None
+
+    database = _database(tmp_path)
+    with sqlite_user_connection(database, USER_ID) as connection:
+        store = SQLiteVNextStore(connection, USER_ID)
+        _create_source(store, note=note, suffix="aws11", minute=1)
+
+    report = run_local_vault_sleep(database, user_id=USER_ID)
+    assert not sleep_proposals_path(database).exists()
+    assert key not in report
+    assert visible not in report
+    assert int(_line_value(report, "sources withheld")) == 1
+    assert int(_line_value(report, "proposals written")) == 0
+
+
+def test_an_assignment_cut_after_five_value_characters_is_withheld(tmp_path: Path) -> None:
+    """An assignment plus 5 value characters in the excerpt. The token is withheld.
+
+    Five value characters pass the commit door. The rest of that same token
+    does not. Mutation: check only the 160-character excerpt. This test fails.
+    """
+
+    assignment = _legacy_assignment()
+    visible = assignment[:17]
+    assert len(assignment) > len(visible)
+    note = _lead_before(visible) + assignment
+    excerpt = _short_excerpt(note)
+    assert excerpt.endswith(visible)
+    assert assignment not in excerpt
+    assert len(excerpt) == SLEEP_EXCERPT_MAX
+    assert commit_door_secret_verdict("", excerpt) is None
+    assert commit_door_secret_verdict("", _credential_window(note)) is not None
+
+    database = _database(tmp_path)
+    with sqlite_user_connection(database, USER_ID) as connection:
+        store = SQLiteVNextStore(connection, USER_ID)
+        _create_source(store, note=note, suffix="assign5", minute=1)
+
+    report = run_local_vault_sleep(database, user_id=USER_ID)
+    text = ""
+    sidecar = sleep_proposals_path(database)
+    if sidecar.exists():
+        text = sidecar.read_text(encoding="utf-8")
+    assert assignment not in text
+    assert assignment not in report
+    assert int(_line_value(report, "sources withheld")) == 1
+    assert int(_line_value(report, "proposals written")) == 0
+
+
+def test_a_legacy_hit_past_the_cut_still_proposes_the_excerpt(tmp_path: Path) -> None:
+    """A clean excerpt stays proposed when a later token trips the legacy gate.
+
+    The commit door accepts the excerpt and refuses the whole chunk. Mutation:
+    check the whole first chunk. This test fails.
+    """
+
+    head = "n" * SLEEP_EXCERPT_MAX
+    tail = " The password policy is 12-characters for every harbour account."
+    note = head + tail
+    excerpt = _short_excerpt(note)
+    assert excerpt == head
+    assert commit_door_secret_verdict("", excerpt) is None
+    assert commit_door_secret_verdict("", _credential_window(note)) is None
+    assert commit_door_secret_verdict("", note) is not None
+    assert commit_gate_refuses("", note) is True
+    assert credential_verdict(note) is None
+
+    database = _database(tmp_path)
+    with sqlite_user_connection(database, USER_ID) as connection:
+        store = SQLiteVNextStore(connection, USER_ID)
+        _create_source(store, note=note, suffix="past", minute=1)
+        _create_source(store, note=note + " Second watch.", suffix="past2", minute=2)
+
+    report = run_local_vault_sleep(database, user_id=USER_ID)
+    rows = load_sleep_proposals(sleep_proposals_path(database))
+    assert int(_line_value(report, "proposals written")) == 2
+    assert int(_line_value(report, "sources withheld")) == 0
+    assert [row["excerpt"] for row in rows] == [head, head]
+    assert "12-characters" not in sleep_proposals_path(database).read_text(encoding="utf-8")
+
+    again = run_local_vault_sleep(database, user_id=USER_ID)
+    assert int(_line_value(again, "proposals written")) == 0
+    assert int(_line_value(again, "existing rows removed")) == 0
+    assert load_sleep_proposals(sleep_proposals_path(database)) == rows
+
+
+def test_a_dangling_tmp_symlink_does_not_block_the_run(tmp_path: Path) -> None:
+    """A stale tmp that is a dangling symlink is removed before the create.
+
+    Mutation: unlink only when the path exists. This test fails.
+    """
+
+    database = _database(tmp_path)
+    with sqlite_user_connection(database, USER_ID) as connection:
+        store = SQLiteVNextStore(connection, USER_ID)
+        _create_source(store, note=_ordinary_note(), suffix="plain", minute=1)
+    sidecar = sleep_proposals_path(database)
+    stale = sidecar.with_name(f"{sidecar.name}.tmp")
+    stale.symlink_to(tmp_path / "missing-sleep-tmp-target")
+    assert stale.is_symlink()
+    assert not stale.exists()
+
+    report = run_local_vault_sleep(database, user_id=USER_ID)
+    assert int(_line_value(report, "proposals written")) == 1
+    assert not stale.exists()
+    assert _ordinary_note() in sidecar.read_text(encoding="utf-8")
+    assert _mode(sidecar) == 0o600
 
 
 def test_existing_rows_for_both_users_lose_credential_excerpts(tmp_path: Path) -> None:
@@ -238,11 +374,12 @@ def test_existing_rows_for_both_users_lose_credential_excerpts(tmp_path: Path) -
 
 
 def test_replace_bytes_and_modes_exclude_refused_material(tmp_path: Path, monkeypatch) -> None:
-    """The bytes at replace never hold a refused value. Modes are 0600.
+    """The bytes at replace never hold a refused value. The tmp mode is 0600.
 
     Covers a writing run, a stale 0644 tmp, and a no-op run on a 0644
-    sidecar. Mutation: write the tmp with the process default mode, or
-    skip the no-op chmod. This test fails.
+    sidecar. The tmp mode is read at the replace call under umask 0, before
+    the chmod on the replaced file. Mutation: create the tmp with the
+    default mode, or with write_text, or skip the no-op chmod. This test fails.
     """
 
     secret = _legacy_assignment()
@@ -255,11 +392,13 @@ def test_replace_bytes_and_modes_exclude_refused_material(tmp_path: Path, monkey
     assert _mode(stale) == 0o644
 
     captured: list[bytes] = []
+    modes: list[int] = []
     real_replace = Path.replace
 
     def _spy(self: Path, target: Path) -> Path:
         if self.name.endswith(".tmp"):
             captured.append(self.read_bytes())
+            modes.append(_mode(self))
         return real_replace(self, target)
 
     monkeypatch.setattr(Path, "replace", _spy)
@@ -268,9 +407,14 @@ def test_replace_bytes_and_modes_exclude_refused_material(tmp_path: Path, monkey
         _create_source(store, note=f"we decided {secret} for billing", suffix="secret", minute=1)
         _create_source(store, note=ordinary, suffix="plain", minute=2)
 
-    run_local_vault_sleep(database, user_id=USER_ID)
+    previous_umask = os.umask(0)
+    try:
+        run_local_vault_sleep(database, user_id=USER_ID)
+    finally:
+        os.umask(previous_umask)
     written = sidecar.read_text(encoding="utf-8")
     assert captured, "replace was not called"
+    assert modes == [0o600]
     assert all(secret.encode("utf-8") not in blob for blob in captured)
     assert secret not in written
     assert ordinary in written
@@ -286,10 +430,11 @@ def test_replace_bytes_and_modes_exclude_refused_material(tmp_path: Path, monkey
     assert secret not in second
 
 
-def test_a_clean_noop_leaves_the_sidecar_bytes_unchanged(tmp_path: Path) -> None:
-    """No new row and no dropped row: the file bytes stay put.
+def test_a_clean_noop_leaves_the_sidecar_bytes_unchanged(tmp_path: Path, monkeypatch) -> None:
+    """No new row and no dropped row: the file is not replaced.
 
-    Mutation: rewrite the sidecar on every run. This test fails.
+    Same bytes are not enough. Mutation: rewrite the sidecar on every run.
+    This test fails.
     """
 
     database = _database(tmp_path)
@@ -299,8 +444,20 @@ def test_a_clean_noop_leaves_the_sidecar_bytes_unchanged(tmp_path: Path) -> None
     run_local_vault_sleep(database, user_id=USER_ID)
     sidecar = sleep_proposals_path(database)
     before = sidecar.read_bytes()
+    before_inode = sidecar.stat().st_ino
+    replaced: list[str] = []
+    real_replace = Path.replace
+
+    def _spy(self: Path, target: Path) -> Path:
+        if self.name.endswith(".tmp"):
+            replaced.append(self.name)
+        return real_replace(self, target)
+
+    monkeypatch.setattr(Path, "replace", _spy)
     run_local_vault_sleep(database, user_id=USER_ID)
     assert sidecar.read_bytes() == before
+    assert sidecar.stat().st_ino == before_inode
+    assert replaced == []
 
 
 def test_sidecar_loads_and_runs_under_v0160_sleep(tmp_path: Path) -> None:
@@ -319,14 +476,13 @@ def test_sidecar_loads_and_runs_under_v0160_sleep(tmp_path: Path) -> None:
     sidecar = sleep_proposals_path(database)
     assert sidecar.read_text(encoding="utf-8")
 
-    source = subprocess.check_output(
-        ["git", "show", "v0.16.0:apps/api/src/alicebot_api/vault_sleep.py"],
-        cwd=REPO_ROOT,
-        text=True,
-    )
-    module_path = tmp_path / "v0160_vault_sleep.py"
-    module_path.write_text(source, encoding="utf-8")
-    spec = importlib.util.spec_from_file_location("v0160_vault_sleep_rollback", module_path)
+    fixture = REPO_ROOT / "tests/unit/fixtures_v0160_vault_sleep.py"
+    fixture_text = fixture.read_text(encoding="utf-8")
+    assert "3491d77a7920d75818c40f86f8b663f95e6fd86e" in fixture_text
+    assert "86d05b310b6315bd1e6dba546f126a55a9327410" in fixture_text
+    tag_path = "v0.16.0" + ":apps/api/src/alicebot_api/vault_sleep.py"
+    assert tag_path not in Path(__file__).read_text(encoding="utf-8")
+    spec = importlib.util.spec_from_file_location("v0160_vault_sleep_rollback", fixture)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
@@ -343,8 +499,10 @@ def test_sidecar_loads_and_runs_under_v0160_sleep(tmp_path: Path) -> None:
 def test_v0160_export_notes_and_imported_markdown_are_not_withheld() -> None:
     """v0.16.0 export notes and the first chunk of each tracked markdown file pass.
 
-    Import splits a file with ``chunk_text``. Sleep checks that first chunk,
-    not a later section. A refusal here is a source the writer would drop.
+    Import splits a file with ``chunk_text``. Sleep checks the flattened
+    text cut at 160 characters and extended through the token that cut falls
+    in, not a later section and not the rest of the chunk. A refusal here is
+    a source the writer would drop.
     """
 
     notes: list[str] = []
@@ -368,9 +526,12 @@ def test_v0160_export_notes_and_imported_markdown_are_not_withheld() -> None:
         if not chunks:
             continue
         chunk = chunks[0]
-        flattened = " ".join(chunk.split())
-        excerpt = flattened[:SLEEP_EXCERPT_MAX].rstrip() if len(flattened) > SLEEP_EXCERPT_MAX else flattened
-        if commit_door_secret_verdict("", excerpt) is not None or commit_door_secret_verdict("", chunk) is not None:
+        excerpt = _short_excerpt(chunk)
+        window = _credential_window(chunk)
+        if (
+            commit_door_secret_verdict("", excerpt) is not None
+            or commit_door_secret_verdict("", window) is not None
+        ):
             refused_docs.append(str(path.relative_to(REPO_ROOT)))
     assert refused_docs == []
 
