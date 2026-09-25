@@ -28,6 +28,7 @@ from alicebot_api.credential_floor import (
     refuse_credential_activation,
     refuse_credential_material,
     stored_text_fields,
+    string_values,
     withhold_credential_text,
 )
 from alicebot_api.write_bounds import MAX_CORRECTION_FIELD_CHARS, first_oversized
@@ -663,8 +664,10 @@ def _vnext_memory_correct(context: MCPRuntimeContext, arguments: Mapping[str, ob
             # The credential floor, on the row as it will be stored. This
             # handler writes the row itself, so it calls the shared check
             # here. A title-only edit is read against the stored text; derived
-            # previews of the text are left out, and provenance is read
-            # with its keys.
+            # previews of the text are left out. Provenance is read by value.
+            # Over MCP that is the same as reading keys: _REVIEW_PROVENANCE_SCHEMA
+            # allows only source_id, source_chunk_id, evidence_role, confidence,
+            # and quote, and additional properties are rejected before this runs.
             _refuse_oversized_correction(body=body, provenance=provenance)
             refuse_credential_material(
                 *stored_text_fields(
@@ -673,7 +676,7 @@ def _vnext_memory_correct(context: MCPRuntimeContext, arguments: Mapping[str, ob
                     patch.get("summary", memory.get("summary")),
                 ),
                 body,
-                provenance,
+                string_values(provenance),
                 reason,
                 error=MCPToolError,
             )
@@ -742,7 +745,7 @@ def _vnext_memory_correct(context: MCPRuntimeContext, arguments: Mapping[str, ob
             refuse_credential_material(
                 *stored_text_fields(replacement_title or canonical_text[:120], canonical_text, canonical_text[:280]),
                 replacement_body,
-                replacement_provenance,
+                string_values(replacement_provenance),
                 reason,
                 error=MCPToolError,
             )

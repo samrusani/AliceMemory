@@ -403,7 +403,7 @@ def apply_continuity_correction(
         # The credential floor, on the object as it will be stored, once per
         # row written. Until 2026-09-22 this path, which /v1 memory operation
         # commit uses for UPDATE, never consulted it. A title-only edit is
-        # read against the stored body; provenance by value only.
+        # read against the stored body. Provenance is read with its keys.
         _refuse_credential_row(next_title, next_body, next_provenance, reason)
 
     elif action == "delete":

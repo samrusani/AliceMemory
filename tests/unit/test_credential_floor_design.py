@@ -272,28 +272,83 @@ def test_t4_adversary_misses_are_caught(name: str) -> None:
     assert carries_credential_material(*_T4_TRUE[name]), name
 
 
-def test_unqualified_camel_case_key_names_are_refused_at_the_commit_door() -> None:
-    """v0.16.0 does not split camelCase. The commit door still refuses it.
+def test_product_rollup_key_is_exempt_only_as_that_exact_metadata_key() -> None:
+    """The product writes the exact key rollup_key. The text grammar does not.
 
-    stripeKey and openaiKey are unqualified key names. An opaque value
-    under either name is stored if the door reads the JSON as one string
-    and misses the pair.
+    A real rollup value has hex digits. A value with no digit passes the
+    weak tier on main too, so this uses scope:<hex>:topic:... The system-key
+    unwrap reads the value and not the name. rollupKey stays a weak name.
     """
 
-    from alicebot_api.legacy_credential_check import commit_door_secret_verdict
+    import hashlib
 
-    value = "Xq9mZt2L" + "xP9wKc4BVq7mZt2"
-    for name in ("stripeKey", "openaiKey"):
-        body = {name: value}
-        assert carries_credential_material(body)
-        assert commit_door_secret_verdict("Note", body) is not None
+    from alicebot_api.credential_floor import _KEY_STRUCTURAL, _name_kind
+    from alicebot_api.onramp import _without_system_keys
+
+    digest = hashlib.sha256(b"games").hexdigest()
+    rollup_value = "scope:" + digest + ":topic:games"
+    assert any(character.isdigit() for character in rollup_value)
+    assert "rollup" not in _KEY_STRUCTURAL
+    assert _name_kind("rollup_key", "", 0) == "weak"
+    assert _name_kind("rollupKey", "", 0) == "weak"
+    opaque = "Xq9mZt2L" + "xP9wKc4BVq7m"
+    assert not carries_credential_material({"rollup_key": rollup_value})
+    assert not carries_credential_material({"rollup": {"rollup_key": rollup_value}})
+    assert not carries_credential_material(_without_system_keys({"rollup_key": rollup_value}))
+    assert carries_credential_material("rollup_key=" + opaque)
+    assert carries_credential_material({"rollupKey": opaque})
+    assert carries_credential_material({"ROLLUP_KEY": opaque})
+    assert carries_credential_material({"rollup-key": opaque})
+    assert carries_credential_material({"Rollup-Key": opaque})
 
 
-def test_rollup_key_is_structural_and_not_a_secret_name() -> None:
-    from alicebot_api.credential_floor import _name_kind
+def test_a_routing_session_key_is_an_identifier_and_gpg_key_is_not() -> None:
+    """session_key over agent:main:telegram:dm:<digits> is ordinary routing.
 
-    assert _name_kind("rollup_key", "", 0) is None
-    assert not carries_credential_material({"rollup_key": "scope:" + "ab" * 20 + ":topic:games"})
+    The same key over an opaque value is refused. gpg_key over a key id is
+    refused. The signing-key exemption is only the name signingkey.
+    """
+
+    routing = "agent:main:telegram:dm:4471"
+    opaque = "Xq9mZt2L" + "xP9wKc4BVq7m"
+    key_id = "A1B2" + "C3D4" + "E5F6" + "7890"
+    assert not carries_credential_material({"session_key": routing})
+    assert carries_credential_material({"session_key": opaque})
+    assert carries_credential_material({"gpg_key": key_id})
+    assert not carries_credential_material({"signingkey": key_id})
+
+
+def test_mcp_review_provenance_schema_allows_only_five_keys() -> None:
+    from alicebot_api.mcp.definitions import _REVIEW_PROVENANCE_SCHEMA
+
+    assert _REVIEW_PROVENANCE_SCHEMA["additionalProperties"] is False
+    assert set(_REVIEW_PROVENANCE_SCHEMA["properties"]) == {
+        "source_id",
+        "source_chunk_id",
+        "evidence_role",
+        "confidence",
+        "quote",
+    }
+
+
+def test_keyed_reading_measurement_counts_notes_at_the_doors() -> None:
+    from scripts.measure_keyed_credential_reading import count_notes, synthetic_notes
+
+    counts = count_notes(synthetic_notes())
+    assert "rollup_key text" in counts["commit"]
+    assert "rollupKey" in counts["commit"]
+    assert "stripeKey" in counts["commit"]
+    assert "openaiKey" in counts["commit"]
+    assert "ordinary" not in counts["commit"]
+    assert "product rollup_key" not in counts["import_before"]
+    assert "product rollup_key" not in counts["import_after"]
+    assert "rollupKey" in counts["import_after"]
+    assert "rollupKey" not in counts["import_before"]
+    assert "session_key" not in counts["import_after"]
+    assert "gpg_key" in counts["import_after"]
+    assert "gpg_key" not in counts["import_before"]
+    assert "dedupe" not in counts["import_after"]
+    assert len(counts["import_after"]) > len(counts["import_before"])
 
 
 # ---------------------------------------------------------------------------

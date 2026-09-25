@@ -647,7 +647,6 @@ _KEY_STRUCTURAL = frozenset(
         "routing", "row", "shard", "composite", "unique", "natural", "surrogate", "lock", "i18n",
         "translation", "trace", "cursor", "page", "next", "prev", "continuation", "order",
         "join", "dict", "record", "entity", "subject", "topic", "bucket", "s3", "redis", "hotkey",
-        "rollup",
         "short", "shortcut", "keyboard", "music", "public", "publishable", "pub", "project", "tenant",
         "user", "session_id", "external", "idem", "event", "message", "query", "column", "field",
     }
@@ -761,6 +760,11 @@ def _assignment_value_ok(kind: str, value: str, following: str) -> bool:
 # A GPG key id or fingerprint (8, 16 or 40 hex digits, optional 0x) under
 # git's signingkey: an identifier, not the key (adversary review, round 3).
 _GPG_KEY_ID = re.compile(r"(?:0[xX])?(?:[0-9A-Fa-f]{8}|[0-9A-Fa-f]{16}|[0-9A-Fa-f]{40})")
+# OpenClaw routing id under the exact key session_key. The last segment is
+# digits, so a long opaque tail is not this shape.
+_ROUTING_SESSION_VALUE = re.compile(
+    r"agent:[A-Za-z0-9_-]{1,32}:[A-Za-z0-9_-]{1,32}:[A-Za-z0-9_-]{1,32}:[0-9]{1,32}"
+)
 # An SSH public key algorithm and its body: "Deploy key: ssh-ed25519 AAAA...".
 _SSH_ALGORITHM = re.compile(
     r"ssh-(?:ed25519|rsa|dss)|ecdsa-sha2-nistp(?:256|384|521)|sk-(?:ssh-ed25519|ecdsa-sha2-nistp256)@openssh\.com"
@@ -770,6 +774,8 @@ _SSH_PUBLIC_BODY = re.compile(r"[ \t]+AAAA[0-9A-Za-z+/]{20,}")
 
 def _identifier_not_secret(run: str, value: str, text: str, value_end: int) -> bool:
     if run.lower().replace("_", "").replace("-", "") == "signingkey" and _GPG_KEY_ID.fullmatch(value):
+        return True
+    if run == "session_key" and _ROUTING_SESSION_VALUE.fullmatch(value):
         return True
     return bool(_SSH_ALGORITHM.fullmatch(value)) and bool(_SSH_PUBLIC_BODY.match(text, value_end))
 
@@ -817,8 +823,16 @@ _WHITESPACE = re.compile(r"\s")
 
 
 def _pair_hit(key: str, value: str) -> bool:
-    """Addition A1: one mapping pair, checked alone and never joined."""
+    """Addition A1: one mapping pair, checked alone and never joined.
 
+    The product writes the exact key ``rollup_key`` in JSON (metadata and
+    the value column). That pair is not a secret name. The value is still
+    scanned on its own. The text grammar is unchanged, so ``rollup_key=``
+    in canonical text is still a weak name. Other spellings are not exempt.
+    """
+
+    if key == "rollup_key":
+        return False
     val = value.strip().strip("\"'")
     if len(val) < _PAIR_MIN_CHARS or len(val) > _PAIR_MAX_CHARS or _WHITESPACE.search(val):
         return False

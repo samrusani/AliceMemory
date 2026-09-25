@@ -39,6 +39,7 @@ from alicebot_api.continuity_review import ContinuityReviewValidationError, appl
 from alicebot_api.contracts import ContinuityCorrectionInput, MemoryOperationGenerateInput
 from alicebot_api.credential_floor import (
     CREDENTIAL_MATERIAL_REFUSED_MESSAGE,
+    TEXT_WITHHELD_PLACEHOLDER,
     carries_credential_material,
     refuse_credential_material,
 )
@@ -209,6 +210,45 @@ def test_door2_the_default_mcp_commit_tool_is_covered(tmp_path) -> None:
     assert result["status"] == "rejected"
     with sqlite_user_connection(Path(tmp_path) / "memory.db", USER_ID) as conn:
         assert _rows(SQLiteVNextStore(conn, USER_ID)) == []
+
+
+def test_camel_case_key_names_are_refused_by_alice_memory_commit(tmp_path) -> None:
+    """The commit door receives canonical_text as a string.
+
+    stripeKey, openaiKey, and rollupKey are unqualified key names. A dict
+    passed to commit_door_secret_verdict is not this door. Deleting the
+    camelCase split stores the env lines and leaves these assertions red.
+    """
+
+    opaque = "Xq9mZt2L" + "xP9wKc4BVq7m"
+    texts = (
+        f"stripeKey={opaque}",
+        f"openaiKey={opaque}",
+        f"rollupKey={opaque}",
+        json.dumps({"rollupKey": opaque}),
+        f"rollupKey: {opaque}",
+        f"Rollup-Key: {opaque}",
+        f"ROLLUP_KEY={opaque}",
+        f"rollup-key={opaque}",
+        f"rollup_key={opaque}",
+    )
+    context = _sqlite_context(tmp_path)
+    for text in texts:
+        result = call_mcp_tool(
+            context,
+            name="alice_memory_commit",
+            arguments={"title": "note", "canonical_text": text},
+        )
+        assert result["status"] == "rejected", text
+        assert "unsafe_secret_storage" in result["reasons"], text
+    with sqlite_user_connection(Path(tmp_path) / "memory.db", USER_ID) as conn:
+        assert _rows(SQLiteVNextStore(conn, USER_ID)) == []
+    clean = call_mcp_tool(
+        context,
+        name="alice_memory_commit",
+        arguments={"title": "deploy", "canonical_text": "Deploys go out on Tuesdays."},
+    )
+    assert clean["status"] == "committed"
 
 
 # ---------------------------------------------------------------------------
@@ -483,32 +523,61 @@ def test_door4_a_title_only_edit_is_read_against_the_stored_body() -> None:
     assert store.writes == []
 
 
+def _assert_credential_refusal(call) -> BaseException:
+    """A missed refusal raises LookupError from the stub. Fail that by assertion."""
+
+    try:
+        call()
+    except (ContinuityReviewValidationError, ContinuityObjectValidationError) as exc:
+        assert "credential material" in str(exc)
+        return exc
+    except Exception as exc:
+        raise AssertionError(f"expected a credential refusal, got {type(exc).__name__}: {exc}") from exc
+    raise AssertionError("expected a credential refusal")
+
+
+def _assert_write_reached_store(call) -> None:
+    """A refusal before the store raises a validation error. Fail that by assertion."""
+
+    try:
+        call()
+    except LookupError:
+        return
+    except Exception as exc:
+        raise AssertionError(f"the write was refused before the store: {type(exc).__name__}: {exc}") from exc
+    raise AssertionError("the stub should raise after the write")
+
+
 def test_door4_provenance_is_read_with_its_keys() -> None:
     """Provenance is read keyed.
 
     An OpenClaw import writes ``openclaw_dedupe_key`` holding a SHA-256 digest.
     ``dedupe`` is a structural name, so that pair is not a secret. A secret
-    under a secret name is refused, the same as in a body.
+    under a secret name is refused, the same as in a body. A routing
+    session_key is an identifier.
     """
 
     digest = hashlib.sha256(b"workspace").hexdigest()
     structural = {"openclaw_dedupe_key": digest, "source_kind": "openclaw_import"}
     keyed_secret = {"api_key": "Xq9mZt2L" + "xP9wKc4BVq7m"}
+    routing = {"session_key": "agent:main:telegram:dm:4471", "source_kind": "openclaw_import"}
     assert carries_credential_material(keyed_secret)
     assert not carries_credential_material(structural)
+    assert not carries_credential_material(routing)
 
     store = _StoredContinuityObject()
-    with pytest.raises(LookupError):
-        _correct(
+    _assert_write_reached_store(
+        lambda: _correct(
             store,
             ContinuityCorrectionInput(
                 action="supersede", replacement_title="Decision: keep it", replacement_provenance=structural
             ),
         )
+    )
     assert store.writes, "the write reached the store"
     sink = _RecordingContinuityStore()
-    with pytest.raises(LookupError):
-        create_continuity_object_record(
+    _assert_write_reached_store(
+        lambda: create_continuity_object_record(
             sink,  # type: ignore[arg-type]
             user_id=uuid4(),
             capture_event_id=uuid4(),
@@ -518,21 +587,34 @@ def test_door4_provenance_is_read_with_its_keys() -> None:
             provenance=structural,
             confidence=0.9,
         )
+    )
     assert sink.calls == ["create_continuity_object"]
+
+    route_store = _StoredContinuityObject()
+    _assert_write_reached_store(
+        lambda: _correct(
+            route_store,
+            ContinuityCorrectionInput(
+                action="supersede", replacement_title="Decision: keep it", replacement_provenance=routing
+            ),
+        )
+    )
+    assert route_store.writes, "a routing session_key reached the store"
 
     for provenance in (keyed_secret,):
         store = _StoredContinuityObject()
-        with pytest.raises(ContinuityReviewValidationError, match="credential material"):
-            _correct(
+        _assert_credential_refusal(
+            lambda provenance=provenance: _correct(
                 store,
                 ContinuityCorrectionInput(
                     action="supersede", replacement_title="Decision: keep it", replacement_provenance=provenance
                 ),
             )
+        )
         assert store.writes == []
         sink = _RecordingContinuityStore()
-        with pytest.raises(ContinuityObjectValidationError, match="credential material"):
-            create_continuity_object_record(
+        _assert_credential_refusal(
+            lambda provenance=provenance: create_continuity_object_record(
                 sink,  # type: ignore[arg-type]
                 user_id=uuid4(),
                 capture_event_id=uuid4(),
@@ -542,6 +624,7 @@ def test_door4_provenance_is_read_with_its_keys() -> None:
                 provenance=provenance,
                 confidence=0.9,
             )
+        )
         assert sink.calls == []
 
     # A self-identifying token in a provenance value is still refused.
@@ -554,6 +637,41 @@ def test_door4_provenance_is_read_with_its_keys() -> None:
             ),
         )
     assert store.writes == []
+
+
+class _EventCapture(_StoredContinuityObject):
+    """Records the correction event payload, then raises like the other stub."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.event_payload: dict[str, object] | None = None
+
+    def create_continuity_correction_event(self, **kwargs: object) -> object:
+        payload = kwargs.get("payload")
+        self.event_payload = payload if isinstance(payload, dict) else None
+        self.writes.append("create_continuity_correction_event")
+        raise LookupError("captured correction event")
+
+
+def test_door4_a_secret_name_in_provenance_is_withheld_on_the_review_event() -> None:
+    """Delete stores the request on the event. A secret name is withheld.
+
+    Reading provenance by value keeps this pair, because the value does not
+    identify itself. The assertion is on the stored placeholder.
+    """
+
+    opaque = "Xq9mZt2L" + "xP9wKc4BVq7m"
+    assert not carries_credential_material(opaque)
+    store = _EventCapture()
+    _assert_write_reached_store(
+        lambda: _correct(
+            store,
+            ContinuityCorrectionInput(action="delete", provenance={"api_key": opaque}),
+        )
+    )
+    assert store.event_payload is not None
+    assert store.event_payload["provenance"] == TEXT_WITHHELD_PLACEHOLDER
+    assert opaque not in json.dumps(store.event_payload)
 
 
 # ---------------------------------------------------------------------------
