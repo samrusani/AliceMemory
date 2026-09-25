@@ -84,7 +84,10 @@ EXPECTED_ROUTE_NAME_MANIFEST_SHA256 = "225c57c08bd8314156c56352dd1c53ffed3f556ce
 EXPECTED_OPERATION_MANIFEST_SHA256 = "c320979b62d7ee8de244fe38bde5bf3761a4f9d76f76bf3cd8576c30fce9857e"
 EXPECTED_IMPORT_MANIFEST_SHA256 = "8d9669a4024ea5258cd50f92ac290c2a040ff224dd0a67b5c60faed5ae722517"
 EXPECTED_CARRIER_NAMES_SHA256 = "2c109fc234a05dd8f44e4c34bee49e797fbb5e49e92413391541a7e504da328b"
-EXPECTED_CARRIER_AST_SHA256 = "387d8b6ce15fe473a690da845117fe9a51fb1c3b98bf08f3761556b8689caa4b"
+# Re-pinned 2026-09-26. _rewrite_user_id_json_body writes the rewritten JSON
+# into request._body before call_next. A per-definition AST diff against
+# origin/main showed only that definition changed.
+EXPECTED_CARRIER_AST_SHA256 = "a7bef8b4e136e0ffc5dd4bbe2ede6b8d5496a28849d5536098101f03b7adfd10"
 EXPECTED_ROUTE_NODE_SHA256 = {
     "get_vnext_workspace": "6c2151bf38b1b1311f016c00d14394afc7077a6ea219f7ce3dcfd9b701474ae7",
     "bootstrap_v1_workspace": "07b1fe2a4cd03a5ba69abe76e258a457e85e92b0bfba592520ee02d01d759c4b",
