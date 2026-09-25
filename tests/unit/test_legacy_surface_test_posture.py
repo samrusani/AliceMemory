@@ -25,10 +25,19 @@ def test_integration_runners_enable_legacy_surfaces_without_changing_unit_postur
         "\n\ntest-web:", 1
     )[0]
 
-    assert (
+    role_separation = integration_job.split(
+        "name: Integration tests", 1
+    )[1].split("name: Default-surface core round-trip", 1)[0]
+    run_lines = [
+        line.strip()
+        for line in role_separation.splitlines()
+        if "pytest tests/integration -q -p no:cacheprovider" in line
+    ]
+    assert run_lines == [
         "run: ALICE_LEGACY_SURFACES=1 ./.venv/bin/python -m pytest "
-        "tests/integration -q -p no:cacheprovider --durations=20 --timeout=180"
-    ) in integration_job
+        "tests/integration -q -p no:cacheprovider --durations=20 "
+        "--timeout=180 --session-timeout=1500"
+    ]
     assert (
         "ALICE_LEGACY_SURFACES=1 $(PYTHON) -m pytest tests/integration -q"
     ) in make_test_python
