@@ -2,8 +2,8 @@
 
 ## Unreleased
 
-- Design note for Sprint 6 host adapters, revised to the host-format
-  rulings. No installer change in this note.
+- Design note for Sprint 6 host adapters: OpenCode and Codex MCP entries,
+  and a Claude Code plugin as an alternative to install. No installer change.
 
 - A blocked idempotent replay of `POST /v0/vnext/memories/commit` returns
   403 and keeps its policy rows. A new commit that policy rejects still
