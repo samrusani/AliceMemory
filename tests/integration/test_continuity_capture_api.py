@@ -291,14 +291,16 @@ def test_continuity_capture_candidate_and_commit_pipeline_supports_assist_mode_a
     assert commit_payload["summary"] == {
         "mode": "assist",
         "candidate_count": 2,
-        "auto_saved_count": 2,
-        "review_queued_count": 0,
+        "auto_saved_count": 1,
+        "review_queued_count": 1,
         "noop_count": 0,
         "duplicate_noop_count": 0,
-        "auto_saved_types": ["correction", "decision"],
-        "review_queued_types": [],
+        "auto_saved_types": ["decision"],
+        "review_queued_types": ["correction"],
     }
-    assert all(item["decision"] == "auto_saved" for item in commit_payload["commits"])
+    by_type = {item["candidate_type"]: item for item in commit_payload["commits"]}
+    assert by_type["decision"]["decision"] == "auto_saved"
+    assert by_type["correction"]["decision"] == "queued_for_review"
 
 
 def test_continuity_capture_pipeline_routes_disallowed_or_low_confidence_candidates_to_review_queue(
@@ -452,3 +454,74 @@ def test_continuity_capture_pipeline_noop_and_repeated_sync_are_write_safe(
     )
     assert list_status_after == 200
     assert list_payload_after["summary"]["total_count"] == 1
+
+
+def test_refused_title_cut_assignment_leaves_no_capture_events_row(
+    migrated_database_urls,
+    monkeypatch,
+) -> None:
+    """A quoted assignment past the title cut refuses the whole turn.
+
+    The floor accepts the text. The commit door does not. The capture
+    event is written before the object, and a later candidate in the same
+    request would have been stored. The refusal rolls the transaction
+    back, so continuity_capture_events has no row. Mutation: check the
+    title only. The commit returns 200.
+    """
+
+    value = "Ab" + "12" + "cd" + "EF"
+    quoted = "PASSWORD" + '_DB="' + value + '"'
+    filler = "ship the weekly billing report " * 9
+    refused_text = "decision: " + filler + quoted
+    assert refused_text.find(quoted) >= 280
+    assert len(refused_text) <= 500
+
+    user_id = seed_user(migrated_database_urls["app"], email="title-cut@example.com")
+    monkeypatch.setattr(
+        main_module,
+        "get_settings",
+        lambda: Settings(database_url=migrated_database_urls["app"]),
+    )
+    monkeypatch.setattr(
+        continuity_router,
+        "get_settings",
+        lambda: Settings(database_url=migrated_database_urls["app"]),
+    )
+
+    status, _payload = invoke_request(
+        "POST",
+        "/v0/continuity/captures/commit",
+        payload={
+            "user_id": str(user_id),
+            "mode": "assist",
+            "sync_fingerprint": "sync-title-cut-001",
+            "candidates": [
+                {
+                    "candidate_type": "decision",
+                    "object_type": "Decision",
+                    "normalized_text": "decision: keep the weekly billing report",
+                    "confidence": 0.95,
+                    "explicit": True,
+                    "source_role": "user",
+                    "admission_reason": "explicit_prefix_decision",
+                },
+                {
+                    "candidate_type": "decision",
+                    "object_type": "Decision",
+                    "normalized_text": refused_text,
+                    "confidence": 0.95,
+                    "explicit": True,
+                    "source_role": "user",
+                    "admission_reason": "explicit_prefix_decision",
+                },
+            ],
+        },
+    )
+    assert status == 400
+
+    with user_connection(migrated_database_urls["app"], user_id) as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT count(*) AS n FROM continuity_capture_events")
+            row = cur.fetchone()
+    count = row["n"] if isinstance(row, dict) else row[0]
+    assert count == 0

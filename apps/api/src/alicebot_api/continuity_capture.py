@@ -135,6 +135,8 @@ _CANDIDATE_PREFIX_RULES: tuple[
     ("note:", "note", "Note", "explicit_prefix_note"),
 )
 
+_PREFIX_ADMISSION_REASONS = frozenset(reason for _prefix, _candidate_type, _object_type, reason in _CANDIDATE_PREFIX_RULES)
+
 _CANDIDATE_REGEX_RULES: tuple[
     tuple[
         re.Pattern[str],
@@ -328,6 +330,29 @@ def _candidate_id(*, candidate_type: str, normalized_text: str, source_role: str
     return hashlib.sha256(encoded).hexdigest()
 
 
+def _user_prefix_autosave(
+    *,
+    explicit: bool,
+    candidate_type: str,
+    confidence: float,
+    source_role: str,
+    admission_reason: str,
+) -> bool:
+    """Auto-save only a user turn that used an explicit prefix rule.
+
+    Regex hits set ``explicit`` too. Assistant turns do as well. Neither
+    is an instruction from the user to save the line.
+    """
+
+    return (
+        source_role == "user"
+        and explicit
+        and candidate_type in CONTINUITY_CAPTURE_ASSIST_AUTOSAVE_TYPES
+        and admission_reason in _PREFIX_ADMISSION_REASONS
+        and confidence >= 0.9
+    )
+
+
 def _derive_trust_class(*, explicit: bool, confidence: float) -> MemoryTrustClass:
     if explicit and confidence >= 0.9:
         return "deterministic"
@@ -344,10 +369,12 @@ def _build_candidate_record(candidate: ExtractedCandidate) -> ContinuityCaptureC
     )
     if candidate.candidate_type == "no_op":
         proposed_action: ContinuityCaptureProposedAction = "no_op"
-    elif (
-        candidate.explicit
-        and candidate.candidate_type in CONTINUITY_CAPTURE_ASSIST_AUTOSAVE_TYPES
-        and candidate.confidence >= 0.9
+    elif _user_prefix_autosave(
+        explicit=candidate.explicit,
+        candidate_type=candidate.candidate_type,
+        confidence=candidate.confidence,
+        source_role=candidate.source_role,
+        admission_reason=candidate.admission_reason,
     ):
         proposed_action = "auto_save_candidate"
     else:
@@ -591,19 +618,17 @@ def _resolve_commit_decision(
     if candidate_type in CONTINUITY_CAPTURE_REVIEW_REQUIRED_TYPES:
         return "queued_for_review", "type_requires_review", "review_queue"
 
-    if mode == "assist":
-        if (
-            candidate_type in CONTINUITY_CAPTURE_ASSIST_AUTOSAVE_TYPES
-            and explicit
-            and confidence >= 0.9
+    if mode in {"assist", "auto"}:
+        if _user_prefix_autosave(
+            explicit=explicit,
+            candidate_type=candidate_type,
+            confidence=confidence,
+            source_role=candidate["source_role"],
+            admission_reason=candidate["admission_reason"],
         ):
-            return "auto_saved", "assist_mode_allowlist_explicit_high_confidence", "continuity_objects"
-        return "queued_for_review", "assist_mode_review_gate", "review_queue"
-
-    if mode == "auto":
-        if candidate_type in CONTINUITY_CAPTURE_ASSIST_AUTOSAVE_TYPES and confidence >= 0.85:
-            return "auto_saved", "auto_mode_allowlist_high_confidence", "continuity_objects"
-        return "queued_for_review", "auto_mode_review_gate", "review_queue"
+            return "auto_saved", "user_explicit_prefix_rule", "continuity_objects"
+        gate = "assist_mode_review_gate" if mode == "assist" else "auto_mode_review_gate"
+        return "queued_for_review", gate, "review_queue"
 
     return "queued_for_review", "unsupported_mode_review_fallback", "review_queue"
 
