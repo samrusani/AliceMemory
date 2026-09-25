@@ -637,6 +637,46 @@
   `agent.policy_blocked` and then raises, so Postgres rolls those rows
   back. A new commit that policy rejects is answered from inside the
   connection, so those rows stay.
+  CLI handlers are a separate split. These append `policy.decision`
+  and `agent.policy_blocked` and then let `AgentPolicyBlockedError`
+  leave `_vnext_store_context` (and `user_connection`), so Postgres
+  rolls those rows back: `_run_vnext_memory_confirm`,
+  `_run_vnext_memory_undo`, `_run_vnext_memory_correct`,
+  `_run_vnext_memory_forget`, `_run_vnext_memory_quarantine`,
+  `_run_vnext_memory_expire`, `_run_vnext_memory_unexpire`,
+  `_run_vnext_memory_accept_consolidation`, `_run_vnext_memory_recent`,
+  and `_run_vnext_memory_audit`.
+  `_run_vnext_memory_redact` does that when the row is not already an
+  exact redaction: `authorize_memory_action` appends the events and
+  raises inside the connection. An exact replay raises
+  `AgentPolicyBlockedError` without appending those events.
+  `_run_vnext_agents_ingest_output` appends the events and calls
+  `ensure_policy_allowed` inside the connection, so a block rolls those
+  rows back. `_run_vnext_demo_load` does that for its agent-output
+  `source.capture` check. The same load later appends a
+  `context_pack.request` decision and does not raise, so that
+  connection commits those rows.
+  `_run_vnext_memory_commit` follows the HTTP commit split. An
+  idempotent replay appends the events and raises inside the
+  connection, so Postgres rolls those rows back. A new commit that
+  policy rejects returns from inside the connection, so those rows stay.
+  These append the events and call `ensure_policy_allowed` only after
+  the connection exits, so the rows stay:
+  `_run_vnext_agent_propose_memory`, `_run_vnext_scheduler_run_now`,
+  `_run_vnext_scheduler_run_due`, `_run_vnext_scheduler_pause`, and
+  `_run_vnext_scheduler_resume`. Scheduler status, runs, failures, and
+  the daemon commands do not write those events.
+  `_run_vnext_smoke_agentic_scheduler` lets the error leave its first
+  connection on the proposal, daily, weekly, and due checks. A later
+  connection appends a blocked `scheduler.pause` decision and exits
+  normally, so that row stays.
+  `_run_vnext_smoke_agent_integration_pack` lets the error leave on its
+  context-pack and agent-output checks. Its restricted-domain
+  `context_pack.request` append does not raise, so those rows stay.
+  `_run_vnext_smoke_agentic_memory_commit` calls confirm, correct,
+  forget, and undo inside one connection with no catch, so a block
+  there rolls back. Its commit calls return a rejection inside the
+  connection, so those rows stay.
   No policy event is written when there is no agent identity.
 - Pending writes created on v0.16.0 above an agent's sensitivity ceiling
   can only be rejected by that agent after the upgrade. Confirming one
