@@ -111,10 +111,13 @@ def _parse_frontmatter(raw_text: str) -> tuple[dict[str, str], list[str]]:
 # Radix-64 and standard base64 use the same alphabet. Padding, when the line
 # has any, is one or two "=" at the end. A checksum line is "=" plus the
 # four-character CRC. An armor header is "Name: value", as PEM and OpenPGP
-# write it (Proc-Type, DEK-Info, Version, Comment).
+# write it (Proc-Type, DEK-Info, Version, Comment). That header counts only
+# as a run directly after the BEGIN line, before the first blank or radix-64
+# line. A block also needs one radix-64 line of 40 or more characters.
 _RADIX64_LINE = re.compile(r"[A-Za-z0-9+/]+={0,2}")
 _CHECKSUM_LINE = re.compile(r"=[A-Za-z0-9+/]{4}")
 _ARMOR_HEADER_LINE = re.compile(r"[A-Za-z][A-Za-z0-9-]{0,70}:[ \t]*\S.*")
+_MIN_RADIX64_LINE = 40
 
 
 def _is_code_fence(line: str) -> bool:
@@ -122,12 +125,14 @@ def _is_code_fence(line: str) -> bool:
     return text.startswith("```") or text.startswith("~~~")
 
 
-def _can_be_key_body(line: str) -> bool:
+def _can_be_key_body(line: str, *, armor_header: bool) -> bool:
     """True when ``line`` can sit between a BEGIN line and its END line.
 
-    Key body is base64 or radix-64 text, a ``=`` checksum line, a
-    ``Name: value`` armor header, or a blank line. A code fence, another
-    armor line, and any other text cannot.
+    Key body is base64 or radix-64 text, a ``=`` checksum line, or a blank
+    line. A ``Name: value`` armor header counts only when ``armor_header``
+    is true: the run directly after the BEGIN line, before the first blank
+    or radix-64 line. A code fence, another armor line, and any other text
+    cannot.
     """
 
     if line.strip() == "":
@@ -137,7 +142,9 @@ def _can_be_key_body(line: str) -> bool:
     text = line.strip()
     if _CHECKSUM_LINE.fullmatch(text) or _RADIX64_LINE.fullmatch(text):
         return True
-    return _ARMOR_HEADER_LINE.fullmatch(text) is not None
+    if armor_header:
+        return _ARMOR_HEADER_LINE.fullmatch(text) is not None
+    return False
 
 
 def _armored_private_key_ranges(lines: list[str]) -> dict[int, tuple[int, int]]:
@@ -146,10 +153,14 @@ def _armored_private_key_ranges(lines: list[str]) -> dict[int, tuple[int, int]]:
     The importer makes one item per line, and the credential check then skips
     only the BEGIN line. The base64 body and the END line would be stored.
     A block is a BEGIN line through the END line with the same label, and
-    only when both of those lines stand alone. The scan stops at a code
-    fence, at another BEGIN line, or at any line that cannot be key body.
-    When the scan stops early, that BEGIN line is not a block: it stays one
-    item, and the check skips it on its own.
+    only when both of those lines stand alone. Every line between them has
+    to be key body, and at least one radix-64 line has to be 40 or more
+    characters. A ``Name: value`` line is key body only in a run directly
+    after the BEGIN line, before the first blank or radix-64 line. The scan
+    stops at a code fence, at another BEGIN line, or at any line that cannot
+    be key body. When the scan stops early, or when no long radix-64 line is
+    present, that BEGIN line is not a block: it stays one item, and the
+    check skips it on its own.
     """
 
     ranges: dict[int, tuple[int, int]] = {}
@@ -162,15 +173,22 @@ def _armored_private_key_ranges(lines: list[str]) -> dict[int, tuple[int, int]]:
         label = role[1]
         end_index: int | None = None
         cursor = index + 1
+        armor_header = True
+        saw_long_radix = False
         while cursor < len(lines):
             later = private_key_armor_role(lines[cursor])
             if later == ("end", label):
                 end_index = cursor
                 break
-            if not _can_be_key_body(lines[cursor]):
+            if not _can_be_key_body(lines[cursor], armor_header=armor_header):
                 break
+            text = lines[cursor].strip()
+            if _RADIX64_LINE.fullmatch(text) and len(text) >= _MIN_RADIX64_LINE:
+                saw_long_radix = True
+            if _ARMOR_HEADER_LINE.fullmatch(text) is None:
+                armor_header = False
             cursor += 1
-        if end_index is None:
+        if end_index is None or not saw_long_radix:
             index += 1
             continue
         start_no = index + 1

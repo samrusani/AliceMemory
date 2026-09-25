@@ -9,9 +9,12 @@
   skipped item by id or line and never the matched text. Line numbers count
   from 1 on the first line after frontmatter. A dashed private-key block in
   markdown is one skipped item when the BEGIN line and the END line stand
-  alone, share a label, and every line between them is key body: base64 or
-  radix-64 text, a `=` checksum line, a `Name: value` armor header, or a
-  blank line. A code fence, another BEGIN line, or any other line stops the
+  alone, share a label, every line between them is key body, and at least
+  one of those lines is radix-64 text of 40 or more characters. Key body is
+  base64 or radix-64 text, a `=` checksum line, a blank line, or a
+  `Name: value` armor header. A `Name: value` line counts only as a run
+  directly after the BEGIN line, before the first blank line or radix-64
+  line. A code fence, another BEGIN line, or any other line stops the
   scan, and that BEGIN line is one item on its own. The receipt names the
   block's line range. An OpenClaw raw entry is checked by value, as
   provenance is, so a routing `session_key` is imported. Placeholder password

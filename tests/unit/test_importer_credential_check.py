@@ -807,6 +807,98 @@ def test_pgp_private_key_block_is_skipped_whole(
     assert receipt["imported_count"] == 2
 
 
+def test_unbulleted_typed_notes_between_begin_and_end_are_stored(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """BEGIN, unbulleted typed notes, and END store the notes.
+
+    Notes directly after BEGIN are stored because a block needs a radix-64
+    line of 40 or more characters. Dropping that requirement skips them.
+    Notes after a long radix-64 line are stored because a ``Name: value``
+    line counts only in the run directly after BEGIN. Accepting a
+    ``Name: value`` line anywhere in the block skips those notes.
+    """
+
+    begin = _armor_line("BEGIN", "RSA PRIVATE KEY")
+    end = _armor_line("END", "RSA PRIVATE KEY")
+    notes = [
+        "Decision: Use Alice as the continuity layer for this agent.",
+        "Task: Confirm the launch checklist owner.",
+        "Owner: Dana",
+        "Runbook: https://example.com/runbook",
+    ]
+    kept = [
+        "Use Alice as the continuity layer for this agent.",
+        "Confirm the launch checklist owner.",
+        "Owner: Dana",
+        "https://example.com/runbook",
+    ]
+    after = "File the weekly notes under the project folder."
+    direct = [
+        f"- Note: {SAFE} | id=safe-before",
+        begin,
+        *notes,
+        end,
+        f"- Note: {after} | id=safe-after",
+    ]
+    store, receipt = _import_written(monkeypatch, _write_body(tmp_path, direct))
+    stored = store.stored_text()
+    for note in kept:
+        assert note in stored
+    assert SAFE in stored
+    assert after in stored
+    begin_at = direct.index(begin) + 1
+    end_at = direct.index(end) + 1
+    assert (begin_at, end_at) not in _skip_spans(receipt)
+
+    sentinel = _radix64_line()
+    after_body = [begin, sentinel, *notes, end]
+    later_dir = tmp_path / "later"
+    later_dir.mkdir()
+    later_store, later_receipt = _import_written(
+        monkeypatch,
+        _write_body(later_dir, after_body),
+    )
+    later_stored = later_store.stored_text()
+    for note in kept:
+        assert note in later_stored
+    assert sentinel in later_stored
+    assert (1, len(after_body)) not in _skip_spans(later_receipt)
+
+
+def test_one_word_lines_between_begin_and_end_are_stored(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """BEGIN, one-word lines, and END store the lines.
+
+    Each word is radix-64 text shorter than 40 characters. Treating that
+    short line as enough to form a block skips the words.
+    """
+
+    begin = _armor_line("BEGIN", "RSA PRIVATE KEY")
+    end = _armor_line("END", "RSA PRIVATE KEY")
+    words = ["Quill", "Marble", "Fern", "Nimbus"]
+    after = "File the weekly notes under the project folder."
+    body = [
+        f"- Note: {SAFE} | id=safe-before",
+        begin,
+        *words,
+        end,
+        f"- Note: {after} | id=safe-after",
+    ]
+    store, receipt = _import_written(monkeypatch, _write_body(tmp_path, body))
+    stored = store.stored_text()
+    for word in words:
+        assert word in stored
+    assert SAFE in stored
+    assert after in stored
+    begin_at = body.index(begin) + 1
+    end_at = body.index(end) + 1
+    assert (begin_at, end_at) not in _skip_spans(receipt)
+
+
 def _normalized_item(
     *,
     item_id: str,
