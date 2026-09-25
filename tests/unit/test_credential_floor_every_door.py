@@ -674,6 +674,74 @@ def test_door4_a_secret_name_in_provenance_is_withheld_on_the_review_event() -> 
     assert opaque not in json.dumps(store.event_payload)
 
 
+def _opaque_rollup_body() -> dict[str, str]:
+    opaque = "Kq7m" + "N2pL" + "9xR4" + "vB8w" + "C3dF" + "6hJ1" + "kLa0" + "M5yZ" + "t8Qn" + "E2sP"
+    return {"decision_text": "Ship the weekly billing report.", "rollup_key": opaque}
+
+
+def test_a_rollup_key_over_an_opaque_value_is_refused_in_a_continuity_body() -> None:
+    """create, edit, and supersede refuse a caller-supplied rollup_key.
+
+    Delete stores the request on the event and withholds that body. The
+    value is built at runtime and does not identify itself on its own.
+    """
+
+    body = _opaque_rollup_body()
+    opaque = body["rollup_key"]
+    assert not carries_credential_material(opaque)
+    assert carries_credential_material(body)
+
+    sink = _RecordingContinuityStore()
+    _assert_credential_refusal(
+        lambda: create_continuity_object_record(
+            sink,  # type: ignore[arg-type]
+            user_id=uuid4(),
+            capture_event_id=uuid4(),
+            object_type="Decision",
+            title="Decision: ship the weekly billing report",
+            body=body,
+            provenance={"source_kind": "continuity_capture_event"},
+            confidence=0.9,
+        )
+    )
+    assert sink.calls == []
+
+    for request_input in (
+        ContinuityCorrectionInput(action="edit", body=body),
+        ContinuityCorrectionInput(
+            action="supersede",
+            replacement_title="Decision: ship the weekly billing report",
+            replacement_body=body,
+        ),
+    ):
+        store = _StoredContinuityObject()
+        _assert_credential_refusal(lambda request_input=request_input: _correct(store, request_input))
+        assert store.writes == []
+
+    event_store = _EventCapture()
+    _assert_write_reached_store(
+        lambda: _correct(event_store, ContinuityCorrectionInput(action="delete", body=body))
+    )
+    assert event_store.event_payload is not None
+    assert event_store.event_payload["body"] == TEXT_WITHHELD_PLACEHOLDER
+    assert opaque not in json.dumps(event_store.event_payload)
+
+
+def test_proposal_source_refs_refuse_a_rollup_key_over_an_opaque_value() -> None:
+    from alicebot_api.vnext_memory_propose import MemoryProposal, MemoryProposalRefused, refuse_proposal_credentials
+
+    opaque = _opaque_rollup_body()["rollup_key"]
+    proposal = MemoryProposal(
+        proposal_type="candidate_memory",
+        title="Deploy cadence",
+        canonical_text="The team deploys on Thursdays.",
+        memory_type="fact",
+        source_refs=({"source_id": "note-1", "rollup_key": opaque},),
+    )
+    with pytest.raises(MemoryProposalRefused, match="credential material"):
+        refuse_proposal_credentials(proposal)
+
+
 # ---------------------------------------------------------------------------
 # Door 5: artifact promotion.
 # ---------------------------------------------------------------------------

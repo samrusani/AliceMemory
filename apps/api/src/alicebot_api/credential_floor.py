@@ -760,10 +760,18 @@ def _assignment_value_ok(kind: str, value: str, following: str) -> bool:
 # A GPG key id or fingerprint (8, 16 or 40 hex digits, optional 0x) under
 # git's signingkey: an identifier, not the key (adversary review, round 3).
 _GPG_KEY_ID = re.compile(r"(?:0[xX])?(?:[0-9A-Fa-f]{8}|[0-9A-Fa-f]{16}|[0-9A-Fa-f]{40})")
-# OpenClaw routing id under the exact key session_key. The last segment is
-# digits, so a long opaque tail is not this shape.
+# OpenClaw routing id under the exact key session_key. Profile, channel,
+# and kind are short lowercase words. The tail is digits, with an optional
+# leading minus for a Telegram group id. Prefix junk, an uppercase key, and
+# an opaque tail are not this shape.
 _ROUTING_SESSION_VALUE = re.compile(
-    r"agent:[A-Za-z0-9_-]{1,32}:[A-Za-z0-9_-]{1,32}:[A-Za-z0-9_-]{1,32}:[0-9]{1,32}"
+    r"agent:[a-z]{1,16}:[a-z]{1,16}:[a-z]{1,16}:-?[0-9]{1,32}"
+)
+# The rollup writer stores scope:<16 hex>:topic:<anchor>. _digest keeps 16
+# hex characters. A full 64-hex sha256 of the same shape is the same family.
+# The anchor is a topic token.
+_PRODUCT_ROLLUP_KEY = re.compile(
+    r"scope:(?:[0-9a-f]{16}|[0-9a-f]{64}):topic:[a-z0-9][a-z0-9'-]{0,80}"
 )
 # An SSH public key algorithm and its body: "Deploy key: ssh-ed25519 AAAA...".
 _SSH_ALGORITHM = re.compile(
@@ -822,17 +830,25 @@ _PAIR_MAX_CHARS = 512
 _WHITESPACE = re.compile(r"\s")
 
 
+def is_product_rollup_key(value: object) -> bool:
+    """True when ``value`` is the rollup key the product writes.
+
+    The exemption is not this function. Callers unwrap that one key before
+    the floor reads a mapping. Every other ``rollup_key`` is a weak name.
+    """
+
+    return isinstance(value, str) and _PRODUCT_ROLLUP_KEY.fullmatch(value) is not None
+
+
 def _pair_hit(key: str, value: str) -> bool:
     """Addition A1: one mapping pair, checked alone and never joined.
 
-    The product writes the exact key ``rollup_key`` in JSON (metadata and
-    the value column). That pair is not a secret name. The value is still
-    scanned on its own. The text grammar is unchanged, so ``rollup_key=``
-    in canonical text is still a weak name. Other spellings are not exempt.
+    ``rollup_key`` is a weak name here, whoever called this and whatever the
+    value is. The import door unwraps the product key before it gets here.
+    The text grammar is unchanged, so ``rollup_key=`` in canonical text is
+    still a weak name.
     """
 
-    if key == "rollup_key":
-        return False
     val = value.strip().strip("\"'")
     if len(val) < _PAIR_MIN_CHARS or len(val) > _PAIR_MAX_CHARS or _WHITESPACE.search(val):
         return False

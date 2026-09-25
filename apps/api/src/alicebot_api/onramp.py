@@ -93,7 +93,12 @@ from typing import IO
 from uuid import UUID
 
 from alicebot_api import __version__
-from alicebot_api.credential_floor import VERDICT_EXPANSION, credential_verdict, is_derived_copy
+from alicebot_api.credential_floor import (
+    VERDICT_EXPANSION,
+    credential_verdict,
+    is_derived_copy,
+    is_product_rollup_key,
+)
 from alicebot_api.mcp_server import _DEFAULT_MCP_USER_ID, MCPServer
 from alicebot_api.mcp_tools import MCPRuntimeContext
 from alicebot_api.sqlite_schema import bootstrap_sqlite_schema
@@ -1901,17 +1906,43 @@ SYSTEM_METADATA_KEYS = frozenset({"rollup_key"})
 
 
 def _without_system_keys(value: object) -> object:
-    """The mapping with each system key's value wrapped in a list, so the
-    floor reads that value on its own and never as a keyed pair."""
+    """The mapping with each product rollup key wrapped in a list, so the
+    floor reads that value on its own and never as a keyed pair.
+
+    Only a value that matches the product shape is unwrapped. Any other
+    ``rollup_key`` stays a keyed pair.
+    """
 
     if isinstance(value, Mapping):
         return {
-            key: [item] if key in SYSTEM_METADATA_KEYS and isinstance(item, str) else _without_system_keys(item)
+            key: [item]
+            if key in SYSTEM_METADATA_KEYS and is_product_rollup_key(item)
+            else _without_system_keys(item)
             for key, item in value.items()
         }
     if isinstance(value, list):
         return [_without_system_keys(item) for item in value]
     return value
+
+
+def _without_product_value_rollup_key(value: object) -> object:
+    """Unwrap ``value.rollup.rollup_key`` when it is the product's topic key.
+
+    The import value column is otherwise read with its keys. A rollup card
+    stores that key under ``rollup``. A ``rollup_key`` anywhere else in the
+    value column, including the top level, stays a keyed pair.
+    """
+
+    if not isinstance(value, Mapping):
+        return value
+    rollup = value.get("rollup")
+    if not isinstance(rollup, Mapping) or not is_product_rollup_key(rollup.get("rollup_key")):
+        return value
+    unwrapped_rollup = {
+        key: [item] if key == "rollup_key" else item
+        for key, item in rollup.items()
+    }
+    return {key: unwrapped_rollup if key == "rollup" else item for key, item in value.items()}
 
 
 def _memory_record_credential_fields(record: Mapping[str, object]) -> tuple[tuple[str, object], ...]:
@@ -1932,7 +1963,7 @@ def _memory_record_credential_fields(record: Mapping[str, object]) -> tuple[tupl
         fields.append(("summary", summary))
     fields.extend(
         [
-            ("value", _json_column(record.get("value"))),
+            ("value", _without_product_value_rollup_key(_json_column(record.get("value")))),
             ("metadata_json", _without_system_keys(_json_column(record.get("metadata_json")))),
             ("memory_key", record.get("memory_key")),
             ("project_id", record.get("project_id")),

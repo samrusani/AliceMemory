@@ -4,14 +4,18 @@
 
 - Provenance, legacy admission `value`, and the import `value` column
   are read with their keys. A secret name over a secret-shaped value is
-  refused there. The exact key `rollup_key` in product JSON, including
-  the value column, is not a secret name, so a rollup card restores.
-  `rollup_key=<opaque>` in canonical text is still refused. `rollupKey`
-  and the other spellings stay secret names. The weak tier is still live.
-  A routing
-  `session_key` value `agent:<profile>:<channel>:<kind>:<digits>` is an
-  identifier. `gpg_key` over a key id is refused. MCP review provenance
-  stays value-only: its schema allows five keys and no others.
+  refused there. `rollup_key` is a weak name at every door. Import unwraps
+  it only where the product writes it: `metadata_json` keys named
+  `rollup_key`, and `value.rollup.rollup_key`, and only when the value is
+  `scope:<16 or 64 hex>:topic:<anchor>`. A rollup card still restores.
+  `{"rollup_key": <opaque>}` in a continuity body, on a correction, and in
+  proposal `source_refs` is refused. `rollup_key=<opaque>` in canonical
+  text is still refused. `rollupKey` and the other spellings stay secret
+  names. The weak tier is still live. A routing `session_key` value
+  `agent:<profile>:<channel>:<kind>:<digits>` is an identifier when the
+  three words are short and lowercase and the digits may start with `-`.
+  `gpg_key` over a key id is refused. MCP review provenance stays
+  value-only: its schema allows five keys and no others.
 
 - A blocked idempotent replay of `POST /v0/vnext/memories/commit` returns
   403 and keeps its policy rows. A new commit that policy rejects still

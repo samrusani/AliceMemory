@@ -17,7 +17,7 @@ import json
 import subprocess
 from pathlib import Path
 
-from alicebot_api.credential_floor import credential_verdict, string_values
+from alicebot_api.credential_floor import carries_credential_material, credential_verdict, string_values
 from alicebot_api.legacy_credential_check import commit_door_secret_verdict
 from alicebot_api.onramp import _memory_record_credential_fields, _memory_record_credential_finding
 
@@ -27,13 +27,14 @@ def _opaque() -> str:
 
 
 def _rollup_value() -> str:
-    return "scope:" + hashlib.sha256(b"games").hexdigest() + ":topic:games"
+    # The writer stores a 16-hex scope digest, then :topic: and the anchor.
+    return "scope:" + hashlib.sha256(b"games").hexdigest()[:16] + ":topic:games"
 
 
 def _record(
     memory_id: str,
     text: str,
-    value: dict[str, str],
+    value: dict[str, object],
     metadata: dict[str, str] | None = None,
 ) -> dict[str, object]:
     return {
@@ -98,8 +99,17 @@ def synthetic_notes() -> list[dict[str, object]]:
             "record": _record(
                 "product-rollup",
                 "Played several games.",
-                {"text": "Played several games.", "rollup_key": rollup},
+                {"text": "Played several games.", "rollup": {"rollup_key": rollup, "group_kind": "topic"}},
                 {"rollup_key": rollup},
+            ),
+        },
+        {
+            "id": "continuity body rollup_key",
+            "commit_text": json.dumps({"decision_text": "Ship on Tuesdays.", "rollup_key": opaque}),
+            "record": _record(
+                "continuity-body",
+                "Ship on Tuesdays.",
+                {"text": "Ship on Tuesdays.", "decision_text": "Ship on Tuesdays.", "rollup_key": opaque},
             ),
         },
         {
@@ -197,6 +207,18 @@ def main() -> None:
     print(f"markdown files as notes: {files}")
     print(f"markdown commit door notes refused: {refused}")
     print("markdown notes are string text, so keyed reading does not move that count")
+    opaque = _opaque()
+    body = {"decision_text": "Ship on Tuesdays.", "rollup_key": opaque}
+    before = credential_verdict(opaque) is not None
+    after = carries_credential_material(body)
+    print(
+        "continuity body rollup_key over an opaque value, value only (before): "
+        + ("refused" if before else "kept")
+    )
+    print(
+        "continuity body rollup_key over an opaque value, keyed (after): "
+        + ("refused" if after else "kept")
+    )
 
 
 if __name__ == "__main__":

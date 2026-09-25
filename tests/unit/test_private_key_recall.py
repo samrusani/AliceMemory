@@ -309,9 +309,10 @@ def test_slack_tokens_are_case_exact_and_carry_digits() -> None:
 
 # ---------------------------------------------------------------------------
 # The import value column and metadata_json are read with their keys.
-# metadata_json skips the exact key the product writes, rollup_key.
-# A rollup card's value is scope:<hex>:topic:<anchor>. Reading that key
-# as a secret name blocked a restore. Other spellings stay secret names.
+# Import unwraps rollup_key only in metadata_json and at
+# value.rollup.rollup_key, and only for scope:<hex>:topic:<anchor>.
+# Reading that product key as a secret name blocked a restore. A
+# caller-supplied rollup_key stays a secret name.
 # ---------------------------------------------------------------------------
 
 _GAMES = (

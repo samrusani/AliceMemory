@@ -272,29 +272,43 @@ def test_t4_adversary_misses_are_caught(name: str) -> None:
     assert carries_credential_material(*_T4_TRUE[name]), name
 
 
-def test_product_rollup_key_is_exempt_only_as_that_exact_metadata_key() -> None:
-    """The product writes the exact key rollup_key. The text grammar does not.
+def test_product_rollup_key_is_exempt_only_where_the_product_writes_it() -> None:
+    """The floor does not exempt rollup_key. Import unwraps two product paths.
 
-    A real rollup value has hex digits. A value with no digit passes the
-    weak tier on main too, so this uses scope:<hex>:topic:... The system-key
-    unwrap reads the value and not the name. rollupKey stays a weak name.
+    metadata_json unwraps a rollup_key whose value is
+    scope:<16 or 64 hex>:topic:<anchor>. The import value column unwraps
+    only value.rollup.rollup_key with that shape. A caller-supplied
+    rollup_key over an opaque value is refused. rollupKey stays a weak name.
     """
 
     import hashlib
 
     from alicebot_api.credential_floor import _KEY_STRUCTURAL, _name_kind
-    from alicebot_api.onramp import _without_system_keys
+    from alicebot_api.onramp import _without_product_value_rollup_key, _without_system_keys
 
-    digest = hashlib.sha256(b"games").hexdigest()
-    rollup_value = "scope:" + digest + ":topic:games"
+    digest16 = hashlib.sha256(b"games").hexdigest()[:16]
+    rollup_value = "scope:" + digest16 + ":topic:games"
+    digest64 = hashlib.sha256(b"games").hexdigest()
+    full_value = "scope:" + digest64 + ":topic:games"
     assert any(character.isdigit() for character in rollup_value)
     assert "rollup" not in _KEY_STRUCTURAL
     assert _name_kind("rollup_key", "", 0) == "weak"
     assert _name_kind("rollupKey", "", 0) == "weak"
     opaque = "Xq9mZt2L" + "xP9wKc4BVq7m"
-    assert not carries_credential_material({"rollup_key": rollup_value})
-    assert not carries_credential_material({"rollup": {"rollup_key": rollup_value}})
+    assert carries_credential_material({"rollup_key": rollup_value})
+    assert carries_credential_material({"rollup_key": opaque})
+    assert carries_credential_material({"rollup": {"rollup_key": opaque}})
     assert not carries_credential_material(_without_system_keys({"rollup_key": rollup_value}))
+    assert not carries_credential_material(_without_system_keys({"rollup_key": full_value}))
+    assert carries_credential_material(_without_system_keys({"rollup_key": opaque}))
+    card = {"text": "Played several games.", "rollup": {"rollup_key": rollup_value, "group_kind": "topic"}}
+    assert not carries_credential_material(_without_product_value_rollup_key(card))
+    assert carries_credential_material(
+        _without_product_value_rollup_key({"text": "A note.", "rollup": {"rollup_key": opaque}})
+    )
+    assert carries_credential_material(
+        _without_product_value_rollup_key({"text": "A note.", "rollup_key": rollup_value})
+    )
     assert carries_credential_material("rollup_key=" + opaque)
     assert carries_credential_material({"rollupKey": opaque})
     assert carries_credential_material({"ROLLUP_KEY": opaque})
@@ -310,9 +324,15 @@ def test_a_routing_session_key_is_an_identifier_and_gpg_key_is_not() -> None:
     """
 
     routing = "agent:main:telegram:dm:4471"
+    negative = "agent:main:telegram:group:-1001234567890"
     opaque = "Xq9mZt2L" + "xP9wKc4BVq7m"
     key_id = "A1B2" + "C3D4" + "E5F6" + "7890"
     assert not carries_credential_material({"session_key": routing})
+    assert not carries_credential_material({"session_key": negative})
+    assert carries_credential_material({"session_key": "x" + routing})
+    assert carries_credential_material({"session_key": "agent:main:telegram:dm:" + opaque})
+    assert carries_credential_material({"SESSION_KEY": routing})
+    assert carries_credential_material({"session_key": "agent:Main:telegram:dm:4471"})
     assert carries_credential_material({"session_key": opaque})
     assert carries_credential_material({"gpg_key": key_id})
     assert not carries_credential_material({"signingkey": key_id})
@@ -342,6 +362,8 @@ def test_keyed_reading_measurement_counts_notes_at_the_doors() -> None:
     assert "ordinary" not in counts["commit"]
     assert "product rollup_key" not in counts["import_before"]
     assert "product rollup_key" not in counts["import_after"]
+    assert "continuity body rollup_key" not in counts["import_before"]
+    assert "continuity body rollup_key" in counts["import_after"]
     assert "rollupKey" in counts["import_after"]
     assert "rollupKey" not in counts["import_before"]
     assert "session_key" not in counts["import_after"]

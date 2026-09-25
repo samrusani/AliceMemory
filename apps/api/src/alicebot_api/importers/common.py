@@ -83,9 +83,12 @@ def _body_credential_fields(body: JsonObject) -> tuple[object, ...]:
 
     The body is passed with its keys, which is how the continuity object door
     reads a body. An OpenClaw raw entry is the exception: it is passed by
-    value, as provenance is. Passed as a mapping, every key of the entry is a
-    name, and a routing ``session_key`` is skipped. Pair detection for that
-    entry uses the segment text, which is the entry's canonical JSON.
+    value. Provenance is passed with its keys. Passed as a mapping, every
+    key of the entry is a name. A routing ``session_key`` whose value is
+    ``agent:<profile>:<channel>:<kind>:<digits>``, with short lowercase
+    words and an optional leading minus on the digits, is an identifier.
+    Pair detection for that entry uses the segment text, which is the
+    entry's canonical JSON.
     """
 
     raw_entry = body.get("openclaw_raw_entry")
