@@ -612,6 +612,8 @@
   forget, expire, unexpire, and redact return that 403 inside the
   connection, so on Postgres the transaction commits and
   `policy.decision` and `agent.policy_blocked` stay.
+  `POST /v0/vnext/memories/accept-consolidation` catches inside the
+  connection too, so those rows stay.
   These routes catch the refusal outside the connection. The transaction
   rolls back before the 403 is sent, so those audit rows are gone:
   `GET /v0/vnext/artifacts/{artifact_id}`,
@@ -619,11 +621,22 @@
   `POST /v0/vnext/artifacts/{artifact_id}/review`,
   `POST /v0/vnext/artifacts/{artifact_id}/quality-ratings`,
   `POST /v0/vnext/artifacts/{artifact_id}/export`,
-  `POST /v0/vnext/artifacts/{artifact_id}/insight-feedback`,
-  `POST /v0/vnext/projects/update-candidates/{artifact_id}/review`, and
-  `POST /v0/vnext/memories/{memory_id}/review` when that call accepts
-  or promotes a consolidation candidate. Other actions on that route
-  return the 403 inside the connection, so those rows stay.
+  `POST /v0/vnext/artifacts/{artifact_id}/insight-feedback`, and
+  `POST /v0/vnext/projects/update-candidates/{artifact_id}/review`.
+  On `POST /v0/vnext/memories/{memory_id}/review` the first gate runs
+  `memory.review` inside the first connection and returns the 403 there,
+  so that decision commits. That action is human-or-admin, so a
+  non-admin agent is refused at this gate and never reaches
+  consolidation acceptance. If that first gate did not already return,
+  a later accept or promote writes its own policy rows and raises
+  outside the second connection, so those later rows roll back. Other
+  actions on that route return the 403 inside the connection, so those
+  rows stay.
+  `POST /v0/vnext/memories/commit` does not catch the refusal inside
+  the connection. An idempotent replay appends `policy.decision` and
+  `agent.policy_blocked` and then raises, so Postgres rolls those rows
+  back. A new commit that policy rejects is answered from inside the
+  connection, so those rows stay.
   No policy event is written when there is no agent identity.
 - Pending writes created on v0.16.0 above an agent's sensitivity ceiling
   can only be rejected by that agent after the upgrade. Confirming one
