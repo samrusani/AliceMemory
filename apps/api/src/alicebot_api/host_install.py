@@ -1659,13 +1659,24 @@ _ALICE_INSTALL_KEYS = frozenset({"command", "args", "env"})
 #   docs/integrations/hermes.md
 # ALICE_LEGACY_SURFACES: docs/integrations/mcp.md (MCP process flag; Hermes
 #   does not inherit the shell, so it belongs in the same env map)
-# Dropping this tuple makes a re-run refuse ALICE_MCP_FULL_TOOLS and
-# ALICE_AGENT_API_KEY.
+# ALICE_EMBEDDINGS_BASE_URL: docs/integrations/mcp.md (MCP process env;
+#   Hermes does not inherit the shell, so it belongs in the same env map);
+#   docs/alpha/mcp-tools.md
+# ALICE_EMBEDDINGS_MODEL: docs/integrations/mcp.md;
+#   docs/alpha/mcp-tools.md
+# ALICE_EMBEDDINGS_API_KEY: docs/integrations/mcp.md;
+#   docs/alpha/mcp-tools.md (masked like ALICE_AGENT_API_KEY, never printed)
+# Dropping this tuple makes a re-run refuse ALICE_MCP_FULL_TOOLS,
+# ALICE_AGENT_API_KEY, ALICE_EMBEDDINGS_BASE_URL, ALICE_EMBEDDINGS_MODEL,
+# and ALICE_EMBEDDINGS_API_KEY.
 HERMES_DOCUMENTED_ENV_KEYS = (
     "ALICE_MCP_FULL_TOOLS",
     "ALICE_MCP_LEGACY_TOOLS",
     "ALICE_AGENT_API_KEY",
     "ALICE_LEGACY_SURFACES",
+    "ALICE_EMBEDDINGS_BASE_URL",
+    "ALICE_EMBEDDINGS_MODEL",
+    "ALICE_EMBEDDINGS_API_KEY",
 )
 _DOCUMENTED_ENV_NAMES = frozenset(HERMES_DOCUMENTED_ENV_KEYS)
 

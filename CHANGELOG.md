@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Re-running `alice-memory install --host hermes` also keeps
+  `ALICE_EMBEDDINGS_BASE_URL`, `ALICE_EMBEDDINGS_MODEL`, and
+  `ALICE_EMBEDDINGS_API_KEY` on `mcp_servers.alice` when each value is a
+  one-line plain, single-quoted, or double-quoted scalar, with no anchor,
+  alias, tag, or block scalar. The name and the scalar text stay byte for
+  byte. The receipt lists the kept keys. `ALICE_EMBEDDINGS_API_KEY` is
+  masked like `ALICE_AGENT_API_KEY` and is not printed. Any other key
+  install did not write still refuses the file.
+
 - Markdown, ChatGPT, and OpenClaw import check each item with
   `credential_verdict` before writing it. An item that holds credential
   material is skipped, and the rest of the import continues. The receipt
@@ -36,13 +45,15 @@
   env values on `mcp_servers.alice` when each value is a one-line plain,
   single-quoted, or double-quoted scalar, with no anchor, alias, tag, or
   block scalar. The keys are `ALICE_MCP_FULL_TOOLS`,
-  `ALICE_MCP_LEGACY_TOOLS`, `ALICE_AGENT_API_KEY`, and
-  `ALICE_LEGACY_SURFACES`. The name and the scalar text stay byte for byte.
-  The receipt lists the kept keys and masks printed values the same way as
-  the JSON hosts, so an API key is not printed. Any other key install did
-  not write still refuses the file. The receipt says install refuses while
-  those keys are present and to edit the entry by hand. A `keep:` line
-  names only keys the existing entry has.
+  `ALICE_MCP_LEGACY_TOOLS`, `ALICE_AGENT_API_KEY`,
+  `ALICE_LEGACY_SURFACES`, `ALICE_EMBEDDINGS_BASE_URL`,
+  `ALICE_EMBEDDINGS_MODEL`, and `ALICE_EMBEDDINGS_API_KEY`. The name and
+  the scalar text stay byte for byte. The receipt lists the kept keys and
+  masks printed values the same way as the JSON hosts, so
+  `ALICE_AGENT_API_KEY` and `ALICE_EMBEDDINGS_API_KEY` are not printed.
+  Any other key install did not write still refuses the file. The receipt
+  says install refuses while those keys are present and to edit the entry
+  by hand. A `keep:` line names only keys the existing entry has.
 
 - When uv is installed but `uvx` is not on PATH, install writes an absolute
   `uvx`. uv exports `UV` to child processes as the path of the uv binary
