@@ -2,9 +2,8 @@
 
 ## Unreleased
 
-- Design note for Sprint 7 skill packs. The packs teach commit, recall,
-  and resume. No pack ships in this note, and no behaviour claim is made
-  before a measurement.
+- Design note for Sprint 7 skill packs. It keeps the v0.15.4 commit rule
+  and names the packs to revise. No pack ships in this note.
 
 - A blocked idempotent replay of `POST /v0/vnext/memories/commit` returns
   403 and keeps its policy rows. A new commit that policy rejects still

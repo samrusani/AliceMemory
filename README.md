@@ -85,9 +85,13 @@ OpenClaw prefixes MCP tool names with the server name, so `alice_recall` reaches
 
 #### Skill packs
 
-Optional, and useful once Alice is connected. [`agent-skills/`](https://github.com/samrusani/AliceMemory/tree/main/agent-skills)
-holds a ready-made instruction pack for each host, telling the agent when to reach for
-memory rather than leaving it to guess. Copy the directory, not the file:
+Optional. Packs exist for 2 of the 5 install hosts, Hermes and OpenClaw.
+Nothing in this repo measures whether a pack changes what an agent does.
+[`agent-skills/hermes/alice-memory`](https://github.com/samrusani/AliceMemory/tree/main/agent-skills/hermes/alice-memory)
+and [`agent-skills/openclaw/alice-project-memory`](https://github.com/samrusani/AliceMemory/tree/main/agent-skills/openclaw/alice-project-memory)
+are the packs under `agent-skills/`. An older Hermes pack at
+`docs/integrations/hermes-skill-pack/skills/alice-workflows/` teaches recall
+and resume through non-default tools. Copy the directory, not the file:
 
 ```bash
 cp -R agent-skills/openclaw/alice-project-memory ~/.openclaw/skills/

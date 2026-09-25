@@ -1,33 +1,103 @@
 # Sprint 7: skill packs
 
-Design only. No behavior change ships with this note.
+Design only. No pack text ships with this note, and this note makes no
+behavior claim.
 
-This note was written against `main` at
-`e8abf466f3b2727d1ccfe60d01aff622eb301758`. The three default tools are
-`alice_memory_commit`, `alice_recall`, and `alice_resume`. A skill pack
-teaches an agent to use those three. It does not add a fourth tool, and it
-does not commit on the agent's behalf.
+This note was checked against `mcp/definitions.py`,
+`tests/unit/test_agent_facing_write_verb_guidance.py`,
+`tests/unit/test_skill_packs_are_loadable.py`, and the packs named below.
 
-## Why this is the weakest lever
+## Corrections
 
-A pack works only when the agent chooses to follow it. Install and the
-session-start hook put text in front of the model every time. A skill is
-optional. A claim that a pack changes behaviour has to be a measurement,
-not a reading of the pack text.
+The commit rule stays the v0.15.4 rule. `alice_memory_commit` says to
+record a durable fact "including when the user has not asked you to
+remember it". Both shipped packs say the same. `RETIRED_COMMIT_GATES` in
+`test_agent_facing_write_verb_guidance.py` lists the wording this release
+retired. A pack does not tell the agent to wait until the user has asked
+to save a fact. If that rule should change, argue it separately, with the
+measurement below as evidence.
 
-## What the pack teaches
+Not every host gets text at session start. The hook is installed only for
+Claude Code and Cursor. On Claude Code with tool search, only tool names
+and server instructions load at session start, and Alice sends no server
+instructions.
 
-Three actions, and nothing else:
+Counting an agent's tool calls needs a model. A run with no credentials
+makes no calls. The measurement cannot run on the no-secrets real-host job.
 
-- Commit when the user has said to save a fact. The pack points at
-  `alice_memory_commit`. It does not tell the agent to auto-save assistant
-  narration.
-- Recall with `alice_recall` when the user asks what was saved.
-- Resume with `alice_resume` when the user asks to continue.
+The packs that exist name `alice_capture` and `alice_context_pack` as
+full-surface tools, and other tests require them to. A test that fails on
+any fourth tool name would fail on both packs. That is not the test.
 
-The pack repeats the framing sentence and the quoting rule the session
-brief already uses. It does not invent a second wording. It says a commit
-is a fact, and a proposal is not a memory.
+## What Sprint 7 changes
+
+Sprint 7 revises the packs that exist. It does not add new packs.
+
+- `agent-skills/hermes/alice-memory`
+- `agent-skills/openclaw/alice-project-memory`
+- the older `docs/integrations/hermes-skill-pack/skills/alice-workflows`.
+  It teaches recall and resume through non-default tools, and no test scans
+  it. Update it to the default tools, or mark it legacy and bring it under
+  `test_skill_packs_are_loadable`.
+
+`README.md` called these "a ready-made instruction pack for each host".
+Packs exist for 2 of the 5 install hosts, and nothing measures them. This
+pull request corrects that sentence.
+
+The default-path steps a pack teaches use only the three default tools:
+`alice_memory_commit`, `alice_recall`, and `alice_resume`. Full-surface
+tools may be named only in a clearly marked full-surface section. Test
+that, not a ban on the names. Do not add a case-sensitive `Stop` check. It
+collides with ordinary prose.
+
+A pack does not add a fourth tool, and it does not commit on the agent's
+behalf. It does not register `SessionEnd` or `Stop`.
+
+## Commit trigger
+
+Keep the v0.15.4 rule. Agents commit durable facts without being asked, and
+the packs keep saying so. Change the fourth measured count. Do not count
+commits on a prompt that asks for none. Label each commit as durable or
+not, and count non-durable ones.
+
+## Measurement, before any pack change
+
+A pack change ships only with a measurement. No sentence may claim a
+behavior change without one.
+
+The measurement:
+
+- Where: a separate `workflow_dispatch`-only workflow, not the no-secrets
+  real-host job, using a model API key the owner adds as a secret. If the
+  owner does not add one, the measurement waits.
+- Pinned setup: the host, model, and version are pinned. Claude Code is
+  first. Tool calls come from the host's stream output (`claude -p
+  --output-format stream-json`), with prefixed names normalised.
+- Recorded per run: whether the skill loaded.
+- Held fixed across both arms: the MCP descriptions, the SessionStart
+  brief, and tool search.
+- Repeats: several per prompt, with the thresholds written down before the
+  run.
+- Two prompt sets. A development set in the repo. A held-out set that we
+  write and keep private, and run ourselves after the pack pull request is
+  up for review. A pack tuned on the prompts it is scored on proves nothing.
+
+Report the counts for both arms. A pack that does not move those counts
+did not change behavior. Say that. Do not publish a sentence that says the
+pack makes agents remember more until those counts are in the pull request
+for the pack change.
+
+## Acceptance for the pack change, not for this note
+
+- The default-path steps name only `alice_memory_commit`, `alice_recall`,
+  and `alice_resume`. Full-surface names appear only in a marked section.
+- A test fails when a default-path step names another tool. It does not
+  fail merely because `alice_capture` or `alice_context_pack` appears in
+  the full-surface section.
+- The measurement workflow and the development prompt list are committed
+  with the pack. The held-out set is not committed.
+- The pack pull request states the before and after counts, or it states
+  that the measurement has not been run and makes no behavior claim.
 
 ## What this design does not do
 
@@ -35,34 +105,5 @@ is a fact, and a proposal is not a memory.
 - It does not read a transcript.
 - It does not call a model on a read path.
 - It does not change the credential floor or the commit door.
-- It does not ship a pack that claims a behaviour change before the
-  measurement below has been run.
-
-## Measurement, before any claim
-
-Fix the prompt list before the run. Use the same prompts with the pack
-absent and with the pack present. Count tool calls, not the model's
-prose:
-
-- how often `alice_memory_commit` is called on a prompt that asks to save;
-- how often `alice_recall` is called on a prompt that asks what was saved;
-- how often `alice_resume` is called on a prompt that asks to continue;
-- how often any of the three is called on a prompt that asks for none of
-  them.
-
-Report the counts for both conditions. A pack that does not move those
-counts is a pack that did not change behaviour. Say that. Do not publish
-a sentence that says the pack makes agents remember more until those
-counts are in the PR.
-
-The run uses a temp home and no credentials, on the Linux runner, the
-same way the real-host trial does. Do not run it on a developer Mac.
-
-## Acceptance
-
-- The pack text names only the three default tools.
-- A test fails if the pack text contains `SessionEnd`, `Stop`, or a fourth
-  tool name.
-- The measurement script and the prompt list are committed with the pack.
-- The PR states the before and after counts, or it states that the
-  measurement has not been run and makes no behaviour claim.
+- It does not edit a pack in this pull request. A pack edit waits for the
+  measurement above.
