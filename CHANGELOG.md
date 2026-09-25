@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- A pull request fails when a commit that would merge has an author email
+  or a committer email outside the allowlist in
+  `scripts/check_commit_authors.py`. The failure prints that commit's SHA
+  and the email.
+
 - Re-running `alice-memory install --host hermes` keeps documented Alice
   env values on `mcp_servers.alice` when each value is a one-line plain,
   single-quoted, or double-quoted scalar, with no anchor, alias, tag, or
