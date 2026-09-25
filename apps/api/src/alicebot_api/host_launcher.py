@@ -123,6 +123,12 @@ UV_TEMP_ENV_WARNING = (
     "not on PATH, so the entries install writes run uvx by name. The hosts will start "
     "Alice once uvx is on PATH."
 )
+# Same outcome as UV_TEMP_ENV_WARNING when install is not itself inside a uv cache:
+# uv is on disk, but the only uvx paths install will accept are missing.
+UVX_OFF_PATH_WARNING = (
+    "warning: uv looks installed but uvx is not on PATH, so the entries install writes run "
+    "uvx by name. The hosts will start Alice once uvx is on PATH."
+)
 UVX_MISSING_WARNING_PREFIX = (
     "warning: uvx is not on PATH, and no directory holds both alice-memory and "
     "alice-memory-session-start"
@@ -834,18 +840,187 @@ def _script_pair(directory: Path) -> tuple[Path, Path] | None:
     return None
 
 
+def _is_absolute_command(path: str) -> bool:
+    return path.startswith("/") or PureWindowsPath(path).is_absolute()
+
+
+def _split_command(path: str) -> tuple[str, list[str], str, str]:
+    """Separator, parts, the tool name without ``.exe``, and that suffix.
+
+    The tool name is lowercased. The suffix is ``.exe`` or empty.
+    """
+
+    sep = "\\" if "\\" in path and "/" not in path else "/"
+    parts = path.replace("\\", "/").split("/")
+    tool = parts[-1] if parts else ""
+    if tool.lower().endswith(".exe"):
+        return sep, parts, tool[:-4].lower(), ".exe"
+    return sep, parts, tool.lower(), ""
+
+
+def _cellar_stable_uvx(path: str) -> str | None:
+    """``<prefix>/bin/uvx`` when ``path`` is ``<prefix>/Cellar/uv/<version>/bin/uv[x]``.
+
+    Homebrew deletes that version directory on upgrade. The returned path is
+    the stable bin link and is not checked for existence. A path that is not
+    in that layout returns None.
+    """
+
+    sep, parts, name, exe = _split_command(path)
+    if len(parts) < 6 or name not in {"uv", "uvx"}:
+        return None
+    index = len(parts) - 5
+    if not (
+        parts[index] == "Cellar"
+        and parts[index + 1] == "uv"
+        and parts[index + 3] == "bin"
+    ):
+        return None
+    prefix = sep.join(parts[:index])
+    if not prefix:
+        return None
+    return sep.join((prefix, "bin", f"uvx{exe}"))
+
+
+def _installs_stable_uvx(path: str) -> str | None:
+    """``<root>/shims/uvx`` when ``path`` is under ``<root>/installs/uv/<version>/``.
+
+    mise and asdf delete that version directory on upgrade. The shim beside
+    ``installs`` stays. The returned path is not checked for existence. A
+    path that is not in that layout returns None.
+    """
+
+    sep, parts, name, exe = _split_command(path)
+    if name not in {"uv", "uvx"}:
+        return None
+    for index in range(len(parts) - 3):
+        version = parts[index + 2]
+        if not (
+            parts[index] == "installs"
+            and parts[index + 1] == "uv"
+            and version not in {"", ".", ".."}
+            and index + 3 < len(parts)
+        ):
+            continue
+        prefix = sep.join(parts[:index])
+        if not prefix:
+            return None
+        return sep.join((prefix, "shims", f"uvx{exe}"))
+    return None
+
+
+def _nix_store_uv_path(path: str) -> bool:
+    """True when ``path`` is a uv or uvx binary under ``/nix/store/``.
+
+    Nix replaces that store path on upgrade. Nothing beside it stays, so
+    install must not write it.
+    """
+
+    _sep, parts, name, _exe = _split_command(path)
+    if name not in {"uv", "uvx"}:
+        return False
+    return any(
+        parts[index] == "nix" and parts[index + 1] == "store" for index in range(len(parts) - 1)
+    )
+
+
+def _uv_candidates() -> list[str]:
+    """Where an installed uv binary can be seen when ``uvx`` is not on PATH.
+
+    uv exports ``UV`` to every child process (since 0.6.0): the uv binary
+    that was invoked. On Linux that is the symlink target, so a Homebrew
+    uv reports its Cellar path. ``uv`` on PATH is the other place.
+    """
+
+    found: list[str] = []
+    from_env = os.environ.get("UV")
+    if from_env:
+        found.append(from_env)
+    which = shutil.which("uv")
+    if which and which not in found:
+        found.append(which)
+    return found
+
+
+def _uvx_beside(path: str) -> str | None:
+    """The uvx path install may write for an absolute uv or uvx path."""
+
+    # A /nix/store path has no stable substitute. Do not return the file
+    # beside it: that file is removed on the next Nix upgrade.
+    if _nix_store_uv_path(path):
+        return None
+    for stable in (_cellar_stable_uvx(path), _installs_stable_uvx(path)):
+        if stable is not None:
+            # The file beside a versioned uv is removed on upgrade.
+            return stable
+    name = _basename(path)
+    if name in {"uv", "uv.exe"}:
+        return sibling_script(path, "uvx")
+    if name in {"uvx", "uvx.exe"}:
+        return path
+    return None
+
+
+def _writable_uvx(path: str) -> str | None:
+    if not _is_absolute_command(path):
+        return None
+    chosen = _uvx_beside(path)
+    if chosen is None or not _is_executable_file(chosen) or _cached(chosen):
+        return None
+    return chosen
+
+
+def absolute_uvx() -> str | None:
+    """An absolute ``uvx`` to write when ``uvx`` is not on PATH, or None.
+
+    The path is executable, absolute, and outside a uv cache. A versioned
+    Homebrew Cellar path is accepted only as a clue: the path returned is
+    ``<prefix>/bin/uvx`` when that file exists. A mise or asdf path under
+    ``<root>/installs/uv/<version>/`` returns ``<root>/shims/uvx`` when that
+    file exists. A ``/nix/store/`` path is not returned.
+    """
+
+    for candidate in _uv_candidates():
+        chosen = _writable_uvx(candidate)
+        if chosen is not None:
+            return chosen
+    return None
+
+
+def _saw_installed_uv() -> bool:
+    return any(
+        _is_absolute_command(candidate) and os.path.isfile(candidate) for candidate in _uv_candidates()
+    )
+
+
+def _absolute_launcher() -> Launcher | None:
+    path = absolute_uvx()
+    if path is None:
+        return None
+    return Launcher(path, (PACKAGE, "mcp"), "uvx")
+
+
+def _offer_absolute_uvx(fallback_warning: str) -> LauncherSearch:
+    launcher = _absolute_launcher()
+    if launcher is None:
+        return LauncherSearch(None, fallback_warning, False)
+    return LauncherSearch(launcher, None, False)
+
+
 def find_launcher() -> LauncherSearch:
-    """uvx when it is on PATH; else both installed scripts from one dir; else None.
+    """uvx when it is on PATH; else both installed scripts from one dir; else an absolute uvx.
 
     A script path, its resolved path, or this Python's prefix inside a uv
-    cache is never offered: uv may delete it.
+    cache is never offered: uv may delete it. When uv is installed and
+    ``uvx`` is not on PATH, ``absolute_uvx`` is written instead of the bare
+    name. Scripts outside a uv cache still win over that absolute path.
     """
 
     if shutil.which(MCP_COMMAND) is not None:
         return LauncherSearch(UVX_LAUNCHER, None, True)
     # A prefix is <bucket>/<id>; its bin dir is the "more path" the layout needs.
     if in_uv_cache(os.path.join(_running_prefix(), "bin")):
-        return LauncherSearch(None, UV_TEMP_ENV_WARNING, False)
+        return _offer_absolute_uvx(UV_TEMP_ENV_WARNING)
     searched: list[str] = []
     rejected_for_cache = False
     for directory in candidate_script_dirs():
@@ -858,7 +1033,9 @@ def find_launcher() -> LauncherSearch:
             continue
         return LauncherSearch(script_launcher(str(pair[0])), None, False)
     if rejected_for_cache:
-        return LauncherSearch(None, UV_TEMP_ENV_WARNING, False)
+        return _offer_absolute_uvx(UV_TEMP_ENV_WARNING)
+    if absolute_uvx() is not None or _saw_installed_uv():
+        return _offer_absolute_uvx(UVX_OFF_PATH_WARNING)
     warning = (
         f"{UVX_MISSING_WARNING_PREFIX} (looked in: {', '.join(searched) or 'nowhere'}). "
         "The entries install writes run uvx, so the hosts cannot start Alice until uv "
@@ -1167,7 +1344,9 @@ __all__ = [
     "SESSION_START_COMMAND",
     "UVX_LAUNCHER",
     "UVX_MISSING_WARNING_PREFIX",
+    "UVX_OFF_PATH_WARNING",
     "UV_TEMP_ENV_WARNING",
+    "absolute_uvx",
     "WINDOWS_HOOKS",
     "candidate_script_dirs",
     "find_launcher",
