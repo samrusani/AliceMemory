@@ -47,17 +47,26 @@ def pin_launcher_search(
     user: Path | None = None,
     on_path: Mapping[str, str | None] | None = None,
     prefix: str | None = None,
+    uv: str | None = None,
+    uv_env: str | None = None,
 ) -> None:
     """Pin every input of host_launcher.find_launcher.
 
-    ``uvx`` is what ``shutil.which("uvx")`` returns. The scripts dirs
-    default to one empty dir. ``on_path`` gives ``shutil.which`` answers
-    for the script names; unlisted script names are not on PATH. Every
-    other name goes to the real lookup.
+    ``uvx`` is what ``shutil.which("uvx")`` returns. ``uv`` is what
+    ``shutil.which("uv")`` returns, defaulting to absent so a machine with
+    uv installed does not change these tests. ``uv_env`` is the ``UV``
+    variable; unset unless passed. The scripts dirs default to one empty
+    dir. ``on_path`` gives ``shutil.which`` answers for the script names;
+    unlisted script names are not on PATH. Every other name goes to the
+    real lookup.
     """
 
     empty = tmp_path / "no-scripts-here"
     empty.mkdir(exist_ok=True)
+    if uv_env is None:
+        monkeypatch.delenv("UV", raising=False)
+    else:
+        monkeypatch.setenv("UV", uv_env)
     monkeypatch.setattr(host_launcher, "_interpreter_scripts_dir", lambda: interpreter or empty)
     monkeypatch.setattr(host_launcher, "_python_bin_dir", lambda: python_bin or empty)
     monkeypatch.setattr(host_launcher, "_user_scripts_dir", lambda: user or empty)
@@ -66,10 +75,12 @@ def pin_launcher_search(
     )
     answers: dict[str, str | None] = {
         "uvx": uvx,
+        "uv": uv,
         "alice-memory": None,
         "alice-memory-session-start": None,
-        **(on_path or {}),
     }
+    if on_path:
+        answers.update(on_path)
     real_which = shutil.which
 
     def which(name: str, *args: object, **kwargs: object) -> str | None:
