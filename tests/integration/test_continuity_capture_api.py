@@ -466,7 +466,7 @@ def test_refused_title_cut_assignment_leaves_no_capture_events_row(
     event is written before the object, and a later candidate in the same
     request would have been stored. The refusal rolls the transaction
     back, so continuity_capture_events has no row. Mutation: check the
-    title only, or pass json.dumps of the body. The count is 1 or 2.
+    title only. The commit returns 200.
     """
 
     value = "Ab" + "12" + "cd" + "EF"
