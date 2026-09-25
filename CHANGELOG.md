@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- A header-only JSON write under `/v0` reaches the route with the
+  authenticated `user_id` in the body. `_rewrite_user_id_json_body` sets
+  `request._body` to the rewritten JSON before `call_next`, the same cache
+  the browser-clip path uses. `BaseHTTPMiddleware` ignores a replacement
+  `Request` and replays that cache, so `POST /v0/continuity/captures/candidates`
+  used to return 422 for a missing `body.user_id` when the client sent
+  `user_id` only in `X-AliceBot-User-Id`. With legacy `/v0` disabled outside
+  development and test, that POST still returns 404 and the handler does
+  not run. A body `user_id` that does not match the authenticated user
+  still returns 401.
+
 - Continuity capture auto-save, in assist mode and in auto mode, saves only
   a user-role candidate matched by an explicit prefix rule (`decision:`,
   `preference:`, `commitment:`, and the other prefixes in

@@ -1,16 +1,17 @@
 """Header-only capture candidates through the full app.
 
-Characterization of a known defect: header-only clients get 422. The Hermes
-plugin sends user_id only in X-AliceBot-User-Id. The middleware rewrites a
-new Request, and the route still validates the original body.
+The Hermes plugin sends user_id only in X-AliceBot-User-Id. The middleware
+writes that id into the cached JSON body, and the candidates route validates
+it. With legacy /v0 disabled, the same POST returns 404 before that rewrite.
 """
 
 from __future__ import annotations
 
 import json
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import anyio
+import pytest
 
 import alicebot_api.main as main_module
 from alicebot_api.config import Settings
@@ -58,41 +59,44 @@ def _invoke(body: bytes, headers: dict[str, str]) -> tuple[int, dict[str, object
 
 
 class _CaptureHandlerReached(Exception):
-    """The candidates handler ran. This pin expects it not to."""
+    """The candidates handler opened the store connection."""
 
 
-def test_header_only_capture_candidates_post_returns_422_known_defect(monkeypatch) -> None:
-    """Characterization of a known defect: header-only clients get 422. The header
-    rewrite fix must flip this test on purpose.
+def _candidate_body(*, user_id: str | None) -> bytes:
+    payload: dict[str, object] = {
+        "user_content": "Remember the harbour clipboard.",
+        "assistant_content": "Noted.",
+        "source_kind": "sync_turn",
+    }
+    if user_id is not None:
+        payload["user_id"] = user_id
+    body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+    if user_id is None:
+        assert b"user_id" not in body
+    return body
 
-    The body is otherwise valid. The route reports body.user_id missing, and
-    the handler does not run. Mutation: make the rewritten body the body the
-    route validates (the browser-clip path already sets request._body). The
-    stub sets the flag and raises. This test fails on ``reached``.
-    """
 
+def _post_candidates(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    settings: Settings,
+    body: bytes,
+    header_user_id: str,
+) -> tuple[bool, object, int, dict[str, object]]:
     reached = False
+    seen_user: object = None
 
-    def block_database(*_args: object, **_kwargs: object) -> None:
-        nonlocal reached
+    def block_database(*args: object, **kwargs: object) -> None:
+        nonlocal reached, seen_user
         reached = True
+        if len(args) >= 2:
+            seen_user = args[1]
+        else:
+            seen_user = kwargs.get("user_id")
         raise _CaptureHandlerReached("capture candidates handler ran")
 
     monkeypatch.setattr(continuity_router, "user_connection", block_database)
-    monkeypatch.setattr(
-        main_module,
-        "get_settings",
-        lambda: Settings(app_env="development", auth_user_id=""),
-    )
-    body = json.dumps(
-        {
-            "user_content": "Remember the harbour clipboard.",
-            "assistant_content": "Noted.",
-            "source_kind": "sync_turn",
-        },
-        separators=(",", ":"),
-    ).encode("utf-8")
-    assert b"user_id" not in body
+    monkeypatch.setattr(main_module, "get_settings", lambda: settings)
 
     status = -1
     payload: dict[str, object] = {}
@@ -101,17 +105,80 @@ def test_header_only_capture_candidates_post_returns_422_known_defect(monkeypatc
             body,
             {
                 "content-type": "application/json",
-                "X-AliceBot-User-Id": str(uuid4()),
+                "X-AliceBot-User-Id": header_user_id,
             },
         )
     except _CaptureHandlerReached:
         pass
+    return reached, seen_user, status, payload
+
+
+@pytest.mark.parametrize(
+    ("app_env", "legacy_enabled"),
+    (
+        ("development", False),
+        ("production", True),
+    ),
+)
+@pytest.mark.parametrize("body_has_user_id", (False, True))
+def test_header_only_capture_candidates_post_reaches_the_store(
+    monkeypatch: pytest.MonkeyPatch,
+    app_env: str,
+    legacy_enabled: bool,
+    body_has_user_id: bool,
+) -> None:
+    """Header-only clients reach the store when legacy /v0 is enabled.
+
+    This flips the characterization that expected 422. Development enables
+    /v0. Production enables it only with the legacy flag. The body is
+    otherwise valid. Mutation: delete the ``request._body`` assignment in
+    ``_rewrite_user_id_json_body``. The header-only case then stays at 422
+    and ``reached`` is false. An exception from the stub is not the kill.
+    """
+
+    header_user_id = str(uuid4())
+    body = _candidate_body(user_id=header_user_id if body_has_user_id else None)
+    reached, seen_user, status, payload = _post_candidates(
+        monkeypatch,
+        settings=Settings(
+            app_env=app_env,
+            auth_user_id="",
+            legacy_v0_enabled_outside_dev=legacy_enabled,
+            database_url="postgresql://db.example/alice",
+        ),
+        body=body,
+        header_user_id=header_user_id,
+    )
+
+    assert reached is True
+    assert seen_user == UUID(header_user_id)
+    assert status != 422
+    assert "missing" not in json.dumps(payload.get("detail", ""))
+
+
+def test_header_only_capture_candidates_post_stays_404_when_legacy_v0_is_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Legacy /v0 disabled returns 404 before the body rewrite.
+
+    The handler does not open the store. Mutation: skip the legacy-disabled
+    response in ``enforce_authenticated_user_identity``. This test then sees
+    the handler run.
+    """
+
+    header_user_id = str(uuid4())
+    reached, _seen_user, status, payload = _post_candidates(
+        monkeypatch,
+        settings=Settings(
+            app_env="production",
+            auth_user_id="",
+            legacy_v0_enabled_outside_dev=False,
+            database_url="postgresql://db.example/alice",
+        ),
+        body=_candidate_body(user_id=None),
+        header_user_id=header_user_id,
+    )
 
     assert reached is False
-    assert status == 422
-    detail = payload["detail"]
-    assert isinstance(detail, list) and detail
-    first = detail[0]
-    assert isinstance(first, dict)
-    assert first["loc"] == ["body", "user_id"]
-    assert first["type"] == "missing"
+    assert status == 404
+    assert payload["detail"] == "legacy v0 API is disabled outside development and test"
