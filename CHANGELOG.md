@@ -6,6 +6,31 @@
   plugin manifest, then Pi. Kilo stays deferred. No installer change in
   this note.
 
+- A blocked idempotent replay of `POST /v0/vnext/memories/commit` returns
+  403 and keeps its policy rows. A new commit that policy rejects still
+  returns 200 with status `rejected`.
+
+- Continuity capture auto-save, in assist mode and in auto mode, saves only
+  a user-role candidate matched by an explicit prefix rule (`decision:`,
+  `preference:`, `commitment:`, and the other prefixes in
+  `_CANDIDATE_PREFIX_RULES`, except types that already require review).
+  A regex hit and an assistant-role candidate are queued for review in
+  both modes. `create_continuity_object_record` calls
+  `commit_door_secret_verdict` on the title and on the body's string values,
+  not on a JSON dump of the body. The helper runs the credential
+  floor and then `commit_gate_refuses`, the same pair the commit door
+  uses. The floor alone stored a legacy assignment on a throwaway
+  Postgres; the shared check does not. A quoted assignment past the
+  280-character title cut is refused. An ordinary note that quotes a
+  word is stored, and a later candidate in the same turn is still stored.
+  Legacy-gate prose is refused on the live continuity routes that call
+  `create_continuity_object_record`. One refusal drops the whole turn:
+  the error rolls that request's transaction back, so no
+  `continuity_capture_events` row from the turn is kept. The opt-in
+  legacy `/v1` memory-operations path keeps the old auto-apply rule.
+  In auto mode an allowlisted type at confidence 0.9 still applies
+  without a user prefix.
+
 ## v0.17.0 — 2026-09-25
 
 - `alice-memory sleep-proposals` lists this user's sleep proposals oldest
