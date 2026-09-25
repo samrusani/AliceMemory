@@ -34,7 +34,8 @@ See [docs/integrations/openclaw.md](openclaw.md) for end-to-end before/after out
 - an item that holds credential material is skipped, and the import continues
 - the receipt field `skipped_credentials` is how many items were skipped
 - `skipped_credential_items` names each skipped item by id or line and does not include the matched text
-- a dashed private-key block in markdown is one skipped item, from its BEGIN line through the matching END line, and the receipt names that line range
+- receipt line numbers count from 1 on the first line after frontmatter
+- a dashed private-key block in markdown is one skipped item when the BEGIN line and the END line stand alone, share a label, and every line between them is key body: base64 or radix-64 text, a `=` checksum line, a `Name: value` armor header, or a blank line. A code fence, another BEGIN line, or any other line stops the scan, and that BEGIN line is one item on its own. The receipt names the block's line range
 - an OpenClaw raw entry is checked by value, so a routing `session_key` is imported
 - placeholder password examples are skipped at import
 

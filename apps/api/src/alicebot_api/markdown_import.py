@@ -108,13 +108,47 @@ def _parse_frontmatter(raw_text: str) -> tuple[dict[str, str], list[str]]:
     return metadata, lines[closing_index + 1 :]
 
 
+# Radix-64 and standard base64 use the same alphabet. Padding, when the line
+# has any, is one or two "=" at the end. A checksum line is "=" plus the
+# four-character CRC. An armor header is "Name: value", as PEM and OpenPGP
+# write it (Proc-Type, DEK-Info, Version, Comment).
+_RADIX64_LINE = re.compile(r"[A-Za-z0-9+/]+={0,2}")
+_CHECKSUM_LINE = re.compile(r"=[A-Za-z0-9+/]{4}")
+_ARMOR_HEADER_LINE = re.compile(r"[A-Za-z][A-Za-z0-9-]{0,70}:[ \t]*\S.*")
+
+
+def _is_code_fence(line: str) -> bool:
+    text = line.strip()
+    return text.startswith("```") or text.startswith("~~~")
+
+
+def _can_be_key_body(line: str) -> bool:
+    """True when ``line`` can sit between a BEGIN line and its END line.
+
+    Key body is base64 or radix-64 text, a ``=`` checksum line, a
+    ``Name: value`` armor header, or a blank line. A code fence, another
+    armor line, and any other text cannot.
+    """
+
+    if line.strip() == "":
+        return True
+    if _is_code_fence(line) or private_key_armor_role(line) is not None:
+        return False
+    text = line.strip()
+    if _CHECKSUM_LINE.fullmatch(text) or _RADIX64_LINE.fullmatch(text):
+        return True
+    return _ARMOR_HEADER_LINE.fullmatch(text) is not None
+
+
 def _armored_private_key_ranges(lines: list[str]) -> dict[int, tuple[int, int]]:
     """Map each 1-based line of a dashed private-key block to ``(start, end)``.
 
     The importer makes one item per line, and the credential check then skips
     only the BEGIN line. The base64 body and the END line would be stored.
-    A block is the BEGIN line through the END line with the same label. A
-    BEGIN line with no matching END is not a block: that line is still one
+    A block is a BEGIN line through the END line with the same label, and
+    only when both of those lines stand alone. The scan stops at a code
+    fence, at another BEGIN line, or at any line that cannot be key body.
+    When the scan stops early, that BEGIN line is not a block: it stays one
     item, and the check skips it on its own.
     """
 
@@ -130,8 +164,10 @@ def _armored_private_key_ranges(lines: list[str]) -> dict[int, tuple[int, int]]:
         cursor = index + 1
         while cursor < len(lines):
             later = private_key_armor_role(lines[cursor])
-            if later is not None and later == ("end", label):
+            if later == ("end", label):
                 end_index = cursor
+                break
+            if not _can_be_key_body(lines[cursor]):
                 break
             cursor += 1
         if end_index is None:
@@ -294,7 +330,7 @@ def _load_markdown_batch(
                 block_text = "\n".join(lines[start_no - 1 : end_no])
                 source_item_id = f"{file_path.name}:{start_no}-{end_no}"
                 title = _build_title(object_type="Note", text=block_text, explicit_title=None)
-                body: JsonObject = {
+                block_body: JsonObject = {
                     "body": block_text,
                     "raw_import_text": block_text,
                     "markdown_raw_line": block_text,
@@ -307,7 +343,7 @@ def _load_markdown_batch(
                     file_scope,
                     {"markdown_source_relpath": source_file.relative_path},
                 )
-                dedupe_payload: JsonObject = {
+                block_dedupe_payload: JsonObject = {
                     "workspace_id": workspace_id or source_path.stem,
                     "object_type": "Note",
                     "status": default_status,
@@ -333,10 +369,10 @@ def _load_markdown_batch(
                         status=default_status,
                         raw_content=_build_raw_content(object_type="Note", text=block_text),
                         title=title,
-                        body=body,
+                        body=block_body,
                         confidence=default_confidence,
                         source_provenance=source_provenance,
-                        dedupe_key=dedupe_key_for_payload(dedupe_payload),
+                        dedupe_key=dedupe_key_for_payload(block_dedupe_payload),
                     )
                 )
                 consumed_through = end_no

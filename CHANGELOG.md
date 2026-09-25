@@ -6,13 +6,17 @@
   `credential_verdict` before writing it. An item that holds credential
   material is skipped, and the rest of the import continues. The receipt
   reports `skipped_credentials` and `skipped_credential_items`, naming each
-  skipped item by id or line and never the matched text. A dashed
-  private-key block in markdown is one skipped item, from its BEGIN line
-  through the matching END line, and the receipt names that line range. An
-  OpenClaw raw entry is checked by value, as provenance is, so a routing
-  `session_key` is imported. Placeholder password examples are skipped with
-  the other credential lines. A clean item is stored as it was before,
-  including its status.
+  skipped item by id or line and never the matched text. Line numbers count
+  from 1 on the first line after frontmatter. A dashed private-key block in
+  markdown is one skipped item when the BEGIN line and the END line stand
+  alone, share a label, and every line between them is key body: base64 or
+  radix-64 text, a `=` checksum line, a `Name: value` armor header, or a
+  blank line. A code fence, another BEGIN line, or any other line stops the
+  scan, and that BEGIN line is one item on its own. The receipt names the
+  block's line range. An OpenClaw raw entry is checked by value, as
+  provenance is, so a routing `session_key` is imported. Placeholder password
+  examples are skipped with the other credential lines. A clean item is
+  stored as it was before, including its status.
 
 - The Hermes memory provider does not fall back to
   `POST /v0/continuity/captures` when the capture commit returns HTTP 400.
