@@ -64,7 +64,10 @@ from alicebot_api.credential_floor import (
     refuse_credential_activation,
     withhold_credential_text,
 )
-from alicebot_api.legacy_credential_check import commit_gate_refuses as legacy_commit_gate_refuses
+from alicebot_api.legacy_credential_check import (
+    commit_door_secret_verdict,
+    commit_gate_refuses as legacy_commit_gate_refuses,
+)
 from alicebot_api.vnext_promotion_policy import (
     PromotionCandidate,
     PromotionDecision,
@@ -504,27 +507,16 @@ def _request_contains_secret_marker(request: MemoryCommitRequest) -> str | None:
     something no carve-out excuses (see legacy_credential_check).
     """
 
-    verdict = credential_verdict(
+    return commit_door_secret_verdict(
         request.title,
         request.canonical_text,
         request.conversation_excerpt,
-        request.source_refs,
         request.rationale,
+        request.source_refs,
         request.idempotency_key,
         request.trace_id,
         list(request.project_scope),
     )
-    if verdict is not None:
-        return verdict
-    if legacy_commit_gate_refuses(
-        request.title,
-        request.canonical_text,
-        request.conversation_excerpt,
-        request.rationale,
-        request.source_refs,
-    ):
-        return VERDICT_CREDENTIAL
-    return None
 
 
 def _withheld_history(entries: list[object]) -> tuple[list[object], bool]:

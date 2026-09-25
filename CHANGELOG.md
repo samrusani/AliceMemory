@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+- `alice-memory sleep` runs the commit door's credential check on the
+  flattened first chunk, cut at 160 characters and extended to the end of
+  the whitespace-delimited token the cut falls in. A refusal drops the
+  proposal. Text in a later token does not. A cut that keeps only 11
+  characters after an AWS key-id prefix, or only 5 characters of an
+  assignment value, is still withheld when the rest of that token completes
+  the shape. A withheld source takes no cap slot and is checked again on
+  the next run. Before a rewrite, the caller's existing rows are checked
+  on the stored excerpt and on that same window of the first chunk when
+  the source still exists. Other users' rows are checked on the excerpt.
+  Refused rows are removed. The file is rewritten only when a row was
+  written or removed. The receipt adds `sources withheld` and
+  `existing rows removed` for the caller only, and prints no values and no
+  source ids. The sidecar is created at mode 0600. A stale `.tmp` is
+  removed first, including when that path is a dangling symlink, and the
+  new file is opened with `O_CREAT|O_EXCL`. An existing sidecar with group
+  or other permission bits is tightened to 0600 even when the bytes are
+  left unchanged.
+
 - Re-running `alice-memory install --host hermes` also keeps
   `ALICE_EMBEDDINGS_BASE_URL`, `ALICE_EMBEDDINGS_MODEL`, and
   `ALICE_EMBEDDINGS_API_KEY` on `mcp_servers.alice` when each value is a
