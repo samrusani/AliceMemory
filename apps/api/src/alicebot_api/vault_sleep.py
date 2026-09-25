@@ -3,6 +3,19 @@
 Writes a capped sidecar of source proposals. Import stays a source.
 Commit stays a fact. Search is unchanged. Accept is a later commit.
 
+Sleep proposes the oldest sources first (``captured_at``, then id). The
+session brief shows the newest. A row stops counting toward the cap once
+its source has an active or accepted memory. The row stays in the file.
+Accepting a proposal does not edit the sidecar.
+
+The commit door's credential check runs on the excerpt and on the cut
+window of the first chunk. A refusal is not written. An existing refused
+row is removed. The cap counts those kept rows, except a row whose
+source already has an active or accepted memory. The listing runs the
+same check again. It prints that source's domain, sensitivity, and
+project scope on the commit line, and it does not offer a source that
+already has an active or accepted memory.
+
 Does not create memories, does not rewrite sources or committed facts,
 and does not call consolidation. Counts and sidecar rows bind ``user_id``.
 """
@@ -15,13 +28,24 @@ from pathlib import Path
 from uuid import UUID
 
 from alicebot_api.legacy_credential_check import commit_door_secret_verdict
-from alicebot_api.session_briefing import COMMITTED_MEMORY_STATUSES
+from alicebot_api.session_briefing import (
+    COMMITTED_MEMORY_STATUSES,
+    SESSION_BRIEF_FRAME,
+    _source_honours_fence,
+    quote_session_brief_text,
+)
 from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
+from alicebot_api.vnext_project_scope import source_project_scope
 
 SLEEP_PROPOSAL_CAP = 8
 SLEEP_PROPOSAL_FILENAME = "sleep_proposals.jsonl"
 SLEEP_EXCERPT_MAX = 160
 PROPOSED_STATUS = "proposed"
+NO_SLEEP_PROPOSALS = "No sleep proposals."
+CAP_FULL_WAIT = (
+    "sleep adds no proposals for this user until a counting row is removed "
+    "from the sidecar or its source has an active or accepted memory"
+)
 
 LIST_SOURCE_IDS_SQL = """
 SELECT id
@@ -50,19 +74,23 @@ def format_sleep_receipt(
     cap: int,
     sources_withheld: int,
     existing_rows_removed: int,
+    sources_not_proposed: int = 0,
+    sidecar: Path | None = None,
 ) -> str:
     """Receipt counts only. No excerpts, values, or source ids."""
 
-    return "\n".join(
-        (
-            f"proposals written: {written}",
-            f"already present: {already_present}",
-            f"skipped as already linked: {skipped_linked}",
-            f"cap: {cap}",
-            f"sources withheld: {sources_withheld}",
-            f"existing rows removed: {existing_rows_removed}",
-        )
-    )
+    lines = [
+        f"proposals written: {written}",
+        f"already present: {already_present}",
+        f"skipped as already linked: {skipped_linked}",
+        f"cap: {cap}",
+        f"sources withheld: {sources_withheld}",
+        f"existing rows removed: {existing_rows_removed}",
+    ]
+    if sources_not_proposed > 0:
+        lines.append(f"sources not proposed: {sources_not_proposed}")
+        lines.append(f"{CAP_FULL_WAIT}: {sidecar}")
+    return "\n".join(lines)
 
 
 def load_sleep_proposals(path: Path) -> list[dict[str, object]]:
@@ -118,14 +146,22 @@ def run_local_vault_sleep(
                     existing_rows_removed += 1
                 continue
             kept_rows.append(row)
-        existing_ids = {
-            str(row["source_id"])
-            for row in kept_rows
-            if str(row.get("user_id") or "") == uid
-        }
+        existing_ids: set[str] = set()
+        counting_ids: set[str] = set()
+        for row in kept_rows:
+            if str(row.get("user_id") or "") != uid:
+                continue
+            source_id = row.get("source_id")
+            if not isinstance(source_id, str) or source_id == "":
+                continue
+            existing_ids.add(source_id)
+            if _has_committed_fact(store, source_id):
+                continue
+            counting_ids.add(source_id)
         written_rows: list[dict[str, object]] = []
         already_present = 0
         skipped_linked = 0
+        sources_not_proposed = 0
         sources_withheld = 0
         for source_id in _list_source_ids(store):
             if _has_committed_fact(store, source_id):
@@ -140,7 +176,8 @@ def run_local_vault_sleep(
             if _text_refused(excerpt) or _text_refused(checked):
                 sources_withheld += 1
                 continue
-            if len(existing_ids) + len(written_rows) >= SLEEP_PROPOSAL_CAP:
+            if len(counting_ids) + len(written_rows) >= SLEEP_PROPOSAL_CAP:
+                sources_not_proposed += 1
                 continue
             written_rows.append(
                 {
@@ -170,6 +207,8 @@ def run_local_vault_sleep(
         cap=SLEEP_PROPOSAL_CAP,
         sources_withheld=sources_withheld,
         existing_rows_removed=existing_rows_removed,
+        sources_not_proposed=sources_not_proposed,
+        sidecar=sidecar,
     )
 
 
@@ -261,6 +300,100 @@ def _restrict_sidecar_mode(path: Path) -> None:
         os.chmod(path, 0o600)
 
 
+def count_sleep_proposals(path: Path, *, user_id: UUID | str) -> int:
+    """How many sidecar rows belong to ``user_id``. Missing file is zero."""
+
+    uid = str(user_id)
+    return sum(1 for row in load_sleep_proposals(path) if str(row.get("user_id") or "") == uid)
+
+
+def compile_sleep_proposal_listing(
+    db_path: Path,
+    *,
+    user_id: UUID | str,
+    effective_domains: tuple[str, ...],
+    effective_sensitivity_allowed: tuple[str, ...],
+    effective_project_scope: tuple[str, ...],
+) -> str:
+    """List the caller's proposals. Writes nothing.
+
+    Listed oldest source first, by ``captured_at`` then id, the same order
+    the sleep writer uses when it chooses sources. A source imported later
+    with an earlier ``captured_at`` is listed before one imported earlier.
+    The brief's domain, sensitivity, and project fences apply. The commit
+    door runs again on the stored excerpt and on the cut window of the
+    first chunk. A refusal is omitted, not deleted. A source that already
+    has an active or accepted memory is omitted too. The commit arguments
+    include that source's domain, sensitivity, and project scope. The
+    commit line is ASCII-escaped. Rows left out are counted.
+    """
+
+    resolved = Path(db_path).expanduser().resolve()
+    sidecar = sleep_proposals_path(resolved)
+    rows = load_sleep_proposals(sidecar)
+    ranked: list[tuple[tuple[str, str], str]] = []
+    not_shown = 0
+    with sqlite_user_connection(resolved, user_id) as connection:
+        store = SQLiteVNextStore(connection, user_id)
+        uid = store.user_id
+        for row in rows:
+            if str(row.get("user_id") or "") != uid:
+                continue
+            source_id = row.get("source_id")
+            excerpt = row.get("excerpt")
+            if not isinstance(source_id, str) or source_id == "" or not isinstance(excerpt, str):
+                continue
+            if _has_committed_fact(store, source_id):
+                not_shown += 1
+                continue
+            source = store.get_source(source_id)
+            if source is None or not _source_honours_fence(
+                source,
+                effective_domains=effective_domains,
+                effective_sensitivity_allowed=effective_sensitivity_allowed,
+                effective_project_scope=effective_project_scope,
+            ):
+                not_shown += 1
+                continue
+            window = _credential_window(_first_chunk_text(store, source_id))
+            if _text_refused(excerpt) or _text_refused(window):
+                not_shown += 1
+                continue
+            domain = source.get("domain")
+            sensitivity = source.get("sensitivity")
+            arguments = {
+                "canonical_text": excerpt,
+                "domain": domain if isinstance(domain, str) and domain != "" else "unknown",
+                "project_scope": list(source_project_scope(source)),
+                "sensitivity": sensitivity if isinstance(sensitivity, str) and sensitivity != "" else "unknown",
+                "source_refs": [source_id],
+                "title": excerpt[:120],
+            }
+            captured_at = source.get("captured_at")
+            captured_key = captured_at if isinstance(captured_at, str) else ""
+            ranked.append(
+                (
+                    (captured_key, source_id),
+                    "\n".join(
+                        (
+                            f"source_id: {source_id}",
+                            f"excerpt: {quote_session_brief_text(excerpt)}",
+                            "alice_memory_commit: " + json.dumps(arguments, ensure_ascii=True, sort_keys=True),
+                        )
+                    ),
+                )
+            )
+    ranked.sort(key=lambda item: item[0])
+    blocks = [block for _order, block in ranked]
+    if blocks:
+        text = SESSION_BRIEF_FRAME + "\n\n" + "\n\n".join(blocks)
+    else:
+        text = NO_SLEEP_PROPOSALS
+    if not_shown:
+        text = f"{text}\nrows not shown: {not_shown}"
+    return text
+
+
 def _write_jsonl(path: Path, rows: list[dict[str, object]]) -> None:
     payload = "".join(
         json.dumps(row, ensure_ascii=True, separators=(",", ":"), sort_keys=True) + "\n"
@@ -282,12 +415,16 @@ def _write_jsonl(path: Path, rows: list[dict[str, object]]) -> None:
 
 
 __all__ = [
+    "CAP_FULL_WAIT",
     "LIST_SOURCE_IDS_SQL",
+    "NO_SLEEP_PROPOSALS",
     "PROPOSED_STATUS",
     "SLEEP_EXCERPT_MAX",
     "SLEEP_PROPOSAL_CAP",
     "SLEEP_PROPOSAL_FILENAME",
     "SleepError",
+    "compile_sleep_proposal_listing",
+    "count_sleep_proposals",
     "format_sleep_receipt",
     "load_sleep_proposals",
     "run_local_vault_sleep",

@@ -43,6 +43,7 @@ REPORT_LABELS = (
     "committed facts",
     "last brief",
     "candidates waiting",
+    "sleep proposals",
 )
 FORBIDDEN_PHRASES = ("review console", "/vnext", "clear the queue", "open Memory Review")
 
@@ -141,6 +142,7 @@ def test_empty_data_dir_prints_zeros_and_resolved_db_path(tmp_path: Path, capsys
     assert _int_value(report, "searchable chunks") == 0
     assert _int_value(report, "committed facts") == 0
     assert _int_value(report, "candidates waiting") == 0
+    assert _int_value(report, "sleep proposals") == 0
     assert _int_value(report, "last brief") == estimate_item_tokens({"text": EMPTY_SESSION_BRIEF})
     assert f"/ {SESSION_BRIEF_TOKEN_BUDGET} tokens" in _line_value(report, "last brief")
     lowered = report.casefold()

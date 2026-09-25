@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+- `alice-memory sleep-proposals` lists this user's sleep proposals oldest
+  source first, by source `captured_at`, then id. Each excerpt is framed and
+  JSON-quoted, with its source id and the `alice_memory_commit` arguments
+  that accept it: `canonical_text`, `title`, `source_refs`, and the source's
+  `domain`, `sensitivity`, and `project_scope`. The commit line is
+  ASCII-escaped, so a line separator in an excerpt stays on that line. The
+  command applies the session brief's domain, sensitivity, and project
+  fences. It runs the commit door again on the stored excerpt and on the
+  cut window of the first chunk, and it writes nothing. A row whose source
+  already has an active or accepted memory is not offered again. When any
+  of this user's rows are left out, the listing prints `rows not shown`.
+  `alice-memory doctor` adds `sleep proposals`, a count of sidecar rows for
+  this user, after `candidates waiting`. When the sidecar cannot be read,
+  that line is `sleep proposals: unreadable` and the other census lines
+  still print. A sleep row stops counting toward the cap of 8 once its
+  source has an active or accepted memory. The count starts from rows the
+  credential check kept. The row stays in the sidecar. The receipt always
+  prints `proposals written`, `already present`, `skipped as already linked`,
+  `cap`, `sources withheld`, and `existing rows removed`. When the cap still
+  leaves at least one source unproposed, it also prints `sources not proposed`
+  and the sidecar path.
+
 - `alice-memory sleep` runs the commit door's credential check on the
   flattened first chunk, cut at 160 characters and extended to the end of
   the whitespace-delimited token the cut falls in. A refusal drops the
