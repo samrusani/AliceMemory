@@ -403,6 +403,13 @@ Alice decides the outcome, never the caller:
   caller can declare the author's agent_id. The author can still reject
   their own pending write above the ceiling. Confirming a row that is
   not pending is refused and writes nothing.
+  Over the stdio server, a refused confirm or reject, and a credential
+  refusal on confirm, comes back as `tool_request_failed` with the message
+  `The tool request could not be processed` and no reason code. An
+  author refusal and a ceiling refusal record the reason on the policy
+  events (`policy.decision` and `agent.policy_blocked`). A credential
+  refusal on confirm leaves the row pending and does not keep a policy
+  event for that refusal.
   A pending write stays out of recall until it is answered, and nothing
   expires it in the background. Only `VNextMemoryCommitService.confirm`
   reads its 24 hour `expires_at`. After that time, a confirm or reject
@@ -480,11 +487,27 @@ New integrations should stay on the default three tools; the legacy surface
 is frozen and will not gain new capabilities. Set `ALICE_MCP_FULL_TOOLS=1`
 only when capture, the pack, or review must be in the handshake.
 
+## Size bounds
+
+A memory commit accepts at most 64 `source_refs`. Each string ref is at
+most 4,000 characters as sent. Any other ref is at most 4,000 characters
+once serialized. The service enforces the bound, and the MCP schema
+advertises it.
+
+A correction refuses a body, provenance, replacement body, or replacement
+provenance over 20,000 characters serialized. That covers
+`alice_memory_correct`, `alice_review_apply`, and
+`POST /v0/continuity/review-queue/{id}/corrections`.
+
+`alice_commit_captures` accepts at most 100 candidates. Each candidate is
+at most 20,000 characters serialized.
+
 ## Trust boundary
 
 - MCP tools create reviewable sources, artifacts, open loops, and memory
   proposals; trusted writes go through the memory commit policy engine,
   never direct database mutation.
-- Blocked calls return explicit policy reasons (for example
-  `all_requested_domains_restricted`); agents should narrow scope or ask
-  the user instead of retrying broadly.
+- Over stdio, a blocked read or confirm returns `tool_request_failed`
+  with the message `The tool request could not be processed` and no
+  reason. The reason is on the policy events (`policy.decision` and
+  `agent.policy_blocked`).

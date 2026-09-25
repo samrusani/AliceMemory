@@ -134,8 +134,10 @@
   removed text. A second import of the same file with the same ids skips
   those identical rows under the default `--mode skip`. Importing the same
   file again without the flag aborts and leaves the rejected row in place.
-  `--db` is a SQLite file path. A Postgres URL is refused. The command
-  restores SQLite only.
+  `--db` is a SQLite file path. A Postgres URL is refused on this command
+  and on every other `alice-memory` subcommand, including `install` and
+  `install --dry-run`, with exit 2 and `sqlite_db_path_required`. Nothing
+  is written. The command restores SQLite only.
 
 - **Correction to v0.15.1 to v0.16.0.** The v0.15.1 release notes said
   credential material and agent-directed instructions always require review,
@@ -473,7 +475,7 @@
   no memory fields. Before this, the tool pointed agents at
   `alice_memory_manage`, which the default three-tool server refuses, so
   a `confirmation_required` write stayed in `needs_review`, invisible to
-  recall, with no way to finish it on the default tools (wiki D8). The
+  recall, with no way to finish it on the default tools. The
   confirmation runs the same service call as `alice_memory_manage`
   `confirm`. There is no edit on this call.
 - A mutation of one stored target above the caller's sensitivity ceiling
@@ -500,8 +502,21 @@
   `only_the_author_an_admin_key_or_the_owner_may_confirm_or_reject`.
   On a keyless install that limit is not protection: the caller can
   declare the author's agent_id, and Alice does not verify it.
+  Over the stdio server the client does not receive that reason code, or
+  the ceiling reason, or the message from a credential refusal on
+  confirm. The wire result is `tool_request_failed` with the message
+  `The tool request could not be processed` and no detail. An author
+  refusal and a ceiling refusal record the reason on the policy events
+  (`policy.decision` and `agent.policy_blocked`). A credential refusal on
+  confirm leaves the row pending and does not keep a policy event for
+  that refusal.
 - Confirming a row that is not pending is refused and writes nothing.
-  A repeated reject of an already rejected row is still a no-op replay.
+  A repeated confirm fails with `confirmation is not pending`. Over stdio
+  that failure arrives as `tool_request_failed` with the message
+  `The tool request could not be processed` and no reason. v0.16.0
+  answered `idempotent_replay: true` and refreshed `last_confirmed_at`.
+  Retrying clients should treat the new failure as final. A repeated
+  reject of an already rejected row is still a no-op replay.
 - `title` and `canonical_text` are no longer listed as required in the
   `alice_memory_commit` schema, because a confirmation carries neither;
   a new write without them is still refused.
@@ -540,10 +555,10 @@
   history. It lists the line and memory id of every offender on stderr
   (never the text) and writes nothing. Fix it in the source vault: redact
   the listed rows with the commands above, export again, and import the new
-  file. Do not edit the export by hand; that breaks its SHA-256 footer. **A
-  backup whose source vault is gone cannot be restored yet** if it holds
-  such a row: importing with an offender excluded or quarantined is a
-  follow-up.
+  file. Do not edit the export by hand; that breaks its SHA-256 footer. If
+  the source vault is gone, `alice-memory import --quarantine` removes the
+  credential from the named memory and from the records derived from it,
+  stores that memory as `rejected`, and reports any other copies it finds.
 - A reject, delete, expire, forget, undo or quarantine sweep always
   completes. A reason carrying credential material is stored as
   `rationale withheld: it carried credential material`, text supplied with a
@@ -602,6 +617,114 @@
 - Instruction-shaped content is unchanged: it is still only kept from
   skipping review, and a note the ordinary commit gate already commits is
   stored.
+
+- The review console (`apps/web`) moved `next` and `eslint-config-next`
+  from 16.2.12 to 16.3.6, `sharp` from 0.35.0 to 0.35.4, and `js-yaml`
+  from 4.3.1 to 4.3.2, for security advisories (#410). Self-hosters
+  rebuild the console.
+- Text whose normalised form is longer than 1,024 characters and more
+  than four times the source is refused, not truncated. The same cap
+  also counts the distinct strings of one write together. On a memory
+  commit the reason is `unsafe_text_expansion`.
+- Unexpire and project-update accept run the credential check before
+  they write. Unexpire reads the stored title, text, and summary, and
+  the reason. Project-update accept reads the candidate title and the
+  current state it would store.
+- `POST /v0/vnext/memory-proposals`, `alice_vnext_propose_memory`, and
+  `alicebot vnext agents propose-memory` call one function. The stored
+  shape is the memory, its creation revision, and
+  `agent.memory_proposed`. `review.item_created` is stored when review
+  is required. `memory.auto_promoted` is written only when the decision
+  auto-promotes and review is not required. A review-required proposal
+  has no promotion event. Rationale and source refs are stored on every
+  door. Credential material is refused before anything is written.
+- Most HTTP policy refusals return 403. Memory confirm, undo, correct,
+  forget, expire, unexpire, and redact return that 403 inside the
+  connection, so on Postgres the transaction commits and
+  `policy.decision` and `agent.policy_blocked` stay.
+  `POST /v0/vnext/memories/accept-consolidation` catches inside the
+  connection too, so those rows stay.
+  These routes catch the refusal outside the connection. The transaction
+  rolls back before the 403 is sent, so those audit rows are gone:
+  `GET /v0/vnext/artifacts/{artifact_id}`,
+  `GET /v0/vnext/traces/artifacts/{artifact_id}`,
+  `POST /v0/vnext/artifacts/{artifact_id}/review`,
+  `POST /v0/vnext/artifacts/{artifact_id}/quality-ratings`,
+  `POST /v0/vnext/artifacts/{artifact_id}/export`,
+  `POST /v0/vnext/artifacts/{artifact_id}/insight-feedback`, and
+  `POST /v0/vnext/projects/update-candidates/{artifact_id}/review`.
+  On `POST /v0/vnext/memories/{memory_id}/review` the first gate runs
+  `memory.review` inside the first connection and returns the 403 there,
+  so that decision commits. That action is human-or-admin, so a
+  non-admin agent is refused at this gate and never reaches
+  consolidation acceptance. If that first gate did not already return,
+  a later accept or promote writes its own policy rows and raises
+  outside the second connection, so those later rows roll back. Other
+  actions on that route return the 403 inside the connection, so those
+  rows stay.
+  `POST /v0/vnext/memories/commit` does not catch the refusal inside
+  the connection. An idempotent replay appends `policy.decision` and
+  `agent.policy_blocked` and then raises, so Postgres rolls those rows
+  back and the client gets HTTP 500. A new commit that policy rejects is
+  answered from inside the connection with HTTP 200 and status
+  `rejected`, so those rows stay.
+  CLI handlers are a separate split. These append `policy.decision`
+  and `agent.policy_blocked` and then let `AgentPolicyBlockedError`
+  leave `_vnext_store_context` (and `user_connection`), so Postgres
+  rolls those rows back: `_run_vnext_memory_confirm`,
+  `_run_vnext_memory_undo`, `_run_vnext_memory_correct`,
+  `_run_vnext_memory_forget`, `_run_vnext_memory_quarantine`,
+  `_run_vnext_memory_expire`, `_run_vnext_memory_unexpire`,
+  `_run_vnext_memory_accept_consolidation`, `_run_vnext_memory_recent`,
+  and `_run_vnext_memory_audit`.
+  `_run_vnext_memory_redact` does that when the row is not already an
+  exact redaction: `authorize_memory_action` appends the events and
+  raises inside the connection. An exact replay raises
+  `AgentPolicyBlockedError` without appending those events.
+  `_run_vnext_agents_ingest_output` appends the events and calls
+  `ensure_policy_allowed` inside the connection, so a block rolls those
+  rows back. `_run_vnext_demo_load` does that for its agent-output
+  `source.capture` check. The same load later appends a
+  `context_pack.request` decision and does not raise, so that
+  connection commits those rows.
+  `_run_vnext_memory_commit` follows the HTTP commit split. An
+  idempotent replay appends the events and raises inside the
+  connection, so Postgres rolls those rows back. A new commit that
+  policy rejects returns from inside the connection, so those rows stay.
+  These append the events and call `ensure_policy_allowed` only after
+  the connection exits, so the rows stay:
+  `_run_vnext_agent_propose_memory`, `_run_vnext_scheduler_run_now`,
+  `_run_vnext_scheduler_run_due`, `_run_vnext_scheduler_pause`, and
+  `_run_vnext_scheduler_resume`. Scheduler status, runs, failures, and
+  the daemon commands do not write those events.
+  `_run_vnext_smoke_agentic_scheduler` lets the error leave its first
+  connection on the proposal, daily, weekly, and due checks. A later
+  connection appends a blocked `scheduler.pause` decision and exits
+  normally, so that row stays.
+  `_run_vnext_smoke_agent_integration_pack` lets the error leave on its
+  context-pack and agent-output checks. Its restricted-domain
+  `context_pack.request` append does not raise, so those rows stay.
+  `_run_vnext_smoke_agentic_memory_commit` calls confirm, correct,
+  forget, and undo inside one connection with no catch, so a block
+  there rolls back. Its commit calls return a rejection inside the
+  connection, so those rows stay.
+  No policy event is written when there is no agent identity.
+- Pending writes created on v0.16.0 above an agent's sensitivity ceiling
+  can only be rejected by that agent after the upgrade. Confirming one
+  needs the owner or an `admin_agent` key.
+- Core MCP tool descriptions changed, and the core tool-definition
+  digest was re-minted
+  (`acb550253aefafed73586fcba76f6b15797e9f0c36466212fb2b286102bd6dfa`).
+  No tool was added, removed, or renamed. Hosts that pin tool
+  definitions will see a change. Three legacy tools gained size bounds
+  since v0.16.0: `alice_commit_captures`, `alice_review_apply`, and
+  `alice_vnext_commit_memory`. The legacy tool-definition digest changed
+  from `ca3d747e552bdece52c22d76332fc69f499878290edf3f236a8a7ea6a2e34e41`
+  to `2c21d4d624da448969554137e0b9cbae14c34cfaa0454e76d22ae480a6a29a58`.
+- The Hermes and OpenClaw skill packs, and the Hermes memory provider
+  in `docs/integrations/hermes-memory-provider`, changed. Anyone who
+  copied those files into a host must copy them again.
+
 ## v0.16.0 — 2026-08-19
 
 - README leads with `alice-memory install` and `demo --vault`, then a

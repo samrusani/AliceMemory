@@ -197,9 +197,10 @@ ten shapes of the committed linear-time test, at 200 KB each took at most
 (three runs). One scan of the assignment pattern used
 before 2026-09-22 took 43 seconds on 50 KB. A field that grows more than four
 times under unicode normalisation (and past 1,024 characters) is refused with
-its own message rather than scanned or truncated; ordinary scripts grow at
-most 1.44 times. The linear-time claim is about this check only, not the
-whole promotion evaluation.
+its own message rather than scanned or truncated. The same cap also counts
+the distinct strings of one write together. Ordinary scripts grow at most
+1.44 times. The linear-time claim is about this check only, not the whole
+promotion evaluation.
 
 Since 2026-09-23 the promotion floor's credential clause calls the same check
 (addendum F1), over every field the write persists: title, text, excerpt,
@@ -369,17 +370,22 @@ Stated so nobody reads the table above as "every surface".
   secret if it wanted to. The root cause, a name rule that counts any `*_key`
   as a secret name, is a follow-up ticket; once it lands, key and value
   reading returns on provenance and the value column.
-- **Splits of a label and its value across two fields.** A title
-  `Prod DB password:` over a body `Kd9xoYWu83nq`, the same title without the
-  colon, `API_KEY=` over a value, `Authorization: Bearer` over a token, a
-  prose split (a title "The vault password" over a body that starts with
-  "is" and then the password), and a `fact_key`/`value` structured body all
-  pass. Only the case-exact key
-  formats are read across a field boundary. Because the promotion floor now
-  calls the same check, it no longer holds these shapes back either: an
-  authenticated agent under an auto-promote persona can promote them. The
-  defence against a deliberate split is identity and trust (the agent key,
-  its permission profile, and quarantine by key), not the floor.
+- **Splits of a label and its value across two fields.** The credential
+  check reads each field on its own, and it reads a case-exact key format
+  across a field boundary. A label in one field and the value in another
+  is not that, so `carries_credential_material` does not flag a title
+  `Prod DB password:` with the value in the body, and the commit gate does
+  not refuse it. The promotion floor still holds that title back.
+  `hard_floor_hits` returns `credential_material`, because the floor also
+  runs v0.16.0's promotion floor rule. An authenticated agent under an
+  auto-promote persona does not promote it. The same title without the
+  colon is not held back. Both results are pinned:
+  `test_f1_a_password_label_with_a_colon_is_still_held_by_the_promotion_floor`
+  and
+  `test_f1_the_label_split_residual_is_not_held_back_and_that_is_documented`.
+- **A `fact_key`/`value` structured body.** The promotion floor does not
+  hold one. `hard_floor_hits` does not return `credential_material` for a
+  mapping such as `{"fact_key": "deploy_owner", "value": "Platform"}`.
 - **A lower-case AWS id split across fields** (`id ak` over
   `iaiosfodnn7example`). In one field it is caught in any case.
 - **A split whose second half is a copy of another field.** Someone who builds
@@ -435,8 +441,10 @@ Stated so nobody reads the table above as "every surface".
   is fixed by redacting the row.
 - **A backup that holds one of these cannot be restored** until the row is
   redacted in the source vault and the vault exported again. If the source
-  vault is gone, there is no restore path yet: importing a subset, or
-  quarantining an offender at import, is a follow-up ticket.
+  vault is gone, `alice-memory import --quarantine` removes the credential
+  from the named memory and from the records derived from it, stores that
+  memory as `rejected`, and reports any other copies it finds. See
+  [Backup and restore](../alpha/backup-and-restore.md).
 
 ### Known residuals of the promotion floor
 
@@ -491,10 +499,10 @@ What stands against it:
   writer trust, and the read path surfaces that on the row so a poisoned
   memory is visibly agent-authored rather than anonymous;
 
-  > Correction, added 2026-09-23. Only context packs show this, and only for
-  > auto-promoted rows. The SessionStart brief, recall, resume and MCP
-  > retrieval do not show who wrote a row. Writer attribution on those
-  > surfaces is a follow-up ticket scheduled right after S4.5.
+  > Correction, added 2026-09-24. Recall and resume items include `writer`
+  > (`writer.id` and `writer.established`), on the MCP tools and on CLI
+  > resume. Context packs include `writer` too. The SessionStart brief
+  > still shows no writer.
 - the row stays undoable and expirable through the ordinary lifecycle;
 - credential material is refused on the write paths listed under "What is
   covered", whoever the writer is;

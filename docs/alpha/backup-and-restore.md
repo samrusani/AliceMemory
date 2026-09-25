@@ -78,11 +78,22 @@ publication committed but a post-commit condition or reporting step failed.
 The records are present: inspect stderr and the target path, and do not
 blindly retry.
 
+A plain import, without `--quarantine`, refuses a backup that holds
+credential material. The error code is `import_credential_material`, the
+exit code is 1, and nothing is written. stderr lists the line and memory
+id of every offender and does not print the matched text.
+`alice-memory export` lists those offenders on stderr and exits 0. A
+file is written only when `--out` is set. Without `--out`, the JSONL
+goes to stdout and no file is created. Redact the listed rows in the
+source vault and export again.
+
 `--quarantine` is the owner's recovery path when a backup holds a credential
 and the source vault is gone. It removes the credential from the named
 memory and from the records derived from it, and it reports any other copies
-it finds. `--db` is a SQLite file path. A Postgres URL is refused and no
-file is written.
+it finds. `--db` is a SQLite file path on every `alice-memory` subcommand,
+not only import. A Postgres URL is refused with exit code 2 and
+`sqlite_db_path_required`, including `install` and `install --dry-run`.
+Nothing is written.
 
 ```bash
 alice-memory import \
