@@ -2,9 +2,8 @@
 
 ## Unreleased
 
-- Design note for Sprint 6 host adapters: OpenCode, Codex, a Claude Code
-  plugin manifest, then Pi. Kilo stays deferred. No installer change in
-  this note.
+- Design note for Sprint 6 host adapters, revised to the host-format
+  rulings. No installer change in this note.
 
 - A blocked idempotent replay of `POST /v0/vnext/memories/commit` returns
   403 and keeps its policy rows. A new commit that policy rejects still

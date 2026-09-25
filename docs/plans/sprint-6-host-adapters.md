@@ -1,88 +1,160 @@
 # Sprint 6: host adapters
 
-Design only. No behavior change ships with this note.
+Design only. No installer change ships with this note.
 
-The inventory of hosts we already install was read from `host_file_map` in
-`apps/api/src/alicebot_api/host_install.py` on `main` at
-`e8abf466f3b2727d1ccfe60d01aff622eb301758`. That map has Claude Desktop,
-Claude Code, Cursor, OpenClaw, and Hermes. Sprint 6 adds four more, in
-this order: OpenCode, Codex, a Claude Code plugin manifest, then Pi.
-Kilo stays deferred.
+The inventory of hosts we already install was read from `host_file_map` and
+`INSTALL_HOSTS` in `apps/api/src/alicebot_api/host_install.py`. That set is
+Claude Desktop, Claude Code, Cursor, OpenClaw, and Hermes. Hermes is opt-in
+through `--host`. The other four are `DEFAULT_INSTALL_HOSTS`.
 
-## What each adapter must do
+Sprint 6 adds OpenCode and Codex, and a Claude Code plugin manifest that is
+an alternative to `alice-memory install`. Pi is deferred, like Kilo, until
+Pi supports MCP or Sprint 6 has landed. Pi 0.87.1 says "No MCP", so install
+has nothing to write. An Alice-owned TypeScript extension, the third-party
+`pi-mcp-adapter`, or a skill that calls the CLI would each be a new
+integration surface with no validation command. The third-party adapter
+would add a dependency outside our control to the install path. This note
+records that and does not add Pi.
 
-Every adapter is an install and a re-run. It follows the Sprint 4 install
-rules already used by the hosts we ship:
+## How a writer treats keys it did not write
 
-- Keep keys the user wrote. A re-run replaces only the block Alice wrote.
-  Documented env keys stay, byte for byte, the way Hermes keeps its
-  documented env block. A key Alice did not write still refuses the file.
-- One launcher. The command is the same `uvx` launcher the other hosts
-  use. When `uv` is installed and `uvx` is not on `PATH`, write an absolute
-  `uvx` path. Do not write a versioned Homebrew Cellar path.
-- No URL in a hook. A hook command is a local launcher line. It does not
-  contain an HTTP URL.
-- Per-host refusals. A file that is not the shape that host documents is
-  refused with that host's message, and the other hosts are not touched.
-- A backup before the first rewrite of a file the user already has. A
-  second re-run that changes nothing does not write another backup.
+The writer matches the file format. It does not follow one rule for every
+host.
 
-The config path for each new host is taken from that host's own docs and
-pinned in a test with the host version. This note does not guess the path.
+Plain JSON, which install can read and rewrite exactly, keeps every key the
+user added. The JSON hosts already do this. A re-run over an install-shaped
+entry with an added `env` key, `timeout`, and another key reports
+`action: unchanged` and keeps all three. Only the Hermes writer refuses a
+key Alice did not write.
+
+Files install edits as text use the Hermes model. That is TOML for Codex,
+and JSONC for OpenCode when the file has comments. Edit only Alice's entry
+in place, carry the documented `ALICE_*` env keys byte for byte, and refuse
+anything else with a snippet and a correct `next:` line. Never strip
+comments, and never rewrite a whole file that install cannot fully parse.
+There is no TOML writer in the repo and `tomllib` only reads. Codex needs a
+text-edit writer like Hermes's, or a refusal.
+
+OpenCode's entry is `mcp.<name> = {type: "local", command: [array],
+environment: {}}`. The key is `environment`, not `env`, and there is no
+separate `args`. `parse_launcher` today requires `command` to be a string
+and `args` to be a list of strings. It has to learn the array form.
+`_masked` copies `command` as shown, and `masked_args` runs only on `args`.
+With OpenCode the arguments live in the command array, so the writer applies
+that masking to the array.
+
+## Rules the shipped installer already follows
+
+`find_launcher` tries `uvx` on PATH, then installed `alice-memory` scripts
+outside a uv cache, then an absolute `uvx`. A launcher is replaced only when
+`launcher_problem` says it is dead, unless it is pinned or customised.
+
+A hook command blocks any `scheme://` and any index option, even one with a
+local path. Only the allowlisted uvx options are carried into a hook
+(`CARRY_OPTIONS_WITH_VALUE` and `CARRY_FLAGS` in `host_launcher.py`).
+
+`--dry-run` prints only Alice's entry, with copied values masked.
+
+A backup is written before every rewrite of an existing file, not only the
+first, into `<data dir>/backups/host-configs/`.
+
+The liveness check stays: a dead launcher is replaced, a pinned or
+customised one is kept.
 
 ## OpenCode
 
-First, because that is the user order in the queue. Install writes the MCP
-server entry and, if OpenCode has a session-start hook, the same
-SessionStart command Claude Code and Cursor already get. It does not add
-an end hook. A host without an end event keeps using `alice-memory sleep`.
+Sprint 6 ships OpenCode as MCP only, with no session start. OpenCode
+1.18.32 has no hook in its config file (the `experimental.hook` block was
+removed in v1.2.0). Its session route is a TypeScript plugin. This sprint
+does not add that plugin. It is code in a second language, with its own
+release and trust surface, for one host. MCP-only matches the other hosts
+without a start event, where the user runs `alice-memory brief`.
+
+MCP server `instructions`, which OpenCode puts in the system prompt, are a
+separate follow-up. Alice sends none today, and adding them affects every
+host.
 
 ## Codex
 
-Codex has no end hook. Install writes the MCP server entry only. Session
-end stays `alice-memory sleep`. Do not invent a Codex end hook.
+Codex 0.157.0 has `SessionStart`, `Stop`, and `SessionEnd` hooks, and hooks
+are on by default. Installer-written hooks run only after the user trusts
+them. Sprint 6 still does not register `SessionEnd` or `Stop`.
 
-## Claude Code plugin manifest
+Codex gets its MCP entry in Sprint 6. Its SessionStart hook comes in the
+same sprint only if a real-host check proves Codex accepts both the hook
+config and our hook's output. Our current hook JSON carries a top-level
+`additional_context` key, and a strict parse of Codex's output schema
+rejects it. Codex needs `--format markdown` (plain stdout) or a Codex
+output shape. Confirm that against real Codex, not a copied struct. Install
+must print that the user has to trust the hook in Codex before it runs. If
+no headless check can show Codex running the hook, ship the MCP entry alone
+and say why in the docs.
 
-This is a manifest for the Claude Code plugin surface, not a second
-installer. It advertises the same three default tools: `alice_memory_commit`,
-`alice_recall`, and `alice_resume`. It does not register `SessionEnd` or
-`Stop`. The existing installer keeps writing only `hooks.SessionStart`.
+## Claude Code plugin
 
-## Pi
+The plugin is an alternative to `alice-memory install` for Claude Code,
+never used alongside it. Running both gives two servers and two hooks.
+Identical handlers are not merged.
 
-Last of the four. Same install rules. No end hook unless Pi's docs name
-one, and even then this sprint does not point it at the sleep writer.
+It carries the MCP server and the SessionStart hook. It does not register
+`SessionEnd` or `Stop`. A plugin manifest cannot list tools. The tools come
+from the server at runtime, named `mcp__plugin_<plugin>_<server>__*`. Hook
+matchers and permission rules written for `mcp__alice__*` do not match
+them. The docs name the `mcp__plugin_...` tool names.
+
+Install detects an installed Alice plugin and skips Claude Code with a
+message. The docs say to use one or the other. The plugin launches `uvx` by
+name, because a static manifest cannot resolve an absolute path. Its docs
+say it needs uv. The data dir comes from `userConfig`, following the
+existing MCPB `user_config.data_dir`.
+
+## Opt-in
+
+Each new host is opt-in through `--host`, as Hermes is, until it has a
+passing real-host check. Moving one into `DEFAULT_INSTALL_HOSTS` is a
+separate decision.
+
+## Real-host check, required before an adapter merges
+
+An adapter pull request merges only with a real-host CI check that meets
+all of these:
+
+1. The host reads the written config with its own tool: `opencode debug
+   config` and, if it runs headless, `opencode mcp list`; `codex mcp list
+   --json` or `codex mcp get` (parse the JSON; `codex doctor` exits 1
+   without credentials); `claude plugin validate <dir> --strict --json` for
+   the plugin (it checks `.mcp.json` from 2.1.281, the current pin).
+2. A control case in a broken shape is rejected by the host. OpenCode and
+   Codex ignore unknown keys, so the control has to be a type or transport
+   error, not a stray key.
+3. The run tests the install rules: seed an existing config, so a backup is
+   written; add a user key between two runs, so keeping it is tested; check
+   the dry-run masking.
+4. It is wired into `real-host-ci.yml`, with the pinned versions and the
+   `ran` count updated, and `test_real_host_ci_workflow.py` extended. Pi
+   would need Node 22.19 or later; the job pins 22.14.0. If a host cannot
+   run headless without credentials, that adapter does not merge until the
+   owner decides on a CI secret.
+
+The same constraints as the SessionEnd trial apply. Do not run this on a
+developer Mac, and do not use a real home directory.
+
+## Mutations each adapter pull request includes
+
+- A second launcher.
+- A URL in a hook.
+- A dropped user key.
+- A skipped backup.
+- An unmasked dry run.
+- An uncarried uvx option.
+- The host-side control accepted.
 
 ## What this design does not do
 
-- It does not add Kilo.
-- It does not register Claude Code `SessionEnd` or `Stop`.
+- It does not add Pi or Kilo.
+- It does not register Claude Code `SessionEnd` or `Stop`, and it does not
+  register Codex `SessionEnd` or `Stop`.
 - It does not add a fourth default MCP tool.
 - It does not point any host's session end at the sleep writer.
 - It does not change the credential floor or the commit door.
-
-## Real-host check
-
-Each adapter gets one validation run we can repeat. On the Linux runner,
-with a temp home and no credentials:
-
-- install the host's pinned build;
-- run `alice-memory install` for that host;
-- run it again;
-- record whether the second run kept the user's keys, wrote one launcher,
-  left the backup in place, and did not put a URL in a hook.
-
-The same constraints as the SessionEnd trial apply. Do not run this on a
-developer Mac, and do not use a real home directory. If the host will not
-start without credentials, say so and stop. Do not add a secret to CI for
-this design.
-
-## Acceptance
-
-- One install test and one re-run test per host, including a user key that
-  must survive the re-run.
-- A mutation that writes a second launcher, or a URL into a hook, fails
-  that host's test.
-- The real-host run above is recorded in the PR for that host, with the
-  host version. A missing run is named, not treated as a pass.
+- It does not ship installer code.
