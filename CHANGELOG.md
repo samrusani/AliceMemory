@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Design note for Sprint 7 skill packs. The packs teach commit, recall,
+  and resume. No pack ships in this note, and no behaviour claim is made
+  before a measurement.
+
 ## v0.17.0 — 2026-09-25
 
 - `alice-memory sleep-proposals` lists this user's sleep proposals oldest
