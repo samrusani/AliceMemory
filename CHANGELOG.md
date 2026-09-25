@@ -13,6 +13,10 @@
   not run. A body `user_id` that does not match the authenticated user
   still returns 401.
 
+- A blocked idempotent replay of `POST /v0/vnext/memories/commit` returns
+  403 and keeps its policy rows. A new commit that policy rejects still
+  returns 200 with status `rejected`.
+
 - Continuity capture auto-save, in assist mode and in auto mode, saves only
   a user-role candidate matched by an explicit prefix rule (`decision:`,
   `preference:`, `commitment:`, and the other prefixes in
