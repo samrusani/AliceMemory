@@ -2,6 +2,34 @@
 
 ## Unreleased
 
+- Re-running `alice-memory install --host hermes` also keeps
+  `ALICE_EMBEDDINGS_BASE_URL`, `ALICE_EMBEDDINGS_MODEL`, and
+  `ALICE_EMBEDDINGS_API_KEY` on `mcp_servers.alice` when each value is a
+  one-line plain, single-quoted, or double-quoted scalar, with no anchor,
+  alias, tag, or block scalar. The name and the scalar text stay byte for
+  byte. The receipt lists the kept keys. `ALICE_EMBEDDINGS_API_KEY` is
+  masked like `ALICE_AGENT_API_KEY` and is not printed. Any other key
+  install did not write still refuses the file.
+
+- Markdown, ChatGPT, and OpenClaw import check each item with
+  `credential_verdict` before writing it. An item that holds credential
+  material is skipped, and the rest of the import continues. The receipt
+  reports `skipped_credentials` and `skipped_credential_items`, naming each
+  skipped item by id or line and never the matched text. Line numbers count
+  from 1 on the first line after frontmatter. A dashed private-key block in
+  markdown is one skipped item when the BEGIN line and the END line stand
+  alone, share a label, every line between them is key body, and at least
+  one of those lines is radix-64 text of 40 or more characters. Key body is
+  base64 or radix-64 text, a `=` checksum line, a blank line, or a
+  `Name: value` armor header. A `Name: value` line counts only as a run
+  directly after the BEGIN line, before the first blank line or radix-64
+  line. A code fence, another BEGIN line, or any other line stops the
+  scan, and that BEGIN line is one item on its own. The receipt names the
+  block's line range. An OpenClaw raw entry is checked by value, as
+  provenance is, so a routing `session_key` is imported. Placeholder password
+  examples are skipped with the other credential lines. A clean item is
+  stored as it was before, including its status.
+
 - The Hermes memory provider does not fall back to
   `POST /v0/continuity/captures` when the capture commit returns HTTP 400.
   That fallback stored the raw turn in a capture event, and that route
@@ -17,13 +45,15 @@
   env values on `mcp_servers.alice` when each value is a one-line plain,
   single-quoted, or double-quoted scalar, with no anchor, alias, tag, or
   block scalar. The keys are `ALICE_MCP_FULL_TOOLS`,
-  `ALICE_MCP_LEGACY_TOOLS`, `ALICE_AGENT_API_KEY`, and
-  `ALICE_LEGACY_SURFACES`. The name and the scalar text stay byte for byte.
-  The receipt lists the kept keys and masks printed values the same way as
-  the JSON hosts, so an API key is not printed. Any other key install did
-  not write still refuses the file. The receipt says install refuses while
-  those keys are present and to edit the entry by hand. A `keep:` line
-  names only keys the existing entry has.
+  `ALICE_MCP_LEGACY_TOOLS`, `ALICE_AGENT_API_KEY`,
+  `ALICE_LEGACY_SURFACES`, `ALICE_EMBEDDINGS_BASE_URL`,
+  `ALICE_EMBEDDINGS_MODEL`, and `ALICE_EMBEDDINGS_API_KEY`. The name and
+  the scalar text stay byte for byte. The receipt lists the kept keys and
+  masks printed values the same way as the JSON hosts, so
+  `ALICE_AGENT_API_KEY` and `ALICE_EMBEDDINGS_API_KEY` are not printed.
+  Any other key install did not write still refuses the file. The receipt
+  says install refuses while those keys are present and to edit the entry
+  by hand. A `keep:` line names only keys the existing entry has.
 
 - When uv is installed but `uvx` is not on PATH, install writes an absolute
   `uvx`. uv exports `UV` to child processes as the path of the uv binary
