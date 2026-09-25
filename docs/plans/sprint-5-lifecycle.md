@@ -153,21 +153,21 @@ This design does not delete or rewrite the sidecar row when the commit succeeds.
 
 Ruling: the cap stays at 8 distinct source ids per user until the review surface lands, and the review surface is in this sprint. The earlier plan kept the review surface out of scope and left the cap as it is. Without a review surface, sleep proposals can only be reviewed by opening a JSONL file, and every later step depends on it.
 
-Before the review surface: when the caller's slots are full and at least one source was not proposed because of the cap, the receipt adds two lines. One gives the number of sources not proposed. The other says sleep adds no proposals for this user until rows are removed from the sidecar, and gives the sidecar's path. No wording may suggest that committing frees a slot, because today it does not.
+Before the review surface: when the caller's slots are full and at least one source was not proposed because of the cap, the receipt adds no lines for that. `format_sleep_receipt` has no cap-full lines. No wording may suggest that committing frees a slot, because today it does not.
 
 The review surface is one PR, CLI only, no fourth MCP tool.
 
 - A listing command that prints each of the caller's proposals framed and JSON-quoted, with its source id and the exact `alice_memory_commit` arguments to accept it, including `source_refs`. It runs the shared commit-door check again on read and writes nothing. It is a new read path, so it must pass every control the brief applies. Test each one.
 - A `doctor` line for sleep proposals, separate from `candidates waiting`, which counts memory rows.
-- The slot release, in the same PR. A row stops counting toward its user's cap once its source has an `active` or `accepted` memory linked to it (the `_has_committed_fact` test the loop already runs). The row stays in the file unchanged, and `alice_memory_commit` is not touched.
+- The slot release is separate from this auto-save rule. It is review-surface work. A row keeps counting toward its user's cap after its source has an `active` or `accepted` memory. `_has_committed_fact` only skips a new proposal. `existing_ids` is every kept sidecar `source_id` for this user, so that memory does not open a slot. The row stays in the file unchanged, and `alice_memory_commit` is not touched.
 - Order. Sleep proposes the oldest sources first, by source `captured_at` then id (`ORDER BY captured_at ASC, id ASC`). The session brief shows the newest. In the team's probe, the one source the brief showed was never proposed.
 
 Acceptance:
 
-- A characterization test before the release. Import 10 unlinked notes. Run 1 writes 8. Commit two excerpts with `source_refs`. Run 2 writes 0, and the cap-full lines appear. The review-surface PR flips this test on purpose.
+- A characterization test before the release. Import 10 unlinked notes. Run 1 writes 8. Commit two excerpts with `source_refs`. Run 2 writes 0. The review-surface PR flips this test on purpose.
 - A second `user_id` on the same file can still add 8.
 - No receipt, help text, or docstring says committing frees a slot until the release lands.
-- Mutations: count only this run's rows toward the cap; remove the cap-full line; count every user's rows.
+- Mutations: count only this run's rows toward the cap; count every user's rows.
 
 ## The transcript is not a source
 
@@ -237,4 +237,4 @@ The five open questions are closed. The earlier recommendations were: wait for a
 
 4. The credential check on the sleep writer. Ruling: the sleep writer will apply exactly the commit door's check. The helper refuses when `credential_verdict` refuses or when `commit_gate_refuses` refuses. `legacy_commit_gate_refuses` is the import alias, not the function. The earlier recommendation to call both checks is this ruling, with the flattened text cut at 160 characters and extended to the end of the whitespace-delimited token the cut falls in, the existing-row sweep, mode 0600, the two receipt counts, and the docstring change spelled out above. Weighed and rejected: a third caller of a wider gate. Matching the commit door is the narrowest check that never offers a proposal the user cannot save.
 
-5. The sticky cap and the review surface. Ruling: the cap stays at 8 distinct source ids per user until the review surface lands, and the review surface is in this sprint. The earlier recommendation to leave the cap, and the earlier plan that kept the review surface out of scope, are replaced. Before the review surface, a full cap adds the two receipt lines, and no wording may say that committing frees a slot. The review surface is one CLI PR, with the listing command, the separate `doctor` line, and the slot release. A row stops counting once its source has an `active` or `accepted` memory. The row stays in the file unchanged, and `alice_memory_commit` is not touched. Accepting does not edit the sidecar. Sleep proposes the oldest sources first, by source `captured_at` then id (`ORDER BY captured_at ASC, id ASC`).
+5. The sticky cap and the review surface. Ruling: the cap stays at 8 distinct source ids per user until the review surface lands, and the review surface is in this sprint. The earlier recommendation to leave the cap, and the earlier plan that kept the review surface out of scope, are replaced. Before the review surface, a full cap adds no receipt lines, and no wording may say that committing frees a slot. The review surface is one CLI PR, with the listing command, the separate `doctor` line, and the slot release. That slot release is separate from this auto-save rule. A kept sidecar `source_id` still counts after its source has an `active` or `accepted` memory, so the memory does not open a slot. The row stays in the file unchanged, and `alice_memory_commit` is not touched. Accepting does not edit the sidecar. Sleep proposes the oldest sources first, by source `captured_at` then id (`ORDER BY captured_at ASC, id ASC`).
