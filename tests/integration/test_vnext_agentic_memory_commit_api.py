@@ -4,8 +4,10 @@ from typing import Any
 
 import alicebot_api.main as main_module
 from alicebot_api.config import Settings
+from alicebot_api.db import user_connection
 from alicebot_api.routers import vnext_memories as vnext_memories_router
 from alicebot_api.routers import vnext_retrieval as vnext_retrieval_router
+from alicebot_api.vnext_store import PostgresVNextStore
 
 from tests.integration.test_vnext_live_workspace_api import invoke_request, seed_user
 
@@ -261,3 +263,58 @@ def test_unknown_domain_agentic_memory_selected_by_keyword_context_pack(migrated
     assert context_status == 201
     assert any(item["id"] == memory_id for item in context_payload["relevant_memories"])
     assert "no_relevant_memories_selected" not in context_payload["warnings"]
+
+
+def test_blocked_idempotent_replay_returns_403_and_keeps_policy_rows(
+    migrated_database_urls, monkeypatch
+) -> None:
+    """A blocked replay of a stored commit is 403, and the policy row stays.
+
+    A new commit that policy rejects returns 200 with status rejected.
+    Replaying an existing idempotency key runs the stored memory through
+    the policy check and raises AgentPolicyBlockedError. Returning that
+    from inside the connection keeps the policy events. Mutation: catch
+    the error outside user_connection. The status can still be 403 and
+    the blocked row is gone.
+    """
+
+    app_url = migrated_database_urls["app"]
+    user_id = seed_user(app_url, email="blocked-replay@example.com")
+    settings = Settings(database_url=app_url)
+    monkeypatch.setattr(main_module, "get_settings", lambda: settings)
+    monkeypatch.setattr(vnext_memories_router, "get_settings", lambda: settings)
+    user_id_text = str(user_id)
+    payload = {
+        "user_id": user_id_text,
+        "intent": "explicit_remember",
+        "title": "Replay fence",
+        "canonical_text": "A later read-only replay of this note must not be a server error.",
+        "memory_type": "semantic",
+        "domain": "professional",
+        "sensitivity": "internal",
+        "confidence": 0.96,
+        "source_type": "direct_user_instruction",
+        "idempotency_key": "blocked-replay-commit",
+    }
+
+    first_status, first_body = invoke_request(
+        "POST",
+        "/v0/vnext/memories/commit",
+        payload={**payload, "agent": _agent()},
+    )
+    assert first_status == 201, first_body
+    memory_id = first_body["memory"]["id"]
+
+    replay_status, replay_body = invoke_request(
+        "POST",
+        "/v0/vnext/memories/commit",
+        payload={**payload, "agent": _agent("read_only_agent", agent_id="readonly")},
+    )
+    assert replay_status == 403, replay_body
+    assert "read_only_agent_cannot_write" in replay_body["policy_decision"]["reasons"]
+
+    with user_connection(app_url, user_id) as conn:
+        store = PostgresVNextStore(conn)
+        events = store.list_events(target_type="memory", target_id=memory_id)
+    blocked = [event for event in events if event.get("event_type") == "agent.policy_blocked"]
+    assert blocked, "blocked replay did not keep agent.policy_blocked"
