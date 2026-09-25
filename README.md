@@ -176,7 +176,7 @@ search degrades to full-text only and says so explicitly in the retrieval trace.
 
 ## Status
 
-`v0.16.0` is the latest published release and remains the install, checksum,
+`v0.17.0` is the latest published release and remains the install, checksum,
 and release-note baseline (the `v0.13.0` tag was never published;
 superseded). Its tag, release record, and published artifacts
 are immutable.
@@ -239,7 +239,5 @@ If you discover a security issue, follow the process in [SECURITY.md](https://gi
 
 MIT — see [LICENSE](https://github.com/samrusani/AliceMemory/blob/main/LICENSE).
 
-`v0.16.0` is the latest published release and remains the install, checksum,
+`v0.17.0` is the latest published release and remains the install, checksum,
 and baseline reference.
-
-`v0.17.0` is the current release candidate. It is not published.
