@@ -7,6 +7,32 @@
   `scripts/check_commit_authors.py`. The failure prints that commit's SHA
   and the email.
 
+- Re-running `alice-memory install --host hermes` keeps documented Alice
+  env values on `mcp_servers.alice` when each value is a one-line plain,
+  single-quoted, or double-quoted scalar, with no anchor, alias, tag, or
+  block scalar. The keys are `ALICE_MCP_FULL_TOOLS`,
+  `ALICE_MCP_LEGACY_TOOLS`, `ALICE_AGENT_API_KEY`, and
+  `ALICE_LEGACY_SURFACES`. The name and the scalar text stay byte for byte.
+  The receipt lists the kept keys and masks printed values the same way as
+  the JSON hosts, so an API key is not printed. Any other key install did
+  not write still refuses the file. The receipt says install refuses while
+  those keys are present and to edit the entry by hand. A `keep:` line
+  names only keys the existing entry has.
+
+- When uv is installed but `uvx` is not on PATH, install writes an absolute
+  `uvx`. uv exports `UV` to child processes as the path of the uv binary
+  that was invoked; `uvx` is the file beside it, and `uv` on PATH is the
+  other place install looks. A versioned Homebrew Cellar path
+  (`<prefix>/Cellar/uv/<version>/bin/uvx`, for example
+  `/opt/homebrew/Cellar/uv/0.11.6/bin/uvx`) is replaced by
+  `<prefix>/bin/uvx` when that file is executable. A mise or asdf path
+  under `<root>/installs/uv/<version>/` is replaced by `<root>/shims/uvx`
+  when that file is executable. A path under `/nix/store/` is not written.
+  When no stable file is written, install writes the name `uvx` and warns.
+  A path inside a uv cache is not written. A relative `UV` value is ignored.
+  Installed `alice-memory` scripts outside a uv cache are still chosen over
+  this absolute path.
+
 - The Hermes memory provider retries a failed capture with capped
   exponential backoff and drops the item after 5 attempts, counting the
   drop. The wait starts at 0.5 seconds and doubles up to 2 seconds.
@@ -205,10 +231,11 @@
   writes itself, which equals the `--data-dir` in the args. A `hidden:`
   line lists exactly what was hidden. A refused host's paste, when it is
   built from your existing entry, hides the same values, and its `keep:`
-  line names each one to copy back from that entry. Every other receipt
-  line, warning and launcher line prints every URL the same way, the URL
-  running to the end of its whitespace-delimited word, since RFC 3986
-  allows `'` and `)` in user info; a package spec that holds a URL
+  line names each one to copy back from that entry, including a URL hidden
+  inside `args` as `args (a URL (everything after its scheme))`. Every
+  other receipt line, warning and launcher line prints every URL the same
+  way, the URL running to the end of its whitespace-delimited word, since
+  RFC 3986 allows `'` and `)` in user info; a package spec that holds a URL
   (`alice-memory@https://...`) prints only its scheme too,
   and the `openclaw mcp add` line shows `<hidden>` in their place with a
   note to put the values back before running it. Whole host files are no
@@ -280,8 +307,10 @@
   hosts: the same shape check, the same store and data dir rules, the
   same launcher rules. An existing `mcp_servers.alice` of install's shape
   is replaced only when its keys are within what install writes
-  (`command`, `args`, `env.ALICE_MEMORY_DATA_DIR`); quoting, style and
-  indentation do not matter. Without `--data-dir` it keeps the data dir
+  (`command`, `args`, `env.ALICE_MEMORY_DATA_DIR`) plus the documented
+  host env keys named above, when each of those values is a one-line
+  plain or quoted scalar. Quoting, style and indentation of the other
+  lines do not matter. Without `--data-dir` it keeps the data dir
   that entry runs with, and it keeps its command and args, so an
   absolute uvx path and a pinned version stay. An entry that opens `--db`
   keeps its env as written. An `alice` entry of any other shape, such as
@@ -289,8 +318,8 @@
   the JSON hosts' words: rename or remove that entry, or add the one
   printed under another name. An entry with any other key is left alone
   too; install prints that entry's own command and args with its data
-  dir and names the extra keys (`extra_keys: env.ALICE_MCP_FULL_TOOLS`)
-  so they can be carried over when pasting. For an entry the installer
+  dir and names the extra keys (`extra_keys: env.FOO`). It refuses while
+  those keys are present. Edit the entry by hand. For an entry the installer
   cannot read, the paste uses the entry's data dir when a lenient read
   can see it; otherwise it shows a placeholder and says to replace it
   with that dir, never `~/.alice`, which may be an empty store.
@@ -320,8 +349,18 @@
   found). A user's own `Archive-V2` folder or a project venv under
   `environments-v3` is not a cache. This is checked on the path as found,
   on its resolved path, and on the running Python's prefix. When install itself runs from such a temporary uv environment
-  and uvx is not on PATH, it writes uvx by name and warns that the hosts
-  will start Alice once uvx is on PATH. On a re-run, an entry whose
+  and uvx is not on PATH, it writes an absolute `uvx`. uv exports `UV`
+  to child processes as the path of the uv binary that was invoked;
+  `uvx` is the file beside it, and `uv` on PATH is the other place
+  install looks. A versioned Homebrew Cellar path
+  (`<prefix>/Cellar/uv/<version>/bin/uvx`, for example
+  `/opt/homebrew/Cellar/uv/0.11.6/bin/uvx`) is replaced by
+  `<prefix>/bin/uvx` when that file is executable. A mise or asdf path
+  under `<root>/installs/uv/<version>/` is replaced by `<root>/shims/uvx`
+  when that file is executable. A path under `/nix/store/` is not written.
+  When no stable file is written, install writes the name `uvx` and warns
+  that the hosts will start Alice once uvx is on PATH. A path inside a uv
+  cache is not written. On a re-run, an entry whose
   launcher still works is kept: uvx on PATH, an absolute uvx that exists
   and is executable, or an absolute `alice-memory` that exists, is
   executable and is not in a uv cache. On Claude Code and Cursor, which
@@ -330,7 +369,8 @@
   Claude Desktop, OpenClaw and Hermes run no hook, so a working
   `alice-memory` alone is enough there. A launcher in a uv cache is dead with no
   exceptions: pinned or not, the entry gets the launcher a new entry
-  would get, uvx by name when nothing else works. Any other launcher
+  would get, an absolute uvx when one can be written and uvx by name when
+  nothing else works. Any other launcher
   that no longer works is replaced with a working one if install found
   one: only `command` and the launcher part of `args` change, the file is
   backed up, and the receipt prints `launcher: <old> -> <new>`. A uvx
