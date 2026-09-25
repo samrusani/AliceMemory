@@ -6,6 +6,7 @@ from typing import cast
 from uuid import UUID
 
 from alicebot_api.continuity_evidence import SourceArtifactArchiveInput, archive_import_source_files
+from alicebot_api.credential_floor import private_key_armor_role
 from alicebot_api.importer_models import (
     ImporterNormalizedBatch,
     ImporterNormalizedItem,
@@ -105,6 +106,97 @@ def _parse_frontmatter(raw_text: str) -> tuple[dict[str, str], list[str]]:
         raise MarkdownImportValidationError("markdown frontmatter must be closed with ---")
 
     return metadata, lines[closing_index + 1 :]
+
+
+# Radix-64 and standard base64 use the same alphabet. Padding, when the line
+# has any, is one or two "=" at the end. A checksum line is "=" plus the
+# four-character CRC. An armor header is "Name: value", as PEM and OpenPGP
+# write it (Proc-Type, DEK-Info, Version, Comment). That header counts only
+# as a run directly after the BEGIN line, before the first blank or radix-64
+# line. A block also needs one radix-64 line of 40 or more characters.
+_RADIX64_LINE = re.compile(r"[A-Za-z0-9+/]+={0,2}")
+_CHECKSUM_LINE = re.compile(r"=[A-Za-z0-9+/]{4}")
+_ARMOR_HEADER_LINE = re.compile(r"[A-Za-z][A-Za-z0-9-]{0,70}:[ \t]*\S.*")
+_MIN_RADIX64_LINE = 40
+
+
+def _is_code_fence(line: str) -> bool:
+    text = line.strip()
+    return text.startswith("```") or text.startswith("~~~")
+
+
+def _can_be_key_body(line: str, *, armor_header: bool) -> bool:
+    """True when ``line`` can sit between a BEGIN line and its END line.
+
+    Key body is base64 or radix-64 text, a ``=`` checksum line, or a blank
+    line. A ``Name: value`` armor header counts only when ``armor_header``
+    is true: the run directly after the BEGIN line, before the first blank
+    or radix-64 line. A code fence, another armor line, and any other text
+    cannot.
+    """
+
+    if line.strip() == "":
+        return True
+    if _is_code_fence(line) or private_key_armor_role(line) is not None:
+        return False
+    text = line.strip()
+    if _CHECKSUM_LINE.fullmatch(text) or _RADIX64_LINE.fullmatch(text):
+        return True
+    if armor_header:
+        return _ARMOR_HEADER_LINE.fullmatch(text) is not None
+    return False
+
+
+def _armored_private_key_ranges(lines: list[str]) -> dict[int, tuple[int, int]]:
+    """Map each 1-based line of a dashed private-key block to ``(start, end)``.
+
+    The importer makes one item per line, and the credential check then skips
+    only the BEGIN line. The base64 body and the END line would be stored.
+    A block is a BEGIN line through the END line with the same label, and
+    only when both of those lines stand alone. Every line between them has
+    to be key body, and at least one radix-64 line has to be 40 or more
+    characters. A ``Name: value`` line is key body only in a run directly
+    after the BEGIN line, before the first blank or radix-64 line. The scan
+    stops at a code fence, at another BEGIN line, or at any line that cannot
+    be key body. When the scan stops early, or when no long radix-64 line is
+    present, that BEGIN line is not a block: it stays one item, and the
+    check skips it on its own.
+    """
+
+    ranges: dict[int, tuple[int, int]] = {}
+    index = 0
+    while index < len(lines):
+        role = private_key_armor_role(lines[index])
+        if role is None or role[0] != "begin":
+            index += 1
+            continue
+        label = role[1]
+        end_index: int | None = None
+        cursor = index + 1
+        armor_header = True
+        saw_long_radix = False
+        while cursor < len(lines):
+            later = private_key_armor_role(lines[cursor])
+            if later == ("end", label):
+                end_index = cursor
+                break
+            if not _can_be_key_body(lines[cursor], armor_header=armor_header):
+                break
+            text = lines[cursor].strip()
+            if _RADIX64_LINE.fullmatch(text) and len(text) >= _MIN_RADIX64_LINE:
+                saw_long_radix = True
+            if _ARMOR_HEADER_LINE.fullmatch(text) is None:
+                armor_header = False
+            cursor += 1
+        if end_index is None or not saw_long_radix:
+            index += 1
+            continue
+        start_no = index + 1
+        end_no = end_index + 1
+        for line_no in range(start_no, end_no + 1):
+            ranges[line_no] = (start_no, end_no)
+        index = end_index + 1
+    return ranges
 
 
 def _read_markdown_source(source: str | Path) -> tuple[Path, list[Path]]:
@@ -244,7 +336,66 @@ def _load_markdown_batch(
             if value is not None:
                 file_scope[key] = value if key != "confirmation_status" else value.casefold()
 
+        armored_ranges = _armored_private_key_ranges(lines)
+        consumed_through = 0
+
         for line_number, raw_line in enumerate(lines, start=1):
+            if line_number <= consumed_through:
+                continue
+            armored_span = armored_ranges.get(line_number)
+            if armored_span is not None:
+                start_no, end_no = armored_span
+                block_text = "\n".join(lines[start_no - 1 : end_no])
+                source_item_id = f"{file_path.name}:{start_no}-{end_no}"
+                title = _build_title(object_type="Note", text=block_text, explicit_title=None)
+                block_body: JsonObject = {
+                    "body": block_text,
+                    "raw_import_text": block_text,
+                    "markdown_raw_line": block_text,
+                    "markdown_line_number": start_no,
+                    "markdown_line_end": end_no,
+                    "markdown_source_file": file_path.name,
+                }
+                source_provenance = merge_json_objects(
+                    default_scope,
+                    file_scope,
+                    {"markdown_source_relpath": source_file.relative_path},
+                )
+                block_dedupe_payload: JsonObject = {
+                    "workspace_id": workspace_id or source_path.stem,
+                    "object_type": "Note",
+                    "status": default_status,
+                    "title": title,
+                    "body": {
+                        "body": block_text,
+                        "raw_import_text": block_text,
+                    },
+                    "source_provenance": source_provenance,
+                }
+                items.append(
+                    ImporterNormalizedItem(
+                        source_item_id=source_item_id,
+                        source_file=source_file.relative_path,
+                        source_locator={
+                            "line_number": start_no,
+                            "line_end": end_no,
+                            "source_item_id": source_item_id,
+                        },
+                        source_segment_text=block_text,
+                        source_segment_kind="markdown_armored_private_key",
+                        object_type="Note",
+                        status=default_status,
+                        raw_content=_build_raw_content(object_type="Note", text=block_text),
+                        title=title,
+                        body=block_body,
+                        confidence=default_confidence,
+                        source_provenance=source_provenance,
+                        dedupe_key=dedupe_key_for_payload(block_dedupe_payload),
+                    )
+                )
+                consumed_through = end_no
+                continue
+
             stripped = _strip_list_prefix(raw_line)
             normalized_line = normalize_optional_text(stripped)
             if normalized_line is None:
