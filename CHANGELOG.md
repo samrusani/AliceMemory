@@ -15,6 +15,13 @@
   Postgres; the shared check does not. A quoted assignment past the
   280-character title cut is refused. An ordinary note that quotes a
   word is stored, and a later candidate in the same turn is still stored.
+  Legacy-gate prose is refused on the live continuity routes that call
+  `create_continuity_object_record`. One refusal drops the whole turn:
+  the error rolls that request's transaction back, so no
+  `continuity_capture_events` row from the turn is kept. The opt-in
+  legacy `/v1` memory-operations path keeps the old auto-apply rule.
+  In auto mode an allowlisted type at confidence 0.9 still applies
+  without a user prefix.
 
 ## v0.17.0 — 2026-09-25
 
