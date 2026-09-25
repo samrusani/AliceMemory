@@ -619,8 +619,11 @@
   `POST /v0/vnext/artifacts/{artifact_id}/review`,
   `POST /v0/vnext/artifacts/{artifact_id}/quality-ratings`,
   `POST /v0/vnext/artifacts/{artifact_id}/export`,
-  `POST /v0/vnext/artifacts/{artifact_id}/insight-feedback`, and
-  `POST /v0/vnext/projects/update-candidates/{artifact_id}/review`.
+  `POST /v0/vnext/artifacts/{artifact_id}/insight-feedback`,
+  `POST /v0/vnext/projects/update-candidates/{artifact_id}/review`, and
+  `POST /v0/vnext/memories/{memory_id}/review` when that call accepts
+  or promotes a consolidation candidate. Other actions on that route
+  return the 403 inside the connection, so those rows stay.
   No policy event is written when there is no agent identity.
 - Pending writes created on v0.16.0 above an agent's sensitivity ceiling
   can only be rejected by that agent after the upgrade. Confirming one
