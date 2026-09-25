@@ -197,9 +197,10 @@ ten shapes of the committed linear-time test, at 200 KB each took at most
 (three runs). One scan of the assignment pattern used
 before 2026-09-22 took 43 seconds on 50 KB. A field that grows more than four
 times under unicode normalisation (and past 1,024 characters) is refused with
-its own message rather than scanned or truncated; ordinary scripts grow at
-most 1.44 times. The linear-time claim is about this check only, not the
-whole promotion evaluation.
+its own message rather than scanned or truncated. The same cap also counts
+the distinct strings of one write together. Ordinary scripts grow at most
+1.44 times. The linear-time claim is about this check only, not the whole
+promotion evaluation.
 
 Since 2026-09-23 the promotion floor's credential clause calls the same check
 (addendum F1), over every field the write persists: title, text, excerpt,
@@ -316,17 +317,32 @@ Verified by execution on 2026-09-23; each row names the tests that pin it.
 | Legacy continuity writes | `/v0/continuity/captures` when it derives an object, `/v0/continuity/captures/commit`, `/v0/continuity/review-queue/{id}/corrections`, `alice_commit_captures`, `alice_review_apply`. The Hermes plugin used to route a commit HTTP 400 into `POST /v0/continuity/captures`. It no longer does that | refused, transaction rolled back | door 4 tests |
 | Legacy memory admission | `POST /v0/memories/admit`, `/v0/memories/extract-explicit-preferences`, `/v0/open-loops/extract-explicit-commitments`, `/v0/memories/capture-explicit-signals`, including the open-loop title these write | refused before any branch, request rolled back | integration `test_round2_r1_*` |
 | Backup restore | `alice-memory import`, every memory record whatever its status: title, text, a summary that is not a copy of the text, the `value` column by value, `metadata_json` keyed (correction history included) except the keys the product itself writes (`rollup_key`), `memory_key` and `project_id` | refused with `import_credential_material`, no records written; stderr lists the line and memory id of every offender, never the text. A rollup card restores | door 6 tests, `test_round2_import_*`, `test_private_key_recall.py` |
+| Markdown, ChatGPT, and OpenClaw import | `import_markdown_source`, `import_chatgpt_source`, `import_openclaw_source` | the item is skipped and the rest of the file is imported. The receipt counts `skipped_credentials` and names each skip in `skipped_credential_items` by id or line, never the matched text. Fields checked: title, the body with its keys, provenance by value, raw content, and the segment text. An OpenClaw raw entry is passed by value, and pair detection reads the segment's canonical JSON. A dashed private-key block in markdown is one skipped item when the BEGIN line and the END line stand alone, share a label, every line between them is key body, and at least one of those lines is radix-64 text of 40 or more characters. Key body is base64 or radix-64 text, a `=` checksum line, a blank line, or a `Name: value` armor header. A `Name: value` line counts only as a run directly after the BEGIN line, before the first blank line or radix-64 line. A code fence, another BEGIN line, or any other line stops the scan, and that BEGIN line is one item on its own. The receipt names the block's line range. Receipt line numbers count from 1 on the first line after frontmatter. Placeholder password examples are skipped at import | `test_importer_credential_check.py` |
 
 ### What is not covered
 
 Stated so nobody reads the table above as "every surface".
 
-- **Source text and the document importers.** Source capture
-  (`alice_capture`, connectors) archives source text as written. The
-  markdown, ChatGPT and OpenClaw importers write continuity objects
-  directly, with the status the file gives them (active by default), so an
-  imported object is searchable at once, and nothing checks it for
-  credential material.
+- **Source text, and what import still leaves in place.** Source capture
+  (`alice_capture`, connectors) archives source text as written, and nothing
+  checks that archive. The markdown, ChatGPT, and OpenClaw importers check
+  each item and skip one that holds credential material, naming it on the
+  receipt. What remains uncovered: the archived source copy, which still
+  holds a skipped secret, and a private-key body that is not inside a dashed
+  block. The block skip needs the BEGIN line and the END line to stand
+  alone, with the same label, only key body between them, and at least one
+  radix-64 line of 40 or more characters. A `Name: value` line is key body
+  only as a run directly after the BEGIN line, before the first blank line
+  or radix-64 line. Notes between a lone BEGIN line and a lone END line are
+  imported, including unbulleted typed notes and one-word lines when the
+  block does not form. A body line that starts with a list marker or a `>`
+  prefix is not key body, so a key written that way is not one block. A
+  body line outside such a block is still one item per line, so a line that
+  does not itself trip the floor is stored. Receipt line numbers count from
+  1 on the first line after frontmatter.
+  Placeholder password examples are skipped at import. The floor cannot
+  tell a placeholder password from a real one, so the example line is named
+  on the receipt and the rest of the file is imported.
 - **Background writers' candidates.** Consolidation, rollups, brain insights,
   project updates, scheduler workflows and agent-output ingestion create
   candidate rows without checking them. None of them creates an active row;
@@ -354,17 +370,22 @@ Stated so nobody reads the table above as "every surface".
   secret if it wanted to. The root cause, a name rule that counts any `*_key`
   as a secret name, is a follow-up ticket; once it lands, key and value
   reading returns on provenance and the value column.
-- **Splits of a label and its value across two fields.** A title
-  `Prod DB password:` over a body `Kd9xoYWu83nq`, the same title without the
-  colon, `API_KEY=` over a value, `Authorization: Bearer` over a token, a
-  prose split (a title "The vault password" over a body that starts with
-  "is" and then the password), and a `fact_key`/`value` structured body all
-  pass. Only the case-exact key
-  formats are read across a field boundary. Because the promotion floor now
-  calls the same check, it no longer holds these shapes back either: an
-  authenticated agent under an auto-promote persona can promote them. The
-  defence against a deliberate split is identity and trust (the agent key,
-  its permission profile, and quarantine by key), not the floor.
+- **Splits of a label and its value across two fields.** The credential
+  check reads each field on its own, and it reads a case-exact key format
+  across a field boundary. A label in one field and the value in another
+  is not that, so `carries_credential_material` does not flag a title
+  `Prod DB password:` with the value in the body, and the commit gate does
+  not refuse it. The promotion floor still holds that title back.
+  `hard_floor_hits` returns `credential_material`, because the floor also
+  runs v0.16.0's promotion floor rule. An authenticated agent under an
+  auto-promote persona does not promote it. The same title without the
+  colon is not held back. Both results are pinned:
+  `test_f1_a_password_label_with_a_colon_is_still_held_by_the_promotion_floor`
+  and
+  `test_f1_the_label_split_residual_is_not_held_back_and_that_is_documented`.
+- **A `fact_key`/`value` structured body.** The promotion floor does not
+  hold one. `hard_floor_hits` does not return `credential_material` for a
+  mapping such as `{"fact_key": "deploy_owner", "value": "Platform"}`.
 - **A lower-case AWS id split across fields** (`id ak` over
   `iaiosfodnn7example`). In one field it is caught in any case.
 - **A split whose second half is a copy of another field.** Someone who builds
@@ -420,8 +441,10 @@ Stated so nobody reads the table above as "every surface".
   is fixed by redacting the row.
 - **A backup that holds one of these cannot be restored** until the row is
   redacted in the source vault and the vault exported again. If the source
-  vault is gone, there is no restore path yet: importing a subset, or
-  quarantining an offender at import, is a follow-up ticket.
+  vault is gone, `alice-memory import --quarantine` removes the credential
+  from the named memory and from the records derived from it, stores that
+  memory as `rejected`, and reports any other copies it finds. See
+  [Backup and restore](../alpha/backup-and-restore.md).
 
 ### Known residuals of the promotion floor
 
@@ -476,10 +499,10 @@ What stands against it:
   writer trust, and the read path surfaces that on the row so a poisoned
   memory is visibly agent-authored rather than anonymous;
 
-  > Correction, added 2026-09-23. Only context packs show this, and only for
-  > auto-promoted rows. The SessionStart brief, recall, resume and MCP
-  > retrieval do not show who wrote a row. Writer attribution on those
-  > surfaces is a follow-up ticket scheduled right after S4.5.
+  > Correction, added 2026-09-24. Recall and resume items include `writer`
+  > (`writer.id` and `writer.established`), on the MCP tools and on CLI
+  > resume. Context packs include `writer` too. The SessionStart brief
+  > still shows no writer.
 - the row stays undoable and expirable through the ordinary lifecycle;
 - credential material is refused on the write paths listed under "What is
   covered", whoever the writer is;
