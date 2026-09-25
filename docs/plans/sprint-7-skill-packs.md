@@ -12,7 +12,7 @@ This note was checked against `mcp/definitions.py`,
 The commit rule stays the v0.15.4 rule. `alice_memory_commit` says to
 record a durable fact "including when the user has not asked you to
 remember it". Both shipped packs say the same. `RETIRED_COMMIT_GATES` in
-`test_agent_facing_write_verb_guidance.py` lists the wording this release
+`test_agent_facing_write_verb_guidance.py` lists the wording v0.15.4
 retired. A pack does not tell the agent to wait until the user has asked
 to save a fact. If that rule should change, argue it separately, with the
 measurement below as evidence.
@@ -26,8 +26,9 @@ Counting an agent's tool calls needs a model. A run with no credentials
 makes no calls. The measurement cannot run on the no-secrets real-host job.
 
 The packs that exist name `alice_capture` and `alice_context_pack` as
-full-surface tools, and other tests require them to. A test that fails on
-any fourth tool name would fail on both packs. That is not the test.
+full-surface tools, and other tests require them to describe what capture
+returns. A test that fails on any fourth tool name would fail on both
+packs. That is not the test.
 
 ## What Sprint 7 changes
 
@@ -36,9 +37,11 @@ Sprint 7 revises the packs that exist. It does not add new packs.
 - `agent-skills/hermes/alice-memory`
 - `agent-skills/openclaw/alice-project-memory`
 - the older `docs/integrations/hermes-skill-pack/skills/alice-workflows`.
-  It teaches recall and resume through non-default tools, and no test scans
-  it. Update it to the default tools, or mark it legacy and bring it under
-  `test_skill_packs_are_loadable`.
+  It is legacy. It uses the manual `alice_core` server name plus
+  full-surface tools, and no test scans it. The `alice_core` prefix does
+  not match the server name the supported packs use. Sprint 7 will revise
+  that mismatch: update the pack to the default tools, or keep it marked
+  legacy and bring it under `test_skill_packs_are_loadable`.
 
 `README.md` called these "a ready-made instruction pack for each host".
 Packs exist for 2 of the 5 install hosts, and nothing measures them. This
@@ -51,7 +54,8 @@ that, not a ban on the names. Do not add a case-sensitive `Stop` check. It
 collides with ordinary prose.
 
 A pack does not add a fourth tool, and it does not commit on the agent's
-behalf. It does not register `SessionEnd` or `Stop`.
+behalf. It does not register `SessionEnd` or `Stop`. Sprint 7 leaves the
+Hermes memory provider's system prompt block out of scope.
 
 ## Commit trigger
 
@@ -74,10 +78,19 @@ The measurement:
   first. Tool calls come from the host's stream output (`claude -p
   --output-format stream-json`), with prefixed names normalised.
 - Recorded per run: whether the skill loaded.
+- The arms: the same prompts with the pack absent, and the same prompts
+  with the pack present.
 - Held fixed across both arms: the MCP descriptions, the SessionStart
   brief, and tool search.
-- Repeats: several per prompt, with the thresholds written down before the
-  run.
+- The counts, per prompt and per arm:
+  1. `alice_memory_commit` calls on prompts that carry a durable fact,
+     asked or not.
+  2. `alice_recall` calls on prompts that ask what was saved.
+  3. `alice_resume` calls on prompts that ask to continue.
+  4. commits labelled non-durable, under a labelling rule written with
+     the prompt set before the run.
+- Repeats: several per prompt. Thresholds attach to these counts and are
+  written down before the run.
 - Two prompt sets. A development set in the repo. A held-out set that we
   write and keep private, and run ourselves after the pack pull request is
   up for review. A pack tuned on the prompts it is scored on proves nothing.

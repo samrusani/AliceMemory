@@ -89,14 +89,16 @@ Optional. Packs exist for 2 of the 5 install hosts, Hermes and OpenClaw.
 Nothing in this repo measures whether a pack changes what an agent does.
 [`agent-skills/hermes/alice-memory`](https://github.com/samrusani/AliceMemory/tree/main/agent-skills/hermes/alice-memory)
 and [`agent-skills/openclaw/alice-project-memory`](https://github.com/samrusani/AliceMemory/tree/main/agent-skills/openclaw/alice-project-memory)
-are the packs under `agent-skills/`. An older Hermes pack at
-`docs/integrations/hermes-skill-pack/skills/alice-workflows/` teaches recall
-and resume through non-default tools. Copy the directory, not the file:
+are the packs under `agent-skills/`. Copy the directory, not the file:
 
 ```bash
 cp -R agent-skills/openclaw/alice-project-memory ~/.openclaw/skills/
 cp -R agent-skills/hermes/alice-memory ~/.hermes/skills/
 ```
+
+An older Hermes pack at
+`docs/integrations/hermes-skill-pack/skills/alice-workflows/` is legacy. It
+uses the manual `alice_core` server name plus full-surface tools.
 
 Both hosts load `<skill-name>/SKILL.md` and read the frontmatter `description` to decide
 when the skill applies. A skill grants no tools on its own; it tells an agent how to use
