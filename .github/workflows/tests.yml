@@ -2225,7 +2225,9 @@ jobs:
         env:
           DATABASE_URL: postgresql://alicebot_app:ci@localhost:5432/alicebot
           DATABASE_ADMIN_URL: postgresql://alicebot_admin:ci@localhost:5432/alicebot
-        run: ALICE_LEGACY_SURFACES=1 ./.venv/bin/python -m pytest tests/integration -q -p no:cacheprovider
+        # 180s per test names a hang. The 30 minute job limit stays.
+        # A local run on 2026-09-25 took 8m51s. The slowest call was 21s.
+        run: ALICE_LEGACY_SURFACES=1 ./.venv/bin/python -m pytest tests/integration -q -p no:cacheprovider --durations=20 --timeout=180
 
       - name: Default-surface core round-trip
         if: matrix.integration_check == 'Default surface integration smoke (Postgres)'

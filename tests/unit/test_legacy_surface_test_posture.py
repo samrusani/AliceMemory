@@ -27,7 +27,7 @@ def test_integration_runners_enable_legacy_surfaces_without_changing_unit_postur
 
     assert (
         "run: ALICE_LEGACY_SURFACES=1 ./.venv/bin/python -m pytest "
-        "tests/integration -q -p no:cacheprovider"
+        "tests/integration -q -p no:cacheprovider --durations=20 --timeout=180"
     ) in integration_job
     assert (
         "ALICE_LEGACY_SURFACES=1 $(PYTHON) -m pytest tests/integration -q"
