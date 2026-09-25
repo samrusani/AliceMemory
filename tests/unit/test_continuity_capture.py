@@ -14,6 +14,9 @@ from alicebot_api.continuity_capture import (
     get_continuity_capture_detail,
     list_continuity_capture_inbox,
 )
+from alicebot_api.continuity_objects import ContinuityObjectValidationError
+from alicebot_api.credential_floor import credential_verdict
+from alicebot_api.legacy_credential_check import commit_door_secret_verdict
 from alicebot_api.contracts import (
     ContinuityCaptureCandidatesInput,
     ContinuityCaptureCommitInput,
@@ -523,3 +526,128 @@ def test_commit_captures_is_idempotent_for_repeated_sync_attempts() -> None:
     assert second["summary"]["auto_saved_count"] == 0
     assert second["summary"]["duplicate_noop_count"] == 1
     assert second["commits"][0]["decision"] == "duplicate_noop"
+
+
+def test_commit_captures_assist_mode_queues_user_regex_and_assistant_prefix() -> None:
+    """Assist mode queues a user regex hit and an assistant prefix hit.
+
+    Mutation: auto-save every explicit allowlisted candidate at confidence
+    0.9, including an assistant prefix and a regex hit. Both are auto-saved
+    and this test fails.
+    """
+
+    store = ContinuityCaptureStoreStub()
+    candidates = capture_continuity_candidates(
+        store,  # type: ignore[arg-type]
+        user_id=store.user_id,
+        request=ContinuityCaptureCandidatesInput(
+            user_content="we decided to keep the billing store on Postgres",
+            assistant_content="decision: the assistant also picked Postgres",
+        ),
+    )["candidates"]
+    by_role = {item["source_role"]: item for item in candidates}
+    assert by_role["user"]["admission_reason"] == "explicit_phrase_decision"
+    assert by_role["user"]["explicit"] is True
+    assert by_role["assistant"]["admission_reason"] == "explicit_prefix_decision"
+    assert by_role["assistant"]["explicit"] is True
+
+    payload = commit_continuity_captures(
+        store,  # type: ignore[arg-type]
+        user_id=store.user_id,
+        request=ContinuityCaptureCommitInput(
+            mode="assist",
+            sync_fingerprint="sync:assist-queue",
+            candidates=candidates,  # type: ignore[arg-type]
+        ),
+    )
+
+    assert [item["decision"] for item in payload["commits"]] == [
+        "queued_for_review",
+        "queued_for_review",
+    ]
+    assert payload["summary"]["auto_saved_count"] == 0
+    assert payload["summary"]["review_queued_count"] == 2
+
+
+def test_quoted_note_does_not_abort_a_later_candidate_in_the_same_turn() -> None:
+    """An ordinary quoted note is stored, and so is the next candidate.
+
+    Mutation: check json.dumps of the body. The first candidate raises and
+    the second candidate is not stored.
+    """
+
+    store = ContinuityCaptureStoreStub()
+    quoted = capture_continuity_candidates(
+        store,  # type: ignore[arg-type]
+        user_id=store.user_id,
+        request=ContinuityCaptureCandidatesInput(
+            user_content='decision: the password was "rotated" by ops',
+            assistant_content="",
+        ),
+    )["candidates"]
+    later = capture_continuity_candidates(
+        store,  # type: ignore[arg-type]
+        user_id=store.user_id,
+        request=ContinuityCaptureCandidatesInput(
+            user_content="decision: keep the weekly billing report",
+            assistant_content="",
+        ),
+    )["candidates"]
+    assert quoted[0]["proposed_action"] == "auto_save_candidate"
+    assert later[0]["proposed_action"] == "auto_save_candidate"
+
+    payload = commit_continuity_captures(
+        store,  # type: ignore[arg-type]
+        user_id=store.user_id,
+        request=ContinuityCaptureCommitInput(
+            mode="assist",
+            sync_fingerprint="sync:quoted-note",
+            candidates=[*quoted, *later],  # type: ignore[arg-type]
+        ),
+    )
+
+    assert [item["decision"] for item in payload["commits"]] == ["auto_saved", "auto_saved"]
+    assert payload["summary"]["auto_saved_count"] == 2
+    assert len(store.objects_by_capture_event) == 2
+
+
+def test_quoted_assignment_past_the_title_cut_is_not_auto_saved() -> None:
+    """A quoted assignment past the 280-character title cut is refused.
+
+    The title cut drops it. A JSON dump of the body hides the quotes, so
+    the assignment is missed and the candidate is auto-saved. The floor
+    accepts the raw text. Mutation: check the title only, or pass
+    json.dumps(body) to the commit door. The row is stored and this test
+    fails.
+    """
+
+    value = "Ab" + "12" + "cd" + "EF"
+    quoted = "PASSWORD" + '_DB="' + value + '"'
+    filler = ("ship the weekly billing report " * 20).strip()
+    store = ContinuityCaptureStoreStub()
+    candidates = capture_continuity_candidates(
+        store,  # type: ignore[arg-type]
+        user_id=store.user_id,
+        request=ContinuityCaptureCandidatesInput(
+            user_content="decision: " + filler + " " + quoted,
+            assistant_content="",
+        ),
+    )["candidates"]
+    candidate = candidates[0]
+    normalized = candidate["normalized_text"]
+    assert candidate["proposed_action"] == "auto_save_candidate"
+    assert normalized.find(quoted) >= 280
+    assert credential_verdict(normalized) is None
+    assert commit_door_secret_verdict("Decision", normalized) is not None
+
+    with pytest.raises(ContinuityObjectValidationError, match="credential material"):
+        commit_continuity_captures(
+            store,  # type: ignore[arg-type]
+            user_id=store.user_id,
+            request=ContinuityCaptureCommitInput(
+                mode="assist",
+                sync_fingerprint="sync:title-cut",
+                candidates=candidates,  # type: ignore[arg-type]
+            ),
+        )
+    assert store.objects_by_capture_event == {}

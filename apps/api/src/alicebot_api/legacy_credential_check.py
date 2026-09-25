@@ -20,8 +20,11 @@ ruled (H1) that the two doors v0.16.0 checked get parity by construction:
 - The sleep writer (``run_local_vault_sleep``) uses this commit check as
   well as the floor. A sleep row exists only to be handed to the commit
   door, so the writer refuses a proposal that door would refuse.
-- `create_continuity_object_record` runs `commit_gate_refuses` after the
-  credential floor and raises when that check refuses.
+- `create_continuity_object_record` calls `commit_door_secret_verdict`
+  on the title and on the body's string values, not on a JSON dump of
+  the body. The helper runs the credential floor and then
+  `commit_gate_refuses`. The record also runs the floor on the stored
+  body before that call.
 - Every remaining door keeps credential_floor alone.
 
 What "the same as v0.16.0" means here. The rules below are v0.16.0's, with

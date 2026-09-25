@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from collections.abc import Mapping
 from typing import cast
 from uuid import UUID
@@ -14,10 +13,12 @@ from alicebot_api.contracts import (
 )
 from alicebot_api.credential_floor import (
     CREDENTIAL_MATERIAL_REFUSED_MESSAGE,
+    EXPANSION_REFUSED_MESSAGE,
+    VERDICT_EXPANSION,
     refuse_credential_material,
     string_values,
 )
-from alicebot_api.legacy_credential_check import commit_gate_refuses
+from alicebot_api.legacy_credential_check import commit_door_secret_verdict
 from alicebot_api.store import ContinuityObjectRow, ContinuityStore, JsonObject
 
 
@@ -97,15 +98,17 @@ def _validate_confidence(confidence: float) -> None:
         raise ContinuityObjectValidationError("confidence must be between 0.0 and 1.0")
 
 
-def _legacy_commit_door_refuses(title: str, body: object, provenance: object) -> bool:
-    """The commit door's legacy half, on the same surfaces the floor reads."""
+def _commit_door_text(value: object) -> str:
+    """The field's string values, in reading order.
 
-    if isinstance(body, str):
-        body_text = body
-    else:
-        body_text = json.dumps(body, ensure_ascii=False, sort_keys=True)
-    provenance_text = "\n".join(string_values(provenance))
-    return commit_gate_refuses(title, body_text, None, provenance_text or None, ())
+    The commit door reads those strings. A JSON dump of the body is not
+    that text: a quote becomes a backslash, and the prose rule counts the
+    backslash. The same dump also hides a quoted assignment.
+    """
+
+    if isinstance(value, str):
+        return value
+    return "\n".join(string_values(value))
 
 
 def create_continuity_object_record(
@@ -136,7 +139,19 @@ def create_continuity_object_record(
     # metadata the product writes, so only its values are read; see
     # credential_floor.string_values.
     refuse_credential_material(title, body, string_values(provenance), error=ContinuityObjectValidationError)
-    if _legacy_commit_door_refuses(title, body, provenance):
+    # commit_door_secret_verdict runs the floor, then commit_gate_refuses.
+    # The gate sees the body's string values, the same text the commit door
+    # would read, not a JSON dump.
+    verdict = commit_door_secret_verdict(
+        title,
+        _commit_door_text(body),
+        None,
+        _commit_door_text(provenance) or None,
+        (),
+    )
+    if verdict == VERDICT_EXPANSION:
+        raise ContinuityObjectValidationError(EXPANSION_REFUSED_MESSAGE)
+    if verdict is not None:
         raise ContinuityObjectValidationError(CREDENTIAL_MATERIAL_REFUSED_MESSAGE)
     resolved_is_searchable = (
         default_continuity_searchable(object_type)

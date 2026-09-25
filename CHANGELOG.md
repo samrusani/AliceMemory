@@ -7,10 +7,14 @@
   `preference:`, `commitment:`, and the other prefixes in
   `_CANDIDATE_PREFIX_RULES`, except types that already require review).
   A regex hit and an assistant-role candidate are queued for review in
-  both modes. `create_continuity_object_record` refuses when the
-  credential floor refuses or when `commit_gate_refuses` refuses, the
-  same pair the commit door uses. The floor alone stored a legacy
-  assignment on a throwaway Postgres; the shared check does not.
+  both modes. `create_continuity_object_record` calls
+  `commit_door_secret_verdict` on the title and on the body's string values,
+  not on a JSON dump of the body. The helper runs the credential
+  floor and then `commit_gate_refuses`, the same pair the commit door
+  uses. The floor alone stored a legacy assignment on a throwaway
+  Postgres; the shared check does not. A quoted assignment past the
+  280-character title cut is refused. An ordinary note that quotes a
+  word is stored, and a later candidate in the same turn is still stored.
 
 - `alice-memory sleep` runs the commit door's credential check on the
   flattened first chunk, cut at 160 characters and extended to the end of
