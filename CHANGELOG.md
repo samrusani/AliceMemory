@@ -608,7 +608,7 @@
   auto-promotes and review is not required. A review-required proposal
   has no promotion event. Rationale and source refs are stored on every
   door. Credential material is refused before anything is written.
-- An HTTP policy refusal returns 403. Memory confirm, undo, correct,
+- Most HTTP policy refusals return 403. Memory confirm, undo, correct,
   forget, expire, unexpire, and redact return that 403 inside the
   connection, so on Postgres the transaction commits and
   `policy.decision` and `agent.policy_blocked` stay.
@@ -635,8 +635,9 @@
   `POST /v0/vnext/memories/commit` does not catch the refusal inside
   the connection. An idempotent replay appends `policy.decision` and
   `agent.policy_blocked` and then raises, so Postgres rolls those rows
-  back. A new commit that policy rejects is answered from inside the
-  connection, so those rows stay.
+  back and the client gets HTTP 500. A new commit that policy rejects is
+  answered from inside the connection with HTTP 200 and status
+  `rejected`, so those rows stay.
   CLI handlers are a separate split. These append `policy.decision`
   and `agent.policy_blocked` and then let `AgentPolicyBlockedError`
   leave `_vnext_store_context` (and `user_connection`), so Postgres
