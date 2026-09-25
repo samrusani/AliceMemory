@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- The Hermes memory provider does not fall back to
+  `POST /v0/continuity/captures` when the capture commit returns HTTP 400.
+  That fallback stored the raw turn in a capture event, and that route
+  does not apply the commit door. HTTP 404 still uses the legacy capture
+  route when the candidate endpoints are absent.
+
 - A pull request fails when a commit that would merge has an author email
   or a committer email outside the allowlist in
   `scripts/check_commit_authors.py`. The failure prints that commit's SHA
