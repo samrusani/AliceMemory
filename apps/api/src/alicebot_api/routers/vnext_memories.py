@@ -1399,7 +1399,12 @@ def commit_vnext_memory(
                 defer_embeddings=True,
                 owner_verified=agent_api_keys_provisioned(store),
             )
-            payload = service.commit(identity=identity, request=commit_request)
+            # Return inside the connection so a blocked replay's policy
+            # events commit. Raising out of user_connection rolls them back.
+            try:
+                payload = service.commit(identity=identity, request=commit_request)
+            except AgentPolicyBlockedError as exc:
+                return _vnext_permission_response(exc.decision)
     except AgentKeyAuthenticationError as exc:
         return _vnext_agent_auth_error_response(exc)
     except VNextMemoryCommitValidationError as exc:

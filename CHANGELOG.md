@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- A blocked idempotent replay of `POST /v0/vnext/memories/commit` returns
+  403 and keeps its policy rows. A new commit that policy rejects still
+  returns 200 with status `rejected`.
+
 ## v0.17.0 — 2026-09-25
 
 - `alice-memory sleep-proposals` lists this user's sleep proposals oldest
