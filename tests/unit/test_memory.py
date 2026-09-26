@@ -356,6 +356,52 @@ def test_admit_memory_candidate_defaults_llm_single_source_to_not_promotable() -
     assert decision.memory["promotion_eligibility"] == "not_promotable"
 
 
+def test_admit_memory_candidate_refuses_a_secret_name_in_the_value() -> None:
+    """The value mapping is read with its keys. The value alone is not a secret.
+
+    Passing candidate.value through string_values stores this row.
+    """
+
+    from alicebot_api.credential_floor import carries_credential_material
+
+    opaque = "Xq9mZt2L" + "xP9wKc4BVq7m"
+    assert not carries_credential_material(opaque)
+    store = MemoryStoreStub()
+    event_id = seed_event(store)
+
+    with pytest.raises(MemoryAdmissionValidationError, match="credential material"):
+        admit_memory_candidate(
+            store,  # type: ignore[arg-type]
+            user_id=uuid4(),
+            candidate=MemoryCandidateInput(
+                memory_key="user.note.billing",
+                value={"note": "keep", "api_key": opaque},
+                source_event_ids=(event_id,),
+            ),
+        )
+
+    assert store.memories == {}
+
+
+def test_admit_memory_candidate_keeps_a_routing_session_key() -> None:
+    store = MemoryStoreStub()
+    event_id = seed_event(store)
+
+    decision = admit_memory_candidate(
+        store,  # type: ignore[arg-type]
+        user_id=uuid4(),
+        candidate=MemoryCandidateInput(
+            memory_key="user.note.route",
+            value={"session_key": "agent:main:telegram:dm:4471", "note": "short replies"},
+            source_event_ids=(event_id,),
+        ),
+    )
+
+    assert decision.action == "ADD"
+    assert decision.memory is not None
+    assert decision.memory["value"]["session_key"] == "agent:main:telegram:dm:4471"
+
+
 def test_admit_memory_candidate_adds_new_memory_with_first_revision() -> None:
     store = MemoryStoreStub()
     event_id = seed_event(store)

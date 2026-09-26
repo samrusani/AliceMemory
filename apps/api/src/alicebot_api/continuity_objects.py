@@ -136,9 +136,9 @@ def create_continuity_object_record(
     # commit, and explicit-signal capture. Until 2026-09-22 none of them
     # consulted it. Raising rolls back the caller's transaction, including
     # the capture event written just before this call. Provenance is
-    # metadata the product writes, so only its values are read; see
-    # credential_floor.string_values.
-    refuse_credential_material(title, body, string_values(provenance), error=ContinuityObjectValidationError)
+    # read with its keys. The commit door then reads the body's string
+    # values and the provenance values, not a JSON dump.
+    refuse_credential_material(title, body, provenance, error=ContinuityObjectValidationError)
     # commit_door_secret_verdict runs the floor, then commit_gate_refuses.
     # The gate sees the body's string values, the same text the commit door
     # would read, not a JSON dump.

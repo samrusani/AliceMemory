@@ -83,9 +83,16 @@ def _body_credential_fields(body: JsonObject) -> tuple[object, ...]:
 
     The body is passed with its keys, which is how the continuity object door
     reads a body. An OpenClaw raw entry is the exception: it is passed by
-    value, as provenance is. Passed as a mapping, every key of the entry is a
-    name, and a routing ``session_key`` is skipped. Pair detection for that
-    entry uses the segment text, which is the entry's canonical JSON.
+    value. Provenance is passed with its keys. Passed as a mapping, every
+    key of the entry is a name. A routing ``session_key`` whose value is
+    ``agent:<profile>:<channel>:<kind>:<tail>``, with an optional
+    ``:topic:<digits>`` suffix, is an identifier. The profile is a short
+    lowercase word and may contain digits, ``-``, or ``_``. Channel and
+    kind are short lowercase words. The tail is digits with an optional
+    leading ``+`` or ``-``, or a lowercase UUID. An uppercase profile, and
+    an opaque alphanumeric tail such as a Slack ``C04`` id, are not.
+    Pair detection for that entry uses the segment text, which is the
+    entry's canonical JSON.
     """
 
     raw_entry = body.get("openclaw_raw_entry")
@@ -98,16 +105,15 @@ def _body_credential_fields(body: JsonObject) -> tuple[object, ...]:
 def _item_credential_fields(item: ImporterNormalizedItem, provenance: JsonObject) -> tuple[object, ...]:
     """Fields of one item that the import would persist, in reading order.
 
-    ``credential_verdict`` is the S4.4 check. Provenance is passed by value
-    only. Its keys include the dedupe key, and the name grammar still treats
-    a bare ``*_key`` name as a secret name, so a digest under that name would
-    read as a secret.
+    ``credential_verdict`` is the S4.4 check. Provenance is passed with its
+    keys. The importer dedupe fields end in ``dedupe_key``, and ``dedupe``
+    is a structural name, so a digest under that name is not a secret.
     """
 
     return (
         item.title,
         *_body_credential_fields(item.body),
-        string_values(provenance),
+        provenance,
         item.raw_content,
         item.source_segment_text,
     )
