@@ -93,7 +93,12 @@ from typing import IO
 from uuid import UUID
 
 from alicebot_api import __version__
-from alicebot_api.credential_floor import VERDICT_EXPANSION, credential_verdict, is_derived_copy, string_values
+from alicebot_api.credential_floor import (
+    VERDICT_EXPANSION,
+    credential_verdict,
+    is_derived_copy,
+    is_product_rollup_key,
+)
 from alicebot_api.mcp_server import _DEFAULT_MCP_USER_ID, MCPServer
 from alicebot_api.mcp_tools import MCPRuntimeContext
 from alicebot_api.sqlite_schema import bootstrap_sqlite_schema
@@ -1894,19 +1899,27 @@ class _CredentialFinding:
 # Keys the product itself writes into a memory's metadata_json that the
 # credential name rule would read as secret names. Enumerated from the vNext
 # memory writers (a test walks them and fails on a new one), not guessed:
-# a rollup card's rollup_key ("scope:<hex>:topic:<anchor>") blocked the
-# restore of the product's own export (S4.4 round 3, P2 item 7). Their
-# values are still read, by value.
+# a rollup card's rollup_key. The producer writes topic, entity, and
+# semantic labels, with an optional scope:<16 hex>: prefix. That key
+# blocked the restore of the product's own export (S4.4 round 3, P2 item 7).
+# The string is still read by value, so the label meets the text floor.
 SYSTEM_METADATA_KEYS = frozenset({"rollup_key"})
 
 
 def _without_system_keys(value: object) -> object:
-    """The mapping with each system key's value wrapped in a list, so the
-    floor reads that value on its own and never as a keyed pair."""
+    """The mapping with each product rollup key wrapped in a list, so the
+    floor reads that value on its own and never as a keyed pair.
+
+    Only a value that matches the producer grammar is unwrapped. Any other
+    ``rollup_key`` stays a keyed pair. Wrapping the string in a list keeps
+    the value read and drops the pair, which is how the label is still read.
+    """
 
     if isinstance(value, Mapping):
         return {
-            key: [item] if key in SYSTEM_METADATA_KEYS and isinstance(item, str) else _without_system_keys(item)
+            key: [item]
+            if key in SYSTEM_METADATA_KEYS and is_product_rollup_key(item)
+            else _without_system_keys(item)
             for key, item in value.items()
         }
     if isinstance(value, list):
@@ -1914,12 +1927,32 @@ def _without_system_keys(value: object) -> object:
     return value
 
 
+def _without_product_value_rollup_key(value: object) -> object:
+    """Unwrap ``value.rollup.rollup_key`` when it matches the producer grammar.
+
+    The import value column is otherwise read with its keys. A rollup card
+    stores that key under ``rollup``. A ``rollup_key`` anywhere else in the
+    value column, including the top level, stays a keyed pair. The unwrapped
+    string is still read by value.
+    """
+
+    if not isinstance(value, Mapping):
+        return value
+    rollup = value.get("rollup")
+    if not isinstance(rollup, Mapping) or not is_product_rollup_key(rollup.get("rollup_key")):
+        return value
+    unwrapped_rollup = {
+        key: [item] if key == "rollup_key" else item
+        for key, item in rollup.items()
+    }
+    return {key: unwrapped_rollup if key == "rollup" else item for key, item in value.items()}
+
+
 def _memory_record_credential_fields(record: Mapping[str, object]) -> tuple[tuple[str, object], ...]:
     """The fields of one memory record the floor reads, in reading order.
 
-    Title and canonical text; the value column by value only (owner ruling
-    C3: an importer's structural key over a digest has the same shape as a
-    secret name over a key); metadata_json as a mapping, keyed, except the
+    Title and canonical text; the value column as a mapping, keyed;
+    metadata_json as a mapping, keyed, except the
     keys the product itself writes; then the identifiers memory_key and
     project_id. The summary is left out when it is a derived copy of the
     text (canonical_text[:N] or a "..." preview); a summary that says
@@ -1933,7 +1966,7 @@ def _memory_record_credential_fields(record: Mapping[str, object]) -> tuple[tupl
         fields.append(("summary", summary))
     fields.extend(
         [
-            ("value", string_values(_json_column(record.get("value")))),
+            ("value", _without_product_value_rollup_key(_json_column(record.get("value")))),
             ("metadata_json", _without_system_keys(_json_column(record.get("metadata_json")))),
             ("memory_key", record.get("memory_key")),
             ("project_id", record.get("project_id")),

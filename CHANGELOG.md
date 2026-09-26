@@ -32,6 +32,35 @@
 - Design note for Sprint 7 skill packs. It keeps the v0.15.4 commit rule
   and names the packs to revise. No pack ships in this note.
 
+- Provenance, legacy admission `value`, and the import `value` column
+  are read with their keys. A secret name over a secret-shaped value is
+  refused there. `rollup_key` is a weak name at every door. Import unwraps
+  it only where the product writes it: a `metadata_json` key named
+  `rollup_key`, and `value.rollup.rollup_key`. The value must match the
+  producer: an optional `scope:<16 hex>:` prefix, then `topic:`, `entity:`,
+  or `semantic:`, then a label. A label passes when it has at least one
+  letter or digit, no uppercase or titlecase character, no control, format,
+  surrogate, private-use, or unassigned character, and no whitespace other
+  than a plain space. `_digest` keeps 16 hex characters.
+  A 64-hex scope is not this shape. The label is still read by value, so
+  an `sk-` or `xoxb-` anchor is refused. Rollup cards the product's own
+  extraction makes restore, with or without a scope prefix. A scoped entity
+  card whose label breaks one of these rules still blocks the restore; only
+  an entity row written outside the product can have such a label.
+  `{"rollup_key": <opaque>}` in a
+  continuity body, on a correction, and in proposal `source_refs` is refused.
+  `rollup_key=<opaque>` in canonical text is still refused. `rollupKey` and
+  the other spellings stay secret names. The weak tier is still live. A
+  routing `session_key` is an identifier for
+  `agent:<profile>:<channel>:<kind>:<tail>` with an optional
+  `:topic:<digits>` suffix. The profile is a short lowercase word and may
+  contain digits, `-`, or `_`. Channel and kind are short lowercase words.
+  The tail is digits with an optional leading `+` or `-`, or a lowercase
+  UUID. An uppercase profile is refused. An opaque alphanumeric tail such
+  as a Slack `C04...` id is refused. `gpg_key` over a key id is refused.
+  MCP review provenance stays value-only: its schema allows five keys and
+  no others.
+
 - A blocked idempotent replay of `POST /v0/vnext/memories/commit` returns
   403 and keeps its policy rows. A new commit that policy rejects still
   returns 200 with status `rejected`.

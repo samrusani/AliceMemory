@@ -42,7 +42,9 @@ rather than scanned or truncated.
 Callers pass the row AS IT WILL BE STORED, in reading order: title, body,
 other persisted free text, structured values (mapping bodies as mappings),
 then persisted identifiers. One call per row; never two rows in one call.
-Provenance is always passed through string_values, by value only.
+Provenance and the import value column are passed as mappings, so each
+key is read with its value. string_values remains for a caller that
+wants the strings without the keys.
 
 ``refuse_credential_material`` raises the caller's own validation error, so
 each surface keeps its existing error contract.
@@ -758,6 +760,26 @@ def _assignment_value_ok(kind: str, value: str, following: str) -> bool:
 # A GPG key id or fingerprint (8, 16 or 40 hex digits, optional 0x) under
 # git's signingkey: an identifier, not the key (adversary review, round 3).
 _GPG_KEY_ID = re.compile(r"(?:0[xX])?(?:[0-9A-Fa-f]{8}|[0-9A-Fa-f]{16}|[0-9A-Fa-f]{40})")
+# OpenClaw routing id under the exact key session_key.
+# agent:<profile>:<channel>:<kind>:<tail> with an optional :topic:<digits>
+# suffix. The profile is a short lowercase word (at most 16 characters) and
+# may contain digits, "-" or "_". Channel and kind are short lowercase
+# words. The tail is digits, with an optional leading "+" or "-", or a
+# lowercase UUID. An uppercase profile is not this shape. An opaque
+# alphanumeric tail, such as a Slack C04 id, is not this shape.
+_ROUTING_SESSION_VALUE = re.compile(
+    r"agent:[a-z][a-z0-9_-]{0,15}:[a-z]{1,16}:[a-z]{1,16}:"
+    r"(?:[+-]?[0-9]{1,32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})"
+    r"(?::topic:[0-9]{1,32})?"
+)
+# Rollup keys from VNextRollupService. _digest keeps 16 lowercase hex
+# characters and the scope prefix is optional. The kind is topic, entity,
+# or semantic. A label passes when it has at least one letter or digit, no
+# uppercase or titlecase character, no control, format, surrogate,
+# private-use, or unassigned character, and no whitespace other than a
+# plain space. A 64-hex scope is not this shape. The label is still read
+# by value.
+_ROLLUP_KEY_SHAPE = re.compile(r"(?:scope:[0-9a-f]{16}:)?(?:topic|entity|semantic):(.+)")
 # An SSH public key algorithm and its body: "Deploy key: ssh-ed25519 AAAA...".
 _SSH_ALGORITHM = re.compile(
     r"ssh-(?:ed25519|rsa|dss)|ecdsa-sha2-nistp(?:256|384|521)|sk-(?:ssh-ed25519|ecdsa-sha2-nistp256)@openssh\.com"
@@ -767,6 +789,8 @@ _SSH_PUBLIC_BODY = re.compile(r"[ \t]+AAAA[0-9A-Za-z+/]{20,}")
 
 def _identifier_not_secret(run: str, value: str, text: str, value_end: int) -> bool:
     if run.lower().replace("_", "").replace("-", "") == "signingkey" and _GPG_KEY_ID.fullmatch(value):
+        return True
+    if run == "session_key" and _ROUTING_SESSION_VALUE.fullmatch(value):
         return True
     return bool(_SSH_ALGORITHM.fullmatch(value)) and bool(_SSH_PUBLIC_BODY.match(text, value_end))
 
@@ -813,8 +837,51 @@ _PAIR_MAX_CHARS = 512
 _WHITESPACE = re.compile(r"\s")
 
 
+def _rollup_label_ok(label: str) -> bool:
+    """True when ``label`` passes the four product rules.
+
+    It has at least one letter or digit. It has no uppercase or titlecase
+    character (``isupper()``, or Unicode category ``Lt``). It has no
+    control, format, surrogate, private-use, or unassigned character (any
+    category starting with ``C``). It has no whitespace other than a plain
+    space.
+    """
+
+    if not any(character.isalpha() or character.isdigit() for character in label):
+        return False
+    for character in label:
+        if character.isupper() or unicodedata.category(character) == "Lt":
+            return False
+        if unicodedata.category(character).startswith("C"):
+            return False
+        if character.isspace() and character != " ":
+            return False
+    return True
+
+
+def is_product_rollup_key(value: object) -> bool:
+    """True when ``value`` is a rollup key the product writes.
+
+    The exemption is not this function. Callers unwrap that one key before
+    the floor reads it as a pair. The unwrapped string is still read by
+    value, which is the text floor. Every other ``rollup_key`` is a weak
+    name. A 64-hex scope prefix is not this shape.
+    """
+
+    if not isinstance(value, str):
+        return False
+    match = _ROLLUP_KEY_SHAPE.fullmatch(value)
+    return match is not None and _rollup_label_ok(match.group(1))
+
+
 def _pair_hit(key: str, value: str) -> bool:
-    """Addition A1: one mapping pair, checked alone and never joined."""
+    """Addition A1: one mapping pair, checked alone and never joined.
+
+    ``rollup_key`` is a weak name here, whoever called this and whatever the
+    value is. The import door unwraps the product key before it gets here.
+    The text grammar is unchanged, so ``rollup_key=`` in canonical text is
+    still a weak name.
+    """
 
     val = value.strip().strip("\"'")
     if len(val) < _PAIR_MIN_CHARS or len(val) > _PAIR_MAX_CHARS or _WHITESPACE.search(val):
@@ -1289,11 +1356,10 @@ def refuse_credential_material(*fields: object, error: Callable[[str], BaseExcep
 def string_values(value: object) -> list[str]:
     """The strings inside a structure, without its keys, in reading order.
 
-    Provenance is passed this way at every door (owner ruling C3). Flattened
-    with its keys, ``openclaw_dedupe_key`` holding a SHA-256 digest reads like
-    a secret assigned to a key. The cost, stated plainly: under a key name, a
-    Stripe key, an AWS secret access key or a plain password in provenance is
-    not caught unless its value is self-identifying. Iterative, like _flatten.
+    Doors that should see a key with its value pass the mapping instead.
+    ``openclaw_dedupe_key`` is not a secret name, because ``dedupe`` is
+    structural. A Stripe key, an AWS secret access key, or a plain password
+    under a secret name in provenance is caught. Iterative, like _flatten.
     """
 
     out: list[str] = []
