@@ -820,3 +820,38 @@ def test_a_cached_launcher_is_known_as_cached(tmp_path: Path) -> None:
     (tmp_path / "c" / "CACHEDIR.TAG").write_text("Signature: 8a477f597d28d172789f06886806bc55\n", encoding="utf-8")
     assert launcher_in_uv_cache(script_launcher(str(cached / "alice-memory")))
     assert not launcher_in_uv_cache(script_launcher(str(tmp_path / "gone" / "alice-memory")))
+
+
+def test_parse_launcher_command_array() -> None:
+    """OpenCode's command array is opt-in. The default still wants a string.
+
+    Mutation: default command_array=True. A JSON host entry with a string
+    command and args no longer parses, or an array parses without the flag.
+    """
+
+    array = {
+        "type": "local",
+        "command": ["uvx", "alice-memory", "mcp", "--data-dir", "/vault"],
+    }
+    assert parse_launcher(array) is None
+    parsed = parse_launcher(array, command_array=True)
+    assert parsed is not None
+    launcher, server_args = parsed
+    assert launcher.command == "uvx"
+    assert server_args == ["--data-dir", "/vault"]
+    assert parse_launcher({"type": "remote", "command": ["uvx"]}, command_array=True) is None
+    assert parse_launcher({"enabled": False}, command_array=True) is None
+    assert (
+        parse_launcher(
+            {"type": "local", "command": ["{env:HOME}/uvx", "alice-memory", "mcp"]},
+            command_array=True,
+        )
+        is None
+    )
+    assert (
+        parse_launcher(
+            {"type": "local", "command": ["uvx", "alice-memory", "mcp"], "args": ["--data-dir"]},
+            command_array=True,
+        )
+        is None
+    )

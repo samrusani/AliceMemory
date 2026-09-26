@@ -530,14 +530,49 @@ def sibling_script(command: str, name: str) -> str:
     return command[: cut + 1] + name + suffix
 
 
-def parse_launcher(entry: object) -> tuple[Launcher, list[str]] | None:
+def _command_array_words(entry: Mapping[str, object]) -> list[str] | None:
+    """OpenCode's ``command`` array, or None when the entry is not that shape.
+
+    Only ``type == "local"``, a non-empty list of non-empty strings, and no
+    ``args`` key. A word that holds ``{env:`` or ``{file:`` is foreign.
+    """
+
+    if entry.get("type") != "local" or "args" in entry:
+        return None
+    command = entry.get("command")
+    if (
+        not isinstance(command, list)
+        or not command
+        or not all(isinstance(word, str) and word for word in command)
+    ):
+        return None
+    if any("{env:" in word or "{file:" in word for word in command):
+        return None
+    return list(command)
+
+
+def parse_launcher(
+    entry: object, *, command_array: bool = False
+) -> tuple[Launcher, list[str]] | None:
     """(launcher, server args) for an entry of a shape install writes, else None.
 
     uvx: the first non-option arg is an alice-memory package spec, or it is
     ``alice-memory`` after ``--from <alice-memory spec>``, and the arg right
     after it is ``mcp``. Script: the command's basename is ``alice-memory``
     (or ``.exe``) and the first arg is ``mcp``. Every arg must be a string.
+
+    ``command_array`` reads OpenCode's ``command`` list instead of a string
+    ``command`` plus ``args``. The default stays the string form, so a JSON
+    host still refuses an array.
     """
+
+    if command_array:
+        if not isinstance(entry, Mapping):
+            return None
+        words = _command_array_words(entry)
+        if words is None:
+            return None
+        return parse_launcher({"command": words[0], "args": words[1:]})
 
     if not isinstance(entry, Mapping):
         return None
