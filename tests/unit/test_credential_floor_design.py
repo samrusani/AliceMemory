@@ -272,6 +272,164 @@ def test_t4_adversary_misses_are_caught(name: str) -> None:
     assert carries_credential_material(*_T4_TRUE[name]), name
 
 
+def test_product_rollup_key_is_exempt_only_where_the_product_writes_it() -> None:
+    """The floor does not exempt rollup_key. Import unwraps two product paths.
+
+    metadata_json unwraps a rollup_key whose value matches the producer:
+    an optional scope:<16 hex>: prefix, then topic, entity, or semantic,
+    then a label. A label passes when it has at least one letter or digit,
+    no uppercase or titlecase character, no control, format, surrogate,
+    private-use, or unassigned character, and no whitespace other than a
+    plain space. The import value column unwraps only
+    value.rollup.rollup_key with that shape. A 64-hex scope is not that
+    shape. A caller-supplied rollup_key over an opaque value is refused.
+    The label is still read by value. rollupKey stays a weak name.
+    """
+
+    import hashlib
+
+    from alicebot_api.credential_floor import _KEY_STRUCTURAL, _name_kind, is_product_rollup_key
+    from alicebot_api.onramp import _without_product_value_rollup_key, _without_system_keys
+
+    digest16 = hashlib.sha256(b"games").hexdigest()[:16]
+    topic = "scope:" + digest16 + ":topic:games"
+    entity = "scope:" + digest16 + ":entity:naïve"
+    semantic = "semantic:kitchen"
+    spaced = "entity:model-2024 labs"
+    hyphenated = "topic:gpt-4o"
+    digest64 = hashlib.sha256(b"games").hexdigest()
+    full_value = "scope:" + digest64 + ":topic:games"
+    assert any(character.isdigit() for character in topic)
+    assert any(ord(character) > 127 and character.islower() for character in entity)
+    assert "rollup" not in _KEY_STRUCTURAL
+    assert _name_kind("rollup_key", "", 0) == "weak"
+    assert _name_kind("rollupKey", "", 0) == "weak"
+    opaque = "Xq9mZt2L" + "xP9wKc4BVq7m"
+    one_and_one = "entity:1&1"
+    ampersand = "scope:" + digest16 + ":entity:barnes&noble"
+    cjk = "entity:" + "東京"
+    dotted = "scope:" + digest16 + ":entity:" + "i\u0307stanbul.online"
+    for product in (topic, entity, semantic, spaced, hyphenated, one_and_one, ampersand, cjk, dotted):
+        assert is_product_rollup_key(product), product
+        assert not carries_credential_material(_without_system_keys({"rollup_key": product})), product
+    assert not is_product_rollup_key(full_value)
+    assert not is_product_rollup_key("entity:Barnes")
+    assert not is_product_rollup_key("entity:acme\x01labs")
+    assert not is_product_rollup_key("topic:fy\t2024")
+    assert not is_product_rollup_key("entity:" + "\u01c5" + "z")
+    assert not is_product_rollup_key("topic:a\u200bb")
+    assert not is_product_rollup_key("semantic:&&&")
+    assert carries_credential_material({"rollup_key": topic})
+    assert carries_credential_material({"rollup_key": entity})
+    assert carries_credential_material({"rollup_key": opaque})
+    assert carries_credential_material({"rollup": {"rollup_key": opaque}})
+    assert carries_credential_material(_without_system_keys({"rollup_key": full_value}))
+    assert carries_credential_material(_without_system_keys({"rollup_key": opaque}))
+    mixed = "wJalr" + "XUtn" + "FEMI7" + "K7MDENG"
+    mixed_key = "scope:" + digest16 + ":topic:" + mixed
+    assert not is_product_rollup_key(mixed_key)
+    assert carries_credential_material({"rollup_key": mixed_key})
+    sk_key = "scope:" + digest16 + ":topic:" + ("sk-" + "abcdefghijklmnopqrstuvwxyz12")
+    xoxb_key = "topic:" + ("xoxb-" + "123456789012" + "-" + "abcdefghijklm")
+    assert is_product_rollup_key(sk_key)
+    assert is_product_rollup_key(xoxb_key)
+    assert carries_credential_material(_without_system_keys({"rollup_key": sk_key}))
+    assert carries_credential_material(_without_system_keys({"rollup_key": xoxb_key}))
+    assert carries_credential_material(
+        _without_product_value_rollup_key({"text": "A note.", "rollup": {"rollup_key": sk_key}})
+    )
+    card = {"text": "Played several games.", "rollup": {"rollup_key": topic, "group_kind": "topic"}}
+    assert not carries_credential_material(_without_product_value_rollup_key(card))
+    entity_card = {"text": "NVIDIA shipped a board.", "rollup": {"rollup_key": entity, "group_kind": "entity"}}
+    assert not carries_credential_material(_without_product_value_rollup_key(entity_card))
+    assert carries_credential_material(
+        _without_product_value_rollup_key({"text": "A note.", "rollup": {"rollup_key": opaque}})
+    )
+    assert carries_credential_material(
+        _without_product_value_rollup_key({"text": "A note.", "rollup_key": topic})
+    )
+    assert carries_credential_material("rollup_key=" + opaque)
+    assert carries_credential_material({"rollupKey": opaque})
+    assert carries_credential_material({"ROLLUP_KEY": opaque})
+    assert carries_credential_material({"rollup-key": opaque})
+    assert carries_credential_material({"Rollup-Key": opaque})
+
+
+def test_a_routing_session_key_is_an_identifier_and_gpg_key_is_not() -> None:
+    """session_key over a routing id is an identifier. A wider profile, a
+    plus or UUID tail, and a numeric topic suffix are included. An uppercase
+    profile and a Slack C04 tail are refused. gpg_key over a key id is
+    refused. The signing-key exemption is only the name signingkey.
+    """
+
+    routing = "agent:main:telegram:dm:4471"
+    negative = "agent:main:telegram:group:-1001234567890"
+    opaque = "Xq9mZt2L" + "xP9wKc4BVq7m"
+    key_id = "A1B2" + "C3D4" + "E5F6" + "7890"
+    kept = (
+        routing,
+        negative,
+        "agent:main-bot:telegram:dm:4471",
+        "agent:work2:telegram:dm:4471",
+        "agent:ops_bot:telegram:dm:4471",
+        "agent:main:whatsapp:dm:+447911123456",
+        "agent:main:subagent:run:12345678-9abc-def0-1234-56789abcdef0",
+        "agent:main:telegram:dm:4471:topic:3",
+        "agent:main-bot:whatsapp:dm:+447911123456:topic:12",
+    )
+    for value in kept:
+        assert not carries_credential_material({"session_key": value}), value
+    assert carries_credential_material({"session_key": "x" + routing})
+    assert carries_credential_material({"session_key": "agent:main:telegram:dm:" + opaque})
+    assert carries_credential_material({"SESSION_KEY": routing})
+    assert carries_credential_material({"session_key": "agent:Main:telegram:dm:4471"})
+    assert carries_credential_material({"session_key": "agent:main:slack:channel:" + "C04" + "ABCDEF12"})
+    assert carries_credential_material(
+        {"session_key": "agent:main:subagent:run:12345678-9ABC-DEF0-1234-56789ABCDEF0"}
+    )
+    assert carries_credential_material({"session_key": "agent:main:telegram:dm:4471:topic:games"})
+    assert carries_credential_material({"session_key": opaque})
+    assert carries_credential_material({"gpg_key": key_id})
+    assert not carries_credential_material({"signingkey": key_id})
+
+
+def test_mcp_review_provenance_schema_allows_only_five_keys() -> None:
+    from alicebot_api.mcp.definitions import _REVIEW_PROVENANCE_SCHEMA
+
+    assert _REVIEW_PROVENANCE_SCHEMA["additionalProperties"] is False
+    assert set(_REVIEW_PROVENANCE_SCHEMA["properties"]) == {
+        "source_id",
+        "source_chunk_id",
+        "evidence_role",
+        "confidence",
+        "quote",
+    }
+
+
+def test_keyed_reading_measurement_counts_notes_at_the_doors() -> None:
+    from scripts.measure_keyed_credential_reading import count_notes, synthetic_notes
+
+    counts = count_notes(synthetic_notes())
+    assert "rollup_key text" in counts["commit"]
+    assert "rollupKey" in counts["commit"]
+    assert "stripeKey" in counts["commit"]
+    assert "openaiKey" in counts["commit"]
+    assert "ordinary" not in counts["commit"]
+    assert "product rollup_key" not in counts["import_before"]
+    assert "product rollup_key" not in counts["import_after"]
+    assert "product entity rollup_key" not in counts["import_before"]
+    assert "product entity rollup_key" not in counts["import_after"]
+    assert "continuity body rollup_key" not in counts["import_before"]
+    assert "continuity body rollup_key" in counts["import_after"]
+    assert "rollupKey" in counts["import_after"]
+    assert "rollupKey" not in counts["import_before"]
+    assert "session_key" not in counts["import_after"]
+    assert "gpg_key" in counts["import_after"]
+    assert "gpg_key" not in counts["import_before"]
+    assert "dedupe" not in counts["import_after"]
+    assert len(counts["import_after"]) > len(counts["import_before"])
+
+
 # ---------------------------------------------------------------------------
 # T5: linear time. A generous absolute budget and a ratio, never a tight
 # wall clock. Measured on the build machine (Apple M3 Max) after round 3, on
