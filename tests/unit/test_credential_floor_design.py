@@ -280,7 +280,10 @@ def test_product_rollup_key_is_exempt_only_where_the_product_writes_it() -> None
     then a label. A label passes when it has at least one letter or digit,
     no uppercase or titlecase character, no control, format, surrogate,
     private-use, or unassigned character, and no whitespace other than a
-    plain space. The import value column unwraps only
+    plain space. A no-break space and an ideographic space are refused.
+    Mutation: allow U+00A0. The no-break space case fails. Allowing a tab
+    does not, because a tab is already refused as a control character.
+    The import value column unwraps only
     value.rollup.rollup_key with that shape. A 64-hex scope is not that
     shape. A caller-supplied rollup_key over an opaque value is refused.
     The label is still read by value. rollupKey stays a weak name.
@@ -316,6 +319,8 @@ def test_product_rollup_key_is_exempt_only_where_the_product_writes_it() -> None
     assert not is_product_rollup_key("entity:Barnes")
     assert not is_product_rollup_key("entity:acme\x01labs")
     assert not is_product_rollup_key("topic:fy\t2024")
+    assert not is_product_rollup_key("topic:fy\u00a02024")
+    assert not is_product_rollup_key("topic:fy\u30002024")
     assert not is_product_rollup_key("entity:" + "\u01c5" + "z")
     assert not is_product_rollup_key("topic:a\u200bb")
     assert not is_product_rollup_key("semantic:&&&")
