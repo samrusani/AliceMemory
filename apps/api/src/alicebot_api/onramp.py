@@ -1899,9 +1899,10 @@ class _CredentialFinding:
 # Keys the product itself writes into a memory's metadata_json that the
 # credential name rule would read as secret names. Enumerated from the vNext
 # memory writers (a test walks them and fails on a new one), not guessed:
-# a rollup card's rollup_key ("scope:<hex>:topic:<anchor>") blocked the
-# restore of the product's own export (S4.4 round 3, P2 item 7). Their
-# values are still read, by value.
+# a rollup card's rollup_key. The producer writes topic, entity, and
+# semantic labels, with an optional scope:<16 hex>: prefix. That key
+# blocked the restore of the product's own export (S4.4 round 3, P2 item 7).
+# The string is still read by value, so the label meets the text floor.
 SYSTEM_METADATA_KEYS = frozenset({"rollup_key"})
 
 
@@ -1909,8 +1910,9 @@ def _without_system_keys(value: object) -> object:
     """The mapping with each product rollup key wrapped in a list, so the
     floor reads that value on its own and never as a keyed pair.
 
-    Only a value that matches the product shape is unwrapped. Any other
-    ``rollup_key`` stays a keyed pair.
+    Only a value that matches the producer grammar is unwrapped. Any other
+    ``rollup_key`` stays a keyed pair. Wrapping the string in a list keeps
+    the value read and drops the pair, which is how the label is still read.
     """
 
     if isinstance(value, Mapping):
@@ -1926,11 +1928,12 @@ def _without_system_keys(value: object) -> object:
 
 
 def _without_product_value_rollup_key(value: object) -> object:
-    """Unwrap ``value.rollup.rollup_key`` when it is the product's topic key.
+    """Unwrap ``value.rollup.rollup_key`` when it matches the producer grammar.
 
     The import value column is otherwise read with its keys. A rollup card
     stores that key under ``rollup``. A ``rollup_key`` anywhere else in the
-    value column, including the top level, stays a keyed pair.
+    value column, including the top level, stays a keyed pair. The unwrapped
+    string is still read by value.
     """
 
     if not isinstance(value, Mapping):

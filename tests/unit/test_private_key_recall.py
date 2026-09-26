@@ -310,8 +310,9 @@ def test_slack_tokens_are_case_exact_and_carry_digits() -> None:
 # ---------------------------------------------------------------------------
 # The import value column and metadata_json are read with their keys.
 # Import unwraps rollup_key only in metadata_json and at
-# value.rollup.rollup_key, and only for scope:<hex>:topic:<anchor>.
-# Reading that product key as a secret name blocked a restore. A
+# value.rollup.rollup_key, and only when the value matches the producer:
+# an optional scope:<16 hex>: prefix, then topic, entity, or semantic,
+# then a lowercase label. The label is still read by value. A
 # caller-supplied rollup_key stays a secret name.
 # ---------------------------------------------------------------------------
 
@@ -362,6 +363,266 @@ def test_a_rollup_card_exported_and_imported_on_sqlite_restores(tmp_path: Path, 
     code, target = _import(tmp_path, dump)
     assert code == 0, capsys.readouterr().err
     assert target.exists()
+
+
+_KITCHEN_VECTORS = (
+    [0.9, 0.42, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+    [0.9, 0.0, 0.42, 0.0, 0.0, 0.0, 0.0, 0.0],
+    [0.9, 0.0, 0.0, 0.42, 0.0, 0.0, 0.0, 0.0],
+)
+_UNRELATED_VECTORS = (
+    [0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0],
+    [0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+    [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0],
+)
+
+
+class _PrecomputedEmbeddings:
+    provider = "test_embeddings"
+    model = "test-embed-3"
+
+    def embed_batch(self, texts: object) -> list[list[float]]:
+        raise AssertionError(texts)
+
+
+def _producer_memory(index: int, text: str, session: str, scope: list[str] | None) -> dict[str, object]:
+    metadata: dict[str, object] = {"session_date": session}
+    if scope is not None:
+        metadata["project_scope"] = scope
+    return {
+        "memory_key": f"memory.producer-{index}",
+        "value": {"text": text},
+        "status": "active",
+        "memory_type": "episode",
+        "title": text[:80],
+        "canonical_text": text,
+        "summary": text[:80],
+        "domain": "personal",
+        "sensitivity": "internal",
+        "project_id": scope[0] if scope else None,
+        "metadata_json": metadata,
+    }
+
+
+def _rollup_keys(store: SQLiteVNextStore) -> dict[str, str]:
+    from alicebot_api.vnext_rollups import ROLLUP_CANDIDATE_KIND
+
+    keys: dict[str, str] = {}
+    for row in store.list_memories(status="candidate"):
+        metadata = row.get("metadata_json")
+        if not isinstance(metadata, dict) or metadata.get("candidate_kind") != ROLLUP_CANDIDATE_KIND:
+            continue
+        key = str(metadata["rollup_key"])
+        value = row.get("value")
+        assert isinstance(value, dict)
+        rollup = value["rollup"]
+        assert isinstance(rollup, dict)
+        assert rollup["rollup_key"] == key
+        keys[str(row["id"])] = key
+    return keys
+
+
+def test_producer_rollup_cards_of_every_kind_import(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """Scoped and unscoped topic, entity, and semantic cards from the real producer restore.
+
+    Labels cover digits (gpt-4o, 2024), a space, a hyphen, and a non-ASCII letter.
+    """
+
+    from alicebot_api.credential_floor import is_product_rollup_key
+    from alicebot_api.vnext_rollups import RollupOptions, VNextRollupService
+
+    origin = tmp_path / "origin.db"
+    bootstrap_database(origin, user_id=USER_ID, user_email="local@alice")
+    scoped = ["alpha"]
+    specs: list[tuple[str, str, list[str] | None, list[float] | None]] = []
+    for index, (month, amount) in enumerate((("March", "$12"), ("June", "$40"), ("October", "$7"))):
+        specs.append(
+            (
+                f"NVIDIA shipped a reference board in {month} and the invoice was {amount}",
+                f"2024-0{index + 1}-02",
+                scoped,
+                None,
+            )
+        )
+    specs.extend(
+        [
+            (
+                "Model-2024 Labs closed its March methods review and paid $80",
+                "2023-03-14",
+                None,
+                None,
+            ),
+            (
+                "A hiring plan at Model-2024 Labs slipped in July after a $15 parts order",
+                "2023-07-02",
+                None,
+                None,
+            ),
+            (
+                "One customer of Model-2024 Labs renewed in November and sent $200",
+                "2023-11-19",
+                None,
+                None,
+            ),
+            (
+                "the gpt-4o billing draft finished beside a workshop fee of $120",
+                "2024-09-01",
+                scoped,
+                None,
+            ),
+            (
+                "a checklist named gpt-4o covered onboarding before a license invoice of $45",
+                "2024-09-02",
+                scoped,
+                None,
+            ),
+            (
+                "launch notes about gpt-4o followed a booth deposit of $60",
+                "2024-09-03",
+                scoped,
+                None,
+            ),
+            (
+                "the fy2024budgetnote binder sat beside the red ledger",
+                "2022-05-01",
+                None,
+                None,
+            ),
+            (
+                "a fy2024budgetnote appendix followed the blue folder",
+                "2022-05-02",
+                None,
+                None,
+            ),
+            (
+                "our fy2024budgetnote annex preceded the green box",
+                "2022-05-03",
+                None,
+                None,
+            ),
+        ]
+    )
+    kitchen = (
+        "Swapped the leaky kitchen faucet for $120",
+        "The toaster in the kitchen died; its replacement cost $45",
+        "Hung floating shelves over the counter, $60 in brackets",
+    )
+    unrelated = (
+        "The staging database resets on Sunday nights",
+        "Passport renewal appointment is confirmed",
+        "The maple sapling doubled its height",
+    )
+    for scope, month in ((scoped, "03"), (None, "08")):
+        for index, text in enumerate(kitchen):
+            specs.append((text, f"2026-{month}-0{index + 2}", scope, _KITCHEN_VECTORS[index]))
+        for index, text in enumerate(unrelated):
+            specs.append((text, f"2026-{month}-1{index + 2}", scope, _UNRELATED_VECTORS[index]))
+
+    precomputed: dict[str, list[float]] = {}
+    with sqlite_user_connection(origin, USER_ID) as conn:
+        store = SQLiteVNextStore(conn, USER_ID)
+        store.create_entity(
+            {
+                "entity_type": "organization",
+                "name": "NVIDIA",
+                "normalized_name": "naïve",
+                "aliases": ["nvidia"],
+            }
+        )
+        for index, (text, session, scope, vector) in enumerate(specs):
+            row = store.create_memory(_producer_memory(index, text, session, scope))
+            if vector is not None:
+                assert store.update_memory_embedding(memory_id=str(row["id"]), vector=vector) is not None
+                precomputed[str(row["id"])] = vector
+        outcome = VNextRollupService(
+            store,
+            embedding_provider=_PrecomputedEmbeddings(),
+            precomputed_embeddings=precomputed,
+        ).propose_rollups(options=RollupOptions(max_rollups=40))
+        produced = _rollup_keys(store)
+    assert produced, outcome.skipped
+    for key in produced.values():
+        assert is_product_rollup_key(key), key
+    kinds = set()
+    for key in produced.values():
+        body = key.split(":", 2)[-1] if key.startswith("scope:") else key
+        kind, label = body.split(":", 1)
+        kinds.add(("scoped" if key.startswith("scope:") else "unscoped", kind))
+        assert label == label.casefold()
+        assert not any(character.isupper() for character in label)
+    assert kinds == {
+        ("scoped", "topic"),
+        ("unscoped", "topic"),
+        ("scoped", "entity"),
+        ("unscoped", "entity"),
+        ("scoped", "semantic"),
+        ("unscoped", "semantic"),
+    }
+    joined = " ".join(produced.values())
+    assert "gpt-4o" in joined
+    assert "2024" in joined
+    assert " " in joined
+    assert "-" in joined
+    assert any(ord(character) > 127 and character.islower() for character in joined)
+
+    dump = tmp_path / "dump.jsonl"
+    assert onramp_main(["export", "--db", str(origin), "--user-id", USER_ID, "--out", str(dump)]) == 0
+    capsys.readouterr()
+    code, target = _import(tmp_path, dump)
+    assert code == 0, capsys.readouterr().err
+    with sqlite_user_connection(target, USER_ID) as conn:
+        restored = _rollup_keys(SQLiteVNextStore(conn, USER_ID))
+    assert restored == produced
+
+
+def test_import_refuses_rollup_key_outside_value_rollup_and_metadata(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A product-shaped rollup_key that is not under value.rollup stays a keyed pair.
+
+    metadata_json does not hold it either. Swapping the value-column unwrap
+    for the metadata unwrap would accept this record.
+    """
+
+    digest = hashlib.sha256(b"alpha").hexdigest()[:16]
+    product = "scope:" + digest + ":entity:nvidia"
+    crafted, ids = _crafted_export(
+        tmp_path,
+        [{"value": {"text": "Operator note.", "rollup_key": product}}],
+    )
+    capsys.readouterr()
+    code, target = _import(tmp_path, crafted)
+    err = capsys.readouterr().err
+    assert code == 1
+    assert not target.exists()
+    assert f"memory {ids[0]} carries credential material" in err
+    assert product not in err
+
+
+def test_import_refuses_a_rollup_label_that_reads_as_a_token(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A label that matches the producer grammar is still read by value."""
+
+    digest = hashlib.sha256(b"label").hexdigest()[:16]
+    sk_key = "scope:" + digest + ":topic:" + ("sk-" + "abcdefghijklmnopqrstuvwxyz12")
+    xoxb_key = "topic:" + ("xoxb-" + "123456789012" + "-" + "abcdefghijklm")
+    crafted, ids = _crafted_export(
+        tmp_path,
+        [
+            {"value": {"text": "A note.", "rollup": {"rollup_key": sk_key, "group_kind": "topic"}}},
+            {"value": {"text": "Another note.", "rollup": {"rollup_key": xoxb_key, "group_kind": "topic"}}},
+        ],
+    )
+    capsys.readouterr()
+    code, target = _import(tmp_path, crafted)
+    err = capsys.readouterr().err
+    assert code == 1
+    assert not target.exists()
+    assert f"memory {ids[0]} carries credential material" in err
+    assert f"memory {ids[1]} carries credential material" in err
+    assert "sk-" not in err
+    assert "xoxb-" not in err
 
 
 def test_the_import_value_column_and_metadata_are_read_with_their_keys(tmp_path: Path, capsys) -> None:

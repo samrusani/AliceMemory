@@ -760,19 +760,28 @@ def _assignment_value_ok(kind: str, value: str, following: str) -> bool:
 # A GPG key id or fingerprint (8, 16 or 40 hex digits, optional 0x) under
 # git's signingkey: an identifier, not the key (adversary review, round 3).
 _GPG_KEY_ID = re.compile(r"(?:0[xX])?(?:[0-9A-Fa-f]{8}|[0-9A-Fa-f]{16}|[0-9A-Fa-f]{40})")
-# OpenClaw routing id under the exact key session_key. Profile, channel,
-# and kind are short lowercase words. The tail is digits, with an optional
-# leading minus for a Telegram group id. Prefix junk, an uppercase key, and
-# an opaque tail are not this shape.
+# OpenClaw routing id under the exact key session_key.
+# agent:<profile>:<channel>:<kind>:<tail> with an optional :topic:<digits>
+# suffix. The profile is a short lowercase word (at most 16 characters) and
+# may contain digits, "-" or "_". Channel and kind are short lowercase
+# words. The tail is digits, with an optional leading "+" or "-", or a
+# lowercase UUID. An uppercase profile is not this shape. An opaque
+# alphanumeric tail, such as a Slack C04 id, is not this shape.
 _ROUTING_SESSION_VALUE = re.compile(
-    r"agent:[a-z]{1,16}:[a-z]{1,16}:[a-z]{1,16}:-?[0-9]{1,32}"
+    r"agent:[a-z][a-z0-9_-]{0,15}:[a-z]{1,16}:[a-z]{1,16}:"
+    r"(?:[+-]?[0-9]{1,32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})"
+    r"(?::topic:[0-9]{1,32})?"
 )
-# The rollup writer stores scope:<16 hex>:topic:<anchor>. _digest keeps 16
-# hex characters. A full 64-hex sha256 of the same shape is the same family.
-# The anchor is a topic token.
-_PRODUCT_ROLLUP_KEY = re.compile(
-    r"scope:(?:[0-9a-f]{16}|[0-9a-f]{64}):topic:[a-z0-9][a-z0-9'-]{0,80}"
-)
+# Rollup keys from VNextRollupService. _digest keeps 16 lowercase hex
+# characters and the scope prefix is optional. The kind is topic, entity,
+# or semantic. Topic labels are casefolded tokens. Entity labels are
+# candidate.normalized, or the entity row's normalized_name when an alias
+# folds onto it, so a label can hold a non-ASCII lowercase letter, spaces,
+# digits, hyphens, apostrophes, underscores, and periods. Semantic labels
+# are a casefolded noun phrase. The producer does not emit an uppercase
+# letter. A label with one is not this key.
+_ROLLUP_KEY_SHAPE = re.compile(r"(?:scope:[0-9a-f]{16}:)?(?:topic|entity|semantic):(.+)")
+_ROLLUP_LABEL_MARK = frozenset(" '-_.’")
 # An SSH public key algorithm and its body: "Deploy key: ssh-ed25519 AAAA...".
 _SSH_ALGORITHM = re.compile(
     r"ssh-(?:ed25519|rsa|dss)|ecdsa-sha2-nistp(?:256|384|521)|sk-(?:ssh-ed25519|ecdsa-sha2-nistp256)@openssh\.com"
@@ -830,14 +839,33 @@ _PAIR_MAX_CHARS = 512
 _WHITESPACE = re.compile(r"\s")
 
 
+def _rollup_label_ok(label: str) -> bool:
+    """True when ``label`` is lowercase text the rollup producer can emit."""
+
+    if not any(character.isalpha() for character in label):
+        return False
+    for character in label:
+        if character.isupper():
+            return False
+        if character.islower() or character.isdigit() or character in _ROLLUP_LABEL_MARK:
+            continue
+        return False
+    return True
+
+
 def is_product_rollup_key(value: object) -> bool:
-    """True when ``value`` is the rollup key the product writes.
+    """True when ``value`` is a rollup key the product writes.
 
     The exemption is not this function. Callers unwrap that one key before
-    the floor reads a mapping. Every other ``rollup_key`` is a weak name.
+    the floor reads it as a pair. The unwrapped string is still read by
+    value, which is the text floor. Every other ``rollup_key`` is a weak
+    name. A 64-hex scope prefix is not this shape.
     """
 
-    return isinstance(value, str) and _PRODUCT_ROLLUP_KEY.fullmatch(value) is not None
+    if not isinstance(value, str):
+        return False
+    match = _ROLLUP_KEY_SHAPE.fullmatch(value)
+    return match is not None and _rollup_label_ok(match.group(1))
 
 
 def _pair_hit(key: str, value: str) -> bool:

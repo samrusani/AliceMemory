@@ -316,7 +316,7 @@ Verified by execution on 2026-09-23; each row names the tests that pin it.
 | `/v1` memory operations | `/v1/memory/operations/candidates/generate` and `/commit`, `alice_memory_mutations_generate` and `_commit` | refused, transaction rolled back | door 4 tests |
 | Legacy continuity writes | `/v0/continuity/captures` when it derives an object, `/v0/continuity/captures/commit`, `/v0/continuity/review-queue/{id}/corrections`, `alice_commit_captures`, `alice_review_apply`. The Hermes plugin used to route a commit HTTP 400 into `POST /v0/continuity/captures`. It no longer does that | refused, transaction rolled back | door 4 tests |
 | Legacy memory admission | `POST /v0/memories/admit`, `/v0/memories/extract-explicit-preferences`, `/v0/open-loops/extract-explicit-commitments`, `/v0/memories/capture-explicit-signals`, including the open-loop title these write. The candidate `value` mapping is read with its keys | refused before any branch, request rolled back | integration `test_round2_r1_*`, `test_admit_memory_candidate_refuses_a_secret_name_in_the_value` |
-| Backup restore | `alice-memory import`, every memory record whatever its status: title, text, a summary that is not a copy of the text, the `value` column keyed, `metadata_json` keyed (correction history included). Import unwraps `rollup_key` only in `metadata_json` and at `value.rollup.rollup_key`, and only when the value is `scope:<16 or 64 hex>:topic:<anchor>`. `memory_key` and `project_id` are read too | refused with `import_credential_material`, no records written; stderr lists the line and memory id of every offender, never the text. A rollup card restores. A `rollup_key` anywhere else, including over an opaque value, is refused. `rollupKey`, `ROLLUP_KEY`, `rollup-key`, and `Rollup-Key` are still secret names. The weak tier is still live | door 6 tests, `test_round2_import_*`, `test_private_key_recall.py` |
+| Backup restore | `alice-memory import`, every memory record whatever its status: title, text, a summary that is not a copy of the text, the `value` column keyed, `metadata_json` keyed (correction history included). Import unwraps `rollup_key` only in `metadata_json` and at `value.rollup.rollup_key`, and only when the value is an optional `scope:<16 hex>:`, then `topic:`, `entity:`, or `semantic:`, then a lowercase label. The label may contain spaces, digits, hyphens, and non-ASCII letters. A 64-hex scope is not this shape. The label is still read by value. `memory_key` and `project_id` are read too | refused with `import_credential_material`, no records written; stderr lists the line and memory id of every offender, never the text. Topic, entity, and semantic rollup cards restore, scoped or unscoped. A `rollup_key` anywhere else, including over an opaque value, is refused. An `sk-` or `xoxb-` anchor is refused. `rollupKey`, `ROLLUP_KEY`, `rollup-key`, and `Rollup-Key` are still secret names. The weak tier is still live | door 6 tests, `test_round2_import_*`, `test_private_key_recall.py` |
 | Markdown, ChatGPT, and OpenClaw import | `import_markdown_source`, `import_chatgpt_source`, `import_openclaw_source` | the item is skipped and the rest of the file is imported. The receipt counts `skipped_credentials` and names each skip in `skipped_credential_items` by id or line, never the matched text. Fields checked: title, the body with its keys, provenance with its keys, raw content, and the segment text. An OpenClaw raw entry is passed by value, and pair detection reads the segment's canonical JSON. A dashed private-key block in markdown is one skipped item when the BEGIN line and the END line stand alone, share a label, every line between them is key body, and at least one of those lines is radix-64 text of 40 or more characters. Key body is base64 or radix-64 text, a `=` checksum line, a blank line, or a `Name: value` armor header. A `Name: value` line counts only as a run directly after the BEGIN line, before the first blank line or radix-64 line. A code fence, another BEGIN line, or any other line stops the scan, and that BEGIN line is one item on its own. The receipt names the block's line range. Receipt line numbers count from 1 on the first line after frontmatter. Placeholder password examples are skipped at import | `test_importer_credential_check.py` |
 
 ### What is not covered
@@ -367,15 +367,23 @@ Stated so nobody reads the table above as "every surface".
   AWS secret access key or a plain password that does not identify itself.
   `rollup_key` is a weak name in a caller-supplied mapping. Import unwraps
   it only in `metadata_json` and at `value.rollup.rollup_key`, and only
-  when the value is `scope:<16 or 64 hex>:topic:<anchor>`. Its value is
-  still read. The text grammar is unchanged, so `rollup_key=<opaque>` at
+  when the value is an optional `scope:<16 hex>:`, then `topic:`, `entity:`,
+  or `semantic:`, then a lowercase label. The label may contain spaces,
+  digits, hyphens, and non-ASCII letters. A 64-hex scope is not this shape.
+  The label is still read by value, so an `sk-` or `xoxb-` anchor is refused.
+  The text grammar is unchanged, so `rollup_key=<opaque>` at
   the commit door is still refused. `rollup` is not a structural name, so
   `rollupKey` and the other spellings are refused at the commit door.
   `dedupe` is structural, so an importer digest under `openclaw_dedupe_key`
   still imports. A routing `session_key` whose value is
-  `agent:<profile>:<channel>:<kind>:<digits>`, with short lowercase words
-  and an optional leading minus on the digits, is an identifier on these
-  doors. `gpg_key` over a GPG key id is refused. The signing-key exemption
+  `agent:<profile>:<channel>:<kind>:<tail>`, with an optional
+  `:topic:<digits>` suffix, is an identifier on these doors. The profile
+  is a short lowercase word and may contain digits, `-`, or `_`
+  (`main-bot`, `work2`, `ops_bot`). Channel and kind are short lowercase
+  words. The tail is digits with an optional leading `+` or `-`, or a
+  lowercase UUID. An uppercase profile is refused. An opaque alphanumeric
+  tail such as a Slack `C04...` id is refused. `gpg_key` over a GPG key id
+  is refused. The signing-key exemption
   is only the name `signingkey`. An object path with `/` segments, such as
   `/tmp/openai_key/export`, is not refused. The grammar, including the
   ALL-CAPS env-style rule and the weak tier, is unchanged. There is no dead

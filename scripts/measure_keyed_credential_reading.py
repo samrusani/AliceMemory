@@ -1,13 +1,15 @@
-"""Door-level before and after for keyed credential reading.
+"""Keyed credential reading, counted as notes.
 
 Each item is one note. The commit door receives canonical_text as a string.
-Import receives a memory record. Before reads the import value column by
-value only, which is what main did. After reads that column with its keys,
-which is the import door now.
+Import is measured with the detector functions in this code, not by running
+main. The value-only column reads the import value column without its keys.
+The keyed column is the import door now. Main already refuses the
+continuity-body case on the corrections route. This script does not
+reproduce that HTTP result.
 
 Counts are notes refused, not lines. Repo markdown is one note per file and
-is string text, so keyed reading does not move that count. The synthetic
-notes are the before and after. Credential values are built at runtime.
+is string text, so keyed reading does not move that count. Credential values
+are built at runtime.
 """
 
 from __future__ import annotations
@@ -27,8 +29,12 @@ def _opaque() -> str:
 
 
 def _rollup_value() -> str:
-    # The writer stores a 16-hex scope digest, then :topic: and the anchor.
+    # The writer stores a 16-hex scope digest, then the kind and the label.
     return "scope:" + hashlib.sha256(b"games").hexdigest()[:16] + ":topic:games"
+
+
+def _entity_rollup_value() -> str:
+    return "scope:" + hashlib.sha256(b'{"project_scope":["alpha"]}').hexdigest()[:16] + ":entity:nvidia"
 
 
 def _record(
@@ -53,6 +59,7 @@ def _record(
 def synthetic_notes() -> list[dict[str, object]]:
     opaque = _opaque()
     rollup = _rollup_value()
+    entity_rollup = _entity_rollup_value()
     digest = hashlib.sha256(b"workspace").hexdigest()
     routing = "agent:main:telegram:dm:4471"
     gpg_id = "A1B2" + "C3D4" + "E5F6" + "7890"
@@ -101,6 +108,19 @@ def synthetic_notes() -> list[dict[str, object]]:
                 "Played several games.",
                 {"text": "Played several games.", "rollup": {"rollup_key": rollup, "group_kind": "topic"}},
                 {"rollup_key": rollup},
+            ),
+        },
+        {
+            "id": "product entity rollup_key",
+            "commit_text": "NVIDIA shipped a board.",
+            "record": _record(
+                "product-entity",
+                "NVIDIA shipped a board.",
+                {
+                    "text": "NVIDIA shipped a board.",
+                    "rollup": {"rollup_key": entity_rollup, "group_kind": "entity"},
+                },
+                {"rollup_key": entity_rollup},
             ),
         },
         {
@@ -196,12 +216,15 @@ def main() -> None:
     print(f"synthetic notes: {len(notes)}")
     print(f"commit door notes refused: {len(counts['commit'])} ({', '.join(counts['commit'])})")
     print(
-        "import notes refused, value column by value (before): "
+        "import notes refused, value-only read in this code: "
         f"{len(counts['import_before'])} ({', '.join(counts['import_before'])})"
     )
     print(
-        "import notes refused, value column keyed (after): "
+        "import notes refused, keyed read in this code: "
         f"{len(counts['import_after'])} ({', '.join(counts['import_after'])})"
+    )
+    print(
+        "These import columns call the detector in this code. They are not a run of main."
     )
     files, refused = markdown_commit_refusals()
     print(f"markdown files as notes: {files}")
@@ -212,12 +235,16 @@ def main() -> None:
     before = credential_verdict(opaque) is not None
     after = carries_credential_material(body)
     print(
-        "continuity body rollup_key over an opaque value, value only (before): "
+        "continuity body rollup_key over an opaque value, value-only read in this code: "
         + ("refused" if before else "kept")
     )
     print(
-        "continuity body rollup_key over an opaque value, keyed (after): "
+        "continuity body rollup_key over an opaque value, keyed read in this code: "
         + ("refused" if after else "kept")
+    )
+    print(
+        "Main refuses that continuity-body case on the corrections route. "
+        "This pair of lines is not that measurement."
     )
 
 

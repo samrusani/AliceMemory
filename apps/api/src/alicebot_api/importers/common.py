@@ -85,8 +85,12 @@ def _body_credential_fields(body: JsonObject) -> tuple[object, ...]:
     reads a body. An OpenClaw raw entry is the exception: it is passed by
     value. Provenance is passed with its keys. Passed as a mapping, every
     key of the entry is a name. A routing ``session_key`` whose value is
-    ``agent:<profile>:<channel>:<kind>:<digits>``, with short lowercase
-    words and an optional leading minus on the digits, is an identifier.
+    ``agent:<profile>:<channel>:<kind>:<tail>``, with an optional
+    ``:topic:<digits>`` suffix, is an identifier. The profile is a short
+    lowercase word and may contain digits, ``-``, or ``_``. Channel and
+    kind are short lowercase words. The tail is digits with an optional
+    leading ``+`` or ``-``, or a lowercase UUID. An uppercase profile, and
+    an opaque alphanumeric tail such as a Slack ``C04`` id, are not.
     Pair detection for that entry uses the segment text, which is the
     entry's canonical JSON.
     """

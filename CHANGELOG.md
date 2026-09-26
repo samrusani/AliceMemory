@@ -5,17 +5,26 @@
 - Provenance, legacy admission `value`, and the import `value` column
   are read with their keys. A secret name over a secret-shaped value is
   refused there. `rollup_key` is a weak name at every door. Import unwraps
-  it only where the product writes it: `metadata_json` keys named
-  `rollup_key`, and `value.rollup.rollup_key`, and only when the value is
-  `scope:<16 or 64 hex>:topic:<anchor>`. A rollup card still restores.
-  `{"rollup_key": <opaque>}` in a continuity body, on a correction, and in
-  proposal `source_refs` is refused. `rollup_key=<opaque>` in canonical
-  text is still refused. `rollupKey` and the other spellings stay secret
-  names. The weak tier is still live. A routing `session_key` value
-  `agent:<profile>:<channel>:<kind>:<digits>` is an identifier when the
-  three words are short and lowercase and the digits may start with `-`.
-  `gpg_key` over a key id is refused. MCP review provenance stays
-  value-only: its schema allows five keys and no others.
+  it only where the product writes it: a `metadata_json` key named
+  `rollup_key`, and `value.rollup.rollup_key`. The value must match the
+  producer: an optional `scope:<16 hex>:` prefix, then `topic:`, `entity:`,
+  or `semantic:`, then a lowercase label. The label may contain spaces,
+  digits, hyphens, and non-ASCII letters. `_digest` keeps 16 hex characters.
+  A 64-hex scope is not this shape. The label is still read by value, so
+  an `sk-` or `xoxb-` anchor is refused. Topic, entity, and semantic cards
+  restore, with or without a scope prefix. `{"rollup_key": <opaque>}` in a
+  continuity body, on a correction, and in proposal `source_refs` is refused.
+  `rollup_key=<opaque>` in canonical text is still refused. `rollupKey` and
+  the other spellings stay secret names. The weak tier is still live. A
+  routing `session_key` is an identifier for
+  `agent:<profile>:<channel>:<kind>:<tail>` with an optional
+  `:topic:<digits>` suffix. The profile is a short lowercase word and may
+  contain digits, `-`, or `_`. Channel and kind are short lowercase words.
+  The tail is digits with an optional leading `+` or `-`, or a lowercase
+  UUID. An uppercase profile is refused. An opaque alphanumeric tail such
+  as a Slack `C04...` id is refused. `gpg_key` over a key id is refused.
+  MCP review provenance stays value-only: its schema allows five keys and
+  no others.
 
 - A blocked idempotent replay of `POST /v0/vnext/memories/commit` returns
   403 and keeps its policy rows. A new commit that policy rejects still
