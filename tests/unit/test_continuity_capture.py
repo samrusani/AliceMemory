@@ -180,6 +180,85 @@ def test_capture_continuity_input_defaults_to_triage_for_ambiguous_input() -> No
     assert payload["capture"]["derived_object"] is None
 
 
+def test_create_continuity_capture_refuses_before_any_insert(monkeypatch: pytest.MonkeyPatch) -> None:
+    """POST /v0/continuity/captures refuses a token and an expanding text before insert.
+
+    The check lives in capture_continuity_input and the route maps the error to
+    400. A spy store records create_continuity_capture_event. Three mutations
+    must fail this test: deleting the check (the token post returns 201),
+    letting the expansion verdict pass (the expanding text returns 201), and
+    moving the check to after the insert (the refusal still returns 400, and
+    the spy has a row).
+    """
+
+    from contextlib import contextmanager
+    import json
+
+    from alicebot_api.config import Settings
+    from alicebot_api.routers import continuity as continuity_router
+    from alicebot_api.routers.continuity import ContinuityCaptureRequest, create_continuity_capture
+
+    created: list[RecordingCaptureStore] = []
+
+    class RecordingCaptureStore(ContinuityCaptureStoreStub):
+        def __init__(self, conn: object) -> None:
+            super().__init__()
+            self.inserts: list[str] = []
+            created.append(self)
+
+        def create_continuity_capture_event(self, **kwargs: object):
+            raw_content = kwargs["raw_content"]
+            assert isinstance(raw_content, str)
+            self.inserts.append(raw_content)
+            return super().create_continuity_capture_event(
+                raw_content=raw_content,
+                explicit_signal=kwargs["explicit_signal"] if isinstance(kwargs["explicit_signal"], str) else None,
+                admission_posture=str(kwargs["admission_posture"]),
+                admission_reason=str(kwargs["admission_reason"]),
+            )
+
+    @contextmanager
+    def fake_connection(database_url: str, user_id: UUID):
+        del database_url, user_id
+        yield object()
+
+    monkeypatch.setattr(continuity_router, "user_connection", fake_connection)
+    monkeypatch.setattr(continuity_router, "ContinuityStore", RecordingCaptureStore)
+    monkeypatch.setattr(continuity_router, "get_settings", lambda: Settings())
+
+    user_id = UUID("11111111-1111-4111-8111-111111111111")
+    token = "ghp_" + "0123456789abcdefghijklmnopqrstuvwxyz"
+    expansion = "\uFDFA" * 100
+
+    def post(raw_content: str) -> tuple[int, dict[str, object], RecordingCaptureStore]:
+        created.clear()
+        response = create_continuity_capture(
+            ContinuityCaptureRequest(user_id=user_id, raw_content=raw_content)
+        )
+        body = json.loads(response.body)
+        assert isinstance(body, dict)
+        assert len(created) == 1
+        return response.status_code, body, created[0]
+
+    status, body, store = post(f"Hermes note: rotate to {token}")
+    assert status == 400
+    assert body["detail"]["code"] == "invalid_request"
+    assert store.inserts == []
+    assert token not in json.dumps(body)
+
+    status, body, store = post(expansion)
+    assert status == 400
+    assert body["detail"]["code"] == "invalid_request"
+    assert store.inserts == []
+    assert expansion not in json.dumps(body)
+
+    ordinary = "Need to think about this sometime"
+    status, body, store = post(ordinary)
+    assert status == 201
+    assert store.inserts == [ordinary]
+    assert body["capture"]["capture_event"]["raw_content"] == ordinary
+
+
 def test_continuity_capture_list_and_detail_preserve_triage_visibility() -> None:
     store = ContinuityCaptureStoreStub()
 
