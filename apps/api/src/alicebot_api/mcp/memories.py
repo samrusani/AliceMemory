@@ -13,6 +13,7 @@ from alicebot_api.vnext_agent_control import (
 )
 from alicebot_api.vnext_embeddings import DeferredMemoryEmbedding
 from alicebot_api.vnext_memory_commit import (
+    IdempotencyKeyConflictError,
     VNextMemoryCommitService,
     VNextMemoryCommitValidationError,
     _brain_charter_row,
@@ -122,6 +123,9 @@ def _handle_alice_vnext_commit_memory(context: MCPRuntimeContext, arguments: Map
         return _finish_pending_commit(context, arguments)
     identity = _agent_identity_from_arguments(context, arguments)
     payload: VNextJsonObject | None = None
+    blocked_decision: PolicyDecision | None = None
+    conflict: IdempotencyKeyConflictError | None = None
+    deferred_embedding_inputs: tuple[DeferredMemoryEmbedding, ...] = ()
     confidence = _parse_optional_float(arguments, "confidence")
     request = memory_commit_request_from_payload(
         {
@@ -144,9 +148,20 @@ def _handle_alice_vnext_commit_memory(context: MCPRuntimeContext, arguments: Map
         user_id=context.user_id,
     )
     with _vnext_store_context(context) as store:
-        service = VNextMemoryCommitService(store, defer_embeddings=True)
-        payload = service.commit(identity=identity, request=request)
-        deferred_embedding_inputs = service.deferred_embedding_inputs
+        try:
+            service = VNextMemoryCommitService(store, defer_embeddings=True)
+            payload = service.commit(identity=identity, request=request)
+            deferred_embedding_inputs = service.deferred_embedding_inputs
+        except AgentPolicyBlockedError as exc:
+            blocked_decision = exc.decision
+        except IdempotencyKeyConflictError as exc:
+            conflict = exc
+    if blocked_decision is not None:
+        _raise_mcp_policy_blocked(blocked_decision)
+    if conflict is not None:
+        raise MCPToolError(str(conflict))
+    if payload is None:
+        raise MCPToolError("vNext memory commit did not complete")
     _persist_vnext_deferred_embedding_inputs(
         context,
         deferred_embedding_inputs,
