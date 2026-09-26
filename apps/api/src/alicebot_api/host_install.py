@@ -71,6 +71,7 @@ INSTALL_HOSTS = (
     "cursor",
     "openclaw",
     "hermes",
+    "opencode",
 )
 DEFAULT_INSTALL_HOSTS = (
     "claude-desktop",
@@ -126,9 +127,17 @@ def claude_desktop_config_path(home: Path, platform: str | None = None) -> Path:
     return home / ".config" / "Claude" / "claude_desktop_config.json"
 
 
-def host_file_map(home: Path, platform: str | None = None) -> dict[str, dict[str, Path]]:
-    """Host config paths under ``home``."""
+def host_file_map(
+    home: Path, platform: str | None = None, *, config_home: Path | None = None
+) -> dict[str, dict[str, Path]]:
+    """Host config paths under ``home``.
 
+    ``config_home`` is OpenCode's config directory parent. It defaults to
+    ``home / ".config"`` on every platform, including Windows.
+    """
+
+    opencode_config = home / ".config" if config_home is None else config_home
+    opencode_dir = opencode_config / "opencode"
     return {
         "claude-desktop": {"mcp": claude_desktop_config_path(home, platform)},
         "claude-code": {
@@ -141,6 +150,13 @@ def host_file_map(home: Path, platform: str | None = None) -> dict[str, dict[str
         },
         "openclaw": {"mcp": home / ".openclaw" / "openclaw.json"},
         "hermes": {"mcp": home / ".hermes" / "config.yaml"},
+        "opencode": {
+            "mcp": opencode_dir / "opencode.json",
+            "jsonc": opencode_dir / "opencode.jsonc",
+            "legacy": opencode_dir / "config.json",
+            "home_json": home / ".opencode" / "opencode.json",
+            "home_jsonc": home / ".opencode" / "opencode.jsonc",
+        },
     }
 
 
@@ -257,6 +273,8 @@ def _set_nested(doc: dict[str, Any], keys: tuple[str, ...], value: object) -> No
 def _alice_server_keys(host: str) -> tuple[str, ...]:
     if host == "openclaw":
         return ("mcp", "servers", "alice")
+    if host == "opencode":
+        return ("mcp", "alice")
     return ("mcpServers", "alice")
 
 
@@ -575,7 +593,11 @@ def _masked(
     shown: dict[str, Any] = {}
     hidden: list[str] = []
     for key, value in entry.items():
-        if key in _SHOWN_KEYS:
+        if key == "command" and isinstance(value, list) and all(isinstance(arg, str) for arg in value):
+            args, what = masked_args(value)
+            shown[key] = args
+            hidden.extend(f"command ({item})" for item in what)
+        elif key in _SHOWN_KEYS:
             shown[key] = value
         elif key == "args" and isinstance(value, list) and all(isinstance(arg, str) for arg in value):
             args, what = masked_args(value)
@@ -2874,19 +2896,23 @@ def _format_host_receipt(
     target: Path | None = None,
     hooks_target: Path | None = None,
     hook_details: Sequence[str] = (),
+    file_format: str | None = None,
 ) -> str:
     lines = [f"host: {host}", f"path: {mcp_path}"]
     if target is not None and target != mcp_path:
         lines.append(f"target: {target}")
     # Every line install composes passes through mask_text, so no URL reaches
     # the terminal past its scheme; snippets are masked whole.
-    lines += [f"action: {action}", *map(mask_text, details), f"session_start: {session_start}"]
+    lines.append(f"action: {action}")
+    if file_format is not None:
+        lines.append(f"format: {file_format}")
+    lines += [*map(mask_text, details), f"session_start: {session_start}"]
     if hooks_path is not None:
         lines.append(f"session_start_path: {hooks_path}")
         if hooks_target is not None and hooks_target != hooks_path:
             lines.append(f"session_start_target: {hooks_target}")
     lines.extend(map(mask_text, hook_details))
-    if host in {"openclaw", "hermes"}:
+    if host in {"openclaw", "hermes", "opencode"}:
         lines.append(f"note: {BRIEF_HINT}")
     if snippet is not None:
         lines.append("snippet:")
@@ -3438,6 +3464,382 @@ def _install_mcpb(path: Path, *, dry_run: bool, uvx_on_path: bool) -> _HostResul
     return _HostResult("\n".join((f"mcpb: {path}", "action: failed", f"reason: {reason}")), "failed")
 
 
+_OPENCODE_SCHEMA = "https://opencode.ai/config.json"
+_OPENCODE_DIR_PLACEHOLDER = "<the data dir your existing alice entry uses>"
+_OPENCODE_SECOND_NEXT = (
+    "next: nothing was written for opencode. Keep one alice entry, then run install again."
+)
+_OPENCODE_HAND_NEXT = (
+    "Add the alice entry above under mcp by hand, then check it with: opencode mcp list"
+)
+_OPENCODE_CONFIG_ENVS = (
+    "OPENCODE_CONFIG",
+    "OPENCODE_CONFIG_DIR",
+    "OPENCODE_CONFIG_CONTENT",
+)
+
+
+def _opencode_config_home(home: Path) -> tuple[Path, str | None]:
+    """``XDG_CONFIG_HOME`` when it is absolute, else ``home / ".config"``."""
+
+    raw = os.environ.get("XDG_CONFIG_HOME")
+    if raw is None or raw == "":
+        return home / ".config", None
+    if raw.startswith("~") or not Path(raw).is_absolute():
+        return home / ".config", f"XDG_CONFIG_HOME {raw} is not an absolute path"
+    return Path(raw), None
+
+
+def _parse_opencode_json(raw: bytes) -> dict[str, Any] | None:
+    """Strict JSON, or None.
+
+    UTF-8, no BOM, no duplicate keys, no non-finite float. ``parse_constant``
+    raises, so ``NaN`` and ``Infinity`` are refused.
+    """
+
+    if raw.startswith(b"\xef\xbb\xbf"):
+        return None
+
+    def reject_constant(name: str) -> None:
+        raise ValueError(name)
+
+    def reject_duplicates(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        parsed: dict[str, Any] = {}
+        for key, value in pairs:
+            if key in parsed:
+                raise ValueError("duplicate key")
+            parsed[key] = value
+        return parsed
+
+    try:
+        text = raw.decode("utf-8")
+        loaded = json.loads(text, parse_constant=reject_constant, object_pairs_hook=reject_duplicates)
+    except (UnicodeDecodeError, ValueError, RecursionError):
+        return None
+    if not isinstance(loaded, dict):
+        return None
+    if _opencode_non_finite(loaded):
+        return None
+    return loaded
+
+
+def _opencode_non_finite(value: object) -> bool:
+    """True when ``value`` holds a NaN or an infinity, including ``1e999``."""
+
+    if isinstance(value, float):
+        return value != value or value in {float("inf"), float("-inf")}
+    if isinstance(value, dict):
+        return any(_opencode_non_finite(item) for item in value.values())
+    if isinstance(value, list):
+        return any(_opencode_non_finite(item) for item in value)
+    return False
+
+
+def _opencode_blank(raw: bytes | None) -> bool:
+    return raw is None or not raw.strip()
+
+
+def _opencode_alice_count(doc: Mapping[str, Any]) -> int:
+    mcp = doc.get("mcp")
+    if not isinstance(mcp, dict):
+        return 0
+    count = 1 if "alice" in mcp else 0
+    servers = mcp.get("servers")
+    if isinstance(servers, dict) and "alice" in servers:
+        count += 1
+    return count
+
+
+def _opencode_command_entry(data_dir: str, launcher: Launcher) -> dict[str, object]:
+    return {
+        "type": "local",
+        "command": [launcher.command, *launcher.prefix, "--data-dir", data_dir],
+    }
+
+
+def _opencode_as_install_entry(entry: Mapping[str, Any] | None) -> dict[str, Any] | None:
+    """OpenCode's array ``command`` as the string ``command`` plus ``args``.
+
+    ``type`` is held aside. Key order of the original entry is not copied:
+    ``_plan_entry`` only needs the launcher shape.
+    """
+
+    if entry is None:
+        return None
+    if parse_launcher(entry, command_array=True) is None:
+        return dict(entry)
+    words = entry.get("command")
+    assert isinstance(words, list)  # nosec B101 # command_array parse accepts only a string list
+    return {"command": words[0], "args": list(words[1:])}
+
+
+def _install_entry_as_opencode(
+    planned: Mapping[str, Any], original: Mapping[str, Any] | None
+) -> dict[str, Any]:
+    """The planned install entry back in OpenCode shape, original keys kept."""
+
+    command = planned.get("command")
+    args = planned.get("args")
+    if not isinstance(command, str) or not isinstance(args, list):
+        raise _MalformedHostFile("the planned OpenCode entry has no command array")
+    if not all(isinstance(arg, str) for arg in args):
+        raise _MalformedHostFile("the planned OpenCode command is not a list of strings")
+    words = [command, *args]
+    if any("{env:" in word or "{file:" in word for word in words):
+        raise _MalformedHostFile("a command word holds {env: or {file:")
+    if original is None:
+        return {"type": "local", "command": words}
+    rebuilt: dict[str, Any] = {}
+    saw_type = False
+    saw_command = False
+    for key, value in original.items():
+        if key == "args":
+            continue
+        if key == "type":
+            rebuilt["type"] = "local"
+            saw_type = True
+            continue
+        if key == "command":
+            rebuilt["command"] = words
+            saw_command = True
+            continue
+        rebuilt[key] = value
+    if not saw_type:
+        rebuilt = {"type": "local", **rebuilt}
+    if not saw_command:
+        rebuilt["command"] = words
+    return rebuilt
+
+
+def _opencode_env_notes() -> list[str]:
+    notes: list[str] = []
+    for name in _OPENCODE_CONFIG_ENVS:
+        if os.environ.get(name):
+            notes.append(
+                f"note: {name} is set, so OpenCode may load config that install did not write"
+            )
+    return notes
+
+
+def _install_opencode_host(
+    *,
+    home: Path,
+    config_home: Path,
+    explicit_dir: str | None,
+    default_dir: str,
+    dry_run: bool,
+    search: LauncherSearch,
+    xdg_problem: str | None,
+) -> _HostResult:
+    """Write OpenCode's strict JSON file. A ``.jsonc`` file is not edited."""
+
+    files = host_file_map(home, config_home=config_home)["opencode"]
+    launcher = search.launcher or UVX_LAUNCHER
+    data_dir = explicit_dir or default_dir
+    details = _opencode_env_notes()
+    session_start = "none"
+
+    def receipt(action: str, path: Path, **extra: Any) -> str:
+        return _format_host_receipt(
+            host="opencode",
+            mcp_path=path,
+            hooks_path=None,
+            action=action,
+            details=details,
+            session_start=session_start,
+            data_dir=data_dir,
+            launcher=launcher,
+            file_format="json",
+            **extra,
+        )
+
+    def refused(path: Path, reason: str, next_line: str, *, placeholder: bool = False) -> _HostResult:
+        shown_dir = _OPENCODE_DIR_PLACEHOLDER if placeholder else data_dir
+        shown, hidden = _masked(_opencode_command_entry(shown_dir, launcher))
+        trailer = []
+        if hidden:
+            trailer.append(_keep_line(hidden))
+        if dry_run:
+            trailer.append(_DRY_RUN_REFUSAL)
+        trailer.append(next_line)
+        details.insert(0, f"reason: {reason}")
+        return _HostResult(
+            receipt(
+                _refusal_action(dry_run),
+                path,
+                snippet=_alice_entry_snippet("opencode", shown),
+                trailer=tuple(trailer),
+            ),
+            "refused",
+        )
+
+    if xdg_problem is not None:
+        return refused(files["mcp"], xdg_problem, "next: nothing was written for opencode.")
+
+    legacy_config = config_home / "opencode" / "config"
+    if legacy_config.exists():
+        return refused(
+            files["mcp"],
+            f"{legacy_config.name} exists and install does not migrate it",
+            _OPENCODE_SECOND_NEXT,
+        )
+
+    jsonc_paths = (files["jsonc"], files["home_jsonc"])
+    for path in jsonc_paths:
+        if path.is_file() and not _opencode_blank(_read_host_file(path)):
+            return refused(
+                path,
+                "an opencode.jsonc file is present, and install does not edit JSONC",
+                f"next: nothing was written for opencode. {_OPENCODE_HAND_NEXT}",
+                placeholder=True,
+            )
+
+    scanned: list[tuple[Path, bytes, dict[str, Any]]] = []
+    alice_total = 0
+    for key in ("mcp", "legacy", "home_json"):
+        path = files[key]
+        if not path.is_file():
+            continue
+        try:
+            target = _host_target(path)
+            raw = _read_host_file(target)
+        except (_MalformedHostFile, OSError) as problem:
+            reason = str(problem) if isinstance(problem, _MalformedHostFile) else _FAILED_REASON
+            return refused(path, reason, f"next: nothing was written for opencode. Fix {path.name}, then run install again.")
+        if _opencode_blank(raw):
+            continue
+        assert raw is not None  # nosec B101 # a non-blank read returned bytes
+        doc = _parse_opencode_json(raw)
+        if doc is None:
+            return refused(
+                path,
+                f"{path.name} is not strict JSON",
+                f"next: nothing was written for opencode. Fix {path.name}, then run install again.",
+            )
+        alice_total += _opencode_alice_count(doc)
+        scanned.append((path, raw, doc))
+
+    if alice_total > 1:
+        return refused(files["mcp"], "alice appears more than once", _OPENCODE_SECOND_NEXT)
+
+    target_path = files["mcp"]
+    target_raw: bytes | None = None
+    target_doc: dict[str, Any] = {}
+    for path, raw, doc in scanned:
+        if _opencode_alice_count(doc):
+            target_path = path
+            target_raw = raw
+            target_doc = doc
+            break
+    else:
+        for path, raw, doc in scanned:
+            if path == files["mcp"]:
+                target_path = path
+                target_raw = raw
+                target_doc = doc
+                break
+
+    try:
+        write_target = _host_target(target_path) if target_path.exists() else target_path
+    except _MalformedHostFile as problem:
+        return refused(target_path, str(problem), f"next: nothing was written for opencode. Fix {target_path.name}, then run install again.")
+
+    mcp_value = target_doc.get("mcp")
+    if mcp_value is not None and not isinstance(mcp_value, dict):
+        return refused(
+            target_path,
+            "mcp is not an object",
+            f"next: nothing was written for opencode. Fix {target_path.name}, then run install again.",
+        )
+    existing = mcp_value.get("alice") if isinstance(mcp_value, dict) else None
+    if existing is not None and not isinstance(existing, dict):
+        return refused(
+            target_path,
+            "mcp.alice is not an object install wrote",
+            f"next: {target_path.name} was not changed. {_OPENCODE_HAND_NEXT}",
+        )
+    install_existing = _opencode_as_install_entry(existing)
+    if isinstance(existing, dict) and parse_launcher(existing, command_array=True) is None:
+        install_existing = existing
+    try:
+        plan = _plan_entry(
+            install_existing,
+            key_label="mcp.alice",
+            explicit_dir=explicit_dir,
+            new_entry_dir=default_dir,
+            default_dir=default_dir,
+            home=home,
+            search=search,
+            with_env=False,
+            needs_hook=False,
+        )
+    except _MalformedHostFile as problem:
+        return refused(target_path, str(problem), f"next: nothing was written for opencode. Fix {target_path.name}, then run install again.")
+
+    data_dir = plan.data_dir
+    launcher = plan.launcher
+    details.extend(plan.details)
+    if plan.refusal is not None:
+        return refused(
+            target_path,
+            plan.refusal,
+            f"next: {target_path.name} was not changed. {plan.next_step or _OPENCODE_HAND_NEXT}",
+        )
+    if plan.entry is None:
+        return refused(
+            target_path,
+            "install did not plan an OpenCode entry",
+            f"next: {target_path.name} was not changed. {_OPENCODE_HAND_NEXT}",
+        )
+    try:
+        opencode_entry = _install_entry_as_opencode(
+            plan.entry, existing if isinstance(existing, dict) else None
+        )
+    except _MalformedHostFile as problem:
+        return refused(target_path, str(problem), f"next: {target_path.name} was not changed. {_OPENCODE_HAND_NEXT}")
+
+    doc = target_doc
+    if not doc and target_raw is None:
+        doc = {"$schema": _OPENCODE_SCHEMA}
+    elif not doc and _opencode_blank(target_raw):
+        doc = {"$schema": _OPENCODE_SCHEMA}
+    _set_nested(doc, ("mcp", "alice"), opencode_entry)
+    changed = target_raw is None or doc != target_doc or _opencode_blank(target_raw)
+    # target_doc may be the same object as doc after _set_nested. Compare to a copy.
+    # The scan stored target_doc and then we mutated it. Re-parse the raw for equality.
+    if target_raw is not None and not _opencode_blank(target_raw):
+        original_doc = _parse_opencode_json(target_raw)
+        changed = original_doc != doc
+    elif target_raw is not None:
+        changed = True
+
+    shown, hidden = _masked(opencode_entry)
+    snippet = _alice_entry_snippet("opencode", shown)
+    if dry_run:
+        trailer = ((_hidden_line(hidden),) if hidden else ())
+        return _HostResult(
+            receipt("dry-run", target_path, snippet=snippet, trailer=trailer),
+            "ok",
+            plan.used_fallback,
+        )
+    if not changed:
+        return _HostResult(receipt("unchanged", target_path, snippet=None), "ok", plan.used_fallback)
+
+    backup_dir = _backup_dir(plan.data_dir)
+    try:
+        if target_raw is not None:
+            backup = _backup_host_file(write_target, target_raw, backup_dir=backup_dir, host="opencode")
+            details.append(f"backup: {backup}")
+        _write_text(write_target, _dump_json(doc))
+    except _BackupFailed as failure:
+        details[:0] = [f"file: {write_target}", f"reason: {failure.reason()}"]
+        return _HostResult(receipt("failed", target_path, snippet=None), "failed", plan.used_fallback)
+    except (OSError, InstallError):
+        details[:0] = [f"file: {write_target}", f"reason: {_FAILED_REASON}"]
+        return _HostResult(receipt("failed", target_path, snippet=None), "failed", plan.used_fallback)
+    return _HostResult(receipt("written", target_path, snippet=None), "ok", plan.used_fallback)
+
+
 def run_host_install(
     *,
     home: str | None,
@@ -3472,6 +3874,22 @@ def run_host_install(
                     default_dir=default_dir,
                     dry_run=dry_run,
                     search=search,
+                )
+            )
+        elif host == "opencode":
+            config_home = resolved_home / ".config"
+            xdg_problem = None
+            if home is None:
+                config_home, xdg_problem = _opencode_config_home(resolved_home)
+            results.append(
+                _install_opencode_host(
+                    home=resolved_home,
+                    config_home=config_home,
+                    explicit_dir=explicit_dir,
+                    default_dir=default_dir,
+                    dry_run=dry_run,
+                    search=search,
+                    xdg_problem=xdg_problem,
                 )
             )
         else:

@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- OpenCode is an opt-in install host (`--host opencode`). The default hosts
+  are unchanged. Install writes `mcp.alice` in strict `opencode.json` as
+  `type: local` and a `command` array, with no `environment` key. A re-run
+  keeps `timeout`, `enabled`, `cwd`, `environment`, and sibling servers.
+  A dry run masks the command array. An `opencode.jsonc` file, a second
+  `alice` entry, or a legacy `config` file is not edited. There is no
+  SessionStart hook. Check the result with `opencode debug config` and
+  `opencode mcp list`.
+
 - `POST /v0/continuity/captures` runs `commit_door_secret_verdict` on the
   normalized text and returns 400 when that check refuses. Nothing from
   that request is stored. The memory-write mirror, the HTTP 404 fallback,
