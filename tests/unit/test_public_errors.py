@@ -30,7 +30,7 @@ PUBLIC_EXCEPTION_RESPONSE_CALL_MANIFEST = {
     "apps/api/src/alicebot_api/routers/legacy_gated.py": 76,
     "apps/api/src/alicebot_api/routers/memories_legacy.py": 52,
     "apps/api/src/alicebot_api/routers/providers.py": 59,
-    "apps/api/src/alicebot_api/routers/vnext_memories.py": 24,
+    "apps/api/src/alicebot_api/routers/vnext_memories.py": 25,
     "apps/api/src/alicebot_api/routers/vnext_projects.py": 10,
     "apps/api/src/alicebot_api/routers/vnext_retrieval.py": 2,
     "apps/api/src/alicebot_api/routers/vnext_review.py": 11,
@@ -188,7 +188,7 @@ def test_http_modules_have_no_exception_text_to_public_response_conversion() -> 
         for relative_path, source in sources.items()
     }
     assert call_counts == PUBLIC_EXCEPTION_RESPONSE_CALL_MANIFEST
-    assert sum(call_counts.values()) == 300
+    assert sum(call_counts.values()) == 301
 
     source = "\n".join(sources.values())
     assert 'content={"detail": f"thread {thread_id} was not found"}' not in source

@@ -10,6 +10,7 @@ from alicebot_api.mcp_tools import MCPRuntimeContext, MCPToolError, call_mcp_too
 from alicebot_api.routers import vnext_memories as vnext_memories_router
 from alicebot_api.routers import vnext_retrieval as vnext_retrieval_router
 from alicebot_api.vnext_agent_keys import create_agent_key
+from alicebot_api.vnext_memory_commit import VNextMemoryCommitService
 from alicebot_api.vnext_store import PostgresVNextStore
 
 from tests.integration.test_vnext_live_workspace_api import invoke_request, seed_user
@@ -542,3 +543,169 @@ def test_same_content_replay_after_project_move_is_400_without_the_new_label(
         events = PostgresVNextStore(conn).list_events(target_type="memory", target_id=memory_id)
     blocked_rows = [event for event in events if event.get("event_type") == "agent.policy_blocked"]
     assert len(blocked_rows) == 1
+
+
+_POLICY_EVENT_TYPES = frozenset({"policy.decision", "agent.policy_blocked"})
+
+
+def _policy_event_count(app_url: str, user_id: object) -> int:
+    with user_connection(app_url, user_id) as conn:
+        events = PostgresVNextStore(conn).list_events()
+    return sum(event.get("event_type") in _POLICY_EVENT_TYPES for event in events)
+
+
+def _commit_payload(user_id_text: str, key: str, text: str) -> dict[str, Any]:
+    return {
+        "user_id": user_id_text,
+        "intent": "explicit_remember",
+        "title": "Labeled note",
+        "canonical_text": text,
+        "memory_type": "semantic",
+        "domain": "professional",
+        "sensitivity": "internal",
+        "confidence": 0.96,
+        "source_type": "direct_user_instruction",
+        "idempotency_key": key,
+        "project_scope": ["ProjectB"],
+    }
+
+
+def test_exact_replay_after_private_mark_is_400_without_the_new_label(
+    migrated_database_urls, monkeypatch
+) -> None:
+    """Marking the row private is not an exact replay for a read-only key.
+
+    The stored sensitivity is what the comparison reads. Mutation: drop
+    the sensitivity comparison. The status is 403 and the body contains
+    private.
+    """
+
+    app_url = migrated_database_urls["app"]
+    user_id = seed_user(app_url, email="private-replay@example.com")
+    _bind_settings(monkeypatch, app_url)
+    user_id_text = str(user_id)
+    text = "The original note was internal before the owner marked it private."
+    payload = _commit_payload(user_id_text, "private-label-replay", text)
+    seeded, seeded_body = invoke_request(
+        "POST",
+        "/v0/vnext/memories/commit",
+        payload={**payload, "agent": _agent()},
+    )
+    assert seeded == 201, seeded_body
+    memory_id = seeded_body["memory"]["id"]
+    marked, marked_body = invoke_request(
+        "POST",
+        f"/v0/vnext/memories/{memory_id}/review",
+        payload={"user_id": user_id_text, "action": "private"},
+    )
+    assert marked == 200, marked_body
+    with user_connection(app_url, user_id) as conn:
+        _record, raw_key = create_agent_key(
+            PostgresVNextStore(conn),
+            user_id=user_id,
+            agent_id="readonly",
+            permission_profile="read_only_agent",
+        )
+    status, body = invoke_request(
+        "POST",
+        "/v0/vnext/memories/commit",
+        payload={**payload, "agent": _agent("read_only_agent", agent_id="readonly")},
+        authorization=f"Bearer {raw_key}",
+    )
+    assert status == 400, body
+    assert "private" not in json.dumps(body)
+
+
+def test_exact_replay_after_domain_edit_is_400_without_the_new_label(
+    migrated_database_urls, monkeypatch
+) -> None:
+    """Editing the domain to health is not an exact replay for a read-only key.
+
+    The stored domain is what the comparison reads. Mutation: drop the
+    domain comparison. The status is 403 and the body contains health.
+    """
+
+    app_url = migrated_database_urls["app"]
+    user_id = seed_user(app_url, email="health-replay@example.com")
+    _bind_settings(monkeypatch, app_url)
+    user_id_text = str(user_id)
+    text = "The original note was professional before the owner moved its domain."
+    payload = _commit_payload(user_id_text, "health-label-replay", text)
+    seeded, seeded_body = invoke_request(
+        "POST",
+        "/v0/vnext/memories/commit",
+        payload={**payload, "agent": _agent()},
+    )
+    assert seeded == 201, seeded_body
+    memory_id = seeded_body["memory"]["id"]
+    edited, edited_body = invoke_request(
+        "POST",
+        f"/v0/vnext/memories/{memory_id}/review",
+        payload={"user_id": user_id_text, "action": "edit", "domain": "health"},
+    )
+    assert edited == 200, edited_body
+    with user_connection(app_url, user_id) as conn:
+        _record, raw_key = create_agent_key(
+            PostgresVNextStore(conn),
+            user_id=user_id,
+            agent_id="readonly",
+            permission_profile="read_only_agent",
+        )
+    status, body = invoke_request(
+        "POST",
+        "/v0/vnext/memories/commit",
+        payload={**payload, "agent": _agent("read_only_agent", agent_id="readonly")},
+        authorization=f"Bearer {raw_key}",
+    )
+    assert status == 400, body
+    assert "health" not in json.dumps(body)
+
+
+def test_insert_race_conflict_rolls_back_policy_rows(migrated_database_urls, monkeypatch) -> None:
+    """A conflict after the first idempotent lookup misses leaves the transaction.
+
+    The caller is allowed to write the request, then the insert loses the
+    digest race and the stored row is above the caller's ceiling. The
+    conflict becomes a plain validation error, so the policy rows from
+    that attempt roll back. Mutation: drop the conversion. The status can
+    still be 400 and a new policy row is kept.
+    """
+
+    app_url = migrated_database_urls["app"]
+    user_id = seed_user(app_url, email="race-replay@example.com")
+    _bind_settings(monkeypatch, app_url)
+    user_id_text = str(user_id)
+    text = "The original note was internal before the owner raised its sensitivity."
+    payload = _commit_payload(user_id_text, "insert-race-replay", text)
+    seeded, seeded_body = invoke_request(
+        "POST",
+        "/v0/vnext/memories/commit",
+        payload={**payload, "agent": _agent()},
+    )
+    assert seeded == 201, seeded_body
+    memory_id = seeded_body["memory"]["id"]
+    edited, edited_body = invoke_request(
+        "POST",
+        f"/v0/vnext/memories/{memory_id}/review",
+        payload={"user_id": user_id_text, "action": "edit", "sensitivity": "highly_sensitive"},
+    )
+    assert edited == 200, edited_body
+    before = _policy_event_count(app_url, user_id)
+    original = VNextMemoryCommitService._idempotent_memory
+    calls = {"n": 0}
+
+    def miss_once(self: VNextMemoryCommitService, idempotency_key: str | None):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return None
+        return original(self, idempotency_key)
+
+    monkeypatch.setattr(VNextMemoryCommitService, "_idempotent_memory", miss_once)
+    status, body = invoke_request(
+        "POST",
+        "/v0/vnext/memories/commit",
+        payload={**payload, "agent": _agent()},
+    )
+    assert calls["n"] >= 2
+    assert status == 400, body
+    assert _policy_event_count(app_url, user_id) == before
