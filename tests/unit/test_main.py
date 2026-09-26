@@ -1217,6 +1217,8 @@ def test_rewrite_user_id_json_body_injects_missing_user_id() -> None:
         "message": "hello",
         "user_id": str(authenticated_user_id),
     }
+    # The middleware replays this cache. The returned Request is not enough.
+    assert request._body == rewritten_body
 
 
 def test_rewrite_user_id_json_body_rejects_mismatch() -> None:

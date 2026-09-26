@@ -2,6 +2,36 @@
 
 ## Unreleased
 
+- `POST /v0/continuity/captures` runs `commit_door_secret_verdict` on the
+  normalized text and returns 400 when that check refuses. Nothing from
+  that request is stored. The memory-write mirror, the HTTP 404 fallback,
+  and a client that already sends `user_id` in the body all hit this
+  check. Ordinary prose that trips the legacy gate is refused here too.
+  Hermes users with `sync_turn_capture_enabled`, or an explicit
+  `bridge_mode` of `assist` or `auto`, now get automatic capture. Only
+  user-role explicit-prefix candidates are auto-saved. The rest are
+  queued. To keep the old behavior, set `sync_turn_capture_enabled: false`.
+  When a candidate extracted from the assistant reply carries a
+  credential, the whole turn is refused, so a valid user decision from
+  that turn is not saved.
+
+- A header-only JSON write under `/v0` reaches the route with the
+  authenticated `user_id` in the body. `_rewrite_user_id_json_body` sets
+  `request._body` to the rewritten JSON before `call_next`, the same cache
+  the browser-clip path uses. `BaseHTTPMiddleware` ignores a replacement
+  `Request` and replays that cache, so `POST /v0/continuity/captures/candidates`
+  used to return 422 for a missing `body.user_id` when the client sent
+  `user_id` only in `X-AliceBot-User-Id`. With legacy `/v0` disabled outside
+  development and test, that POST still returns 404 and the handler does
+  not run. A body `user_id` that does not match the authenticated user
+  still returns 401.
+
+- Design note for Sprint 6 host adapters: OpenCode and Codex MCP entries,
+  and a Claude Code plugin as an alternative to install. No installer change.
+
+- Design note for Sprint 7 skill packs. It keeps the v0.15.4 commit rule
+  and names the packs to revise. No pack ships in this note.
+
 - Provenance, legacy admission `value`, and the import `value` column
   are read with their keys. A secret name over a secret-shaped value is
   refused there. `rollup_key` is a weak name at every door. Import unwraps

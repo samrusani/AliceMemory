@@ -670,6 +670,11 @@ async def _rewrite_user_id_json_body(request: Request, authenticated_user_id: UU
         raise ValueError("request user_id does not match authenticated user")
     parsed_body["user_id"] = expected_user_id
     rewritten_body = json.dumps(parsed_body, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
+    # BaseHTTPMiddleware.call_next ignores a replacement Request and replays
+    # this request's cached body. Write the rewritten bytes into that cache,
+    # as the browser-clip path does, or the route validates the original body
+    # and a header-only client gets 422.
+    request._body = rewritten_body  # type: ignore[attr-defined]
 
     async def receive() -> dict[str, object]:
         return {

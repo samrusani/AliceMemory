@@ -348,14 +348,17 @@ Stated so nobody reads the table above as "every surface".
   candidate rows without checking them. None of them creates an active row;
   approving one meets the activation check.
 - **The capture inbox and open loops.** A legacy `/v0/continuity/captures`
-  call that derives no object stores its raw text in the capture inbox. The
-  Hermes plugin used to route one door into the other: a capture commit
-  that returned HTTP 400 was posted to that route, which does not apply
-  the commit door. The plugin no longer falls back on HTTP 400. HTTP 404
-  still uses the route when the candidate endpoints are absent. The
-  legacy standalone open-loop create route (`create_open_loop_record`) and
-  open-loop titles in general are not checked, except the title the four
-  admission routes write.
+  call that derives no object stores its raw text in the capture inbox.
+  `capture_continuity_input` runs `commit_door_secret_verdict` on that
+  text after the empty check and returns HTTP 400 when the check refuses,
+  so the memory-write mirror, the HTTP 404 fallback, and a client that
+  sends `user_id` in the body do not store credential material. Ordinary
+  prose that trips the legacy gate is refused on this route too. The
+  Hermes plugin no longer falls back on HTTP 400. HTTP 404 still uses the
+  route when the candidate endpoints are absent. The legacy standalone
+  open-loop create route (`create_open_loop_record`) and open-loop titles
+  in general are not checked, except the title the four admission routes
+  write.
 - **Import beyond memory rows.** The revisions, events and non-memory records
   in an import file are not checked.
 - **Reasons stored before this change.** A credential in a reason, rationale
