@@ -133,6 +133,12 @@ def test_template_clone_matches_a_fresh_migrate(database_urls, migrated_database
 def test_migrated_database_is_a_private_clone_of_the_session_template(
     migrated_database_urls, migrated_template_database
 ) -> None:
+    """The fixture database and a second clone share alembic_version's OID.
+
+    A clone keeps OIDs. A fresh migrate reallocates them. Mutation: build
+    the fixture by migrating from scratch. The OIDs differ.
+    """
+
     clone_name = _database_name(migrated_database_urls["admin"])
     assert clone_name != migrated_template_database
     with psycopg.connect(migrated_database_urls["admin"]) as conn:
@@ -146,6 +152,13 @@ def test_migrated_database_is_a_private_clone_of_the_session_template(
             with conn.cursor() as cur:
                 cur.execute("SELECT to_regclass('public._clone_probe')")
                 assert cur.fetchone() == (None,)
+                cur.execute("SELECT 'public.alembic_version'::regclass::oid")
+                second_oid = cur.fetchone()[0]
+        with psycopg.connect(migrated_database_urls["admin"]) as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT 'public.alembic_version'::regclass::oid")
+                fixture_oid = cur.fetchone()[0]
+        assert fixture_oid == second_oid
     finally:
         _drop_database(second_name)
     with psycopg.connect(migrated_database_urls["admin"]) as conn:
