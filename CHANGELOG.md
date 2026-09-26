@@ -43,8 +43,11 @@
   surrogate, private-use, or unassigned character, and no whitespace other
   than a plain space. `_digest` keeps 16 hex characters.
   A 64-hex scope is not this shape. The label is still read by value, so
-  an `sk-` or `xoxb-` anchor is refused. Topic, entity, and semantic cards
-  restore, with or without a scope prefix. `{"rollup_key": <opaque>}` in a
+  an `sk-` or `xoxb-` anchor is refused. Rollup cards the product's own
+  extraction makes restore, with or without a scope prefix. A scoped entity
+  card whose label breaks one of these rules still blocks the restore; only
+  an entity row written outside the product can have such a label.
+  `{"rollup_key": <opaque>}` in a
   continuity body, on a correction, and in proposal `source_refs` is refused.
   `rollup_key=<opaque>` in canonical text is still refused. `rollupKey` and
   the other spellings stay secret names. The weak tier is still live. A
