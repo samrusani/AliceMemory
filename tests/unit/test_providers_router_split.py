@@ -628,7 +628,7 @@ def test_public_error_and_coverage_controls_include_provider_router_once() -> No
     assert call_counts["apps/api/src/alicebot_api/main.py"] == 4
     assert call_counts["apps/api/src/alicebot_api/routers/providers.py"] == 59
     assert call_counts["apps/api/src/alicebot_api/routers/workspaces.py"] == 4
-    assert sum(call_counts.values()) == 300
+    assert sum(call_counts.values()) == 301
 
     provider_path = "apps/api/src/alicebot_api/routers/providers.py"
     for relative_path in (
