@@ -653,6 +653,46 @@ class _EventCapture(_StoredContinuityObject):
         raise LookupError("captured correction event")
 
 
+def test_confirm_and_edit_read_provenance_mappings_with_their_keys() -> None:
+    """Confirm and edit each carry a keyed secret that does not identify itself.
+
+    Confirm reads ``provenance`` and ``replacement_provenance`` with their
+    keys. Edit reads the ignored ``replacement_provenance`` with its keys.
+    Reading either mapping by value would keep the pair.
+    """
+
+    opaque = "Xq9mZt2L" + "xP9wKc4BVq7m"
+    secret = {"api_key": opaque}
+    assert not carries_credential_material(opaque)
+    assert carries_credential_material(secret)
+    requests = (
+        ContinuityCorrectionInput(action="confirm", provenance=secret),
+        ContinuityCorrectionInput(action="confirm", replacement_provenance=secret),
+        ContinuityCorrectionInput(
+            action="edit",
+            title="Decision: ship on Fridays",
+            replacement_provenance=secret,
+        ),
+    )
+    for request_input in requests:
+        store = _StoredContinuityObject()
+
+        def _call(request_input: ContinuityCorrectionInput = request_input, store: _StoredContinuityObject = store) -> None:
+            _correct(store, request_input)
+
+        try:
+            _call()
+        except ContinuityReviewValidationError:
+            pass
+        except Exception as exc:
+            raise AssertionError(
+                f"expected ContinuityReviewValidationError, got {type(exc).__name__}: {exc}"
+            ) from exc
+        else:
+            raise AssertionError("expected ContinuityReviewValidationError")
+        assert store.writes == []
+
+
 def test_door4_a_secret_name_in_provenance_is_withheld_on_the_review_event() -> None:
     """Delete stores the request on the event. A secret name is withheld.
 

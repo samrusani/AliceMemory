@@ -38,8 +38,10 @@
   it only where the product writes it: a `metadata_json` key named
   `rollup_key`, and `value.rollup.rollup_key`. The value must match the
   producer: an optional `scope:<16 hex>:` prefix, then `topic:`, `entity:`,
-  or `semantic:`, then a lowercase label. The label may contain spaces,
-  digits, hyphens, and non-ASCII letters. `_digest` keeps 16 hex characters.
+  or `semantic:`, then a label. A label passes when it has at least one
+  letter or digit, no uppercase or titlecase character, no control, format,
+  surrogate, private-use, or unassigned character, and no whitespace other
+  than a plain space. `_digest` keeps 16 hex characters.
   A 64-hex scope is not this shape. The label is still read by value, so
   an `sk-` or `xoxb-` anchor is refused. Topic, entity, and semantic cards
   restore, with or without a scope prefix. `{"rollup_key": <opaque>}` in a

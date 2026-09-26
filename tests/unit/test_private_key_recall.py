@@ -312,7 +312,10 @@ def test_slack_tokens_are_case_exact_and_carry_digits() -> None:
 # Import unwraps rollup_key only in metadata_json and at
 # value.rollup.rollup_key, and only when the value matches the producer:
 # an optional scope:<16 hex>: prefix, then topic, entity, or semantic,
-# then a lowercase label. The label is still read by value. A
+# then a label. A label passes when it has at least one letter or digit,
+# no uppercase or titlecase character, no control, format, surrogate,
+# private-use, or unassigned character, and no whitespace other than a
+# plain space. The label is still read by value. A
 # caller-supplied rollup_key stays a secret name.
 # ---------------------------------------------------------------------------
 
@@ -565,6 +568,90 @@ def test_producer_rollup_cards_of_every_kind_import(tmp_path: Path, capsys: pyte
     assert "-" in joined
     assert any(ord(character) > 127 and character.islower() for character in joined)
 
+    dump = tmp_path / "dump.jsonl"
+    assert onramp_main(["export", "--db", str(origin), "--user-id", USER_ID, "--out", str(dump)]) == 0
+    capsys.readouterr()
+    code, target = _import(tmp_path, dump)
+    assert code == 0, capsys.readouterr().err
+    with sqlite_user_connection(target, USER_ID) as conn:
+        restored = _rollup_keys(SQLiteVNextStore(conn, USER_ID))
+    assert restored == produced
+
+
+def test_producer_scoped_cards_for_ampersand_cjk_and_dotted_i_import(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Three scoped cards from the real producer restore.
+
+    An entity row whose normalized name contains ``&``, an entity row whose
+    normalized name is CJK, and an ``İstanbul.online`` domain taken through
+    normal extraction. The domain is not a seeded row.
+    """
+
+    from alicebot_api.credential_floor import is_product_rollup_key
+    from alicebot_api.vnext_entity_names import normalize_entity_name
+    from alicebot_api.vnext_rollups import RollupOptions, VNextRollupService
+
+    origin = tmp_path / "origin.db"
+    bootstrap_database(origin, user_id=USER_ID, user_email="local@alice")
+    scope = ["alpha"]
+    domain = "İstanbul.online"
+    groups = (
+        (
+            {
+                "entity_type": "organization",
+                "name": "Acme Labs",
+                "normalized_name": "barnes&noble",
+                "aliases": ["acme labs"],
+            },
+            (
+                "Acme Labs shipped a reference board in March and the invoice was $12",
+                "Acme Labs closed a methods review in June and paid $40",
+                "Acme Labs renewed a customer in October and sent $7",
+            ),
+        ),
+        (
+            {
+                "entity_type": "organization",
+                "name": "Widget Co",
+                "normalized_name": "東京",
+                "aliases": ["widget co"],
+            },
+            (
+                "Widget Co shipped a reference board in March and the invoice was $18",
+                "Widget Co closed a methods review in June and paid $55",
+                "Widget Co renewed a customer in October and sent $9",
+            ),
+        ),
+        (
+            None,
+            (
+                f"The booth at {domain} cost $12 in March",
+                f"A license from {domain} cost $40 in June",
+                f"A renewal at {domain} cost $7 in October",
+            ),
+        ),
+    )
+    with sqlite_user_connection(origin, USER_ID) as conn:
+        store = SQLiteVNextStore(conn, USER_ID)
+        index = 0
+        for entity, texts in groups:
+            if entity is not None:
+                store.create_entity(entity)
+            for offset, text in enumerate(texts):
+                store.create_memory(_producer_memory(index, text, f"2024-0{offset + 1}-02", scope))
+                index += 1
+        outcome = VNextRollupService(store).propose_rollups(options=RollupOptions(max_rollups=40))
+        produced = _rollup_keys(store)
+    assert produced, outcome.skipped
+    keys = set(produced.values())
+    assert any(key.startswith("scope:") and key.endswith(":entity:barnes&noble") for key in keys)
+    assert any(key.startswith("scope:") and key.endswith(":entity:東京") for key in keys)
+    normalized_domain = normalize_entity_name(domain)
+    assert "\u0307" in normalized_domain
+    assert any(key.startswith("scope:") and key.endswith(":entity:" + normalized_domain) for key in keys)
+    for key in keys:
+        assert is_product_rollup_key(key), key
     dump = tmp_path / "dump.jsonl"
     assert onramp_main(["export", "--db", str(origin), "--user-id", USER_ID, "--out", str(dump)]) == 0
     capsys.readouterr()

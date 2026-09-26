@@ -774,14 +774,12 @@ _ROUTING_SESSION_VALUE = re.compile(
 )
 # Rollup keys from VNextRollupService. _digest keeps 16 lowercase hex
 # characters and the scope prefix is optional. The kind is topic, entity,
-# or semantic. Topic labels are casefolded tokens. Entity labels are
-# candidate.normalized, or the entity row's normalized_name when an alias
-# folds onto it, so a label can hold a non-ASCII lowercase letter, spaces,
-# digits, hyphens, apostrophes, underscores, and periods. Semantic labels
-# are a casefolded noun phrase. The producer does not emit an uppercase
-# letter. A label with one is not this key.
+# or semantic. A label passes when it has at least one letter or digit, no
+# uppercase or titlecase character, no control, format, surrogate,
+# private-use, or unassigned character, and no whitespace other than a
+# plain space. A 64-hex scope is not this shape. The label is still read
+# by value.
 _ROLLUP_KEY_SHAPE = re.compile(r"(?:scope:[0-9a-f]{16}:)?(?:topic|entity|semantic):(.+)")
-_ROLLUP_LABEL_MARK = frozenset(" '-_.’")
 # An SSH public key algorithm and its body: "Deploy key: ssh-ed25519 AAAA...".
 _SSH_ALGORITHM = re.compile(
     r"ssh-(?:ed25519|rsa|dss)|ecdsa-sha2-nistp(?:256|384|521)|sk-(?:ssh-ed25519|ecdsa-sha2-nistp256)@openssh\.com"
@@ -840,16 +838,24 @@ _WHITESPACE = re.compile(r"\s")
 
 
 def _rollup_label_ok(label: str) -> bool:
-    """True when ``label`` is lowercase text the rollup producer can emit."""
+    """True when ``label`` passes the four product rules.
 
-    if not any(character.isalpha() for character in label):
+    It has at least one letter or digit. It has no uppercase or titlecase
+    character (``isupper()``, or Unicode category ``Lt``). It has no
+    control, format, surrogate, private-use, or unassigned character (any
+    category starting with ``C``). It has no whitespace other than a plain
+    space.
+    """
+
+    if not any(character.isalpha() or character.isdigit() for character in label):
         return False
     for character in label:
-        if character.isupper():
+        if character.isupper() or unicodedata.category(character) == "Lt":
             return False
-        if character.islower() or character.isdigit() or character in _ROLLUP_LABEL_MARK:
-            continue
-        return False
+        if unicodedata.category(character).startswith("C"):
+            return False
+        if character.isspace() and character != " ":
+            return False
     return True
 
 

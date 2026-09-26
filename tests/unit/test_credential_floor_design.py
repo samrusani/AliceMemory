@@ -277,7 +277,10 @@ def test_product_rollup_key_is_exempt_only_where_the_product_writes_it() -> None
 
     metadata_json unwraps a rollup_key whose value matches the producer:
     an optional scope:<16 hex>: prefix, then topic, entity, or semantic,
-    then a lowercase label. The import value column unwraps only
+    then a label. A label passes when it has at least one letter or digit,
+    no uppercase or titlecase character, no control, format, surrogate,
+    private-use, or unassigned character, and no whitespace other than a
+    plain space. The import value column unwraps only
     value.rollup.rollup_key with that shape. A 64-hex scope is not that
     shape. A caller-supplied rollup_key over an opaque value is refused.
     The label is still read by value. rollupKey stays a weak name.
@@ -302,10 +305,20 @@ def test_product_rollup_key_is_exempt_only_where_the_product_writes_it() -> None
     assert _name_kind("rollup_key", "", 0) == "weak"
     assert _name_kind("rollupKey", "", 0) == "weak"
     opaque = "Xq9mZt2L" + "xP9wKc4BVq7m"
-    for product in (topic, entity, semantic, spaced, hyphenated):
+    one_and_one = "entity:1&1"
+    ampersand = "scope:" + digest16 + ":entity:barnes&noble"
+    cjk = "entity:" + "東京"
+    dotted = "scope:" + digest16 + ":entity:" + "i\u0307stanbul.online"
+    for product in (topic, entity, semantic, spaced, hyphenated, one_and_one, ampersand, cjk, dotted):
         assert is_product_rollup_key(product), product
         assert not carries_credential_material(_without_system_keys({"rollup_key": product})), product
     assert not is_product_rollup_key(full_value)
+    assert not is_product_rollup_key("entity:Barnes")
+    assert not is_product_rollup_key("entity:acme\x01labs")
+    assert not is_product_rollup_key("topic:fy\t2024")
+    assert not is_product_rollup_key("entity:" + "\u01c5" + "z")
+    assert not is_product_rollup_key("topic:a\u200bb")
+    assert not is_product_rollup_key("semantic:&&&")
     assert carries_credential_material({"rollup_key": topic})
     assert carries_credential_material({"rollup_key": entity})
     assert carries_credential_material({"rollup_key": opaque})
@@ -371,6 +384,9 @@ def test_a_routing_session_key_is_an_identifier_and_gpg_key_is_not() -> None:
     assert carries_credential_material({"SESSION_KEY": routing})
     assert carries_credential_material({"session_key": "agent:Main:telegram:dm:4471"})
     assert carries_credential_material({"session_key": "agent:main:slack:channel:" + "C04" + "ABCDEF12"})
+    assert carries_credential_material(
+        {"session_key": "agent:main:subagent:run:12345678-9ABC-DEF0-1234-56789ABCDEF0"}
+    )
     assert carries_credential_material({"session_key": "agent:main:telegram:dm:4471:topic:games"})
     assert carries_credential_material({"session_key": opaque})
     assert carries_credential_material({"gpg_key": key_id})
