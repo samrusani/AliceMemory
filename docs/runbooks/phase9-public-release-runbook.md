@@ -1,5 +1,7 @@
 # Phase 9 Public Release Runbook
 
+> Historical: kept for reference; not current guidance.
+
 This runbook executes `P9-S38` release readiness for the first public tag.
 
 ## Objective

@@ -24,7 +24,8 @@ Use MCP-only as a fallback when provider install is temporarily blocked.
 - Recommended mode: `docs/integrations/examples/hermes-config.provider-plus-mcp.yaml`
 - Fallback mode: `docs/integrations/examples/hermes-config.mcp-only.yaml`
 
-Both examples use the default eleven-tool core surface and its canonical
+Both examples turn on the full eleven-tool core surface with
+`ALICE_MCP_FULL_TOOLS=1` and use its canonical
 `alice_memory_review` / `alice_memory_correct` review flow. For a key-bound
 Hermes server, set `ALICE_AGENT_API_KEY` to an issued key; do not enable the
 legacy flag, because authenticated MCP runs deliberately hide and reject the

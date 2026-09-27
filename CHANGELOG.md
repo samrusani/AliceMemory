@@ -1138,6 +1138,27 @@ are a read-path change. If you imported on `v0.15.5` or earlier, delete
 those candidates and import again. Re-capture only if you need the new
 list-splitting boundaries. There is no re-chunk migration.
 
+## v0.15.6 — 2026-08-16
+
+- `alice_capture` no longer flattens documents before they are chunked.
+  `mcp/arguments.py` collapsed every whitespace run in `raw_text` to a single
+  space, so a file with 17 newlines was stored with 0 and `chunk_text`, which
+  splits on blank lines, saw one paragraph. The v0.15.5 heading rule was therefore
+  inert on the exact path that produced the bug report. `raw_text` now normalises
+  line endings and trims the ends, and touches nothing inside. Only `raw_text`
+  changes; titles, ids and every other scalar still collapse.
+
+  This also restores the tool's stated contract: `alice_capture` promises text is
+  kept verbatim, and indentation, code blocks and list structure were being
+  destroyed along with the paragraph breaks.
+
+  Introduced in v0.12.0, so it survived every release since.
+
+**Re-import notes on this version**, not on 0.15.5. `content_hash` changes for
+newly captured documents because the stored bytes change, so a re-capture creates
+a new source rather than deduping against the flattened copy. Existing rows are
+untouched and there is no re-chunk migration.
+
 ## v0.15.5 — 2026-08-16
 
 - A host's `PYTHONPATH` no longer shadows the dependencies Alice installed. `uvx`
@@ -1167,27 +1188,6 @@ flattened `raw_text` before chunking ever ran, so the heading rule had no
 boundaries to act on and an import through that tool behaved exactly as it did on
 0.15.4. **Do not re-import notes on 0.15.5.** `v0.15.6` fixes the real cause. The
 `PYTHONPATH` entry is unaffected and was confirmed against the published wheel.
-
-## v0.15.6 — 2026-08-16
-
-- `alice_capture` no longer flattens documents before they are chunked.
-  `mcp/arguments.py` collapsed every whitespace run in `raw_text` to a single
-  space, so a file with 17 newlines was stored with 0 and `chunk_text`, which
-  splits on blank lines, saw one paragraph. The v0.15.5 heading rule was therefore
-  inert on the exact path that produced the bug report. `raw_text` now normalises
-  line endings and trims the ends, and touches nothing inside. Only `raw_text`
-  changes; titles, ids and every other scalar still collapse.
-
-  This also restores the tool's stated contract: `alice_capture` promises text is
-  kept verbatim, and indentation, code blocks and list structure were being
-  destroyed along with the paragraph breaks.
-
-  Introduced in v0.12.0, so it survived every release since.
-
-**Re-import notes on this version**, not on 0.15.5. `content_hash` changes for
-newly captured documents because the stored bytes change, so a re-capture creates
-a new source rather than deduping against the flattened copy. Existing rows are
-untouched and there is no re-chunk migration.
 
 ## v0.15.4 — 2026-08-15
 
@@ -1417,6 +1417,10 @@ release notes.)
 
 ## v0.10.4 — 2026-07-15
 
+Correction (2026-09-27): the fifth audit that the v0.10.4 release notes name
+as the source of these fixes was an internal adversarial review, not an
+independent or external audit. The review passes named here were internal too.
+
 - **Deterministic embedding CAS whitespace.** PostgreSQL now computes the
   signed memory-embedding content digest with the same explicit CPython 3.12
   29-codepoint `str.strip()` character table used by Python and migration
@@ -1560,6 +1564,10 @@ the fixes forward. Migrations `0087`–`0089` apply online-safe persistence
 indexes, durable response jobs with provider revision/fingerprint CAS, and
 graph-edge workflow idempotency.
 
+Correction (2026-09-27): this was an internal adversarial review, not an
+independent or external audit. The review passes named here were internal too.
+The v0.10.3 release notes use the same wording.
+
 - **Project isolation.** Agent project scope now flows through brain,
   connection, contradiction, and project-automation requests, scheduler
   workflows, and store queries; consolidation clusters partition by project
@@ -1620,6 +1628,9 @@ Supersedes the tagged-but-unpublished `v0.10.0` candidate, whose protected
 semantic release gate failed on a query-interpretation defect. All `v0.10.0`
 remediation is carried forward; this release closes the gate failure.
 
+Correction (2026-09-27): the third audit that the v0.10.1 release notes name
+was an internal adversarial review, not an independent or external audit.
+
 - Fixed semantic retrieval for business budget queries: the ambiguous word
   `money` no longer creates an implicit hard `personal`-domain filter, restoring
   signed-vector participation while explicit caller-supplied domains remain
@@ -1634,6 +1645,9 @@ remediation is carried forward; this release closes the gate failure.
 Security, reliability, and quality release. Remediates every finding from the
 third external audit of `v0.9.4` — fixed at the class level — and clears the P2
 backlog.
+
+Correction (2026-09-27): this was an internal adversarial review, not an
+independent or external audit. The v0.10.0 release notes use the same wording.
 
 - Correctness: one signed-vector write contract across the eval seeder and both
   backfill paths (fixes the v0.9.4 backfill regression); scope/status/domain/
@@ -1665,6 +1679,10 @@ it and attempted the original five fixes plus all nine P1 remediations from the
 second audit. A post-publication third audit found partial fixes and regressions.
 The later published v0.10.2 corrective record superseded the historical
 v0.10.0 remediation matrix.
+
+Correction (2026-09-27): the follow-up audit of `v0.9.3`, the second audit,
+and the third audit were each an internal adversarial review, not an
+independent or external audit.
 
 - Lifecycle correctness: all memory lifecycle mutations (confirm, review, correct, undo, forget, expire/unexpire, supersession) route through one central transition table (`vnext_lifecycle`) that rejects invalid transitions — a rejected or superseded row can no longer be confirmed back to active, `correct()` no longer promotes rows while leaving them unconfirmed/review-required, supersession `A → B → A` cycles are blocked, and `unexpire` cannot report active while the row stays stale.
 - Supersession graph mutation is serialized per user with a transaction-scoped advisory lock, and the cycle guard now fails closed when it cannot verify acyclicity within its hop bound — so concurrent supersessions on disjoint row pairs can no longer each pass an unlocked check and together close a cycle (audit 2 P1 #1).

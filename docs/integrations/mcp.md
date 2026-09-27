@@ -88,9 +88,9 @@ instructions should use an explicit commit or capture call.
 {
   "mcpServers": {
     "alice": {
-      "command": "/ABSOLUTE/PATH/TO/AliceBot/.venv/bin/python",
+      "command": "/ABSOLUTE/PATH/TO/AliceMemory/.venv/bin/python",
       "args": ["-m", "alicebot_api.mcp_server"],
-      "cwd": "/ABSOLUTE/PATH/TO/AliceBot",
+      "cwd": "/ABSOLUTE/PATH/TO/AliceMemory",
       "env": {
         "DATABASE_URL": "postgresql://alicebot_app:alicebot_app@localhost:5432/alicebot",
         "ALICEBOT_AUTH_USER_ID": "00000000-0000-0000-0000-000000000001"

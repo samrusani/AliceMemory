@@ -408,7 +408,7 @@ def test_memory_commit_recall_undo_and_forget_flow(sqlite_context) -> None:
         arguments={
             **TRUSTED_AGENT,
             "title": "Espresso preference",
-            "canonical_text": "Sami prefers a single espresso before standup.",
+            "canonical_text": "Alex prefers a single espresso before standup.",
             "memory_type": "preference",
             "domain": "professional",
             "sensitivity": "internal",
@@ -853,13 +853,13 @@ def test_recall_and_context_pack_depth_and_strategy_args_reach_retrieval(sqlite_
     preference_id = _commit_active_memory(
         sqlite_context,
         title="Budget format preference",
-        text="Sami prefers the quarterly budget in euros.",
+        text="Alex prefers the quarterly budget in euros.",
         memory_type="preference",
     )
     episode_id = _commit_active_memory(
         sqlite_context,
         title="Budget review",
-        text="Sami reviewed the quarterly budget on Tuesday.",
+        text="Alex reviewed the quarterly budget on Tuesday.",
         memory_type="episode",
     )
 
@@ -941,7 +941,7 @@ def test_memory_commit_confirmation_flow(sqlite_context) -> None:
         arguments={
             **TRUSTED_AGENT,
             "title": "Health fact",
-            "canonical_text": "Sami is allergic to penicillin.",
+            "canonical_text": "Alex is allergic to penicillin.",
             "memory_type": "identity_fact",
             "domain": "health",
             "sensitivity": "private",

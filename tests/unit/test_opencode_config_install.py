@@ -827,6 +827,39 @@ def test_opencode_rewrites_config_json_when_it_holds_alice(
     assert not _files(home)["mcp"].exists()
 
 
+def test_readme_marks_opencode_unreleased_and_changelog_says_it_masks_command() -> None:
+    """README describes the published package, which has no OpenCode host.
+
+    The OpenCode detail lives in the changelog until a release ships it.
+    Mutation: describe OpenCode in README outside the one marked line, or
+    drop the masking sentence from the changelog. This test fails.
+    """
+
+    root = Path(__file__).resolve().parents[2]
+    text = (root / "README.md").read_text(encoding="utf-8")
+    marker = (
+        "On main, not yet released: an opt-in OpenCode host (`--host opencode`). "
+        "The published v0.17.0 does not have it."
+    )
+    assert [line for line in text.splitlines() if "opencode" in line.casefold()] == [marker]
+    changelog = (root / "CHANGELOG.md").read_text(encoding="utf-8")
+    assert "When alice already sits in `config.json`, that file is the one" in changelog
+    assert "A dry run masks the command array." in " ".join(changelog.split())
+    target = (
+        "When alice sits in `opencode.json` and an `opencode.jsonc` also exists, "
+        "install targets `opencode.json`."
+    )
+    skipped = "A 0-byte `.jsonc` is skipped."
+    assert target in changelog
+    assert skipped in changelog
+    integration = (root / "docs/integrations/opencode.md").read_text(encoding="utf-8")
+    assert target in integration
+    assert skipped in integration
+    assert "`NaN` and a BOM are refused" in integration
+    assert "`NaN`, `1e999`, or a BOM" not in integration
+    assert "The receipt names that directory." in integration
+
+
 def test_opencode_json_and_jsonc_are_a_second_alice(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -1770,32 +1803,6 @@ def test_jsonc_judge_rejects_glued_comments_and_bare_commas() -> None:
     for raw in ("1/**/2", "{,}", "[,]", "NaN", "{ \"n\": NaN }"):
         with pytest.raises((json.JSONDecodeError, ValueError)):
             parse_jsonc(raw)
-
-
-def test_readme_says_opencode_masks_command() -> None:
-    root = Path(__file__).resolve().parents[2]
-    text = (root / "README.md").read_text(encoding="utf-8")
-    assert "--host opencode" in text
-    assert "masks that array" in text
-    assert "When alice already sits in `config.json`, that file is the one rewritten." in text
-    target = (
-        "When alice sits in `opencode.json` and an `opencode.jsonc` also exists, "
-        "install targets `opencode.json`."
-    )
-    skipped = "A 0-byte `.jsonc` is skipped."
-    assert target in text
-    assert skipped in text
-    assert "edited as text" in text
-    changelog = (root / "CHANGELOG.md").read_text(encoding="utf-8")
-    assert "When alice already sits in `config.json`, that file is the one" in changelog
-    assert target in changelog
-    assert skipped in changelog
-    integration = (root / "docs/integrations/opencode.md").read_text(encoding="utf-8")
-    assert target in integration
-    assert skipped in integration
-    assert "`NaN` and a BOM are refused" in integration
-    assert "`NaN`, `1e999`, or a BOM" not in integration
-    assert "The receipt names that directory." in integration
 
 
 @pytest.mark.skipif(os.environ.get("ALICE_TEST_REAL_HOSTS") != "1", reason="set ALICE_TEST_REAL_HOSTS=1")

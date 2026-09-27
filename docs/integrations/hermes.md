@@ -128,11 +128,10 @@ are `ALICE_MCP_FULL_TOOLS`, `ALICE_MCP_LEGACY_TOOLS`, `ALICE_AGENT_API_KEY`,
 `ALICE_EMBEDDINGS_MODEL`, and `ALICE_EMBEDDINGS_API_KEY`. The name and the
 scalar text stay as written. The receipt lists the kept keys and masks
 printed values the same way as the other hosts, so `ALICE_AGENT_API_KEY`
-and `ALICE_EMBEDDINGS_API_KEY` are not printed. Any other key install did
-not write still refuses the file. Install refuses while those keys are
-present.
-Edit the alice entry by hand. A documented key whose value is an anchor, an
-alias, a tag, or a block scalar is refused the same way.
+and `ALICE_EMBEDDINGS_API_KEY` are not printed. If the entry has any other
+key that install did not write, install refuses and changes nothing. Edit the
+alice entry by hand in that case. A documented key whose value is an anchor,
+an alias, a tag, or a block scalar is refused the same way.
 
 ## Related Docs
 

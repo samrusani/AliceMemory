@@ -1,8 +1,8 @@
-# Alice vNext Public Preview Install Notes
+# Postgres Stack Notes
 
 Audience: technical users and agent builders.
 
-This file stays under the legacy `docs/alpha` path, but it now describes the current public-preview install posture.
+This file stays under the legacy `docs/alpha` path. It describes the Postgres stack: the `/vnext` review console, connectors and the scheduler. The default install is `uvx alice-memory install`. It uses one local SQLite file and does not need Postgres. See [quickstart.md](quickstart.md).
 
 This is a local technical preview, not hosted SaaS, not a production SLA, and not automatic memory autopilot.
 

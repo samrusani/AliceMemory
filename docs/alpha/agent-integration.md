@@ -107,10 +107,9 @@ entities, grounding, derived values, and item annotations; the report's
 the unique-content budget. `max_tokens` is therefore not a transport cap.
 
 `context_depth` and `budget_strategy` are fields on the context-pack
-request across the service surfaces; the matching `alice_context_pack` MCP
-tool arguments land in the same release — check the server's `tools/list`
-response (the source of truth for input schemas) before passing them, and
-keep tool payloads generic otherwise.
+request across the service surfaces. `alice_context_pack` takes both as
+arguments. The server's `tools/list` response has the exact schema. Keep
+tool payloads generic otherwise.
 
 The compact MCP result reports `serialized_token_estimate` for that exact
 compact tool payload. When the compiler also supplied complete-envelope

@@ -4389,7 +4389,7 @@ def test_list_entities_filters_by_type_and_orders_by_recency() -> None:
     conn = _open_connection()
     store = _make_store(conn)
     org = _create_entity(store, name="Northwind Capital")
-    person = _create_entity(store, name="Sam Rusani", entity_type="person")
+    person = _create_entity(store, name="Alex Rivera", entity_type="person")
     store.update_entity(entity_id=org["id"], patch={"name": "Northwind.Example"})
 
     everything = store.list_entities()

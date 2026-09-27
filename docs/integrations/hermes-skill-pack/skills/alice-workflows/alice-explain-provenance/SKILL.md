@@ -12,6 +12,11 @@ metadata:
 
 # Alice Explain Provenance
 
+Legacy pack. The supported Hermes pack is `agent-skills/hermes/alice-memory`.
+This skill needs the full tool surface: set `ALICE_MCP_FULL_TOOLS=1` in the
+Alice MCP server env. On the default three tools, only the `alice_recall` step
+works.
+
 ## Goal
 
 Provide evidence-backed explanations for Alice-based answers.
@@ -28,11 +33,13 @@ Use this skill when the user asks:
 - `mcp_<alice_server>_alice_context_pack`
 - Optional: `mcp_<alice_server>_alice_recall`
 
-`<alice_server>` is usually `alice_core`.
+`<alice_server>` is the key under `mcp_servers`. It is `alice` when
+`alice-memory install --host hermes` wrote it and `alice_core` in the example
+configs.
 
 ## Workflow
 
-1. Start from `alice_context_pack` for a scoped evidence set.
+1. Start from `alice_context_pack` with the claim as `query`. It takes no `thread_id`.
 2. If needed, run a focused `alice_recall` query for missing evidence.
 3. Explain answer claims by citing returned continuity object IDs and provenance fields.
 4. If provenance is thin, state uncertainty and propose the next validating step.
@@ -40,11 +47,11 @@ Use this skill when the user asks:
 ## Tool Call Templates
 
 ```text
-mcp_alice_core_alice_context_pack({"thread_id":"<uuid>","recent_decisions_limit":5,"recent_changes_limit":5,"open_loops_limit":5})
+mcp_<alice_server>_alice_context_pack({"query":"<claim>","include_sources":true,"max_items":10})
 ```
 
 ```text
-mcp_alice_core_alice_recall({"thread_id":"<uuid>","query":"<claim>","limit":5})
+mcp_<alice_server>_alice_recall({"thread_id":"<uuid>","query":"<claim>","limit":5})
 ```
 
 ## Output Contract

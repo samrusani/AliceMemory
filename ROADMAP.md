@@ -4,11 +4,10 @@
 
 - `v0.17.0` is the latest published release. Its immutable release record is
   `docs/release/v0.17.0-release-notes.md`, with artifact digests in
-  `docs/release/v0.17.0-checksums.txt`. (The `v0.13.0` tag was never
-  published; superseded.)
+  `docs/release/v0.17.0-checksums.txt`. (The `v0.13.0` and `v0.15.0` tags
+  were never published.)
 - `v0.11.0` shipped the Phase 1 periphery cut; `v0.11.1` shipped the Phase 2
-  debt sweep. Their tags, release records, and published artifacts are not
-  changed by the Phase 3 carrier.
+  debt sweep. Their records are unchanged.
 - `v0.12.0` shipped the Phase 3 structural refactor with **Structure only.
   Zero behavior change.** `v0.13.1` shipped the Phase 4 core roadmap:
   three-run benchmark replication on a pinned manifest, SQLite vector scale
@@ -26,9 +25,13 @@
 
 ## Next
 
-`v0.14.0` (Phase 5 enterprise track) is released; the next phase begins here.
-Phases 1 through 5 are shipped and recorded in their release notes. Of the
-former roadmap list, benchmark replication, multi-session synthesis
+Phases 1 to 5 shipped by `v0.14.0`. `v0.16.0` put the default loop on the
+wheel, and `v0.17.0` hardened install and the write paths. Next is host
+coverage and skill packs. Unreleased (on main, not in `v0.17.0`): OpenCode is
+an opt-in `alice-memory install` host. Codex adapters and the skill pack
+revisions are in design.
+
+Of the former roadmap list, benchmark replication, multi-session synthesis
 measurement, reference integrations, SQLite vector scale, and the enterprise
 evidence base (real-host single-tenant deployment contract executed end to
 end, least-privilege operations, encrypted off-host backups with a tested
@@ -86,7 +89,8 @@ restore, recorded security disposition) shipped in Phases 4 and 5.
   invocation.
 - A consumer knowledge-management product.
 - OCR or transcription execution; Alice accepts text extracted elsewhere.
-- Re-expanding the default MCP surface beyond the eleven core tools.
+- Growing the core MCP surface past eleven tools. The default handshake stays
+  at three.
 
 `v0.17.0` is the latest published release and remains the install, checksum,
 and baseline reference.

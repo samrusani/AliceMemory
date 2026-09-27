@@ -363,7 +363,7 @@ def _seed_store() -> InMemoryVNextProjectStore:
                 "project_scope": ["project-1"],
                 "raw_text": (
                     "Project: Alice vNext now needs project auto-update review.\n"
-                    "TODO: validate project dashboard Owner: Samir\n"
+                    "TODO: validate project dashboard Owner: Jordan\n"
                     "Waiting on: UI decision Owner: Designer"
                 ),
             },
@@ -1510,7 +1510,7 @@ def test_open_loop_extraction_and_review_support_source_owner_and_filters() -> N
     assert [loop["metadata_json"]["loop_type"] for loop in loops] == ["task", "waiting_on_person"]
     assert loops[0]["source_id"] == "source-1"
     assert loops[0]["metadata_json"]["source_captured_at"] == "2026-05-10T09:00:00Z"
-    assert loops[0]["metadata_json"]["owner"] == "Samir"
+    assert loops[0]["metadata_json"]["owner"] == "Jordan"
     assert snoozed["due_at"] == "2026-05-12T09:00:00Z"
     assert closed["status"] == "resolved"
     assert dashboard["project"]["id"] == "project-1"

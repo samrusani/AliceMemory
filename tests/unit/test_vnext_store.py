@@ -725,7 +725,7 @@ def test_artifact_quality_ratings_insert_and_export_json_safe_payloads() -> None
     cursor = RecordingCursor(
         fetchone_results=[
             {"id": artifact_id, "artifact_type": "daily_brief", "status": "needs_review"},
-            {"id": rating_id, "artifact_id": artifact_id, "reviewer_id": "samir"},
+            {"id": rating_id, "artifact_id": artifact_id, "reviewer_id": "jordan"},
             _event_row(artifact_id),
         ],
         fetchall_result=[{"id": rating_id, "artifact_id": artifact_id, "usefulness": 5}],
@@ -736,7 +736,7 @@ def test_artifact_quality_ratings_insert_and_export_json_safe_payloads() -> None
         {
             "id": rating_id,
             "artifact_id": artifact_id,
-            "reviewer_id": "samir",
+            "reviewer_id": "jordan",
             "usefulness": 5,
             "accuracy": 4,
             "source_grounding": 5,
@@ -771,7 +771,7 @@ def test_artifact_quality_ratings_upsert_on_artifact_reviewer_conflict() -> None
     cursor = RecordingCursor(
         fetchone_results=[
             {"id": artifact_id, "artifact_type": "daily_brief", "status": "needs_review"},
-            {"id": rating_id, "artifact_id": artifact_id, "reviewer_id": "samir", "usefulness": 2},
+            {"id": rating_id, "artifact_id": artifact_id, "reviewer_id": "jordan", "usefulness": 2},
             _event_row(artifact_id),
         ]
     )
@@ -780,7 +780,7 @@ def test_artifact_quality_ratings_upsert_on_artifact_reviewer_conflict() -> None
     created = store.create_artifact_quality_rating(
         {
             "artifact_id": artifact_id,
-            "reviewer_id": "samir",
+            "reviewer_id": "jordan",
             "usefulness": 2,
             "verbosity": "too_shallow",
             "metadata_json": {},
@@ -1423,7 +1423,7 @@ def test_project_people_belief_and_open_loop_methods_write_audit_events() -> Non
     store.get_project(project_id)
     store.list_projects(status="active", domains=["project"], sensitivity_allowed=["private"], limit=3)
     store.update_project(project_id=project_id, patch={"current_state": "Sprint 1"})
-    store.create_person({"id": person_id, "name": "Samir", "aliases_json": ["owner"]})
+    store.create_person({"id": person_id, "name": "Jordan", "aliases_json": ["owner"]})
     store.get_person(person_id)
     store.update_person(person_id=person_id, patch={"notes": "Project owner"})
     store.create_belief({"id": belief_id, "memory_id": memory_id, "claim": "Provenance is mandatory."})

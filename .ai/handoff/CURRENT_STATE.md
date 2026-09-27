@@ -13,16 +13,8 @@
   under `docs/release/`.
 - Two tags exist that were never published: `v0.13.0`, superseded by `v0.13.1`,
   and `v0.15.0`. Neither has a GitHub Release or a PyPI artifact.
-- Phase 3 implementation and the bounded builder matrix completed on
-  `codex/v0120-phase3-structural-refactor`, based on
-  `f342d45dabe127acca6231f29830ff11d98a340e`. Each code increment received an
-  independent GO with no remaining P0-P3 finding. The independent final verdict
-  is owned only by the handoff's `REVIEW_REPORT.md`; the exact-SHA external
-  release gates passed on the release commit.
-- Both governed version sources were cut to `0.12.0` by the release engineer
-  after verifying the handoff.
-- The historical LongMemEval_s result is **79.4% (397/500)** from one run on
-  2026-07-07. It is not a repeated estimate or a measurement of this release.
+- LongMemEval_s is 81.2%, a mean of three runs on `v0.12.0` `store_chunks`.
+  It is not the product path and not a measurement of the current release.
 - Alice remains public-alpha, pre-1.0, local-first, single-user, and self-hosted.
 
 ## What `v0.11.1` Shipped
@@ -62,7 +54,7 @@ authoritative description; Phase 3 does not rewrite that history.
 - No route, tool, command, schema, migration, dependency, or runtime behavior
   change.
 
-## Verification Posture
+## v0.12.0 Verification Posture
 
 - Final code-carrier evidence passed 3,804 unit tests with 80.3777897% package
   coverage. Router coverage was 3,604/5,373 statements, 67.0761%, above the
@@ -99,6 +91,41 @@ Two tags exist that were never published and never will be, because stable tags
 are immutable and the numbers are retired rather than reused: `v0.13.0`,
 superseded by `v0.13.1`, and `v0.15.0`, whose commit carried a release-gate step
 that could not run on a CI runner.
+
+## On main, not released
+
+`main` has changes that are not on PyPI yet. `pip install alice-memory` and
+`uvx alice-memory` install the latest published release, `v0.17.0`, which
+does not have them.
+
+- Unreleased (on main, not in `v0.17.0`): `alice-memory install --host
+  opencode` writes an OpenCode MCP entry. OpenCode is opt-in and the default
+  hosts are unchanged. `v0.17.0` has no OpenCode host.
+- Unreleased (on main, not in `v0.17.0`): `POST /v0/continuity/captures` runs
+  the credential check on the text before it stores anything, and returns 400
+  when the check refuses. In `v0.17.0` this route checks for credentials only
+  when the capture derives a continuity object, so a capture left in triage is
+  stored unchecked.
+- Unreleased (on main, not in `v0.17.0`): provenance and the import `value`
+  column are read with their keys, so a secret name over a secret-shaped
+  value is refused. In `v0.17.0` they are read by value only, so a password
+  or API key under a secret name is stored unless the value identifies
+  itself.
+- Unreleased (on main, not in `v0.17.0`): continuity capture auto-save, in
+  assist and auto mode, saves only a user turn that matches an explicit
+  prefix; the rest are queued. A new continuity object gets the same
+  credential check as memory commit. In `v0.17.0`, assist saves any explicit
+  match at confidence 0.9 or more from either role, auto saves at 0.85 or
+  more, and only the credential floor runs, so `PASSWORD_DB=<value>` is stored.
+- Unreleased (on main, not in `v0.17.0`): a JSON write under `/v0` that names
+  the user only in the `X-AliceBot-User-Id` header reaches the route with that
+  user in the body. In `v0.17.0`, `POST /v0/continuity/captures/candidates`
+  answers that request with 422, so Hermes memory provider turn capture fails.
+- Unreleased (on main, not in `v0.17.0`): a blocked idempotent replay of
+  `POST /v0/vnext/memories/commit` returns 403 when the stored memory matches
+  the request and 400 when it does not. The policy rows are kept, except after
+  a lost insert race. In `v0.17.0` the same replay is a server error and the
+  policy rows roll back.
 
 ## What `v0.14.0` Shipped
 

@@ -11,6 +11,7 @@ import pytest
 
 _ROOT = Path(__file__).resolve().parents[2]
 _BASE = "f342d45dabe127acca6231f29830ff11d98a340e"
+_CORRECTION_LINE = re.compile(r"> \*\*Correction \(\d{4}-\d{2}-\d{2}\):\*\* \S")
 _HANDOFF = _ROOT / "docs/handoff/2026-07-18-v0.12.0-phase3-structural-refactor"
 _HEADLINE = "Structure only. Zero behavior change."
 _EXCLUSIONS = (
@@ -168,7 +169,23 @@ def test_phase3_carrier_does_not_edit_immutable_v010_v011_records() -> None:
         text=True,
     )
 
-    assert result.stdout == ""
+    # The only edit allowed is an added, dated correction of old wording,
+    # such as an audit a release note called external. Nothing may be
+    # removed or rewritten, and the handoff folders stay untouched.
+    for path in result.stdout.splitlines():
+        assert path.startswith(("docs/release/v0.10", "docs/release/v0.11")), path
+        diff = subprocess.run(
+            ("git", "-C", str(_ROOT), "diff", "-U0", _BASE, "--", path),
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout
+        for line in diff.splitlines():
+            if line.startswith(("---", "+++", "@@", "diff ", "index ")):
+                continue
+            assert not line.startswith("-"), (path, line)
+            if line.startswith("+"):
+                assert line == "+" or _CORRECTION_LINE.match(line[1:]), (path, line)
 
 
 def test_phase3_untracked_whitespace_check_accepts_clean_diff_only(tmp_path: Path) -> None:
