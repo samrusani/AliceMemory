@@ -20,7 +20,7 @@ import zipfile
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
-from pathlib import Path, PurePosixPath, PureWindowsPath
+from pathlib import Path, PureWindowsPath
 from typing import Any
 
 from alicebot_api import __version__
@@ -1136,29 +1136,15 @@ def _check_hooks_file(doc: Mapping[str, Any], host: str) -> None:
 _PLAIN_PROGRAM = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+-]{0,63}")
 
 
-def _absolute_program_basename(command: str) -> str | None:
-    """Basename when ``command`` is one absolute path, spaces included."""
-
-    text = command.strip()
-    if text.startswith("/"):
-        name = PurePosixPath(text).name
-    elif re.match(r"^[A-Za-z]:[\\/]", text):
-        name = PureWindowsPath(text).name
-    else:
-        return None
-    if _PLAIN_PROGRAM.fullmatch(name):
-        return name
-    return None
-
-
 def _describe_entry(entry: object) -> str:
-    """Why an entry is foreign. Print a name only when it looks like a program.
+    """Why an entry is foreign. Print a name only when the first word looks like a program.
 
     A first word that contains ``://`` is ``a URL``, and no part of it is
     printed. A first word that carries credential material, or that
     ``masked_args`` would hide, is ``a command that looks like a
-    credential``. Any other word is printed only when its basename matches
-    a plain program name.
+    credential``. Any other first word is printed only when its basename
+    matches a plain program name. A later word is not used, so a path with
+    spaces names its first fragment.
     """
 
     if isinstance(entry, Mapping):
@@ -1171,9 +1157,6 @@ def _describe_entry(entry: object) -> str:
                     return "its command is a URL"
                 if carries_credential_material(word) or masked_args([word])[1]:
                     return "its command is a command that looks like a credential"
-                whole = _absolute_program_basename(command)
-                if whole is not None:
-                    return f"its command is {whole}"
                 name = PureWindowsPath(word).name
                 if _PLAIN_PROGRAM.fullmatch(name):
                     return f"its command is {name}"

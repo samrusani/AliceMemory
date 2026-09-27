@@ -309,6 +309,38 @@ def test_foreign_command_reason_prints_only_the_basename(
     assert path.read_bytes() == before
 
 
+@pytest.mark.parametrize(
+    "host",
+    ["claude-desktop", "claude-code", "cursor", "openclaw", "hermes"],
+)
+@pytest.mark.parametrize("extra", [(), ("--dry-run",)], ids=["real", "dry-run"])
+@pytest.mark.parametrize("shape", ["path", "github"])
+def test_mcp_proxy_argument_token_is_not_printed(
+    tmp_path: Path, capsys, host: str, extra: tuple[str, ...], shape: str
+) -> None:
+    """A token in a later word of an absolute command is not printed.
+
+    ``/usr/local/bin/mcp-proxy`` followed by a URL whose last segment is a
+    token used to be read as one path. Mutation: take the basename of the
+    whole command string. The token is printed. This test fails.
+    """
+
+    token = _runtime_token()
+    github = "gh" + "p_" + token
+    command = "/usr/local/bin/mcp-proxy " + "https://" + "host.example/mcp/" + (github if shape == "github" else token)
+    home = tmp_path / "home"
+    path = _seed_foreign_command(home, host, command)
+    before = path.read_bytes()
+    code, out, err = _install(capsys, home, "--host", host, "--data-dir", str(tmp_path / "vault"), *extra)
+    assert code == 1, out
+    combined = out + err
+    assert token not in combined
+    assert github not in combined
+    assert "host.example" not in combined
+    assert "its command is mcp-proxy" in out
+    assert path.read_bytes() == before
+
+
 def _runtime_token() -> str:
     return "q" + "7" + "n" + "4" + "m" + "8"
 
@@ -443,7 +475,7 @@ def _program_name_case(shape: str, token: str) -> tuple[str, str]:
         "abs-node": ("/usr/local/bin/node", "its command is node"),
         "uvx": ("uvx", "its command is uvx"),
         "windows": ("C:\\x\\y.exe", "its command is y.exe"),
-        "program-files": ("C:\\Program Files\\nodejs\\node.exe", "its command is node.exe"),
+        "program-files": ("C:\\Program Files\\nodejs\\node.exe", "its command is Program"),
     }
     return commands[shape]
 
@@ -493,7 +525,8 @@ def test_a_command_name_is_printed_only_for_a_plain_program(
         assert "--key=" not in combined
         assert "https:/" not in combined
     if shape == "program-files":
-        assert "Program" not in combined
+        assert "node.exe" not in combined
+        assert "nodejs" not in combined
     if shape == "windows":
         assert "\\x\\" not in combined
     assert path.read_bytes() == before

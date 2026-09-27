@@ -3,12 +3,14 @@
 ## Unreleased
 
 - A refusal for an alice entry that install did not write prints a
-  command name only when it looks like a program name. A first word that
-  contains :// is shown as a URL. A first word that carries credential
-  material, or that would be hidden as a secret flag, is shown as a
-  command that looks like a credential. That check covers recognized
-  token formats, not every scp-style word. Any other word is printed
-  only when its basename is a plain program name.
+  command name only when the first word looks like a program name. A
+  token in a later word is not printed. A path with spaces names its
+  first fragment, such as `Program` for `C:\Program Files\nodejs\node.exe`.
+  A first word that contains :// is shown as a URL. A first word that
+  carries credential material, or that would be hidden as a secret flag,
+  is shown as a command that looks like a credential. That check covers
+  recognized token formats, not every scp-style word. Any other first
+  word is printed only when its basename is a plain program name.
 
 - OpenCode is an opt-in install host (`--host opencode`). The default hosts
   are unchanged. Install writes `mcp.alice` as `type: local` and a `command`
