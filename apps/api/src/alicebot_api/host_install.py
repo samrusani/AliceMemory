@@ -3760,6 +3760,12 @@ def _opencode_command_data_dir(entry: Mapping[str, Any] | None) -> str | None:
     return found
 
 
+def _opencode_dir_holds_substitution(value: str | None) -> bool:
+    """True when a data dir would paste an OpenCode ``{env:`` or ``{file:`` word."""
+
+    return value is not None and ("{env:" in value or "{file:" in value)
+
+
 def _opencode_quiet_session_start(details: list[str]) -> None:
     """OpenCode has no SessionStart hook, so a warning must not name one."""
 
@@ -3791,19 +3797,40 @@ class _JsoncNode:
     raw: str = ""
 
 
+def _jsonc_breaks(text: str, start: int, end: int) -> int:
+    """Line breaks in ``text[start:end]``. ``\\r\\n`` is one break. A lone ``\\r`` is one."""
+
+    count = 0
+    index = start
+    while index < end:
+        char = text[index]
+        if char == "\n":
+            count += 1
+            index += 1
+            continue
+        if char == "\r":
+            count += 1
+            index += 1
+            if index < end and text[index] == "\n":
+                index += 1
+            continue
+        index += 1
+    return count
+
+
 def _jsonc_line(text: str, index: int) -> int:
-    return text.count("\n", 0, index) + 1
+    return _jsonc_breaks(text, 0, index) + 1
 
 
 def _jsonc_ascii_digit(char: str) -> bool:
     return "0" <= char <= "9"
 
 
-def _jsonc_string(text: str, start: int) -> tuple[str, int]:
+def _jsonc_string(text: str, start: int, line: int) -> tuple[str, int]:
     """Decode one JSON string starting at ``start``. Return (decoded, end)."""
 
     if start >= len(text) or text[start] != '"':
-        raise OpenCodeConfigRefused("a token error", _jsonc_line(text, start))
+        raise OpenCodeConfigRefused("a token error", line)
     chars: list[str] = []
     index = start + 1
     while index < len(text):
@@ -3811,13 +3838,13 @@ def _jsonc_string(text: str, start: int) -> tuple[str, int]:
         if char == '"':
             return "".join(chars), index + 1
         if ord(char) < 0x20:
-            raise OpenCodeConfigRefused("a token error", _jsonc_line(text, index))
+            raise OpenCodeConfigRefused("a token error", line)
         if char != "\\":
             chars.append(char)
             index += 1
             continue
         if index + 1 >= len(text):
-            raise OpenCodeConfigRefused("a token error", _jsonc_line(text, start))
+            raise OpenCodeConfigRefused("a token error", line)
         escaped = text[index + 1]
         simple = {'"': '"', "\\": "\\", "/": "/", "b": "\b", "f": "\f", "n": "\n", "r": "\r", "t": "\t"}
         if escaped in simple:
@@ -3830,8 +3857,8 @@ def _jsonc_string(text: str, start: int) -> tuple[str, int]:
                 chars.append(chr(int(digits, 16)))
                 index += 6
                 continue
-        raise OpenCodeConfigRefused("a token error", _jsonc_line(text, index))
-    raise OpenCodeConfigRefused("a token error", _jsonc_line(text, start))
+        raise OpenCodeConfigRefused("a token error", line)
+    raise OpenCodeConfigRefused("a token error", line)
 
 
 def _jsonc_tokens(text: str) -> list[_JsoncTok]:
@@ -3840,21 +3867,30 @@ def _jsonc_tokens(text: str) -> list[_JsoncTok]:
     tokens: list[_JsoncTok] = []
     index = 0
     length = len(text)
+    line = 1
     while index < length:
         char = text[index]
-        line = _jsonc_line(text, index)
         if char in " \t\r\n":
-            end = index + 1
-            while end < length and text[end] in " \t\r\n":
-                end += 1
-            tokens.append(_JsoncTok("ws", index, end, line))
-            index = end
+            start = index
+            start_line = line
+            while index < length and text[index] in " \t\r\n":
+                if text[index] == "\r":
+                    line += 1
+                    index += 1
+                    if index < length and text[index] == "\n":
+                        index += 1
+                    continue
+                if text[index] == "\n":
+                    line += 1
+                index += 1
+            tokens.append(_JsoncTok("ws", start, index, start_line))
             continue
         if text.startswith("{env:", index) or text.startswith("{file:", index):
             raise OpenCodeConfigRefused("an unquoted substitution", line)
         if char == "/" and index + 1 < length and text[index + 1] == "/":
-            end = text.find("\n", index)
-            end = length if end < 0 else end
+            end = index + 2
+            while end < length and text[end] not in "\r\n":
+                end += 1
             tokens.append(_JsoncTok("comment", index, end, line))
             index = end
             continue
@@ -3862,11 +3898,13 @@ def _jsonc_tokens(text: str) -> list[_JsoncTok]:
             end = text.find("*/", index + 2)
             if end < 0:
                 raise OpenCodeConfigRefused("an unterminated comment", line)
-            tokens.append(_JsoncTok("comment", index, end + 2, line))
-            index = end + 2
+            token_end = end + 2
+            tokens.append(_JsoncTok("comment", index, token_end, line))
+            line += _jsonc_breaks(text, index, token_end)
+            index = token_end
             continue
         if char == '"':
-            decoded, end = _jsonc_string(text, index)
+            decoded, end = _jsonc_string(text, index, line)
             tokens.append(_JsoncTok("string", index, end, line, decoded))
             index = end
             continue
@@ -4075,13 +4113,17 @@ def _jsonc_alice_census(node: _JsoncNode) -> tuple[int, bool]:
 
 
 def _jsonc_newline(text: str) -> str:
+    """The line break to insert. A file of only ``\\r`` keeps ``\\r``."""
+
+    if "\n" not in text and "\r" in text:
+        return "\r"
     return "\r\n" if "\r\n" in text else "\n"
 
 
 def _jsonc_line_whitespace(text: str, index: int) -> str:
     """The spaces and tabs at the start of the line that holds ``index``."""
 
-    line_start = text.rfind("\n", 0, index) + 1
+    line_start = max(text.rfind("\n", 0, index), text.rfind("\r", 0, index)) + 1
     end = line_start
     while end < len(text) and text[end] in " \t":
         end += 1
@@ -4318,6 +4360,73 @@ class _OpencodeTextPlan:
     raw_env: dict[str, str]
 
 
+_JSONC_EDIT_REFUSAL = "the edited text is not the planned entry"
+
+
+def _jsonc_child(node: _JsoncNode, name: str) -> _JsoncNode | None:
+    found: _JsoncNode | None = None
+    for key, _start, _line, value in node.pairs or []:
+        if key == name:
+            found = value
+    return found
+
+
+def _jsonc_data(node: _JsoncNode) -> object:
+    """``node`` as plain JSON values. A number stays its source text."""
+
+    if node.kind == "string" or node.kind == "literal":
+        return node.decoded
+    if node.kind == "number":
+        return ("number", str(node.decoded))
+    if node.kind == "array":
+        return [_jsonc_data(item) for item in node.items or []]
+    if node.kind == "object":
+        data: dict[str, object] = {}
+        for key, _start, _line, value in node.pairs or []:
+            data[key] = _jsonc_data(value)
+        return data
+    raise OpenCodeConfigRefused(_JSONC_EDIT_REFUSAL, node.line)
+
+
+def _jsonc_members(node: _JsoncNode) -> list[tuple[str, object]]:
+    if node.kind != "object":
+        raise OpenCodeConfigRefused(_JSONC_EDIT_REFUSAL, node.line)
+    return [(key, _jsonc_data(value)) for key, _start, _line, value in node.pairs or []]
+
+
+def _strip_alice(members: list[tuple[str, object]]) -> list[tuple[str, object]]:
+    """Members with ``mcp.alice`` removed. An ``mcp`` object that only held alice is gone."""
+
+    stripped: list[tuple[str, object]] = []
+    for key, value in members:
+        if key != "mcp" or not isinstance(value, dict):
+            stripped.append((key, value))
+            continue
+        rest = {child: child_value for child, child_value in value.items() if child != "alice"}
+        if rest:
+            stripped.append((key, rest))
+    return stripped
+
+
+def _require_planned_jsonc(original: str, edited: str, planned: Mapping[str, Any]) -> None:
+    """Refuse unless ``edited`` is the planned ``mcp.alice`` and the original values.
+
+    Called before a write. A parse error or a changed sibling becomes a refusal,
+    and the file is left untouched.
+    """
+
+    before = _parse_jsonc_text(original)
+    after = _parse_jsonc_text(edited)
+    if before.kind != "object" or after.kind != "object":
+        raise OpenCodeConfigRefused(_JSONC_EDIT_REFUSAL)
+    mcp = _jsonc_child(after, "mcp")
+    alice = _jsonc_child(mcp, "alice") if mcp is not None and mcp.kind == "object" else None
+    if alice is None or _jsonc_data(alice) != dict(planned):
+        raise OpenCodeConfigRefused(_JSONC_EDIT_REFUSAL)
+    if _strip_alice(_jsonc_members(before)) != _strip_alice(_jsonc_members(after)):
+        raise OpenCodeConfigRefused(_JSONC_EDIT_REFUSAL)
+
+
 def _plan_opencode_text(
     text: str,
     *,
@@ -4541,11 +4650,16 @@ def _install_opencode_host(
             next_line = _OPENCODE_SECOND_NEXT
         else:
             next_line = _OPENCODE_TEXT_NEXT
-        if refusal.data_dir:
-            data_dir = refusal.data_dir
+        recovered = refusal.data_dir
+        if recovered and not _opencode_dir_holds_substitution(recovered):
+            data_dir = recovered
             use_placeholder = False
         else:
-            use_placeholder = refusal.placeholder or not refusal.located
+            use_placeholder = (
+                refusal.placeholder
+                or not refusal.located
+                or _opencode_dir_holds_substitution(recovered)
+            )
         return refused(
             path,
             reason,
@@ -4577,6 +4691,7 @@ def _install_opencode_host(
         doc: dict[str, Any] | None
         text: str
         alice: int
+        servers: bool
 
     seen: list[_SeenFile] = []
     servers_alice = False
@@ -4625,21 +4740,33 @@ def _install_opencode_host(
                 count, servers = _jsonc_alice_census(_parse_jsonc_text(file_text))
                 if servers:
                     servers_alice = True
-                seen.append(_SeenFile(path, raw, "text", None, file_text, count))
+                seen.append(_SeenFile(path, raw, "text", None, file_text, count, servers))
             else:
                 assert doc is not None  # nosec B101 # strict JSON parsed
-                if _opencode_servers_hold_alice(doc):
+                servers = _opencode_servers_hold_alice(doc)
+                if servers:
                     servers_alice = True
-                seen.append(_SeenFile(path, raw, "exact", doc, "", _opencode_alice_count(doc)))
+                seen.append(_SeenFile(path, raw, "exact", doc, "", _opencode_alice_count(doc), servers))
     except _OpencodeStatFailed as problem:
         return failed(problem.path)
     except OpenCodeConfigRefused as refusal:
         return text_refusal(path, refusal)
 
+    def text_scan_refusal(item: _SeenFile, reason: str) -> _HostResult:
+        nonlocal host_format
+        host_format = _OPENCODE_TEXT_FORMAT
+        return refused(item.path, reason, _OPENCODE_SECOND_NEXT, placeholder=True)
+
     if servers_alice:
+        text_hit = next((item for item in seen if item.mode == "text" and item.servers), None)
+        if text_hit is not None:
+            return text_scan_refusal(text_hit, "alice is under mcp.servers")
         return refused(files["mcp"], "alice is under mcp.servers", _OPENCODE_SECOND_NEXT)
     alice_total = sum(item.alice for item in seen)
     if alice_total > 1:
+        text_hit = next((item for item in seen if item.mode == "text" and item.alice), None)
+        if text_hit is not None:
+            return text_scan_refusal(text_hit, "alice appears more than once")
         return refused(files["mcp"], "alice appears more than once", _OPENCODE_SECOND_NEXT)
 
     chosen = next((item for item in seen if item.alice), None)
@@ -4691,7 +4818,9 @@ def _install_opencode_host(
         details.extend(plan.details)
         _opencode_quiet_session_start(details)
         own_dir = _opencode_command_data_dir(existing)
-        if plan.entry is None and plan.refusal is None and own_dir:
+        stopped = plan.entry is None and plan.refusal is None
+        unsafe_dir = _opencode_dir_holds_substitution(own_dir)
+        if stopped and own_dir and not unsafe_dir:
             data_dir = own_dir
         if plan.refusal is not None or plan.entry is None:
             snippet_entry = None
@@ -4706,6 +4835,7 @@ def _install_opencode_host(
                 target_path,
                 reason,
                 f"next: {target_path.name} was not changed. {next_step}",
+                placeholder=stopped and (own_dir is None or unsafe_dir),
                 snippet_entry=snippet_entry,
             )
         shown, hidden = _masked(
@@ -4721,6 +4851,18 @@ def _install_opencode_host(
             )
         if edited.text is None or edited.text == target_text:
             return _HostResult(receipt("unchanged", target_path, snippet=None), "ok", plan.used_fallback)
+        try:
+            _require_planned_jsonc(
+                target_text,
+                edited.text,
+                _install_entry_as_opencode(plan.entry, existing),
+            )
+        except (OpenCodeConfigRefused, _MalformedHostFile) as problem:
+            return refused(
+                target_path,
+                str(problem),
+                f"next: {target_path.name} was not changed. {_OPENCODE_HAND_NEXT}",
+            )
         backup_dir = _backup_dir(plan.data_dir)
         try:
             backup = _backup_host_file(write_target, target_raw or b"", backup_dir=backup_dir, host="opencode")

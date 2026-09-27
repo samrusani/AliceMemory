@@ -11,8 +11,7 @@ is `<config home>/opencode`. On Windows that is `%USERPROFILE%\.config\opencode`
 
 ## What gets written
 
-The target is the file that already has `mcp.alice`. Otherwise it is
-`opencode.jsonc` when that file exists, and otherwise `opencode.json`. A new
+The target is the file that already has `mcp.alice`. When alice sits in `opencode.json` and an `opencode.jsonc` also exists, install targets `opencode.json`. Otherwise it is `opencode.jsonc` when that file exists, and otherwise `opencode.json`. A 0-byte `.jsonc` is skipped. A new
 file starts with `$schema` set to `https://opencode.ai/config.json`. The
 entry is:
 
@@ -39,7 +38,10 @@ when it is not strict JSON (a comment, a trailing comma, a duplicate key,
 or `1e999`). `NaN` and a BOM are refused. The receipt says `format: jsonc, edited as text`.
 Install replaces only the `mcp.alice` value, or inserts `alice` or `mcp`
 first, and adds a comma only before a sibling. Newlines and indent follow
-the file. Every rewrite is backed up first.
+the file. A file whose only line break is CR keeps CR. Before it writes,
+install parses the edited text. `mcp.alice` has to equal the planned entry,
+and every other value has to be unchanged. Otherwise install refuses and
+writes nothing. Every rewrite is backed up first.
 
 On that path an old `mcp.alice` may hold `type`, a `command` array, and
 `environment` values whose names are the documented host env keys:
@@ -60,15 +62,19 @@ The receipt names the line and does not print the file.
 ## What is refused
 
 - `alice` more than once, under `mcp` or `mcp.servers`, including
-  `config.json`, `opencode.jsonc`, and `~/.opencode`.
+  `config.json`, `opencode.jsonc`, and `~/.opencode`. A refusal raised while
+  scanning a text file names that file, says `format: jsonc, edited as text`,
+  and uses the placeholder.
 - A legacy `<config home>/opencode/config` file.
 - JSONC the text path cannot scan (a BOM, a token error, whitespace-only or
   comment-only text, a non-object top level or `mcp`, a duplicate `mcp` or
   `alice`, or nesting deeper than 64). The snippet uses a placeholder data
   dir when the scan stops before `alice`. When the entry is found but cannot
   be edited, the snippet uses that entry's `--data-dir`, or the same
-  placeholder when the entry does not show one. Refusal reasons are a fixed
-  label and a line number.
+  placeholder when the entry does not show one. A `--data-dir` value that
+  holds `{env:` or `{file:` uses that placeholder. A scan refusal is a fixed
+  label and a line number. A reason from the shared launcher planner still
+  carries that planner's text.
 - An OpenCode directory install cannot stat. The receipt names that directory.
   That host fails and the other hosts in the same run still get a receipt.
 

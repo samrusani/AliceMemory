@@ -1205,12 +1205,18 @@ def _assert_jsonc_insert(
     assert middle
     assert "alice" in middle
     assert not middle.endswith(original[:after])
-    parsed = parse_jsonc(written)
+    try:
+        parsed = parse_jsonc(written)
+    except (json.JSONDecodeError, ValueError) as exc:
+        raise AssertionError("edited text does not parse") from exc
     assert isinstance(parsed, dict)
     assert parsed["mcp"]["alice"]["type"] == "local"
     assert parsed["mcp"]["alice"]["command"] == command
     assert "environment" not in parsed["mcp"]["alice"]
-    before = parse_jsonc(original)
+    try:
+        before = parse_jsonc(original)
+    except (json.JSONDecodeError, ValueError) as exc:
+        raise AssertionError("original text does not parse") from exc
     assert isinstance(before, dict)
     for key, value in before.items():
         if key == "mcp":
@@ -1334,7 +1340,7 @@ def test_opencode_jsonc_insert_keeps_the_file_parseable(
     home = tmp_path / "home"
     path = _files(home)["jsonc"]
     cases = _jsonc_insert_cases()
-    assert len(cases) >= 300
+    assert len(cases) == 327
     for index, (text, brace, comments) in enumerate(cases):
         # A fresh vault each time: backups share a one-second name, and one
         # directory holds only 99 of them.
@@ -1354,9 +1360,10 @@ def test_opencode_jsonc_insert_keeps_the_file_parseable(
 def test_opencode_jsonc_empty_insert_is_exact_bytes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """``{}`` and ``{"mcp": {}}`` gain alice with no extra comma.
+    """``{}``, ``{"mcp": {}}``, and ``{ /* c */ }`` gain alice with no extra comma.
 
-    Mutation: always write a comma after an inserted member. The bytes differ.
+    A comment is not a member, so no comma is written before it. Mutation:
+    always write a comma after an inserted member. The bytes differ.
     This test fails.
     """
 
@@ -1369,12 +1376,132 @@ def test_opencode_jsonc_empty_insert_is_exact_bytes(
     expected = {
         "{}": '{"mcp": { "alice": ' + entry + " }}",
         '{"mcp": {}}': '{"mcp": {"alice": ' + entry + "}}",
+        "{ /* c */ }": '{"mcp": { "alice": ' + entry + " } /* c */ }",
     }
     for raw, want in expected.items():
         _write(path, raw)
         code, out, err = _install(home, vault, capsys)
         assert code == 0, (raw, out, err)
         assert path.read_text(encoding="utf-8") == want
+
+
+def test_opencode_jsonc_cr_only_keeps_cr(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A file whose only line break is CR is edited with CR, not LF."""
+
+    scripts = _pin(monkeypatch, tmp_path)
+    home = tmp_path / "home"
+    vault = tmp_path / "vault"
+    path = _files(home)["jsonc"]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b'{ \r "theme": "x" \r}')
+    code, out, err = _install(home, vault, capsys)
+    assert code == 0, (out, err)
+    written = path.read_bytes()
+    assert b"\n" not in written
+    assert b"\r" in written
+    assert b'"theme": "x"' in written
+    text = written.decode("utf-8")
+    assert parse_jsonc(text)["theme"] == "x"
+    assert parse_jsonc(text)["mcp"]["alice"]["command"][0] == str(scripts / "alice-memory")
+
+
+def test_opencode_jsonc_refuses_a_corrupt_edit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A planned edit that does not parse, or that changes another value, is not written.
+
+    Mutation: skip the parse check before the write. The receipt says written
+    and the file holds the corrupt text. This test fails.
+    """
+
+    from alicebot_api import host_install
+
+    _pin(monkeypatch, tmp_path)
+    home = tmp_path / "home"
+    vault = tmp_path / "vault"
+    path = _files(home)["jsonc"]
+    original = '{ "theme": "keep-me" }\n'
+    _write(path, original)
+    before = path.read_bytes()
+    real = host_install._plan_opencode_text
+
+    def unparseable(text: str, **kwargs: object) -> object:
+        planned = real(text, **kwargs)  # type: ignore[arg-type]
+        planned.text = "{ not-json"
+        return planned
+
+    monkeypatch.setattr(host_install, "_plan_opencode_text", unparseable)
+    code, out, err = _install(home, vault, capsys)
+    assert code == 1, (out, err)
+    assert "action: written" not in out
+    assert "a token error" in out
+    assert "not-json" not in out
+    assert path.read_bytes() == before
+    assert not _backups(vault)
+
+    def changed(text: str, **kwargs: object) -> object:
+        planned = real(text, **kwargs)  # type: ignore[arg-type]
+        if planned.text is not None:
+            planned.text = planned.text.replace('"keep-me"', '"changed"', 1)
+        return planned
+
+    monkeypatch.setattr(host_install, "_plan_opencode_text", changed)
+    code, out, err = _install(home, vault, capsys)
+    assert code == 1, (out, err)
+    assert "action: written" not in out
+    assert "the edited text is not the planned entry" in out
+    assert '"changed"' not in out
+    assert path.read_bytes() == before
+    assert not _backups(vault)
+
+
+def test_opencode_json_is_the_target_when_jsonc_also_exists(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Alice in opencode.json stays the target when opencode.jsonc exists.
+
+    A 0-byte opencode.jsonc is skipped, so install writes opencode.json.
+    """
+
+    scripts = _pin(monkeypatch, tmp_path)
+    home = tmp_path / "home"
+    vault = tmp_path / "vault"
+    files = _files(home)
+    _write(
+        files["mcp"],
+        json.dumps(
+            {
+                "mcp": {
+                    "alice": {
+                        "type": "local",
+                        "command": [
+                            str(scripts / "alice-memory"),
+                            "mcp",
+                            "--data-dir",
+                            str((tmp_path / "old").resolve()),
+                        ],
+                    }
+                }
+            }
+        ),
+    )
+    jsonc_text = '{ "theme": "stay" }\n'
+    _write(files["jsonc"], jsonc_text)
+    code, out, err = _install(home, vault, capsys)
+    assert code == 0, (out, err)
+    assert f"path: {files['mcp']}" in out.splitlines()
+    assert str(vault.resolve()) in files["mcp"].read_text(encoding="utf-8")
+    assert files["jsonc"].read_text(encoding="utf-8") == jsonc_text
+
+    files["mcp"].unlink()
+    files["jsonc"].write_bytes(b"")
+    code, out, err = _install(home, vault, capsys)
+    assert code == 0, (out, err)
+    assert f"path: {files['mcp']}" in out.splitlines()
+    assert files["mcp"].is_file()
+    assert files["jsonc"].read_bytes() == b""
 
 
 def test_opencode_jsonc_indent_stays_one_step(
@@ -1428,7 +1555,11 @@ def test_opencode_jsonc_refusal_snippet_uses_the_entry_dir(
 ) -> None:
     """A text-path refusal pastes the entry's data dir, or the placeholder.
 
-    Mutation: paste ~/.alice when --data-dir was omitted. This test fails.
+    A would-not-start entry with no data dir, a text-scan refusal, and a
+    data dir that holds {env: or {file: use the placeholder. A text-scan
+    refusal names the scanned file and says it was edited as text.
+    Mutation: paste ~/.alice when --data-dir was omitted, or name
+    opencode.json for a refusal raised from opencode.jsonc. This test fails.
     """
 
     _pin(monkeypatch, tmp_path)
@@ -1496,6 +1627,100 @@ def test_opencode_jsonc_refusal_snippet_uses_the_entry_dir(
     assert "line (line" not in captured.out
     assert own in captured.out
 
+    placeholder = "<the data dir your existing alice entry uses>"
+    home_dir = str((home / ".alice").resolve())
+    stopped = [
+        (["alice-memory", "mcp", "--bogus"], "would not start"),
+        (["alice-memory", "mcp", "--db", "/x/y.db", "stray"], "would not start"),
+    ]
+    for command, reason in stopped:
+        _write(path, json.dumps({"mcp": {"alice": {"type": "local", "command": command}}}) + "\n")
+        before = path.read_bytes()
+        code = onramp_main(["install", "--home", str(home), "--host", "opencode"])
+        captured = capsys.readouterr()
+        assert code == 1, (reason, captured.out)
+        assert reason in captured.out
+        snippet = captured.out.split("snippet:", 1)[1]
+        assert placeholder in snippet
+        assert home_dir not in captured.out
+        assert "~/.alice" not in captured.out
+        assert path.read_bytes() == before
+        assert not _backups(home / ".alice")
+
+    kept = ["alice-memory", "mcp", "--data-dir", own, "--bogus"]
+    _write(path, json.dumps({"mcp": {"alice": {"type": "local", "command": kept}}}) + "\n")
+    before = path.read_bytes()
+    code = onramp_main(["install", "--home", str(home), "--host", "opencode"])
+    captured = capsys.readouterr()
+    assert code == 1, captured.out
+    assert "would not start" in captured.out
+    snippet = captured.out.split("snippet:", 1)[1]
+    assert own in snippet
+    assert placeholder not in snippet
+    assert home_dir not in snippet
+    assert path.read_bytes() == before
+
+    files = _files(home)
+    mcp = files["mcp"]
+    if mcp.exists():
+        mcp.unlink()
+    servers = (
+        '{ "mcp": { "servers": { "alice": { "type": "local", "command": '
+        '["uvx", "alice-memory", "mcp"] } } } }\n'
+    )
+    _write(path, servers)
+    before = path.read_bytes()
+    code = onramp_main(["install", "--home", str(home), "--host", "opencode"])
+    captured = capsys.readouterr()
+    assert code == 1, captured.out
+    assert "alice is under mcp.servers" in captured.out
+    assert f"path: {path}" in captured.out.splitlines()
+    assert f"path: {mcp}" not in captured.out.splitlines()
+    assert "format: jsonc, edited as text" in captured.out.splitlines()
+    assert "format: json" not in captured.out.splitlines()
+    assert placeholder in captured.out.split("snippet:", 1)[1]
+    assert home_dir not in captured.out
+    assert not mcp.exists()
+    assert path.read_bytes() == before
+
+    both = {"type": "local", "command": ["uvx", "alice-memory", "mcp", "--data-dir", "/v"]}
+    _write(mcp, json.dumps({"mcp": {"alice": both}}))
+    _write(
+        path,
+        '{ "mcp": { "alice": { "type": "local", "command": ["uvx", "alice-memory", "mcp"] } } }\n',
+    )
+    before_json = mcp.read_bytes()
+    before_jsonc = path.read_bytes()
+    code = onramp_main(["install", "--home", str(home), "--host", "opencode"])
+    captured = capsys.readouterr()
+    assert code == 1, captured.out
+    assert "alice appears more than once" in captured.out
+    assert f"path: {path}" in captured.out.splitlines()
+    assert f"path: {mcp}" not in captured.out.splitlines()
+    assert "format: jsonc, edited as text" in captured.out.splitlines()
+    assert placeholder in captured.out.split("snippet:", 1)[1]
+    assert home_dir not in captured.out
+    assert mcp.read_bytes() == before_json
+    assert path.read_bytes() == before_jsonc
+    assert not _backups(tmp_path / "entry-vault")
+
+    for word in ("{env:" + "HOME}", "{file:" + "secret}"):
+        command = ["uvx", "alice-memory", "mcp", "--data-dir", "/x/" + word]
+        _write(
+            path,
+            '{ "mcp": { "alice": { "type": "local", "command": ' + json.dumps(command) + " } } }\n",
+        )
+        if mcp.exists():
+            mcp.unlink()
+        before = path.read_bytes()
+        code = onramp_main(["install", "--home", str(home), "--host", "opencode"])
+        captured = capsys.readouterr()
+        assert code == 1, (word, captured.out)
+        assert word not in captured.out
+        assert placeholder in captured.out.split("snippet:", 1)[1]
+        assert home_dir not in captured.out
+        assert path.read_bytes() == before
+
 
 def test_opencode_jsonc_depth_comment_and_scanner(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
@@ -1553,12 +1778,21 @@ def test_readme_says_opencode_masks_command() -> None:
     assert "--host opencode" in text
     assert "masks that array" in text
     assert "When alice already sits in `config.json`, that file is the one rewritten." in text
-    assert "when `opencode.jsonc` exists, that is the file written" in text
+    target = (
+        "When alice sits in `opencode.json` and an `opencode.jsonc` also exists, "
+        "install targets `opencode.json`."
+    )
+    skipped = "A 0-byte `.jsonc` is skipped."
+    assert target in text
+    assert skipped in text
     assert "edited as text" in text
     changelog = (root / "CHANGELOG.md").read_text(encoding="utf-8")
     assert "When alice already sits in `config.json`, that file is the one" in changelog
-    assert "when `opencode.jsonc` exists, that is the file written" in changelog
+    assert target in changelog
+    assert skipped in changelog
     integration = (root / "docs/integrations/opencode.md").read_text(encoding="utf-8")
+    assert target in integration
+    assert skipped in integration
     assert "`NaN` and a BOM are refused" in integration
     assert "`NaN`, `1e999`, or a BOM" not in integration
     assert "The receipt names that directory." in integration
