@@ -2,15 +2,18 @@
 
 ## Supported Versions
 
-Alice is pre-1.0 software. Security fixes target the latest published minor
-release series. Older minor series and development snapshots are not maintained
-with security backports; move to the latest published release before reporting
-or validating a fix. The default branch is useful for reproducing a forthcoming
-fix, but it is not a supported release until it is tagged and published.
+Alice is pre-1.0 software. Security fixes go into the latest published release.
+Older releases and development snapshots do not get security backports; move to
+the latest published release before reporting or validating a fix. The default
+branch is useful for reproducing a forthcoming fix, but it is not a supported
+release until it is tagged and published.
 
 ## Reporting a Vulnerability
 
-Please report security issues privately by opening a private security advisory in GitHub for this repository. Include:
+Report security issues privately by email to hello@alicememory.com. If private
+vulnerability reporting is enabled for this repository, the Security tab shows a
+"Report a vulnerability" button, and you can open a private security advisory
+there instead. Include:
 
 - affected component/file
 - reproduction steps

@@ -2,7 +2,7 @@
 
 This alpha is intentionally limited.
 
-- local setup is still technical
+- the Postgres stack setup is still technical; the SQLite install is one command
 - no hosted cloud
 - no production SLA
 - no managed Gmail OAuth consent/account-linking flow; manual operator-token
@@ -30,10 +30,11 @@ This alpha is intentionally limited.
 - generic thread, approval, task, and trace histories are client-bounded, but their list endpoints do not yet provide cursor pagination
 - team accounts, billing, cloud sync, mobile app, and hosted deployment are out of scope
 
-SQLite mode (`alice-memory mcp`) is the trial/single-agent path and carries extra boundaries:
+SQLite mode (`alice-memory install`, `alice-memory mcp`) is the default single-user path and carries extra boundaries:
 
-- core MCP tools only (11 as of this release); optional long-tail memory tools
-  require `ALICE_MCP_LEGACY_TOOLS=1` and remain Postgres-only
+- the default three MCP tools, or all eleven core tools with
+  `ALICE_MCP_FULL_TOOLS=1`; optional long-tail memory tools need
+  `ALICE_MCP_LEGACY_TOOLS=1` and Postgres
 - no web console review — review runs through `alice_memory_review` / `alice_memory_correct`
 - no scheduler
 - agent API keys cannot be created (`alicebot agent keys create` requires Postgres); leave `ALICE_AGENT_API_KEY` unset — agent identity is still honored and audited as `unauthenticated_local`, while a set key fails closed and rejects every write

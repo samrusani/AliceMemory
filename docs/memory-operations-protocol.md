@@ -20,9 +20,12 @@ Ten verbs cover the lifecycle of a memory:
 | [expire / unexpire](#expire--unexpire) | Close or reopen a memory's validity window | Shipped |
 | [redact](#redact) | Scrub governed memory copies, keeping the audit skeleton and source evidence | Shipped |
 
-All shipped verbs are on the default (core) MCP surface — no
-`ALICE_MCP_LEGACY_TOOLS` flag needed — and all of them work in SQLite
-on-ramp mode as well as against Postgres.
+`remember` by explicit commit, `recall`, and `confirm` work on the default
+three MCP tools: `alice_memory_commit`, `alice_recall`, and `alice_resume`.
+Source-backed capture (`alice_capture`), `alice_context_pack`, and the other
+seven verbs need `ALICE_MCP_FULL_TOOLS=1` in the MCP server environment. No
+verb needs `ALICE_MCP_LEGACY_TOOLS`. All of them work in SQLite on-ramp mode
+as well as against Postgres.
 
 ## The outcome vocabulary
 

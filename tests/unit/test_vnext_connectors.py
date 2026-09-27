@@ -159,7 +159,7 @@ def _telegram_payload(update_id: int, text: str = "Fact: Telegram capture preser
             "message_id": update_id + 100,
             "date": 1_778_400_000,
             "chat": {"id": 999001, "type": "private"},
-            "from": {"id": 1001, "username": "samir"},
+            "from": {"id": 1001, "username": "jordan"},
             "text": text,
         },
     }
@@ -712,7 +712,7 @@ def test_screenshot_and_voice_normalizers_capture_processed_text_and_raw_payload
             "title": "Morning note",
             "recorded_at": "2026-05-11T10:30:00Z",
             "segments": [
-                {"speaker": "Samir", "text": "Decision: Keep connector sync deterministic."},
+                {"speaker": "Jordan", "text": "Decision: Keep connector sync deterministic."},
                 {"speaker": "Alice", "text": "Noted."},
             ],
             "transcription_provider": "local-whisper",
@@ -723,7 +723,7 @@ def test_screenshot_and_voice_normalizers_capture_processed_text_and_raw_payload
     assert screenshot.metadata_json["raw_payload"]["image_hash"] == "sha256:image"
     assert screenshot.metadata_json["untrusted_source_material"] is True
     assert voice.source_type == "voice_transcript"
-    assert "Samir: Decision: Keep connector sync deterministic." in voice.raw_text
+    assert "Jordan: Decision: Keep connector sync deterministic." in voice.raw_text
     assert voice.metadata_json["transcription_provider"] == "local-whisper"
     assert voice.metadata_json["untrusted_source_material"] is True
 

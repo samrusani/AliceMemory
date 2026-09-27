@@ -1189,7 +1189,7 @@ def _third_party_person_claim(candidate: PromotionCandidate, owner_aliases: tupl
     sentence gated with title "Note" and passed with title "" or "NOTE".
 
     Second, the single-capitalised-token pattern is gone. Distinguishing
-    "Sami approved" from "Fridays are quiet" needs to know which words are
+    "Alex approved" from "Fridays are quiet" needs to know which words are
     names, and a hardcoded list of the nouns that broke the last test run is
     not that knowledge; it just moves the boundary to the next unlisted noun.
     What is left is high precision: a two-token capitalised name next to an

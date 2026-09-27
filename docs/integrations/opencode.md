@@ -1,5 +1,10 @@
 # OpenCode
 
+Unreleased (on main, not in v0.17.0): everything on this page. alice-memory
+0.17.0 does not accept `--host opencode` and refuses the command with
+`invalid_request`. With 0.17.0, add the entry under "What gets written" to
+`mcp.alice` in `opencode.json` by hand.
+
 OpenCode is opt-in. `alice-memory install` does not write it unless you pass
 `--host opencode`. The default hosts stay Claude Desktop, Claude Code, Cursor,
 and OpenClaw. There is no SessionStart hook. OpenCode has no hook block in

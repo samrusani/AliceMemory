@@ -12,7 +12,7 @@ Agent developers — people building or operating AI agents who need durable, ex
   present, while reviews and corrections preserve their own audit chain.
   Explicit commits may legitimately have no source reference.
 - Review-governed writes: agent commits resolve to commit, confirm, review, or reject through policy; the review console is the trust boundary.
-- Local-first: your data stays on your machine; models and embeddings are pluggable via OpenAI-compatible endpoints.
+- Local-first: Alice stores your data on a machine you control. Text goes to a model or embedding provider only if you configure one, and then only to that provider.
 
 ## Current Posture
 - `v0.17.0` is the latest published release and immutable baseline. The
@@ -35,10 +35,11 @@ Agent developers — people building or operating AI agents who need durable, ex
   the product-path mode and is not yet a published score. The **79.4%
   (397/500)** single run from 2026-07-07 is retained as evidence.
 - The fourth-audit remediation shipped in `v0.10.3` after exact-SHA gates
-  and independent review passed.
+  and internal review passed.
 - Alice is public-alpha, pre-1.0, single-user, and self-hosted. `alice-memory`
-  is published on PyPI; `uvx alice-memory mcp` serves the core tools against a
-  local SQLite file with no Docker or Postgres.
+  is published on PyPI; `uvx alice-memory mcp` serves three MCP tools on a
+  local SQLite file, or all eleven with `ALICE_MCP_FULL_TOOLS=1`, with no
+  Docker or Postgres.
 - `v0.12.0` shipped the Phase 3 structural refactor with **Structure only.
   Zero behavior change.** It relocates oversized HTTP, store, contract, MCP,
   and CLI modules behind stable facades and entrypoints without changing the

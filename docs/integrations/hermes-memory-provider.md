@@ -179,7 +179,11 @@ Practical default:
 - `bridge_mode` (string enum: `manual`, `assist`, `auto`; default `assist`)
 - `session_end_flush_timeout_seconds` (float, default `5.0`)
 
-`sync_turn_capture_enabled: false` always wins. Use that when you want bridge recall/prefetch behavior without post-turn capture, even if `bridge_mode` is `assist` or `auto`. With `sync_turn_capture_enabled` set, or with an explicit `bridge_mode` of `assist` or `auto`, user-role candidates that match an explicit prefix are auto-saved and the rest are queued. When a candidate extracted from the assistant reply carries a credential, the whole turn is refused, so a valid user decision in that same turn is not saved. `memory_write_capture_enabled` posts to `POST /v0/continuity/captures`, which refuses credential material.
+`sync_turn_capture_enabled: false` always wins. Use that when you want bridge recall/prefetch behavior without post-turn capture, even if `bridge_mode` is `assist` or `auto`. `memory_write_capture_enabled` posts to `POST /v0/continuity/captures`.
+
+Unreleased (on main, not in v0.17.0): with `sync_turn_capture_enabled` set, or with an explicit `bridge_mode` of `assist` or `auto`, only user-role candidates that match an explicit prefix are auto-saved and the rest are queued. When a candidate extracted from the assistant reply carries a credential, the whole turn is refused, so a valid user decision in that same turn is not saved. `POST /v0/continuity/captures` refuses credential material.
+
+In v0.17.0, the latest release, `POST /v0/continuity/captures` checks for credentials only when the capture derives an object. A capture that derives no object stores its raw text in the capture inbox, credential material included. Auto-save is broader: `assist` auto-saves any explicit candidate of an allowed type at confidence 0.9 or more, from either role, and `auto` auto-saves an allowed type at confidence 0.85 or more. The `sync_turn` capture can also fail with HTTP 422, because the plugin sends the user id only in the `X-AliceBot-User-Id` header.
 
 Legacy compatibility keys still accepted for shipped configs:
 

@@ -37,8 +37,9 @@ Security posture:
 - the managed SQLite directory is owner-only; database sidecars and exports are also owner-only
 
 The complete shipped-product threat model, evidence ledger, and open proof gaps
-are in [`docs/security/`](../security/README.md). Those Stage A materials prepare
-an independent review; they are not a security certification.
+are in [`docs/security/`](../security/README.md). These materials record
+automated security scanning and internal adversarial review, findings triaged
+and fixed. They are not a third-party review or a security certification.
 
 Recommended alpha defaults:
 

@@ -1,5 +1,7 @@
 # Phase 12 Closeout Packet
 
+> Historical: kept for reference; not current guidance.
+
 This runbook is the source-of-truth closeout packet for the accepted Phase 12 baseline through `P12-S5`.
 The latest published tag remains `v0.2.0`; this packet prepares the completed Phase 12 boundary for a `v0.3.2` release decision.
 

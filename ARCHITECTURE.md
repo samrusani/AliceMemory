@@ -31,7 +31,7 @@ Both implement the same core memory contracts.
 ```text
 external agent / operator
         |
-        +-- MCP (11 core tools)
+        +-- MCP (3 default tools, 11 with ALICE_MCP_FULL_TOOLS=1)
         +-- HTTP (agent-key authenticated core routes)
         +-- CLI (core memory and continuity commands)
         |
@@ -55,10 +55,15 @@ PostgreSQL + pgvector  |  SQLite
 
 ### Agent interface
 
-- The default MCP server exposes eleven tools: `alice_capture`, `alice_recall`,
-  `alice_resume`, `alice_context_pack`, `alice_open_loops`,
-  `alice_recent_decisions`, `alice_memory_review`, `alice_memory_correct`,
-  `alice_explain`, `alice_memory_commit`, and `alice_memory_manage`.
+- The default MCP handshake exposes three tools: `alice_memory_commit`,
+  `alice_recall`, and `alice_resume`. Set `ALICE_MCP_FULL_TOOLS=1` to expose
+  all eleven core tools. The other eight are `alice_capture`,
+  `alice_context_pack`, `alice_open_loops`, `alice_recent_decisions`,
+  `alice_memory_review`, `alice_memory_correct`, `alice_explain`, and
+  `alice_memory_manage`.
+- `alice-memory` is the SQLite on-ramp. It serves MCP, and
+  `alice-memory install` writes the host MCP config and, for Claude Code and
+  Cursor, a session-start hook.
 - HTTP and CLI adapters expose equivalent core workflows. Agent HTTP calls use
   per-agent API keys; key records are authoritative for identity and policy.
 - Remaining HTTP/CLI compatibility adapters are not part of the default product;
@@ -216,7 +221,7 @@ usage justifies a separately reviewed boundary.
 - Store contracts run with PostgreSQL and SQLite parity where applicable.
 - OpenAPI closure, phantom-key rejection, route counts, full Python/web
   coverage, static checks, reproducible packages, installed-artifact smokes,
-  semantic evidence, and independent review remain release gates.
+  semantic evidence, and internal review remain release gates.
 - Historical migration tests stay even when the product surface that created a
   table has been removed.
 
@@ -228,16 +233,15 @@ usage justifies a separately reviewed boundary.
 - Phase 3 reduces `main.py` to app assembly and shared middleware,
   extracts domain routers, mirrors PostgreSQL and SQLite vNext store seams,
   splits the surviving legacy store and pure contracts, and moves MCP/CLI
-  implementations into packages behind stable facades. Every production Python
-  file is below 4,000 lines; the largest is 3,803 lines.
+  implementations into packages behind stable facades. Phase 3 brought every
+  production Python file below 4,000 lines. Two have grown past that since:
+  `vnext_retrieval.py` and `host_install.py`.
 - HTTP route paths, operation IDs, dependencies, error behavior, store SQL,
   MCP and CLI registries, compatibility imports, and console entrypoints remain
   unchanged. Exact closure, SQL-shape, namespace, and installed-artifact tests
   enforce those boundaries.
-- The carrier is uncommitted and targets `v0.12.0`; its independent final
-  verdict is owned only by the handoff's `REVIEW_REPORT.md`. The version cut,
-  exact-SHA gates, checksums, tag, GitHub Release, and PyPI readback remain
-  outside the local structural freeze.
+- `v0.12.0` shipped this structure. Its review record is the Phase 3
+  handoff's `REVIEW_REPORT.md`.
 - Changes made after any release tag were not part of that release's immutable
   artifacts. See the Published boundary above for what is current.
 - The default deployment is local-first and single-workspace. A future hosted

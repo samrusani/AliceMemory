@@ -209,8 +209,8 @@ compact dataset-manifest/slice consistency contract, and the offline evidence
 replay. Web gates include units, core plus vNext per-file coverage,
 TypeScript, lint, the production build, navigation/axe/outage browser
 tests, and bundle budgets. It also builds both distributions, runs Twine, and
-tests the installed wheel/sdist across all four public entrypoints. It first
-fetches `origin/main`, and writes `$DIST_DIR/SHA256SUMS` only after both
+tests the installed wheel and sdist across all five console entrypoints. It
+first fetches `origin/main`, and writes `$DIST_DIR/SHA256SUMS` only after both
 artifacts pass.
 
 Web dependency auditing deliberately remains on

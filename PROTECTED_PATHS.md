@@ -91,7 +91,6 @@ Invariants:
 
 Protected paths:
 
-- `apps/api/src/alicebot_api/cli.py`
 - `apps/api/src/alicebot_api/cli/*.py`
 - `apps/api/src/alicebot_api/contracts.py`
 - `apps/api/src/alicebot_api/_contracts/*.py`

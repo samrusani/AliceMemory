@@ -2,6 +2,10 @@
 
 This pack provides Hermes-native skills that guide when and how to call Alice MCP tools.
 
+This pack is legacy. The supported Hermes pack is
+`agent-skills/hermes/alice-memory`. The skills here need the full tool
+surface (`ALICE_MCP_FULL_TOOLS=1`).
+
 ## What This Pack Includes
 
 Pack location in this repository:
@@ -35,6 +39,10 @@ export HERMES_HOME="${HERMES_HOME:-$HOME/.hermes}"
 mkdir -p "$HERMES_HOME/skills"
 cp -R docs/integrations/hermes-skill-pack/skills/alice-workflows "$HERMES_HOME/skills/"
 ```
+
+These skills need the full tool surface. Set `ALICE_MCP_FULL_TOOLS=1` in the
+Alice server env. On the default three tools, only the `alice_recall` and
+`alice_resume` steps work.
 
 ## Verify Installation
 
