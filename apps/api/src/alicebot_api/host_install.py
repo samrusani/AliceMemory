@@ -24,6 +24,7 @@ from pathlib import Path, PureWindowsPath
 from typing import Any
 
 from alicebot_api import __version__
+from alicebot_api.credential_floor import carries_credential_material
 from alicebot_api.host_launcher import (
     DOCS_DATA_DIR_PLACEHOLDER,
     FIRST_SESSION_START_VERSION,
@@ -1135,9 +1136,10 @@ def _check_hooks_file(doc: Mapping[str, Any], host: str) -> None:
 def _describe_entry(entry: object) -> str:
     """Why an entry is foreign. Only the basename of the command's first word.
 
-    ``masked_args`` hides separate arguments. A token inside one command
-    string would be printed, so the reason names the program and nothing
-    after it. A query or fragment is not part of that file name.
+    A token later in that command string is not printed. A first word that
+    contains ``://`` is ``a URL``, and no part of it is printed. Any other
+    first word that carries credential material is ``a command that looks
+    like a credential``. A query or fragment is not part of a file name.
     """
 
     if isinstance(entry, Mapping):
@@ -1145,8 +1147,13 @@ def _describe_entry(entry: object) -> str:
         if isinstance(command, str):
             words = command.split()
             if words:
-                word = words[0].split("?", 1)[0].split("#", 1)[0]
-                name = PureWindowsPath(word).name
+                word = words[0]
+                if "://" in word:
+                    return "its command is a URL"
+                if carries_credential_material(word):
+                    return "its command is a command that looks like a credential"
+                bare = word.split("?", 1)[0].split("#", 1)[0]
+                name = PureWindowsPath(bare).name
                 if name:
                     return f"its command is {name}"
         return "it has no string command"

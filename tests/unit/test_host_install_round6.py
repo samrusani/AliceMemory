@@ -309,6 +309,138 @@ def test_foreign_command_reason_prints_only_the_basename(
     assert path.read_bytes() == before
 
 
+def _runtime_token() -> str:
+    return "q" + "7" + "n" + "4" + "m" + "8"
+
+
+def _credential_body() -> str:
+    return "Ab" + "12" + "cdef" + "ghij"
+
+
+def _url_shapes(token: str) -> list[str]:
+    scheme = "https://"
+    user = "user"
+    host = "host.example"
+    return [
+        scheme + user + ":" + token + "@" + host,
+        scheme + user + ":" + token + "@" + host + "/",
+        scheme + host + "/mcp/" + token,
+        scheme + host + "/" + token + "?a=1",
+        scheme + host + "/x;key=" + token,
+        scheme + user + ":" + token + "@" + host + "/mcp/alice",
+    ]
+
+
+def _credential_shapes(body: str) -> list[str]:
+    prefixed = "s" + "k-" + body
+    github = "gh" + "p_" + body
+    assigned = "API_" + "KEY=" + prefixed
+    return [
+        prefixed,
+        assigned + " node",
+        "user" + ":" + github + "@" + "host.example",
+    ]
+
+
+def _seed_foreign_command(home: Path, host: str, command: str) -> Path:
+    if host == "hermes":
+        path = host_file_map(home.resolve())["hermes"]["mcp"]
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            "mcp_servers:\n"
+            "  alice:\n"
+            f"    command: {json.dumps(command)}\n"
+            "    args:\n"
+            "      - leftover\n",
+            encoding="utf-8",
+        )
+        return path
+    path = _files(home, host)["mcp"]
+    entry = {"command": command, "args": ["leftover"]}
+    if host == "openclaw":
+        doc = {"mcp": {"servers": {"alice": entry}}}
+    else:
+        doc = {"mcpServers": {"alice": entry}}
+    _seed(path, doc)
+    return path
+
+
+@pytest.mark.parametrize(
+    "host",
+    ["claude-desktop", "claude-code", "cursor", "openclaw", "hermes"],
+)
+@pytest.mark.parametrize("extra", [(), ("--dry-run",)], ids=["real", "dry-run"])
+@pytest.mark.parametrize("shape", range(6))
+def test_a_url_command_is_described_as_a_url(
+    tmp_path: Path, capsys, host: str, extra: tuple[str, ...], shape: int
+) -> None:
+    """A URL command is ``a URL``. No userinfo, path, or query is printed.
+
+    Mutation: take the basename of a word that contains ://. The token is
+    printed. This test fails.
+    """
+
+    token = _runtime_token()
+    command = _url_shapes(token)[shape]
+    home = tmp_path / "home"
+    path = _seed_foreign_command(home, host, command)
+    before = path.read_bytes()
+    code, out, err = _install(capsys, home, "--host", host, "--data-dir", str(tmp_path / "vault"), *extra)
+    assert code == 1, out
+    combined = out + err
+    assert token not in combined
+    assert "host.example" not in combined
+    assert "its command is a URL" in out
+    assert "://" not in out
+    assert path.read_bytes() == before
+
+
+@pytest.mark.parametrize(
+    "host",
+    ["claude-desktop", "claude-code", "cursor", "openclaw", "hermes"],
+)
+@pytest.mark.parametrize("extra", [(), ("--dry-run",)], ids=["real", "dry-run"])
+@pytest.mark.parametrize("shape", range(3), ids=["token", "assignment", "scp"])
+def test_a_credential_shaped_command_is_not_printed(
+    tmp_path: Path, capsys, host: str, extra: tuple[str, ...], shape: int
+) -> None:
+    """The first word is checked for credential material.
+
+    A token-only command, ``API_KEY=<token> node``, and scp-style
+    ``user:<token>@host`` are each ``a command that looks like a
+    credential``. Mutation: print that first word. This test fails.
+    """
+
+    body = _credential_body()
+    command = _credential_shapes(body)[shape]
+    home = tmp_path / "home"
+    path = _seed_foreign_command(home, host, command)
+    before = path.read_bytes()
+    code, out, err = _install(capsys, home, "--host", host, "--data-dir", str(tmp_path / "vault"), *extra)
+    assert code == 1, out
+    combined = out + err
+    assert body not in combined
+    assert "its command is a command that looks like a credential" in out
+    assert "node" not in out
+    assert "host.example" not in combined
+    assert path.read_bytes() == before
+
+
+def test_a_windows_path_command_prints_only_the_basename(tmp_path: Path, capsys) -> None:
+    """``C:\\x\\y.exe`` is ``y.exe``. A later token is not printed."""
+
+    home = tmp_path / "home"
+    command = "C:\\x\\y.exe leftover"
+    path = _seed_foreign_command(home, "claude-desktop", command)
+    before = path.read_bytes()
+    code, out, err = _install(capsys, home, "--host", "claude-desktop", "--data-dir", str(tmp_path / "vault"))
+    assert code == 1, out
+    assert "its command is y.exe" in out
+    assert "leftover" not in out + err
+    assert "\\x\\" not in out + err
+    assert path.read_bytes() == before
+
+
 @pytest.mark.parametrize(
     "command",
     ["https://me:p'w-SECRET@mcp.example/alice", "https://me:p w-SECRET@mcp.example/alice"],
@@ -330,3 +462,4 @@ def test_a_foreign_url_command_with_a_quoted_password_is_masked(
     code, out, err = _install(capsys, home, "--host", "claude-desktop")
     assert code == 1
     assert "SECRET" not in out + err
+    assert "its command is a URL" in out

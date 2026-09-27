@@ -2,9 +2,11 @@
 
 ## Unreleased
 
-- A refusal for an alice entry install did not write names only the
+- A refusal for an alice entry that install did not write names only the
   basename of the command's first word. A token later in that command
-  string is not printed.
+  string is not printed. A first word that contains :// is shown as a
+  URL. A first word that carries credential material is shown as a
+  command that looks like a credential.
 
 - OpenCode is an opt-in install host (`--host opencode`). The default hosts
   are unchanged. Install writes `mcp.alice` as `type: local` and a `command`

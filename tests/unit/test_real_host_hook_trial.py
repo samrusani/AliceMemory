@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import io
 import json
 import os
 import stat
@@ -108,6 +109,9 @@ def _stub(record: Path) -> str:
                         else:
                             payload = b'{{"transcript_path":""}}\\n'
                         subprocess.run(command, shell=True, input=payload, check=False)
+                        if transcript:
+                            with open(transcript, "a", encoding="utf-8") as handle:
+                                handle.write("after-copy\\n")
                         info["fired"].append(event)
         record.write_text(json.dumps(info))
         print("ok")
@@ -218,12 +222,50 @@ def _install_stub(tmp_path: Path, monkeypatch, *, version: str = _PINNED) -> Pat
     return record
 
 
+def test_transcript_lines_count_the_saved_copy(tmp_path: Path, monkeypatch) -> None:
+    """transcript_lines counts the copy, after the copy and before a later append.
+
+    The report test's stub appends only after the hook returns, so reading
+    the source inside the hook still matches the copy. Mutation: count
+    Path(transcript) after copyfile. This test fails.
+    """
+
+    trial = _load_trial()
+    transcript = tmp_path / "session.jsonl"
+    transcript.write_bytes(b"one\n")
+    real_copy = trial.shutil.copyfile
+
+    def copying(src, dst, *args, **kwargs):
+        result = real_copy(src, dst, *args, **kwargs)
+        with open(src, "ab") as handle:
+            handle.write(b"later\n")
+        return result
+
+    monkeypatch.setattr(trial.shutil, "copyfile", copying)
+    artifacts = tmp_path / "artifacts"
+    raw = json.dumps({"transcript_path": str(transcript)}).encode()
+
+    class _Stdin:
+        buffer = io.BytesIO(raw)
+
+    monkeypatch.setattr(trial.sys, "stdin", _Stdin())
+    assert trial.hook("SessionStart", artifacts) == 0
+    timing = json.loads((artifacts / "SessionStart.timing.json").read_text(encoding="utf-8"))
+    copied = (artifacts / "SessionStart.transcript").read_bytes().splitlines()
+    source = transcript.read_bytes().splitlines()
+    assert copied == [b"one"]
+    assert source == [b"one", b"later"]
+    assert timing["transcript_lines"] == len(copied)
+    assert timing["transcript_lines"] != len(source)
+
+
 def test_report_keeps_hook_time_counts_when_the_transcript_grows(tmp_path: Path, monkeypatch) -> None:
     """Hook-time line counts stay put when the transcript grows before replay.
 
-    Mutation: replay into the hook directory, or report the replay line
-    count as transcript_lines. SessionStart's saved copy is no longer one
-    line, or the report says 2.
+    The stub appends a line after the hook copies, so the live transcript
+    is longer than the saved copy. Mutation: replay into the hook
+    directory, report the replay line count as transcript_lines, or count
+    the source file. SessionStart's saved copy is no longer one line.
     """
 
     _install_stub(tmp_path, monkeypatch)
@@ -255,15 +297,18 @@ def test_report_keeps_hook_time_counts_when_the_transcript_grows(tmp_path: Path,
     start_lines = len(start_copy.read_bytes().splitlines())
     end_lines = len(end_copy.read_bytes().splitlines())
     assert start_lines == 1
-    assert end_lines == 2
+    assert end_lines == 3
+    source_lines = len(transcript.read_bytes().splitlines())
+    assert source_lines == 4
+    assert source_lines != start_lines
     assert start["transcript_lines"] == start_lines
     assert end["transcript_lines"] == end_lines
-    assert start["replay_transcript_lines"] == 2
-    assert end["replay_transcript_lines"] == 2
+    assert start["replay_transcript_lines"] == source_lines
+    assert end["replay_transcript_lines"] == source_lines
     assert start["replay_copied"] is True
     saved = (artifacts / "SessionStart.stdin").read_bytes()
     assert json.loads(saved)["transcript_path"] == str(transcript)
-    assert len((artifacts / "replay" / "SessionStart.transcript").read_bytes().splitlines()) == 2
+    assert len((artifacts / "replay" / "SessionStart.transcript").read_bytes().splitlines()) == source_lines
     assert summary.is_file()
     summary_text = summary.read_text(encoding="utf-8")
     assert summary_text.splitlines()[0] == headline
