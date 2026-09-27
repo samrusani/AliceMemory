@@ -6,7 +6,8 @@
   are unchanged. Install writes `mcp.alice` as `type: local` and a `command`
   array, with no `environment` key, in the strict JSON file that already has
   it. When alice already sits in `config.json`, that file is the one
-  rewritten. Otherwise install writes `opencode.json`. A re-run
+  rewritten. Otherwise, when `opencode.jsonc` exists, that is the file written.
+  Otherwise install writes `opencode.json`. A re-run
   keeps `timeout`, `enabled`, `cwd`, `environment`, and sibling servers.
   A dry run masks the command array. An `opencode.jsonc` file is edited
   as text, and so is an `opencode.json` that is not strict JSON. The text

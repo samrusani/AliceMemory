@@ -36,7 +36,7 @@ value of a flag whose name holds key, token, secret, or password.
 
 `opencode.jsonc` is always edited as text. `opencode.json` is edited as text
 when it is not strict JSON (a comment, a trailing comma, a duplicate key,
-`NaN`, `1e999`, or a BOM). The receipt says `format: jsonc, edited as text`.
+or `1e999`). `NaN` and a BOM are refused. The receipt says `format: jsonc, edited as text`.
 Install replaces only the `mcp.alice` value, or inserts `alice` or `mcp`
 first, and adds a comma only before a sibling. Newlines and indent follow
 the file. Every rewrite is backed up first.
@@ -65,9 +65,12 @@ The receipt names the line and does not print the file.
 - JSONC the text path cannot scan (a BOM, a token error, whitespace-only or
   comment-only text, a non-object top level or `mcp`, a duplicate `mcp` or
   `alice`, or nesting deeper than 64). The snippet uses a placeholder data
-  dir when the scan stops before `alice`.
-- An OpenCode directory install cannot stat. That host fails and the other
-  hosts in the same run still get a receipt.
+  dir when the scan stops before `alice`. When the entry is found but cannot
+  be edited, the snippet uses that entry's `--data-dir`, or the same
+  placeholder when the entry does not show one. Refusal reasons are a fixed
+  label and a line number.
+- An OpenCode directory install cannot stat. The receipt names that directory.
+  That host fails and the other hosts in the same run still get a receipt.
 
 Check a file install did write with `opencode debug config` and
 `opencode mcp list`.

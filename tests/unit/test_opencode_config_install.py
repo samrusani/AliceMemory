@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import random
 import shutil
 import subprocess
 import sys
@@ -1112,6 +1113,8 @@ def test_opencode_unreadable_directory_fails_only_that_host(
             assert "host: opencode" in captured.out
             assert "action: failed" in captured.out
             assert "the file could not be read or written" in captured.out
+            assert f"path: {directory}" in captured.out.splitlines()
+            assert f"file: {directory}" in captured.out.splitlines()
             if label == "opencode":
                 code = onramp_main(
                     [
@@ -1131,6 +1134,8 @@ def test_opencode_unreadable_directory_fails_only_that_host(
                 assert code == 1
                 assert "action: failed" in captured.out
                 assert "PermissionError" not in captured.out + captured.err
+                assert f"path: {directory}" in captured.out.splitlines()
+                assert f"file: {directory}" in captured.out.splitlines()
         finally:
             directory.chmod(0o755)
 
@@ -1179,15 +1184,384 @@ def test_opencode_bad_args_snippet_uses_the_entry_data_dir(
     assert str((home / ".alice").resolve()) not in snippet
 
 
+def _compact_alice(command: list[str]) -> str:
+    words = ", ".join(json.dumps(word) for word in command)
+    return '{"type": "local", "command": [' + words + "]}"
+
+
+def _assert_jsonc_insert(
+    original: str,
+    brace: int,
+    comments: tuple[str, ...],
+    written: str,
+    command: list[str],
+) -> None:
+    assert original[brace] == "{"
+    after = brace + 1
+    assert written.startswith(original[:after])
+    suffix = original[after:]
+    assert written.endswith(suffix)
+    middle = written[after : len(written) - len(suffix)]
+    assert middle
+    assert "alice" in middle
+    assert not middle.endswith(original[:after])
+    parsed = parse_jsonc(written)
+    assert isinstance(parsed, dict)
+    assert parsed["mcp"]["alice"]["type"] == "local"
+    assert parsed["mcp"]["alice"]["command"] == command
+    assert "environment" not in parsed["mcp"]["alice"]
+    before = parse_jsonc(original)
+    assert isinstance(before, dict)
+    for key, value in before.items():
+        if key == "mcp":
+            assert isinstance(value, dict)
+            assert isinstance(parsed["mcp"], dict)
+            for child, child_value in value.items():
+                assert parsed["mcp"][child] == child_value
+        else:
+            assert parsed[key] == value
+    for comment in comments:
+        assert original.count(comment) >= 1
+        assert written.count(comment) == original.count(comment)
+
+
+def _jsonc_insert_cases() -> list[tuple[str, int, tuple[str, ...]]]:
+    """Seeded JSONC files an insert must not corrupt. A few hundred is enough."""
+
+    cases: list[tuple[str, int, tuple[str, ...]]] = []
+
+    def add(text: str, brace: int, comments: tuple[str, ...] = ()) -> None:
+        assert text[brace] == "{"
+        cases.append((text, brace, comments))
+
+    add('{ "theme": "x"\n}\n', 0)
+    add('{ "theme": "x" }\n', 0)
+    add('{ "theme": "x", }\n', 0)
+    mcp_key = '{ "mcp": { "gh": {"type": "local"}\n} }\n'
+    add(mcp_key, mcp_key.index("{", 1))
+    comment_key = "{\n  /* a\n  */ \"theme\": \"x\"\n}\n"
+    add(comment_key, 0, ("/* a\n  */",))
+    empty_comment = '{ "mcp": { /* none yet */ } }\n'
+    add(empty_comment, empty_comment.index("{", 1), ("/* none yet */",))
+    inside = '{ "mcp": {\n  /* "old": {}\n  */ }\n}\n'
+    add(inside, inside.index("{", 1), ('/* "old": {}\n  */',))
+
+    kinds = (
+        "key_on_brace",
+        "pretty",
+        "comment_on_key",
+        "comment_on_close",
+        "empty_comment_line",
+        "empty_comment_block",
+        "trailing",
+        "pretty_trailing_comment",
+    )
+    rng = random.Random(449)
+    for index in range(320):
+        kind = kinds[rng.randrange(len(kinds))]
+        ending = "\r\n" if rng.randrange(2) else "\n"
+        indent = "\t" if rng.randrange(2) else "  "
+        target = "mcp" if rng.randrange(2) else "root"
+        value = f"v{index}"
+        comment = f"/* c{index} */"
+        comments: tuple[str, ...] = ()
+        if kind == "key_on_brace":
+            body = '{ "theme": "' + value + '"' + ending + "}"
+        elif kind == "pretty":
+            body = "{" + ending + indent + '"theme": "' + value + '"' + ending + "}"
+        elif kind == "comment_on_key":
+            comment_text = "/* b" + str(index) + ending + indent + "*/"
+            comments = (comment_text,)
+            body = "{" + ending + indent + comment_text + ' "theme": "' + value + '"' + ending + "}"
+        elif kind == "comment_on_close":
+            comments = (comment,)
+            body = (
+                "{"
+                + ending
+                + indent
+                + '"theme": "'
+                + value
+                + '"'
+                + ending
+                + indent
+                + comment
+                + " }"
+            )
+        elif kind == "empty_comment_line":
+            comments = (comment,)
+            body = "{ " + comment + " }"
+        elif kind == "empty_comment_block":
+            comment_text = "/* " + '"old"' + ": {}" + ending + indent + "*/"
+            comments = (comment_text,)
+            body = "{" + ending + indent + comment_text + " }"
+        elif kind == "trailing":
+            body = "{" + ending + indent + '"theme": "' + value + '",' + ending + "}"
+        else:
+            comments = (comment,)
+            body = (
+                "{"
+                + ending
+                + indent
+                + '"theme": "'
+                + value
+                + '",'
+                + ending
+                + indent
+                + comment
+                + ending
+                + "}"
+            )
+        if target == "root":
+            text = body if body.endswith(ending) else body + ending
+            add(text, 0, comments)
+            continue
+        prefix = "{" + ending + indent + '"note": "n' + str(index) + '",' + ending + indent + '"mcp": '
+        text = prefix + body + ending + "}" + ending
+        add(text, len(prefix), comments)
+    return cases
+
+
+def test_opencode_jsonc_insert_keeps_the_file_parseable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Inserting alice or mcp keeps every byte outside the new member.
+
+    Mutation: copy the line above the first key, or drop a comment in an
+    empty object. The file no longer parses, or a comment is gone. This test fails.
+    """
+
+    scripts = _pin(monkeypatch, tmp_path)
+    home = tmp_path / "home"
+    path = _files(home)["jsonc"]
+    cases = _jsonc_insert_cases()
+    assert len(cases) >= 300
+    for index, (text, brace, comments) in enumerate(cases):
+        # A fresh vault each time: backups share a one-second name, and one
+        # directory holds only 99 of them.
+        vault = tmp_path / f"vault-{index}"
+        command = [str(scripts / "alice-memory"), "mcp", "--data-dir", str(vault.resolve())]
+        _write(path, text)
+        code, out, err = _install(home, vault, capsys)
+        assert code == 0, (index, text, out, err)
+        assert "action: written" in out
+        written = path.read_bytes().decode("utf-8")
+        try:
+            _assert_jsonc_insert(text, brace, comments, written, command)
+        except AssertionError as exc:
+            raise AssertionError(f"case {index}: {text!r}") from exc
+
+
+def test_opencode_jsonc_empty_insert_is_exact_bytes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """``{}`` and ``{"mcp": {}}`` gain alice with no extra comma.
+
+    Mutation: always write a comma after an inserted member. The bytes differ.
+    This test fails.
+    """
+
+    scripts = _pin(monkeypatch, tmp_path)
+    home = tmp_path / "home"
+    vault = tmp_path / "vault"
+    command = [str(scripts / "alice-memory"), "mcp", "--data-dir", str(vault.resolve())]
+    entry = _compact_alice(command)
+    path = _files(home)["jsonc"]
+    expected = {
+        "{}": '{"mcp": { "alice": ' + entry + " }}",
+        '{"mcp": {}}': '{"mcp": {"alice": ' + entry + "}}",
+    }
+    for raw, want in expected.items():
+        _write(path, raw)
+        code, out, err = _install(home, vault, capsys)
+        assert code == 0, (raw, out, err)
+        assert path.read_text(encoding="utf-8") == want
+
+
+def test_opencode_jsonc_indent_stays_one_step(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A data-dir move keeps the file's indent step.
+
+    Mutation: use the first key's full indent as the step and multiply it
+    by the level. Four moves grow 8, 16, 32, 64 spaces. This test fails.
+    """
+
+    _pin(monkeypatch, tmp_path)
+    home = tmp_path / "home"
+    path = _files(home)["jsonc"]
+    _write(path, '{\n    "theme": "x"\n}\n')
+    indents: list[int] = []
+    for index in range(4):
+        code, out, err = _install(home, tmp_path / f"vault-{index}", capsys)
+        assert code == 0, (index, out, err)
+        written = path.read_text(encoding="utf-8")
+        type_lines = [line for line in written.splitlines() if '"type"' in line]
+        assert type_lines == [type_lines[0]]
+        indents.append(len(type_lines[0]) - len(type_lines[0].lstrip(" ")))
+    assert indents == [12, 12, 12, 12]
+
+    tabbed = (
+        "{\n"
+        '\t"mcp": {\n'
+        '\t\t"alice": {\n'
+        '\t\t\t"type": "local",\n'
+        '\t\t\t"command": ["uvx", "alice-memory", "mcp", "--data-dir", "/old"]\n'
+        "\t\t}\n"
+        "\t}\n"
+        "}\n"
+    )
+    _write(path, tabbed)
+    widths: list[int] = []
+    for index in range(2):
+        code, out, err = _install(home, tmp_path / f"tab-{index}", capsys)
+        assert code == 0, (out, err)
+        written = path.read_text(encoding="utf-8")
+        type_line = next(line for line in written.splitlines() if '"type"' in line)
+        assert type_line.startswith("\t")
+        assert not type_line.startswith(" ")
+        widths.append(len(type_line) - len(type_line.lstrip("\t")))
+    assert widths == [3, 3]
+
+
+def test_opencode_jsonc_refusal_snippet_uses_the_entry_dir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A text-path refusal pastes the entry's data dir, or the placeholder.
+
+    Mutation: paste ~/.alice when --data-dir was omitted. This test fails.
+    """
+
+    _pin(monkeypatch, tmp_path)
+    home = tmp_path / "home"
+    own = str((tmp_path / "entry-vault").resolve())
+    path = _files(home)["jsonc"]
+    with_dir = json.dumps(["uvx", "alice-memory", "mcp", "--data-dir", own])
+    bare = json.dumps(["uvx", "alice-memory", "mcp"])
+    cases = [
+        (
+            '{ "mcp": { "alice": { "type": "local", "command": ' + with_dir + ', "timeout": 1 } } }\n',
+            "a key install does not carry",
+            own,
+        ),
+        (
+            '{ "mcp": { "alice": { "type": "local", "command": '
+            + with_dir
+            + ', "environment": { "NOT_A_CARRIED_ENV": "x" } } } }\n',
+            "an environment key install does not carry",
+            own,
+        ),
+        (
+            '{ "mcp": { "alice": { "type": "local", /* no */ "command": ' + with_dir + " } } }\n",
+            "a comment in alice",
+            own,
+        ),
+        (
+            '{ "mcp": { "alice": { "type": "local", "command": ' + bare + ', "timeout": 1 } } }\n',
+            "a key install does not carry",
+            "<the data dir your existing alice entry uses>",
+        ),
+    ]
+    for raw, reason, snippet_dir in cases:
+        _write(path, raw)
+        before = path.read_bytes()
+        code = onramp_main(["install", "--home", str(home), "--host", "opencode"])
+        captured = capsys.readouterr()
+        assert code == 1, (reason, captured.out)
+        assert reason in captured.out
+        assert "timeout" not in captured.out
+        assert "NOT_A_CARRIED_ENV" not in captured.out
+        assert "SessionStart" not in captured.out
+        assert str((home / ".alice").resolve()) not in captured.out
+        assert "~/.alice" not in captured.out
+        assert snippet_dir in captured.out.split("snippet:", 1)[1]
+        assert path.read_bytes() == before
+        assert not _backups(tmp_path / "entry-vault")
+        assert not _backups(home / ".alice")
+
+    forged = "bad" + "\\n" + "line"
+    _write(
+        path,
+        '{ "mcp": { "alice": { "type": "local", "command": '
+        + with_dir
+        + ', "'
+        + forged
+        + '": 1 } } }\n',
+    )
+    code = onramp_main(["install", "--home", str(home), "--host", "opencode"])
+    captured = capsys.readouterr()
+    assert code == 1, captured.out
+    assert "a key install does not carry (line " in captured.out
+    assert "bad" not in captured.out
+    assert "holds " not in captured.out
+    assert "line (line" not in captured.out
+    assert own in captured.out
+
+
+def test_opencode_jsonc_depth_comment_and_scanner(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Depth 65, comment-only text, raw controls, and non-ASCII digits are refused.
+
+    Mutation: accept depth 65, or treat a comment-only file as a token error.
+    This test fails.
+    """
+
+    _pin(monkeypatch, tmp_path)
+    home = tmp_path / "home"
+    vault = tmp_path / "vault"
+    path = _files(home)["jsonc"]
+    deep = '{"k":' * 65 + "1" + "}" * 65 + "\n"
+    comment_only = "// only\n"
+    control = '{"theme": "a\u0001b"}\n'
+    digit = '{"n": 1\u0661}\n'
+    for raw, reason in (
+        (deep, "nested too deeply"),
+        (comment_only, "comment-only text"),
+        (control, "a token error"),
+        (digit, "a token error"),
+    ):
+        _write(path, raw)
+        before = path.read_bytes()
+        code, out, err = _install(home, vault, capsys)
+        assert code == 1, (reason, out, err)
+        assert reason in out
+        if raw == comment_only:
+            assert "a token error" not in out
+        assert path.read_bytes() == before
+        assert not _backups(vault)
+
+
+def test_jsonc_judge_rejects_glued_comments_and_bare_commas() -> None:
+    """The judge does not glue tokens, accept a bare comma, or accept NaN.
+
+    Mutation: delete a comment without leaving a space, or drop every comma
+    before a brace. ``1/**/2`` reads as 12, and ``{,}`` reads as an object.
+    This test fails.
+    """
+
+    assert parse_jsonc('{ "a": 1, }') == {"a": 1}
+    assert parse_jsonc("[1,]") == [1]
+    assert parse_jsonc("/* c */ { \"a\": 1 }") == {"a": 1}
+    for raw in ("1/**/2", "{,}", "[,]", "NaN", "{ \"n\": NaN }"):
+        with pytest.raises((json.JSONDecodeError, ValueError)):
+            parse_jsonc(raw)
+
+
 def test_readme_says_opencode_masks_command() -> None:
     root = Path(__file__).resolve().parents[2]
     text = (root / "README.md").read_text(encoding="utf-8")
     assert "--host opencode" in text
     assert "masks that array" in text
     assert "When alice already sits in `config.json`, that file is the one rewritten." in text
+    assert "when `opencode.jsonc` exists, that is the file written" in text
     assert "edited as text" in text
     changelog = (root / "CHANGELOG.md").read_text(encoding="utf-8")
     assert "When alice already sits in `config.json`, that file is the one" in changelog
+    assert "when `opencode.jsonc` exists, that is the file written" in changelog
+    integration = (root / "docs/integrations/opencode.md").read_text(encoding="utf-8")
+    assert "`NaN` and a BOM are refused" in integration
+    assert "`NaN`, `1e999`, or a BOM" not in integration
+    assert "The receipt names that directory." in integration
 
 
 @pytest.mark.skipif(os.environ.get("ALICE_TEST_REAL_HOSTS") != "1", reason="set ALICE_TEST_REAL_HOSTS=1")
