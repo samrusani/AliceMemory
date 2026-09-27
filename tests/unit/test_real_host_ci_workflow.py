@@ -390,6 +390,30 @@ def test_pytest_uses_the_setup_python_interpreter_not_the_hermes_venv() -> None:
         _assert_hermes_stays_on_path(job)
 
 
+def test_hook_trial_is_dispatch_only_pinned_and_uploads() -> None:
+    """The hook trial runs only from workflow_dispatch and uploads its report.
+
+    Mutation: add pull_request to the job if, install @latest, or remove
+    always() from the upload step. This test fails.
+    """
+
+    job = _job("hook-trial")
+    assert job.get("if") == "${{ github.event_name == 'workflow_dispatch' }}"
+    script = _run_text(job)
+    assert CLAUDE_NPM in script
+    assert "@latest" not in script
+    steps = job.get("steps")
+    assert isinstance(steps, list)
+    uploads = [step for step in steps if isinstance(step.get("uses"), str) and "upload-artifact@" in step["uses"]]
+    assert len(uploads) == 1
+    assert "always()" in str(uploads[0].get("if"))
+    assert job.get("permissions") == {"contents": "read"}
+    _assert_actions_are_sha_pinned(job)
+    _assert_failure_fails_the_job(job)
+    for name in ("pinned", "canary"):
+        assert "real_host_hook_trial.py" not in _run_text(_job(name))
+
+
 def test_real_host_workflow_grants_contents_read_and_no_secrets() -> None:
     """The pinned job cannot open issues or read a secret.
 
