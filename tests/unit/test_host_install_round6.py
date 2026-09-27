@@ -266,6 +266,50 @@ def test_a_warning_quoting_a_hooks_url_data_dir_is_masked(tmp_path: Path, capsys
 
 
 @pytest.mark.parametrize(
+    "host",
+    ["claude-desktop", "claude-code", "cursor", "openclaw", "hermes"],
+)
+@pytest.mark.parametrize("extra", [(), ("--dry-run",)], ids=["real", "dry-run"])
+def test_foreign_command_reason_prints_only_the_basename(
+    tmp_path: Path, capsys, host: str, extra: tuple[str, ...]
+) -> None:
+    """A token inside one command string is not printed.
+
+    Mutation: pass the command string through masked_args. The token is
+    one word of that string, so it is printed. This test fails.
+    """
+
+    token = "sk-" + "live" + "tok" + "99"
+    command = f"/usr/local/bin/custom-mcp --flag {token}"
+    home = tmp_path / "home"
+    if host == "hermes":
+        path = host_file_map(home.resolve())["hermes"]["mcp"]
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            "mcp_servers:\n"
+            "  alice:\n"
+            f"    command: {command}\n"
+            "    args:\n"
+            "      - leftover\n",
+            encoding="utf-8",
+        )
+    else:
+        path = _files(home, host)["mcp"]
+        entry = {"command": command, "args": ["leftover"]}
+        if host == "openclaw":
+            doc = {"mcp": {"servers": {"alice": entry}}}
+        else:
+            doc = {"mcpServers": {"alice": entry}}
+        _seed(path, doc)
+    before = path.read_bytes()
+    code, out, err = _install(capsys, home, "--host", host, "--data-dir", str(tmp_path / "vault"), *extra)
+    assert code == 1, out
+    assert token not in out + err
+    assert "its command is custom-mcp" in out
+    assert path.read_bytes() == before
+
+
+@pytest.mark.parametrize(
     "command",
     ["https://me:p'w-SECRET@mcp.example/alice", "https://me:p w-SECRET@mcp.example/alice"],
     ids=["quote", "space"],

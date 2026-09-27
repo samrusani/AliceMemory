@@ -53,11 +53,18 @@ def _stub(record: Path) -> str:
         #!/usr/bin/env python3
         import json
         import os
+        import stat
         import subprocess
         import sys
         from pathlib import Path
 
         record = Path({str(record)!r})
+        try:
+            here = os.fstat(0)
+            null = os.stat(os.devnull)
+            stdin_null = stat.S_ISCHR(here.st_mode) and here.st_rdev == null.st_rdev
+        except OSError:
+            stdin_null = False
         if "--version" in sys.argv:
             print(os.environ.get("STUB_VERSION", "9.9.9 (stub)"))
             raise SystemExit(0)
@@ -71,7 +78,12 @@ def _stub(record: Path) -> str:
             "ANTHROPIC_AUTH_TOKEN",
             "CLAUDE_CODE_OAUTH_TOKEN",
         )
-        info = {{"home": home, "present": {{name: name in os.environ for name in names}}, "fired": []}}
+        info = {{
+            "home": home,
+            "present": {{name: name in os.environ for name in names}},
+            "fired": [],
+            "stdin_null": stdin_null,
+        }}
         mode = os.environ.get("STUB_MODE", "")
         if mode == "silent":
             print("silent-stdout")
@@ -107,7 +119,8 @@ def test_run_unsets_credentials_and_checks_the_pinned_version(tmp_path: Path, mo
     """The stub sees the trial HOME and none of the four credential names.
 
     Mutation: write a flat command item, keep ANTHROPIC_API_KEY, keep
-    CLAUDE_CONFIG_DIR, or skip the version check. This test fails.
+    CLAUDE_CONFIG_DIR, skip the version check, or drop
+    stdin=subprocess.DEVNULL. This test fails.
     """
 
     bindir = tmp_path / "bin"
@@ -134,11 +147,13 @@ def test_run_unsets_credentials_and_checks_the_pinned_version(tmp_path: Path, mo
     temp = tmp_path / "temp"
     completed = subprocess.run(
         [sys.executable, str(SCRIPT), "run", str(artifacts), str(temp)],
+        stdin=subprocess.PIPE,
         capture_output=True,
         check=False,
     )
     assert completed.returncode == 0, completed.stderr.decode()
     info = json.loads(record.read_text(encoding="utf-8"))
+    assert info["stdin_null"] is True
     assert info["home"] == str(temp / "trial-home")
     assert info["present"] == {
         "CLAUDE_CONFIG_DIR": False,
@@ -233,15 +248,23 @@ def test_report_keeps_hook_time_counts_when_the_transcript_grows(tmp_path: Path,
     assert start["payload_keys"] == ["transcript_path"]
     assert start["copied"] is True
     assert end["copied"] is True
-    assert start["transcript_lines"] == 1
-    assert end["transcript_lines"] == 2
+    start_copy = artifacts / "SessionStart.transcript"
+    end_copy = artifacts / "SessionEnd.transcript"
+    assert start_copy.is_file()
+    assert end_copy.is_file()
+    start_lines = len(start_copy.read_bytes().splitlines())
+    end_lines = len(end_copy.read_bytes().splitlines())
+    assert start_lines == 1
+    assert end_lines == 2
+    assert start["transcript_lines"] == start_lines
+    assert end["transcript_lines"] == end_lines
     assert start["replay_transcript_lines"] == 2
     assert end["replay_transcript_lines"] == 2
     assert start["replay_copied"] is True
     saved = (artifacts / "SessionStart.stdin").read_bytes()
     assert json.loads(saved)["transcript_path"] == str(transcript)
-    assert len((artifacts / "SessionStart.transcript").read_bytes().splitlines()) == 1
     assert len((artifacts / "replay" / "SessionStart.transcript").read_bytes().splitlines()) == 2
+    assert summary.is_file()
     summary_text = summary.read_text(encoding="utf-8")
     assert summary_text.splitlines()[0] == headline
     assert (artifacts / "report.json").read_text(encoding="utf-8").startswith("{\n")
@@ -272,6 +295,7 @@ def test_report_when_no_hook_fires(tmp_path: Path, monkeypatch) -> None:
     assert report["first_stdout_line"] == "silent-stdout"
     assert report["events"]["SessionStart"]["fired"] == 0
     assert report["events"]["SessionEnd"]["fired"] == 0
+    assert summary.is_file()
     assert summary.read_text(encoding="utf-8").splitlines()[0] == report["headline"]
 
 
@@ -343,4 +367,5 @@ def test_timeout_still_writes_the_report(tmp_path: Path, monkeypatch) -> None:
     assert report["exit_code"] == "timeout"
     assert report["first_stdout_line"] == "Not logged in"
     assert report["headline"] == "Neither SessionStart nor SessionEnd fired."
+    assert summary.is_file()
     assert summary.read_text(encoding="utf-8").splitlines()[0] == report["headline"]

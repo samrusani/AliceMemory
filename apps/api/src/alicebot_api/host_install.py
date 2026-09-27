@@ -20,7 +20,7 @@ import zipfile
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Any
 
 from alicebot_api import __version__
@@ -1109,10 +1109,22 @@ def _check_hooks_file(doc: Mapping[str, Any], host: str) -> None:
 
 
 def _describe_entry(entry: object) -> str:
+    """Why an entry is foreign. Only the basename of the command's first word.
+
+    ``masked_args`` hides separate arguments. A token inside one command
+    string would be printed, so the reason names the program and nothing
+    after it. A query or fragment is not part of that file name.
+    """
+
     if isinstance(entry, Mapping):
         command = entry.get("command")
         if isinstance(command, str):
-            return f"its command is {masked_args([command])[0][0]}"
+            words = command.split()
+            if words:
+                word = words[0].split("?", 1)[0].split("#", 1)[0]
+                name = PureWindowsPath(word).name
+                if name:
+                    return f"its command is {name}"
         return "it has no string command"
     return "it is not an object"
 

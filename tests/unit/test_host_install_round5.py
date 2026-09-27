@@ -327,7 +327,7 @@ def test_every_receipt_line_hides_url_credentials(tmp_path: Path, capsys) -> Non
     code, out, err = _install(capsys, home, "--host", "claude-desktop")
     assert code == 1
     assert "SECRET" not in out + err
-    assert "its command is https://<hidden>" in out
+    assert "its command is alice" in out
 
 
 def test_a_dry_run_hides_credentials_in_an_existing_hook(tmp_path: Path, capsys) -> None:

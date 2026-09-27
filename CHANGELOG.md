@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- A refusal for an alice entry install did not write names only the
+  basename of the command's first word. A token later in that command
+  string is not printed.
+
 - `POST /v0/continuity/captures` runs `commit_door_secret_verdict` on the
   normalized text and returns 400 when that check refuses. Nothing from
   that request is stored. The memory-write mirror, the HTTP 404 fallback,
