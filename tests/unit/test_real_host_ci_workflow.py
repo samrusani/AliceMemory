@@ -200,7 +200,7 @@ def test_pinned_job_pins_the_trialed_hosts_and_refuses_a_skip() -> None:
     assert CLAUDE_NPM in script
     assert HERMES_PIP in script
     assert "opencode-ai@1.18.32" in script
-    assert "ran != 4" in script
+    assert "ran != 5" in script
     assert "@latest" not in script
     assert CLAUDE_VERSION in script
     assert HERMES_VERSION in script
@@ -247,7 +247,7 @@ def test_weekly_canary_does_not_pin_claude_or_hermes() -> None:
     assert "@anthropic-ai/claude-code@latest" in script
     assert "opencode-ai@latest" in script
     assert "opencode-ai@1.18.32" not in script
-    assert "ran != 4" in script
+    assert "ran != 5" in script
     assert re.search(r"(^|\s)hermes-agent($|\s)", script)
     step = _pytest_step(_job("canary"))
     assert step.get("env", {}).get("ALICE_TEST_REAL_HOSTS") == "1"

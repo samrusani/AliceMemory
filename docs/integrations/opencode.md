@@ -16,9 +16,9 @@ is `<config home>/opencode`. On Windows that is `%USERPROFILE%\.config\opencode`
 
 ## What gets written
 
-The target is the strict JSON file that already has `mcp.alice`. Otherwise it
-is `opencode.json`. A new file starts with `$schema` set to
-`https://opencode.ai/config.json`. The entry is:
+The target is the file that already has `mcp.alice`. When alice sits in `opencode.json` and an `opencode.jsonc` also exists, install targets `opencode.json`. Otherwise it is `opencode.jsonc` when that file exists, and otherwise `opencode.json`. A 0-byte `.jsonc` is skipped. A new
+file starts with `$schema` set to `https://opencode.ai/config.json`. The
+entry is:
 
 ```json
 {
@@ -36,15 +36,52 @@ includes `timeout`, `enabled`, `cwd`, and `environment` (for example
 the Alice entry and masks the `command` array: a URL after its scheme, and the
 value of a flag whose name holds key, token, secret, or password.
 
+## JSONC
+
+`opencode.jsonc` is always edited as text. `opencode.json` is edited as text
+when it is not strict JSON (a comment, a trailing comma, a duplicate key,
+or `1e999`). `NaN` and a BOM are refused. The receipt says `format: jsonc, edited as text`.
+Install replaces only the `mcp.alice` value, or inserts `alice` or `mcp`
+first, and adds a comma only before a sibling. Newlines and indent follow
+the file. A file whose only line break is CR keeps CR. Before it writes,
+install parses the edited text. `mcp.alice` has to equal the planned entry,
+and every other value has to be unchanged. Otherwise install refuses and
+writes nothing. Every rewrite is backed up first.
+
+On that path an old `mcp.alice` may hold `type`, a `command` array, and
+`environment` values whose names are the documented host env keys:
+
+- `ALICE_MCP_FULL_TOOLS`
+- `ALICE_MCP_LEGACY_TOOLS`
+- `ALICE_AGENT_API_KEY`
+- `ALICE_LEGACY_SURFACES`
+- `ALICE_EMBEDDINGS_BASE_URL`
+- `ALICE_EMBEDDINGS_MODEL`
+- `ALICE_EMBEDDINGS_API_KEY`
+
+Each carried value has to be a string literal. Install copies that literal
+byte for byte. `timeout`, `enabled`, `cwd`, any other `environment` name, a
+comment inside `alice`, or a command that is not an array is left unchanged.
+The receipt names the line and does not print the file.
+
 ## What is refused
 
-- Any non-empty `opencode.jsonc`, global or under `~/.opencode`. The receipt
-  shows the masked entry to add by hand, then `opencode mcp list`.
-- `alice` more than once, under `mcp` or `mcp.servers`, including `config.json`
-  and `~/.opencode`.
+- `alice` more than once, under `mcp` or `mcp.servers`, including
+  `config.json`, `opencode.jsonc`, and `~/.opencode`. A refusal raised while
+  scanning a text file names that file, says `format: jsonc, edited as text`,
+  and uses the placeholder.
 - A legacy `<config home>/opencode/config` file.
-- A `.json` file that is not strict JSON (a BOM, a comment, a trailing comma,
-  a duplicate key, `NaN`, or `1e999`).
+- JSONC the text path cannot scan (a BOM, a token error, whitespace-only or
+  comment-only text, a non-object top level or `mcp`, a duplicate `mcp` or
+  `alice`, or nesting deeper than 64). The snippet uses a placeholder data
+  dir when the scan stops before `alice`. When the entry is found but cannot
+  be edited, the snippet uses that entry's `--data-dir`, or the same
+  placeholder when the entry does not show one. A `--data-dir` value that
+  holds `{env:` or `{file:` uses that placeholder. A scan refusal is a fixed
+  label, with a line number when it comes from one file. A reason from the
+  shared launcher planner still carries that planner's text.
+- An OpenCode directory install cannot stat. The receipt names that directory.
+  That host fails and the other hosts in the same run still get a receipt.
 
-Nothing is written in those cases. Check a file install did write with
-`opencode debug config` and `opencode mcp list`.
+Check a file install did write with `opencode debug config` and
+`opencode mcp list`.

@@ -2,16 +2,29 @@
 
 ## Unreleased
 
+- A refusal for an alice entry that install did not write prints a
+  command name only when the first word looks like a program name. A
+  token in a later word is not printed. A path with spaces names its
+  first fragment, such as `Program` for `C:\Program Files\nodejs\node.exe`.
+  A first word that contains :// is shown as a URL. A first word that
+  carries credential material, or that would be hidden as a secret flag,
+  is shown as a command that looks like a credential. That check covers
+  recognized token formats, not every scp-style word. Any other first
+  word is printed only when its basename is a plain program name.
+
 - OpenCode is an opt-in install host (`--host opencode`). The default hosts
   are unchanged. Install writes `mcp.alice` as `type: local` and a `command`
   array, with no `environment` key, in the strict JSON file that already has
   it. When alice already sits in `config.json`, that file is the one
-  rewritten. Otherwise install writes `opencode.json`. A re-run
+  rewritten. The target is the file that already has `mcp.alice`. When alice sits in `opencode.json` and an `opencode.jsonc` also exists, install targets `opencode.json`. Otherwise it is `opencode.jsonc` when that file exists, and otherwise `opencode.json`. A 0-byte `.jsonc` is skipped. A re-run
   keeps `timeout`, `enabled`, `cwd`, `environment`, and sibling servers.
-  A dry run masks the command array. An `opencode.jsonc` file, a second
-  `alice` entry, or a legacy `config` file is not edited. There is no
-  SessionStart hook. Check the result with `opencode debug config` and
-  `opencode mcp list`.
+  A dry run masks the command array. An `opencode.jsonc` file is edited
+  as text, and so is an `opencode.json` that is not strict JSON. The text
+  path carries `type`, the `command` array, and documented `environment`
+  string literals, and leaves every other byte. A second `alice` entry
+  or a legacy `config` file is not edited. An unreadable OpenCode
+  directory fails only that host. There is no SessionStart hook. Check
+  the result with `opencode debug config` and `opencode mcp list`.
 
 - `POST /v0/continuity/captures` runs `commit_door_secret_verdict` on the
   normalized text and returns 400 when that check refuses. Nothing from
