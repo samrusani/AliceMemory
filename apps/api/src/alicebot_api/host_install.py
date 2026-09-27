@@ -20,10 +20,11 @@ import zipfile
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Any, NoReturn
 
 from alicebot_api import __version__
+from alicebot_api.credential_floor import carries_credential_material
 from alicebot_api.host_launcher import (
     DOCS_DATA_DIR_PLACEHOLDER,
     FIRST_SESSION_START_VERSION,
@@ -1132,11 +1133,34 @@ def _check_hooks_file(doc: Mapping[str, Any], host: str) -> None:
         raise _MalformedHostFile(f"hooks.{key} is not a list")
 
 
+_PLAIN_PROGRAM = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+-]{0,63}")
+
+
 def _describe_entry(entry: object) -> str:
+    """Why an entry is foreign. Print a name only when the first word looks like a program.
+
+    A first word that contains ``://`` is ``a URL``, and no part of it is
+    printed. A first word that carries credential material, or that
+    ``masked_args`` would hide, is ``a command that looks like a
+    credential``. Any other first word is printed only when its basename
+    matches a plain program name. A later word is not used, so a path with
+    spaces names its first fragment.
+    """
+
     if isinstance(entry, Mapping):
         command = entry.get("command")
         if isinstance(command, str):
-            return f"its command is {masked_args([command])[0][0]}"
+            words = command.split()
+            if words:
+                word = words[0]
+                if "://" in word:
+                    return "its command is a URL"
+                if carries_credential_material(word) or masked_args([word])[1]:
+                    return "its command is a command that looks like a credential"
+                name = PureWindowsPath(word).name
+                if _PLAIN_PROGRAM.fullmatch(name):
+                    return f"its command is {name}"
+                return "its command is not a plain program name"
         return "it has no string command"
     return "it is not an object"
 

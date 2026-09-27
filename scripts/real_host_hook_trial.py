@@ -75,7 +75,7 @@ def hook(event: str, artifacts: Path) -> int:
             destination = _transcript_path(artifacts, event)
             shutil.copyfile(transcript, destination)
             copied = True
-            line_count = len(Path(transcript).read_bytes().splitlines())
+            line_count = len(destination.read_bytes().splitlines())
     elapsed_ns = time.time_ns() - started
     _timing_path(artifacts, event).write_text(
         json.dumps(
