@@ -827,6 +827,7 @@ def test_parse_launcher_command_array() -> None:
 
     Mutation: default command_array=True. A JSON host entry with a string
     command and args no longer parses, or an array parses without the flag.
+    Mutation: the parser accepts a string command. This test fails.
     """
 
     array = {
@@ -851,6 +852,13 @@ def test_parse_launcher_command_array() -> None:
     assert (
         parse_launcher(
             {"type": "local", "command": ["uvx", "alice-memory", "mcp"], "args": ["--data-dir"]},
+            command_array=True,
+        )
+        is None
+    )
+    assert (
+        parse_launcher(
+            {"type": "local", "command": "uvx alice-memory mcp --data-dir /vault"},
             command_array=True,
         )
         is None

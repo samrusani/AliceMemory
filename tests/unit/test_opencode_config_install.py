@@ -15,7 +15,7 @@ import sys
 
 import pytest
 
-from alicebot_api.host_install import host_file_map
+from alicebot_api.host_install import BRIEF_HINT, host_file_map
 from alicebot_api.onramp import main as onramp_main
 
 from tests.unit.launcher_helpers import executable, make_scripts, pin_launcher_search
@@ -95,6 +95,7 @@ def test_opencode_new_file_shape(
     assert code == 0, err
     assert "format: json" in out
     assert "session_start: none" in out
+    assert f"note: {BRIEF_HINT}" in out
     doc = json.loads(_files(home)["mcp"].read_text(encoding="utf-8"))
     assert doc["$schema"] == _SCHEMA
     entry = doc["mcp"]["alice"]
@@ -291,6 +292,8 @@ def test_opencode_foreign_entry_refused(
     code, out, err = _install(home, vault, capsys)
     assert code == 1, out
     assert "action: refused" in out or "action: would-refuse" in out
+    assert "it has no string command" not in out
+    assert "command array" in out
     assert "next:" in out
     assert path.read_bytes() == before
     assert not _backups(vault)
@@ -342,6 +345,8 @@ def test_opencode_format_detection(
     code, out, _err = _install(home, vault, capsys)
     assert code == 1
     assert "not strict JSON" in out
+    assert "PR B will edit this file. Until then, add the snippet by hand." in out
+    assert "Fix opencode.json" not in out
     assert path.read_bytes() == before
     assert not _backups(vault)
 
@@ -405,7 +410,11 @@ def test_opencode_second_alice_refused(
     legacy.write_text("x = 1\n", encoding="utf-8")
     code, out, _err = _install(home, vault, capsys)
     assert code == 1
-    assert "config" in out
+    assert (
+        "next: nothing was written for opencode. "
+        f"Remove or migrate {legacy} with OpenCode first, then run install again."
+    ) in out
+    assert "Keep one alice entry" not in out
 
 
 def test_opencode_symlink_written_through(
@@ -444,6 +453,10 @@ def test_opencode_xdg_only_without_home(
     code, out, _err = _install(home, vault, capsys, with_home=False)
     assert code == 1
     assert "XDG_CONFIG_HOME" in out
+    assert (
+        "next: nothing was written for opencode. "
+        "Set XDG_CONFIG_HOME to an absolute path, or pass --home, then run install again."
+    ) in out
     monkeypatch.setenv("XDG_CONFIG_HOME", "C:foo")
     code, out, _err = _install(home, vault, capsys, with_home=False)
     assert code == 1
@@ -459,11 +472,330 @@ def test_opencode_xdg_only_without_home(
     assert not (tmp_path / "ignored" / "opencode" / "opencode.json").exists()
 
 
+def test_opencode_empty_xdg_config_home_is_unset(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """An empty XDG_CONFIG_HOME counts as unset."""
+
+    _pin(monkeypatch, tmp_path)
+    home = tmp_path / "proc-home"
+    vault = tmp_path / "vault"
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("XDG_CONFIG_HOME", "")
+    code, _out, err = _install(home, vault, capsys, with_home=False)
+    assert code == 0, err
+    assert (home / ".config" / "opencode" / "opencode.json").is_file()
+
+
+def test_opencode_config_env_note(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A set OPENCODE_CONFIG* variable is named in the receipt."""
+
+    _pin(monkeypatch, tmp_path)
+    home = tmp_path / "home"
+    vault = tmp_path / "vault"
+    names = ("OPENCODE_CONFIG", "OPENCODE_CONFIG_DIR", "OPENCODE_CONFIG_CONTENT")
+    for name in names:
+        monkeypatch.setenv(name, str(tmp_path / name))
+    code, out, err = _install(home, vault, capsys)
+    assert code == 0, err
+    for name in names:
+        assert f"note: {name} is set, so OpenCode may load config that install did not write" in out
+
+
+def test_opencode_string_command_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A string command is not an OpenCode array.
+
+    Mutation: the parser accepts a string command. Install rewrites the
+    file and exits 0. This test fails.
+    """
+
+    _pin(monkeypatch, tmp_path)
+    home = tmp_path / "home"
+    vault = tmp_path / "vault"
+    path = _files(home)["mcp"]
+    _write(path, json.dumps({"mcp": {"alice": {"type": "local", "command": "uvx alice-memory mcp"}}}))
+    before = path.read_bytes()
+    code, out, _err = _install(home, vault, capsys)
+    assert code == 1, out
+    assert "it has no command array" in out
+    assert path.read_bytes() == before
+    assert not _backups(vault)
+
+
+def test_opencode_home_jsonc_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """~/.opencode/opencode.jsonc is part of the scan.
+
+    Mutation: drop that path from the scan. Install writes opencode.json.
+    This test fails.
+    """
+
+    _pin(monkeypatch, tmp_path)
+    home = tmp_path / "home"
+    vault = tmp_path / "vault"
+    files = _files(home)
+    path = files["home_jsonc"]
+    _write(path, '{ "mcp": {} }\n')
+    before = path.read_bytes()
+    code, out, _err = _install(home, vault, capsys)
+    assert code == 1
+    assert "jsonc" in out.lower()
+    assert path.read_bytes() == before
+    assert not files["mcp"].exists()
+    assert not _backups(vault)
+
+
+def test_opencode_unreadable_jsonc_refuses_only_that_host(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Mode 000 on opencode.jsonc refuses OpenCode and still prints every receipt.
+
+    Mutation: let the OSError escape the host. Claude Code is already
+    written and the receipt is missing. This test fails.
+    """
+
+    _pin(monkeypatch, tmp_path)
+    home = tmp_path / "home"
+    vault = tmp_path / "vault"
+    jsonc = _files(home)["jsonc"]
+    _write(jsonc, "{}\n")
+    original = jsonc.read_bytes()
+    jsonc.chmod(0)
+    try:
+        code = onramp_main(
+            [
+                "install",
+                "--home",
+                str(home),
+                "--data-dir",
+                str(vault),
+                "--host",
+                "claude-code",
+                "--host",
+                "opencode",
+            ]
+        )
+        captured = capsys.readouterr()
+    finally:
+        jsonc.chmod(0o644)
+    assert code == 1
+    assert "alice_memory_failed" not in captured.err
+    assert "install_refused" in captured.err
+    assert "host: claude-code" in captured.out
+    assert "action: written" in captured.out
+    assert "host: opencode" in captured.out
+    assert "unscannable" in captured.out
+    assert "PermissionError" not in captured.out
+    assert (home / ".claude.json").is_file()
+    assert jsonc.read_bytes() == original
+    assert not _files(home)["mcp"].exists()
+
+
+@pytest.mark.parametrize("kind", ["dangling", "loop"])
+def test_opencode_broken_symlink_refuses_the_host(
+    kind: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A dangling or looping opencode.json is not replaced by a regular file.
+
+    Mutation: follow the link and create a file. This test fails.
+    """
+
+    _pin(monkeypatch, tmp_path)
+    home = tmp_path / "home"
+    vault = tmp_path / "vault"
+    path = _files(home)["mcp"]
+    path.parent.mkdir(parents=True)
+    if kind == "dangling":
+        path.symlink_to(tmp_path / "nowhere.json")
+    else:
+        other = path.parent / "other.json"
+        other.symlink_to(path)
+        path.symlink_to(other)
+    code, out, _err = _install(home, vault, capsys)
+    assert code == 1
+    assert "symbolic link whose target is missing or loops" in out
+    assert path.is_symlink()
+    assert not path.is_file()
+
+
+def test_opencode_directory_refuses_dry_run_and_real_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A directory at opencode.json is refused before a dry run can succeed."""
+
+    _pin(monkeypatch, tmp_path)
+    home = tmp_path / "home"
+    vault = tmp_path / "vault"
+    path = _files(home)["mcp"]
+    path.mkdir(parents=True)
+    code, out, _err = _install(home, vault, capsys, "--dry-run")
+    assert code == 1
+    assert "not a regular file" in out
+    assert path.is_dir()
+    code, out, _err = _install(home, vault, capsys)
+    assert code == 1
+    assert "not a regular file" in out
+    assert path.is_dir()
+
+
+def test_opencode_servers_alice_refuses_on_the_first_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """mcp.servers.alice alone is a second alice. Install does not add mcp.alice."""
+
+    _pin(monkeypatch, tmp_path)
+    home = tmp_path / "home"
+    vault = tmp_path / "vault"
+    path = _files(home)["mcp"]
+    _write(
+        path,
+        json.dumps({"mcp": {"servers": {"alice": {"type": "local", "command": ["uvx", "alice-memory", "mcp"]}}}}),
+    )
+    before = path.read_bytes()
+    code, out, _err = _install(home, vault, capsys)
+    assert code == 1
+    assert "Keep one alice entry" in out
+    assert path.read_bytes() == before
+    assert "alice" not in json.loads(path.read_text(encoding="utf-8"))["mcp"]
+    assert not _backups(vault)
+
+
+@pytest.mark.parametrize("token", ["{env:" + "HOME}", "{file:" + "x}"])
+def test_opencode_refuses_substitution_words_without_a_snippet(
+    token: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A data dir holding {env: or {file: is not written, and no snippet is printed.
+
+    Mutation: remove the writer's {env: and {file: check. Install exits 0
+    and writes that word into command. This test fails.
+    """
+
+    _pin(monkeypatch, tmp_path)
+    home = tmp_path / "home"
+    vault = tmp_path / token
+    path = _files(home)["mcp"]
+    code, out, _err = _install(home, vault, capsys)
+    assert code == 1, out
+    assert "snippet:" not in out
+    assert token not in out
+    assert not path.exists()
+    assert not _backups(vault)
+
+
+def test_opencode_relative_data_dir_snippet_shows_the_marker(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The relative --data-dir refusal marks the spot in the snippet."""
+
+    _pin(monkeypatch, tmp_path)
+    home = tmp_path / "home"
+    relative = "rel/vault"
+    path = _files(home)["mcp"]
+    _write(
+        path,
+        json.dumps(
+            {
+                "mcp": {
+                    "alice": {
+                        "type": "local",
+                        "command": ["uvx", "alice-memory", "mcp", "--data-dir", relative],
+                    }
+                }
+            }
+        ),
+    )
+    before = path.read_bytes()
+    code = onramp_main(["install", "--home", str(home), "--host", "opencode"])
+    captured = capsys.readouterr()
+    marker = f"<an absolute path for {relative}>"
+    assert code == 1, captured.out
+    assert path.read_bytes() == before
+    assert "snippet:" in captured.out
+    assert marker in captured.out.split("snippet:", 1)[1]
+    assert "marks where" in captured.out
+
+
+def test_opencode_first_rewrite_backs_up_a_file_without_alice(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The first rewrite of an existing file backs up those bytes.
+
+    Mutation: skip the backup when the file has no alice entry yet.
+    This test fails.
+    """
+
+    _pin(monkeypatch, tmp_path)
+    home = tmp_path / "home"
+    vault = tmp_path / "vault"
+    path = _files(home)["mcp"]
+    _write(
+        path,
+        json.dumps(
+            {
+                "$schema": _SCHEMA,
+                "autoupdate": False,
+                "mcp": {"other": {"type": "local", "command": ["node", "s.js"]}},
+            }
+        )
+        + "\n",
+    )
+    seed = path.read_bytes()
+    code, out, err = _install(home, vault, capsys)
+    assert code == 0, err
+    backups = _backups(vault)
+    assert len(backups) == 1
+    assert backups[0].read_bytes() == seed
+    assert "backup:" in out
+
+
+def test_opencode_rewrites_config_json_when_it_holds_alice(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """When alice already sits in config.json, that file is the one rewritten."""
+
+    scripts = _pin(monkeypatch, tmp_path)
+    home = tmp_path / "home"
+    vault = tmp_path / "vault"
+    path = _files(home)["legacy"]
+    _write(
+        path,
+        json.dumps(
+            {
+                "mcp": {
+                    "alice": {
+                        "type": "local",
+                        "command": [
+                            str(scripts / "alice-memory"),
+                            "mcp",
+                            "--data-dir",
+                            str((tmp_path / "old").resolve()),
+                        ],
+                    }
+                }
+            }
+        ),
+    )
+    code, out, err = _install(home, vault, capsys)
+    assert code == 0, err
+    assert f"path: {path}" in out
+    written = json.loads(path.read_text(encoding="utf-8"))
+    assert str(vault.resolve()) in written["mcp"]["alice"]["command"]
+    assert not _files(home)["mcp"].exists()
+
+
 def test_readme_says_opencode_masks_command() -> None:
-    readme = Path(__file__).resolve().parents[2] / "README.md"
-    text = readme.read_text(encoding="utf-8")
+    root = Path(__file__).resolve().parents[2]
+    text = (root / "README.md").read_text(encoding="utf-8")
     assert "--host opencode" in text
     assert "masks that array" in text
+    assert "When alice already sits in `config.json`, that file is the one rewritten." in text
+    changelog = (root / "CHANGELOG.md").read_text(encoding="utf-8")
+    assert "When alice already sits in `config.json`, that file is the one" in changelog
 
 
 @pytest.mark.skipif(os.environ.get("ALICE_TEST_REAL_HOSTS") != "1", reason="set ALICE_TEST_REAL_HOSTS=1")
@@ -517,22 +849,25 @@ def test_real_opencode_reads_the_written_config(
             check=False,
         )
 
-    version = run_opencode("--version")
-    assert "1.18.32" in (version.stdout + version.stderr)
+    version_proc = run_opencode("--version")
+    version = (version_proc.stdout + version_proc.stderr).strip()
+    print(f"opencode version: {version}")
     shown = run_opencode("debug", "config")
-    assert shown.returncode == 0, shown.stderr
+    assert shown.returncode == 0, (version, shown.stderr)
     assert "autoupdate" in shown.stdout
     assert sibling in shown.stdout
     code, _out, err = _install(home, vault, capsys)
-    assert code == 0, err
+    assert code == 0, (version, err)
     backups = _backups(vault)
     assert len(backups) == 1
     assert backups[0].read_bytes() == seed
     shown = run_opencode("debug", "config")
-    assert "alice" in shown.stdout
+    assert "alice" in shown.stdout, version
     listed = run_opencode("mcp", "list")
-    assert listed.returncode == 0, listed.stderr
-    assert "alice" in listed.stdout
+    listed_text = listed.stdout + listed.stderr
+    assert listed.returncode == 0, (version, listed_text)
+    alice_lines = [line for line in listed_text.splitlines() if "alice" in line]
+    assert any("connected" in line for line in alice_lines), (version, listed_text)
     doc = json.loads(path.read_text(encoding="utf-8"))
     doc["kept"] = True
     doc["mcp"]["extra"] = {"type": "local", "command": ["node", "e.js"], "enabled": False}
@@ -546,10 +881,24 @@ def test_real_opencode_reads_the_written_config(
     assert again["mcp"]["alice"]["timeout"] == 1500
     assert str(moved.resolve()) in again["mcp"]["alice"]["command"]
     assert len(_backups(moved)) == 1
+    secret = "sk-" + "test" + "tok" + "99"
+    index = "https://user:" + secret + "@example.test/idx"
+    again_doc = json.loads(path.read_text(encoding="utf-8"))
+    again_doc["mcp"]["alice"]["command"] = [
+        "uvx",
+        "--index",
+        index,
+        "alice-memory",
+        "mcp",
+        "--data-dir",
+        str(moved.resolve()),
+    ]
+    path.write_text(json.dumps(again_doc, indent=2) + "\n", encoding="utf-8")
     code, out, _err = _install(home, moved, capsys, "--dry-run")
-    assert code == 0
-    assert "hidden:" in out or "action: dry-run" in out
-    assert "tok" not in out
+    assert code == 0, (version, _err)
+    assert "hidden:" in out
+    assert secret not in out
+    assert "action: dry-run" in out
 
 
 @pytest.mark.skipif(os.environ.get("ALICE_TEST_REAL_HOSTS") != "1", reason="set ALICE_TEST_REAL_HOSTS=1")

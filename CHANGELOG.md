@@ -3,8 +3,10 @@
 ## Unreleased
 
 - OpenCode is an opt-in install host (`--host opencode`). The default hosts
-  are unchanged. Install writes `mcp.alice` in strict `opencode.json` as
-  `type: local` and a `command` array, with no `environment` key. A re-run
+  are unchanged. Install writes `mcp.alice` as `type: local` and a `command`
+  array, with no `environment` key, in the strict JSON file that already has
+  it. When alice already sits in `config.json`, that file is the one
+  rewritten. Otherwise install writes `opencode.json`. A re-run
   keeps `timeout`, `enabled`, `cwd`, `environment`, and sibling servers.
   A dry run masks the command array. An `opencode.jsonc` file, a second
   `alice` entry, or a legacy `config` file is not edited. There is no

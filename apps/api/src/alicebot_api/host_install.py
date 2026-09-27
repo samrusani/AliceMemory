@@ -898,6 +898,7 @@ def _plan_entry(
     with_env: bool,
     needs_hook: bool = True,
     problem_of: Callable[[Launcher], str | None] | None = None,
+    describe: Callable[[object], str] | None = None,
 ) -> _EntryPlan:
     """Plan one alice entry: shape, store, launcher. Shared by every host.
 
@@ -926,12 +927,13 @@ def _plan_entry(
     parsed = parse_launcher(existing)
     if parsed is None:
         visible = None if explicit_dir is not None else _visible_dir(existing, home)
+        describer = describe or _describe_entry
         return _EntryPlan(
             None,
             working or UVX_LAUNCHER,
             explicit_dir or visible or new_entry_dir,
             None,
-            f"{key_label} exists and install did not write it ({_describe_entry(existing)})",
+            f"{key_label} exists and install did not write it ({describer(existing)})",
             details,
             False,
             hook_mode="repair",
@@ -1137,6 +1139,21 @@ def _describe_entry(entry: object) -> str:
             return f"its command is {masked_args([command])[0][0]}"
         return "it has no string command"
     return "it is not an object"
+
+
+def _describe_opencode_entry(entry: object) -> str:
+    """Why an OpenCode entry is foreign. An array command is required."""
+
+    if not isinstance(entry, Mapping):
+        return "it is not an object"
+    command = entry.get("command")
+    if (
+        isinstance(command, list)
+        and bool(command)
+        and all(isinstance(word, str) and word for word in command)
+    ):
+        return "its command array is not one install wrote"
+    return "it has no command array"
 
 
 # --- Hermes config.yaml ------------------------------------------------------------
@@ -3472,6 +3489,15 @@ _OPENCODE_SECOND_NEXT = (
 _OPENCODE_HAND_NEXT = (
     "Add the alice entry above under mcp by hand, then check it with: opencode mcp list"
 )
+_OPENCODE_XDG_NEXT = (
+    "next: nothing was written for opencode. "
+    "Set XDG_CONFIG_HOME to an absolute path, or pass --home, then run install again."
+)
+_OPENCODE_LOOSE_NEXT = (
+    "next: nothing was written for opencode. "
+    "PR B will edit this file. Until then, add the snippet by hand."
+)
+_OPENCODE_ENV_WORD = "a command word holds {env: or {file:"
 _OPENCODE_CONFIG_ENVS = (
     "OPENCODE_CONFIG",
     "OPENCODE_CONFIG_DIR",
@@ -3539,6 +3565,29 @@ def _opencode_blank(raw: bytes | None) -> bool:
     return raw is None or not raw.strip()
 
 
+def _opencode_servers_hold_alice(doc: Mapping[str, Any]) -> bool:
+    mcp = doc.get("mcp")
+    if not isinstance(mcp, dict):
+        return False
+    servers = mcp.get("servers")
+    return isinstance(servers, dict) and "alice" in servers
+
+
+def _opencode_existing_target(path: Path) -> Path:
+    """Where a write to ``path`` goes, or ``path`` when nothing is there yet.
+
+    A dangling or looping symlink, or anything that is not a regular file,
+    is refused the same way the JSON hosts refuse one.
+    """
+
+    if not path.is_symlink() and not path.exists():
+        return path
+    target = _host_target(path)
+    if not target.is_file():
+        raise _MalformedHostFile(f"{path.name} is not a regular file")
+    return target
+
+
 def _opencode_alice_count(doc: Mapping[str, Any]) -> int:
     mcp = doc.get("mcp")
     if not isinstance(mcp, dict):
@@ -3586,7 +3635,7 @@ def _install_entry_as_opencode(
         raise _MalformedHostFile("the planned OpenCode command is not a list of strings")
     words = [command, *args]
     if any("{env:" in word or "{file:" in word for word in words):
-        raise _MalformedHostFile("a command word holds {env: or {file:")
+        raise _MalformedHostFile(_OPENCODE_ENV_WORD)
     if original is None:
         return {"type": "local", "command": words}
     rebuilt: dict[str, Any] = {}
@@ -3653,9 +3702,26 @@ def _install_opencode_host(
             **extra,
         )
 
-    def refused(path: Path, reason: str, next_line: str, *, placeholder: bool = False) -> _HostResult:
-        shown_dir = _OPENCODE_DIR_PLACEHOLDER if placeholder else data_dir
-        shown, hidden = _masked(_opencode_command_entry(shown_dir, launcher))
+    def refused(
+        path: Path,
+        reason: str,
+        next_line: str,
+        *,
+        placeholder: bool = False,
+        include_snippet: bool = True,
+        snippet_entry: Mapping[str, Any] | None = None,
+    ) -> _HostResult:
+        snippet = None
+        hidden: list[str] = []
+        if include_snippet:
+            shown_dir = _OPENCODE_DIR_PLACEHOLDER if placeholder else data_dir
+            payload = (
+                snippet_entry
+                if snippet_entry is not None
+                else _opencode_command_entry(shown_dir, launcher)
+            )
+            shown, hidden = _masked(payload)
+            snippet = _alice_entry_snippet("opencode", shown)
         trailer = []
         if hidden:
             trailer.append(_keep_line(hidden))
@@ -3667,26 +3733,38 @@ def _install_opencode_host(
             receipt(
                 _refusal_action(dry_run),
                 path,
-                snippet=_alice_entry_snippet("opencode", shown),
+                snippet=snippet,
                 trailer=tuple(trailer),
             ),
             "refused",
         )
 
     if xdg_problem is not None:
-        return refused(files["mcp"], xdg_problem, "next: nothing was written for opencode.")
+        return refused(files["mcp"], xdg_problem, _OPENCODE_XDG_NEXT)
 
     legacy_config = config_home / "opencode" / "config"
     if legacy_config.exists():
         return refused(
             files["mcp"],
             f"{legacy_config.name} exists and install does not migrate it",
-            _OPENCODE_SECOND_NEXT,
+            "next: nothing was written for opencode. "
+            f"Remove or migrate {legacy_config} with OpenCode first, then run install again.",
         )
 
     jsonc_paths = (files["jsonc"], files["home_jsonc"])
     for path in jsonc_paths:
-        if path.is_file() and not _opencode_blank(_read_host_file(path)):
+        if not path.is_symlink() and not path.exists():
+            continue
+        try:
+            raw = _read_host_file(path)
+        except OSError:
+            return refused(
+                path,
+                f"{path.name} is unscannable",
+                "next: nothing was written for opencode. "
+                f"Fix permissions on {path.name}, then run install again.",
+            )
+        if not _opencode_blank(raw):
             return refused(
                 path,
                 "an opencode.jsonc file is present, and install does not edit JSONC",
@@ -3711,14 +3789,12 @@ def _install_opencode_host(
         assert raw is not None  # nosec B101 # a non-blank read returned bytes
         doc = _parse_opencode_json(raw)
         if doc is None:
-            return refused(
-                path,
-                f"{path.name} is not strict JSON",
-                f"next: nothing was written for opencode. Fix {path.name}, then run install again.",
-            )
+            return refused(path, f"{path.name} is not strict JSON", _OPENCODE_LOOSE_NEXT)
         alice_total += _opencode_alice_count(doc)
         scanned.append((path, raw, doc))
 
+    if any(_opencode_servers_hold_alice(doc) for _, _, doc in scanned):
+        return refused(files["mcp"], "alice is under mcp.servers", _OPENCODE_SECOND_NEXT)
     if alice_total > 1:
         return refused(files["mcp"], "alice appears more than once", _OPENCODE_SECOND_NEXT)
 
@@ -3740,9 +3816,13 @@ def _install_opencode_host(
                 break
 
     try:
-        write_target = _host_target(target_path) if target_path.exists() else target_path
+        write_target = _opencode_existing_target(target_path)
     except _MalformedHostFile as problem:
-        return refused(target_path, str(problem), f"next: nothing was written for opencode. Fix {target_path.name}, then run install again.")
+        return refused(
+            target_path,
+            str(problem),
+            f"next: nothing was written for opencode. Fix {target_path.name}, then run install again.",
+        )
 
     mcp_value = target_doc.get("mcp")
     if mcp_value is not None and not isinstance(mcp_value, dict):
@@ -3772,6 +3852,7 @@ def _install_opencode_host(
             search=search,
             with_env=False,
             needs_hook=False,
+            describe=_describe_opencode_entry,
         )
     except _MalformedHostFile as problem:
         return refused(target_path, str(problem), f"next: nothing was written for opencode. Fix {target_path.name}, then run install again.")
@@ -3780,10 +3861,19 @@ def _install_opencode_host(
     launcher = plan.launcher
     details.extend(plan.details)
     if plan.refusal is not None:
+        snippet_entry = None
+        if plan.paste is not None:
+            try:
+                snippet_entry = _install_entry_as_opencode(
+                    plan.paste, existing if isinstance(existing, dict) else None
+                )
+            except _MalformedHostFile:
+                snippet_entry = None
         return refused(
             target_path,
             plan.refusal,
             f"next: {target_path.name} was not changed. {plan.next_step or _OPENCODE_HAND_NEXT}",
+            snippet_entry=snippet_entry,
         )
     if plan.entry is None:
         return refused(
@@ -3796,7 +3886,16 @@ def _install_opencode_host(
             plan.entry, existing if isinstance(existing, dict) else None
         )
     except _MalformedHostFile as problem:
-        return refused(target_path, str(problem), f"next: {target_path.name} was not changed. {_OPENCODE_HAND_NEXT}")
+        text = str(problem)
+        if text == _OPENCODE_ENV_WORD:
+            return refused(
+                target_path,
+                text,
+                "next: nothing was written for opencode. "
+                "Choose a data dir that does not contain {env: or {file:, then run install again.",
+                include_snippet=False,
+            )
+        return refused(target_path, text, f"next: {target_path.name} was not changed. {_OPENCODE_HAND_NEXT}")
 
     doc = target_doc
     if not doc and target_raw is None:
