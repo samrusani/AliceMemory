@@ -111,6 +111,12 @@ does not have them.
   value is refused. In `v0.17.0` they are read by value only, so a password
   or API key under a secret name is stored unless the value identifies
   itself.
+- Unreleased (on main, not in `v0.17.0`): continuity capture auto-save, in
+  assist and auto mode, saves only a user turn that matches an explicit
+  prefix; the rest are queued. A new continuity object gets the same
+  credential check as memory commit. In `v0.17.0`, assist saves any explicit
+  match at confidence 0.9 or more from either role, auto saves at 0.85 or
+  more, and only the credential floor runs, so `PASSWORD_DB=<value>` is stored.
 - Unreleased (on main, not in `v0.17.0`): a JSON write under `/v0` that names
   the user only in the `X-AliceBot-User-Id` header reaches the route with that
   user in the body. In `v0.17.0`, `POST /v0/continuity/captures/candidates`

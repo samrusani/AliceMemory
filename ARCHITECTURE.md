@@ -234,8 +234,8 @@ usage justifies a separately reviewed boundary.
   extracts domain routers, mirrors PostgreSQL and SQLite vNext store seams,
   splits the surviving legacy store and pure contracts, and moves MCP/CLI
   implementations into packages behind stable facades. Phase 3 brought every
-  production Python file below 4,000 lines. Two have grown past that since:
-  `vnext_retrieval.py` and `host_install.py`.
+  production Python file below 4,000 lines. `vnext_retrieval.py` has grown past
+  that since (4,470 lines in `v0.17.0`). On main, so has `host_install.py`.
 - HTTP route paths, operation IDs, dependencies, error behavior, store SQL,
   MCP and CLI registries, compatibility imports, and console entrypoints remain
   unchanged. Exact closure, SQL-shape, namespace, and installed-artifact tests

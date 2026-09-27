@@ -19,7 +19,7 @@ pip install alice-memory && alice-memory install
 ```
 
 Either way, `alice-memory install` writes the MCP config for Claude Desktop,
-Claude Code, Cursor, and OpenClaw. Hermes is opt-in: add `--host hermes`.
+Claude Code, Cursor, and OpenClaw. Hermes is opt-in, with `--host hermes`.
 
 The package installs the `alice-memory`, `alice`, `alicebot`, `alicebot-mcp`,
 and `alice-memory-session-start` commands.

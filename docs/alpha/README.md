@@ -9,7 +9,7 @@ Alice is agent-first, not dashboard-first:
 1. Install Alice locally.
 2. Connect an existing agent through MCP/API/CLI.
 3. Let agents request scoped context packs, submit reviewable outputs, and commit only explicit user-directed memories through Alice policy.
-4. On the Postgres stack, use `/vnext` to review, govern, audit, undo, correct, forget, configure, and troubleshoot. On SQLite, review runs through `alice_memory_review` and `alice_memory_correct` (`ALICE_MCP_FULL_TOOLS=1`).
+4. On the Postgres stack, use `/vnext` to review, govern, audit, undo, correct, forget, configure, and troubleshoot. On SQLite, review runs through `alice_memory_review` and `alice_memory_correct`, and undo and forget through `alice_memory_manage` (`ALICE_MCP_FULL_TOOLS=1`).
 
 Start here:
 

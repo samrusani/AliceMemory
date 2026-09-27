@@ -2,7 +2,8 @@
 
 ## Supported Versions
 
-Alice is pre-1.0 software. Security fixes go into the latest published release.
+Alice is pre-1.0 software. Security fixes ship in the next release. Only the
+latest published release is supported.
 Older releases and development snapshots do not get security backports; move to
 the latest published release before reporting or validating a fix. The default
 branch is useful for reproducing a forthcoming fix, but it is not a supported
@@ -29,7 +30,7 @@ Do not open public issues for active security vulnerabilities.
 
 Alice's security work is automated security scanning and internal adversarial
 review, with findings triaged and fixed. No one outside the project has audited
-the code. Known gaps are listed in the release notes for each version.
+the code. From v0.15.1 on, each version's release notes list its known gaps.
 
 ## Security Boundaries
 

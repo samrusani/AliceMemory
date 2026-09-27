@@ -16,14 +16,14 @@ What install writes:
 - An `alice` MCP entry for Claude Desktop, Claude Code, Cursor and OpenClaw. Other entries in those files are kept. The receipt prints each file's path.
 - A SessionStart hook for Claude Code (`~/.claude/settings.json`) and Cursor (`~/.cursor/hooks.json`), so the next session can inject the brief. Claude Desktop and OpenClaw get no hook.
 - For OpenClaw, the receipt also prints an `openclaw mcp add alice ...` line you can run instead.
-- Hermes is opt-in: add `--host hermes`. Install then writes only the `mcp_servers.alice` lines in `~/.hermes/config.yaml` and keeps the rest of the file. Hermes gets no hook. If the file uses YAML the installer does not edit, install changes nothing, prints the lines to add by hand, and exits non-zero.
+- Hermes is opt-in. `--host hermes` configures Hermes only, because any `--host` replaces the default set; pass all five hosts to write them together. Install then writes only the `mcp_servers.alice` lines in `~/.hermes/config.yaml` and keeps the rest of the file. Hermes gets no hook. If the file uses YAML the installer does not edit, install changes nothing, prints the lines to add by hand, and exits non-zero.
 - Unreleased (on main, not in v0.17.0): OpenCode is opt-in with `--host opencode`. See [OpenCode](../integrations/opencode.md).
 
 The data dir:
 
 - Alice keeps your memory in `memory.db` in the data dir. The MCP server creates it the first time it starts.
 - Without `--data-dir`, install keeps the data dir an existing Alice entry uses, else `~/.alice`. Pass `--data-dir` to move it. The hooks follow the entry.
-- A re-run keeps keys you added to an existing Alice entry, such as `env` and `timeout`.
+- A re-run keeps keys you added to an existing Alice entry, such as `env` and `timeout`, on the four JSON hosts. On Hermes, install refuses while the entry has keys it did not write.
 
 Backups: before install rewrites an existing host file, it saves a copy in `<data dir>/backups/host-configs/`.
 
@@ -40,7 +40,7 @@ What install does not do:
 - It does not write Hermes unless you pass `--host hermes`.
 - It does not turn on the full tool surface. The server lists three tools by default: `alice_memory_commit`, `alice_recall` and `alice_resume`. Set `ALICE_MCP_FULL_TOOLS=1` in the entry's `env` for all eleven core tools.
 
-The [README](../../README.md#quickstart) has the full install details.
+Launcher selection, hook limits on Windows and on pinned entries, and the other install edge cases are in the [v0.17.0 release notes](../release/v0.17.0-release-notes.md#install-and-host-config).
 
 ## Run the MCP server by hand (SQLite)
 
@@ -59,7 +59,7 @@ pip install -e .
 alice-memory mcp --data-dir ~/.alice
 ```
 
-This is the default path, for one user: three MCP tools by default (`alice_memory_commit`, `alice_recall`, `alice_resume`). Capture, the pack, and review are on the full surface (`ALICE_MCP_FULL_TOOLS=1`). No review console, scheduler, or legacy surfaces. See [known limitations](known-limitations.md). The Postgres setup below adds the `/vnext` review console, capture connectors and the scheduler.
+This is the same SQLite path, for one user: three MCP tools by default (`alice_memory_commit`, `alice_recall`, `alice_resume`). Capture, the pack, and review are on the full surface (`ALICE_MCP_FULL_TOOLS=1`). No review console, scheduler, or legacy surfaces. See [known limitations](known-limitations.md). The Postgres setup below adds the `/vnext` review console, capture connectors and the scheduler.
 
 ## Requirements
 

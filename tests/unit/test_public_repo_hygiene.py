@@ -67,15 +67,7 @@ _FORBIDDEN_OUTSIDE_AUTHORSHIP = frozenset(
 # Name forms still in files not yet fixed, as (file, digest) pairs. The scan
 # skips only that one form in that one file. Delete an entry when its file is
 # fixed: test_known_name_leftovers_are_still_present fails until you do.
-_KNOWN_NAME_LEFTOVERS = frozenset(
-    {
-        # a Telegram username in a smoke fixture
-        (
-            "apps/api/src/alicebot_api/cli/smokes.py",
-            "b816a16cd03774e0cefac03765680a33365d0b16060f67a2f7382a844f9c664f",
-        ),
-    }
-)
+_KNOWN_NAME_LEFTOVERS: frozenset[tuple[str, str]] = frozenset()
 
 _WORD = re.compile(r"[A-Za-z0-9_@+-]+(?:\.[A-Za-z0-9_@+-]+)*")
 _PLACEHOLDER_USERS = frozenset(

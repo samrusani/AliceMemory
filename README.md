@@ -53,7 +53,7 @@ uvx alice-memory install --data-dir ~/.alice
 # or, without uv: pip install alice-memory && alice-memory install --data-dir ~/.alice
 ```
 
-That writes Claude Desktop, Claude Code, Cursor, and OpenClaw MCP config. Claude Code and Cursor also get a SessionStart hook so the next session can inject the brief. Hermes is opt-in: add `--host hermes`. Without `uvx` on PATH, install writes the path of the installed `alice-memory` scripts instead. It warns if it finds neither `uvx` nor those scripts. A re-run keeps any keys you added to the Alice entry, and keeps your data dir unless you pass `--data-dir`. It backs up each file before it rewrites it. `--dry-run` prints the plan and writes nothing. The command writes host config. It does not import a vault. The details are in [Install with alice-memory](https://github.com/samrusani/AliceMemory/blob/main/docs/alpha/quickstart.md#install-with-alice-memory).
+That writes Claude Desktop, Claude Code, Cursor, and OpenClaw MCP config. Claude Code and Cursor also get a SessionStart hook so the next session can inject the brief. Hermes is opt-in. `--host hermes` configures Hermes only, because any `--host` replaces the default set. To write all five, pass `--host claude-desktop --host claude-code --host cursor --host openclaw --host hermes`. Without `uvx` on PATH, install writes the path of the installed `alice-memory` scripts instead. It warns if it finds neither `uvx` nor those scripts. On Claude Desktop, Claude Code, Cursor and OpenClaw, a re-run keeps any keys you added to the Alice entry. On Hermes it keeps only the documented Alice env values and refuses while the entry has other keys. A re-run keeps your data dir unless you pass `--data-dir`. It backs up each file before it rewrites it. `--dry-run` prints the plan and writes nothing. The command writes host config. It does not import a vault. The details are in [Install with alice-memory](https://github.com/samrusani/AliceMemory/blob/main/docs/alpha/quickstart.md#install-with-alice-memory).
 
 On main, not yet released: an opt-in OpenCode host (`--host opencode`). The published v0.17.0 does not have it.
 
@@ -115,6 +115,8 @@ SQLite mode is the single-agent path and the one most agents should use: it serv
 For Postgres with pgvector, the web review console, and the core memory
 scheduler workflows, run from a repo checkout. Requirements: Python 3.12+,
 Node 20+, pnpm, Docker, Git.
+
+The clone checks out `main`, which can be ahead of the latest release. To run v0.17.0, run `git checkout v0.17.0` before `make setup`.
 
 ```bash
 git clone https://github.com/samrusani/AliceMemory.git

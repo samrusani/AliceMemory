@@ -1,8 +1,8 @@
 # Sprint 6: host adapters
 
 Unreleased (on main, not in v0.17.0): the OpenCode JSON install path has
-merged, so `alice-memory install --host opencode` exists on main. The JSONC
-path is still in an open pull request. Codex and the Claude Code plugin are
+merged, so `alice-memory install --host opencode` exists on main and writes
+`opencode.json` or `opencode.jsonc`. Codex and the Claude Code plugin are
 still design only.
 
 Design only. No installer change ships with this note.
