@@ -264,8 +264,8 @@ def test_report_keeps_hook_time_counts_when_the_transcript_grows(tmp_path: Path,
 
     The stub appends a line after the hook copies, so the live transcript
     is longer than the saved copy. Mutation: replay into the hook
-    directory, report the replay line count as transcript_lines, or count
-    the source file. SessionStart's saved copy is no longer one line.
+    directory, or report the replay line count as transcript_lines.
+    SessionStart's saved copy is no longer one line.
     """
 
     _install_stub(tmp_path, monkeypatch)

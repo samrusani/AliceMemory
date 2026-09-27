@@ -20,7 +20,7 @@ import zipfile
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
-from pathlib import Path, PureWindowsPath
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any
 
 from alicebot_api import __version__
@@ -1133,13 +1133,32 @@ def _check_hooks_file(doc: Mapping[str, Any], host: str) -> None:
         raise _MalformedHostFile(f"hooks.{key} is not a list")
 
 
-def _describe_entry(entry: object) -> str:
-    """Why an entry is foreign. Only the basename of the command's first word.
+_PLAIN_PROGRAM = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+-]{0,63}")
 
-    A token later in that command string is not printed. A first word that
-    contains ``://`` is ``a URL``, and no part of it is printed. Any other
-    first word that carries credential material is ``a command that looks
-    like a credential``. A query or fragment is not part of a file name.
+
+def _absolute_program_basename(command: str) -> str | None:
+    """Basename when ``command`` is one absolute path, spaces included."""
+
+    text = command.strip()
+    if text.startswith("/"):
+        name = PurePosixPath(text).name
+    elif re.match(r"^[A-Za-z]:[\\/]", text):
+        name = PureWindowsPath(text).name
+    else:
+        return None
+    if _PLAIN_PROGRAM.fullmatch(name):
+        return name
+    return None
+
+
+def _describe_entry(entry: object) -> str:
+    """Why an entry is foreign. Print a name only when it looks like a program.
+
+    A first word that contains ``://`` is ``a URL``, and no part of it is
+    printed. A first word that carries credential material, or that
+    ``masked_args`` would hide, is ``a command that looks like a
+    credential``. Any other word is printed only when its basename matches
+    a plain program name.
     """
 
     if isinstance(entry, Mapping):
@@ -1150,12 +1169,15 @@ def _describe_entry(entry: object) -> str:
                 word = words[0]
                 if "://" in word:
                     return "its command is a URL"
-                if carries_credential_material(word):
+                if carries_credential_material(word) or masked_args([word])[1]:
                     return "its command is a command that looks like a credential"
-                bare = word.split("?", 1)[0].split("#", 1)[0]
-                name = PureWindowsPath(bare).name
-                if name:
+                whole = _absolute_program_basename(command)
+                if whole is not None:
+                    return f"its command is {whole}"
+                name = PureWindowsPath(word).name
+                if _PLAIN_PROGRAM.fullmatch(name):
                     return f"its command is {name}"
+                return "its command is not a plain program name"
         return "it has no string command"
     return "it is not an object"
 

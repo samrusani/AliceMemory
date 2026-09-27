@@ -426,6 +426,79 @@ def test_a_credential_shaped_command_is_not_printed(
     assert path.read_bytes() == before
 
 
+def _program_name_case(shape: str, token: str) -> tuple[str, str]:
+    """The command for ``shape``, and the receipt text that must appear."""
+
+    hidden = "its command is a command that looks like a credential"
+    plain = "its command is not a plain program name"
+    commands = {
+        "token-flag": ("--token=" + token, hidden),
+        "secret-flag": ("--secret=" + token, hidden),
+        "key-flag": ("--key=" + token, hidden),
+        "assignment": ("TOKEN=" + token + " node", plain),
+        "scp": ("user:" + token + "@host.example", plain),
+        "one-slash": ("https:/" + "user:" + token + "@host", plain),
+        "npx": ("npx", "its command is npx"),
+        "node": ("node", "its command is node"),
+        "abs-node": ("/usr/local/bin/node", "its command is node"),
+        "uvx": ("uvx", "its command is uvx"),
+        "windows": ("C:\\x\\y.exe", "its command is y.exe"),
+        "program-files": ("C:\\Program Files\\nodejs\\node.exe", "its command is node.exe"),
+    }
+    return commands[shape]
+
+
+@pytest.mark.parametrize(
+    "shape",
+    [
+        "token-flag",
+        "secret-flag",
+        "key-flag",
+        "assignment",
+        "scp",
+        "one-slash",
+        "npx",
+        "node",
+        "abs-node",
+        "uvx",
+        "windows",
+        "program-files",
+    ],
+)
+def test_a_command_name_is_printed_only_for_a_plain_program(
+    tmp_path: Path, capsys, shape: str
+) -> None:
+    """Print a name only when the first word looks like a program name.
+
+    Mutation: print the first word whenever it has a basename, or skip
+    the masked_args check. A flag value or an assignment is printed.
+    This test fails.
+    """
+
+    token = _runtime_token()
+    command, expected = _program_name_case(shape, token)
+    home = tmp_path / "home"
+    path = _seed_foreign_command(home, "claude-desktop", command)
+    before = path.read_bytes()
+    code, out, err = _install(capsys, home, "--host", "claude-desktop", "--data-dir", str(tmp_path / "vault"))
+    assert code == 1, out
+    combined = out + err
+    assert token not in combined
+    assert expected in out
+    if shape in {"token-flag", "secret-flag", "key-flag", "assignment", "scp", "one-slash"}:
+        assert "host.example" not in combined
+        assert "TOKEN=" not in combined
+        assert "--token=" not in combined
+        assert "--secret=" not in combined
+        assert "--key=" not in combined
+        assert "https:/" not in combined
+    if shape == "program-files":
+        assert "Program" not in combined
+    if shape == "windows":
+        assert "\\x\\" not in combined
+    assert path.read_bytes() == before
+
+
 def test_a_windows_path_command_prints_only_the_basename(tmp_path: Path, capsys) -> None:
     """``C:\\x\\y.exe`` is ``y.exe``. A later token is not printed."""
 
