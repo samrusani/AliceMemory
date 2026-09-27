@@ -65,6 +65,7 @@ PROTECTED_AREAS: tuple[ProtectedArea, ...] = (
     ProtectedArea(
         label="continuity APIs",
         patterns=(
+            "apps/api/src/alicebot_api/cli.py",
             "apps/api/src/alicebot_api/cli/*.py",
             "apps/api/src/alicebot_api/contracts.py",
             "apps/api/src/alicebot_api/_contracts/*.py",

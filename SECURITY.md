@@ -10,10 +10,13 @@ release until it is tagged and published.
 
 ## Reporting a Vulnerability
 
-Report security issues privately by email to hello@alicememory.com. If private
-vulnerability reporting is enabled for this repository, the Security tab shows a
-"Report a vulnerability" button, and you can open a private security advisory
-there instead. Include:
+Report security issues privately, by either route:
+
+- open a private security advisory from the repository's Security tab ("Report a
+  vulnerability");
+- email hello@alicememory.com.
+
+Include:
 
 - affected component/file
 - reproduction steps
@@ -21,6 +24,12 @@ there instead. Include:
 - suggested mitigation (if available)
 
 Do not open public issues for active security vulnerabilities.
+
+## Security Review
+
+Alice's security work is automated security scanning and internal adversarial
+review, with findings triaged and fixed. No one outside the project has audited
+the code. Known gaps are listed in the release notes for each version.
 
 ## Security Boundaries
 

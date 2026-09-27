@@ -157,7 +157,7 @@ Point any MCP-capable agent or IDE at the Alice server. For the packaged SQLite 
 The default MCP surface is three tools:
 
 - `alice_memory_commit`: **record one fact as durable, immediately recallable memory.** This is the verb for ordinary memory, including when the user has not asked the agent to remember. Policy-checked: committed, confirmation-required, review-required, or rejected
-- `alice_recall`: search memory (full-text plus vector, fused ranking; hard-scopable by thread, task, project, person, time, and memory type). Also returns matching passages from captured documents under `sources`, with an excerpt to read and quote; `results` are facts Alice asserts, `sources` are material the user imported, and the same scope fence applies to both
+- `alice_recall`: search memory (full-text, vector and entity-graph results fused by rank, with vectors only when an embeddings endpoint is set; hard-scopable by thread, task, project, person, time, and memory type). Also returns matching passages from captured documents under `sources`, with an excerpt to read and quote; `results` are facts Alice asserts, `sources` are material the user imported, and the same scope fence applies to both
 - `alice_resume`: resumption brief for a project or thread
 
 The other eight core tools (`alice_capture`, `alice_context_pack`, `alice_open_loops`, `alice_recent_decisions`, `alice_memory_review`, `alice_memory_correct`, `alice_memory_manage`, `alice_explain`) stay defined and become listed and callable when `ALICE_MCP_FULL_TOOLS=1`. Capture stores a source; candidates stay unsearchable as memories. Import is a source. Commit is a fact.
