@@ -62,8 +62,12 @@
   no others.
 
 - A blocked idempotent replay of `POST /v0/vnext/memories/commit` returns
-  403 and keeps its policy rows. A new commit that policy rejects still
-  returns 200 with status `rejected`.
+  403 only when the stored domain, sensitivity, and project scope all equal
+  the request's. Otherwise it returns the writer's 400. The policy rows are
+  kept, except that a conflict found after losing the insert race rolls
+  back, by design. MCP `alice_memory_commit` keeps the rows and answers
+  `tool_request_failed`. A new commit that policy rejects still returns 200
+  with status `rejected`.
 
 - Continuity capture auto-save, in assist mode and in auto mode, saves only
   a user-role candidate matched by an explicit prefix rule (`decision:`,

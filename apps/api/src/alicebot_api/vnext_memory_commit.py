@@ -81,7 +81,7 @@ from alicebot_api.vnext_project_update_guard import (
     PENDING_PROJECT_UPDATE_MEMORY_MUTATION_MESSAGE,
     is_pending_project_update_memory,
 )
-from alicebot_api.vnext_project_scope import project_scope_identity
+from alicebot_api.vnext_project_scope import normalize_project_scope, project_scope_identity
 from alicebot_api.vnext_repositories import EventStore, JsonObject
 from alicebot_api.store import ContinuityStoreInvariantError
 from alicebot_api.vnext_store import PostgresVNextStore, VNextRow
@@ -269,6 +269,35 @@ MAX_COMMIT_SOURCE_REF_CHARS = _MAX_COMMIT_SOURCE_REF_CHARS
 
 class VNextMemoryCommitValidationError(ValueError):
     """Raised when an agentic memory commit request is invalid."""
+
+
+class IdempotencyKeyConflictError(VNextMemoryCommitValidationError):
+    """The idempotency key is already bound to a different request.
+
+    A blocked replay raises this when the content does not match, or when
+    the stored labels are not the labels the caller sent. The policy rows
+    from the check are kept. The public body is the writer's 400.
+    """
+
+
+def _stored_labels_are_the_requests(
+    memory: Mapping[str, object],
+    request: MemoryCommitRequest,
+    identity: AgentIdentity | None,
+) -> bool:
+    """True when the stored row's labels are the ones this request sent.
+
+    Domain and sensitivity are read the same way ``_policy_checked_write``
+    reads them. An omitted project scope falls back to the identity, the
+    same way ``_scope_columns`` does.
+    """
+
+    scope = request.project_scope or (identity.project_scope if identity is not None else ())
+    return (
+        str(memory.get("domain") or "unknown") == request.domain
+        and str(memory.get("sensitivity") or "unknown") == request.sensitivity
+        and resource_project_scope(memory) == normalize_project_scope(list(scope))
+    )
 
 
 class _IdempotentReplaySignal(RuntimeError):
@@ -1255,13 +1284,17 @@ class VNextMemoryCommitService:
                 )
             )
         except _IdempotentReplaySignal as replay:
-            return _with_commit_receipt(
-                self._idempotent_replay(
+            try:
+                replayed = self._idempotent_replay(
                     memory=replay.memory,
                     request=request,
                     identity=identity,
                 )
-            )
+            except IdempotencyKeyConflictError as exc:
+                # A plain validation error leaves this transaction, so the
+                # writes that lost the insert race roll back.
+                raise VNextMemoryCommitValidationError(str(exc)) from None
+            return _with_commit_receipt(replayed)
 
     def confirm(
         self,
@@ -2778,7 +2811,19 @@ class VNextMemoryCommitService:
         request: MemoryCommitRequest,
         identity: AgentIdentity | None,
     ) -> JsonObject:
-        self._policy_checked_write(identity=identity, action="memory.commit", memory=memory)
+        try:
+            self._policy_checked_write(identity=identity, action="memory.commit", memory=memory)
+        except AgentPolicyBlockedError:
+            content_differs = False
+            try:
+                self._assert_idempotent_request_matches(memory=memory, request=request)
+            except VNextMemoryCommitValidationError:
+                content_differs = True
+            if content_differs or not _stored_labels_are_the_requests(memory, request, identity):
+                raise IdempotencyKeyConflictError(
+                    "idempotency_key was already used for a different memory request"
+                ) from None
+            raise
         self._assert_idempotent_request_matches(memory=memory, request=request)
         agentic = _agentic_metadata(memory)
         decision_record = agentic.get("policy_decision")

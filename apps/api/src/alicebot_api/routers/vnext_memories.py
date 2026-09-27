@@ -74,6 +74,7 @@ from alicebot_api.vnext_dogfooding import VNextDogfoodingService
 from alicebot_api.vnext_doctor import VNextDoctorService
 from alicebot_api.vnext_event_log import append_event
 from alicebot_api.vnext_memory_commit import (
+    IdempotencyKeyConflictError,
     VNextMemoryCommitService,
     VNextMemoryCommitValidationError,
     _brain_charter_row,
@@ -1405,6 +1406,8 @@ def commit_vnext_memory(
                 payload = service.commit(identity=identity, request=commit_request)
             except AgentPolicyBlockedError as exc:
                 return _vnext_permission_response(exc.decision)
+            except IdempotencyKeyConflictError as exc:
+                return public_exception_response(exc, status_code=400)
     except AgentKeyAuthenticationError as exc:
         return _vnext_agent_auth_error_response(exc)
     except VNextMemoryCommitValidationError as exc:
