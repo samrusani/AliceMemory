@@ -8,10 +8,13 @@
   it. When alice already sits in `config.json`, that file is the one
   rewritten. Otherwise install writes `opencode.json`. A re-run
   keeps `timeout`, `enabled`, `cwd`, `environment`, and sibling servers.
-  A dry run masks the command array. An `opencode.jsonc` file, a second
-  `alice` entry, or a legacy `config` file is not edited. There is no
-  SessionStart hook. Check the result with `opencode debug config` and
-  `opencode mcp list`.
+  A dry run masks the command array. An `opencode.jsonc` file is edited
+  as text, and so is an `opencode.json` that is not strict JSON. The text
+  path carries `type`, the `command` array, and documented `environment`
+  string literals, and leaves every other byte. A second `alice` entry
+  or a legacy `config` file is not edited. An unreadable OpenCode
+  directory fails only that host. There is no SessionStart hook. Check
+  the result with `opencode debug config` and `opencode mcp list`.
 
 - `POST /v0/continuity/captures` runs `commit_door_secret_verdict` on the
   normalized text and returns 400 when that check refuses. Nothing from

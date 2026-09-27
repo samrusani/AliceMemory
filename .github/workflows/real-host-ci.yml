@@ -131,7 +131,7 @@ jobs:
           suites = [root] if root.tag == "testsuite" else list(root.findall("testsuite"))
           ran = sum(int(suite.attrib.get("tests", "0")) for suite in suites)
           skipped = sum(int(suite.attrib.get("skipped", "0")) for suite in suites)
-          if ran != 4 or skipped != 0:
+          if ran != 5 or skipped != 0:
               raise SystemExit(
                   f"real host tests did not all run: tests={ran} skipped={skipped}"
               )
@@ -203,7 +203,7 @@ jobs:
           suites = [root] if root.tag == "testsuite" else list(root.findall("testsuite"))
           ran = sum(int(suite.attrib.get("tests", "0")) for suite in suites)
           skipped = sum(int(suite.attrib.get("skipped", "0")) for suite in suites)
-          if ran != 4 or skipped != 0:
+          if ran != 5 or skipped != 0:
               raise SystemExit(
                   f"real host tests did not all run: tests={ran} skipped={skipped}"
               )

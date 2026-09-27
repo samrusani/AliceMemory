@@ -3493,10 +3493,17 @@ _OPENCODE_XDG_NEXT = (
     "next: nothing was written for opencode. "
     "Set XDG_CONFIG_HOME to an absolute path, or pass --home, then run install again."
 )
-_OPENCODE_LOOSE_NEXT = (
+_OPENCODE_TEXT_NEXT = (
     "next: nothing was written for opencode. "
-    "PR B will edit this file. Until then, add the snippet by hand."
+    "Edit the alice entry by hand instead, then check it with: opencode mcp list"
 )
+_OPENCODE_KEYS_NEXT = (
+    "next: nothing was written for opencode. "
+    "Install refuses while those keys are present. "
+    "Edit the alice entry by hand instead, then check it with: opencode mcp list"
+)
+_OPENCODE_TEXT_FORMAT = "jsonc, edited as text"
+_OPENCODE_JSONC_DEPTH = 64
 _OPENCODE_ENV_WORD = "a command word holds {env: or {file:"
 _OPENCODE_CONFIG_ENVS = (
     "OPENCODE_CONFIG",
@@ -3670,6 +3677,674 @@ def _opencode_env_notes() -> list[str]:
     return notes
 
 
+class OpenCodeConfigRefused(HermesConfigRefused):
+    """install left an OpenCode file untouched because the text path could not edit it."""
+
+
+class _OpencodeStatFailed(Exception):
+    """A stat of an OpenCode path raised OSError. The host fails with a receipt."""
+
+    def __init__(self, path: Path) -> None:
+        super().__init__(path.name)
+        self.path = path
+
+
+def _opencode_probe(path: Path) -> None:
+    """Stat ``path``. Permission errors become a failed host, not a crash."""
+
+    try:
+        path.is_symlink()
+        path.exists()
+    except OSError as exc:
+        raise _OpencodeStatFailed(path) from exc
+
+
+def _opencode_empty(raw: bytes | None) -> bool:
+    """A missing or zero-byte file counts as absent. Whitespace does not."""
+
+    return raw is None or raw == b""
+
+
+def _opencode_command_data_dir(entry: Mapping[str, Any] | None) -> str | None:
+    """The ``--data-dir`` value written in an OpenCode command array, if one is visible."""
+
+    if not isinstance(entry, Mapping):
+        return None
+    command = entry.get("command")
+    if not isinstance(command, list):
+        return None
+    words = [word for word in command if isinstance(word, str)]
+    found: str | None = None
+    index = 0
+    while index < len(words):
+        word = words[index]
+        if word == "--data-dir" and index + 1 < len(words) and not words[index + 1].startswith("-"):
+            found = words[index + 1]
+            index += 2
+            continue
+        if word.startswith("--data-dir=") and len(word) > len("--data-dir="):
+            found = word.split("=", 1)[1]
+        index += 1
+    return found
+
+
+def _opencode_quiet_session_start(details: list[str]) -> None:
+    """OpenCode has no SessionStart hook, so a warning must not name one."""
+
+    needle = "install left this entry, and its SessionStart hook, as they were"
+    replacement = "install left this entry as it was"
+    for index, line in enumerate(details):
+        if needle in line:
+            details[index] = line.replace(needle, replacement)
+
+
+@dataclass(frozen=True)
+class _JsoncTok:
+    kind: str
+    start: int
+    end: int
+    line: int
+    decoded: object = None
+
+
+@dataclass
+class _JsoncNode:
+    kind: str
+    start: int
+    end: int
+    line: int
+    pairs: list[tuple[str, int, int, "_JsoncNode"]] | None = None
+    items: list["_JsoncNode"] | None = None
+    decoded: object = None
+    raw: str = ""
+
+
+def _jsonc_line(text: str, index: int) -> int:
+    return text.count("\n", 0, index) + 1
+
+
+def _jsonc_string(text: str, start: int) -> tuple[str, int]:
+    """Decode one JSON string starting at ``start``. Return (decoded, end)."""
+
+    if start >= len(text) or text[start] != '"':
+        raise OpenCodeConfigRefused("a token error", _jsonc_line(text, start))
+    chars: list[str] = []
+    index = start + 1
+    while index < len(text):
+        char = text[index]
+        if char == '"':
+            return "".join(chars), index + 1
+        if char == "\n" or char == "\r":
+            raise OpenCodeConfigRefused("a token error", _jsonc_line(text, start))
+        if char != "\\":
+            chars.append(char)
+            index += 1
+            continue
+        if index + 1 >= len(text):
+            raise OpenCodeConfigRefused("a token error", _jsonc_line(text, start))
+        escaped = text[index + 1]
+        simple = {'"': '"', "\\": "\\", "/": "/", "b": "\b", "f": "\f", "n": "\n", "r": "\r", "t": "\t"}
+        if escaped in simple:
+            chars.append(simple[escaped])
+            index += 2
+            continue
+        if escaped == "u" and index + 6 <= len(text):
+            digits = text[index + 2 : index + 6]
+            if len(digits) == 4 and all(c in "0123456789abcdefABCDEF" for c in digits):
+                chars.append(chr(int(digits, 16)))
+                index += 6
+                continue
+        raise OpenCodeConfigRefused("a token error", _jsonc_line(text, index))
+    raise OpenCodeConfigRefused("a token error", _jsonc_line(text, start))
+
+
+def _jsonc_tokens(text: str) -> list[_JsoncTok]:
+    if text.startswith("\ufeff"):
+        raise OpenCodeConfigRefused("a byte order mark", 1)
+    tokens: list[_JsoncTok] = []
+    index = 0
+    length = len(text)
+    while index < length:
+        char = text[index]
+        line = _jsonc_line(text, index)
+        if char in " \t\r\n":
+            end = index + 1
+            while end < length and text[end] in " \t\r\n":
+                end += 1
+            tokens.append(_JsoncTok("ws", index, end, line))
+            index = end
+            continue
+        if text.startswith("{env:", index) or text.startswith("{file:", index):
+            raise OpenCodeConfigRefused("an unquoted substitution", line)
+        if char == "/" and index + 1 < length and text[index + 1] == "/":
+            end = text.find("\n", index)
+            end = length if end < 0 else end
+            tokens.append(_JsoncTok("comment", index, end, line))
+            index = end
+            continue
+        if char == "/" and index + 1 < length and text[index + 1] == "*":
+            end = text.find("*/", index + 2)
+            if end < 0:
+                raise OpenCodeConfigRefused("an unterminated comment", line)
+            tokens.append(_JsoncTok("comment", index, end + 2, line))
+            index = end + 2
+            continue
+        if char == '"':
+            decoded, end = _jsonc_string(text, index)
+            tokens.append(_JsoncTok("string", index, end, line, decoded))
+            index = end
+            continue
+        if char == "-" or char.isdigit():
+            end = index
+            if text[end] == "-":
+                end += 1
+            if end >= length or not text[end].isdigit():
+                raise OpenCodeConfigRefused("a token error", line)
+            if text[end] == "0":
+                end += 1
+            else:
+                while end < length and text[end].isdigit():
+                    end += 1
+            if end < length and text[end] == ".":
+                end += 1
+                if end >= length or not text[end].isdigit():
+                    raise OpenCodeConfigRefused("a token error", line)
+                while end < length and text[end].isdigit():
+                    end += 1
+            if end < length and text[end] in "eE":
+                exponent = end + 1
+                if exponent < length and text[exponent] in "+-":
+                    exponent += 1
+                if exponent >= length or not text[exponent].isdigit():
+                    raise OpenCodeConfigRefused("a token error", line)
+                while exponent < length and text[exponent].isdigit():
+                    exponent += 1
+                end = exponent
+            tokens.append(_JsoncTok("number", index, end, line, text[index:end]))
+            index = end
+            continue
+        if text.startswith("true", index):
+            tokens.append(_JsoncTok("literal", index, index + 4, line, True))
+            index += 4
+            continue
+        if text.startswith("false", index):
+            tokens.append(_JsoncTok("literal", index, index + 5, line, False))
+            index += 5
+            continue
+        if text.startswith("null", index):
+            tokens.append(_JsoncTok("literal", index, index + 4, line, None))
+            index += 4
+            continue
+        if char in "{}[]:,":
+            tokens.append(_JsoncTok("punct", index, index + 1, line, char))
+            index += 1
+            continue
+        raise OpenCodeConfigRefused("a token error", line)
+    return tokens
+
+
+class _JsoncParser:
+    def __init__(self, text: str, tokens: list[_JsoncTok]) -> None:
+        self.text = text
+        self.tokens = [token for token in tokens if token.kind != "ws"]
+        self.index = 0
+        self.depth = 0
+        self.forbid_comments = False
+
+    def _skip_comments(self) -> None:
+        while self.index < len(self.tokens) and self.tokens[self.index].kind == "comment":
+            if self.forbid_comments:
+                token = self.tokens[self.index]
+                raise OpenCodeConfigRefused("a comment in alice", token.line)
+            self.index += 1
+
+    def _peek(self) -> _JsoncTok | None:
+        self._skip_comments()
+        if self.index >= len(self.tokens):
+            return None
+        return self.tokens[self.index]
+
+    def _take(self) -> _JsoncTok:
+        token = self._peek()
+        if token is None:
+            raise OpenCodeConfigRefused("a token error", _jsonc_line(self.text, len(self.text)))
+        self.index += 1
+        return token
+
+    def _punct(self, token: _JsoncTok, mark: str) -> bool:
+        return token.kind == "punct" and token.decoded == mark
+
+    def parse(self) -> _JsoncNode:
+        node = self._value()
+        if self._peek() is not None:
+            raise OpenCodeConfigRefused("a token error", self._peek().line)
+        return node
+
+    def _value(self) -> _JsoncNode:
+        token = self._take()
+        if token.kind == "string":
+            return _JsoncNode(
+                "string", token.start, token.end, token.line, decoded=token.decoded, raw=self.text[token.start : token.end]
+            )
+        if token.kind == "number":
+            return _JsoncNode("number", token.start, token.end, token.line, decoded=token.decoded)
+        if token.kind == "literal":
+            return _JsoncNode("literal", token.start, token.end, token.line, decoded=token.decoded)
+        if token.kind == "punct" and token.decoded == "{":
+            return self._object(token)
+        if token.kind == "punct" and token.decoded == "[":
+            return self._array(token)
+        raise OpenCodeConfigRefused("a token error", token.line)
+
+    def _enter(self, token: _JsoncTok) -> None:
+        self.depth += 1
+        if self.depth > _OPENCODE_JSONC_DEPTH:
+            raise OpenCodeConfigRefused("the file is nested too deeply to read", token.line)
+
+    def _object(self, opener: _JsoncTok) -> _JsoncNode:
+        self._enter(opener)
+        pairs: list[tuple[str, int, int, _JsoncNode]] = []
+        if (closing := self._peek()) is not None and self._punct(closing, "}"):
+            end = self._take()
+            self.depth -= 1
+            return _JsoncNode("object", opener.start, end.end, opener.line, pairs=pairs)
+        while True:
+            key = self._take()
+            if key.kind != "string" or not isinstance(key.decoded, str):
+                raise OpenCodeConfigRefused("a token error", key.line)
+            colon = self._take()
+            if not self._punct(colon, ":"):
+                raise OpenCodeConfigRefused("a token error", colon.line)
+            value = self._value()
+            pairs.append((key.decoded, key.start, key.line, value))
+            nxt = self._peek()
+            if nxt is not None and self._punct(nxt, ","):
+                self._take()
+                if (tail := self._peek()) is not None and self._punct(tail, "}"):
+                    end = self._take()
+                    self.depth -= 1
+                    return _JsoncNode("object", opener.start, end.end, opener.line, pairs=pairs)
+                continue
+            if nxt is not None and self._punct(nxt, "}"):
+                end = self._take()
+                self.depth -= 1
+                return _JsoncNode("object", opener.start, end.end, opener.line, pairs=pairs)
+            line = nxt.line if nxt is not None else opener.line
+            raise OpenCodeConfigRefused("a token error", line)
+
+    def _array(self, opener: _JsoncTok) -> _JsoncNode:
+        self._enter(opener)
+        items: list[_JsoncNode] = []
+        if (closing := self._peek()) is not None and self._punct(closing, "]"):
+            end = self._take()
+            self.depth -= 1
+            return _JsoncNode("array", opener.start, end.end, opener.line, items=items)
+        while True:
+            items.append(self._value())
+            nxt = self._peek()
+            if nxt is not None and self._punct(nxt, ","):
+                self._take()
+                if (tail := self._peek()) is not None and self._punct(tail, "]"):
+                    end = self._take()
+                    self.depth -= 1
+                    return _JsoncNode("array", opener.start, end.end, opener.line, items=items)
+                continue
+            if nxt is not None and self._punct(nxt, "]"):
+                end = self._take()
+                self.depth -= 1
+                return _JsoncNode("array", opener.start, end.end, opener.line, items=items)
+            line = nxt.line if nxt is not None else opener.line
+            raise OpenCodeConfigRefused("a token error", line)
+
+
+def _parse_jsonc_text(text: str) -> _JsoncNode:
+    tokens = _jsonc_tokens(text)
+    significant = [token for token in tokens if token.kind != "ws"]
+    if not significant:
+        if any(token.kind == "comment" for token in tokens):
+            raise OpenCodeConfigRefused("comment-only text", 1, placeholder=True)
+        raise OpenCodeConfigRefused("whitespace-only text", 1, placeholder=True)
+    try:
+        return _JsoncParser(text, tokens).parse()
+    except RecursionError as exc:
+        raise OpenCodeConfigRefused("the file is nested too deeply to read", 1, placeholder=True) from exc
+
+
+def _jsonc_named(node: _JsoncNode, name: str) -> list[tuple[str, int, int, _JsoncNode]]:
+    pairs = node.pairs or []
+    return [pair for pair in pairs if pair[0] == name]
+
+
+def _jsonc_alice_census(node: _JsoncNode) -> tuple[int, bool]:
+    """(how many ``mcp.alice`` keys, whether ``mcp.servers.alice`` is present)."""
+
+    if node.kind != "object":
+        raise OpenCodeConfigRefused("the top level is not an object", node.line, placeholder=True)
+    mcp_keys = _jsonc_named(node, "mcp")
+    if len(mcp_keys) > 1:
+        raise OpenCodeConfigRefused("mcp appears more than once", mcp_keys[1][2], placeholder=True)
+    if not mcp_keys:
+        return 0, False
+    mcp = mcp_keys[0][3]
+    if mcp.kind != "object":
+        raise OpenCodeConfigRefused("mcp is not an object", mcp.line, placeholder=True)
+    alice_keys = _jsonc_named(mcp, "alice")
+    if len(alice_keys) > 1:
+        raise OpenCodeConfigRefused("alice appears more than once", alice_keys[1][2])
+    servers = False
+    server_keys = _jsonc_named(mcp, "servers")
+    if server_keys and server_keys[0][3].kind == "object":
+        servers = any(pair[0] == "alice" for pair in (server_keys[0][3].pairs or []))
+    return len(alice_keys), servers
+
+
+def _jsonc_newline(text: str) -> str:
+    return "\r\n" if "\r\n" in text else "\n"
+
+
+def _jsonc_indent_unit(text: str, node: _JsoncNode) -> str | None:
+    """The indent of ``node``'s first key, or None when the object is one line."""
+
+    chunk = text[node.start : node.end]
+    if "\n" not in chunk and "\r" not in chunk:
+        return None
+    pairs = node.pairs or []
+    if pairs:
+        key_start = pairs[0][1]
+        line_start = text.rfind("\n", node.start, key_start) + 1
+        indent = text[line_start:key_start]
+        if indent and indent.strip(" \t") == "":
+            return indent
+    return "  "
+
+
+def _jsonc_dump_string(value: str) -> str:
+    return json.dumps(value, ensure_ascii=True)
+
+
+def _render_jsonc_value(
+    value: object,
+    *,
+    newline: str,
+    unit: str | None,
+    level: int,
+    raw_env: Mapping[str, str] | None,
+) -> str:
+    """``value`` as JSON text. ``unit`` None keeps it on one line."""
+
+    if unit is None:
+        return _render_jsonc_compact(value, raw_env)
+    pad = unit * level
+    inner = unit * (level + 1)
+    if isinstance(value, dict):
+        if not value:
+            return "{}"
+        lines = ["{"]
+        items = list(value.items())
+        for index, (key, item) in enumerate(items):
+            comma = "," if index + 1 < len(items) else ""
+            if key == "environment" and raw_env is not None:
+                rendered = _render_jsonc_env(raw_env, newline=newline, unit=unit, level=level + 1)
+            else:
+                rendered = _render_jsonc_value(
+                    item, newline=newline, unit=unit, level=level + 1, raw_env=None
+                )
+            lines.append(f"{inner}{_jsonc_dump_string(str(key))}: {rendered}{comma}")
+        lines.append(f"{pad}}}")
+        return newline.join(lines)
+    if isinstance(value, list):
+        if not value:
+            return "[]"
+        lines = ["["]
+        for index, item in enumerate(value):
+            comma = "," if index + 1 < len(value) else ""
+            rendered = _render_jsonc_value(item, newline=newline, unit=unit, level=level + 1, raw_env=None)
+            lines.append(f"{inner}{rendered}{comma}")
+        lines.append(f"{pad}]")
+        return newline.join(lines)
+    if isinstance(value, str):
+        return _jsonc_dump_string(value)
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return json.dumps(value, ensure_ascii=True)
+
+
+def _render_jsonc_compact(value: object, raw_env: Mapping[str, str] | None) -> str:
+    if isinstance(value, dict):
+        parts: list[str] = []
+        for key, item in value.items():
+            if key == "environment" and raw_env is not None:
+                rendered = _render_jsonc_env(raw_env, newline="", unit=None, level=0)
+            else:
+                rendered = _render_jsonc_compact(item, None)
+            parts.append(f"{_jsonc_dump_string(str(key))}: {rendered}")
+        return "{" + ", ".join(parts) + "}"
+    if isinstance(value, list):
+        return "[" + ", ".join(_render_jsonc_compact(item, None) for item in value) + "]"
+    if isinstance(value, str):
+        return _jsonc_dump_string(value)
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return json.dumps(value, ensure_ascii=True)
+
+
+def _render_jsonc_env(
+    raw_env: Mapping[str, str], *, newline: str, unit: str | None, level: int
+) -> str:
+    items = list(raw_env.items())
+    if unit is None or newline == "":
+        parts = [f"{_jsonc_dump_string(name)}: {literal}" for name, literal in items]
+        return "{" + ", ".join(parts) + "}"
+    pad = unit * (level - 1)
+    inner = unit * level
+    lines = ["{"]
+    for index, (name, literal) in enumerate(items):
+        comma = "," if index + 1 < len(items) else ""
+        lines.append(f"{inner}{_jsonc_dump_string(name)}: {literal}{comma}")
+    lines.append(f"{pad}}}")
+    return newline.join(lines)
+
+
+def _insert_jsonc_property(text: str, node: _JsoncNode, rendered: str) -> str:
+    """Insert ``rendered`` as the first property of ``node``. A comma only before a sibling."""
+
+    newline = _jsonc_newline(text)
+    unit = _jsonc_indent_unit(text, node)
+    pairs = node.pairs or []
+    if not pairs:
+        if unit is None:
+            inner = text[node.start + 1 : node.end - 1]
+            if inner.strip() == "":
+                spacer = " " if inner else ""
+                return text[: node.start + 1] + spacer + rendered + spacer + text[node.end - 1 :]
+            return text[: node.start + 1] + rendered + text[node.end - 1 :]
+        closing = node.end - 1
+        line_start = text.rfind("\n", node.start, closing) + 1
+        indent = unit or "  "
+        return text[:line_start] + indent + rendered + newline + text[line_start:]
+    key_start = pairs[0][1]
+    if unit is None:
+        return text[:key_start] + rendered + ", " + text[key_start:]
+    line_start = text.rfind("\n", node.start, key_start) + 1
+    indent = text[line_start:key_start]
+    return text[:line_start] + indent + rendered + "," + newline + text[line_start:]
+
+
+def _alice_from_jsonc(node: _JsoncNode) -> tuple[dict[str, Any], dict[str, str]]:
+    """The old alice object, and the raw source of each carried environment literal."""
+
+    if node.kind != "object":
+        raise OpenCodeConfigRefused("alice is not an object", node.line)
+    allowed = {"type", "command", "environment"}
+    decoded: dict[str, Any] = {}
+    raw_env: dict[str, str] = {}
+    seen: set[str] = set()
+    for key, _key_start, key_line, value in node.pairs or []:
+        if key in seen:
+            raise OpenCodeConfigRefused(f"duplicate {key}", key_line)
+        seen.add(key)
+        if key not in allowed:
+            raise OpenCodeConfigRefused(
+                f"mcp.alice holds {key}",
+                key_line,
+                extra_keys=(key,),
+                located=True,
+            )
+        if key == "type":
+            if value.kind != "string" or not isinstance(value.decoded, str):
+                raise OpenCodeConfigRefused("type is not a string", value.line, located=True)
+            decoded["type"] = value.decoded
+        elif key == "command":
+            items = value.items or []
+            if value.kind != "array" or not items or any(item.kind != "string" for item in items):
+                raise OpenCodeConfigRefused("command is not an array of strings", value.line, located=True)
+            decoded["command"] = [item.decoded for item in items]
+        else:
+            if value.kind != "object":
+                raise OpenCodeConfigRefused("environment is not an object", value.line, located=True)
+            env: dict[str, str] = {}
+            for name, _start, line, item in value.pairs or []:
+                label = f"environment.{name}"
+                if name not in _DOCUMENTED_ENV_NAMES:
+                    raise OpenCodeConfigRefused(label, line, extra_keys=(label,), located=True)
+                if item.kind != "string" or not isinstance(item.decoded, str):
+                    raise OpenCodeConfigRefused(f"{label} is not a string", item.line, located=True)
+                env[name] = item.decoded
+                raw_env[name] = item.raw
+            decoded["environment"] = env
+    if "type" not in decoded:
+        decoded = {"type": "local", **decoded}
+    return decoded, raw_env
+
+
+@dataclass
+class _OpencodeTextPlan:
+    text: str | None
+    plan: _EntryPlan
+    existing: dict[str, Any] | None
+    raw_env: dict[str, str]
+
+
+def _plan_opencode_text(
+    text: str,
+    *,
+    home: Path,
+    explicit_dir: str | None,
+    default_dir: str,
+    search: LauncherSearch,
+) -> _OpencodeTextPlan:
+    """Plan an edit of JSONC text. ``text`` is None when the bytes should stay."""
+
+    root = _parse_jsonc_text(text)
+    if root.kind != "object":
+        raise OpenCodeConfigRefused("the top level is not an object", root.line, placeholder=True)
+    mcp_keys = _jsonc_named(root, "mcp")
+    if len(mcp_keys) > 1:
+        raise OpenCodeConfigRefused("mcp appears more than once", mcp_keys[1][2], placeholder=True)
+    alice_node: _JsoncNode | None = None
+    mcp_node: _JsoncNode | None = None
+    existing: dict[str, Any] | None = None
+    raw_env: dict[str, str] = {}
+    if mcp_keys:
+        mcp_node = mcp_keys[0][3]
+        if mcp_node.kind != "object":
+            raise OpenCodeConfigRefused("mcp is not an object", mcp_node.line, placeholder=True)
+        alice_keys = _jsonc_named(mcp_node, "alice")
+        if len(alice_keys) > 1:
+            raise OpenCodeConfigRefused("alice appears more than once", alice_keys[1][2])
+        server_keys = _jsonc_named(mcp_node, "servers")
+        if server_keys and server_keys[0][3].kind == "object":
+            if any(pair[0] == "alice" for pair in (server_keys[0][3].pairs or [])):
+                raise OpenCodeConfigRefused("alice is under mcp.servers", server_keys[0][2])
+        if alice_keys:
+            alice_node = alice_keys[0][3]
+            alice_text = text[alice_node.start : alice_node.end]
+            base_line = _jsonc_line(text, alice_node.start) - 1
+            watched = _JsoncParser(alice_text, _jsonc_tokens(alice_text))
+            watched.forbid_comments = True
+            try:
+                watched.parse()
+            except OpenCodeConfigRefused as refusal:
+                if "comment" not in str(refusal):
+                    raise
+                for token in _jsonc_tokens(alice_text):
+                    if token.kind == "comment":
+                        raise OpenCodeConfigRefused(
+                            "a comment in alice", base_line + token.line, located=True
+                        ) from refusal
+                raise
+            existing, raw_env = _alice_from_jsonc(alice_node)
+            if parse_launcher(existing, command_array=True) is None:
+                raise OpenCodeConfigRefused(
+                    "mcp.alice is not an entry install wrote",
+                    alice_node.line,
+                    located=True,
+                )
+    install_existing = _opencode_as_install_entry(existing) if existing is not None else None
+    plan = _plan_entry(
+        install_existing,
+        key_label="mcp.alice",
+        explicit_dir=explicit_dir,
+        new_entry_dir=default_dir,
+        default_dir=default_dir,
+        home=home,
+        search=search,
+        with_env=False,
+        needs_hook=False,
+        describe=_describe_opencode_entry,
+    )
+    if plan.refusal is not None or plan.entry is None:
+        return _OpencodeTextPlan(None, plan, existing, raw_env)
+    try:
+        opencode_entry = _install_entry_as_opencode(plan.entry, existing)
+    except _MalformedHostFile as problem:
+        raise OpenCodeConfigRefused(str(problem), alice_node.line if alice_node else 1) from problem
+    if existing is not None and alice_node is not None:
+        old_command = existing.get("command")
+        new_command = opencode_entry.get("command")
+        old_env = existing.get("environment")
+        new_env = opencode_entry.get("environment")
+        if old_command == new_command and old_env == new_env and existing.get("type") == "local":
+            return _OpencodeTextPlan(text, plan, existing, raw_env)
+    newline = _jsonc_newline(text)
+    style_node = alice_node or mcp_node or root
+    unit = _jsonc_indent_unit(text, style_node if style_node.kind == "object" else root)
+    if alice_node is not None and unit is not None:
+        level = 1
+    else:
+        level = 0 if unit is None else 1
+    rendered_value = _render_jsonc_value(
+        opencode_entry, newline=newline, unit=unit, level=level, raw_env=raw_env or None
+    )
+    if alice_node is not None:
+        updated = text[: alice_node.start] + rendered_value + text[alice_node.end :]
+        return _OpencodeTextPlan(updated, plan, existing, raw_env)
+    property_text = f"{_jsonc_dump_string('alice')}: {rendered_value}"
+    if mcp_node is None:
+        if unit is None:
+            mcp_rendered = _jsonc_dump_string("mcp") + ": { " + property_text + " }"
+        else:
+            inner = unit + unit
+            mcp_rendered = (
+                _jsonc_dump_string("mcp")
+                + ": {"
+                + newline
+                + inner
+                + property_text
+                + newline
+                + unit
+                + "}"
+            )
+        updated = _insert_jsonc_property(text, root, mcp_rendered)
+        return _OpencodeTextPlan(updated, plan, existing, raw_env)
+    updated = _insert_jsonc_property(text, mcp_node, property_text)
+    return _OpencodeTextPlan(updated, plan, existing, raw_env)
+
+
 def _install_opencode_host(
     *,
     home: Path,
@@ -3680,13 +4355,14 @@ def _install_opencode_host(
     search: LauncherSearch,
     xdg_problem: str | None,
 ) -> _HostResult:
-    """Write OpenCode's strict JSON file. A ``.jsonc`` file is not edited."""
+    """Write OpenCode's JSON file, or edit JSONC as text."""
 
     files = host_file_map(home, config_home=config_home)["opencode"]
     launcher = search.launcher or UVX_LAUNCHER
     data_dir = explicit_dir or default_dir
     details = _opencode_env_notes()
     session_start = "none"
+    host_format = "json"
 
     def receipt(action: str, path: Path, **extra: Any) -> str:
         return _format_host_receipt(
@@ -3698,7 +4374,7 @@ def _install_opencode_host(
             session_start=session_start,
             data_dir=data_dir,
             launcher=launcher,
-            file_format="json",
+            file_format=host_format,
             **extra,
         )
 
@@ -3739,10 +4415,35 @@ def _install_opencode_host(
             "refused",
         )
 
+    def failed(path: Path) -> _HostResult:
+        details[:0] = [f"file: {path}", f"reason: {_FAILED_REASON}"]
+        return _HostResult(receipt("failed", path, snippet=None), "failed")
+
+    def text_refusal(path: Path, refusal: OpenCodeConfigRefused) -> _HostResult:
+        nonlocal host_format
+        host_format = _OPENCODE_TEXT_FORMAT
+        reason = str(refusal)
+        if refusal.extra_keys:
+            next_line = _OPENCODE_KEYS_NEXT
+        elif "more than once" in reason or "mcp.servers" in reason:
+            next_line = _OPENCODE_SECOND_NEXT
+        else:
+            next_line = _OPENCODE_TEXT_NEXT
+        return refused(
+            path,
+            reason,
+            next_line,
+            placeholder=refusal.placeholder or not refusal.located,
+        )
+
     if xdg_problem is not None:
         return refused(files["mcp"], xdg_problem, _OPENCODE_XDG_NEXT)
 
     legacy_config = config_home / "opencode" / "config"
+    try:
+        _opencode_probe(legacy_config)
+    except _OpencodeStatFailed as problem:
+        return failed(problem.path)
     if legacy_config.exists():
         return refused(
             files["mcp"],
@@ -3751,78 +4452,170 @@ def _install_opencode_host(
             f"Remove or migrate {legacy_config} with OpenCode first, then run install again.",
         )
 
-    jsonc_paths = (files["jsonc"], files["home_jsonc"])
-    for path in jsonc_paths:
-        if not path.is_symlink() and not path.exists():
-            continue
-        try:
-            raw = _read_host_file(path)
-        except OSError:
-            return refused(
-                path,
-                f"{path.name} is unscannable",
-                "next: nothing was written for opencode. "
-                f"Fix permissions on {path.name}, then run install again.",
-            )
-        if not _opencode_blank(raw):
-            return refused(
-                path,
-                "an opencode.jsonc file is present, and install does not edit JSONC",
-                f"next: nothing was written for opencode. {_OPENCODE_HAND_NEXT}",
-                placeholder=True,
-            )
+    @dataclass
+    class _SeenFile:
+        path: Path
+        raw: bytes
+        mode: str
+        doc: dict[str, Any] | None
+        text: str
+        alice: int
 
-    scanned: list[tuple[Path, bytes, dict[str, Any]]] = []
-    alice_total = 0
-    for key in ("mcp", "legacy", "home_json"):
-        path = files[key]
-        if not path.is_file():
-            continue
-        try:
-            target = _host_target(path)
-            raw = _read_host_file(target)
-        except (_MalformedHostFile, OSError) as problem:
-            reason = str(problem) if isinstance(problem, _MalformedHostFile) else _FAILED_REASON
-            return refused(path, reason, f"next: nothing was written for opencode. Fix {path.name}, then run install again.")
-        if _opencode_blank(raw):
-            continue
-        assert raw is not None  # nosec B101 # a non-blank read returned bytes
-        doc = _parse_opencode_json(raw)
-        if doc is None:
-            return refused(path, f"{path.name} is not strict JSON", _OPENCODE_LOOSE_NEXT)
-        alice_total += _opencode_alice_count(doc)
-        scanned.append((path, raw, doc))
+    seen: list[_SeenFile] = []
+    servers_alice = False
+    try:
+        for key in ("mcp", "jsonc", "legacy", "home_json", "home_jsonc"):
+            path = files[key]
+            _opencode_probe(path)
+            if not path.is_symlink() and not path.exists():
+                continue
+            if not path.is_symlink() and path.is_dir():
+                return refused(
+                    path,
+                    f"{path.name} is not a regular file",
+                    f"next: nothing was written for opencode. Fix {path.name}, then run install again.",
+                )
+            try:
+                read_path = path if not path.is_symlink() else _host_target(path)
+                raw = _read_host_file(read_path)
+            except _MalformedHostFile as problem:
+                return refused(
+                    path,
+                    str(problem),
+                    f"next: nothing was written for opencode. Fix {path.name}, then run install again.",
+                )
+            except OSError:
+                return refused(
+                    path,
+                    f"{path.name} is unscannable",
+                    "next: nothing was written for opencode. "
+                    f"Fix permissions on {path.name}, then run install again.",
+                )
+            if _opencode_empty(raw):
+                continue
+            assert raw is not None  # nosec B101 # a non-empty read returned bytes
+            use_text = path.name.endswith(".jsonc")
+            doc: dict[str, Any] | None = None
+            file_text = ""
+            if not use_text:
+                doc = _parse_opencode_json(raw)
+                use_text = doc is None
+            if use_text:
+                try:
+                    file_text = raw.decode("utf-8")
+                except UnicodeDecodeError as exc:
+                    raise OpenCodeConfigRefused("the file is not UTF-8", 1, placeholder=True) from exc
+                count, servers = _jsonc_alice_census(_parse_jsonc_text(file_text))
+                if servers:
+                    servers_alice = True
+                seen.append(_SeenFile(path, raw, "text", None, file_text, count))
+            else:
+                assert doc is not None  # nosec B101 # strict JSON parsed
+                if _opencode_servers_hold_alice(doc):
+                    servers_alice = True
+                seen.append(_SeenFile(path, raw, "exact", doc, "", _opencode_alice_count(doc)))
+    except _OpencodeStatFailed as problem:
+        return failed(problem.path)
+    except OpenCodeConfigRefused as refusal:
+        return text_refusal(path, refusal)
 
-    if any(_opencode_servers_hold_alice(doc) for _, _, doc in scanned):
+    if servers_alice:
         return refused(files["mcp"], "alice is under mcp.servers", _OPENCODE_SECOND_NEXT)
+    alice_total = sum(item.alice for item in seen)
     if alice_total > 1:
         return refused(files["mcp"], "alice appears more than once", _OPENCODE_SECOND_NEXT)
 
-    target_path = files["mcp"]
-    target_raw: bytes | None = None
-    target_doc: dict[str, Any] = {}
-    for path, raw, doc in scanned:
-        if _opencode_alice_count(doc):
-            target_path = path
-            target_raw = raw
-            target_doc = doc
-            break
-    else:
-        for path, raw, doc in scanned:
-            if path == files["mcp"]:
-                target_path = path
-                target_raw = raw
-                target_doc = doc
-                break
+    chosen = next((item for item in seen if item.alice), None)
+    if chosen is None:
+        chosen = next((item for item in seen if item.path == files["jsonc"]), None)
+    if chosen is None:
+        chosen = next((item for item in seen if item.path == files["mcp"]), None)
+    target_path = files["mcp"] if chosen is None else chosen.path
+    target_raw = None if chosen is None else chosen.raw
+    target_doc = {} if chosen is None or chosen.doc is None else chosen.doc
+    target_mode = "exact" if chosen is None else chosen.mode
+    target_text = "" if chosen is None else chosen.text
 
     try:
+        _opencode_probe(target_path)
         write_target = _opencode_existing_target(target_path)
+    except _OpencodeStatFailed as problem:
+        return failed(problem.path)
     except _MalformedHostFile as problem:
         return refused(
             target_path,
             str(problem),
             f"next: nothing was written for opencode. Fix {target_path.name}, then run install again.",
         )
+
+    if target_mode == "text":
+        nonlocal_format = _OPENCODE_TEXT_FORMAT
+        host_format = nonlocal_format
+        try:
+            edited = _plan_opencode_text(
+                target_text,
+                home=home,
+                explicit_dir=explicit_dir,
+                default_dir=default_dir,
+                search=search,
+            )
+        except OpenCodeConfigRefused as refusal:
+            return text_refusal(target_path, refusal)
+        except _MalformedHostFile as problem:
+            return refused(
+                target_path,
+                str(problem),
+                f"next: nothing was written for opencode. Fix {target_path.name}, then run install again.",
+            )
+        plan = edited.plan
+        existing = edited.existing
+        data_dir = plan.data_dir
+        launcher = plan.launcher
+        details.extend(plan.details)
+        _opencode_quiet_session_start(details)
+        own_dir = _opencode_command_data_dir(existing)
+        if plan.entry is None and plan.refusal is None and own_dir:
+            data_dir = own_dir
+        if plan.refusal is not None or plan.entry is None:
+            snippet_entry = None
+            if plan.paste is not None:
+                try:
+                    snippet_entry = _install_entry_as_opencode(plan.paste, existing)
+                except _MalformedHostFile:
+                    snippet_entry = None
+            reason = plan.refusal or "install did not plan an OpenCode entry"
+            next_step = plan.next_step or _OPENCODE_HAND_NEXT
+            return refused(
+                target_path,
+                reason,
+                f"next: {target_path.name} was not changed. {next_step}",
+                snippet_entry=snippet_entry,
+            )
+        shown, hidden = _masked(
+            _install_entry_as_opencode(plan.entry, existing) if plan.entry is not None else {}
+        )
+        snippet = _alice_entry_snippet("opencode", shown)
+        if dry_run:
+            trailer = ((_hidden_line(hidden),) if hidden else ())
+            return _HostResult(
+                receipt("dry-run", target_path, snippet=snippet, trailer=trailer),
+                "ok",
+                plan.used_fallback,
+            )
+        if edited.text is None or edited.text == target_text:
+            return _HostResult(receipt("unchanged", target_path, snippet=None), "ok", plan.used_fallback)
+        backup_dir = _backup_dir(plan.data_dir)
+        try:
+            backup = _backup_host_file(write_target, target_raw or b"", backup_dir=backup_dir, host="opencode")
+            details.append(f"backup: {backup}")
+            _write_text(write_target, edited.text, newline="")
+        except _BackupFailed as failure:
+            details[:0] = [f"file: {write_target}", f"reason: {failure.reason()}"]
+            return _HostResult(receipt("failed", target_path, snippet=None), "failed", plan.used_fallback)
+        except (OSError, InstallError):
+            details[:0] = [f"file: {write_target}", f"reason: {_FAILED_REASON}"]
+            return _HostResult(receipt("failed", target_path, snippet=None), "failed", plan.used_fallback)
+        return _HostResult(receipt("written", target_path, snippet=None), "ok", plan.used_fallback)
 
     mcp_value = target_doc.get("mcp")
     if mcp_value is not None and not isinstance(mcp_value, dict):
@@ -3860,6 +4653,10 @@ def _install_opencode_host(
     data_dir = plan.data_dir
     launcher = plan.launcher
     details.extend(plan.details)
+    _opencode_quiet_session_start(details)
+    own_dir = _opencode_command_data_dir(existing if isinstance(existing, Mapping) else None)
+    if plan.entry is None and plan.refusal is None and own_dir:
+        data_dir = own_dir
     if plan.refusal is not None:
         snippet_entry = None
         if plan.paste is not None:
