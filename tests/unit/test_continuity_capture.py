@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
@@ -8,11 +10,14 @@ import pytest
 from alicebot_api.continuity_capture import (
     ContinuityCaptureNotFoundError,
     ContinuityCaptureValidationError,
+    _build_candidate_record,
+    _extract_from_role,
     capture_continuity_candidates,
     capture_continuity_input,
     commit_continuity_captures,
     get_continuity_capture_detail,
     list_continuity_capture_inbox,
+    withhold_capture_candidates_echo,
 )
 from alicebot_api.continuity_objects import ContinuityObjectValidationError
 from alicebot_api.credential_floor import credential_verdict
@@ -366,6 +371,41 @@ def test_capture_candidates_returns_no_op_for_ack_only_turns() -> None:
     assert payload["candidates"][0]["candidate_type"] == "no_op"
 
 
+def test_capture_candidates_returns_real_text_and_the_echo_withholds_it() -> None:
+    """The service returns the token. The response boundary withholds it.
+
+    generate_memory_operation_candidates reads the service text. Fails if
+    that text is already the placeholder, or if the echo still has the token.
+    Nothing is stored.
+    """
+
+    store = ContinuityCaptureStoreStub()
+    token = "ghp_" + "0123456789abcdefghijklmnopqrstuvwxyz"
+    payload = capture_continuity_candidates(
+        store,  # type: ignore[arg-type]
+        user_id=store.user_id,
+        request=ContinuityCaptureCandidatesInput(
+            user_content=f"Decision: rotate the deploy key to {token}",
+            assistant_content="noted",
+        ),
+    )
+    assert token in json.dumps(payload)
+    echoed = withhold_capture_candidates_echo(payload)
+    rendered = json.dumps(echoed)
+    assert token not in rendered
+    assert "text withheld: it carried credential material" in rendered
+    assert store.capture_events == {}
+    plain = capture_continuity_candidates(
+        store,  # type: ignore[arg-type]
+        user_id=store.user_id,
+        request=ContinuityCaptureCandidatesInput(
+            user_content="Decision: ship the bridge this week",
+            assistant_content="noted",
+        ),
+    )
+    assert "ship the bridge this week" in json.dumps(plain)
+
+
 def test_commit_captures_assist_mode_auto_saves_explicit_decisions_and_routes_notes_to_review() -> None:
     store = ContinuityCaptureStoreStub()
     candidates = capture_continuity_candidates(
@@ -703,16 +743,24 @@ def test_quoted_assignment_past_the_title_cut_is_not_auto_saved() -> None:
     value = "Ab" + "12" + "cd" + "EF"
     quoted = "PASSWORD" + '_DB="' + value + '"'
     filler = ("ship the weekly billing report " * 20).strip()
+    user_content = "decision: " + filler + " " + quoted
     store = ContinuityCaptureStoreStub()
-    candidates = capture_continuity_candidates(
+    payload = capture_continuity_candidates(
         store,  # type: ignore[arg-type]
         user_id=store.user_id,
         request=ContinuityCaptureCandidatesInput(
-            user_content="decision: " + filler + " " + quoted,
+            user_content=user_content,
             assistant_content="",
         ),
-    )["candidates"]
-    candidate = candidates[0]
+    )
+    echoed = payload["candidates"]
+    assert quoted in echoed[0]["normalized_text"]
+    withheld = withhold_capture_candidates_echo(payload)["candidates"]
+    assert quoted not in withheld[0]["normalized_text"]
+    assert "text withheld: it carried credential material" == withheld[0]["normalized_text"]
+    extracted = _extract_from_role(text=user_content, source_role="user")
+    assert extracted is not None
+    candidate = _build_candidate_record(extracted)
     normalized = candidate["normalized_text"]
     assert candidate["proposed_action"] == "auto_save_candidate"
     assert normalized.find(quoted) >= 280
@@ -726,7 +774,128 @@ def test_quoted_assignment_past_the_title_cut_is_not_auto_saved() -> None:
             request=ContinuityCaptureCommitInput(
                 mode="assist",
                 sync_fingerprint="sync:title-cut",
-                candidates=candidates,  # type: ignore[arg-type]
+                candidates=[candidate],  # type: ignore[arg-type]
             ),
         )
+    assert store.objects_by_capture_event == {}
+
+
+def _deploy_token() -> str:
+    return "ghp_" + "0123456789abcdefghijklmnopqrstuvwxyz"
+
+
+def _bind_capture_store(monkeypatch: pytest.MonkeyPatch, store: ContinuityCaptureStoreStub) -> None:
+    from alicebot_api.config import Settings
+    from alicebot_api.routers import continuity as continuity_router
+
+    @contextmanager
+    def _connection(*_args: object, **_kwargs: object):
+        yield object()
+
+    monkeypatch.setattr(continuity_router, "user_connection", _connection)
+    monkeypatch.setattr(continuity_router, "ContinuityStore", lambda _conn: store)
+    monkeypatch.setattr(
+        continuity_router,
+        "get_settings",
+        lambda: Settings(database_url="postgresql://alicebot_app:alicebot_app@localhost:5432/alicebot"),
+    )
+
+
+def test_route_commit_of_the_withheld_candidate_returns_400_and_stores_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Capture a token on the route, then commit exactly that response.
+
+    The response withholds the token. The commit is the same 400 as a
+    credential refusal and writes no continuity object.
+    """
+
+    from alicebot_api.routers.continuity import (
+        ContinuityCaptureCandidatesRequest,
+        ContinuityCaptureCommitRequest,
+        commit_continuity_capture_candidates,
+        create_continuity_capture_candidates,
+    )
+
+    store = ContinuityCaptureStoreStub()
+    _bind_capture_store(monkeypatch, store)
+    token = _deploy_token()
+    captured = create_continuity_capture_candidates(
+        ContinuityCaptureCandidatesRequest(
+            user_id=store.user_id,
+            user_content=f"Decision: rotate the deploy token to {token}",
+            assistant_content="noted",
+        )
+    )
+    assert captured.status_code == 200
+    body = json.loads(captured.body)
+    rendered = json.dumps(body)
+    assert token not in rendered
+    assert "text withheld: it carried credential material" in rendered
+    assert store.capture_events == {}
+    assert store.objects_by_capture_event == {}
+
+    refused = commit_continuity_capture_candidates(
+        ContinuityCaptureCommitRequest(
+            user_id=store.user_id,
+            mode="assist",
+            sync_fingerprint="sync:withheld-route",
+            candidates=body["candidates"],
+        )
+    )
+    assert refused.status_code == 400
+    assert json.loads(refused.body)["detail"]["code"] == "invalid_request"
+    assert store.capture_events == {}
+    assert store.objects_by_capture_event == {}
+
+
+def test_mcp_commit_of_the_withheld_candidate_refuses_and_stores_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Capture a token through alice_capture_candidates, then commit that payload.
+
+    The tool error is the credential refusal. No continuity object is stored.
+    """
+
+    import alicebot_api.mcp.capture_mutations as capture_mutations
+    from alicebot_api.mcp.registry import call_mcp_tool
+    from alicebot_api.mcp.types import MCPRuntimeContext, MCPToolError
+    from alicebot_api.surface_flags import MCP_LEGACY_TOOLS_ENV
+
+    store = ContinuityCaptureStoreStub()
+
+    @contextmanager
+    def _store(_context: object):
+        yield store
+
+    monkeypatch.setattr(capture_mutations, "_store_context", _store)
+    monkeypatch.setenv(MCP_LEGACY_TOOLS_ENV, "1")
+    monkeypatch.delenv("ALICE_AGENT_API_KEY", raising=False)
+    context = MCPRuntimeContext(
+        database_url="postgresql://alicebot_app:alicebot_app@localhost:5432/alicebot",
+        user_id=store.user_id,
+    )
+    token = _deploy_token()
+    captured = call_mcp_tool(
+        context,
+        name="alice_capture_candidates",
+        arguments={"user_content": f"Decision: rotate the deploy token to {token}", "assistant_content": "noted"},
+    )
+    rendered = json.dumps(captured)
+    assert token not in rendered
+    assert "text withheld: it carried credential material" in rendered
+    assert store.capture_events == {}
+    assert store.objects_by_capture_event == {}
+
+    with pytest.raises(MCPToolError, match="credential material"):
+        call_mcp_tool(
+            context,
+            name="alice_commit_captures",
+            arguments={
+                "mode": "assist",
+                "sync_fingerprint": "sync:withheld-mcp",
+                "candidates": captured["candidates"],
+            },
+        )
+    assert store.capture_events == {}
     assert store.objects_by_capture_event == {}

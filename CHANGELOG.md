@@ -2,6 +2,36 @@
 
 ## Unreleased
 
+- A ChatGPT conversation title that holds a token is stored as `withheld`
+  and counted in `skipped_credentials` and `skipped_credential_items` as
+  `conversation X title`. In v0.18.0 that title is stored as `withheld`
+  and is not counted.
+- A folder-import receipt item names the file, then the line:
+  `file 1 (week.md) line 2`, `file 1 (week.md) lines 3 to 5`, or
+  `file K (name withheld)` when the name is flagged. In v0.18.0 the item
+  is only `line N` or `lines N to M`.
+- The Postgres `flagged_sources` doctor message says
+  `DELETE /v0/vnext/sources/{id}`. In v0.18.0 it says
+  `Delete each listed source with delete_source`.
+- `POST /v0/continuity/captures/candidates` and `alice_capture_candidates`
+  withhold a token in the response. Nothing is stored.
+  `capture_continuity_candidates` still returns the real text, so the
+  memory-operation credential floor sees the token. Committing that
+  withheld text, on `POST /v0/continuity/captures/commit` or
+  `alice_commit_captures`, is refused with the same 400 as a credential
+  and stores nothing. In v0.18.0 the response echoes the token.
+- Each markdown line and each ChatGPT message, title, and id is checked
+  with the commit door's verdict, the same check `capture_source` uses.
+  A flagged line, message, or title is withheld and named, and the rest
+  of the file or conversation is imported. A low-entropy AKIA-shaped key
+  the floor treats as a placeholder is withheld that way. The source
+  doctor still flags a stored source that contains one. In v0.18.0 the
+  line filter misses that key, capture stores it, and the doctor does
+  not flag it.
+- An OpenCode dry run shows booleans and numbers on top-level keys,
+  including `"enabled": false`. A value under `environment`, `env`,
+  `headers`, or any other map stays hidden, whatever its type. In
+  v0.18.0 those top-level values print as `<hidden>`.
 - The session brief (SessionStart, `alice-memory brief`, and
   `compile_local_session_brief`) shows current facts only. A memory whose
   `superseded_by` is set, or whose status is `superseded`, is omitted. A

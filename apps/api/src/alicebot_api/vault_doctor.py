@@ -18,7 +18,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from uuid import UUID
 
-from alicebot_api.credential_floor import credential_verdict
+from alicebot_api.legacy_credential_check import commit_door_fields_verdict
 from alicebot_api.session_briefing import (
     COMMITTED_MEMORY_STATUSES,
     SESSION_BRIEF_TOKEN_BUDGET,
@@ -147,8 +147,10 @@ def source_row_is_flagged(row: object) -> bool:
     if not isinstance(metadata, dict):
         metadata = {}
     raw_text = metadata.get("raw_text")
+    # Same verdict as the commit door. The floor alone misses a low-entropy
+    # AKIA-shaped key that the legacy gate refuses.
     return (
-        credential_verdict(
+        commit_door_fields_verdict(
             _cell(row, "title"),
             _cell(row, "author"),
             _cell(row, "uri"),
