@@ -834,6 +834,60 @@ def _expand_user(raw: str, home: Path) -> str:
     return raw
 
 
+def _receipt_control(char: str) -> bool:
+    """True for a character that must not stay raw in a receipt value.
+
+    C0 and C1 controls include newline, tab and the other ASCII controls.
+    U+2028 and U+2029 also break lines.
+    """
+
+    code = ord(char)
+    return code < 0x20 or code == 0x7F or 0x80 <= code <= 0x9F or code in (0x2028, 0x2029)
+
+
+def _escape_receipt_controls(text: str) -> str:
+    """``text`` as one receipt value: each control character becomes ``\\uXXXX``.
+
+    A newline in a value such as ``--data-dir`` would otherwise start another
+    receipt line.
+    """
+
+    if not any(_receipt_control(char) for char in text):
+        return text
+    return "".join(
+        f"\\u{ord(char):04x}" if _receipt_control(char) else char for char in text
+    )
+
+
+def _seal_receipt_line(text: str, *, mask: bool = False) -> str:
+    """One receipt line, controls escaped, and URLs masked when ``mask`` is set."""
+
+    sealed = _escape_receipt_controls(text)
+    return mask_text(sealed) if mask else sealed
+
+
+def _would_not_start_args(server_args: Sequence[str]) -> str:
+    """Args for a would-not-start reason.
+
+    ``masked_args`` already prints ``<hidden>`` for the words it flags. A word
+    it leaves unchanged is ``<hidden>`` when the credential check flags it.
+    Other words stay, and the receipt sealer escapes controls in them.
+    """
+
+    if not server_args:
+        return "(none)"
+    shown, _hidden = masked_args(server_args)
+    parts: list[str] = []
+    for original, masked in zip(server_args, shown, strict=True):
+        # masked_args already wrote <hidden> for the words it flags. A word it
+        # left unchanged is replaced only when the credential check flags it.
+        if masked == original and carries_credential_material(original):
+            parts.append(HIDDEN)
+        else:
+            parts.append(masked)
+    return " ".join(parts)
+
+
 def _entry_store(server_args: Sequence[str], home: Path) -> _Store:
     """Parse ``server_args`` the way ``alice-memory mcp`` does, and resolve its store.
 
@@ -850,8 +904,9 @@ def _entry_store(server_args: Sequence[str], home: Path) -> _Store:
         with contextlib.redirect_stderr(io.StringIO()), contextlib.redirect_stdout(io.StringIO()):
             args = build_parser().parse_args(["mcp", *server_args])
     except SystemExit:
-        # The args are the user's: print them the way every receipt line is printed.
-        shown = " ".join(masked_args(server_args)[0]) or "(none)"
+        # A flagged word is a fixed label. Controls in the other words are
+        # escaped when the reason is placed on a receipt line.
+        shown = _would_not_start_args(server_args)
         return _Store(None, None, None, 0, f"alice-memory mcp would not start with the args {shown}")
     spans = _option_spans(server_args, _mcp_option_strings())
     count = sum(1 for option, _, _ in spans if option == "--data-dir")
@@ -2892,7 +2947,7 @@ def write_mcpb_bundle(path: Path, *, dry_run: bool) -> str:
     if dry_run:
         return "\n".join(
             (
-                f"mcpb: {target}",
+                _seal_receipt_line(f"mcpb: {target}"),
                 "action: dry-run",
                 "snippet:",
                 snippet.rstrip(),
@@ -2904,7 +2959,7 @@ def write_mcpb_bundle(path: Path, *, dry_run: bool) -> str:
             archive.writestr(MCPB_MANIFEST_NAME, snippet)
     except OSError as exc:
         raise InstallError("mcpb zip could not be written") from exc
-    return "\n".join((f"mcpb: {target}", "action: written"))
+    return "\n".join((_seal_receipt_line(f"mcpb: {target}"), "action: written"))
 
 
 def _plan_hosts(hosts: Sequence[str] | None) -> list[str]:
@@ -2939,29 +2994,31 @@ def _format_host_receipt(
     hook_details: Sequence[str] = (),
     file_format: str | None = None,
 ) -> str:
-    lines = [f"host: {host}", f"path: {mcp_path}"]
+    # Every composed line is sealed: control characters in a value stay on
+    # that line, and mask_text still hides a URL past its scheme. The snippet
+    # is already JSON or YAML with its own escapes, so its line breaks stay.
+    lines = [_seal_receipt_line(f"host: {host}"), _seal_receipt_line(f"path: {mcp_path}")]
     if target is not None and target != mcp_path:
-        lines.append(f"target: {target}")
-    # Every line install composes passes through mask_text, so no URL reaches
-    # the terminal past its scheme; snippets are masked whole.
-    lines.append(f"action: {action}")
+        lines.append(_seal_receipt_line(f"target: {target}"))
+    lines.append(_seal_receipt_line(f"action: {action}"))
     if file_format is not None:
-        lines.append(f"format: {file_format}")
-    lines += [*map(mask_text, details), f"session_start: {session_start}"]
+        lines.append(_seal_receipt_line(f"format: {file_format}"))
+    lines += [_seal_receipt_line(item, mask=True) for item in details]
+    lines.append(_seal_receipt_line(f"session_start: {session_start}"))
     if hooks_path is not None:
-        lines.append(f"session_start_path: {hooks_path}")
+        lines.append(_seal_receipt_line(f"session_start_path: {hooks_path}"))
         if hooks_target is not None and hooks_target != hooks_path:
-            lines.append(f"session_start_target: {hooks_target}")
-    lines.extend(map(mask_text, hook_details))
+            lines.append(_seal_receipt_line(f"session_start_target: {hooks_target}"))
+    lines.extend(_seal_receipt_line(item, mask=True) for item in hook_details)
     if host in {"openclaw", "hermes", "opencode"}:
-        lines.append(f"note: {BRIEF_HINT}")
+        lines.append(_seal_receipt_line(f"note: {BRIEF_HINT}"))
     if snippet is not None:
         lines.append("snippet:")
         lines.append(snippet.rstrip())
-    lines.extend(map(mask_text, trailer))
+    lines.extend(_seal_receipt_line(item, mask=True) for item in trailer)
     if host == "openclaw":
         shown_line = openclaw_add_line(data_dir, launcher, hide_values=True)
-        lines.append(shown_line)
+        lines.append(_seal_receipt_line(shown_line))
         if shown_line != openclaw_add_line(data_dir, launcher):
             lines.append(
                 "note: the line above shows <hidden> in place of values from your entry; "
@@ -5089,7 +5146,7 @@ def run_host_install(
     blocks = [result.receipt for result in results]
     if search.warning is not None and any(result.used_fallback for result in results):
         # A warning, not a refusal: the files are still right once uv is installed.
-        blocks.insert(0, search.warning)
+        blocks.insert(0, _escape_receipt_controls(search.warning))
     output = "\n\n".join(blocks)
     statuses = {result.status for result in results}
     if "failed" in statuses:

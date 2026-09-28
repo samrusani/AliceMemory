@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Install receipts escape newlines and other control characters in every
+  value, so a `--data-dir` that holds a newline cannot add a receipt line.
+  When alice-memory mcp would not start, any argument word the credential
+  check or `masked_args` flags is printed as `<hidden>`.
+
 - A refusal for an alice entry that install did not write prints a
   command name only when the first word looks like a program name. A
   token in a later word is not printed. A path with spaces names its
