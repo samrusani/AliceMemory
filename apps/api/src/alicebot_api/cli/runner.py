@@ -40,7 +40,7 @@ from .constants import (
 from .errors import EmbeddingBackfillFailure, EvalGateFailure, PartialCommandFailure, _emit_cli_error
 from .arguments import _validate_arguments
 from .parser import build_parser
-from .shared import SqliteImportCommandError, _build_context
+from .shared import _SqliteImportCommandError, _build_context
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -124,8 +124,12 @@ def main(argv: list[str] | None = None) -> int:
             TaskBriefValidationError,
             TemporalStateValidationError,
         )
-        if isinstance(exc, SqliteImportCommandError):
+        exit_code = 1
+        if isinstance(exc, _SqliteImportCommandError):
             code, message = _CLI_SQLITE_IMPORT
+            # invalid_request from argument parsing exits 2. This refusal is
+            # the same class of bad request.
+            exit_code = 2
         elif isinstance(exc, not_found_errors):
             code, message = _CLI_NOT_FOUND
         elif isinstance(exc, invalid_request_errors):
@@ -142,7 +146,7 @@ def main(argv: list[str] | None = None) -> int:
             exc_info=(type(exc), exc, exc.__traceback__),
         )
         _emit_cli_error(code=code, message=message)
-        return 1
+        return exit_code
     except EvalGateFailure as exc:
         # Honor the JSON output contract (report to stdout) while signaling a
         # nonzero exit for a failing / not-fully-passing eval report.

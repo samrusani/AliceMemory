@@ -65,11 +65,23 @@ need a Postgres `DATABASE_URL`, so point the MCP server at the same database
 and user. `alice_recall` returns the text under `sources`, not under
 `results`.
 
-In v0.17.0, the latest release, this page said `alice_resume` does not show
-imported text. That is false on v0.17.0: a captured line that reads like a
-decision can show up as `last_decision`. A SQLite URL on
-`alicebot vnext sources import-markdown` or `import-chatgpt` is refused as
-`invalid_request`, and the message does not name another command.
+In v0.17.0, the latest release, that sentence was "`alice_resume` does not
+show it." That was false. A captured line that reads like a decision became
+a candidate, and `alice_resume` showed it, including a token in the line.
+The same release has three other capture gaps. Capture has no credential
+check, so a note that holds a key is stored and `alice_recall` and
+`alice-memory brief` return it. The folder import follows a symlink out of
+the folder. Any JSON file is stored, including one that is not a chat export.
+
+Unreleased (on main, not in v0.17.0): `alice_capture`, capture-text,
+capture-file, connectors, and both imports refuse a source that carries
+credential material and write nothing. A batch counts that source as
+skipped, not failed. `alice_resume`, `alice_recent_decisions`, the
+SessionStart brief, and `alice-memory brief` read only active memories, so
+a captured candidate stays in review until the owner promotes it. The
+folder import refuses a symlink and a non-regular file, and a single
+markdown file is allowed. A JSON file with no conversations is refused and
+nothing is written.
 
 Unreleased (on main, not in v0.17.0): import a Markdown path or a ChatGPT
 export into the SQLite store that MCP recall reads:
@@ -79,18 +91,34 @@ alice-memory import-markdown --from PATH
 alice-memory import-chatgpt --from PATH
 ```
 
-Both take `--data-dir` or `--db`, `--domain`, and `--sensitivity`. They
-write sources and chunks only, not candidate memories. A flagged line, or
-one private-key block, is stored as `[withheld: credential material]`. The
-receipt fields `skipped_credentials` and `skipped_credential_items` name
-the file and line range, or the conversation and message index, and do not
-include the matched text. A path or title the floor flags is printed as
-`withheld`. Replay of the same file is `duplicate`. Exit code 1 means the
-batch status is `failed`. OpenClaw stays on the loader scripts above.
-`alice-memory doctor` counts stored sources the floor still flags and
-prints their ids. SQLite has no `delete_source`. A SQLite URL on
-`alicebot vnext sources import-markdown` or `import-chatgpt` exits 1 with
-`sqlite_import_use_alice_memory` and names these two commands.
+PATH for markdown is a file or a folder. Both commands take `--data-dir` or
+`--db`, `--domain`, and `--sensitivity`. They write sources and chunks only,
+not candidate memories. The line filter runs first. `capture_source` then
+refuses text the filter could not isolate, and that file is skipped. A
+flagged line or a private-key block is stored as
+`[withheld: credential material]`. An unmatched BEGIN line is withheld
+through the end of the file. `skipped_count` is how many files were skipped
+for any reason. A withheld line does not increase it. A ChatGPT conversation
+the backstop refuses is counted in `skipped_count` because that conversation
+was not stored. `skipped_credentials` and `skipped_credential_items` count
+every credential skip, whole files and withheld units, and do not include
+the matched text. Items say `line N`, `lines N to M`,
+`conversation X message N`, or `file K (name withheld)`. A token in a file
+name skips that file and the receipt uses `file K (name withheld)`. A token
+in the folder name refuses the import, writes nothing, and does not print
+the path. Encoding is all or nothing: one markdown file that is not valid
+UTF-8 refuses the folder, and the error names that file, or says withheld
+when the file name is flagged. Exit code 1 means the batch status is
+`failed`, and it also covers path errors. Replay of the same file is
+`duplicate`. OpenClaw stays on the loader scripts above. `alice-memory
+doctor` counts stored sources the floor still flags and prints their ids.
+SQLite has no `delete_source`. On Postgres the doctor says to delete each
+listed source with `delete_source`. The doctor scans up to 10,000 sources
+on a workspace dashboard load and says when that scan stopped early. A
+SQLite URL on `alicebot vnext sources import-markdown` or `import-chatgpt`
+exits 2 with `sqlite_import_use_alice_memory` and names these two commands.
+In v0.17.0, the latest release, those commands do not exist, and a SQLite
+URL on the `alicebot` imports is `invalid_request`.
 
 ## Evaluation Harness
 

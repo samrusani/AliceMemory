@@ -111,10 +111,10 @@ def test_markdown_import_withholds_a_key_line_and_a_key_block(tmp_path: Path) ->
         ) == 0
     receipt = json.loads(stdout.getvalue())
     assert receipt["skipped_credentials"] == 2
+    assert receipt["skipped_count"] == 0
     assert token not in json.dumps(receipt)
-    assert any(item.get("line_number") == 2 for item in receipt["skipped_credential_items"])
-    assert any(item.get("line_end") == 5 for item in receipt["skipped_credential_items"])
-    assert all(item.get("file") == "week.md" for item in receipt["skipped_credential_items"])
+    assert "line 2" in receipt["skipped_credential_items"]
+    assert "lines 3 to 5" in receipt["skipped_credential_items"]
 
     stored = _blob(database)
     assert token not in stored
@@ -195,7 +195,13 @@ def test_import_markdown_command_recalls_and_replays_as_duplicate(tmp_path: Path
     assert second["duplicate_count"] >= 1
 
 
-def test_a_flagged_filename_is_printed_withheld(tmp_path: Path, capsys) -> None:
+def test_a_flagged_filename_is_skipped_and_the_receipt_hides_it(tmp_path: Path, capsys) -> None:
+    """A token in the file name skips the file. The receipt does not print it.
+
+    Fails if the file is stored under a withheld title, and fails if the
+    receipt includes the token.
+    """
+
     token = _token()
     folder = tmp_path / "notes"
     folder.mkdir()
@@ -205,8 +211,15 @@ def test_a_flagged_filename_is_printed_withheld(tmp_path: Path, capsys) -> None:
         ["import-markdown", "--from", str(folder), "--db", str(database), "--user-id", USER_ID]
     ) == 0
     receipt = json.loads(capsys.readouterr().out)
+    assert receipt["status"] == "skipped"
+    assert receipt["skipped_count"] == 1
+    assert receipt["imported_count"] == 0
+    assert receipt["failed_count"] == 0
+    assert "file 1 (name withheld)" in receipt["skipped_credential_items"]
+    assert receipt["skipped_credentials"] >= 1
     assert token not in json.dumps(receipt)
     assert token not in _blob(database)
+    assert CLEAN not in _blob(database)
 
 
 def test_capture_producers_accept_clean_fixtures(tmp_path: Path) -> None:
@@ -250,12 +263,21 @@ def test_capture_producers_accept_clean_fixtures(tmp_path: Path) -> None:
 
 
 def test_doctor_lists_ids_of_sources_the_floor_flags(tmp_path: Path) -> None:
+    """A row already stored with a token is listed. New capture refuses it."""
+
     database = _db(tmp_path / "data")
     token = _token()
     with sqlite_user_connection(database, USER_ID) as conn:
         store = SQLiteVNextStore(conn, USER_ID)
-        stored = VNextCaptureService(store).capture_text(f"Use deploy key {token}", title="note")
-        source_id = stored.source_id
+        stored = store.create_source(
+            {
+                "source_type": "manual_text",
+                "title": "note",
+                "content_hash": "sha256:doctor-flagged-source",
+                "metadata_json": {"raw_text": f"Use deploy key {token}"},
+            }
+        )
+        source_id = str(stored["id"])
     report = compile_local_vault_doctor(database, user_id=USER_ID)
     assert "flagged sources: 1" in report
     assert source_id is not None
@@ -276,8 +298,299 @@ def test_alicebot_sqlite_import_names_the_alice_memory_commands(monkeypatch, cap
         ["--database-url", "sqlite:///alice.db", "vnext", "sources", "import-markdown", "notes"]
     )
     captured = capsys.readouterr()
-    assert exit_code == 1
+    assert exit_code == 2
     payload = json.loads(captured.err)
     assert payload["error"]["code"] == "sqlite_import_use_alice_memory"
     assert "alice-memory import-markdown" in payload["error"]["message"]
     assert "alice-memory import-chatgpt" in payload["error"]["message"]
+
+
+def test_import_markdown_from_a_single_file(tmp_path: Path, capsys) -> None:
+    """A markdown file is a valid --from path. A folder is not required."""
+
+    note = tmp_path / "note.md"
+    note.write_text(f"Fact: {CLEAN}\n", encoding="utf-8")
+    database = _db(tmp_path / "data")
+    assert onramp_main(
+        ["import-markdown", "--from", str(note), "--db", str(database), "--user-id", USER_ID]
+    ) == 0
+    receipt = json.loads(capsys.readouterr().out)
+    assert receipt["status"] == "ok"
+    assert receipt["imported_count"] == 1
+    recall = call_mcp_tool(_context(database), name="alice_recall", arguments={"query": "indigo lighthouse"})
+    assert any(CLEAN in json.dumps(item) for item in recall.get("sources") or [])
+
+
+def test_unmatched_begin_line_is_withheld_through_end_of_file(tmp_path: Path, capsys) -> None:
+    """A BEGIN line with no END withholds the rest of the file.
+
+    Fails if only the BEGIN line is replaced: the key body is stored.
+    """
+
+    body = "B" * 40
+    folder = tmp_path / "notes"
+    folder.mkdir()
+    (folder / "week.md").write_text(
+        "\n".join(
+            (
+                f"Fact: {CLEAN}",
+                "-----BEGIN OPENSSH PRIVATE KEY-----",
+                body,
+                "",
+            )
+        ),
+        encoding="utf-8",
+    )
+    database = _db(tmp_path / "data")
+    assert onramp_main(
+        ["import-markdown", "--from", str(folder), "--db", str(database), "--user-id", USER_ID]
+    ) == 0
+    receipt = json.loads(capsys.readouterr().out)
+    assert receipt["status"] == "ok"
+    assert receipt["imported_count"] == 1
+    assert receipt["skipped_count"] == 0
+    assert "lines 2 to 3" in receipt["skipped_credential_items"]
+    stored = _blob(database)
+    assert CLEAN in stored
+    assert body not in stored
+    assert "BEGIN OPENSSH PRIVATE KEY" not in stored
+
+
+def test_a_secret_the_line_filter_cannot_isolate_skips_the_file(tmp_path: Path, capsys) -> None:
+    """A value on the next line skips the whole file. The receipt says so."""
+
+    secret = "Kd9" + "xoYWu83nq"
+    folder = tmp_path / "notes"
+    folder.mkdir()
+    (folder / "week.md").write_text(
+        "\n".join((f"Fact: {CLEAN}", "password:", secret, "")),
+        encoding="utf-8",
+    )
+    (folder / "other.md").write_text("Fact: The other note stays in the folder.\n", encoding="utf-8")
+    database = _db(tmp_path / "data")
+    assert onramp_main(
+        ["import-markdown", "--from", str(folder), "--db", str(database), "--user-id", USER_ID]
+    ) == 0
+    receipt = json.loads(capsys.readouterr().out)
+    assert receipt["status"] == "ok"
+    assert receipt["imported_count"] == 1
+    assert receipt["skipped_count"] == 1
+    assert receipt["failed_count"] == 0
+    assert any(item.startswith("file ") and "week.md" in item for item in receipt["skipped_credential_items"])
+    stored = _blob(database)
+    assert secret not in stored
+    assert CLEAN not in stored
+    assert "The other note stays" in stored
+
+
+def test_a_flagged_folder_name_writes_nothing_and_hides_the_path(tmp_path: Path, capsys) -> None:
+    token = _token()
+    folder = tmp_path / token
+    folder.mkdir()
+    (folder / "week.md").write_text(f"Fact: {CLEAN}\n", encoding="utf-8")
+    database = _db(tmp_path / "data")
+    assert onramp_main(
+        ["import-markdown", "--from", str(folder), "--db", str(database), "--user-id", USER_ID]
+    ) == 1
+    captured = capsys.readouterr()
+    assert token not in captured.out
+    assert token not in captured.err
+    assert "withheld" in captured.err
+    assert "week.md" not in _blob(database)
+    assert CLEAN not in _blob(database)
+
+
+def test_non_utf8_markdown_refuses_the_folder_and_names_the_file(tmp_path: Path, capsys) -> None:
+    folder = tmp_path / "notes"
+    folder.mkdir()
+    (folder / "good.md").write_text(f"Fact: {CLEAN}\n", encoding="utf-8")
+    (folder / "bad.md").write_bytes(b"\xff\xfe not utf8\n")
+    database = _db(tmp_path / "data")
+    assert onramp_main(
+        ["import-markdown", "--from", str(folder), "--db", str(database), "--user-id", USER_ID]
+    ) == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "bad.md" in captured.err
+    assert "not valid UTF-8" in captured.err
+    assert CLEAN not in _blob(database)
+
+
+def test_non_utf8_markdown_with_a_flagged_name_says_withheld(tmp_path: Path, capsys) -> None:
+    token = _token()
+    folder = tmp_path / "notes"
+    folder.mkdir()
+    (folder / "good.md").write_text(f"Fact: {CLEAN}\n", encoding="utf-8")
+    (folder / f"{token}.md").write_bytes(b"\xff\xfe not utf8\n")
+    database = _db(tmp_path / "data")
+    assert onramp_main(
+        ["import-markdown", "--from", str(folder), "--db", str(database), "--user-id", USER_ID]
+    ) == 1
+    captured = capsys.readouterr()
+    assert token not in captured.out
+    assert token not in captured.err
+    assert "withheld" in captured.err
+    assert CLEAN not in _blob(database)
+
+
+def test_chatgpt_part_filter_keeps_the_clean_part(tmp_path: Path, capsys) -> None:
+    """A flagged message part is withheld. The clean part in that message stays.
+
+    Fails if the part filter is skipped: the backstop then refuses the
+    conversation and the clean part is not stored.
+    """
+
+    token = _token()
+    export = tmp_path / "chat.json"
+    export.write_text(
+        json.dumps(
+            {
+                "conversations": [
+                    {
+                        "id": "weekly",
+                        "title": "Weekly",
+                        "messages": [
+                            {
+                                "author": {"role": "user"},
+                                "content": {"parts": [CLEAN, f"Decision: Use deploy key {token}"]},
+                            }
+                        ],
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    database = _db(tmp_path / "data")
+    assert onramp_main(
+        ["import-chatgpt", "--from", str(export), "--db", str(database), "--user-id", USER_ID]
+    ) == 0
+    receipt = json.loads(capsys.readouterr().out)
+    assert receipt["status"] == "ok"
+    assert receipt["imported_count"] == 1
+    assert receipt["failed_count"] == 0
+    assert "conversation weekly message 1" in receipt["skipped_credential_items"]
+    stored = _blob(database)
+    assert CLEAN in stored
+    assert token not in stored
+    assert token not in json.dumps(receipt)
+
+
+def test_refused_chatgpt_conversation_leaves_the_batch_ok(tmp_path: Path, capsys) -> None:
+    """A secret the part filter cannot isolate skips that conversation.
+
+    Fails if ``except CaptureCredentialRefused`` is removed: the conversation
+    is counted failed and the batch is not ok.
+    """
+
+    secret = "Kd9" + "xoYWu83nq"
+    export = tmp_path / "chat.json"
+    export.write_text(
+        json.dumps(
+            {
+                "conversations": [
+                    {
+                        "id": "weekly",
+                        "title": "Weekly",
+                        "messages": [
+                            {
+                                "author": {"role": "user"},
+                                "content": {"parts": ["password:\n" + secret]},
+                            }
+                        ],
+                    },
+                    {
+                        "id": "clean",
+                        "title": "Clean",
+                        "messages": [
+                            {"author": {"role": "user"}, "content": {"parts": [CLEAN]}},
+                        ],
+                    },
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    database = _db(tmp_path / "data")
+    assert onramp_main(
+        ["import-chatgpt", "--from", str(export), "--db", str(database), "--user-id", USER_ID]
+    ) == 0
+    receipt = json.loads(capsys.readouterr().out)
+    assert receipt["status"] == "ok"
+    assert receipt["failed_count"] == 0
+    assert receipt["skipped_count"] >= 1
+    assert receipt["imported_count"] == 1
+    assert any(item.startswith("conversation ") for item in receipt["skipped_credential_items"])
+    stored = _blob(database)
+    assert secret not in stored
+    assert CLEAN in stored
+
+
+def test_refused_connector_item_is_skipped_and_the_cursor_advances() -> None:
+    """A refused connector item is skipped, not failed, and the cursor moves.
+
+    Fails if ``except CaptureCredentialRefused`` is removed: the item is
+    failed and the cursor stays on the earlier item.
+    """
+
+    token = _token()
+    store = InMemoryVNextConnectorStore()
+    service = VNextConnectorService(store)
+    result = service.sync_telegram_updates(
+        [
+            _telegram_payload(11, f"Fact: {CLEAN}"),
+            _telegram_payload(12, f"Decision: Use deploy key {token}"),
+        ],
+        allowed_chat_ids=("999001",),
+    )
+    assert result.status == "ok"
+    assert result.failed_count == 0
+    assert result.skipped_count >= 1
+    assert result.imported_count == 1
+    assert result.sync_cursor == "12"
+    blob = json.dumps(store.sources) + json.dumps(store.chunks)
+    assert CLEAN in blob
+    assert token not in blob
+    assert token not in json.dumps(store.events)
+
+
+def test_import_failed_event_hides_a_token_in_the_file_name(tmp_path: Path, monkeypatch, capsys) -> None:
+    """A token in a file name does not land in source.import_failed."""
+
+    token = _token()
+    folder = tmp_path / "notes"
+    folder.mkdir()
+    (folder / f"{token}.md").write_text("Fact: The cedar note stays out of the log.\n", encoding="utf-8")
+    database = _db(tmp_path / "data")
+
+    def boom(_self, _source_input):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(VNextCaptureService, "capture_source", boom)
+    assert onramp_main(
+        ["import-markdown", "--from", str(folder), "--db", str(database), "--user-id", USER_ID]
+    ) == 1
+    capsys.readouterr()
+    stored = _blob(database)
+    assert token not in stored
+    assert "withheld" in stored
+
+
+def test_batch_import_event_hides_a_token_in_the_folder_path(tmp_path: Path, capsys) -> None:
+    """A token in a parent directory does not land in batch_import_completed.folder."""
+
+    token = _token()
+    folder = tmp_path / token / "notes"
+    folder.mkdir(parents=True)
+    (folder / "week.md").write_text(f"Fact: {CLEAN}\n", encoding="utf-8")
+    database = _db(tmp_path / "data")
+    assert onramp_main(
+        ["import-markdown", "--from", str(folder), "--db", str(database), "--user-id", USER_ID]
+    ) == 0
+    receipt = json.loads(capsys.readouterr().out)
+    assert receipt["imported_count"] == 0
+    assert receipt["skipped_count"] == 1
+    stored = _blob(database)
+    assert token not in stored
+    assert token not in json.dumps(receipt)
+    assert CLEAN not in stored

@@ -2,18 +2,43 @@
 
 ## Unreleased
 
+- Unreleased (on main, not in v0.17.0): `capture_source` refuses credential
+  material in the title, author, uri, path, external id, text, and metadata
+  keys, and writes nothing. `alice_capture`, capture-text, capture-file,
+  connectors, and both vNext imports use that check. A batch counts the
+  refusal as skipped, not failed. `alice_resume`, `alice_recent_decisions`,
+  the SessionStart brief, and `alice-memory brief` read only active
+  memories. The markdown folder import reads through the contained snapshot,
+  so a symlink or a non-regular file is refused and a single file is
+  allowed. A ChatGPT import with no conversations is refused instead of
+  stored. In v0.17.0, the latest release, capture has no credential check,
+  resume shows candidates, the folder import follows symlinks, and any JSON
+  file is stored.
+
 - Unreleased (on main, not in v0.17.0): `alice-memory import-markdown --from PATH`
   and `alice-memory import-chatgpt --from PATH` write sources on SQLite for
-  MCP recall. They do not create candidate memories. A flagged line or
-  private-key block is stored as `[withheld: credential material]`, and the
-  receipt names the file and line range, or the conversation and message
-  index, without the matched text. A path or title the floor flags is
-  printed as `withheld`. `alice-memory doctor` and `alicebot vnext doctor`
-  count stored sources the floor still flags and list their ids. SQLite has
-  no `delete_source`. A SQLite URL on `alicebot vnext sources import-markdown`
-  or `import-chatgpt` returns `sqlite_import_use_alice_memory` and names the
-  `alice-memory` commands. In v0.17.0, the latest release, those commands do
-  not exist, and a SQLite URL on the `alicebot` imports is `invalid_request`.
+  MCP recall. PATH may be a markdown file or a folder. They do not create
+  candidate memories. The line filter runs first, then `capture_source`
+  refuses text that filter could not isolate, and that file is skipped. A
+  flagged line, a private-key block, or an unmatched BEGIN line through the
+  end of the file is stored as `[withheld: credential material]`.
+  `skipped_count` is how many files were skipped for any reason. A refused
+  ChatGPT conversation is counted there too. `skipped_credentials` and
+  `skipped_credential_items` count every credential skip, whole files and
+  withheld units. Items say `line N`, `lines N to M`,
+  `conversation X message N`, or `file K (name withheld)`. A token in a
+  file name skips that file. A token in the folder name refuses the import,
+  writes nothing, and does not print the path. One file that is not valid
+  UTF-8 refuses the whole folder and names that file. Exit code 1 means the
+  batch status is `failed`, and it also covers path errors.
+  `alice-memory doctor` lists source ids the floor still flags. SQLite has
+  no `delete_source`. On Postgres the doctor says to delete each listed
+  source with `delete_source`, and it says when a scan of 10,000 sources
+  stopped early. A SQLite URL on `alicebot vnext sources import-markdown`
+  or `import-chatgpt` exits 2 with `sqlite_import_use_alice_memory` and
+  names the `alice-memory` commands. In v0.17.0, the latest release, those
+  commands do not exist, and a SQLite URL on the `alicebot` imports is
+  `invalid_request`.
 
 - Install receipts escape newlines and other control characters in every
   value, so a `--data-dir` that holds a newline cannot add a receipt line.

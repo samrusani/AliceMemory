@@ -1165,8 +1165,27 @@ def _print_batch_record(record: object) -> None:
     print(json.dumps(record, ensure_ascii=True, sort_keys=True))
 
 
+def _emit_import_path_error(message: str) -> None:
+    """Path and encoding failures. Exit 1. A flagged path is not printed."""
+
+    from alicebot_api.credential_floor import credential_verdict
+
+    if credential_verdict(message) is not None:
+        message = "The import path is withheld"
+    print(
+        json.dumps(
+            {"error": {"code": "import_path", "message": message}},
+            ensure_ascii=True,
+            separators=(",", ":"),
+            sort_keys=True,
+        ),
+        file=sys.stderr,
+        flush=True,
+    )
+
+
 def _run_import_markdown(args: argparse.Namespace) -> int:
-    from alicebot_api.vnext_capture import VNextCaptureService
+    from alicebot_api.vnext_capture import VNextCaptureService, VNextCaptureValidationError
 
     db_path = resolve_db_path(data_dir=args.data_dir, db=args.db)
     bootstrap_database(
@@ -1175,19 +1194,23 @@ def _run_import_markdown(args: argparse.Namespace) -> int:
         user_email=args.user_email,
         secure_parent=args.db is None,
     )
-    with sqlite_user_connection(db_path, args.user_id) as conn:
-        store = SQLiteVNextStore(conn, args.user_id)
-        result = VNextCaptureService(store).import_markdown_folder(
-            args.from_path,
-            domain=args.domain,
-            sensitivity=args.sensitivity,
-        )
+    try:
+        with sqlite_user_connection(db_path, args.user_id) as conn:
+            store = SQLiteVNextStore(conn, args.user_id)
+            result = VNextCaptureService(store).import_markdown_folder(
+                args.from_path,
+                domain=args.domain,
+                sensitivity=args.sensitivity,
+            )
+    except VNextCaptureValidationError as exc:
+        _emit_import_path_error(str(exc))
+        return 1
     _print_batch_record(result.to_record())
     return 1 if result.status == "failed" else 0
 
 
 def _run_import_chatgpt(args: argparse.Namespace) -> int:
-    from alicebot_api.vnext_capture import VNextCaptureService
+    from alicebot_api.vnext_capture import VNextCaptureService, VNextCaptureValidationError
 
     db_path = resolve_db_path(data_dir=args.data_dir, db=args.db)
     bootstrap_database(
@@ -1196,13 +1219,17 @@ def _run_import_chatgpt(args: argparse.Namespace) -> int:
         user_email=args.user_email,
         secure_parent=args.db is None,
     )
-    with sqlite_user_connection(db_path, args.user_id) as conn:
-        store = SQLiteVNextStore(conn, args.user_id)
-        result = VNextCaptureService(store).import_chatgpt_export_file(
-            args.from_path,
-            domain=args.domain,
-            sensitivity=args.sensitivity,
-        )
+    try:
+        with sqlite_user_connection(db_path, args.user_id) as conn:
+            store = SQLiteVNextStore(conn, args.user_id)
+            result = VNextCaptureService(store).import_chatgpt_export_file(
+                args.from_path,
+                domain=args.domain,
+                sensitivity=args.sensitivity,
+            )
+    except VNextCaptureValidationError as exc:
+        _emit_import_path_error(str(exc))
+        return 1
     _print_batch_record(result.to_record())
     return 1 if result.status == "failed" else 0
 

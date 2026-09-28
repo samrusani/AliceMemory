@@ -18,7 +18,12 @@ from typing import Any, Protocol, cast
 from uuid import uuid4
 
 from alicebot_api.connector_payloads import ConnectorPayloadValidationError, normalize_telegram_source_item
-from alicebot_api.vnext_capture import SourceCaptureInput, VNextCaptureService, VNextCaptureStore
+from alicebot_api.vnext_capture import (
+    CaptureCredentialRefused,
+    SourceCaptureInput,
+    VNextCaptureService,
+    VNextCaptureStore,
+)
 from alicebot_api.vnext_embeddings import DeferredMemoryEmbedding
 from alicebot_api.vnext_event_log import append_event
 from alicebot_api.vnext_project_scope import resolve_project_scope
@@ -1946,6 +1951,13 @@ class VNextConnectorService:
                         },
                     )
                 )
+            except CaptureCredentialRefused:
+                # A credential skip is not a failed item. Do not store the
+                # title, path, or text that the floor refused.
+                skipped_count += 1
+                if not failure_blocked_cursor_advance:
+                    sync_cursor = normalized_item.cursor
+                continue
             except Exception as exc:
                 failed_count += 1
                 failed_external_ids.append(normalized_item.external_id)

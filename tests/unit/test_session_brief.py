@@ -542,6 +542,61 @@ def test_capture_does_not_auto_promote(tmp_path: Path, monkeypatch) -> None:
     assert recall["count"] == 0
 
 
+def test_a_captured_decision_stays_out_of_resume_until_the_owner_promotes_it(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """A decision-shaped capture is a candidate, not context.
+
+    Fails if alice_resume or the session brief reads status candidate.
+    After the owner promotes the row, both show it.
+    """
+
+    from alicebot_api.mcp.registry import call_mcp_tool
+
+    decision = "Ship the Falcon importer behind a feature flag."
+    context = _context(tmp_path, monkeypatch)
+    _capture(context, f"Decision: {decision}")
+
+    resume = call_mcp_tool(
+        context,
+        name="alice_resume",
+        arguments={"max_open_loops": 0, "max_recent_changes": 0},
+    )
+    assert resume["brief"]["last_decision"] is None
+    recent = call_mcp_tool(context, name="alice_recent_decisions", arguments={})
+    assert recent["count"] == 0
+    brief = _compile(tmp_path, query=None)
+    assert not any(decision in line for line in _labelled_lines(brief, "fact")), brief
+
+    review = call_mcp_tool(context, name="alice_memory_review", arguments={})
+    matches = [item for item in review["items"] if decision in json.dumps(item)]
+    assert len(matches) == 1
+    assert matches[0]["status"] == "candidate"
+    memory_id = str(matches[0]["id"])
+
+    approved = call_mcp_tool(
+        context,
+        name="alice_memory_correct",
+        arguments={"review_item_id": memory_id, "action": "approve", "reason": "Owner confirmed"},
+    )
+    assert approved["memory"]["status"] == "active"
+
+    resume_after = call_mcp_tool(
+        context,
+        name="alice_resume",
+        arguments={"max_open_loops": 0, "max_recent_changes": 0},
+    )
+    last = resume_after["brief"]["last_decision"]
+    assert last is not None
+    assert last["id"] == memory_id
+    assert last["status"] == "active"
+    assert decision in json.dumps(last)
+    recent_after = call_mcp_tool(context, name="alice_recent_decisions", arguments={})
+    assert [item["id"] for item in recent_after["decisions"]] == [memory_id]
+    brief_after = _compile(tmp_path, query=None)
+    assert any(decision in line for line in _labelled_lines(brief_after, "fact")), brief_after
+
+
 def test_the_brief_frames_stored_notes_as_quoted_data(tmp_path: Path, monkeypatch) -> None:
     """Owner ruling C1 (S4.4 round 2, 2026-09-23).
 

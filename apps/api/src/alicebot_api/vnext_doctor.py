@@ -19,6 +19,9 @@ from alicebot_api.vnext_secrets import SecretProvider, default_secret_provider
 logger = logging.getLogger(__name__)
 
 LOCAL_VNEXT_FRONTEND_ORIGINS = ("http://127.0.0.1:3000", "http://localhost:3000")
+# The workspace dashboard runs this doctor on every load. Stop and say so
+# rather than scanning the rest of a large source table in that request.
+_FLAGGED_SOURCE_SCAN_LIMIT = 10_000
 LOCAL_VNEXT_CORS_RECOMMENDED_FIX = (
     "CORS_ALLOWED_ORIGINS=http://127.0.0.1:3000,http://localhost:3000"
 )
@@ -260,18 +263,29 @@ class VNextDoctorService:
             details=cast(JsonObject, local_cors),
         )
 
-        flagged_ids = _flagged_source_ids(self.store)
+        flagged_ids, stopped_early = _flagged_source_scan(self.store)
+        remedy = _flagged_source_remedy(self.store)
+        if flagged_ids:
+            message = (
+                f"{len(flagged_ids)} stored sources carry credential material. {remedy}"
+            )
+        else:
+            message = "No stored source carries credential material."
+        if stopped_early:
+            message += f" The scan stopped after {_FLAGGED_SOURCE_SCAN_LIMIT} sources."
         self._check(
             checks,
             name="flagged_sources",
-            ok=not flagged_ids,
+            ok=not flagged_ids and not stopped_early,
             severity="warning",
-            message_ok="No stored source carries credential material.",
-            message_fail=(
-                f"{len(flagged_ids)} stored sources carry credential material. "
-                "SQLite has no delete_source."
-            ),
-            details={"count": len(flagged_ids), "source_ids": flagged_ids},
+            message_ok=message,
+            message_fail=message,
+            details={
+                "count": len(flagged_ids),
+                "source_ids": flagged_ids,
+                "stopped_early": stopped_early,
+                "scan_limit": _FLAGGED_SOURCE_SCAN_LIMIT,
+            },
         )
 
         blocking = [check for check in checks if check.status == "fail" and check.severity == "blocking"]
@@ -292,14 +306,25 @@ class VNextDoctorService:
         return cast(JsonObject, payload)
 
 
-def _flagged_source_ids(store: object) -> list[str]:
+def _flagged_source_remedy(store: object) -> str:
+    """Postgres can delete a source. SQLite cannot."""
+
+    if callable(getattr(store, "delete_source", None)):
+        return "Delete each listed source with delete_source."
+    return "SQLite has no delete_source."
+
+
+def _flagged_source_scan(store: object) -> tuple[list[str], bool]:
     lister = getattr(store, "list_sources", None)
     if not callable(lister):
-        return []
+        return [], False
     try:
-        rows = lister(limit=10_000)
+        rows = list(lister(limit=_FLAGGED_SOURCE_SCAN_LIMIT + 1))
+        stopped_early = len(rows) > _FLAGGED_SOURCE_SCAN_LIMIT
+        rows = rows[:_FLAGGED_SOURCE_SCAN_LIMIT]
     except TypeError:
-        rows = lister()
+        rows = list(lister())
+        stopped_early = False
     ids: list[str] = []
     for row in rows:
         if not source_row_is_flagged(row):
@@ -307,7 +332,7 @@ def _flagged_source_ids(store: object) -> list[str]:
         source_id = row.get("id") if isinstance(row, Mapping) else None
         if source_id is not None:
             ids.append(str(source_id))
-    return ids
+    return ids, stopped_early
 
 
 def _parse_env_file(path: Path) -> dict[str, str]:

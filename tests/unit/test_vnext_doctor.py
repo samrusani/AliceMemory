@@ -217,6 +217,53 @@ def test_doctor_warns_when_local_live_cors_is_missing(tmp_path, monkeypatch) -> 
     assert local_cors["details"]["missing_origins"] == ["http://127.0.0.1:3000"]
 
 
+def test_doctor_words_flagged_sources_per_backend_and_says_when_the_scan_stops() -> None:
+    token = "ghp_" + "0123456789abcdefghijklmnopqrstuvwxyz"
+
+    class PostgresDoctorStore(DoctorStore):
+        def list_sources(self, **_kwargs) -> list[dict[str, object]]:
+            return [{"id": "source-1", "title": token, "metadata_json": {"raw_text": "clean note"}}]
+
+        def delete_source(self, **_kwargs) -> dict[str, object]:
+            return {"id": "source-1"}
+
+    postgres = next(
+        check
+        for check in VNextDoctorService(PostgresDoctorStore()).run(ci=True)["checks"]
+        if check["name"] == "flagged_sources"
+    )
+    assert postgres["status"] == "fail"
+    assert "delete_source" in postgres["message"]
+    assert "SQLite has no delete_source" not in postgres["message"]
+    assert token not in postgres["message"]
+    assert postgres["details"]["stopped_early"] is False
+
+    class SqliteDoctorStore(DoctorStore):
+        def list_sources(self, **_kwargs) -> list[dict[str, object]]:
+            return [{"id": "source-9", "title": token, "metadata_json": {}}]
+
+    sqlite = next(
+        check
+        for check in VNextDoctorService(SqliteDoctorStore()).run(ci=True)["checks"]
+        if check["name"] == "flagged_sources"
+    )
+    assert "SQLite has no delete_source" in sqlite["message"]
+    assert "Delete each listed source with delete_source" not in sqlite["message"]
+
+    class WideDoctorStore(DoctorStore):
+        def list_sources(self, **kwargs) -> list[dict[str, object]]:
+            limit = int(kwargs.get("limit") or 0)
+            return [{"id": f"source-{index}", "title": "clean", "metadata_json": {}} for index in range(limit)]
+
+    wide = next(
+        check
+        for check in VNextDoctorService(WideDoctorStore()).run(ci=True)["checks"]
+        if check["name"] == "flagged_sources"
+    )
+    assert wide["details"]["stopped_early"] is True
+    assert "stopped after 10000 sources" in wide["message"]
+
+
 def test_doctor_passes_when_local_live_cors_is_explicit(tmp_path, monkeypatch) -> None:
     web_dir = tmp_path / "apps" / "web"
     web_dir.mkdir(parents=True)
