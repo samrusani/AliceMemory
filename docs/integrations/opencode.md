@@ -33,6 +33,10 @@ includes `timeout`, `enabled`, `cwd`, and `environment` (for example
 `environment.FOO`). Sibling servers under `mcp` stay. A dry run prints only
 the Alice entry and masks the `command` array: a URL after its scheme, and the
 value of a flag whose name holds key, token, secret, or password.
+Unreleased (on main, not in v0.18.0): booleans and numbers are shown on
+top-level keys, including `"enabled": false` and `timeout`. A value under
+`environment`, `env`, `headers`, or any other map stays hidden, whatever
+its type. In v0.18.0 those top-level values print as `<hidden>`.
 
 ## JSONC
 

@@ -199,6 +199,8 @@ def test_opencode_dry_run_masks_command_array(
                             "--data-dir",
                             str(vault.resolve()),
                         ],
+                        "enabled": False,
+                        "retries": 3,
                     },
                 }
             }
@@ -210,7 +212,65 @@ def test_opencode_dry_run_masks_command_array(
     assert "hidden:" in out
     assert "u:" not in out
     assert "tok" not in out
+    assert '"enabled": false' in out
+    assert '"retries": 3' in out
+    assert '"enabled": "<hidden>"' not in out
     assert sibling not in out
+    assert path.read_bytes() == before
+    assert not _backups(vault)
+
+
+def test_opencode_dry_run_hides_map_values_and_shows_top_level_numbers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Booleans and numbers are shown only on top-level keys.
+
+    A value under environment or headers stays hidden, including a boolean
+    and a number. Fails if those map values are printed, or if enabled
+    false or timeout is hidden.
+    """
+
+    _pin(monkeypatch, tmp_path)
+    uvx = executable(tmp_path / "bin" / "uvx")
+    home = tmp_path / "home"
+    vault = tmp_path / "vault"
+    pin = int("8473" + "6251")
+    account = int("123456" + "789012")
+    path = _files(home)["mcp"]
+    _write(
+        path,
+        json.dumps(
+            {
+                "mcp": {
+                    "alice": {
+                        "type": "local",
+                        "command": [
+                            str(uvx),
+                            "alice-memory",
+                            "mcp",
+                            "--data-dir",
+                            str(vault.resolve()),
+                        ],
+                        "enabled": False,
+                        "timeout": 15,
+                        "environment": {"PIN": pin, "flag": False},
+                        "headers": {"X-Account": account},
+                    }
+                }
+            }
+        ),
+    )
+    before = path.read_bytes()
+    code, out, err = _install(home, vault, capsys, "--dry-run")
+    assert code == 0, err
+    assert '"enabled": false' in out
+    assert '"timeout": 15' in out
+    assert str(pin) not in out
+    assert str(account) not in out
+    assert '"flag": false' not in out
+    assert '"PIN": "<hidden>"' in out
+    assert '"flag": "<hidden>"' in out
+    assert '"X-Account": "<hidden>"' in out
     assert path.read_bytes() == before
     assert not _backups(vault)
 

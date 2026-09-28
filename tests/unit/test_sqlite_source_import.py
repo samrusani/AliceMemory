@@ -113,8 +113,8 @@ def test_markdown_import_withholds_a_key_line_and_a_key_block(tmp_path: Path) ->
     assert receipt["skipped_credentials"] == 2
     assert receipt["skipped_count"] == 0
     assert token not in json.dumps(receipt)
-    assert "line 2" in receipt["skipped_credential_items"]
-    assert "lines 3 to 5" in receipt["skipped_credential_items"]
+    assert "file 1 (week.md) line 2" in receipt["skipped_credential_items"]
+    assert "file 1 (week.md) lines 3 to 5" in receipt["skipped_credential_items"]
 
     stored = _blob(database)
     assert token not in stored
@@ -349,7 +349,7 @@ def test_unmatched_begin_line_is_withheld_through_end_of_file(tmp_path: Path, ca
     assert receipt["status"] == "ok"
     assert receipt["imported_count"] == 1
     assert receipt["skipped_count"] == 0
-    assert "lines 2 to 3" in receipt["skipped_credential_items"]
+    assert "file 1 (week.md) lines 2 to 3" in receipt["skipped_credential_items"]
     stored = _blob(database)
     assert CLEAN in stored
     assert body not in stored
@@ -433,6 +433,48 @@ def test_non_utf8_markdown_with_a_flagged_name_says_withheld(tmp_path: Path, cap
     assert CLEAN not in _blob(database)
 
 
+def test_chatgpt_title_with_a_token_is_counted_and_stored_as_withheld(tmp_path: Path, capsys) -> None:
+    """A conversation title that holds a token is stored as withheld and counted.
+
+    Fails if the title is stored raw, or if skipped_credentials and
+    skipped_credential_items ignore it.
+    """
+
+    token = _token()
+    export = tmp_path / "chat.json"
+    export.write_text(
+        json.dumps(
+            {
+                "conversations": [
+                    {
+                        "id": "weekly",
+                        "title": f"Weekly {token}",
+                        "messages": [
+                            {"author": {"role": "user"}, "content": {"parts": [CLEAN]}},
+                        ],
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    database = _db(tmp_path / "data")
+    assert onramp_main(
+        ["import-chatgpt", "--from", str(export), "--db", str(database), "--user-id", USER_ID]
+    ) == 0
+    receipt = json.loads(capsys.readouterr().out)
+    assert receipt["status"] == "ok"
+    assert receipt["imported_count"] == 1
+    assert receipt["skipped_count"] == 0
+    assert receipt["skipped_credentials"] == 1
+    assert receipt["skipped_credential_items"] == ["conversation weekly title"]
+    stored = _blob(database)
+    assert token not in stored
+    assert token not in json.dumps(receipt)
+    assert "withheld" in stored
+    assert CLEAN in stored
+
+
 def test_chatgpt_part_filter_keeps_the_clean_part(tmp_path: Path, capsys) -> None:
     """A flagged message part is withheld. The clean part in that message stays.
 
@@ -477,10 +519,10 @@ def test_chatgpt_part_filter_keeps_the_clean_part(tmp_path: Path, capsys) -> Non
 
 
 def test_refused_chatgpt_conversation_leaves_the_batch_ok(tmp_path: Path, capsys) -> None:
-    """A secret the part filter cannot isolate skips that conversation.
+    """A password the commit door flags is withheld. Both conversations import.
 
-    Fails if ``except CaptureCredentialRefused`` is removed: the conversation
-    is counted failed and the batch is not ok.
+    Fails if that message is left in the store, or if the clean conversation
+    is dropped with the flagged one.
     """
 
     secret = "Kd9" + "xoYWu83nq"
@@ -518,12 +560,55 @@ def test_refused_chatgpt_conversation_leaves_the_batch_ok(tmp_path: Path, capsys
     receipt = json.loads(capsys.readouterr().out)
     assert receipt["status"] == "ok"
     assert receipt["failed_count"] == 0
-    assert receipt["skipped_count"] >= 1
-    assert receipt["imported_count"] == 1
-    assert any(item.startswith("conversation ") for item in receipt["skipped_credential_items"])
+    assert receipt["skipped_count"] == 0
+    assert receipt["imported_count"] == 2
+    assert "conversation weekly message 1" in receipt["skipped_credential_items"]
     stored = _blob(database)
     assert secret not in stored
     assert CLEAN in stored
+
+
+def test_chatgpt_export_filename_token_skips_the_conversation_and_the_batch_stays_ok(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A token in the export file name skips the conversation. The batch stays ok.
+
+    The per-message filter cannot remove the file name. Fails if
+    ``except CaptureCredentialRefused`` is removed: the import exits 1.
+    """
+
+    token = _token()
+    export = tmp_path / f"{token}.json"
+    export.write_text(
+        json.dumps(
+            {
+                "conversations": [
+                    {
+                        "id": "weekly",
+                        "title": "Weekly",
+                        "messages": [
+                            {"author": {"role": "user"}, "content": {"parts": [CLEAN]}},
+                        ],
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    database = _db(tmp_path / "data")
+    assert onramp_main(
+        ["import-chatgpt", "--from", str(export), "--db", str(database), "--user-id", USER_ID]
+    ) == 0
+    receipt = json.loads(capsys.readouterr().out)
+    assert receipt["status"] == "skipped"
+    assert receipt["failed_count"] == 0
+    assert receipt["skipped_count"] == 1
+    assert receipt["imported_count"] == 0
+    assert token not in json.dumps(receipt)
+    assert "name withheld" in json.dumps(receipt["skipped_credential_items"])
+    stored = _blob(database)
+    assert token not in stored
+    assert CLEAN not in stored
 
 
 def test_refused_connector_item_is_skipped_and_the_cursor_advances() -> None:
@@ -594,3 +679,144 @@ def test_batch_import_event_hides_a_token_in_the_folder_path(tmp_path: Path, cap
     assert token not in stored
     assert token not in json.dumps(receipt)
     assert CLEAN not in stored
+
+
+def _low_entropy_access_key() -> str:
+    return "AK" + "IA" + ("A" * 16)
+
+
+def _prose_password() -> str:
+    return "my password is " + "84736251"
+
+
+def test_markdown_folder_withholds_commit_door_lines_and_imports_the_rest(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A line only the commit door flags is withheld. The other lines import.
+
+    Fails if the file is skipped whole, the receipt names the wrong line,
+    or a clean Decision line is dropped.
+    """
+
+    key = _low_entropy_access_key()
+    password = _prose_password()
+    folder = tmp_path / "notes"
+    folder.mkdir()
+    (folder / "a.md").write_text("Decision: ship on Tuesdays.\n", encoding="utf-8")
+    (folder / "b.md").write_text(
+        "\n".join(
+            (
+                "Week notes.",
+                f"The staging key is {key} for now.",
+                "Decision: use Postgres.",
+                "",
+            )
+        ),
+        encoding="utf-8",
+    )
+    (folder / "c.md").write_text(
+        "\n".join(
+            (
+                "Status: fine.",
+                password,
+                "Decision: keep the brief short.",
+                "",
+            )
+        ),
+        encoding="utf-8",
+    )
+    database = _db(tmp_path / "data")
+    assert onramp_main(
+        ["import-markdown", "--from", str(folder), "--db", str(database), "--user-id", USER_ID]
+    ) == 0
+    receipt = json.loads(capsys.readouterr().out)
+    assert receipt["imported_count"] == 3
+    assert receipt["skipped_count"] == 0
+    assert receipt["failed_count"] == 0
+    items = receipt["skipped_credential_items"]
+    assert "file 2 (b.md) line 2" in items
+    assert "file 3 (c.md) line 2" in items
+    assert "file 2 (b.md)" not in items
+    assert "file 3 (c.md)" not in items
+    rendered = json.dumps(receipt)
+    assert key not in rendered
+    assert password not in rendered
+    stored = _blob(database)
+    assert "Decision: ship on Tuesdays." in stored
+    assert "Decision: use Postgres." in stored
+    assert "Decision: keep the brief short." in stored
+    assert key not in stored
+    assert password not in stored
+    assert "84736251" not in stored
+
+
+def test_chatgpt_import_withholds_the_flagged_message_or_title(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A commit-door hit in one message or the title is withheld. The rest imports.
+
+    The receipt names message 2 for the key in that message, and the title
+    for a key in the title. Fails if the conversation is skipped whole or
+    the receipt names a clean message.
+    """
+
+    key = _low_entropy_access_key()
+    export = tmp_path / "chat.json"
+    export.write_text(
+        json.dumps(
+            {
+                "conversations": [
+                    {
+                        "id": "weekly",
+                        "title": "Weekly",
+                        "messages": [
+                            {
+                                "author": {"role": "user"},
+                                "content": {"parts": ["Decision: use Postgres for the team server."]},
+                            },
+                            {
+                                "author": {"role": "user"},
+                                "content": {"parts": [f"The staging key is {key} for now."]},
+                            },
+                            {
+                                "author": {"role": "user"},
+                                "content": {"parts": ["Noted."]},
+                            },
+                        ],
+                    },
+                    {
+                        "id": "weekly-title",
+                        "title": f"Key {key}",
+                        "messages": [
+                            {
+                                "author": {"role": "user"},
+                                "content": {"parts": ["Decision: ship on Tuesdays."]},
+                            }
+                        ],
+                    },
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    database = _db(tmp_path / "data")
+    assert onramp_main(
+        ["import-chatgpt", "--from", str(export), "--db", str(database), "--user-id", USER_ID]
+    ) == 0
+    receipt = json.loads(capsys.readouterr().out)
+    assert receipt["imported_count"] == 2
+    assert receipt["skipped_count"] == 0
+    assert receipt["failed_count"] == 0
+    items = receipt["skipped_credential_items"]
+    assert "conversation weekly message 2" in items
+    assert "conversation weekly message 3" not in items
+    assert "conversation weekly-title title" in items
+    assert "conversation weekly-title message 1" not in items
+    rendered = json.dumps(receipt)
+    assert key not in rendered
+    stored = _blob(database)
+    assert "Decision: use Postgres for the team server." in stored
+    assert "Decision: ship on Tuesdays." in stored
+    assert "Noted." in stored
+    assert key not in stored
+    assert "withheld" in stored

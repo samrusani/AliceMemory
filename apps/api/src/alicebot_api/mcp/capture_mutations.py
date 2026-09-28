@@ -7,6 +7,7 @@ from uuid import UUID
 from alicebot_api.continuity_capture import (
     capture_continuity_candidates,
     commit_continuity_captures,
+    withhold_capture_candidates_echo,
 )
 from alicebot_api.memory_mutations import (
     commit_memory_operations,
@@ -42,15 +43,17 @@ def _handle_alice_capture_candidates(
 ) -> JsonObject:
     with _store_context(context) as store:
         return _json_object(
-            capture_continuity_candidates(
-                store,
-                user_id=context.user_id,
-                request=ContinuityCaptureCandidatesInput(
-                    user_content=_parse_optional_text(arguments, "user_content") or "",
-                    assistant_content=_parse_optional_text(arguments, "assistant_content") or "",
-                    session_id=_parse_optional_text(arguments, "session_id"),
-                    source_kind=_parse_optional_text(arguments, "source_kind") or "sync_turn",
-                ),
+            withhold_capture_candidates_echo(
+                capture_continuity_candidates(
+                    store,
+                    user_id=context.user_id,
+                    request=ContinuityCaptureCandidatesInput(
+                        user_content=_parse_optional_text(arguments, "user_content") or "",
+                        assistant_content=_parse_optional_text(arguments, "assistant_content") or "",
+                        session_id=_parse_optional_text(arguments, "session_id"),
+                        source_kind=_parse_optional_text(arguments, "source_kind") or "sync_turn",
+                    ),
+                )
             ),
         )
 

@@ -310,7 +310,7 @@ def _flagged_source_remedy(store: object) -> str:
     """Postgres can delete a source. SQLite cannot."""
 
     if callable(getattr(store, "delete_source", None)):
-        return "Delete each listed source with delete_source."
+        return "Delete each listed source with DELETE /v0/vnext/sources/{id}."
     return "SQLite has no delete_source."
 
 
