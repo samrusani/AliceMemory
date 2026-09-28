@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 // Dependency vulnerability audit against npm's bulk advisory endpoint.
 //
-// Alice intentionally remains on the reproducible Node 20 / pnpm 10.23.0
-// toolchain for this patch carrier. pnpm 11 has moved `pnpm audit` to npm's
-// bulk endpoint (upstream decision: https://github.com/orgs/pnpm/discussions/11377),
-// but changing package-manager majors is a separate compatibility decision.
+// The web CI jobs pin Node 22.22.2. pnpm stays at 10.23.0. pnpm 11 has moved
+// `pnpm audit` to npm's bulk endpoint (upstream decision:
+// https://github.com/orgs/pnpm/discussions/11377), but changing the
+// package-manager major is a separate compatibility decision.
 // Keep this stricter fail-closed wrapper while pnpm 10 is pinned: collect the
 // installed dependency tree (production-only with --prod), submit
 // name -> [versions] to
