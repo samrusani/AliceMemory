@@ -4380,6 +4380,8 @@ def test_alice_recall_results_are_compact_and_trace_is_debug_only(
             "sensitivity",
             "excerpt",
             "excerpt_kind",
+            "derived_memory_corrected",
+            "current_memory_id",
             "writer",
         }, f"alice_recall leaked an uncompacted source field: {sorted(source)}"
         assert "metadata_json" not in source
