@@ -62,8 +62,26 @@ alicebot vnext sources import-chatgpt <file>
 
 Both take `--domain` and `--sensitivity`. Like every `alicebot` command, they
 need a Postgres `DATABASE_URL`, so point the MCP server at the same database
-and user. `alice_recall` then returns the text under `sources`, not under
-`results`. `alice_resume` does not show it.
+and user. `alice_recall` returns the text under `sources`, not under
+`results`.
+
+In v0.17.0, the latest release, that sentence was "`alice_resume` does not
+show it." That was false. A captured line that reads like a decision became
+a candidate, and `alice_resume` showed it, including a token in the line.
+The same release has three other capture gaps. Capture has no credential
+check, so a note that holds a key is stored and `alice_recall` and
+`alice-memory brief` return it. The folder import follows a symlink out of
+the folder. Any JSON file is stored, including one that is not a chat export.
+
+Unreleased (on main, not in v0.17.0): `alice_capture`, capture-text,
+capture-file, connectors, and both imports refuse a source that carries
+credential material and write nothing. A batch counts that source as
+skipped, not failed. `alice_resume`, `alice_recent_decisions`, the
+SessionStart brief, and `alice-memory brief` read only active memories, so
+a captured candidate stays in review until the owner promotes it. The
+folder import refuses a symlink and a non-regular file, and a single
+markdown file is allowed. A JSON file with no conversations is refused and
+nothing is written.
 
 ## Evaluation Harness
 

@@ -48,6 +48,11 @@ from alicebot_api.memory_mutations import MemoryMutationValidationError, generat
 from alicebot_api.onramp import bootstrap_database, main as onramp_main, sqlite_url_for_path
 from alicebot_api.sqlite_schema import bootstrap_sqlite_schema
 from alicebot_api.sqlite_store import SQLiteVNextStore, ensure_sqlite_user, sqlite_user_connection
+from alicebot_api.vnext_capture import (
+    CaptureCredentialRefused,
+    SourceCaptureInput,
+    VNextCaptureService,
+)
 from alicebot_api.vnext_memory_commit import (
     MAX_COMMIT_SOURCE_REF_CHARS,
     MAX_COMMIT_SOURCE_REFS,
@@ -1643,3 +1648,98 @@ def test_codeql_a_long_name_scans_in_linear_time(label: str) -> None:
     assert large_seconds < max(8 * small_seconds, 0.02), (label, small_seconds, large_seconds)
     # Guards the guard: the same long name ending in a secret word is read.
     assert credential_floor._name_kind(large + "_password", "", 0) == "password"
+
+
+# ---------------------------------------------------------------------------
+# Door 8: alice_capture. Capture used to store a token in the source, the
+# chunks, and a candidate. The backstop runs before any write.
+# ---------------------------------------------------------------------------
+
+
+def _door8_db(tmp_path: Path) -> Path:
+    return Path(tmp_path) / "memory.db"
+
+
+def _door8_counts(db_path: Path) -> tuple[int, int, int]:
+    with sqlite_user_connection(db_path, USER_ID) as conn:
+        counts: list[int] = []
+        for table in ("sources", "source_chunks", "memories"):
+            row = conn.execute(f"SELECT COUNT(*) AS c FROM {table}").fetchone()
+            counts.append(int(row[0] if isinstance(row, tuple) else row["c"]))
+        return counts[0], counts[1], counts[2]
+
+
+def _door8_blob(db_path: Path) -> str:
+    with sqlite_user_connection(db_path, USER_ID) as conn:
+        chunks: list[str] = []
+        for table in ("sources", "source_chunks", "memories", "event_log"):
+            for row in conn.execute(f"SELECT * FROM {table}"):
+                chunks.append(json.dumps(tuple(row), default=str))
+        return "\n".join(chunks)
+
+
+def test_door8_alice_capture_writes_no_source_chunk_or_memory_for_a_runtime_token(tmp_path: Path) -> None:
+    """Door 8. A token in the capture text never reaches the store.
+
+    Fails if the capture backstop is removed: the tool call succeeds and
+    the token is in a source, a chunk, or a memory.
+    """
+
+    context = _sqlite_context(tmp_path)
+    db_path = _door8_db(tmp_path)
+    clean = call_mcp_tool(
+        context,
+        name="alice_capture",
+        arguments={
+            "raw_text": "Deploys go out on Tuesdays.",
+            "title": "Launch note",
+            "domain": "project",
+            "sensitivity": "internal",
+        },
+    )
+    assert clean["status"] == "imported"
+    before = _door8_counts(db_path)
+    assert before[0] >= 1
+
+    with pytest.raises(MCPToolError, match="credential material"):
+        call_mcp_tool(
+            context,
+            name="alice_capture",
+            arguments={
+                "raw_text": f"Use deploy key {PAT}",
+                "title": "Launch note",
+                "domain": "project",
+                "sensitivity": "internal",
+            },
+        )
+
+    assert _door8_counts(db_path) == before
+    assert PAT not in _door8_blob(db_path)
+
+
+def test_door8_capture_reads_metadata_with_its_keys(tmp_path: Path) -> None:
+    """A secret name over an opaque value is refused, and the value is not stored.
+
+    Fails if the backstop passes metadata by value only, or omits it.
+    The value does not identify itself.
+    """
+
+    opaque = "Xq9mZt2L" + "xP9wKc4BVq7m"
+    assert not carries_credential_material(opaque)
+    assert carries_credential_material({"api_key": opaque})
+    context = _sqlite_context(tmp_path)
+    db_path = _door8_db(tmp_path)
+    before = _door8_counts(db_path)
+    with sqlite_user_connection(db_path, USER_ID) as conn:
+        store = SQLiteVNextStore(conn, USER_ID)
+        with pytest.raises(CaptureCredentialRefused, match="credential material"):
+            VNextCaptureService(store).capture_source(
+                SourceCaptureInput(
+                    source_type="manual_text",
+                    title="Launch note",
+                    raw_text="Deploys go out on Tuesdays.",
+                    metadata_json={"api_key": opaque},
+                )
+            )
+    assert _door8_counts(db_path) == before
+    assert opaque not in _door8_blob(db_path)

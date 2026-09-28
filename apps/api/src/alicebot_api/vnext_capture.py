@@ -10,6 +10,7 @@ from pathlib import Path
 import re
 from typing import Mapping, Protocol, Sequence
 
+from alicebot_api.credential_floor import refuse_credential_material
 from alicebot_api.memory_provenance import (
     ASSERTION_CLASS_USER_ASSERTED,
     PROVENANCE_ROLE_USER,
@@ -47,6 +48,10 @@ logger = logging.getLogger(__name__)
 
 class VNextCaptureValidationError(ValueError):
     """Raised when a vNext capture request cannot be normalized."""
+
+
+class CaptureCredentialRefused(VNextCaptureValidationError):
+    """A capture field carries credential material. Nothing was written."""
 
 
 class VNextCaptureStore(Protocol):
@@ -146,6 +151,7 @@ class BatchImportResult:
     errors: tuple[str, ...] = ()
     error_code: str | None = None
     deferred_embedding_inputs: tuple[DeferredMemoryEmbedding, ...] = ()
+    skipped_count: int = 0
 
     def to_record(self) -> JsonObject:
         return {
@@ -153,10 +159,31 @@ class BatchImportResult:
             "imported_count": self.imported_count,
             "duplicate_count": self.duplicate_count,
             "failed_count": self.failed_count,
+            "skipped_count": self.skipped_count,
             "source_ids": list(self.source_ids),
             "errors": list(self.errors),
             "error_code": self.error_code,
         }
+
+
+def _batch_status(
+    *,
+    imported_count: int,
+    duplicate_count: int,
+    failed_count: int,
+    skipped_count: int,
+) -> str:
+    """Batch outcome. A credential skip is not a failure."""
+
+    if imported_count == 0 and duplicate_count == 0 and failed_count > 0:
+        return "failed"
+    if imported_count == 0 and duplicate_count > 0 and failed_count == 0:
+        return "duplicate"
+    if imported_count == 0 and duplicate_count == 0 and failed_count == 0 and skipped_count > 0:
+        return "skipped"
+    if failed_count:
+        return "partial"
+    return "ok"
 
 
 @dataclass(frozen=True, slots=True)
@@ -624,46 +651,6 @@ def _memory_key(
     return f"vnext.capture.{candidate.memory_type}.{digest}"
 
 
-def _extract_text_from_json_value(value: object) -> list[str]:
-    """Fallback text extraction that preserves encounter order and repeats."""
-    if isinstance(value, str):
-        normalized = " ".join(value.split()).strip()
-        return [normalized] if normalized else []
-
-    if isinstance(value, list):
-        texts: list[str] = []
-        for item in value:
-            texts.extend(_extract_text_from_json_value(item))
-        return texts
-
-    if not isinstance(value, dict):
-        return []
-
-    texts = []
-    for key in ("text", "message"):
-        if key in value:
-            texts.extend(_extract_text_from_json_value(value[key]))
-
-    content = value.get("content")
-    if isinstance(content, dict):
-        for key in ("parts", "text", "content", "message"):
-            if key in content:
-                texts.extend(_extract_text_from_json_value(content[key]))
-    elif content is not None:
-        texts.extend(_extract_text_from_json_value(content))
-
-    mapping = value.get("mapping")
-    if isinstance(mapping, dict):
-        for node in mapping.values():
-            texts.extend(_extract_text_from_json_value(node))
-
-    for key in ("messages", "conversations", "items", "records"):
-        if key in value:
-            texts.extend(_extract_text_from_json_value(value[key]))
-
-    return texts
-
-
 def _chatgpt_conversations(payload: object) -> list[dict[str, object]]:
     if isinstance(payload, list):
         return [item for item in payload if isinstance(item, dict)]
@@ -1003,6 +990,18 @@ class VNextCaptureService:
         )
 
     def capture_source(self, source_input: SourceCaptureInput) -> CaptureResult:
+        # Before dedupe and before the try that logs a failure. A refusal
+        # must not look up an existing row and must not persist the fields.
+        refuse_credential_material(
+            source_input.title,
+            source_input.author,
+            source_input.uri,
+            source_input.raw_path,
+            source_input.external_id,
+            source_input.raw_text,
+            source_input.metadata_json,
+            error=CaptureCredentialRefused,
+        )
         try:
             normalized_text = normalize_text(source_input.raw_text)
             # Effective project scope, from the dedicated field with a
@@ -1457,20 +1456,27 @@ class VNextCaptureService:
         domain: str = "unknown",
         sensitivity: str = "unknown",
     ) -> BatchImportResult:
-        folder_path = Path(folder).expanduser().resolve()
-        if not folder_path.exists() or not folder_path.is_dir():
-            raise VNextCaptureValidationError(f"markdown source folder does not exist: {folder_path}")
+        # Same selection and one-shot read as the legacy markdown importer:
+        # no symlink outside the root, and a single file is allowed.
+        from alicebot_api.markdown_import import MarkdownImportValidationError, _snapshot_markdown_source
+
+        try:
+            folder_path, snapshot = _snapshot_markdown_source(folder)
+        except MarkdownImportValidationError as exc:
+            raise VNextCaptureValidationError(str(exc)) from exc
 
         source_ids: list[str] = []
         errors: list[str] = []
         duplicate_count = 0
         failed_count = 0
+        skipped_count = 0
         run_hashes: set[str] = set()
         deferred_embedding_inputs: list[DeferredMemoryEmbedding] = []
 
-        for file_path in sorted(folder_path.rglob("*.md")):
+        for source_file in snapshot:
+            file_path = source_file.path
+            raw_text = source_file.text
             try:
-                raw_text = file_path.read_text(encoding="utf-8")
                 content_hash = content_hash_for_text(raw_text)
                 if content_hash in run_hashes:
                     duplicate_count += 1
@@ -1480,7 +1486,6 @@ class VNextCaptureService:
                         payload={
                             "content_hash": content_hash,
                             "source_type": "markdown",
-                            "raw_path": str(file_path),
                             "duplicate_scope": "batch",
                         },
                     )
@@ -1494,12 +1499,12 @@ class VNextCaptureService:
                         raw_text=raw_text,
                         raw_path=str(file_path),
                         connector_name="markdown_folder",
-                        external_id=str(file_path.relative_to(folder_path)),
+                        external_id=source_file.relative_path,
                         domain=domain,
                         sensitivity=sensitivity,
                         metadata_json={
                             "folder": str(folder_path),
-                            "relative_path": str(file_path.relative_to(folder_path)),
+                            "relative_path": source_file.relative_path,
                         },
                     )
                 )
@@ -1509,6 +1514,11 @@ class VNextCaptureService:
                     continue
                 if result.source_id is not None:
                     source_ids.append(result.source_id)
+            except CaptureCredentialRefused:
+                # Count the file as skipped. The receipt must not carry the
+                # path or title, which is where the refused material may sit.
+                skipped_count += 1
+                continue
             except Exception as exc:
                 failed_count += 1
                 errors.append(SOURCE_IMPORT_ERROR_MESSAGE)
@@ -1516,15 +1526,16 @@ class VNextCaptureService:
                     source_type="markdown",
                     title=file_path.name,
                     error=exc,
-                    metadata={"raw_path": str(file_path), "folder": str(folder_path)},
+                    metadata={"folder": str(folder_path)},
                 )
 
         imported_count = len(source_ids)
-        status = "ok" if failed_count == 0 else "partial"
-        if imported_count == 0 and duplicate_count > 0 and failed_count == 0:
-            status = "duplicate"
-        if imported_count == 0 and duplicate_count == 0 and failed_count > 0:
-            status = "failed"
+        status = _batch_status(
+            imported_count=imported_count,
+            duplicate_count=duplicate_count,
+            failed_count=failed_count,
+            skipped_count=skipped_count,
+        )
 
         self._log_event(
             event_type="source.batch_import_completed",
@@ -1535,6 +1546,7 @@ class VNextCaptureService:
                 "imported_count": imported_count,
                 "duplicate_count": duplicate_count,
                 "failed_count": failed_count,
+                "skipped_count": skipped_count,
             },
         )
         return BatchImportResult(
@@ -1542,6 +1554,7 @@ class VNextCaptureService:
             imported_count=imported_count,
             duplicate_count=duplicate_count,
             failed_count=failed_count,
+            skipped_count=skipped_count,
             source_ids=tuple(source_ids),
             errors=tuple(errors),
             error_code=SOURCE_IMPORT_ERROR_CODE if failed_count else None,
@@ -1555,97 +1568,95 @@ class VNextCaptureService:
         domain: str = "personal",
         sensitivity: str = "private",
     ) -> BatchImportResult:
-        export_path = Path(path).expanduser().resolve()
-        raw_export = export_path.read_text(encoding="utf-8")
-        payload = json.loads(raw_export)
-        conversations = _chatgpt_conversations(payload)
-        transcripts = [
-            _chatgpt_conversation_transcript(conversation, index=index)
-            for index, conversation in enumerate(conversations, start=1)
-        ]
-        transcript_format = "chatgpt_conversation_v1"
-        if not transcripts:
-            extracted_texts = _extract_text_from_json_value(payload)
-            fallback_text = (
-                "\n".join(extracted_texts)
-                if extracted_texts
-                else json.dumps(
-                    payload,
-                    sort_keys=True,
-                    ensure_ascii=False,
-                )
-            )
-            fallback_title = export_path.name
-            transcripts = [
-                _ChatGPTConversationTranscript(
-                    index=1,
-                    external_id=f"{export_path.name}#conversation-1",
-                    title=fallback_title,
-                    raw_text=(
-                        f"[CONVERSATION]: {export_path.name}#conversation-1\n[TITLE]: {fallback_title}\n{fallback_text}"
-                    ),
-                    message_count=len(extracted_texts),
-                    created_at=None,
-                    modified_at=None,
-                )
-            ]
-            transcript_format = "json_fallback_v1"
+        # Same selection and one-shot read as the legacy ChatGPT importer.
+        # A file with no conversations is refused. It is not stored.
+        from alicebot_api.chatgpt_import import ChatGPTImportValidationError, _snapshot_chatgpt_source
+        from alicebot_api.importer_paths import ImportSourceFile
 
-        export_sha256 = "sha256:" + sha256(raw_export.encode("utf-8")).hexdigest()
+        try:
+            export_path, snapshot = _snapshot_chatgpt_source(path)
+        except ChatGPTImportValidationError as exc:
+            raise VNextCaptureValidationError(str(exc)) from exc
+
+        parsed_files: list[tuple[ImportSourceFile, str, list[_ChatGPTConversationTranscript]]] = []
+        for source_file in snapshot:
+            try:
+                payload = json.loads(source_file.text)
+            except json.JSONDecodeError as exc:
+                raise VNextCaptureValidationError("ChatGPT export is not valid JSON") from exc
+            conversations = _chatgpt_conversations(payload)
+            if not conversations:
+                raise VNextCaptureValidationError("ChatGPT export has no conversations")
+            transcripts = [
+                _chatgpt_conversation_transcript(conversation, index=index)
+                for index, conversation in enumerate(conversations, start=1)
+            ]
+            export_sha256 = "sha256:" + sha256(source_file.text.encode("utf-8")).hexdigest()
+            parsed_files.append((source_file, export_sha256, transcripts))
+
         captured_at = datetime.now(UTC).isoformat().replace("+00:00", "Z")
         source_ids: list[str] = []
         errors: list[str] = []
         duplicate_count = 0
         failed_count = 0
+        skipped_count = 0
         deferred_embedding_inputs: list[DeferredMemoryEmbedding] = []
-        for transcript in transcripts:
-            try:
-                result = self.capture_source(
-                    SourceCaptureInput(
-                        source_type="chatgpt_export",
-                        title=transcript.title,
-                        raw_text=transcript.raw_text,
-                        raw_path=str(export_path),
-                        connector_name="chatgpt_export",
-                        external_id=transcript.external_id,
-                        domain=domain,
-                        sensitivity=sensitivity,
-                        captured_at=captured_at,
-                        source_created_at=transcript.created_at,
-                        source_modified_at=transcript.modified_at,
-                        metadata_json={
-                            "filename": export_path.name,
-                            "export_sha256": export_sha256,
-                            "transcript_format": transcript_format,
-                            "export_conversation_count": len(transcripts),
-                            "conversation_index": transcript.index,
-                            "conversation_id": transcript.external_id,
-                            "conversation_title": transcript.title,
-                            "message_count": transcript.message_count,
-                        },
+        conversation_count = 0
+        for source_file, export_sha256, transcripts in parsed_files:
+            conversation_count += len(transcripts)
+            file_path = source_file.path
+            for transcript in transcripts:
+                try:
+                    result = self.capture_source(
+                        SourceCaptureInput(
+                            source_type="chatgpt_export",
+                            title=transcript.title,
+                            raw_text=transcript.raw_text,
+                            raw_path=str(file_path),
+                            connector_name="chatgpt_export",
+                            external_id=transcript.external_id,
+                            domain=domain,
+                            sensitivity=sensitivity,
+                            captured_at=captured_at,
+                            source_created_at=transcript.created_at,
+                            source_modified_at=transcript.modified_at,
+                            metadata_json={
+                                "filename": file_path.name,
+                                "export_sha256": export_sha256,
+                                "transcript_format": "chatgpt_conversation_v1",
+                                "export_conversation_count": len(transcripts),
+                                "conversation_index": transcript.index,
+                                "conversation_id": transcript.external_id,
+                                "conversation_title": transcript.title,
+                                "message_count": transcript.message_count,
+                            },
+                        )
                     )
-                )
-            except Exception as exc:
-                failed_count += 1
-                errors.append(SOURCE_IMPORT_ERROR_MESSAGE)
-                logger.exception(
-                    "ChatGPT conversation import failed conversation_index=%d error_code=%s",
-                    transcript.index,
-                    SOURCE_IMPORT_ERROR_CODE,
-                )
-                continue
-            deferred_embedding_inputs.extend(result.deferred_embedding_inputs)
-            if result.duplicate:
-                duplicate_count += 1
-            elif result.source_id is not None:
-                source_ids.append(result.source_id)
+                except CaptureCredentialRefused:
+                    skipped_count += 1
+                    continue
+                except Exception:
+                    failed_count += 1
+                    errors.append(SOURCE_IMPORT_ERROR_MESSAGE)
+                    logger.exception(
+                        "ChatGPT conversation import failed conversation_index=%d error_code=%s",
+                        transcript.index,
+                        SOURCE_IMPORT_ERROR_CODE,
+                    )
+                    continue
+                deferred_embedding_inputs.extend(result.deferred_embedding_inputs)
+                if result.duplicate:
+                    duplicate_count += 1
+                elif result.source_id is not None:
+                    source_ids.append(result.source_id)
 
         imported_count = len(source_ids)
-        status = "ok" if failed_count == 0 else "partial"
-        if imported_count == 0 and duplicate_count > 0 and failed_count == 0:
-            status = "duplicate"
-        if imported_count == 0 and duplicate_count == 0 and failed_count > 0:
-            status = "failed"
+        status = _batch_status(
+            imported_count=imported_count,
+            duplicate_count=duplicate_count,
+            failed_count=failed_count,
+            skipped_count=skipped_count,
+        )
 
         self._log_event(
             event_type="source.batch_import_completed",
@@ -1653,11 +1664,11 @@ class VNextCaptureService:
             payload={
                 "source_type": "chatgpt_export",
                 "filename": export_path.name,
-                "export_sha256": export_sha256,
-                "conversation_count": len(transcripts),
+                "conversation_count": conversation_count,
                 "imported_count": imported_count,
                 "duplicate_count": duplicate_count,
                 "failed_count": failed_count,
+                "skipped_count": skipped_count,
             },
         )
         return BatchImportResult(
@@ -1665,6 +1676,7 @@ class VNextCaptureService:
             imported_count=imported_count,
             duplicate_count=duplicate_count,
             failed_count=failed_count,
+            skipped_count=skipped_count,
             source_ids=tuple(source_ids),
             errors=tuple(errors),
             error_code=SOURCE_IMPORT_ERROR_CODE if failed_count else None,
@@ -1675,6 +1687,7 @@ class VNextCaptureService:
 __all__ = [
     "BatchImportResult",
     "CaptureCandidate",
+    "CaptureCredentialRefused",
     "CaptureResult",
     "SourceCaptureInput",
     "USER_ASSERTED_VALUE_CONFIDENCE",

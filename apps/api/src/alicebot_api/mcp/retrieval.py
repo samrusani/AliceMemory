@@ -69,9 +69,9 @@ from alicebot_api.vnext_retrieval import (
 from .context import _COMPACT_SOURCE_FIELDS, _compact_fields
 from .projects import _handle_alice_vnext_open_loops
 from .retrieval_shared import (
+    _CONTEXT_MEMORY_STATUSES,
     _SQLITE_NEXT_ACTION_MEMORY_TYPES,
     _SQLITE_OPEN_LOOP_ACTIVE_STATUSES,
-    _SQLITE_REVIEWABLE_STATUSES,
     _compact_vnext_event,
     _compact_vnext_memory,
     _compact_vnext_open_loop,
@@ -759,7 +759,7 @@ def _vnext_recent_decisions(
             row
             for row in store.list_memories(
                 status=None,
-                statuses=tuple(_SQLITE_REVIEWABLE_STATUSES),
+                statuses=tuple(_CONTEXT_MEMORY_STATUSES),
                 memory_types=("decision",),
                 domains=domain_filter,
                 sensitivity_allowed=sensitivity_filter,
@@ -831,7 +831,7 @@ def _vnext_resume(
     with _vnext_store_context(context) as store:
         decisions = store.list_memories(
             status=None,
-            statuses=tuple(_SQLITE_REVIEWABLE_STATUSES),
+            statuses=tuple(_CONTEXT_MEMORY_STATUSES),
             memory_types=("decision",),
             domains=domain_filter,
             sensitivity_allowed=sensitivity_filter,
@@ -882,7 +882,7 @@ def _vnext_resume(
         if next_action is None:
             todo_memories = store.list_memories(
                 status=None,
-                statuses=tuple(_SQLITE_REVIEWABLE_STATUSES),
+                statuses=tuple(_CONTEXT_MEMORY_STATUSES),
                 memory_types=tuple(_SQLITE_NEXT_ACTION_MEMORY_TYPES),
                 domains=domain_filter,
                 sensitivity_allowed=sensitivity_filter,
@@ -922,7 +922,7 @@ def _vnext_resume(
             event_rows = []
             seen_event_ids: set[str] = set()
             for event in store.list_resume_memory_events(
-                statuses=tuple(_SQLITE_REVIEWABLE_STATUSES),
+                statuses=tuple(_CONTEXT_MEMORY_STATUSES),
                 projects=effective_project_scope,
                 query=query,
                 occurred_at_start=since,
