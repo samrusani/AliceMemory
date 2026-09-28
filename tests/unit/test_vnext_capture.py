@@ -31,6 +31,31 @@ from alicebot_api.vnext_entities import ENTITY_MENTION_EDGE_TYPE
 from alicebot_api.vnext_project_scope import memory_project_scope
 
 
+def test_low_entropy_aws_id_is_refused_by_capture_and_flagged_by_the_doctor() -> None:
+    """The commit door refuses this key. Capture and the doctor follow it.
+
+    The floor treats the repeated tail as a placeholder. Fails if
+    capture_text stores the text, or if source_row_is_flagged stays false.
+    """
+
+    from alicebot_api.credential_floor import credential_verdict
+    from alicebot_api.legacy_credential_check import commit_door_secret_verdict
+    from alicebot_api.vault_doctor import source_row_is_flagged
+
+    key = "AK" + "IA" + ("A" * 16)
+    text = f"Fact: the access id is {key}"
+    assert credential_verdict(text) is None
+    assert commit_door_secret_verdict("", text) is not None
+    store = InMemoryVNextCaptureStore()
+    with pytest.raises(CaptureCredentialRefused):
+        VNextCaptureService(store).capture_text(text)
+    assert store.sources == []
+    assert key not in json.dumps(store.events)
+    assert source_row_is_flagged(
+        {"title": "note", "metadata_json": {"raw_text": text}}
+    )
+
+
 class InMemoryVNextCaptureStore:
     def __init__(self) -> None:
         self.calls: list[str] = []

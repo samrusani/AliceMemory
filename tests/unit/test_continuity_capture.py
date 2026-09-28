@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
@@ -8,6 +9,8 @@ import pytest
 from alicebot_api.continuity_capture import (
     ContinuityCaptureNotFoundError,
     ContinuityCaptureValidationError,
+    _build_candidate_record,
+    _extract_from_role,
     capture_continuity_candidates,
     capture_continuity_input,
     commit_continuity_captures,
@@ -366,6 +369,38 @@ def test_capture_candidates_returns_no_op_for_ack_only_turns() -> None:
     assert payload["candidates"][0]["candidate_type"] == "no_op"
 
 
+def test_capture_candidates_withholds_a_token_and_stores_nothing() -> None:
+    """POST /v0/continuity/captures/candidates echoes text and writes nothing.
+
+    A token in that echo is withheld. Fails if the response still contains
+    the token, or if the handler writes a capture event.
+    """
+
+    store = ContinuityCaptureStoreStub()
+    token = "ghp_" + "0123456789abcdefghijklmnopqrstuvwxyz"
+    payload = capture_continuity_candidates(
+        store,  # type: ignore[arg-type]
+        user_id=store.user_id,
+        request=ContinuityCaptureCandidatesInput(
+            user_content=f"Decision: rotate the deploy key to {token}",
+            assistant_content="noted",
+        ),
+    )
+    rendered = json.dumps(payload)
+    assert token not in rendered
+    assert "text withheld: it carried credential material" in rendered
+    assert store.capture_events == {}
+    plain = capture_continuity_candidates(
+        store,  # type: ignore[arg-type]
+        user_id=store.user_id,
+        request=ContinuityCaptureCandidatesInput(
+            user_content="Decision: ship the bridge this week",
+            assistant_content="noted",
+        ),
+    )
+    assert "ship the bridge this week" in json.dumps(plain)
+
+
 def test_commit_captures_assist_mode_auto_saves_explicit_decisions_and_routes_notes_to_review() -> None:
     store = ContinuityCaptureStoreStub()
     candidates = capture_continuity_candidates(
@@ -703,16 +738,20 @@ def test_quoted_assignment_past_the_title_cut_is_not_auto_saved() -> None:
     value = "Ab" + "12" + "cd" + "EF"
     quoted = "PASSWORD" + '_DB="' + value + '"'
     filler = ("ship the weekly billing report " * 20).strip()
+    user_content = "decision: " + filler + " " + quoted
     store = ContinuityCaptureStoreStub()
-    candidates = capture_continuity_candidates(
+    echoed = capture_continuity_candidates(
         store,  # type: ignore[arg-type]
         user_id=store.user_id,
         request=ContinuityCaptureCandidatesInput(
-            user_content="decision: " + filler + " " + quoted,
+            user_content=user_content,
             assistant_content="",
         ),
     )["candidates"]
-    candidate = candidates[0]
+    assert quoted not in json.dumps(echoed)
+    extracted = _extract_from_role(text=user_content, source_role="user")
+    assert extracted is not None
+    candidate = _build_candidate_record(extracted)
     normalized = candidate["normalized_text"]
     assert candidate["proposed_action"] == "auto_save_candidate"
     assert normalized.find(quoted) >= 280
@@ -726,7 +765,7 @@ def test_quoted_assignment_past_the_title_cut_is_not_auto_saved() -> None:
             request=ContinuityCaptureCommitInput(
                 mode="assist",
                 sync_fingerprint="sync:title-cut",
-                candidates=candidates,  # type: ignore[arg-type]
+                candidates=[candidate],  # type: ignore[arg-type]
             ),
         )
     assert store.objects_by_capture_event == {}

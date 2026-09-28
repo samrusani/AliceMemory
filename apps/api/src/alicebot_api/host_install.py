@@ -600,11 +600,12 @@ def _masked(
 ) -> tuple[dict[str, Any], list[str]]:
     """``entry`` as install prints it, and the list of what it hid.
 
-    Shown: command, type, timeout and cwd; args with every URL after its
-    scheme and secret flag values hidden (host_launcher.masked_args); the
-    names under env, headers and other maps. Every other value is hidden,
-    except ``own_env``: the ALICE_MEMORY_DATA_DIR install writes itself,
-    which equals the --data-dir in args.
+    Shown: command, type, timeout and cwd; booleans and numbers; args with
+    every URL after its scheme and secret flag values hidden
+    (host_launcher.masked_args); the names under env, headers and other
+    maps. Every other value is hidden, except ``own_env``: the
+    ALICE_MEMORY_DATA_DIR install writes itself, which equals the
+    --data-dir in args.
     """
 
     shown: dict[str, Any] = {}
@@ -625,10 +626,14 @@ def _masked(
             for name, item in value.items():
                 if key == "env" and own_env is not None and own_env.get(name) == item:
                     inner[name] = item
+                elif isinstance(item, bool) or isinstance(item, int | float):
+                    inner[name] = item
                 else:
                     inner[name] = _HIDDEN
                     hidden.append(f"{key}.{name}")
             shown[key] = inner
+        elif isinstance(value, bool) or isinstance(value, int | float):
+            shown[key] = value
         else:
             shown[key] = _HIDDEN
             hidden.append(str(key))

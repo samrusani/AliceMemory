@@ -199,6 +199,8 @@ def test_opencode_dry_run_masks_command_array(
                             "--data-dir",
                             str(vault.resolve()),
                         ],
+                        "enabled": False,
+                        "retries": 3,
                     },
                 }
             }
@@ -210,6 +212,9 @@ def test_opencode_dry_run_masks_command_array(
     assert "hidden:" in out
     assert "u:" not in out
     assert "tok" not in out
+    assert '"enabled": false' in out
+    assert '"retries": 3' in out
+    assert '"enabled": "<hidden>"' not in out
     assert sibling not in out
     assert path.read_bytes() == before
     assert not _backups(vault)

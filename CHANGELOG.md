@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+- A ChatGPT conversation title that holds a token is stored as `withheld`
+  and counted in `skipped_credentials` and `skipped_credential_items` as
+  `conversation X title`. In v0.18.0 that title is stored as `withheld`
+  and is not counted.
+- A folder-import receipt item names the file, then the line:
+  `file 1 (week.md) line 2`, `file 1 (week.md) lines 3 to 5`, or
+  `file K (name withheld)` when the name is flagged. In v0.18.0 the item
+  is only `line N` or `lines N to M`.
+- The Postgres `flagged_sources` doctor message says
+  `DELETE /v0/vnext/sources/{id}`. In v0.18.0 it says
+  `Delete each listed source with delete_source`.
+- `POST /v0/continuity/captures/candidates` withholds a token in the
+  response. Nothing is stored. In v0.18.0 the response echoes the token.
+- `capture_source` and the source doctor use the commit door's verdict.
+  A low-entropy AKIA-shaped key the floor treats as a placeholder is
+  refused by capture and flagged by the doctor. In v0.18.0 capture stores
+  it and the doctor does not flag it. The continuity routes already
+  refused it.
+- An OpenCode dry run shows booleans and numbers, including
+  `"enabled": false`. In v0.18.0 those values print as `<hidden>`.
+
 ## v0.18.0 — 2026-09-28
 
 - `capture_source` refuses credential

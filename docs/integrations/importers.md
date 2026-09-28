@@ -103,7 +103,12 @@ the backstop refuses is counted in `skipped_count` because that conversation
 was not stored. `skipped_credentials` and `skipped_credential_items` count
 every credential skip, whole files and withheld units, and do not include
 the matched text. Items say `line N`, `lines N to M`,
-`conversation X message N`, or `file K (name withheld)`. A token in a file
+`conversation X message N`, or `file K (name withheld)`.
+Unreleased (on main, not in v0.18.0): a folder item names the file, as
+`file 1 (week.md) line 2` or `file K (name withheld) line 2`, and a
+ChatGPT conversation title stored as `withheld` is counted as
+`conversation X title`. In v0.18.0 the item is only `line N` or
+`lines N to M`, and that title is not counted. A token in a file
 name skips that file and the receipt uses `file K (name withheld)`. A token
 in the folder name refuses the import, writes nothing, and does not print
 the path. Encoding is all or nothing: one markdown file that is not valid
@@ -111,7 +116,10 @@ UTF-8 refuses the folder, and the error names that file, or says withheld
 when the file name is flagged. Exit code 1 means the batch status is
 `failed`, and it also covers path errors. Replay of the same file is
 `duplicate`. OpenClaw stays on the loader scripts above. `alice-memory
-doctor` counts stored sources the floor still flags and prints their ids.
+doctor` counts stored sources the commit door still flags and prints their ids.
+Unreleased (on main, not in v0.18.0): capture and this doctor use that
+verdict, so a low-entropy AKIA-shaped key is refused and flagged. In
+v0.18.0 capture stores that key and the doctor does not flag it.
 SQLite has no way to delete a source yet. On Postgres, delete each listed
 source with `DELETE /v0/vnext/sources/{id}`. The doctor scans up to 10,000 sources
 on a workspace dashboard load and says when that scan stopped early. A

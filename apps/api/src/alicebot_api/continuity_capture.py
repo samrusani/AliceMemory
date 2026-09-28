@@ -14,6 +14,7 @@ from alicebot_api.continuity_objects import (
 from alicebot_api.credential_floor import (
     CREDENTIAL_MATERIAL_REFUSED_MESSAGE,
     EXPANSION_REFUSED_MESSAGE,
+    TEXT_WITHHELD_PLACEHOLDER,
     VERDICT_EXPANSION,
 )
 from alicebot_api.legacy_credential_check import commit_door_secret_verdict
@@ -459,6 +460,25 @@ def _is_ack_only_turn(*, user_text: str, assistant_text: str) -> bool:
     return False
 
 
+def _withhold_echo(text: str) -> str:
+    """A response field. A token is replaced. Nothing is stored here."""
+
+    if text and commit_door_secret_verdict("", text) is not None:
+        return TEXT_WITHHELD_PLACEHOLDER
+    return text
+
+
+def _withhold_candidate_echo(
+    candidate: ContinuityCaptureCandidateRecord,
+) -> ContinuityCaptureCandidateRecord:
+    echoed = dict(candidate)
+    for key in ("normalized_text", "evidence_snippet"):
+        value = echoed.get(key)
+        if isinstance(value, str):
+            echoed[key] = _withhold_echo(value)
+    return cast(ContinuityCaptureCandidateRecord, echoed)
+
+
 def _no_op_candidate(*, user_text: str, assistant_text: str) -> ContinuityCaptureCandidateRecord:
     evidence = _normalize_content(" ".join(part for part in [user_text, assistant_text] if part))
     candidate = ExtractedCandidate(
@@ -676,7 +696,7 @@ def capture_continuity_candidates(
     }
 
     return {
-        "candidates": candidates,
+        "candidates": [_withhold_candidate_echo(candidate) for candidate in candidates],
         "summary": summary,
     }
 

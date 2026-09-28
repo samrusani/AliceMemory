@@ -555,11 +555,12 @@ def test_header_only_mirror_capture_with_a_token_returns_400_and_stores_nothing(
 ) -> None:
     """The memory-write mirror posts header-only to POST /v0/continuity/captures.
 
-    That route used to store the raw text with no credential check. A
-    runtime-built token returns 400 and leaves no continuity_capture_events
-    row. Ordinary mirror text still returns 201. Mutation: remove the
-    commit_door_secret_verdict check in capture_continuity_input. The token
-    post then returns 201 and the row count is 1.
+    In v0.17.0 that header-only post got HTTP 422 and stored nothing. It
+    did not store the raw text. A runtime-built token now returns 400 and
+    leaves no continuity_capture_events row. Ordinary mirror text still
+    returns 201. Mutation: remove the commit_door_secret_verdict check in
+    capture_continuity_input. The token post then returns 201 and the row
+    count is 1.
     """
 
     user_id = seed_user(migrated_database_urls["app"], email="mirror-token@example.com")

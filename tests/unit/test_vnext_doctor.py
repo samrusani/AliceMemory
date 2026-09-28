@@ -233,7 +233,8 @@ def test_doctor_words_flagged_sources_per_backend_and_says_when_the_scan_stops()
         if check["name"] == "flagged_sources"
     )
     assert postgres["status"] == "fail"
-    assert "delete_source" in postgres["message"]
+    assert "DELETE /v0/vnext/sources/{id}" in postgres["message"]
+    assert "delete_source" not in postgres["message"]
     assert "SQLite has no delete_source" not in postgres["message"]
     assert token not in postgres["message"]
     assert postgres["details"]["stopped_early"] is False

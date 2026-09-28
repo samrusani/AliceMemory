@@ -11,10 +11,13 @@ import re
 from typing import Mapping, Protocol, Sequence, cast
 
 from alicebot_api.credential_floor import (
+    CREDENTIAL_MATERIAL_REFUSED_MESSAGE,
+    EXPANSION_REFUSED_MESSAGE,
+    VERDICT_EXPANSION,
     credential_verdict,
     private_key_armor_role,
-    refuse_credential_material,
 )
+from alicebot_api.legacy_credential_check import commit_door_fields_verdict
 from alicebot_api.memory_provenance import (
     ASSERTION_CLASS_USER_ASSERTED,
     PROVENANCE_ROLE_USER,
@@ -904,20 +907,19 @@ def _public_markdown_import_error(exc: Exception) -> VNextCaptureValidationError
     return VNextCaptureValidationError(message)
 
 
-def _filter_markdown_units(raw_text: str, *, file_name: str) -> tuple[str, list[str]]:
+def _filter_markdown_units(raw_text: str, *, file_index: int, file_name: str) -> tuple[str, list[str]]:
     """Replace each flagged line, or one private-key block, before capture.
 
-    Line numbers count from 1 on the first line of the file. The receipt
-    says ``line N`` or ``lines N to M`` and never the matched text.
-    ``file_name`` is accepted so callers can name the file on a separate
-    file-level skip. An unmatched BEGIN line is withheld through the end
-    of the file, so the key body is not left for the capture backstop to
-    store.
+    Line numbers count from 1 on the first line of the file. Each receipt
+    item names the file, then ``line N`` or ``lines N to M``, and never
+    the matched text. A flagged file name is ``file K (name withheld)``.
+    An unmatched BEGIN line is withheld through the end of the file, so
+    the key body is not left for the capture backstop to store.
     """
 
     from alicebot_api.markdown_import import _armored_private_key_ranges
 
-    del file_name
+    file_label = _file_phrase(file_index, file_name)
     lines = raw_text.splitlines()
     ranges = _armored_private_key_ranges(lines)
     kept: list[str] = []
@@ -934,7 +936,7 @@ def _filter_markdown_units(raw_text: str, *, file_name: str) -> tuple[str, list[
             block = "\n".join(lines[start_no - 1 : end_no])
             if credential_verdict(block) is not None:
                 kept.append(CREDENTIAL_WITHHELD)
-                skipped.append(_line_phrase(start_no, end_no))
+                skipped.append(f"{file_label} {_line_phrase(start_no, end_no)}")
             else:
                 kept.extend(lines[start_no - 1 : end_no])
             index = end_no
@@ -943,11 +945,11 @@ def _filter_markdown_units(raw_text: str, *, file_name: str) -> tuple[str, list[
         role = private_key_armor_role(line)
         if role is not None and role[0] == "begin":
             kept.append(CREDENTIAL_WITHHELD)
-            skipped.append(_line_phrase(line_no, len(lines)))
+            skipped.append(f"{file_label} {_line_phrase(line_no, len(lines))}")
             break
         if line.strip() and credential_verdict(line) is not None:
             kept.append(CREDENTIAL_WITHHELD)
-            skipped.append(_line_phrase(line_no, line_no))
+            skipped.append(f"{file_label} {_line_phrase(line_no, line_no)}")
         else:
             kept.append(line)
         index += 1
@@ -1018,6 +1020,11 @@ def _chatgpt_conversation_transcript(
         modified_at = max(message_timestamps)
 
     if credential_verdict(title) is not None:
+        if credential_skips is not None:
+            _remember_item(
+                credential_skips,
+                f"conversation {_printed_label(external_id)} title",
+            )
         title = "withheld"
     if credential_verdict(external_id) is not None:
         external_id = "withheld"
@@ -1164,7 +1171,9 @@ class VNextCaptureService:
     def capture_source(self, source_input: SourceCaptureInput) -> CaptureResult:
         # Before dedupe and before the try that logs a failure. A refusal
         # must not look up an existing row and must not persist the fields.
-        refuse_credential_material(
+        # The commit door, not the floor alone: a low-entropy AKIA-shaped
+        # key the floor treats as a placeholder is still refused.
+        verdict = commit_door_fields_verdict(
             source_input.title,
             source_input.author,
             source_input.uri,
@@ -1172,8 +1181,11 @@ class VNextCaptureService:
             source_input.external_id,
             source_input.raw_text,
             source_input.metadata_json,
-            error=CaptureCredentialRefused,
         )
+        if verdict == VERDICT_EXPANSION:
+            raise CaptureCredentialRefused(EXPANSION_REFUSED_MESSAGE)
+        if verdict is not None:
+            raise CaptureCredentialRefused(CREDENTIAL_MATERIAL_REFUSED_MESSAGE)
         try:
             normalized_text = normalize_text(source_input.raw_text)
             # Effective project scope, from the dedicated field with a
@@ -1656,6 +1668,7 @@ class VNextCaptureService:
             file_path = source_file.path
             raw_text, file_skips = _filter_markdown_units(
                 source_file.text,
+                file_index=file_index,
                 file_name=file_path.name,
             )
             credential_items.extend(file_skips)
