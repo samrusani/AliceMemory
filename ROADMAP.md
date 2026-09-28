@@ -27,9 +27,9 @@
 
 Phases 1 to 5 shipped by `v0.14.0`. `v0.16.0` put the default loop on the
 wheel, and `v0.17.0` hardened install and the write paths. Next is host
-coverage and skill packs. Unreleased (on main, not in `v0.17.0`): OpenCode is
-an opt-in `alice-memory install` host. Codex adapters and the skill pack
-revisions are in design.
+coverage and skill packs. From `v0.18.0`, OpenCode is an opt-in
+`alice-memory install` host. Codex adapters and the skill pack revisions are
+in design.
 
 Of the former roadmap list, benchmark replication, multi-session synthesis
 measurement, reference integrations, SQLite vector scale, and the enterprise

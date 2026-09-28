@@ -829,21 +829,23 @@ def test_opencode_rewrites_config_json_when_it_holds_alice(
     assert not _files(home)["mcp"].exists()
 
 
-def test_readme_marks_opencode_unreleased_and_changelog_says_it_masks_command() -> None:
-    """README describes the published package, which has no OpenCode host.
+def test_readme_names_opencode_briefly_and_changelog_says_it_masks_command() -> None:
+    """README says OpenCode is opt-in in one sentence and links the integration doc.
 
-    The OpenCode detail lives in the changelog until a release ships it.
-    Mutation: describe OpenCode in README outside the one marked line, or
-    drop the masking sentence from the changelog. This test fails.
+    The OpenCode detail lives in the changelog and docs/integrations/opencode.md.
+    Mutation: drop the README sentence, or grow an OpenCode section in README
+    past two lines, or drop the masking sentence from the changelog. This test fails.
     """
 
     root = Path(__file__).resolve().parents[2]
     text = (root / "README.md").read_text(encoding="utf-8")
-    marker = (
-        "On main, not yet released: an opt-in OpenCode host (`--host opencode`). "
-        "The published v0.17.0 does not have it."
+    sentence = (
+        "OpenCode is opt-in with `--host opencode`, which writes `opencode.json` or `opencode.jsonc`. "
+        "See [OpenCode](https://github.com/samrusani/AliceMemory/blob/main/docs/integrations/opencode.md)."
     )
-    assert [line for line in text.splitlines() if "opencode" in line.casefold()] == [marker]
+    opencode_lines = [line for line in text.splitlines() if "opencode" in line.casefold()]
+    assert sentence in opencode_lines
+    assert len(opencode_lines) <= 2
     changelog = (root / "CHANGELOG.md").read_text(encoding="utf-8")
     assert "When alice already sits in `config.json`, that file is the one" in changelog
     assert "A dry run masks the command array." in " ".join(changelog.split())
