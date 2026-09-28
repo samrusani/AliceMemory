@@ -8,6 +8,13 @@ unsearchable as memories.
 A policy decision is advice. Every read applies ``effective_domains``,
 ``effective_sensitivity_allowed``, and ``effective_project_scope`` by hand.
 Those three kwargs have no defaults.
+
+The brief is context an agent reads as current. A memory whose
+``superseded_by`` is set, or whose status is ``superseded``, is omitted.
+A ``**source**`` line is omitted when the packed excerpt is marked
+``derived_memory_corrected``: the quoted_from memory was corrected or
+superseded after the capture. Recall and the context pack still return
+that passage, with the label.
 """
 
 from __future__ import annotations
@@ -202,6 +209,9 @@ def compile_session_brief(
         # list_memories is created_at DESC, so a later-written ancestor can
         # lead. Same demote-not-drop helper the pack and recall already use.
         facts, _supersession_reorders = _prefer_current_versions(facts)
+        # After the merge and the reorder, so a recent-change row cannot
+        # put a superseded memory back on a **fact** line.
+        facts = [row for row in facts if not _brief_omits_memory(row)]
 
     excerpt_query = _resolve_excerpt_query(
         store,
@@ -224,6 +234,7 @@ def compile_session_brief(
             scope=source_scope_from_project_scope(effective_project_scope),
             winning_memories=facts,
         )
+        sources = [row for row in sources if row.get("derived_memory_corrected") is not True]
 
     pack_view: str | None = None
     if query is not None and query.strip():
@@ -349,6 +360,15 @@ def _event_target_honours_fence(
         effective_sensitivity_allowed=effective_sensitivity_allowed,
         effective_project_scope=effective_project_scope,
     )
+
+
+def _brief_omits_memory(row: Mapping[str, object]) -> bool:
+    """Current brief only. Superseded rows stay in recall."""
+
+    if str(row.get("status") or "") == "superseded":
+        return True
+    pointer = row.get("superseded_by")
+    return pointer is not None and str(pointer).strip() != ""
 
 
 def _memory_honours_fence(

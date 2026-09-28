@@ -1593,6 +1593,172 @@ def _last_corrected_at(memory: JsonObject) -> datetime | None:
     return max(moments, default=None)
 
 
+def _flat_stored_text(value: object) -> str:
+    if not isinstance(value, str):
+        return ""
+    return " ".join(value.split())
+
+
+def _memory_is_superseded(memory: Mapping[str, object]) -> bool:
+    if str(memory.get("status") or "") == "superseded":
+        return True
+    pointer = memory.get("superseded_by")
+    return pointer is not None and str(pointer).strip() != ""
+
+
+def _quoted_from_links(
+    store: object,
+    *,
+    memory_id: str,
+    source_id: str,
+    links_by_memory: Mapping[str, Sequence[object]] | None = None,
+) -> list[Mapping[str, object]]:
+    if links_by_memory is not None:
+        raw_links = links_by_memory.get(memory_id, ())
+    else:
+        list_links = getattr(store, "list_provenance_links", None)
+        if not callable(list_links):
+            return []
+        raw_links = list_links(target_type="memory", target_id=memory_id) or ()
+    chosen: list[Mapping[str, object]] = []
+    for link in raw_links:
+        if not isinstance(link, Mapping):
+            continue
+        if str(link.get("evidence_role") or "") != "quoted_from":
+            continue
+        if str(link.get("source_id") or "") != source_id:
+            continue
+        chosen.append(link)
+    return chosen
+
+
+def _current_memory_id(store: object, memory: Mapping[str, object]) -> str:
+    """Id of the fact an agent should read now.
+
+    An in-place correction keeps the same id. A supersession chain walks
+    ``superseded_by`` to the row that is not itself superseded.
+    """
+
+    seen: set[str] = set()
+    current: Mapping[str, object] = memory
+    for _step in range(8):
+        memory_id = str(current.get("id") or "")
+        if memory_id == "" or memory_id in seen:
+            return memory_id
+        seen.add(memory_id)
+        if not _memory_is_superseded(current):
+            return memory_id
+        successor_id = str(current.get("superseded_by") or "").strip()
+        if successor_id == "":
+            return memory_id
+        getter = getattr(store, "get_memory", None)
+        if not callable(getter):
+            return successor_id
+        successor = getter(successor_id)
+        if not isinstance(successor, Mapping):
+            return successor_id
+        current = successor
+    return str(current.get("id") or "")
+
+
+def _quoted_link_is_stale(
+    memory: Mapping[str, object],
+    link: Mapping[str, object],
+    *,
+    captured_at: datetime | None,
+) -> bool:
+    """True when this quoted_from passage is older than the fact.
+
+    A quote that no longer matches canonical text was stored at capture
+    and the memory was corrected afterwards. A matching quote on a
+    superseded row counts only when that supersession is after the
+    source's captured_at. A source captured after the row was already
+    superseded is a new import, not this label.
+    """
+
+    quote = _flat_stored_text(link.get("quote"))
+    canonical = _flat_stored_text(memory.get("canonical_text"))
+    if quote and quote != canonical:
+        return True
+    if not _memory_is_superseded(memory):
+        return False
+    if captured_at is None:
+        return True
+    updated_at = _parse_timestamp(memory.get("updated_at"))
+    if updated_at is None:
+        return True
+    return updated_at > captured_at
+
+
+def _quote_covers_excerpt(quote: str, excerpt: str) -> bool:
+    if excerpt == "":
+        return True
+    if quote == "":
+        return False
+    return quote in excerpt or excerpt in quote
+
+
+def annotate_derived_memory_correction(store: object, source: JsonObject) -> None:
+    """Label a packed excerpt whose derived memory was corrected or superseded.
+
+    Sets ``derived_memory_corrected`` and ``current_memory_id`` when a
+    ``quoted_from`` link on this source points at a memory that was
+    corrected or superseded after the capture, and the stored quote is
+    the passage in the excerpt. Ordinary sources gain no keys.
+    """
+
+    source_id = str(source.get("id") or "")
+    if source_id == "":
+        return
+    list_refs = getattr(store, "list_memories_referencing_source", None)
+    if not callable(list_refs):
+        return
+    memories = list_refs(source_id=source_id, limit=50) or ()
+    memory_rows = [memory for memory in memories if isinstance(memory, Mapping)]
+    if not memory_rows:
+        return
+    links_by_memory: dict[str, list[object]] = {}
+    list_bulk = getattr(store, "list_provenance_links_for_targets", None)
+    memory_ids = [str(memory.get("id") or "") for memory in memory_rows if str(memory.get("id") or "")]
+    if callable(list_bulk) and memory_ids:
+        for link in list_bulk(target_type="memory", target_ids=memory_ids) or ():
+            if not isinstance(link, Mapping):
+                continue
+            target_id = str(link.get("target_id") or "")
+            links_by_memory.setdefault(target_id, []).append(link)
+    captured_at = _parse_timestamp(source.get("captured_at"))
+    excerpt = _flat_stored_text(source.get("excerpt"))
+    chosen_id: str | None = None
+    chosen_in_excerpt = False
+    for memory in memory_rows:
+        memory_id = str(memory.get("id") or "")
+        if memory_id == "":
+            continue
+        links = _quoted_from_links(
+            store,
+            memory_id=memory_id,
+            source_id=source_id,
+            links_by_memory=links_by_memory if links_by_memory else None,
+        )
+        for link in links:
+            if not _quoted_link_is_stale(memory, link, captured_at=captured_at):
+                continue
+            quote = _flat_stored_text(link.get("quote"))
+            in_excerpt = _quote_covers_excerpt(quote, excerpt)
+            if excerpt and not in_excerpt:
+                continue
+            current_id = _current_memory_id(store, memory)
+            if current_id == "":
+                continue
+            if chosen_id is None or (in_excerpt and not chosen_in_excerpt):
+                chosen_id = current_id
+                chosen_in_excerpt = in_excerpt
+    if chosen_id is None:
+        return
+    source["derived_memory_corrected"] = True
+    source["current_memory_id"] = chosen_id
+
+
 def _validity_annotation(memory: JsonObject, *, superseded_by_hint: str | None = None) -> JsonObject | None:
     """Compact validity summary for rows carrying temporal/supersession signal.
 
@@ -2867,6 +3033,10 @@ class VNextRetrievalService:
                 winner, query=query, max_chars=SOURCE_EXCERPT_MAX_CHARS
             )
             compacted["excerpt_kind"] = "imported_source_material"
+        # After the excerpt exists, so the label is about the passage the
+        # agent will read. Sources whose derived memory is still current
+        # stay byte-identical.
+        annotate_derived_memory_correction(self.store, compacted)
         return compacted
 
     def search_source_excerpts(
