@@ -1587,26 +1587,36 @@ def test_strict_json_duplicate_refusals_use_the_placeholder_when_jsonc_is_presen
             path.unlink()
 
 
-def test_jsonc_scan_of_a_large_file_stays_linear() -> None:
-    """Line numbers are counted while reading, so a large file stays linear.
+def _jsonc_object_of_keys(count: int):
+    """Parse an object of ``count`` keys and return the node and the seconds."""
 
-    Mutation: call _jsonc_line from the start of the file at each token.
-    This test fails.
-    """
-
-    count = 20_000
     lines = ["{"]
     for index in range(count):
         comma = "," if index + 1 < count else ""
         lines.append(f'  "k{index}": {index}{comma}')
     lines.append("}")
-    text = "\n".join(lines)
     started = time.perf_counter()
-    node = host_install._parse_jsonc_text(text)
+    node = host_install._parse_jsonc_text("\n".join(lines))
     elapsed = time.perf_counter() - started
     assert node.kind == "object"
     assert len(node.pairs or []) == count
-    assert elapsed < 2.0
+    return elapsed
+
+
+def test_jsonc_scan_of_a_large_file_stays_linear() -> None:
+    """Line numbers are counted while reading, so a large file stays linear.
+
+    Time N keys and 4N keys. A linear scan stays under 8 times. A scan that
+    restarts from the beginning of the file at each token does not.
+    Mutation: call _jsonc_line from the start of the file at each token.
+    This test fails.
+    """
+
+    count = 5_000
+    small = min(_jsonc_object_of_keys(count) for _ in range(3))
+    large = min(_jsonc_object_of_keys(count * 4) for _ in range(3))
+    assert small > 0
+    assert large / small < 8
 
 
 def test_opencode_json_is_the_target_when_jsonc_also_exists(

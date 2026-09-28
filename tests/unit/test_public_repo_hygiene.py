@@ -84,7 +84,9 @@ def _digests(text: str) -> set[str]:
     for word in words:
         # A path segment such as /Users/<name>/Desktop is one word to _WORD only
         # when it has no slash; split on the separators people put inside words.
-        candidates.update(part for part in re.split(r"[/@]", word) if part)
+        # Hyphenated and underscored forms are one word to _WORD. Split them
+        # so each name part is checked on its own.
+        candidates.update(part for part in re.split(r"[/@._-]", word) if part)
     return {hashlib.sha256(candidate.encode()).hexdigest() for candidate in candidates}
 
 
@@ -121,6 +123,10 @@ def test_the_matchers_catch_what_they_guard() -> None:
     assert planted <= _digests('"store": "/Users/someuser/Desktop/x.db"') | _digests(
         "ping someone@example.test today"
     ) | _digests("We met Acme Corp.")
+    # A hyphen, an underscore, or a dot must not hide the parts.
+    joined = _digests("see ada-lovelace, ada_lovelace and ada.lovelace")
+    assert hashlib.sha256(b"ada").hexdigest() in joined
+    assert hashlib.sha256(b"lovelace").hexdigest() in joined
     assert _home_path_users("store at /Users/somebody/project/db") == {"somebody"}
     assert _home_path_users("/home/someone/.config/alicebot/.env") == {"someone"}
     assert _home_path_users("see /Users/me/My Vault and /home/alice/notes") == set()
