@@ -183,7 +183,7 @@ Practical default:
 
 From v0.18.0, with `sync_turn_capture_enabled` set, or with an explicit `bridge_mode` of `assist` or `auto`, only user-role candidates that match an explicit prefix are auto-saved and the rest are queued. When a candidate extracted from the assistant reply carries a credential, the whole turn is refused, so a valid user decision in that same turn is not saved. `POST /v0/continuity/captures` refuses credential material.
 
-In v0.17.0, `POST /v0/continuity/captures` checks for credentials only when the capture derives an object. A capture that derives no object stores its raw text in the capture inbox, credential material included. Auto-save is broader: `assist` auto-saves any explicit candidate of an allowed type at confidence 0.9 or more, from either role, and `auto` auto-saves an allowed type at confidence 0.85 or more. The `sync_turn` capture can also fail with HTTP 422, because the plugin sends the user id only in the `X-AliceBot-User-Id` header.
+In v0.17.0, `POST /v0/continuity/captures` checks for credentials only when the capture derives an object. For a client that sends `user_id` in the body, a capture that derives no object stores its raw text in the capture inbox, credential material included. The Hermes memory-write mirror sends the user id only in a header, so in v0.17.0 it got HTTP 422 and stored nothing. Auto-save is broader: `assist` auto-saves any explicit candidate of an allowed type at confidence 0.9 or more, from either role, and `auto` auto-saves an allowed type at confidence 0.85 or more. The `sync_turn` capture can also fail with HTTP 422, because the plugin sends the user id only in the `X-AliceBot-User-Id` header.
 
 Legacy compatibility keys still accepted for shipped configs:
 

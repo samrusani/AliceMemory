@@ -112,8 +112,8 @@ when the file name is flagged. Exit code 1 means the batch status is
 `failed`, and it also covers path errors. Replay of the same file is
 `duplicate`. OpenClaw stays on the loader scripts above. `alice-memory
 doctor` counts stored sources the floor still flags and prints their ids.
-SQLite has no `delete_source`. On Postgres the doctor says to delete each
-listed source with `delete_source`. The doctor scans up to 10,000 sources
+SQLite has no way to delete a source yet. On Postgres, delete each listed
+source with `DELETE /v0/vnext/sources/{id}`. The doctor scans up to 10,000 sources
 on a workspace dashboard load and says when that scan stopped early. A
 SQLite URL on `alicebot vnext sources import-markdown` or `import-chatgpt`
 exits 2 with `sqlite_import_use_alice_memory` and names these two commands.

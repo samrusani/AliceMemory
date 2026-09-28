@@ -8,12 +8,12 @@
   material in the title, author, uri, path, external id, text, and metadata
   keys, and writes nothing. `alice_capture`, capture-text, capture-file,
   connectors, and both vNext imports use that check. A batch counts the
-  refusal as skipped, not failed. `alice_resume`, `alice_recent_decisions`,
-  the SessionStart brief, and `alice-memory brief` read only active
-  memories. The markdown folder import reads through the contained snapshot,
+  refusal as skipped, not failed. `alice_resume` and
+  `alice_recent_decisions` read only active memories, as the SessionStart
+  brief and `alice-memory brief` already did. The markdown folder import reads through the contained snapshot,
   so a symlink or a non-regular file is refused and a single file is
   allowed. A ChatGPT import with no conversations is refused instead of
-  stored. In v0.17.0, the latest release, capture has no credential check,
+  stored. In v0.17.0, capture has no credential check,
   resume shows candidates, the folder import follows symlinks, and any JSON
   file is stored.
 
@@ -26,16 +26,17 @@
   end of the file is stored as `[withheld: credential material]`.
   `skipped_count` is how many files were skipped for any reason. A refused
   ChatGPT conversation is counted there too. `skipped_credentials` and
-  `skipped_credential_items` count every credential skip, whole files and
-  withheld units. Items say `line N`, `lines N to M`,
+  `skipped_credential_items` count every credential skip in file content,
+  whole files and withheld units. A flagged file or conversation title is
+  stored as `withheld` and is not counted there. Items say `line N`, `lines N to M`,
   `conversation X message N`, or `file K (name withheld)`. A token in a
   file name skips that file. A token in the folder name refuses the import,
   writes nothing, and does not print the path. One file that is not valid
   UTF-8 refuses the whole folder and names that file. Exit code 1 means the
   batch status is `failed`, and it also covers path errors.
   `alice-memory doctor` lists source ids the floor still flags. SQLite has
-  no `delete_source`. On Postgres the doctor says to delete each listed
-  source with `delete_source`, and it says when a scan of 10,000 sources
+  no way to delete a source yet. On Postgres, delete each listed source with
+  `DELETE /v0/vnext/sources/{id}`. The doctor says when a scan of 10,000 sources
   stopped early. A SQLite URL on `alicebot vnext sources import-markdown`
   or `import-chatgpt` exits 2 with `sqlite_import_use_alice_memory` and
   names the `alice-memory` commands. In v0.17.0, the latest release, those
@@ -133,7 +134,7 @@
   contain digits, `-`, or `_`. Channel and kind are short lowercase words.
   The tail is digits with an optional leading `+` or `-`, or a lowercase
   UUID. An uppercase profile is refused. An opaque alphanumeric tail such
-  as a Slack `C04...` id is refused. `gpg_key` over a key id is refused.
+  as a Slack `C04...` id is refused. `gpg_key` over a key id is still refused, as in v0.17.0.
   MCP review provenance stays value-only: its schema allows five keys and
   no others.
 
