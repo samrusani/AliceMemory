@@ -83,6 +83,43 @@ folder import refuses a symlink and a non-regular file, and a single
 markdown file is allowed. A JSON file with no conversations is refused and
 nothing is written.
 
+Unreleased (on main, not in v0.17.0): import a Markdown path or a ChatGPT
+export into the SQLite store that MCP recall reads:
+
+```bash
+alice-memory import-markdown --from PATH
+alice-memory import-chatgpt --from PATH
+```
+
+PATH for markdown is a file or a folder. Both commands take `--data-dir` or
+`--db`, `--domain`, and `--sensitivity`. They write sources and chunks only,
+not candidate memories. The line filter runs first. `capture_source` then
+refuses text the filter could not isolate, and that file is skipped. A
+flagged line or a private-key block is stored as
+`[withheld: credential material]`. An unmatched BEGIN line is withheld
+through the end of the file. `skipped_count` is how many files were skipped
+for any reason. A withheld line does not increase it. A ChatGPT conversation
+the backstop refuses is counted in `skipped_count` because that conversation
+was not stored. `skipped_credentials` and `skipped_credential_items` count
+every credential skip, whole files and withheld units, and do not include
+the matched text. Items say `line N`, `lines N to M`,
+`conversation X message N`, or `file K (name withheld)`. A token in a file
+name skips that file and the receipt uses `file K (name withheld)`. A token
+in the folder name refuses the import, writes nothing, and does not print
+the path. Encoding is all or nothing: one markdown file that is not valid
+UTF-8 refuses the folder, and the error names that file, or says withheld
+when the file name is flagged. Exit code 1 means the batch status is
+`failed`, and it also covers path errors. Replay of the same file is
+`duplicate`. OpenClaw stays on the loader scripts above. `alice-memory
+doctor` counts stored sources the floor still flags and prints their ids.
+SQLite has no `delete_source`. On Postgres the doctor says to delete each
+listed source with `delete_source`. The doctor scans up to 10,000 sources
+on a workspace dashboard load and says when that scan stopped early. A
+SQLite URL on `alicebot vnext sources import-markdown` or `import-chatgpt`
+exits 2 with `sqlite_import_use_alice_memory` and names these two commands.
+In v0.17.0, the latest release, those commands do not exist, and a SQLite
+URL on the `alicebot` imports is `invalid_request`.
+
 ## Evaluation Harness
 
 ```bash

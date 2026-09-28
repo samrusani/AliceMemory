@@ -44,6 +44,8 @@ REPORT_LABELS = (
     "last brief",
     "candidates waiting",
     "sleep proposals",
+    "flagged sources",
+    "flagged source ids",
 )
 FORBIDDEN_PHRASES = ("review console", "/vnext", "clear the queue", "open Memory Review")
 

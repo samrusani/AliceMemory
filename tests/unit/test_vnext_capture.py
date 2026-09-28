@@ -394,7 +394,7 @@ def test_import_markdown_folder_imports_100_files_without_batch_duplicates(tmp_p
     assert result.duplicate_count == 1
     assert result.failed_count == 0
     assert len(store.sources) == 100
-    assert len(store.memories) == 100
+    assert store.memories == []
     assert all(link["evidence_role"] == "quoted_from" for link in store.provenance_links)
     assert store.events[-1]["event_type"] == "source.batch_import_completed"
     assert store.events[-1]["payload_json"]["imported_count"] == 100
@@ -554,8 +554,7 @@ def test_import_chatgpt_export_preserves_roles_without_duplicating_raw_json(tmp_
         "[TITLE]: Alice vNext\n"
         "[USER]: Fact: ChatGPT exports should preserve provenance."
     )
-    assert store.memories[0]["canonical_text"] == ("[USER]: Fact: ChatGPT exports should preserve provenance.")
-    assert store.memories[0]["metadata_json"]["provenance_role"] == "user"
+    assert store.memories == []
 
 
 def test_import_chatgpt_export_orders_mapping_graph_and_preserves_timestamps_and_repeats(
