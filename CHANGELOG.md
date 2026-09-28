@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- The entity-resolution eval group key is `person-jane`. The pinned case
+  key and corpus digest in the release check match that name.
+
 - A refusal for an alice entry that install did not write prints a
   command name only when the first word looks like a program name. A
   token in a later word is not printed. A path with spaces names its
