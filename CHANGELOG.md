@@ -7,6 +7,9 @@
   When alice-memory mcp would not start, any argument word the credential
   check or `masked_args` flags is printed as `<hidden>`.
 
+- The entity-resolution eval group key is `person-jane`. The pinned case
+  key and corpus digest in the release check match that name.
+
 - A refusal for an alice entry that install did not write prints a
   command name only when the first word looks like a program name. A
   token in a later word is not printed. A path with spaces names its
@@ -28,8 +31,11 @@
   path carries `type`, the `command` array, and documented `environment`
   string literals, and leaves every other byte. A second `alice` entry
   or a legacy `config` file is not edited. An unreadable OpenCode
-  directory fails only that host. There is no SessionStart hook. Check
-  the result with `opencode debug config` and `opencode mcp list`.
+  directory fails only that host. A strict JSON refusal because alice
+  appears more than once, or under `mcp.servers`, uses the placeholder
+  data dir when an `opencode.jsonc` is also present. There is no
+  SessionStart hook. Check the result with `opencode debug config` and
+  `opencode mcp list`.
 
 - `POST /v0/continuity/captures` runs `commit_door_secret_verdict` on the
   normalized text and returns 400 when that check refuses. Nothing from

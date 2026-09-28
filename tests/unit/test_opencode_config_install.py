@@ -13,9 +13,11 @@ import random
 import shutil
 import subprocess
 import sys
+import time
 
 import pytest
 
+from alicebot_api import host_install
 from alicebot_api.host_install import BRIEF_HINT, host_file_map
 from alicebot_api.onramp import main as onramp_main
 
@@ -1488,6 +1490,123 @@ def test_opencode_jsonc_refuses_a_corrupt_edit(
     assert '"changed"' not in out
     assert path.read_bytes() == before
     assert not _backups(vault)
+
+
+def test_opencode_jsonc_refuses_an_edit_whose_alice_differs_from_the_plan(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The parse-before-write guard refuses an edit whose mcp.alice is not the plan.
+
+    The sibling values stay the same, so the strip-alice check still passes.
+    Mutation: drop the mcp.alice comparison in _require_planned_jsonc.
+    Install writes the altered type. This test fails.
+    """
+
+    _pin(monkeypatch, tmp_path)
+    home = tmp_path / "home"
+    vault = tmp_path / "vault"
+    path = _files(home)["jsonc"]
+    original = (
+        '{\n  "theme": "keep-me",\n  "mcp": {\n'
+        '    "alice": { "type": "local", "command": ["uvx", "alice-memory", "mcp", "--data-dir", "/old"] }\n'
+        "  }\n}\n"
+    )
+    _write(path, original)
+    before = path.read_bytes()
+    real = host_install._plan_opencode_text
+
+    def alter_alice(text: str, **kwargs: object) -> object:
+        planned = real(text, **kwargs)  # type: ignore[arg-type]
+        if planned.text is not None:
+            planned.text = planned.text.replace('"type": "local"', '"type": "remote"', 1)
+        return planned
+
+    monkeypatch.setattr(host_install, "_plan_opencode_text", alter_alice)
+    code, out, err = _install(home, vault, capsys)
+    assert code == 1, (out, err)
+    assert "the edited text is not the planned entry" in out
+    assert "action: written" not in out
+    assert '"type": "remote"' not in path.read_text(encoding="utf-8")
+    assert path.read_bytes() == before
+    assert not _backups(vault)
+
+
+def test_strict_json_duplicate_refusals_use_the_placeholder_when_jsonc_is_present(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The two strict-JSON duplicate refusals paste the placeholder when jsonc exists.
+
+    The jsonc file has no alice, so the refusal stays on the strict JSON path.
+    Mutation: pass placeholder only for a text-scan hit. The snippet names
+    ~/.alice. This test fails.
+    """
+
+    _pin(monkeypatch, tmp_path)
+    home = tmp_path / "home"
+    files = _files(home)
+    placeholder = "<the data dir your existing alice entry uses>"
+    home_dir = str((home / ".alice").resolve())
+    theme = '{ "theme": "stay" }\n'
+    alice = {"type": "local", "command": ["uvx", "alice-memory", "mcp", "--data-dir", "/vault-a"]}
+    other = {"type": "local", "command": ["uvx", "alice-memory", "mcp", "--data-dir", "/vault-b"]}
+    cases = [
+        (
+            "alice appears more than once",
+            json.dumps({"mcp": {"alice": alice}}),
+            json.dumps({"mcp": {"alice": other}}),
+        ),
+        (
+            "alice is under mcp.servers",
+            json.dumps({"mcp": {"servers": {"alice": alice}}}),
+            json.dumps({"theme": "only"}),
+        ),
+    ]
+    for reason, mcp_text, legacy_text in cases:
+        _write(files["mcp"], mcp_text)
+        _write(files["legacy"], legacy_text)
+        _write(files["jsonc"], theme)
+        before = {
+            files["mcp"]: files["mcp"].read_bytes(),
+            files["legacy"]: files["legacy"].read_bytes(),
+            files["jsonc"]: files["jsonc"].read_bytes(),
+        }
+        code = onramp_main(["install", "--home", str(home), "--host", "opencode"])
+        captured = capsys.readouterr()
+        assert code == 1, (reason, captured.out)
+        assert reason in captured.out
+        assert f"path: {files['mcp']}" in captured.out.splitlines()
+        assert "format: json" in captured.out.splitlines()
+        assert "format: jsonc, edited as text" not in captured.out.splitlines()
+        snippet = captured.out.split("snippet:", 1)[1]
+        assert placeholder in snippet
+        assert home_dir not in captured.out
+        assert "~/.alice" not in captured.out
+        for path, raw in before.items():
+            assert path.read_bytes() == raw
+        for path in before:
+            path.unlink()
+
+
+def test_jsonc_scan_of_a_large_file_stays_linear() -> None:
+    """Line numbers are counted while reading, so a large file stays linear.
+
+    Mutation: call _jsonc_line from the start of the file at each token.
+    This test fails.
+    """
+
+    count = 20_000
+    lines = ["{"]
+    for index in range(count):
+        comma = "," if index + 1 < count else ""
+        lines.append(f'  "k{index}": {index}{comma}')
+    lines.append("}")
+    text = "\n".join(lines)
+    started = time.perf_counter()
+    node = host_install._parse_jsonc_text(text)
+    elapsed = time.perf_counter() - started
+    assert node.kind == "object"
+    assert len(node.pairs or []) == count
+    assert elapsed < 2.0
 
 
 def test_opencode_json_is_the_target_when_jsonc_also_exists(

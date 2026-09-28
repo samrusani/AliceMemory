@@ -165,7 +165,7 @@ SEMANTIC_EVAL_CANONICAL_CASE_KEYS: dict[str, tuple[str, ...]] = {
     "provenance_explanation": tuple(
         f"provenance-{index:03d}" for index in range(1, 7)
     ),
-    "entity_resolution": ("person-sami", "org-meridian", "org-alice-core"),
+    "entity_resolution": ("person-jane", "org-meridian", "org-alice-core"),
     "graph_hop_retrieval": (
         "hop-meridian",
         "hop-northwind",
@@ -182,7 +182,7 @@ SEMANTIC_EVAL_CANONICAL_CORPUS_DIGESTS = {
     "provenance_explanation": "sha256:35ca3444929f1f883c341ec422d182abd8feb32a2e1bded14b7d4bef218b5ff1",
     # 2026-09-23: re-pinned after the corpus replaced the owner's real name with
     # "Jane Doe" (public-repo hygiene). Same cases, same expected outcomes.
-    "entity_resolution": "sha256:68aac32a78d98fbb12048f7ba7be731c791a2abc18035f9b0c4f70380b96808f",
+    "entity_resolution": "sha256:14b5adb0569fbfc569d3295df87f906d0db704a399f3b54fb71fbf29576c7aa0",
     "graph_hop_retrieval": "sha256:4eda30203183a55ef8326ddaf33cc62974b158bbdc0601ebc541f6614b2de605",
 }
 

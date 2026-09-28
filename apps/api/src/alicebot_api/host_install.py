@@ -4838,17 +4838,30 @@ def _install_opencode_host(
         host_format = _OPENCODE_TEXT_FORMAT
         return refused(item.path, reason, _OPENCODE_SECOND_NEXT, placeholder=True)
 
+    # A strict JSON duplicate next to opencode.jsonc has no single data dir
+    # to paste. The snippet uses the placeholder, as a text-scan refusal does.
+    jsonc_present = any(item.path.name.endswith(".jsonc") for item in seen)
     if servers_alice:
         text_hit = next((item for item in seen if item.mode == "text" and item.servers), None)
         if text_hit is not None:
             return text_scan_refusal(text_hit, "alice is under mcp.servers")
-        return refused(files["mcp"], "alice is under mcp.servers", _OPENCODE_SECOND_NEXT)
+        return refused(
+            files["mcp"],
+            "alice is under mcp.servers",
+            _OPENCODE_SECOND_NEXT,
+            placeholder=jsonc_present,
+        )
     alice_total = sum(item.alice for item in seen)
     if alice_total > 1:
         text_hit = next((item for item in seen if item.mode == "text" and item.alice), None)
         if text_hit is not None:
             return text_scan_refusal(text_hit, "alice appears more than once")
-        return refused(files["mcp"], "alice appears more than once", _OPENCODE_SECOND_NEXT)
+        return refused(
+            files["mcp"],
+            "alice appears more than once",
+            _OPENCODE_SECOND_NEXT,
+            placeholder=jsonc_present,
+        )
 
     chosen = next((item for item in seen if item.alice), None)
     if chosen is None:
