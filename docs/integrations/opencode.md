@@ -69,7 +69,9 @@ The receipt names the line and does not print the file.
 - `alice` more than once, under `mcp` or `mcp.servers`, including
   `config.json`, `opencode.jsonc`, and `~/.opencode`. A refusal raised while
   scanning a text file names that file, says `format: jsonc, edited as text`,
-  and uses the placeholder.
+  and uses the placeholder. A strict JSON refusal for those two duplicates
+  also uses the placeholder when an `opencode.jsonc` is present. In v0.17.0
+  there is no OpenCode install, so this refusal does not exist in the release.
 - A legacy `<config home>/opencode/config` file.
 - JSONC the text path cannot scan (a BOM, a token error, whitespace-only or
   comment-only text, a non-object top level or `mcp`, a duplicate `mcp` or
