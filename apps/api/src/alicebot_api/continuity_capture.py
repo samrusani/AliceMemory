@@ -7,6 +7,7 @@ from typing import cast
 from uuid import UUID
 
 from alicebot_api.continuity_objects import (
+    ContinuityObjectValidationError,
     create_continuity_object_record,
     get_continuity_object_for_capture_event,
     list_continuity_objects_for_capture_events,
@@ -479,6 +480,39 @@ def _withhold_candidate_echo(
     return cast(ContinuityCaptureCandidateRecord, echoed)
 
 
+def withhold_capture_candidates_echo(
+    response: ContinuityCaptureCandidatesResponse,
+) -> ContinuityCaptureCandidatesResponse:
+    """The response boundary. ``capture_continuity_candidates`` keeps the real text.
+
+    ``generate_memory_operation_candidates`` reads that text, so the credential
+    floor still sees the token. The HTTP route and the MCP handler withhold
+    here, after that call, and they do not write.
+    """
+
+    return {
+        "candidates": [_withhold_candidate_echo(candidate) for candidate in response["candidates"]],
+        "summary": response["summary"],
+    }
+
+
+def _carries_withheld_placeholder(value: object) -> bool:
+    """True when a commit payload contains the response placeholder.
+
+    Committing that placeholder would store it as a memory. The commit door
+    does not treat the placeholder as credential text, so this check refuses
+    it with the same error before anything is written.
+    """
+
+    if isinstance(value, str):
+        return TEXT_WITHHELD_PLACEHOLDER in value
+    if isinstance(value, dict):
+        return any(_carries_withheld_placeholder(item) for item in value.values())
+    if isinstance(value, list):
+        return any(_carries_withheld_placeholder(item) for item in value)
+    return False
+
+
 def _no_op_candidate(*, user_text: str, assistant_text: str) -> ContinuityCaptureCandidateRecord:
     evidence = _normalize_content(" ".join(part for part in [user_text, assistant_text] if part))
     candidate = ExtractedCandidate(
@@ -696,7 +730,7 @@ def capture_continuity_candidates(
     }
 
     return {
-        "candidates": [_withhold_candidate_echo(candidate) for candidate in candidates],
+        "candidates": candidates,
         "summary": summary,
     }
 
@@ -730,6 +764,11 @@ def commit_continuity_captures(
                 f"each candidate must serialize to {MAX_CAPTURE_CANDIDATE_CHARS} characters or fewer"
             )
     normalized_candidates = [_normalize_candidate(candidate) for candidate in request.candidates]
+    # A withheld echo is not committable. Refuse before any capture event
+    # or continuity object is written, with the same error as a credential.
+    for raw_candidate, candidate in zip(request.candidates, normalized_candidates, strict=True):
+        if _carries_withheld_placeholder(raw_candidate) or _carries_withheld_placeholder(candidate):
+            raise ContinuityObjectValidationError(CREDENTIAL_MATERIAL_REFUSED_MESSAGE)
 
     for candidate in normalized_candidates:
         sync_fingerprint = normalized_sync_fingerprint or f"candidate:{candidate['candidate_id']}"
@@ -1013,6 +1052,7 @@ __all__ = [
     "capture_continuity_candidates",
     "capture_continuity_input",
     "commit_continuity_captures",
+    "withhold_capture_candidates_echo",
     "get_continuity_capture_detail",
     "list_continuity_capture_inbox",
 ]

@@ -14,7 +14,6 @@ from alicebot_api.credential_floor import (
     CREDENTIAL_MATERIAL_REFUSED_MESSAGE,
     EXPANSION_REFUSED_MESSAGE,
     VERDICT_EXPANSION,
-    credential_verdict,
     private_key_armor_role,
 )
 from alicebot_api.legacy_credential_check import commit_door_fields_verdict
@@ -52,6 +51,17 @@ CREDENTIAL_WITHHELD = "[withheld: credential material]"
 ENTITY_EXTRACTION_ERROR_CODE = "entity_extraction_failed"
 ENTITY_EXTRACTION_ERROR_MESSAGE = "Entity extraction failed"
 logger = logging.getLogger(__name__)
+
+
+def _unit_verdict(value: object) -> str | None:
+    """The commit door's verdict for one import unit.
+
+    The same check ``capture_source`` uses. A line, message, title, id, or
+    name the floor misses and the commit gate flags is withheld here, so
+    the rest of the file or conversation still imports.
+    """
+
+    return commit_door_fields_verdict(value)
 
 
 class VNextCaptureValidationError(ValueError):
@@ -815,9 +825,6 @@ class _ChatGPTConversationTranscript:
     message_count: int
     created_at: str | None
     modified_at: str | None
-    # Filtered message text the line filter could not isolate. Passed to
-    # capture so the backstop still sees a value that only exists across lines.
-    unresolved_text: str = ""
 
 
 def _chatgpt_conversation_id(conversation: dict[str, object], *, index: int) -> str:
@@ -833,7 +840,7 @@ def _printed_label(value: str | None) -> str:
 
     if value is None or value == "":
         return "withheld"
-    if credential_verdict(value) is not None:
+    if _unit_verdict(value) is not None:
         return "withheld"
     return value
 
@@ -841,7 +848,7 @@ def _printed_label(value: str | None) -> str:
 def _stored_label(value: str | None) -> str | None:
     if value is None:
         return None
-    if credential_verdict(value) is not None:
+    if _unit_verdict(value) is not None:
         return "withheld"
     return value
 
@@ -865,7 +872,7 @@ def _line_phrase(start: int, end: int) -> str:
 
 
 def _file_phrase(index: int, name: str) -> str:
-    shown = "name withheld" if credential_verdict(name) is not None else name
+    shown = "name withheld" if _unit_verdict(name) is not None else name
     return f"file {index} ({shown})"
 
 
@@ -889,7 +896,7 @@ def _refuse_flagged_import_folder(source: str | Path) -> None:
         folder_name = path.name
     else:
         folder_name = path.parent.name
-    if folder_name and credential_verdict(folder_name) is not None:
+    if folder_name and _unit_verdict(folder_name) is not None:
         raise VNextCaptureValidationError("The import folder name is withheld")
 
 
@@ -900,9 +907,9 @@ def _public_markdown_import_error(exc: Exception) -> VNextCaptureValidationError
     prefix = "import source file is not valid UTF-8 text: "
     if message.startswith(prefix):
         name = Path(message[len(prefix) :]).name
-        safe = "withheld" if credential_verdict(name) is not None else name
+        safe = "withheld" if _unit_verdict(name) is not None else name
         return VNextCaptureValidationError(f"import source file is not valid UTF-8 text: {safe}")
-    if credential_verdict(message) is not None:
+    if _unit_verdict(message) is not None:
         return VNextCaptureValidationError("The import path is withheld")
     return VNextCaptureValidationError(message)
 
@@ -934,7 +941,7 @@ def _filter_markdown_units(raw_text: str, *, file_index: int, file_name: str) ->
                 index += 1
                 continue
             block = "\n".join(lines[start_no - 1 : end_no])
-            if credential_verdict(block) is not None:
+            if _unit_verdict(block) is not None:
                 kept.append(CREDENTIAL_WITHHELD)
                 skipped.append(f"{file_label} {_line_phrase(start_no, end_no)}")
             else:
@@ -947,7 +954,7 @@ def _filter_markdown_units(raw_text: str, *, file_index: int, file_name: str) ->
             kept.append(CREDENTIAL_WITHHELD)
             skipped.append(f"{file_label} {_line_phrase(line_no, len(lines))}")
             break
-        if line.strip() and credential_verdict(line) is not None:
+        if line.strip() and _unit_verdict(line) is not None:
             kept.append(CREDENTIAL_WITHHELD)
             skipped.append(f"{file_label} {_line_phrase(line_no, line_no)}")
         else:
@@ -968,7 +975,6 @@ def _chatgpt_conversation_transcript(
     external_id = _chatgpt_conversation_id(conversation, index=index)
     message_lines: list[str] = []
     message_timestamps: list[str] = []
-    unresolved_messages: list[str] = []
     message_count = 0
     for node in _ordered_chatgpt_nodes(conversation):
         message_value = node.get("message") if isinstance(node.get("message"), dict) else node
@@ -991,7 +997,7 @@ def _chatgpt_conversation_transcript(
         message_count += 1
         safe_parts: list[str] = []
         for part in parts:
-            if credential_verdict(part) is not None:
+            if _unit_verdict(part) is not None:
                 safe_parts.append(CREDENTIAL_WITHHELD)
                 if credential_skips is not None:
                     _remember_item(
@@ -1001,10 +1007,10 @@ def _chatgpt_conversation_transcript(
             else:
                 safe_parts.append(part)
         joined = "\n".join(safe_parts)
-        # Role prefixes break a secret that only exists across lines. Keep the
-        # joined message so capture_source can refuse the conversation.
-        if credential_verdict(joined) is not None:
-            unresolved_messages.append(joined)
+        # A secret that only exists across parts of this message is withheld
+        # here. The rest of the conversation stays in the transcript.
+        if _unit_verdict(joined) is not None:
+            safe_parts = [CREDENTIAL_WITHHELD]
             if credential_skips is not None:
                 _remember_item(
                     credential_skips,
@@ -1019,14 +1025,14 @@ def _chatgpt_conversation_transcript(
     if modified_at is None and message_timestamps:
         modified_at = max(message_timestamps)
 
-    if credential_verdict(title) is not None:
+    if _unit_verdict(title) is not None:
         if credential_skips is not None:
             _remember_item(
                 credential_skips,
                 f"conversation {_printed_label(external_id)} title",
             )
         title = "withheld"
-    if credential_verdict(external_id) is not None:
+    if _unit_verdict(external_id) is not None:
         external_id = "withheld"
     lines = [
         f"[CONVERSATION]: {external_id}",
@@ -1045,7 +1051,6 @@ def _chatgpt_conversation_transcript(
         message_count=message_count,
         created_at=created_at,
         modified_at=modified_at,
-        unresolved_text="\n".join(unresolved_messages),
     )
 
 
@@ -1777,7 +1782,7 @@ class VNextCaptureService:
             export_path, snapshot = _snapshot_chatgpt_source(path)
         except ChatGPTImportValidationError as exc:
             message = str(exc)
-            if credential_verdict(message) is not None:
+            if _unit_verdict(message) is not None:
                 raise VNextCaptureValidationError("The import path is withheld") from exc
             raise VNextCaptureValidationError(message) from exc
 
@@ -1815,12 +1820,11 @@ class VNextCaptureService:
             file_path = source_file.path
             for transcript in transcripts:
                 try:
-                    capture_text = transcript.unresolved_text or transcript.raw_text
                     result = self.capture_source(
                         SourceCaptureInput(
                             source_type="chatgpt_export",
                             title=transcript.title,
-                            raw_text=capture_text,
+                            raw_text=transcript.raw_text,
                             raw_path=str(file_path),
                             connector_name="chatgpt_export",
                             external_id=transcript.external_id,
@@ -1845,7 +1849,7 @@ class VNextCaptureService:
                 except CaptureCredentialRefused:
                     # A refused conversation is skipped, not failed.
                     skipped_count += 1
-                    if credential_verdict(file_path.name) is not None:
+                    if _unit_verdict(file_path.name) is not None:
                         _remember_item(credential_items, _file_phrase(file_index, file_path.name))
                     else:
                         _remember_item(

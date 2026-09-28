@@ -117,9 +117,12 @@ when the file name is flagged. Exit code 1 means the batch status is
 `failed`, and it also covers path errors. Replay of the same file is
 `duplicate`. OpenClaw stays on the loader scripts above. `alice-memory
 doctor` counts stored sources the commit door still flags and prints their ids.
-Unreleased (on main, not in v0.18.0): capture and this doctor use that
-verdict, so a low-entropy AKIA-shaped key is refused and flagged. In
-v0.18.0 capture stores that key and the doctor does not flag it.
+Unreleased (on main, not in v0.18.0): each line, message, and title is
+checked with that verdict. A flagged line, message, or title is withheld
+and named, and the rest of the file or conversation is imported. The
+doctor flags a stored source that still contains a low-entropy
+AKIA-shaped key. In v0.18.0 the line filter misses that key, capture
+stores it inside the file, and the doctor does not flag it.
 SQLite has no way to delete a source yet. On Postgres, delete each listed
 source with `DELETE /v0/vnext/sources/{id}`. The doctor scans up to 10,000 sources
 on a workspace dashboard load and says when that scan stopped early. A
