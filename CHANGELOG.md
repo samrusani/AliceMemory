@@ -2,7 +2,9 @@
 
 ## Unreleased
 
-- Unreleased (on main, not in v0.17.0): `capture_source` refuses credential
+## v0.18.0 — 2026-09-28
+
+- `capture_source` refuses credential
   material in the title, author, uri, path, external id, text, and metadata
   keys, and writes nothing. `alice_capture`, capture-text, capture-file,
   connectors, and both vNext imports use that check. A batch counts the
@@ -15,7 +17,7 @@
   resume shows candidates, the folder import follows symlinks, and any JSON
   file is stored.
 
-- Unreleased (on main, not in v0.17.0): `alice-memory import-markdown --from PATH`
+- `alice-memory import-markdown --from PATH`
   and `alice-memory import-chatgpt --from PATH` write sources on SQLite for
   MCP recall. PATH may be a markdown file or a folder. They do not create
   candidate memories. The line filter runs first, then `capture_source`
