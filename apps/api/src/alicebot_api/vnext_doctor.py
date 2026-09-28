@@ -10,6 +10,7 @@ import shlex
 from typing import Any, Protocol, cast
 
 from alicebot_api.config import Settings, get_settings
+from alicebot_api.vault_doctor import source_row_is_flagged
 from alicebot_api.vnext_connectors import CORE_SETTINGS_CONNECTORS, VNextConnectorService
 from alicebot_api.vnext_repositories import JsonObject
 from alicebot_api.vnext_scheduler_runtime import daemon_status
@@ -259,6 +260,20 @@ class VNextDoctorService:
             details=cast(JsonObject, local_cors),
         )
 
+        flagged_ids = _flagged_source_ids(self.store)
+        self._check(
+            checks,
+            name="flagged_sources",
+            ok=not flagged_ids,
+            severity="warning",
+            message_ok="No stored source carries credential material.",
+            message_fail=(
+                f"{len(flagged_ids)} stored sources carry credential material. "
+                "SQLite has no delete_source."
+            ),
+            details={"count": len(flagged_ids), "source_ids": flagged_ids},
+        )
+
         blocking = [check for check in checks if check.status == "fail" and check.severity == "blocking"]
         warnings = [check for check in checks if check.status == "fail" and check.severity == "warning"]
         payload = {
@@ -275,6 +290,24 @@ class VNextDoctorService:
             "connector_health": health,
         }
         return cast(JsonObject, payload)
+
+
+def _flagged_source_ids(store: object) -> list[str]:
+    lister = getattr(store, "list_sources", None)
+    if not callable(lister):
+        return []
+    try:
+        rows = lister(limit=10_000)
+    except TypeError:
+        rows = lister()
+    ids: list[str] = []
+    for row in rows:
+        if not source_row_is_flagged(row):
+            continue
+        source_id = row.get("id") if isinstance(row, Mapping) else None
+        if source_id is not None:
+            ids.append(str(source_id))
+    return ids
 
 
 def _parse_env_file(path: Path) -> dict[str, str]:

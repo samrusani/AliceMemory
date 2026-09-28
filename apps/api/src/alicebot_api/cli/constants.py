@@ -16,6 +16,11 @@ DEMO_SECRET_MARKERS = ("sk-", "xoxb-", "ghp_", "password", "access_token", "refr
 logger = logging.getLogger("alicebot_api.cli")
 
 _CLI_INVALID_REQUEST = ("invalid_request", "The command request is invalid")
+_CLI_SQLITE_IMPORT = (
+    "sqlite_import_use_alice_memory",
+    "A SQLite URL cannot run alicebot vnext sources import. "
+    "Use alice-memory import-markdown --from PATH or alice-memory import-chatgpt --from PATH.",
+)
 _CLI_NOT_FOUND = ("not_found", "The requested resource was not found")
 _CLI_DATABASE_FAILED = ("database_operation_failed", "The database operation failed")
 _CLI_FILESYSTEM_FAILED = ("filesystem_operation_failed", "The filesystem operation failed")

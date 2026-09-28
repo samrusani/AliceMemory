@@ -13,9 +13,12 @@ source. Commit is a fact. Counts bind ``user_id``.
 
 from __future__ import annotations
 
+import json
+from collections.abc import Mapping
 from pathlib import Path
 from uuid import UUID
 
+from alicebot_api.credential_floor import credential_verdict
 from alicebot_api.session_briefing import (
     COMMITTED_MEMORY_STATUSES,
     SESSION_BRIEF_TOKEN_BUDGET,
@@ -97,6 +100,7 @@ def compile_local_vault_doctor(
             CANDIDATE_COUNT_SQL,
             (uid, CANDIDATE_STATUS),
         )
+        flagged_ids = _flagged_source_ids(store)
         try:
             proposal_count = count_sleep_proposals(sleep_proposals_path(resolved), user_id=uid)
             proposal_line = f"sleep proposals: {proposal_count}"
@@ -116,8 +120,65 @@ def compile_local_vault_doctor(
             f"last brief: {token_estimate} / {SESSION_BRIEF_TOKEN_BUDGET} tokens",
             f"candidates waiting: {candidate_count}",
             proposal_line,
+            f"flagged sources: {len(flagged_ids)}",
+            "flagged source ids: " + ", ".join(flagged_ids),
         )
     )
+
+
+def _cell(row: object, key: str) -> object:
+    if isinstance(row, Mapping):
+        return row.get(key)
+    try:
+        return row[key]  # type: ignore[index]
+    except (KeyError, IndexError, TypeError):
+        return None
+
+
+def source_row_is_flagged(row: object) -> bool:
+    """True when a stored source still carries credential material."""
+
+    metadata = _cell(row, "metadata_json")
+    if isinstance(metadata, str):
+        try:
+            metadata = json.loads(metadata)
+        except json.JSONDecodeError:
+            metadata = {}
+    if not isinstance(metadata, dict):
+        metadata = {}
+    raw_text = metadata.get("raw_text")
+    return (
+        credential_verdict(
+            _cell(row, "title"),
+            _cell(row, "author"),
+            _cell(row, "uri"),
+            _cell(row, "raw_path"),
+            _cell(row, "external_id"),
+            raw_text,
+            metadata,
+        )
+        is not None
+    )
+
+
+def _flagged_source_ids(store: SQLiteVNextStore) -> list[str]:
+    rows = store.conn.execute(
+        """
+        SELECT id, title, author, uri, raw_path, external_id, metadata_json
+        FROM sources
+        WHERE user_id = ?
+          AND deleted_at IS NULL
+        ORDER BY id
+        """,
+        (store.user_id,),
+    ).fetchall()
+    ids: list[str] = []
+    for row in rows:
+        if source_row_is_flagged(row):
+            source_id = _cell(row, "id")
+            if source_id is not None:
+                ids.append(str(source_id))
+    return ids
 
 
 def _scalar_count(

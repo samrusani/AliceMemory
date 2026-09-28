@@ -34,12 +34,13 @@ from .constants import (
     _CLI_FILESYSTEM_FAILED,
     _CLI_INVALID_REQUEST,
     _CLI_NOT_FOUND,
+    _CLI_SQLITE_IMPORT,
     logger,
 )
 from .errors import EmbeddingBackfillFailure, EvalGateFailure, PartialCommandFailure, _emit_cli_error
 from .arguments import _validate_arguments
 from .parser import build_parser
-from .shared import _build_context
+from .shared import SqliteImportCommandError, _build_context
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -123,7 +124,9 @@ def main(argv: list[str] | None = None) -> int:
             TaskBriefValidationError,
             TemporalStateValidationError,
         )
-        if isinstance(exc, not_found_errors):
+        if isinstance(exc, SqliteImportCommandError):
+            code, message = _CLI_SQLITE_IMPORT
+        elif isinstance(exc, not_found_errors):
             code, message = _CLI_NOT_FOUND
         elif isinstance(exc, invalid_request_errors):
             code, message = _CLI_INVALID_REQUEST

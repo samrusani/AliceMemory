@@ -139,6 +139,8 @@ _KNOWN_COMMANDS = (
     "mcp",
     "export",
     "import",
+    "import-markdown",
+    "import-chatgpt",
     "reindex-embeddings",
     "brief",
     "doctor",
@@ -1076,6 +1078,34 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Write a Claude Desktop .mcpb zip that launches uvx alice-memory mcp.",
     )
+
+    import_markdown_parser = subparsers.add_parser(
+        "import-markdown",
+        help="Import a Markdown folder or file into local SQLite sources.",
+    )
+    _add_database_arguments(import_markdown_parser)
+    import_markdown_parser.add_argument(
+        "--from",
+        dest="from_path",
+        required=True,
+        help="Markdown file or folder to import.",
+    )
+    import_markdown_parser.add_argument("--domain", default="unknown", help="Source domain.")
+    import_markdown_parser.add_argument("--sensitivity", default="unknown", help="Source sensitivity.")
+
+    import_chatgpt_parser = subparsers.add_parser(
+        "import-chatgpt",
+        help="Import a ChatGPT export JSON file into local SQLite sources.",
+    )
+    _add_database_arguments(import_chatgpt_parser)
+    import_chatgpt_parser.add_argument(
+        "--from",
+        dest="from_path",
+        required=True,
+        help="ChatGPT export JSON file to import.",
+    )
+    import_chatgpt_parser.add_argument("--domain", default="personal", help="Source domain.")
+    import_chatgpt_parser.add_argument("--sensitivity", default="private", help="Source sensitivity.")
     return parser
 
 
@@ -1129,6 +1159,52 @@ def _run_brief(args: argparse.Namespace) -> int:
     )
     print(markdown)
     return 0
+
+
+def _print_batch_record(record: object) -> None:
+    print(json.dumps(record, ensure_ascii=True, sort_keys=True))
+
+
+def _run_import_markdown(args: argparse.Namespace) -> int:
+    from alicebot_api.vnext_capture import VNextCaptureService
+
+    db_path = resolve_db_path(data_dir=args.data_dir, db=args.db)
+    bootstrap_database(
+        db_path,
+        user_id=args.user_id,
+        user_email=args.user_email,
+        secure_parent=args.db is None,
+    )
+    with sqlite_user_connection(db_path, args.user_id) as conn:
+        store = SQLiteVNextStore(conn, args.user_id)
+        result = VNextCaptureService(store).import_markdown_folder(
+            args.from_path,
+            domain=args.domain,
+            sensitivity=args.sensitivity,
+        )
+    _print_batch_record(result.to_record())
+    return 1 if result.status == "failed" else 0
+
+
+def _run_import_chatgpt(args: argparse.Namespace) -> int:
+    from alicebot_api.vnext_capture import VNextCaptureService
+
+    db_path = resolve_db_path(data_dir=args.data_dir, db=args.db)
+    bootstrap_database(
+        db_path,
+        user_id=args.user_id,
+        user_email=args.user_email,
+        secure_parent=args.db is None,
+    )
+    with sqlite_user_connection(db_path, args.user_id) as conn:
+        store = SQLiteVNextStore(conn, args.user_id)
+        result = VNextCaptureService(store).import_chatgpt_export_file(
+            args.from_path,
+            domain=args.domain,
+            sensitivity=args.sensitivity,
+        )
+    _print_batch_record(result.to_record())
+    return 1 if result.status == "failed" else 0
 
 
 def _run_doctor(args: argparse.Namespace) -> int:
@@ -3203,6 +3279,10 @@ def main(argv: list[str] | None = None) -> int:
             return _run_export(args)
         if args.command == "import":
             return _run_import(args)
+        if args.command == "import-markdown":
+            return _run_import_markdown(args)
+        if args.command == "import-chatgpt":
+            return _run_import_chatgpt(args)
         if args.command == "reindex-embeddings":
             return _run_reindex_embeddings(args)
         if args.command == "brief":

@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- Unreleased (on main, not in v0.17.0): `alice-memory import-markdown --from PATH`
+  and `alice-memory import-chatgpt --from PATH` write sources on SQLite for
+  MCP recall. They do not create candidate memories. A flagged line or
+  private-key block is stored as `[withheld: credential material]`, and the
+  receipt names the file and line range, or the conversation and message
+  index, without the matched text. A path or title the floor flags is
+  printed as `withheld`. `alice-memory doctor` and `alicebot vnext doctor`
+  count stored sources the floor still flags and list their ids. SQLite has
+  no `delete_source`. A SQLite URL on `alicebot vnext sources import-markdown`
+  or `import-chatgpt` returns `sqlite_import_use_alice_memory` and names the
+  `alice-memory` commands. In v0.17.0, the latest release, those commands do
+  not exist, and a SQLite URL on the `alicebot` imports is `invalid_request`.
+
 - Install receipts escape newlines and other control characters in every
   value, so a `--data-dir` that holds a newline cannot add a receipt line.
   When alice-memory mcp would not start, the reason shows each argument word

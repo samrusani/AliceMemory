@@ -75,10 +75,20 @@ def _settings_with_command_overrides(args: argparse.Namespace) -> Settings:
     )
 
 
+class SqliteImportCommandError(ValueError):
+    """``alicebot vnext sources import-*`` was given a SQLite URL."""
+
+
 def _build_context(args: argparse.Namespace) -> CLIContext:
     settings = _settings_with_command_overrides(args)
     database_url = settings.database_url
     if database_url.startswith("sqlite:"):
+        if getattr(args, "vnext_sources_command", None) in {"import-markdown", "import-chatgpt"}:
+            raise SqliteImportCommandError(
+                "A SQLite URL cannot run alicebot vnext sources import. "
+                "Use alice-memory import-markdown --from PATH or "
+                "alice-memory import-chatgpt --from PATH."
+            )
         raise ValueError(
             "the 'alicebot' CLI requires a Postgres DATABASE_URL, got a SQLite URL. "
             "For local SQLite memory, use the 'alice-memory' CLI instead."

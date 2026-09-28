@@ -10,6 +10,7 @@ from pathlib import Path
 import re
 from typing import Mapping, Protocol, Sequence
 
+from alicebot_api.credential_floor import credential_verdict
 from alicebot_api.memory_provenance import (
     ASSERTION_CLASS_USER_ASSERTED,
     PROVENANCE_ROLE_USER,
@@ -40,6 +41,7 @@ DEFAULT_CHUNK_MAX_CHARS = 2_400
 SUPPORTED_TEXT_SUFFIXES = frozenset({".md", ".markdown", ".txt", ".text"})
 SOURCE_IMPORT_ERROR_CODE = "source_import_failed"
 SOURCE_IMPORT_ERROR_MESSAGE = "Source could not be imported"
+CREDENTIAL_WITHHELD = "[withheld: credential material]"
 ENTITY_EXTRACTION_ERROR_CODE = "entity_extraction_failed"
 ENTITY_EXTRACTION_ERROR_MESSAGE = "Entity extraction failed"
 logger = logging.getLogger(__name__)
@@ -146,6 +148,8 @@ class BatchImportResult:
     errors: tuple[str, ...] = ()
     error_code: str | None = None
     deferred_embedding_inputs: tuple[DeferredMemoryEmbedding, ...] = ()
+    skipped_credentials: int = 0
+    skipped_credential_items: tuple[JsonObject, ...] = ()
 
     def to_record(self) -> JsonObject:
         return {
@@ -153,6 +157,8 @@ class BatchImportResult:
             "imported_count": self.imported_count,
             "duplicate_count": self.duplicate_count,
             "failed_count": self.failed_count,
+            "skipped_credentials": self.skipped_credentials,
+            "skipped_credential_items": [dict(item) for item in self.skipped_credential_items],
             "source_ids": list(self.source_ids),
             "errors": list(self.errors),
             "error_code": self.error_code,
@@ -180,6 +186,9 @@ class SourceCaptureInput:
     source_created_at: str | None = None
     source_modified_at: str | None = None
     metadata_json: JsonObject = field(default_factory=dict)
+    # Imports pass False. A capture still proposes candidates unless the
+    # caller says this source is material to read, not a fact to review.
+    extract_candidates: bool = True
 
 
 def normalize_text(raw_text: str) -> str:
@@ -823,10 +832,73 @@ def _chatgpt_conversation_id(conversation: dict[str, object], *, index: int) -> 
     return f"conversation-{index}"
 
 
+def _printed_label(value: str | None) -> str:
+    """Receipt text for a path or title. A flagged value prints as withheld."""
+
+    if value is None or value == "":
+        return "withheld"
+    if credential_verdict(value) is not None:
+        return "withheld"
+    return value
+
+
+def _stored_label(value: str | None) -> str | None:
+    if value is None:
+        return None
+    if credential_verdict(value) is not None:
+        return "withheld"
+    return value
+
+
+def _filter_markdown_units(raw_text: str, *, file_name: str) -> tuple[str, list[JsonObject]]:
+    """Replace each flagged line, or one private-key block, before capture.
+
+    Line numbers count from 1 on the first line of the file. The receipt
+    names the file and the line range, and never the matched text.
+    """
+
+    from alicebot_api.markdown_import import _armored_private_key_ranges
+
+    lines = raw_text.splitlines()
+    ranges = _armored_private_key_ranges(lines)
+    printed_file = _printed_label(file_name)
+    kept: list[str] = []
+    skipped: list[JsonObject] = []
+    index = 0
+    while index < len(lines):
+        line_no = index + 1
+        span = ranges.get(line_no)
+        if span is not None:
+            start_no, end_no = span
+            if line_no != start_no:
+                index += 1
+                continue
+            block = "\n".join(lines[start_no - 1 : end_no])
+            if credential_verdict(block) is not None:
+                kept.append(CREDENTIAL_WITHHELD)
+                item: JsonObject = {"file": printed_file, "line_number": start_no}
+                if end_no != start_no:
+                    item["line_end"] = end_no
+                skipped.append(item)
+            else:
+                kept.extend(lines[start_no - 1 : end_no])
+            index = end_no
+            continue
+        line = lines[index]
+        if line.strip() and credential_verdict(line) is not None:
+            kept.append(CREDENTIAL_WITHHELD)
+            skipped.append({"file": printed_file, "line_number": line_no})
+        else:
+            kept.append(line)
+        index += 1
+    return "\n".join(kept), skipped
+
+
 def _chatgpt_conversation_transcript(
     conversation: dict[str, object],
     *,
     index: int,
+    credential_skips: list[JsonObject] | None = None,
 ) -> _ChatGPTConversationTranscript:
     title = " ".join(str(conversation.get("title") or f"Conversation {index}").split())
     if not title:
@@ -853,8 +925,21 @@ def _chatgpt_conversation_transcript(
         if timestamp is not None:
             message_timestamps.append(timestamp)
             message_lines.append(f"[AT]: {timestamp}")
-        message_lines.extend(f"[{role}]: {part}" for part in parts)
         message_count += 1
+        safe_parts: list[str] = []
+        for part in parts:
+            if credential_verdict(part) is not None:
+                safe_parts.append(CREDENTIAL_WITHHELD)
+                if credential_skips is not None:
+                    credential_skips.append(
+                        {
+                            "conversation": _printed_label(external_id),
+                            "message_index": message_count,
+                        }
+                    )
+            else:
+                safe_parts.append(part)
+        message_lines.extend(f"[{role}]: {part}" for part in safe_parts)
 
     created_at = _chatgpt_timestamp(conversation.get("create_time"))
     modified_at = _chatgpt_timestamp(conversation.get("update_time"))
@@ -863,6 +948,10 @@ def _chatgpt_conversation_transcript(
     if modified_at is None and message_timestamps:
         modified_at = max(message_timestamps)
 
+    if credential_verdict(title) is not None:
+        title = "withheld"
+    if credential_verdict(external_id) is not None:
+        external_id = "withheld"
     lines = [
         f"[CONVERSATION]: {external_id}",
         f"[TITLE]: {title}",
@@ -1162,8 +1251,11 @@ class VNextCaptureService:
                 payload={"content_hash": content_hash, "chunk_count": len(chunk_rows)},
             )
 
+            extracted = (
+                extract_candidate_memories(chunk_rows) if source_input.extract_candidates else []
+            )
             candidates = self._drop_cross_batch_user_asserted_duplicates(
-                extract_candidate_memories(chunk_rows),
+                extracted,
                 project_scope=project_scope,
                 domain=source_input.domain,
                 sensitivity=source_input.sensitivity,
@@ -1465,12 +1557,17 @@ class VNextCaptureService:
         errors: list[str] = []
         duplicate_count = 0
         failed_count = 0
+        skipped_credential_items: list[JsonObject] = []
         run_hashes: set[str] = set()
         deferred_embedding_inputs: list[DeferredMemoryEmbedding] = []
 
         for file_path in sorted(folder_path.rglob("*.md")):
             try:
-                raw_text = file_path.read_text(encoding="utf-8")
+                raw_text, file_skips = _filter_markdown_units(
+                    file_path.read_text(encoding="utf-8"),
+                    file_name=file_path.name,
+                )
+                skipped_credential_items.extend(file_skips)
                 content_hash = content_hash_for_text(raw_text)
                 if content_hash in run_hashes:
                     duplicate_count += 1
@@ -1487,19 +1584,21 @@ class VNextCaptureService:
                     continue
                 run_hashes.add(content_hash)
 
+                relative_path = str(file_path.relative_to(folder_path))
                 result = self.capture_source(
                     SourceCaptureInput(
                         source_type="markdown",
-                        title=file_path.stem,
+                        title=_stored_label(file_path.stem),
                         raw_text=raw_text,
-                        raw_path=str(file_path),
+                        raw_path=_stored_label(str(file_path)),
                         connector_name="markdown_folder",
-                        external_id=str(file_path.relative_to(folder_path)),
+                        external_id=_stored_label(relative_path),
                         domain=domain,
                         sensitivity=sensitivity,
+                        extract_candidates=False,
                         metadata_json={
-                            "folder": str(folder_path),
-                            "relative_path": str(file_path.relative_to(folder_path)),
+                            "folder": _stored_label(str(folder_path)),
+                            "relative_path": _stored_label(relative_path),
                         },
                     )
                 )
@@ -1542,6 +1641,8 @@ class VNextCaptureService:
             imported_count=imported_count,
             duplicate_count=duplicate_count,
             failed_count=failed_count,
+            skipped_credentials=len(skipped_credential_items),
+            skipped_credential_items=tuple(skipped_credential_items),
             source_ids=tuple(source_ids),
             errors=tuple(errors),
             error_code=SOURCE_IMPORT_ERROR_CODE if failed_count else None,
@@ -1559,8 +1660,13 @@ class VNextCaptureService:
         raw_export = export_path.read_text(encoding="utf-8")
         payload = json.loads(raw_export)
         conversations = _chatgpt_conversations(payload)
+        credential_skips: list[JsonObject] = []
         transcripts = [
-            _chatgpt_conversation_transcript(conversation, index=index)
+            _chatgpt_conversation_transcript(
+                conversation,
+                index=index,
+                credential_skips=credential_skips,
+            )
             for index, conversation in enumerate(conversations, start=1)
         ]
         transcript_format = "chatgpt_conversation_v1"
@@ -1603,24 +1709,25 @@ class VNextCaptureService:
                 result = self.capture_source(
                     SourceCaptureInput(
                         source_type="chatgpt_export",
-                        title=transcript.title,
+                        title=_stored_label(transcript.title),
                         raw_text=transcript.raw_text,
-                        raw_path=str(export_path),
+                        raw_path=_stored_label(str(export_path)),
                         connector_name="chatgpt_export",
-                        external_id=transcript.external_id,
+                        external_id=_stored_label(transcript.external_id),
                         domain=domain,
                         sensitivity=sensitivity,
                         captured_at=captured_at,
                         source_created_at=transcript.created_at,
                         source_modified_at=transcript.modified_at,
+                        extract_candidates=False,
                         metadata_json={
-                            "filename": export_path.name,
+                            "filename": _stored_label(export_path.name),
                             "export_sha256": export_sha256,
                             "transcript_format": transcript_format,
                             "export_conversation_count": len(transcripts),
                             "conversation_index": transcript.index,
-                            "conversation_id": transcript.external_id,
-                            "conversation_title": transcript.title,
+                            "conversation_id": _stored_label(transcript.external_id),
+                            "conversation_title": _stored_label(transcript.title),
                             "message_count": transcript.message_count,
                         },
                     )
@@ -1665,6 +1772,8 @@ class VNextCaptureService:
             imported_count=imported_count,
             duplicate_count=duplicate_count,
             failed_count=failed_count,
+            skipped_credentials=len(credential_skips),
+            skipped_credential_items=tuple(credential_skips),
             source_ids=tuple(source_ids),
             errors=tuple(errors),
             error_code=SOURCE_IMPORT_ERROR_CODE if failed_count else None,
