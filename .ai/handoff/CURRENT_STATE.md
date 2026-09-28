@@ -2,9 +2,9 @@
 
 ## Snapshot
 
-- `v0.17.0` is the latest published release. It is available from PyPI and
+- `v0.18.0` is the latest published release. It is available from PyPI and
   GitHub, its record is immutable, and exact artifact digests are in
-  `docs/release/v0.17.0-checksums.txt`. `v0.16.0` is the immediately prior
+  `docs/release/v0.18.0-checksums.txt`. `v0.17.0` is the immediately prior
   published release.
 - Earlier releases whose headlines still get referenced: `v0.13.1` shipped the
   Phase 4 core-roadmap work as **Replicated benchmark, faster SQLite at scale,
@@ -74,13 +74,13 @@ authoritative description; Phase 3 does not rewrite that history.
 
 ## Release Boundary
 
-`v0.17.0` is tagged, published, and immutable. Its authoritative records are:
+`v0.18.0` is tagged, published, and immutable. Its authoritative records are:
 
-- `docs/release/v0.17.0-release-notes.md`
-- `docs/release/v0.17.0-checksums.txt`
+- `docs/release/v0.18.0-release-notes.md`
+- `docs/release/v0.18.0-checksums.txt`
 
-`v0.16.0` is the immediately prior published release; its records are
-`docs/release/v0.16.0-release-notes.md` and `docs/release/v0.16.0-checksums.txt`.
+`v0.17.0` is the immediately prior published release; its records are
+`docs/release/v0.17.0-release-notes.md` and `docs/release/v0.17.0-checksums.txt`.
 
 Every earlier release remains published and immutable, with its own
 `docs/release/vX.Y.Z-release-notes.md` and `vX.Y.Z-checksums.txt`. That includes
@@ -92,40 +92,48 @@ are immutable and the numbers are retired rather than reused: `v0.13.0`,
 superseded by `v0.13.1`, and `v0.15.0`, whose commit carried a release-gate step
 that could not run on a CI runner.
 
-## On main, not released
+## What `v0.18.0` Shipped
 
-`main` has changes that are not on PyPI yet. `pip install alice-memory` and
-`uvx alice-memory` install the latest published release, `v0.17.0`, which
-does not have them.
+`v0.18.0` is the latest published release and remains the install, checksum,
+and baseline reference.
 
-- Unreleased (on main, not in `v0.17.0`): `alice-memory install --host
-  opencode` writes an OpenCode MCP entry. OpenCode is opt-in and the default
-  hosts are unchanged. `v0.17.0` has no OpenCode host.
-- Unreleased (on main, not in `v0.17.0`): `POST /v0/continuity/captures` runs
-  the credential check on the text before it stores anything, and returns 400
-  when the check refuses. In `v0.17.0` this route checks for credentials only
-  when the capture derives a continuity object, so a capture left in triage is
-  stored unchecked.
-- Unreleased (on main, not in `v0.17.0`): provenance and the import `value`
-  column are read with their keys, so a secret name over a secret-shaped
-  value is refused. In `v0.17.0` they are read by value only, so a password
-  or API key under a secret name is stored unless the value identifies
-  itself.
-- Unreleased (on main, not in `v0.17.0`): continuity capture auto-save, in
-  assist and auto mode, saves only a user turn that matches an explicit
-  prefix; the rest are queued. A new continuity object gets the same
-  credential check as memory commit. In `v0.17.0`, assist saves any explicit
-  match at confidence 0.9 or more from either role, auto saves at 0.85 or
-  more, and only the credential floor runs, so `PASSWORD_DB=<value>` is stored.
-- Unreleased (on main, not in `v0.17.0`): a JSON write under `/v0` that names
-  the user only in the `X-AliceBot-User-Id` header reaches the route with that
-  user in the body. In `v0.17.0`, `POST /v0/continuity/captures/candidates`
-  answers that request with 422, so Hermes memory provider turn capture fails.
-- Unreleased (on main, not in `v0.17.0`): a blocked idempotent replay of
-  `POST /v0/vnext/memories/commit` returns 403 when the stored memory matches
-  the request and 400 when it does not. The policy rows are kept, except after
-  a lost insert race. In `v0.17.0` the same replay is a server error and the
-  policy rows roll back.
+It shipped the work on `main` after `v0.17.0`. OpenCode is a new opt-in
+install host. Every capture path refuses credential material, resume reads
+only active memories, and `alice-memory import-markdown` and
+`import-chatgpt` bring notes and chat exports into SQLite with a per-line
+credential filter. Install receipts escape control characters, and the
+credential check reads provenance and imported values with their keys.
+There is no schema change.
+
+- [v0.18.0 release notes](https://github.com/samrusani/AliceMemory/blob/main/docs/release/v0.18.0-release-notes.md)
+
+`v0.18.0` has these changes. `v0.17.0` does not.
+
+- `alice-memory install --host opencode` writes an OpenCode MCP entry to
+  `opencode.json` or `opencode.jsonc`. OpenCode is opt-in and the default
+  hosts are unchanged. `v0.17.0` and earlier have no OpenCode host.
+- `POST /v0/continuity/captures` runs the credential check on the text before
+  it stores anything, and returns 400 when the check refuses. In `v0.17.0`
+  this route checks for credentials only when the capture derives a continuity
+  object, so a capture left in triage is stored unchecked.
+- Provenance and the import `value` column are read with their keys, so a
+  secret name over a secret-shaped value is refused. In `v0.17.0` they are
+  read by value only, so a password or API key under a secret name is stored
+  unless the value identifies itself.
+- Continuity capture auto-save, in assist and auto mode, saves only a user
+  turn that matches an explicit prefix; the rest are queued. A new continuity
+  object gets the same credential check as memory commit. In `v0.17.0`, assist
+  saves any explicit match at confidence 0.9 or more from either role, auto
+  saves at 0.85 or more, and only the credential floor runs, so
+  `PASSWORD_DB=<value>` is stored.
+- A JSON write under `/v0` that names the user only in the
+  `X-AliceBot-User-Id` header reaches the route with that user in the body. In
+  `v0.17.0`, `POST /v0/continuity/captures/candidates` answers that request
+  with 422, so Hermes memory provider turn capture fails.
+- A blocked idempotent replay of `POST /v0/vnext/memories/commit` returns 403
+  when the stored memory matches the request and 400 when it does not. The
+  policy rows are kept, except after a lost insert race. In `v0.17.0` the same
+  replay is a server error and the policy rows roll back.
 
 ## What `v0.14.0` Shipped
 
@@ -206,8 +214,7 @@ again.
 
 ## What `v0.17.0` Shipped
 
-`v0.17.0` is the latest published release and remains the install, checksum,
-and baseline reference.
+`v0.17.0` is the immediately prior published release.
 
 It shipped the work on `main` after `v0.16.0`. Install writes the Claude Code
 session hook in the shape Claude Code reads, edits only Alice's entry in the
@@ -222,7 +229,7 @@ sleep proposals. There is no schema change.
 
 ## What `v0.16.0` Shipped
 
-`v0.16.0` is the immediately prior published release.
+`v0.16.0` is an earlier published release.
 
 The default loop is on the wheel: `alice-memory install`, `demo --vault`,
 `doctor`, `brief`, write receipts, and a three-tool MCP handshake

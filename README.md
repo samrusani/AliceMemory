@@ -53,9 +53,9 @@ uvx alice-memory install --data-dir ~/.alice
 # or, without uv: pip install alice-memory && alice-memory install --data-dir ~/.alice
 ```
 
-That writes Claude Desktop, Claude Code, Cursor, and OpenClaw MCP config. Claude Code and Cursor also get a SessionStart hook so the next session can inject the brief. Hermes is opt-in. `--host hermes` configures Hermes only, because any `--host` replaces the default set. To write all five, pass `--host claude-desktop --host claude-code --host cursor --host openclaw --host hermes`. Without `uvx` on PATH, install writes the path of the installed `alice-memory` scripts instead. It warns if it finds neither `uvx` nor those scripts. On Claude Desktop, Claude Code, Cursor and OpenClaw, a re-run keeps any keys you added to the Alice entry. On Hermes it keeps only the documented Alice env values and refuses while the entry has other keys. A re-run keeps your data dir unless you pass `--data-dir`. It backs up each file before it rewrites it. `--dry-run` prints the plan and writes nothing. The command writes host config. It does not import a vault. The details are in [Install with alice-memory](https://github.com/samrusani/AliceMemory/blob/main/docs/alpha/quickstart.md#install-with-alice-memory).
+That writes Claude Desktop, Claude Code, Cursor, and OpenClaw MCP config. Claude Code and Cursor also get a SessionStart hook so the next session can inject the brief. Hermes is opt-in. `--host hermes` configures Hermes only, because any `--host` replaces the default set. To write those five, pass `--host claude-desktop --host claude-code --host cursor --host openclaw --host hermes`. Without `uvx` on PATH, install writes the path of the installed `alice-memory` scripts instead. It warns if it finds neither `uvx` nor those scripts. On Claude Desktop, Claude Code, Cursor and OpenClaw, a re-run keeps any keys you added to the Alice entry. On Hermes it keeps only the documented Alice env values and refuses while the entry has other keys. A re-run keeps your data dir unless you pass `--data-dir`. It backs up each file before it rewrites it. `--dry-run` prints the plan and writes nothing. The command writes host config. It does not import a vault. The details are in [Install with alice-memory](https://github.com/samrusani/AliceMemory/blob/main/docs/alpha/quickstart.md#install-with-alice-memory).
 
-On main, not yet released: an opt-in OpenCode host (`--host opencode`). The published v0.17.0 does not have it.
+OpenCode is opt-in with `--host opencode`, which writes `opencode.json` or `opencode.jsonc`. See [OpenCode](https://github.com/samrusani/AliceMemory/blob/main/docs/integrations/opencode.md).
 
 OpenClaw can also add the server in one line, which probes before saving:
 
@@ -87,7 +87,7 @@ OpenClaw prefixes MCP tool names with the server name, so `alice_recall` reaches
 
 #### Skill packs
 
-Optional. Packs exist for 2 of the 5 install hosts, Hermes and OpenClaw.
+Optional. Packs exist for 2 of the 6 install hosts, Hermes and OpenClaw.
 Nothing in this repo measures whether a pack changes what an agent does.
 [`agent-skills/hermes/alice-memory`](https://github.com/samrusani/AliceMemory/tree/main/agent-skills/hermes/alice-memory)
 and [`agent-skills/openclaw/alice-project-memory`](https://github.com/samrusani/AliceMemory/tree/main/agent-skills/openclaw/alice-project-memory)
@@ -116,7 +116,7 @@ For Postgres with pgvector, the web review console, and the core memory
 scheduler workflows, run from a repo checkout. Requirements: Python 3.12+,
 Node 20+, pnpm, Docker, Git.
 
-The clone checks out `main`, which can be ahead of the latest release. To run v0.17.0, run `git checkout v0.17.0` before `make setup`.
+The clone checks out `main`, which can be ahead of the latest release. To run v0.18.0, run `git checkout v0.18.0` before `make setup`.
 
 ```bash
 git clone https://github.com/samrusani/AliceMemory.git
@@ -187,11 +187,10 @@ vector list and the retrieval trace says so.
 
 ## Status
 
-`v0.17.0` is the latest published release and remains the install, checksum,
+`v0.18.0` is the latest published release and remains the install, checksum,
 and release-note baseline (the `v0.13.0` tag was never published;
 superseded). Its tag, release record, and published artifacts
-are immutable.
-`v0.12.0` was the structural refactor release. Structure only. Zero behavior change.
+are immutable.`v0.12.0` was the structural refactor release. Structure only. Zero behavior change.
 Alice is a public-alpha, pre-1.0 project.
 What that means in practice:
 
@@ -221,7 +220,7 @@ What that means in practice:
 - [Health and monitoring](https://github.com/samrusani/AliceMemory/blob/main/docs/runbooks/health-and-monitoring.md)
 - [Upgrade v0.12.0 to current](https://github.com/samrusani/AliceMemory/blob/main/docs/runbooks/upgrade-v0.12-to-current.md)
 - [Security and privacy](https://github.com/samrusani/AliceMemory/blob/main/docs/alpha/security-and-privacy.md)
-- [v0.17.0 release notes](https://github.com/samrusani/AliceMemory/blob/main/docs/release/v0.17.0-release-notes.md)
+- [v0.18.0 release notes](https://github.com/samrusani/AliceMemory/blob/main/docs/release/v0.18.0-release-notes.md)
 - [All release notes](https://github.com/samrusani/AliceMemory/releases)
 - [Release procedure](https://github.com/samrusani/AliceMemory/blob/main/RELEASING.md)
 - [Architecture](https://github.com/samrusani/AliceMemory/blob/main/ARCHITECTURE.md)

@@ -37,7 +37,7 @@ See [docs/integrations/openclaw.md](openclaw.md) for end-to-end before/after out
 - receipt line numbers count from 1 on the first line after frontmatter
 - a dashed private-key block in markdown is one skipped item when the BEGIN line and the END line stand alone, share a label, every line between them is key body, and at least one of those lines is radix-64 text of 40 or more characters. Key body is base64 or radix-64 text, a `=` checksum line, a blank line, or a `Name: value` armor header. A `Name: value` line counts only as a run directly after the BEGIN line, before the first blank line or radix-64 line. A code fence, another BEGIN line, or any other line stops the scan, and that BEGIN line is one item on its own. The receipt names the block's line range
 - an OpenClaw raw entry is checked by value, so a routing `session_key` is imported
-- Unreleased (on main, not in v0.17.0): provenance is checked with its keys. A routing `session_key` of the form `agent:<profile>:<channel>:<kind>:<tail>`, with an optional `:topic:<digits>` suffix, is still imported. The profile may contain digits, `-`, or `_`. The tail may be digits with a leading `+` or `-`, or a lowercase UUID. An uppercase profile and a Slack `C04...` tail are skipped. A secret name over an opaque value is skipped. In v0.17.0, the latest release, provenance is read by value only, so a secret under a secret name is imported unless the value itself has a known key shape, such as a Stripe key
+- From v0.18.0, provenance is checked with its keys. A routing `session_key` of the form `agent:<profile>:<channel>:<kind>:<tail>`, with an optional `:topic:<digits>` suffix, is still imported. The profile may contain digits, `-`, or `_`. The tail may be digits with a leading `+` or `-`, or a lowercase UUID. An uppercase profile and a Slack `C04...` tail are skipped. A secret name over an opaque value is skipped. In v0.17.0, provenance is read by value only, so a secret under a secret name is imported unless the value itself has a known key shape, such as a Stripe key
 - placeholder password examples are skipped at import
 
 ## Verification Example
@@ -65,7 +65,7 @@ need a Postgres `DATABASE_URL`, so point the MCP server at the same database
 and user. `alice_recall` returns the text under `sources`, not under
 `results`.
 
-In v0.17.0, the latest release, that sentence was "`alice_resume` does not
+In v0.17.0, that sentence was "`alice_resume` does not
 show it." That was false. A captured line that reads like a decision became
 a candidate, and `alice_resume` showed it, including a token in the line.
 The same release has three other capture gaps. Capture has no credential
@@ -73,8 +73,8 @@ check, so a note that holds a key is stored and `alice_recall` and
 `alice-memory brief` return it. The folder import follows a symlink out of
 the folder. Any JSON file is stored, including one that is not a chat export.
 
-Unreleased (on main, not in v0.17.0): `alice_capture`, capture-text,
-capture-file, connectors, and both imports refuse a source that carries
+From v0.18.0, `alice_capture`, capture-text, capture-file, connectors, and
+both imports refuse a source that carries
 credential material and write nothing. A batch counts that source as
 skipped, not failed. `alice_resume`, `alice_recent_decisions`, the
 SessionStart brief, and `alice-memory brief` read only active memories, so
@@ -83,8 +83,8 @@ folder import refuses a symlink and a non-regular file, and a single
 markdown file is allowed. A JSON file with no conversations is refused and
 nothing is written.
 
-Unreleased (on main, not in v0.17.0): import a Markdown path or a ChatGPT
-export into the SQLite store that MCP recall reads:
+From v0.18.0, `alice-memory` imports a Markdown path or a ChatGPT export
+into the SQLite store that MCP recall reads:
 
 ```bash
 alice-memory import-markdown --from PATH
@@ -112,12 +112,12 @@ when the file name is flagged. Exit code 1 means the batch status is
 `failed`, and it also covers path errors. Replay of the same file is
 `duplicate`. OpenClaw stays on the loader scripts above. `alice-memory
 doctor` counts stored sources the floor still flags and prints their ids.
-SQLite has no `delete_source`. On Postgres the doctor says to delete each
-listed source with `delete_source`. The doctor scans up to 10,000 sources
+SQLite has no way to delete a source yet. On Postgres, delete each listed
+source with `DELETE /v0/vnext/sources/{id}`. The doctor scans up to 10,000 sources
 on a workspace dashboard load and says when that scan stopped early. A
 SQLite URL on `alicebot vnext sources import-markdown` or `import-chatgpt`
 exits 2 with `sqlite_import_use_alice_memory` and names these two commands.
-In v0.17.0, the latest release, those commands do not exist, and a SQLite
+In v0.17.0, those commands do not exist, and a SQLite
 URL on the `alicebot` imports is `invalid_request`.
 
 ## Evaluation Harness

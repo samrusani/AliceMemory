@@ -301,19 +301,19 @@ adversarial shapes of its linear-time test, and four times the input cost
 
 ### What is covered
 
-Rows and bullets marked (main) changed after v0.17.0. Unreleased (on main,
-not in v0.17.0): those rows read provenance, the legacy admission `value` and
-the import `value` column with their keys, and `POST /v0/continuity/captures`
-refuses credential material.
+Rows and bullets marked (main) changed after v0.17.0. From v0.18.0, those
+rows read provenance, the legacy admission `value` and the import `value`
+column with their keys, and `POST /v0/continuity/captures` refuses
+credential material.
 
-In v0.17.0, the latest release, provenance, the legacy admission `value` and
-the import `value` column are read by value only. Under a key name, an AWS
-secret access key or a plain password is not caught there. In v0.17.0,
+In v0.17.0, provenance, the legacy admission `value` and the import `value`
+column are read by value only. Under a key name, an AWS secret access key or
+a plain password is not caught there. In v0.17.0,
 `POST /v0/continuity/captures` stores text in the capture inbox without the
 credential check.
 
 Verified by execution on 2026-09-23 for v0.17.0. Rows marked (main) describe
-unreleased code. Each row names the tests that pin it.
+v0.18.0 code. Each row names the tests that pin it.
 
 | Write | Surfaces | Result | Pinned by |
 |---|---|---|---|
@@ -368,10 +368,10 @@ Stated so nobody reads the table above as "every surface".
   legacy standalone open-loop create route (`create_open_loop_record`) and
   open-loop titles in general are not checked, except the title the four
   admission routes write.
-  - In v0.17.0, the latest release, the capture inbox text is not checked,
-    so credential material sent to this route is stored. This gap was
+  - In v0.17.0, the capture inbox text is not checked, so credential
+    material sent to this route is stored. This gap was
     listed here on 2026-09-23 and is open in v0.17.0.
-  - (main) Unreleased (on main, not in v0.17.0): `capture_continuity_input`
+  - (main) From v0.18.0, `capture_continuity_input`
     runs `commit_door_secret_verdict` on that text after the empty check
     and returns HTTP 400 when the check refuses, so the memory-write
     mirror, the HTTP 404 fallback, and a client that sends `user_id` in
@@ -384,17 +384,17 @@ Stated so nobody reads the table above as "every surface".
   rewritten, until those rows are redacted. A writer that rewrites a history
   withholds what it carries forward.
 - **Provenance is read by value only in v0.17.0** (owner ruling C3; written
-  2026-09-23, still true of v0.17.0, the latest release). On the legacy
+  2026-09-23, still true of v0.17.0). On the legacy
   continuity writes, the two review surfaces and the import `value` column,
   keys are not read. A Stripe key is still caught there by its prefix, but
   under a key name an AWS secret access key and a plain password are not
   caught. This is not an edge case: provenance is where an agent would put a
   secret if it wanted to. The root cause, a name rule that counts any `*_key`
   as a secret name, is a follow-up ticket; once it lands, key and value
-  reading returns on provenance and the value column. That follow-up is on
-  main and not released. The next bullet describes it.
+  reading returns on provenance and the value column. That follow-up ships in
+  v0.18.0. The next bullet describes it.
 - **(main) Provenance, legacy admission `value`, and the import `value` column are read with their keys.**
-  Unreleased (on main, not in v0.17.0): a secret name over a secret-shaped
+  From v0.18.0, a secret name over a secret-shaped
   value is refused there, including an AWS secret access key or a plain
   password that does not identify itself.
   `rollup_key` is a weak name in a caller-supplied mapping. Import unwraps

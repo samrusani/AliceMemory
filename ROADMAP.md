@@ -2,9 +2,9 @@
 
 ## Baseline (Not Roadmap Work)
 
-- `v0.17.0` is the latest published release. Its immutable release record is
-  `docs/release/v0.17.0-release-notes.md`, with artifact digests in
-  `docs/release/v0.17.0-checksums.txt`. (The `v0.13.0` and `v0.15.0` tags
+- `v0.18.0` is the latest published release. Its immutable release record is
+  `docs/release/v0.18.0-release-notes.md`, with artifact digests in
+  `docs/release/v0.18.0-checksums.txt`. (The `v0.13.0` and `v0.15.0` tags
   were never published.)
 - `v0.11.0` shipped the Phase 1 periphery cut; `v0.11.1` shipped the Phase 2
   debt sweep. Their records are unchanged.
@@ -27,9 +27,9 @@
 
 Phases 1 to 5 shipped by `v0.14.0`. `v0.16.0` put the default loop on the
 wheel, and `v0.17.0` hardened install and the write paths. Next is host
-coverage and skill packs. Unreleased (on main, not in `v0.17.0`): OpenCode is
-an opt-in `alice-memory install` host. Codex adapters and the skill pack
-revisions are in design.
+coverage and skill packs. From `v0.18.0`, OpenCode is an opt-in
+`alice-memory install` host. Codex adapters and the skill pack revisions are
+in design.
 
 Of the former roadmap list, benchmark replication, multi-session synthesis
 measurement, reference integrations, SQLite vector scale, and the enterprise
@@ -92,5 +92,5 @@ restore, recorded security disposition) shipped in Phases 4 and 5.
 - Growing the core MCP surface past eleven tools. The default handshake stays
   at three.
 
-`v0.17.0` is the latest published release and remains the install, checksum,
+`v0.18.0` is the latest published release and remains the install, checksum,
 and baseline reference.
