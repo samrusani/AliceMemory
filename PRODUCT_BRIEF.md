@@ -15,11 +15,11 @@ Agent developers — people building or operating AI agents who need durable, ex
 - Local-first: Alice stores your data on a machine you control. Text goes to a model or embedding provider only if you configure one, and then only to that provider.
 
 ## Current Posture
-- `v0.17.0` is the latest published release and immutable baseline. The
-  default loop is on the wheel. `v0.16.0` is the immediately prior
+- `v0.18.0` is the latest published release and immutable baseline. The
+  default loop is on the wheel. `v0.17.0` is the immediately prior
   published release. The PyPI wheel and source distribution have Trusted
   Publishing provenance, with exact digests in
-  `docs/release/v0.17.0-checksums.txt`.
+  `docs/release/v0.18.0-checksums.txt`.
 - `v0.11.0` shipped the Phase 1 periphery cut. It removes the Telegram,
   hosted/control-plane, public chat/response, chief-of-staff, and model-pack
   periphery so the default runtime matches the product described here. The
@@ -65,7 +65,5 @@ Agent developers — people building or operating AI agents who need durable, ex
 - The MCP surface is small enough to learn in one sitting.
 - Every claim in the docs matches shipped behavior.
 
-`v0.17.0` is the latest published release and remains the install, checksum,
+`v0.18.0` is the latest published release and remains the install, checksum,
 and baseline reference.
-
-`v0.18.0` is the current release candidate. It is not published.
