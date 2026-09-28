@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from datetime import datetime
-from typing import Protocol
+from typing import Protocol, cast
 from alicebot_api.continuity_brief import compile_continuity_brief
 from alicebot_api.continuity_recall import (
     get_retrieval_trace,
@@ -330,7 +330,7 @@ def _handle_alice_recall(context: MCPRuntimeContext, arguments: Mapping[str, obj
             # Only the superseded flag changes the recall shape. Rows that
             # merely have a validity window keep the compact result.
             if isinstance(validity, dict) and validity.get("superseded") is True:
-                compact["validity"] = validity
+                compact["validity"] = cast(JsonObject, validity)
             results.append(
                 present_model_item(
                     compact,
