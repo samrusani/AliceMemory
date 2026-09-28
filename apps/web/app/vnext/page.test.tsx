@@ -311,7 +311,7 @@ describe("VNextPage", () => {
     expect(screen.getByLabelText("Trusted-client capture secret ref")).toHaveValue(
       "browser.capture_token.default",
     );
-  }, 30000);
+  }, 60000); // CI coverage run on Node 22 took 18.4s; see the note above these tests
 
   it("refreshes Ask Alice output and generates reviewable artifacts", async () => {
     await renderVNextPage();
