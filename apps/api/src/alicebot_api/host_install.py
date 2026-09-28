@@ -579,6 +579,22 @@ _HIDDEN = HIDDEN
 _SHOWN_KEYS = frozenset({"command", "type", "timeout", "cwd"})
 
 
+def _masked_words(words: Sequence[str]) -> tuple[list[str], list[str]]:
+    """``words`` as masked_args shows them, then any word that still carries
+    credential material (a token glued to a URL, say) shown as hidden."""
+
+    shown, what = masked_args(list(words))
+    out: list[str] = []
+    extra: list[str] = []
+    for word in shown:
+        if carries_credential_material(word):
+            out.append(_HIDDEN)
+            extra.append("credential material")
+        else:
+            out.append(word)
+    return out, list(what) + extra
+
+
 def _masked(
     entry: Mapping[str, Any], *, own_env: Mapping[str, str] | None = None
 ) -> tuple[dict[str, Any], list[str]]:
@@ -595,13 +611,13 @@ def _masked(
     hidden: list[str] = []
     for key, value in entry.items():
         if key == "command" and isinstance(value, list) and all(isinstance(arg, str) for arg in value):
-            args, what = masked_args(value)
+            args, what = _masked_words(value)
             shown[key] = args
             hidden.extend(f"command ({item})" for item in what)
         elif key in _SHOWN_KEYS:
             shown[key] = value
         elif key == "args" and isinstance(value, list) and all(isinstance(arg, str) for arg in value):
-            args, what = masked_args(value)
+            args, what = _masked_words(value)
             shown[key] = args
             hidden.extend(f"args ({item})" for item in what)
         elif isinstance(value, Mapping):
@@ -879,9 +895,10 @@ def _would_not_start_args(server_args: Sequence[str]) -> str:
     shown, _hidden = masked_args(server_args)
     parts: list[str] = []
     for original, masked in zip(server_args, shown, strict=True):
-        # masked_args already wrote <hidden> for the words it flags. A word it
-        # left unchanged is replaced only when the credential check flags it.
-        if masked == original and carries_credential_material(original):
+        # masked_args already wrote <hidden> for the parts it flags. Whatever
+        # is left is still checked, so a word that masked_args only partly
+        # hid (a token glued to a URL) is replaced too.
+        if carries_credential_material(masked):
             parts.append(HIDDEN)
         else:
             parts.append(masked)

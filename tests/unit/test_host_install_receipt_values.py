@@ -144,3 +144,42 @@ def test_would_not_start_prints_a_fixed_label_for_flagged_words(
         "--token <hidden> <hidden> https://<hidden> ok\\u000aaction: forged --bogus"
     ) in reason
     assert path.read_text(encoding="utf-8") == original
+
+
+@pytest.mark.parametrize("host", INSTALL_HOSTS)
+def test_receipt_escapes_every_line_break_and_control(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys, host: str
+) -> None:
+    """CR, ESC, DEL, U+2029 and NEL in a data dir are escaped, never printed raw.
+
+    Mutation: stop escaping any one of them. It reaches the receipt raw, or
+    splits a line so `action: forged` stands alone. This test fails.
+    """
+
+    pin_launcher_search(monkeypatch, tmp_path, uvx="/usr/local/bin/uvx")
+    home = tmp_path / "home"
+    value = "/tmp/vault" + "\r" + "action: forged" + "\x1b" + "[31m" + "\x7f" + "\u2029" + "\u0085" + "tail"
+    _seed(home, host, ["alice-memory", "mcp", "--data-dir", value])
+    code, out, err = _install(capsys, home, "--host", host, "--data-dir", str(tmp_path / "moved"), "--dry-run")
+    assert code in (0, 1), (host, out, err)
+    assert "action: forged" not in out.splitlines()
+    for char in ("\r", "\x1b", "\x7f", "\u2029", "\u0085"):
+        assert char not in out, (host, repr(char))
+
+
+@pytest.mark.parametrize("host", INSTALL_HOSTS)
+def test_would_not_start_hides_a_token_glued_to_a_url(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys, host: str
+) -> None:
+    """A word that masked_args only partly hides is still checked.
+
+    Mutation: run the credential check only on words masked_args left
+    unchanged. The token glued to the URL is printed. This test fails.
+    """
+
+    pin_launcher_search(monkeypatch, tmp_path, uvx="/usr/local/bin/uvx")
+    home = tmp_path / "home"
+    token = "ghp_" + "Ab3" * 12
+    _seed(home, host, ["alice-memory", "mcp", token + ",https://h.example", "--bogus"])
+    _code, out, err = _install(capsys, home, "--host", host, "--dry-run")
+    assert token not in out and token not in err, host

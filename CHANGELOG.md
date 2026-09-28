@@ -4,8 +4,9 @@
 
 - Install receipts escape newlines and other control characters in every
   value, so a `--data-dir` that holds a newline cannot add a receipt line.
-  When alice-memory mcp would not start, any argument word the credential
-  check or `masked_args` flags is printed as `<hidden>`.
+  When alice-memory mcp would not start, the reason shows each argument word
+  as `masked_args` masks it, and prints `<hidden>` for any word that still
+  carries credential material, such as a token glued to a URL.
 
 - The entity-resolution eval group key is `person-jane`. The pinned case
   key and corpus digest in the release check match that name.
