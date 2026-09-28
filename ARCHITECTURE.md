@@ -3,10 +3,10 @@
 ## Scope Boundary
 
 
-- **Published boundary:** `v0.17.0` is the latest published release. The
+- **Published boundary:** `v0.18.0` is the latest published release. The
   default loop is on the wheel. Artifact digests are in
-  `docs/release/v0.17.0-checksums.txt`.
-- **Prior published:** `v0.16.0` is the immediately prior published release,
+  `docs/release/v0.18.0-checksums.txt`.
+- **Prior published:** `v0.17.0` is the immediately prior published release,
   tagged and immutable, published on PyPI with Trusted Publishing provenance;
   artifact digests are in `docs/release/v0.16.0-checksums.txt`. Every earlier
   release remains published and immutable with its own records under
@@ -227,7 +227,7 @@ usage justifies a separately reviewed boundary.
 
 ## Current Architectural Posture
 
-- `v0.17.0` is the latest published release and reconciles runtime and product
+- `v0.18.0` is the latest published release and reconciles runtime and product
   identity around the agent interface, retrieval/memory quality, and a
   real-host-proven single-tenant deployment contract.
 - Phase 3 reduces `main.py` to app assembly and shared middleware,
@@ -250,7 +250,5 @@ usage justifies a separately reviewed boundary.
   `docs/handoff/`; it does not constrain legitimate future production trees or
   approve them automatically.
 
-`v0.17.0` is the latest published release and remains the install, checksum,
+`v0.18.0` is the latest published release and remains the install, checksum,
 and baseline reference.
-
-`v0.18.0` is the current release candidate. It is not published.
