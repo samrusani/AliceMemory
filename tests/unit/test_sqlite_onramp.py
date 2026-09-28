@@ -135,6 +135,17 @@ def _stored_note(value: object) -> str:
     return text
 
 
+def _promote_decision(context: MCPRuntimeContext, memory_id: str) -> None:
+    """Owner promotion. Resume and recent decisions read active rows only."""
+
+    approved = call_mcp_tool(
+        context,
+        name="alice_memory_correct",
+        arguments={"review_item_id": memory_id, "action": "approve", "reason": "Confirmed by user"},
+    )
+    assert approved["memory"]["status"] == "active"
+
+
 def _capture_decision(context: MCPRuntimeContext, text: str) -> str:
     """Capture one 'Decision: ...' line and return the candidate memory id."""
     captured = call_mcp_tool(
@@ -1388,6 +1399,8 @@ def test_read_only_project_key_cannot_read_or_mutate_other_project_or_filtered_d
 def test_recent_decisions_filters_query_project_and_window(sqlite_context) -> None:
     first_id = _capture_decision(sqlite_context, "Use SQLite for the local on-ramp")
     second_id = _capture_decision(sqlite_context, "Keep Postgres for the hosted tier")
+    _promote_decision(sqlite_context, first_id)
+    _promote_decision(sqlite_context, second_id)
 
     payload = call_mcp_tool(sqlite_context, name="alice_recent_decisions", arguments={})
     assert payload["mode"] == "vnext"
@@ -1435,6 +1448,8 @@ def test_public_resume_and_recent_decisions_share_ascii_literal_memory_matching(
         "strasse": _capture_decision(sqlite_context, "Straße remains exact"),
         "literals": _capture_decision(sqlite_context, r"Keep 100% under_score path\segment literal"),
     }
+    for memory_id in rows.values():
+        _promote_decision(sqlite_context, memory_id)
     expectations = {
         "release": {rows["release"]},
         "RELEASE": {rows["release"]},
@@ -1560,6 +1575,7 @@ def test_sqlite_workflow_idempotency_replays_memory_and_concurrent_open_loop(
 
 def test_resume_brief_shape_and_content(sqlite_context) -> None:
     decision_id = _capture_decision(sqlite_context, "Resume briefs come from the vNext store")
+    _promote_decision(sqlite_context, decision_id)
     with sqlite_user_connection(_db_path(sqlite_context), USER_ID) as conn:
         store = SQLiteVNextStore(conn, USER_ID)
         loop = store.create_open_loop(

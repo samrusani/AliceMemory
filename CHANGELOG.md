@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- Unreleased (on main, not in v0.17.0): `capture_source` refuses credential
+  material in the title, author, uri, path, external id, text, and metadata
+  keys, and writes nothing. `alice_capture`, capture-text, capture-file,
+  connectors, and both vNext imports use that check. A batch counts the
+  refusal as skipped, not failed. `alice_resume`, `alice_recent_decisions`,
+  the SessionStart brief, and `alice-memory brief` read only active
+  memories. The markdown folder import reads through the contained snapshot,
+  so a symlink or a non-regular file is refused and a single file is
+  allowed. A ChatGPT import with no conversations is refused instead of
+  stored. In v0.17.0, the latest release, capture has no credential check,
+  resume shows candidates, the folder import follows symlinks, and any JSON
+  file is stored.
+
 - The entity-resolution eval group key is `person-jane`. The pinned case
   key and corpus digest in the release check match that name.
 
