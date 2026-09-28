@@ -116,7 +116,7 @@ For Postgres with pgvector, the web review console, and the core memory
 scheduler workflows, run from a repo checkout. Requirements: Python 3.12+,
 Node 20+, pnpm, Docker, Git.
 
-The clone checks out `main`, which can be ahead of the latest release. To run v0.17.0, run `git checkout v0.17.0` before `make setup`.
+The clone checks out `main`, which can be ahead of the latest release. To run v0.18.0, run `git checkout v0.18.0` before `make setup`.
 
 ```bash
 git clone https://github.com/samrusani/AliceMemory.git
@@ -189,12 +189,10 @@ vector list and the retrieval trace says so.
 
 ## Status
 
-`v0.17.0` is the latest published release and remains the install, checksum,
+`v0.18.0` is the latest published release and remains the install, checksum,
 and release-note baseline (the `v0.13.0` tag was never published;
 superseded). Its tag, release record, and published artifacts
-are immutable.
-`v0.18.0` is the current release candidate. It is not published.
-`v0.12.0` was the structural refactor release. Structure only. Zero behavior change.
+are immutable.`v0.12.0` was the structural refactor release. Structure only. Zero behavior change.
 Alice is a public-alpha, pre-1.0 project.
 What that means in practice:
 
@@ -224,7 +222,7 @@ What that means in practice:
 - [Health and monitoring](https://github.com/samrusani/AliceMemory/blob/main/docs/runbooks/health-and-monitoring.md)
 - [Upgrade v0.12.0 to current](https://github.com/samrusani/AliceMemory/blob/main/docs/runbooks/upgrade-v0.12-to-current.md)
 - [Security and privacy](https://github.com/samrusani/AliceMemory/blob/main/docs/alpha/security-and-privacy.md)
-- [v0.17.0 release notes](https://github.com/samrusani/AliceMemory/blob/main/docs/release/v0.17.0-release-notes.md)
+- [v0.18.0 release notes](https://github.com/samrusani/AliceMemory/blob/main/docs/release/v0.18.0-release-notes.md)
 - [All release notes](https://github.com/samrusani/AliceMemory/releases)
 - [Release procedure](https://github.com/samrusani/AliceMemory/blob/main/RELEASING.md)
 - [Architecture](https://github.com/samrusani/AliceMemory/blob/main/ARCHITECTURE.md)
