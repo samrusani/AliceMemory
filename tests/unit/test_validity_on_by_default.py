@@ -8,11 +8,14 @@ same ``_prefer_current_versions`` helper the context pack already ran.
 from __future__ import annotations
 
 import inspect
+import io
+import json
+import sys
 from pathlib import Path
 
 from alicebot_api.mcp_tools import AGENT_API_KEY_ENV, MCPRuntimeContext
-from alicebot_api.onramp import bootstrap_database, resolve_db_path, sqlite_url_for_path
-from alicebot_api.session_briefing import compile_session_brief
+from alicebot_api.onramp import bootstrap_database, main as onramp_main, resolve_db_path, sqlite_url_for_path
+from alicebot_api.session_briefing import compile_local_session_brief, compile_session_brief
 from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
 from alicebot_api.vnext_embeddings import (
     EMBEDDINGS_API_KEY_ENV,
@@ -161,16 +164,19 @@ def _fact_lines(brief: str) -> list[str]:
 
 
 def test_present_tense_recall_leads_with_the_current_address(tmp_path: Path, monkeypatch) -> None:
-    """Present-tense alice_recall must not lead with last year's street.
+    """Present-tense alice_recall leads with the current street and labels the old one.
 
-    Fails if ``_handle_alice_recall`` skips ``_prefer_current_versions``
-    after ``_order_memories_for_strategy``.
+    The historical row stays after the current row. It carries
+    validity.superseded true, the same flag the context pack already sets.
+    Fails if recall skips _prefer_current_versions, drops the old row, or
+    returns that row without the superseded label.
     """
 
     context = _context(tmp_path, monkeypatch)
-    _seed_address_pair(tmp_path)
+    current, _historical = _seed_address_pair(tmp_path)
 
-    texts = _result_texts(_recall(context))
+    payload = _recall(context)
+    texts = _result_texts(payload)
 
     assert texts, "recall returned no address facts"
     assert CURRENT_ADDRESS in texts[0]
@@ -178,6 +184,10 @@ def test_present_tense_recall_leads_with_the_current_address(tmp_path: Path, mon
     assert any(OLD_ADDRESS in text for text in texts), (
         "historical address was dropped; demote-not-drop no longer holds"
     )
+    historical = next(row for row in payload["results"] if OLD_ADDRESS in str(row.get("text") or ""))
+    assert historical["validity"]["superseded"] is True
+    assert historical["validity"]["superseded_by_memory_id"] == str(current["id"])
+    assert payload["results"][0].get("validity", {}).get("superseded") is not True
 
 
 def test_recall_leads_with_the_old_address_when_prefer_current_versions_is_skipped(
@@ -218,10 +228,11 @@ def test_recall_leads_with_the_old_address_when_prefer_current_versions_is_skipp
 def test_session_brief_lists_the_current_address_before_the_historical_one(
     tmp_path: Path, monkeypatch
 ) -> None:
-    """query=None brief must not lead with last year's street when both appear.
+    """query=None brief must not print last year's street on a fact line.
 
-    Fails if ``compile_session_brief`` skips ``_prefer_current_versions``
-    after ``list_memories`` / recent-change merge.
+    Both rows stay active. The older one has superseded_by set. The brief
+    is context an agent reads as current, so that row is omitted. Fails if
+    compile_session_brief still renders a memory whose superseded_by is set.
     """
 
     _context(tmp_path, monkeypatch)
@@ -231,10 +242,7 @@ def test_session_brief_lists_the_current_address_before_the_historical_one(
     facts = _fact_lines(brief)
 
     assert any(CURRENT_ADDRESS in line for line in facts), brief
-    assert any(OLD_ADDRESS in line for line in facts), brief
-    current_index = next(index for index, line in enumerate(facts) if CURRENT_ADDRESS in line)
-    historical_index = next(index for index, line in enumerate(facts) if OLD_ADDRESS in line)
-    assert current_index < historical_index, brief
+    assert not any(OLD_ADDRESS in line for line in facts), brief
 
 
 def test_validity_ranking_does_not_bypass_the_policy_fence(tmp_path: Path, monkeypatch) -> None:
@@ -335,3 +343,319 @@ def test_a_capture_candidate_stays_unsearchable_as_a_memory(tmp_path: Path, monk
         "77 Candidate Street" in str(row.get("canonical_text") or "") for row in candidates
     ), "capture created no address candidate; the no-promote assert is vacuous"
     assert not any("77 Candidate Street" in str(row.get("canonical_text") or "") for row in committed)
+
+
+OLD_KETTLE = "The kettle is stored on the third shelf."
+NEW_KETTLE = "The kettle is stored on the first shelf."
+OLD_MUG = "The mug is stored on the third shelf."
+NEW_MUG = "The mug is stored on the first shelf."
+FRESH_SOURCE = "The fresh notebook stays on the desk."
+STALE_SOURCE_LINE = "The stale notebook was on the shelf."
+
+
+def _tool(context: MCPRuntimeContext, name: str, arguments: dict) -> dict:
+    from alicebot_api.mcp.registry import call_mcp_tool
+
+    return call_mcp_tool(context, name=name, arguments=arguments)
+
+
+def _unquoted(value: object) -> str:
+    text = str(value or "")
+    if len(text) >= 2 and text.startswith('"'):
+        try:
+            loaded = json.loads(text)
+        except json.JSONDecodeError:
+            return text
+        if isinstance(loaded, str):
+            return loaded
+    return text
+
+
+def _review_id(context: MCPRuntimeContext, needle: str) -> str:
+    review = _tool(context, "alice_memory_review", {"status": "all", "limit": 20})
+    for item in review["items"]:
+        if needle in json.dumps(item, default=str):
+            return str(item["id"])
+    raise AssertionError(f"review item containing {needle!r} was not found")
+
+
+def _source_rows(payload: dict) -> list[dict]:
+    rows = payload.get("sources") or []
+    return [row for row in rows if isinstance(row, dict)]
+
+
+def _labelled_source(payload: dict, needle: str) -> dict:
+    matches = [row for row in _source_rows(payload) if needle in _unquoted(row.get("excerpt"))]
+    assert matches, payload
+    return matches[0]
+
+
+def _capture_sentence(context: MCPRuntimeContext, sentence: str) -> dict:
+    captured = _tool(
+        context,
+        "alice_capture",
+        {
+            "raw_text": sentence,
+            "title": "Shelf note",
+            "domain": "project",
+            "sensitivity": "public",
+        },
+    )
+    assert captured["status"] == "imported", captured
+    assert captured["candidate_memory_count"] == 1, captured
+    assert captured["source_id"], captured
+    return captured
+
+
+def _stored_quote_and_chunks(tmp_path: Path, *, source_id: str, memory_id: str) -> tuple[list[str], list[str]]:
+    database = resolve_db_path(data_dir=str(tmp_path), db=None)
+    with sqlite_user_connection(database, USER_ID) as connection:
+        store = SQLiteVNextStore(connection, USER_ID)
+        chunks = [str(chunk.get("text") or "") for chunk in store.list_source_chunks(source_id)]
+        quotes = [
+            str(link.get("quote") or "")
+            for link in store.list_provenance_links(target_type="memory", target_id=memory_id)
+            if str(link.get("evidence_role") or "") == "quoted_from"
+        ]
+    return chunks, quotes
+
+
+def _brief_surfaces(tmp_path: Path, monkeypatch, capsys, *, query: str | None) -> dict[str, str]:
+    """CLI brief, compile_local_session_brief, and both SessionStart formats."""
+
+    local = compile_local_session_brief(
+        resolve_db_path(data_dir=str(tmp_path), db=None),
+        user_id=USER_ID,
+        query=query,
+    )
+    argv = ["brief", "--data-dir", str(tmp_path), "--user-id", USER_ID]
+    if query is not None:
+        argv.extend(["--query", query])
+    assert onramp_main(argv) == 0
+    cli = capsys.readouterr().out
+    from alicebot_api.session_start_hook import main as hook_main
+
+    monkeypatch.setattr(sys, "stdin", io.StringIO("{}"))
+    assert hook_main(["--data-dir", str(tmp_path), "--user-id", USER_ID, "--format", "json"]) == 0
+    hook_json = json.loads(capsys.readouterr().out)
+    monkeypatch.setattr(sys, "stdin", io.StringIO("{}"))
+    assert hook_main(["--data-dir", str(tmp_path), "--user-id", USER_ID, "--format", "markdown"]) == 0
+    hook_markdown = capsys.readouterr().out
+    return {
+        "local": local,
+        "cli": cli,
+        "session_json": str(hook_json["additional_context"]),
+        "session_hook": str(hook_json["hookSpecificOutput"]["additionalContext"]),
+        "session_markdown": hook_markdown,
+    }
+
+
+def _fact_lines_of(text: str) -> list[str]:
+    return [line for line in text.splitlines() if line.startswith("**fact**:")]
+
+
+def _source_lines_of(text: str) -> list[str]:
+    return [line for line in text.splitlines() if line.startswith("**source**:")]
+
+
+def test_context_pack_marks_the_historical_address_superseded(tmp_path: Path, monkeypatch) -> None:
+    """The pack already labels the older active row. Recall must match it.
+
+    Fails if the context pack drops validity.superseded from a row whose
+    superseded_by is set.
+    """
+
+    context = _context(tmp_path, monkeypatch)
+    current, _historical = _seed_address_pair(tmp_path)
+    pack = _tool(context, "alice_context_pack", {"query": PRESENT_TENSE_QUERY})
+    memories = [row for row in pack["memories"] if isinstance(row, dict)]
+    texts = [_unquoted(row.get("canonical_text")) for row in memories]
+    assert CURRENT_ADDRESS in texts[0]
+    assert any(OLD_ADDRESS in text for text in texts)
+    historical = next(row for row in memories if OLD_ADDRESS in _unquoted(row.get("canonical_text")))
+    assert historical["validity"]["superseded"] is True
+    assert historical["validity"]["superseded_by_memory_id"] == str(current["id"])
+
+
+def test_session_start_and_cli_omit_the_historical_address(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    """SessionStart and alice-memory brief show the current street only.
+
+    Fails if either wrapper prints a **fact** line for the superseded_by row.
+    """
+
+    _context(tmp_path, monkeypatch)
+    _seed_address_pair(tmp_path)
+    surfaces = _brief_surfaces(tmp_path, monkeypatch, capsys, query=None)
+    for name, text in surfaces.items():
+        facts = _fact_lines_of(text)
+        assert any(CURRENT_ADDRESS in line for line in facts), (name, text)
+        assert not any(OLD_ADDRESS in line for line in facts), (name, text)
+
+
+def test_brief_omits_a_source_line_marked_derived_memory_corrected(tmp_path: Path, monkeypatch) -> None:
+    """A flagged excerpt is not a **source** line. An unflagged one stays.
+
+    Fails if compile_session_brief stops dropping derived_memory_corrected.
+    """
+
+    from alicebot_api.vnext_retrieval import VNextRetrievalService
+
+    _context(tmp_path, monkeypatch)
+
+    def fake_search(self, **_kwargs):
+        return (
+            [
+                {
+                    "id": "source-stale",
+                    "excerpt": STALE_SOURCE_LINE,
+                    "excerpt_kind": "imported_source_material",
+                    "derived_memory_corrected": True,
+                    "current_memory_id": "memory-current",
+                },
+                {
+                    "id": "source-fresh",
+                    "excerpt": FRESH_SOURCE,
+                    "excerpt_kind": "imported_source_material",
+                },
+            ],
+            {"source": "test"},
+        )
+
+    monkeypatch.setattr(VNextRetrievalService, "search_source_excerpts", fake_search)
+    brief = _compile(tmp_path, query="notebook shelf")
+    assert not any(STALE_SOURCE_LINE in line for line in _source_lines_of(brief)), brief
+    assert any(FRESH_SOURCE in line for line in _source_lines_of(brief)), brief
+
+
+def test_uncorrected_capture_excerpt_is_not_marked_corrected(tmp_path: Path, monkeypatch) -> None:
+    """A quote that still matches the memory is not a corrected excerpt.
+
+    Fails if every captured source gets derived_memory_corrected, or if the
+    brief drops a source whose memory was not corrected.
+    """
+
+    context = _context(tmp_path, monkeypatch)
+    captured = _capture_sentence(context, OLD_KETTLE)
+    memory_id = _review_id(context, OLD_KETTLE)
+    chunks, quotes = _stored_quote_and_chunks(
+        tmp_path, source_id=str(captured["source_id"]), memory_id=memory_id
+    )
+    assert any(OLD_KETTLE in chunk for chunk in chunks)
+    assert OLD_KETTLE in quotes
+
+    recall = _tool(context, "alice_recall", {"query": OLD_KETTLE})
+    source = _labelled_source(recall, OLD_KETTLE)
+    assert "derived_memory_corrected" not in source
+    assert "current_memory_id" not in source
+    brief = _compile(tmp_path, query=OLD_KETTLE)
+    assert any(OLD_KETTLE in line for line in _source_lines_of(brief)), brief
+
+
+def test_corrected_capture_labels_the_old_excerpt_and_drops_it_from_the_brief(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    """Edit-and-approve keeps the captured sentence on source excerpts only.
+
+    Recall and the context pack return the new sentence as the fact and the
+    old sentence as an excerpt with derived_memory_corrected and the current
+    memory id. The brief, SessionStart, and alice-memory brief omit that
+    source line. The stored chunk and quoted_from quote stay the old sentence.
+    Fails if the label is missing, the excerpt is dropped, or the brief
+    still prints the old sentence.
+    """
+
+    context = _context(tmp_path, monkeypatch)
+    captured = _capture_sentence(context, OLD_KETTLE)
+    memory_id = _review_id(context, OLD_KETTLE)
+    edited = _tool(
+        context,
+        "alice_memory_correct",
+        {
+            "action": "edit-and-approve",
+            "review_item_id": memory_id,
+            "body": {"text": NEW_KETTLE},
+            "reason": "The shelf changed.",
+        },
+    )
+    assert edited["memory"]["canonical_text"] == NEW_KETTLE
+    assert str(edited["memory"]["id"]) == memory_id
+
+    chunks, quotes = _stored_quote_and_chunks(
+        tmp_path, source_id=str(captured["source_id"]), memory_id=memory_id
+    )
+    assert any(OLD_KETTLE in chunk for chunk in chunks)
+    assert NEW_KETTLE not in "\n".join(chunks)
+    assert quotes == [OLD_KETTLE] or OLD_KETTLE in quotes
+
+    recall = _tool(context, "alice_recall", {"query": OLD_KETTLE})
+    assert any(NEW_KETTLE in text for text in _result_texts(recall))
+    assert not any(OLD_KETTLE in text for text in _result_texts(recall))
+    source = _labelled_source(recall, OLD_KETTLE)
+    assert source["derived_memory_corrected"] is True
+    assert source["current_memory_id"] == memory_id
+
+    pack = _tool(context, "alice_context_pack", {"query": OLD_KETTLE})
+    pack_source = _labelled_source(pack, OLD_KETTLE)
+    assert pack_source["derived_memory_corrected"] is True
+    assert pack_source["current_memory_id"] == memory_id
+    pack_texts = [_unquoted(row.get("canonical_text")) for row in pack["memories"]]
+    assert any(NEW_KETTLE in text for text in pack_texts)
+    assert not any(text == OLD_KETTLE for text in pack_texts)
+
+    for text in _brief_surfaces(tmp_path, monkeypatch, capsys, query=OLD_KETTLE).values():
+        assert any(NEW_KETTLE in line for line in _fact_lines_of(text)), text
+        assert not any(OLD_KETTLE in line for line in _fact_lines_of(text)), text
+        assert not any(OLD_KETTLE in line for line in _source_lines_of(text)), text
+        assert OLD_KETTLE not in text
+
+
+def test_supersede_existing_keeps_the_old_sentence_on_labelled_source_excerpts(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    """Supersede-existing leaves the captured sentence on recall and the pack.
+
+    The excerpt is labelled and points at the replacement. The brief does
+    not print the old sentence. Fails if source excerpts are dropped, the
+    label is missing, or the brief still shows the old sentence.
+    """
+
+    context = _context(tmp_path, monkeypatch)
+    captured = _capture_sentence(context, OLD_MUG)
+    memory_id = _review_id(context, OLD_MUG)
+    superseded = _tool(
+        context,
+        "alice_memory_correct",
+        {
+            "action": "supersede-existing",
+            "review_item_id": memory_id,
+            "replacement_title": "Mug shelf",
+            "replacement_body": {"text": NEW_MUG},
+            "reason": "The shelf changed.",
+        },
+    )
+    replacement_id = str(superseded["replacement_object"]["id"])
+    assert superseded["memory"]["status"] == "superseded"
+    assert str(superseded["memory"]["superseded_by"]) == replacement_id
+
+    chunks, quotes = _stored_quote_and_chunks(
+        tmp_path, source_id=str(captured["source_id"]), memory_id=memory_id
+    )
+    assert any(OLD_MUG in chunk for chunk in chunks)
+    assert OLD_MUG in quotes
+
+    recall = _tool(context, "alice_recall", {"query": OLD_MUG})
+    source = _labelled_source(recall, OLD_MUG)
+    assert source["derived_memory_corrected"] is True
+    assert source["current_memory_id"] == replacement_id
+    assert not any(OLD_MUG in text for text in _result_texts(recall))
+
+    pack = _tool(context, "alice_context_pack", {"query": OLD_MUG})
+    pack_source = _labelled_source(pack, OLD_MUG)
+    assert pack_source["derived_memory_corrected"] is True
+    assert pack_source["current_memory_id"] == replacement_id
+
+    for text in _brief_surfaces(tmp_path, monkeypatch, capsys, query=OLD_MUG).values():
+        assert any(NEW_MUG in line for line in _fact_lines_of(text)), text
+        assert OLD_MUG not in text

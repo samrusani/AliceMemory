@@ -116,7 +116,7 @@ For Postgres with pgvector, the web review console, and the core memory
 scheduler workflows, run from a repo checkout. Requirements: Python 3.12+,
 Node 20+, pnpm, Docker, Git.
 
-The clone checks out `main`, which can be ahead of the latest release. To run v0.17.0, run `git checkout v0.17.0` before `make setup`.
+The clone checks out `main`, which can be ahead of the latest release. To run v0.18.0, run `git checkout v0.18.0` before `make setup`.
 
 ```bash
 git clone https://github.com/samrusani/AliceMemory.git
@@ -166,6 +166,8 @@ The other eight core tools (`alice_capture`, `alice_context_pack`, `alice_open_l
 
 On main, not yet released: folder-import receipt items name the file, a withheld ChatGPT title is counted, the Postgres doctor names `DELETE /v0/vnext/sources/{id}`, candidate capture withholds a token, capture and the doctor follow the commit door on a low-entropy AKIA-shaped key, and an OpenCode dry run shows booleans and numbers. In v0.18.0 those receipt items omit the file, that title is not counted, the doctor says `delete_source`, the candidate response echoes the token, capture stores that key, and `"enabled": false` prints as `<hidden>`.
 
+On main, not yet released: the session brief omits a superseded fact and a source line whose captured sentence was corrected or superseded later, while recall and the context pack keep that old passage and set `derived_memory_corrected`. In v0.18.0 the brief still prints the old sentence as a fact or a source line, and the excerpt is unmarked.
+
 Calling directly from a human client (Claude Desktop, an IDE)? `alice_memory_commit` needs only `title` and `canonical_text`, with no identity fields. Agent integrations declare `agent_id` and `agent_type`; see [agent integration](https://github.com/samrusani/AliceMemory/blob/main/docs/alpha/agent-integration.md).
 
 The write verbs follow one contract. Outcomes, audit guarantees, and honest boundaries per verb are documented in the [Memory Operations Protocol](https://github.com/samrusani/AliceMemory/blob/main/docs/memory-operations-protocol.md). Removed backing services no longer have MCP tools. Retained long-tail memory tools require `ALICE_MCP_LEGACY_TOOLS=1` and append to whatever core set is enabled; exactly `alice_task_brief`, `alice_task_brief_show`, and `alice_task_brief_compare` additionally require `ALICE_LEGACY_SURFACES=1`. All legacy tools require a deliberately keyless local-operator deployment; a server bound with `ALICE_AGENT_API_KEY` exposes only the enabled core set.
@@ -189,12 +191,10 @@ vector list and the retrieval trace says so.
 
 ## Status
 
-`v0.17.0` is the latest published release and remains the install, checksum,
+`v0.18.0` is the latest published release and remains the install, checksum,
 and release-note baseline (the `v0.13.0` tag was never published;
 superseded). Its tag, release record, and published artifacts
-are immutable.
-`v0.18.0` is the current release candidate. It is not published.
-`v0.12.0` was the structural refactor release. Structure only. Zero behavior change.
+are immutable.`v0.12.0` was the structural refactor release. Structure only. Zero behavior change.
 Alice is a public-alpha, pre-1.0 project.
 What that means in practice:
 
@@ -224,7 +224,7 @@ What that means in practice:
 - [Health and monitoring](https://github.com/samrusani/AliceMemory/blob/main/docs/runbooks/health-and-monitoring.md)
 - [Upgrade v0.12.0 to current](https://github.com/samrusani/AliceMemory/blob/main/docs/runbooks/upgrade-v0.12-to-current.md)
 - [Security and privacy](https://github.com/samrusani/AliceMemory/blob/main/docs/alpha/security-and-privacy.md)
-- [v0.17.0 release notes](https://github.com/samrusani/AliceMemory/blob/main/docs/release/v0.17.0-release-notes.md)
+- [v0.18.0 release notes](https://github.com/samrusani/AliceMemory/blob/main/docs/release/v0.18.0-release-notes.md)
 - [All release notes](https://github.com/samrusani/AliceMemory/releases)
 - [Release procedure](https://github.com/samrusani/AliceMemory/blob/main/RELEASING.md)
 - [Architecture](https://github.com/samrusani/AliceMemory/blob/main/ARCHITECTURE.md)

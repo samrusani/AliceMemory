@@ -21,6 +21,14 @@ The wrapper reads the host payload on stdin, compiles the same brief as
 `hookSpecificOutput.additionalContext` is the Claude Code `SessionStart`
 field. One command covers both.
 
+Unreleased (on main, not in v0.18.0): the brief shows current facts only.
+A memory with `superseded_by` set, or status `superseded`, is left out,
+and so is a `**source**` line whose captured sentence was corrected or
+superseded after the capture. In v0.18.0 SessionStart and
+`alice-memory brief` still print that older sentence as a `**fact**` or
+a `**source**` line. Recall and the context pack keep the passage and
+label it; this hook does not.
+
 On any error the JSON wrapper prints `{}` and exits 0. After
 `--format markdown` is known, fail-open is a single blank line and
 exit 0. If argparse fails before format is known, `{}` is still

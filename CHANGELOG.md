@@ -22,6 +22,18 @@
   refused it.
 - An OpenCode dry run shows booleans and numbers, including
   `"enabled": false`. In v0.18.0 those values print as `<hidden>`.
+- The session brief (SessionStart, `alice-memory brief`, and
+  `compile_local_session_brief`) shows current facts only. A memory whose
+  `superseded_by` is set, or whose status is `superseded`, is omitted. A
+  `**source**` line is omitted when the captured sentence's `quoted_from`
+  memory was corrected or superseded after that capture. `alice_recall`
+  still returns the older row after the current one, with
+  `validity.superseded: true`, which `alice_context_pack` already set.
+  Recall and the context pack keep the old passage under `sources` and add
+  `derived_memory_corrected: true` plus `current_memory_id`. The stored
+  chunk and the `quoted_from` quote are unchanged. In v0.18.0 the brief
+  still prints that older sentence as a `**fact**` or a `**source**` line,
+  and recall does not mark the excerpt.
 
 ## v0.18.0 — 2026-09-28
 
