@@ -446,12 +446,16 @@ def test_release_workflow_is_manual_only_and_scheduler_child_preserves_once() ->
 def test_pnpm10_dependency_audit_decision_is_fail_closed_and_documented() -> None:
     package = json.loads(_read("apps/web/package.json"))
     workflow = _read(".github/workflows/tests.yml")
+    smoke = _read(".github/workflows/deployment-guide-smoke.yml")
     audit_script = _read("apps/web/scripts/npm-advisory-audit.mjs")
     releasing = _read("RELEASING.md")
 
     assert package["packageManager"] == "pnpm@10.23.0"
     assert package["devDependencies"]["semver"] == "7.8.0"
-    assert "node-version: \"20\"" in workflow
+    assert workflow.count('node-version: "22.22.2"') == 1
+    assert smoke.count('node-version: "22.22.2"') == 1
+    assert 'node-version: "20"' not in workflow
+    assert 'node-version: "20"' not in smoke
     assert "node scripts/npm-advisory-audit.mjs --prod --audit-level=high" in workflow
     assert "node scripts/npm-advisory-audit.mjs --audit-level=high" in workflow
     assert "pnpm test:advisory-audit" in workflow
