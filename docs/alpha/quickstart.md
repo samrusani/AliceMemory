@@ -16,8 +16,8 @@ What install writes:
 - An `alice` MCP entry for Claude Desktop, Claude Code, Cursor and OpenClaw. Other entries in those files are kept. The receipt prints each file's path.
 - A SessionStart hook for Claude Code (`~/.claude/settings.json`) and Cursor (`~/.cursor/hooks.json`), so the next session can inject the brief. Claude Desktop and OpenClaw get no hook.
 - For OpenClaw, the receipt also prints an `openclaw mcp add alice ...` line you can run instead.
-- Hermes is opt-in. `--host hermes` configures Hermes only, because any `--host` replaces the default set; pass all five hosts to write them together. Install then writes only the `mcp_servers.alice` lines in `~/.hermes/config.yaml` and keeps the rest of the file. Hermes gets no hook. If the file uses YAML the installer does not edit, install changes nothing, prints the lines to add by hand, and exits non-zero.
-- Unreleased (on main, not in v0.17.0): OpenCode is opt-in with `--host opencode`. See [OpenCode](../integrations/opencode.md).
+- Hermes is opt-in. `--host hermes` configures Hermes only, because any `--host` replaces the default set; pass each host you want to write them together. Install then writes only the `mcp_servers.alice` lines in `~/.hermes/config.yaml` and keeps the rest of the file. Hermes gets no hook. If the file uses YAML the installer does not edit, install changes nothing, prints the lines to add by hand, and exits non-zero.
+- OpenCode is opt-in with `--host opencode`, which writes `opencode.json` or `opencode.jsonc`. See [OpenCode](../integrations/opencode.md).
 
 The data dir:
 
