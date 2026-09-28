@@ -61,6 +61,7 @@ from alicebot_api.vnext_retrieval import (
     VNextRetrievalService,
     _order_memories_for_strategy,
     _prefer_current_versions,
+    _validity_annotation,
     _ResolvedRetrievalScope,
     expand_provenance_once,
     reciprocal_rank_fusion,
@@ -309,14 +310,30 @@ def _handle_alice_recall(context: MCPRuntimeContext, arguments: Mapping[str, obj
         # context pack already runs after the budget-strategy reorder.
         # Replacement sits above its superseded ancestor; nothing is dropped.
         ordered_rows, _supersession_reorders = _prefer_current_versions(ordered_rows)
+        # Same pack-mate hint compile_context_pack uses: a row named by a
+        # result's supersedes pointer is superseded even without the column.
+        superseded_by_packmate: dict[str, str] = {}
+        for memory in ordered_rows:
+            pointer = memory.get("supersedes")
+            if pointer:
+                superseded_by_packmate.setdefault(str(pointer), str(memory.get("id") or ""))
         results: list[JsonObject] = []
         for item in ordered_rows:
             provenance_count = len(store.list_provenance_links(target_type="memory", target_id=str(item.get("id"))))
+            compact = _compact_recall_result(
+                item, score=scores[str(item.get("id"))], provenance_count=provenance_count
+            )
+            validity = _validity_annotation(
+                dict(item),
+                superseded_by_hint=superseded_by_packmate.get(str(item.get("id") or "")),
+            )
+            # Only the superseded flag changes the recall shape. Rows that
+            # merely have a validity window keep the compact result.
+            if isinstance(validity, dict) and validity.get("superseded") is True:
+                compact["validity"] = validity
             results.append(
                 present_model_item(
-                    _compact_recall_result(
-                        item, score=scores[str(item.get("id"))], provenance_count=provenance_count
-                    ),
+                    compact,
                     source=item,
                     writer=memory_writer(store, item),
                 )
