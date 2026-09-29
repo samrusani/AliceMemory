@@ -40,7 +40,10 @@ from alicebot_api.onramp import (
     data_dir_absolute_after_tilde,
     resolve_db_path,
 )
-from alicebot_api.session_briefing import compile_local_session_brief
+from alicebot_api.session_briefing import (
+    compile_local_session_brief,
+    fit_emitted_session_brief,
+)
 
 ALICE_MEMORY_DATA_DIR_ENV = "ALICE_MEMORY_DATA_DIR"
 DEFAULT_DATA_DIR = "~/.alice"
@@ -168,6 +171,8 @@ def _run(args: argparse.Namespace) -> int:
         user_id=args.user_id,
         query=None,
     )
+    # Cap the string the host counts, after anything appended to the brief.
+    markdown = fit_emitted_session_brief(markdown)
     if "jsonrpc" in markdown or "Content-Length:" in markdown:
         _fail_open(args.format)
         return 0

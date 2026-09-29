@@ -1,7 +1,7 @@
 """Local SQLite vault census for ``alice-memory doctor``.
 
 Reports what is already stored for one ``user_id``. Sources and searchable
-chunks first. Committed facts next. The last brief token estimate uses
+chunks first. Committed facts next. The last brief character count uses
 ``compile_local_session_brief`` with ``query=None``. Candidates next.
 Sleep proposals last. That count is sidecar rows for this user, not
 memory rows. When the sidecar cannot be read, that line is
@@ -21,12 +21,12 @@ from uuid import UUID
 from alicebot_api.legacy_credential_check import commit_door_fields_verdict
 from alicebot_api.session_briefing import (
     COMMITTED_MEMORY_STATUSES,
-    SESSION_BRIEF_TOKEN_BUDGET,
+    SESSION_BRIEF_CHAR_CAP,
+    brief_char_len,
     compile_local_session_brief,
 )
 from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
 from alicebot_api.vault_sleep import SleepError, count_sleep_proposals, sleep_proposals_path
-from alicebot_api.vnext_retrieval import estimate_item_tokens
 
 CANDIDATE_STATUS = "candidate"
 
@@ -110,14 +110,14 @@ def compile_local_vault_doctor(
             proposal_line = "sleep proposals: unreadable"
 
     markdown = compile_local_session_brief(resolved, user_id=user_id, query=None)
-    token_estimate = estimate_item_tokens({"text": markdown})
+    character_count = brief_char_len(markdown)
     return "\n".join(
         (
             f"db: {resolved}",
             f"sources: {source_count}",
             f"searchable chunks: {chunk_count}",
             f"committed facts: {fact_count}",
-            f"last brief: {token_estimate} / {SESSION_BRIEF_TOKEN_BUDGET} tokens",
+            f"last brief: {character_count} / {SESSION_BRIEF_CHAR_CAP} characters",
             f"candidates waiting: {candidate_count}",
             proposal_line,
             f"flagged sources: {len(flagged_ids)}",
