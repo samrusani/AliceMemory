@@ -2322,6 +2322,23 @@ def _hermes_payload(plan: _EntryPlan) -> dict[str, object]:
     return payload
 
 
+def _hermes_alice_has_comment(doc: _YamlText, start: int, last: int) -> bool:
+    """True when the alice block holds a comment install would otherwise drop.
+
+    A re-run replaces the block's lines, so a full-line ``# note`` or an
+    inline ``# comment`` inside that span would disappear. A ``#`` inside a
+    quoted scalar is not a comment: the scanner leaves ``comment`` empty.
+    """
+
+    for index in range(start, last + 1):
+        item = doc.info[index]
+        if item is not None and item.comment:
+            return True
+        if doc.lines[index].lstrip(" ").startswith("#"):
+            return True
+    return False
+
+
 def _plan_hermes(
     text: str,
     explicit_dir: str | None,
@@ -2451,6 +2468,18 @@ def _plan_hermes(
         start = alice[0]
         stop = next((index for index in children if index > start), end)
         last = max(index for index in range(start, stop) if doc.substantive(index))
+        if _hermes_alice_has_comment(doc, start, last):
+            aliases = _anchor_values(doc, lexed)
+            recovered = explicit_dir or _recover_alice_dir(
+                doc, lexed, start, last, aliases, home, default_dir
+            )
+            raise HermesConfigRefused(
+                "a comment in mcp_servers.alice",
+                start + 1,
+                data_dir=recovered,
+                placeholder=recovered is None,
+                located=True,
+            )
         aliases = _anchor_values(doc, lexed)
         carried, unsafe = _documented_env_carry(doc, lexed, start, last)
         if unsafe:

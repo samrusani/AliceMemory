@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Hermes install refuses a comment inside `mcp_servers.alice` instead of dropping it. A full-line `# note` or an inline `# comment` leaves the file unchanged and takes no backup.
 - A ChatGPT conversation title that holds a token is stored as `withheld`
   and counted in `skipped_credentials` and `skipped_credential_items` as
   `conversation X title`. In v0.18.0 that title is stored as `withheld`

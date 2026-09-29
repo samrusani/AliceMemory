@@ -1502,3 +1502,39 @@ def test_real_hermes_loads_the_written_config(tmp_path: Path, capsys) -> None:
     assert listed.returncode == 0, (version, listed.stderr)
     rows = {line.split()[0] for line in listed.stdout.splitlines() if line.strip()}
     assert {"other", "alice"} <= rows, (version, listed.stdout)
+
+
+@pytest.mark.parametrize(
+    "label, alice",
+    [
+        (
+            "full-line",
+            "  alice:\n    command: uvx\n    # note\n    args: [alice-memory, mcp, --data-dir, /old/vault]\n",
+        ),
+        (
+            "inline",
+            "  alice:\n    command: uvx\n    args: [alice-memory, mcp, --data-dir, /old/vault]  # comment\n",
+        ),
+    ],
+)
+def test_hermes_refuses_a_comment_inside_alice(
+    tmp_path: Path, capsys, label: str, alice: str
+) -> None:
+    """A comment inside mcp_servers.alice is refused, not stripped.
+
+    Mutation: drop this check and replace the block. This test fails.
+    """
+
+    home = tmp_path / "home"
+    vault = tmp_path / "vault"
+    original = "mcp_servers:\n" + alice
+    config = _seed(home, original)
+    code, out, err = _install(home, vault, capsys)
+    assert code == 1, (label, out, err)
+    assert config.read_bytes() == original.encode("utf-8")
+    assert _backups(config) == []
+    assert not (vault / "backups").exists()
+    assert "a comment in mcp_servers.alice" in out
+    assert "snippet:" in out
+    assert f"next: {config.name} was not changed." in out
+    assert "hermes mcp list" in out
