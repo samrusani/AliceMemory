@@ -187,6 +187,30 @@ def _spans(original: str, output: str) -> list[tuple[str, str]]:
     raise JudgeFailure("the edit is more than two alice spans")
 
 
+def has_bare_lf_outside_multiline(text: str) -> bool:
+    """True when a LF is not part of CRLF and not inside a multi-line string."""
+
+    index = 0
+    length = len(text)
+    while index < length:
+        if text[index] in "\"'":
+            start = index
+            end = _skip_string(text, index, "\n")
+            if text.startswith('"""', start) or text.startswith("'''", start):
+                if "\n" in text[start:end] or "\r" in text[start:end]:
+                    index = end
+                    continue
+            index = end
+            continue
+        if text.startswith("\r\n", index):
+            index += 2
+            continue
+        if text[index] == "\n":
+            return True
+        index += 1
+    return False
+
+
 def judge_case(
     *,
     original: str,
@@ -214,6 +238,9 @@ def judge_case(
     new_tokens = comment_tokens(output)
     if old_tokens != new_tokens:
         raise JudgeFailure(f"stamped comments changed: {old_tokens} -> {new_tokens}")
+    if "\r\n" in original and not has_bare_lf_outside_multiline(original):
+        if has_bare_lf_outside_multiline(output):
+            raise JudgeFailure("bare LF outside a multi-line string")
     _spans(original, output)
     if _strip(before) != _strip(after):
         raise JudgeFailure("a value outside alice changed")

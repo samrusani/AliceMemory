@@ -20,7 +20,7 @@ import tomllib
 import zipfile
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, time
 from pathlib import Path, PureWindowsPath
 from typing import Any, NoReturn
 
@@ -5209,6 +5209,7 @@ class CodexPlan:
     details: tuple[str, ...] = ()
     used_fallback: bool = False
     carried_lines: tuple[str, ...] = ()
+    carried_hidden: tuple[str, ...] = ()
 
 
 _CODEX_CARRIED_KEYS = (
@@ -6037,7 +6038,7 @@ def _codex_carry_problem(key: str, value: object) -> str | None:
             return f"Codex would refuse to load this value for {key}"
         return None
     if key == "default_tools_approval_mode":
-        if value not in _CODEX_APPROVAL_MODES:
+        if not isinstance(value, str) or value not in _CODEX_APPROVAL_MODES:
             return f"Codex would refuse to load this value for {key}"
         return None
     if key == "env_vars":
@@ -6283,8 +6284,9 @@ def _codex_guard(
     outside_new = _codex_outside(edited, (inserted,))
     if outside_old != outside_new:
         _codex_refuse("the edited config.toml changed bytes outside alice")
-    # A comment outside alice is also bytes outside alice, so the bytes check
-    # above already refuses it. This list stays as a named reason.
+    # A block that ends inside a comment can leave the outside bytes unchanged
+    # and still drop or join an outside comment. This check is the one that
+    # refuses that edit.
     if _codex_comments_outside(original, nl, removals) != _codex_comments_outside(edited, nl, (inserted,)):
         _codex_refuse("the edited config.toml changed a comment outside alice")
 
@@ -6571,13 +6573,15 @@ def _plan_codex_text(
         details = [*entry_plan.details, *_codex_server_notes(servers)]
         if alice.get("enabled") is False:
             details.append("note: Codex will not start alice")
+        carried_lines, carried_hidden = _codex_snippet_lines(alice, carried_keys)
         return CodexPlan(
             None,
             entry_plan.data_dir,
             probe,
             tuple(details),
             False,
-            _codex_snippet_lines(alice, carried_keys),
+            carried_lines,
+            carried_hidden,
         )
     if entry_plan.entry is None:
         visible = _visible_dir(alice, home)
@@ -6608,13 +6612,15 @@ def _plan_codex_text(
     if alice.get("enabled") is False:
         details.append("note: Codex will not start alice")
     details.extend(_codex_server_notes(servers))
+    carried_lines, carried_hidden = _codex_snippet_lines(alice, carried_keys)
     return CodexPlan(
         None if edited == text else edited,
         entry_plan.data_dir,
         entry_plan.entry,
         tuple(details),
         entry_plan.used_fallback,
-        _codex_snippet_lines(alice, carried_keys),
+        carried_lines,
+        carried_hidden,
     )
 
 
@@ -6696,7 +6702,8 @@ def _codex_tools_shape_problem(tools: object) -> tuple[str, str] | None:
         label = f"tools.{name}"
         if not isinstance(value, dict):
             return (label, f"{label} is not a table")
-        if "approval_mode" in value and value.get("approval_mode") not in _CODEX_APPROVAL_MODES:
+        mode = value.get("approval_mode")
+        if "approval_mode" in value and (not isinstance(mode, str) or mode not in _CODEX_APPROVAL_MODES):
             return (
                 label,
                 f"{label}.approval_mode is not auto, prompt, writes, or approve",
@@ -6717,16 +6724,28 @@ def _codex_lookup_path(root: Mapping[str, object], key: Sequence[str]) -> object
     return node
 
 
-def _codex_mask_carried_string(value: str) -> str:
-    shown, _hidden = _masked_words([value])
-    return shown[0] if shown else _HIDDEN
+def _codex_unquoted_time(value: date | time) -> str:
+    """A date or time as the file writes it: unquoted, with ``Z`` for UTC."""
+
+    rendered = value.isoformat()
+    if rendered.endswith("+00:00"):
+        return rendered[:-6] + "Z"
+    return rendered
 
 
-def _codex_format_carried(value: object, *, mask_strings: bool) -> str:
+def _codex_format_carried(
+    value: object, *, mask_strings: bool, masked: list[str] | None = None
+) -> str:
     """One carried value, from the parse. Arrays stay on one line."""
 
     if isinstance(value, bool):
         return "true" if value else "false"
+    if isinstance(value, datetime):
+        return _codex_unquoted_time(value)
+    if isinstance(value, date):
+        return _codex_unquoted_time(value)
+    if isinstance(value, time):
+        return _codex_unquoted_time(value)
     if isinstance(value, int) and not isinstance(value, bool):
         return str(value)
     if isinstance(value, float):
@@ -6736,36 +6755,46 @@ def _codex_format_carried(value: object, *, mask_strings: bool) -> str:
             return "inf" if value > 0 else "-inf"
         return str(value)
     if isinstance(value, str):
-        shown = _codex_mask_carried_string(value) if mask_strings else value
-        return _toml_snippet(shown)
+        if mask_strings:
+            shown, found = _masked_words([value])
+            if masked is not None:
+                masked.extend(found)
+            return _toml_snippet(shown[0] if shown else _HIDDEN)
+        return _toml_snippet(value)
     if isinstance(value, list):
-        parts = [_codex_format_carried(item, mask_strings=mask_strings) for item in value]
-        return "[" + ", ".join(parts) + "]"
+        rendered = [
+            _codex_format_carried(item, mask_strings=mask_strings, masked=masked) for item in value
+        ]
+        return "[" + ", ".join(rendered) + "]"
     if isinstance(value, dict):
-        parts: list[str] = []
+        pairs: list[str] = []
         for name, item in value.items():
             shown_key = name if _CODEX_BARE_KEY.fullmatch(name) else _toml_snippet(name)
-            parts.append(
-                f"{shown_key} = {_codex_format_carried(item, mask_strings=mask_strings)}"
+            pairs.append(
+                f"{shown_key} = {_codex_format_carried(item, mask_strings=mask_strings, masked=masked)}"
             )
-        return "{ " + ", ".join(parts) + " }"
+        return "{ " + ", ".join(pairs) + " }"
     return _toml_snippet(str(value))
 
 
-def _codex_carried_snippet_line(key: Sequence[str], value: object) -> str:
+def _codex_carried_snippet_line(
+    key: Sequence[str], value: object, masked: list[str]
+) -> str:
     mask = bool(key) and key[0] in {"env_vars", "tools"}
     name = ".".join(
         part if _CODEX_BARE_KEY.fullmatch(part) else _toml_snippet(part) for part in key
     )
-    return f"{name} = {_codex_format_carried(value, mask_strings=mask)}"
+    return f"{name} = {_codex_format_carried(value, mask_strings=mask, masked=masked)}"
 
 
 def _codex_snippet_lines(
     alice: Mapping[str, object], keys: Sequence[tuple[str, ...]]
-) -> tuple[str, ...]:
-    return tuple(
-        _codex_carried_snippet_line(key, _codex_lookup_path(alice, key)) for key in keys
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    masked: list[str] = []
+    lines = tuple(
+        _codex_carried_snippet_line(key, _codex_lookup_path(alice, key), masked) for key in keys
     )
+    return lines, tuple(dict.fromkeys(masked))
 
 
 def _codex_env_name(name: str) -> str:
@@ -6774,47 +6803,66 @@ def _codex_env_name(name: str) -> str:
     return _toml_snippet(name)
 
 
-def _codex_text_has_alice(text: str) -> bool:
-    """True when the text names an alice entry the scanner may not have reached."""
+def _codex_header_segment(name: str) -> str:
+    return rf"(?:{name}|\"{name}\"|'{name}')"
 
-    if re.search(r"(?m)^[ \t]*\[mcp_servers\.alice(?:\]|\.)", text):
+
+def _codex_text_has_alice(text: str) -> bool:
+    """True when an unparsed file names an alice header.
+
+    Quoted or spaced segments count. A leading BOM is ignored. Call this
+    only when ``tomllib`` failed: a header inside a string is not an entry
+    once the file parses.
+    """
+
+    if text.startswith("\ufeff"):
+        text = text[1:]
+    gap = r"[ \t]*"
+    mcp = _codex_header_segment("mcp_servers")
+    alice = _codex_header_segment("alice")
+    if re.search(rf"(?m)^{gap}\[{gap}{mcp}{gap}\.{gap}{alice}(?:{gap}\]|{gap}\.)", text):
         return True
-    if re.search(r"(?m)^[ \t]*mcp_servers\.alice(?:\.|[ \t]*=)", text):
+    if re.search(rf"(?m)^{gap}{mcp}{gap}\.{gap}{alice}(?:{gap}\.|{gap}=)", text):
         return True
-    if re.search(r"(?m)^[ \t]*\[mcp_servers\][ \t]*(?:#.*)?$", text) and re.search(
-        r"(?m)^[ \t]*alice[ \t]*[=.]", text
+    if re.search(rf"(?m)^{gap}\[{gap}{mcp}{gap}\]{gap}(?:#.*)?$", text) and re.search(
+        rf"(?m)^{gap}{alice}{gap}[=.]", text
     ):
         return True
-    if re.search(r"(?m)^[ \t]*mcp_servers[ \t]*=[ \t]*\{", text) and re.search(
-        r"\balice\b", text
-    ):
+    if re.search(rf"(?m)^{gap}{mcp}{gap}={gap}\{{", text) and re.search(rf"\b{alice}\b", text):
         return True
     return False
 
 
-def _codex_locate_for_refusal(text: str, home: Path) -> tuple[str, str | None]:
+def _codex_locate_for_refusal(
+    text: str, home: Path
+) -> tuple[str, str | None, dict[str, object] | None]:
     """Best-effort alice location for a refusal that happened before the planner.
 
     ``dir`` carries the entry's data dir. ``placeholder`` means alice is
     named but the dir could not be read. ``absent`` means no alice entry.
+    When the file parses, the third item is the entry's own command, args,
+    and env. The header regex runs only when ``tomllib`` fails.
     """
 
+    body = text[1:] if text.startswith("\ufeff") else text
     parsed: object | None
     try:
-        parsed = tomllib.loads(text)
+        parsed = tomllib.loads(body)
     except tomllib.TOMLDecodeError:
         parsed = None
     if isinstance(parsed, dict):
         servers = parsed.get("mcp_servers")
         alice = servers.get("alice") if isinstance(servers, dict) else None
         if isinstance(alice, dict):
+            payload = _codex_refusal_payload(alice)
             visible = _visible_dir(alice, home)
             if visible:
-                return "dir", visible
-            return "placeholder", None
-    if _codex_text_has_alice(text):
-        return "placeholder", None
-    return "absent", None
+                return "dir", visible, payload
+            return "placeholder", None, payload
+        return "absent", None, None
+    if _codex_text_has_alice(body):
+        return "placeholder", None, None
+    return "absent", None, None
 
 
 def _codex_snippet(
@@ -7031,7 +7079,9 @@ def _install_codex_host(
 
     def refuse(reason: CodexConfigRefused, directory: str) -> _HostResult:
         if source_text and not reason.located:
-            mode, found_dir = _codex_locate_for_refusal(source_text, home)
+            mode, found_dir, found_payload = _codex_locate_for_refusal(source_text, home)
+            if found_payload is not None and reason.payload is None:
+                reason.payload = found_payload
             if mode == "dir":
                 reason.located = True
                 reason.data_dir = found_dir
@@ -7101,8 +7151,10 @@ def _install_codex_host(
             original = target.read_bytes()
             try:
                 decoded = original.decode("utf-8")
-            except UnicodeDecodeError as exc:
-                raise CodexConfigRefused(f"{path.name} is not UTF-8") from exc
+            except UnicodeDecodeError:
+                decoded = original.decode("utf-8", errors="replace")
+                source_text = decoded
+                raise CodexConfigRefused(f"{path.name} is not UTF-8") from None
             source_text = decoded
             plan = _plan_codex_text(decoded, explicit_dir, default_dir, home=home, search=search)
     except CodexConfigRefused as refusal:
@@ -7126,8 +7178,9 @@ def _install_codex_host(
         else:
             details.append("planned: edit, with a backup first")
         dry_trailer: list[str] = []
-        if hidden:
-            dry_trailer.append(_hidden_line(hidden))
+        shown_hidden = list(dict.fromkeys([*hidden, *plan.carried_hidden]))
+        if shown_hidden:
+            dry_trailer.append(_hidden_line(shown_hidden))
         dry_trailer.extend(success_trailer)
         return _HostResult(
             receipt(

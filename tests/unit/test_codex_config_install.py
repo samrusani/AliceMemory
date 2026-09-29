@@ -53,7 +53,10 @@ def _codex_output_has_no_unexpected_failure(request, capsys, monkeypatch):
 
     monkeypatch.setattr(capsys, "readouterr", wrapped)
     yield
-    if request.node.name == "test_codex_one_host_crash_does_not_hide_the_other":
+    if request.node.name in {
+        "test_codex_one_host_crash_does_not_hide_the_other",
+        "test_codex_failed_host_receipt_names_the_path",
+    }:
         return
     leftover = real()
     seen.append(leftover.out)
@@ -920,6 +923,11 @@ def test_seeded_fuzz_run_finds_no_meaning_change() -> None:
     A writer that refuses everything fails it too: every label has to be written.
     """
 
+    import inspect
+
+    assert inspect.signature(fuzz.run).parameters["configs_per_seed"].default == len(fuzz.LABELS)
+    literal = "quoted = \"x ''' y\"\nticks = '''a # not a comment'''\n# cabcde after\n"
+    assert host_install._codex_comments_outside(literal, "\n", ()) == ["# cabcde after"]
     counts = fuzz.run(range(3), configs_per_seed=len(fuzz.LABELS), mutants_per_config=2)
     refusable = {"comment-in-args", "tools-key-and-table", "out-of-range"}
     writable = [label for label in fuzz.LABELS if label not in refusable]
@@ -1807,9 +1815,9 @@ def test_codex_bare_tools_header_is_kept(
 def test_codex_guard_checks_are_separate() -> None:
     """Each guard reason can fire on its own.
 
-    The comment-list check is redundant with the bytes check: a comment
-    outside alice is bytes outside alice, so a comment-only edit already
-    fails the bytes check. This test does not invent a second way to trip it.
+    The comment-list check is not redundant. A block that ends inside a
+    comment, with no newline before an outside ``# tail``, leaves the
+    outside bytes unchanged and only this check refuses it.
     """
 
     entry = {"command": "uvx", "args": ["alice-memory", "mcp", "--data-dir", "/v"]}
@@ -1834,6 +1842,20 @@ def test_codex_guard_checks_are_separate() -> None:
     with pytest.raises(CodexConfigRefused, match="missing mcp_servers.alice"):
         host_install._codex_guard(
             original, original, "\n", entry, (), (len(original), len(original)), old
+        )
+    original_tail = 'model = "x"\n# tail'
+    edited_tail = 'model = "x"\n' + alice + "# c# tail"
+    insert_start = len('model = "x"\n')
+    insert_end = len(edited_tail) - len("# tail")
+    with pytest.raises(CodexConfigRefused, match="changed a comment outside alice"):
+        host_install._codex_guard(
+            original_tail,
+            edited_tail,
+            "\n",
+            entry,
+            (),
+            (insert_start, insert_end),
+            tomllib.loads(original_tail),
         )
 
 
@@ -1893,3 +1915,318 @@ def test_real_codex_tools_key_and_table(tmp_path: Path) -> None:
         assert got.returncode == expected[label], (label, got.returncode, got.stderr)
         if expected[label] == 1:
             assert "duplicate key" in got.stderr, (label, got.stderr)
+
+
+def test_codex_unhashable_approval_mode_is_refused(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A list or table approval mode is a refusal, not a TypeError.
+
+    Mutation: test membership with ``value in _CODEX_APPROVAL_MODES`` on the
+    raw value. The receipt says ``unexpected TypeError``. This test fails.
+    """
+
+    header = (
+        "[mcp_servers.alice]\n"
+        'command = "uvx"\n'
+        'args = ["alice-memory", "mcp", "--data-dir", "/old"]\n'
+    )
+    cases = (
+        'tools.alice_recall = { approval_mode = ["approve"] }\n',
+        "tools.alice_recall = { approval_mode = { x = 1 } }\n",
+        'default_tools_approval_mode = ["approve"]\n',
+    )
+    for index, extra in enumerate(cases):
+        home = tmp_path / f"home-{index}"
+        path = _seed(home, header + extra)
+        before = path.read_bytes()
+        code, out, err = _install(home, tmp_path / f"vault-{index}", capsys)
+        assert code == 1, (extra, out, err)
+        assert path.read_bytes() == before
+        assert "action: refused" in out
+        assert "unexpected" not in out
+        assert "approval" in out
+
+
+def test_codex_output_token_limit_must_be_a_positive_integer(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    header = (
+        "[mcp_servers.alice]\n"
+        'command = "uvx"\n'
+        'args = ["alice-memory", "mcp", "--data-dir", "/old"]\n'
+        "[mcp_servers.alice.tools.alice_recall]\n"
+    )
+    for index, extra in enumerate(("output_token_limit = 0\n", "output_token_limit = 1.5\n")):
+        home = tmp_path / f"limit-{index}"
+        path = _seed(home, header + extra)
+        before = path.read_bytes()
+        code, out, err = _install(home, tmp_path / f"vault-limit-{index}", capsys)
+        assert code == 1, (extra, out, err)
+        assert path.read_bytes() == before
+        assert "output_token_limit is not a positive integer" in out
+        assert "action: refused" in out
+
+
+def test_codex_array_numbers_are_refused_with_their_line(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    header = (
+        "[mcp_servers.alice]\n"
+        'command = "uvx"\n'
+        'args = ["alice-memory", "mcp", "--data-dir", "/old"]\n'
+    )
+    cases = (
+        (header + "a = [1e400]\n", "float that is not finite (line 4)"),
+        (
+            header + "nums = [\n  9223372036854775808,\n]\n",
+            "integer outside the i64 range (line 5)",
+        ),
+    )
+    for index, (original, needle) in enumerate(cases):
+        home = tmp_path / f"array-{index}"
+        path = _seed(home, original)
+        before = path.read_bytes()
+        code, out, err = _install(home, tmp_path / f"vault-array-{index}", capsys)
+        assert code == 1, (needle, out, err)
+        assert path.read_bytes() == before
+        assert needle in out
+
+
+def test_codex_unparseable_header_uses_the_placeholder(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    original = (
+        "[mcp_servers.alice]\n"
+        'command = "uvx"\n'
+        'tools.alice_recall = { approval_mode = "approve", }\n'
+    )
+    home = tmp_path / "home"
+    path = _seed(home, original)
+    before = path.read_bytes()
+    code, out, err = _install(home, tmp_path / "vault", capsys)
+    assert code == 1, (out, err)
+    assert path.read_bytes() == before
+    assert "<the data dir your existing alice entry uses>" in out
+    assert _HAND_NEXT in out
+
+
+def test_codex_crlf_file_keeps_crlf_outside_strings(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A CRLF file is still CRLF after install, outside multi-line strings.
+
+    Mutation: write the block with LF. The written file has a bare LF, and
+    the next install refuses mixed endings. This test fails.
+    """
+
+    from tests.unit.toml_judge import has_bare_lf_outside_multiline
+
+    original = (
+        "[mcp_servers.alice]\r\n"
+        'command = "uvx"\r\n'
+        'args = ["alice-memory", "mcp", "--data-dir", "/old"]\r\n'
+    )
+    home = tmp_path / "home"
+    path = _seed(home, original)
+    code, out, err = _install(home, tmp_path / "vault", capsys)
+    assert code == 0, (out, err)
+    written = path.read_bytes().decode("utf-8")
+    assert "\r\n" in written
+    assert not has_bare_lf_outside_multiline(written)
+    code, out, err = _install(home, tmp_path / "vault", capsys)
+    assert code == 0, err
+    assert "mixed line endings" not in out
+
+
+def test_codex_empty_multiline_string_allows_crlf_inside_another(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    original = (
+        'x = """"""\n'
+        'body = """\r\n'
+        "kept\r\n"
+        '"""\n'
+        "[mcp_servers.alice]\n"
+        'command = "uvx"\n'
+        'args = ["alice-memory", "mcp", "--data-dir", "/old"]\n'
+    )
+    home = tmp_path / "home"
+    path = _seed(home, original)
+    code, out, err = _install(home, tmp_path / "vault", capsys)
+    assert code == 0, (out, err)
+    assert "mixed line endings" not in out
+    assert 'x = """"""' in path.read_text(encoding="utf-8")
+
+
+def test_codex_dry_run_masks_a_token_inside_tools(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    token = "gh" + "p_" + "Q7xK9mN2pL4a"
+    original = (
+        "[mcp_servers.alice]\n"
+        'command = "uvx"\n'
+        'args = ["alice-memory", "mcp", "--data-dir", "/old"]\n'
+        "tools.alice_recall = { approval_mode = \"approve\", note = \"" + token + "\" }\n"
+    )
+    home = tmp_path / "home"
+    _seed(home, original)
+    code, out, err = _install(home, tmp_path / "vault", capsys, "--dry-run")
+    assert code == 0, (out, err)
+    assert token not in out and token not in err
+    assert "hidden: install printed these values from your file as <hidden>:" in out
+
+
+def test_codex_dry_run_prints_dates_unquoted(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    original = (
+        "[mcp_servers.alice]\n"
+        'command = "uvx"\n'
+        'args = ["alice-memory", "mcp", "--data-dir", "/old"]\n'
+        "tools.alice_recall = { approval_mode = \"approve\", when = 1979-05-27T07:32:00Z, "
+        "seen_on = 1979-05-27, seen_at = 07:32:00 }\n"
+    )
+    home = tmp_path / "home"
+    _seed(home, original)
+    code, out, err = _install(home, tmp_path / "vault", capsys, "--dry-run")
+    assert code == 0, (out, err)
+    assert "1979-05-27T07:32:00Z" in out
+    assert '"1979-05-27T07:32:00Z"' not in out
+    assert "seen_on = 1979-05-27" in out or "1979-05-27" in out
+    assert "07:32:00" in out
+    assert '"07:32:00"' not in out
+
+
+def test_codex_refusal_keeps_the_json_hook_note(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    home = tmp_path / "home"
+    hooks = home / ".codex" / "hooks.json"
+    hooks.parent.mkdir(parents=True)
+    hooks.write_text(
+        json.dumps(
+            {
+                "hooks": {
+                    "SessionStart": [
+                        {
+                            "hooks": [
+                                {
+                                    "type": "command",
+                                    "command": "uvx alice-memory-session-start --format json",
+                                }
+                            ]
+                        }
+                    ]
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    original = (
+        "[mcp_servers.alice]\n"
+        'command = "uvx"\n'
+        'args = ["alice-memory", "mcp", "--data-dir", "/old"]\n'
+        'cwd = "/tmp/work"\n'
+    )
+    path = _seed(home, original)
+    before = path.read_bytes()
+    code, out, err = _install(home, tmp_path / "vault", capsys)
+    assert code == 1, (out, err)
+    assert path.read_bytes() == before
+    assert "holds cwd" in out
+    assert (
+        "note: Codex rejects the output of alice-memory-session-start. "
+        "Remove it from hooks.json"
+    ) in out
+
+
+def test_codex_failed_host_receipt_names_the_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A crash still names the Codex path, seals a newline, and prints next.
+
+    Mutation: drop the seal, ignore CODEX_HOME, or omit the dry-run line.
+    This test fails.
+    """
+
+    def boom(*_args: object, **_kwargs: object) -> object:
+        raise TypeError("datetime")
+
+    monkeypatch.setattr(host_install, "_install_codex_host", boom)
+    vault = tmp_path / "vault"
+    home = tmp_path / "home\nforged"
+    code = onramp_main(
+        ["install", "--home", str(home), "--data-dir", str(vault), "--host", "codex"]
+    )
+    captured = capsys.readouterr()
+    assert code == 1
+    assert "action: failed" in captured.out
+    assert "reason: unexpected TypeError" in captured.out
+    assert "next: config.toml was not changed. Run install again." in captured.out
+    assert "\nforged" not in captured.out
+    assert "\\u000a" in captured.out
+
+    codex_home = tmp_path / "codex-real"
+    codex_home.mkdir()
+    monkeypatch.setenv("CODEX_HOME", str(codex_home))
+    monkeypatch.setattr(Path, "home", lambda: tmp_path / "user-home")
+    code = onramp_main(
+        ["install", "--data-dir", str(vault), "--host", "codex", "--dry-run"]
+    )
+    captured = capsys.readouterr()
+    assert code == 1
+    assert str(codex_home / "config.toml") in captured.out
+    assert "next: config.toml was not changed. Run install again." in captured.out
+    assert "dry run: install would refuse this file; nothing was attempted" in captured.out
+
+
+def test_codex_locator_uses_the_parsed_entry_and_quoted_headers(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    bom = (
+        "\ufeff[mcp_servers.alice]\n"
+        'command = "alice-memory"\n'
+        'args = ["mcp", "--data-dir", "/vault/from-file"]\n'
+    )
+    home = tmp_path / "bom"
+    path = _seed(home, bom)
+    before = path.read_bytes()
+    code, out, err = _install(home, tmp_path / "vault-bom", capsys)
+    assert code == 1, (out, err)
+    assert path.read_bytes() == before
+    assert 'command = "alice-memory"' in out
+    assert "/vault/from-file" in out
+
+    spaced = '[ "mcp_servers" . "alice" ]\ncommand = "uvx"\n['
+    home = tmp_path / "spaced"
+    path = _seed(home, spaced)
+    before = path.read_bytes()
+    code, out, err = _install(home, tmp_path / "vault-spaced", capsys)
+    assert code == 1, (out, err)
+    assert path.read_bytes() == before
+    assert "<the data dir your existing alice entry uses>" in out
+    assert _HAND_NEXT in out
+
+    inside = 'note = """\n[mcp_servers.alice]\n"""\r\nmodel = "x"\n'
+    home = tmp_path / "inside"
+    path = _seed(home, inside)
+    before = path.read_bytes()
+    code, out, err = _install(home, tmp_path / "vault-inside", capsys)
+    assert code == 1, (out, err)
+    assert path.read_bytes() == before
+    assert _ADD_NEXT in out
+    assert _HAND_NEXT not in out
+    assert "<the data dir your existing alice entry uses>" not in out
+
+    home = tmp_path / "binary"
+    path = _config(home)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b"[mcp_servers.alice]\ncommand = \"uvx\"\n\xff\n")
+    before = path.read_bytes()
+    code, out, err = _install(home, tmp_path / "vault-binary", capsys)
+    assert code == 1, (out, err)
+    assert path.read_bytes() == before
+    assert "is not UTF-8" in out
+    assert _HAND_NEXT in out
+    assert "<the data dir your existing alice entry uses>" in out

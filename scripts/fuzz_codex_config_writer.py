@@ -44,6 +44,7 @@ LABELS = (
     "alice-absent",
     "comment-in-args",
     "basic-then-literal",
+    "crlf-file",
     "crlf-in-string",
     "bare-tools",
     "tools-key-and-table",
@@ -266,22 +267,28 @@ def _absent(rng: random.Random) -> str:
 
 
 def _basic_then_literal(rng: random.Random) -> str:
-    return (
-        'quoted_ticks = "x \'\'\' y"\n'
-        + _root(rng)
-        + "\n".join(
-            (
-                "later = '''",
-                "kept line",
-                "'''",
-                "[mcp_servers.alice]",
-                'command = "uvx"',
-                'args = ["alice-memory", "mcp", "--data-dir", "/old/vault"]',
-                "",
-                _comment(rng, "after literal"),
-            )
+    """A basic string holding ``'''`` sits directly before a one-line literal.
+
+    Nothing else with ``'''`` comes between them. A lexer that treats those
+    quotes as an opener then swallows the stamped comment.
+    """
+
+    return "\n".join(
+        (
+            'quoted = "x \'\'\' y"',
+            "ticks = '''a # not a comment'''",
+            _comment(rng, "after ticks"),
+            "[mcp_servers.alice]",
+            'command = "uvx"',
+            'args = ["alice-memory", "mcp", "--data-dir", "/old/vault"]',
+            "",
+            _comment(rng, "after alice"),
         )
     )
+
+
+def _crlf_file(rng: random.Random) -> str:
+    return _install_shape(rng).replace("\n", "\r\n")
 
 
 def _crlf_in_string(rng: random.Random) -> str:
@@ -391,6 +398,8 @@ def generate(rng: random.Random, label: str) -> str:
         return _comment_in_args(rng)
     if label == "basic-then-literal":
         return _basic_then_literal(rng)
+    if label == "crlf-file":
+        return _crlf_file(rng)
     if label == "crlf-in-string":
         return _crlf_in_string(rng)
     if label == "bare-tools":
@@ -449,7 +458,9 @@ def check(text: str, *, label: str, mutant: bool, data_dir: str = DATA_DIR) -> s
     return "refused" if refused else "written"
 
 
-def run(seeds: range, *, configs_per_seed: int = 8, mutants_per_config: int = 2) -> FuzzCounts:
+def run(
+    seeds: range, *, configs_per_seed: int = len(LABELS), mutants_per_config: int = 2
+) -> FuzzCounts:
     counts = FuzzCounts()
     for seed in seeds:
         rng = random.Random(seed)
