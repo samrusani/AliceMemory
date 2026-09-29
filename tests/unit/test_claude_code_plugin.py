@@ -1029,10 +1029,11 @@ def test_stub_records_the_query_string_and_the_filter_strips_it() -> None:
 
 
 def test_claude_failure_detail_carries_the_code_stderr_stub_and_uvx_records(tmp_path: Path) -> None:
-    """A failed step prints why: return code, first stderr line, every stub and uvx record.
+    """A failed step prints why: return code, first stderr line, the first three stdout lines, every stub and uvx record.
 
-    Mutation: build the detail from stderr alone, or from the first uvx row.
-    This test fails.
+    Mutation: build the detail from stderr alone, or from the first uvx row,
+    keep one stdout line instead of three, or let a blank line into the uvx
+    list. This test fails.
     """
 
     log_path = tmp_path / "uvx.jsonl"
@@ -1041,7 +1042,10 @@ def test_claude_failure_detail_carries_the_code_stderr_stub_and_uvx_records(tmp_
     try:
         api.records.extend([("POST", "/v1/messages?beta=true"), ("GET", "/v1/models")])
         result = subprocess.CompletedProcess(
-            ["claude"], 7, stdout="out one\nout two\n", stderr="first line\nsecond line\n"
+            ["claude"],
+            7,
+            stdout="out one\nout two\nout three\nout four\n",
+            stderr="first line\nsecond line\n",
         )
         detail = _claude_detail(result, api, log_path)
         empty = _claude_detail(subprocess.CompletedProcess(["claude"], 0, "", ""), api, tmp_path / "none")
@@ -1050,7 +1054,10 @@ def test_claude_failure_detail_carries_the_code_stderr_stub_and_uvx_records(tmp_
     assert "returncode=7" in detail
     assert "stderr='first line'" in detail
     assert "second line" not in detail
-    assert "'out one'" in detail
+    assert "stdout=['out one', 'out two', 'out three']" in detail
+    assert "out four" not in detail
+    assert _uvx_records(log_path) == ['{"argv": ["one"]}', '{"argv": ["two"]}']
+    assert "uvx=['{\"argv\": [\"one\"]}', '{\"argv\": [\"two\"]}']" in detail
     assert "('POST', '/v1/messages?beta=true')" in detail and "('GET', '/v1/models')" in detail
     assert '{"argv": ["one"]}' in detail and '{"argv": ["two"]}' in detail
     assert "returncode=0 stderr='' stdout=[]" in empty and "uvx=[]" in empty

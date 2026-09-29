@@ -124,8 +124,7 @@ class _Api:
 
     @property
     def base_url(self) -> str:
-        host, port = self._httpd.server_address[:2]
-        return f"http://{host}:{port}"
+        return f"http://127.0.0.1:{self._httpd.server_address[1]}"
 
     def close(self) -> None:
         self._httpd.shutdown()

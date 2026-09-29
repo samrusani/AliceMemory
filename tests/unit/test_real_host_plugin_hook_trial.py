@@ -28,6 +28,31 @@ SCRIPT = ROOT / "scripts" / "real_host_plugin_hook_trial.py"
 PLUGIN_JSON = ROOT / "plugins" / "alice-memory" / ".claude-plugin" / "plugin.json"
 _PINNED = "2.1.281 (Claude Code)"
 STREAM_ARGS = ["-p", "--output-format", "stream-json", "--verbose", "ok"]
+# Names the fake claude records from its own environment on every call.
+WATCHED_ENV = (
+    "ANTHROPIC_API_KEY",
+    "ANTHROPIC_AUTH_TOKEN",
+    "ANTHROPIC_BASE_URL",
+    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC",
+    "CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL",
+    "CLAUDE_CODE_OAUTH_TOKEN",
+    "CLAUDE_CONFIG_DIR",
+    "CLAUDE_PLUGIN_ROOT",
+    "DISABLE_AUTOUPDATER",
+    "HOME",
+    "PATH",
+)
+# What the outer shell might hold. The trial has to keep every one of these away from claude.
+OUTER_ENV = {
+    "ANTHROPIC_API_KEY": "outer-key-sentinel",
+    "ANTHROPIC_AUTH_TOKEN": "outer-auth-sentinel",
+    "CLAUDE_CODE_OAUTH_TOKEN": "outer-oauth-sentinel",
+    "CLAUDE_CONFIG_DIR": "/outer/claude-config",
+    "CLAUDE_PLUGIN_ROOT": "/outer/plugin-root",
+    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "0",
+    "CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL": "0",
+    "DISABLE_AUTOUPDATER": "0",
+}
 
 _FAKE_CLAUDE = r'''#!__PYTHON__
 import json
@@ -41,8 +66,11 @@ import urllib.request
 from pathlib import Path
 
 original = sys.argv[1:]
+WATCHED = __WATCHED__
 with open("__CALLS__", "a", encoding="utf-8") as handle:
-    handle.write(json.dumps({"argv": original, "home": os.environ.get("HOME")}) + "\n")
+    row = {"argv": original, "home": os.environ.get("HOME")}
+    row["env"] = {name: os.environ.get(name) for name in WATCHED}
+    handle.write(json.dumps(row) + "\n")
 argv = list(original)
 debug = None
 if "--debug-file" in argv:
@@ -56,8 +84,13 @@ if argv == ["--version"]:
 if argv == ["--help"]:
     print("fake help: --debug-file <path> --init-only")
     raise SystemExit(0)
-if os.environ.get("FAKE_REJECT_DEBUG") == "1" and debug is not None and argv[:1] == ["plugin"]:
+reject_on = [item for item in os.environ.get("FAKE_REJECT_DEBUG_ON", "").split(",") if item]
+rejecting = os.environ.get("FAKE_REJECT_DEBUG") == "1" or bool(argv[1:2] and argv[1] in reject_on)
+if rejecting and debug is not None and argv[:1] == ["plugin"]:
     print("error: unknown option '--debug-file'", file=sys.stderr)
+    raise SystemExit(1)
+if os.environ.get("FAKE_PLUGIN_STDERR") and argv[:1] == ["plugin"]:
+    print(os.environ["FAKE_PLUGIN_STDERR"], file=sys.stderr)
     raise SystemExit(1)
 home = Path(os.environ["HOME"])
 state_path = home / ".claude" / "fake-state.json"
@@ -95,6 +128,9 @@ if argv[:2] == ["plugin", "install"]:
     settings_path.write_text(json.dumps(settings))
     raise SystemExit(0)
 if argv[:2] == ["plugin", "list"]:
+    if os.environ.get("FAKE_LIST_FAIL") == "1":
+        print("list exploded", file=sys.stderr)
+        raise SystemExit(1)
     print(json.dumps([{"id": name + "@alicememory", "enabled": True} for name in state["installed"]]))
     raise SystemExit(0)
 
@@ -127,7 +163,9 @@ if mode != "no-plugin-hooks":
                         "${user_config.data_dir}" in arg for arg in handler.get("args", [])
                     )
                     args = [substitute(arg, options) for arg in handler.get("args", [])]
-                    hooks.append((handler["command"], args, {"CLAUDE_PLUGIN_ROOT": str(directory)}, blocked))
+                    extra = {"CLAUDE_PLUGIN_ROOT": str(directory)}
+                    extra.update({"CLAUDE_PLUGIN_OPTION_" + key.upper(): str(value) for key, value in info["config"].items()})
+                    hooks.append((handler["command"], args, extra, blocked))
         mcp_file = directory / ".mcp.json"
         if mcp_file.is_file() and printing:
             for server in json.loads(mcp_file.read_text()).get("mcpServers", {}).values():
@@ -214,7 +252,9 @@ def _fake(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, **env: str) -> Path:
     calls = tmp_path / "calls.jsonl"
     stub = bindir / "claude"
     stub.write_text(
-        _FAKE_CLAUDE.replace("__PYTHON__", sys.executable).replace("__CALLS__", str(calls)),
+        _FAKE_CLAUDE.replace("__PYTHON__", sys.executable)
+        .replace("__CALLS__", str(calls))
+        .replace("__WATCHED__", repr(WATCHED_ENV)),
         encoding="utf-8",
     )
     stub.chmod(stub.stat().st_mode | stat.S_IEXEC)
@@ -264,11 +304,15 @@ class _Trial:
 
 @pytest.fixture(scope="module")
 def trial(tmp_path_factory: pytest.TempPathFactory) -> Iterator[_Trial]:
-    """One full trial with the fake claude, read by the tests that only inspect it."""
+    """One full trial with the fake claude, read by the tests that only inspect it.
+
+    The outer environment holds ``OUTER_ENV``, so every test that reads this
+    trial also runs where the trial has something to keep out.
+    """
 
     patch = pytest.MonkeyPatch()
     try:
-        finished = _Trial(tmp_path_factory.mktemp("trial"), patch)
+        finished = _Trial(tmp_path_factory.mktemp("trial"), patch, **OUTER_ENV)
     finally:
         patch.undo()
     yield finished
@@ -654,7 +698,8 @@ def test_summary_has_one_escaped_line_per_run_and_keeps_earlier_output(trial: _T
 def test_debug_lines_are_filtered_and_capped_per_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Only keyword lines stay, and a run keeps at most 200 of them.
 
-    Mutation: keep every line, or drop the cap. This test fails.
+    Mutation: keep every line, drop the cap, or show 4 lines in the summary
+    instead of 40. This test fails.
     """
 
     trial = _Trial(tmp_path, monkeypatch, FAKE_DEBUG_LINES="300")
@@ -665,6 +710,12 @@ def test_debug_lines_are_filtered_and_capped_per_run(tmp_path: Path, monkeypatch
     assert run["debug_lines"][:2] == ["[DEBUG] loaded plugin alice-memory", "[DEBUG] SessionStart hooks matched: 1"]
     full = (trial.artifacts / run["debug_file"]).read_text(encoding="utf-8")
     assert "unrelated network line" in full
+    # The step summary shows only the first 40 of them, and says how many matched.
+    text = trial.summary.read_text(encoding="utf-8")
+    assert "Run 2: 302 key debug lines (first 40)" in text
+    shown = text.split("Run 2: 302 key debug lines (first 40)", 1)[1].split("```")[1]
+    assert len([line for line in shown.splitlines() if line]) == 40
+    assert shown.splitlines()[1] == "[DEBUG] loaded plugin alice-memory"
 
 
 def test_key_debug_lines_match_each_term_and_keep_order() -> None:
@@ -861,3 +912,339 @@ def test_the_trial_uses_the_standard_library_and_the_plugin_name(tmp_path: Path)
     assert ran.returncode == 0 and marker.read_text(encoding="utf-8").count("\n") == 1
     usage = subprocess.run([sys.executable, str(SCRIPT), "nope"], capture_output=True, check=False)
     assert usage.returncode == 2
+
+
+def test_the_sandbox_env_is_isolated_and_points_at_the_stub(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The child env is a copy of the outer env with the trial's own values laid over it.
+
+    The outer shell here holds every name the trial must keep out, and wrong
+    values for the three flags and the base URL. The real-host test builds the
+    same env, and the trial's table is only comparable to it while they match.
+    Mutation: delete ``env["DISABLE_AUTOUPDATER"] = "1"``, the
+    ``CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`` line, or the
+    ``CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL`` line; remove
+    ``CLAUDE_CONFIG_DIR`` or ``CLAUDE_PLUGIN_ROOT`` from ``_UNSET``; put the stub
+    bin after the outer PATH; use ``os.environ`` without the copy; or hard-code
+    the key. This test fails.
+    """
+
+    module = _load_trial()
+    for name, value in {
+        **OUTER_ENV,
+        "ANTHROPIC_BASE_URL": "http://outer.invalid",
+        "KEEP_ME": "kept",
+        "PATH": "/outer/bin",
+        "HOME": str(tmp_path / "outer-home"),
+    }.items():
+        monkeypatch.setenv(name, value)
+    api = module._Api()
+    try:
+        first = module._Sandbox(tmp_path / "one", api)
+        second = module._Sandbox(tmp_path / "two", api)
+        base_url = api.base_url
+    finally:
+        api.close()
+    env = first.env
+    assert re.fullmatch(r"http://127\.0\.0\.1:[0-9]+", base_url)
+    assert env["ANTHROPIC_BASE_URL"] == base_url
+    assert env["HOME"] == str(tmp_path / "one" / "home")
+    assert env["PATH"] == str(tmp_path / "one" / "bin") + os.pathsep + "/outer/bin"
+    for name in (
+        "DISABLE_AUTOUPDATER",
+        "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC",
+        "CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL",
+    ):
+        assert env[name] == "1", name
+    for name in ("CLAUDE_CONFIG_DIR", "CLAUDE_PLUGIN_ROOT", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"):
+        assert name not in env, name
+    assert re.fullmatch(r"alice-test-[0-9a-f]{16}", env["ANTHROPIC_API_KEY"])
+    assert second.env["ANTHROPIC_API_KEY"] != env["ANTHROPIC_API_KEY"]
+    assert second.env["HOME"] == str(tmp_path / "two" / "home")
+    assert env["KEEP_ME"] == "kept"
+    assert os.environ.get("CLAUDE_CONFIG_DIR") == "/outer/claude-config"
+    assert os.environ.get("DISABLE_AUTOUPDATER") == "0"
+    assert os.access(tmp_path / "one" / "bin" / "uvx", os.X_OK)
+
+
+def test_every_claude_call_gets_the_sandbox_env_whatever_the_outer_env_holds(trial: _Trial) -> None:
+    """Each call the cases make sees its own home, the stub, the three flags and nothing from outside.
+
+    The fake claude records its own environment on every call, and this
+    fixture's outer shell holds ``OUTER_ENV``. Mutation: hand the outer env to
+    ``subprocess.run``, drop a name from ``_UNSET``, or delete a flag. This test
+    fails.
+    """
+
+    assert trial.session_calls
+    urls = set()
+    for call in trial.session_calls:
+        env = call["env"]
+        home = Path(call["home"])
+        case = home.parent
+        assert home.name == "home" and case.parent == trial.temp, call
+        assert env["HOME"] == str(home)
+        assert Path(env["PATH"].split(os.pathsep)[0]) == case / "bin", call
+        for name in (
+            "DISABLE_AUTOUPDATER",
+            "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC",
+            "CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL",
+        ):
+            assert env[name] == "1", (name, call)
+        for name in ("CLAUDE_CONFIG_DIR", "CLAUDE_PLUGIN_ROOT", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"):
+            assert env[name] is None, (name, call)
+        assert env["ANTHROPIC_API_KEY"].startswith("alice-test-"), call
+        assert re.fullmatch(r"http://127\.0\.0\.1:[0-9]+", env["ANTHROPIC_BASE_URL"]), call
+        urls.add(env["ANTHROPIC_BASE_URL"])
+    assert len(urls) == 1
+    # The version pin and the help capture run outside any case and see the outer shell.
+    outside = [call for call in trial.calls if call["argv"] in (["--version"], ["--help"])]
+    assert len(outside) == 2
+    assert all(call["env"]["CLAUDE_CONFIG_DIR"] == "/outer/claude-config" for call in outside)
+
+
+def test_the_stub_records_a_request_before_its_delayed_reply() -> None:
+    """A request is on the record while the reply is still held, and the reply comes late.
+
+    If claude exits before a delayed reply, the row must still show the request.
+    Mutation: move ``owner.records.append`` after the ``time.sleep`` block, or
+    never sleep. This test fails.
+    """
+
+    import threading
+    import time
+    import urllib.error
+    import urllib.request
+
+    module = _load_trial()
+    api = module._Api()
+    api.delay = 1.5
+    outcome: dict[str, int] = {}
+
+    def call() -> None:
+        request = urllib.request.Request(api.base_url + "/v1/messages?beta=true", data=b"{}", method="POST")
+        try:
+            urllib.request.urlopen(request, timeout=30)  # noqa: S310
+        except urllib.error.HTTPError as error:
+            outcome["status"] = error.code
+
+    thread = threading.Thread(target=call)
+    started = time.monotonic()
+    try:
+        thread.start()
+        while not api.records and time.monotonic() < started + 1.0:
+            time.sleep(0.01)
+        recorded = list(api.records)
+        waiting = thread.is_alive()
+        thread.join(timeout=30)
+    finally:
+        api.close()
+    assert recorded == [("POST", "/v1/messages?beta=true")]
+    assert waiting is True
+    assert outcome == {"status": 400}
+    assert time.monotonic() - started >= 1.5
+
+
+def test_uvx_records_carry_the_plugin_root_and_the_install_time_option(trial: _Trial) -> None:
+    """The stub uvx records two env values, and only case 5's hook sees ``data_dir``.
+
+    The hook gets ``CLAUDE_PLUGIN_ROOT`` from the plugin's install directory. A
+    server spawn gets neither, and the outer ``CLAUDE_PLUGIN_ROOT`` does not
+    reach it. Mutation: delete the ``CLAUDE_PLUGIN_OPTION_DATA_DIR`` row or the
+    ``CLAUDE_PLUGIN_ROOT`` row from the stub uvx script. This test fails.
+    """
+
+    cases = {"1": 1, "2": 2, "3": 3, "4": 4, "5": 5, "6a": 6, "6b": 6}
+    vault = str(trial.temp / "case-5" / "vault")
+    for label, run in trial.runs().items():
+        root = trial.temp / f"case-{cases[label]}" / "home" / ".claude" / "plugins" / "cache" / "alice-memory"
+        assert run["uvx_records"], label
+        for record in run["uvx_records"]:
+            assert set(record) == {"argv", "CLAUDE_PLUGIN_ROOT", "CLAUDE_PLUGIN_OPTION_DATA_DIR"}, label
+            if "alice-memory-session-start" in record["argv"]:
+                assert record.get("CLAUDE_PLUGIN_ROOT") == str(root), label
+                expected = vault if label == "5" else None
+                assert record.get("CLAUDE_PLUGIN_OPTION_DATA_DIR") == expected, label
+            else:
+                assert record.get("CLAUDE_PLUGIN_ROOT") is None, label
+                assert record.get("CLAUDE_PLUGIN_OPTION_DATA_DIR") is None, label
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "error: unknown option '--other-flag'",
+        "error: --debug-file needs a path",
+        "boom",
+    ],
+)
+def test_a_setup_failure_that_is_not_an_unknown_debug_flag_is_not_retried(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, message: str
+) -> None:
+    """Only ``unknown option '--debug-file'`` earns a second call. Any other failure is final.
+
+    The three messages are an unknown option that names another flag, a message
+    that names the flag without saying it is unknown, and a plain failure. Each
+    case makes exactly one plugin call. Mutation: retry on any nonzero exit,
+    drop ``--debug-file`` from the text test, or drop ``unknown option`` from it.
+    This test fails.
+    """
+
+    trial = _Trial(tmp_path, monkeypatch, FAKE_PLUGIN_STDERR=message)
+    assert trial.code == 1
+    plugin_calls = [call["argv"] for call in trial.session_calls if "plugin" in call["argv"]]
+    assert len(plugin_calls) == 6
+    assert all(argv[0] == "--debug-file" for argv in plugin_calls)
+    steps = [step for row in trial.rows().values() for step in row["setup"]]
+    assert len(steps) == 6
+    assert all(step["debug_file_rejected"] is False for step in steps)
+    assert all(step["exit_code"] == 1 and step["first_stderr_line"] == message for step in steps)
+
+
+def test_the_debug_flag_is_dropped_only_for_the_steps_that_reject_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When only ``plugin install`` rejects the flag, only the install steps are retried.
+
+    Marketplace add and list keep the flag and are never repeated. Seven
+    installs run twice, once with the flag and once without. Mutation: mark
+    every step rejected, or retry every step. This test fails.
+    """
+
+    trial = _Trial(tmp_path, monkeypatch, FAKE_REJECT_DEBUG_ON="install")
+    assert trial.code == 0
+    steps = [(str(step["step"]), step["debug_file_rejected"]) for row in trial.rows().values() for step in row["setup"]]
+    assert len(steps) == 19
+    assert all(rejected is name.startswith("install") for name, rejected in steps), steps
+    calls = [call["argv"] for call in trial.session_calls if "plugin" in call["argv"]]
+    plain = [argv for argv in calls if argv[0] != "--debug-file"]
+    flagged = [argv for argv in calls if argv[0] == "--debug-file"]
+    assert len(plain) == 7 and all(argv[:2] == ["plugin", "install"] for argv in plain)
+    assert len(flagged) == 19
+    assert len([argv for argv in flagged if argv[2:4] == ["plugin", "install"]]) == 7
+
+
+def test_a_failing_plugin_list_does_not_fail_setup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The listing is a diagnostic. A failed listing leaves setup ok, the runs in place and the summary quiet.
+
+    Mutation: count the ``list`` step in ``_setup_ok``, or drop the ``list``
+    exemption from the summary's setup-failure lines. This test fails.
+    """
+
+    trial = _Trial(tmp_path, monkeypatch, FAKE_LIST_FAIL="1")
+    assert trial.code == 0
+    rows = trial.rows()
+    assert all(row["setup_ok"] is True for row in rows.values())
+    assert all(row["runs"] for row in rows.values())
+    lists = [step for row in rows.values() for step in row["setup"] if step["step"] == "list"]
+    assert len(lists) == 6
+    assert all(step["exit_code"] == 1 and step["listed"] is None for step in lists)
+    assert all(step["first_stderr_line"] == "list exploded" for step in lists)
+    text = trial.summary.read_text(encoding="utf-8")
+    assert "setup step" not in text and "setup failed" not in text
+    assert "list exploded" not in text
+
+
+def test_the_timeout_and_the_default_delay_are_pinned() -> None:
+    """A run may take two minutes, and the default reply delay is five seconds.
+
+    The tests above run with a shorter delay, so nothing else reads the default.
+    Mutation: set ``_TIMEOUT_SECONDS`` to 1, or change ``_DELAY_SECONDS`` or the
+    default of ``run``. This test fails.
+    """
+
+    import inspect
+
+    module = _load_trial()
+    assert module._TIMEOUT_SECONDS == 120
+    assert module._DELAY_SECONDS == 5.0
+    assert inspect.signature(module.run).parameters["delay_seconds"].default == 5.0
+
+
+def test_each_row_records_the_settings_and_the_claude_files(trial: _Trial) -> None:
+    """A row keeps settings.json and the sorted files under ``.claude``, with the enabled plugins.
+
+    Mutation: drop ``settings_after_setup`` or ``claude_files`` from the row, or
+    stop sorting the files. This test fails.
+    """
+
+    rows = trial.rows()
+    assert rows[2].get("settings_after_setup") == {"enabledPlugins": {"alice-memory@alicememory": True}}
+    assert rows[4].get("settings_after_setup", {}).get("enabledPlugins") == {
+        "probe-plugin@alicememory": True,
+        "alice-memory@alicememory": True,
+    }
+    files = rows[2].get("claude_files")
+    assert isinstance(files, list) and files == sorted(files)
+    assert "settings.json" in files
+    assert "plugins/cache/alice-memory/hooks/hooks.json" in files
+    assert "plugins/cache/alice-memory/.claude-plugin/plugin.json" in files
+    assert "plugins/cache/probe-plugin/hooks/hooks.json" in rows[4]["claude_files"]
+
+
+def test_files_under_is_sorted_relative_and_capped(tmp_path: Path) -> None:
+    """The file listing is relative, sorted, and stops at 100 names.
+
+    Mutation: drop the cap or the sort. This test fails.
+    """
+
+    module = _load_trial()
+    root = tmp_path / "tree"
+    (root / "sub").mkdir(parents=True)
+    for index in range(120):
+        (root / "sub" / f"f{index:03d}").write_text("x", encoding="utf-8")
+    found = module._files_under(root)
+    assert len(found) == 100
+    assert found == sorted(found)
+    assert found[0] == "sub/f000" and found[-1] == "sub/f099"
+    assert module._files_under(tmp_path / "missing") == []
+
+
+def test_output_lines_decode_leniently_and_the_uvx_cell_is_clipped() -> None:
+    """Bytes that are not UTF-8 become replacement characters, and a long uvx line is cut for the table.
+
+    A timeout hands back raw bytes. Mutation: decode strictly in ``_lines``, or
+    stop clipping the uvx cell. This test fails.
+    """
+
+    module = _load_trial()
+    try:
+        decoded = module._lines(b"ok\n\xffbad\nend")
+    except UnicodeDecodeError:
+        raise AssertionError("_lines decoded strictly and raised on a byte that is not UTF-8") from None
+    assert decoded == ["ok", "\ufffdbad", "end"]
+    assert module._lines("a\nb") == ["a", "b"]
+    assert module._lines(None) == []
+    long = {"argv": ["--from", "x" * 500]}
+    cell = module._uvx_cell({"uvx_records": [long, {"argv": ["a|b"]}]})
+    first, second = cell.split("<br>")
+    assert first.startswith("uvx --from xxx") and first.endswith("...")
+    assert len(first) == 163
+    assert second == "uvx a\\|b"
+    assert module._uvx_cell({"uvx_records": []}) == "none"
+
+
+def test_the_trial_script_passes_the_repos_mypy(tmp_path: Path) -> None:
+    """The script type-checks under the command CI runs for its sibling scripts.
+
+    CI's list does not name this file, so this test is the check. Mutation:
+    unpack ``host, port = self._httpd.server_address[:2]`` in ``base_url`` again.
+    mypy reports ``str-bytes-safe`` and this test fails.
+    """
+
+    pytest.importorskip("mypy")
+    done = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "mypy",
+            "--ignore-missing-imports",
+            "--cache-dir",
+            str(tmp_path / "mypy-cache"),
+            str(SCRIPT),
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert done.returncode == 0, done.stdout + done.stderr

@@ -508,13 +508,35 @@ def test_plugin_hook_trial_is_dispatch_only_pinned_and_uploads_its_own_artifact(
     """The plugin hook trial runs the script on the pinned claude and always uploads its report.
 
     The upload has its own name, so it does not collide with the hook trial's
-    artifact when ``all`` runs both. Mutation: install @latest, remove
-    always() from the upload, drop the artifact name, or point the upload at
-    another directory. This test fails.
+    artifact when ``all`` runs both. The runner setup is pinned too, so a later
+    run reads on the same Python, Node and time limit. Mutation: install
+    @latest, remove always() from the upload, drop the artifact name, point the
+    upload at another directory, remove the ``Set up Python`` step, change its
+    version, change ``node-version`` or ``timeout-minutes``, or drop the two
+    updater flags from the job env. This test fails.
     """
 
     job = _job("plugin-hook-trial")
     assert job.get("if") == _dispatch_if("plugin-hook-trial")
+    assert job.get("timeout-minutes") == 30
+    assert job.get("env") == {"DISABLE_AUTOUPDATER": "1", "DISABLE_UPDATES": "1"}
+    setup = {
+        step["name"]: step.get("with", {})
+        for step in _steps(job)
+        if isinstance(step.get("uses"), str) and "setup-" in step["uses"]
+    }
+    assert setup == {
+        "Set up Python": {"python-version": "3.12"},
+        "Set up Node": {"node-version": "22.14.0"},
+    }
+    assert [step["name"] for step in _steps(job)] == [
+        "Checkout",
+        "Set up Python",
+        "Set up Node",
+        "Install pinned Claude Code",
+        "Run the plugin hook trial",
+        "Upload trial artifacts",
+    ]
     script = _run_text(job)
     assert CLAUDE_NPM in script
     assert "@latest" not in script
