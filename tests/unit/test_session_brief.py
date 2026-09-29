@@ -16,11 +16,14 @@ import tempfile
 from pathlib import Path
 from uuid import uuid4
 
+import pytest
+
 from alicebot_api.mcp_tools import AGENT_API_KEY_ENV, MCPRuntimeContext
 from alicebot_api.onramp import bootstrap_database, main as onramp_main, resolve_db_path, sqlite_url_for_path
 from alicebot_api.session_briefing import (
     EMPTY_SESSION_BRIEF,
     SOURCE_LIMIT,
+    compile_local_session_brief,
     compile_session_brief,
     source_scope_from_project_scope,
 )
@@ -159,6 +162,55 @@ def test_a_captured_note_is_a_source_not_a_fact(tmp_path: Path, monkeypatch) -> 
 
     assert any(SOURCE_SENTENCE in line for line in _labelled_lines(brief, "source")), brief
     assert not any(SOURCE_SENTENCE in line for line in _labelled_lines(brief, "fact")), brief
+
+
+@pytest.mark.parametrize(
+    ("newest", "expects_source"),
+    [
+        ("indigo lighthouse canary " + ("n" * 60000), True),
+        ("indigo lighthouse canary " + ("\u706f" * 20000), True),
+        ("x" * 60000, False),
+        ("\U0001f600" * 13000, False),
+    ],
+    ids=["words-then-long-token", "words-then-cjk", "one-long-token", "emoji"],
+)
+def test_a_very_long_newest_fact_keeps_loops_and_sources(
+    tmp_path: Path, monkeypatch, newest: str, expects_source: bool
+) -> None:
+    """A newest fact over 50,000 UTF-8 bytes must not wipe the brief.
+
+    Mutation: pass the whole fact to the excerpt search, or drop the
+    300-character cut on a single long token or on the no-token fallback.
+    SQLite raises ``LIKE or GLOB pattern too complex`` and this test fails.
+    """
+
+    context = _context(tmp_path, monkeypatch)
+    _capture(context, SOURCE_NOTE)
+    database = resolve_db_path(data_dir=str(tmp_path), db=None)
+    with sqlite_user_connection(database, USER_ID) as connection:
+        store = SQLiteVNextStore(connection, USER_ID)
+        for index in range(3):
+            store.create_open_loop(
+                {
+                    "title": f"loop {index} stays",
+                    "domain": "project",
+                    "sensitivity": "public",
+                }
+            )
+    _commit(
+        context,
+        title="Long newest fact",
+        text=newest,
+        sensitivity="public",
+        project="acme",
+        domain="project",
+    )
+    brief = compile_local_session_brief(database, user_id=USER_ID, query=None)
+    assert brief.count("**open loop**:") == 3
+    assert "Nothing stored yet." not in brief
+    if expects_source:
+        assert "**source**:" in brief
+        assert "indigo-lighthouse-42" in brief
 
 
 def test_a_committed_fact_is_labelled_fact(tmp_path: Path, monkeypatch) -> None:
@@ -1297,3 +1349,42 @@ def test_emitted_brief_limit_is_exactly_9499_units() -> None:
     assert brief_char_len(edge) == 9500
     assert fit_emitted_session_brief(edge) == "a" * 9498
     assert fit_emitted_session_brief("a" * 9499) == "a" * 9499
+
+
+def test_a_very_long_query_or_source_title_does_not_wipe_the_brief(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """The explicit query and the source-title hint are bounded too.
+
+    Mutation: return the explicit query or the source hint unbounded. SQLite
+    raises ``LIKE or GLOB pattern too complex`` and this test fails.
+    """
+
+    context = _context(tmp_path, monkeypatch)
+    _capture(context, SOURCE_NOTE, title="canary " + ("t" * 60000))
+    database = resolve_db_path(data_dir=str(tmp_path), db=None)
+    hinted = compile_local_session_brief(database, user_id=USER_ID, query=None)
+    assert "Nothing stored yet." not in hinted
+    queried = compile_local_session_brief(database, user_id=USER_ID, query="x" * 60000)
+    assert isinstance(queried, str)
+
+
+def test_an_ordinary_excerpt_query_is_passed_through_unchanged() -> None:
+    """Under the byte limit the query is the text itself, as before the bound.
+
+    Mutation: bound every query. A hyphenated id such as indigo-lighthouse-42
+    splits into bare terms that match other sources, and this test fails.
+    """
+
+    from alicebot_api.session_briefing import _bounded_useful_query
+
+    short = "The indigo-lighthouse-42 canary stays in the vault."
+    assert _bounded_useful_query(short) == short
+    medium = "ABC-1234 blocks build 2026-09-29. " * 1000
+    assert len(medium.encode("utf-8")) < 40_000
+    assert _bounded_useful_query(medium) == medium
+    long = "ABC-1234 blocks build " + ("n" * 45_000)
+    bounded = _bounded_useful_query(long)
+    assert bounded is not None
+    assert bounded != long
+    assert len(bounded) <= 300
