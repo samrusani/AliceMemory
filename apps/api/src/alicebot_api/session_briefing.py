@@ -590,8 +590,10 @@ def _grapheme_clusters(text: str) -> list[str]:
 
     Tag characters U+E0020 through U+E007F stay with the base, so a
     tag-sequence flag such as England is one cluster. Hangul L, V, T, LV,
-    and LVT syllables join. Devanagari conjuncts may be split. That is a
-    documented limitation.
+    and LVT syllables join. Known splits, documented and left as they are:
+    Devanagari conjuncts, Thai and Lao SARA AM, Prepend characters such as
+    U+0600, a regional-indicator pair after a stray ZWJ, and marks newer
+    than the Unicode tables of the running Python.
     """
 
     if not text:

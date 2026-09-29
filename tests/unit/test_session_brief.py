@@ -1200,7 +1200,7 @@ def test_a_short_first_word_does_not_collapse_the_note() -> None:
 
     url = "See https://example.com/" + ("a" * 5000)
     url_prefix = prefix_of(url)
-    assert "https://example.com/" in url_prefix
+    assert url_prefix.startswith("See https://example.com/")
     assert url_prefix != "See"
     assert len(url_prefix) > 1000
     cjk = "甲 " + ("乙" * 5000)
@@ -1231,16 +1231,24 @@ def test_tag_flags_and_hangul_jamo_stay_whole() -> None:
         cut = next(line for line in brief.splitlines() if line.startswith("**fact**"))
         return _quoted_prefix(cut)
 
-    england_prefix = prefix_of(england * 200)
-    assert len(england_prefix) % len(england) == 0
-    assert england_prefix.endswith(england)
-    for offset in range(3):
-        lead = "x" * offset
-        jamo_prefix = prefix_of(lead + jamo * 800)
-        assert jamo_prefix.startswith(lead)
-        body = jamo_prefix[offset:]
-        assert len(body) % len(jamo) == 0
-        assert body.endswith(jamo)
+    # Each cluster at several lead offsets, so a cut that lands inside the
+    # cluster at one offset is caught at another. LV+V, LV+T and L+L+V cover
+    # the precomposed and conjoining Hangul rules, not only L+V+T.
+    clusters = (
+        england,
+        jamo,
+        "\uac00\u1161",
+        "\uac00\u11a8",
+        "\u1100\u1100\u1161",
+    )
+    for cluster in clusters:
+        for offset in range(len(cluster) + 1):
+            lead = "x" * offset
+            prefix = prefix_of(lead + cluster * (9000 // len(cluster)))
+            assert prefix.startswith(lead)
+            body = prefix[offset:]
+            assert len(body) % len(cluster) == 0, (cluster, offset)
+            assert body.endswith(cluster), (cluster, offset)
 
 
 def test_final_fit_drops_whole_lines_and_keeps_json_quotes() -> None:
@@ -1274,3 +1282,18 @@ def test_final_fit_drops_whole_lines_and_keeps_json_quotes() -> None:
             loaded = json.loads(item.split(": ", 1)[1])
             assert isinstance(loaded, str)
             assert loaded.endswith(emoji)
+
+
+def test_emitted_brief_limit_is_exactly_9499_units() -> None:
+    """The hook's last fit keeps 9,499 UTF-16 units and drops a longer tail.
+
+    Mutation: let the fit or the body limit reach SESSION_BRIEF_CHAR_CAP
+    (9,500). The 9,500-unit edge case is kept whole. This test fails.
+    """
+
+    from alicebot_api.session_briefing import brief_char_len, fit_emitted_session_brief
+
+    edge = "a" * 9498 + "\n" + "b"
+    assert brief_char_len(edge) == 9500
+    assert fit_emitted_session_brief(edge) == "a" * 9498
+    assert fit_emitted_session_brief("a" * 9499) == "a" * 9499

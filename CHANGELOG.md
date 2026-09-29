@@ -29,7 +29,8 @@
   newline, and the brief is at most 9,499 minus that reserve. The hook's
   final cap drops whole trailing lines and does not cut inside one. The
   doctor line is `N / 9500 characters`. Tag-sequence flags and Hangul
-  jamo stay in one cluster. Devanagari conjuncts may still be split. In
+  jamo stay in one cluster. Devanagari conjuncts, Thai and Lao SARA AM,
+  and Prepend characters may still be split. In
   v0.18.0 a note that did not fit the 4,000 token budget was dropped, a
   brief of many shorter lines could reach about 16,000 characters, and the
   doctor line was a token estimate.
