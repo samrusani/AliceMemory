@@ -2230,3 +2230,159 @@ def test_codex_locator_uses_the_parsed_entry_and_quoted_headers(
     assert "is not UTF-8" in out
     assert _HAND_NEXT in out
     assert "<the data dir your existing alice entry uses>" in out
+
+
+_NESTED_DEPTH = 100_000
+_ALICE_ENTRY = (
+    "[mcp_servers.alice]\n"
+    'command = "uvx"\n'
+    'args = ["alice-memory", "mcp", "--data-dir", "/old"]\n'
+)
+
+
+def _nested_value(depth: int = _NESTED_DEPTH) -> str:
+    return "x = " + "[" * depth + "]" * depth + "\n"
+
+
+@pytest.mark.parametrize(
+    ("kind", "reason"),
+    [
+        ("utf8", "reason: config.toml nests too deeply"),
+        ("bom", "reason: config.toml starts with a BOM; remove the BOM"),
+        ("non-utf8", "reason: config.toml is not UTF-8"),
+    ],
+)
+@pytest.mark.parametrize("dry_run", [False, True])
+def test_codex_deeply_nested_config_is_refused_not_a_crash(
+    kind: str,
+    reason: str,
+    dry_run: bool,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A value nested 100,000 levels deep is a refusal, and the file is untouched.
+
+    tomllib raises RecursionError for it. The planner, the guard, the
+    refusal locator and the layer check each catch it. This test covers the
+    planner for a UTF-8 file, and the locator for a BOM and a non-UTF-8 file.
+
+    Mutation: catch only TOMLDecodeError in ``_plan_codex_text`` (utf8) or in
+    ``_codex_locate_for_refusal`` (bom, non-utf8). The receipt says
+    ``unexpected RecursionError``. This test fails.
+    """
+
+    body = _nested_value() + _ALICE_ENTRY
+    home = tmp_path / "home"
+    if kind == "utf8":
+        path = _seed(home, body)
+    elif kind == "bom":
+        path = _seed(home, "﻿" + body)
+    else:
+        path = _seed(home, body.encode("utf-8") + b"# caf\xe9\n")
+    before = path.read_bytes()
+    extra = ("--dry-run",) if dry_run else ()
+    code, out, err = _install(home, tmp_path / "vault", capsys, *extra)
+    assert code == 1, (out, err)
+    assert path.read_bytes() == before
+    assert _backups(tmp_path / "vault") == []
+    lines = out.splitlines()
+    assert ("action: would-refuse" if dry_run else "action: refused") in lines
+    assert reason in lines
+    assert "<the data dir your existing alice entry uses>" in out
+    assert _HAND_NEXT in lines
+
+
+def test_codex_plan_refuses_a_deeply_nested_value() -> None:
+    """The public planner refuses too, not only the install command.
+
+    Mutation: drop the RecursionError catch in ``_plan_codex_text``. This
+    test raises RecursionError instead of CodexConfigRefused and fails.
+    """
+
+    with pytest.raises(CodexConfigRefused) as caught:
+        plan_codex_config(_nested_value() + _ALICE_ENTRY, "/v")
+    assert caught.value.detail == "config.toml nests too deeply"
+
+
+def test_codex_guard_refuses_a_deeply_nested_edit() -> None:
+    """The guard parses the edited text itself, so it needs its own catch.
+
+    Mutation: drop the RecursionError catch on the guard's ``tomllib.loads``.
+    This test raises RecursionError and fails.
+    """
+
+    original = _nested_value(10)
+    edited = original + "\n" + _ALICE_ENTRY
+    deep = _nested_value() + "\n" + _ALICE_ENTRY
+    with pytest.raises(CodexConfigRefused) as caught:
+        host_install._codex_guard(
+            original,
+            deep,
+            "\n",
+            {"command": "uvx", "args": ["alice-memory", "mcp", "--data-dir", "/old"]},
+            (),
+            (len(original), len(edited)),
+            {},
+        )
+    assert caught.value.detail == "config.toml nests too deeply"
+
+
+def test_codex_guard_refuses_when_a_value_walker_overflows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A value can parse and still overflow the recursive comparison.
+
+    A 492-level array in a tools table did this in a real run. The depth
+    depends on the interpreter, so the walker is made to overflow instead.
+
+    Mutation: call ``_codex_guard_values`` without its RecursionError catch.
+    This test raises RecursionError and fails.
+    """
+
+    def overflow(_left: object, _right: object) -> bool:
+        raise RecursionError("maximum recursion depth exceeded")
+
+    monkeypatch.setattr(host_install, "_codex_equal", overflow)
+    original = 'model = "x"\n'
+    edited = original + "\n" + _ALICE_ENTRY
+    with pytest.raises(CodexConfigRefused) as caught:
+        host_install._codex_guard(
+            original,
+            edited,
+            "\n",
+            {"command": "uvx", "args": ["alice-memory", "mcp", "--data-dir", "/old"]},
+            (),
+            (len(original), len(edited)),
+            {},
+        )
+    assert caught.value.detail == "config.toml nests too deeply"
+
+
+def test_codex_deeply_nested_layer_file_is_an_unreadable_note(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A profile layer nested 100,000 levels deep gets the unreadable note.
+
+    Mutation: catch only TOMLDecodeError in ``_codex_layer_defines_alice``.
+    Install fails with ``unexpected RecursionError``. This test fails.
+    """
+
+    home = tmp_path / "home"
+    layer = home / ".codex" / "work.config.toml"
+    layer.parent.mkdir(parents=True)
+    layer.write_text(_nested_value(), encoding="utf-8")
+    layer_before = layer.read_bytes()
+    note = f"note: {layer} could not be read"
+
+    code, out, err = _install(home, tmp_path / "vault", capsys, "--dry-run")
+    assert code == 0, (out, err)
+    assert "action: dry-run" in out.splitlines()
+    assert note in out.splitlines()
+    assert not _config(home).exists()
+
+    code, out, err = _install(home, tmp_path / "vault", capsys)
+    assert code == 0, (out, err)
+    assert "action: written" in out.splitlines()
+    assert note in out.splitlines()
+    assert "mcp_servers.alice" in _config(home).read_text(encoding="utf-8")
+    assert layer.read_bytes() == layer_before

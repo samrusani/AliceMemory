@@ -10,7 +10,7 @@ Install reads `CODEX_HOME` only when `--home` is omitted. An empty value counts 
 
 The file is `config.toml`, edited as text. A new file holds only Alice's table. Install touches only Alice's `command`, `args`, and the carried lines below. Every other byte stays, including `[mcp_servers.alice.tools]` and `[mcp_servers.alice.tools.<tool>]` tables Codex writes when you remember an approval. The receipt says `format: toml, edited as text` and `session_start: none`. A success receipt ends with `next: check it with: codex mcp get alice`.
 
-Install checks Alice's entry and the number ranges below. It does not check every other Codex rule for the rest of the file. An integer token in value position outside `-2^63` to `2^63-1` (decimal, hex, octal, or binary, underscores allowed) is refused, and the reason names the line. A float token in value position that is not finite is refused unless it is literally `inf` or `nan`. A number-like bare key is left alone. `tools` must be a table whose values are tables. `approval_mode` must be `auto`, `prompt`, `writes`, or `approve`. `output_token_limit` must be a positive integer. A value that fails one of those checks is refused and the file is not written.
+Install checks Alice's entry and the number ranges below. It does not check every other Codex rule for the rest of the file. An integer token in value position outside `-2^63` to `2^63-1` (decimal, hex, octal, or binary, underscores allowed) is refused, and the reason names the line. A float token in value position that is not finite is refused unless it is literally `inf` or `nan`. A number-like bare key is left alone. `tools` must be a table whose values are tables. `approval_mode` must be `auto`, `prompt`, `writes`, or `approve`. `output_token_limit` must be a positive integer. A value that fails one of those checks is refused and the file is not written. A `config.toml` nested so deeply that install cannot parse it is refused too, with `config.toml nests too deeply`, and the file is not written.
 
 A rewrite sets the file mode to `0600`. The same writer does this for every host, because these files can hold keys. A new file is `0600` as well.
 
@@ -28,7 +28,7 @@ Codex passes a stdio server only `HOME`, `PATH`, `LANG`, and a few other names. 
 env_vars = ["HTTPS_PROXY", "UV_INDEX_PRIVATE_USERNAME"]
 ```
 
-Codex merges config layers. A profile (`<CODEX_HOME>/<name>.config.toml`), the system config (`/etc/codex/config.toml`, or `%ProgramData%\OpenAI\Codex\config.toml` on Windows), or a managed layer (`/etc/codex/managed_config.toml`) can also define `mcp_servers.alice`. Requirements can disable a server. Install edits only the user `config.toml` and prints a note with the full path when another layer defines alice, and says Codex merges it. An unreadable layer file is a note with the full path too.
+Codex merges config layers. A profile (`<CODEX_HOME>/<name>.config.toml`), the system config (`/etc/codex/config.toml`, or `%ProgramData%\OpenAI\Codex\config.toml` on Windows), or a managed layer (`/etc/codex/managed_config.toml`) can also define `mcp_servers.alice`. Requirements can disable a server. Install edits only the user `config.toml` and prints a note with the full path when another layer defines alice, and says Codex merges it. An unreadable layer file is a note with the full path too. A layer nested so deeply that install cannot parse it counts as unreadable.
 
 ## What is carried
 

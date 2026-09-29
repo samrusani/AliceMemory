@@ -5250,6 +5250,7 @@ _CODEX_TOOLS_NEXT = (
     "[mcp_servers.alice.tools.<name>] table, then run install again."
 )
 _CODEX_RERUN_NEXT = "config.toml was not changed. Run install again."
+_CODEX_TOO_DEEP = "config.toml nests too deeply"
 _CODEX_CHECK_NEXT = "check it with: codex mcp get alice"
 _CODEX_HOME_NEXT = (
     "Set CODEX_HOME to an absolute path, or pass --home, then run install again."
@@ -6261,6 +6262,25 @@ def _codex_guard(
         new_doc = tomllib.loads(edited)
     except tomllib.TOMLDecodeError as exc:
         _codex_refuse(f"the edited config.toml is not valid TOML ({exc})")
+    except RecursionError:
+        _codex_refuse(_CODEX_TOO_DEEP)
+    try:
+        _codex_guard_values(original, edited, nl, entry, removals, inserted, old_doc, new_doc)
+    except RecursionError:
+        # A value can parse and still be too deep for the walkers that compare it.
+        _codex_refuse(_CODEX_TOO_DEEP)
+
+
+def _codex_guard_values(
+    original: str,
+    edited: str,
+    nl: str,
+    entry: Mapping[str, object],
+    removals: Sequence[tuple[int, int]],
+    inserted: tuple[int, int],
+    old_doc: Mapping[str, object],
+    new_doc: Mapping[str, object],
+) -> None:
     new_servers = new_doc.get("mcp_servers")
     new_alice = new_servers.get("alice") if isinstance(new_servers, dict) else None
     if not isinstance(new_alice, dict):
@@ -6337,6 +6357,8 @@ def _plan_codex_text(
         document = tomllib.loads(text) if text.strip() else {}
     except tomllib.TOMLDecodeError as exc:
         _codex_refuse(f"config.toml is not valid TOML ({exc})")
+    except RecursionError:
+        _codex_refuse(_CODEX_TOO_DEEP)
     if not isinstance(document, dict):
         _codex_refuse("config.toml's top level is not a table")
 
@@ -6848,7 +6870,7 @@ def _codex_locate_for_refusal(
     parsed: object | None
     try:
         parsed = tomllib.loads(body)
-    except tomllib.TOMLDecodeError:
+    except (tomllib.TOMLDecodeError, RecursionError):
         parsed = None
     if isinstance(parsed, dict):
         servers = parsed.get("mcp_servers")
@@ -6937,7 +6959,7 @@ def _codex_layer_defines_alice(path: Path) -> str | None:
         return f"note: {path} could not be read"
     try:
         loaded = tomllib.loads(text)
-    except tomllib.TOMLDecodeError:
+    except (tomllib.TOMLDecodeError, RecursionError):
         return f"note: {path} could not be read"
     servers = loaded.get("mcp_servers") if isinstance(loaded, dict) else None
     alice = servers.get("alice") if isinstance(servers, dict) else None
