@@ -21,6 +21,7 @@ on:
       - tests/unit/launcher_helpers.py
       - tests/unit/test_absolute_uvx.py
       - tests/unit/test_claude_code_session_start_hook.py
+      - tests/unit/test_data_dir_guard.py
       - tests/unit/test_hermes_config_install.py
       - tests/unit/test_hook_shell_quoting.py
       - tests/unit/test_host_install_receipt_values.py
