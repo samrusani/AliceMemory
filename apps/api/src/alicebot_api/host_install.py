@@ -6576,7 +6576,7 @@ def _plan_codex_text(
     if tools_problem is not None:
         tool_name, tool_detail = tools_problem
         _located(tool_detail, fix=_CODEX_TOOLS_FIX.format(name=tool_name))
-    for key in _CODEX_CARRIED:
+    for key in _CODEX_CARRIED_KEYS:
         if key in alice:
             problem = _codex_carry_problem(key, alice[key])
             if problem is not None:
@@ -6976,29 +6976,41 @@ def _codex_layer_defines_alice(path: Path) -> str | None:
     return f"note: {path} defines mcp_servers.alice, and Codex merges it"
 
 
+def _codex_hook_commands(node: object) -> list[str]:
+    """Every ``command`` string in a parsed hooks.json, at any depth."""
+
+    found: list[str] = []
+    if isinstance(node, dict):
+        command = node.get("command")
+        if isinstance(command, str):
+            found.append(command)
+        for value in node.values():
+            found.extend(_codex_hook_commands(value))
+    elif isinstance(node, list):
+        for item in node:
+            found.extend(_codex_hook_commands(item))
+    return found
+
+
 def _codex_hook_note(codex_home: Path) -> str | None:
-    """The import copies a JSON-mode SessionStart hook. Codex rejects its output."""
+    """The import copies a JSON-mode SessionStart hook. Codex rejects its output.
+
+    hooks.json is the user's file and this note is advice only, so a file
+    install cannot read gives no note. That includes a document nested so
+    deeply that ``json.loads`` or the command walk raises RecursionError.
+    """
 
     path = codex_home / "hooks.json"
     if not path.is_file():
         return None
     try:
         loaded = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+    except (OSError, ValueError, RecursionError):
         return None
-
-    def commands(node: object) -> list[str]:
-        found: list[str] = []
-        if isinstance(node, dict):
-            command = node.get("command")
-            if isinstance(command, str):
-                found.append(command)
-            for value in node.values():
-                found.extend(commands(value))
-        elif isinstance(node, list):
-            for item in node:
-                found.extend(commands(item))
-        return found
+    try:
+        found = _codex_hook_commands(loaded)
+    except RecursionError:
+        return None
 
     def last_format(command: str) -> str | None:
         words = command.split()
@@ -7015,7 +7027,7 @@ def _codex_hook_note(codex_home: Path) -> str | None:
             index += 1
         return found
 
-    for command in commands(loaded):
+    for command in found:
         if "alice-memory-session-start" not in command:
             continue
         if last_format(command) == "markdown":

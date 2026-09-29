@@ -22,6 +22,7 @@ import stat
 import subprocess
 import sys
 import tomllib
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -2418,6 +2419,209 @@ def test_codex_non_utf8_layer_file_is_an_unreadable_note(
     assert "action: written" in out.splitlines()
     assert note in out.splitlines()
     assert layer.read_bytes() == layer_before
+
+
+_INVALID_CARRIED_ENTRY = (
+    _ALICE_ENTRY
+    + 'enabled = "yes"\n'
+    + 'startup_timeout_sec = "x"\n'
+    + "default_tools_approval_mode = 7\n"
+)
+
+
+def _deep_json(kind: str, depth: int) -> str:
+    if kind == "list":
+        return "[" * depth + "]" * depth
+    return '{"a":' * depth + "1" + "}" * depth
+
+
+@pytest.mark.parametrize("mode", ["written", "dry-run", "refused"])
+@pytest.mark.parametrize("kind", ["list", "dict"])
+@pytest.mark.parametrize("depth", [100_000, 5_000])
+def test_codex_deeply_nested_hooks_file_gives_no_note_and_no_crash(
+    depth: int,
+    kind: str,
+    mode: str,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """hooks.json is only read for advice, so a file nested too deep is skipped.
+
+    At 100,000 levels ``json.loads`` raises RecursionError. At 5,000 levels
+    Python 3.12 parses the document and the recursive command walk overflows
+    instead. On an interpreter that fails one step sooner the other case is
+    covered by the same catch. Both used to end in ``unexpected
+    RecursionError`` for a real run, a dry run and a refusal, and the file
+    is never changed.
+
+    Mutation 1: drop RecursionError from the catch around ``json.loads`` in
+    ``_codex_hook_note``. Install fails with ``unexpected RecursionError``.
+    The 100,000 cases fail.
+
+    Mutation 2: drop the RecursionError catch around
+    ``_codex_hook_commands``. The 5,000 cases fail when the interpreter
+    parses that depth, and ``test_codex_hook_note_skips_a_file_when_the_command_walk_overflows``
+    fails on any interpreter.
+    """
+
+    home = tmp_path / "home"
+    hooks = home / ".codex" / "hooks.json"
+    hooks.parent.mkdir(parents=True)
+    hooks.write_text(_deep_json(kind, depth), encoding="utf-8")
+    hooks_before = hooks.read_bytes()
+    seeded = 'model = "x"\n'
+    if mode == "refused":
+        seeded += _ALICE_ENTRY + 'cwd = "/tmp/work"\n'
+    path = _seed(home, seeded)
+    before = path.read_bytes()
+    extra = ("--dry-run",) if mode == "dry-run" else ()
+
+    code, out, err = _install(home, tmp_path / "vault", capsys, *extra)
+
+    lines = out.splitlines()
+    assert "reason: unexpected RecursionError" not in lines, (out, err)
+    assert not [line for line in lines if line.startswith("note: Codex rejects")]
+    assert hooks.read_bytes() == hooks_before
+    if mode == "refused":
+        assert code == 1, (out, err)
+        assert "action: refused" in lines
+        assert any(line.startswith("reason: ") and "holds cwd" in line for line in lines)
+        assert path.read_bytes() == before
+    elif mode == "dry-run":
+        assert code == 0, (out, err)
+        assert "action: dry-run" in lines
+        assert path.read_bytes() == before
+    else:
+        assert code == 0, (out, err)
+        assert "action: written" in lines
+        assert "mcp_servers.alice" in path.read_text(encoding="utf-8")
+
+
+def test_codex_hook_note_skips_a_file_when_the_command_walk_overflows(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A hooks.json that parses can still overflow the command walk.
+
+    The depth where that happens depends on the interpreter and on how deep
+    the caller already is, so the walk is made to overflow instead. A
+    document that names the JSON-mode hook still parses, so without the
+    catch this would either crash or, if the walk were skipped, say nothing.
+
+    Mutation: call ``_codex_hook_commands`` outside the RecursionError catch
+    in ``_codex_hook_note``. The note call reports a crash, so the
+    ``is None`` assertion fails.
+    """
+
+    home = tmp_path / "home"
+    codex_home = home / ".codex"
+    codex_home.mkdir(parents=True)
+    (codex_home / "hooks.json").write_text(
+        json.dumps({"command": "uvx alice-memory-session-start --format json"}),
+        encoding="utf-8",
+    )
+    assert host_install._codex_hook_note(codex_home) == (
+        "note: Codex rejects the output of alice-memory-session-start. "
+        "Remove it from hooks.json"
+    )
+
+    def overflow(_node: object) -> list[str]:
+        raise RecursionError("maximum recursion depth exceeded")
+
+    monkeypatch.setattr(host_install, "_codex_hook_commands", overflow)
+    try:
+        note = host_install._codex_hook_note(codex_home)
+    except RecursionError as crash:
+        note = f"crashed with {crash!r}"
+    assert note is None
+
+    code, out, err = _install(home, tmp_path / "vault", capsys)
+    assert code == 0, (out, err)
+    assert "action: written" in out.splitlines()
+    assert "Codex rejects" not in out
+
+
+def test_codex_refusal_names_the_first_invalid_key_in_carried_order(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Several invalid carried keys are checked in the order the writer lists them.
+
+    ``_CODEX_CARRIED`` is a frozenset, and string hashes change from one
+    process to the next. Iterating it named a different key from run to run.
+    The frozenset here iterates backwards, the worst case for a loop that
+    walks it instead of the ordered tuple.
+
+    Mutation: loop over ``_CODEX_CARRIED`` instead of ``_CODEX_CARRIED_KEYS``
+    in the planner. The reason names default_tools_approval_mode. This test
+    fails.
+    """
+
+    class Backwards(frozenset[str]):
+        def __iter__(self) -> Iterator[str]:
+            return iter(reversed(host_install._CODEX_CARRIED_KEYS))
+
+    monkeypatch.setattr(
+        host_install, "_CODEX_CARRIED", Backwards(host_install._CODEX_CARRIED_KEYS)
+    )
+    home = tmp_path / "home"
+    path = _seed(home, _INVALID_CARRIED_ENTRY)
+    before = path.read_bytes()
+
+    code, out, err = _install(home, tmp_path / "vault", capsys)
+
+    assert code == 1, (out, err)
+    assert path.read_bytes() == before
+    assert (
+        "reason: Codex would refuse to load this value for startup_timeout_sec"
+        in out.splitlines()
+    )
+    with pytest.raises(CodexConfigRefused) as caught:
+        plan_codex_config(_INVALID_CARRIED_ENTRY, "/v")
+    assert caught.value.detail == "Codex would refuse to load this value for startup_timeout_sec"
+
+
+def test_codex_refusal_reason_is_the_same_under_every_hash_seed() -> None:
+    """The same file gives the same refusal reason in separate processes.
+
+    Each process gets its own PYTHONHASHSEED. Before the fix the reason
+    changed with the seed, and seeds 1 to 6 alone gave three different keys.
+
+    Mutation: loop over ``_CODEX_CARRIED`` instead of ``_CODEX_CARRIED_KEYS``
+    in the planner. At least two of these seeds name a different key, so the
+    set of reasons has more than one member. This test fails.
+    """
+
+    script = (
+        "import sys\n"
+        "from alicebot_api.host_install import CodexConfigRefused, plan_codex_config\n"
+        "try:\n"
+        "    plan_codex_config(sys.stdin.read(), '/v')\n"
+        "except CodexConfigRefused as refused:\n"
+        "    print(refused.detail)\n"
+    )
+    source_root = str(Path(host_install.__file__).resolve().parents[1])
+    reasons: dict[int, str] = {}
+    for seed in range(1, 9):
+        result = subprocess.run(
+            [sys.executable, "-c", script],
+            input=_INVALID_CARRIED_ENTRY,
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=60,
+            env={
+                **os.environ,
+                "PYTHONHASHSEED": str(seed),
+                "PYTHONPATH": source_root,
+            },
+        )
+        reasons[seed] = result.stdout.strip()
+    assert set(reasons.values()) == {
+        "Codex would refuse to load this value for startup_timeout_sec"
+    }, reasons
 
 
 @pytest.mark.parametrize(
