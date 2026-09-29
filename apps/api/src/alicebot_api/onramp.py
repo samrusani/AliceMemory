@@ -215,7 +215,44 @@ _ERROR_CONTRACTS: dict[str, str] = {
         "A host config was left unchanged because install could not edit it safely; "
         "add the printed snippet by hand"
     ),
+    "data_dir_invalid": "The data directory is empty or is not an absolute path",
 }
+
+
+def _data_dir_absolute_after_tilde(value: str) -> bool:
+    """True when ``Path.expanduser`` leaves an absolute path.
+
+    ``~`` and ``~user`` expand. ``$HOME``, ``%USERPROFILE%``, and a relative
+    path do not.
+    """
+
+    return bool(value) and Path(value).expanduser().is_absolute()
+
+
+def _emit_data_dir_invalid(value: str) -> None:
+    """Refuse ``alice-memory mcp`` and name the value that was refused."""
+
+    message = f'{_ERROR_CONTRACTS["data_dir_invalid"]}: "{value}"'
+    print(
+        json.dumps(
+            {"error": {"code": "data_dir_invalid", "message": message}},
+            ensure_ascii=True,
+            separators=(",", ":"),
+            sort_keys=True,
+        ),
+        file=sys.stderr,
+        flush=True,
+    )
+
+
+def _refuse_mcp_data_dir(args: argparse.Namespace) -> bool:
+    if getattr(args, "command", None) != "mcp":
+        return False
+    value = args.data_dir
+    if isinstance(value, str) and _data_dir_absolute_after_tilde(value):
+        return False
+    _emit_data_dir_invalid("" if value is None else str(value))
+    return True
 
 
 def _emit_error(code: str) -> None:
@@ -3300,6 +3337,8 @@ def main(argv: list[str] | None = None) -> int:
         _emit_error("invalid_request")
         return int(exc.code) if isinstance(exc.code, int) else 2
     if _refuse_postgres_db_argument(args):
+        return 2
+    if _refuse_mcp_data_dir(args):
         return 2
     try:
         if args.command == "export":

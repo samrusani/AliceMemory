@@ -12,8 +12,9 @@ Release.
 
 `pyproject.toml` is the canonical package-version source. The API and Python
 entrypoints read the installed distribution metadata. The release check also
-requires the private web package and active control documents to agree with
-the candidate version.
+requires the private web package, `packaging/mcpb/manifest.json`, and active
+control documents to agree with the candidate version. The release PR bumps
+the web package and the MCPB manifest with `pyproject.toml`.
 
 A stable publication uses all of the following on the same commit:
 

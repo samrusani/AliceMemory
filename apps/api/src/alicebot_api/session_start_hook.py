@@ -14,6 +14,13 @@ Fail open: JSON writes ``{}`` and exits 0. After ``--format markdown``
 is known, fail-open is a single blank line and exit 0. If argparse
 fails before format is known, ``{}`` is still correct for the default
 JSON host. Never failClosed. Never print MCP protocol on stdout.
+
+A non-empty data directory that is still relative after ``~`` expansion
+is not fail-open. The process exits 0 and prints
+``Alice: the data directory "<value>" is not an absolute path; set an absolute path.``
+on stdout (inside ``additionalContext`` for JSON) and on stderr. An
+empty ``--data-dir`` still falls through to ``$ALICE_MEMORY_DATA_DIR``
+and then ``~/.alice``.
 """
 
 from __future__ import annotations
@@ -23,6 +30,7 @@ import json
 import logging
 import os
 import sys
+from pathlib import Path
 from uuid import UUID
 
 from alicebot_api.mcp_server import _DEFAULT_MCP_USER_ID
@@ -84,15 +92,17 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         description=(
             "Read a host session-start payload on stdin and print a session "
             "brief for injection. JSON failures write {} and exit 0. "
-            "Markdown failures write a blank line and exit 0."
+            "Markdown failures write a blank line and exit 0. A non-empty "
+            "data directory that is not absolute after ~ expansion exits 0 "
+            "and names that value instead of creating a vault."
         ),
     )
     parser.add_argument(
         "--data-dir",
         default=None,
         help=(
-            f"Vault directory. Defaults to ${ALICE_MEMORY_DATA_DIR_ENV} or "
-            f"{DEFAULT_DATA_DIR}."
+            f"Vault directory. Must be absolute after ~ expansion. "
+            f"Defaults to ${ALICE_MEMORY_DATA_DIR_ENV} or {DEFAULT_DATA_DIR}."
         ),
     )
     parser.add_argument(
@@ -116,6 +126,14 @@ def _run(args: argparse.Namespace) -> int:
         logger.debug("session-start stdin was not readable: %s", exc)
 
     data_dir = args.data_dir or os.environ.get(ALICE_MEMORY_DATA_DIR_ENV) or DEFAULT_DATA_DIR
+    if data_dir and not Path(data_dir).expanduser().is_absolute():
+        line = (
+            f'Alice: the data directory "{data_dir}" is not an absolute path; '
+            "set an absolute path."
+        )
+        print(line, file=sys.stderr, flush=True)
+        _emit_context(line, output_format=args.format)
+        return 0
     db_path = resolve_db_path(data_dir=data_dir, db=None)
     bootstrap_database(
         db_path,

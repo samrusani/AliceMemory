@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- `alice-memory mcp` refuses an empty data directory, or one that is still not absolute after `~` expansion, with `data_dir_invalid` and exit 2, before a vault is created. `alice-memory-session-start` exits 0 and names that value. An empty `--data-dir` still falls through to `$ALICE_MEMORY_DATA_DIR` and then `~/.alice`. The MCPB manifest version matches `pyproject.toml` (0.18.0); a missing or unreadable manifest is a release-check issue.
 - A ChatGPT conversation title that holds a token is stored as `withheld`
   and counted in `skipped_credentials` and `skipped_credential_items` as
   `conversation X title`. In v0.18.0 that title is stored as `withheld`

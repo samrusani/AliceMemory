@@ -2486,6 +2486,26 @@ def validate_metadata(root_dir: Path = ROOT_DIR) -> tuple[ReleaseMetadata, list[
         package_version_uses_metadata = False
     if not package_version_uses_metadata:
         issues.append("alicebot_api.__version__ is not sourced from installed distribution metadata")
+    manifest_path = root_dir / "packaging" / "mcpb" / "manifest.json"
+    try:
+        manifest_text = manifest_path.read_text(encoding="utf-8")
+    except OSError as exc:
+        issues.append(
+            "packaging/mcpb/manifest.json is not readable: "
+            f"{exc.strerror or type(exc).__name__}"
+        )
+    else:
+        try:
+            manifest = json.loads(manifest_text)
+        except json.JSONDecodeError as exc:
+            issues.append(f"packaging/mcpb/manifest.json is not readable: {exc}")
+        else:
+            manifest_version = manifest.get("version") if isinstance(manifest, dict) else None
+            if manifest_version != metadata.version:
+                issues.append(
+                    "packaging/mcpb/manifest.json version does not match pyproject.toml: "
+                    f"{manifest_version!r} != {metadata.version!r}"
+                )
     return metadata, issues
 
 

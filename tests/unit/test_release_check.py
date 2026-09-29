@@ -61,6 +61,12 @@ def _seed_metadata_tree(tmp_path: Path, *, python_version: str, web_version: str
         '__version__ = _distribution_version("alice-memory")\n',
         encoding="utf-8",
     )
+    manifest_dir = tmp_path / "packaging" / "mcpb"
+    manifest_dir.mkdir(parents=True)
+    (manifest_dir / "manifest.json").write_text(
+        json.dumps({"name": "alice-memory", "version": python_version}) + "\n",
+        encoding="utf-8",
+    )
 
 
 def _write_distribution_pair(
@@ -140,6 +146,36 @@ def test_release_metadata_rejects_web_version_drift(tmp_path: Path) -> None:
     _metadata, issues = release_check.validate_metadata(tmp_path)
 
     assert any("package.json version does not match pyproject.toml" in issue for issue in issues)
+
+
+def test_release_metadata_rejects_mcpb_version_drift(tmp_path: Path) -> None:
+    _seed_metadata_tree(tmp_path, python_version="1.2.3", web_version="1.2.3")
+    manifest = tmp_path / "packaging" / "mcpb" / "manifest.json"
+    manifest.write_text('{"version": "0.17.0"}\n', encoding="utf-8")
+
+    _metadata, issues = release_check.validate_metadata(tmp_path)
+
+    assert any(
+        "packaging/mcpb/manifest.json version does not match pyproject.toml" in issue
+        and "0.17.0" in issue
+        and "1.2.3" in issue
+        for issue in issues
+    )
+
+
+def test_release_metadata_reports_a_missing_mcpb_manifest(tmp_path: Path) -> None:
+    _seed_metadata_tree(tmp_path, python_version="1.2.3", web_version="1.2.3")
+    (tmp_path / "packaging" / "mcpb" / "manifest.json").unlink()
+
+    _metadata, issues = release_check.validate_metadata(tmp_path)
+
+    assert any("packaging/mcpb/manifest.json is not readable" in issue for issue in issues)
+
+
+def test_checked_in_mcpb_manifest_matches_pyproject() -> None:
+    root = Path(__file__).resolve().parents[2]
+    _metadata, issues = release_check.validate_metadata(root)
+    assert not any("packaging/mcpb/manifest.json" in issue for issue in issues)
 
 
 def test_release_metadata_rejects_missing_configured_readme(tmp_path: Path) -> None:
