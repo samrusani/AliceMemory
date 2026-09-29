@@ -31,6 +31,7 @@ import json
 import logging
 import os
 import sys
+from pathlib import Path
 from uuid import UUID
 
 from alicebot_api.mcp_server import _DEFAULT_MCP_USER_ID
@@ -171,8 +172,49 @@ def _run(args: argparse.Namespace) -> int:
     if "jsonrpc" in markdown or "Content-Length:" in markdown:
         _fail_open(args.format)
         return 0
+    duplicate = _claude_duplicate_setup_line()
+    if duplicate is not None:
+        markdown = markdown.rstrip("\n") + "\n" + duplicate
     _emit_context(markdown.rstrip("\n"), output_format=args.format)
     return 0
+
+
+_CLAUDE_DUPLICATE_LINE = (
+    "Alice is set up twice in Claude Code. Run `claude mcp remove alice --scope user` "
+    "and remove the alice-memory-session-start hook from ~/.claude/settings.json."
+)
+
+
+def _claude_duplicate_setup_line() -> str | None:
+    """One brief line when this process is the plugin hook and install's entries exist.
+
+    ``CLAUDE_PLUGIN_ROOT`` is set only for the plugin's hook. Older cached
+    plugin versions do not look for it, so they are unchanged.
+    """
+
+    root = os.environ.get("CLAUDE_PLUGIN_ROOT")
+    if not root:
+        return None
+    home = Path.home()
+    has_server = False
+    has_hook = False
+    claude_json = home / ".claude.json"
+    settings = home / ".claude" / "settings.json"
+    try:
+        if claude_json.is_file():
+            loaded = json.loads(claude_json.read_text(encoding="utf-8"))
+            servers = loaded.get("mcpServers") if isinstance(loaded, dict) else None
+            has_server = isinstance(servers, dict) and "alice" in servers
+    except (OSError, json.JSONDecodeError):
+        has_server = False
+    try:
+        if settings.is_file():
+            has_hook = "alice-memory-session-start" in settings.read_text(encoding="utf-8")
+    except OSError:
+        has_hook = False
+    if not has_server and not has_hook:
+        return None
+    return _CLAUDE_DUPLICATE_LINE
 
 
 if __name__ == "__main__":

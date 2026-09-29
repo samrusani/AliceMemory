@@ -20,6 +20,7 @@ on:
       - apps/api/src/alicebot_api/session_start_hook.py
       - tests/unit/launcher_helpers.py
       - tests/unit/test_absolute_uvx.py
+      - tests/unit/test_claude_code_plugin.py
       - tests/unit/test_claude_code_session_start_hook.py
       - tests/unit/test_data_dir_guard.py
       - tests/unit/test_hermes_config_install.py
@@ -41,6 +42,8 @@ on:
       - tests/unit/test_session_brief.py
       - tests/unit/test_sleep_time_proposals.py
       - tests/unit/test_validity_on_by_default.py
+      - plugins/alice-memory/**
+      - .claude-plugin/**
   schedule:
     - cron: "41 6 * * 1"
   workflow_dispatch:
@@ -125,6 +128,7 @@ jobs:
             tests/unit/test_hermes_config_install.py::test_real_hermes_loads_the_written_config \
             tests/unit/test_opencode_config_install.py::test_real_opencode_reads_the_written_config \
             tests/unit/test_opencode_config_install.py::test_real_opencode_rejects_a_broken_alice_entry \
+            tests/unit/test_claude_code_plugin.py::test_real_claude_validates_the_plugin \
             -q --tb=short --junitxml "$RUNNER_TEMP/real-hosts.xml"
           "$ALICE_PYTHON" - "$RUNNER_TEMP/real-hosts.xml" <<'PY'
           import sys
@@ -134,7 +138,7 @@ jobs:
           suites = [root] if root.tag == "testsuite" else list(root.findall("testsuite"))
           ran = sum(int(suite.attrib.get("tests", "0")) for suite in suites)
           skipped = sum(int(suite.attrib.get("skipped", "0")) for suite in suites)
-          if ran != 5 or skipped != 0:
+          if ran != 6 or skipped != 0:
               raise SystemExit(
                   f"real host tests did not all run: tests={ran} skipped={skipped}"
               )
@@ -197,6 +201,7 @@ jobs:
             tests/unit/test_hermes_config_install.py::test_real_hermes_loads_the_written_config \
             tests/unit/test_opencode_config_install.py::test_real_opencode_reads_the_written_config \
             tests/unit/test_opencode_config_install.py::test_real_opencode_rejects_a_broken_alice_entry \
+            tests/unit/test_claude_code_plugin.py::test_real_claude_validates_the_plugin \
             -q --tb=short --junitxml "$RUNNER_TEMP/real-hosts.xml"
           "$ALICE_PYTHON" - "$RUNNER_TEMP/real-hosts.xml" <<'PY'
           import sys
@@ -206,7 +211,7 @@ jobs:
           suites = [root] if root.tag == "testsuite" else list(root.findall("testsuite"))
           ran = sum(int(suite.attrib.get("tests", "0")) for suite in suites)
           skipped = sum(int(suite.attrib.get("skipped", "0")) for suite in suites)
-          if ran != 5 or skipped != 0:
+          if ran != 6 or skipped != 0:
               raise SystemExit(
                   f"real host tests did not all run: tests={ran} skipped={skipped}"
               )
@@ -297,3 +302,36 @@ jobs:
         with:
           path: ${{ runner.temp }}/artifacts/
           if-no-files-found: error
+
+  marketplace-check:
+    name: Claude Code marketplace check
+    if: "${{ github.event_name == 'workflow_dispatch' }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      DISABLE_AUTOUPDATER: "1"
+      DISABLE_UPDATES: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22.14.0"
+
+      - name: Install pinned Claude Code
+        run: npm install -g @anthropic-ai/claude-code@2.1.281
+
+      - name: Validate the committed marketplace
+        run: |
+          test -f .claude-plugin/marketplace.json
+          claude plugin validate . --strict --json
+          version="$(python -c 'import json; print(json.load(open(".claude-plugin/marketplace.json"))["plugins"][0]["source"]["ref"])')"
+          home="$(mktemp -d)"
+          HOME="$home" claude plugin marketplace add . < /dev/null
+          HOME="$home" claude plugin install "alice-memory@alicememory" < /dev/null
+          HOME="$home" claude plugin list --json | python -c 'import json,sys; payload=json.load(sys.stdin); print(payload)'
+          echo "installed from ${version}"

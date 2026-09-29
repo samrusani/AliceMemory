@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- A Claude Code plugin directory is in the repo. Install skips when that
+  plugin is enabled and install has not written Claude Code entries, and
+  refuses when both exist. In v0.18.0 there is no Claude Code plugin.
 - `alice-memory mcp` refuses a `--data-dir` that is empty or not absolute
   after `~` expansion, names the value, and exits 2.
   `alice-memory-session-start` refuses a non-empty value that is not

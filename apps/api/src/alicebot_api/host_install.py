@@ -80,6 +80,16 @@ DEFAULT_INSTALL_HOSTS = (
     "cursor",
     "openclaw",
 )
+CLAUDE_MARKETPLACE_NAME = "alicememory"
+CLAUDE_PLUGIN_ID = "alice-memory@alicememory"
+_CLAUDE_PLUGIN_SKIP = "skipped (the alice-memory plugin is enabled)"
+_CLAUDE_PLUGIN_NEXT = (
+    "run `claude mcp remove alice --scope user`, remove the "
+    "alice-memory-session-start hook from ~/.claude/settings.json, or disable the plugin."
+)
+_CLAUDE_PLUGIN_DISABLED_NOTE = (
+    "note: the alice-memory plugin is disabled. Enabling it later sets Alice up twice."
+)
 
 _SESSION_START_HOSTS = frozenset({"claude-code", "cursor"})
 
@@ -3331,6 +3341,24 @@ def _dry_run_json_snippet(
     return "\n---\n".join(part.rstrip() for part in parts) + "\n", list(dict.fromkeys(hidden))
 
 
+def _claude_plugin_state(doc: Mapping[str, Any]) -> str:
+    """``enabled``, ``disabled``, or ``absent`` for the Alice plugin id.
+
+    A missing ``enabledPlugins``, a non-object value, or another plugin id
+    is ``absent``. Install then writes as usual.
+    """
+
+    plugins = doc.get("enabledPlugins")
+    if not isinstance(plugins, dict):
+        return "absent"
+    value = plugins.get(CLAUDE_PLUGIN_ID)
+    if value is True:
+        return "enabled"
+    if value is False:
+        return "disabled"
+    return "absent"
+
+
 def _install_json_host(
     host: str,
     *,
@@ -3463,6 +3491,26 @@ def _install_json_host(
         return _HostResult(receipt("failed", snippet=None), "failed")
 
     assert mcp is not None  # nosec B101 # narrows the type for mypy; the failure paths above return
+    if host == "claude-code" and hooks is not None:
+        plugin_state = _claude_plugin_state(hooks.doc)
+        has_install_entry = existing is not None or old_hook is not None
+        if plugin_state == "enabled" and not has_install_entry:
+            session_start = "skipped"
+            return _HostResult(receipt(_CLAUDE_PLUGIN_SKIP, snippet=None), "ok")
+        if plugin_state == "enabled" and has_install_entry:
+            details.insert(0, "reason: the alice-memory plugin is enabled and install's entries exist")
+            session_start = "none"
+            trailer = (
+                (_DRY_RUN_REFUSAL,)
+                if dry_run
+                else (f"next: {_CLAUDE_PLUGIN_NEXT}",)
+            )
+            return _HostResult(
+                receipt(_refusal_action(dry_run), snippet=None, trailer=trailer),
+                "refused",
+            )
+        if plugin_state == "disabled":
+            details.append(_CLAUDE_PLUGIN_DISABLED_NOTE)
     refused = plan.refusal is not None or hook_problem is not None
     if plan.refusal is not None:
         details.insert(0, f"reason: {plan.refusal}")
