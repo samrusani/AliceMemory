@@ -21,6 +21,7 @@ from alicebot_api.onramp import bootstrap_database, main as onramp_main, resolve
 from alicebot_api.session_briefing import (
     EMPTY_SESSION_BRIEF,
     SOURCE_LIMIT,
+    compile_local_session_brief,
     compile_session_brief,
     source_scope_from_project_scope,
 )
@@ -159,6 +160,44 @@ def test_a_captured_note_is_a_source_not_a_fact(tmp_path: Path, monkeypatch) -> 
 
     assert any(SOURCE_SENTENCE in line for line in _labelled_lines(brief, "source")), brief
     assert not any(SOURCE_SENTENCE in line for line in _labelled_lines(brief, "fact")), brief
+
+
+def test_a_very_long_newest_fact_keeps_loops_and_sources(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """A 60,000-character newest fact must not wipe the brief.
+
+    Mutation: pass the whole fact to the excerpt search. SQLite raises
+    ``LIKE or GLOB pattern too complex`` and this test fails.
+    """
+
+    context = _context(tmp_path, monkeypatch)
+    _capture(context, SOURCE_NOTE)
+    database = resolve_db_path(data_dir=str(tmp_path), db=None)
+    with sqlite_user_connection(database, USER_ID) as connection:
+        store = SQLiteVNextStore(connection, USER_ID)
+        for index in range(3):
+            store.create_open_loop(
+                {
+                    "title": f"loop {index} stays",
+                    "domain": "project",
+                    "sensitivity": "public",
+                }
+            )
+    _commit(
+        context,
+        title="Long newest fact",
+        text="indigo lighthouse canary " + ("n" * 60000),
+        sensitivity="public",
+        project="acme",
+        domain="project",
+    )
+    brief = compile_local_session_brief(database, user_id=USER_ID, query=None)
+    assert "**open loop**:" in brief
+    assert brief.count("**open loop**:") == 3
+    assert "**source**:" in brief
+    assert "indigo-lighthouse-42" in brief
+    assert "Nothing stored yet." not in brief
 
 
 def test_a_committed_fact_is_labelled_fact(tmp_path: Path, monkeypatch) -> None:

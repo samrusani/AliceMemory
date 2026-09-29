@@ -428,6 +428,37 @@ def _matches_project_scope(resource_scope: tuple[str, ...], project_scope: tuple
     return project_scopes_overlap(resource_scope, project_scope)
 
 
+# A fact used as the excerpt query used to be passed through whole. SQLite
+# then raised "LIKE or GLOB pattern too complex" once the text was about
+# 50,000 UTF-8 bytes, and the hook printed {}. A few hundred characters of
+# the text's FTS tokens is enough to find the source.
+_EXCERPT_QUERY_MAX_CHARS = 300
+
+
+def _bound_excerpt_query(text: str) -> str:
+    """The excerpt search string: FTS tokens, or the first few hundred characters."""
+
+    tokens = fts_fallback_tokens(text)
+    if tokens:
+        chosen: list[str] = []
+        for token in tokens:
+            candidate = " ".join((*chosen, token))
+            if len(candidate) > _EXCERPT_QUERY_MAX_CHARS:
+                if not chosen:
+                    chosen.append(token[:_EXCERPT_QUERY_MAX_CHARS])
+                break
+            chosen.append(token)
+        return " ".join(chosen)
+    return " ".join(text.split())[:_EXCERPT_QUERY_MAX_CHARS]
+
+
+def _bounded_useful_query(text: str) -> str | None:
+    bounded = _bound_excerpt_query(text)
+    if _is_useful_query(bounded):
+        return bounded
+    return None
+
+
 def _resolve_excerpt_query(
     store: SessionBriefStore,
     query: str | None,
@@ -440,16 +471,19 @@ def _resolve_excerpt_query(
 ) -> str | None:
     if query is not None:
         stripped = query.strip()
-        if _is_useful_query(stripped):
-            return stripped
+        bounded = _bounded_useful_query(stripped)
+        if bounded is not None:
+            return bounded
     for row in facts:
         text = _memory_text(row)
-        if _is_useful_query(text):
-            return text
+        bounded = _bounded_useful_query(text)
+        if bounded is not None:
+            return bounded
     for row in open_loops:
         text = _loop_text(row)
-        if _is_useful_query(text):
-            return text
+        bounded = _bounded_useful_query(text)
+        if bounded is not None:
+            return bounded
     fenced = 0
     for event in store.list_events(target_type="source"):
         target_id = event.get("target_id")
@@ -464,8 +498,10 @@ def _resolve_excerpt_query(
         ):
             continue
         hint = _source_query_hint(store, source)
-        if hint is not None and _is_useful_query(hint):
-            return hint
+        if hint is not None:
+            bounded = _bounded_useful_query(hint)
+            if bounded is not None:
+                return bounded
         fenced += 1
         if fenced >= SOURCE_LIMIT:
             break

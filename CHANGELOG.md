@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- A newest fact longer than about 50,000 UTF-8 bytes no longer wipes the
+  session brief. The excerpt search uses that fact's FTS tokens, or its
+  first few hundred characters, and the brief still prints its loops and
+  sources. In v0.18.0 the same fact raises a SQLite pattern error and the
+  hook prints `{}`.
 - `alice-memory install --host hermes` leaves a comment in place when the
   `alice` block, with comment lines and inline comments removed, already
   matches what install would write. The receipt says unchanged and the
