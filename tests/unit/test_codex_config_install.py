@@ -2091,10 +2091,13 @@ def test_codex_dry_run_prints_dates_unquoted(
     _seed(home, original)
     code, out, err = _install(home, tmp_path / "vault", capsys, "--dry-run")
     assert code == 0, (out, err)
-    assert "1979-05-27T07:32:00Z" in out
+    assert (
+        'tools.alice_recall = { approval_mode = "approve", when = 1979-05-27T07:32:00Z, '
+        "seen_on = 1979-05-27, seen_at = 07:32:00 }"
+    ) in out.splitlines()
+    assert "seen_on = 1979-05-27," in out
+    assert '"1979-05-27"' not in out
     assert '"1979-05-27T07:32:00Z"' not in out
-    assert "seen_on = 1979-05-27" in out or "1979-05-27" in out
-    assert "07:32:00" in out
     assert '"07:32:00"' not in out
 
 
@@ -2163,7 +2166,7 @@ def test_codex_failed_host_receipt_names_the_path(
     assert code == 1
     assert "action: failed" in captured.out
     assert "reason: unexpected TypeError" in captured.out
-    assert "next: config.toml was not changed. Run install again." in captured.out
+    assert "next: config.toml was not changed. Run install again." in captured.out.splitlines()
     assert "\nforged" not in captured.out
     assert "\\u000a" in captured.out
 
@@ -2177,7 +2180,7 @@ def test_codex_failed_host_receipt_names_the_path(
     captured = capsys.readouterr()
     assert code == 1
     assert str(codex_home / "config.toml") in captured.out
-    assert "next: config.toml was not changed. Run install again." in captured.out
+    assert "next: config.toml was not changed. Run install again." in captured.out.splitlines()
     assert "dry run: install would refuse this file; nothing was attempted" in captured.out
 
 
@@ -2547,3 +2550,41 @@ def test_codex_refusal_snippet_keeps_a_whole_entry_and_hides_its_secret(
     assert 'args = ["mcp", "--data-dir", "/vault/from-file"]' in lines
     assert 'ALICE_AGENT_API_KEY = "<hidden>"' in lines
     assert secret not in out and secret not in err
+
+
+@pytest.mark.parametrize(
+    ("value", "clause"),
+    [
+        ("gh" + "p_" + "Q7xK9mN2pL4a", "credential material"),
+        ("https://" + "us" + "er:" + "pa" + "ss@example.test/hook", "a URL (everything after its scheme)"),
+    ],
+    ids=["token", "url"],
+)
+def test_codex_dry_run_hidden_line_names_a_masked_env_vars_value(
+    value: str,
+    clause: str,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A masked env_vars item is the only mask in the file, and the receipt still says so.
+
+    Mutation: render list items without the ``masked`` list in
+    ``_codex_format_carried``. The item is masked but the ``hidden:`` line is
+    missing. This test fails.
+    """
+
+    original = (
+        "[mcp_servers.alice]\n"
+        'command = "uvx"\n'
+        'args = ["alice-memory", "mcp", "--data-dir", "/old"]\n'
+        f'env_vars = ["{value}"]\n'
+    )
+    home = tmp_path / "home"
+    _seed(home, original)
+    code, out, err = _install(home, tmp_path / "vault", capsys, "--dry-run")
+    assert code == 0, (out, err)
+    lines = out.splitlines()
+    assert value not in out and value not in err
+    assert not [line for line in lines if line.startswith("env_vars") and value in line]
+    assert any(line.startswith("env_vars = [") and "<hidden>" in line for line in lines)
+    assert f"hidden: install printed these values from your file as <hidden>: {clause}" in lines
