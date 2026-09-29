@@ -2465,6 +2465,7 @@ def validate_metadata(root_dir: Path = ROOT_DIR) -> tuple[ReleaseMetadata, list[
             "apps/web/package.json version does not match pyproject.toml: "
             f"{metadata.web_version!r} != {metadata.version!r}"
         )
+    issues.extend(_mcpb_manifest_issues(root_dir, metadata.version))
 
     api_source = (root_dir / "apps" / "api" / "src" / "alicebot_api" / "main.py").read_text(encoding="utf-8")
     try:
@@ -2487,6 +2488,30 @@ def validate_metadata(root_dir: Path = ROOT_DIR) -> tuple[ReleaseMetadata, list[
     if not package_version_uses_metadata:
         issues.append("alicebot_api.__version__ is not sourced from installed distribution metadata")
     return metadata, issues
+
+
+def _mcpb_manifest_issues(root_dir: Path, version: str) -> list[str]:
+    """The committed MCPB manifest version must equal pyproject.
+
+    A missing or unreadable file is an issue string. This does not raise.
+    """
+
+    path = root_dir / "packaging" / "mcpb" / "manifest.json"
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return ["packaging/mcpb/manifest.json is missing or unreadable"]
+    try:
+        loaded = json.loads(text)
+    except json.JSONDecodeError:
+        return ["packaging/mcpb/manifest.json is missing or unreadable"]
+    manifest_version = loaded.get("version") if isinstance(loaded, dict) else None
+    if manifest_version != version:
+        return [
+            "packaging/mcpb/manifest.json version does not match pyproject.toml: "
+            f"{manifest_version!r} != {version!r}"
+        ]
+    return []
 
 
 def validate_release_document_state(

@@ -14,6 +14,14 @@ Fail open: JSON writes ``{}`` and exits 0. After ``--format markdown``
 is known, fail-open is a single blank line and exit 0. If argparse
 fails before format is known, ``{}`` is still correct for the default
 JSON host. Never failClosed. Never print MCP protocol on stdout.
+
+A non-empty ``--data-dir`` that is not absolute after ``~`` expansion is
+not fail-open. The command exits 0 and prints one line, in the chosen
+format and on stderr: ``Alice: the data directory "<value>" is not an
+absolute path; set an absolute path.`` In JSON that line is
+``additionalContext``. It does not start with ``{`` or ``[``. An empty
+``--data-dir`` still falls back to ``$ALICE_MEMORY_DATA_DIR``, then
+``~/.alice``.
 """
 
 from __future__ import annotations
@@ -26,7 +34,12 @@ import sys
 from uuid import UUID
 
 from alicebot_api.mcp_server import _DEFAULT_MCP_USER_ID
-from alicebot_api.onramp import DEFAULT_USER_EMAIL, bootstrap_database, resolve_db_path
+from alicebot_api.onramp import (
+    DEFAULT_USER_EMAIL,
+    bootstrap_database,
+    data_dir_absolute_after_tilde,
+    resolve_db_path,
+)
 from alicebot_api.session_briefing import compile_local_session_brief
 
 ALICE_MEMORY_DATA_DIR_ENV = "ALICE_MEMORY_DATA_DIR"
@@ -84,7 +97,10 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         description=(
             "Read a host session-start payload on stdin and print a session "
             "brief for injection. JSON failures write {} and exit 0. "
-            "Markdown failures write a blank line and exit 0."
+            "Markdown failures write a blank line and exit 0. A non-empty "
+            "--data-dir that is not absolute after ~ expansion prints one "
+            "line instead of that fail-open output, in the chosen format "
+            "and on stderr, and still exits 0."
         ),
     )
     parser.add_argument(
@@ -92,7 +108,8 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         default=None,
         help=(
             f"Vault directory. Defaults to ${ALICE_MEMORY_DATA_DIR_ENV} or "
-            f"{DEFAULT_DATA_DIR}."
+            f"{DEFAULT_DATA_DIR} when omitted or empty. A non-empty value "
+            "must be absolute after ~ expansion."
         ),
     )
     parser.add_argument(
@@ -109,11 +126,34 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def _data_dir_refusal_line(value: str) -> str:
+    return (
+        f'Alice: the data directory "{value}" is not an absolute path; '
+        "set an absolute path."
+    )
+
+
+def _emit_data_dir_refusal(value: str, output_format: str) -> None:
+    """One refusal line on stdout, in the chosen format, and on stderr."""
+
+    line = _data_dir_refusal_line(value)
+    print(line, file=sys.stderr)
+    if output_format == "markdown":
+        sys.stdout.write(line + "\n")
+        sys.stdout.flush()
+        return
+    _emit_context(line, output_format="json")
+
+
 def _run(args: argparse.Namespace) -> int:
     try:
         sys.stdin.read()
     except OSError as exc:
         logger.debug("session-start stdin was not readable: %s", exc)
+
+    if args.data_dir and not data_dir_absolute_after_tilde(args.data_dir):
+        _emit_data_dir_refusal(args.data_dir, args.format)
+        return 0
 
     data_dir = args.data_dir or os.environ.get(ALICE_MEMORY_DATA_DIR_ENV) or DEFAULT_DATA_DIR
     db_path = resolve_db_path(data_dir=data_dir, db=None)

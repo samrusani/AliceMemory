@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- `alice-memory mcp` refuses a `--data-dir` that is empty or not absolute
+  after `~` expansion, names the value, and exits 2.
+  `alice-memory-session-start` refuses a non-empty value that is not
+  absolute after expansion: it prints one line and exits 0. An empty
+  session-start value still falls back to `$ALICE_MEMORY_DATA_DIR`, then
+  `~/.alice`. An MCPB default that Claude Desktop leaves as a literal
+  `${HOME}/.alice` now exits 2, instead of creating a vault under the cwd.
+  In v0.18.0 a relative data dir is accepted, and that literal
+  `${HOME}/.alice` creates a vault under the cwd.
 - A ChatGPT conversation title that holds a token is stored as `withheld`
   and counted in `skipped_credentials` and `skipped_credential_items` as
   `conversation X title`. In v0.18.0 that title is stored as `withheld`

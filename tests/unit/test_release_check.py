@@ -61,6 +61,12 @@ def _seed_metadata_tree(tmp_path: Path, *, python_version: str, web_version: str
         '__version__ = _distribution_version("alice-memory")\n',
         encoding="utf-8",
     )
+    manifest_dir = tmp_path / "packaging" / "mcpb"
+    manifest_dir.mkdir(parents=True)
+    (manifest_dir / "manifest.json").write_text(
+        json.dumps({"version": python_version}) + "\n",
+        encoding="utf-8",
+    )
 
 
 def _write_distribution_pair(
@@ -132,6 +138,52 @@ def test_release_metadata_uses_pyproject_as_canonical_version(tmp_path: Path) ->
     assert issues == []
     assert metadata.version == "1.2.3"
     assert metadata.tag == "v1.2.3"
+
+
+def test_release_metadata_rejects_mcpb_version_drift(tmp_path: Path) -> None:
+    _seed_metadata_tree(tmp_path, python_version="1.2.3", web_version="1.2.3")
+    manifest = tmp_path / "packaging" / "mcpb" / "manifest.json"
+    manifest.write_text('{"version": "9.9.9"}\n', encoding="utf-8")
+
+    _metadata, issues = release_check.validate_metadata(tmp_path)
+
+    assert any("manifest.json version does not match pyproject.toml" in issue for issue in issues)
+    assert any("9.9.9" in issue for issue in issues)
+
+
+def test_release_metadata_reports_a_missing_mcpb_manifest(tmp_path: Path) -> None:
+    """A missing manifest is an issue string. Raising fails this test."""
+
+    _seed_metadata_tree(tmp_path, python_version="1.2.3", web_version="1.2.3")
+    manifest = tmp_path / "packaging" / "mcpb" / "manifest.json"
+    manifest.unlink()
+
+    _metadata, issues = release_check.validate_metadata(tmp_path)
+
+    assert issues == ["packaging/mcpb/manifest.json is missing or unreadable"]
+
+
+def test_release_metadata_reports_an_unreadable_mcpb_manifest(tmp_path: Path) -> None:
+    _seed_metadata_tree(tmp_path, python_version="1.2.3", web_version="1.2.3")
+    manifest = tmp_path / "packaging" / "mcpb" / "manifest.json"
+    manifest.unlink()
+    manifest.mkdir()
+
+    _metadata, issues = release_check.validate_metadata(tmp_path)
+
+    assert issues == ["packaging/mcpb/manifest.json is missing or unreadable"]
+
+
+def test_mcpb_manifest_version_matches_pyproject() -> None:
+    """The committed MCPB manifest matches pyproject. Drift fails this test."""
+
+    root = Path(__file__).resolve().parents[2]
+    pyproject = release_check._read_toml(root / "pyproject.toml")
+    project = pyproject.get("project")
+    assert isinstance(project, dict)
+    version = project.get("version")
+    manifest = json.loads((root / "packaging" / "mcpb" / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["version"] == version
 
 
 def test_release_metadata_rejects_web_version_drift(tmp_path: Path) -> None:
