@@ -399,6 +399,7 @@ _CORE_TOOL_DEFINITIONS: list[dict[str, object]] = [
     },
     {
         "name": "alice_recall",
+        "annotations": {"readOnlyHint": True},
         "description": (
             "Search Alice's memory. Runs full-text and semantic vector search over stored "
             "memories and merges both rankings (reciprocal-rank fusion); falls back to "
@@ -509,6 +510,7 @@ _CORE_TOOL_DEFINITIONS: list[dict[str, object]] = [
     },
     {
         "name": "alice_resume",
+        "annotations": {"readOnlyHint": True},
         "description": (
             "Get a brief for picking work back up: the last recorded decision, the suggested "
             "next action, open loops, and recent changes, optionally scoped to a project, "
@@ -730,6 +732,7 @@ _CORE_TOOL_DEFINITIONS: list[dict[str, object]] = [
     },
     {
         "name": "alice_recent_decisions",
+        "annotations": {"readOnlyHint": True},
         "description": (
             "List the most recent recorded decisions, newest first, optionally filtered by "
             "project, person, thread, or time window. Each decision's title and canonical "
@@ -974,6 +977,7 @@ _CORE_TOOL_DEFINITIONS: list[dict[str, object]] = [
     },
     {
         "name": "alice_explain",
+        "annotations": {"readOnlyHint": True},
         "description": (
             "Explain where a memory came from, why it can be trusted, and how it changed "
             "over time: source evidence, revision history, corroborations, and contradiction "

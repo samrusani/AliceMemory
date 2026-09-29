@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- `alice_recall`, `alice_resume`, `alice_recent_decisions`, and `alice_explain` advertise `readOnlyHint`. `alice_open_loops` does not, because every action other than list writes loop state. `alice_context_pack` does not, because it appends `retrieval.context_pack_compiled`. A keyed call on a read tool still appends a `policy.decision` event when an agent identity is present.
 - A ChatGPT conversation title that holds a token is stored as `withheld`
   and counted in `skipped_credentials` and `skipped_credential_items` as
   `conversation X title`. In v0.18.0 that title is stored as `withheld`
