@@ -1327,11 +1327,17 @@ class HermesConfigRefused(InstallError):
 
 
 class InstallRefused(InstallError):
-    """A host file was left unchanged on purpose. ``output`` holds every receipt."""
+    """A host file was left unchanged on purpose. ``output`` holds every receipt.
 
-    def __init__(self, output: str) -> None:
+    ``kinds`` names each refused host. ``plugin`` is the Claude Code case
+    where the plugin and install's entries both exist. The plugin error is
+    used only when every refusal is that one.
+    """
+
+    def __init__(self, output: str, *, kinds: Sequence[str] = ()) -> None:
         super().__init__("a host config was left unchanged")
         self.output = output
+        self.kinds = tuple(kinds)
 
 
 class InstallFailed(InstallError):
@@ -2793,6 +2799,7 @@ class _HostResult:
     receipt: str
     status: str  # "ok", "refused" or "failed"
     used_fallback: bool = False  # an entry runs a launcher install could not confirm here
+    refusal_kind: str | None = None
 
 
 _FAILED_REASON = "the file could not be read or written"
@@ -3549,12 +3556,13 @@ def _install_json_host(
             ]
             hook_details.clear()
             session_start = "none"
-            trailer = (f"next: {_CLAUDE_PLUGIN_NEXT}",)
+            trailer: tuple[str, ...] = (f"next: {_CLAUDE_PLUGIN_NEXT}",)
             if dry_run:
                 trailer = (*trailer, _DRY_RUN_REFUSAL)
             return _HostResult(
                 receipt(_refusal_action(dry_run), snippet=None, trailer=trailer),
                 "refused",
+                refusal_kind="plugin",
             )
         if plugin_state == "disabled":
             details.append(_CLAUDE_PLUGIN_DISABLED_NOTE)
@@ -5280,7 +5288,12 @@ def run_host_install(
     if "failed" in statuses:
         raise InstallFailed(output)
     if "refused" in statuses:
-        raise InstallRefused(output)
+        kinds = tuple(
+            result.refusal_kind or "other"
+            for result in results
+            if result.status == "refused"
+        )
+        raise InstallRefused(output, kinds=kinds)
     return output
 
 

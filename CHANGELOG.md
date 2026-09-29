@@ -4,7 +4,10 @@
 
 - A Claude Code plugin directory is in the repo. Install skips when that
   plugin is enabled and install has not written Claude Code entries, and
-  refuses when both exist. In v0.18.0 there is no Claude Code plugin.
+  refuses when both exist. That plugin error is used only when every
+  refused host is that case. Another refused host in the same run keeps
+  `install_refused`. An unreadable `~/.claude` does not drop the session
+  brief. In v0.18.0 there is no Claude Code plugin.
 - `alice-memory install --host hermes` leaves a comment in place when the
   `alice` block, with comment lines and inline comments removed, already
   matches what install would write. The receipt says unchanged and the

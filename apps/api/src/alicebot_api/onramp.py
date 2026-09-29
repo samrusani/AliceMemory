@@ -1409,7 +1409,7 @@ def _run_install(args: argparse.Namespace) -> int:
         return 1
     except InstallRefused as refused:
         print(refused.output)
-        if "the alice-memory plugin is enabled and install's entries exist" in refused.output:
+        if refused.kinds and all(kind == "plugin" for kind in refused.kinds):
             _emit_error("install_refused_plugin")
         else:
             _emit_error("install_refused")

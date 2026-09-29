@@ -2531,7 +2531,7 @@ def _plugin_metadata_issues(root_dir: Path, version: str) -> list[str]:
     pin = f"alice-memory=={version}"
     try:
         plugin = json.loads(plugin_json.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    except (OSError, ValueError):
         return ["plugins/alice-memory/.claude-plugin/plugin.json is missing or unreadable"]
     plugin_version = plugin.get("version") if isinstance(plugin, dict) else None
     if plugin_version != version:
@@ -2545,7 +2545,7 @@ def _plugin_metadata_issues(root_dir: Path, version: str) -> list[str]:
     ):
         try:
             loaded = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
+        except (OSError, ValueError):
             issues.append(f"{path.relative_to(root_dir).as_posix()} is missing or unreadable")
             continue
         command_args = args(loaded)
@@ -2580,7 +2580,7 @@ def _marketplace_issues(root_dir: Path, path: Path) -> list[str]:
 
     try:
         loaded = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    except (OSError, ValueError):
         return [".claude-plugin/marketplace.json is missing or unreadable"]
     if not isinstance(loaded, dict):
         return [".claude-plugin/marketplace.json is not an object"]
@@ -2589,6 +2589,10 @@ def _marketplace_issues(root_dir: Path, path: Path) -> list[str]:
         issues.append(".claude-plugin/marketplace.json description is missing")
     if loaded.get("name") != "alicememory":
         issues.append(".claude-plugin/marketplace.json name is not alicememory")
+    owner = loaded.get("owner")
+    owner_name = owner.get("name") if isinstance(owner, dict) else None
+    if not isinstance(owner_name, str) or not owner_name.strip():
+        issues.append(".claude-plugin/marketplace.json owner is missing")
     plugins = loaded.get("plugins")
     entry = plugins[0] if isinstance(plugins, list) and plugins else None
     if not isinstance(entry, dict):
@@ -2596,7 +2600,7 @@ def _marketplace_issues(root_dir: Path, path: Path) -> list[str]:
     plugin_json = root_dir / "plugins" / "alice-memory" / ".claude-plugin" / "plugin.json"
     try:
         plugin = json.loads(plugin_json.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    except (OSError, ValueError):
         plugin = {}
     plugin_name = plugin.get("name") if isinstance(plugin, dict) else None
     if entry.get("name") != plugin_name:
@@ -2616,7 +2620,10 @@ def _marketplace_issues(root_dir: Path, path: Path) -> list[str]:
     if not isinstance(ref, str) or not re.fullmatch(r"v(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)", ref):
         issues.append(".claude-plugin/marketplace.json ref is not a v tag")
     else:
-        changelog = (root_dir / "CHANGELOG.md").read_text(encoding="utf-8")
+        try:
+            changelog = (root_dir / "CHANGELOG.md").read_text(encoding="utf-8")
+        except (OSError, ValueError):
+            changelog = ""
         heading = re.compile(
             rf"^## {re.escape(ref)} — \d{{4}}-\d{{2}}-\d{{2}}$",
             flags=re.MULTILINE,

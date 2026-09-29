@@ -222,9 +222,9 @@ def _read_json_object(path: Path) -> object:
     leaves the brief in place.
     """
 
-    if not path.is_file():
-        return None
     try:
+        if not path.is_file():
+            return None
         return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError, RecursionError):
         return None

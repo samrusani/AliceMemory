@@ -7,9 +7,12 @@ from __future__ import annotations
 
 import json
 import os
+import secrets
 import shutil
 import subprocess
 import sys
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import pytest
@@ -152,8 +155,17 @@ def test_install_and_the_plugin(
     _settings(home, {CLAUDE_PLUGIN_ID: True})
     code, out, err = _install(capsys, home, "--data-dir", str(vault))
     assert code == 0, err
-    assert "skipped (the alice-memory plugin is enabled)" in out
-    assert "session_start: skipped" in out
+    resolved = home.resolve()
+    skip_lines = [
+        "host: claude-code",
+        f"path: {resolved / '.claude.json'}",
+        "action: skipped (the alice-memory plugin is enabled)",
+        "session_start: skipped",
+        f"session_start_path: {resolved / '.claude' / 'settings.json'}",
+    ]
+    assert "\n".join(skip_lines) in out
+    assert "launcher:" not in out
+    assert "data_dir:" not in out
     assert not (home / ".claude.json").exists()
 
     home = tmp_path / "enabled-entry"
@@ -163,8 +175,20 @@ def test_install_and_the_plugin(
     code, out, err = _install(capsys, home, "--data-dir", str(vault))
     assert code == 1, out
     assert (home / ".claude.json").read_bytes() == before
-    assert "claude mcp remove alice --scope user" in out
-    assert "alice-memory-session-start" in out
+    resolved = home.resolve()
+    refusal_lines = [
+        "host: claude-code",
+        f"path: {resolved / '.claude.json'}",
+        "action: refused",
+        "reason: the alice-memory plugin is enabled and install's entries exist",
+        "session_start: none",
+        f"session_start_path: {resolved / '.claude' / 'settings.json'}",
+        "next: run `claude mcp remove alice --scope user`, remove the "
+        "alice-memory-session-start hook from ~/.claude/settings.json, or disable the plugin.",
+    ]
+    assert "\n".join(refusal_lines) in out
+    assert "launcher:" not in out
+    assert "data_dir:" not in out
 
     home = tmp_path / "disabled"
     _settings(home, {CLAUDE_PLUGIN_ID: False})
@@ -361,11 +385,22 @@ def test_install_plugin_edge_cases(
     before = (home / ".claude.json").read_bytes()
     code, out, err = _install(capsys, home, "--data-dir", str(vault), "--dry-run")
     assert code == 1, out
-    assert "would-refuse" in out
-    assert "next:" in out
-    assert "claude mcp remove alice --scope user" in out
+    resolved = home.resolve()
+    dry_lines = [
+        "host: claude-code",
+        f"path: {resolved / '.claude.json'}",
+        "action: would-refuse",
+        "reason: the alice-memory plugin is enabled and install's entries exist",
+        "session_start: none",
+        f"session_start_path: {resolved / '.claude' / 'settings.json'}",
+        "next: run `claude mcp remove alice --scope user`, remove the "
+        "alice-memory-session-start hook from ~/.claude/settings.json, or disable the plugin.",
+        "dry run: install would refuse this file; nothing was attempted",
+    ]
+    assert "\n".join(dry_lines) in out
     assert (home / ".claude.json").read_bytes() == before
-    assert "session_start_launcher:" not in out
+    assert "launcher:" not in out
+    assert "data_dir:" not in out
 
 
 def test_duplicate_line_cases(
@@ -448,12 +483,34 @@ def test_bad_claude_config_keeps_the_brief(
     code = hook_main(["--data-dir", str(vault), "--format", "markdown"])
     captured = capsys.readouterr()
     assert code == 0
+    assert "Nothing stored yet." in captured.out
     assert "set up twice" not in captured.out
 
-    settings.write_text("[" * 3000 + "]" * 3000, encoding="utf-8")
+    nested = "[" * 100_000 + "]" * 100_000
+    with pytest.raises(RecursionError):
+        json.loads(nested)
+    settings.write_text(nested, encoding="utf-8")
     code = hook_main(["--data-dir", str(vault), "--format", "markdown"])
     captured = capsys.readouterr()
     assert code == 0
+    assert "Nothing stored yet." in captured.out
+    (tmp_path / ".claude.json").write_text(nested, encoding="utf-8")
+    code = hook_main(["--data-dir", str(vault), "--format", "markdown"])
+    captured = capsys.readouterr()
+    assert code == 0
+    assert "Nothing stored yet." in captured.out
+
+    real_is_file = Path.is_file
+
+    def unreadable(self: Path) -> bool:
+        if self.name == "settings.json" and ".claude" in self.parts:
+            raise PermissionError("unreadable")
+        return real_is_file(self)
+
+    monkeypatch.setattr(Path, "is_file", unreadable)
+    code = hook_main(["--data-dir", str(vault), "--format", "markdown"])
+    captured = capsys.readouterr()
+    assert code == 0, captured.err
     assert "Nothing stored yet." in captured.out
 
 
@@ -603,6 +660,206 @@ def test_plugin_pin_rules_reject_drift_and_a_longer_version(tmp_path: Path) -> N
     _metadata, issues = release_check.validate_metadata(tmp_path)
     assert any("mcp command does not pin alice-memory==1.2.3" in item for item in issues)
 
+    for path, text in saved.items():
+        path.write_text(text, encoding="utf-8")
+    mcp_doc = json.loads(saved[mcp])
+    mcp_doc["mcpServers"]["alice"]["args"][0] = "--with"
+    mcp.write_text(json.dumps(mcp_doc), encoding="utf-8")
+    _metadata, issues = release_check.validate_metadata(tmp_path)
+    assert any("mcp command does not pin alice-memory==1.2.3" in item for item in issues)
+
+    for path, text in saved.items():
+        path.write_text(text, encoding="utf-8")
+    hook_doc = json.loads(saved[hooks])
+    hook_doc["hooks"]["SessionStart"][0]["hooks"][0]["args"][0] = "--with"
+    hooks.write_text(json.dumps(hook_doc), encoding="utf-8")
+    _metadata, issues = release_check.validate_metadata(tmp_path)
+    assert any("hook command does not pin alice-memory==1.2.3" in item for item in issues)
+
+
+def test_marketplace_owner_and_plugin_name_are_checked(tmp_path: Path) -> None:
+    path = _good_market(tmp_path)
+    base = json.loads(path.read_text(encoding="utf-8"))
+    missing = json.loads(json.dumps(base))
+    missing.pop("owner")
+    path.write_text(json.dumps(missing), encoding="utf-8")
+    assert any("owner is missing" in item for item in release_check._marketplace_issues(tmp_path, path))
+
+    path.write_text(json.dumps(base), encoding="utf-8")
+    plugin = tmp_path / "plugins" / "alice-memory" / ".claude-plugin" / "plugin.json"
+    loaded = json.loads(plugin.read_text(encoding="utf-8"))
+    loaded["name"] = "other-plugin"
+    plugin.write_text(json.dumps(loaded), encoding="utf-8")
+    issues = release_check._marketplace_issues(tmp_path, path)
+    assert any("entry name does not match plugin.json" in item for item in issues)
+
+    plugin.write_bytes(b"\xff")
+    issues = release_check._marketplace_issues(tmp_path, path)
+    assert isinstance(issues, list)
+    path.write_bytes(b"\xff")
+    assert release_check._marketplace_issues(tmp_path, path) == [
+        ".claude-plugin/marketplace.json is missing or unreadable"
+    ]
+
+
+def test_plugin_reads_treat_non_utf8_as_an_issue(tmp_path: Path) -> None:
+    from tests.unit.test_release_check import _seed_metadata_tree
+
+    _seed_metadata_tree(tmp_path, python_version="1.2.3", web_version="1.2.3")
+    plugin = tmp_path / "plugins" / "alice-memory" / ".claude-plugin" / "plugin.json"
+    plugin.write_bytes(b"\xff")
+    issues = release_check._plugin_metadata_issues(tmp_path, "1.2.3")
+    assert any("plugin.json is missing or unreadable" in item for item in issues)
+
+
+def test_a_cursor_refusal_is_not_hidden_by_the_plugin(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    pin_launcher_search(monkeypatch, tmp_path, uvx="/usr/local/bin/uvx")
+    home = tmp_path / "both"
+    vault = tmp_path / "vault"
+    _settings(home, {CLAUDE_PLUGIN_ID: True})
+    _seed_server(home)
+    cursor = home / ".cursor" / "mcp.json"
+    cursor.parent.mkdir(parents=True)
+    cursor.write_text("{", encoding="utf-8")
+    code = onramp_main(
+        [
+            "install",
+            "--home",
+            str(home),
+            "--host",
+            "claude-code",
+            "--host",
+            "cursor",
+            "--data-dir",
+            str(vault),
+        ]
+    )
+    captured = capsys.readouterr()
+    assert code == 1, captured.out
+    assert "install_refused_plugin" not in captured.err
+    assert '"code":"install_refused"' in captured.err.replace(" ", "")
+    assert "host: claude-code" in captured.out
+    assert "host: cursor" in captured.out
+
+
+def test_duplicate_prefix_is_reserved_and_the_final_fit_cuts_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A long fact plus filler stays under the cap, and the final fit cuts nothing.
+
+    Mutation: ignore ``reserve`` or cut the compiled brief again.
+    ``additionalContext`` no longer matches the reserved brief. This test fails.
+    """
+
+    import io
+
+    from alicebot_api.onramp import resolve_db_path
+    from alicebot_api.session_briefing import brief_char_len, compile_local_session_brief
+    from tests.unit.test_session_brief import USER_ID, _commit, _context
+
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    monkeypatch.setenv("CLAUDE_PLUGIN_ROOT", str(tmp_path / "plugin"))
+    _seed_server(tmp_path)
+    vault = tmp_path / "vault"
+    context = _context(vault, monkeypatch)
+    _commit(
+        context,
+        title="Long note",
+        text="x" * 20000,
+        sensitivity="public",
+        project="acme",
+        domain="project",
+    )
+    for index in range(6):
+        _commit(
+            context,
+            title=f"Filler {index}",
+            text=("y" * 400) + f" filler {index}",
+            sensitivity="public",
+            project="acme",
+            domain="project",
+        )
+    monkeypatch.setattr(sys, "stdin", io.StringIO(""))
+    code = hook_main(["--data-dir", str(vault), "--user-id", USER_ID, "--format", "json"])
+    captured = capsys.readouterr()
+    assert code == 0, captured.err
+    payload = json.loads(captured.out)
+    additional = payload["hookSpecificOutput"]["additionalContext"]
+    assert additional == payload["additional_context"]
+    assert additional.startswith("Alice is set up twice in Claude Code.")
+    prefix, _sep, _rest = additional.partition("\n")
+    prefix = prefix + "\n"
+    assert brief_char_len(additional) < 9_500
+    expected = compile_local_session_brief(
+        resolve_db_path(data_dir=str(vault), db=None),
+        user_id=USER_ID,
+        query=None,
+        reserve=brief_char_len(prefix),
+    )
+    assert additional[len(prefix) :] == expected
+
+
+class _AnthropicStub:
+    """Loopback stand-in for the Anthropic API. Records method and path only."""
+
+    def __init__(self) -> None:
+        self.records: list[tuple[str, str]] = []
+
+        class Handler(BaseHTTPRequestHandler):
+            def _reply(handler, method: str) -> None:
+                self.records.append((method, handler.path))
+                length = int(handler.headers.get("Content-Length") or 0)
+                if length:
+                    handler.rfile.read(length)
+                body = (
+                    b'{"type":"error","error":{"type":"invalid_request_error",'
+                    b'"message":"alice test stub"}}'
+                )
+                handler.send_response(400)
+                handler.send_header("Content-Type", "application/json")
+                handler.send_header("Content-Length", str(len(body)))
+                handler.end_headers()
+                handler.wfile.write(body)
+
+            def do_POST(handler) -> None:  # noqa: N802
+                handler._reply("POST")
+
+            def do_GET(handler) -> None:  # noqa: N802
+                handler._reply("GET")
+
+            def log_message(handler, _format: str, *_args: object) -> None:  # noqa: N802
+                return
+
+        self._httpd = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self._thread = threading.Thread(target=self._httpd.serve_forever, daemon=True)
+        self._thread.start()
+
+    @property
+    def base_url(self) -> str:
+        host, port = self._httpd.server_address[:2]
+        return f"http://{host}:{port}"
+
+    def close(self) -> None:
+        self._httpd.shutdown()
+        self._httpd.server_close()
+
+
+def _claude_env(base: dict[str, str], stub: _AnthropicStub) -> dict[str, str]:
+    env = dict(base)
+    env["ANTHROPIC_BASE_URL"] = stub.base_url
+    env["ANTHROPIC_API_KEY"] = "alice-test-" + secrets.token_hex(8)
+    env["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"] = "1"
+    env["CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL"] = "1"
+    return env
+
+
+def _claude_detail(result: subprocess.CompletedProcess[str], stub: _AnthropicStub) -> str:
+    lines = (result.stderr or "").splitlines()
+    first = lines[0] if lines else ""
+    return f"returncode={result.returncode} stderr={first!r} stub={stub.records}"
+
 
 def _claude(args: list[str], *, cwd: Path, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
     try:
@@ -692,66 +949,108 @@ def test_real_claude_plugin_install_and_run(
     env["HOME"] = str(home)
     env["PATH"] = str(bin_dir) + os.pathsep + env.get("PATH", "")
     env["DISABLE_AUTOUPDATER"] = "1"
+    env["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"] = "1"
+    env["CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL"] = "1"
+    api = _AnthropicStub()
+    try:
+        claude_env = _claude_env(env, api)
+        bare = _claude(["-p", "ok"], cwd=project, env=env)
+        bare_line = (bare.stderr or "").splitlines()
+        note = f"{bare.returncode}\n{bare_line[0] if bare_line else ''}\n"
+        (tmp_path / "nomock.txt").write_text(note, encoding="utf-8")
+        Path("/tmp/alice-r3-471-nomock.txt").write_text(note, encoding="utf-8")
 
-    added = _claude(["plugin", "marketplace", "add", str(market)], cwd=project, env=env)
-    assert added.returncode == 0, (added.stdout, added.stderr)
-    installed = _claude(["plugin", "install", CLAUDE_PLUGIN_ID], cwd=project, env=env)
-    assert installed.returncode == 0, (installed.stdout, installed.stderr)
-    settings_path = home / ".claude" / "settings.json"
-    settings = json.loads(settings_path.read_text(encoding="utf-8"))
-    assert settings["enabledPlugins"][CLAUDE_PLUGIN_ID] is True
-    listed = _claude(["plugin", "list", "--json"], cwd=project, env=env)
-    assert listed.returncode == 0, (listed.stdout, listed.stderr)
-    payload = json.loads(listed.stdout)
-    rows = payload if isinstance(payload, list) else payload.get("plugins", [])
-    matched = [
-        row
-        for row in rows
-        if isinstance(row, dict) and row.get("id") == CLAUDE_PLUGIN_ID and row.get("enabled") is True and row.get("scope") == "user"
-    ]
-    assert len(rows) == 1 and len(matched) == 1, payload
-    claude_json = home / ".claude.json"
-    if claude_json.is_file():
-        loaded = json.loads(claude_json.read_text(encoding="utf-8"))
-        servers = loaded.get("mcpServers") if isinstance(loaded, dict) else None
-        assert not (isinstance(servers, dict) and "alice" in servers)
-    assert "alice-memory-session-start" not in json.dumps(settings.get("hooks", {}))
+        added = _claude(["plugin", "marketplace", "add", str(market)], cwd=project, env=claude_env)
+        assert added.returncode == 0, _claude_detail(added, api)
+        installed = _claude(["plugin", "install", CLAUDE_PLUGIN_ID], cwd=project, env=claude_env)
+        assert installed.returncode == 0, _claude_detail(installed, api)
+        settings_path = home / ".claude" / "settings.json"
+        settings = json.loads(settings_path.read_text(encoding="utf-8"))
+        assert settings["enabledPlugins"][CLAUDE_PLUGIN_ID] is True
+        listed = _claude(["plugin", "list", "--json"], cwd=project, env=claude_env)
+        assert listed.returncode == 0, _claude_detail(listed, api)
+        payload = json.loads(listed.stdout)
+        rows = payload if isinstance(payload, list) else payload.get("plugins", [])
+        matched = [
+            row
+            for row in rows
+            if isinstance(row, dict)
+            and row.get("id") == CLAUDE_PLUGIN_ID
+            and row.get("enabled") is True
+            and row.get("scope") == "user"
+        ]
+        assert len(rows) == 1 and len(matched) == 1, payload
+        assert matched[0]["version"] == version
+        claude_json = home / ".claude.json"
+        if claude_json.is_file():
+            loaded = json.loads(claude_json.read_text(encoding="utf-8"))
+            servers = loaded.get("mcpServers") if isinstance(loaded, dict) else None
+            assert not (isinstance(servers, dict) and "alice" in servers)
+        assert "alice-memory-session-start" not in json.dumps(settings.get("hooks", {}))
 
-    log_path.write_text("", encoding="utf-8")
-    _claude(["-p", "ok"], cwd=project, env=env)
-    records = [json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines() if line.strip()]
-    for row in records:
-        if any("${user_config" in str(item) for item in row["argv"]):
-            raise AssertionError("unsubstituted; stop and report")
-    hook_rows = [row for row in records if "alice-memory-session-start" in row["argv"]]
-    assert [row["argv"] for row in hook_rows] == [
-        ["--from", pin, "alice-memory-session-start", "--data-dir", "~/.alice"]
-    ]
-    assert hook_rows and hook_rows[0]["CLAUDE_PLUGIN_ROOT"]
-    server_rows = [
-        row
-        for row in records
-        if "alice-memory" in row["argv"] and "mcp" in row["argv"] and "alice-memory-session-start" not in row["argv"]
-    ]
-    for row in server_rows:
-        assert row["argv"] == ["--from", pin, "alice-memory", "mcp", "--data-dir", "~/.alice"]
+        log_path.write_text("", encoding="utf-8")
+        api.records.clear()
+        prompted = _claude(["-p", "ok"], cwd=project, env=claude_env)
+        detail = _claude_detail(prompted, api)
+        posts = [item for item in api.records if item[0] == "POST" and item[1].endswith("/v1/messages")]
+        assert posts, detail
+        records = [
+            json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines() if line.strip()
+        ]
+        for row in records:
+            if any("${user_config" in str(item) for item in row["argv"]):
+                raise AssertionError("unsubstituted; stop and report. " + detail)
+        hook_rows = [row for row in records if "alice-memory-session-start" in row["argv"]]
+        if posts and not hook_rows:
+            raise AssertionError(
+                "stub saw a request and the hook row is missing; stop and report. " + detail
+            )
+        assert [row["argv"] for row in hook_rows] == [
+            ["--from", pin, "alice-memory-session-start", "--data-dir", "~/.alice"]
+        ], detail
+        assert hook_rows[0]["CLAUDE_PLUGIN_ROOT"], detail
+        option = hook_rows[0].get("CLAUDE_PLUGIN_OPTION_DATA_DIR")
+        note = (tmp_path / "nomock.txt").read_text(encoding="utf-8")
+        note = note + f"option={option!r}\n"
+        (tmp_path / "nomock.txt").write_text(note, encoding="utf-8")
+        Path("/tmp/alice-r3-471-nomock.txt").write_text(note, encoding="utf-8")
+        server_rows = [
+            row
+            for row in records
+            if "alice-memory" in row["argv"]
+            and "mcp" in row["argv"]
+            and "alice-memory-session-start" not in row["argv"]
+        ]
+        for row in server_rows:
+            assert row["argv"] == ["--from", pin, "alice-memory", "mcp", "--data-dir", "~/.alice"], detail
 
-    removed = _claude(["plugin", "uninstall", CLAUDE_PLUGIN_ID], cwd=project, env=env)
-    assert removed.returncode == 0, (removed.stdout, removed.stderr)
-    configured = _claude(
-        ["plugin", "install", CLAUDE_PLUGIN_ID, "--config", f"data_dir={vault_b}"],
-        cwd=project,
-        env=env,
-    )
-    assert configured.returncode == 0, (configured.stdout, configured.stderr)
-    settings = json.loads(settings_path.read_text(encoding="utf-8"))
-    assert settings["pluginConfigs"][CLAUDE_PLUGIN_ID]["options"]["data_dir"] == str(vault_b)
-    log_path.write_text("", encoding="utf-8")
-    _claude(["-p", "ok"], cwd=project, env=env)
-    records = [json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines() if line.strip()]
-    hook_rows = [row for row in records if "alice-memory-session-start" in row["argv"]]
-    assert hook_rows
-    assert str(vault_b) in hook_rows[0]["argv"]
+        removed = _claude(["plugin", "uninstall", CLAUDE_PLUGIN_ID], cwd=project, env=claude_env)
+        assert removed.returncode == 0, _claude_detail(removed, api)
+        configured = _claude(
+            ["plugin", "install", CLAUDE_PLUGIN_ID, "--config", f"data_dir={vault_b}"],
+            cwd=project,
+            env=claude_env,
+        )
+        assert configured.returncode == 0, _claude_detail(configured, api)
+        settings = json.loads(settings_path.read_text(encoding="utf-8"))
+        assert settings["pluginConfigs"][CLAUDE_PLUGIN_ID]["options"]["data_dir"] == str(vault_b)
+        log_path.write_text("", encoding="utf-8")
+        api.records.clear()
+        prompted = _claude(["-p", "ok"], cwd=project, env=claude_env)
+        detail = _claude_detail(prompted, api)
+        records = [
+            json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines() if line.strip()
+        ]
+        hook_rows = [row for row in records if "alice-memory-session-start" in row["argv"]]
+        posts = [item for item in api.records if item[0] == "POST" and item[1].endswith("/v1/messages")]
+        if posts and not hook_rows:
+            raise AssertionError(
+                "stub saw a request and the hook row is missing; stop and report. " + detail
+            )
+        assert hook_rows, detail
+        assert str(vault_b) in hook_rows[0]["argv"], detail
+    finally:
+        api.close()
 
     before_settings = settings_path.read_bytes()
     before_claude = claude_json.read_bytes() if claude_json.is_file() else None

@@ -12,7 +12,11 @@ Mutation notes live on each test. A miss raises AssertionError.
 
 from __future__ import annotations
 
+import json
 import re
+import subprocess
+import sys
+import tempfile
 from pathlib import Path
 
 import yaml
@@ -426,10 +430,31 @@ def test_hook_trial_is_dispatch_only_pinned_and_uploads() -> None:
         assert "real_host_hook_trial.py" not in _run_text(_job(name))
 
 
+def _marketplace_check_body(script: str) -> str:
+    marker = "python3 - \"$version\" \"$RUNNER_TEMP/plugins.json\" << 'PY'\n"
+    start = script.index(marker) + len(marker)
+    end = script.index("\nPY", start)
+    return script[start:end]
+
+
+def _run_marketplace_body(body: str, version: str, payload: object) -> subprocess.CompletedProcess[str]:
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "plugins.json"
+        path.write_text(json.dumps(payload), encoding="utf-8")
+        return subprocess.run(
+            [sys.executable, "-", version, str(path)],
+            input=body,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+
+
 def test_marketplace_check_compares_the_installed_version() -> None:
     """The dispatch-only job fails unless the installed plugin version matches.
 
-    Mutation: drop the version comparison, or call bare python. This test fails.
+    The heredoc is executed. An inverted comparison or ``if False`` accepts
+    a wrong row. Mutation: drop the version comparison. This test fails.
     """
 
     job = _job("marketplace-check")
@@ -439,10 +464,21 @@ def test_marketplace_check_compares_the_installed_version() -> None:
     assert "claude plugin validate . --strict --json" in script
     assert 'claude plugin install "alice-memory@alicememory"' in script
     assert "alice-memory@alicememory" in script
-    assert 'row.get("version")' in script
-    assert "python3" in script
+    assert 'python3 - "$version" "$RUNNER_TEMP/plugins.json"' in script
     assert "python -c" not in script
-    assert "${ref#v}" in script
+    assert 'version="${ref#v}"' in script
+    body = _marketplace_check_body(script)
+    assert 'str(row.get("version")) == expected' in body
+
+    def row(version: str = "1.2.3", enabled: bool = True, plugin_id: str = "alice-memory@alicememory") -> dict:
+        return {"id": plugin_id, "enabled": enabled, "version": version}
+
+    assert _run_marketplace_body(body, "1.2.3", [row()]).returncode == 0
+    assert _run_marketplace_body(body, "1.2.3", [row(version="9.9.9")]).returncode != 0
+    assert _run_marketplace_body(body, "1.2.3", [row(version="v1.2.3")]).returncode != 0
+    assert _run_marketplace_body(body, "1.2.3", [row(enabled=False)]).returncode != 0
+    assert _run_marketplace_body(body, "1.2.3", [row(plugin_id="other@alicememory")]).returncode != 0
+    assert _run_marketplace_body(body, "1.2.3", [row(), row()]).returncode != 0
 
 
 def test_real_host_workflow_grants_contents_read_and_no_secrets() -> None:
