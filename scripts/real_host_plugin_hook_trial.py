@@ -47,6 +47,7 @@ _CLIP = 300
 _EVENT_LIMIT = 200
 _STRING_LIMIT = 2000
 _STDOUT_HEAD = 5
+_STDOUT_TAIL = 2
 _FILE_LIMIT = 100
 _INIT_ONLY = ("--init-only",)
 _STREAM = ("-p", "--output-format", "stream-json", "--verbose", "ok")
@@ -176,6 +177,25 @@ def hook_events(stdout: str) -> tuple[list[dict[str, object]], dict[str, object]
             if isinstance(bounded, dict):
                 events.append(bounded)
     return events, init
+
+
+def hook_results(events: list[dict[str, object]]) -> list[dict[str, object]]:
+    """What each hook said when it finished: outcome, exit code and the first line of its output."""
+
+    results: list[dict[str, object]] = []
+    for event in events:
+        if event.get("subtype") != "hook_response":
+            continue
+        text = str(event.get("output") or event.get("stderr") or event.get("stdout") or "")
+        results.append(
+            {
+                "hook_name": event.get("hook_name"),
+                "outcome": event.get("outcome"),
+                "exit_code": event.get("exit_code"),
+                "first_line": _clip(text.splitlines()[0], 200) if text else "",
+            }
+        )
+    return results
 
 
 def key_debug_lines(text: str, limit: int = _DEBUG_LINE_LIMIT) -> tuple[list[str], int]:
@@ -474,6 +494,7 @@ def _execute(
         "first_stderr_line": _first(call.stderr),
         "first_stdout_line": _first(call.stdout),
         "stdout_head": [_clip(line) for line in stdout_lines[:_STDOUT_HEAD]],
+        "stdout_tail": [_clip(line) for line in stdout_lines[-_STDOUT_TAIL:]],
         "wall_ms": call.wall_ms,
         "stub_delay_seconds": delay,
         "stub_requests": [[method, path] for method, path in api.records],
@@ -481,6 +502,7 @@ def _execute(
         "plugin_hook_ran": any(_SESSION_START_ARG in _argv(record) for record in records),
         "markers": {name: path.is_file() and path.stat().st_size > 0 for name, path in markers.items()},
         "hook_events": events,
+        "hook_results": hook_results(events),
         "init_event": init,
         "init_plugins": init.get("plugins") if init else None,
         "init_plugin_errors": init.get("plugin_errors") if init else None,
@@ -681,8 +703,21 @@ def _init_cell(run: dict[str, object]) -> str:
         for item in plugins:
             names.append(str(item.get("name")) if isinstance(item, dict) else str(item))
     errors = run.get("init_plugin_errors")
-    error_count = len(errors) if isinstance(errors, list) else errors
-    return _cell(f"plugins: {', '.join(names) or 'none'}; errors: {error_count}")
+    error_text = str(len(errors)) if isinstance(errors, list) else "no plugin_errors field"
+    return _cell(f"plugins: {', '.join(names) or 'none'}; errors: {error_text}")
+
+
+def _results_cell(run: dict[str, object]) -> str:
+    results = run.get("hook_results")
+    if not isinstance(results, list) or not results:
+        return "none"
+    cells = []
+    for item in results:
+        if not isinstance(item, dict):
+            continue
+        detail = f": {item.get('first_line')}" if item.get("first_line") else ""
+        cells.append(_cell(f"{item.get('outcome')} (exit {item.get('exit_code')}){detail}"))
+    return "<br>".join(cells)
 
 
 def _uvx_cell(run: dict[str, object]) -> str:
@@ -722,8 +757,8 @@ def _headline(rows: list[dict[str, object]]) -> str:
                 controls.update({str(key): bool(value) for key, value in markers.items()})
             (ran if run.get("plugin_hook_ran") else missed).append(str(run.get("label")))
     parts = [
-        "alice-memory hook ran in runs: " + (", ".join(ran) or "none"),
-        "did not run in runs: " + (", ".join(missed) or "none"),
+        "alice-memory session-start reached uvx in runs: " + (", ".join(ran) or "none"),
+        "not in runs: " + (", ".join(missed) or "none"),
     ]
     for name in ("control-a", "control-b"):
         if name in controls:
@@ -739,8 +774,8 @@ def render_summary(report: dict[str, object]) -> str:
         "",
         f"claude {report.get('claude_version')}. One line per claude run; case 6 has two runs.",
         "",
-        "| Case | Command | Exit | First stderr line | Stub requests | uvx records | Markers | Hook events | Init |",
-        "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+        "| Case | Command | Exit | First stderr line | Stub requests | uvx records | Markers | Hook events | Hook results | Init |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
     for row in rows:
         if not isinstance(row, dict):
@@ -748,7 +783,7 @@ def render_summary(report: dict[str, object]) -> str:
         runs = row.get("runs")
         if not isinstance(runs, list) or not runs:
             lines.append(
-                f"| {row.get('case')} | setup failed | - | - | - | - | - | - | - |"
+                f"| {row.get('case')} | setup failed | - | - | - | - | - | - | - | - |"
             )
             continue
         for run in runs:
@@ -767,6 +802,7 @@ def render_summary(report: dict[str, object]) -> str:
                         _uvx_cell(run),
                         _markers_cell(run),
                         _event_counts(run.get("hook_events")),
+                        _results_cell(run),
                         _init_cell(run),
                     )
                 )

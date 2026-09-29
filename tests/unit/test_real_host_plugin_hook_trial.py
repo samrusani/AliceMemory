@@ -102,34 +102,64 @@ printing = "-p" in argv
 if not printing and "--init-only" not in argv:
     raise SystemExit(2)
 stream = "stream-json" in argv
+UNSET = 'Failed to run: Plugin option "data_dir" isn\'t set. Open /plugin manage to configure it, or check that the plugin\'s userConfig schema declares "data_dir".'
+
+
+def substitute(arg, options):
+    for key, value in options.items():
+        arg = arg.replace("${user_config." + key + "}", str(value))
+    return arg
+
+
 hooks = []
+servers = []
 if mode != "no-plugin-hooks":
     for name, info in state["installed"].items():
         directory = Path(info["dir"])
-        hooks_file = directory / "hooks" / "hooks.json"
-        if not hooks_file.is_file():
-            continue
         plugin = json.loads((directory / ".claude-plugin" / "plugin.json").read_text())
-        options = {key: value.get("default") for key, value in plugin.get("userConfig", {}).items()}
-        options.update(info["config"])
-        for group in json.loads(hooks_file.read_text()).get("hooks", {}).get("SessionStart", []):
-            for handler in group["hooks"]:
-                args = []
-                for arg in handler.get("args", []):
-                    for key, value in options.items():
-                        arg = arg.replace("${user_config." + key + "}", str(value))
-                    args.append(arg)
-                hooks.append((handler["command"], args, {"CLAUDE_PLUGIN_ROOT": str(directory)}))
+        defaults = {key: value.get("default") for key, value in plugin.get("userConfig", {}).items()}
+        options = {**defaults, **info["config"]}
+        hooks_file = directory / "hooks" / "hooks.json"
+        if hooks_file.is_file():
+            for group in json.loads(hooks_file.read_text()).get("hooks", {}).get("SessionStart", []):
+                for handler in group["hooks"]:
+                    blocked = mode == "unset-option" and "data_dir" not in info["config"] and any(
+                        "${user_config.data_dir}" in arg for arg in handler.get("args", [])
+                    )
+                    args = [substitute(arg, options) for arg in handler.get("args", [])]
+                    hooks.append((handler["command"], args, {"CLAUDE_PLUGIN_ROOT": str(directory)}, blocked))
+        mcp_file = directory / ".mcp.json"
+        if mcp_file.is_file() and printing:
+            for server in json.loads(mcp_file.read_text()).get("mcpServers", {}).values():
+                servers.append((server["command"], [substitute(arg, options) for arg in server.get("args", [])]))
 settings = json.loads(settings_path.read_text()) if settings_path.is_file() else {}
 for group in settings.get("hooks", {}).get("SessionStart", []):
     for handler in group["hooks"]:
-        hooks.append((handler["command"], handler.get("args", []), {}))
+        hooks.append((handler["command"], handler.get("args", []), {}, False))
 events = []
-for command, args, extra in hooks:
+for command, args, extra, blocked in hooks:
     payload = json.dumps({"hook_event_name": "SessionStart", "source": "startup"}).encode()
-    events.append({"type": "system", "subtype": "hook_started", "hook_event": "SessionStart"})
-    subprocess.run([command, *args], input=payload, env={**os.environ, **extra}, check=False)
-    events.append({"type": "system", "subtype": "hook_response", "hook_event": "SessionStart"})
+    events.append({"type": "system", "subtype": "hook_started", "hook_event": "SessionStart", "hook_name": "SessionStart:startup"})
+    if blocked:
+        output, code = UNSET, 1
+    else:
+        done = subprocess.run(
+            [command, *args], input=payload, env={**os.environ, **extra}, capture_output=True, check=False
+        )
+        output, code = (done.stdout + done.stderr).decode(), done.returncode
+    events.append(
+        {
+            "type": "system",
+            "subtype": "hook_response",
+            "hook_event": "SessionStart",
+            "hook_name": "SessionStart:startup",
+            "output": output,
+            "exit_code": code,
+            "outcome": "success" if code == 0 else "error",
+        }
+    )
+for command, args in servers:
+    subprocess.run([command, *args], stdin=subprocess.DEVNULL, capture_output=True, check=False)
 if debug:
     lines = ["[DEBUG] starting", "[DEBUG] unrelated network line"]
     lines += ["[DEBUG] loaded plugin " + name for name in state["installed"]]
@@ -284,13 +314,22 @@ def test_six_cases_each_write_a_row(trial: _Trial) -> None:
         assert runs[label]["init_event"]["subtype"] == "init"
     assert runs["1"]["hook_events"] == [] and runs["1"]["init_event"] is None
     hook_argv = ["--from", _pin(), "alice-memory-session-start", "--data-dir", "~/.alice"]
+    mcp_argv = ["--from", _pin(), "alice-memory", "mcp", "--data-dir", "~/.alice"]
     for label in ("1", "2", "3", "4", "6a", "6b"):
-        assert [record["argv"] for record in runs[label]["uvx_records"]] == [hook_argv], label
+        argvs = [record["argv"] for record in runs[label]["uvx_records"]]
+        assert [argv for argv in argvs if "alice-memory-session-start" in argv] == [hook_argv], label
         assert runs[label]["plugin_hook_ran"] is True
+        # The server is spawned only when there is a conversation, so init-only has no mcp record.
+        assert (mcp_argv in argvs) == (label not in ("1", "6a")), label
     vault = str(trial.temp / "case-5" / "vault")
-    assert [record["argv"] for record in runs["5"]["uvx_records"]] == [
-        ["--from", _pin(), "alice-memory-session-start", "--data-dir", vault]
-    ]
+    assert [
+        record["argv"] for record in runs["5"]["uvx_records"] if "alice-memory-session-start" in record["argv"]
+    ] == [["--from", _pin(), "alice-memory-session-start", "--data-dir", vault]]
+    ok = {"hook_name": "SessionStart:startup", "outcome": "success", "exit_code": 0, "first_line": ""}
+    assert runs["1"]["hook_results"] == [] and runs["2"]["hook_results"] == [ok]
+    assert runs["3"]["hook_results"] == [ok, ok] and runs["4"]["hook_results"] == [ok, ok]
+    assert runs["2"]["stdout_tail"][-1] == '{"type": "result", "is_error": true}'
+    assert len(runs["2"]["stdout_tail"]) == 2
     assert runs["1"]["markers"] == {} and runs["2"]["markers"] == {}
     assert runs["3"]["markers"] == {"control-a": True}
     assert runs["4"]["markers"] == {"control-b": True}
@@ -337,12 +376,15 @@ def test_a_hook_that_does_not_run_is_a_valid_result(tmp_path: Path, monkeypatch:
     assert trial.code == 0
     runs = trial.runs()
     assert all(run["plugin_hook_ran"] is False for run in runs.values())
-    assert all(run["uvx_records"] == [] for run in runs.values())
+    assert all(
+        "alice-memory-session-start" not in record["argv"] for run in runs.values() for record in run["uvx_records"]
+    )
+    assert all(run["hook_results"] == [] or run["label"] in ("3", "4") for run in runs.values())
     assert runs["3"]["markers"] == {"control-a": True}
     assert runs["4"]["markers"] == {"control-b": False}
     headline = trial.report["headline"]
-    assert headline.startswith("alice-memory hook ran in runs: none;")
-    assert "did not run in runs: 1, 2, 3, 4, 5, 6a, 6b" in headline
+    assert headline.startswith("alice-memory session-start reached uvx in runs: none;")
+    assert "not in runs: 1, 2, 3, 4, 5, 6a, 6b" in headline
     assert "control-a fired" in headline and "control-b did not fire" in headline
     text = trial.summary.read_text(encoding="utf-8")
     assert text.startswith("earlier step\n" + headline + "\n")
@@ -425,6 +467,53 @@ def test_the_delay_applies_only_to_case_six(trial: _Trial) -> None:
     assert "0.3 seconds" in trial.rows()[6]["shows"]
 
 
+def test_an_unset_option_that_blocks_the_hook_shows_in_the_results(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A hook that starts and fails shows its outcome, exit code and message in the row and the table.
+
+    The fake refuses the plugin hook when ``data_dir`` is not set, as the pinned
+    claude did in the first CI trial, and runs it when ``--config`` set it.
+    Mutation: drop ``hook_results`` from the run record, read the wrong event
+    subtype, or drop the results column. This test fails.
+    """
+
+    trial = _Trial(tmp_path, monkeypatch, FAKE_MODE="unset-option")
+    assert trial.code == 0
+    runs = trial.runs()
+    message = (
+        'Failed to run: Plugin option "data_dir" isn\'t set. Open /plugin manage to configure it, '
+        'or check that the plugin\'s userConfig schema declares "data_dir".'
+    )
+    failed = {"hook_name": "SessionStart:startup", "outcome": "error", "exit_code": 1, "first_line": message}
+    ok = {"hook_name": "SessionStart:startup", "outcome": "success", "exit_code": 0, "first_line": ""}
+    # --init-only prints no stream, so its outcome is only in the debug log.
+    assert runs["1"]["hook_results"] == [] and runs["6a"]["hook_results"] == []
+    assert runs["2"]["hook_results"] == [failed]
+    assert runs["3"]["hook_results"] == [failed, ok]
+    assert runs["4"]["hook_results"] == [ok, failed]
+    assert runs["5"]["hook_results"] == [ok]
+    assert runs["6b"]["hook_results"] == [failed]
+    assert [r["plugin_hook_ran"] for r in (runs[k] for k in ("1", "2", "3", "4", "5", "6a", "6b"))] == [
+        False,
+        False,
+        False,
+        False,
+        True,
+        False,
+        False,
+    ]
+    assert runs["3"]["markers"] == {"control-a": True} and runs["4"]["markers"] == {"control-b": True}
+    assert trial.report["headline"] == (
+        "alice-memory session-start reached uvx in runs: 5; not in runs: 1, 2, 3, 4, 6a, 6b; "
+        "control-a fired; control-b fired."
+    )
+    table = [line for line in trial.summary.read_text(encoding="utf-8").splitlines() if line.startswith("| ")]
+    assert f"error (exit 1): {message}".replace("|", "\\|") in table[3]
+    assert "success (exit 0)" in table[6]
+    assert "| none |" in table[2]
+
+
 def test_each_run_starts_from_clean_logs_and_its_own_home(trial: _Trial) -> None:
     """A run sees only its own uvx records, markers and requests.
 
@@ -435,7 +524,9 @@ def test_each_run_starts_from_clean_logs_and_its_own_home(trial: _Trial) -> None
 
     runs = trial.runs()
     assert len(runs["6a"]["uvx_records"]) == 1
-    assert len(runs["6b"]["uvx_records"]) == 1
+    hooks_in_6b = [r for r in runs["6b"]["uvx_records"] if "alice-memory-session-start" in r["argv"]]
+    assert len(hooks_in_6b) == 1
+    assert len(runs["6b"]["uvx_records"]) == 2
     assert runs["6b"]["stub_requests"] == [["POST", "/v1/messages?beta=true"]]
     homes = {call["home"] for call in trial.session_calls}
     assert len(homes) == 6
@@ -547,10 +638,11 @@ def test_summary_has_one_escaped_line_per_run_and_keeps_earlier_output(trial: _T
     assert table[1].startswith("| --- |")
     assert [line.split(" | ")[0] for line in table[2:]] == ["| 1", "| 2", "| 3", "| 4", "| 5", "| 6a", "| 6b"]
     for line in table:
-        assert len(re.split(r"(?<!\\)\|", line)) == 11, line
+        assert len(re.split(r"(?<!\\)\|", line)) == 12, line
     assert "API Error: 400 alice\\|test stub" in table[3]
     assert "claude --init-only" in table[2]
     assert "uvx --from " + _pin() + " alice-memory-session-start --data-dir ~/.alice" in table[3]
+    assert "success (exit 0)" in table[3] and "success (exit 0)<br>success (exit 0)" in table[4]
     assert "control-a: yes" in table[4]
     assert "control-b: yes" in table[5]
     assert "hook_started x1" in table[3]
@@ -637,6 +729,77 @@ def test_hook_events_keep_hook_types_hook_subtypes_and_the_init_event() -> None:
     assert init is not None and init["plugins"] == [{"name": "alice-memory"}]
     assert len(events[-1]["output"]) < 2100
     assert module.hook_events("") == ([], None)
+
+
+def test_hook_results_read_the_response_events_only() -> None:
+    """Each ``hook_response`` gives its outcome, exit code and first output line, clipped.
+
+    The output falls back to stderr and then stdout, and ``hook_started`` gives
+    nothing. Mutation: read ``hook_started`` too, skip the clip, or ignore
+    stderr. This test fails.
+    """
+
+    module = _load_trial()
+    events = [
+        {"type": "system", "subtype": "hook_started", "hook_name": "a"},
+        {"type": "system", "subtype": "hook_response", "hook_name": "a", "output": "first\nsecond", "exit_code": 1, "outcome": "error"},
+        {"type": "system", "subtype": "hook_response", "hook_name": "b", "output": "", "stderr": "from stderr", "exit_code": 2, "outcome": "error"},
+        {"type": "system", "subtype": "hook_response", "hook_name": "c", "output": "", "stdout": "from stdout", "exit_code": 0, "outcome": "success"},
+        {"type": "system", "subtype": "hook_response", "hook_name": "d", "output": "x" * 500, "exit_code": 0, "outcome": "success"},
+        {"type": "system", "subtype": "hook_response", "hook_name": "e"},
+    ]
+    results = module.hook_results(events)
+    assert [(r["hook_name"], r["outcome"], r["exit_code"]) for r in results] == [
+        ("a", "error", 1),
+        ("b", "error", 2),
+        ("c", "success", 0),
+        ("d", "success", 0),
+        ("e", None, None),
+    ]
+    assert [r["first_line"] for r in results][:3] == ["first", "from stderr", "from stdout"]
+    assert len(results[3]["first_line"]) < 210 and results[4]["first_line"] == ""
+    assert module.hook_results([]) == []
+
+
+def test_the_results_cell_escapes_pipes_and_joins_hooks() -> None:
+    """A hook message with a ``|`` cannot break the table, and each hook gets its own line.
+
+    Mutation: skip the escape, or drop the exit code. This test fails.
+    """
+
+    module = _load_trial()
+    cell = module._results_cell(
+        {
+            "hook_results": [
+                {"outcome": "error", "exit_code": 1, "first_line": "a|b"},
+                {"outcome": "success", "exit_code": 0, "first_line": ""},
+            ]
+        }
+    )
+    assert cell == "error (exit 1): a\\|b<br>success (exit 0)"
+    assert module._results_cell({"hook_results": []}) == "none"
+    assert module._results_cell({}) == "none"
+
+
+def test_the_init_cell_names_plugins_and_says_when_an_error_list_is_absent() -> None:
+    """The Init column lists plugin names and the error count, and says so when there is no list.
+
+    Mutation: print ``None`` for a missing list, or show the plugin paths
+    instead of the names. This test fails.
+    """
+
+    module = _load_trial()
+    plugins = [{"name": "alice-memory", "path": "/p"}, "bare"]
+    assert module._init_cell({"init_event": {}, "init_plugins": plugins, "init_plugin_errors": []}) == (
+        "plugins: alice-memory, bare; errors: 0"
+    )
+    assert module._init_cell({"init_event": {}, "init_plugins": plugins, "init_plugin_errors": [{}, {}]}) == (
+        "plugins: alice-memory, bare; errors: 2"
+    )
+    assert module._init_cell({"init_event": {}, "init_plugins": None, "init_plugin_errors": None}) == (
+        "plugins: none; errors: no plugin_errors field"
+    )
+    assert module._init_cell({"init_event": None}) == "no init event"
 
 
 def test_mark_appends_one_line_per_call_and_exits_zero_on_bad_input(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
