@@ -27,6 +27,7 @@ absolute path; set an absolute path.`` In JSON that line is
 from __future__ import annotations
 
 import argparse
+import inspect
 import json
 import logging
 import os
@@ -164,17 +165,22 @@ def _run(args: argparse.Namespace) -> int:
         user_email=DEFAULT_USER_EMAIL,
         secure_parent=True,
     )
-    markdown = compile_local_session_brief(
-        db_path,
-        user_id=args.user_id,
-        query=None,
-    )
+    duplicate = _claude_duplicate_setup_line()
+    prefix = f"{duplicate}\n" if duplicate else ""
+    # The brief cap and its reserve argument live on the brief branch.
+    # Pass reserve when that parameter is present. Do not invent a second cap.
+    compile_args = {
+        "user_id": args.user_id,
+        "query": None,
+    }
+    if prefix and "reserve" in inspect.signature(compile_local_session_brief).parameters:
+        compile_args["reserve"] = len(prefix.encode("utf-16-le")) // 2
+    markdown = compile_local_session_brief(db_path, **compile_args)
+    if prefix:
+        markdown = prefix + markdown
     if "jsonrpc" in markdown or "Content-Length:" in markdown:
         _fail_open(args.format)
         return 0
-    duplicate = _claude_duplicate_setup_line()
-    if duplicate is not None:
-        markdown = markdown.rstrip("\n") + "\n" + duplicate
     _emit_context(markdown.rstrip("\n"), output_format=args.format)
     return 0
 
@@ -196,25 +202,33 @@ def _claude_duplicate_setup_line() -> str | None:
     if not root:
         return None
     home = Path.home()
-    has_server = False
+    claude_json = _read_json_object(home / ".claude.json")
+    settings = _read_json_object(home / ".claude" / "settings.json")
+    servers = claude_json.get("mcpServers") if isinstance(claude_json, dict) else None
+    has_server = isinstance(servers, dict) and "alice" in servers
     has_hook = False
-    claude_json = home / ".claude.json"
-    settings = home / ".claude" / "settings.json"
-    try:
-        if claude_json.is_file():
-            loaded = json.loads(claude_json.read_text(encoding="utf-8"))
-            servers = loaded.get("mcpServers") if isinstance(loaded, dict) else None
-            has_server = isinstance(servers, dict) and "alice" in servers
-    except (OSError, json.JSONDecodeError):
-        has_server = False
-    try:
-        if settings.is_file():
-            has_hook = "alice-memory-session-start" in settings.read_text(encoding="utf-8")
-    except OSError:
-        has_hook = False
+    if isinstance(settings, dict):
+        from alicebot_api.host_install import _existing_alice_hook_command
+
+        has_hook = _existing_alice_hook_command(settings, "claude-code") is not None
     if not has_server and not has_hook:
         return None
     return _CLAUDE_DUPLICATE_LINE
+
+
+def _read_json_object(path: Path) -> object:
+    """One JSON file, or None when it is missing or cannot be read.
+
+    A bad encoding, a broken document, or a document nested too deeply
+    leaves the brief in place.
+    """
+
+    if not path.is_file():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, RecursionError):
+        return None
 
 
 if __name__ == "__main__":

@@ -2539,15 +2539,40 @@ def _plugin_metadata_issues(root_dir: Path, version: str) -> list[str]:
             "plugins/alice-memory/.claude-plugin/plugin.json version does not match "
             f"pyproject.toml: {plugin_version!r} != {version!r}"
         )
-    for label, path in (("mcp", mcp_json), ("hook", hooks_json)):
+    for label, path, args in (
+        ("mcp", mcp_json, _plugin_mcp_args),
+        ("hook", hooks_json, _plugin_hook_args),
+    ):
         try:
-            text = path.read_text(encoding="utf-8")
-        except OSError:
+            loaded = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
             issues.append(f"{path.relative_to(root_dir).as_posix()} is missing or unreadable")
             continue
-        if pin not in text:
+        command_args = args(loaded)
+        if command_args is None or command_args[:2] != ["--from", pin]:
             issues.append(f"{label} command does not pin {pin}")
     return issues
+
+
+def _plugin_mcp_args(loaded: object) -> list[object] | None:
+    if not isinstance(loaded, dict):
+        return None
+    servers = loaded.get("mcpServers")
+    alice = servers.get("alice") if isinstance(servers, dict) else None
+    args = alice.get("args") if isinstance(alice, dict) else None
+    return args if isinstance(args, list) else None
+
+
+def _plugin_hook_args(loaded: object) -> list[object] | None:
+    if not isinstance(loaded, dict):
+        return None
+    hooks = loaded.get("hooks")
+    session = hooks.get("SessionStart") if isinstance(hooks, dict) else None
+    group = session[0] if isinstance(session, list) and session else None
+    handlers = group.get("hooks") if isinstance(group, dict) else None
+    handler = handlers[0] if isinstance(handlers, list) and handlers else None
+    args = handler.get("args") if isinstance(handler, dict) else None
+    return args if isinstance(args, list) else None
 
 
 def _marketplace_issues(root_dir: Path, path: Path) -> list[str]:

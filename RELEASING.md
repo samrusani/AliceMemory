@@ -32,11 +32,13 @@ that same version.
 The release PR's README wording for the plugin says it is available from the
 marketplace once the release is published.
 
-The post-publication PR adds or moves `.claude-plugin/marketplace.json` to the
-new tag: a `git-subdir` source with `url` `samrusani/AliceMemory`, `path`
-`plugins/alice-memory`, `ref` `vX.Y.Z`, and `sha`, the full 40-character
-lowercase tag commit. Then it dispatches the marketplace check in the
-real-host workflow.
+The post-publication PR adds `.claude-plugin/marketplace.json` at the
+repository root. The file has `name` `alicememory`, `owner` with `name`
+`Alice Memory`, a `description`, and one plugin entry. That entry's `name`
+matches `plugin.json`. Its `source` is `git-subdir`, with `url`
+`samrusani/AliceMemory`, `path` `plugins/alice-memory`, `ref` `vX.Y.Z`,
+and `sha`, the full 40-character lowercase tag commit. Then it dispatches
+the marketplace check in the real-host workflow.
 
 ## Manual Repository Prerequisites
 

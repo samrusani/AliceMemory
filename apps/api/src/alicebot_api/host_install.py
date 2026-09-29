@@ -3495,16 +3495,19 @@ def _install_json_host(
         plugin_state = _claude_plugin_state(hooks.doc)
         has_install_entry = existing is not None or old_hook is not None
         if plugin_state == "enabled" and not has_install_entry:
+            details.clear()
+            hook_details.clear()
             session_start = "skipped"
             return _HostResult(receipt(_CLAUDE_PLUGIN_SKIP, snippet=None), "ok")
         if plugin_state == "enabled" and has_install_entry:
-            details.insert(0, "reason: the alice-memory plugin is enabled and install's entries exist")
+            details[:] = [
+                "reason: the alice-memory plugin is enabled and install's entries exist"
+            ]
+            hook_details.clear()
             session_start = "none"
-            trailer = (
-                (_DRY_RUN_REFUSAL,)
-                if dry_run
-                else (f"next: {_CLAUDE_PLUGIN_NEXT}",)
-            )
+            trailer = (f"next: {_CLAUDE_PLUGIN_NEXT}",)
+            if dry_run:
+                trailer = (*trailer, _DRY_RUN_REFUSAL)
             return _HostResult(
                 receipt(_refusal_action(dry_run), snippet=None, trailer=trailer),
                 "refused",

@@ -129,6 +129,7 @@ jobs:
             tests/unit/test_opencode_config_install.py::test_real_opencode_reads_the_written_config \
             tests/unit/test_opencode_config_install.py::test_real_opencode_rejects_a_broken_alice_entry \
             tests/unit/test_claude_code_plugin.py::test_real_claude_validates_the_plugin \
+            tests/unit/test_claude_code_plugin.py::test_real_claude_plugin_install_and_run \
             -q --tb=short --junitxml "$RUNNER_TEMP/real-hosts.xml"
           "$ALICE_PYTHON" - "$RUNNER_TEMP/real-hosts.xml" <<'PY'
           import sys
@@ -138,7 +139,7 @@ jobs:
           suites = [root] if root.tag == "testsuite" else list(root.findall("testsuite"))
           ran = sum(int(suite.attrib.get("tests", "0")) for suite in suites)
           skipped = sum(int(suite.attrib.get("skipped", "0")) for suite in suites)
-          if ran != 6 or skipped != 0:
+          if ran != 7 or skipped != 0:
               raise SystemExit(
                   f"real host tests did not all run: tests={ran} skipped={skipped}"
               )
@@ -202,6 +203,7 @@ jobs:
             tests/unit/test_opencode_config_install.py::test_real_opencode_reads_the_written_config \
             tests/unit/test_opencode_config_install.py::test_real_opencode_rejects_a_broken_alice_entry \
             tests/unit/test_claude_code_plugin.py::test_real_claude_validates_the_plugin \
+            tests/unit/test_claude_code_plugin.py::test_real_claude_plugin_install_and_run \
             -q --tb=short --junitxml "$RUNNER_TEMP/real-hosts.xml"
           "$ALICE_PYTHON" - "$RUNNER_TEMP/real-hosts.xml" <<'PY'
           import sys
@@ -211,7 +213,7 @@ jobs:
           suites = [root] if root.tag == "testsuite" else list(root.findall("testsuite"))
           ran = sum(int(suite.attrib.get("tests", "0")) for suite in suites)
           skipped = sum(int(suite.attrib.get("skipped", "0")) for suite in suites)
-          if ran != 6 or skipped != 0:
+          if ran != 7 or skipped != 0:
               raise SystemExit(
                   f"real host tests did not all run: tests={ran} skipped={skipped}"
               )
@@ -329,9 +331,29 @@ jobs:
         run: |
           test -f .claude-plugin/marketplace.json
           claude plugin validate . --strict --json
-          version="$(python -c 'import json; print(json.load(open(".claude-plugin/marketplace.json"))["plugins"][0]["source"]["ref"])')"
+          ref="$(python3 -c 'import json; print(json.load(open(".claude-plugin/marketplace.json"))["plugins"][0]["source"]["ref"])')"
+          version="${ref#v}"
           home="$(mktemp -d)"
           HOME="$home" claude plugin marketplace add . < /dev/null
           HOME="$home" claude plugin install "alice-memory@alicememory" < /dev/null
-          HOME="$home" claude plugin list --json | python -c 'import json,sys; payload=json.load(sys.stdin); print(payload)'
-          echo "installed from ${version}"
+          HOME="$home" claude plugin list --json > "$RUNNER_TEMP/plugins.json"
+          python3 - "$version" "$RUNNER_TEMP/plugins.json" << 'PY'
+          import json
+          import sys
+
+          expected, path = sys.argv[1], sys.argv[2]
+          payload = json.load(open(path, encoding="utf-8"))
+          rows = payload if isinstance(payload, list) else payload.get("plugins", payload.get("items", []))
+          if not isinstance(rows, list):
+              raise SystemExit(f"plugin list was not a list: {payload}")
+          matched = [
+              row
+              for row in rows
+              if isinstance(row, dict)
+              and row.get("id") == "alice-memory@alicememory"
+              and row.get("enabled") is True
+              and str(row.get("version")) == expected
+          ]
+          if len(rows) != 1 or len(matched) != 1:
+              raise SystemExit(f"plugin list did not match {expected}: {payload}")
+          PY

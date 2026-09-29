@@ -154,6 +154,7 @@ def _pytest_step(job: dict) -> dict:
         and "test_real_opencode_reads_the_written_config" in step.get("run", "")
         and "test_real_opencode_rejects_a_broken_alice_entry" in step.get("run", "")
         and "test_real_claude_validates_the_plugin" in step.get("run", "")
+        and "test_real_claude_plugin_install_and_run" in step.get("run", "")
     ]
     assert len(matched) == 1
     return matched[0]
@@ -203,7 +204,7 @@ def test_pinned_job_pins_the_trialed_hosts_and_refuses_a_skip() -> None:
     assert CLAUDE_NPM in script
     assert HERMES_PIP in script
     assert "opencode-ai@1.18.32" in script
-    assert "ran != 6" in script
+    assert "ran != 7" in script
     assert "@latest" not in script
     assert CLAUDE_VERSION in script
     assert HERMES_VERSION in script
@@ -250,7 +251,7 @@ def test_weekly_canary_does_not_pin_claude_or_hermes() -> None:
     assert "@anthropic-ai/claude-code@latest" in script
     assert "opencode-ai@latest" in script
     assert "opencode-ai@1.18.32" not in script
-    assert "ran != 6" in script
+    assert "ran != 7" in script
     assert re.search(r"(^|\s)hermes-agent($|\s)", script)
     step = _pytest_step(_job("canary"))
     assert step.get("env", {}).get("ALICE_TEST_REAL_HOSTS") == "1"
@@ -423,6 +424,25 @@ def test_hook_trial_is_dispatch_only_pinned_and_uploads() -> None:
     _assert_failure_fails_the_job(job)
     for name in ("pinned", "canary"):
         assert "real_host_hook_trial.py" not in _run_text(_job(name))
+
+
+def test_marketplace_check_compares_the_installed_version() -> None:
+    """The dispatch-only job fails unless the installed plugin version matches.
+
+    Mutation: drop the version comparison, or call bare python. This test fails.
+    """
+
+    job = _job("marketplace-check")
+    assert job.get("if") == "${{ github.event_name == 'workflow_dispatch' }}"
+    script = _run_text(job)
+    assert "@anthropic-ai/claude-code@2.1.281" in script
+    assert "claude plugin validate . --strict --json" in script
+    assert 'claude plugin install "alice-memory@alicememory"' in script
+    assert "alice-memory@alicememory" in script
+    assert 'row.get("version")' in script
+    assert "python3" in script
+    assert "python -c" not in script
+    assert "${ref#v}" in script
 
 
 def test_real_host_workflow_grants_contents_read_and_no_secrets() -> None:

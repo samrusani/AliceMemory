@@ -215,6 +215,11 @@ _ERROR_CONTRACTS: dict[str, str] = {
         "A host config was left unchanged because install could not edit it safely; "
         "add the printed snippet by hand"
     ),
+    "install_refused_plugin": (
+        "The alice-memory plugin is enabled and install's Claude Code entries exist. "
+        "Run claude mcp remove alice --scope user, remove the session-start hook, "
+        "or disable the plugin."
+    ),
     "data_dir_invalid": (
         "The data directory is empty or not an absolute path after ~ expansion"
     ),
@@ -1404,7 +1409,10 @@ def _run_install(args: argparse.Namespace) -> int:
         return 1
     except InstallRefused as refused:
         print(refused.output)
-        _emit_error("install_refused")
+        if "the alice-memory plugin is enabled and install's entries exist" in refused.output:
+            _emit_error("install_refused_plugin")
+        else:
+            _emit_error("install_refused")
         return 1
     except InstallError:
         _emit_error("install_failed")

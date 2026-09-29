@@ -2,7 +2,7 @@
 
 Unreleased (on main, not in v0.18.0): this plugin directory is on main and is not in the v0.18.0 release. v0.18.0 has no Claude Code plugin.
 
-The plugin needs [uv](https://docs.astral.sh/uv/) on `PATH`. Its commands run `uvx --from alice-memory==0.18.0`.
+The plugin needs [uv](https://docs.astral.sh/uv/) on `PATH`. Its commands pin `alice-memory` to the version in `plugin.json`.
 
 Use the plugin or `alice-memory install --host claude-code`, not both. To remove install's entries, run `claude mcp remove alice --scope user` and remove the `alice-memory-session-start` hook from `~/.claude/settings.json`.
 
