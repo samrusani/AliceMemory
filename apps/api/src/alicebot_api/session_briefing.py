@@ -20,6 +20,7 @@ that passage, with the label.
 from __future__ import annotations
 
 import json
+import unicodedata
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Protocol, cast
@@ -46,13 +47,18 @@ from alicebot_api.vnext_retrieval import (
     _ResolvedRetrievalScope,
     _prefer_current_versions,
     classify_pack_view,
-    estimate_item_tokens,
 )
 from alicebot_api.vnext_store import fts_fallback_tokens
 
 COMMITTED_MEMORY_STATUSES = MEMORY_SEARCHABLE_STATUSES
 OPEN_LOOP_ACTIVE_STATUSES = ("open", "waiting")
-SESSION_BRIEF_TOKEN_BUDGET = 4_000
+# Claude Code injects only a path and a preview once additionalContext or
+# plain stdout is over 10,000 characters. Those characters are UTF-16 code
+# units. 9,500 leaves room for the newline markdown stdout adds and for a
+# later change. Cursor's hook docs do not state a character cap. Every host
+# uses this cap, and it is the brief's only size limit.
+SESSION_BRIEF_CHAR_CAP = 9_500
+SESSION_BRIEF_LINE_CAP = 1_500
 FACT_LIMIT = 8
 OPEN_LOOP_LIMIT = 8
 SOURCE_LIMIT = 8
@@ -161,6 +167,7 @@ def compile_session_brief(
     effective_sensitivity_allowed: tuple[str, ...],
     effective_project_scope: tuple[str, ...],
     query: str | None,
+    reserve: int = 0,
 ) -> str:
     """Render a labelled markdown brief under the caller's effective fence."""
 
@@ -245,6 +252,7 @@ def compile_session_brief(
         open_loops=open_loops,
         sources=sources,
         pack_view=pack_view,
+        reserve=reserve,
     )
 
 
@@ -253,6 +261,7 @@ def compile_local_session_brief(
     *,
     user_id: UUID | str,
     query: str | None,
+    reserve: int = 0,
 ) -> str:
     """Operator CLI path: evaluate policy, then compile against that fence."""
 
@@ -271,6 +280,7 @@ def compile_local_session_brief(
             effective_sensitivity_allowed=decision.effective_sensitivity_allowed,
             effective_project_scope=decision.effective_project_scope,
             query=query,
+            reserve=reserve,
         )
 
 
@@ -514,29 +524,170 @@ def quote_session_brief_text(text: str) -> str:
     return json.dumps(_flatten_excerpt(text), ensure_ascii=False)
 
 
+def brief_char_len(text: str) -> int:
+    """UTF-16 code units, which is what Claude Code counts as characters."""
+
+    return len(text.encode("utf-16-le")) // 2
+
+
+def _brief_body_limit(reserve: int) -> int:
+    """Units left for the brief after ``reserve`` and one markdown newline."""
+
+    return SESSION_BRIEF_CHAR_CAP - 1 - max(reserve, 0)
+
+
+def _brief_rendered(lines: Sequence[str]) -> str:
+    return "\n".join((SESSION_BRIEF_FRAME, *lines))
+
+
+def _is_grapheme_extend(char: str) -> bool:
+    if char in {"\u200d", "\ufe0f", "\ufe0e"}:
+        return True
+    if 0x1F3FB <= ord(char) <= 0x1F3FF:
+        return True
+    return unicodedata.category(char) in {"Mn", "Mc", "Me"}
+
+
+def _grapheme_clusters(text: str) -> list[str]:
+    """Extended grapheme clusters, enough to cut on a cluster boundary."""
+
+    if not text:
+        return []
+    clusters: list[str] = []
+    current = text[0]
+    for char in text[1:]:
+        previous = current[-1]
+        if _is_grapheme_extend(char) or previous == "\u200d":
+            current += char
+            continue
+        if (
+            len(current) == 1
+            and 0x1F1E6 <= ord(previous) <= 0x1F1FF
+            and 0x1F1E6 <= ord(char) <= 0x1F1FF
+        ):
+            current += char
+            continue
+        clusters.append(current)
+        current = char
+    clusters.append(current)
+    return clusters
+
+
+def _uncut_brief_line(label: str, text: str) -> str:
+    return f"**{label}**: {quote_session_brief_text(text)}"
+
+
+def _cut_brief_line(label: str, prefix: str, stored_units: int) -> str:
+    return (
+        f"**{label}** (cut; {stored_units} characters stored): "
+        f"{quote_session_brief_text(prefix)}"
+    )
+
+
+def _shorten_to_word_boundary(source: str, prefix: str) -> str:
+    """Drop a trailing partial word. A prefix with no space stays as it is."""
+
+    if not prefix or prefix == source:
+        return prefix.rstrip() if prefix == source else prefix
+    next_char = source[len(prefix) : len(prefix) + 1]
+    if prefix[-1].isspace() or (next_char != "" and next_char.isspace()):
+        return prefix.rstrip()
+    trimmed = prefix.rstrip()
+    index = len(trimmed)
+    while index > 0 and not trimmed[index - 1].isspace():
+        index -= 1
+    if index == 0:
+        return prefix
+    return trimmed[:index].rstrip()
+
+
+def _brief_line_for(label: str, text: str) -> str | None:
+    """One brief line, cut at 1,500 units when the note is longer.
+
+    The cut is the longest prefix that fits. It ends on a word boundary
+    when the note has one inside that prefix, and on a grapheme boundary
+    otherwise. The marker sits outside the quote and counts toward the
+    1,500. None when even an empty cut does not fit.
+    """
+
+    flattened = _flatten_excerpt(text)
+    if not flattened:
+        return None
+    full = _uncut_brief_line(label, flattened)
+    if brief_char_len(full) <= SESSION_BRIEF_LINE_CAP:
+        return full
+    stored = brief_char_len(text)
+    graphemes = _grapheme_clusters(flattened)
+    lo = 0
+    hi = len(graphemes)
+    best = 0
+    while lo <= hi:
+        mid = (lo + hi) // 2
+        prefix = "".join(graphemes[:mid])
+        if brief_char_len(_cut_brief_line(label, prefix, stored)) <= SESSION_BRIEF_LINE_CAP:
+            best = mid
+            lo = mid + 1
+        else:
+            hi = mid - 1
+    if best == 0:
+        return None
+    prefix = _shorten_to_word_boundary(flattened, "".join(graphemes[:best]))
+    if not prefix:
+        return None
+    return _cut_brief_line(label, prefix, stored)
+
+
+def fit_emitted_session_brief(text: str) -> str:
+    """The string a host counts, with room left for one trailing newline.
+
+    The longest prefix at a grapheme boundary whose UTF-16 length is under
+    9,500 once that newline is added. A string that already fits is returned
+    unchanged, apart from a trailing newline.
+    """
+
+    body = text.rstrip("\n")
+    limit = _brief_body_limit(0)
+    if brief_char_len(body) <= limit:
+        return body
+    graphemes = _grapheme_clusters(body)
+    lo = 0
+    hi = len(graphemes)
+    best = 0
+    while lo <= hi:
+        mid = (lo + hi) // 2
+        candidate = "".join(graphemes[:mid])
+        if brief_char_len(candidate) <= limit:
+            best = mid
+            lo = mid + 1
+        else:
+            hi = mid - 1
+    return "".join(graphemes[:best])
+
+
 def _render_brief(
     *,
     facts: Sequence[Mapping[str, object]],
     open_loops: Sequence[Mapping[str, object]],
     sources: Sequence[Mapping[str, object]],
     pack_view: str | None,
+    reserve: int = 0,
 ) -> str:
     lines: list[str] = []
-    used_tokens = 0
     seen: set[str] = set()
+    budget = _brief_body_limit(reserve)
 
     def admit(label: str, text: str) -> None:
-        nonlocal used_tokens
         flattened = _flatten_excerpt(text)
         if not flattened or flattened in seen:
             return
-        line = f"**{label}**: {quote_session_brief_text(text)}"
-        cost = estimate_item_tokens({"text": line})
-        if used_tokens + cost > SESSION_BRIEF_TOKEN_BUDGET:
+        line = _brief_line_for(label, text)
+        if line is None:
+            return
+        rendered = _brief_rendered((*lines, line))
+        if brief_char_len(rendered) > budget:
             return
         lines.append(line)
         seen.add(flattened)
-        used_tokens += cost
 
     fact_items: list[tuple[str, str]] = []
     for row in facts:
@@ -568,17 +719,21 @@ def _render_brief(
         admit(label, text)
 
     if not lines:
-        return EMPTY_SESSION_BRIEF
+        if brief_char_len(EMPTY_SESSION_BRIEF) <= budget:
+            return EMPTY_SESSION_BRIEF
+        return ""
     return "\n".join((SESSION_BRIEF_FRAME, *lines))
 
 
 __all__ = [
     "COMMITTED_MEMORY_STATUSES",
     "EMPTY_SESSION_BRIEF",
+    "SESSION_BRIEF_CHAR_CAP",
     "SESSION_BRIEF_FRAME",
-    "SESSION_BRIEF_TOKEN_BUDGET",
+    "brief_char_len",
     "compile_local_session_brief",
     "compile_session_brief",
+    "fit_emitted_session_brief",
     "quote_session_brief_text",
     "source_scope_from_project_scope",
 ]

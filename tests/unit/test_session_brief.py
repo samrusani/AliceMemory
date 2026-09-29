@@ -6,6 +6,7 @@ Put next to the on-ramp tests. Each test names the edit that makes it fail.
 from __future__ import annotations
 
 import inspect
+import io
 import json
 import os
 import shutil
@@ -791,3 +792,263 @@ def test_apps_tree_does_not_name_transcript_path_or_session_end() -> None:
                 ignored.parent.rmdir()
             except OSError:
                 pass
+
+
+def _units(text: str) -> int:
+    return len(text.encode("utf-16-le")) // 2
+
+
+def _quoted_prefix(line: str) -> str:
+    _marker, quoted = line.rsplit(": ", 1)
+    loaded = json.loads(quoted)
+    assert isinstance(loaded, str)
+    return loaded
+
+
+def test_a_long_note_is_cut_and_later_items_still_fit() -> None:
+    """One 20,000-character fact must not push out loops and sources.
+
+    The line is cut at 1,500 characters, at the longest prefix that fits,
+    with the marker outside the quote. Seven short facts, eight loops, and
+    three sources stay. Mutation: give the long note the whole brief, stop
+    the cut near 5,000 characters, or raise the cap above 9,500. This test
+    fails.
+    """
+
+    from alicebot_api.session_briefing import _cut_brief_line, _render_brief
+
+    long_note = "x" * 20000
+    facts = [{"canonical_text": long_note}]
+    facts.extend({"canonical_text": f"short fact {index}"} for index in range(7))
+    loops = [{"title": f"loop {index}"} for index in range(8)]
+    sources = [{"excerpt": f"source {index}"} for index in range(3)]
+    brief = _render_brief(
+        facts=facts,
+        open_loops=loops,
+        sources=sources,
+        pack_view=None,
+    )
+    assert _units(brief) < 9500
+    assert len(brief) < 9500
+    fact_lines = [line for line in brief.splitlines() if line.startswith("**fact**")]
+    assert len(fact_lines) == 8
+    cut = fact_lines[0]
+    assert cut.startswith("**fact** (cut; 20000 characters stored): ")
+    assert "(cut;" in cut.split('"', 1)[0]
+    prefix = _quoted_prefix(cut)
+    assert long_note.startswith(prefix)
+    assert prefix
+    assert _units(cut) <= 1500
+    longer = _cut_brief_line("fact", prefix + "x", 20000)
+    assert _units(longer) > 1500
+    assert brief.count("**open loop**:") == 8
+    assert brief.count("**source**:") == 3
+    for index in range(7):
+        assert f"short fact {index}" in brief
+
+
+def test_a_cut_stops_at_the_last_word_that_fits() -> None:
+    """A spaced note is cut on a word boundary, not inside a word.
+
+    Mutation: cut at a fixed 5,000 characters, or keep the partial word.
+    This test fails.
+    """
+
+    from alicebot_api.session_briefing import _cut_brief_line, _render_brief
+
+    words = " ".join(f"w{index:04d}" for index in range(400))
+    brief = _render_brief(
+        facts=[{"canonical_text": words}],
+        open_loops=[],
+        sources=[],
+        pack_view=None,
+    )
+    cut = next(line for line in brief.splitlines() if line.startswith("**fact**"))
+    prefix = _quoted_prefix(cut)
+    assert words.startswith(prefix)
+    assert prefix
+    assert not prefix.endswith(" ")
+    assert words[len(prefix)] == " "
+    assert _units(cut) <= 1500
+    next_space = words.find(" ", len(prefix) + 1)
+    longer = _cut_brief_line("fact", words[:next_space], _units(words))
+    assert _units(longer) > 1500
+
+
+def test_a_cut_falls_back_to_a_grapheme_boundary() -> None:
+    """A note with no spaces is cut on a grapheme, not inside one.
+
+    Mutation: slice the note on a code point inside a family emoji.
+    This test fails.
+    """
+
+    from alicebot_api.session_briefing import _grapheme_clusters, _render_brief
+
+    family = "\U0001f468\u200d\U0001f469\u200d\U0001f467"
+    note = family * 400
+    brief = _render_brief(
+        facts=[{"canonical_text": note}],
+        open_loops=[],
+        sources=[],
+        pack_view=None,
+    )
+    cut = next(line for line in brief.splitlines() if line.startswith("**fact**"))
+    prefix = _quoted_prefix(cut)
+    assert note.startswith(prefix)
+    clusters = _grapheme_clusters(note)
+    assert "".join(clusters[: len(_grapheme_clusters(prefix))]) == prefix
+    assert _units(cut) <= 1500
+    one_more = "".join(clusters[: len(_grapheme_clusters(prefix)) + 1])
+    from alicebot_api.session_briefing import _cut_brief_line
+
+    assert _units(_cut_brief_line("fact", one_more, _units(note))) > 1500
+
+
+def test_emoji_brief_is_capped_in_utf16_units() -> None:
+    """Code points under 9,500 can still be over 9,500 UTF-16 units.
+
+    Mutation: measure with ``len``. The brief's UTF-16 length reaches
+    9,500 while its code-point length stays under. This test fails.
+    """
+
+    from alicebot_api.session_briefing import _render_brief
+
+    emoji = "\U0001f600"
+    facts = [{"canonical_text": f"fact-{index}-" + emoji * 220} for index in range(8)]
+    loops = [{"title": f"loop-{index}-" + emoji * 220} for index in range(8)]
+    sources = [{"excerpt": f"source-{index}-" + emoji * 220} for index in range(8)]
+    brief = _render_brief(
+        facts=facts,
+        open_loops=loops,
+        sources=sources,
+        pack_view=None,
+    )
+    assert _units(brief) < 9500
+    assert len(brief) < 9500
+    assert _units(brief) != len(brief)
+    # A higher cap would admit the last source. This literal check fails if it does.
+    assert "source-7-" not in brief
+    uncut = _render_brief(
+        facts=facts[:1],
+        open_loops=[],
+        sources=[],
+        pack_view=None,
+        reserve=0,
+    )
+    assert _units(uncut) < 9500
+
+
+def test_backslash_notes_are_not_dropped_for_token_cost() -> None:
+    """Escaped JSON must not drop a line that still fits the character cap.
+
+    Six lines of backslashes fit a 4,000 token budget. The seventh fits
+    under 9,500 characters and used to be dropped. Mutation: keep the
+    token budget. This test fails.
+    """
+
+    from alicebot_api.session_briefing import _render_brief
+
+    facts = [{"canonical_text": ("\\" * 600) + f" {index:02d}"} for index in range(8)]
+    brief = _render_brief(
+        facts=facts,
+        open_loops=[],
+        sources=[],
+        pack_view=None,
+    )
+    assert _units(brief) < 9500
+    assert brief.count("**fact**:") >= 7
+
+
+def test_reserve_leaves_room_for_a_line_the_caller_adds() -> None:
+    """``reserve`` is the caller's prefix, counted with the brief.
+
+    The brief is packed until the cap, so a prefix only fits when its
+    length was reserved. Mutation: ignore ``reserve``. The combined text
+    reaches 9,500 characters. This test fails.
+    """
+
+    from alicebot_api.session_briefing import _render_brief
+
+    filler = "y" * 500
+    facts = [{"canonical_text": filler + f" f{index}"} for index in range(8)]
+    loops = [{"title": filler + f" l{index}"} for index in range(8)]
+    sources = [{"excerpt": filler + f" s{index}"} for index in range(8)]
+    extra = "plugin duplicate setup " + ("p" * 200)
+    reserve = _units(extra + "\n")
+    brief = _render_brief(
+        facts=facts,
+        open_loops=loops,
+        sources=sources,
+        pack_view=None,
+        reserve=reserve,
+    )
+    combined = extra + "\n" + brief
+    assert _units(combined) < 9500
+    assert _units(combined + "\n") <= 9500
+    assert "**fact**:" in brief or "**open loop**:" in brief or "**source**:" in brief
+    crowded = _render_brief(
+        facts=facts,
+        open_loops=loops,
+        sources=sources,
+        pack_view=None,
+    )
+    assert _units(extra + "\n" + crowded) >= 9500
+
+
+def test_session_start_hook_caps_the_emitted_brief(tmp_path: Path, monkeypatch, capsys) -> None:
+    """The hook caps what the host counts, including a too-long compile.
+
+    A vault fact of 20,000 characters stays under the literal limit.
+    Mutation: append 200 characters after the cap. ``additionalContext``
+    is no longer the longest prefix under 9,500. This test fails.
+    """
+
+    import alicebot_api.session_start_hook as hook_module
+
+    context = _context(tmp_path, monkeypatch)
+    _commit(
+        context,
+        title="Long note",
+        text="x" * 20000,
+        sensitivity="public",
+        project="acme",
+        domain="project",
+    )
+    monkeypatch.setattr(sys, "stdin", io.StringIO(""))
+    assert hook_module.main(
+        ["--data-dir", str(tmp_path), "--user-id", USER_ID, "--format", "json"]
+    ) == 0
+    payload = json.loads(capsys.readouterr().out)
+    additional = payload["hookSpecificOutput"]["additionalContext"]
+    assert additional == payload["additional_context"]
+    assert len(additional) < 9500
+    assert _units(additional) < 9500
+    assert "(cut;" in additional
+
+    monkeypatch.setattr(sys, "stdin", io.StringIO(""))
+    assert hook_module.main(
+        ["--data-dir", str(tmp_path), "--user-id", USER_ID, "--format", "markdown"]
+    ) == 0
+    markdown = capsys.readouterr().out
+    assert len(markdown) <= 9500
+    assert _units(markdown) <= 9500
+
+    def too_long(*_args, **_kwargs) -> str:
+        return "z" * 20000
+
+    monkeypatch.setattr(hook_module, "compile_local_session_brief", too_long)
+    monkeypatch.setattr(sys, "stdin", io.StringIO(""))
+    assert hook_module.main(
+        ["--data-dir", str(tmp_path), "--user-id", USER_ID, "--format", "json"]
+    ) == 0
+    capped = json.loads(capsys.readouterr().out)["hookSpecificOutput"]["additionalContext"]
+    assert len(capped) < 9500
+    assert len(capped) + 1 == 9500
+    assert capped == "z" * len(capped)
+    monkeypatch.setattr(sys, "stdin", io.StringIO(""))
+    assert hook_module.main(
+        ["--data-dir", str(tmp_path), "--user-id", USER_ID, "--format", "markdown"]
+    ) == 0
+    capped_markdown = capsys.readouterr().out
+    assert len(capped_markdown) <= 9500
+    assert len(capped_markdown) == 9500

@@ -19,7 +19,7 @@ from alicebot_api.onramp import (
 from alicebot_api.session_briefing import (
     COMMITTED_MEMORY_STATUSES,
     EMPTY_SESSION_BRIEF,
-    SESSION_BRIEF_TOKEN_BUDGET,
+    brief_char_len,
 )
 from alicebot_api.sqlite_store import SQLiteVNextStore, ensure_sqlite_user, sqlite_user_connection
 from alicebot_api.vault_doctor import COMMITTED_FACT_COUNT_SQL, COUNT_SQL_TEXTS
@@ -28,8 +28,6 @@ from alicebot_api.vnext_embeddings import (
     EMBEDDINGS_BASE_URL_ENV,
     EMBEDDINGS_MODEL_ENV,
 )
-from alicebot_api.vnext_retrieval import estimate_item_tokens
-
 USER_ID = "00000000-0000-0000-0000-000000000001"
 OTHER_USER_ID = "00000000-0000-0000-0000-000000000002"
 
@@ -145,8 +143,9 @@ def test_empty_data_dir_prints_zeros_and_resolved_db_path(tmp_path: Path, capsys
     assert _int_value(report, "committed facts") == 0
     assert _int_value(report, "candidates waiting") == 0
     assert _int_value(report, "sleep proposals") == 0
-    assert _int_value(report, "last brief") == estimate_item_tokens({"text": EMPTY_SESSION_BRIEF})
-    assert f"/ {SESSION_BRIEF_TOKEN_BUDGET} tokens" in _line_value(report, "last brief")
+    assert _int_value(report, "last brief") == brief_char_len(EMPTY_SESSION_BRIEF)
+    assert "/ 9500 characters" in _line_value(report, "last brief")
+    assert _int_value(report, "last brief") < 9500
     lowered = report.casefold()
     for phrase in FORBIDDEN_PHRASES:
         assert phrase.casefold() not in lowered, report
@@ -294,7 +293,7 @@ def test_token_line_uses_compile_local_session_brief(
 ) -> None:
     """Do not invent a second briefing algorithm.
 
-    Mutation: skip ``compile_local_session_brief`` or estimate tokens
+    Mutation: skip ``compile_local_session_brief`` or count characters
     against a different string. This test fails.
     """
 
@@ -314,6 +313,42 @@ def test_token_line_uses_compile_local_session_brief(
 
     assert seen["query"] is None
     assert seen["user_id"] == USER_ID
-    expected = estimate_item_tokens({"text": "labelled brief stand-in"})
+    expected = brief_char_len("labelled brief stand-in")
     assert _int_value(report, "last brief") == expected
-    assert f"/ {SESSION_BRIEF_TOKEN_BUDGET} tokens" in _line_value(report, "last brief")
+    assert "/ 9500 characters" in _line_value(report, "last brief")
+    assert expected < 9500
+
+
+def test_doctor_counts_a_long_note_in_characters_under_the_cap(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    """A quote-only note is cut, not dropped, and the census stays under 9,500.
+
+    Mutation: keep the token budget, or report tokens. The line says tokens,
+    or the count is at least 9,500. This test fails.
+    """
+
+    context = _context(tmp_path, monkeypatch)
+    from alicebot_api.mcp.registry import call_mcp_tool
+
+    note = '"' * 8000
+    payload = call_mcp_tool(
+        context,
+        name="alice_memory_commit",
+        arguments={
+            "title": "Quoted note",
+            "canonical_text": note,
+            "memory_type": "decision",
+            "domain": "project",
+            "sensitivity": "public",
+            "confidence": 0.96,
+            "project_scope": ["acme"],
+            "rationale": "User said: remember this",
+        },
+    )
+    assert payload["status"] == "committed", payload
+    report = _doctor_stdout(tmp_path, capsys)
+    counted = _int_value(report, "last brief")
+    assert "/ 9500 characters" in _line_value(report, "last brief")
+    assert counted < 9500
+    assert "tokens" not in _line_value(report, "last brief")

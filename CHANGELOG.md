@@ -3,6 +3,31 @@
 ## Unreleased
 
 - `alice-memory install --host codex` edits `~/.codex/config.toml` as text and writes only the alice MCP entry. It is opt-in, writes no `env` table, and does not write a SessionStart hook. A comment inside `command`, `args`, or an inline `env` is refused. An integer in value position outside the i64 range, or a float in value position that is not finite, is refused and the reason names the line. A dry run renders carried lines from the parsed values and hides a token or a URL in `env_vars` and in `tools` values. A `tools` value that is not a table, or an `approval_mode` outside `auto`, `prompt`, `writes`, and `approve`, or an `output_token_limit` that is not a positive integer, is refused. A success receipt ends with `codex mcp get alice`. In v0.18.0 there is no `--host codex`.
+- `alice-memory install --host hermes` leaves a comment in place when the
+  `alice` block, with comment lines and inline comments removed, already
+  matches what install would write. The receipt says unchanged and the
+  file bytes stay. When a real change is still needed, a full-line or
+  inline comment is refused, the file is not changed, and no backup is
+  written. In v0.18.0 that re-run drops the comment.
+- MCP tools set `openWorldHint` to false. `alice_recall`, `alice_resume`,
+  `alice_context_pack`, `alice_recent_decisions`, and `alice_explain` set
+  `readOnlyHint`. `alice_memory_commit` and `alice_capture` set
+  `destructiveHint` to false. `alice_memory_review`, `alice_memory_correct`,
+  `alice_memory_manage`, and `alice_open_loops` set `destructiveHint` to
+  true. In Codex's default mode those tools no longer wait for approval.
+  A policy audit row or an agent identity row is not a state change the
+  client asked for. In v0.18.0 these tools declare no hints, so Codex asks
+  before every call.
+- A long session-brief note is cut at 1,500 characters, on the last word
+  boundary, or on a grapheme boundary when the note has no word break. The
+  marker sits outside the quote: `**fact** (cut; N characters stored): "..."`.
+  A line that does not fit the room left is skipped, and later short facts,
+  open loops, and sources are still admitted. The brief is counted in
+  UTF-16 code units and stays under 9,500, which is under the 10,000
+  Claude Code treats as over the limit. Cursor's hook docs do not state a
+  character cap, so every host uses the same limit. In v0.18.0 a note that
+  did not fit the 4,000 token budget was dropped, and a brief of many
+  shorter lines could reach about 16,000 characters.
 - `alice-memory mcp` refuses a `--data-dir` that is empty or not absolute
   after `~` expansion, names the value, and exits 2.
   `alice-memory-session-start` refuses a non-empty value that is not
