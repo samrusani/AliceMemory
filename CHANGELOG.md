@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- `alice-memory install --host hermes` leaves a comment in place when the
+  `alice` block, with comment lines and inline comments removed, already
+  matches what install would write. The receipt says unchanged and the
+  file bytes stay. When a real change is still needed, a full-line or
+  inline comment is refused, the file is not changed, and no backup is
+  written. In v0.18.0 that re-run drops the comment.
+- MCP tools set `openWorldHint` to false. `alice_recall`, `alice_resume`,
+  `alice_context_pack`, `alice_recent_decisions`, and `alice_explain` set
+  `readOnlyHint`. `alice_memory_commit` and `alice_capture` set
+  `destructiveHint` to false. `alice_memory_review`, `alice_memory_correct`,
+  `alice_memory_manage`, and `alice_open_loops` set `destructiveHint` to
+  true. In Codex's default mode those tools no longer wait for approval.
+  A policy audit row or an agent identity row is not a state change the
+  client asked for. In v0.18.0 these tools declare no hints, so Codex asks
+  before every call.
 - A long session-brief note is cut at 1,500 characters, on the last word
   boundary, or on a grapheme boundary when the note has no word break. The
   marker sits outside the quote: `**fact** (cut; N characters stored): "..."`.
