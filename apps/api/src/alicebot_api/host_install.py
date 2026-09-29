@@ -1716,9 +1716,9 @@ def _hermes_alice_lines(
 def _hermes_alice_has_comment(doc: _YamlText, start: int, last: int) -> bool:
     """True when Alice's block holds a full-line or inline comment.
 
-    The replace drops those lines. A ``#`` inside a quoted value is not a
-    comment: the scanner leaves it out of ``comment`` and the line does not
-    start with ``#``.
+    A ``#`` inside a quoted value is not a comment: the scanner leaves it
+    out of ``comment`` and the line does not start with ``#``. A full-line
+    comment is trivia, so only the ``#`` check sees it.
     """
 
     for index in range(start, last + 1):
@@ -1728,6 +1728,23 @@ def _hermes_alice_has_comment(doc: _YamlText, start: int, last: int) -> bool:
         if doc.lines[index].lstrip(" \t").startswith("#"):
             return True
     return False
+
+
+def _hermes_block_without_comments(doc: _YamlText, start: int, last: int) -> list[str]:
+    """Alice's lines with full-line comments and inline comments removed."""
+
+    kept: list[str] = []
+    for index in range(start, last + 1):
+        line = doc.lines[index]
+        if line.lstrip(" \t").startswith("#"):
+            continue
+        item = doc.info[index]
+        if item is not None and item.comment:
+            end = line.rstrip(" \t")
+            if end.endswith(item.comment):
+                line = end[: -len(item.comment)].rstrip(" \t")
+        kept.append(line)
+    return kept
 
 
 def _hermes_block_lines(
@@ -2547,14 +2564,6 @@ def _plan_hermes(
         details = list(entry_plan.details)
         if carried:
             details.append("kept: " + ", ".join(f"env.{name}" for name in carried))
-        if _hermes_alice_has_comment(doc, start, last):
-            raise HermesConfigRefused(
-                "a comment in alice",
-                start + 1,
-                data_dir=entry_plan.data_dir,
-                payload=payload,
-                located=True,
-            )
         block = _hermes_block_lines(payload, child_indent, carried)
         plan = HermesPlan(
             None,
@@ -2563,8 +2572,18 @@ def _plan_hermes(
             tuple(details),
             entry_plan.used_fallback,
         )
-        if lines[start : last + 1] == block:
+        # A comment on a block that already matches install is not a change.
+        # Refuse only when keeping the comment would hide a real edit.
+        if _hermes_block_without_comments(doc, start, last) == block:
             return plan
+        if _hermes_alice_has_comment(doc, start, last):
+            raise HermesConfigRefused(
+                "a comment in alice",
+                start + 1,
+                data_dir=entry_plan.data_dir,
+                payload=payload,
+                located=True,
+            )
         lines[start : last + 1] = block
         final_newline = doc.final_newline or last == len(doc.lines) - 1
         return replace(plan, text=_render_yaml_text(doc, lines, final_newline))
