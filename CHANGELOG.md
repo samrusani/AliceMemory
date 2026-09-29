@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- `alice-memory install --host codex` edits `~/.codex/config.toml` as text and writes only the alice MCP entry. It is opt-in, writes no `env` table, and does not write a SessionStart hook. In v0.18.0 there is no `--host codex`.
 - A ChatGPT conversation title that holds a token is stored as `withheld`
   and counted in `skipped_credentials` and `skipped_credential_items` as
   `conversation X title`. In v0.18.0 that title is stored as `withheld`

@@ -32,7 +32,7 @@ Subcommands:
   Search is unchanged. Accept is a later commit. Defaults to
   ``~/.alice``, like doctor.
 - ``install``: write host MCP config (and optional SessionStart hooks)
-  under ``--home``. Does not import a vault. Hermes and OpenCode are opt-in.
+  under ``--home``. Does not import a vault. Hermes, OpenCode and Codex are opt-in.
 - ``--version``: print the package version.
 
 Export/import round-trip contract ("you own the memory"):
@@ -1033,7 +1033,7 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Write host MCP config for Claude Desktop, Claude Code, Cursor, "
             "and OpenClaw. Hermes is --host hermes. OpenCode is --host opencode. "
-            "Does not import a vault."
+            "Codex is --host codex. Does not import a vault."
         ),
     )
     # install needs to know whether --data-dir was passed: without it, each
@@ -1056,11 +1056,12 @@ def build_parser() -> argparse.ArgumentParser:
             "openclaw",
             "hermes",
             "opencode",
+            "codex",
         ),
         dest="hosts",
         help=(
             "Host to configure. Repeatable. Default: claude-desktop, "
-            "claude-code, cursor, openclaw. Hermes and OpenCode are opt-in."
+            "claude-code, cursor, openclaw. Hermes, OpenCode and Codex are opt-in."
         ),
     )
     install_parser.add_argument(

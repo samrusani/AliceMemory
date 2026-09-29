@@ -44,8 +44,29 @@ def _write(path: Path, text: str) -> None:
     path.write_text(text, encoding="utf-8")
 
 
+def _toml_basic(value: str) -> str:
+    """A TOML basic string. json.dumps does not escape DEL, and TOML must."""
+
+    parts = ['"']
+    for char in value:
+        code = ord(char)
+        if char == '"':
+            parts.append('\\"')
+        elif char == "\\":
+            parts.append("\\\\")
+        elif code < 0x20 or code == 0x7F:
+            parts.append(f"\\u{code:04x}")
+        else:
+            parts.append(char)
+    parts.append('"')
+    return "".join(parts)
+
+
 def _json_entry(host: str, args: list[str]) -> str:
     entry = {"command": "uvx", "args": args}
+    if host == "codex":
+        rendered = ", ".join(_toml_basic(arg) for arg in args)
+        return "[mcp_servers.alice]\n" + 'command = "uvx"\n' + f"args = [{rendered}]\n"
     if host == "openclaw":
         doc: dict[str, object] = {"mcp": {"servers": {"alice": entry}}}
     elif host == "opencode":
