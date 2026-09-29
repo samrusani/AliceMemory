@@ -193,6 +193,11 @@ def has_bare_lf_outside_multiline(text: str) -> bool:
     index = 0
     length = len(text)
     while index < length:
+        if text[index] == "#":
+            # A comment runs to the line break. A quote inside it opens nothing.
+            while index < length and text[index] not in "\r\n":
+                index += 1
+            continue
         if text[index] in "\"'":
             start = index
             end = _skip_string(text, index, "\n")

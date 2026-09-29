@@ -46,6 +46,8 @@ LABELS = (
     "basic-then-literal",
     "crlf-file",
     "crlf-in-string",
+    "crlf-absent",
+    "crlf-absent-no-final-newline",
     "bare-tools",
     "tools-key-and-table",
     "out-of-range",
@@ -291,6 +293,20 @@ def _crlf_file(rng: random.Random) -> str:
     return _install_shape(rng).replace("\n", "\r\n")
 
 
+def _crlf_absent(rng: random.Random) -> str:
+    """A CRLF file with no alice entry, so install appends a block."""
+
+    return _absent(rng).replace("\n", "\r\n")
+
+
+def _crlf_absent_no_final_newline(rng: random.Random) -> str:
+    """The same, with the final line break removed."""
+
+    text = _crlf_absent(rng)
+    assert text.endswith("\r\n")
+    return text[:-2]
+
+
 def _crlf_in_string(rng: random.Random) -> str:
     return (
         "body = '''\r\n"
@@ -402,6 +418,10 @@ def generate(rng: random.Random, label: str) -> str:
         return _crlf_file(rng)
     if label == "crlf-in-string":
         return _crlf_in_string(rng)
+    if label == "crlf-absent":
+        return _crlf_absent(rng)
+    if label == "crlf-absent-no-final-newline":
+        return _crlf_absent_no_final_newline(rng)
     if label == "bare-tools":
         return _bare_tools(rng)
     if label == "tools-key-and-table":

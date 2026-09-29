@@ -2415,3 +2415,50 @@ def test_codex_non_utf8_layer_file_is_an_unreadable_note(
     assert "action: written" in out.splitlines()
     assert note in out.splitlines()
     assert layer.read_bytes() == layer_before
+
+
+@pytest.mark.parametrize(
+    "original",
+    [
+        'model = "x"\r\n',
+        'model = "x"\r\nname = "y"',
+        'body = """\r\nkept\r\n"""\r\n',
+        "# don't touch\r\nmodel = \"x\"\r\n",
+    ],
+    ids=["final-newline", "no-final-newline", "multiline-string", "quote-in-comment"],
+)
+def test_codex_crlf_file_without_alice_gets_a_crlf_block(
+    original: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The block and the blank line before it are CRLF, and a re-run changes nothing.
+
+    Mutation: render the appended block with LF, or write the separator in
+    ``_codex_prepare_insert`` as LF. The written bytes differ from the
+    expected CRLF bytes. This test fails.
+    """
+
+    from tests.unit.toml_judge import has_bare_lf_outside_multiline
+
+    assert not has_bare_lf_outside_multiline(original)
+    home = tmp_path / "home"
+    vault = tmp_path / "vault"
+    path = _seed(home, original)
+    code, out, err = _install(home, vault, capsys)
+    assert code == 0, (out, err)
+    shown = str(vault.resolve())
+    block = (
+        "[mcp_servers.alice]\r\n"
+        'command = "uvx"\r\n'
+        'args = ["alice-memory", "mcp", "--data-dir", "' + shown + '"]\r\n'
+    )
+    ending = "" if original.endswith("\r\n") else "\r\n"
+    expected = original + ending + "\r\n" + block
+    written = path.read_bytes().decode("utf-8")
+    assert written == expected
+    assert not has_bare_lf_outside_multiline(written)
+    assert tomllib.loads(written)["mcp_servers"]["alice"]["command"] == "uvx"
+
+    code, out, err = _install(home, vault, capsys)
+    assert code == 0, (out, err)
+    assert "action: unchanged" in out.splitlines()
+    assert path.read_bytes().decode("utf-8") == expected
