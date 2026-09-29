@@ -428,10 +428,13 @@ def _matches_project_scope(resource_scope: tuple[str, ...], project_scope: tuple
     return project_scopes_overlap(resource_scope, project_scope)
 
 
-# A fact used as the excerpt query used to be passed through whole. SQLite
-# then raised "LIKE or GLOB pattern too complex" once the text was about
-# 50,000 UTF-8 bytes, and the hook printed {}. A few hundred characters of
-# the text's FTS tokens is enough to find the source.
+# A fact used as the excerpt query is passed to the source search whole, and
+# the search wraps it in % for LIKE. SQLite refuses a LIKE pattern over
+# 50,000 bytes ("LIKE or GLOB pattern too complex"), and the hook then
+# printed {}. A query of up to _EXCERPT_QUERY_MAX_BYTES UTF-8 bytes is passed
+# through exactly as before, so every brief that worked before is unchanged.
+# Only a longer one is bounded to a few hundred characters of its FTS tokens.
+_EXCERPT_QUERY_MAX_BYTES = 40_000
 _EXCERPT_QUERY_MAX_CHARS = 300
 
 
@@ -453,6 +456,8 @@ def _bound_excerpt_query(text: str) -> str:
 
 
 def _bounded_useful_query(text: str) -> str | None:
+    if len(text.encode("utf-8", "surrogatepass")) <= _EXCERPT_QUERY_MAX_BYTES:
+        return text if _is_useful_query(text) else None
     bounded = _bound_excerpt_query(text)
     if _is_useful_query(bounded):
         return bounded
