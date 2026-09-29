@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- The session brief, frame included, stays within 10,000 characters. An item that would cross that line is dropped. Claude Code caps hook additionalContext and plain stdout at 10,000 characters. Cursor's hooks reference documents additional_context with no character cap (cursor.com/docs/hooks, 2026-09-29), so the same ceiling is used on every host.
 - A ChatGPT conversation title that holds a token is stored as `withheld`
   and counted in `skipped_credentials` and `skipped_credential_items` as
   `conversation X title`. In v0.18.0 that title is stored as `withheld`

@@ -53,6 +53,13 @@ from alicebot_api.vnext_store import fts_fallback_tokens
 COMMITTED_MEMORY_STATUSES = MEMORY_SEARCHABLE_STATUSES
 OPEN_LOOP_ACTIVE_STATUSES = ("open", "waiting")
 SESSION_BRIEF_TOKEN_BUDGET = 4_000
+# Claude Code drops hook additionalContext and plain stdout past 10,000
+# characters (then a path plus a 2,000-character preview). Cursor's hooks
+# reference documents additional_context as a string and names no character
+# cap (cursor.com/docs/hooks, 2026-09-29). The same ceiling applies on every
+# host so a brief that fits Claude Code also fits the others. The frame is
+# included: the injected text, not the item lines alone, is what the host counts.
+SESSION_BRIEF_CHAR_BUDGET = 10_000
 FACT_LIMIT = 8
 OPEN_LOOP_LIMIT = 8
 SOURCE_LIMIT = 8
@@ -534,6 +541,9 @@ def _render_brief(
         cost = estimate_item_tokens({"text": line})
         if used_tokens + cost > SESSION_BRIEF_TOKEN_BUDGET:
             return
+        rendered = "\n".join((SESSION_BRIEF_FRAME, *lines, line))
+        if len(rendered) > SESSION_BRIEF_CHAR_BUDGET:
+            return
         lines.append(line)
         seen.add(flattened)
         used_tokens += cost
@@ -575,6 +585,7 @@ def _render_brief(
 __all__ = [
     "COMMITTED_MEMORY_STATUSES",
     "EMPTY_SESSION_BRIEF",
+    "SESSION_BRIEF_CHAR_BUDGET",
     "SESSION_BRIEF_FRAME",
     "SESSION_BRIEF_TOKEN_BUDGET",
     "compile_local_session_brief",

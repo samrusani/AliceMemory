@@ -19,7 +19,10 @@ from alicebot_api.mcp_tools import AGENT_API_KEY_ENV, MCPRuntimeContext
 from alicebot_api.onramp import bootstrap_database, main as onramp_main, resolve_db_path, sqlite_url_for_path
 from alicebot_api.session_briefing import (
     EMPTY_SESSION_BRIEF,
+    SESSION_BRIEF_CHAR_BUDGET,
+    SESSION_BRIEF_FRAME,
     SOURCE_LIMIT,
+    _render_brief,
     compile_session_brief,
     source_scope_from_project_scope,
 )
@@ -791,3 +794,44 @@ def test_apps_tree_does_not_name_transcript_path_or_session_end() -> None:
                 ignored.parent.rmdir()
             except OSError:
                 pass
+
+
+def test_session_brief_stays_under_the_host_character_cap() -> None:
+    """One long line and many short lines both stay within 10,000 characters.
+
+    Claude Code caps hook additionalContext and plain stdout at 10,000
+    characters. Cursor's hooks page documents additional_context with no
+    character cap (cursor.com/docs/hooks, read 2026-09-29), so this ceiling
+    is the cross-host cap, frame included. Mutation: drop the character
+    check in admit(). This test fails.
+    """
+
+    too_long = _render_brief(
+        facts=[{"canonical_text": "x" * 50_000}],
+        open_loops=[],
+        sources=[],
+        pack_view=None,
+    )
+    assert too_long == EMPTY_SESSION_BRIEF
+
+    fits = _render_brief(
+        facts=[{"canonical_text": "y" * 2_000}],
+        open_loops=[],
+        sources=[],
+        pack_view=None,
+    )
+    assert fits.startswith(SESSION_BRIEF_FRAME)
+    assert "y" * 2_000 in fits
+    assert len(fits) <= SESSION_BRIEF_CHAR_BUDGET
+
+    short = "short note"
+    many = _render_brief(
+        facts=[{"canonical_text": f"{short} {index:04d}"} for index in range(800)],
+        open_loops=[],
+        sources=[],
+        pack_view=None,
+    )
+    assert many.startswith(SESSION_BRIEF_FRAME)
+    assert len(many) <= SESSION_BRIEF_CHAR_BUDGET
+    assert many.count("**fact**:") > 1
+    assert f"{short} 0799" not in many
