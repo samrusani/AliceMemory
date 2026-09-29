@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- `alice-memory install --host hermes` leaves a comment in place when the
+  `alice` block, with comment lines and inline comments removed, already
+  matches what install would write. The receipt says unchanged and the
+  file bytes stay. When a real change is still needed, a full-line or
+  inline comment is refused, the file is not changed, and no backup is
+  written. In v0.18.0 that re-run drops the comment.
 - `alice-memory mcp` refuses a `--data-dir` that is empty or not absolute
   after `~` expansion, names the value, and exits 2.
   `alice-memory-session-start` refuses a non-empty value that is not
