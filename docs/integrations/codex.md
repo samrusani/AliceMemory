@@ -47,7 +47,7 @@ A comment inside `command`, `args`, or an inline `env` is refused. The comment s
 
 Anything else in the alice table, including `cwd`, `url`, and `enabled_tools`, is refused. The file is not changed. The receipt says to keep editing that key by hand, or remove it and run install again. That remove line is only for those keys. A comment, an unquoted env value, or a tools key that belongs in its own table gets a line that names that fix instead.
 
-When the refusal is on an alice entry install already found, the snippet keeps that entry's data dir. If install cannot read the dir, the snippet uses a placeholder, not `~/.alice`. The next line says to edit the alice entry by hand, then check it with `codex mcp get alice`.
+When the refusal is on an alice entry install already found and the file parses, the snippet shows that entry's own `command` and `args`, with secret-looking values shown as `<hidden>`. That needs a string `command` and an `args` list of strings. If either is missing or has another shape, or the file does not parse, the snippet uses install's own launcher instead. It keeps the entry's data dir when install can read it. If install cannot read the dir, the snippet uses a placeholder, not `~/.alice`. The next line says to edit the alice entry by hand, then check it with `codex mcp get alice`.
 
 ## Check
 

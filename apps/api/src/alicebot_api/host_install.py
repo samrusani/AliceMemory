@@ -6052,18 +6052,26 @@ def _codex_carry_problem(key: str, value: object) -> str | None:
 
 
 def _codex_refusal_payload(alice: object) -> dict[str, object] | None:
+    """The entry's own launcher for a refusal snippet, or None.
+
+    Only a whole launcher counts: a string ``command`` and ``args`` that is a
+    list of strings. A partial entry would print ``command = ""`` or
+    ``args = []``, which is not something to paste, so the caller falls back
+    to the placeholder launcher.
+    """
+
     if not isinstance(alice, dict):
         return None
-    payload: dict[str, object] = {}
-    if isinstance(alice.get("command"), str):
-        payload["command"] = alice["command"]
-    if isinstance(alice.get("args"), list):
-        payload["args"] = alice["args"]
+    command = alice.get("command")
+    args = alice.get("args")
+    if not isinstance(command, str):
+        return None
+    if not isinstance(args, list) or not all(isinstance(item, str) for item in args):
+        return None
+    payload: dict[str, object] = {"command": command, "args": args}
     env = alice.get("env")
     if isinstance(env, dict) and env:
         payload["env"] = env
-    if "command" not in payload and "args" not in payload and "env" not in payload:
-        return None
     return payload
 
 

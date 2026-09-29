@@ -2462,3 +2462,88 @@ def test_codex_crlf_file_without_alice_gets_a_crlf_block(
     assert code == 0, (out, err)
     assert "action: unchanged" in out.splitlines()
     assert path.read_bytes().decode("utf-8") == expected
+
+
+_PLACEHOLDER_ARGS = (
+    'args = ["alice-memory", "mcp", "--data-dir", "<the data dir your existing alice entry uses>"]'
+)
+
+
+@pytest.mark.parametrize(
+    ("original", "expected_args"),
+    [
+        ('x = 1e400\n[mcp_servers.alice]\ncommand = "uvx"\n', _PLACEHOLDER_ARGS),
+        (
+            'x = 1e400\n[mcp_servers.alice]\n\n[mcp_servers.alice.env]\nALICE_AGENT_API_KEY = "k"\n',
+            _PLACEHOLDER_ARGS,
+        ),
+        (
+            "[mcp_servers.alice]\ncwd = \"/x\"\n\n[mcp_servers.alice.env]\nALICE_AGENT_API_KEY = \"k\"\n",
+            _PLACEHOLDER_ARGS,
+        ),
+        (
+            '[mcp_servers.alice]\ncommand = "uvx"\nargs = ["alice-memory", "mcp", 1]\ncwd = "/x"\n',
+            _PLACEHOLDER_ARGS,
+        ),
+        (
+            '[mcp_servers.alice]\nargs = ["alice-memory", "mcp", "--data-dir", "/old"]\ncwd = "/x"\n',
+            'args = ["alice-memory", "mcp", "--data-dir", "/old"]',
+        ),
+    ],
+    ids=["command-only", "env-only", "env-only-planner", "args-not-strings", "args-only"],
+)
+def test_codex_refusal_snippet_is_never_a_partial_entry(
+    original: str,
+    expected_args: str,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """An entry without a whole launcher prints install's launcher, not blanks.
+
+    A snippet of ``command = ""`` or ``args = []`` is not something to paste.
+
+    Mutation: build the refusal payload from any command, args or env, as
+    before. The snippet has ``command = ""`` or ``args = []``. This test
+    fails.
+    """
+
+    home = tmp_path / "home"
+    path = _seed(home, original)
+    before = path.read_bytes()
+    code, out, err = _install(home, tmp_path / "vault", capsys)
+    assert code == 1, (out, err)
+    assert path.read_bytes() == before
+    lines = out.splitlines()
+    assert 'command = ""' not in lines
+    assert "args = []" not in lines
+    assert 'command = "uvx"' in lines
+    assert expected_args in lines
+    assert "[mcp_servers.alice.env]" not in lines
+
+
+def test_codex_refusal_snippet_keeps_a_whole_entry_and_hides_its_secret(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A whole launcher is shown as the entry has it, and its env value is hidden."""
+
+    secret = "sk-" + "wholeentry" + "value"
+    original = (
+        "[mcp_servers.alice]\n"
+        'command = "alice-memory"\n'
+        'args = ["mcp", "--data-dir", "/vault/from-file"]\n'
+        'cwd = "/x"\n'
+        "\n"
+        "[mcp_servers.alice.env]\n"
+        f'ALICE_AGENT_API_KEY = "{secret}"\n'
+    )
+    home = tmp_path / "home"
+    path = _seed(home, original)
+    before = path.read_bytes()
+    code, out, err = _install(home, tmp_path / "vault", capsys)
+    assert code == 1, (out, err)
+    assert path.read_bytes() == before
+    lines = out.splitlines()
+    assert 'command = "alice-memory"' in lines
+    assert 'args = ["mcp", "--data-dir", "/vault/from-file"]' in lines
+    assert 'ALICE_AGENT_API_KEY = "<hidden>"' in lines
+    assert secret not in out and secret not in err
