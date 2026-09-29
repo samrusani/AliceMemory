@@ -20,7 +20,11 @@ A stable publication uses all of the following on the same commit:
 - package version `X.Y.Z`;
 - annotated Git tag `vX.Y.Z`;
 - non-draft, non-prerelease GitHub release `vX.Y.Z`;
-- wheel and sdist metadata version `X.Y.Z`.
+- wheel and sdist metadata version `X.Y.Z`;
+- `packaging/mcpb/manifest.json` version `X.Y.Z`.
+
+The release PR bumps `pyproject.toml`, `apps/web/package.json`, and
+`packaging/mcpb/manifest.json` to that same version.
 
 ## Manual Repository Prerequisites
 

@@ -215,15 +215,25 @@ _ERROR_CONTRACTS: dict[str, str] = {
         "A host config was left unchanged because install could not edit it safely; "
         "add the printed snippet by hand"
     ),
+    "data_dir_invalid": (
+        "The data directory is empty or not an absolute path after ~ expansion"
+    ),
 }
 
 
-def _emit_error(code: str) -> None:
-    """Write one compact, stable error record without runtime details."""
+def _emit_error(code: str, *, named: str | None = None) -> None:
+    """Write one compact, stable error record without runtime details.
 
+    ``named`` is included in the message when the contract has to name a value,
+    such as a refused ``--data-dir``.
+    """
+
+    message = _ERROR_CONTRACTS[code]
+    if named is not None:
+        message = f"{message}: {named}"
     print(
         json.dumps(
-            {"error": {"code": code, "message": _ERROR_CONTRACTS[code]}},
+            {"error": {"code": code, "message": message}},
             ensure_ascii=True,
             separators=(",", ":"),
             sort_keys=True,
@@ -330,6 +340,35 @@ def _refuse_postgres_db_argument(args: argparse.Namespace) -> bool:
     if not isinstance(db, str) or not _is_postgres_database_url(db):
         return False
     _emit_error("sqlite_db_path_required")
+    return True
+
+
+def data_dir_absolute_after_tilde(value: str) -> bool:
+    """True when ``value`` is absolute after ``~`` expansion.
+
+    ``Path.expanduser`` is the same expansion ``resolve_db_path`` uses.
+    ``${...}``, ``$HOME``, ``%USERPROFILE%`` and a relative path stay relative.
+    """
+
+    if value == "":
+        return False
+    return Path(value).expanduser().is_absolute()
+
+
+def _refuse_invalid_mcp_data_dir(args: argparse.Namespace) -> bool:
+    """Refuse ``alice-memory mcp --data-dir`` when it is empty or not absolute.
+
+    An empty value, ``${user_config.data_dir}``, ``$HOME/.alice``,
+    ``%USERPROFILE%\\.alice`` and ``alice`` are refused. ``~/.alice`` and an
+    absolute path are accepted. Nothing is written.
+    """
+
+    if getattr(args, "command", None) != "mcp":
+        return False
+    data_dir = getattr(args, "data_dir", None)
+    if not isinstance(data_dir, str) or data_dir_absolute_after_tilde(data_dir):
+        return False
+    _emit_error("data_dir_invalid", named=data_dir)
     return True
 
 
@@ -3301,6 +3340,8 @@ def main(argv: list[str] | None = None) -> int:
         _emit_error("invalid_request")
         return int(exc.code) if isinstance(exc.code, int) else 2
     if _refuse_postgres_db_argument(args):
+        return 2
+    if _refuse_invalid_mcp_data_dir(args):
         return 2
     try:
         if args.command == "export":
