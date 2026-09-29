@@ -1502,3 +1502,33 @@ def test_real_hermes_loads_the_written_config(tmp_path: Path, capsys) -> None:
     assert listed.returncode == 0, (version, listed.stderr)
     rows = {line.split()[0] for line in listed.stdout.splitlines() if line.strip()}
     assert {"other", "alice"} <= rows, (version, listed.stdout)
+
+
+def test_hermes_refuses_a_comment_inside_alice(tmp_path: Path, capsys) -> None:
+    """A full-line comment and an inline comment inside alice are refused.
+
+    Mutation: drop ``_hermes_alice_has_comment``. Install exits 0 and both
+    comments are gone. This test fails.
+    """
+
+    original = (
+        "mcp_servers:\n"
+        "  alice:\n"
+        "    # note\n"
+        "    command: uvx\n"
+        "    args: [\"alice-memory\", \"mcp\", \"--data-dir\", \"/old\"] # comment\n"
+    )
+    home = tmp_path / "home"
+    vault = tmp_path / "vault"
+    path = _seed(home, original)
+    before = path.read_bytes()
+    code, out, err = _install(home, vault, capsys)
+    assert code == 1, (out, err)
+    assert path.read_bytes() == before
+    assert _backups(path, vault) == []
+    assert "# note" in path.read_text(encoding="utf-8")
+    assert "# comment" in path.read_text(encoding="utf-8")
+    assert "a comment in alice" in out
+    assert "snippet:" in out
+    assert "next:" in out
+    assert "config.yaml was not changed" in out

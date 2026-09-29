@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- `alice-memory install --host hermes` refuses a re-run when a comment sits
+  inside the existing `alice` block, full-line or inline. The file is not
+  changed and no backup is written. In v0.18.0 that re-run drops the comment.
 - `alice-memory mcp` refuses a `--data-dir` that is empty or not absolute
   after `~` expansion, names the value, and exits 2.
   `alice-memory-session-start` refuses a non-empty value that is not

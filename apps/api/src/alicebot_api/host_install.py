@@ -1713,6 +1713,23 @@ def _hermes_alice_lines(
     )
 
 
+def _hermes_alice_has_comment(doc: _YamlText, start: int, last: int) -> bool:
+    """True when Alice's block holds a full-line or inline comment.
+
+    The replace drops those lines. A ``#`` inside a quoted value is not a
+    comment: the scanner leaves it out of ``comment`` and the line does not
+    start with ``#``.
+    """
+
+    for index in range(start, last + 1):
+        item = doc.info[index]
+        if item is not None and item.comment:
+            return True
+        if doc.lines[index].lstrip(" \t").startswith("#"):
+            return True
+    return False
+
+
 def _hermes_block_lines(
     payload: Mapping[str, object],
     indent: int,
@@ -2530,6 +2547,14 @@ def _plan_hermes(
         details = list(entry_plan.details)
         if carried:
             details.append("kept: " + ", ".join(f"env.{name}" for name in carried))
+        if _hermes_alice_has_comment(doc, start, last):
+            raise HermesConfigRefused(
+                "a comment in alice",
+                start + 1,
+                data_dir=entry_plan.data_dir,
+                payload=payload,
+                located=True,
+            )
         block = _hermes_block_lines(payload, child_indent, carried)
         plan = HermesPlan(
             None,
