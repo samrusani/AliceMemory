@@ -11,7 +11,7 @@ from __future__ import annotations
 import tomllib
 from typing import Mapping
 
-REFUSABLE_LABELS = frozenset({"comment-in-args"})
+REFUSABLE_LABELS = frozenset({"comment-in-args", "tools-key-and-table", "out-of-range"})
 
 
 class JudgeFailure(AssertionError):

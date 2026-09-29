@@ -5209,6 +5209,17 @@ _CODEX_CHECK_NEXT = "check it with: codex mcp get alice"
 _CODEX_HOME_NEXT = (
     "Set CODEX_HOME to an absolute path, or pass --home, then run install again."
 )
+_CODEX_HOME_DIR_NEXT = (
+    "config.toml was not changed. Point CODEX_HOME at an existing directory, "
+    "or pass --home, then run install again."
+)
+_CODEX_ENV_NEXT = (
+    'config.toml was not changed. Move each env key into [mcp_servers.alice.env] '
+    'as KEY = "value", then run install again.'
+)
+_CODEX_TOOLS_FIX = (
+    "config.toml was not changed. Fix the {name} entry, then run install again."
+)
 _CODEX_DIR_PLACEHOLDER = "<the data dir your existing alice entry uses>"
 _CODEX_I64_MIN = -(2**63)
 _CODEX_I64_MAX = 2**63 - 1
@@ -5236,6 +5247,7 @@ def _codex_refuse(
     data_dir: str | None = None,
     placeholder: bool = False,
     payload: Mapping[str, object] | None = None,
+    line: int | None = None,
 ) -> NoReturn:
     next_step = fix
     if next_step is None and key is not None:
@@ -5245,6 +5257,7 @@ def _codex_refuse(
         )
     raise CodexConfigRefused(
         reason,
+        line,
         next_step=next_step,
         located=located,
         data_dir=data_dir,
@@ -5323,6 +5336,12 @@ def _codex_ml_spans(text: str) -> list[tuple[int, int]]:
         if char in "\"'":
             quote = char
             end, count = _codex_quote_run(text, index, quote)
+            # Six to eight quotes is an empty multi-line string, or one with
+            # one or two quotes of content. It is a finished span.
+            if 6 <= count <= 8:
+                spans.append((index, end))
+                index = end
+                continue
             if count >= 3:
                 start = index
                 index = end
@@ -5423,10 +5442,27 @@ def _codex_newline(text: str) -> str:
     return "\r\n" if saw_crlf else "\n"
 
 
-def _codex_number_boundary(text: str, index: int) -> bool:
-    if index == 0:
+def _codex_value_position(text: str, index: int, stack: Sequence[str]) -> bool:
+    """True when the token at ``index`` is a value, not a bare key.
+
+    A number-like key such as ``9223372036854775808 = 1`` is a key Codex
+    loads. Only a token after ``=``, or inside an array, is a value.
+    """
+
+    cursor = index - 1
+    while cursor >= 0 and text[cursor] in " \t":
+        cursor -= 1
+    if cursor < 0:
+        return False
+    previous = text[cursor]
+    if previous == "=":
         return True
-    return text[index - 1] in " \t\r\n=[{,"
+    in_array = bool(stack) and stack[-1] == "["
+    if previous in "[," :
+        return in_array
+    if previous in "\r\n":
+        return in_array
+    return False
 
 
 def _codex_number_token_problem(token: str) -> str | None:
@@ -5816,7 +5852,7 @@ def _codex_scan(text: str, nl: str) -> list[_CodexHeader]:
                 _codex_refuse("config.toml has a trailing comma inside an inline table")
             index += 1
             continue
-        if _codex_number_boundary(text, index) and (
+        if _codex_value_position(text, index, stack) and (
             char.isdigit() or char in "+-" or text.startswith(("inf", "nan"), index)
         ):
             end = index + (1 if char in "+-" else 0)
@@ -5834,7 +5870,8 @@ def _codex_scan(text: str, nl: str) -> list[_CodexHeader]:
                 or _CODEX_DATETIME_TOKEN.fullmatch(token)
             ):
                 if problem:
-                    _codex_refuse(problem)
+                    line_no = text.count("\n", 0, index) + 1
+                    _codex_refuse(problem, line=line_no)
                 index = end
                 continue
         index += 1
@@ -5989,10 +6026,10 @@ def _codex_inline_pairs(text: str, raw: str) -> list[str]:
 
     brace = raw.find("{")
     if brace < 0:
-        _codex_refuse("config.toml has an env value this writer does not read", key="env")
+        _codex_refuse("config.toml has an env value this writer does not read", fix=_CODEX_ENV_NEXT)
     body = raw[brace + 1 :]
     if not body.endswith("}"):
-        _codex_refuse("config.toml has an env value this writer does not read", key="env")
+        _codex_refuse("config.toml has an env value this writer does not read", fix=_CODEX_ENV_NEXT)
     body = body[:-1]
     pairs: list[str] = []
     index = 0
@@ -6006,7 +6043,7 @@ def _codex_inline_pairs(text: str, raw: str) -> list[str]:
         while index < len(body) and body[index] in " \t":
             index += 1
         if index >= len(body) or body[index] != "=":
-            _codex_refuse("config.toml has an env value this writer does not read", key="env")
+            _codex_refuse("config.toml has an env value this writer does not read", fix=_CODEX_ENV_NEXT)
         index += 1
         while index < len(body) and body[index] in " \t":
             index += 1
@@ -6019,7 +6056,7 @@ def _codex_inline_pairs(text: str, raw: str) -> list[str]:
                 break
             index += 1
     if not pairs and body.strip():
-        _codex_refuse("config.toml has an env value this writer does not read", key="env")
+        _codex_refuse("config.toml has an env value this writer does not read", fix=_CODEX_ENV_NEXT)
     return pairs
 
 
@@ -6202,6 +6239,8 @@ def _codex_guard(
     outside_new = _codex_outside(edited, (inserted,))
     if outside_old != outside_new:
         _codex_refuse("the edited config.toml changed bytes outside alice")
+    # A comment outside alice is also bytes outside alice, so the bytes check
+    # above already refuses it. This list stays as a named reason.
     if _codex_comments_outside(original, nl, removals) != _codex_comments_outside(edited, nl, (inserted,)):
         _codex_refuse("the edited config.toml changed a comment outside alice")
 
@@ -6313,6 +6352,11 @@ def _plan_codex_text(
             if item.array:
                 _located("install will not edit an array of tools tables", fix=_CODEX_HAND_NEXT)
             continue
+        if item.path[2] == "env":
+            _located(
+                "env is not a [mcp_servers.alice.env] table of strings",
+                fix=_CODEX_ENV_NEXT,
+            )
         _located(
             f"install will not edit an alice entry that holds {item.path[2]}",
             key=item.path[2],
@@ -6376,7 +6420,7 @@ def _plan_codex_text(
         if item.path == ("mcp_servers", "alice", "env") and not item.array
     ]
     if len(env_headers) > 1:
-        _located("mcp_servers.alice.env appears more than once", key="env")
+        _located("mcp_servers.alice.env appears more than once", fix=_CODEX_ENV_NEXT)
     for item in headers:
         if item.path[:2] != ("mcp_servers", "alice") or len(item.path) <= 2:
             continue
@@ -6386,12 +6430,18 @@ def _plan_codex_text(
             if item.array:
                 _located("install will not edit an array of tools tables", fix=_CODEX_HAND_NEXT)
             continue
+        if item.path[2] == "env":
+            _located(
+                "env is not a [mcp_servers.alice.env] table of strings",
+                fix=_CODEX_ENV_NEXT,
+            )
         _located(
             f"install will not edit an alice entry that holds {item.path[2]}",
             key=item.path[2],
         )
     stmts = _codex_body(text, headers, header, nl)
     carried: list[str] = []
+    carried_keys: list[tuple[str, ...]] = []
     env_lines: list[str] = []
     inline_env = False
     for stmt in stmts:
@@ -6400,7 +6450,7 @@ def _plan_codex_text(
         if stmt.kind != "kv":
             continue
         if stmt.trailing_comment:
-            _located("a trailing comment on an alice key")
+            _located("a trailing comment on an alice key", fix=_CODEX_COMMENT_NEXT)
         name = stmt.key[0] if stmt.key else ""
         if stmt.key in {("command",), ("args",), ("env",)} and _codex_raw_has_comment(stmt.raw, nl):
             _located("a comment inside an alice value", fix=_CODEX_COMMENT_NEXT)
@@ -6410,17 +6460,24 @@ def _plan_codex_text(
             inline_env = True
             env_lines = _codex_inline_pairs(text, stmt.raw)
             continue
+        if name == "env":
+            _located(
+                "env is not a [mcp_servers.alice.env] table of strings",
+                fix=_CODEX_ENV_NEXT,
+            )
         if name == "tools" or (stmt.key and stmt.key[0] == "tools"):
             carried.append(stmt.raw)
+            carried_keys.append(stmt.key)
             continue
         if name not in _CODEX_CARRIED:
             _located(f"install will not edit an alice entry that holds {name}", key=name)
         carried.append(stmt.raw)
+        carried_keys.append(stmt.key)
     if any(stmt.kind == "kv" and stmt.key and stmt.key[0] == "tools" for stmt in stmts) and tools_headers:
         _located("alice has a tools key and a tools table", fix=_CODEX_TOOLS_NEXT)
     if env_headers:
         if inline_env:
-            _located("install will not edit an alice entry that holds env twice")
+            _located("install will not edit an alice entry that holds env twice", fix=_CODEX_ENV_NEXT)
         if env_headers[0].trailing_comment:
             _located("a comment on an alice header", fix=_CODEX_COMMENT_NEXT)
         env_stmts = _codex_body(text, headers, env_headers[0], nl)
@@ -6433,12 +6490,16 @@ def _plan_codex_text(
             if stmt.trailing_comment:
                 _located("a trailing comment on an alice key", fix=_CODEX_COMMENT_NEXT)
             if len(stmt.key) != 1:
-                _located("env is not a table of strings", key="env")
+                _located("env is not a table of strings", fix=_CODEX_ENV_NEXT)
             env_lines.append(stmt.raw)
 
     alice = servers.get("alice") if isinstance(servers, dict) else None
     if not isinstance(alice, dict):
         _located("mcp_servers.alice is not a table")
+    tools_problem = _codex_tools_shape_problem(alice.get("tools"))
+    if tools_problem is not None:
+        tool_name, tool_detail = tools_problem
+        _located(tool_detail, fix=_CODEX_TOOLS_FIX.format(name=tool_name))
     for key in _CODEX_CARRIED:
         if key in alice:
             problem = _codex_carry_problem(key, alice[key])
@@ -6454,9 +6515,9 @@ def _plan_codex_text(
             reason, env_key, fix = env_problem
             _located(reason, key=env_key, fix=fix)
     elif env_value is not None:
-        _located("Codex would refuse to load this value for env", key="env")
+        _located("Codex would refuse to load this value for env", fix=_CODEX_ENV_NEXT)
     elif env_lines:
-        _located("config.toml has an env value this writer does not read", key="env")
+        _located("config.toml has an env value this writer does not read", fix=_CODEX_ENV_NEXT)
 
     probe: dict[str, object] = {"command": alice.get("command"), "args": alice.get("args")}
     if isinstance(env_value, dict) and env_value:
@@ -6466,7 +6527,14 @@ def _plan_codex_text(
         details = [*entry_plan.details, *_codex_server_notes(servers)]
         if alice.get("enabled") is False:
             details.append("note: Codex will not start alice")
-        return CodexPlan(None, entry_plan.data_dir, probe, tuple(details), False, tuple(carried))
+        return CodexPlan(
+            None,
+            entry_plan.data_dir,
+            probe,
+            tuple(details),
+            False,
+            _codex_snippet_lines(alice, carried_keys),
+        )
     if entry_plan.entry is None:
         visible = _visible_dir(alice, home)
         raise CodexConfigRefused(
@@ -6480,9 +6548,9 @@ def _plan_codex_text(
     block = _codex_render_block(entry_plan.entry, carried, env_lines, nl)
     removals = [_codex_region(stmts, header)]
     insert_at = header.start
+    # An empty env table stays, including a comment that is the only line in it.
+    # The guard treats {} and a missing env as the same value.
     if env_headers and not _codex_env_absent(alice.get("env")):
-        removals.append(_codex_region(_codex_body(text, headers, env_headers[0], nl), env_headers[0]))
-    elif env_headers and _codex_env_absent(alice.get("env")):
         removals.append(_codex_region(_codex_body(text, headers, env_headers[0], nl), env_headers[0]))
     if len(removals) == 2:
         (first_start, first_end), (second_start, second_end) = sorted(removals)
@@ -6502,7 +6570,7 @@ def _plan_codex_text(
         entry_plan.entry,
         tuple(details),
         entry_plan.used_fallback,
-        tuple(carried),
+        _codex_snippet_lines(alice, carried_keys),
     )
 
 
@@ -6573,6 +6641,138 @@ def _codex_directory(home: Path, *, explicit_home: bool, platform: str) -> tuple
     return home / ".codex", None
 
 
+def _codex_tools_shape_problem(tools: object) -> tuple[str, str] | None:
+    """``(tools.<name>, reason)`` when Codex would not load Alice's tools table."""
+
+    if tools is None:
+        return None
+    if not isinstance(tools, dict):
+        return ("tools", "tools is not a table")
+    for name, value in tools.items():
+        label = f"tools.{name}"
+        if not isinstance(value, dict):
+            return (label, f"{label} is not a table")
+        if "approval_mode" in value and value.get("approval_mode") not in _CODEX_APPROVAL_MODES:
+            return (
+                label,
+                f"{label}.approval_mode is not auto, prompt, writes, or approve",
+            )
+        if "output_token_limit" in value:
+            limit = value.get("output_token_limit")
+            if isinstance(limit, bool) or not isinstance(limit, int) or limit <= 0:
+                return (label, f"{label}.output_token_limit is not a positive integer")
+    return None
+
+
+def _codex_lookup_path(root: Mapping[str, object], key: Sequence[str]) -> object:
+    node: object = root
+    for part in key:
+        if not isinstance(node, Mapping) or part not in node:
+            return None
+        node = node[part]
+    return node
+
+
+def _codex_mask_carried_string(value: str) -> str:
+    shown, _hidden = _masked_words([value])
+    return shown[0] if shown else _HIDDEN
+
+
+def _codex_format_carried(value: object, *, mask_strings: bool) -> str:
+    """One carried value, from the parse. Arrays stay on one line."""
+
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, int) and not isinstance(value, bool):
+        return str(value)
+    if isinstance(value, float):
+        if math.isnan(value):
+            return "nan"
+        if math.isinf(value):
+            return "inf" if value > 0 else "-inf"
+        return str(value)
+    if isinstance(value, str):
+        shown = _codex_mask_carried_string(value) if mask_strings else value
+        return _toml_snippet(shown)
+    if isinstance(value, list):
+        parts = [_codex_format_carried(item, mask_strings=mask_strings) for item in value]
+        return "[" + ", ".join(parts) + "]"
+    if isinstance(value, dict):
+        parts: list[str] = []
+        for name, item in value.items():
+            shown_key = name if _CODEX_BARE_KEY.fullmatch(name) else _toml_snippet(name)
+            parts.append(
+                f"{shown_key} = {_codex_format_carried(item, mask_strings=mask_strings)}"
+            )
+        return "{ " + ", ".join(parts) + " }"
+    return _toml_snippet(str(value))
+
+
+def _codex_carried_snippet_line(key: Sequence[str], value: object) -> str:
+    mask = bool(key) and key[0] in {"env_vars", "tools"}
+    name = ".".join(
+        part if _CODEX_BARE_KEY.fullmatch(part) else _toml_snippet(part) for part in key
+    )
+    return f"{name} = {_codex_format_carried(value, mask_strings=mask)}"
+
+
+def _codex_snippet_lines(
+    alice: Mapping[str, object], keys: Sequence[tuple[str, ...]]
+) -> tuple[str, ...]:
+    return tuple(
+        _codex_carried_snippet_line(key, _codex_lookup_path(alice, key)) for key in keys
+    )
+
+
+def _codex_env_name(name: str) -> str:
+    if _CODEX_BARE_KEY.fullmatch(name):
+        return name
+    return _toml_snippet(name)
+
+
+def _codex_text_has_alice(text: str) -> bool:
+    """True when the text names an alice entry the scanner may not have reached."""
+
+    if re.search(r"(?m)^[ \t]*\[mcp_servers\.alice(?:\]|\.)", text):
+        return True
+    if re.search(r"(?m)^[ \t]*mcp_servers\.alice(?:\.|[ \t]*=)", text):
+        return True
+    if re.search(r"(?m)^[ \t]*\[mcp_servers\][ \t]*(?:#.*)?$", text) and re.search(
+        r"(?m)^[ \t]*alice[ \t]*[=.]", text
+    ):
+        return True
+    if re.search(r"(?m)^[ \t]*mcp_servers[ \t]*=[ \t]*\{", text) and re.search(
+        r"\balice\b", text
+    ):
+        return True
+    return False
+
+
+def _codex_locate_for_refusal(text: str, home: Path) -> tuple[str, str | None]:
+    """Best-effort alice location for a refusal that happened before the planner.
+
+    ``dir`` carries the entry's data dir. ``placeholder`` means alice is
+    named but the dir could not be read. ``absent`` means no alice entry.
+    """
+
+    parsed: object | None
+    try:
+        parsed = tomllib.loads(text)
+    except tomllib.TOMLDecodeError:
+        parsed = None
+    if isinstance(parsed, dict):
+        servers = parsed.get("mcp_servers")
+        alice = servers.get("alice") if isinstance(servers, dict) else None
+        if isinstance(alice, dict):
+            visible = _visible_dir(alice, home)
+            if visible:
+                return "dir", visible
+            return "placeholder", None
+    if _codex_text_has_alice(text):
+        return "placeholder", None
+    return "absent", None
+
+
 def _codex_snippet(
     payload: Mapping[str, object], extra_lines: Sequence[str] = ()
 ) -> str:
@@ -6614,7 +6814,7 @@ def _codex_snippet(
         lines.append("[mcp_servers.alice.env]")
         for name, item in env.items():
             shown = item if isinstance(item, str) else "<hidden>"
-            lines.append(f"{name} = {_toml_snippet(shown)}")
+            lines.append(f"{_codex_env_name(str(name))} = {_toml_snippet(shown)}")
     return "\n".join(lines) + "\n"
 
 
@@ -6768,6 +6968,8 @@ def _install_codex_host(
         snippet = _codex_snippet(mcp_server_payload(data_dir, with_env=False, launcher=launcher))
         if "is not an absolute path" in home_problem:
             trailer = [f"next: {_CODEX_HOME_NEXT}"]
+        elif "does not exist" in home_problem or "not a directory" in home_problem:
+            trailer = [f"next: {_CODEX_HOME_DIR_NEXT}"]
         else:
             trailer = [f"next: config.toml was not changed. {home_problem}"]
         if dry_run:
@@ -6781,7 +6983,19 @@ def _install_codex_host(
             "refused",
         )
 
+    source_text: str | None = None
+
     def refuse(reason: CodexConfigRefused, directory: str) -> _HostResult:
+        if source_text and not reason.located:
+            mode, found_dir = _codex_locate_for_refusal(source_text, home)
+            if mode == "dir":
+                reason.located = True
+                reason.data_dir = found_dir
+                reason.placeholder = False
+            elif mode == "placeholder":
+                reason.located = True
+                reason.placeholder = True
+                reason.data_dir = None
         if reason.payload is not None:
             payload: Mapping[str, object] = reason.payload
         elif reason.placeholder:
@@ -6845,6 +7059,7 @@ def _install_codex_host(
                 decoded = original.decode("utf-8")
             except UnicodeDecodeError as exc:
                 raise CodexConfigRefused(f"{path.name} is not UTF-8") from exc
+            source_text = decoded
             plan = _plan_codex_text(decoded, explicit_dir, default_dir, home=home, search=search)
     except CodexConfigRefused as refusal:
         return refuse(refusal, data_dir)
@@ -6994,19 +7209,29 @@ def run_host_install(
         )
 
     def failed_host(host: str, exc: BaseException) -> _HostResult:
-        try:
-            mcp_path = host_file_map(resolved_home)[host]["mcp"]
-        except Exception:
-            mcp_path = resolved_home / host
-        receipt = "\n".join(
-            (
-                f"host: {host}",
-                f"path: {mcp_path}",
-                "action: failed",
-                f"reason: unexpected {type(exc).__name__}",
+        if host == "codex":
+            codex_home, _problem = _codex_directory(
+                resolved_home, explicit_home=home is not None, platform=sys.platform
             )
-        )
-        return _HostResult(receipt, "failed")
+            mcp_path = host_file_map(resolved_home, sys.platform, codex_home=codex_home)["codex"]["mcp"]
+        else:
+            try:
+                mcp_path = host_file_map(resolved_home)[host]["mcp"]
+            except Exception:
+                mcp_path = resolved_home / host
+        lines = [
+            _seal_receipt_line(f"host: {host}"),
+            _seal_receipt_line(f"path: {mcp_path}"),
+            _seal_receipt_line("action: failed"),
+            _seal_receipt_line(f"reason: unexpected {type(exc).__name__}"),
+        ]
+        if host == "codex":
+            lines.append(
+                _seal_receipt_line("next: config.toml was not changed. Run install again.")
+            )
+            if dry_run:
+                lines.append(_seal_receipt_line(_DRY_RUN_REFUSAL))
+        return _HostResult("\n".join(lines), "failed")
 
     results: list[_HostResult] = []
     for host in planned:

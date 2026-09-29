@@ -43,6 +43,11 @@ LABELS = (
     "tools-tables",
     "alice-absent",
     "comment-in-args",
+    "basic-then-literal",
+    "crlf-in-string",
+    "bare-tools",
+    "tools-key-and-table",
+    "out-of-range",
 )
 MUTATIONS = (
     "comment-inside",
@@ -260,6 +265,95 @@ def _absent(rng: random.Random) -> str:
     )
 
 
+def _basic_then_literal(rng: random.Random) -> str:
+    return (
+        'quoted_ticks = "x \'\'\' y"\n'
+        + _root(rng)
+        + "\n".join(
+            (
+                "later = '''",
+                "kept line",
+                "'''",
+                "[mcp_servers.alice]",
+                'command = "uvx"',
+                'args = ["alice-memory", "mcp", "--data-dir", "/old/vault"]',
+                "",
+                _comment(rng, "after literal"),
+            )
+        )
+    )
+
+
+def _crlf_in_string(rng: random.Random) -> str:
+    return (
+        "body = '''\r\n"
+        "kept\r\n"
+        "'''\n"
+        + _root(rng)
+        + "\n".join(
+            (
+                "[mcp_servers.alice]",
+                'command = "uvx"',
+                'args = ["alice-memory", "mcp", "--data-dir", "/old/vault"]',
+                "",
+                _comment(rng, "after crlf"),
+            )
+        )
+    )
+
+
+def _bare_tools(rng: random.Random) -> str:
+    return (
+        _root(rng)
+        + "\n".join(
+            (
+                "[mcp_servers.alice]",
+                'command = "uvx"',
+                'args = ["alice-memory", "mcp", "--data-dir", "/old/vault"]',
+                "",
+                "[mcp_servers.alice.tools] ",
+                "[mcp_servers.alice.tools.alice_recall]",
+                'approval_mode = "approve"',
+                "",
+                _comment(rng, "after tools"),
+            )
+        )
+    )
+
+
+def _tools_key_and_table(rng: random.Random) -> str:
+    return (
+        _root(rng)
+        + "\n".join(
+            (
+                "[mcp_servers.alice]",
+                'command = "uvx"',
+                'args = ["alice-memory", "mcp", "--data-dir", "/old/vault"]',
+                'tools.alice_recall = { approval_mode = "approve" }',
+                "",
+                "[mcp_servers.alice.tools.after]",
+                'approval_mode = "prompt"',
+                "",
+            )
+        )
+    )
+
+
+def _out_of_range(rng: random.Random) -> str:
+    return (
+        _root(rng)
+        + "\n".join(
+            (
+                "[mcp_servers.alice]",
+                'command = "uvx"',
+                'args = ["alice-memory", "mcp", "--data-dir", "/old/vault"]',
+                "startup_timeout_sec = 9223372036854775808",
+                "",
+            )
+        )
+    )
+
+
 def _comment_in_args(rng: random.Random) -> str:
     return (
         _root(rng)
@@ -295,6 +389,16 @@ def generate(rng: random.Random, label: str) -> str:
         return _tools(rng)
     if label == "comment-in-args":
         return _comment_in_args(rng)
+    if label == "basic-then-literal":
+        return _basic_then_literal(rng)
+    if label == "crlf-in-string":
+        return _crlf_in_string(rng)
+    if label == "bare-tools":
+        return _bare_tools(rng)
+    if label == "tools-key-and-table":
+        return _tools_key_and_table(rng)
+    if label == "out-of-range":
+        return _out_of_range(rng)
     return _absent(rng)
 
 
