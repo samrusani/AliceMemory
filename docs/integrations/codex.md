@@ -28,7 +28,7 @@ Codex passes a stdio server only `HOME`, `PATH`, `LANG`, and a few other names. 
 env_vars = ["HTTPS_PROXY", "UV_INDEX_PRIVATE_USERNAME"]
 ```
 
-Codex merges config layers. A profile (`<CODEX_HOME>/<name>.config.toml`), the system config (`/etc/codex/config.toml`, or `%ProgramData%\OpenAI\Codex\config.toml` on Windows), or a managed layer (`/etc/codex/managed_config.toml`) can also define `mcp_servers.alice`. Requirements can disable a server. Install edits only the user `config.toml` and prints a note with the full path when another layer defines alice, and says Codex merges it. An unreadable layer file is a note with the full path too. A layer nested so deeply that install cannot parse it counts as unreadable.
+Codex merges config layers. A profile (`<CODEX_HOME>/<name>.config.toml`), the system config (`/etc/codex/config.toml`, or `%ProgramData%\OpenAI\Codex\config.toml` on Windows), or a managed layer (`/etc/codex/managed_config.toml`) can also define `mcp_servers.alice`. Requirements can disable a server. Install edits only the user `config.toml` and prints a note with the full path when another layer defines alice, and says Codex merges it. An unreadable layer file is a note with the full path too. A layer that is not UTF-8, or is nested so deeply that install cannot parse it, counts as unreadable.
 
 ## What is carried
 

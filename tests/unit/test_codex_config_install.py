@@ -2386,3 +2386,32 @@ def test_codex_deeply_nested_layer_file_is_an_unreadable_note(
     assert note in out.splitlines()
     assert "mcp_servers.alice" in _config(home).read_text(encoding="utf-8")
     assert layer.read_bytes() == layer_before
+
+
+def test_codex_non_utf8_layer_file_is_an_unreadable_note(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A profile layer that is not UTF-8 gets the unreadable note, not a crash.
+
+    Mutation: catch only OSError around ``read_text`` in
+    ``_codex_layer_defines_alice``. Install fails with
+    ``unexpected UnicodeDecodeError``. This test fails.
+    """
+
+    home = tmp_path / "home"
+    layer = home / ".codex" / "work.config.toml"
+    layer.parent.mkdir(parents=True)
+    layer.write_bytes(b"# caf\xe9\nx = 1\n")
+    layer_before = layer.read_bytes()
+    note = f"note: {layer} could not be read"
+
+    code, out, err = _install(home, tmp_path / "vault", capsys, "--dry-run")
+    assert code == 0, (out, err)
+    assert "action: dry-run" in out.splitlines()
+    assert note in out.splitlines()
+
+    code, out, err = _install(home, tmp_path / "vault", capsys)
+    assert code == 0, (out, err)
+    assert "action: written" in out.splitlines()
+    assert note in out.splitlines()
+    assert layer.read_bytes() == layer_before

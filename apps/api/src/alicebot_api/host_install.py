@@ -6955,7 +6955,7 @@ def _codex_layer_defines_alice(path: Path) -> str | None:
         if not path.exists():
             return None
         text = path.read_text(encoding="utf-8")
-    except OSError:
+    except (OSError, UnicodeDecodeError):
         return f"note: {path} could not be read"
     try:
         loaded = tomllib.loads(text)
