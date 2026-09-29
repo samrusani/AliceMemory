@@ -20,6 +20,7 @@ from alicebot_api.session_briefing import (
     COMMITTED_MEMORY_STATUSES,
     EMPTY_SESSION_BRIEF,
     brief_char_len,
+    compile_local_session_brief,
 )
 from alicebot_api.sqlite_store import SQLiteVNextStore, ensure_sqlite_user, sqlite_user_connection
 from alicebot_api.vault_doctor import COMMITTED_FACT_COUNT_SQL, COUNT_SQL_TEXTS
@@ -352,3 +353,51 @@ def test_doctor_counts_a_long_note_in_characters_under_the_cap(
     assert "/ 9500 characters" in _line_value(report, "last brief")
     assert counted < 9500
     assert "tokens" not in _line_value(report, "last brief")
+    brief = compile_local_session_brief(
+        resolve_db_path(data_dir=str(tmp_path), db=None),
+        user_id=USER_ID,
+        query=None,
+    )
+    assert counted == brief_char_len(brief)
+    assert "(cut; 8000 characters stored)" in brief
+
+
+def test_doctor_counts_an_emoji_note_in_utf16(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    """The census count is UTF-16 units, which is twice the emoji count.
+
+    Mutation: count with ``len``. The reported number matches the code
+    points and not the UTF-16 length. This test fails.
+    """
+
+    context = _context(tmp_path, monkeypatch)
+    from alicebot_api.mcp.registry import call_mcp_tool
+
+    emoji = "\U0001f600" * 40
+    payload = call_mcp_tool(
+        context,
+        name="alice_memory_commit",
+        arguments={
+            "title": "Emoji note",
+            "canonical_text": emoji,
+            "memory_type": "decision",
+            "domain": "project",
+            "sensitivity": "public",
+            "confidence": 0.96,
+            "project_scope": ["acme"],
+            "rationale": "User said: remember this",
+        },
+    )
+    assert payload["status"] == "committed", payload
+    report = _doctor_stdout(tmp_path, capsys)
+    brief = compile_local_session_brief(
+        resolve_db_path(data_dir=str(tmp_path), db=None),
+        user_id=USER_ID,
+        query=None,
+    )
+    counted = _int_value(report, "last brief")
+    assert counted == brief_char_len(brief)
+    assert counted == len(brief.encode("utf-16-le")) // 2
+    assert counted != len(brief)
+    assert "/ 9500 characters" in _line_value(report, "last brief")
