@@ -791,3 +791,36 @@ def test_apps_tree_does_not_name_transcript_path_or_session_end() -> None:
                 ignored.parent.rmdir()
             except OSError:
                 pass
+
+
+def test_session_brief_stays_under_the_character_cap() -> None:
+    """One long line and many short lines stay under 10,000 characters.
+
+    Measured before the cap: one line of 15,975 x characters rendered as
+    16,118 characters, and many 800-character lines rendered as 15,653.
+    Claude Code caps additionalContext and plain stdout at 10,000.
+    Cursor's hook docs do not state a character cap.
+
+    Mutation: make ``_brief_line_that_fits`` return the uncut line. The long
+    note is dropped and the brief is ``Nothing stored yet.``. This test fails.
+    """
+
+    from alicebot_api.session_briefing import SESSION_BRIEF_CHAR_CAP, _render_brief
+
+    long = _render_brief(
+        facts=[{"canonical_text": "x" * 20000}],
+        open_loops=[],
+        sources=[],
+        pack_view=None,
+    )
+    many = _render_brief(
+        facts=[{"canonical_text": f"{index:04d}" + ("y" * 40)} for index in range(500)],
+        open_loops=[],
+        sources=[],
+        pack_view=None,
+    )
+    assert len(long) < SESSION_BRIEF_CHAR_CAP
+    assert len(many) < SESSION_BRIEF_CHAR_CAP
+    assert long.startswith("Stored notes")
+    assert "x" in long
+    assert many.count("\n") > 1

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- The session brief stays under 10,000 characters, including one long line
+  and many short lines. Claude Code injects only a path and a preview past
+  that cap. Cursor's hook docs do not state a character cap, so every host
+  uses the same limit. In v0.18.0 a full brief can reach about 16,000
+  characters.
 - `alice-memory mcp` refuses a `--data-dir` that is empty or not absolute
   after `~` expansion, names the value, and exits 2.
   `alice-memory-session-start` refuses a non-empty value that is not

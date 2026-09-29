@@ -53,6 +53,10 @@ from alicebot_api.vnext_store import fts_fallback_tokens
 COMMITTED_MEMORY_STATUSES = MEMORY_SEARCHABLE_STATUSES
 OPEN_LOOP_ACTIVE_STATUSES = ("open", "waiting")
 SESSION_BRIEF_TOKEN_BUDGET = 4_000
+# Claude Code injects only a path and a preview once additionalContext or
+# plain stdout reaches 10,000 characters. Cursor's hook docs do not state a
+# character cap. Every host stays under this cap.
+SESSION_BRIEF_CHAR_CAP = 10_000
 FACT_LIMIT = 8
 OPEN_LOOP_LIMIT = 8
 SOURCE_LIMIT = 8
@@ -514,6 +518,40 @@ def quote_session_brief_text(text: str) -> str:
     return json.dumps(_flatten_excerpt(text), ensure_ascii=False)
 
 
+def _brief_rendered(lines: Sequence[str]) -> str:
+    return "\n".join((SESSION_BRIEF_FRAME, *lines))
+
+
+def _brief_line_that_fits(label: str, text: str, existing: Sequence[str]) -> str | None:
+    """A brief line that keeps the rendered brief under the character cap.
+
+    A line that fits is returned whole. A longer line is cut to the longest
+    prefix that still fits. None when even one character does not fit.
+    """
+
+    def line_for(source: str) -> str:
+        return f"**{label}**: {quote_session_brief_text(source)}"
+
+    def fits(line: str) -> bool:
+        return len(_brief_rendered((*existing, line))) < SESSION_BRIEF_CHAR_CAP
+
+    full = line_for(text)
+    if fits(full):
+        return full
+    lo = 1
+    hi = len(text)
+    best: str | None = None
+    while lo <= hi:
+        mid = (lo + hi) // 2
+        candidate = line_for(text[:mid])
+        if fits(candidate):
+            best = candidate
+            lo = mid + 1
+        else:
+            hi = mid - 1
+    return best
+
+
 def _render_brief(
     *,
     facts: Sequence[Mapping[str, object]],
@@ -530,9 +568,14 @@ def _render_brief(
         flattened = _flatten_excerpt(text)
         if not flattened or flattened in seen:
             return
-        line = f"**{label}**: {quote_session_brief_text(text)}"
+        line = _brief_line_that_fits(label, text, lines)
+        if line is None:
+            return
         cost = estimate_item_tokens({"text": line})
         if used_tokens + cost > SESSION_BRIEF_TOKEN_BUDGET:
+            return
+        rendered = "\n".join((SESSION_BRIEF_FRAME, *lines, line))
+        if len(rendered) >= SESSION_BRIEF_CHAR_CAP:
             return
         lines.append(line)
         seen.add(flattened)
@@ -575,6 +618,7 @@ def _render_brief(
 __all__ = [
     "COMMITTED_MEMORY_STATUSES",
     "EMPTY_SESSION_BRIEF",
+    "SESSION_BRIEF_CHAR_CAP",
     "SESSION_BRIEF_FRAME",
     "SESSION_BRIEF_TOKEN_BUDGET",
     "compile_local_session_brief",
