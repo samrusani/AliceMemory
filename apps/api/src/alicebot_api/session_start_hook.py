@@ -27,7 +27,6 @@ absolute path; set an absolute path.`` In JSON that line is
 from __future__ import annotations
 
 import argparse
-import inspect
 import json
 import logging
 import os
@@ -42,7 +41,11 @@ from alicebot_api.onramp import (
     data_dir_absolute_after_tilde,
     resolve_db_path,
 )
-from alicebot_api.session_briefing import compile_local_session_brief
+from alicebot_api.session_briefing import (
+    brief_char_len,
+    compile_local_session_brief,
+    fit_emitted_session_brief,
+)
 
 ALICE_MEMORY_DATA_DIR_ENV = "ALICE_MEMORY_DATA_DIR"
 DEFAULT_DATA_DIR = "~/.alice"
@@ -167,17 +170,13 @@ def _run(args: argparse.Namespace) -> int:
     )
     duplicate = _claude_duplicate_setup_line()
     prefix = f"{duplicate}\n" if duplicate else ""
-    # The brief cap and its reserve argument live on the brief branch.
-    # Pass reserve when that parameter is present. Do not invent a second cap.
-    compile_args = {
-        "user_id": args.user_id,
-        "query": None,
-    }
-    if prefix and "reserve" in inspect.signature(compile_local_session_brief).parameters:
-        compile_args["reserve"] = len(prefix.encode("utf-16-le")) // 2
-    markdown = compile_local_session_brief(db_path, **compile_args)
-    if prefix:
-        markdown = prefix + markdown
+    markdown = compile_local_session_brief(
+        db_path,
+        user_id=args.user_id,
+        query=None,
+        reserve=brief_char_len(prefix),
+    )
+    markdown = fit_emitted_session_brief(prefix + markdown)
     if "jsonrpc" in markdown or "Content-Length:" in markdown:
         _fail_open(args.format)
         return 0

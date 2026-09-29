@@ -1502,3 +1502,113 @@ def test_real_hermes_loads_the_written_config(tmp_path: Path, capsys) -> None:
     assert listed.returncode == 0, (version, listed.stderr)
     rows = {line.split()[0] for line in listed.stdout.splitlines() if line.strip()}
     assert {"other", "alice"} <= rows, (version, listed.stdout)
+
+
+def test_hermes_keeps_a_comment_when_the_block_already_matches(
+    tmp_path: Path, capsys
+) -> None:
+    """Install's own block plus a comment is unchanged on the same data dir.
+
+    Mutation: refuse every comment, or strip the comment and rewrite.
+    The receipt is not unchanged, or the bytes move. This test fails.
+    """
+
+    home = tmp_path / "home"
+    vault = tmp_path / "vault"
+    config = _seed(home, "model: gpt-4o\n")
+    assert _install(home, vault, capsys)[0] == 0
+    written = config.read_text(encoding="utf-8")
+    needle = "\n  alice:\n"
+    assert needle in written
+    commented = written.replace(needle, "\n  alice:\n    # keep this\n", 1)
+    config.write_text(commented, encoding="utf-8")
+    before = config.read_bytes()
+    backups = len(_backups(config, vault))
+
+    code, out, err = _install(home, vault, capsys)
+    assert code == 0, err
+    assert config.read_bytes() == before
+    assert "# keep this" in config.read_text(encoding="utf-8")
+    assert len(_backups(config, vault)) == backups
+    assert "action: unchanged" in out
+
+    text = before.decode("utf-8")
+    command = '\n    command: "'
+    assert command in text
+    end = text.index("\n", text.index(command) + 1)
+    inline = text[:end] + "  # keep this" + text[end:]
+    config.write_bytes(inline.encode("utf-8"))
+    inline_before = config.read_bytes()
+    code, out, err = _install(home, vault, capsys)
+    assert code == 0, err
+    assert config.read_bytes() == inline_before
+    assert "# keep this" in config.read_text(encoding="utf-8")
+    assert "action: unchanged" in out
+
+
+def test_hermes_refuses_a_full_line_comment_when_a_change_is_needed(
+    tmp_path: Path, capsys
+) -> None:
+    """A full-line comment on its own line still refuses a real edit.
+
+    Mutation: drop the ``lstrip(" \\t").startswith("#")`` check in
+    ``_hermes_alice_has_comment``. Install exits 0 and the comment line
+    is gone. This test fails.
+    """
+
+    original = (
+        "mcp_servers:\n"
+        "  alice:\n"
+        "    # kept on its own line\n"
+        "    command: uvx\n"
+        "    args:\n"
+        "      - alice-memory\n"
+        "      - mcp\n"
+        '      - "--data-dir"\n'
+        "      - /old/vault\n"
+        "    env:\n"
+        "      ALICE_MEMORY_DATA_DIR: /old/vault\n"
+    )
+    home = tmp_path / "home"
+    vault = tmp_path / "vault"
+    path = _seed(home, original)
+    before = path.read_bytes()
+    code, out, err = _install(home, vault, capsys)
+    assert code == 1, (out, err)
+    assert path.read_bytes() == before
+    assert _backups(path, vault) == []
+    assert "# kept on its own line" in path.read_text(encoding="utf-8")
+    assert "a comment in alice" in out
+    assert "snippet:" in out
+    assert "next:" in out
+    assert "config.yaml was not changed" in out
+
+
+def test_hermes_refuses_a_comment_inside_alice(tmp_path: Path, capsys) -> None:
+    """A full-line comment and an inline comment inside alice are refused.
+
+    Mutation: drop ``_hermes_alice_has_comment``. Install exits 0 and both
+    comments are gone. This test fails.
+    """
+
+    original = (
+        "mcp_servers:\n"
+        "  alice:\n"
+        "    # note\n"
+        "    command: uvx\n"
+        "    args: [\"alice-memory\", \"mcp\", \"--data-dir\", \"/old\"] # comment\n"
+    )
+    home = tmp_path / "home"
+    vault = tmp_path / "vault"
+    path = _seed(home, original)
+    before = path.read_bytes()
+    code, out, err = _install(home, vault, capsys)
+    assert code == 1, (out, err)
+    assert path.read_bytes() == before
+    assert _backups(path, vault) == []
+    assert "# note" in path.read_text(encoding="utf-8")
+    assert "# comment" in path.read_text(encoding="utf-8")
+    assert "a comment in alice" in out
+    assert "snippet:" in out
+    assert "next:" in out
+    assert "config.yaml was not changed" in out
