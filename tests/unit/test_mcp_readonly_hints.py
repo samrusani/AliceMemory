@@ -182,7 +182,9 @@ def _assert_no_existing_row_changed(
 ) -> None:
     for table, rows in before.items():
         # sqlite_sequence is the insert counter. A new row bumps it.
-        if table == "sqlite_sequence":
+        # FTS shadow pages are rewritten when a new document is indexed.
+        # The stored memory and source rows are the rows this check covers.
+        if table == "sqlite_sequence" or "_fts" in table:
             continue
         remaining = list(after[table])
         for row in rows:
