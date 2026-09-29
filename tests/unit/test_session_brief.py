@@ -914,9 +914,9 @@ def test_emoji_brief_is_capped_in_utf16_units() -> None:
     from alicebot_api.session_briefing import _render_brief
 
     emoji = "\U0001f600"
-    facts = [{"canonical_text": emoji * 200 + f" {index}"} for index in range(8)]
-    loops = [{"title": emoji * 200 + f" {index}"} for index in range(8)]
-    sources = [{"excerpt": emoji * 200 + f" {index}"} for index in range(8)]
+    facts = [{"canonical_text": f"fact-{index}-" + emoji * 220} for index in range(8)]
+    loops = [{"title": f"loop-{index}-" + emoji * 220} for index in range(8)]
+    sources = [{"excerpt": f"source-{index}-" + emoji * 220} for index in range(8)]
     brief = _render_brief(
         facts=facts,
         open_loops=loops,
@@ -926,6 +926,8 @@ def test_emoji_brief_is_capped_in_utf16_units() -> None:
     assert _units(brief) < 9500
     assert len(brief) < 9500
     assert _units(brief) != len(brief)
+    # A higher cap would admit the last source. This literal check fails if it does.
+    assert "source-7-" not in brief
     uncut = _render_brief(
         facts=facts[:1],
         open_loops=[],
