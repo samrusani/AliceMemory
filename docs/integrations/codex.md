@@ -4,11 +4,15 @@ Unreleased (on main, not in v0.18.0): Codex support is on main and is not in the
 
 Codex is opt-in. `alice-memory install` does not write it unless you pass `--host codex`. The default hosts stay Claude Desktop, Claude Code, Cursor, and OpenClaw. This install writes the MCP entry only. It does not write a SessionStart hook, and it never writes `trusted_hash`.
 
-Install reads `CODEX_HOME` only when `--home` is omitted. An empty value counts as unset. A value that is not absolute is refused. A missing path, or a path that is not a directory, is refused with Codex's own message. The directory is canonicalized. With `--home`, the file is `<home>/.codex/config.toml`. On Windows the default directory is `%USERPROFILE%\.codex`.
+Install reads `CODEX_HOME` only when `--home` is omitted. An empty value counts as unset. A value that is not absolute is refused. The next line says to set `CODEX_HOME` to an absolute path, or pass `--home`, then run install again. A missing path, or a path that is not a directory, is refused with Codex's own message. The directory is canonicalized. With `--home`, the file is `<home>/.codex/config.toml`. If `--home` is passed and `CODEX_HOME` points elsewhere, the receipt says so. On Windows the default directory is `%USERPROFILE%\.codex`.
 
 ## What gets written
 
-The file is `config.toml`, edited as text. A new file holds only Alice's table. Install touches only Alice's `command`, `args`, and the carried lines below. Every other byte stays, including `[mcp_servers.alice.tools.<tool>]` tables Codex writes when you remember an approval. The receipt says `format: toml, edited as text` and `session_start: none`.
+The file is `config.toml`, edited as text. A new file holds only Alice's table. Install touches only Alice's `command`, `args`, and the carried lines below. Every other byte stays, including `[mcp_servers.alice.tools]` and `[mcp_servers.alice.tools.<tool>]` tables Codex writes when you remember an approval. The receipt says `format: toml, edited as text` and `session_start: none`. A success receipt ends with `next: check it with: codex mcp get alice`.
+
+Install checks Alice's entry and the number ranges below. It does not check every Codex rule for the rest of the file. An integer token outside `-2^63` to `2^63-1` (decimal, hex, octal, or binary, underscores allowed) is refused. A float token that is not finite is refused unless it is literally `inf` or `nan`. A file Codex will not load is not reported as a successful write.
+
+A rewrite sets the file mode to `0600`. The same writer does this for every host, because these files can hold keys. A new file is `0600` as well.
 
 ```toml
 [mcp_servers.alice]
@@ -24,7 +28,7 @@ Codex passes a stdio server only `HOME`, `PATH`, `LANG`, and a few other names. 
 env_vars = ["HTTPS_PROXY", "UV_INDEX_PRIVATE_USERNAME"]
 ```
 
-Codex merges config layers. A profile (`<CODEX_HOME>/<name>.config.toml`), the system config (`/etc/codex/config.toml`, or `%ProgramData%\OpenAI\Codex\config.toml` on Windows), or a managed layer (`/etc/codex/managed_config.toml`) can also define `mcp_servers.alice`. Requirements can disable a server. Install edits only the user `config.toml` and prints a note when another layer defines alice. An unreadable layer file is a note too.
+Codex merges config layers. A profile (`<CODEX_HOME>/<name>.config.toml`), the system config (`/etc/codex/config.toml`, or `%ProgramData%\OpenAI\Codex\config.toml` on Windows), or a managed layer (`/etc/codex/managed_config.toml`) can also define `mcp_servers.alice`. Requirements can disable a server. Install edits only the user `config.toml` and prints a note with the full path when another layer defines alice, and says Codex merges it. An unreadable layer file is a note with the full path too.
 
 ## What is carried
 
@@ -37,9 +41,13 @@ A re-run keeps these keys when they already sit on Alice's table and Codex would
 - `env_vars`: an array of strings, on one line or several
 - documented `ALICE_*` env values, and `ALICE_MEMORY_DATA_DIR`, copied byte for byte
 
-A `tools...` key you wrote inside the alice table is kept too. Install does not edit, move, or remove a `tools` table.
+A `tools...` key you wrote inside the alice table is kept too, when there is no `[mcp_servers.alice.tools...]` table. If both are present, in either order, install refuses and asks you to move each `tools.<name>` key into its own `[mcp_servers.alice.tools.<name>]` table. Install does not edit, move, or remove a `tools` table, including a bare `[mcp_servers.alice.tools]` table.
 
-Anything else in the alice table, including `cwd`, `url`, and `enabled_tools`, is refused. The file is not changed. The receipt says to keep editing that key by hand, or remove it and run install again.
+A comment inside `command`, `args`, or an inline `env` is refused. The comment stays in the file. Comments inside a carried value such as `env_vars` stay.
+
+Anything else in the alice table, including `cwd`, `url`, and `enabled_tools`, is refused. The file is not changed. The receipt says to keep editing that key by hand, or remove it and run install again. That remove line is only for those keys. A comment, an unquoted env value, or a tools key that belongs in its own table gets a line that names that fix instead.
+
+When the refusal is on an alice entry install already found, the snippet keeps that entry's data dir. If install cannot read the dir, the snippet uses a placeholder, not `~/.alice`. The next line says to edit the alice entry by hand, then check it with `codex mcp get alice`.
 
 ## Check
 

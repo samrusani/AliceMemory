@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- `alice-memory install --host codex` edits `~/.codex/config.toml` as text and writes only the alice MCP entry. It is opt-in, writes no `env` table, and does not write a SessionStart hook. In v0.18.0 there is no `--host codex`.
+- `alice-memory install --host codex` edits `~/.codex/config.toml` as text and writes only the alice MCP entry. It is opt-in, writes no `env` table, and does not write a SessionStart hook. A comment inside `command`, `args`, or an inline `env` is refused. An integer outside the i64 range, or a float that is not finite, is refused. A success receipt ends with `codex mcp get alice`. In v0.18.0 there is no `--host codex`.
 - `alice-memory mcp` refuses a `--data-dir` that is empty or not absolute
   after `~` expansion, names the value, and exits 2.
   `alice-memory-session-start` refuses a non-empty value that is not

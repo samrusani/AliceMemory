@@ -3,7 +3,7 @@
 plan_codex_config edits ~/.codex/config.toml as text. This script builds
 configs in the shapes the writer claims to accept, stamps every comment,
 and checks the judge in tests/unit/toml_judge.py. A generated config must
-not be refused. A mutant may be.
+not be refused, except a label in the judge's refusable set. A mutant may be.
 
 Run from a checkout:
 
@@ -26,7 +26,14 @@ sys.path.insert(0, str(ROOT / "workers"))
 from alicebot_api.host_install import CodexConfigRefused, plan_codex_config  # noqa: E402
 from tests.unit.toml_judge import JudgeFailure, judge_case  # noqa: E402
 
-DATA_DIR = "/fuzz/alice-vault"
+DATA_DIRS = (
+    "/fuzz/vault",
+    "/fuzz/vault#hash",
+    "/fuzz/vault'quote",
+    '/fuzz/vault"quote',
+    "/fuzz/vault\\slash",
+)
+DATA_DIR = DATA_DIRS[0]
 LABELS = (
     "install-shape",
     "producer-mcp-add",
@@ -35,6 +42,14 @@ LABELS = (
     "env-after",
     "tools-tables",
     "alice-absent",
+    "comment-in-args",
+)
+MUTATIONS = (
+    "comment-inside",
+    "inline-alice",
+    "bom",
+    "drop-newline",
+    "comment-in-args",
 )
 
 
@@ -46,6 +61,7 @@ class FuzzFailure(AssertionError):
 class FuzzCounts:
     generated_written: int = 0
     by_label: dict[str, int] = field(default_factory=dict)
+    refused_labels: dict[str, int] = field(default_factory=dict)
     by_mutation: dict[str, dict[str, int]] = field(default_factory=dict)
 
     def record(self, mutation: str, outcome: str) -> None:
@@ -61,77 +77,117 @@ def _comment(rng: random.Random, words: str = "kept") -> str:
     return f"# c{_token(rng)} {words}"
 
 
+def _data_dir(rng: random.Random) -> str:
+    return rng.choice(DATA_DIRS)
+
+
+def _root(rng: random.Random) -> str:
+    """Random root keys. Every base includes the forms a fixed template left out."""
+
+    required = [
+        "last_seen = 1979-05-27T07:32:00Z",
+        'title = """before \'\'\' after"""',
+        "ml4 = ''''four''''",
+        "ml5 = '''''five'''''",
+        'joined = """\\\nkept"""',
+        'quoted = "say \\"\\"\\" hi"',
+    ]
+    optional = [
+        "check_for_update_on_startup = false",
+        "seen_on = 1979-05-27",
+        "seen_at = 07:32:00",
+        'note = "keep # hash"',
+        'items = [\n["kept"],\n]',
+        "flag = true",
+        "count = 7",
+    ]
+    rng.shuffle(required)
+    rng.shuffle(optional)
+    chosen = required + optional[: rng.randint(2, len(optional))]
+    rng.shuffle(chosen)
+    lines = [_comment(rng, "root")]
+    for piece in chosen:
+        lines.append(piece)
+        if rng.random() < 0.3:
+            lines.append(_comment(rng, "between"))
+    lines.append("")
+    return "\n".join(lines)
+
+
 def _install_shape(rng: random.Random) -> str:
-    return "\n".join(
-        (
-            _comment(rng, "header"),
-            'check_for_update_on_startup = false',
-            'title = """before \'\'\' after"""',
-            "",
-            "[mcp_servers.alice]",
-            'command = "uvx"',
-            'args = ["alice-memory", "mcp", "--data-dir", "/old/vault"]',
-            "",
-            _comment(rng, "after alice"),
-            "[mcp_servers.other]",
-            'command = "true"',
-            "enabled = false",
-            "",
+    return (
+        _root(rng)
+        + "\n".join(
+            (
+                "[mcp_servers.alice]",
+                'command = "uvx"',
+                'args = ["alice-memory", "mcp", "--data-dir", "/old/vault"]',
+                "",
+                _comment(rng, "after alice"),
+                "[mcp_servers.other]",
+                'command = "true"',
+                "enabled = false",
+                "",
+            )
         )
     )
 
 
 def _producer_mcp_add(rng: random.Random) -> str:
-    return "\n".join(
-        (
-            _comment(rng, "producer"),
-            "[mcp_servers.alice]",
-            'command = "uvx"',
-            'args = ["alice-memory", "mcp", "--data-dir", \'C:\\Users\\Alex\\Alice Vault\']',
-            "enabled = false",
-            "startup_timeout_sec = 60.0",
-            'default_tools_approval_mode = "approve"',
-            "",
-            "[mcp_servers.alice.env]",
-            'ALICE_MCP_FULL_TOOLS = "1"',
-            'ALICE_AGENT_API_KEY = \'a"b\'',
-            "",
-            "[mcp_servers.alice.tools.alice_recall]",
-            'approval_mode = "approve"',
-            "",
-            _comment(rng, "later table"),
-            '[projects."/tmp/proj"]',
-            'trust_level = "trusted"',
-            "",
+    return (
+        _root(rng)
+        + "\n".join(
+            (
+                "[mcp_servers.alice]",
+                'command = "uvx"',
+                'args = ["alice-memory", "mcp", "--data-dir", \'C:\\Users\\Alex\\Alice Vault\']',
+                "enabled = false",
+                "startup_timeout_sec = 60.0",
+                'default_tools_approval_mode = "approve"',
+                "",
+                "[mcp_servers.alice.env]",
+                'ALICE_MCP_FULL_TOOLS = "1"',
+                'ALICE_AGENT_API_KEY = \'a"b\'',
+                "",
+                "[mcp_servers.alice.tools.alice_recall]",
+                'approval_mode = "approve"',
+                "",
+                _comment(rng, "later table"),
+                '[projects."/tmp/proj"]',
+                'trust_level = "trusted"',
+                "",
+            )
         )
     )
 
 
 def _producer_import(rng: random.Random) -> str:
-    return "\n".join(
-        (
-            _comment(rng, "import"),
-            "[mcp_servers.alice]",
-            "args = [",
-            '    "alice-memory",',
-            '    "mcp",',
-            '    "--data-dir",',
-            "    'C:\\Users\\Alex\\Alice Vault',",
-            "]",
-            'command = "uvx"',
-            "env_vars = [",
-            '    "HTTPS_PROXY",',
-            '    "UV_INDEX_PRIVATE_USERNAME",',
-            "]",
-            "",
-            "[mcp_servers.alice.env]",
-            'ALICE_AGENT_API_KEY = """say "hi" and \'bye\'"""',
-            "",
-            _comment(rng, "after import"),
-            "[mcp_servers.other]",
-            'command = "true"',
-            "enabled = false",
-            "",
+    return (
+        _root(rng)
+        + "\n".join(
+            (
+                "[mcp_servers.alice]",
+                "args = [",
+                '    "alice-memory",',
+                '    "mcp",',
+                '    "--data-dir",',
+                "    'C:\\Users\\Alex\\Alice Vault',",
+                "]",
+                'command = "uvx"',
+                "env_vars = [",
+                '    "HTTPS_PROXY",',
+                '    "UV_INDEX_PRIVATE_USERNAME",',
+                "]",
+                "",
+                "[mcp_servers.alice.env]",
+                'ALICE_AGENT_API_KEY = """say "hi" and \'bye\'"""',
+                "",
+                _comment(rng, "after import"),
+                "[mcp_servers.other]",
+                'command = "true"',
+                "enabled = false",
+                "",
+            )
         )
     )
 
@@ -157,7 +213,7 @@ def _env_table(rng: random.Random, *, before: bool) -> str:
             'approval_mode = "approve"',
         )
     )
-    parts = [_comment(rng, "env order")]
+    parts = [_root(rng).rstrip("\n")]
     if before:
         parts.extend((env, "", tools, "", main, ""))
     else:
@@ -167,39 +223,59 @@ def _env_table(rng: random.Random, *, before: bool) -> str:
 
 
 def _tools(rng: random.Random) -> str:
-    return "\n".join(
-        (
-            _comment(rng, "tools"),
-            "[mcp_servers.alice.tools.before]",
-            'approval_mode = "prompt"',
-            "",
-            "[mcp_servers.alice]",
-            'command = "uvx"',
-            'args = ["alice-memory", "mcp", "--data-dir", "/old#vault"]',
-            "",
-            _comment(rng, "between"),
-            "[mcp_servers.alice.tools.after]",
-            'approval_mode = "approve"',
-            "",
+    return (
+        _root(rng)
+        + "\n".join(
+            (
+                "[mcp_servers.alice.tools.before]",
+                'approval_mode = "prompt"',
+                "",
+                "[mcp_servers.alice]",
+                'command = "uvx"',
+                'args = ["alice-memory", "mcp", "--data-dir", "/old#vault"]',
+                "",
+                _comment(rng, "between"),
+                "[mcp_servers.alice.tools.after]",
+                'approval_mode = "approve"',
+                "",
+            )
         )
     )
 
 
 def _absent(rng: random.Random) -> str:
-    return "\n".join(
-        (
-            _comment(rng, "no alice"),
-            "check_for_update_on_startup = false",
-            "items = [",
-            '["kept"],',
-            "]",
-            'banner = """',
-            "[mcp_servers.alice]",
-            '"""',
-            _comment(rng, "still outside"),
-            '[projects."/tmp/proj"]',
-            'trust_level = "trusted"',
-            "",
+    return (
+        _root(rng)
+        + "\n".join(
+            (
+                "banner = \"\"\"",
+                "[mcp_servers.alice]",
+                "\"\"\"",
+                _comment(rng, "still outside"),
+                '[projects."/tmp/proj"]',
+                'trust_level = "trusted"',
+                "",
+            )
+        )
+    )
+
+
+def _comment_in_args(rng: random.Random) -> str:
+    return (
+        _root(rng)
+        + "\n".join(
+            (
+                "[mcp_servers.alice]",
+                'command = "uvx"',
+                "args = [",
+                '  "alice-memory", # pinned by hand, see ticket 42',
+                '  "mcp",',
+                '  "--data-dir",',
+                '  "/old",',
+                "]",
+                "",
+                _comment(rng, "outside args"),
+            )
         )
     )
 
@@ -217,17 +293,38 @@ def generate(rng: random.Random, label: str) -> str:
         return _env_table(rng, before=False)
     if label == "tools-tables":
         return _tools(rng)
+    if label == "comment-in-args":
+        return _comment_in_args(rng)
     return _absent(rng)
 
 
 def mutate(rng: random.Random, text: str) -> tuple[str, str]:
-    kind = rng.choice(("comment-inside", "inline-alice", "bom", "drop-newline"))
+    kind = rng.choice(MUTATIONS)
     if kind == "comment-inside":
         return text.replace("[mcp_servers.alice]\n", "[mcp_servers.alice]\n# c" + _token(rng) + " inside\n", 1), kind
     if kind == "inline-alice":
         return 'mcp_servers = { alice = { command = "uvx" } }\n' + text, kind
     if kind == "bom":
         return "\ufeff" + text, kind
+    if kind == "comment-in-args":
+        needle = 'args = ["alice-memory"'
+        if needle in text:
+            return (
+                text.replace(
+                    needle,
+                    'args = [\n  "alice-memory", # c' + _token(rng) + " inside args\n ",
+                    1,
+                ),
+                kind,
+            )
+        return (
+            text.replace(
+                "[mcp_servers.alice]\n",
+                '[mcp_servers.alice]\nargs = [\n  "alice-memory", # c' + _token(rng) + " inside args\n]\n",
+                1,
+            ),
+            kind,
+        )
     if text.endswith("\n"):
         return text[:-1], kind
     return text + "\r", kind
@@ -248,37 +345,46 @@ def check(text: str, *, label: str, mutant: bool, data_dir: str = DATA_DIR) -> s
     return "refused" if refused else "written"
 
 
-def run(seeds: range, *, configs_per_seed: int = 7, mutants_per_config: int = 2) -> FuzzCounts:
+def run(seeds: range, *, configs_per_seed: int = 8, mutants_per_config: int = 2) -> FuzzCounts:
     counts = FuzzCounts()
     for seed in seeds:
         rng = random.Random(seed)
         for index in range(configs_per_seed):
             label = LABELS[index % len(LABELS)]
             text = generate(rng, label)
-            if check(text, label=label, mutant=False) == "written":
+            data_dir = _data_dir(rng)
+            outcome = check(text, label=label, mutant=False, data_dir=data_dir)
+            if outcome == "written":
                 counts.generated_written += 1
                 counts.by_label[label] = counts.by_label.get(label, 0) + 1
+            else:
+                counts.refused_labels[label] = counts.refused_labels.get(label, 0) + 1
             for _ in range(mutants_per_config):
                 mutant, kind = mutate(rng, text)
-                counts.record(kind, check(mutant, label=label, mutant=True))
+                counts.record(kind, check(mutant, label=label, mutant=True, data_dir=data_dir))
     return counts
 
 
-def codex_bases(count: int, *, seed: int = 0) -> list[str]:
-    """Written configs whose non-alice keys Codex accepts. Used by the real-host test."""
+def codex_bases(count: int, *, seed: int = 0) -> list[tuple[str, str]]:
+    """Written configs and the data dir the plan used. Used by the real-host test."""
 
     rng = random.Random(seed)
-    found: list[str] = []
+    found: list[tuple[str, str]] = []
     index = 0
     while len(found) < count:
         label = LABELS[index % len(LABELS)]
         index += 1
+        if label == "comment-in-args":
+            continue
         text = generate(rng, label)
+        data_dir = _data_dir(rng)
         try:
-            written = plan_codex_config(text, DATA_DIR)
+            written = plan_codex_config(text, data_dir)
         except CodexConfigRefused:
             continue
-        found.append(text if written is None else written)
+        found.append((text if written is None else written, data_dir))
+        if index > count * 20:
+            break
     return found
 
 
@@ -293,6 +399,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     print(f"generated configs written: {counts.generated_written}")
     print(f"labels: {counts.by_label}")
+    print(f"refused labels: {counts.refused_labels}")
     print(f"mutations: {counts.by_mutation}")
     return 0
 

@@ -11,17 +11,7 @@ from __future__ import annotations
 import tomllib
 from typing import Mapping
 
-REFUSABLE_LABELS = frozenset()
-_CARRIED = frozenset(
-    {
-        "startup_timeout_sec",
-        "tool_timeout_sec",
-        "startup_timeout_ms",
-        "enabled",
-        "default_tools_approval_mode",
-        "env_vars",
-    }
-)
+REFUSABLE_LABELS = frozenset({"comment-in-args"})
 
 
 class JudgeFailure(AssertionError):
@@ -96,7 +86,7 @@ def _strip(doc: Mapping[str, object]) -> dict[str, object]:
     servers = copied.get("mcp_servers")
     if isinstance(servers, dict) and isinstance(servers.get("alice"), dict):
         alice = servers["alice"]
-        for key in ("command", "args", "env", *_CARRIED):
+        for key in ("command", "args", "env"):
             alice.pop(key, None)
         if not alice:
             servers.pop("alice")
