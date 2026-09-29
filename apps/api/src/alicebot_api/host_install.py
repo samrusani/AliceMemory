@@ -3556,11 +3556,11 @@ def _install_json_host(
             ]
             hook_details.clear()
             session_start = "none"
-            trailer: tuple[str, ...] = (f"next: {_CLAUDE_PLUGIN_NEXT}",)
+            plugin_trailer: tuple[str, ...] = (f"next: {_CLAUDE_PLUGIN_NEXT}",)
             if dry_run:
-                trailer = (*trailer, _DRY_RUN_REFUSAL)
+                plugin_trailer = (*plugin_trailer, _DRY_RUN_REFUSAL)
             return _HostResult(
-                receipt(_refusal_action(dry_run), snippet=None, trailer=trailer),
+                receipt(_refusal_action(dry_run), snippet=None, trailer=plugin_trailer),
                 "refused",
                 refusal_kind="plugin",
             )

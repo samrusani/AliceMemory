@@ -12,6 +12,7 @@ Mutation notes live on each test. A miss raises AssertionError.
 
 from __future__ import annotations
 
+import ast
 import json
 import re
 import subprocess
@@ -30,8 +31,19 @@ CLAUDE_NPM = "@anthropic-ai/claude-code@2.1.281"
 HERMES_PIP = "hermes-agent==0.19.0"
 CLAUDE_VERSION = "2.1.281 (Claude Code)"
 HERMES_VERSION = "Hermes Agent v0.19.0 (2026.7.20)"
-PINNED_IF = "${{ github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' }}"
+PINNED_IF = (
+    "${{ github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' "
+    "&& (inputs.job == 'all' || inputs.job == 'pinned')) }}"
+)
 CANARY_IF = "${{ github.event_name == 'schedule' }}"
+DISPATCH_JOBS = ("pinned", "hook-trial", "plugin-hook-trial", "marketplace-check")
+
+
+def _dispatch_if(name: str) -> str:
+    return (
+        "${{ github.event_name == 'workflow_dispatch' && "
+        f"(inputs.job == 'all' || inputs.job == '{name}') }}}}"
+    )
 OPS_TITLE = "[ops] real-host canary failure"
 ACTION_SHA = re.compile(r"^[0-9a-f]{40}$")
 _SETUP_PYTHON = "setup-python"
@@ -414,7 +426,7 @@ def test_hook_trial_is_dispatch_only_pinned_and_uploads() -> None:
     """
 
     job = _job("hook-trial")
-    assert job.get("if") == "${{ github.event_name == 'workflow_dispatch' }}"
+    assert job.get("if") == _dispatch_if("hook-trial")
     script = _run_text(job)
     assert CLAUDE_NPM in script
     assert "@latest" not in script
@@ -428,6 +440,101 @@ def test_hook_trial_is_dispatch_only_pinned_and_uploads() -> None:
     _assert_failure_fails_the_job(job)
     for name in ("pinned", "canary"):
         assert "real_host_hook_trial.py" not in _run_text(_job(name))
+
+
+def _evaluate(node: ast.AST, names: dict[str, str]) -> bool | str:
+    """Evaluate the only expression shapes these workflows use, and refuse the rest."""
+
+    if isinstance(node, ast.Expression):
+        return _evaluate(node.body, names)
+    if isinstance(node, ast.BoolOp):
+        values = [_evaluate(item, names) for item in node.values]
+        return all(values) if isinstance(node.op, ast.And) else any(values)
+    if isinstance(node, ast.Compare) and len(node.ops) == 1 and isinstance(node.ops[0], ast.Eq):
+        return _evaluate(node.left, names) == _evaluate(node.comparators[0], names)
+    if isinstance(node, ast.Name):
+        return names[node.id]
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    raise AssertionError(f"unsupported expression node: {ast.dump(node)}")
+
+
+def _job_runs(condition: str, event: str, job_input: str) -> bool:
+    match = re.fullmatch(r"\$\{\{ (.*) \}\}", condition)
+    assert match, condition
+    text = match.group(1).replace("&&", " and ").replace("||", " or ")
+    text = text.replace("github.event_name", "event_name").replace("inputs.job", "job_input")
+    return bool(_evaluate(ast.parse(text, mode="eval"), {"event_name": event, "job_input": job_input}))
+
+
+def _jobs_that_run(event: str, job_input: str) -> list[str]:
+    jobs = _load_workflow()["jobs"]
+    return [name for name, job in jobs.items() if _job_runs(job["if"], event, job_input)]
+
+
+def test_dispatch_input_selects_which_dispatch_job_runs() -> None:
+    """A dispatch with a job name runs that job alone. ``all`` runs every dispatch job.
+
+    Pull requests still run only the pinned job, and the schedule only the canary.
+    The ``if`` lines are evaluated, not compared as text. Mutation: drop the
+    input test from one job, run the pinned job on any dispatch, add
+    ``pull_request`` to a dispatch-only job, or leave a job out of the options.
+    This test fails.
+    """
+
+    workflow = _load_workflow()
+    dispatch = workflow["on"]["workflow_dispatch"]
+    assert isinstance(dispatch, dict)
+    option = dispatch["inputs"]["job"]
+    assert option["type"] == "choice" and option["default"] == "all"
+    assert option["options"] == ["all", *DISPATCH_JOBS]
+    dispatch_jobs = {
+        name for name, job in workflow["jobs"].items() if "'workflow_dispatch'" in job["if"]
+    }
+    assert dispatch_jobs == set(DISPATCH_JOBS)
+    for name in DISPATCH_JOBS:
+        assert _jobs_that_run("workflow_dispatch", name) == [name], name
+    assert _jobs_that_run("workflow_dispatch", "all") == list(
+        job for job in workflow["jobs"] if job in DISPATCH_JOBS
+    )
+    assert "canary" not in _jobs_that_run("workflow_dispatch", "all")
+    for stray in ("", "plugin-hook-trial", "all"):
+        assert _jobs_that_run("pull_request", stray) == ["pinned"], stray
+    assert _jobs_that_run("schedule", "") == ["canary"]
+    assert _jobs_that_run("workflow_dispatch", "") == []
+
+
+def test_plugin_hook_trial_is_dispatch_only_pinned_and_uploads_its_own_artifact() -> None:
+    """The plugin hook trial runs the script on the pinned claude and always uploads its report.
+
+    The upload has its own name, so it does not collide with the hook trial's
+    artifact when ``all`` runs both. Mutation: install @latest, remove
+    always() from the upload, drop the artifact name, or point the upload at
+    another directory. This test fails.
+    """
+
+    job = _job("plugin-hook-trial")
+    assert job.get("if") == _dispatch_if("plugin-hook-trial")
+    script = _run_text(job)
+    assert CLAUDE_NPM in script
+    assert "@latest" not in script
+    runs = [step["run"] for step in _steps(job) if "real_host_plugin_hook_trial.py" in step.get("run", "")]
+    assert runs == [
+        'python scripts/real_host_plugin_hook_trial.py run "$RUNNER_TEMP/plugin-hook-trial" '
+        '"$RUNNER_TEMP/plugin-hook-work"'
+    ]
+    uploads = [step for step in _steps(job) if isinstance(step.get("uses"), str) and "upload-artifact@" in step["uses"]]
+    assert len(uploads) == 1
+    assert "always()" in str(uploads[0].get("if"))
+    upload_with = uploads[0].get("with", {})
+    assert upload_with.get("name") == "plugin-hook-trial"
+    assert upload_with.get("path") == "${{ runner.temp }}/plugin-hook-trial/"
+    assert upload_with.get("if-no-files-found") == "error"
+    assert job.get("permissions") == {"contents": "read"}
+    _assert_actions_are_sha_pinned(job)
+    _assert_failure_fails_the_job(job)
+    for name in ("pinned", "canary", "hook-trial", "marketplace-check"):
+        assert "real_host_plugin_hook_trial.py" not in _run_text(_job(name))
 
 
 def _marketplace_check_body(script: str) -> str:
@@ -458,7 +565,7 @@ def test_marketplace_check_compares_the_installed_version() -> None:
     """
 
     job = _job("marketplace-check")
-    assert job.get("if") == "${{ github.event_name == 'workflow_dispatch' }}"
+    assert job.get("if") == _dispatch_if("marketplace-check")
     script = _run_text(job)
     assert "@anthropic-ai/claude-code@2.1.281" in script
     assert "claude plugin validate . --strict --json" in script

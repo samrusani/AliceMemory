@@ -7,6 +7,9 @@ name: Real host CI
 # opencode 1.18.32.
 # The Monday canary installs current claude, hermes, and opencode and opens
 # an [ops] issue when that run fails. The canary does not pin a version.
+# A manual dispatch takes a `job` input. `all` runs every dispatch job. A job
+# name runs that job alone, so the plugin hook trial can run on a branch that
+# has no committed marketplace file.
 # Pytest uses the setup-python interpreter recorded during the Alice
 # install. The Hermes virtualenv bin stays on PATH so hermes resolves,
 # and that package install does not include pytest.
@@ -47,6 +50,17 @@ on:
   schedule:
     - cron: "41 6 * * 1"
   workflow_dispatch:
+    inputs:
+      job:
+        description: Which dispatch job to run. all runs every one of them.
+        type: choice
+        options:
+          - all
+          - pinned
+          - hook-trial
+          - plugin-hook-trial
+          - marketplace-check
+        default: all
 
 permissions:
   contents: read
@@ -58,7 +72,7 @@ concurrency:
 jobs:
   pinned:
     name: Pinned real hosts
-    if: "${{ github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' }}"
+    if: "${{ github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && (inputs.job == 'all' || inputs.job == 'pinned')) }}"
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -267,7 +281,7 @@ jobs:
 
   hook-trial:
     name: SessionEnd hook trial
-    if: "${{ github.event_name == 'workflow_dispatch' }}"
+    if: "${{ github.event_name == 'workflow_dispatch' && (inputs.job == 'all' || inputs.job == 'hook-trial') }}"
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -305,9 +319,47 @@ jobs:
           path: ${{ runner.temp }}/artifacts/
           if-no-files-found: error
 
+  plugin-hook-trial:
+    name: Claude Code plugin hook trial
+    if: "${{ github.event_name == 'workflow_dispatch' && (inputs.job == 'all' || inputs.job == 'plugin-hook-trial') }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      DISABLE_AUTOUPDATER: "1"
+      DISABLE_UPDATES: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22.14.0"
+
+      - name: Install pinned Claude Code
+        run: npm install -g @anthropic-ai/claude-code@2.1.281
+
+      - name: Run the plugin hook trial
+        run: python scripts/real_host_plugin_hook_trial.py run "$RUNNER_TEMP/plugin-hook-trial" "$RUNNER_TEMP/plugin-hook-work"
+
+      - name: Upload trial artifacts
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: plugin-hook-trial
+          path: ${{ runner.temp }}/plugin-hook-trial/
+          if-no-files-found: error
+
   marketplace-check:
     name: Claude Code marketplace check
-    if: "${{ github.event_name == 'workflow_dispatch' }}"
+    if: "${{ github.event_name == 'workflow_dispatch' && (inputs.job == 'all' || inputs.job == 'marketplace-check') }}"
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:

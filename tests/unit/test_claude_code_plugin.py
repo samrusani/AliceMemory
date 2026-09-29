@@ -14,6 +14,7 @@ import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import pytest
 
@@ -143,6 +144,26 @@ def test_plugin_files_match_pyproject() -> None:
     market = ROOT / ".claude-plugin" / "marketplace.json"
     if market.is_file():
         assert release_check._marketplace_issues(ROOT, market) == []
+
+
+def test_the_plugin_hook_trial_uses_install_ids() -> None:
+    """The dispatch-only trial writes its own marketplace, so its ids must be install's.
+
+    Mutation: change the marketplace name or the plugin id in
+    ``scripts/real_host_plugin_hook_trial.py``. This test fails.
+    """
+
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "real_host_plugin_hook_trial", ROOT / "scripts" / "real_host_plugin_hook_trial.py"
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    assert module._MARKETPLACE == CLAUDE_MARKETPLACE_NAME
+    assert module._PLUGIN_ID == CLAUDE_PLUGIN_ID
+    assert module._PROBE_ID == f"probe-plugin@{CLAUDE_MARKETPLACE_NAME}"
 
 
 def test_install_and_the_plugin(
@@ -685,7 +706,15 @@ def test_marketplace_owner_and_plugin_name_are_checked(tmp_path: Path) -> None:
     path.write_text(json.dumps(missing), encoding="utf-8")
     assert any("owner is missing" in item for item in release_check._marketplace_issues(tmp_path, path))
 
+    for owner in ("Alice Memory", ["Alice Memory"], None, {}, {"name": ""}, {"name": "  "}, {"name": 7}):
+        shaped = json.loads(json.dumps(base))
+        shaped["owner"] = owner
+        path.write_text(json.dumps(shaped), encoding="utf-8")
+        issues = release_check._marketplace_issues(tmp_path, path)
+        assert any("owner is missing" in item for item in issues), (owner, issues)
+
     path.write_text(json.dumps(base), encoding="utf-8")
+    assert release_check._marketplace_issues(tmp_path, path) == []
     plugin = tmp_path / "plugins" / "alice-memory" / ".claude-plugin" / "plugin.json"
     loaded = json.loads(plugin.read_text(encoding="utf-8"))
     loaded["name"] = "other-plugin"
@@ -702,14 +731,38 @@ def test_marketplace_owner_and_plugin_name_are_checked(tmp_path: Path) -> None:
     ]
 
 
+def test_marketplace_changelog_read_failure_is_an_issue_not_a_crash(tmp_path: Path) -> None:
+    path = _good_market(tmp_path)
+    assert release_check._marketplace_issues(tmp_path, path) == []
+    changelog = tmp_path / "CHANGELOG.md"
+    changelog.write_bytes(b"\xff")
+    issues = release_check._marketplace_issues(tmp_path, path)
+    assert [item for item in issues if "CHANGELOG" in item] == [
+        ".claude-plugin/marketplace.json ref has no dated CHANGELOG heading"
+    ]
+    changelog.unlink()
+    issues = release_check._marketplace_issues(tmp_path, path)
+    assert ".claude-plugin/marketplace.json ref has no dated CHANGELOG heading" in issues
+
+
 def test_plugin_reads_treat_non_utf8_as_an_issue(tmp_path: Path) -> None:
     from tests.unit.test_release_check import _seed_metadata_tree
 
     _seed_metadata_tree(tmp_path, python_version="1.2.3", web_version="1.2.3")
     plugin = tmp_path / "plugins" / "alice-memory" / ".claude-plugin" / "plugin.json"
+    plugin_bytes = plugin.read_bytes()
     plugin.write_bytes(b"\xff")
     issues = release_check._plugin_metadata_issues(tmp_path, "1.2.3")
     assert any("plugin.json is missing or unreadable" in item for item in issues)
+    plugin.write_bytes(plugin_bytes)
+    assert release_check._plugin_metadata_issues(tmp_path, "1.2.3") == []
+    for relative in ("plugins/alice-memory/.mcp.json", "plugins/alice-memory/hooks/hooks.json"):
+        path = tmp_path / relative
+        saved = path.read_bytes()
+        path.write_bytes(b"\xff")
+        issues = release_check._plugin_metadata_issues(tmp_path, "1.2.3")
+        assert any(f"{relative} is missing or unreadable" in item for item in issues), (relative, issues)
+        path.write_bytes(saved)
 
 
 def test_a_cursor_refusal_is_not_hidden_by_the_plugin(
@@ -747,10 +800,13 @@ def test_a_cursor_refusal_is_not_hidden_by_the_plugin(
 def test_duplicate_prefix_is_reserved_and_the_final_fit_cuts_nothing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """A long fact plus filler stays under the cap, and the final fit cuts nothing.
+    """Seven facts reach the cap, the reserve keeps the prefix inside it, and the fit cuts nothing.
 
-    Mutation: ignore ``reserve`` or cut the compiled brief again.
-    ``additionalContext`` no longer matches the reserved brief. This test fails.
+    The first fact is short and the six after it are 20,000 characters each,
+    so the brief fills every slot. Without the reserve the compiled brief plus
+    the prefix passes 9,500. Mutation: drop ``reserve=`` from the hook's
+    compile call. ``additionalContext`` no longer matches the reserved brief,
+    and this test fails.
     """
 
     import io
@@ -766,8 +822,8 @@ def test_duplicate_prefix_is_reserved_and_the_final_fit_cuts_nothing(
     context = _context(vault, monkeypatch)
     _commit(
         context,
-        title="Long note",
-        text="x" * 20000,
+        title="Short fact",
+        text="short" + "s" * 250,
         sensitivity="public",
         project="acme",
         domain="project",
@@ -775,8 +831,8 @@ def test_duplicate_prefix_is_reserved_and_the_final_fit_cuts_nothing(
     for index in range(6):
         _commit(
             context,
-            title=f"Filler {index}",
-            text=("y" * 400) + f" filler {index}",
+            title=f"Long fact {index}",
+            text=f"n{index}" + chr(ord("a") + index) * 20000,
             sensitivity="public",
             project="acme",
             domain="project",
@@ -791,14 +847,48 @@ def test_duplicate_prefix_is_reserved_and_the_final_fit_cuts_nothing(
     assert additional.startswith("Alice is set up twice in Claude Code.")
     prefix, _sep, _rest = additional.partition("\n")
     prefix = prefix + "\n"
+    database = resolve_db_path(data_dir=str(vault), db=None)
+    unreserved = compile_local_session_brief(database, user_id=USER_ID, query=None, reserve=0)
+    assert brief_char_len(prefix + unreserved) >= 9_500
     assert brief_char_len(additional) < 9_500
     expected = compile_local_session_brief(
-        resolve_db_path(data_dir=str(vault), db=None),
+        database,
         user_id=USER_ID,
         query=None,
         reserve=brief_char_len(prefix),
     )
     assert additional[len(prefix) :] == expected
+
+
+def test_the_final_fit_covers_the_duplicate_prefix(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A compiled brief that ignores its reserve is still cut with the prefix in place.
+
+    The compile call is patched to return 20,000 characters whatever the
+    reserve says. Mutation: fit the brief before adding the prefix
+    (``prefix + fit(markdown)``). The emitted context passes 9,500 and this
+    test fails.
+    """
+
+    import io
+
+    from alicebot_api import session_start_hook as hook_module
+    from alicebot_api.session_briefing import brief_char_len
+    from tests.unit.test_session_brief import USER_ID
+
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    monkeypatch.setenv("CLAUDE_PLUGIN_ROOT", str(tmp_path / "plugin"))
+    _seed_server(tmp_path)
+    vault = tmp_path / "vault"
+    monkeypatch.setattr(hook_module, "compile_local_session_brief", lambda *args, **kwargs: "z" * 20000)
+    monkeypatch.setattr(sys, "stdin", io.StringIO(""))
+    code = hook_main(["--data-dir", str(vault), "--user-id", USER_ID, "--format", "json"])
+    captured = capsys.readouterr()
+    assert code == 0, captured.err
+    additional = json.loads(captured.out)["hookSpecificOutput"]["additionalContext"]
+    assert additional.startswith("Alice is set up twice in Claude Code.")
+    assert brief_char_len(additional + "\n") <= 9_500
 
 
 class _AnthropicStub:
@@ -855,10 +945,36 @@ def _claude_env(base: dict[str, str], stub: _AnthropicStub) -> dict[str, str]:
     return env
 
 
-def _claude_detail(result: subprocess.CompletedProcess[str], stub: _AnthropicStub) -> str:
+def _uvx_records(log_path: Path) -> list[str]:
+    """Every line the stub uvx wrote, raw, so a failure shows all of them."""
+
+    if not log_path.is_file():
+        return []
+    return [line for line in log_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+
+def _claude_detail(
+    result: subprocess.CompletedProcess[str], stub: _AnthropicStub, log_path: Path
+) -> str:
+    """The return code, the first stderr line, the stub's requests and every uvx record."""
+
     lines = (result.stderr or "").splitlines()
     first = lines[0] if lines else ""
-    return f"returncode={result.returncode} stderr={first!r} stub={stub.records}"
+    out = (result.stdout or "").splitlines()
+    return (
+        f"returncode={result.returncode} stderr={first!r} stdout={out[:3]!r} "
+        f"stub={stub.records} uvx={_uvx_records(log_path)}"
+    )
+
+
+def _messages_posts(records: list[tuple[str, str]]) -> list[tuple[str, str]]:
+    """POSTs to the Messages endpoint. Claude Code sends ``/v1/messages?beta=true``."""
+
+    return [
+        item
+        for item in records
+        if item[0] == "POST" and urlsplit(item[1]).path.endswith("/v1/messages")
+    ]
 
 
 def _claude(args: list[str], *, cwd: Path, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
@@ -875,6 +991,82 @@ def _claude(args: list[str], *, cwd: Path, env: dict[str, str]) -> subprocess.Co
         )
     except subprocess.TimeoutExpired as exc:
         raise AssertionError("claude blocked; stop and report") from exc
+
+
+def test_stub_records_the_query_string_and_the_filter_strips_it() -> None:
+    """Claude Code posts to ``/v1/messages?beta=true``, and that still counts as a Messages POST.
+
+    Mutation: match ``item[1].endswith("/v1/messages")`` on the raw path. The
+    query string hides the POST and this test fails.
+    """
+
+    import urllib.error
+    import urllib.request
+
+    api = _AnthropicStub()
+    try:
+        for path in ("/v1/messages?beta=true", "/v1/messages", "/v1/other?next=/v1/messages"):
+            request = urllib.request.Request(api.base_url + path, data=b"{}", method="POST")
+            with pytest.raises(urllib.error.HTTPError) as caught:
+                urllib.request.urlopen(request, timeout=10)  # noqa: S310
+            assert caught.value.code == 400
+        request = urllib.request.Request(api.base_url + "/v1/messages?beta=true", method="GET")
+        with pytest.raises(urllib.error.HTTPError):
+            urllib.request.urlopen(request, timeout=10)  # noqa: S310
+        records = list(api.records)
+    finally:
+        api.close()
+    assert records == [
+        ("POST", "/v1/messages?beta=true"),
+        ("POST", "/v1/messages"),
+        ("POST", "/v1/other?next=/v1/messages"),
+        ("GET", "/v1/messages?beta=true"),
+    ]
+    assert _messages_posts(records) == [
+        ("POST", "/v1/messages?beta=true"),
+        ("POST", "/v1/messages"),
+    ]
+
+
+def test_claude_failure_detail_carries_the_code_stderr_stub_and_uvx_records(tmp_path: Path) -> None:
+    """A failed step prints why: return code, first stderr line, every stub and uvx record.
+
+    Mutation: build the detail from stderr alone, or from the first uvx row.
+    This test fails.
+    """
+
+    log_path = tmp_path / "uvx.jsonl"
+    log_path.write_text('{"argv": ["one"]}\n\n{"argv": ["two"]}\n', encoding="utf-8")
+    api = _AnthropicStub()
+    try:
+        api.records.extend([("POST", "/v1/messages?beta=true"), ("GET", "/v1/models")])
+        result = subprocess.CompletedProcess(
+            ["claude"], 7, stdout="out one\nout two\n", stderr="first line\nsecond line\n"
+        )
+        detail = _claude_detail(result, api, log_path)
+        empty = _claude_detail(subprocess.CompletedProcess(["claude"], 0, "", ""), api, tmp_path / "none")
+    finally:
+        api.close()
+    assert "returncode=7" in detail
+    assert "stderr='first line'" in detail
+    assert "second line" not in detail
+    assert "'out one'" in detail
+    assert "('POST', '/v1/messages?beta=true')" in detail and "('GET', '/v1/models')" in detail
+    assert '{"argv": ["one"]}' in detail and '{"argv": ["two"]}' in detail
+    assert "returncode=0 stderr='' stdout=[]" in empty and "uvx=[]" in empty
+
+
+def test_the_real_host_test_writes_only_under_tmp_path() -> None:
+    """The real-host test leaves nothing at a fixed path outside ``tmp_path``.
+
+    Mutation: write the no-mock note to a fixed path under the system temp
+    directory again. This test fails.
+    """
+
+    source = Path(__file__).read_text(encoding="utf-8")
+    fixed = "/" + "tmp/"
+    assert fixed not in source
+    assert "tempfile." + "gettempdir" not in source
 
 
 @pytest.mark.skipif(os.environ.get(REAL_HOSTS_ENV) != "1", reason="set ALICE_TEST_REAL_HOSTS=1")
@@ -958,17 +1150,17 @@ def test_real_claude_plugin_install_and_run(
         bare_line = (bare.stderr or "").splitlines()
         note = f"{bare.returncode}\n{bare_line[0] if bare_line else ''}\n"
         (tmp_path / "nomock.txt").write_text(note, encoding="utf-8")
-        Path("/tmp/alice-r3-471-nomock.txt").write_text(note, encoding="utf-8")
+        print("no-mock run:", note)
 
         added = _claude(["plugin", "marketplace", "add", str(market)], cwd=project, env=claude_env)
-        assert added.returncode == 0, _claude_detail(added, api)
+        assert added.returncode == 0, _claude_detail(added, api, log_path)
         installed = _claude(["plugin", "install", CLAUDE_PLUGIN_ID], cwd=project, env=claude_env)
-        assert installed.returncode == 0, _claude_detail(installed, api)
+        assert installed.returncode == 0, _claude_detail(installed, api, log_path)
         settings_path = home / ".claude" / "settings.json"
         settings = json.loads(settings_path.read_text(encoding="utf-8"))
         assert settings["enabledPlugins"][CLAUDE_PLUGIN_ID] is True
         listed = _claude(["plugin", "list", "--json"], cwd=project, env=claude_env)
-        assert listed.returncode == 0, _claude_detail(listed, api)
+        assert listed.returncode == 0, _claude_detail(listed, api, log_path)
         payload = json.loads(listed.stdout)
         rows = payload if isinstance(payload, list) else payload.get("plugins", [])
         matched = [
@@ -991,8 +1183,8 @@ def test_real_claude_plugin_install_and_run(
         log_path.write_text("", encoding="utf-8")
         api.records.clear()
         prompted = _claude(["-p", "ok"], cwd=project, env=claude_env)
-        detail = _claude_detail(prompted, api)
-        posts = [item for item in api.records if item[0] == "POST" and item[1].endswith("/v1/messages")]
+        detail = _claude_detail(prompted, api, log_path)
+        posts = _messages_posts(api.records)
         assert posts, detail
         records = [
             json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines() if line.strip()
@@ -1013,7 +1205,7 @@ def test_real_claude_plugin_install_and_run(
         note = (tmp_path / "nomock.txt").read_text(encoding="utf-8")
         note = note + f"option={option!r}\n"
         (tmp_path / "nomock.txt").write_text(note, encoding="utf-8")
-        Path("/tmp/alice-r3-471-nomock.txt").write_text(note, encoding="utf-8")
+        print("no-mock run and option:", note)
         server_rows = [
             row
             for row in records
@@ -1025,24 +1217,24 @@ def test_real_claude_plugin_install_and_run(
             assert row["argv"] == ["--from", pin, "alice-memory", "mcp", "--data-dir", "~/.alice"], detail
 
         removed = _claude(["plugin", "uninstall", CLAUDE_PLUGIN_ID], cwd=project, env=claude_env)
-        assert removed.returncode == 0, _claude_detail(removed, api)
+        assert removed.returncode == 0, _claude_detail(removed, api, log_path)
         configured = _claude(
             ["plugin", "install", CLAUDE_PLUGIN_ID, "--config", f"data_dir={vault_b}"],
             cwd=project,
             env=claude_env,
         )
-        assert configured.returncode == 0, _claude_detail(configured, api)
+        assert configured.returncode == 0, _claude_detail(configured, api, log_path)
         settings = json.loads(settings_path.read_text(encoding="utf-8"))
         assert settings["pluginConfigs"][CLAUDE_PLUGIN_ID]["options"]["data_dir"] == str(vault_b)
         log_path.write_text("", encoding="utf-8")
         api.records.clear()
         prompted = _claude(["-p", "ok"], cwd=project, env=claude_env)
-        detail = _claude_detail(prompted, api)
+        detail = _claude_detail(prompted, api, log_path)
         records = [
             json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines() if line.strip()
         ]
         hook_rows = [row for row in records if "alice-memory-session-start" in row["argv"]]
-        posts = [item for item in api.records if item[0] == "POST" and item[1].endswith("/v1/messages")]
+        posts = _messages_posts(api.records)
         if posts and not hook_rows:
             raise AssertionError(
                 "stub saw a request and the hook row is missing; stop and report. " + detail
