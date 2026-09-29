@@ -3,6 +3,13 @@
 ## Unreleased
 
 - `alice-memory install --host codex` edits `~/.codex/config.toml` as text and writes only the alice MCP entry. It is opt-in, writes no `env` table, and does not write a SessionStart hook. A comment inside `command`, `args`, or an inline `env` is refused. An integer in value position outside the i64 range, or a float in value position that is not finite, is refused and the reason names the line. A dry run renders carried lines from the parsed values and hides a token or a URL in `env_vars` and in `tools` values. A `tools` value that is not a table, or an `approval_mode` outside `auto`, `prompt`, `writes`, and `approve`, or an `output_token_limit` that is not a positive integer, is refused. A `config.toml` nested so deeply that it cannot be parsed is refused with `config.toml nests too deeply`, and a profile layer nested that deeply, or one that is not UTF-8, gets the unreadable-layer note. A success receipt ends with `codex mcp get alice`. In v0.18.0 there is no `--host codex`.
+- A newest fact longer than about 50,000 UTF-8 bytes no longer wipes the
+  session brief. An excerpt query over 40,000 UTF-8 bytes, whether a fact,
+  an explicit query, or a source title, is bounded to a few hundred
+  characters of its FTS tokens. A shorter query is used exactly as before,
+  so an ordinary brief is unchanged. The brief still prints its facts and
+  loops, and its sources when the fact's words match one. In v0.18.0 the
+  same fact raises a SQLite pattern error and the hook prints `{}`.
 - `alice-memory install --host hermes` leaves a comment in place when the
   `alice` block, with comment lines and inline comments removed, already
   matches what install would write. The receipt says unchanged and the
@@ -19,15 +26,22 @@
   client asked for. In v0.18.0 these tools declare no hints, so Codex asks
   before every call.
 - A long session-brief note is cut at 1,500 characters, on the last word
-  boundary, or on a grapheme boundary when the note has no word break. The
-  marker sits outside the quote: `**fact** (cut; N characters stored): "..."`.
-  A line that does not fit the room left is skipped, and later short facts,
-  open loops, and sources are still admitted. The brief is counted in
-  UTF-16 code units and stays under 9,500, which is under the 10,000
-  Claude Code treats as over the limit. Cursor's hook docs do not state a
-  character cap, so every host uses the same limit. In v0.18.0 a note that
-  did not fit the 4,000 token budget was dropped, and a brief of many
-  shorter lines could reach about 16,000 characters.
+  boundary, or on a grapheme boundary when the note has no word break. When
+  the word-boundary prefix keeps less than 60% of what fits, the cut keeps
+  the grapheme prefix, so a URL or a CJK run is not collapsed to its first
+  word. The marker sits outside the quote: `**fact** (cut; N characters stored): "..."`.
+  N is the stored note's UTF-16 length, not the flattened line. A line that
+  does not fit the room left is skipped, and later short facts, open loops,
+  and sources are still admitted. The brief is counted in UTF-16 code units.
+  `reserve` is the caller's prefix in those units, including the caller's
+  newline, and the brief is at most 9,499 minus that reserve. The hook's
+  final cap drops whole trailing lines and does not cut inside one. The
+  doctor line is `N / 9500 characters`. Tag-sequence flags and Hangul
+  jamo stay in one cluster. Devanagari conjuncts, Thai and Lao SARA AM,
+  and Prepend characters may still be split. In
+  v0.18.0 a note that did not fit the 4,000 token budget was dropped, a
+  brief of many shorter lines could reach about 16,000 characters, and the
+  doctor line was a token estimate.
 - `alice-memory mcp` refuses a `--data-dir` that is empty or not absolute
   after `~` expansion, names the value, and exits 2.
   `alice-memory-session-start` refuses a non-empty value that is not

@@ -16,11 +16,14 @@ import tempfile
 from pathlib import Path
 from uuid import uuid4
 
+import pytest
+
 from alicebot_api.mcp_tools import AGENT_API_KEY_ENV, MCPRuntimeContext
 from alicebot_api.onramp import bootstrap_database, main as onramp_main, resolve_db_path, sqlite_url_for_path
 from alicebot_api.session_briefing import (
     EMPTY_SESSION_BRIEF,
     SOURCE_LIMIT,
+    compile_local_session_brief,
     compile_session_brief,
     source_scope_from_project_scope,
 )
@@ -159,6 +162,55 @@ def test_a_captured_note_is_a_source_not_a_fact(tmp_path: Path, monkeypatch) -> 
 
     assert any(SOURCE_SENTENCE in line for line in _labelled_lines(brief, "source")), brief
     assert not any(SOURCE_SENTENCE in line for line in _labelled_lines(brief, "fact")), brief
+
+
+@pytest.mark.parametrize(
+    ("newest", "expects_source"),
+    [
+        ("indigo lighthouse canary " + ("n" * 60000), True),
+        ("indigo lighthouse canary " + ("\u706f" * 20000), True),
+        ("x" * 60000, False),
+        ("\U0001f600" * 13000, False),
+    ],
+    ids=["words-then-long-token", "words-then-cjk", "one-long-token", "emoji"],
+)
+def test_a_very_long_newest_fact_keeps_loops_and_sources(
+    tmp_path: Path, monkeypatch, newest: str, expects_source: bool
+) -> None:
+    """A newest fact over 50,000 UTF-8 bytes must not wipe the brief.
+
+    Mutation: pass the whole fact to the excerpt search, or drop the
+    300-character cut on a single long token or on the no-token fallback.
+    SQLite raises ``LIKE or GLOB pattern too complex`` and this test fails.
+    """
+
+    context = _context(tmp_path, monkeypatch)
+    _capture(context, SOURCE_NOTE)
+    database = resolve_db_path(data_dir=str(tmp_path), db=None)
+    with sqlite_user_connection(database, USER_ID) as connection:
+        store = SQLiteVNextStore(connection, USER_ID)
+        for index in range(3):
+            store.create_open_loop(
+                {
+                    "title": f"loop {index} stays",
+                    "domain": "project",
+                    "sensitivity": "public",
+                }
+            )
+    _commit(
+        context,
+        title="Long newest fact",
+        text=newest,
+        sensitivity="public",
+        project="acme",
+        domain="project",
+    )
+    brief = compile_local_session_brief(database, user_id=USER_ID, query=None)
+    assert brief.count("**open loop**:") == 3
+    assert "Nothing stored yet." not in brief
+    if expects_source:
+        assert "**source**:" in brief
+        assert "indigo-lighthouse-42" in brief
 
 
 def test_a_committed_fact_is_labelled_fact(tmp_path: Path, monkeypatch) -> None:
@@ -999,8 +1051,9 @@ def test_session_start_hook_caps_the_emitted_brief(tmp_path: Path, monkeypatch, 
     """The hook caps what the host counts, including a too-long compile.
 
     A vault fact of 20,000 characters stays under the literal limit.
-    Mutation: append 200 characters after the cap. ``additionalContext``
-    is no longer the longest prefix under 9,500. This test fails.
+    A single line that does not fit is dropped, not sliced.
+    Mutation: cut inside that line. ``additionalContext`` is a run of z.
+    This test fails.
     """
 
     import alicebot_api.session_start_hook as hook_module
@@ -1042,13 +1095,296 @@ def test_session_start_hook_caps_the_emitted_brief(tmp_path: Path, monkeypatch, 
         ["--data-dir", str(tmp_path), "--user-id", USER_ID, "--format", "json"]
     ) == 0
     capped = json.loads(capsys.readouterr().out)["hookSpecificOutput"]["additionalContext"]
-    assert len(capped) < 9500
-    assert len(capped) + 1 == 9500
-    assert capped == "z" * len(capped)
+    assert capped == ""
+    assert _units(capped) < 9500
     monkeypatch.setattr(sys, "stdin", io.StringIO(""))
     assert hook_module.main(
         ["--data-dir", str(tmp_path), "--user-id", USER_ID, "--format", "markdown"]
     ) == 0
     capped_markdown = capsys.readouterr().out
-    assert len(capped_markdown) <= 9500
-    assert len(capped_markdown) == 9500
+    assert capped_markdown == ""
+    assert _units(capped_markdown) < 9500
+
+
+def test_word_boundary_cut_is_the_longest_prefix_that_fits() -> None:
+    """The cut ends on a space, and one more word does not fit.
+
+    Mutation: keep the partial word. The next source character is not a
+    space. This test fails.
+    """
+
+    from alicebot_api.session_briefing import _cut_brief_line, _render_brief
+
+    note = ("alpha beta gamma " * 200).strip()
+    brief = _render_brief(
+        facts=[{"canonical_text": note}],
+        open_loops=[],
+        sources=[],
+        pack_view=None,
+    )
+    cut = next(line for line in brief.splitlines() if line.startswith("**fact**"))
+    prefix = _quoted_prefix(cut)
+    assert note.startswith(prefix)
+    assert prefix
+    assert note[len(prefix)] == " "
+    assert not prefix.endswith(" ")
+    next_word = note[len(prefix) + 1 :].split(" ", 1)[0]
+    longer = prefix + " " + next_word
+    assert _units(cut) <= 1500
+    assert _units(_cut_brief_line("fact", longer, _units(note))) > 1500
+
+
+def test_a_line_that_misses_does_not_stop_later_lines() -> None:
+    """A fact that does not fit is skipped. Later loops and sources stay.
+
+    Mutation: stop at the first line that misses. The brief has 6 facts
+    and no loops or sources. This test fails.
+    """
+
+    from alicebot_api.session_briefing import _render_brief
+
+    facts = [{"canonical_text": f"fact {index} " + ("word " * 600)} for index in range(8)]
+    loops = [{"title": f"loop {index}"} for index in range(8)]
+    sources = [{"excerpt": f"source {index}"} for index in range(3)]
+    brief = _render_brief(
+        facts=facts,
+        open_loops=loops,
+        sources=sources,
+        pack_view=None,
+    )
+    assert sum(line.startswith("**fact**") for line in brief.splitlines()) == 6
+    assert brief.count("**open loop**:") == 8
+    assert brief.count("**source**:") == 3
+
+
+def test_cuts_follow_hand_computed_grapheme_boundaries() -> None:
+    """The cut is checked without the module's own clusterer.
+
+    Offsets 0 to 3 keep a family emoji whole, flags in pairs, and a
+    three-code-point ``e`` plus two combining marks whole. Mutation:
+    slice on a code point inside the cluster. This test fails.
+    """
+
+    from alicebot_api.session_briefing import _render_brief
+
+    family = "\U0001f468\u200d\U0001f469\u200d\U0001f467"
+    flag = "\U0001f1fa\U0001f1f8"
+    marked = "e\u0301\u0302"
+
+    def prefix_of(note: str) -> str:
+        brief = _render_brief(
+            facts=[{"canonical_text": note}],
+            open_loops=[],
+            sources=[],
+            pack_view=None,
+        )
+        cut = next(line for line in brief.splitlines() if line.startswith("**fact**"))
+        return _quoted_prefix(cut)
+
+    for offset in range(4):
+        lead = "x" * offset
+        family_prefix = prefix_of(lead + family * 400)
+        assert family_prefix.startswith(lead)
+        body = family_prefix[offset:]
+        assert len(body) % len(family) == 0
+        assert body.endswith(family)
+        flag_prefix = prefix_of(lead + flag * 800)
+        indicators = [
+            char
+            for char in flag_prefix[offset:]
+            if 0x1F1E6 <= ord(char) <= 0x1F1FF
+        ]
+        assert len(indicators) % 2 == 0
+        assert flag_prefix.endswith(flag)
+        marked_prefix = prefix_of(lead + marked * 800)
+        assert (len(marked_prefix) - offset) % len(marked) == 0
+        assert marked_prefix.endswith(marked)
+
+
+def test_stored_count_is_utf16_of_the_original_note() -> None:
+    """N is the stored note, not the flattened line or a code-point count.
+
+    Mutation: count the flattened text, or use ``len`` on the emoji.
+    This test fails.
+    """
+
+    from alicebot_api.session_briefing import _render_brief
+
+    emoji = "\U0001f600" * 2000
+    brief = _render_brief(
+        facts=[{"canonical_text": emoji}],
+        open_loops=[],
+        sources=[],
+        pack_view=None,
+    )
+    assert f"(cut; {2 * len(emoji)} characters stored)" in brief
+    spaced = ("alpha   \n\n  beta  x") * 400
+    flattened = " ".join(spaced.split())
+    brief = _render_brief(
+        facts=[{"canonical_text": spaced}],
+        open_loops=[],
+        sources=[],
+        pack_view=None,
+    )
+    assert _units(spaced) != _units(flattened)
+    assert f"(cut; {_units(spaced)} characters stored)" in brief
+    assert f"(cut; {_units(flattened)} characters stored)" not in brief
+
+
+def test_a_short_first_word_does_not_collapse_the_note() -> None:
+    """A URL or a CJK run after one short word keeps the grapheme prefix.
+
+    Mutation: always stop at the last space. The note keeps only ``See``
+    or ``甲``. This test fails.
+    """
+
+    from alicebot_api.session_briefing import _render_brief
+
+    def prefix_of(note: str) -> str:
+        brief = _render_brief(
+            facts=[{"canonical_text": note}],
+            open_loops=[],
+            sources=[],
+            pack_view=None,
+        )
+        cut = next(line for line in brief.splitlines() if line.startswith("**fact**"))
+        return _quoted_prefix(cut)
+
+    url = "See https://example.com/" + ("a" * 5000)
+    url_prefix = prefix_of(url)
+    assert url_prefix.startswith("See https://example.com/")
+    assert url_prefix != "See"
+    assert len(url_prefix) > 1000
+    cjk = "甲 " + ("乙" * 5000)
+    cjk_prefix = prefix_of(cjk)
+    assert cjk_prefix.count("乙") > 100
+    assert cjk_prefix != "甲"
+
+
+def test_tag_flags_and_hangul_jamo_stay_whole() -> None:
+    """England's tag sequence and a Hangul L+V+T syllable are one cluster.
+
+    Mutation: treat tag characters as separate, or split jamo. The prefix
+    length is not a multiple of the cluster. This test fails.
+    """
+
+    from alicebot_api.session_briefing import _render_brief
+
+    england = "\U0001f3f4\U000e0067\U000e0062\U000e0065\U000e006e\U000e0067\U000e007f"
+    jamo = "\u1100\u1161\u11a8"
+
+    def prefix_of(note: str) -> str:
+        brief = _render_brief(
+            facts=[{"canonical_text": note}],
+            open_loops=[],
+            sources=[],
+            pack_view=None,
+        )
+        cut = next(line for line in brief.splitlines() if line.startswith("**fact**"))
+        return _quoted_prefix(cut)
+
+    # Each cluster at several lead offsets, so a cut that lands inside the
+    # cluster at one offset is caught at another. LV+V, LV+T and L+L+V cover
+    # the precomposed and conjoining Hangul rules, not only L+V+T.
+    clusters = (
+        england,
+        jamo,
+        "\uac00\u1161",
+        "\uac00\u11a8",
+        "\u1100\u1100\u1161",
+    )
+    for cluster in clusters:
+        for offset in range(len(cluster) + 1):
+            lead = "x" * offset
+            prefix = prefix_of(lead + cluster * (9000 // len(cluster)))
+            assert prefix.startswith(lead)
+            body = prefix[offset:]
+            assert len(body) % len(cluster) == 0, (cluster, offset)
+            assert body.endswith(cluster), (cluster, offset)
+
+
+def test_final_fit_drops_whole_lines_and_keeps_json_quotes() -> None:
+    """The hook's last cap drops trailing lines. It does not cut a quote.
+
+    Mutation: cut inside the last line. ``json.loads`` fails, or the
+    UTF-16 length is at least 9,500. This test fails.
+    """
+
+    from alicebot_api.session_briefing import (
+        SESSION_BRIEF_FRAME,
+        brief_char_len,
+        fit_emitted_session_brief,
+    )
+
+    emoji = "\U0001f600"
+    line = "**fact**: " + json.dumps(emoji * 80, ensure_ascii=False)
+    lines = [SESSION_BRIEF_FRAME]
+    while brief_char_len("\n".join(lines)) <= 9499:
+        lines.append(line)
+    text = "\n".join(lines)
+    assert brief_char_len(text) > 9499
+    fitted = fit_emitted_session_brief(text)
+    assert brief_char_len(fitted) <= 9499
+    assert brief_char_len(fitted) != len(fitted)
+    kept = fitted.splitlines()
+    assert kept == lines[: len(kept)]
+    assert len(kept) < len(lines)
+    for item in kept:
+        if item.startswith("**"):
+            loaded = json.loads(item.split(": ", 1)[1])
+            assert isinstance(loaded, str)
+            assert loaded.endswith(emoji)
+
+
+def test_emitted_brief_limit_is_exactly_9499_units() -> None:
+    """The hook's last fit keeps 9,499 UTF-16 units and drops a longer tail.
+
+    Mutation: let the fit or the body limit reach SESSION_BRIEF_CHAR_CAP
+    (9,500). The 9,500-unit edge case is kept whole. This test fails.
+    """
+
+    from alicebot_api.session_briefing import brief_char_len, fit_emitted_session_brief
+
+    edge = "a" * 9498 + "\n" + "b"
+    assert brief_char_len(edge) == 9500
+    assert fit_emitted_session_brief(edge) == "a" * 9498
+    assert fit_emitted_session_brief("a" * 9499) == "a" * 9499
+
+
+def test_a_very_long_query_or_source_title_does_not_wipe_the_brief(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """The explicit query and the source-title hint are bounded too.
+
+    Mutation: return the explicit query or the source hint unbounded. SQLite
+    raises ``LIKE or GLOB pattern too complex`` and this test fails.
+    """
+
+    context = _context(tmp_path, monkeypatch)
+    _capture(context, SOURCE_NOTE, title="canary " + ("t" * 60000))
+    database = resolve_db_path(data_dir=str(tmp_path), db=None)
+    hinted = compile_local_session_brief(database, user_id=USER_ID, query=None)
+    assert "Nothing stored yet." not in hinted
+    queried = compile_local_session_brief(database, user_id=USER_ID, query="x" * 60000)
+    assert isinstance(queried, str)
+
+
+def test_an_ordinary_excerpt_query_is_passed_through_unchanged() -> None:
+    """Under the byte limit the query is the text itself, as before the bound.
+
+    Mutation: bound every query. A hyphenated id such as indigo-lighthouse-42
+    splits into bare terms that match other sources, and this test fails.
+    """
+
+    from alicebot_api.session_briefing import _bounded_useful_query
+
+    short = "The indigo-lighthouse-42 canary stays in the vault."
+    assert _bounded_useful_query(short) == short
+    medium = "ABC-1234 blocks build 2026-09-29. " * 1000
+    assert len(medium.encode("utf-8")) < 40_000
+    assert _bounded_useful_query(medium) == medium
+    long = "ABC-1234 blocks build " + ("n" * 45_000)
+    bounded = _bounded_useful_query(long)
+    assert bounded is not None
+    assert bounded != long
+    assert len(bounded) <= 300
