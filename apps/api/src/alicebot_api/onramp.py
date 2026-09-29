@@ -21,8 +21,9 @@ Subcommands:
 - ``brief``: print a labelled session brief (committed facts and imported
   sources) as markdown on stdout. Host session-start hooks call this.
 - ``doctor``: print a local SQLite vault census on stdout: sources,
-  searchable chunks, committed facts, last brief token estimate,
-  then candidates waiting. Not ``alicebot vnext doctor``.
+  searchable chunks, committed facts, last brief character count
+  (N / 9500 characters), then candidates waiting. Not
+  ``alicebot vnext doctor``. In v0.18.0 this line was a token estimate.
 - ``demo``: import a markdown folder into a SQLite vault, then print
   the import summary, doctor, session brief, and the one source
   snippet a new session will quote. Defaults to ``~/.alice-demo``,
