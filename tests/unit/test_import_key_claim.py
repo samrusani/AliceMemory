@@ -597,6 +597,22 @@ def test_a_claim_replaced_by_quarantine_is_gone_and_not_counted(
     assert "imported_claim" in json.dumps(stored)
 
 
+def test_a_key_claim_nested_deep_but_inside_the_limit_is_still_downgraded(tmp_path: Path) -> None:
+    """The limit is generous: a legitimate record with deep metadata restores, and a claim at the bottom
+    of it is rewritten like any other."""
+    database, context = _vault(tmp_path, "origin")
+    _commit_note(context)
+    export = _export(database, tmp_path / "origin.jsonl")
+    nested: object = {"agent_identity": dict(KEY_CLAIM)}
+    for _ in range(200):
+        nested = {"deeper": nested}
+    export.records("memory")[0]["metadata_json"]["nested"] = nested
+    target, _restored = _restore(tmp_path, export.write(tmp_path / "forged.jsonl"))
+    stored = json.dumps(json.loads(str(_stored(target, "memories", "metadata_json")[0])))
+    assert '"auth": "imported_claim"' in stored
+    assert '"auth": "agent_api_key"' not in stored
+
+
 def test_a_record_nested_past_the_walk_limit_is_refused_not_passed_through(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

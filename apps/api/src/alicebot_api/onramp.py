@@ -2252,8 +2252,8 @@ def _non_memory_credential_columns(record_type: str, record: Mapping[str, object
     Every column the import stores, read by value with the same pair that
     ``_quarantine_credential_reports`` uses: ``_quarantine_text_column`` picks
     the text and JSON columns, and ``credential_verdict`` reads each. Ids and
-    hashes are read too. An id is shown to a model in recall results, and the
-    scan finds none in what the product writes.
+    hashes are read too, because an id is shown to a model in recall results,
+    except a value that is wholly a UUID, a digest or a timestamp.
     """
 
     _table, columns = _RECORD_SPECS[record_type]
@@ -2970,14 +2970,15 @@ def _encode_column_value(column: str, value: object) -> object:
 # stored. The original value stays readable as ``claimed_auth``.
 _IMPORTED_CLAIM_AUTH = "imported_claim"
 _KEY_CLAIM_COLUMNS = ("metadata_json", "payload_json")
-# The label readers decode a JSON string where they expect a mapping, at these
-# two keys and at the column itself. Prose that merely quotes an identity is
-# not read, so it is not rewritten.
+# The writer-label readers decode a JSON string where they expect a mapping, at
+# these two keys and at the column itself. Prose that merely quotes an identity
+# is not read, so it is not rewritten.
 _KEY_CLAIM_TEXT_CARRIERS = frozenset({"agentic_memory", "agent_identity"})
-# The product writes identities three levels down. A column nested deeper than
-# this is not a product record, and a walk that stopped early would leave a
-# claim in place, so import refuses it instead.
-_KEY_CLAIM_MAX_DEPTH = 64
+# The product writes an identity at most three levels down. A column nested
+# deeper than this is not a product record. A walk that stopped early would
+# leave a claim in place, and one with no limit overflows the stack on a file
+# nested about 900 levels, so import refuses the record instead.
+_KEY_CLAIM_MAX_DEPTH = 256
 
 
 def _mapping_or_json_text(value: object) -> Mapping[str, object] | None:

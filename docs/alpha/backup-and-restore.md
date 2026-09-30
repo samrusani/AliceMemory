@@ -206,8 +206,10 @@ Export, import, export is identical except for rows that carried a key claim,
 which differ in `auth` and `claimed_auth` (and, for events, `integrity_hash`).
 `--mode skip` accepts an existing row that equals the file's row either as
 the file gives it or as it is restored, so a vault can import its own export
-and a restored vault can import the same file again. In v0.19.0 and earlier,
-import restores the claim as the file states it.
+and a restored vault can import the same file again. A `metadata_json` or
+`payload_json` nested more than 256 levels is refused with `restore_failed`;
+the product writes an identity at most three levels down. In v0.19.0 and
+earlier, import restores the claim as the file states it.
 
 This command restores a SQLite database. It is not a PostgreSQL import.
 
