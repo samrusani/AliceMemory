@@ -482,3 +482,122 @@ def test_doctor_ignores_the_chunks_of_a_deleted_source(
     with sqlite_user_connection(target, USER_ID) as conn:
         conn.execute("UPDATE sources SET deleted_at = '2026-06-02T00:00:00Z' WHERE id = ?", (chunk["source_id"],))
     assert _doctor_flagged(target, capfd) == (0, [])
+
+
+def test_import_reads_a_token_far_into_a_long_column(
+    tmp_path: Path, seeded: tuple[Path, _Export], capfd: pytest.CaptureFixture[str]
+) -> None:
+    """A captured document chunk is long. Pass only the head of a column to the check and a token after
+    4,000 characters of text is missed."""
+    _database, export = seeded
+    token = _token("deep-chunk")
+    chunk = export.first("source_chunk")
+    chunk["text"] = ("Harbour survey notes about the tide table. " * 120) + f"Service login: {token}"
+    assert len(chunk["text"]) > 4000 and credential_verdict(chunk["text"]) is not None
+    assert credential_verdict(chunk["text"][:1000]) is None, "the token must sit past the first 1,000 characters"
+    backup = export.write(tmp_path / "forged.jsonl")
+    capfd.readouterr()
+    code, _target = _import(tmp_path, backup)
+    captured = capfd.readouterr()
+    assert code == 0
+    assert token not in captured.out + captured.err
+    assert f"source_chunks {chunk['id']} text" in _hit_lines(captured.out)
+
+
+def test_doctor_reads_a_token_far_into_a_long_chunk(tmp_path: Path, capfd: pytest.CaptureFixture[str]) -> None:
+    """Read only the head of a chunk in the doctor and this source prints flagged sources: 0."""
+    origin = tmp_path / "origin" / "memory.db"
+    origin.parent.mkdir()
+    bootstrap_database(origin, user_id=USER_ID, user_email="local@alice")
+    context = MCPRuntimeContext(database_url=sqlite_url_for_path(origin), user_id=USER)
+    call_mcp_tool(
+        context,
+        name="alice_capture",
+        arguments={
+            "raw_text": "Harbour survey notes.",
+            "title": "Harbour survey",
+            "domain": "personal",
+            "sensitivity": "private",
+        },
+    )
+    export = _export(origin, tmp_path / "origin.jsonl")
+    chunk = export.first("source_chunk")
+    chunk["text"] = ("Tide tables for the harbour survey. " * 120) + f"Service login: {_token('doctor-deep')}"
+    assert credential_verdict(chunk["text"][:1000]) is None
+    backup = export.write(tmp_path / "forged.jsonl")
+    code, target = _import(tmp_path, backup)
+    assert code == 0
+    assert _doctor_flagged(target, capfd) == (1, [chunk["source_id"]])
+
+
+@pytest.mark.parametrize(("length", "withheld"), [(128, False), (129, True), (600, True)])
+def test_an_over_long_printable_id_is_withheld_and_a_128_character_one_is_shown(
+    tmp_path: Path, seeded: tuple[Path, _Export], capfd: pytest.CaptureFixture[str], length: int, withheld: bool
+) -> None:
+    """The documented limit is 128 characters. Remove the length clause, or raise the limit, and a
+    hostile id prints whole on the receipt."""
+    _database, export = seeded
+    chunk = export.first("source_chunk")
+    chunk["text"] = f"Service login {_token('long-id')}"
+    old_id, chunk["id"] = chunk["id"], "c" * length
+    for item in export.body:
+        if item["record_type"] == "provenance_link" and item["record"].get("source_chunk_id") == old_id:
+            item["record"]["source_chunk_id"] = chunk["id"]
+    backup = export.write(tmp_path / "forged.jsonl")
+    capfd.readouterr()
+    code, _target = _import(tmp_path, backup)
+    lines = _hit_lines(capfd.readouterr().out)
+    assert code == 0
+    mine = [line for line in lines if line.startswith("source_chunks ")]
+    if withheld:
+        assert mine and mine[0].startswith("source_chunks (id withheld, line ")
+        assert "c" * 50 not in mine[0]
+    else:
+        assert mine == [f"source_chunks {'c' * length} text"]
+
+
+def test_doctor_lists_flagged_source_ids_in_id_order(tmp_path: Path, capfd: pytest.CaptureFixture[str]) -> None:
+    """The listing is sorted. Return the set as it comes and the order changes from one run to the
+    next."""
+    origin = tmp_path / "origin" / "memory.db"
+    origin.parent.mkdir()
+    bootstrap_database(origin, user_id=USER_ID, user_email="local@alice")
+    context = MCPRuntimeContext(database_url=sqlite_url_for_path(origin), user_id=USER)
+    for index in range(8):
+        call_mcp_tool(
+            context,
+            name="alice_capture",
+            arguments={
+                "raw_text": f"Survey notes number {index} about tides.",
+                "title": f"Survey {index}",
+                "domain": "personal",
+                "sensitivity": "private",
+            },
+        )
+    export = _export(origin, tmp_path / "origin.jsonl")
+    for chunk in (item["record"] for item in export.body if item["record_type"] == "source_chunk"):
+        chunk["text"] += f" Service login: {_token(chunk['id'])}"
+    code, target = _import(tmp_path, export.write(tmp_path / "forged.jsonl"))
+    assert code == 0
+    count, ids = _doctor_flagged(target, capfd)
+    assert count == 8
+    assert ids == sorted(ids)
+
+
+def test_export_lists_a_credentialed_memory_once_and_not_as_a_restorable_record(
+    tmp_path: Path, seeded: tuple[Path, _Export], capfd: pytest.CaptureFixture[str]
+) -> None:
+    """A memory row the floor refuses is listed under the memory warning only, and never with the note
+    that import restores the record. Scan memory rows in the record pass with no exception for a
+    refused row and it is listed twice."""
+    database, _original = seeded
+    token = _token("memory-export")
+    with sqlite_user_connection(database, USER_ID) as conn:
+        memory = conn.execute("SELECT id FROM memories LIMIT 1").fetchone()
+        conn.execute("UPDATE memories SET canonical_text = ? WHERE id = ?", (f"Service login {token}", memory["id"]))
+    capfd.readouterr()
+    assert onramp_main(["export", "--db", str(database), "--user-id", USER, "--out", str(tmp_path / "x.jsonl")]) == 0
+    err = capfd.readouterr().err
+    assert len([line for line in err.splitlines() if memory["id"] in line]) == 1, err
+    assert "restores these records" not in err
+    assert "holds credential-shaped text" not in err
