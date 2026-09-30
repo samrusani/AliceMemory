@@ -1388,3 +1388,465 @@ def test_an_ordinary_excerpt_query_is_passed_through_unchanged() -> None:
     assert bounded is not None
     assert bounded != long
     assert len(bounded) <= 300
+
+
+# ---------------------------------------------------------------------------
+# The distinct-term bound. The byte bound above is not the only limit the
+# excerpt search has: it builds one LIKE pattern per distinct term and SQLite
+# refuses the expression at about 990 of them, under 40,000 bytes.
+# ---------------------------------------------------------------------------
+
+_HEAVY_SCOPE = {
+    "scope_projects": ("acme",),
+    "scope_people": ("person-a", "person-b"),
+}
+_ALL_SENSITIVITY = ["public", "internal", "private", "unknown"]
+_OPENING = "indigo lighthouse canary "
+
+
+def _distinct_tokens(count: int) -> str:
+    """``count`` short distinct words, none of them a stopword."""
+
+    return " ".join(f"zq{index}x" for index in range(count))
+
+
+def _two_char_tokens(count: int) -> str:
+    """``count`` distinct two-character words, none of them a stopword.
+
+    Three characters a term with its space, the densest way to reach the
+    search's term limit: about 990 terms in under 3,000 characters.
+    """
+
+    from alicebot_api.vnext_store import fts_fallback_tokens
+
+    alphabet = "abcdefghijklmnopqrstuvwxyz0123456789"
+    pairs = [first + second for first in alphabet for second in alphabet]
+    tokens = [pair for pair in pairs if fts_fallback_tokens(pair) == [pair]]
+    assert len(tokens) >= count
+    return " ".join(tokens[:count])
+
+
+def _prose_with_many_distinct_words(*, target_bytes: int) -> str:
+    """Prose-shaped text: sentences over a fixed 1,330 word vocabulary.
+
+    Each word comes back a few times, as in real writing. It is built with
+    a hand-written generator, not ``random``, so it is the same text on
+    every Python.
+    """
+
+    syllables = [c + v for c in "bdfgklmnprstvz" for v in "aeiou"]
+    vocabulary = [first + second for first in syllables for second in syllables[:19]]
+    state = 12345
+    sentences: list[str] = []
+    size = 0
+    while size < target_bytes:
+        words: list[str] = []
+        for _ in range(9):
+            state = (state * 1103515245 + 12345) % (2**31)
+            words.append(vocabulary[(state >> 8) % len(vocabulary)])
+        sentence = (
+            f"The {words[0]} of {words[1]} and {words[2]} {words[3]} {words[4]}, "
+            f"then {words[5]} {words[6]} {words[7]} {words[8]}."
+        )
+        sentences.append(sentence)
+        size += len(sentence) + 1
+    return " ".join(sentences)
+
+
+def _queries_sent_to_the_search(monkeypatch, database: Path, *, query: str | None) -> list[str]:
+    """Run the brief with the source search stubbed; return the queries it got.
+
+    The stub means a query the real search would refuse still fails on an
+    assertion about the query, not on a SQLite error.
+    """
+
+    from alicebot_api.vnext_retrieval import VNextRetrievalService
+
+    seen: list[str] = []
+
+    def stub(self, *, query, **_kwargs):
+        seen.append(query)
+        return [], {}
+
+    with monkeypatch.context() as patch:
+        patch.setattr(VNextRetrievalService, "search_source_excerpts", stub)
+        compile_local_session_brief(database, user_id=USER_ID, query=query)
+    return seen
+
+
+# Each shape is a newest fact the whole-fact search refuses although it is under
+# the byte limit: (opening, how the rest is built, the SQLite error the real
+# search raises on the whole fact).
+_REFUSED_FACT_SHAPES = {
+    "prose-36000-bytes": ("indigo lighthouse canary ", "prose", "Expression tree is too large"),
+    "1000-short-tokens": ("indigo lighthouse canary ", "tokens", "Expression tree is too large"),
+    "dense-two-char-tokens": ("canary ", "dense", "Expression tree is too large"),
+    "casefold-expanding-18000-bytes": (
+        "indigo lighthouse canary ",
+        "casefold",
+        "LIKE or GLOB pattern too complex",
+    ),
+}
+
+
+@pytest.mark.parametrize("shape", sorted(_REFUSED_FACT_SHAPES))
+def test_a_newest_fact_the_search_would_refuse_keeps_the_brief(
+    tmp_path: Path, monkeypatch, shape: str
+) -> None:
+    """A fact under the byte limit can still be refused by the search.
+
+    Four facts, each under 40,000 bytes so the byte bound alone lets them
+    through: 36 KB of prose and 1,000 short tokens (too many distinct
+    terms), 992 two-character tokens (the same, in under 3,000 characters),
+    and 9,000 U+0390 (18,000 bytes, which casefolds to 54,000 and passes
+    SQLite's 50,000 byte LIKE cap). The precondition below runs the real
+    source search on the whole fact and needs it to fail, so this test
+    cannot pass on a fact that never hurt.
+
+    Mutation: drop the distinct-term check in ``_query_fits_the_search``,
+    or raise ``_EXCERPT_QUERY_MAX_PATTERNS`` above SQLite's limit, or skip
+    the check for a short text (the dense shape), or measure only raw bytes
+    (the casefold shape). The query handed to the search is the whole fact,
+    and this test fails.
+    """
+
+    import sqlite3
+
+    from alicebot_api.session_briefing import _EXCERPT_QUERY_MAX_BYTES
+
+    opening, kind, refusal = _REFUSED_FACT_SHAPES[shape]
+    if kind == "prose":
+        newest = opening + _prose_with_many_distinct_words(target_bytes=36_000)
+        assert 35_000 < len(newest.encode("utf-8")) < 37_000
+    elif kind == "tokens":
+        newest = opening + _distinct_tokens(1_000)
+    elif kind == "dense":
+        newest = opening + _two_char_tokens(992)
+        assert len(newest) < 3_000
+    else:
+        newest = opening + "\u0390" * 9_000
+        assert len(newest.casefold().encode("utf-8")) > 50_000
+    assert len(newest.encode("utf-8")) < _EXCERPT_QUERY_MAX_BYTES
+
+    context = _context(tmp_path, monkeypatch)
+    _capture(context, SOURCE_NOTE)
+    database = resolve_db_path(data_dir=str(tmp_path), db=None)
+    with sqlite_user_connection(database, USER_ID) as connection:
+        store = SQLiteVNextStore(connection, USER_ID)
+        for index in range(3):
+            store.create_open_loop(
+                {"title": f"loop {index} stays", "domain": "project", "sensitivity": "public"}
+            )
+        with pytest.raises(sqlite3.OperationalError, match=refusal):
+            store.search_sources(query=newest, sensitivity_allowed=_ALL_SENSITIVITY, limit=8)
+    _commit(
+        context,
+        title="Long newest fact",
+        text=newest,
+        sensitivity="public",
+        project="acme",
+        domain="project",
+    )
+
+    sent = _queries_sent_to_the_search(monkeypatch, database, query=None)
+    assert len(sent) == 1
+    assert sent[0] != newest
+    assert len(sent[0]) <= 300
+    assert sent[0].startswith(opening.strip())
+
+    brief = compile_local_session_brief(database, user_id=USER_ID, query=None)
+
+    assert "Nothing stored yet." not in brief
+    assert brief.count("**open loop**:") == 3
+    # A cut fact reads "**fact** (cut; N characters stored):", so match the label only.
+    fact_lines = [line for line in brief.splitlines() if line.startswith("**fact**")]
+    assert len(fact_lines) == 1
+    assert fact_lines[0].split(": ", 1)[1].startswith('"' + newest[:100])
+    assert "**source**:" in brief
+    assert "indigo-lighthouse-42" in brief
+
+
+def test_an_explicit_query_or_source_title_with_too_many_distinct_terms_keeps_the_brief(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """The explicit query and the source-title hint take the same bound.
+
+    Mutation: skip the distinct-term check for the explicit query, or for
+    the source-title hint. The query handed to the search is the whole text,
+    and this test fails.
+    """
+
+    title = "canary " + _distinct_tokens(1_000)
+    explicit = _OPENING + _distinct_tokens(1_000)
+    assert len(title.encode("utf-8")) < 40_000
+    context = _context(tmp_path, monkeypatch)
+    _capture(context, SOURCE_NOTE, title=title)
+    database = resolve_db_path(data_dir=str(tmp_path), db=None)
+
+    hint_sent = _queries_sent_to_the_search(monkeypatch, database, query=None)
+    assert len(hint_sent) == 1
+    assert hint_sent[0] != title
+    assert len(hint_sent[0]) <= 300
+    explicit_sent = _queries_sent_to_the_search(monkeypatch, database, query=explicit)
+    assert len(explicit_sent) == 1
+    assert explicit_sent[0] != explicit
+    assert len(explicit_sent[0]) <= 300
+
+    hinted = compile_local_session_brief(database, user_id=USER_ID, query=None)
+    assert "Nothing stored yet." not in hinted
+    assert "**source**:" in hinted
+    queried = compile_local_session_brief(database, user_id=USER_ID, query=explicit)
+    assert "indigo-lighthouse-42" in queried
+
+
+def test_a_long_open_loop_description_with_too_many_distinct_terms_keeps_the_brief(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """With no query and no fact, an open loop's text is the excerpt query.
+
+    A title is capped at 280 characters by the schema, so only a description
+    can be long, and the brief reads it only when the title is blank.
+
+    Mutation: pass the loop text to the search whole when it is under the
+    byte limit. The query handed to the search is the whole description, and
+    this test fails.
+    """
+
+    context = _context(tmp_path, monkeypatch)
+    _capture(context, SOURCE_NOTE)
+    database = resolve_db_path(data_dir=str(tmp_path), db=None)
+    description = _OPENING + _distinct_tokens(1_000)
+    with sqlite_user_connection(database, USER_ID) as connection:
+        store = SQLiteVNextStore(connection, USER_ID)
+        store.create_open_loop(
+            {"title": "", "description": description, "domain": "project", "sensitivity": "public"}
+        )
+
+    sent = _queries_sent_to_the_search(monkeypatch, database, query=None)
+    assert len(sent) == 1
+    assert sent[0] != description
+    assert len(sent[0]) <= 300
+
+    brief = compile_local_session_brief(database, user_id=USER_ID, query=None)
+    assert "indigo-lighthouse-42" in brief
+
+
+def test_the_term_bound_is_exact_at_the_threshold(tmp_path: Path, monkeypatch) -> None:
+    """The threshold passes whole and one more is bounded, as the search sees it.
+
+    The count is the search's own pattern list: the phrase plus one per
+    distinct term. The query the source search receives is checked too, so
+    this covers the wiring and not only the helper. A short query reaches
+    the search byte for byte.
+
+    Mutation: ``<=`` becomes ``<`` in ``_query_fits_the_search``, or bound
+    every query, or drop the check. The whole-query assertions fail.
+    """
+
+    from alicebot_api.session_briefing import (
+        _EXCERPT_QUERY_MAX_PATTERNS,
+        _bounded_useful_query,
+    )
+    from alicebot_api.vnext_store import _search_patterns
+
+    limit = _EXCERPT_QUERY_MAX_PATTERNS
+    at_limit = _OPENING + _distinct_tokens(limit - 4)
+    assert len(_search_patterns(at_limit)) == limit
+    over = at_limit + " zqextra"
+    assert len(_search_patterns(over)) == limit + 1
+
+    assert _bounded_useful_query(at_limit) == at_limit
+    bounded = _bounded_useful_query(over)
+    assert bounded is not None
+    assert bounded != over
+    assert len(bounded) <= 300
+    assert bounded.startswith("indigo lighthouse canary zq0x")
+
+    _context(tmp_path, monkeypatch)
+    database = resolve_db_path(data_dir=str(tmp_path), db=None)
+    short = "The indigo-lighthouse-42 canary stays in the vault."
+    assert _queries_sent_to_the_search(monkeypatch, database, query=at_limit) == [at_limit]
+    assert _queries_sent_to_the_search(monkeypatch, database, query=over) == [bounded]
+    assert _queries_sent_to_the_search(monkeypatch, database, query=short) == [short]
+
+
+def test_repeated_words_are_not_counted_as_distinct_terms(tmp_path: Path, monkeypatch) -> None:
+    """Five thousand words that make 43 distinct terms pass through whole.
+
+    The search takes them: strict full-text finds nothing and the OR pass
+    finds the source. Counting words instead of distinct terms would bound
+    a query that works today and change its brief.
+
+    Mutation: count every token, not the distinct terms. The query is
+    bounded, the search does not receive ``repeated``, and this test fails.
+    """
+
+    from alicebot_api.session_briefing import _EXCERPT_QUERY_MAX_BYTES, _bounded_useful_query
+    from alicebot_api.vnext_store import _search_patterns, fts_fallback_tokens
+
+    repeated = _OPENING + " ".join(f"word{index % 40}" for index in range(5_000))
+    assert len(repeated.encode("utf-8")) < _EXCERPT_QUERY_MAX_BYTES
+    assert len(fts_fallback_tokens(repeated)) > 5_000
+    assert len(_search_patterns(repeated)) < 50
+    assert _bounded_useful_query(repeated) == repeated
+
+    context = _context(tmp_path, monkeypatch)
+    _capture(context, SOURCE_NOTE)
+    database = resolve_db_path(data_dir=str(tmp_path), db=None)
+    assert _queries_sent_to_the_search(monkeypatch, database, query=repeated) == [repeated]
+    brief = compile_local_session_brief(database, user_id=USER_ID, query=repeated)
+    assert "indigo-lighthouse-42" in brief
+
+
+def test_the_threshold_leaves_room_under_what_sqlite_takes(tmp_path: Path, monkeypatch) -> None:
+    """The store takes 1.5 times the threshold, with the heaviest scope on.
+
+    ``_EXCERPT_QUERY_MAX_PATTERNS`` is about half of what SQLite 3.49.1
+    takes. This runs the real search at 1.5 times the threshold, with a
+    project and people scope active, so a threshold raised toward the limit
+    or a SQLite build with a lower depth limit fails here first.
+
+    Mutation: set ``_EXCERPT_QUERY_MAX_PATTERNS`` to 900. The search below
+    is refused as ``Expression tree is too large`` and this test fails.
+    """
+
+    import sqlite3
+
+    from alicebot_api.session_briefing import _EXCERPT_QUERY_MAX_PATTERNS
+
+    _context(tmp_path, monkeypatch)
+    database = resolve_db_path(data_dir=str(tmp_path), db=None)
+    patterns = _EXCERPT_QUERY_MAX_PATTERNS + _EXCERPT_QUERY_MAX_PATTERNS // 2
+    query = _distinct_tokens(patterns - 1)
+    refused: list[str] = []
+    with sqlite_user_connection(database, USER_ID) as connection:
+        store = SQLiteVNextStore(connection, USER_ID)
+        for scope in ({}, _HEAVY_SCOPE):
+            try:
+                store.search_sources(
+                    query=query, sensitivity_allowed=_ALL_SENSITIVITY, limit=8, **scope
+                )
+            except sqlite3.OperationalError as error:
+                refused.append(str(error))
+    assert refused == []
+
+
+@pytest.mark.parametrize(
+    ("terms", "whole"),
+    [(10, True), (300, True), (499, True), (500, False), (700, False), (990, False)],
+)
+def test_the_term_bound_sits_at_499_terms_in_literal_sizes(
+    tmp_path: Path, monkeypatch, terms: int, whole: bool
+) -> None:
+    """The threshold is pinned by literal sizes, not by the constant.
+
+    The other threshold tests build their sizes from
+    ``_EXCERPT_QUERY_MAX_PATTERNS``, so the constant can move and they move
+    with it. These do not: 499 distinct terms (500 patterns with the phrase)
+    reach the search whole, 500 are bounded, and the line the changelog
+    states stays where it is. The query the search receives is checked too.
+
+    Mutation: set ``_EXCERPT_QUERY_MAX_PATTERNS`` to 100, 250 or 499 (the
+    300 and 499 cases stop coming back whole), or to 501 or 900 (the 500
+    case stops being bounded).
+    """
+
+    from alicebot_api.session_briefing import _bounded_useful_query
+    from alicebot_api.vnext_store import _search_patterns
+
+    query = _distinct_tokens(terms)
+    assert len(_search_patterns(query)) == terms + 1
+
+    bounded = _bounded_useful_query(query)
+    assert bounded is not None
+    _context(tmp_path, monkeypatch)
+    database = resolve_db_path(data_dir=str(tmp_path), db=None)
+    sent = _queries_sent_to_the_search(monkeypatch, database, query=query)
+    if whole:
+        assert bounded == query
+        assert sent == [query]
+    else:
+        assert bounded != query
+        assert len(bounded) <= 300
+        assert bounded.startswith("zq0x zq1x zq2x")
+        assert sent == [bounded]
+
+
+def test_a_short_text_dense_with_two_character_terms_is_bounded() -> None:
+    """The term count, not the text length, decides: 2,984 characters can be too many.
+
+    995 distinct two-character words make 996 patterns in under 3,000
+    characters. A rule that trusted short text would let it through, and
+    the search refuses it.
+
+    Mutation: skip the pattern check for a text under 3,000 characters.
+    The text comes back whole and this test fails.
+    """
+
+    from alicebot_api.session_briefing import _bounded_useful_query
+    from alicebot_api.vnext_store import _search_patterns
+
+    dense = _two_char_tokens(995)
+    assert len(dense) < 3_000
+    assert len(_search_patterns(dense)) == 996
+
+    bounded = _bounded_useful_query(dense)
+
+    assert bounded is not None
+    assert bounded != dense
+    assert len(bounded) <= 300
+    assert bounded.startswith(dense[:50])
+
+
+def test_the_byte_bound_measures_the_casefolded_bytes_and_the_raw_bytes(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """A query is passed whole only when both byte counts are within 40,000.
+
+    The search binds the casefolded text into its LIKE pattern, and U+0390
+    goes from 2 bytes to 6. 6,666 of them are 13,332 raw and 39,996
+    casefolded bytes and pass. 6,667 are 13,334 raw and 40,002 casefolded
+    and are bounded. The real search takes the first and refuses 8,334 of
+    them. The raw count still counts: 15,000 Kelvin signs are 45,000 raw
+    bytes that casefold to 15,000, and stay bounded as before.
+
+    Mutation: measure only the raw bytes (the 6,667 case comes back whole),
+    only the casefolded bytes (the Kelvin case comes back whole), or
+    characters instead of bytes.
+    """
+
+    import sqlite3
+
+    from alicebot_api.session_briefing import _bounded_useful_query
+
+    context = _context(tmp_path, monkeypatch)
+    _capture(context, SOURCE_NOTE)
+    database = resolve_db_path(data_dir=str(tmp_path), db=None)
+
+    fits = "\u0390" * 6_666
+    assert len(fits.encode("utf-8")) == 13_332
+    assert len(fits.casefold().encode("utf-8")) == 39_996
+    assert _bounded_useful_query(fits) == fits
+
+    over = "\u0390" * 6_667
+    assert len(over.casefold().encode("utf-8")) == 40_002
+    bounded = _bounded_useful_query(over)
+    assert bounded is not None
+    assert bounded != over
+    assert len(bounded) <= 300
+
+    kelvin = "\u212a" * 15_000
+    assert len(kelvin.encode("utf-8")) == 45_000
+    assert len(kelvin.casefold().encode("utf-8")) == 15_000
+    kelvin_bounded = _bounded_useful_query(kelvin)
+    assert kelvin_bounded is not None
+    assert kelvin_bounded != kelvin
+    assert len(kelvin_bounded) <= 300
+
+    with sqlite_user_connection(database, USER_ID) as connection:
+        store = SQLiteVNextStore(connection, USER_ID)
+        store.search_sources(query=fits, sensitivity_allowed=_ALL_SENSITIVITY, limit=8)
+        with pytest.raises(sqlite3.OperationalError, match="LIKE or GLOB pattern too complex"):
+            store.search_sources(
+                query="\u0390" * 8_334, sensitivity_allowed=_ALL_SENSITIVITY, limit=8
+            )
