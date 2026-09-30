@@ -49,7 +49,7 @@ from alicebot_api.vnext_retrieval import (
     _prefer_current_versions,
     classify_pack_view,
 )
-from alicebot_api.vnext_store import fts_fallback_tokens
+from alicebot_api.vnext_store import _search_patterns, fts_fallback_tokens
 
 COMMITTED_MEMORY_STATUSES = MEMORY_SEARCHABLE_STATUSES
 OPEN_LOOP_ACTIVE_STATUSES = ("open", "waiting")
@@ -438,7 +438,28 @@ def _matches_project_scope(resource_scope: tuple[str, ...], project_scope: tuple
 # printed {}. A query of up to _EXCERPT_QUERY_MAX_BYTES UTF-8 bytes is passed
 # through exactly as before, so every brief that worked before is unchanged.
 # Only a longer one is bounded to a few hundred characters of its FTS tokens.
+#
+# The byte limit is not the only one. The same search builds one LIKE pattern
+# for the whole phrase and one per distinct non-stopword term, and ORs them
+# together. SQLite refuses that expression once it is too deep ("Expression
+# tree is too large (maximum depth 1000)"), and the hook printed {} again.
+# Measured on SQLite 3.49.1 through SQLiteVNextStore.search_sources: 991
+# patterns (the phrase and 990 distinct terms) pass and 992 fail, and with a
+# project, people and time scope active 984 patterns are the most that pass.
+# That is 30 to 35 KB of ordinary prose, or about 7 KB of short distinct
+# tokens, so it sits under the byte limit. Repeated words cost nothing here:
+# 13,000 terms that make 3 distinct patterns pass. A query of up to
+# _EXCERPT_QUERY_MAX_PATTERNS patterns is passed through unchanged too, at
+# about half the measured limit so another SQLite build, or a clause added
+# to the search, still has room.
+#
+# The byte limit is measured twice. The search casefolds every pattern before
+# it binds it, and some characters grow when they casefold (U+0390 goes from
+# 2 bytes to 6), so 18,000 bytes of them bind a 54,000 byte pattern and pass
+# SQLite's 50,000 byte cap. A query is passed whole only when both its raw
+# and its casefolded bytes are within the limit.
 _EXCERPT_QUERY_MAX_BYTES = 40_000
+_EXCERPT_QUERY_MAX_PATTERNS = 500
 _EXCERPT_QUERY_MAX_CHARS = 300
 
 
@@ -459,8 +480,24 @@ def _bound_excerpt_query(text: str) -> str:
     return " ".join(text.split())[:_EXCERPT_QUERY_MAX_CHARS]
 
 
+def _query_fits_the_search(text: str) -> bool:
+    """True when the source search can take ``text`` whole.
+
+    The raw byte check comes first, so a huge query is never casefolded or
+    tokenized. The casefolded bytes are what the search binds into its LIKE
+    pattern. The pattern count is the search's own ``_search_patterns``, not
+    a second tokenizer that could drift from it.
+    """
+
+    if len(text.encode("utf-8", "surrogatepass")) > _EXCERPT_QUERY_MAX_BYTES:
+        return False
+    if len(text.casefold().encode("utf-8", "surrogatepass")) > _EXCERPT_QUERY_MAX_BYTES:
+        return False
+    return len(_search_patterns(text)) <= _EXCERPT_QUERY_MAX_PATTERNS
+
+
 def _bounded_useful_query(text: str) -> str | None:
-    if len(text.encode("utf-8", "surrogatepass")) <= _EXCERPT_QUERY_MAX_BYTES:
+    if _query_fits_the_search(text):
         return text if _is_useful_query(text) else None
     bounded = _bound_excerpt_query(text)
     if _is_useful_query(bounded):
