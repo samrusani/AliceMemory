@@ -537,24 +537,88 @@ def test_plugin_yaml_version_marks_the_fixed_provider() -> None:
     assert tuple(int(part) for part in match.groups()) >= (0, 5, 2)
 
 
-def test_the_false_v0180_claim_is_corrected_where_it_was_made() -> None:
-    """Mutation: remove either correction.
+def _flat(text: str) -> str:
+    return " ".join(text.split())
 
-    The v0.18.0 release notes are a published record, so the wrong sentence
-    stays and one dated correction line follows it, in the form the
+
+def test_the_false_v0180_claim_is_corrected_where_it_was_made() -> None:
+    """Mutation: remove any one of the three corrections, or move one above its claim.
+
+    The v0.18.0 release notes are a published record, so the wrong sentences
+    stay and one dated correction line follows each, in the form the
     immutable-records guard allows. The provider guide carries the same
     correction next to its copy of the claim.
     """
 
     notes = (REPO_ROOT / "docs" / "release" / "v0.18.0-release-notes.md").read_text(encoding="utf-8")
     claim = "**Auto-save takes only user-role explicit prefixes.**"
+    known_limit = "The Hermes plugin sends the\n  server's own candidates."
     assert claim in notes
+    assert known_limit in notes
     corrections = [line for line in notes.splitlines() if line.startswith("> **Correction (2026-09-30):** ")]
-    assert len(corrections) == 1
-    assert "0.5.2" in corrections[0]
-    assert "--force" in corrections[0]
-    assert notes.index(claim) < notes.index(corrections[0])
+    assert len(corrections) == 2
+    auto_save, limitation = corrections
+    assert "0.5.2" in auto_save
+    assert "--force" in auto_save
+    assert notes.index(claim) < notes.index(auto_save)
+    assert "The Hermes plugin sends the server's own candidates." in limitation
+    assert "rebuilt the user text of a turn from the assistant reply" in limitation
+    assert "0.5.2" in limitation
+    assert notes.index(known_limit) < notes.index(limitation)
 
     guide = (REPO_ROOT / "docs" / "integrations" / "hermes-memory-provider.md").read_text(encoding="utf-8")
     assert "only user-role candidates that match an explicit prefix are auto-saved" in guide
     assert "false for this plugin before version 0.5.2" in guide
+
+
+def test_the_docs_say_what_main_changed_and_what_v0190_still_does() -> None:
+    """The changelog and the provider guide mark plugin 0.5.2 as main only.
+
+    v0.19.0 ships plugin 0.5.1, so the guide's paragraph carries the
+    ``Unreleased (on main, not in v0.19.0):`` marker and the changelog entry
+    sits under Unreleased. The release PR converts the marker, and this test
+    changes with it, as the other main-only doc tests do.
+
+    Mutations, each one alone: delete the changelog entry, move it below the
+    v0.19.0 heading, drop its lone-surrogate or ``--force`` clause; delete the
+    guide's Unreleased paragraph or its marker; delete the guide's install
+    note; delete either v0.18.0 changelog correction.
+    """
+
+    changelog = (REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    unreleased = changelog[changelog.index("## Unreleased") : changelog.index("## v0.19.0")]
+    entries = [_flat(entry) for entry in unreleased.split("\n- ") if entry.lstrip("- ").startswith("Hermes provider 0.5.2 sends")]
+    assert len(entries) == 1
+    entry = entries[0]
+    assert "as two separate fields" in entry
+    assert "can no longer become an auto-saved user decision" in entry
+    assert "capped at 3,800 characters on its own" in entry
+    assert "A lone surrogate in either text no longer raises `UnicodeEncodeError` out of `sync_turn`" in entry
+    assert "Plugin 0.5.1 shipped in v0.18.0 and v0.19.0" in entry
+    assert "is not in the wheel" in entry
+    assert "scripts/install_hermes_alice_memory_provider.py --force" in entry
+    assert "A symlink install picks up the change." in entry
+    assert "Hermes provider 0.5.2 sends" not in changelog[changelog.index("## v0.19.0") :]
+
+    v0180 = changelog[changelog.index("## v0.18.0") : changelog.index("## v0.17.0")]
+    added = [_flat(part) for part in v0180.split("**Correction, added 2026-09-30.**")[1:]]
+    assert len(added) == 2
+    assert added[0].startswith("True of the server route and false for the Hermes plugin before version 0.5.2.")
+    assert 'The changelog entry that starts "Hermes provider 0.5.2 sends" describes it.' in added[0]
+    assert added[1].startswith("The entry above is about `/v0/continuity` captures.")
+    assert "The Hermes plugin does not call that route." in added[1]
+
+    guide = _flat((REPO_ROOT / "docs" / "integrations" / "hermes-memory-provider.md").read_text(encoding="utf-8"))
+    marker = "Unreleased (on main, not in v0.19.0): plugin 0.5.2 sends the user text and the assistant text"
+    assert guide.count(marker) == 1
+    paragraph = guide[guide.index(marker) :].split(" From v0.19.0,")[0]
+    assert "A reply that contains a line starting with `User:` stays assistant text" in paragraph
+    assert "Each side is capped at 3,800 characters on its own" in paragraph
+    assert "An existing install keeps plugin 0.5.1 until you run" in paragraph
+    assert "--force" in paragraph
+    install_note = (
+        "The installer copies the provider into Hermes. The copy does not change when you upgrade Alice, "
+        "and the provider is not in the wheel. Run the installer again with `--force` to pick up a newer provider. "
+        "A `--symlink` install follows the repository."
+    )
+    assert install_note in guide
