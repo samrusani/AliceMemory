@@ -211,19 +211,25 @@ def test_install_and_the_plugin(
     _settings(home, {CLAUDE_PLUGIN_ID: False})
     code, out, err = _install(capsys, home, "--data-dir", str(vault))
     assert code == 0, err
+    assert "the alice-memory plugin is disabled" in out
     assert "Enabling it later sets Alice up twice" in out
     assert (home / ".claude.json").is_file()
 
+    # Only an explicit false gets the disabled note. Every other shape is absent.
     home = tmp_path / "missing"
     code, out, err = _install(capsys, home, "--data-dir", str(vault))
     assert code == 0, err
     assert "plugin is enabled" not in out
+    assert "is disabled" not in out
+    assert "Enabling it later" not in out
     assert (home / ".claude.json").is_file()
 
     home = tmp_path / "not-object"
     _settings(home, ["alice-memory"])
     code, out, err = _install(capsys, home, "--data-dir", str(vault))
     assert code == 0, err
+    assert "is disabled" not in out
+    assert "Enabling it later" not in out
     assert (home / ".claude.json").is_file()
 
     home = tmp_path / "other"
@@ -231,6 +237,20 @@ def test_install_and_the_plugin(
     code, out, err = _install(capsys, home, "--data-dir", str(vault))
     assert code == 0, err
     assert "skipped" not in out
+    assert "is disabled" not in out
+    assert "Enabling it later" not in out
+
+    home = tmp_path / "null-value"
+    _settings(home, {CLAUDE_PLUGIN_ID: None})
+    assert json.loads((home / ".claude" / "settings.json").read_text(encoding="utf-8")) == {
+        "enabledPlugins": {CLAUDE_PLUGIN_ID: None}
+    }
+    code, out, err = _install(capsys, home, "--data-dir", str(vault))
+    assert code == 0, err
+    assert "skipped" not in out
+    assert "is disabled" not in out
+    assert "Enabling it later" not in out
+    assert (home / ".claude.json").is_file()
 
     home = tmp_path / "dry"
     _settings(home, {CLAUDE_PLUGIN_ID: True})
@@ -357,6 +377,8 @@ def test_install_plugin_edge_cases(
     code, out, err = _install(capsys, home, "--data-dir", str(vault))
     assert code == 0, err
     assert "skipped" not in out
+    assert "is disabled" not in out
+    assert "Enabling it later" not in out
     assert (home / ".claude.json").is_file()
 
     home = tmp_path / "string-true"
@@ -364,6 +386,8 @@ def test_install_plugin_edge_cases(
     code, out, err = _install(capsys, home, "--data-dir", str(vault))
     assert code == 0, err
     assert "skipped" not in out
+    assert "is disabled" not in out
+    assert "Enabling it later" not in out
     assert (home / ".claude.json").is_file()
 
     home = tmp_path / "hook-only"
@@ -395,6 +419,17 @@ def test_install_plugin_edge_cases(
     assert claude_json.read_bytes() == before_claude
     assert "install_refused_plugin" in err
     assert "add the printed snippet" not in err
+    contract = (
+        "The alice-memory plugin is enabled and install's Claude Code entries exist. "
+        "Run claude mcp remove alice --scope user, remove the session-start hook, "
+        "or disable the plugin."
+    )
+    from alicebot_api.onramp import _ERROR_CONTRACTS
+
+    assert _ERROR_CONTRACTS["install_refused_plugin"] == contract
+    assert json.loads(err.strip().splitlines()[-1]) == {
+        "error": {"code": "install_refused_plugin", "message": contract}
+    }
 
     home = tmp_path / "dry-present"
     _settings(home, {CLAUDE_PLUGIN_ID: True})
@@ -467,6 +502,10 @@ def test_duplicate_line_cases(
     payload = json.loads(captured.out)
     context = payload["hookSpecificOutput"]["additionalContext"]
     assert context.startswith("Alice is set up twice in Claude Code.")
+    assert context.splitlines()[0] == (
+        "Alice is set up twice in Claude Code. Run `claude mcp remove alice --scope user` "
+        "and remove the alice-memory-session-start hook from ~/.claude/settings.json."
+    )
     assert not context.lstrip().startswith("{")
     assert not context.lstrip().startswith("[")
 
@@ -1146,6 +1185,11 @@ def test_plugin_hook_reads_the_option_and_otherwise_uses_the_default(
     from plugin mode (the unset case fails once ``ALICE_MEMORY_DATA_DIR`` is
     set, see the ignored-variable test); refuse an option that starts with
     ``~/`` by using ``os.path.isabs`` on it (the ``~/opt-vault`` case fails).
+
+    The option is used verbatim. A folder whose name ends in a space is that
+    folder: ``<tmp>/trail `` gets ``memory.db`` and ``<tmp>/trail`` does not
+    exist. Mutations: strip the option after it is read, or ``rstrip`` it (the
+    ``trail`` folder is opened and ``trail `` is not).
     """
 
     home = _hook_home(tmp_path, monkeypatch)
@@ -1180,6 +1224,15 @@ def test_plugin_hook_reads_the_option_and_otherwise_uses_the_default(
     assert _vaults(tmp_path, home) == {"option-vault", "home/.alice", "home/opt-vault"}
     assert (home / "opt-vault" / "memory.db").is_file()
 
+    code, out, err = _run_hook(
+        monkeypatch, capsys, root=str(tmp_path / "plugin"), option=str(tmp_path / "trail") + " "
+    )
+    assert code == 0, err
+    assert "is not an absolute path" not in out
+    assert (tmp_path / "trail " / "memory.db").is_file()
+    assert not (tmp_path / "trail").exists()
+    assert _vaults(tmp_path, home) == {"option-vault", "home/.alice", "home/opt-vault", "trail "}
+
 
 def test_plugin_hook_refuses_a_relative_option_value(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
@@ -1190,14 +1243,40 @@ def test_plugin_hook_refuses_a_relative_option_value(
     ``--data-dir '   '``, so the hook names it in the same refusal instead of
     opening ``~/.alice`` while the server will not start.
 
+    A padded absolute path is not absolute: a leading space makes it relative,
+    and so do ``./vault`` and ``../vault``. The process runs in ``<tmp>/work``
+    so that ``../vault`` would open ``<tmp>/vault``, inside the tree the test
+    watches. The value is used verbatim, never trimmed or resolved first.
+
+    An explicit ``--data-dir '   '`` is refused by name too, in plugin mode and
+    outside it, even when the option and ``ALICE_MEMORY_DATA_DIR`` are good
+    paths.
+
     Mutations: check only ``--data-dir`` for the absolute rule and let the option
     value through (the refusal line is missing, a vault is created); strip the
     option before the fallback so ``'   '`` becomes ``~/.alice`` (the whitespace
-    case opens ``home/.alice`` and prints no refusal). This test fails.
+    case opens ``home/.alice`` and prints no refusal); strip it when the
+    stripped text is not empty, or ``lstrip`` it (the padded case opens
+    ``padded``); absolutize a value that starts with ``.`` (the ``./vault`` and
+    ``../vault`` cases open a folder); strip an explicit ``--data-dir`` before
+    use (the explicit whitespace case opens the option's folder). This test fails.
     """
 
     home = _hook_home(tmp_path, monkeypatch)
-    for value in ("relative/dir", "alice", "${user_config.data_dir}", "$HOME/.alice", "   "):
+    work = tmp_path / "work"
+    work.mkdir()
+    monkeypatch.chdir(work)
+    values = (
+        "relative/dir",
+        "alice",
+        "${user_config.data_dir}",
+        "$HOME/.alice",
+        " " + str(tmp_path / "padded"),
+        "./vault",
+        "../vault",
+        "   ",
+    )
+    for value in values:
         expected = f'Alice: the data directory "{value}" is not an absolute path; set an absolute path.'
         code, out, err = _run_hook(
             monkeypatch, capsys, root=str(tmp_path / "plugin"), option=value
@@ -1214,6 +1293,23 @@ def test_plugin_hook_refuses_a_relative_option_value(
     payload = json.loads(captured.out)
     assert payload["hookSpecificOutput"]["additionalContext"] == expected
     assert _vaults(tmp_path, home) == set()
+
+    good = tmp_path / "good-vault"
+    blank_line = 'Alice: the data directory "   " is not an absolute path; set an absolute path.'
+    for root in (str(tmp_path / "plugin"), None):
+        code, out, err = _run_hook(
+            monkeypatch,
+            capsys,
+            "--data-dir",
+            "   ",
+            root=root,
+            option=str(good),
+            env_dir=str(good),
+        )
+        assert code == 0, err
+        assert out == blank_line + "\n", (root, out)
+        assert blank_line in err
+        assert _vaults(tmp_path, home) == set(), root
 
 
 def test_plugin_hook_ignores_alice_memory_data_dir(
@@ -1374,6 +1470,101 @@ def test_the_docs_say_where_claude_code_sets_the_plugin_root() -> None:
         assert "only for the plugin's hook" not in flat
         assert "only for that hook" not in flat
         assert "only in the Claude Code plugin's hook" not in flat
+
+
+def _flat_paragraphs(path: Path) -> list[str]:
+    """The file's paragraphs, each with its whitespace collapsed to single spaces."""
+
+    text = path.read_text(encoding="utf-8")
+    return [" ".join(part.split()) for part in text.split("\n\n") if part.strip()]
+
+
+def test_the_docs_keep_the_main_only_marker_and_the_option_rules() -> None:
+    """The plugin docs, the changelog, the README and the quickstart say what main does and v0.18.0 does not.
+
+    The plugin page and the plugin README open with the ``Unreleased (on main,
+    not in v0.18.0):`` marker, and so does the paragraph that describes the
+    hook's option variable. That paragraph names ``CLAUDE_PLUGIN_OPTION_DATA_DIR``,
+    the ``~/.alice`` default and why the hook has no ``--data-dir``. Every
+    paragraph that names ``ALICE_MEMORY_DATA_DIR`` says the plugin's hook
+    ignores it, and one of them holds the relative-value sentence. The
+    changelog's Unreleased section, the README and the quickstart each keep the
+    plugin line they already have. The reader must not take main's behaviour
+    for v0.18.0's.
+
+    Mutations, each one alone: drop the marker from the top of either plugin
+    file or from the option paragraph; change ``ignores`` to ``reads`` for
+    ``ALICE_MEMORY_DATA_DIR``; change ``~/.alice`` to ``~/.alice-x`` in the
+    option paragraph or the default sentence; delete the relative-value
+    sentence; drop the unset-option reason; drop the "In v0.18.0 there is no
+    Claude Code plugin" clause from the changelog, the README or the quickstart.
+    """
+
+    marker = "Unreleased (on main, not in v0.18.0):"
+    relative = (
+        "A relative option value makes the hook print one line asking for an "
+        "absolute path, and it opens nothing."
+    )
+    expected = {
+        "docs/integrations/claude-code-plugin.md": (
+            "with the default `~/.alice`.",
+            "Claude Code does not run a hook whose arguments reference a plugin option "
+            "that is not set.",
+        ),
+        "plugins/alice-memory/README.md": (
+            "The default is `~/.alice`.",
+            "Claude Code does not run a hook whose arguments reference an option "
+            "that is not set.",
+        ),
+    }
+    for name, (default_sentence, reason) in expected.items():
+        paragraphs = _flat_paragraphs(ROOT / name)
+        prose = [item for item in paragraphs if not item.startswith("#")]
+        assert prose[0].startswith(marker), name
+        assert any(default_sentence in item for item in paragraphs), name
+        option = [item for item in paragraphs if "CLAUDE_PLUGIN_OPTION_DATA_DIR" in item]
+        assert option, name
+        assert all(item.startswith(marker) for item in option), name
+        assert "uses `~/.alice` when the option is unset" in option[0], name
+        assert reason in option[0], name
+        mentions = [item for item in paragraphs if "ALICE_MEMORY_DATA_DIR" in item]
+        assert mentions, name
+        assert all("ignores `ALICE_MEMORY_DATA_DIR`" in item for item in mentions), name
+        assert any(relative in item for item in mentions), name
+
+    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    unreleased = changelog.split("\n## ")[1]
+    assert unreleased.startswith("Unreleased\n")
+    flat = " ".join(unreleased.split())
+    for sentence in (
+        "A Claude Code plugin directory is in the repo.",
+        "In v0.18.0 there is no Claude Code plugin.",
+        "The Claude Code plugin's SessionStart hook reads its data directory from the "
+        "plugin option `data_dir`, through `CLAUDE_PLUGIN_OPTION_DATA_DIR`, and uses "
+        "`~/.alice` when the option is unset.",
+        "`alice-memory-session-start` ignores `ALICE_MEMORY_DATA_DIR`.",
+        "A relative option value prints the existing one-line refusal and exits 0.",
+        "In v0.18.0 there is no Claude Code plugin, and the command reads "
+        "`--data-dir`, then `ALICE_MEMORY_DATA_DIR`, then `~/.alice`.",
+    ):
+        assert sentence in flat, sentence
+
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    lines = [
+        line
+        for line in readme.splitlines()
+        if line.startswith("On main, not yet released:") and "Claude Code plugin" in line
+    ]
+    assert len(lines) == 1
+    assert "and the Claude Code plugin directory is in the repo." in lines[0]
+    assert "and there is no Claude Code plugin." in lines[0]
+
+    quickstart = (ROOT / "docs" / "alpha" / "quickstart.md").read_text(encoding="utf-8")
+    assert (
+        "- Unreleased (on main, not in v0.18.0): a Claude Code plugin directory is in "
+        "the repo. v0.18.0 has no plugin. See "
+        "[Claude Code plugin](../integrations/claude-code-plugin.md)."
+    ) in quickstart.splitlines()
 
 
 def test_the_hook_help_names_the_plugin_option(
@@ -1621,18 +1812,24 @@ def test_claude_failure_detail_carries_the_code_stderr_stub_and_uvx_records(tmp_
 
 
 def _plugin_row_set(
-    *, option: str | None, data_dir: str = "~/.alice", root: str | None = "/plugins/alice-memory"
+    *,
+    option: str | None,
+    data_dir: str = "~/.alice",
+    hook_root: str | None = "/plugins/alice-memory",
+    server_root: str | None = "/plugins/alice-memory",
 ) -> list[dict]:
+    """The hook row and the server row, each with its own ``CLAUDE_PLUGIN_ROOT``."""
+
     pin = "alice-memory==1.2.3"
     return [
         {
             "argv": ["--from", pin, "alice-memory-session-start"],
-            "CLAUDE_PLUGIN_ROOT": root,
+            "CLAUDE_PLUGIN_ROOT": hook_root,
             "CLAUDE_PLUGIN_OPTION_DATA_DIR": option,
         },
         {
             "argv": ["--from", pin, "alice-memory", "mcp", "--data-dir", data_dir],
-            "CLAUDE_PLUGIN_ROOT": root,
+            "CLAUDE_PLUGIN_ROOT": server_root,
             "CLAUDE_PLUGIN_OPTION_DATA_DIR": None,
         },
     ]
@@ -1646,7 +1843,10 @@ def test_the_plugin_row_check_accepts_the_two_real_shapes_and_nothing_near_them(
     option equals the vault and the server row carries the vault.
 
     Mutations, each one alone: allow ``--data-dir`` in the hook argv; drop the
-    ``CLAUDE_PLUGIN_ROOT`` check; accept a set option when it should be unset;
+    ``CLAUDE_PLUGIN_ROOT`` check on the hook row (the hook root None and empty
+    cases keep the server root set, so only the hook check can fail them; the
+    server root cases do the same the other way round); accept a set option
+    when it should be unset;
     accept any option when a value is expected; drop the non-empty server row
     check; compare the server row to ``~/.alice`` whatever the vault is; drop
     the unsubstituted check. Near misses: an option that differs from the
@@ -1682,7 +1882,9 @@ def test_the_plugin_row_check_accepts_the_two_real_shapes_and_nothing_near_them(
     fails(_plugin_row_set(option=None, data_dir=vault), option=None)
 
     for root in (None, ""):
-        fails(_plugin_row_set(option=None, root=root), option=None)
+        fails(_plugin_row_set(option=None, hook_root=root, server_root=root), option=None)
+        fails(_plugin_row_set(option=None, hook_root=root), option=None)
+        fails(_plugin_row_set(option=None, server_root=root), option=None)
 
     extra = _plugin_row_set(option=None)
     extra[0]["argv"] = [*extra[0]["argv"], "--data-dir", "~/.alice"]
@@ -1704,11 +1906,17 @@ def test_the_plugin_row_check_accepts_the_two_real_shapes_and_nothing_near_them(
     server_pin = _plugin_row_set(option=None)
     server_pin[1]["argv"][1] = "alice-memory==9.9.9"
     fails(server_pin, option=None)
-    server_root_missing = _plugin_row_set(option=None)
-    server_root_missing[1]["CLAUDE_PLUGIN_ROOT"] = None
+    hook_root_missing = _plugin_row_set(option=None, hook_root=None)
+    assert hook_root_missing[1]["CLAUDE_PLUGIN_ROOT"] == "/plugins/alice-memory"
+    fails(hook_root_missing, option=None)
+    hook_root_empty = _plugin_row_set(option=None, hook_root="")
+    assert hook_root_empty[1]["CLAUDE_PLUGIN_ROOT"] == "/plugins/alice-memory"
+    fails(hook_root_empty, option=None)
+    server_root_missing = _plugin_row_set(option=None, server_root=None)
+    assert server_root_missing[0]["CLAUDE_PLUGIN_ROOT"] == "/plugins/alice-memory"
     fails(server_root_missing, option=None)
-    server_root_empty = _plugin_row_set(option=None)
-    server_root_empty[1]["CLAUDE_PLUGIN_ROOT"] = ""
+    server_root_empty = _plugin_row_set(option=None, server_root="")
+    assert server_root_empty[0]["CLAUDE_PLUGIN_ROOT"] == "/plugins/alice-memory"
     fails(server_root_empty, option=None)
 
     hook_only = _plugin_row_set(option=None)[:1]
@@ -1731,8 +1939,15 @@ def test_the_real_host_test_wires_the_plugin_row_check_for_both_sessions() -> No
     session, installed with ``--config data_dir=<vault>``, expects the vault
     as the option and on the server.
 
+    The second session's install call is the one that passes
+    ``--config data_dir=<vault>``, and it sits between the two row checks. A
+    plain second install would leave the option unset while the second check
+    expects the vault.
+
     Mutation: pass ``expected_option=None`` or ``server_data_dir="~/.alice"`` in
-    the second call, swap the two calls, or drop either call. This test fails.
+    the second call, swap the two calls, or drop either call; drop ``--config``
+    and its value from the second install call, or point it at another folder.
+    This test fails.
     """
 
     import ast
@@ -1773,6 +1988,25 @@ def test_the_real_host_test_wires_the_plugin_row_check_for_both_sessions() -> No
             },
         ),
     ]
+
+    installs: list[tuple[int, list[str]]] = []
+    for node in ast.walk(functions[0]):
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "_claude"
+            and node.args
+            and isinstance(node.args[0], ast.List)
+        ):
+            items = [ast.unparse(item) for item in node.args[0].elts]
+            if items[:2] == ["'plugin'", "'install'"]:
+                installs.append((node.lineno, items))
+    installs.sort()
+    assert [items for _line, items in installs] == [
+        ["'plugin'", "'install'", "CLAUDE_PLUGIN_ID"],
+        ["'plugin'", "'install'", "CLAUDE_PLUGIN_ID", "'--config'", "f'data_dir={vault_b}'"],
+    ]
+    assert installs[0][0] < calls[0].lineno < installs[1][0] < calls[1].lineno
 
 
 def test_the_real_host_test_writes_only_under_tmp_path() -> None:
