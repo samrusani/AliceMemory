@@ -254,7 +254,7 @@ def test_two_different_turns_never_share_a_dedupe_fingerprint(
 # miss: one side equal and the other different, a moved split point, a swap,
 # equal lengths, a case or inner-space change, and for each character a join
 # could use, a turn with that character on either side of the split.
-_JOIN_CHARACTERS = (" ", "|", "||", ":", "\t", ",", "\n", "\x00", "\x1f", " ")
+_JOIN_CHARACTERS = (" ", "|", "||", ":", "\t", ",", "\n", "\x00", "\x1f", "\u2028")
 _DISTINCT_TURNS = [
     ("a", "b"),
     ("a", "c"),
