@@ -2073,9 +2073,11 @@ def test_markdown_brief_never_starts_with_a_bracket(
 
     Every markdown form the hook prints must start with something else: the
     empty vault line, the framed brief (even when a stored fact starts with
-    ``[`` or ``{``), the not-absolute data dir line, and both fail-open
-    outputs (a blank line). Mutation: print the brief without its frame, or
-    fail open with ``{}``. This test fails.
+    ``[`` or ``{``, or names ``jsonrpc``), the not-absolute data dir line, and
+    the fail-open output (a blank line). Mutation: print the brief without its
+    frame, or fail open with ``{}``. This test fails. Mutation: put back the
+    check that drops a brief holding ``jsonrpc``. The wire-text vault then
+    prints a blank line, and this test fails.
     """
 
     def first(text: str) -> str:
@@ -2098,10 +2100,11 @@ def test_markdown_brief_never_starts_with_a_bracket(
 
     jsonrpc = tmp_path / "jsonrpc"
     commit_fact(jsonrpc, monkeypatch, "Wire text", "jsonrpc 2.0 appears in this fact")
-    forms["fail-open-jsonrpc"] = _hook_output(
+    forms["framed-jsonrpc"] = _hook_output(
         monkeypatch, capsys, "--format", "markdown", "--data-dir", str(jsonrpc)
     )
-    assert forms["fail-open-jsonrpc"] == "\n"
+    assert forms["framed-jsonrpc"].startswith("Stored notes from Alice memory")
+    assert "jsonrpc 2.0 appears in this fact" in forms["framed-jsonrpc"]
 
     not_a_dir = tmp_path / "file"
     not_a_dir.write_text("x", encoding="utf-8")

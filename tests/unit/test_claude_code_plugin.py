@@ -1634,9 +1634,9 @@ def test_the_docs_say_what_v0190_ships_and_keep_the_option_rules() -> None:
     assert "v0.18.0 has no Claude Code plugin." in lines[0]
     assert (
         "The Claude Code plugin in `plugins/alice-memory` installs from the "
-        "`alicememory` marketplace. Clone this repository and run:\n\n"
+        "`alicememory` marketplace. Run:\n\n"
         "```bash\n"
-        "claude plugin marketplace add <path to the clone>\n"
+        "claude plugin marketplace add samrusani/AliceMemory\n"
         "claude plugin install alice-memory@alicememory\n"
         "```\n\n"
         "The marketplace file is on `main`, not in the v0.19.0 tag, and pins the plugin "
@@ -1646,10 +1646,13 @@ def test_the_docs_say_what_v0190_ships_and_keep_the_option_rules() -> None:
     quickstart = (ROOT / "docs" / "alpha" / "quickstart.md").read_text(encoding="utf-8")
     assert (
         "- The Claude Code plugin in `plugins/alice-memory` installs from the "
-        "`alicememory` marketplace: clone this repository, run "
-        "`claude plugin marketplace add <path to the clone>`, then "
-        "`claude plugin install alice-memory@alicememory`. Use the plugin or "
-        "`--host claude-code`, not both. See "
+        "`alicememory` marketplace: run "
+        "`claude plugin marketplace add samrusani/AliceMemory`, then "
+        "`claude plugin install alice-memory@alicememory`. If git is set to use SSH "
+        "for GitHub and you have no key there, add "
+        "`https://github.com/samrusani/AliceMemory.git` instead. If you already have a "
+        "clone, `claude plugin marketplace add <path to the clone>` works too. Use the "
+        "plugin or `--host claude-code`, not both. See "
         "[Claude Code plugin](../integrations/claude-code-plugin.md). v0.18.0 has no plugin."
     ) in quickstart.splitlines()
 
@@ -1663,8 +1666,78 @@ def test_the_docs_say_what_v0190_ships_and_keep_the_option_rules() -> None:
         assert "once v0.19.0 is published" not in text, name
         assert "A later post-publication change adds" not in text, name
         assert "there is nothing to add from the tag alone" not in text, name
+        assert "claude plugin marketplace add samrusani/AliceMemory" in text, name
         assert "claude plugin marketplace add <path to the clone>" in text, name
         assert "claude plugin install alice-memory@alicememory" in text, name
+
+
+def test_the_docs_install_from_the_repo_shorthand_with_two_fallbacks() -> None:
+    """Four files give the two-command install first, then the HTTPS URL and the clone path.
+
+    Real host CI showed ``claude plugin marketplace add samrusani/AliceMemory``
+    works on a runner with no SSH key, so the documented install no longer
+    starts with a clone. Each of README.md, the quickstart, the plugin page and
+    the plugin README gives the shorthand as the first ``marketplace add``
+    command, the HTTPS URL as the fallback for a git set to use SSH for GitHub
+    without a key, and the local clone path for readers who already have one.
+    None keeps the clone-only wording. The plugin README's update sentence says
+    to refresh the marketplace, still names ``claude plugin update
+    alice-memory@alicememory``, and no longer says pulling a clone is the whole
+    refresh. The plugin page keeps the ``--config data_dir`` option and the
+    either-or rule with ``alice-memory install --host claude-code``.
+
+    Mutations, each one alone: put the clone-only text back into one file (the
+    old command block or the old prose); put the path command before the
+    shorthand; change the shorthand to another repository name or case; drop the
+    HTTPS URL, the SSH fallback sentence or the clone path from one file; put
+    "pull your clone so its marketplace file carries the new pin" back into the
+    plugin README; drop ``claude plugin update alice-memory@alicememory`` from
+    it; drop the ``--config data_dir`` sentence or the either-or rule from the
+    plugin page. This test fails.
+    """
+
+    shorthand = "claude plugin marketplace add samrusani/AliceMemory"
+    https = "https://github.com/samrusani/AliceMemory.git"
+    clone = "claude plugin marketplace add <path to the clone>"
+    names = (
+        "README.md",
+        "docs/alpha/quickstart.md",
+        "docs/integrations/claude-code-plugin.md",
+        "plugins/alice-memory/README.md",
+    )
+    for name in names:
+        raw = (ROOT / name).read_text(encoding="utf-8")
+        text = " ".join(raw.split())
+        first = raw.index("claude plugin marketplace add ")
+        assert raw[first:].startswith(shorthand), name
+        assert raw[first + len(shorthand)] in "`\n", name
+        assert text.count(shorthand) == 1, name
+        assert https in text, name
+        assert text.index(shorthand) < text.index(https) < text.index(clone), name
+        assert "set to use SSH for GitHub and you have no key" in text, name
+        assert "claude plugin install alice-memory@alicememory" in text, name
+        for gone in (
+            "Clone this repository and run:",
+            "Clone this repository, which checks out `main`, and run:",
+            "Clone the repository, which checks out `main`, and run:",
+            "clone this repository, run",
+            "pull your clone so its marketplace file carries the new pin",
+        ):
+            assert gone not in text, (name, gone)
+
+    plugin_readme = " ".join((PLUGIN / "README.md").read_text(encoding="utf-8").split())
+    assert (
+        "Auto-update is off for a third-party marketplace. After a release is published, "
+        "refresh the `alicememory` marketplace so it carries the new pin, then run "
+        "`claude plugin update alice-memory@alicememory`. If you added a clone, pull it first."
+    ) in plugin_readme
+
+    page = " ".join((ROOT / "docs" / "integrations" / "claude-code-plugin.md").read_text(encoding="utf-8").split())
+    assert (
+        "`claude plugin install alice-memory@alicememory --config data_dir=<absolute path>` "
+        "sets the option at install."
+    ) in page
+    assert "Use the plugin or `alice-memory install --host claude-code`, not both." in page
 
 
 def test_the_hook_help_names_the_plugin_option(
