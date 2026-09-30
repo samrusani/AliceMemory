@@ -52,6 +52,7 @@ from .runtime import (
     _vnext_store_context as _vnext_store_context,
 )
 from .types import (
+    MCPInvalidRequestError as MCPInvalidRequestError,
     MCPRuntimeContext as MCPRuntimeContext,
     MCPToolError as MCPToolError,
     MCPToolNotFoundError as MCPToolNotFoundError,
@@ -76,6 +77,7 @@ from .types import (
 
 __all__ = [
     "AGENT_API_KEY_ENV",
+    "MCPInvalidRequestError",
     "MCPRuntimeContext",
     "MCPToolError",
     "MCPToolNotFoundError",

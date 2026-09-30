@@ -11,6 +11,7 @@ from uuid import UUID
 import pytest
 
 from alicebot_api import mcp_server
+from alicebot_api.mcp.types import MCPInvalidRequestError
 from alicebot_api.mcp_tools import MCPRuntimeContext, MCPToolError, MCPToolNotFoundError
 
 
@@ -88,6 +89,17 @@ def _tool_error_payload(response: dict[str, object]) -> dict[str, object]:
                 }
             },
         ),
+        # The one failure whose message is not static: counts and a limit the
+        # client can act on. It is caught before its base class, MCPToolError.
+        (
+            MCPInvalidRequestError("query has 500 distinct search terms; the limit is 499. Use a shorter query."),
+            {
+                "error": {
+                    "code": "invalid_request",
+                    "message": "query has 500 distinct search terms; the limit is 499. Use a shorter query.",
+                }
+            },
+        ),
     ),
 )
 def test_mcp_wire_tool_errors_are_stable_and_serialized_once(
@@ -105,6 +117,16 @@ def test_mcp_wire_tool_errors_are_stable_and_serialized_once(
 
     assert response is not None
     assert _tool_error_payload(response) == expected
+
+
+def test_an_invalid_request_error_is_still_an_mcp_tool_error() -> None:
+    """Code that catches ``MCPToolError`` keeps catching it.
+
+    Mutation: make ``MCPInvalidRequestError`` a plain ``ValueError``. The
+    Hermes compatibility adapter and any other ``except MCPToolError`` miss it.
+    """
+
+    assert issubclass(MCPInvalidRequestError, MCPToolError)
 
 
 @pytest.mark.parametrize(

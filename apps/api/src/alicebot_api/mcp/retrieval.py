@@ -208,6 +208,10 @@ def _handle_alice_recall(context: MCPRuntimeContext, arguments: Mapping[str, obj
         # Reuse the hybrid retrieval stages (Postgres FTS + pgvector) that back
         # vNext context packs so recall and context packs rank identically.
         service = VNextRetrievalService(store)
+        # Recall always searches sources (include_sources only gates whether the
+        # excerpts come back), so a query the source search cannot take is
+        # refused here, before the memory, vector and graph stages run.
+        service.require_source_query_searchable(query)
         fts_rows, fts_source = service._memory_fts_rows(
             query=query,
             domains=domains,
