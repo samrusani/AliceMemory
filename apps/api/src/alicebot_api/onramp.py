@@ -16,9 +16,10 @@ Subcommands:
   the audit trail survive the round trip. ``--quarantine`` removes the
   credential from each named memory and from the records derived from it,
   and reports any other copies it finds. Import refuses a memory row that
-  holds credential material. Every other record type is restored, and the
-  receipt lists the table, id and column of each that holds credential-shaped
-  text.
+  holds credential material in a column the credential check reads. Every
+  other record type is restored, and the receipt lists the table, id and
+  column of each record column that holds credential-shaped text, including
+  the memory columns the check does not read.
 - ``reindex-embeddings``: rebuild missing or provider/model-incompatible
   vectors in place after an import, upgrade, or embedding-model change.
 - ``brief``: print a labelled session brief (committed facts and imported
@@ -1791,7 +1792,9 @@ def _write_export(
     through the same credential check import applies, so the owner hears
     about a row import will refuse while the source vault still exists.
     When ``record_hits`` is given, every other record is read the way import
-    reads it, and each column that holds credential-shaped text is added.
+    reads it, and each column that holds credential-shaped text is added. A
+    memory row contributes its columns the check does not read, unless the
+    check refuses the row, which is listed under ``credential_findings`` only.
     Import restores those records and lists them, so they are not a refusal.
     """
     with _prepared_export_connection(db_path, user_id) as conn:
@@ -1813,12 +1816,14 @@ def _write_export(
         written = 0
         for record_type, row in _export_rows(conn, user_id):
             line = _export_line(record_type, row) + "\n"
-            if credential_findings is not None and record_type == "memory" and isinstance(row, Mapping):
+            finding = None
+            if record_type == "memory" and isinstance(row, Mapping):
                 # The header is line 1, so this record lands on line written + 2.
                 finding = _memory_record_credential_finding(row, line_no=written + 2)
-                if finding is not None:
-                    credential_findings.append(finding)
-            if record_hits is not None and record_type != "memory" and isinstance(row, Mapping):
+            if finding is not None and credential_findings is not None:
+                credential_findings.append(finding)
+            if record_hits is not None and finding is None and isinstance(row, Mapping):
+                # A memory row import refuses is listed above and not here.
                 record_hits.extend(_record_credential_hits(record_type, row, line_no=written + 2))
             stream.write(line)
             digest.update(line.encode("utf-8"))
@@ -1837,9 +1842,9 @@ def _write_export(
 
 
 def _export_record_hit_lines(hits: Sequence["_RecordCredentialHit"]) -> list[str]:
-    """stderr lines for credential-shaped text in non-memory records, or none.
+    """stderr lines for credential-shaped text import does not refuse, or none.
 
-    Named apart from the memory warning: import does not refuse these.
+    Named apart from the memory warning: import restores these records.
     """
     if not hits:
         return []
@@ -1849,7 +1854,8 @@ def _export_record_hit_lines(hits: Sequence["_RecordCredentialHit"]) -> list[str
     ]
     lines.append(
         "alice-memory: note: alice-memory import restores these records unchanged and lists them "
-        "on its receipt. It refuses only memory rows."
+        "on its receipt. It refuses a memory row only for credential-shaped text in its title, "
+        "text, summary, value, metadata, key or project."
     )
     return lines
 
@@ -2107,11 +2113,13 @@ class _CredentialFinding:
 
 @dataclass(frozen=True)
 class _RecordCredentialHit:
-    """One column of a non-memory record that holds credential-shaped text.
+    """One record column that holds credential-shaped text and is not refused.
 
     Never the text itself. Import and export list these and go on: a vault
     from before the credential floor can legitimately hold a secret in a
-    source, and no SQLite command removes a source.
+    source, and no SQLite command removes a source. The columns are those of
+    every non-memory record, and those of a memory row that the credential
+    check does not read (see ``_MEMORY_FLOOR_COLUMNS``).
     """
 
     line_no: int
@@ -2225,6 +2233,14 @@ def _memory_record_credential_finding(record: Mapping[str, object], *, line_no: 
 # Columns import never stores from the file: user_id is rebound to the
 # importing user, so a value the file carries there reaches no row.
 _NOT_STORED_FROM_FILE = frozenset({"user_id"})
+# The memory columns the credential check reads (``_memory_record_credential_fields``).
+# A memory row that holds credential material in one of them is refused, so the
+# report reads the rest of the row: trust_reason, created_by_agent_id (recall
+# returns it as writer.id), the ids, the model name and the digests. The summary
+# is left out because it is read only when it is not a copy of the text.
+_MEMORY_FLOOR_COLUMNS = frozenset(
+    {"title", "canonical_text", "summary", "value", "metadata_json", "memory_key", "project_id"}
+)
 _RECEIPT_ID_MAX_CHARS = 128
 
 
@@ -2246,21 +2262,23 @@ def _is_structural_value(value: object) -> bool:
     return isinstance(value, str) and _STRUCTURAL_VALUE.fullmatch(value) is not None
 
 
-def _non_memory_credential_columns(record_type: str, record: Mapping[str, object]) -> tuple[str, ...]:
-    """The columns of one non-memory record that hold credential-shaped text.
+def _reported_credential_columns(record_type: str, record: Mapping[str, object]) -> tuple[str, ...]:
+    """The columns of one record that hold credential-shaped text and are not refused.
 
     Every column the import stores, read by value with the same pair that
     ``_quarantine_credential_reports`` uses: ``_quarantine_text_column`` picks
     the text and JSON columns, and ``credential_verdict`` reads each. Ids and
     hashes are read too, because an id is shown to a model in recall results,
-    except a value that is wholly a UUID, a digest or a timestamp.
+    except a value that is wholly a UUID, a digest or a timestamp. A memory row
+    is read only in the columns the credential check leaves out.
     """
 
     _table, columns = _RECORD_SPECS[record_type]
+    skipped = _NOT_STORED_FROM_FILE | (_MEMORY_FLOOR_COLUMNS if record_type == "memory" else frozenset())
     return tuple(
         column
         for column in columns
-        if column not in _NOT_STORED_FROM_FILE
+        if column not in skipped
         and _quarantine_text_column(record.get(column))
         and not _is_structural_value(record.get(column))
         and credential_verdict(record.get(column)) is not None
@@ -2274,7 +2292,7 @@ def _record_credential_hits(
     row_id = str(record.get("id"))
     return [
         _RecordCredentialHit(line_no=line_no, table=table, row_id=row_id, column=column)
-        for column in _non_memory_credential_columns(record_type, record)
+        for column in _reported_credential_columns(record_type, record)
     ]
 
 
@@ -2335,7 +2353,8 @@ def _validate_import_file(
 
     Every other record type is read too, but only to report: the table, id
     and column of each hit come back in ``record_credential_hits`` and the
-    import goes on.
+    import goes on. A memory row the check does not refuse is read in the
+    columns the check leaves out.
     """
     versioned: bool | None = None
     footer: dict[str, object] | None = None
@@ -2457,9 +2476,9 @@ def _validate_import_file(
                     finding = _memory_record_credential_finding(record, line_no=line_no)
                     if finding is not None:
                         credential_findings.append(finding)
-                else:
-                    # Reported, never refused. See _RecordCredentialHit.
-                    record_hits.extend(_record_credential_hits(record_type, record, line_no=line_no))
+                # Reported, never refused. See _RecordCredentialHit. A memory row the
+                # check refuses aborts the import before the receipt prints.
+                record_hits.extend(_record_credential_hits(record_type, record, line_no=line_no))
                 if progress is not None and (record_count + 1) % _IMPORT_PROGRESS_EVERY == 0:
                     progress(f"alice-memory: validated {record_count + 1} records")
                 counts[record_type] += 1
@@ -3244,7 +3263,7 @@ def _print_import_summary(
         # leftover, with the command that removes it. Otherwise the line is
         # printed every time, so a zero shows the check ran. The matched text
         # is never printed.
-        print(f"credential-shaped text in non-memory records: {len(record_hits)}")
+        print(f"credential-shaped text in records import does not refuse: {len(record_hits)}")
         for hit in sorted(record_hits, key=lambda item: (item.table, item.row_id, item.column)):
             print(f"  {_record_hit_line(hit)}")
         if record_hits:

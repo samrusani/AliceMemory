@@ -1,10 +1,12 @@
-"""Backup import reports credential-shaped text in every non-memory record, and doctor reads chunk text.
+"""Backup import reports credential-shaped text in records it does not refuse, and doctor reads chunk text.
 
-Import refuses a backup when a memory row holds credential material. The other
-record types (sources, chunks, revisions, provenance quotes, loops, entities,
-edges, relationship and event rows) are restored unchanged, and a vault from
-before the floor legitimately holds a secret in a source that no SQLite command
-removes. So import does not refuse them. It lists each table, id and column
+Import refuses a backup when a memory row holds credential material in a column
+the credential check reads. The other record types (sources, chunks, revisions,
+provenance quotes, loops, entities, edges, relationship and event rows) are
+restored unchanged, and a vault from before the floor legitimately holds a
+secret in a source that no SQLite command removes. So import does not refuse
+them. The memory columns the check leaves out (trust_reason, created_by_agent_id
+and the rest) are restored unchanged too. Import lists each table, id and column
 that holds credential-shaped text in the receipt, never the text itself, and
 exits 0. ``alice-memory export`` lists the same rows on stderr. The doctor
 reads source chunk text, where a captured document keeps its body.
@@ -33,7 +35,7 @@ from alicebot_api.sqlite_store import sqlite_user_connection
 from tests.unit.test_sqlite_onramp import USER_ID, _seed_full_graph
 
 USER = str(USER_ID)
-HEADING = "credential-shaped text in non-memory records: "
+HEADING = "credential-shaped text in records import does not refuse: "
 
 # One case per column the importer stores verbatim and a model can read back.
 COLUMNS = [
@@ -348,7 +350,7 @@ def test_the_file_user_id_is_not_scanned_because_import_does_not_store_it(tmp_pa
 
 
 def test_credential_shaped_text_in_a_memory_is_still_refused(tmp_path: Path, seeded: tuple[Path, _Export], capfd) -> None:
-    """Report-only applies to non-memory records. Loosen the memory floor and this fails."""
+    """Report-only applies to the columns the memory check does not read. Loosen the memory floor and this fails."""
     _database, export = seeded
     token = _token("memory")
     record = export.first("memory")
@@ -601,3 +603,134 @@ def test_export_lists_a_credentialed_memory_once_and_not_as_a_restorable_record(
     assert len([line for line in err.splitlines() if memory["id"] in line]) == 1, err
     assert "restores these records" not in err
     assert "holds credential-shaped text" not in err
+
+
+# The memory columns the credential check does not read. A token in one is restored and listed.
+MEMORY_COLUMNS_NOT_READ = [
+    "trust_reason",
+    "extracted_by_model",
+    "commit_digest",
+    "confirmation_id",
+    "created_by_agent_id",
+    "run_id",
+    "agent_profile_id",
+    "source_event_ids",
+    "supersedes",
+    "fact_keys",
+]
+
+
+@pytest.mark.parametrize("column", MEMORY_COLUMNS_NOT_READ)
+def test_a_memory_column_the_credential_check_does_not_read_is_listed_and_restored(
+    tmp_path: Path, seeded: tuple[Path, _Export], capfd: pytest.CaptureFixture[str], column: str
+) -> None:
+    """recall returns created_by_agent_id as writer.id and the retrieval payloads carry trust_reason and
+    the model name. Leave memory rows out of the record scan, or drop one of these columns from it, and
+    the receipt says 0 for a token that was stored."""
+    _database, export = seeded
+    token = _token(f"memory.{column}")
+    record = export.first("memory")
+    record[column] = [token] if column == "source_event_ids" else f"Service login {token}"
+    backup = export.write(tmp_path / "forged.jsonl")
+    capfd.readouterr()
+    code, target = _import(tmp_path, backup)
+    captured = capfd.readouterr()
+    assert code == 0, captured.err
+    assert token not in captured.out + captured.err
+    assert f"memories {record['id']} {column}" in _hit_lines(captured.out)
+    with sqlite_user_connection(target, USER_ID) as conn:
+        stored = conn.execute(f"SELECT {column} FROM memories WHERE id = ?", (record["id"],)).fetchone()
+    assert token in str(stored[column]), "import restores the row unchanged"
+
+
+def test_export_lists_a_token_in_a_memory_column_the_check_does_not_read(
+    tmp_path: Path, seeded: tuple[Path, _Export], capfd: pytest.CaptureFixture[str]
+) -> None:
+    """Export reads a memory row's other columns the way import does, so the owner hears of it while the
+    source vault exists."""
+    database, _original = seeded
+    token = _token("export-writer")
+    with sqlite_user_connection(database, USER_ID) as conn:
+        memory = conn.execute("SELECT id FROM memories LIMIT 1").fetchone()
+        conn.execute("UPDATE memories SET created_by_agent_id = ? WHERE id = ?", (f"agent {token}", memory["id"]))
+    capfd.readouterr()
+    assert onramp_main(["export", "--db", str(database), "--user-id", USER, "--out", str(tmp_path / "x.jsonl")]) == 0
+    err = capfd.readouterr().err
+    assert token not in err
+    listed = [line for line in err.splitlines() if memory["id"] in line]
+    assert len(listed) == 1 and "created_by_agent_id" in listed[0], err
+    assert "restores these records unchanged" in err
+
+
+def test_a_refused_memory_is_listed_once_even_when_another_column_holds_a_token(
+    tmp_path: Path, seeded: tuple[Path, _Export], capfd: pytest.CaptureFixture[str]
+) -> None:
+    """A row the memory check refuses belongs to the memory warning. Read its other columns as well
+    (drop the finding is None condition in the export loop) and export lists it twice, the second time
+    under the note that import restores it."""
+    database, _original = seeded
+    with sqlite_user_connection(database, USER_ID) as conn:
+        memory = conn.execute("SELECT id FROM memories LIMIT 1").fetchone()
+        conn.execute(
+            "UPDATE memories SET canonical_text = ?, trust_reason = ? WHERE id = ?",
+            (f"Service login {_token('both-text')}", f"Service login {_token('both-reason')}", memory["id"]),
+        )
+    capfd.readouterr()
+    assert onramp_main(["export", "--db", str(database), "--user-id", USER, "--out", str(tmp_path / "x.jsonl")]) == 0
+    err = capfd.readouterr().err
+    assert len([line for line in err.splitlines() if memory["id"] in line]) == 1, err
+    assert "restores these records" not in err
+
+
+def test_the_columns_the_memory_check_reads_are_not_read_again_by_the_record_scan(
+    tmp_path: Path, seeded: tuple[Path, _Export], capfd: pytest.CaptureFixture[str]
+) -> None:
+    """A rollup card keeps its key in metadata_json and value. The check exempts that one key, because
+    read as a pair it is credential-shaped. Read those columns again in the record scan (empty
+    _MEMORY_FLOOR_COLUMNS) and the product's own card is reported."""
+    _database, export = seeded
+    key = "scope:0123456789abcdef:topic:billing-report-weekly"
+    assert credential_verdict({"rollup_key": key}) is not None, "as a pair the product key is credential-shaped"
+    record = export.first("memory")
+    record["metadata_json"] = {"rollup_key": key}
+    record["value"] = {"rollup": {"rollup_key": key}}
+    backup = export.write(tmp_path / "rollup.jsonl")
+    capfd.readouterr()
+    code, _target = _import(tmp_path, backup)
+    captured = capfd.readouterr()
+    assert code == 0, captured.err
+    assert HEADING + "0" in captured.out.splitlines()
+
+
+def test_a_vault_with_agent_written_memories_reports_zero(tmp_path: Path, capfd: pytest.CaptureFixture[str]) -> None:
+    """The product's own agent writes fill created_by_agent_id, agent_profile_id and the digests. None
+    of them may be reported."""
+    database = tmp_path / "origin" / "memory.db"
+    database.parent.mkdir()
+    bootstrap_database(database, user_id=USER_ID, user_email="local@alice")
+    context = MCPRuntimeContext(database_url=sqlite_url_for_path(database), user_id=USER)
+    for index, agent in enumerate(("hermes-keyed", "codex-helper", "claude-code")):
+        result = call_mcp_tool(
+            context,
+            name="alice_memory_commit",
+            arguments={
+                "title": f"Agent note {index}",
+                "canonical_text": f"Agent {agent} noted that tide table {index} is in the harbour file.",
+                "memory_type": "decision",
+                "domain": "personal",
+                "sensitivity": "private",
+                "confidence": 0.9,
+                "source_type": "direct_user_instruction",
+                "agent_id": agent,
+                "agent_type": "personal_assistant",
+                "permission_profile": "trusted_local_agent",
+            },
+        )
+        assert result["status"] in {"committed", "confirmation_required"}, result
+    export = _export(database, tmp_path / "origin.jsonl")
+    assert any(item["record"].get("created_by_agent_id") for item in export.body if item["record_type"] == "memory")
+    capfd.readouterr()
+    code, _target = _import(tmp_path, export.write(tmp_path / "clean.jsonl"))
+    out = capfd.readouterr().out
+    assert code == 0
+    assert HEADING + "0" in out.splitlines()
