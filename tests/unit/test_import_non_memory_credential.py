@@ -709,7 +709,7 @@ def test_a_vault_with_agent_written_memories_reports_zero(tmp_path: Path, capfd:
     database.parent.mkdir()
     bootstrap_database(database, user_id=USER_ID, user_email="local@alice")
     context = MCPRuntimeContext(database_url=sqlite_url_for_path(database), user_id=USER)
-    for index, agent in enumerate(("hermes-keyed", "codex-helper", "claude-code")):
+    for index, agent in enumerate(("hermes-keyed", "codex-helper", "coding-agent")):
         result = call_mcp_tool(
             context,
             name="alice_memory_commit",
