@@ -452,6 +452,12 @@ def _matches_project_scope(resource_scope: tuple[str, ...], project_scope: tuple
 # _EXCERPT_QUERY_MAX_PATTERNS patterns is passed through unchanged too, at
 # about half the measured limit so another SQLite build, or a clause added
 # to the search, still has room.
+#
+# The byte limit is measured twice. The search casefolds every pattern before
+# it binds it, and some characters grow when they casefold (U+0390 goes from
+# 2 bytes to 6), so 18,000 bytes of them bind a 54,000 byte pattern and pass
+# SQLite's 50,000 byte cap. A query is passed whole only when both its raw
+# and its casefolded bytes are within the limit.
 _EXCERPT_QUERY_MAX_BYTES = 40_000
 _EXCERPT_QUERY_MAX_PATTERNS = 500
 _EXCERPT_QUERY_MAX_CHARS = 300
@@ -477,12 +483,15 @@ def _bound_excerpt_query(text: str) -> str:
 def _query_fits_the_search(text: str) -> bool:
     """True when the source search can take ``text`` whole.
 
-    The byte check comes first, so a huge query is never tokenized. The
-    pattern count is the search's own ``_search_patterns``, not a second
-    tokenizer that could drift from it.
+    The raw byte check comes first, so a huge query is never casefolded or
+    tokenized. The casefolded bytes are what the search binds into its LIKE
+    pattern. The pattern count is the search's own ``_search_patterns``, not
+    a second tokenizer that could drift from it.
     """
 
     if len(text.encode("utf-8", "surrogatepass")) > _EXCERPT_QUERY_MAX_BYTES:
+        return False
+    if len(text.casefold().encode("utf-8", "surrogatepass")) > _EXCERPT_QUERY_MAX_BYTES:
         return False
     return len(_search_patterns(text)) <= _EXCERPT_QUERY_MAX_PATTERNS
 

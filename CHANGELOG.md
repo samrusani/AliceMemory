@@ -24,20 +24,29 @@
 - A newest fact longer than about 50,000 UTF-8 bytes no longer wipes the
   session brief. An excerpt query over 40,000 UTF-8 bytes, whether a fact,
   an explicit query, or a source title, is bounded to a few hundred
-  characters of its FTS tokens. A shorter query is used exactly as before,
-  so an ordinary brief is unchanged. The brief still prints its facts and
+  characters of its FTS tokens. A query under that size with few enough
+  distinct search terms (the next entry) is used exactly as before, so an
+  ordinary brief is unchanged. The brief still prints its facts and
   loops, and its sources when the fact's words match one. In v0.18.0 the
   same fact raises a SQLite pattern error and the hook prints `{}`.
-- A newest fact, open loop, explicit query, or source title with more than
-  about 990 distinct words no longer wipes the session brief, even when it is
-  well under 40,000 UTF-8 bytes (about 32 KB of ordinary prose, or 7 KB of
-  short distinct tokens). SQLite refuses the source search's pattern list at
-  that size with `Expression tree is too large`, so the hook printed `{}` and
-  `alice-memory brief` exited 1. An excerpt query with more than 499 distinct
-  words is now bounded to a few hundred characters of its FTS tokens, the way
-  a query over 40,000 bytes is. A query with 499 or fewer is used exactly as
-  before, and a repeated word counts once. In v0.18.0 the same text raises
-  that error and the hook prints `{}`.
+- A newest fact, open loop, explicit query, or source title with too many
+  distinct search terms no longer wipes the session brief, even when it is
+  well under 40,000 UTF-8 bytes. A search term is an ASCII word of two or
+  more characters that is not a stopword, and a hyphenated id counts once.
+  SQLite refuses the source search at about 990 of them, which is roughly
+  30 KB of ordinary prose or 3 KB of two-character tokens. The hook then
+  printed `{}` and `alice-memory brief` exited 1, with the SQLite error
+  `Expression tree is too large`. An excerpt query with more than 499
+  distinct search terms is now bounded to a few hundred characters of its
+  FTS tokens, the way a query over 40,000 bytes is. A query with 499 or
+  fewer is used exactly as before, and a repeated word counts once. The
+  40,000 byte limit is also measured after case folding now, because the
+  search binds the folded text and some characters grow when folded. A
+  fact of 9,000 U+0390 characters is 18,000 bytes, folds to 54,000, and
+  was refused with `LIKE or GLOB pattern too complex`. In v0.18.0 the same
+  text raises a SQLite error and the hook prints `{}`. `alice_recall` and
+  `alice_context_pack` are not changed: a query with 991 or more distinct
+  search terms still fails there with the same error.
 - `alice-memory install --host hermes` leaves a comment in place when the
   `alice` block, with comment lines and inline comments removed, already
   matches what install would write. The receipt says unchanged and the
