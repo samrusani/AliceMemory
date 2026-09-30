@@ -211,7 +211,7 @@ def test_codex_new_file_shape(tmp_path: Path, capsys: pytest.CaptureFixture[str]
     assert text.startswith("[mcp_servers.alice]\n")
     assert stat.S_IMODE(path.stat().st_mode) == 0o600
     assert stat.S_IMODE(path.parent.stat().st_mode) == 0o700
-    assert "session_start: none" in out
+    assert "session_start: written to hooks.json, not trusted yet" in out
     assert "format: toml, edited as text" in out
 
     empty_home = tmp_path / "empty-home"
@@ -669,87 +669,6 @@ def test_codex_other_layer_note(tmp_path: Path, capsys: pytest.CaptureFixture[st
     assert f"note: {layer} defines mcp_servers.alice, and Codex merges it" in out
 
 
-def test_codex_json_mode_hook_note(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    home = tmp_path / "home"
-    hooks = home / ".codex" / "hooks.json"
-    hooks.parent.mkdir(parents=True)
-    hooks.write_text(
-        json.dumps(
-            {
-                "hooks": {
-                    "SessionStart": [
-                        {
-                            "hooks": [
-                                {
-                                    "type": "command",
-                                    "command": "uvx alice-memory-session-start --data-dir /v",
-                                }
-                            ]
-                        }
-                    ]
-                }
-            }
-        ),
-        encoding="utf-8",
-    )
-    code, out, err = _install(home, tmp_path / "vault", capsys)
-    assert code == 0, err
-    assert (
-        "note: Codex rejects the output of alice-memory-session-start. "
-        "Remove it from hooks.json"
-    ) in out
-    hooks.write_text(
-        json.dumps(
-            {
-                "hooks": {
-                    "SessionStart": [
-                        {
-                            "hooks": [
-                                {
-                                    "type": "command",
-                                    "command": (
-                                        "uvx alice-memory-session-start --format json "
-                                        "--format markdown"
-                                    ),
-                                }
-                            ]
-                        }
-                    ]
-                }
-            }
-        ),
-        encoding="utf-8",
-    )
-    code, out, err = _install(home, tmp_path / "vault-markdown", capsys)
-    assert code == 0, err
-    assert "Codex rejects the output" not in out
-    hooks.write_text(
-        json.dumps(
-            {
-                "hooks": {
-                    "SessionStart": [
-                        {
-                            "hooks": [
-                                {
-                                    "type": "command",
-                                    "command": (
-                                        "uvx alice-memory-session-start --format markdown "
-                                        "--format json"
-                                    ),
-                                }
-                            ]
-                        }
-                    ]
-                }
-            }
-        ),
-        encoding="utf-8",
-    )
-    code, out, err = _install(home, tmp_path / "vault-json", capsys)
-    assert code == 0, err
-    assert "note: Codex rejects the output of alice-memory-session-start" in out
-
-
 def test_codex_changed_while_running_refuses(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -828,9 +747,9 @@ def test_codex_receipts_never_say_json(tmp_path: Path, capsys: pytest.CaptureFix
     assert code == 0, err
     assert "format: toml, edited as text" in out
     assert "format: json" not in out
-    assert "session_start: none" in out
+    assert "session_start: planned (written to hooks.json, not trusted yet)" in out
     snippet = out.split("snippet:", 1)[1]
-    assert not snippet.lstrip().startswith("{")
+    assert snippet.lstrip().startswith("[mcp_servers.alice]")
 
 
 def test_codex_uv_cache_launcher_replaced_exactly(
@@ -2102,49 +2021,6 @@ def test_codex_dry_run_prints_dates_unquoted(
     assert '"07:32:00"' not in out
 
 
-def test_codex_refusal_keeps_the_json_hook_note(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    home = tmp_path / "home"
-    hooks = home / ".codex" / "hooks.json"
-    hooks.parent.mkdir(parents=True)
-    hooks.write_text(
-        json.dumps(
-            {
-                "hooks": {
-                    "SessionStart": [
-                        {
-                            "hooks": [
-                                {
-                                    "type": "command",
-                                    "command": "uvx alice-memory-session-start --format json",
-                                }
-                            ]
-                        }
-                    ]
-                }
-            }
-        ),
-        encoding="utf-8",
-    )
-    original = (
-        "[mcp_servers.alice]\n"
-        'command = "uvx"\n'
-        'args = ["alice-memory", "mcp", "--data-dir", "/old"]\n'
-        'cwd = "/tmp/work"\n'
-    )
-    path = _seed(home, original)
-    before = path.read_bytes()
-    code, out, err = _install(home, tmp_path / "vault", capsys)
-    assert code == 1, (out, err)
-    assert path.read_bytes() == before
-    assert "holds cwd" in out
-    assert (
-        "note: Codex rejects the output of alice-memory-session-start. "
-        "Remove it from hooks.json"
-    ) in out
-
-
 def test_codex_failed_host_receipt_names_the_path(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -2429,119 +2305,6 @@ _INVALID_CARRIED_ENTRY = (
 )
 
 
-def _deep_json(kind: str, depth: int) -> str:
-    if kind == "list":
-        return "[" * depth + "]" * depth
-    return '{"a":' * depth + "1" + "}" * depth
-
-
-@pytest.mark.parametrize("mode", ["written", "dry-run", "refused"])
-@pytest.mark.parametrize("kind", ["list", "dict"])
-@pytest.mark.parametrize("depth", [100_000, 5_000])
-def test_codex_deeply_nested_hooks_file_gives_no_note_and_no_crash(
-    depth: int,
-    kind: str,
-    mode: str,
-    tmp_path: Path,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    """hooks.json is only read for advice, so a file nested too deep is skipped.
-
-    At 100,000 levels ``json.loads`` raises RecursionError. At 5,000 levels
-    Python 3.12 parses the document and the recursive command walk overflows
-    instead. On an interpreter that fails one step sooner the other case is
-    covered by the same catch. Both used to end in ``unexpected
-    RecursionError`` for a real run, a dry run and a refusal, and the file
-    is never changed.
-
-    Mutation 1: drop RecursionError from the catch around ``json.loads`` in
-    ``_codex_hook_note``. Install fails with ``unexpected RecursionError``.
-    The 100,000 cases fail.
-
-    Mutation 2: drop the RecursionError catch around
-    ``_codex_hook_commands``. The 5,000 cases fail when the interpreter
-    parses that depth, and ``test_codex_hook_note_skips_a_file_when_the_command_walk_overflows``
-    fails on any interpreter.
-    """
-
-    home = tmp_path / "home"
-    hooks = home / ".codex" / "hooks.json"
-    hooks.parent.mkdir(parents=True)
-    hooks.write_text(_deep_json(kind, depth), encoding="utf-8")
-    hooks_before = hooks.read_bytes()
-    seeded = 'model = "x"\n'
-    if mode == "refused":
-        seeded += _ALICE_ENTRY + 'cwd = "/tmp/work"\n'
-    path = _seed(home, seeded)
-    before = path.read_bytes()
-    extra = ("--dry-run",) if mode == "dry-run" else ()
-
-    code, out, err = _install(home, tmp_path / "vault", capsys, *extra)
-
-    lines = out.splitlines()
-    assert "reason: unexpected RecursionError" not in lines, (out, err)
-    assert not [line for line in lines if line.startswith("note: Codex rejects")]
-    assert hooks.read_bytes() == hooks_before
-    if mode == "refused":
-        assert code == 1, (out, err)
-        assert "action: refused" in lines
-        assert any(line.startswith("reason: ") and "holds cwd" in line for line in lines)
-        assert path.read_bytes() == before
-    elif mode == "dry-run":
-        assert code == 0, (out, err)
-        assert "action: dry-run" in lines
-        assert path.read_bytes() == before
-    else:
-        assert code == 0, (out, err)
-        assert "action: written" in lines
-        assert "mcp_servers.alice" in path.read_text(encoding="utf-8")
-
-
-def test_codex_hook_note_skips_a_file_when_the_command_walk_overflows(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    """A hooks.json that parses can still overflow the command walk.
-
-    The depth where that happens depends on the interpreter and on how deep
-    the caller already is, so the walk is made to overflow instead. A
-    document that names the JSON-mode hook still parses, so without the
-    catch this would either crash or, if the walk were skipped, say nothing.
-
-    Mutation: call ``_codex_hook_commands`` outside the RecursionError catch
-    in ``_codex_hook_note``. The note call reports a crash, so the
-    ``is None`` assertion fails.
-    """
-
-    home = tmp_path / "home"
-    codex_home = home / ".codex"
-    codex_home.mkdir(parents=True)
-    (codex_home / "hooks.json").write_text(
-        json.dumps({"command": "uvx alice-memory-session-start --format json"}),
-        encoding="utf-8",
-    )
-    assert host_install._codex_hook_note(codex_home) == (
-        "note: Codex rejects the output of alice-memory-session-start. "
-        "Remove it from hooks.json"
-    )
-
-    def overflow(_node: object) -> list[str]:
-        raise RecursionError("maximum recursion depth exceeded")
-
-    monkeypatch.setattr(host_install, "_codex_hook_commands", overflow)
-    try:
-        note = host_install._codex_hook_note(codex_home)
-    except RecursionError as crash:
-        note = f"crashed with {crash!r}"
-    assert note is None
-
-    code, out, err = _install(home, tmp_path / "vault", capsys)
-    assert code == 0, (out, err)
-    assert "action: written" in out.splitlines()
-    assert "Codex rejects" not in out
-
-
 def test_codex_refusal_names_the_first_invalid_key_in_carried_order(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -2794,85 +2557,6 @@ def test_codex_dry_run_hidden_line_names_a_masked_env_vars_value(
     assert f"hidden: install printed these values from your file as <hidden>: {clause}" in lines
 
 
-_HOOK_NOTE = (
-    "note: Codex rejects the output of alice-memory-session-start. "
-    "Remove it from hooks.json"
-)
-
-
-def _write_hooks(codex_home: Path, document: object) -> None:
-    codex_home.mkdir(parents=True, exist_ok=True)
-    (codex_home / "hooks.json").write_text(json.dumps(document), encoding="utf-8")
-
-
-def _session_start_hooks(*commands: object) -> dict[str, object]:
-    return {
-        "hooks": {
-            "SessionStart": [
-                {"hooks": [{"type": "command", "command": command} for command in commands]}
-            ]
-        }
-    }
-
-
-@pytest.mark.parametrize(
-    ("commands", "expected"),
-    [
-        (("notify-send done",), None),
-        ((7,), None),
-        ((["uvx", "alice-memory-session-start"],), None),
-        (("uvx --from alice-memory alice-memory-session-start --data-dir /v",), _HOOK_NOTE),
-        (("uvx alice-memory-session-start --format",), _HOOK_NOTE),
-        (("uvx alice-memory-session-start --format=markdown",), None),
-        (("uvx alice-memory-session-start --format=json",), _HOOK_NOTE),
-        (("uvx alice-memory-session-start --format markdown",), None),
-        (("uvx alice-memory-session-start --format markdown --format json",), _HOOK_NOTE),
-        (
-            (
-                "uvx alice-memory-session-start --format markdown",
-                "uvx alice-memory-session-start --data-dir /v",
-            ),
-            _HOOK_NOTE,
-        ),
-    ],
-    ids=[
-        "unrelated-command",
-        "integer-command",
-        "list-command",
-        "json-mode",
-        "format-as-last-word",
-        "format-equals-markdown",
-        "format-equals-json",
-        "format-markdown",
-        "last-format-wins",
-        "markdown-then-json-mode",
-    ],
-)
-def test_codex_hook_note_cases(tmp_path: Path, commands: tuple[object, ...], expected: str | None) -> None:
-    """Each case pins one rule of the hooks.json note.
-
-    Mutations: note any command, keep a non-string command, read past the
-    last word, ignore ``--format=VALUE``, or stop at the first markdown hook.
-    Each fails at least one case, on the returned value or with a crash.
-    """
-
-    codex_home = tmp_path / "codex"
-    _write_hooks(codex_home, _session_start_hooks(*commands))
-    assert host_install._codex_hook_note(codex_home) == expected
-
-
-def test_codex_hook_note_is_none_for_a_too_deep_hooks_file(tmp_path: Path) -> None:
-    """A hooks.json install cannot read gives no note at all.
-
-    Mutation: answer RecursionError with a different note. This test fails.
-    """
-
-    codex_home = tmp_path / "codex"
-    codex_home.mkdir()
-    (codex_home / "hooks.json").write_text("[" * 100000 + "]" * 100000, encoding="utf-8")
-    assert host_install._codex_hook_note(codex_home) is None
-
-
 def test_codex_layer_note_for_an_empty_alice_table(tmp_path: Path) -> None:
     """Any alice table in another layer gets the note, even an empty one.
 
@@ -2908,22 +2592,32 @@ def test_codex_locator_reads_the_entry_dir_when_the_file_parses(tmp_path: Path) 
 def test_codex_success_notes_come_from_codex_home(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """With CODEX_HOME set and no --home, notes read CODEX_HOME, not ~/.codex.
+    """With CODEX_HOME set and no --home, notes and hooks.json use CODEX_HOME, not ~/.codex.
 
-    Mutation: read the notes from <home>/.codex. This test fails.
+    Mutation: read the notes from <home>/.codex. This test fails. Mutation:
+    write hooks.json under <home>/.codex. This test fails too.
     """
 
     home = tmp_path / "home"
-    home.mkdir()
+    (home / ".codex").mkdir(parents=True)
+    decoy = home / ".codex" / "decoy.config.toml"
+    decoy.write_text('[mcp_servers.alice]\ncommand = "uvx"\n', encoding="utf-8")
     codex_home = tmp_path / "elsewhere"
-    _write_hooks(codex_home, _session_start_hooks("uvx alice-memory-session-start --data-dir /v"))
+    codex_home.mkdir()
+    layer = codex_home / "work.config.toml"
+    layer.write_text('[mcp_servers.alice]\ncommand = "uvx"\n', encoding="utf-8")
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.setenv("CODEX_HOME", str(codex_home))
     code = onramp_main(["install", "--data-dir", str(tmp_path / "vault"), "--host", "codex"])
     captured = capsys.readouterr()
     assert code == 0, captured.err
     assert (codex_home / "config.toml").is_file()
-    assert _HOOK_NOTE in captured.out.splitlines()
+    assert (codex_home / "hooks.json").is_file()
+    assert not (home / ".codex" / "hooks.json").exists()
+    lines = captured.out.splitlines()
+    assert f"note: {layer} defines mcp_servers.alice, and Codex merges it" in lines
+    assert not any(str(decoy) in line for line in lines)
+    assert f"session_start_path: {codex_home / 'hooks.json'}" in lines
 
 
 def test_codex_home_refusal_keeps_the_layer_notes(

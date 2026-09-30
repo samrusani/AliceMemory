@@ -42,6 +42,9 @@ FIRST_SESSION_START_VERSION = "0.16.0"
 # is, it names no real store, so install treats it as unset.
 DOCS_DATA_DIR_PLACEHOLDER = "/ABSOLUTE/PATH/TO/.alice"
 HIDDEN = "<hidden>"
+# The two --format values alice-memory-session-start accepts. Codex rejects the json
+# output, so its hook writes markdown.
+HOOK_OUTPUT_FORMATS = frozenset({"json", "markdown"})
 
 _UVX_NAMES = frozenset({"uvx", "uvx.exe"})
 _SCRIPT_NAMES = frozenset({MCP_SCRIPT, f"{MCP_SCRIPT}.exe"})
@@ -324,8 +327,10 @@ def shown_hook_words(words: Sequence[str]) -> tuple[list[str], int]:
     An allowlist, like the carry allowlist: a word is shown only when it is
     uvx, an absolute path to uvx, alice-memory or alice-memory-session-start,
     the bare alice-memory-session-start uvx runs, ``--from`` with a plain
-    alice-memory spec, ``--data-dir`` with its value, a plain alice-memory
-    spec, or a carried uvx option (CARRY_OPTIONS_WITH_VALUE with its value,
+    alice-memory spec, ``--data-dir`` with its value, ``--format`` with
+    ``json`` or ``markdown`` (also ``--format=json`` and ``--format=markdown``),
+    a plain alice-memory spec, or a carried uvx option
+    (CARRY_OPTIONS_WITH_VALUE with its value,
     CARRY_FLAGS). No shown word holds a URL. Every other word, an assignment
     in any shell's syntax, a curl header, anything unknown, is <hidden>.
     """
@@ -338,12 +343,17 @@ def shown_hook_words(words: Sequence[str]) -> tuple[list[str], int]:
         has_url = bool(_SCHEME.search(word))
         if pending is not None:
             kind, pending = pending, None
-            ok = (kind == "spec" and _plain_alice_spec(word)) or (kind != "spec" and not has_url)
-        elif word in ("--from", "--data-dir") or word in CARRY_OPTIONS_WITH_VALUE:
+            if kind == "format":
+                ok = word in HOOK_OUTPUT_FORMATS
+            else:
+                ok = (kind == "spec" and _plain_alice_spec(word)) or (kind != "spec" and not has_url)
+        elif word in ("--from", "--data-dir", "--format") or word in CARRY_OPTIONS_WITH_VALUE:
             ok = True
-            pending = {"--from": "spec", "--data-dir": "dir"}.get(word, "value")
+            pending = {"--from": "spec", "--data-dir": "dir", "--format": "format"}.get(word, "value")
         elif word.startswith("--from="):
             ok = _plain_alice_spec(word.split("=", 1)[1])
+        elif word.startswith("--format="):
+            ok = word.split("=", 1)[1] in HOOK_OUTPUT_FORMATS
         elif word.startswith("--data-dir=") or word.partition("=")[0] in CARRY_OPTIONS_WITH_VALUE:
             ok = not has_url
         elif not word.startswith("--") and len(word) > 2 and word[:2] in CARRY_OPTIONS_WITH_VALUE:
@@ -1142,9 +1152,17 @@ def shell_path(path: str, windows: bool | None = None) -> str:
 
 
 def hook_command(
-    launcher: Launcher, data_dir: str, *, windows: bool | None = None
+    launcher: Launcher,
+    data_dir: str,
+    *,
+    windows: bool | None = None,
+    output_format: str | None = None,
 ) -> tuple[str, str | None]:
-    """The SessionStart command for ``launcher`` on ``data_dir``, or why not."""
+    """The SessionStart command for ``launcher`` on ``data_dir``, or why not.
+
+    ``output_format`` adds ``--format <value>`` after ``--data-dir``. Codex
+    needs ``markdown``: it rejects the JSON that Cursor and Claude Code read.
+    """
 
     if windows is None:
         windows = WINDOWS_HOOKS
@@ -1152,11 +1170,38 @@ def hook_command(
     if _has_dir(argv[0]):
         argv[0] = shell_path(argv[0], windows)
     argv += ["--data-dir", shell_path(data_dir, windows)]
+    if output_format is not None:
+        argv += ["--format", output_format]
     return format_command(argv, windows=windows)
 
 
-def hook_argv(launcher: Launcher, data_dir: str) -> list[str]:
-    return [*launcher.hook_argv(), "--data-dir", data_dir]
+def hook_argv(launcher: Launcher, data_dir: str, output_format: str | None = None) -> list[str]:
+    argv = [*launcher.hook_argv(), "--data-dir", data_dir]
+    if output_format is not None:
+        argv += ["--format", output_format]
+    return argv
+
+
+def hook_output_format(command: str, *, windows: bool | None = None) -> str | None:
+    """The ``--format`` a hook command ends up with, or None when it has none.
+
+    The last ``--format VALUE`` or ``--format=VALUE`` wins, as argparse reads
+    it. A ``--format`` with no value after it is None.
+    """
+
+    words = split_command(command, windows=windows)
+    found: str | None = None
+    index = 0
+    while index < len(words):
+        word = words[index]
+        if word == "--format":
+            found = words[index + 1] if index + 1 < len(words) else None
+            index += 2
+            continue
+        if word.startswith("--format="):
+            found = word.split("=", 1)[1]
+        index += 1
+    return found
 
 
 def split_command(command: str, *, windows: bool | None = None) -> list[str]:
@@ -1369,6 +1414,7 @@ __all__ = [
     "DOCS_DATA_DIR_PLACEHOLDER",
     "FIRST_SESSION_START_VERSION",
     "HIDDEN",
+    "HOOK_OUTPUT_FORMATS",
     "HookDataDir",
     "INDEX_OPTIONS",
     "Launcher",
@@ -1386,7 +1432,9 @@ __all__ = [
     "candidate_script_dirs",
     "find_launcher",
     "format_command",
+    "hook_argv",
     "hook_command",
+    "hook_output_format",
     "hook_script_problem",
     "in_uv_cache",
     "is_install_shaped_entry",
