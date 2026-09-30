@@ -15,7 +15,10 @@ Subcommands:
   database, preserving ids and timestamps so provenance references and
   the audit trail survive the round trip. ``--quarantine`` removes the
   credential from each named memory and from the records derived from it,
-  and reports any other copies it finds.
+  and reports any other copies it finds. Import refuses a memory row that
+  holds credential material. Every other record type is restored, and the
+  receipt lists the table, id and column of each that holds credential-shaped
+  text.
 - ``reindex-embeddings``: rebuild missing or provider/model-incompatible
   vectors in place after an import, upgrade, or embedding-model change.
 - ``brief``: print a labelled session brief (committed facts and imported
@@ -86,6 +89,7 @@ import json
 import logging
 import marshal
 import os
+import re
 import shutil
 import sqlite3
 import sys
@@ -1779,12 +1783,16 @@ def _write_export(
     db_path: Path,
     user_id: UUID,
     credential_findings: list["_CredentialFinding"] | None = None,
+    record_hits: list["_RecordCredentialHit"] | None = None,
 ) -> int:
     """Write a versioned export from a read-only private SQLite snapshot.
 
     When ``credential_findings`` is given, every memory row is also run
     through the same credential check import applies, so the owner hears
     about a row import will refuse while the source vault still exists.
+    When ``record_hits`` is given, every other record is read the way import
+    reads it, and each column that holds credential-shaped text is added.
+    Import restores those records and lists them, so they are not a refusal.
     """
     with _prepared_export_connection(db_path, user_id) as conn:
         header = {
@@ -1810,6 +1818,8 @@ def _write_export(
                 finding = _memory_record_credential_finding(row, line_no=written + 2)
                 if finding is not None:
                     credential_findings.append(finding)
+            if record_hits is not None and record_type != "memory" and isinstance(row, Mapping):
+                record_hits.extend(_record_credential_hits(record_type, row, line_no=written + 2))
             stream.write(line)
             digest.update(line.encode("utf-8"))
             counts[record_type] += 1
@@ -1826,6 +1836,24 @@ def _write_export(
         return written
 
 
+def _export_record_hit_lines(hits: Sequence["_RecordCredentialHit"]) -> list[str]:
+    """stderr lines for credential-shaped text in non-memory records, or none.
+
+    Named apart from the memory warning: import does not refuse these.
+    """
+    if not hits:
+        return []
+    lines = [
+        f"alice-memory: line {hit.line_no}: {_record_hit_line(hit)} holds credential-shaped text"
+        for hit in hits
+    ]
+    lines.append(
+        "alice-memory: note: alice-memory import restores these records unchanged and lists them "
+        "on its receipt. It refuses only memory rows."
+    )
+    return lines
+
+
 def _run_export(args: argparse.Namespace) -> int:
     db_path = resolve_db_path(data_dir=args.data_dir, db=args.db)
     if not db_path.exists():
@@ -1839,6 +1867,7 @@ def _run_export(args: argparse.Namespace) -> int:
         out_path = requested_out_path.resolve()
         temp_path: Path | None = None
         credential_findings: list[_CredentialFinding] = []
+        record_hits: list[_RecordCredentialHit] = []
         try:
             _ensure_private_directory(out_path.parent)
             fd, raw_temp_path = tempfile.mkstemp(
@@ -1855,6 +1884,7 @@ def _run_export(args: argparse.Namespace) -> int:
                     db_path=db_path,
                     user_id=args.user_id,
                     credential_findings=credential_findings,
+                    record_hits=record_hits,
                 )
                 stream.flush()
                 os.fsync(stream.fileno())
@@ -1895,12 +1925,21 @@ def _run_export(args: argparse.Namespace) -> int:
                     file=sys.stderr,
                     flush=True,
                 )
+            for line in _export_record_hit_lines(record_hits):
+                print(line, file=sys.stderr, flush=True)
         except (OSError, ValueError):
             return 2
     else:
         stdout_findings: list[_CredentialFinding] = []
+        stdout_hits: list[_RecordCredentialHit] = []
         try:
-            _write_export(sys.stdout, db_path=db_path, user_id=args.user_id, credential_findings=stdout_findings)
+            _write_export(
+                sys.stdout,
+                db_path=db_path,
+                user_id=args.user_id,
+                credential_findings=stdout_findings,
+                record_hits=stdout_hits,
+            )
             for line in _credential_finding_lines(stdout_findings):
                 _stderr_line(line)
             if stdout_findings:
@@ -1909,6 +1948,8 @@ def _run_export(args: argparse.Namespace) -> int:
                     "the memories listed above in this vault (alice_memory_manage action=redact, "
                     "with ALICE_MCP_FULL_TOOLS=1), then export again."
                 )
+            for line in _export_record_hit_lines(stdout_hits):
+                _stderr_line(line)
         except (
             _BackupError,
             OSError,
@@ -1948,6 +1989,7 @@ class _ValidatedImport:
     content_sha256: str
     manifest_sha256: str
     spool_path: Path
+    record_credential_hits: tuple[_RecordCredentialHit, ...] = ()
 
 
 def _create_import_spool(path: Path) -> tuple[Path, sqlite3.Connection]:
@@ -2063,6 +2105,21 @@ class _CredentialFinding:
     fields: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class _RecordCredentialHit:
+    """One column of a non-memory record that holds credential-shaped text.
+
+    Never the text itself. Import and export list these and go on: a vault
+    from before the credential floor can legitimately hold a secret in a
+    source, and no SQLite command removes a source.
+    """
+
+    line_no: int
+    table: str
+    row_id: str
+    column: str
+
+
 # Keys the product itself writes into a memory's metadata_json that the
 # credential name rule would read as secret names. Enumerated from the vNext
 # memory writers (a test walks them and fails on a new one), not guessed:
@@ -2165,6 +2222,80 @@ def _memory_record_credential_finding(record: Mapping[str, object], *, line_no: 
     )
 
 
+# Columns import never stores from the file: user_id is rebound to the
+# importing user, so a value the file carries there reaches no row.
+_NOT_STORED_FROM_FILE = frozenset({"user_id"})
+_RECEIPT_ID_MAX_CHARS = 128
+
+
+# Values the product writes into id, hash and time columns. A value that is
+# wholly one of these is not read: the credential check returns nothing for any
+# of them (a test pins that), and they are most of a large export's short
+# columns. Anything that differs, by one character, is read like any other text.
+_STRUCTURAL_VALUE = re.compile(
+    r"""
+      [0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}
+    | (?:sha256:)?[0-9a-f]{32,128}
+    | \d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?(?:Z|[+-]\d{2}:?\d{2})?)?
+    """,
+    re.VERBOSE | re.IGNORECASE | re.ASCII,
+)
+
+
+def _is_structural_value(value: object) -> bool:
+    return isinstance(value, str) and _STRUCTURAL_VALUE.fullmatch(value) is not None
+
+
+def _non_memory_credential_columns(record_type: str, record: Mapping[str, object]) -> tuple[str, ...]:
+    """The columns of one non-memory record that hold credential-shaped text.
+
+    Every column the import stores, read by value with the same pair that
+    ``_quarantine_credential_reports`` uses: ``_quarantine_text_column`` picks
+    the text and JSON columns, and ``credential_verdict`` reads each. Ids and
+    hashes are read too. An id is shown to a model in recall results, and the
+    scan finds none in what the product writes.
+    """
+
+    _table, columns = _RECORD_SPECS[record_type]
+    return tuple(
+        column
+        for column in columns
+        if column not in _NOT_STORED_FROM_FILE
+        and _quarantine_text_column(record.get(column))
+        and not _is_structural_value(record.get(column))
+        and credential_verdict(record.get(column)) is not None
+    )
+
+
+def _record_credential_hits(
+    record_type: str, record: Mapping[str, object], *, line_no: int
+) -> list[_RecordCredentialHit]:
+    table, _columns = _RECORD_SPECS[record_type]
+    row_id = str(record.get("id"))
+    return [
+        _RecordCredentialHit(line_no=line_no, table=table, row_id=row_id, column=column)
+        for column in _non_memory_credential_columns(record_type, record)
+    ]
+
+
+def _receipt_row_id(hit: _RecordCredentialHit) -> str:
+    """The id for a receipt line, or a stand-in when printing it would print the finding.
+
+    An id that is itself credential-shaped, holds a control character (a newline
+    would start a fake receipt line), or is very long is withheld. The line
+    number still locates the row.
+    """
+
+    row_id = hit.row_id
+    if len(row_id) > _RECEIPT_ID_MAX_CHARS or not row_id.isprintable() or credential_verdict(row_id) is not None:
+        return f"(id withheld, line {hit.line_no})"
+    return row_id
+
+
+def _record_hit_line(hit: _RecordCredentialHit) -> str:
+    return f"{hit.table} {_receipt_row_id(hit)} {hit.column}"
+
+
 def _credential_finding_lines(findings: Sequence[_CredentialFinding]) -> list[str]:
     lines = []
     for finding in findings:
@@ -2201,6 +2332,10 @@ def _validate_import_file(
     path still checks the footer on the file as given, then rewrites the
     named memory before deciding whether any memory row would still carry
     credential material. A normal import refuses here, before any write.
+
+    Every other record type is read too, but only to report: the table, id
+    and column of each hit come back in ``record_credential_hits`` and the
+    import goes on.
     """
     versioned: bool | None = None
     footer: dict[str, object] | None = None
@@ -2214,6 +2349,7 @@ def _validate_import_file(
     spool_complete = False
     record_count = 0
     credential_findings: list[_CredentialFinding] = []
+    record_hits: list[_RecordCredentialHit] = []
     saw_nonblank = False
     export_user_id: str | None = None
     try:
@@ -2321,6 +2457,9 @@ def _validate_import_file(
                     finding = _memory_record_credential_finding(record, line_no=line_no)
                     if finding is not None:
                         credential_findings.append(finding)
+                else:
+                    # Reported, never refused. See _RecordCredentialHit.
+                    record_hits.extend(_record_credential_hits(record_type, record, line_no=line_no))
                 if progress is not None and (record_count + 1) % _IMPORT_PROGRESS_EVERY == 0:
                     progress(f"alice-memory: validated {record_count + 1} records")
                 counts[record_type] += 1
@@ -2378,6 +2517,7 @@ def _validate_import_file(
         content_sha256=digest.hexdigest(),
         manifest_sha256=manifest_sha256,
         spool_path=spool_path,
+        record_credential_hits=tuple(record_hits),
     )
 
 
@@ -3082,6 +3222,7 @@ def _print_import_summary(
     quarantine_counts: dict[str, int] | None = None,
     quarantine_reports: tuple[tuple[str, str, str], ...] = (),
     restored_claims: int = 0,
+    record_hits: tuple[_RecordCredentialHit, ...] | None = None,
 ) -> None:
     imported_total = sum(tally["imported"] for tally in counts.values())
     skipped_total = sum(tally["skipped"] for tally in counts.values())
@@ -3097,6 +3238,19 @@ def _print_import_summary(
     # Always printed, so a zero shows the check ran. Rows, not claims: a row
     # that carried two claims counts once.
     print(f"provenance claims restored as unverified: {restored_claims}")
+    if record_hits is not None:
+        # None means --quarantine: its own scan below already lists every
+        # leftover, with the command that removes it. Otherwise the line is
+        # printed every time, so a zero shows the check ran. The matched text
+        # is never printed.
+        print(f"credential-shaped text in non-memory records: {len(record_hits)}")
+        for hit in sorted(record_hits, key=lambda item: (item.table, item.row_id, item.column)):
+            print(f"  {_record_hit_line(hit)}")
+        if record_hits:
+            print(
+                "note: import restores these records unchanged and does not refuse them. "
+                "Rotate each credential listed."
+            )
     if quarantine_ids:
         tallies = quarantine_counts or {}
         print(
@@ -3371,6 +3525,7 @@ def _run_import_snapshot(
             quarantine_counts=quarantine_counts,
             quarantine_reports=tuple(sorted({*quarantine_plan.reports, *credential_reports})),
             restored_claims=sum(claim_tally.values()),
+            record_hits=None if quarantine_ids else validated_import.record_credential_hits,
         )
         sys.stdout.flush()
     except (OSError, ValueError) as exc:

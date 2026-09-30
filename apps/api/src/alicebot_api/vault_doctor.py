@@ -164,6 +164,14 @@ def source_row_is_flagged(row: object) -> bool:
 
 
 def _flagged_source_ids(store: SQLiteVNextStore) -> list[str]:
+    """Sources that still carry credential material, in id order.
+
+    A source is flagged through its own row fields and ``raw_text``, or through
+    the text of any of its chunks. The chunk text is what recall, the brief and
+    the session hook read, and a backup import restores it unchanged, so a
+    token that sits only in a chunk flags its source.
+    """
+
     rows = store.conn.execute(
         """
         SELECT id, title, author, uri, raw_path, external_id, metadata_json
@@ -174,13 +182,32 @@ def _flagged_source_ids(store: SQLiteVNextStore) -> list[str]:
         """,
         (store.user_id,),
     ).fetchall()
-    ids: list[str] = []
+    flagged: set[str] = set()
     for row in rows:
         if source_row_is_flagged(row):
             source_id = _cell(row, "id")
             if source_id is not None:
-                ids.append(str(source_id))
-    return ids
+                flagged.add(str(source_id))
+    # Streamed, so a large vault is not held in memory. A source already flagged
+    # is not read again.
+    chunks = store.conn.execute(
+        """
+        SELECT c.source_id, c.text
+        FROM source_chunks c
+        JOIN sources s ON s.id = c.source_id AND s.user_id = c.user_id
+        WHERE c.user_id = ?
+          AND s.deleted_at IS NULL
+        ORDER BY c.source_id, c.chunk_index
+        """,
+        (store.user_id,),
+    )
+    for chunk in chunks:
+        source_id = _cell(chunk, "source_id")
+        if source_id is None or str(source_id) in flagged:
+            continue
+        if commit_door_fields_verdict(_cell(chunk, "text")) is not None:
+            flagged.add(str(source_id))
+    return sorted(flagged)
 
 
 def _scalar_count(
