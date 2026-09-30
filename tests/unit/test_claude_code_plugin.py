@@ -142,6 +142,61 @@ def test_plugin_files_match_pyproject() -> None:
         assert release_check._marketplace_issues(ROOT, market) == []
 
 
+def _marketplace() -> dict:
+    market = ROOT / ".claude-plugin" / "marketplace.json"
+    assert market.is_file(), ".claude-plugin/marketplace.json is committed since v0.19.0 was published"
+    return json.loads(market.read_text(encoding="utf-8"))
+
+
+def test_the_committed_marketplace_is_valid_and_not_ahead_of_the_package() -> None:
+    """The marketplace file exists, passes the release check, and pins a tag the package has reached.
+
+    ``RELEASING.md`` puts the file in the post-publication change, so a release
+    PR leaves the old pin in place and the pin is never newer than the package.
+
+    Mutations, each alone: delete the file; rename the marketplace or the
+    plugin entry so the id differs from install's; set ``ref`` to a version
+    above the package version. This test fails.
+    """
+
+    market = ROOT / ".claude-plugin" / "marketplace.json"
+    loaded = _marketplace()
+    assert release_check._marketplace_issues(ROOT, market) == []
+    assert len(loaded["plugins"]) == 1
+    entry = loaded["plugins"][0]
+    assert f"{entry['name']}@{loaded['name']}" == CLAUDE_PLUGIN_ID
+    ref = entry["source"]["ref"]
+    pinned = tuple(int(part) for part in ref.removeprefix("v").split("."))
+    current = tuple(int(part) for part in _version().split("."))
+    assert pinned <= current, (ref, _version())
+
+
+def _tag_commit(ref: str) -> str | None:
+    done = subprocess.run(
+        ["git", "rev-list", "-n", "1", f"refs/tags/{ref}"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return done.stdout.strip() if done.returncode == 0 and done.stdout.strip() else None
+
+
+def test_the_marketplace_sha_is_the_commit_of_its_tag() -> None:
+    """Where the tag is in this clone, ``sha`` is the commit that tag points at.
+
+    A CI checkout without tags skips this. Mutation: change one hex digit of
+    ``sha`` in ``.claude-plugin/marketplace.json``. This test fails wherever the
+    tag exists.
+    """
+
+    source = _marketplace()["plugins"][0]["source"]
+    commit = _tag_commit(source["ref"])
+    if commit is None:
+        pytest.skip(f"tag {source['ref']} is not in this clone")
+    assert source["sha"] == commit
+
+
 def test_the_plugin_hook_trial_uses_install_ids() -> None:
     """The dispatch-only trial writes its own marketplace, so its ids must be install's.
 
@@ -309,7 +364,7 @@ def test_versions_agree_and_seeded_marketplace(tmp_path: Path) -> None:
                         "name": "alice-memory",
                         "source": {
                             "source": "git-subdir",
-                            "url": "samrusani/AliceMemory",
+                            "url": "https://github.com/samrusani/AliceMemory.git",
                             "path": "plugins/alice-memory",
                             "ref": "v1.2.3",
                             "sha": "a" * 40,
@@ -593,7 +648,7 @@ def _good_market(tmp_path: Path) -> Path:
                         "name": "alice-memory",
                         "source": {
                             "source": "git-subdir",
-                            "url": "samrusani/AliceMemory",
+                            "url": "https://github.com/samrusani/AliceMemory.git",
                             "path": "plugins/alice-memory",
                             "ref": "v1.2.3",
                             "sha": "a" * 40,
@@ -620,8 +675,13 @@ def test_marketplace_rules_each_fail_on_their_own(tmp_path: Path) -> None:
     assert any("description is missing" in item for item in issues_for(lambda doc: doc.pop("description")))
     assert any("name is not alicememory" in item for item in issues_for(lambda doc: doc.__setitem__("name", "other")))
     assert any(
-        "url is not samrusani/AliceMemory" in item
+        "url is not https://github.com/samrusani/AliceMemory.git" in item
         for item in issues_for(lambda doc: doc["plugins"][0]["source"].__setitem__("url", "other/repo"))
+    )
+    # The owner/repo shorthand makes Claude Code 2.1.281 clone over SSH, which fails without keys.
+    assert any(
+        "url is not https://github.com/samrusani/AliceMemory.git" in item
+        for item in issues_for(lambda doc: doc["plugins"][0]["source"].__setitem__("url", "samrusani/AliceMemory"))
     )
     assert any(
         "path is not plugins/alice-memory" in item
@@ -1490,7 +1550,10 @@ def test_the_docs_say_what_v0190_ships_and_keep_the_option_rules() -> None:
     ignores it, and one of them holds the relative-value sentence. The
     changelog's v0.19.0 section, the README and the quickstart each keep the
     plugin line they already have, and the Unreleased section is empty. The
-    reader must not take v0.19.0's behaviour for v0.18.0's.
+    README, the quickstart, the plugin page and the plugin README say the plugin
+    installs from the `alicememory` marketplace, give the two commands, and no
+    longer say it arrives once v0.19.0 is published. The reader must not take
+    v0.19.0's behaviour for v0.18.0's.
 
     Mutations, each one alone: drop "v0.18.0 has no Claude Code plugin" from the
     top of either plugin file; change ``ignores`` to ``reads`` for
@@ -1498,7 +1561,10 @@ def test_the_docs_say_what_v0190_ships_and_keep_the_option_rules() -> None:
     option paragraph or the default sentence; delete the relative-value
     sentence; drop the unset-option reason; drop the "In v0.18.0 there is no
     Claude Code plugin" clause from the changelog, the README or the quickstart;
-    move a plugin entry from the v0.19.0 changelog section back under Unreleased.
+    move a plugin entry from the v0.19.0 changelog section back under Unreleased;
+    put "once v0.19.0 is published" back into the README, the quickstart, the
+    plugin page or the plugin README; drop either marketplace command from one
+    of those four files.
     """
 
     relative = (
@@ -1561,17 +1627,38 @@ def test_the_docs_say_what_v0190_ships_and_keep_the_option_rules() -> None:
     assert "The Claude Code plugin is in `plugins/alice-memory`." in lines[0]
     assert "v0.18.0 has no Claude Code plugin." in lines[0]
     assert (
-        "The Claude Code plugin in `plugins/alice-memory` is available from the "
-        "`alicememory` marketplace once v0.19.0 is published."
+        "The Claude Code plugin in `plugins/alice-memory` installs from the "
+        "`alicememory` marketplace. Clone this repository and run:\n\n"
+        "```bash\n"
+        "claude plugin marketplace add <path to the clone>\n"
+        "claude plugin install alice-memory@alicememory\n"
+        "```\n\n"
+        "The marketplace file is on `main`, not in the v0.19.0 tag, and pins the plugin "
+        "to the v0.19.0 tag commit."
     ) in readme
 
     quickstart = (ROOT / "docs" / "alpha" / "quickstart.md").read_text(encoding="utf-8")
     assert (
-        "- The Claude Code plugin in `plugins/alice-memory` is available from the "
-        "`alicememory` marketplace once v0.19.0 is published. Use the plugin or "
+        "- The Claude Code plugin in `plugins/alice-memory` installs from the "
+        "`alicememory` marketplace: clone this repository, run "
+        "`claude plugin marketplace add <path to the clone>`, then "
+        "`claude plugin install alice-memory@alicememory`. Use the plugin or "
         "`--host claude-code`, not both. See "
         "[Claude Code plugin](../integrations/claude-code-plugin.md). v0.18.0 has no plugin."
     ) in quickstart.splitlines()
+
+    for name in (
+        "README.md",
+        "docs/alpha/quickstart.md",
+        "docs/integrations/claude-code-plugin.md",
+        "plugins/alice-memory/README.md",
+    ):
+        text = " ".join((ROOT / name).read_text(encoding="utf-8").split())
+        assert "once v0.19.0 is published" not in text, name
+        assert "A later post-publication change adds" not in text, name
+        assert "there is nothing to add from the tag alone" not in text, name
+        assert "claude plugin marketplace add <path to the clone>" in text, name
+        assert "claude plugin install alice-memory@alicememory" in text, name
 
 
 def test_the_hook_help_names_the_plugin_option(

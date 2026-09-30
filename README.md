@@ -59,7 +59,14 @@ OpenCode is opt-in with `--host opencode`, which writes `opencode.json` or `open
 
 Codex is opt-in with `--host codex`, which edits `config.toml` in Codex's home as text and writes a SessionStart hook to `hooks.json` there. Codex skips the hook until you trust it once at "Hooks need review" or with `/hooks`. See [Codex](https://github.com/samrusani/AliceMemory/blob/main/docs/integrations/codex.md).
 
-The Claude Code plugin in `plugins/alice-memory` is available from the `alicememory` marketplace once v0.19.0 is published. Use the plugin or `--host claude-code`, not both. See [Claude Code plugin](https://github.com/samrusani/AliceMemory/blob/main/docs/integrations/claude-code-plugin.md).
+The Claude Code plugin in `plugins/alice-memory` installs from the `alicememory` marketplace. Clone this repository and run:
+
+```bash
+claude plugin marketplace add <path to the clone>
+claude plugin install alice-memory@alicememory
+```
+
+The marketplace file is on `main`, not in the v0.19.0 tag, and pins the plugin to the v0.19.0 tag commit. Use the plugin or `--host claude-code`, not both. See [Claude Code plugin](https://github.com/samrusani/AliceMemory/blob/main/docs/integrations/claude-code-plugin.md).
 
 OpenClaw can also add the server in one line, which probes before saving:
 
@@ -120,7 +127,7 @@ For Postgres with pgvector, the web review console, and the core memory
 scheduler workflows, run from a repo checkout. Requirements: Python 3.12+,
 Node 20+, pnpm, Docker, Git.
 
-The clone checks out `main`, which can be ahead of the latest release. To run v0.18.0, run `git checkout v0.18.0` before `make setup`.
+The clone checks out `main`, which can be ahead of the latest release. To run v0.19.0, run `git checkout v0.19.0` before `make setup`.
 
 ```bash
 git clone https://github.com/samrusani/AliceMemory.git
@@ -203,11 +210,10 @@ A LongMemEval_s receipt of 81.2% mean over three independent full runs (80.8 / 8
 
 ## Status
 
-`v0.18.0` is the latest published release and remains the install, checksum,
+`v0.19.0` is the latest published release and remains the install, checksum,
 and release-note baseline (the `v0.13.0` tag was never published;
 superseded). Its tag, release record, and published artifacts
 are immutable.
-`v0.19.0` is the current release candidate. It is not published.
 `v0.12.0` was the structural refactor release. Structure only. Zero behavior change.
 Alice is a public-alpha, pre-1.0 project.
 What that means in practice:
@@ -238,7 +244,7 @@ What that means in practice:
 - [Health and monitoring](https://github.com/samrusani/AliceMemory/blob/main/docs/runbooks/health-and-monitoring.md)
 - [Upgrade v0.12.0 to current](https://github.com/samrusani/AliceMemory/blob/main/docs/runbooks/upgrade-v0.12-to-current.md)
 - [Security and privacy](https://github.com/samrusani/AliceMemory/blob/main/docs/alpha/security-and-privacy.md)
-- [v0.18.0 release notes](https://github.com/samrusani/AliceMemory/blob/main/docs/release/v0.18.0-release-notes.md)
+- [v0.19.0 release notes](https://github.com/samrusani/AliceMemory/blob/main/docs/release/v0.19.0-release-notes.md)
 - [All release notes](https://github.com/samrusani/AliceMemory/releases)
 - [Release procedure](https://github.com/samrusani/AliceMemory/blob/main/RELEASING.md)
 - [Architecture](https://github.com/samrusani/AliceMemory/blob/main/ARCHITECTURE.md)

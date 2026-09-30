@@ -2,6 +2,13 @@
 
 This plugin directory ships in v0.19.0. v0.18.0 has no Claude Code plugin.
 
+It installs from the `alicememory` marketplace, which is `.claude-plugin/marketplace.json` at the root of this repository on `main`. The file pins this plugin to the v0.19.0 tag commit. The v0.19.0 tag has no marketplace file. Clone the repository, which checks out `main`, and run:
+
+```bash
+claude plugin marketplace add <path to the clone>
+claude plugin install alice-memory@alicememory
+```
+
 The plugin needs [uv](https://docs.astral.sh/uv/) on `PATH`. Its commands pin `alice-memory` to the version in `plugin.json`.
 
 Use the plugin or `alice-memory install --host claude-code`, not both. To remove install's entries, run `claude mcp remove alice --scope user` and remove the `alice-memory-session-start` hook from `~/.claude/settings.json`.
@@ -12,6 +19,6 @@ The SessionStart hook reads the folder from that option, through the `CLAUDE_PLU
 
 Tool names look like `mcp__plugin_alice-memory_alice__alice_recall`.
 
-Auto-update is off for a third-party marketplace. After a release is published, update with `claude plugin update alice-memory@alicememory`.
+Auto-update is off for a third-party marketplace. After a release is published, pull your clone so its marketplace file carries the new pin, then run `claude plugin update alice-memory@alicememory`.
 
 Claude Code caps a hook's `additionalContext` or plain stdout at 10,000 characters. Over that it injects a file path and a 2,000-character preview.

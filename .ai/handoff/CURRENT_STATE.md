@@ -2,9 +2,9 @@
 
 ## Snapshot
 
-- `v0.18.0` is the latest published release. It is available from PyPI and
+- `v0.19.0` is the latest published release. It is available from PyPI and
   GitHub, its record is immutable, and exact artifact digests are in
-  `docs/release/v0.18.0-checksums.txt`. `v0.17.0` is the immediately prior
+  `docs/release/v0.19.0-checksums.txt`. `v0.18.0` is the immediately prior
   published release.
 - Earlier releases whose headlines still get referenced: `v0.13.1` shipped the
   Phase 4 core-roadmap work as **Replicated benchmark, faster SQLite at scale,
@@ -74,13 +74,13 @@ authoritative description; Phase 3 does not rewrite that history.
 
 ## Release Boundary
 
-`v0.18.0` is tagged, published, and immutable. Its authoritative records are:
+`v0.19.0` is tagged, published, and immutable. Its authoritative records are:
 
-- `docs/release/v0.18.0-release-notes.md`
-- `docs/release/v0.18.0-checksums.txt`
+- `docs/release/v0.19.0-release-notes.md`
+- `docs/release/v0.19.0-checksums.txt`
 
-`v0.17.0` is the immediately prior published release; its records are
-`docs/release/v0.17.0-release-notes.md` and `docs/release/v0.17.0-checksums.txt`.
+`v0.18.0` is the immediately prior published release; its records are
+`docs/release/v0.18.0-release-notes.md` and `docs/release/v0.18.0-checksums.txt`.
 
 Every earlier release remains published and immutable, with its own
 `docs/release/vX.Y.Z-release-notes.md` and `vX.Y.Z-checksums.txt`. That includes
@@ -92,11 +92,12 @@ are immutable and the numbers are retired rather than reused: `v0.13.0`,
 superseded by `v0.13.1`, and `v0.15.0`, whose commit carried a release-gate step
 that could not run on a CI runner.
 
-## What `v0.19.0` Targets
+## What `v0.19.0` Shipped
 
-`v0.19.0` is the current release candidate. It is not published.
+`v0.19.0` is the latest published release and remains the install, checksum,
+and baseline reference.
 
-It takes the work on `main` since `v0.18.0`. Codex is a new opt-in install
+It shipped the work on `main` after `v0.18.0`. Codex is a new opt-in install
 host that writes an MCP entry and a SessionStart hook. The Claude Code plugin
 directory is in the repo. The session brief is cut to fit Claude Code's size
 cap, leaves out superseded facts, and no longer fails on a long newest fact,
@@ -116,7 +117,10 @@ relative or empty `--data-dir` is refused. There is no schema change.
 - `plugins/alice-memory` holds a Claude Code plugin. Its version and both
   command pins equal the package version. Install skips when the plugin is
   enabled and install has not written Claude Code entries, and refuses when
-  both exist. The marketplace file is not in the tag. `v0.18.0` has no plugin.
+  both exist. The tag has no marketplace file. `main` has
+  `.claude-plugin/marketplace.json`, named `alicememory`, which pins the plugin
+  to the `v0.19.0` tag commit, so the plugin installs from that marketplace.
+  `v0.18.0` has no plugin.
 - The session brief cuts a long note to at most 1,500 characters, stays under
   9,500 characters, and leaves out a superseded fact and a source line whose
   captured sentence was corrected later. A long newest fact, open loop,
@@ -144,8 +148,7 @@ relative or empty `--data-dir` is refused. There is no schema change.
 
 ## What `v0.18.0` Shipped
 
-`v0.18.0` is the latest published release and remains the install, checksum,
-and baseline reference.
+`v0.18.0` is the immediately prior published release.
 
 It shipped the work on `main` after `v0.17.0`. OpenCode is a new opt-in
 install host. Every capture path refuses credential material, resume reads
@@ -264,7 +267,7 @@ again.
 
 ## What `v0.17.0` Shipped
 
-`v0.17.0` is the immediately prior published release.
+`v0.17.0` is an earlier published release.
 
 It shipped the work on `main` after `v0.16.0`. Install writes the Claude Code
 session hook in the shape Claude Code reads, edits only Alice's entry in the
