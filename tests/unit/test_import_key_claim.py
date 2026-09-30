@@ -17,10 +17,12 @@ import copy
 import hashlib
 import json
 import sqlite3
+import uuid
 from pathlib import Path
 
 import pytest
 
+from alicebot_api import onramp as onramp_module
 from alicebot_api import recall_framing
 from alicebot_api.mcp.registry import call_mcp_tool
 from alicebot_api.mcp_tools import AGENT_API_KEY_ENV, MCPRuntimeContext, _sqlite_path_from_url
@@ -634,3 +636,192 @@ def test_a_record_nested_past_the_walk_limit_is_refused_not_passed_through(
     assert "restore_failed" in captured.err
     assert "Traceback" not in captured.err
     assert not target.exists()
+
+
+@pytest.mark.parametrize("pad", ["\n", " ", "\t", " \r\n "], ids=["newline", "space", "tab", "mixed"])
+@pytest.mark.parametrize("level", ["agentic_memory", "agent_identity", "column"])
+def test_a_json_text_carrier_padded_with_leading_whitespace_is_downgraded(
+    tmp_path: Path, pad: str, level: str
+) -> None:
+    """The readers strip before they look for a brace. Decode without stripping (drop .strip() in
+    _mapping_or_json_text) and a padded carrier keeps its claim."""
+    database, context = _vault(tmp_path, "origin")
+    _commit_note(context)
+    export = _export(database, tmp_path / "origin.jsonl")
+    identity = dict(KEY_CLAIM)
+    for record in export.records("memory"):
+        record["created_by_agent_id"] = FORGED_ID
+        if level == "agentic_memory":
+            record["metadata_json"] = {"agentic_memory": pad + json.dumps({"agent_identity": identity})}
+        elif level == "agent_identity":
+            record["metadata_json"] = {"agentic_memory": {"agent_identity": pad + json.dumps(identity)}}
+        else:
+            record["metadata_json"] = pad + json.dumps({"agentic_memory": {"agent_identity": identity}})
+    _target, restored = _restore(tmp_path, export.write(tmp_path / "forged.jsonl"))
+    assert _recall_writers(restored) == [{"id": FORGED_ID, "established": UNVERIFIED}]
+
+
+@pytest.mark.parametrize("event_actor", ["agent", "user", "system"])
+def test_a_forged_rewrite_revision_and_policy_event_is_not_verified(tmp_path: Path, event_actor: str) -> None:
+    """memory_writer reads a rewrite revision's policy.decision event through
+    _key_presented_for_revision. Skip that event in the downgrade, by event_type or by actor_type, and
+    the rewrite reads verified_by_key."""
+    database, context = _vault(tmp_path, "origin")
+    _commit_note(context)
+    export = _export(database, tmp_path / "origin.jsonl")
+    memory = export.records("memory")[0]
+    base_revision = export.records("memory_revision")[0]
+    base_event = export.records("event")[0]
+    memory["created_by_agent_id"] = None
+    memory["canonical_text"] = f"rewritten by a forger {TOKEN}"
+    revision = copy.deepcopy(base_revision)
+    revision.update(
+        id=str(uuid.uuid4()),
+        action="agentic_memory_correct",
+        actor_type="agent",
+        actor_id=FORGED_ID,
+        text_before="an older sentence",
+        text_after=memory["canonical_text"],
+        sequence_no=99,
+        revision_number=99,
+    )
+    event = copy.deepcopy(base_event)
+    event.update(
+        id=str(uuid.uuid4()),
+        event_type="policy.decision",
+        target_type="memory",
+        target_id=memory["id"],
+        actor_type=event_actor,
+        actor_id=FORGED_ID,
+        payload_json={"policy_decision": {"action": "memory.correct"}, "agent_identity": dict(KEY_CLAIM)},
+        integrity_hash=None,
+        occurred_at=revision["created_at"],
+    )
+    export.body.append({"record_type": "memory_revision", "record": revision})
+    export.body.append({"record_type": "event", "record": event})
+    target, restored = _restore(tmp_path, export.write(tmp_path / "forged.jsonl"))
+    assert _recall_writers(restored) == [{"id": FORGED_ID, "established": UNVERIFIED}]
+    connection = sqlite3.connect(target)
+    try:
+        row = connection.execute("SELECT payload_json FROM event_log WHERE id = ?", (event["id"],)).fetchone()
+    finally:
+        connection.close()
+    assert json.loads(str(row[0]))["agent_identity"]["auth"] == "imported_claim"
+
+
+def test_skip_mode_still_refuses_a_different_row_when_the_file_row_carries_a_claim(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The second acceptance in skip mode is for the file's own row only. Accept any row with the same
+    id (drop the _collision_is_identical half of it) and two incompatible backups combine without a
+    word."""
+    forged = _forged_backup(tmp_path)
+    database, _context = _restore(tmp_path, forged)
+    changed = _Export(forged)
+    for record in changed.records("memory"):
+        record["canonical_text"] = f"A different sentence under the same id {TOKEN}"
+    second = changed.write(tmp_path / "changed.jsonl")
+    before = _stored(database, "memories", "canonical_text")
+    capsys.readouterr()
+    assert _import(database, second, "--mode", "skip") == 1
+    assert "restore_failed" in capsys.readouterr().err
+    assert _stored(database, "memories", "canonical_text") == before
+
+
+def _nest(inner: object, levels: int, key: str = "deeper") -> object:
+    for _ in range(levels):
+        inner = {key: inner}
+    return inner
+
+
+def test_the_walk_limit_is_exactly_256_levels() -> None:
+    """A claim 256 levels down is rewritten and one 257 down is refused. Make the check >= and 256 is
+    refused, make it > 257 and 257 is not."""
+    claim = {"agent_identity": dict(KEY_CLAIM)}
+    refused: dict[int, bool] = {}
+    stored: dict[int, str] = {}
+    for levels in (256, 257):
+        try:
+            rewritten, _changed = onramp_module._downgrade_record_key_claims({"metadata_json": _nest(claim, levels)})
+        except onramp_module._ImportError:
+            refused[levels] = True
+        else:
+            refused[levels] = False
+            stored[levels] = json.dumps(rewritten)
+    assert refused == {256: False, 257: True}
+    assert '"auth": "imported_claim"' in stored[256]
+    assert '"auth": "agent_api_key"' not in stored[256]
+
+
+def test_a_claim_inside_a_list_is_downgraded_and_a_list_counts_toward_the_limit() -> None:
+    """A list is walked like a mapping. Drop the list branch and a claim in a list is stored as it came.
+    Do not add a level for a list and a column of nested lists is walked past the limit."""
+    claim = {"agent_identity": dict(KEY_CLAIM)}
+    rewritten, changed = onramp_module._downgrade_record_key_claims(
+        {"metadata_json": {"items": [{"note": "kept"}, claim]}}
+    )
+    assert changed
+    items = rewritten["metadata_json"]["items"]
+    assert items[0] == {"note": "kept"}
+    assert items[1]["agent_identity"]["auth"] == "imported_claim"
+    deep: object = claim
+    for _ in range(300):
+        deep = [deep]
+    outcome = "walked"
+    try:
+        onramp_module._downgrade_record_key_claims({"metadata_json": {"items": deep}})
+    except onramp_module._ImportError:
+        outcome = "refused"
+    assert outcome == "refused"
+
+
+def test_a_text_carrier_beside_a_claim_is_stored_as_the_text_it_was() -> None:
+    """Only the carrier that held a claim is stored decoded. Store every carrier decoded and an
+    untouched JSON text in the same column changes shape for no reason."""
+    untouched = json.dumps({"note": "plain", "n": 1}, sort_keys=True)
+    rewritten, changed = onramp_module._downgrade_record_key_claims(
+        {
+            "metadata_json": {
+                "agentic_memory": untouched,
+                "other": {"agent_identity": dict(KEY_CLAIM)},
+            }
+        }
+    )
+    assert changed
+    assert rewritten["metadata_json"]["agentic_memory"] == untouched
+    assert rewritten["metadata_json"]["other"]["agent_identity"]["auth"] == "imported_claim"
+
+
+def test_an_identity_held_as_text_with_a_claim_inside_it_is_downgraded() -> None:
+    """An identity carried as JSON text is decoded and its own agent_identity is walked. Take
+    agent_identity out of the carrier keys and that inner claim is stored as written."""
+    inner = json.dumps({"auth": "unauthenticated_local", "agent_identity": dict(KEY_CLAIM)})
+    rewritten, changed = onramp_module._downgrade_record_key_claims(
+        {"metadata_json": {"agentic_memory": {"agent_identity": inner}}}
+    )
+    assert changed
+    stored = rewritten["metadata_json"]["agentic_memory"]["agent_identity"]
+    assert stored["agent_identity"]["auth"] == "imported_claim"
+    assert stored["agent_identity"]["claimed_auth"] == "agent_api_key"
+
+
+def test_a_json_text_too_deep_to_decode_is_stored_as_text_and_the_import_succeeds(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """json.loads raises RecursionError on text nested about 100,000 levels. That text is not an
+    identity anyone can read, so it is left as it is. Stop catching RecursionError and the import
+    dies with a traceback."""
+    database, context = _vault(tmp_path, "origin")
+    _commit_note(context)
+    export = _export(database, tmp_path / "origin.jsonl")
+    depth = 100_000
+    bomb = '{"a":' * depth + "1" + "}" * depth
+    export.records("memory")[0]["metadata_json"]["agentic_memory"] = bomb
+    forged = export.write(tmp_path / "forged.jsonl")
+    target = tmp_path / "target" / "memory.db"
+    capsys.readouterr()
+    assert _import(target, forged) == 0
+    captured = capsys.readouterr()
+    assert "Traceback" not in captured.err
+    stored = json.loads(str(_stored(target, "memories", "metadata_json")[0]))
+    assert stored["agentic_memory"] == bomb
