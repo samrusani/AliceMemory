@@ -145,6 +145,7 @@ active-key or RLS bypass remains in scope.
 | Secret or exception disclosure | Hash/reference storage, recursive secret-field redaction, provider error sanitization, stable public error vocabulary. | Final carrier must close raw-key logging and exact provider-key non-echo proof. |
 | Dependency compromise or known advisory | Exact web versions/lockfile, fail-closed npm bulk audit, Dependabot, SHA-pinned Actions, CodeQL, Gitleaks. | No fail-closed Python advisory audit is currently in CI. |
 | Resource exhaustion from hostile files/provider responses | Existing size/shape checks and local deployment limits. | Historical partial scan retained multiple low-confidence availability hypotheses for Stage B. |
+| Agent resolves its own pending write without asking the user | `alice_memory_commit` with `confirmation_id` resolves only a pending write its caller may resolve (its author, an `admin_agent` key, or the owner), after the same policy and ceiling checks as a write. | The confirm step asks the agent to ask the user. It is not a gate, and Alice cannot tell whether the user was asked. See the 2026-09-30 limitation below. |
 
 ### Known Internal Limitations
 
@@ -160,6 +161,21 @@ active-key or RLS bypass remains in scope.
   no symlinks.
 - Python dependency advisories are monitored by Dependabot but are not checked
   by a fail-closed install-tree audit in CI.
+- Confirming a pending write is not a human gate (added 2026-09-30).
+  `alice_memory_commit` declares `destructiveHint: false`, which is true of
+  adding a fact. Called with `confirmation_id` and `confirmation_action`, the
+  same tool instead updates the one pending row it names (`needs_review` to
+  `active`, or to `rejected`), writes that row's revision and events, and
+  updates the caller's agent identity row when the call carries one. It
+  changes no other memory. By the
+  approval rule the code records for Codex's default mode, which has not been
+  checked against a running Codex, neither call prompts. Every trigger for
+  `confirmation_required` is a label the agent writes (confidence, domain,
+  sensitivity, contradiction references, source type), and the same tool
+  commits the same text directly when it is labelled plainly. So the confirm
+  step relies on the agent asking the user, and Alice cannot tell whether it
+  did. A keyless call that declares no agent id is recorded as actor type
+  `user` with no actor id, which the audit trail cannot tell from the owner.
 - A memory id is itself sensitive metadata (added 2026-09-30). The correction
   label on a recalled or packed source excerpt, and the `supersedes` and
   `superseded_by` fields on a context pack's memories, follow the same

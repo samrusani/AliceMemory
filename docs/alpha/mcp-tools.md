@@ -383,6 +383,16 @@ Alice decides the outcome, never the caller:
   an optional `rationale`. Any memory field on that call is refused; to
   change the text, reject it and commit the corrected text. Alice cannot
   tell whether the agent asked, so the tool description tells it to ask.
+  That call updates one row: the pending memory named by `confirmation_id`
+  goes from `needs_review` to `active` on confirm or to `rejected` on
+  reject, with its own revision and events, and the caller's agent identity
+  row when the call carries one. It changes no other memory. The tool declares `destructiveHint:
+  false`, which is true of adding a fact and is not a statement about this
+  call. By the approval rule the code records for Codex's default mode,
+  neither call prompts, so the confirm step depends on the agent asking the
+  user, and Alice cannot check that it did. Who may confirm or reject a
+  pending write is still limited to its author, an `admin_agent` key, or the
+  owner.
   What the audit names depends on how the call was identified. These
   rows name the caller as `actor_id`: the revision, the `policy.decision`
   event (an author reject above the caller's ceiling also writes
