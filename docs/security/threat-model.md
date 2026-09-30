@@ -176,10 +176,12 @@ active-key or RLS bypass remains in scope.
   step relies on the agent asking the user, and Alice cannot tell whether it
   did. A keyless call that declares no agent id is recorded as actor type
   `user` with no actor id, which the audit trail cannot tell from the owner.
-- A memory id is itself sensitive metadata (added 2026-09-30). The correction
-  label on a recalled or packed source excerpt, and the `supersedes` and
-  `superseded_by` fields on a context pack's memories, follow the same
-  sensitivity, domain, project, person and time fence as the memory reads.
+- A memory id is itself sensitive metadata (added 2026-09-30). Unreleased (on
+  main, not in v0.19.0): the correction label on a recalled or packed source
+  excerpt, and the `supersedes` and `superseded_by` fields on a context pack's
+  memories, follow the same sensitivity, domain, project, person and time fence
+  as the memory reads. In v0.19.0 the label names the id whatever the caller
+  may read.
   Four places still carry a memory id without the sensitivity and domain
   fence: `validity.superseded_by_memory_id` on an `alice_recall` result whose
   row still carries a `superseded_by` pointer; the `target_id` of each entry in
