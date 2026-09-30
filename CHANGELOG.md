@@ -23,13 +23,18 @@
   one-line refusal and exits 0. Outside the plugin nothing changes. In
   v0.18.0 there is no Claude Code plugin, and the command reads
   `--data-dir`, then `ALICE_MEMORY_DATA_DIR`, then `~/.alice`.
-- A newest fact longer than about 50,000 UTF-8 bytes no longer wipes the
-  session brief. An excerpt query over 40,000 UTF-8 bytes, whether a fact,
-  an explicit query, or a source title, is bounded to a few hundred
-  characters of its FTS tokens. A shorter query is used exactly as before,
-  so an ordinary brief is unchanged. The brief still prints its facts and
-  loops, and its sources when the fact's words match one. In v0.18.0 the
-  same fact raises a SQLite pattern error and the hook prints `{}`.
+- An excerpt query over 40,000 UTF-8 bytes, whether a fact, an explicit
+  query, or a source title, is bounded to a few hundred characters of its
+  FTS tokens, so a newest fact longer than about 50,000 bytes no longer
+  wipes the session brief. A shorter query is used exactly as before, so an
+  ordinary brief is unchanged. The brief still prints its facts and loops,
+  and its sources when the fact's words match one. In v0.18.0 the same fact
+  raises a SQLite pattern error, with a captured source in the vault, and
+  the hook prints `{}`. The bound does not reach a query under 40,000 bytes
+  with more than about 990 distinct words (roughly 30,000 to 35,000 bytes of
+  ordinary prose, fewer with short or rare words). SQLite raises
+  `Expression tree is too large`, the hook prints `{}`, and `alice-memory
+  brief` exits 1, in v0.19.0 and in v0.18.0.
 - `alice-memory install --host hermes` leaves a comment in place when the
   `alice` block, with comment lines and inline comments removed, already
   matches what install would write. The receipt says unchanged and the
@@ -41,10 +46,11 @@
   `readOnlyHint`. `alice_memory_commit` and `alice_capture` set
   `destructiveHint` to false. `alice_memory_review`, `alice_memory_correct`,
   `alice_memory_manage`, and `alice_open_loops` set `destructiveHint` to
-  true. In Codex's default mode those tools no longer wait for approval.
-  A policy audit row or an agent identity row is not a state change the
-  client asked for. In v0.18.0 these tools declare no hints, so Codex asks
-  before every call.
+  true. The hints follow Codex's default approval rule as the code records
+  it, so in Codex's default mode those tools should no longer wait for
+  approval. No test here runs a Codex approval prompt. An event log row from
+  `alice_context_pack`, or an agent identity row, is not a state change the
+  client asked for. In v0.18.0 these tools declare no hints.
 - A long session-brief note is cut at 1,500 characters, on the last word
   boundary, or on a grapheme boundary when the note has no word break. When
   the word-boundary prefix keeps less than 60% of what fits, the cut keeps
@@ -93,14 +99,17 @@
   with the commit door's verdict, the same check `capture_source` uses.
   A flagged line, message, or title is withheld and named, and the rest
   of the file or conversation is imported. A low-entropy AKIA-shaped key
-  the floor treats as a placeholder is withheld that way. The source
-  doctor still flags a stored source that contains one. In v0.18.0 the
-  line filter misses that key, capture stores it, and the doctor does
-  not flag it.
-- An OpenCode dry run shows booleans and numbers on top-level keys,
-  including `"enabled": false`. A value under `environment`, `env`,
-  `headers`, or any other map stays hidden, whatever its type. In
-  v0.18.0 those top-level values print as `<hidden>`.
+  the floor treats as a placeholder is withheld that way, and so is a
+  numeric password written in a sentence, so a folder re-import can skip a
+  line that v0.18.0 imported. The source doctor still flags a stored
+  source that contains the key. In v0.18.0 the line filter misses that
+  key, capture stores it, and the doctor does not flag it.
+- An install dry run shows booleans and numbers on top-level keys of
+  your existing entry, on Claude Desktop, Claude Code, Cursor, OpenClaw
+  and OpenCode alike, including OpenCode's `"enabled": false`. A string
+  value, and any value under `environment`, `env`, `headers`, or another
+  map, stays hidden, whatever its type. In v0.18.0 those top-level values
+  print as `<hidden>`.
 - The session brief (SessionStart, `alice-memory brief`, and
   `compile_local_session_brief`) shows current facts only. A memory whose
   `superseded_by` is set, or whose status is `superseded`, is omitted. A

@@ -99,9 +99,9 @@ that could not run on a CI runner.
 It takes the work on `main` since `v0.18.0`. Codex is a new opt-in install
 host that writes an MCP entry and a SessionStart hook. The Claude Code plugin
 directory is in the repo. The session brief is cut to fit Claude Code's size
-cap, leaves out superseded facts, and no longer fails on a very long newest
-fact. Every MCP tool declares hints, and a relative or empty data dir is
-refused. There is no schema change.
+cap, leaves out superseded facts, and no longer fails on a newest fact over
+about 50,000 bytes. Every MCP tool declares hints, and a relative or empty
+data dir is refused. There is no schema change.
 
 - [v0.19.0 release notes](https://github.com/samrusani/AliceMemory/blob/main/docs/release/v0.19.0-release-notes.md)
 
@@ -120,9 +120,10 @@ refused. There is no schema change.
 - The session brief cuts a long note to at most 1,500 characters, stays under
   9,500 characters, and leaves out a superseded fact and a source line whose
   captured sentence was corrected later. A newest fact over about 50,000
-  bytes no longer empties it. In `v0.18.0` a note over the token budget was
-  dropped, a brief could pass 15,000 characters, and a very long fact could
-  make the hook print `{}`.
+  bytes no longer empties it, but a fact with more than about 990 distinct
+  words still does. In `v0.18.0` a note over the token budget was dropped, a
+  brief could pass 15,000 characters, and a very long fact could make the
+  hook print `{}`.
 - Every MCP tool sets `openWorldHint` to false. Five tools are read-only, two
   are non-destructive, and four are destructive. `v0.18.0` tools declare no
   hints.

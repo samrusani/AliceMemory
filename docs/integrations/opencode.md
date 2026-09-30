@@ -34,11 +34,11 @@ includes `timeout`, `enabled`, `cwd`, and `environment` (for example
 the Alice entry and masks the `command` array: a URL after its scheme, and the
 value of a flag whose name holds key, token, secret, or password.
 From v0.19.0, booleans and numbers are shown on top-level keys, including
-`"enabled": false` and `timeout`. A value under `environment`, `env`,
-`headers`, or any other map stays hidden, whatever its type. In v0.18.0 a
-dry run showed only `command`, `type`, `timeout`, and `cwd` at the top
-level, and every other value, `"enabled": false` included, printed as
-`<hidden>`.
+`"enabled": false`. This is the rule for every JSON host, not only OpenCode.
+A value under `environment`, `env`, `headers`, or any other map stays hidden,
+whatever its type. In v0.18.0 a dry run showed only `command`, `type`,
+`timeout`, and `cwd` at the top level, and every other value,
+`"enabled": false` included, printed as `<hidden>`.
 
 ## JSONC
 

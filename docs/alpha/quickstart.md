@@ -16,7 +16,7 @@ What install writes:
 - An `alice` MCP entry for Claude Desktop, Claude Code, Cursor and OpenClaw. Other entries in those files are kept. The receipt prints each file's path.
 - A SessionStart hook for Claude Code (`~/.claude/settings.json`) and Cursor (`~/.cursor/hooks.json`), so the next session can inject the brief. Claude Desktop and OpenClaw get no hook.
 - For OpenClaw, the receipt also prints an `openclaw mcp add alice ...` line you can run instead.
-- Hermes is opt-in. `--host hermes` configures Hermes only, because any `--host` replaces the default set; pass each host you want to write them together. Install then writes only the `mcp_servers.alice` lines in `~/.hermes/config.yaml` and keeps the rest of the file. Hermes gets no hook. If the file uses YAML the installer does not edit, install changes nothing, prints the lines to add by hand, and exits non-zero.
+- Hermes is opt-in. `--host hermes` configures Hermes only, because any `--host` replaces the default set; pass each host you want to write them together. Install then writes only the `mcp_servers.alice` lines in `~/.hermes/config.yaml` and keeps the rest of the file. Hermes gets no hook. A comment inside the alice block stays when there is nothing to change; when there is, install refuses and prints the block, and v0.18.0 dropped the comment. If the file uses YAML the installer does not edit, install changes nothing, prints the lines to add by hand, and exits non-zero.
 - OpenCode is opt-in with `--host opencode`, which writes `opencode.json` or `opencode.jsonc`. See [OpenCode](../integrations/opencode.md).
 - Codex is opt-in with `--host codex`, which edits `~/.codex/config.toml` as text and writes a SessionStart hook to `~/.codex/hooks.json`. See [Codex](../integrations/codex.md). v0.18.0 has no `--host codex`.
 - The Claude Code plugin in `plugins/alice-memory` is available from the `alicememory` marketplace once v0.19.0 is published. Use the plugin or `--host claude-code`, not both. See [Claude Code plugin](../integrations/claude-code-plugin.md). v0.18.0 has no plugin.
@@ -29,7 +29,7 @@ The data dir:
 
 Backups: before install rewrites an existing host file, it saves a copy in `<data dir>/backups/host-configs/`.
 
-Add `--dry-run` to see the plan first. It prints each path, the Alice entry and the hook, and writes nothing. Values from your existing entry print as `<hidden>` except `command`, `type`, `timeout`, `cwd` and `args`. In `args`, a URL prints as its scheme and `<hidden>`, and the value after a flag named with key, token, secret or password is hidden. A `hidden:` line lists each masked value.
+Add `--dry-run` to see the plan first. It prints each path, the Alice entry and the hook, and writes nothing. Values from your existing entry print as `<hidden>` except `command`, `type`, `timeout`, `cwd` and `args`, and except booleans and numbers on top-level keys. From v0.19.0 those print as they are on Claude Desktop, Claude Code, Cursor, OpenClaw and OpenCode; v0.18.0 hid them too. A value inside a map such as `env` stays hidden, whatever its type. In `args`, a URL prints as its scheme and `<hidden>`, and the value after a flag named with key, token, secret or password is hidden. A `hidden:` line lists each masked value.
 
 Without uv: when `uvx` is not on PATH, install writes the absolute path of the installed `alice-memory` script into each new host entry, and of `alice-memory-session-start` into the hooks. If it finds neither a usable `uvx` nor those scripts, it prints a warning.
 

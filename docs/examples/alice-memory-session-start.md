@@ -126,7 +126,8 @@ and does not touch the file when its parsed JSON would not change. If
 points to and keeps the link; the backup still goes to the data dir,
 not next to the target. `alice-memory install --dry-run` prints the
 Alice entry and the hook it would write, with every value from your
-entry except `command`, `type`, `timeout` and `cwd` hidden, and changes
+entry hidden except `command`, `type`, `timeout`, `cwd` and, from v0.19.0,
+booleans and numbers on top-level keys (v0.18.0 hid those too), and changes
 nothing.
 
 If the `alice` entry in `~/.claude.json` is not one install wrote (the

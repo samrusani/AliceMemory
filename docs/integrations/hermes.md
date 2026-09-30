@@ -133,6 +133,13 @@ key that install did not write, install refuses and changes nothing. Edit the
 alice entry by hand in that case. A documented key whose value is an anchor,
 an alias, a tag, or a block scalar is refused the same way.
 
+From v0.19.0, a comment inside the `alice` block stays when nothing needs to
+change: install says `action: unchanged` and leaves the file's bytes alone.
+When install has a change to make and the block holds a full-line or inline
+comment, it refuses with exit 1 and `install_refused`, writes no backup,
+prints the block, and leaves the file as it is. Edit the block by hand in that
+case. In v0.18.0 that re-run rewrote the block and dropped the comment.
+
 ## Related Docs
 
 - `docs/integrations/hermes-bridge-operator-guide.md`
