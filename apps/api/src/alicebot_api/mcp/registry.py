@@ -46,6 +46,7 @@ from alicebot_api.task_briefing import (
     TaskBriefNotFoundError,
     TaskBriefValidationError,
 )
+from alicebot_api.source_search_limits import SourceSearchQueryTooLarge
 
 from .capture_automation import (
     _handle_alice_vnext_capture,
@@ -132,6 +133,7 @@ from .scheduler import (
 )
 from .shared import (
     AGENT_API_KEY_ENV,
+    MCPInvalidRequestError,
     MCPRuntimeContext,
     MCPToolError,
     MCPToolNotFoundError,
@@ -568,6 +570,11 @@ def call_mcp_tool(
                 "acting user row); bootstrap it with 'alice-memory init' or verify the referenced ids."
             ) from exc
         raise MCPToolError(message) from exc
+    except SourceSearchQueryTooLarge as exc:
+        # Before the ValueError clause below, which it is a subclass of and
+        # which would hide the limit behind the static message. The text is
+        # counts and limits only, never the query.
+        raise MCPInvalidRequestError(exc.public_message) from exc
     except (TypeError, ValueError) as exc:
         raise MCPToolError(str(exc)) from exc
 
