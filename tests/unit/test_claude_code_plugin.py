@@ -1549,7 +1549,8 @@ def test_the_docs_say_what_v0190_ships_and_keep_the_option_rules() -> None:
     paragraph that names ``ALICE_MEMORY_DATA_DIR`` says the plugin's hook
     ignores it, and one of them holds the relative-value sentence. The
     changelog's v0.19.0 section, the README and the quickstart each keep the
-    plugin line they already have, and the Unreleased section is empty. The
+    plugin line they already have, and the Unreleased section comes before
+    v0.19.0's, so a plugin entry under it is not v0.19.0's. The
     README, the quickstart, the plugin page and the plugin README say the plugin
     installs from the `alicememory` marketplace, give the two commands, and no
     longer say it arrives once v0.19.0 is published. The reader must not take
@@ -1689,7 +1690,8 @@ def test_the_hook_help_names_the_plugin_option(
     assert (
         "Vault directory. Defaults to $ALICE_MEMORY_DATA_DIR or ~/.alice when omitted or empty "
         "(in the Claude Code plugin, $CLAUDE_PLUGIN_OPTION_DATA_DIR or ~/.alice). "
-        "A non-empty value must be absolute after ~ expansion."
+        "A non-empty value, from this flag or from $ALICE_MEMORY_DATA_DIR, must be absolute "
+        "after ~ expansion."
     ) in text
 
 
