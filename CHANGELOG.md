@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Hermes provider 0.5.2 sends the user text and the assistant text of a turn as two separate fields. A reply that contains a line starting with `User:` can no longer become an auto-saved user decision or hide the real user text. A multi-line user message is no longer cut to its first line, and two different turns no longer share a dedupe fingerprint. Each side is capped at 3,800 characters on its own; before, the joined text was capped once. Plugin 0.5.1 shipped in v0.18.0 and v0.19.0 and rebuilt the user text from the assistant reply, so the v0.18.0 statement that only user-role candidates are auto-saved was false for it (see the correction under v0.18.0). The plugin is copied into Hermes by the installer and is not in the wheel, so an existing install keeps the old behavior until you run `scripts/install_hermes_alice_memory_provider.py --force`. A symlink install picks up the change.
+
 - `alice_recall` and `alice_context_pack` refuse, before they search, a query the SQLite source search cannot take, and the tool error names the limit. A query with more than 499 distinct search terms, or over 40,000 UTF-8 bytes (counted as sent and again after case folding), answers `invalid_request` with a message such as `query has 1000 distinct search terms; the limit is 499. Use a shorter query.` The query is never cut to fit. A search term is an ASCII word of two or more characters that is not a stopword, a hyphenated id counts once, and a repeated word counts once. The limits are the session brief's, from one shared function. In v0.19.0 a query with about 991 or more distinct terms, or one over about 50,000 bytes with a captured source in the vault, answers `tool_execution_failed` with no detail, and a query of 500 to 990 distinct terms or 40,001 to about 50,000 bytes is taken. A query of any size over 40,000 bytes is also taken in v0.19.0 when the search reads no source row, which is a vault with no captured source or filters that exclude every source. Those ranges are refused now, because the limits sit at about half of what SQLite takes and the check looks at the query alone, not at what the vault holds. A context pack with `include_sources` false or `context_depth` `minimal` runs no source search and still takes a long query. `invalid_request` is a new MCP tool error code, the only one whose message is not static, and it never repeats the query. The SQLite source search raises the same typed error for every caller, so the legacy `alice_vnext_context_pack`, `alice_generate_contradictions` and `alice_generate_connections` tools answer it too. `alice_resume` and `alice_recent_decisions` are not changed: a query of about 50,000 bytes or more still answers `tool_execution_failed` there once the vault holds a stored decision. The Postgres backend is not changed.
 
 ## v0.19.0 — 2026-09-30
@@ -244,6 +246,14 @@
   credential, the whole turn is refused, so a valid user decision from
   that turn is not saved.
 
+  **Correction, added 2026-09-30.** True of the server route and false for
+  the Hermes plugin before version 0.5.2. Plugin 0.5.1, in v0.18.0 and
+  v0.19.0, split each turn back into roles by line, so a reply with a line
+  break followed by `User: decision: ...` reached the route as the user's
+  text and was auto-saved. Plugin 0.5.2, unreleased on main, sends the two
+  sides as separate fields. The changelog entry that starts "Hermes provider
+  0.5.2 sends" describes it.
+
 - A header-only JSON write under `/v0` reaches the route with the
   authenticated `user_id` in the body. `_rewrite_user_id_json_body` sets
   `request._body` to the rewritten JSON before `call_next`, the same cache
@@ -318,6 +328,13 @@
   legacy `/v1` memory-operations path keeps the old auto-apply rule.
   In auto mode an allowlisted type at confidence 0.9 still applies
   without a user prefix.
+
+  **Correction, added 2026-09-30.** The entry above is about
+  `/v0/continuity` captures. On `POST /v1/memory/operations/commit` the
+  policy does not read a candidate's role: in assist mode an explicit
+  assistant-role candidate of an allowed type at confidence 0.9 also
+  applies, not only in auto mode. The Hermes plugin does not call that
+  route.
 
 ## v0.17.0 — 2026-09-25
 
