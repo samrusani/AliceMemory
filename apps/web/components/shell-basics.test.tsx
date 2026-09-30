@@ -32,11 +32,11 @@ describe("shell coverage", () => {
 
   it("marks the current navigation item and exposes the skip target", () => {
     render(<AppShell legacySurfacesEnabled={false}><p>content</p></AppShell>);
-    const continuityLinks = screen.getAllByRole("link", { name: /Continuity Capture, recall/i });
+    const continuityLinks = screen.getAllByRole("link", { name: /Continuity\s*Capture, recall/i });
     expect(continuityLinks).toHaveLength(2);
     expect(continuityLinks.every((link) => link.getAttribute("aria-current") === "page")).toBe(true);
-    expect(screen.getAllByRole("link", { name: /Continuity Capture, recall/i })).toHaveLength(2);
-    expect(screen.queryByRole("link", { name: /Gmail Legacy manual/i })).not.toBeInTheDocument();
+    expect(screen.getAllByRole("link", { name: /Continuity\s*Capture, recall/i })).toHaveLength(2);
+    expect(screen.queryByRole("link", { name: /Gmail\s*Legacy manual/i })).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Skip to main content" })).toHaveAttribute("href", "#main-content");
   });
 
@@ -60,8 +60,8 @@ describe("shell coverage", () => {
     );
 
     rerender(<AppShell legacySurfacesEnabled><p>content</p></AppShell>);
-    expect(screen.getAllByRole("link", { name: /Approvals Legacy approval queue/i })).toHaveLength(2);
-    expect(screen.getAllByRole("link", { name: /Calendar Legacy manual account/i })).toHaveLength(2);
+    expect(screen.getAllByRole("link", { name: /Approvals\s*Legacy approval queue/i })).toHaveLength(2);
+    expect(screen.getAllByRole("link", { name: /Calendar\s*Legacy manual account/i })).toHaveLength(2);
   });
 
   it("renders bounded loading state and unavailable Gmail detail", () => {
