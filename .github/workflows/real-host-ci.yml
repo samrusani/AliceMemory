@@ -1,11 +1,11 @@
 name: Real host CI
 
-# Pinned claude, hermes, and opencode for pull requests that change host
+# Pinned claude, hermes, opencode, and codex for pull requests that change host
 # install, the launcher, the session-start hook, or a test that imports them.
 # The pins are the versions that ran headless on Linux with no credentials:
 # claude 2.1.281 (Claude Code), Hermes Agent v0.19.0 (2026.7.20),
-# opencode 1.18.32.
-# The Monday canary installs current claude, hermes, and opencode and opens
+# opencode 1.18.32, codex-cli 0.158.0.
+# The Monday canary installs current claude, hermes, opencode, and codex and opens
 # an [ops] issue when that run fails. The canary does not pin a version.
 # Pytest uses the setup-python interpreter recorded during the Alice
 # install. The Hermes virtualenv bin stays on PATH so hermes resolves,
@@ -18,9 +18,11 @@ on:
       - apps/api/src/alicebot_api/host_install.py
       - apps/api/src/alicebot_api/host_launcher.py
       - apps/api/src/alicebot_api/session_start_hook.py
+      - scripts/fuzz_codex_config_writer.py
       - tests/unit/launcher_helpers.py
       - tests/unit/test_absolute_uvx.py
       - tests/unit/test_claude_code_session_start_hook.py
+      - tests/unit/test_codex_config_install.py
       - tests/unit/test_data_dir_guard.py
       - tests/unit/test_hermes_config_install.py
       - tests/unit/test_hook_shell_quoting.py
@@ -94,6 +96,9 @@ jobs:
       - name: Install pinned OpenCode
         run: npm install -g opencode-ai@1.18.32
 
+      - name: Install pinned Codex
+        run: npm install -g @openai/codex@0.158.0
+
       - name: Run real host tests
         env:
           ALICE_TEST_REAL_HOSTS: "1"
@@ -101,13 +106,16 @@ jobs:
           command -v claude
           command -v hermes
           command -v opencode
+          command -v codex
           claude_version="$(claude --version)"
           hermes_report="$(hermes --version)"
           hermes_version="${hermes_report%%$'\n'*}"
           opencode_version="$(opencode --version)"
+          codex_version="$(codex --version)"
           printf 'claude version: %s\n' "$claude_version"
           printf 'hermes version: %s\n' "$hermes_version"
           printf 'opencode version: %s\n' "$opencode_version"
+          printf 'codex version: %s\n' "$codex_version"
           case "$claude_version" in
             "2.1.281 (Claude Code)") ;;
             *) echo "claude is not the pinned version"; exit 1 ;;
@@ -120,11 +128,18 @@ jobs:
             1.18.32) ;;
             *) echo "opencode is not the pinned version"; exit 1 ;;
           esac
+          case "$codex_version" in
+            "codex-cli 0.158.0") ;;
+            *) echo "codex is not the pinned version"; exit 1 ;;
+          esac
           "$ALICE_PYTHON" -m pytest \
             tests/unit/test_claude_code_session_start_hook.py::test_real_claude_doctor_accepts_the_written_settings \
             tests/unit/test_hermes_config_install.py::test_real_hermes_loads_the_written_config \
             tests/unit/test_opencode_config_install.py::test_real_opencode_reads_the_written_config \
             tests/unit/test_opencode_config_install.py::test_real_opencode_rejects_a_broken_alice_entry \
+            tests/unit/test_codex_config_install.py::test_real_codex_reads_the_written_config \
+            tests/unit/test_codex_config_install.py::test_real_codex_rejects_a_broken_alice_entry \
+            tests/unit/test_codex_config_install.py::test_real_codex_tools_key_and_table \
             -q --tb=short --junitxml "$RUNNER_TEMP/real-hosts.xml"
           "$ALICE_PYTHON" - "$RUNNER_TEMP/real-hosts.xml" <<'PY'
           import sys
@@ -134,7 +149,7 @@ jobs:
           suites = [root] if root.tag == "testsuite" else list(root.findall("testsuite"))
           ran = sum(int(suite.attrib.get("tests", "0")) for suite in suites)
           skipped = sum(int(suite.attrib.get("skipped", "0")) for suite in suites)
-          if ran != 5 or skipped != 0:
+          if ran != 8 or skipped != 0:
               raise SystemExit(
                   f"real host tests did not all run: tests={ran} skipped={skipped}"
               )
@@ -182,6 +197,9 @@ jobs:
       - name: Install current OpenCode
         run: npm install -g opencode-ai@latest
 
+      - name: Install current Codex
+        run: npm install -g @openai/codex@latest
+
       - name: Run real host tests
         env:
           ALICE_TEST_REAL_HOSTS: "1"
@@ -189,14 +207,19 @@ jobs:
           command -v claude
           command -v hermes
           command -v opencode
+          command -v codex
           printf 'claude version: %s\n' "$(claude --version)"
           printf 'hermes version: %s\n' "$(hermes --version)"
           printf 'opencode version: %s\n' "$(opencode --version)"
+          printf 'codex version: %s\n' "$(codex --version)"
           "$ALICE_PYTHON" -m pytest \
             tests/unit/test_claude_code_session_start_hook.py::test_real_claude_doctor_accepts_the_written_settings \
             tests/unit/test_hermes_config_install.py::test_real_hermes_loads_the_written_config \
             tests/unit/test_opencode_config_install.py::test_real_opencode_reads_the_written_config \
             tests/unit/test_opencode_config_install.py::test_real_opencode_rejects_a_broken_alice_entry \
+            tests/unit/test_codex_config_install.py::test_real_codex_reads_the_written_config \
+            tests/unit/test_codex_config_install.py::test_real_codex_rejects_a_broken_alice_entry \
+            tests/unit/test_codex_config_install.py::test_real_codex_tools_key_and_table \
             -q --tb=short --junitxml "$RUNNER_TEMP/real-hosts.xml"
           "$ALICE_PYTHON" - "$RUNNER_TEMP/real-hosts.xml" <<'PY'
           import sys
@@ -206,7 +229,7 @@ jobs:
           suites = [root] if root.tag == "testsuite" else list(root.findall("testsuite"))
           ran = sum(int(suite.attrib.get("tests", "0")) for suite in suites)
           skipped = sum(int(suite.attrib.get("skipped", "0")) for suite in suites)
-          if ran != 5 or skipped != 0:
+          if ran != 8 or skipped != 0:
               raise SystemExit(
                   f"real host tests did not all run: tests={ran} skipped={skipped}"
               )
@@ -222,7 +245,7 @@ jobs:
             const bodyLines = [
               'The weekly real-host canary failed.',
               '',
-              'It installs the current claude, hermes, and opencode CLIs with no version pin and runs the real-host tests.',
+              'It installs the current claude, hermes, opencode, and codex CLIs with no version pin and runs the real-host tests.',
               '',
               `- workflow run: ${runUrl}`,
               `- commit: ${context.sha}`,

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- `alice-memory install --host codex` edits `~/.codex/config.toml` as text and writes only the alice MCP entry. It is opt-in, writes no `env` table, and does not write a SessionStart hook. A comment inside `command`, `args`, or an inline `env` is refused. An integer in value position outside the i64 range, or a float in value position that is not finite, is refused and the reason names the line. A dry run renders carried lines from the parsed values and hides a token or a URL in `env_vars` and in `tools` values. A `tools` value that is not a table, or an `approval_mode` outside `auto`, `prompt`, `writes`, and `approve`, or an `output_token_limit` that is not a positive integer, is refused. A `config.toml` nested so deeply that it cannot be parsed is refused with `config.toml nests too deeply`, and a profile layer nested that deeply, or one that is not UTF-8, gets the unreadable-layer note, and a `hooks.json` nested that deeply gets no hook note and does not stop install. A success receipt ends with `codex mcp get alice`. In v0.18.0 there is no `--host codex`.
 - A newest fact longer than about 50,000 UTF-8 bytes no longer wipes the
   session brief. An excerpt query over 40,000 UTF-8 bytes, whether a fact,
   an explicit query, or a source title, is bounded to a few hundred
