@@ -59,14 +59,14 @@ OpenCode is opt-in with `--host opencode`, which writes `opencode.json` or `open
 
 Codex is opt-in with `--host codex`, which edits `config.toml` in Codex's home as text and writes a SessionStart hook to `hooks.json` there. Codex skips the hook until you trust it once at "Hooks need review" or with `/hooks`. See [Codex](https://github.com/samrusani/AliceMemory/blob/main/docs/integrations/codex.md).
 
-The Claude Code plugin in `plugins/alice-memory` installs from the `alicememory` marketplace. Clone this repository and run:
+The Claude Code plugin in `plugins/alice-memory` installs from the `alicememory` marketplace. Run:
 
 ```bash
-claude plugin marketplace add <path to the clone>
+claude plugin marketplace add samrusani/AliceMemory
 claude plugin install alice-memory@alicememory
 ```
 
-The marketplace file is on `main`, not in the v0.19.0 tag, and pins the plugin to the v0.19.0 tag commit. Use the plugin or `--host claude-code`, not both. See [Claude Code plugin](https://github.com/samrusani/AliceMemory/blob/main/docs/integrations/claude-code-plugin.md).
+The marketplace file is on `main`, not in the v0.19.0 tag, and pins the plugin to the v0.19.0 tag commit. If git on your machine is set to use SSH for GitHub and you have no key there, add `https://github.com/samrusani/AliceMemory.git` instead. If you already have a clone, `claude plugin marketplace add <path to the clone>` works too. Use the plugin or `--host claude-code`, not both. See [Claude Code plugin](https://github.com/samrusani/AliceMemory/blob/main/docs/integrations/claude-code-plugin.md).
 
 OpenClaw can also add the server in one line, which probes before saving:
 

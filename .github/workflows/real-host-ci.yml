@@ -395,6 +395,14 @@ jobs:
           path: ${{ runner.temp }}/plugin-hook-trial/
           if-no-files-found: error
 
+  # Adds the marketplace three ways, each into a fresh HOME, then installs
+  # alice-memory@alicememory and checks the plugin list. A path (./) and the
+  # HTTPS clone URL must work, and fail the job when they do not. The
+  # owner/repo shorthand is tried and reported: Claude Code may clone it over
+  # SSH, which a runner without a key cannot do, so its result is an answer
+  # for the docs and never a failure. The HTTPS and shorthand forms read the
+  # default branch of the repository, so on a branch whose marketplace file
+  # differs from main they install what main pins.
   marketplace-check:
     name: Claude Code marketplace check
     if: "${{ github.event_name == 'workflow_dispatch' && (inputs.job == 'all' || inputs.job == 'marketplace-check') }}"
@@ -420,30 +428,84 @@ jobs:
       - name: Validate the committed marketplace
         run: |
           test -f .claude-plugin/marketplace.json
-          claude plugin validate . --strict --json
           ref="$(python3 -c 'import json; print(json.load(open(".claude-plugin/marketplace.json"))["plugins"][0]["source"]["ref"])')"
           version="${ref#v}"
+          echo "EXPECTED_PLUGIN_VERSION=$version" >> "$GITHUB_ENV"
+          claude plugin validate . --strict --json
           home="$(mktemp -d)"
           HOME="$home" claude plugin marketplace add ./ < /dev/null
           HOME="$home" claude plugin install "alice-memory@alicememory" < /dev/null
           HOME="$home" claude plugin list --json > "$RUNNER_TEMP/plugins.json"
-          python3 - "$version" "$RUNNER_TEMP/plugins.json" << 'PY'
-          import json
-          import sys
+          python3 scripts/check_marketplace_plugin_list.py "$version" "$RUNNER_TEMP/plugins.json"
 
-          expected, path = sys.argv[1], sys.argv[2]
-          payload = json.load(open(path, encoding="utf-8"))
-          rows = payload if isinstance(payload, list) else payload.get("plugins", payload.get("items", []))
-          if not isinstance(rows, list):
-              raise SystemExit(f"plugin list was not a list: {payload}")
-          matched = [
-              row
-              for row in rows
-              if isinstance(row, dict)
-              and row.get("id") == "alice-memory@alicememory"
-              and row.get("enabled") is True
-              and str(row.get("version")) == expected
-          ]
-          if len(rows) != 1 or len(matched) != 1:
-              raise SystemExit(f"plugin list did not match {expected}: {payload}")
-          PY
+      - name: Add the marketplace from the HTTPS URL
+        if: "${{ !cancelled() }}"
+        run: |
+          expected="${EXPECTED_PLUGIN_VERSION:?the expected plugin version was not read}"
+          home="$(mktemp -d)"
+          HOME="$home" claude plugin marketplace add https://github.com/samrusani/AliceMemory.git < /dev/null
+          HOME="$home" claude plugin install "alice-memory@alicememory" < /dev/null
+          HOME="$home" claude plugin list --json > "$RUNNER_TEMP/plugins-https.json"
+          python3 scripts/check_marketplace_plugin_list.py "$expected" "$RUNNER_TEMP/plugins-https.json"
+
+      - name: Try the owner/repo shorthand
+        id: shorthand
+        if: "${{ !cancelled() }}"
+        # Report only. The step ends 0 whatever the shorthand does, because a
+        # failure here is the answer. continue-on-error and the step timeout
+        # cover a fault in the step itself, such as a hang.
+        continue-on-error: true
+        timeout-minutes: 15
+        run: |
+          set +e
+          source_arg="samrusani/AliceMemory"
+          expected="${EXPECTED_PLUGIN_VERSION:-}"
+          home="$(mktemp -d)"
+          add_log="$RUNNER_TEMP/shorthand-add.log"
+          result=works
+          reason="the add and the install worked, and the plugin list held alice-memory@alicememory $expected, enabled"
+          HOME="$home" timeout 180 claude plugin marketplace add "$source_arg" < /dev/null > "$add_log" 2>&1
+          status=$?
+          cat "$add_log"
+          if [ "$status" -ne 0 ]; then
+            result=add-failed
+            if grep -Eq 'Permission denied \(publickey\)|Host key verification failed|git@github\.com' "$add_log"; then
+              reason="the add cloned over SSH and the runner has no SSH key (exit $status)"
+            elif [ "$status" -eq 124 ]; then
+              reason="the add did not finish in 180 seconds"
+            else
+              reason="the add failed with exit $status, and the output above says why"
+            fi
+          else
+            HOME="$home" timeout 180 claude plugin install "alice-memory@alicememory" < /dev/null
+            status=$?
+            if [ "$status" -ne 0 ]; then
+              result=install-failed
+              reason="the add worked, and the install failed with exit $status"
+            else
+              HOME="$home" timeout 180 claude plugin list --json < /dev/null > "$RUNNER_TEMP/plugins-shorthand.json"
+              status=$?
+              if [ "$status" -ne 0 ]; then
+                result=list-failed
+                reason="the add and the install worked, and the plugin list failed with exit $status"
+              elif ! python3 scripts/check_marketplace_plugin_list.py "$expected" "$RUNNER_TEMP/plugins-shorthand.json"; then
+                result=list-mismatch
+                reason="the add and the install worked, and the plugin list did not hold alice-memory@alicememory $expected, enabled"
+              fi
+            fi
+          fi
+          echo "result=$result" >> "$GITHUB_OUTPUT"
+          echo "claude plugin marketplace add $source_arg: $result, $reason"
+          if [ "$result" = works ]; then
+            echo "::notice title=Marketplace shorthand works::claude plugin marketplace add $source_arg works: $reason"
+          else
+            echo "::warning title=Marketplace shorthand did not work::claude plugin marketplace add $source_arg gave $result: $reason"
+          fi
+          {
+            echo "### Marketplace shorthand"
+            echo
+            echo "\`claude plugin marketplace add $source_arg\` on a GitHub-hosted runner: **$result**"
+            echo
+            echo "$reason"
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit 0
