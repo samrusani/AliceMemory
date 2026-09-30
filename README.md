@@ -21,7 +21,7 @@ uvx alice-memory demo --vault ~/Notes --data-dir ~/.alice-demo
 
 Alice is a local-first memory service for AI agents. It lets them resume interrupted work, track open loops, recall decisions with provenance, and improve when corrected. They do not have to re-read transcripts or trust opaque summaries.
 
-A LongMemEval_s receipt of 81.2% mean over three independent full runs (80.8 / 81.0 / 81.8; 404-409 of 500) was measured 2026-07-18/19 on the published `v0.12.0` tag with the privileged `store_chunks` harness. That path reads chunks straight from the store. No MCP tool offers it, and it is not the product path. `pack_excerpts` is the product-path mode and is not yet a published score. Per-question evidence for all three runs, the reader/judge/embedding configuration, and the reproduction script are committed to this repo. Multi-session is the weakest category at roughly 63%. The 30-question abstention subset is noisy across runs (76.7 / 90.0 / 83.3) and should not be quoted to one decimal. The earlier single run of 79.4% (397/500) from 2026-07-07 is retained as evidence.
+Alice is a public alpha with one maintainer, and most of its code is written by AI coding agents ([how it is built](#how-it-is-built)). Read the [known limitations](https://github.com/samrusani/AliceMemory/blob/main/docs/alpha/known-limitations.md) before you rely on it.
 
 Agents connect over MCP, HTTP API, or CLI. Humans stay in control. Agent writes land as policy-checked commits or reviewable proposals. On SQLite you approve, correct, or forget memory with the full tool set (`ALICE_MCP_FULL_TOOLS=1`). The Postgres stack adds a local review console.
 
@@ -193,12 +193,16 @@ On SQLite that is FTS5 and cosine similarity. On Postgres it is full-text search
 and pgvector 0.8+ (iterative HNSW). With no embeddings endpoint, search skips the
 vector list and the retrieval trace says so.
 
+## Benchmark
+
+A LongMemEval_s receipt of 81.2% mean over three independent full runs (80.8 / 81.0 / 81.8; 404-409 of 500) was measured 2026-07-18/19 on the published `v0.12.0` tag with the privileged `store_chunks` harness. That path reads chunks straight from the store. No MCP tool offers it, and it is not the product path. `pack_excerpts` is the product-path mode and is not yet a published score. Per-question evidence for all three runs, the reader/judge/embedding configuration, and the reproduction script are committed to this repo. Multi-session is the weakest category at roughly 63%. The 30-question abstention subset is noisy across runs (76.7 / 90.0 / 83.3) and should not be quoted to one decimal. The earlier single run of 79.4% (397/500) from 2026-07-07 is retained as evidence.
+
 ## Status
 
 `v0.18.0` is the latest published release and remains the install, checksum,
 and release-note baseline (the `v0.13.0` tag was never published;
 superseded). Its tag, release record, and published artifacts
-are immutable.`v0.12.0` was the structural refactor release. Structure only. Zero behavior change.
+are immutable. `v0.12.0` was the structural refactor release. Structure only. Zero behavior change.
 Alice is a public-alpha, pre-1.0 project.
 What that means in practice:
 
@@ -234,6 +238,10 @@ What that means in practice:
 - [Architecture](https://github.com/samrusani/AliceMemory/blob/main/ARCHITECTURE.md)
 - [Roadmap](https://github.com/samrusani/AliceMemory/blob/main/ROADMAP.md)
 - [Changelog](https://github.com/samrusani/AliceMemory/blob/main/CHANGELOG.md)
+
+## How it is built
+
+Most of the code is written by AI coding agents (Codex, Claude Code and Cursor's agent). One agent builds each change and another reviews it. A new test only counts once breaking the code on purpose makes it fail, and CI runs the installer against real, pinned versions of the agent hosts it writes config for. The maintainer sets the direction and publishes each release.
 
 ## Contributing
 
