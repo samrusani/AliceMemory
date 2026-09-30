@@ -15,13 +15,17 @@ is known, fail-open is a single blank line and exit 0. If argparse
 fails before format is known, ``{}`` is still correct for the default
 JSON host. Never failClosed. Never print MCP protocol on stdout.
 
-A non-empty ``--data-dir`` that is not absolute after ``~`` expansion is
-not fail-open. The command exits 0 and prints one line, in the chosen
+A data directory that is not absolute after ``~`` expansion is not
+fail-open. That covers a non-empty ``--data-dir``, a non-empty
+``$ALICE_MEMORY_DATA_DIR`` when it is the value in use, and the plugin
+option below. The command exits 0 and prints one line, in the chosen
 format and on stderr: ``Alice: the data directory "<value>" is not an
 absolute path; set an absolute path.`` In JSON that line is
 ``additionalContext``. It does not start with ``{`` or ``[``. An empty
 ``--data-dir`` is the same as none: it falls back to
-``$ALICE_MEMORY_DATA_DIR``, then ``~/.alice``.
+``$ALICE_MEMORY_DATA_DIR``, then ``~/.alice``. An empty
+``$ALICE_MEMORY_DATA_DIR`` is the same as unset. Nothing is created for a
+refused value.
 
 Plugin mode. Claude Code sets ``CLAUDE_PLUGIN_ROOT`` for a plugin's hooks
 and servers and not for a hook in ``settings.json``, so a non-empty value
@@ -117,7 +121,8 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
             "Read a host session-start payload on stdin and print a session "
             "brief for injection. JSON failures write {} and exit 0. "
             "Markdown failures write a blank line and exit 0. A non-empty "
-            "--data-dir that is not absolute after ~ expansion prints one "
+            "--data-dir, or a non-empty $ALICE_MEMORY_DATA_DIR in use, that is "
+            "not absolute after ~ expansion prints one "
             "line instead of that fail-open output, in the chosen format "
             "and on stderr, and still exits 0. Inside the Claude Code plugin "
             f"(${CLAUDE_PLUGIN_ROOT_ENV} set) with no --data-dir, the vault is "
@@ -132,7 +137,8 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
             f"Vault directory. Defaults to ${ALICE_MEMORY_DATA_DIR_ENV} or "
             f"{DEFAULT_DATA_DIR} when omitted or empty (in the Claude Code "
             f"plugin, ${CLAUDE_PLUGIN_OPTION_DATA_DIR_ENV} or {DEFAULT_DATA_DIR}). "
-            "A non-empty value must be absolute after ~ expansion."
+            "A non-empty value, from this flag or from "
+            f"${ALICE_MEMORY_DATA_DIR_ENV}, must be absolute after ~ expansion."
         ),
     )
     parser.add_argument(
@@ -177,12 +183,15 @@ def _run(args: argparse.Namespace) -> int:
     requested = args.data_dir
     if not requested and _plugin_mode():
         requested = os.environ.get(CLAUDE_PLUGIN_OPTION_DATA_DIR_ENV) or DEFAULT_DATA_DIR
-    if requested and not data_dir_absolute_after_tilde(requested):
+    if not requested:
+        requested = os.environ.get(ALICE_MEMORY_DATA_DIR_ENV) or DEFAULT_DATA_DIR
+    # One check for every source: --data-dir, the plugin option, the variable
+    # and the default. A refused value creates nothing.
+    if not data_dir_absolute_after_tilde(requested):
         _emit_data_dir_refusal(requested, args.format)
         return 0
 
-    data_dir = requested or os.environ.get(ALICE_MEMORY_DATA_DIR_ENV) or DEFAULT_DATA_DIR
-    db_path = resolve_db_path(data_dir=data_dir, db=None)
+    db_path = resolve_db_path(data_dir=requested, db=None)
     bootstrap_database(
         db_path,
         user_id=UUID(str(args.user_id)),

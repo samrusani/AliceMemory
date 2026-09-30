@@ -2,6 +2,33 @@
 
 ## Unreleased
 
+- `alice_memory_review` sets `readOnlyHint` and no longer sets
+  `destructiveHint`. It only lists review items or shows one, and changes no
+  memory, source, or revision. Every table was snapshotted before and after
+  list and detail calls, with no identity, with an agent identity in the
+  payload, and with an agent API key. With no identity nothing changes. With
+  an identity only `event_log` and `agent_identities` rows change, and with a
+  key the key's last-used time changes too, the same rows the read-only tools
+  write. `alice_memory_correct`, `alice_memory_manage`, and `alice_open_loops`
+  still set `destructiveHint` to true. By the approval rule as the code
+  records it, Codex's default mode should no longer wait for approval before
+  `alice_memory_review`. No test here runs a Codex approval prompt. In
+  v0.19.0 `alice_memory_review` sets `destructiveHint` to true, grouped with
+  the tools that act on the review queue, and Codex still asks before it runs.
+- `alice-memory-session-start` refuses a non-empty `ALICE_MEMORY_DATA_DIR`
+  that is not absolute after `~` expansion, when the variable is the value in
+  use. It prints the line it prints for `--data-dir`, `Alice: the data
+  directory "<value>" is not an absolute path; set an absolute path.`, in
+  `--format markdown` and in JSON, and exits 0. Nothing is created: no vault,
+  and no folder under the current directory, including for the literal
+  `${HOME}/.alice` that a host leaves unexpanded. The variable is the value in
+  use only when there is no `--data-dir` and the hook is not running as the
+  Claude Code plugin's hook, where it is still ignored. An empty variable is
+  the same as unset, and the hook opens `~/.alice`. `alice-memory brief` and
+  `alice-memory mcp` do not read the variable, so they are not changed. In
+  v0.19.0 the hook creates the vault under the current directory for a
+  relative value.
+
 ## v0.19.0 — 2026-09-30
 
 - `alice-memory install --host codex` edits `~/.codex/config.toml` as text and writes the alice MCP entry there. It is opt-in and writes no `env` table. A comment inside `command`, `args`, or an inline `env` is refused. An integer in value position outside the i64 range, or a float in value position that is not finite, is refused and the reason names the line. A dry run renders carried lines from the parsed values and hides a token or a URL in `env_vars` and in `tools` values. A `tools` value that is not a table, or an `approval_mode` outside `auto`, `prompt`, `writes`, and `approve`, or an `output_token_limit` that is not a positive integer, is refused. A `config.toml` nested so deeply that it cannot be parsed is refused with `config.toml nests too deeply`, and a profile layer nested that deeply, or one that is not UTF-8, gets the unreadable-layer note. A success receipt ends with `codex mcp get alice`. In v0.18.0 there is no `--host codex`.
