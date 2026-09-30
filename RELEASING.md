@@ -233,9 +233,9 @@ artifacts pass.
 
 Web dependency auditing deliberately remains on
 `apps/web/scripts/npm-advisory-audit.mjs` while the reproducible web toolchain
-is pinned to Node 22.22.2 and pnpm 10.23.0. Unreleased (on main, not in v0.18.0):
-the web test job and the deployment-guide smoke job pin Node 22.22.2. The
-v0.18.0 tag pins those jobs to Node 20. pnpm 11 now uses npm's bulk advisory
+is pinned to Node 22.22.2 and pnpm 10.23.0. From v0.19.0, the web test job
+and the deployment-guide smoke job pin Node 22.22.2. The v0.18.0 tag pins
+those jobs to Node 20. pnpm 11 now uses npm's bulk advisory
 endpoint, as recorded in the [pnpm 11 audit migration](https://github.com/orgs/pnpm/discussions/11377),
 but upgrading the package-manager major is a separate compatibility carrier.
 The repository wrapper already calls that bulk endpoint directly and fails
@@ -453,3 +453,5 @@ macOS with `shasum -a 256 -c SHA256SUMS`.
 
 `v0.18.0` is the latest published release and remains the install, checksum,
 and baseline reference.
+
+`v0.19.0` is the current release candidate. It is not published.

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v0.19.0 — 2026-09-30
+
 - `alice-memory install --host codex` edits `~/.codex/config.toml` as text and writes the alice MCP entry there. It is opt-in and writes no `env` table. A comment inside `command`, `args`, or an inline `env` is refused. An integer in value position outside the i64 range, or a float in value position that is not finite, is refused and the reason names the line. A dry run renders carried lines from the parsed values and hides a token or a URL in `env_vars` and in `tools` values. A `tools` value that is not a table, or an `approval_mode` outside `auto`, `prompt`, `writes`, and `approve`, or an `output_token_limit` that is not a positive integer, is refused. A `config.toml` nested so deeply that it cannot be parsed is refused with `config.toml nests too deeply`, and a profile layer nested that deeply, or one that is not UTF-8, gets the unreadable-layer note. A success receipt ends with `codex mcp get alice`. In v0.18.0 there is no `--host codex`.
 - `alice-memory install --host codex` also writes a SessionStart hook to `<CODEX_HOME>/hooks.json`, so a new Codex session starts with the session brief. Install appends one group at the end of `hooks.SessionStart`, so the indexes Codex keys its trust records by do not move. The handler is `{"type": "command", "command": ..., "timeout": 120, "additionalContextLimit": 0}` with `--format markdown` in the command, because Codex rejects the JSON that Cursor and Claude Code read. Install never writes `trusted_hash`: Codex skips the hook until you trust it once at "Hooks need review" or with `/hooks`, and skips it again when a re-run changes the command, which the receipt says. A re-run replaces Alice's handler in place, including the JSON-mode item Codex's Claude Code import copies, and any handler of Alice's that differs in a key, such as a missing `additionalContextLimit` or an `async`, is replaced whole. A `hooks.json` with two Alice hooks is refused. A `hooks.json` Codex would skip, for a handler type it does not read, a timeout that is not a whole number or is above 2^63-1 (Codex fails hashing it), a handler with both `commandWindows` and `command_windows`, or a null in an `mcp_tool` input, is refused with `Codex would skip this hooks.json` and nothing is written; an integer of any size in an `mcp_tool` input is accepted. A `hooks.json` nested too deeply to read is refused the same way, and one with a lone surrogate escape is refused as not strict JSON. A new MCP entry opens the data dir of the Alice hook already installed, as the Claude Code and Cursor hosts do. The trust and `The hook changed` lines are printed only once `hooks.json` is written. When `config.toml` already holds hooks, install writes no hook, prints the hook as TOML, and exits 1 until you add it, with the error code `install_hook_by_hand` when install wrote the MCP entry and refused only the hook (every other refusal keeps `install_refused`); once the printed hook is in `config.toml` the next run says `unchanged in config.toml` and exits 0, and an Alice hook there that differs from the printed one gets a line to replace it, not add a second. If `hooks.json` also holds Alice's hook, the next line says to move it (add to `config.toml`, then remove from `hooks.json`) or a note says to remove the one in `hooks.json`, and install never edits `hooks.json` on that path. It notes `[features] hooks = false`, in a dry run too. The Codex receipt no longer carries the `alice-memory brief` note, and the JSON-mode hook note is gone because install replaces that item. In v0.18.0 there is no Codex hook.
 - A Claude Code plugin directory is in the repo. Install skips when that
@@ -28,14 +30,16 @@
   distinct search terms (the next entry) is used exactly as before, so an
   ordinary brief is unchanged. The brief still prints its facts and
   loops, and its sources when the fact's words match one. In v0.18.0 the
-  same fact raises a SQLite pattern error and the hook prints `{}`.
+  same fact, with a captured source in the vault, raises a SQLite pattern
+  error and the hook prints `{}`.
 - A newest fact, open loop, explicit query, or source title with too many
   distinct search terms no longer wipes the session brief, even when it is
   well under 40,000 UTF-8 bytes. A search term is an ASCII word of two or
   more characters that is not a stopword, and a hyphenated id counts once.
   SQLite refuses the source search at about 990 of them, which is roughly
-  30 KB of ordinary prose or 3 KB of two-character tokens. The hook then
-  printed `{}` and `alice-memory brief` exited 1, with the SQLite error
+  30 KB of ordinary prose (less when the words are rare) or 3 KB of
+  two-character tokens. In v0.18.0 the hook then printed `{}` and
+  `alice-memory brief` exited 1, in any vault, with the SQLite error
   `Expression tree is too large`. An excerpt query with more than 499
   distinct search terms is now bounded to a few hundred characters of its
   FTS tokens, the way a query over 40,000 bytes is. A query with 499 or
@@ -44,9 +48,12 @@
   search binds the folded text and some characters grow when folded. A
   fact of 9,000 U+0390 characters is 18,000 bytes, folds to 54,000, and
   was refused with `LIKE or GLOB pattern too complex`. In v0.18.0 the same
-  text raises a SQLite error and the hook prints `{}`. `alice_recall` and
-  `alice_context_pack` are not changed: a query with 991 or more distinct
-  search terms still fails there with the same error.
+  text, with a captured source in the vault, raises a SQLite error and the
+  hook prints `{}`. `alice_recall` and `alice_context_pack` are not
+  changed: a query with 991 or more distinct search terms, or with a
+  captured source in the vault a query over about 50,000 bytes, still
+  returns a tool error there (`tool_execution_failed`), as it does in
+  v0.18.0.
 - `alice-memory install --host hermes` leaves a comment in place when the
   `alice` block, with comment lines and inline comments removed, already
   matches what install would write. The receipt says unchanged and the
@@ -58,10 +65,15 @@
   `readOnlyHint`. `alice_memory_commit` and `alice_capture` set
   `destructiveHint` to false. `alice_memory_review`, `alice_memory_correct`,
   `alice_memory_manage`, and `alice_open_loops` set `destructiveHint` to
-  true. In Codex's default mode those tools no longer wait for approval.
-  A policy audit row or an agent identity row is not a state change the
-  client asked for. In v0.18.0 these tools declare no hints, so Codex asks
-  before every call.
+  true. The hints follow Codex's default approval rule as the code records
+  it, so in Codex's default mode the read-only and non-destructive tools
+  should no longer wait for approval. No test here runs a Codex approval
+  prompt. An event log row from `alice_context_pack`, or an agent identity
+  row, is not a state change the client asked for. `alice_memory_review`
+  only lists or shows review items and changes no memory or source, so its
+  destructive flag is conservative: it is grouped with the tools that act
+  on the review queue, and Codex still asks before it runs. In v0.18.0
+  these tools declare no hints.
 - A long session-brief note is cut at 1,500 characters, on the last word
   boundary, or on a grapheme boundary when the note has no word break. When
   the word-boundary prefix keeps less than 60% of what fits, the cut keeps
@@ -82,12 +94,16 @@
 - `alice-memory mcp` refuses a `--data-dir` that is empty or not absolute
   after `~` expansion, names the value, and exits 2.
   `alice-memory-session-start` refuses a non-empty value that is not
-  absolute after expansion: it prints one line and exits 0. An empty
-  session-start value still falls back to `$ALICE_MEMORY_DATA_DIR`, then
-  `~/.alice`. An MCPB default that Claude Desktop leaves as a literal
-  `${HOME}/.alice` now exits 2, instead of creating a vault under the cwd.
-  In v0.18.0 a relative data dir is accepted, and that literal
-  `${HOME}/.alice` creates a vault under the cwd.
+  absolute after expansion: it prints one line and exits 0. That refusal
+  covers a `--data-dir` value and the Claude Code plugin's `data_dir`
+  option. It does not cover `ALICE_MEMORY_DATA_DIR`: an empty session-start
+  value still falls back to that variable, then `~/.alice`, and a relative
+  value in the variable is not checked, so the hook still creates a vault
+  under the cwd for it. Only the hook reads the variable. An MCPB default
+  that Claude Desktop leaves as a literal `${HOME}/.alice` now exits 2,
+  instead of creating a vault under the cwd. In v0.18.0 a relative data dir
+  is accepted, and that literal `${HOME}/.alice` creates a vault under the
+  cwd.
 - A ChatGPT conversation title that holds a token is stored as `withheld`
   and counted in `skipped_credentials` and `skipped_credential_items` as
   `conversation X title`. In v0.18.0 that title is stored as `withheld`
@@ -110,22 +126,27 @@
   with the commit door's verdict, the same check `capture_source` uses.
   A flagged line, message, or title is withheld and named, and the rest
   of the file or conversation is imported. A low-entropy AKIA-shaped key
-  the floor treats as a placeholder is withheld that way. The source
-  doctor still flags a stored source that contains one. In v0.18.0 the
-  line filter misses that key, capture stores it, and the doctor does
-  not flag it.
-- An OpenCode dry run shows booleans and numbers on top-level keys,
-  including `"enabled": false`. A value under `environment`, `env`,
-  `headers`, or any other map stays hidden, whatever its type. In
-  v0.18.0 those top-level values print as `<hidden>`.
+  the floor treats as a placeholder is withheld that way, and so is a
+  numeric password written in a sentence, so a folder re-import can skip a
+  line that v0.18.0 imported. The source doctor still flags a stored
+  source that contains the key. In v0.18.0 the line filter misses that
+  key, capture stores it, and the doctor does not flag it.
+- An install dry run shows booleans and numbers on top-level keys of
+  your existing entry, on Claude Desktop, Claude Code, Cursor, OpenClaw
+  and OpenCode alike, including OpenCode's `"enabled": false`. A string
+  value, and any value under `environment`, `env`, `headers`, or another
+  map, stays hidden, whatever its type. In v0.18.0 those top-level values
+  print as `<hidden>`.
 - The session brief (SessionStart, `alice-memory brief`, and
   `compile_local_session_brief`) shows current facts only. A memory whose
   `superseded_by` is set, or whose status is `superseded`, is omitted. A
   `**source**` line is omitted when the captured sentence's `quoted_from`
-  memory was corrected or superseded after that capture. `alice_recall`
-  still returns the older row after the current one, with
-  `validity.superseded: true`, which `alice_context_pack` already set.
-  Recall and the context pack keep the old passage under `sources` and add
+  memory was corrected or superseded after that capture. When the older
+  row is still active and carries `superseded_by`, `alice_recall` still
+  returns it after the current one, with `validity.superseded: true`,
+  which `alice_context_pack` already set. A row that a correction moved to
+  `superseded` is not returned by recall at all. Recall and the context
+  pack keep the old passage under `sources` and add
   `derived_memory_corrected: true` plus `current_memory_id`. The stored
   chunk and the `quoted_from` quote are unchanged. In v0.18.0 the brief
   still prints that older sentence as a `**fact**` or a `**source**` line,

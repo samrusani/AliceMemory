@@ -92,6 +92,56 @@ are immutable and the numbers are retired rather than reused: `v0.13.0`,
 superseded by `v0.13.1`, and `v0.15.0`, whose commit carried a release-gate step
 that could not run on a CI runner.
 
+## What `v0.19.0` Targets
+
+`v0.19.0` is the current release candidate. It is not published.
+
+It takes the work on `main` since `v0.18.0`. Codex is a new opt-in install
+host that writes an MCP entry and a SessionStart hook. The Claude Code plugin
+directory is in the repo. The session brief is cut to fit Claude Code's size
+cap, leaves out superseded facts, and no longer fails on a long newest fact,
+open loop, query or source title. Every MCP tool declares hints, and a
+relative or empty `--data-dir` is refused. There is no schema change.
+
+- [v0.19.0 release notes](https://github.com/samrusani/AliceMemory/blob/main/docs/release/v0.19.0-release-notes.md)
+
+`v0.19.0` has these changes. `v0.18.0` does not.
+
+- `alice-memory install --host codex` writes an `alice` entry into Codex's
+  `config.toml`, edited as text, and a SessionStart hook into `hooks.json`.
+  Codex is opt-in and the default hosts are unchanged. Install never writes
+  trust, so Codex skips the hook until you trust it once. When `config.toml`
+  already defines hooks, install prints the hook, exits 1, and uses the error
+  code `install_hook_by_hand`. `v0.18.0` has no Codex host.
+- `plugins/alice-memory` holds a Claude Code plugin. Its version and both
+  command pins equal the package version. Install skips when the plugin is
+  enabled and install has not written Claude Code entries, and refuses when
+  both exist. The marketplace file is not in the tag. `v0.18.0` has no plugin.
+- The session brief cuts a long note to at most 1,500 characters, stays under
+  9,500 characters, and leaves out a superseded fact and a source line whose
+  captured sentence was corrected later. A long newest fact, open loop,
+  explicit query or source title no longer empties it, including one with
+  more than about 990 distinct words. `alice_recall` and
+  `alice_context_pack` are not changed and still return a tool error for a
+  query with about 991 or more distinct search terms, or, with a captured
+  source in the vault, over about 50,000 bytes. In `v0.18.0` a note
+  over the token budget was dropped, a brief could pass 15,000 characters,
+  and a fact with more than about 990 distinct words, or over about 50,000
+  bytes with a source in the vault, made the hook print `{}`.
+- Every MCP tool sets `openWorldHint` to false. Five tools are read-only, two
+  are non-destructive, and four are destructive. `v0.18.0` tools declare no
+  hints.
+- `alice-memory mcp` refuses an empty or relative `--data-dir` with exit 2,
+  and the session-start hook prints one line and exits 0 for a relative
+  `--data-dir` or plugin `data_dir`. A relative `ALICE_MEMORY_DATA_DIR` is
+  not checked. `v0.18.0` creates the vault under the current directory.
+- `alice-memory install --host hermes` keeps a comment in the `alice` block
+  when nothing needs to change, and refuses when a change is needed. In
+  `v0.18.0` the re-run drops the comment.
+- Folder-import receipt items name the file, a withheld ChatGPT title is
+  counted, `alice_capture` refuses a low-entropy AKIA-shaped key, and both
+  imports withhold it. In `v0.18.0` capture stores that key.
+
 ## What `v0.18.0` Shipped
 
 `v0.18.0` is the latest published release and remains the install, checksum,

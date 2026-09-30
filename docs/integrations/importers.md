@@ -104,7 +104,7 @@ was not stored. `skipped_credentials` and `skipped_credential_items` count
 every credential skip, whole files and withheld units, and do not include
 the matched text. Items say `line N`, `lines N to M`,
 `conversation X message N`, or `file K (name withheld)`.
-Unreleased (on main, not in v0.18.0): a folder item names the file, as
+From v0.19.0, a folder item names the file, as
 `file 1 (week.md) line 2` or `file K (name withheld) line 2`, and a
 ChatGPT conversation title stored as `withheld` is counted as
 `conversation X title`. In v0.18.0 the item is only `line N` or
@@ -117,7 +117,7 @@ when the file name is flagged. Exit code 1 means the batch status is
 `failed`, and it also covers path errors. Replay of the same file is
 `duplicate`. OpenClaw stays on the loader scripts above. `alice-memory
 doctor` counts stored sources the commit door still flags and prints their ids.
-Unreleased (on main, not in v0.18.0): each line, message, and title is
+From v0.19.0, each line, message, and title is
 checked with that verdict. A flagged line, message, or title is withheld
 and named, and the rest of the file or conversation is imported. The
 doctor flags a stored source that still contains a low-entropy

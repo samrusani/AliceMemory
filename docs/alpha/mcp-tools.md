@@ -88,7 +88,7 @@ Remember, recall, continue. These are the only tools in a default
   `low` is the default hybrid behavior) and `budget_strategy`
   (`facts_first` / `recent_first` reorder results; `balanced` is the
   default).
-  Unreleased (on main, not in v0.18.0): a result whose `superseded_by`
+  From v0.19.0, a result whose `superseded_by`
   is set stays after the current row and carries `validity.superseded:
   true`. A source excerpt whose `quoted_from` memory was corrected or
   superseded after the capture adds `derived_memory_corrected: true` and

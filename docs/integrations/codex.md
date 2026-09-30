@@ -1,6 +1,6 @@
 # Codex
 
-Unreleased (on main, not in v0.18.0): Codex support is on main and is not in the v0.18.0 release. v0.18.0 does not accept `--host codex`.
+Codex support starts in v0.19.0. alice-memory 0.18.0 does not accept `--host codex`; with 0.18.0, add the entry under "What gets written" to `config.toml` by hand.
 
 Codex is opt-in. `alice-memory install` does not write it unless you pass `--host codex`. The default hosts stay Claude Desktop, Claude Code, Cursor, and OpenClaw. It writes the MCP entry in `config.toml` and a SessionStart hook in `hooks.json`. It never writes `trusted_hash`, so Codex skips the hook until you trust it (see below).
 
@@ -32,7 +32,7 @@ Codex merges config layers. A profile (`<CODEX_HOME>/<name>.config.toml`), the s
 
 ## SessionStart hook
 
-Unreleased (on main, not in v0.18.0): `--host codex` also writes a SessionStart hook, so a new Codex session starts with the session brief in front of the model.
+`--host codex` also writes a SessionStart hook, so a new Codex session starts with the session brief in front of the model. v0.18.0 has no Codex install and no Codex hook.
 
 The hook goes in `<CODEX_HOME>/hooks.json`, not in `config.toml`. Install appends one group at the end of `hooks.SessionStart` and never inserts it ahead of yours. Codex keys its trust records by group and handler index, so inserting ahead of your groups would shift them and Codex would silently stop running hooks you had trusted. The group has no `matcher`, so it runs on every session source (startup, resume, clear, compact and fork). Its one handler is:
 
