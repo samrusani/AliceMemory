@@ -129,8 +129,8 @@ _SEPARATORS = [
     pytest.param("\x1d", id="gs"),
     pytest.param("\x1e", id="rs"),
     pytest.param("\x85", id="nel"),
-    pytest.param(" ", id="line-separator"),
-    pytest.param(" ", id="paragraph-separator"),
+    pytest.param("\u2028", id="line-separator"),
+    pytest.param("\u2029", id="paragraph-separator"),
 ]
 
 
