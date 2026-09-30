@@ -1549,9 +1549,9 @@ def test_the_docs_say_what_v0190_ships_and_keep_the_option_rules() -> None:
     paragraph that names ``ALICE_MEMORY_DATA_DIR`` says the plugin's hook
     ignores it, and one of them holds the relative-value sentence. The
     changelog's v0.19.0 section, the README and the quickstart each keep the
-    plugin line they already have, and the changelog's plugin lines stay under
-    v0.19.0, not under Unreleased. The README, the quickstart, the plugin page
-    and the plugin README say the plugin
+    plugin line they already have, and the Unreleased section comes before
+    v0.19.0's, so a plugin entry under it is not v0.19.0's. The
+    README, the quickstart, the plugin page and the plugin README say the plugin
     installs from the `alicememory` marketplace, give the two commands, and no
     longer say it arrives once v0.19.0 is published. The reader must not take
     v0.19.0's behaviour for v0.18.0's.
@@ -1602,9 +1602,13 @@ def test_the_docs_say_what_v0190_ships_and_keep_the_option_rules() -> None:
 
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     sections = changelog.split("\n## ")
-    assert sections[1].startswith("Unreleased\n")
+    # The Unreleased section holds whatever landed after v0.19.0, so it is not
+    # asserted empty. What this pins is that the plugin entries stay in the
+    # v0.19.0 section and do not move back under it.
+    assert sections[1].split("\n", 1)[0].strip() == "Unreleased"
     assert sections[2].startswith("v0.19.0 \u2014 2026-09-30\n")
     flat = " ".join(sections[2].split())
+    unreleased = " ".join(sections[1].split())
     for sentence in (
         "A Claude Code plugin directory is in the repo.",
         "In v0.18.0 there is no Claude Code plugin.",
@@ -1617,6 +1621,7 @@ def test_the_docs_say_what_v0190_ships_and_keep_the_option_rules() -> None:
         "`--data-dir`, then `ALICE_MEMORY_DATA_DIR`, then `~/.alice`.",
     ):
         assert sentence in flat, sentence
+        assert sentence not in unreleased, sentence
 
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     lines = [
@@ -1685,7 +1690,8 @@ def test_the_hook_help_names_the_plugin_option(
     assert (
         "Vault directory. Defaults to $ALICE_MEMORY_DATA_DIR or ~/.alice when omitted or empty "
         "(in the Claude Code plugin, $CLAUDE_PLUGIN_OPTION_DATA_DIR or ~/.alice). "
-        "A non-empty value must be absolute after ~ expansion."
+        "A non-empty value, from this flag or from $ALICE_MEMORY_DATA_DIR, must be absolute "
+        "after ~ expansion."
     ) in text
 
 

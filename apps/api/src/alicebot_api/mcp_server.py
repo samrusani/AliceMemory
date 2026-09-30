@@ -10,6 +10,7 @@ from uuid import UUID
 
 from alicebot_api import __version__
 from alicebot_api.config import Settings, get_runtime_settings, get_settings
+from alicebot_api.mcp.types import MCPInvalidRequestError
 from alicebot_api.mcp_tools import (
     MCPRuntimeContext,
     MCPToolError,
@@ -33,6 +34,7 @@ _JSONRPC_INVALID_PARAMS_MESSAGE = "Invalid params"
 _JSONRPC_METHOD_NOT_FOUND_MESSAGE = "Method not found"
 _TOOL_NOT_FOUND_CODE = "tool_not_found"
 _TOOL_NOT_FOUND_MESSAGE = "The requested tool is not available"
+_TOOL_INVALID_REQUEST_CODE = "invalid_request"
 _TOOL_REQUEST_FAILED_CODE = "tool_request_failed"
 _TOOL_REQUEST_FAILED_MESSAGE = "The tool request could not be processed"
 _TOOL_EXECUTION_FAILED_CODE = "tool_execution_failed"
@@ -290,6 +292,18 @@ class MCPServer:
                     result=_tool_error_result(
                         code=_TOOL_NOT_FOUND_CODE,
                         message=_TOOL_NOT_FOUND_MESSAGE,
+                    ),
+                )
+            except MCPInvalidRequestError as exc:
+                # The one tool failure whose message is not static. It holds
+                # counts and limits the client can act on, never request text,
+                # and must be caught before MCPToolError, its base class.
+                logger.warning("MCP tool request was refused name=%s", name, exc_info=True)
+                return _response_success(
+                    request_id,
+                    result=_tool_error_result(
+                        code=_TOOL_INVALID_REQUEST_CODE,
+                        message=exc.public_message,
                     ),
                 )
             except MCPToolError:

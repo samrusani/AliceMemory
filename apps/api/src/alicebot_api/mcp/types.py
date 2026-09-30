@@ -70,6 +70,21 @@ class MCPToolError(ValueError):
     """Raised when MCP tool input or execution fails."""
 
 
+class MCPInvalidRequestError(MCPToolError):
+    """A refused request whose reason is safe to tell the client.
+
+    Every other ``MCPToolError`` answers ``tool_request_failed`` with one
+    static message, because its text can carry caller input or internals. This
+    one answers ``invalid_request`` with ``public_message``. Build it only from
+    fixed words and counts, never from request text. It is still an
+    ``MCPToolError``, so code that catches that keeps working.
+    """
+
+    def __init__(self, public_message: str) -> None:
+        super().__init__(public_message)
+        self.public_message = public_message
+
+
 class MCPToolNotFoundError(LookupError):
     """Raised when an MCP tool name is not supported."""
 

@@ -167,7 +167,12 @@ def test_mcp_registry_order_definitions_and_alias_identity_are_frozen() -> None:
     # annotations object: openWorldHint false, plus readOnlyHint or
     # destructiveHint per the MCP definitions. No tool added, removed, or
     # renamed, and no description changed.
-    assert _digest(core_definitions) == "c5cebf8bdd8b3238c6b42f15c0d2463e155ac8af56467c54a19628ba1b88141e"
+    # Re-minted 2026-09-30. alice_memory_review moves from destructiveHint true
+    # to readOnlyHint true: it only lists items or shows one. Flipping that one
+    # annotation back reproduces the previous core digest. The legacy digest,
+    # the counts, and the handler map digest are unchanged, and no tool was
+    # added, removed, or renamed.
+    assert _digest(core_definitions) == "919e4fcd68e69d91cd532ad449cc32cf9651e2bea18d5e799001b5d1c1bcb52d"
     assert _digest(legacy_definitions) == "6b302f61e48d4f6196af8a7d2c8882130d565d84134f51bba38648f84c09089e"
     ordered_handler_map = [(name, handler.__name__) for name, handler in handlers.items()]
     assert _digest(ordered_handler_map) == "d864c98bb914bbc6ace464fa8020b3ed264f17f2061a6101aae677d801032ae5"

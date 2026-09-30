@@ -159,7 +159,9 @@ SQLITE_QUERY_EXPORTS = (
 EXPECTED_CLASS_ORDERS = {
     # Two paired browser-clip capability methods extend both façades.
     "PostgresVNextStore": (170, "5f28f1a17670a0c8b7b373acd0c314637c58e6a10ccf52053481a8a028bb3c09"),
-    "SQLiteVNextStore": (123, "72cbbffacc5fee804508f7e9517450c955f2c85235bd403d4f5759ee86c103e3"),
+    # One SQLite-only method more, ``check_source_search_query``: the Postgres
+    # source search has no expression-depth or LIKE-length limit to check.
+    "SQLiteVNextStore": (124, "bc5249c5a4944cddec3efb0673e1b8611c387ebf910534d2edfa21c2481c1c1d"),
 }
 
 

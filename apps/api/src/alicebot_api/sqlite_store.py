@@ -31,6 +31,7 @@ from uuid import UUID
 
 import numpy as np
 
+from alicebot_api.source_search_limits import require_source_search_query
 from alicebot_api.sqlite_schema import bootstrap_sqlite_schema
 from alicebot_api.store import ContinuityStoreInvariantError
 from alicebot_api.vnext_capture import (
@@ -1043,6 +1044,19 @@ class SQLiteVNextStore:
                 return []
             raise
 
+    def check_source_search_query(self, query: str) -> None:
+        """Refuse a query ``search_sources`` could not run, with a typed error.
+
+        SQLite fails that search with ``Expression tree is too large`` or
+        ``LIKE or GLOB pattern too complex``. The limits and how they were
+        measured are in ``source_search_limits``. A caller that wants
+        to refuse before it does other work calls this first; ``search_sources``
+        calls it too, so no caller reaches SQLite with such a query. The
+        Postgres store has no such limit and defines no such method.
+        """
+
+        require_source_search_query(query)
+
     def search_sources(
         self,
         *,
@@ -1055,6 +1069,7 @@ class SQLiteVNextStore:
         scope_window_start: datetime | None = None,
         scope_window_end: datetime | None = None,
     ) -> list[VNextRow]:
+        self.check_source_search_query(query)
         patterns = [pattern.casefold() for pattern in _search_patterns(query)]
         exact_pattern = patterns[0]
         domain_sql, domain_params = self._domain_clause(domains)
