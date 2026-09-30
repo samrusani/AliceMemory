@@ -8,14 +8,24 @@ Tool names look like `mcp__plugin_alice-memory_alice__<tool>`.
 
 ## Install
 
-The v0.19.0 tag has no marketplace file, so a checkout of the tag has nothing to add. `main` has `.claude-plugin/marketplace.json`, with the name `alicememory` and one plugin entry pinned to the v0.19.0 tag commit. Clone this repository, which checks out `main`, and run:
+The v0.19.0 tag has no marketplace file, so a checkout of the tag has nothing to add. `main` has `.claude-plugin/marketplace.json`, with the name `alicememory` and one plugin entry pinned to the v0.19.0 tag commit. Adding the repository as `samrusani/AliceMemory` reads its default branch, which is `main`, so run:
 
 ```bash
-claude plugin marketplace add <path to the clone>
+claude plugin marketplace add samrusani/AliceMemory
 claude plugin install alice-memory@alicememory
 ```
 
-`claude plugin install alice-memory@alicememory --config data_dir=<absolute path>` sets the option at install. Real host CI runs these commands against Claude Code 2.1.281, with a marketplace file in a temporary directory. The dispatch-only marketplace check runs them against the committed file.
+`claude plugin install alice-memory@alicememory --config data_dir=<absolute path>` sets the option at install.
+
+If git on your machine is set to use SSH for GitHub and you have no key there, the shorthand clone can fail. Add the marketplace from the HTTPS URL instead:
+
+```bash
+claude plugin marketplace add https://github.com/samrusani/AliceMemory.git
+```
+
+If you already have a clone, which checks out `main`, add its path instead with `claude plugin marketplace add <path to the clone>`. All three forms add the marketplace named `alicememory`, and the install command is the same after each.
+
+Real host CI runs these commands against Claude Code 2.1.281, with a marketplace file in a temporary directory. The dispatch-only marketplace check adds the marketplace from the shorthand, the HTTPS URL and `./`, each into a fresh home, then installs `alice-memory@alicememory` and checks the plugin list. The HTTPS URL and `./` fail the job when they do not work. The shorthand is reported and never fails the job. In a run on a GitHub runner with no SSH keys, Claude Code printed `SSH not configured, cloning via HTTPS`, the add and the install succeeded, and the plugin list held `alice-memory@alicememory`, enabled.
 
 ## Data directory
 
