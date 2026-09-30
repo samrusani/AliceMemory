@@ -471,6 +471,10 @@ class Rig:
                 "codex",
                 "exec",
                 "--skip-git-repo-check",
+                # The default model in 0.158.0 is code mode only: it lists no MCP tool in its
+                # request. gpt-5.5 lists them, as the spec's namespace check expects.
+                "-m",
+                "gpt-5.5",
                 "-c",
                 f'openai_base_url="http://127.0.0.1:{self.server.port}/v1"',
                 "-c",
