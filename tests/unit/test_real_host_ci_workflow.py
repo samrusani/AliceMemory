@@ -155,6 +155,9 @@ def _pytest_step(job: dict) -> dict:
         and "test_real_codex_reads_the_written_config" in step.get("run", "")
         and "test_real_codex_rejects_a_broken_alice_entry" in step.get("run", "")
         and "test_real_codex_tools_key_and_table" in step.get("run", "")
+        and "test_real_codex_runs_the_session_start_hook" in step.get("run", "")
+        and "test_real_codex_ignores_json_hook_output" in step.get("run", "")
+        and "test_real_codex_skips_a_hooks_file_with_an_http_handler" in step.get("run", "")
     ]
     assert len(matched) == 1
     return matched[0]
@@ -206,7 +209,7 @@ def test_pinned_job_pins_the_trialed_hosts_and_refuses_a_skip() -> None:
     assert "opencode-ai@1.18.32" in script
     assert "@openai/codex@0.158.0" in script
     assert "codex-cli 0.158.0" in script
-    assert "ran != 8" in script
+    assert "ran != 11" in script
     assert "@latest" not in script
     assert CLAUDE_VERSION in script
     assert HERMES_VERSION in script
@@ -255,7 +258,7 @@ def test_weekly_canary_does_not_pin_claude_or_hermes() -> None:
     assert "opencode-ai@1.18.32" not in script
     assert "@openai/codex@latest" in script
     assert "@openai/codex@0.158.0" not in script
-    assert "ran != 8" in script
+    assert "ran != 11" in script
     assert re.search(r"(^|\s)hermes-agent($|\s)", script)
     step = _pytest_step(_job("canary"))
     assert step.get("env", {}).get("ALICE_TEST_REAL_HOSTS") == "1"
@@ -278,6 +281,7 @@ def test_weekly_canary_opens_an_ops_issue_on_failure() -> None:
     assert OPS_TITLE in script
     assert "opencode" in script
     assert "codex" in script
+    assert "SessionStart hook" in script
     assert "github.rest.issues.listForRepo" in script
     assert "github.rest.issues.createComment" in script
     assert "await github.rest.issues.create({" in script
