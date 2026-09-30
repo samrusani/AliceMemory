@@ -2647,8 +2647,8 @@ def _marketplace_issues(root_dir: Path, path: Path) -> list[str]:
         return issues
     if source.get("source") != "git-subdir":
         issues.append(".claude-plugin/marketplace.json source is not git-subdir")
-    if source.get("url") != "samrusani/AliceMemory":
-        issues.append(".claude-plugin/marketplace.json url is not samrusani/AliceMemory")
+    if source.get("url") != "https://github.com/samrusani/AliceMemory.git":
+        issues.append(".claude-plugin/marketplace.json url is not https://github.com/samrusani/AliceMemory.git")
     if source.get("path") != "plugins/alice-memory":
         issues.append(".claude-plugin/marketplace.json path is not plugins/alice-memory")
     ref = source.get("ref")

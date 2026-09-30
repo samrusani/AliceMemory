@@ -364,7 +364,7 @@ def test_versions_agree_and_seeded_marketplace(tmp_path: Path) -> None:
                         "name": "alice-memory",
                         "source": {
                             "source": "git-subdir",
-                            "url": "samrusani/AliceMemory",
+                            "url": "https://github.com/samrusani/AliceMemory.git",
                             "path": "plugins/alice-memory",
                             "ref": "v1.2.3",
                             "sha": "a" * 40,
@@ -648,7 +648,7 @@ def _good_market(tmp_path: Path) -> Path:
                         "name": "alice-memory",
                         "source": {
                             "source": "git-subdir",
-                            "url": "samrusani/AliceMemory",
+                            "url": "https://github.com/samrusani/AliceMemory.git",
                             "path": "plugins/alice-memory",
                             "ref": "v1.2.3",
                             "sha": "a" * 40,
@@ -675,8 +675,13 @@ def test_marketplace_rules_each_fail_on_their_own(tmp_path: Path) -> None:
     assert any("description is missing" in item for item in issues_for(lambda doc: doc.pop("description")))
     assert any("name is not alicememory" in item for item in issues_for(lambda doc: doc.__setitem__("name", "other")))
     assert any(
-        "url is not samrusani/AliceMemory" in item
+        "url is not https://github.com/samrusani/AliceMemory.git" in item
         for item in issues_for(lambda doc: doc["plugins"][0]["source"].__setitem__("url", "other/repo"))
+    )
+    # The owner/repo shorthand makes Claude Code 2.1.281 clone over SSH, which fails without keys.
+    assert any(
+        "url is not https://github.com/samrusani/AliceMemory.git" in item
+        for item in issues_for(lambda doc: doc["plugins"][0]["source"].__setitem__("url", "samrusani/AliceMemory"))
     )
     assert any(
         "path is not plugins/alice-memory" in item

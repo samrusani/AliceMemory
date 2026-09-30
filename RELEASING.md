@@ -39,7 +39,9 @@ repository root, or, when the file exists, moves its plugin entry's `ref` and
 `sha` to the new tag. The file has `name` `alicememory`, `owner` with `name`
 `Alice Memory`, a `description`, and one plugin entry. That entry's `name`
 matches `plugin.json`. Its `source` is `git-subdir`, with `url`
-`samrusani/AliceMemory`, `path` `plugins/alice-memory`, `ref` `vX.Y.Z`,
+`https://github.com/samrusani/AliceMemory.git` (the `owner/repo` shorthand
+makes Claude Code clone over SSH, which fails without GitHub SSH keys),
+`path` `plugins/alice-memory`, `ref` `vX.Y.Z`,
 and `sha`, the full 40-character lowercase tag commit. Then it dispatches
 the marketplace check in the real-host workflow.
 
