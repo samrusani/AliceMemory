@@ -94,6 +94,12 @@ Remember, recall, continue. These are the only tools in a default
   superseded after the capture adds `derived_memory_corrected: true` and
   `current_memory_id`. In v0.18.0 that older row has no validity label
   and the excerpt is unmarked, so the old sentence reads like the fact.
+  Unreleased (on main, not in v0.19.0): `current_memory_id` is left off when
+  that memory, or any memory on the way to the current one, is outside the
+  caller's sensitivity ceiling, domain filter, or project, person and time
+  scope, or cannot be found, and for a chain of more than eight corrections.
+  `derived_memory_corrected` stays true. In v0.19.0 the id is named whatever
+  the caller may read.
 - `alice_resume` — a pick-work-back-up brief: last decision, suggested next
   action, open loops, and recent changes. From v0.18.0, this brief,
   `alice_recent_decisions`, and the next-action list read only active
@@ -377,6 +383,16 @@ Alice decides the outcome, never the caller:
   an optional `rationale`. Any memory field on that call is refused; to
   change the text, reject it and commit the corrected text. Alice cannot
   tell whether the agent asked, so the tool description tells it to ask.
+  That call updates one row: the pending memory named by `confirmation_id`
+  goes from `needs_review` to `active` on confirm or to `rejected` on
+  reject, with its own revision and events, and the caller's agent identity
+  row when the call carries one. It changes no other memory. The tool
+  declares `destructiveHint: false`, which is true of adding a fact and is
+  not a statement about this call. By the approval rule the code records for Codex's default mode,
+  neither call prompts, so the confirm step depends on the agent asking the
+  user, and Alice cannot check that it did. Who may confirm or reject a
+  pending write is still limited to its author, an `admin_agent` key, or the
+  owner.
   What the audit names depends on how the call was identified. These
   rows name the caller as `actor_id`: the revision, the `policy.decision`
   event (an author reject above the caller's ceiling also writes

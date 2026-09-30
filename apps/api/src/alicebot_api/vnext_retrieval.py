@@ -1632,11 +1632,20 @@ def _quoted_from_links(
     return chosen
 
 
-def _current_memory_id(store: object, memory: Mapping[str, object]) -> str:
-    """Id of the fact an agent should read now.
+def _current_memory_id(
+    store: object,
+    memory: Mapping[str, object],
+    *,
+    memory_visible: Callable[[Mapping[str, object]], bool],
+) -> str:
+    """Id of the fact an agent should read now, or "" when it cannot be shown.
 
     An in-place correction keeps the same id. A supersession chain walks
-    ``superseded_by`` to the row that is not itself superseded.
+    ``superseded_by`` to the row that is not itself superseded. Every row the
+    walk touches, the starting memory included, must pass ``memory_visible``,
+    the same fence the caller's memory reads run under. A pointer id is
+    itself sensitive metadata, so a hop that is hidden, unresolved, or past
+    the depth cap yields "" rather than the last id seen.
     """
 
     seen: set[str] = set()
@@ -1645,6 +1654,8 @@ def _current_memory_id(store: object, memory: Mapping[str, object]) -> str:
         memory_id = str(current.get("id") or "")
         if memory_id == "" or memory_id in seen:
             return memory_id
+        if not memory_visible(current):
+            return ""
         seen.add(memory_id)
         if not _memory_is_superseded(current):
             return memory_id
@@ -1653,12 +1664,19 @@ def _current_memory_id(store: object, memory: Mapping[str, object]) -> str:
             return memory_id
         getter = getattr(store, "get_memory", None)
         if not callable(getter):
-            return successor_id
+            return ""
         successor = getter(successor_id)
         if not isinstance(successor, Mapping):
-            return successor_id
+            return ""
         current = successor
-    return str(current.get("id") or "")
+    # The eight-hop walk ended on a row it has not checked yet. It names that
+    # row only when the row is visible and ends the chain. A row that is still
+    # superseded means the chain is longer than the walk, so the current fact
+    # is not known.
+    last_id = str(current.get("id") or "")
+    if last_id == "" or _memory_is_superseded(current) or not memory_visible(current):
+        return ""
+    return last_id
 
 
 def _quoted_link_is_stale(
@@ -1698,13 +1716,42 @@ def _quote_covers_excerpt(quote: str, excerpt: str) -> bool:
     return quote in excerpt or excerpt in quote
 
 
-def annotate_derived_memory_correction(store: object, source: JsonObject) -> None:
+def _memory_visibility_predicate(
+    *,
+    domains: list[str],
+    sensitivity_allowed: list[str],
+    scope: _ResolvedRetrievalScope | None,
+    person_linked_memory_ids: frozenset[str] = frozenset(),
+) -> Callable[[Mapping[str, object]], bool]:
+    """The fence a memory read runs under, as a yes/no for one stored row."""
+
+    def visible(row: Mapping[str, object]) -> bool:
+        if _allowed(dict(row), domains=domains, sensitivity_allowed=sensitivity_allowed) is not None:
+            return False
+        if scope is not None and scope.active:
+            return _row_matches_scope(row, scope, person_linked_memory_ids=person_linked_memory_ids)
+        return True
+
+    return visible
+
+
+def annotate_derived_memory_correction(
+    store: object,
+    source: JsonObject,
+    *,
+    memory_visible: Callable[[Mapping[str, object]], bool],
+) -> None:
     """Label a packed excerpt whose derived memory was corrected or superseded.
 
-    Sets ``derived_memory_corrected`` and ``current_memory_id`` when a
-    ``quoted_from`` link on this source points at a memory that was
-    corrected or superseded after the capture, and the stored quote is
-    the passage in the excerpt. Ordinary sources gain no keys.
+    Sets ``derived_memory_corrected`` when a ``quoted_from`` link on this
+    source points at a memory that was corrected or superseded after the
+    capture, and the stored quote is the passage in the excerpt. The flag
+    stays set whatever the caller may read, because an agent must not quote
+    a stale passage as current. ``current_memory_id`` is set only when every
+    memory on the walk to the current fact passes ``memory_visible``, the
+    fence the caller's memory reads run under. A pointer id is itself
+    sensitive metadata, so there is no fallback to an earlier visible hop.
+    Ordinary sources gain no keys.
     """
 
     source_id = str(source.get("id") or "")
@@ -1730,6 +1777,7 @@ def annotate_derived_memory_correction(store: object, source: JsonObject) -> Non
     excerpt = _flat_stored_text(source.get("excerpt"))
     chosen_id: str | None = None
     chosen_in_excerpt = False
+    corrected = False
     for memory in memory_rows:
         memory_id = str(memory.get("id") or "")
         if memory_id == "":
@@ -1747,16 +1795,18 @@ def annotate_derived_memory_correction(store: object, source: JsonObject) -> Non
             in_excerpt = _quote_covers_excerpt(quote, excerpt)
             if excerpt and not in_excerpt:
                 continue
-            current_id = _current_memory_id(store, memory)
+            corrected = True
+            current_id = _current_memory_id(store, memory, memory_visible=memory_visible)
             if current_id == "":
                 continue
             if chosen_id is None or (in_excerpt and not chosen_in_excerpt):
                 chosen_id = current_id
                 chosen_in_excerpt = in_excerpt
-    if chosen_id is None:
+    if not corrected:
         return
     source["derived_memory_corrected"] = True
-    source["current_memory_id"] = chosen_id
+    if chosen_id is not None:
+        source["current_memory_id"] = chosen_id
 
 
 def _validity_annotation(memory: JsonObject, *, superseded_by_hint: str | None = None) -> JsonObject | None:
@@ -2202,33 +2252,52 @@ class VNextRetrievalService:
         *,
         scope: _ResolvedRetrievalScope,
         person_linked_memory_ids: frozenset[str],
+        domains: list[str],
+        sensitivity_allowed: list[str],
     ) -> None:
-        """Remove supersession pointers that would cross an explicit scope.
+        """Remove supersession pointers that would cross the caller's read fence.
 
-        A pointer id is itself sensitive metadata. Scoped packs therefore
-        fail closed when the target cannot be resolved or does not satisfy
-        the same project/person/time predicate as the selected row.
+        A pointer id is itself sensitive metadata. A pointer goes when its
+        target is not readable under the fence the memory stages ran with: the
+        domain and sensitivity ceiling, and the project, person and time scope
+        when one is active. The ceiling applies with no scope at all, so a
+        visible successor does not carry a ``supersedes`` pointer to a
+        predecessor the caller's sensitivity ceiling hides.
+
+        A target that does not resolve is a row this user does not have, not a
+        hidden one, because the lookup applies no fence. A scoped pack fails
+        closed on it. An unscoped pack keeps the pointer, and the high-depth
+        ``supersession_context`` shows it as an id-only reference on purpose.
+
+        Only the two pointer columns are cleaned here. Other fields of a stored
+        row that copy an id are not.
         """
-        if not scope.active:
-            return
         pointer_ids = [
             str(pointer)
             for memory in memories
             for pointer_key in ("supersedes", "superseded_by")
             if (pointer := memory.get(pointer_key))
         ]
+        if not pointer_ids:
+            return
         targets = self._memories_by_ids(pointer_ids)
+        memory_visible = _memory_visibility_predicate(
+            domains=domains,
+            sensitivity_allowed=sensitivity_allowed,
+            scope=scope,
+            person_linked_memory_ids=person_linked_memory_ids,
+        )
         for memory in memories:
             for pointer_key in ("supersedes", "superseded_by"):
                 pointer = memory.get(pointer_key)
                 if not pointer:
                     continue
                 target = targets.get(str(pointer))
-                if target is None or not _row_matches_scope(
-                    target,
-                    scope,
-                    person_linked_memory_ids=person_linked_memory_ids,
-                ):
+                if target is None:
+                    if scope.active:
+                        memory.pop(pointer_key, None)
+                    continue
+                if not memory_visible(target):
                     memory.pop(pointer_key, None)
 
     def _sanitize_memory_scope_references(
@@ -2996,7 +3065,13 @@ class VNextRetrievalService:
                 best_score, best_text = score, text
         return best_text
 
-    def _packable_source(self, item: JsonObject, *, query: str) -> JsonObject:
+    def _packable_source(
+        self,
+        item: JsonObject,
+        *,
+        query: str,
+        memory_visible: Callable[[Mapping[str, object]], bool],
+    ) -> JsonObject:
         """Compact a ranked source for packing: drop the document, add an excerpt.
 
         The excerpt is the chunk the FTS stage already ranked highest for this
@@ -3036,7 +3111,7 @@ class VNextRetrievalService:
         # After the excerpt exists, so the label is about the passage the
         # agent will read. Sources whose derived memory is still current
         # stay byte-identical.
-        annotate_derived_memory_correction(self.store, compacted)
+        annotate_derived_memory_correction(self.store, compacted, memory_visible=memory_visible)
         return compacted
 
     def require_source_query_searchable(self, query: str) -> None:
@@ -3119,8 +3194,16 @@ class VNextRetrievalService:
             sensitivity_allowed=sensitivity_allowed,
             limit=limit,
         )
+        memory_visible = _memory_visibility_predicate(
+            domains=domains,
+            sensitivity_allowed=sensitivity_allowed,
+            scope=scope,
+            person_linked_memory_ids=(
+                self._person_linked_memory_ids(scope.people) if scope is not None else frozenset()
+            ),
+        )
         excerpts = [
-            self._packable_source(candidate.item, query=query)
+            self._packable_source(candidate.item, query=query, memory_visible=memory_visible)
             for candidate in candidates
             if candidate.selected
         ]
@@ -3668,6 +3751,8 @@ class VNextRetrievalService:
             ranked_memories,
             scope=scope,
             person_linked_memory_ids=person_linked_memory_ids,
+            domains=domains,
+            sensitivity_allowed=sensitivity_allowed,
         )
         self._sanitize_memory_scope_references(
             ranked_memories,
@@ -3679,8 +3764,14 @@ class VNextRetrievalService:
         # pair leaks into the same pack, the replacement packs directly
         # above its superseded ancestor; every other item keeps its order.
         ordered_memories, supersession_reorders = _prefer_current_versions(ordered_memories)
+        pack_memory_visible = _memory_visibility_predicate(
+            domains=domains,
+            sensitivity_allowed=sensitivity_allowed,
+            scope=scope,
+            person_linked_memory_ids=person_linked_memory_ids,
+        )
         ranked_sources = [
-            self._packable_source(candidate.item, query=request.query)
+            self._packable_source(candidate.item, query=request.query, memory_visible=pack_memory_visible)
             for candidate in source_candidates
             if candidate.selected
         ]

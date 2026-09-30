@@ -333,7 +333,7 @@ def test_an_imported_source_keeps_its_own_date_instead_of_todays(tmp_path: Path)
         This test is about the date, not about the excerpt."""
 
     service.store = _NoChunkListing()  # type: ignore[assignment]
-    packed = service._packable_source(imported, query=QUOTE)
+    packed = service._packable_source(imported, query=QUOTE, memory_visible=lambda _row: True)
 
     stamped = _source_event_time(packed)
 
@@ -780,7 +780,9 @@ def _service_with_chunks(tmp_path: Path, chunks: list[dict], *, winner: str | No
         service.store = _ChunkStore()  # type: ignore[assignment]
         if winner is not None:
             service._winning_chunk_text["source-1"] = winner
-        return service._packable_source({"id": "source-1"}, query=QUOTE)
+        return service._packable_source(
+            {"id": "source-1"}, query=QUOTE, memory_visible=lambda _row: True
+        )
 
 
 def test_a_winning_chunk_of_pure_links_does_not_become_the_excerpt(
