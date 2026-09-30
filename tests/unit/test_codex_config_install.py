@@ -2792,3 +2792,154 @@ def test_codex_dry_run_hidden_line_names_a_masked_env_vars_value(
     assert not [line for line in lines if line.startswith("env_vars") and value in line]
     assert any(line.startswith("env_vars = [") and "<hidden>" in line for line in lines)
     assert f"hidden: install printed these values from your file as <hidden>: {clause}" in lines
+
+
+_HOOK_NOTE = (
+    "note: Codex rejects the output of alice-memory-session-start. "
+    "Remove it from hooks.json"
+)
+
+
+def _write_hooks(codex_home: Path, document: object) -> None:
+    codex_home.mkdir(parents=True, exist_ok=True)
+    (codex_home / "hooks.json").write_text(json.dumps(document), encoding="utf-8")
+
+
+def _session_start_hooks(*commands: object) -> dict[str, object]:
+    return {
+        "hooks": {
+            "SessionStart": [
+                {"hooks": [{"type": "command", "command": command} for command in commands]}
+            ]
+        }
+    }
+
+
+@pytest.mark.parametrize(
+    ("commands", "expected"),
+    [
+        (("notify-send done",), None),
+        ((7,), None),
+        ((["uvx", "alice-memory-session-start"],), None),
+        (("uvx --from alice-memory alice-memory-session-start --data-dir /v",), _HOOK_NOTE),
+        (("uvx alice-memory-session-start --format",), _HOOK_NOTE),
+        (("uvx alice-memory-session-start --format=markdown",), None),
+        (("uvx alice-memory-session-start --format=json",), _HOOK_NOTE),
+        (("uvx alice-memory-session-start --format markdown",), None),
+        (("uvx alice-memory-session-start --format markdown --format json",), _HOOK_NOTE),
+        (
+            (
+                "uvx alice-memory-session-start --format markdown",
+                "uvx alice-memory-session-start --data-dir /v",
+            ),
+            _HOOK_NOTE,
+        ),
+    ],
+    ids=[
+        "unrelated-command",
+        "integer-command",
+        "list-command",
+        "json-mode",
+        "format-as-last-word",
+        "format-equals-markdown",
+        "format-equals-json",
+        "format-markdown",
+        "last-format-wins",
+        "markdown-then-json-mode",
+    ],
+)
+def test_codex_hook_note_cases(tmp_path: Path, commands: tuple[object, ...], expected: str | None) -> None:
+    """Each case pins one rule of the hooks.json note.
+
+    Mutations: note any command, keep a non-string command, read past the
+    last word, ignore ``--format=VALUE``, or stop at the first markdown hook.
+    Each fails at least one case, on the returned value or with a crash.
+    """
+
+    codex_home = tmp_path / "codex"
+    _write_hooks(codex_home, _session_start_hooks(*commands))
+    assert host_install._codex_hook_note(codex_home) == expected
+
+
+def test_codex_hook_note_is_none_for_a_too_deep_hooks_file(tmp_path: Path) -> None:
+    """A hooks.json install cannot read gives no note at all.
+
+    Mutation: answer RecursionError with a different note. This test fails.
+    """
+
+    codex_home = tmp_path / "codex"
+    codex_home.mkdir()
+    (codex_home / "hooks.json").write_text("[" * 100000 + "]" * 100000, encoding="utf-8")
+    assert host_install._codex_hook_note(codex_home) is None
+
+
+def test_codex_layer_note_for_an_empty_alice_table(tmp_path: Path) -> None:
+    """Any alice table in another layer gets the note, even an empty one.
+
+    Mutation: skip an empty alice table. This test fails.
+    """
+
+    layer = tmp_path / "work.config.toml"
+    layer.write_text("[mcp_servers.alice]\n", encoding="utf-8")
+    assert host_install._codex_layer_defines_alice(layer) == (
+        f"note: {layer} defines mcp_servers.alice, and Codex merges it"
+    )
+
+
+def test_codex_locator_reads_the_entry_dir_when_the_file_parses(tmp_path: Path) -> None:
+    """A refusal before the planner keeps the entry's own data dir.
+
+    Mutation: always use the placeholder. This test fails.
+    """
+
+    vault = (tmp_path / "my-real-vault").resolve()
+    text = (
+        "zz = 1e400\n"
+        "[mcp_servers.alice]\n"
+        'command = "uvx"\n'
+        f'args = ["alice-memory", "mcp", "--data-dir", "{vault}"]\n'
+    )
+    kind, visible, payload = host_install._codex_locate_for_refusal(text, tmp_path)
+    assert kind == "dir"
+    assert visible is not None and str(vault) in visible
+    assert payload is not None
+
+
+def test_codex_success_notes_come_from_codex_home(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """With CODEX_HOME set and no --home, notes read CODEX_HOME, not ~/.codex.
+
+    Mutation: read the notes from <home>/.codex. This test fails.
+    """
+
+    home = tmp_path / "home"
+    home.mkdir()
+    codex_home = tmp_path / "elsewhere"
+    _write_hooks(codex_home, _session_start_hooks("uvx alice-memory-session-start --data-dir /v"))
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("CODEX_HOME", str(codex_home))
+    code = onramp_main(["install", "--data-dir", str(tmp_path / "vault"), "--host", "codex"])
+    captured = capsys.readouterr()
+    assert code == 0, captured.err
+    assert (codex_home / "config.toml").is_file()
+    assert _HOOK_NOTE in captured.out.splitlines()
+
+
+def test_codex_home_refusal_keeps_the_layer_notes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A CODEX_HOME refusal still prints the notes from other layers.
+
+    Mutation: drop the notes from the CODEX_HOME refusal. This test fails.
+    """
+
+    layer = tmp_path / "system-config.toml"
+    layer.write_text('[mcp_servers.alice]\ncommand = "uvx"\n', encoding="utf-8")
+    monkeypatch.setattr(host_install, "_codex_layer_paths", lambda codex_home, platform: [layer])
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "missing"))
+    code = onramp_main(["install", "--data-dir", str(tmp_path / "vault"), "--host", "codex"])
+    captured = capsys.readouterr()
+    assert code == 1
+    assert "does not exist" in captured.out
+    assert f"note: {layer} defines mcp_servers.alice, and Codex merges it" in captured.out.splitlines()
