@@ -150,7 +150,10 @@ See [Backup and restore](../alpha/backup-and-restore.md).
 
 Require the export/import/re-export canonical SHA-256 footer and record counts
 to match. A quarantined memory will not match its original export, because
-its text was replaced. FTS recall works immediately after import. Vector recall does not:
+its text was replaced. Unreleased (on main, not in v0.19.0): a row that carried
+an agent API key claim will not match either, because import rewrites the claim
+to an unverified imported claim; the receipt counts those rows. Use import for
+your own backups, since the footer shows integrity and not who wrote a row. FTS recall works immediately after import. Vector recall does not:
 portable JSONL omits embedding vectors, so configure the intended embedding
 provider and reindex before cutover.
 

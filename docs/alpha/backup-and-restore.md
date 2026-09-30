@@ -170,6 +170,26 @@ aborts and writes nothing. The file still carries the credential, so the
 credential refusal fires before the collision check. Existing rows are
 never overwritten. The rejected row and the placeholder stay.
 
+Unreleased (on main, not in v0.19.0): import is for your own backups, and a
+backup file is not evidence of who wrote a row. The SHA-256 footer is an
+unkeyed digest: anyone can edit a record and recompute it, so it shows that
+the file is whole and says nothing about authorship. Import therefore rewrites
+a stored claim that an agent API key wrote a row, in `metadata_json` and
+`payload_json` of any record (a sibling `agent_identity` with `auth` equal to
+`agent_api_key`), to `auth: imported_claim` plus `claimed_auth:
+agent_api_key`, and clears the integrity hash of an event row it changed.
+Recall, resume and a context pack then label the writer
+`declared_on_keyless_install`, not `verified_by_key`. The receipt prints
+`provenance claims restored as unverified: N`, counting rows, printed every
+time so a zero shows the check ran. A note that a key really wrote reads the
+same way after a restore, so the owner is told how many rows lost the label.
+Export, import, export is identical except for rows that carried a key claim,
+which differ in `auth` and `claimed_auth` (and, for events, `integrity_hash`).
+`--mode skip` accepts an existing row that equals the file's row either as
+the file gives it or as it is restored, so a vault can import its own export
+and a restored vault can import the same file again. In v0.19.0 and earlier,
+import restores the claim as the file states it.
+
 This command restores a SQLite database. It is not a PostgreSQL import.
 
 Portable backups include active sources and chunks, memories and fact keys,

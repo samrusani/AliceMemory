@@ -61,6 +61,12 @@ Export/import round-trip contract ("you own the memory"):
   quarantined memory, so a later redact can still update the row.
   Append-only triggers on ``event_log``/``memory_revisions`` only block
   UPDATE/DELETE.
+- One exception to ``export -> import -> export`` equality: a stored claim
+  that an agent API key wrote a row (``agent_identity`` with ``auth`` equal to
+  ``agent_api_key``) is restored as ``auth: imported_claim`` with the original
+  value kept as ``claimed_auth``, because the footer is an unkeyed SHA-256 and
+  proves integrity, not authorship. Only rows that carried such a claim
+  differ, and an event row that changed has its integrity hash cleared.
 - Soft-deleted rows are omitted. Nullable references to omitted parents are
   cleared, and graph edges with omitted known endpoints are left behind, so
   the portable record set can be restored into a fresh database.
@@ -120,6 +126,7 @@ from alicebot_api.sqlite_store import (
     ensure_sqlite_user,
     sqlite_user_connection,
 )
+from alicebot_api.vnext_agent_keys import AGENT_KEY_AUTH
 from alicebot_api.vnext_json import json_safe
 from alicebot_api.vnext_embeddings import (
     EMBEDDING_SIGNATURE_VERSION,
@@ -2815,6 +2822,107 @@ def _encode_column_value(column: str, value: object) -> object:
     return value
 
 
+# A backup file cannot prove that an agent API key wrote a row. The footer is an
+# unkeyed SHA-256 over the canonical lines, so anyone can edit a record and
+# recompute it: it shows integrity and says nothing about authorship. Readers
+# label a writer ``verified_by_key`` when a stored ``agent_identity`` says
+# ``auth`` is ``agent_api_key``, so import rewrites that claim before a row is
+# stored. The original value stays readable as ``claimed_auth``.
+_IMPORTED_CLAIM_AUTH = "imported_claim"
+_KEY_CLAIM_COLUMNS = ("metadata_json", "payload_json")
+# The label readers decode a JSON string where they expect a mapping, at these
+# two keys and at the column itself. Prose that merely quotes an identity is
+# not read, so it is not rewritten.
+_KEY_CLAIM_TEXT_CARRIERS = frozenset({"agentic_memory", "agent_identity"})
+# The product writes identities three levels down. A column nested deeper than
+# this is not a product record, and a walk that stopped early would leave a
+# claim in place, so import refuses it instead.
+_KEY_CLAIM_MAX_DEPTH = 64
+
+
+def _mapping_or_json_text(value: object) -> Mapping[str, object] | None:
+    """A mapping, or JSON text that decodes to one, as the writer labels read it."""
+    if isinstance(value, Mapping):
+        return value
+    if isinstance(value, str) and value.strip().startswith("{"):
+        try:
+            decoded = json.loads(value)
+        except (json.JSONDecodeError, RecursionError):
+            return None
+        return decoded if isinstance(decoded, Mapping) else None
+    return None
+
+
+def _downgrade_key_claims(value: object, depth: int = 0) -> tuple[object, bool]:
+    """Rewrite every ``agent_identity`` whose ``auth`` is exactly ``agent_api_key``.
+
+    Returns the value and whether anything changed. An unchanged value is
+    returned as it came, so a column with no claim is stored byte for byte.
+    The match is on the exact string the product writes: ``AGENT_API_KEY`` and
+    a padded value are left as they are, and the readers do not verify them.
+    """
+    if depth > _KEY_CLAIM_MAX_DEPTH:
+        raise _ImportError("a record nests its provenance too deeply to check for key claims")
+    if isinstance(value, Mapping):
+        changed = False
+        rewritten: dict[str, object] = {}
+        for key, item in value.items():
+            if key == "agent_identity":
+                identity = _mapping_or_json_text(item)
+                if identity is not None and identity.get("auth") == AGENT_KEY_AUTH:
+                    rewritten[key] = {**identity, "auth": _IMPORTED_CLAIM_AUTH, "claimed_auth": AGENT_KEY_AUTH}
+                    changed = True
+                    continue
+            if key in _KEY_CLAIM_TEXT_CARRIERS and isinstance(item, str):
+                carried = _mapping_or_json_text(item)
+                if carried is not None:
+                    inner, inner_changed = _downgrade_key_claims(carried, depth + 1)
+                    rewritten[key] = inner if inner_changed else item
+                    changed = changed or inner_changed
+                    continue
+            inner, inner_changed = _downgrade_key_claims(item, depth + 1)
+            rewritten[key] = inner
+            changed = changed or inner_changed
+        return (rewritten, True) if changed else (value, False)
+    if isinstance(value, list):
+        changed = False
+        items: list[object] = []
+        for item in value:
+            inner, inner_changed = _downgrade_key_claims(item, depth + 1)
+            items.append(inner)
+            changed = changed or inner_changed
+        return (items, True) if changed else (value, False)
+    return value, False
+
+
+def _downgrade_record_key_claims(record: dict[str, object]) -> tuple[dict[str, object], bool]:
+    """The row to store, and whether a key claim in it was rewritten.
+
+    Reads ``metadata_json`` and ``payload_json`` on every record type, after
+    quarantine replacement. JSON text in those columns is decoded and, when it
+    held a claim, stored as the rewritten mapping. A row that changed loses its
+    ``integrity_hash``, as a quarantined event does: the hash covers the payload.
+    """
+    rewritten = dict(record)
+    changed = False
+    for column in _KEY_CLAIM_COLUMNS:
+        if column not in record:
+            continue
+        raw = record[column]
+        decoded: object = _mapping_or_json_text(raw) if isinstance(raw, str) else raw
+        if decoded is None:
+            continue
+        value, column_changed = _downgrade_key_claims(decoded)
+        if column_changed:
+            rewritten[column] = value
+            changed = True
+    if not changed:
+        return record, False
+    if "integrity_hash" in rewritten:
+        rewritten["integrity_hash"] = None
+    return rewritten, True
+
+
 def _normalized_import_values(
     store: SQLiteVNextStore,
     columns: tuple[str, ...],
@@ -2864,6 +2972,7 @@ def _import_records(
     mode: str,
     plan: _QuarantinePlan | None = None,
     quarantine_tally: dict[str, int] | None = None,
+    claim_tally: dict[str, int] | None = None,
 ) -> dict[str, dict[str, int]]:
     """Insert parsed records in FK-safe order; returns per-type counts.
 
@@ -2881,6 +2990,14 @@ def _import_records(
     constraint violation; the staged transaction rolls back on failure.
     Quarantine replacement happens after the file's SHA-256 check, on the
     row about to be inserted, and is what ``skip`` compares.
+
+    A stored claim that an agent API key wrote a row is rewritten next, on
+    every record type, before the existing-row lookup (see
+    ``_downgrade_record_key_claims``). ``claim_tally`` counts the rows that
+    were inserted with a rewritten claim, by record type. ``skip`` compares
+    the rewritten row, and also accepts an existing row that equals the row
+    as the file gave it: that is a vault re-importing its own export, where
+    nothing new is restored and the existing row stays as it is.
     """
     quarantine_plan = plan if plan is not None else _EMPTY_QUARANTINE_PLAN
     counts: dict[str, dict[str, int]] = {}
@@ -2892,10 +3009,11 @@ def _import_records(
                 for key, amount in added.items():
                     quarantine_tally[key] = quarantine_tally.get(key, 0) + amount
             row_id = str(record["id"])
+            stored, claim_rewritten = _downgrade_record_key_claims(record)
             existing = conn.execute(
                 f"SELECT {', '.join(columns)} FROM {table} WHERE id = ?", (row_id,)
             ).fetchone()
-            values = _normalized_import_values(store, columns, record)
+            values = _normalized_import_values(store, columns, stored)
             if existing is not None:
                 if mode == "fail":
                     raise _ImportError(
@@ -2903,7 +3021,12 @@ def _import_records(
                         "aborting (--mode fail). Rerun with --mode skip to keep "
                         "existing rows and import only new records."
                     )
-                if not _collision_is_identical(dict(existing), columns, values):
+                if not _collision_is_identical(dict(existing), columns, values) and not (
+                    claim_rewritten
+                    and _collision_is_identical(
+                        dict(existing), columns, _normalized_import_values(store, columns, record)
+                    )
+                ):
                     raise _ImportError(
                         f"line {line_no}: {record_type} id {row_id} has the same id "
                         "but different content; refusing to combine incompatible backups"
@@ -2929,6 +3052,8 @@ def _import_records(
                     f"line {line_no}: {record_type} {row_id} could not be imported: {exc}"
                 ) from exc
             tally["imported"] += 1
+            if claim_rewritten and claim_tally is not None:
+                claim_tally[record_type] = claim_tally.get(record_type, 0) + 1
     return counts
 
 
@@ -2956,6 +3081,7 @@ def _print_import_summary(
     quarantine_ids: tuple[str, ...] = (),
     quarantine_counts: dict[str, int] | None = None,
     quarantine_reports: tuple[tuple[str, str, str], ...] = (),
+    restored_claims: int = 0,
 ) -> None:
     imported_total = sum(tally["imported"] for tally in counts.values())
     skipped_total = sum(tally["skipped"] for tally in counts.values())
@@ -2968,6 +3094,9 @@ def _print_import_summary(
         if tally is None:
             continue
         print(f"  {record_type}: {tally['imported']} imported, {tally['skipped']} skipped")
+    # Always printed, so a zero shows the check ran. Rows, not claims: a row
+    # that carried two claims counts once.
+    print(f"provenance claims restored as unverified: {restored_claims}")
     if quarantine_ids:
         tallies = quarantine_counts or {}
         print(
@@ -3135,6 +3264,7 @@ def _run_import_snapshot(
     target_existed = db_path.exists()
     working_path: Path | None = None
     credential_reports: tuple[tuple[str, str, str], ...] = ()
+    claim_tally: dict[str, int] = {}
     try:
         _ensure_private_directory(db_path.parent)
         fd, raw_working_path = tempfile.mkstemp(
@@ -3167,6 +3297,7 @@ def _run_import_snapshot(
                 mode=args.mode,
                 plan=quarantine_plan,
                 quarantine_tally=quarantine_counts,
+                claim_tally=claim_tally,
             )
         if quarantine_ids:
             # The spool still holds the file. Scan the rewritten rows before
@@ -3239,6 +3370,7 @@ def _run_import_snapshot(
             quarantine_ids=quarantine_ids,
             quarantine_counts=quarantine_counts,
             quarantine_reports=tuple(sorted({*quarantine_plan.reports, *credential_reports})),
+            restored_claims=sum(claim_tally.values()),
         )
         sys.stdout.flush()
     except (OSError, ValueError) as exc:
