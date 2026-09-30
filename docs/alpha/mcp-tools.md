@@ -165,6 +165,20 @@ Each framed item also has a `writer` object:
   agent, and any edit by a caller that did not present the key.
 - After `correct`, or `confirm` with new text, the writer is that revision's
   actor. The original commit's key does not stay on the new sentence.
+- Unreleased (on main, not in v0.19.0): `verified_by_key` is set only when the
+  writing call presented a key. Rows restored by `alice-memory import` never
+  carry it. The importer rewrites a stored key claim (`agent_identity` with
+  `auth` equal to `agent_api_key`) to an unverified imported claim
+  (`auth: imported_claim`, with the original kept as `claimed_auth`), because
+  a backup file can be edited and re-signed and its footer shows integrity,
+  not who wrote it. The receipt prints `provenance claims restored as
+  unverified: N`. A note a key really wrote reads
+  `declared_on_keyless_install` after a restore, the same value an owner write
+  carries. The reader compares `auth` exactly, so a value that differs by case
+  or by whitespace is not verified either. In v0.19.0 and earlier, import
+  restores the claim as the file states it, and a restored row can read
+  `verified_by_key` with no key behind it. v0.19.0 also reads an `auth` value
+  padded with whitespace as verified.
 
 `writer` is a field on the item. It is not only spliced into the quoted text.
 CLI resume text prints `writer.id` and `writer.established` on the item

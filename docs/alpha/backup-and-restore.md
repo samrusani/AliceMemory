@@ -87,6 +87,29 @@ file is written only when `--out` is set. Without `--out`, the JSONL
 goes to stdout and no file is created. Redact the listed rows in the
 source vault and export again.
 
+That refusal covers the memory columns the check reads: title, text, summary,
+value, metadata, key and project. Sources, chunks, revisions, provenance
+quotes, open loops, entities, graph edges, relationship events and event rows
+come across unchanged, and so do the other memory columns (`trust_reason`,
+`created_by_agent_id`, the model name and the ids). Recall, the session brief
+and the session hook can return their text. Unreleased (on main, not in
+v0.19.0): import reads every text and JSON column of those records, and those
+memory columns, with the same credential check and lists each hit on the
+receipt, never the text, then exits 0. The receipt line is
+`credential-shaped text in records import does not refuse: N`, printed every
+time, and one `table id column` line follows for each hit. An id that is itself
+credential-shaped, holds a control character or is over 128 characters is
+shown as `(id withheld, line N)`. Import does not refuse these records: a vault from
+before the credential floor can hold a secret in a source, and no SQLite
+command removes a source. Rotate each credential listed. `alice-memory
+export` lists the same rows on stderr, with a note that import restores them,
+and exits 0. A memory row that import would refuse is listed under the memory
+warning only. With `--quarantine` the receipt keeps its own report, below,
+which lists every leftover with the command that removes it.
+`alice-memory doctor` reads source chunk text as well as the source row, so a
+token that sits only in a chunk is listed under `flagged sources`; in v0.19.0
+it prints `flagged sources: 0` for that source.
+
 `--quarantine` is the owner's recovery path when a backup holds a credential
 and the source vault is gone. It removes the credential from the named
 memory and from the records derived from it, and it reports any other copies
@@ -169,6 +192,29 @@ a quarantined row. Importing that same file again without `--quarantine`
 aborts and writes nothing. The file still carries the credential, so the
 credential refusal fires before the collision check. Existing rows are
 never overwritten. The rejected row and the placeholder stay.
+
+Unreleased (on main, not in v0.19.0): import is for your own backups, and a
+backup file is not evidence of who wrote a row. The SHA-256 footer is an
+unkeyed digest: anyone can edit a record and recompute it, so it shows that
+the file is whole and says nothing about authorship. Import therefore rewrites
+a stored claim that an agent API key wrote a row, in `metadata_json` and
+`payload_json` of any record (a sibling `agent_identity` with `auth` equal to
+`agent_api_key`), to `auth: imported_claim` plus `claimed_auth:
+agent_api_key`, and clears the integrity hash of an event row it changed.
+Recall, resume and a context pack then label the writer
+`declared_on_keyless_install`, not `verified_by_key`. The receipt prints
+`provenance claims restored as unverified: N`, counting rows, printed every
+time so a zero shows the check ran. A note that a key really wrote reads the
+same way after a restore, so the owner is told how many rows lost the label.
+Export, import, export is identical except for rows that carried a key claim,
+which differ in `auth` and `claimed_auth` (and, for events, `integrity_hash`).
+`--mode skip` accepts an existing row that equals the file's row either as
+the file gives it or as it is restored, so a vault can import its own export
+and a restored vault can import the same file again. A `metadata_json` or
+`payload_json` nested more than 256 levels is refused with `restore_failed`,
+and so is a JSON text in one of them that is too deep to decode; the product
+writes an identity at most three levels down. In v0.19.0 and
+earlier, import restores the claim as the file states it.
 
 This command restores a SQLite database. It is not a PostgreSQL import.
 
