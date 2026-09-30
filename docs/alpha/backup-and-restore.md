@@ -87,20 +87,24 @@ file is written only when `--out` is set. Without `--out`, the JSONL
 goes to stdout and no file is created. Redact the listed rows in the
 source vault and export again.
 
-That refusal covers memory rows only. Sources, chunks, revisions, provenance
+That refusal covers the memory columns the check reads: title, text, summary,
+value, metadata, key and project. Sources, chunks, revisions, provenance
 quotes, open loops, entities, graph edges, relationship events and event rows
-come across unchanged, and recall, the session brief and the session hook can
-return their text. Unreleased (on main, not in v0.19.0): import reads every
-text and JSON column of those records with the same credential check and
-lists each hit on the receipt, never the text, then exits 0. The receipt line
-is `credential-shaped text in non-memory records: N`, printed every time, and
-one `table id column` line follows for each hit. An id that is itself
-credential-shaped, holds a control character or is very long is shown as
-`(id withheld, line N)`. Import does not refuse these records: a vault from
+come across unchanged, and so do the other memory columns (`trust_reason`,
+`created_by_agent_id`, the model name and the ids). Recall, the session brief
+and the session hook can return their text. Unreleased (on main, not in
+v0.19.0): import reads every text and JSON column of those records, and those
+memory columns, with the same credential check and lists each hit on the
+receipt, never the text, then exits 0. The receipt line is
+`credential-shaped text in records import does not refuse: N`, printed every
+time, and one `table id column` line follows for each hit. An id that is itself
+credential-shaped, holds a control character or is over 128 characters is
+shown as `(id withheld, line N)`. Import does not refuse these records: a vault from
 before the credential floor can hold a secret in a source, and no SQLite
 command removes a source. Rotate each credential listed. `alice-memory
 export` lists the same rows on stderr, with a note that import restores them,
-and exits 0. With `--quarantine` the receipt keeps its own report, below,
+and exits 0. A memory row that import would refuse is listed under the memory
+warning only. With `--quarantine` the receipt keeps its own report, below,
 which lists every leftover with the command that removes it.
 `alice-memory doctor` reads source chunk text as well as the source row, so a
 token that sits only in a chunk is listed under `flagged sources`; in v0.19.0
