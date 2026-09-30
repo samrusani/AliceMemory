@@ -218,6 +218,39 @@ def test_a_huge_query_is_refused_before_it_is_tokenized(monkeypatch: pytest.Monk
     assert breach == SourceSearchQueryBreach("bytes", 4_900_000, 40_000)
 
 
+@pytest.mark.parametrize(
+    ("query", "expected"),
+    [
+        ("\ud800 indigo", None),
+        ("\ud800" * 13_333, None),
+        ("\ud800" * 13_334, ("bytes", 40_002, 40_000)),
+    ],
+    ids=["short", "13333-surrogates", "13334-surrogates"],
+)
+def test_a_lone_surrogate_is_measured_not_raised(query: str, expected: tuple[str, int, int] | None) -> None:
+    """A lone surrogate counts as 3 UTF-8 bytes. The check answers; it never raises.
+
+    A JSON ``\\ud800`` escape decodes to a lone surrogate, which strict UTF-8
+    cannot encode. The check measures the bytes the way the standard library
+    writes them out with ``surrogatepass`` and stays a pure function that
+    returns a breach or ``None``, so a caller never sees ``UnicodeEncodeError``
+    from it.
+
+    Mutation: encode the raw query, or the casefolded one, as strict ``utf-8``
+    without ``surrogatepass``, or as ``replace`` (one byte per surrogate).
+    ``UnicodeEncodeError`` escapes the check, or the count is 13,334 and not
+    40,002, and this test fails. Casefolding leaves a lone surrogate as it is,
+    so both encodes see it.
+    """
+
+    breach = source_search_query_breach(query)
+
+    if expected is None:
+        assert breach is None
+    else:
+        assert breach == SourceSearchQueryBreach(*expected)
+
+
 # -- over stdio, as a client calls the tools -----------------------------------
 
 
@@ -380,21 +413,47 @@ def test_a_pack_that_does_not_search_sources_keeps_taking_a_long_query(
     assert "error" not in _accepted(context, "alice_context_pack", query, **extra)
 
 
-@pytest.mark.parametrize("tool", TOOLS)
-def test_the_refusal_comes_before_any_retrieval_stage(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, tool: str
-) -> None:
-    """A refused query runs no memory, vector or graph stage.
+# Every option that changes which stages a call runs, or whether the source
+# search runs at all. The refusal must come before the first stage under each.
+STAGE_ORDER_CASES = [
+    pytest.param("alice_recall", {}, id="recall-default"),
+    pytest.param("alice_recall", {"include_sources": False}, id="recall-include_sources-false"),
+    pytest.param("alice_recall", {"context_depth": "minimal"}, id="recall-minimal"),
+    pytest.param("alice_recall", {"context_depth": "high"}, id="recall-high"),
+    pytest.param("alice_recall", {"debug": True}, id="recall-debug"),
+    pytest.param("alice_recall", {"domains": ["personal", "project"]}, id="recall-domains"),
+    pytest.param("alice_recall", {"project_scope": ["acme"]}, id="recall-project_scope"),
+    pytest.param("alice_recall", {"projects": ["acme"]}, id="recall-projects"),
+    pytest.param("alice_context_pack", {}, id="pack-default"),
+    pytest.param("alice_context_pack", {"include_sources": True}, id="pack-include_sources-true"),
+    pytest.param(
+        "alice_context_pack", {"context_depth": "minimal", "include_sources": True}, id="pack-minimal-sources-on"
+    ),
+    pytest.param("alice_context_pack", {"context_depth": "medium"}, id="pack-medium"),
+    pytest.param("alice_context_pack", {"context_depth": "high"}, id="pack-high"),
+    pytest.param("alice_context_pack", {"project_scope": ["acme"]}, id="pack-project_scope"),
+    pytest.param("alice_context_pack", {"projects": ["acme"]}, id="pack-projects"),
+]
 
-    A spy on the three stages first shows they do run for a normal query, so
-    the test cannot pass on a spy that never fires. Without the early check
-    the same typed error still comes back from ``search_sources``, but only
-    after every stage has run, including the query embedding call when
+
+@pytest.mark.parametrize(("tool", "extra"), STAGE_ORDER_CASES)
+def test_the_refusal_comes_before_any_retrieval_stage(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, tool: str, extra: dict[str, object]
+) -> None:
+    """A refused query runs no memory, vector or graph stage, under any option.
+
+    A spy on the three stages first shows the stages do run for a normal query
+    under the same options, so the test cannot pass on a spy that never fires
+    or on an option that skips the stages for another reason. Without the early
+    check the same typed error still comes back from ``search_sources``, but
+    only after every stage has run, including the query embedding call when
     embeddings are configured.
 
     Mutation: drop ``require_source_query_searchable`` from the recall handler
-    or from ``compile_context_pack``. The stages run for the refused query and
-    this test fails.
+    or from ``compile_context_pack``, or make either one conditional on an
+    option (``include_sources``, ``context_depth``, ``debug``, ``domains``,
+    ``project_scope`` or ``projects``). The stages run for the refused query
+    under that option and this test fails.
     """
 
     context = _vault(tmp_path, monkeypatch)
@@ -408,11 +467,16 @@ def test_the_refusal_comes_before_any_retrieval_stage(
 
         monkeypatch.setattr(VNextRetrievalService, stage, spy)
 
-    _accepted(context, tool, "indigo lighthouse canary")
+    _accepted(context, tool, "indigo lighthouse canary", **extra)
     assert "_memory_fts_rows" in ran
     ran.clear()
 
-    assert _refused(context, tool, _terms(500)) == _too_many_terms(500)
+    assert _refused(context, tool, _terms(500), **extra) == _too_many_terms(500)
+    assert ran == []
+
+    assert _refused(context, tool, "canary " * 5_714 + "abc", **extra) == _refusal(
+        "query is 40001 UTF-8 bytes; the limit is 40000. Use a shorter query."
+    )
     assert ran == []
 
 

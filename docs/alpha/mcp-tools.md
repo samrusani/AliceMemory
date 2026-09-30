@@ -537,7 +537,10 @@ legacy `alice_vnext_context_pack`, `alice_generate_contradictions` and
 `alice_generate_connections` tools answer it too. In v0.19.0 a query with about
 991 or more distinct terms, or a query over about 50,000 bytes with a captured
 source in the vault, answers `tool_execution_failed`, and a query of 500 to 990
-distinct terms, or of 40,001 to about 50,000 bytes, is taken. `alice_resume` and
+distinct terms, or of 40,001 to about 50,000 bytes, is taken. A query of any
+size over 40,000 bytes is also taken there when the search reads no source row
+(a vault with no captured source, or filters that exclude every source), and it
+is refused now because the check looks at the query alone. `alice_resume` and
 `alice_recent_decisions` are not covered: a query of about 50,000 bytes or more
 still answers `tool_execution_failed` there once the vault holds a stored
 decision.
