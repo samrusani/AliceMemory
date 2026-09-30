@@ -1,14 +1,14 @@
 # Claude Code plugin
 
-The plugin directory ships in v0.19.0. v0.18.0 has no Claude Code plugin and no marketplace file. The v0.19.0 tag has no marketplace file either.
+The plugin directory ships in v0.19.0. v0.18.0 has no Claude Code plugin and no marketplace file. The v0.19.0 tag has no marketplace file either. `main` has one, and the plugin installs from it as the `alicememory` marketplace.
 
-The plugin is `plugins/alice-memory`. It is not published from `main`. A later post-publication change adds `.claude-plugin/marketplace.json` with a `git-subdir` source pinned to a release tag.
+The plugin is `plugins/alice-memory`. `.claude-plugin/marketplace.json` on `main` lists it with a `git-subdir` source pinned to the v0.19.0 tag and to that tag's commit. A later change to the plugin directory on `main` is not installed until a change moves the pin to a later tag.
 
 Tool names look like `mcp__plugin_alice-memory_alice__<tool>`.
 
 ## Install
 
-The v0.19.0 tag has no marketplace file, so there is nothing to add from the tag alone. The change that adds `.claude-plugin/marketplace.json` gives it the name `alicememory` and one plugin entry pinned to the v0.19.0 tag commit. After that change, clone this repository and run:
+The v0.19.0 tag has no marketplace file, so a checkout of the tag has nothing to add. `main` has `.claude-plugin/marketplace.json`, with the name `alicememory` and one plugin entry pinned to the v0.19.0 tag commit. Clone this repository, which checks out `main`, and run:
 
 ```bash
 claude plugin marketplace add <path to the clone>

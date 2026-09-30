@@ -2,7 +2,7 @@
 
 
 
-`v0.18.0` is the latest published release and remains the checksum/install
+`v0.19.0` is the latest published release and remains the checksum/install
 baseline.
 Preparing candidate documents does not authorize a tag, PyPI upload, or GitHub
 Release.
@@ -29,11 +29,14 @@ The release PR bumps `pyproject.toml`, `apps/web/package.json`,
 `packaging/mcpb/manifest.json`, and the plugin (version and both pins) to
 that same version.
 
-The release PR's README wording for the plugin says it is available from the
-marketplace once the release is published.
+For the first release that ships the plugin, the release PR's README wording
+says it is available from the marketplace once the release is published. The
+post-publication PR changes that wording to say it installs from the
+marketplace.
 
 The post-publication PR adds `.claude-plugin/marketplace.json` at the
-repository root. The file has `name` `alicememory`, `owner` with `name`
+repository root, or, when the file exists, moves its plugin entry's `ref` and
+`sha` to the new tag. The file has `name` `alicememory`, `owner` with `name`
 `Alice Memory`, a `description`, and one plugin entry. That entry's `name`
 matches `plugin.json`. Its `source` is `git-subdir`, with `url`
 `samrusani/AliceMemory`, `path` `plugins/alice-memory`, `ref` `vX.Y.Z`,
@@ -451,7 +454,5 @@ the tag and must not have claimed publication early.
 Verify checksum files on Linux with `sha256sum -c SHA256SUMS` and on stock
 macOS with `shasum -a 256 -c SHA256SUMS`.
 
-`v0.18.0` is the latest published release and remains the install, checksum,
+`v0.19.0` is the latest published release and remains the install, checksum,
 and baseline reference.
-
-`v0.19.0` is the current release candidate. It is not published.

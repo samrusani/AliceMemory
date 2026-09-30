@@ -19,7 +19,7 @@ onboarding program.
 ## Install
 
 The clone checks out `main`, which can be ahead of the latest release. To run
-v0.18.0, run `git checkout v0.18.0` before `make setup`.
+v0.19.0, run `git checkout v0.19.0` before `make setup`.
 
 ```bash
 git clone https://github.com/samrusani/AliceMemory.git

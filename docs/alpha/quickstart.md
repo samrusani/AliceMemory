@@ -19,7 +19,7 @@ What install writes:
 - Hermes is opt-in. `--host hermes` configures Hermes only, because any `--host` replaces the default set; pass each host you want to write them together. Install then writes only the `mcp_servers.alice` lines in `~/.hermes/config.yaml` and keeps the rest of the file. Hermes gets no hook. A comment inside the alice block stays when there is nothing to change; when there is, install refuses and prints the block, and v0.18.0 dropped the comment. If the file uses YAML the installer does not edit, install changes nothing, prints the lines to add by hand, and exits non-zero.
 - OpenCode is opt-in with `--host opencode`, which writes `opencode.json` or `opencode.jsonc`. See [OpenCode](../integrations/opencode.md).
 - Codex is opt-in with `--host codex`, which edits `~/.codex/config.toml` as text and writes a SessionStart hook to `~/.codex/hooks.json`. See [Codex](../integrations/codex.md). v0.18.0 has no `--host codex`.
-- The Claude Code plugin in `plugins/alice-memory` is available from the `alicememory` marketplace once v0.19.0 is published. Use the plugin or `--host claude-code`, not both. See [Claude Code plugin](../integrations/claude-code-plugin.md). v0.18.0 has no plugin.
+- The Claude Code plugin in `plugins/alice-memory` installs from the `alicememory` marketplace: clone this repository, run `claude plugin marketplace add <path to the clone>`, then `claude plugin install alice-memory@alicememory`. Use the plugin or `--host claude-code`, not both. See [Claude Code plugin](../integrations/claude-code-plugin.md). v0.18.0 has no plugin.
 
 The data dir:
 
@@ -75,7 +75,7 @@ The rest of this page sets up the Postgres stack. It needs:
 
 ## Setup
 
-The clone checks out `main`, which can be ahead of the latest release. To run v0.18.0, run `git checkout v0.18.0` before `make setup`.
+The clone checks out `main`, which can be ahead of the latest release. To run v0.19.0, run `git checkout v0.19.0` before `make setup`.
 
 ```bash
 git clone https://github.com/samrusani/AliceMemory.git
