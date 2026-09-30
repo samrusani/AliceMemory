@@ -189,6 +189,8 @@ Correction, 2026-09-30: the paragraph above is true of the server route and fals
 
 Unreleased (on main, not in v0.19.0): plugin 0.5.2 sends the user text and the assistant text of a turn to `POST /v0/continuity/captures/candidates` as two separate fields and never splits a joined text back into roles. A reply that contains a line starting with `User:` stays assistant text, which is at most queued for review and is never auto-saved. A multi-line user message is sent whole. Each side is capped at 3,800 characters on its own, where the joined text used to be capped once. Two different turns no longer share a dedupe fingerprint. When the candidate routes answer HTTP 404, the plugin posts one labelled `User:` and `Assistant:` text to `POST /v0/continuity/captures`, which reads no roles and derives an object only when the whole text starts with a prefix. An existing install keeps plugin 0.5.1 until you run `./scripts/install_hermes_alice_memory_provider.py --force`; a `--symlink` install picks up the change.
 
+Unreleased (on main, not in v0.19.0): `POST /v1/memory/operations/commit` now reads the role. In `assist` and `auto` mode it applies only a candidate from `user_content` that matched an explicit prefix at confidence 0.9 or more, the rule the `/v0/continuity` capture commit uses. A candidate from the assistant and a phrase match from either role are `review_required`, so the correction above about that route describes v0.19.0 and earlier. The plugin does not call it.
+
 From v0.19.0, `POST /v0/continuity/captures/candidates`
 withholds a token in its response and stores nothing. Committing that
 withheld text is refused with the same 400 as a credential and stores
