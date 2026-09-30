@@ -57,6 +57,10 @@ That writes Claude Desktop, Claude Code, Cursor, and OpenClaw MCP config. Claude
 
 OpenCode is opt-in with `--host opencode`, which writes `opencode.json` or `opencode.jsonc`. See [OpenCode](https://github.com/samrusani/AliceMemory/blob/main/docs/integrations/opencode.md).
 
+Codex is opt-in with `--host codex`, which edits `config.toml` in Codex's home as text and writes a SessionStart hook to `hooks.json` there. Codex skips the hook until you trust it once at "Hooks need review" or with `/hooks`. See [Codex](https://github.com/samrusani/AliceMemory/blob/main/docs/integrations/codex.md).
+
+The Claude Code plugin in `plugins/alice-memory` is available from the `alicememory` marketplace once v0.19.0 is published. Use the plugin or `--host claude-code`, not both. See [Claude Code plugin](https://github.com/samrusani/AliceMemory/blob/main/docs/integrations/claude-code-plugin.md).
+
 OpenClaw can also add the server in one line, which probes before saving:
 
 ```bash
@@ -87,7 +91,7 @@ OpenClaw prefixes MCP tool names with the server name, so `alice_recall` reaches
 
 #### Skill packs
 
-Optional. Packs exist for 2 of the 6 install hosts, Hermes and OpenClaw.
+Optional. Packs exist for 2 of the 7 install hosts, Hermes and OpenClaw.
 Nothing in this repo measures whether a pack changes what an agent does.
 [`agent-skills/hermes/alice-memory`](https://github.com/samrusani/AliceMemory/tree/main/agent-skills/hermes/alice-memory)
 and [`agent-skills/openclaw/alice-project-memory`](https://github.com/samrusani/AliceMemory/tree/main/agent-skills/openclaw/alice-project-memory)
@@ -164,13 +168,13 @@ The default MCP surface is three tools:
 
 The other eight core tools (`alice_capture`, `alice_context_pack`, `alice_open_loops`, `alice_recent_decisions`, `alice_memory_review`, `alice_memory_correct`, `alice_memory_manage`, `alice_explain`) stay defined and become listed and callable when `ALICE_MCP_FULL_TOOLS=1`. Capture stores a source; candidates stay unsearchable as memories. Import is a source. Commit is a fact.
 
-On main, not yet released: folder-import receipt items name the file, a withheld ChatGPT title is counted, the Postgres doctor names `DELETE /v0/vnext/sources/{id}`, candidate capture withholds a token and committing that withheld text is refused, a flagged import line, message, or title is withheld and the rest is imported, an OpenCode dry run shows top-level booleans and numbers, Codex is opt-in with `--host codex`, and the Claude Code plugin directory is in the repo. In v0.18.0 those receipt items omit the file, that title is not counted, the doctor says `delete_source`, the candidate response echoes the token, capture stores a low-entropy AKIA-shaped key inside the file, `"enabled": false` prints as `<hidden>`, there is no Codex install, and there is no Claude Code plugin. On main, `--host codex` also writes a SessionStart hook to `hooks.json`, which Codex skips until you trust it once at "Hooks need review" or with `/hooks`. In v0.18.0 there is no Codex hook.
+From v0.19.0, folder-import receipt items name the file, a withheld ChatGPT title is counted, the Postgres doctor names `DELETE /v0/vnext/sources/{id}`, candidate capture withholds a token and committing that withheld text is refused, a flagged import line, message, or title is withheld and the rest is imported, `alice_capture` refuses a low-entropy AKIA-shaped key and both imports withhold it, an OpenCode dry run shows top-level booleans and numbers, and Codex is opt-in with `--host codex`. In v0.18.0 those receipt items omit the file, that title is not counted, the doctor says `delete_source`, the candidate response echoes the token, capture stores a low-entropy AKIA-shaped key, a dry run prints a top-level boolean such as `"enabled": false` as `<hidden>`, and there is no Codex install. `--host codex` also writes a SessionStart hook to `hooks.json`, which Codex skips until you trust it once at "Hooks need review" or with `/hooks`. In v0.18.0 there is no Codex hook. The Claude Code plugin is in `plugins/alice-memory`. v0.18.0 has no Claude Code plugin.
 
-On main, not yet released: the session brief omits a superseded fact and a source line whose captured sentence was corrected or superseded later, while recall and the context pack keep that old passage and set `derived_memory_corrected`. In v0.18.0 the brief still prints the old sentence as a fact or a source line, and the excerpt is unmarked.
+From v0.19.0, the session brief omits a superseded fact and a source line whose captured sentence was corrected or superseded later, while recall and the context pack keep that old passage and set `derived_memory_corrected`. In v0.18.0 the brief still prints the old sentence as a fact or a source line, and the excerpt is unmarked.
 
-On main, not yet released: Codex's default mode no longer asks before `alice_recall`, `alice_resume`, `alice_context_pack`, `alice_recent_decisions`, `alice_explain`, `alice_memory_commit`, or `alice_capture`. `alice_memory_review`, `alice_memory_correct`, `alice_memory_manage`, and `alice_open_loops` are marked destructive. In v0.18.0 these tools declare no hints, so Codex asks before every call.
+From v0.19.0, every MCP tool declares hints. `alice_recall`, `alice_resume`, `alice_context_pack`, `alice_recent_decisions`, and `alice_explain` are marked read-only. `alice_memory_commit` and `alice_capture` are marked non-destructive. `alice_memory_review`, `alice_memory_correct`, `alice_memory_manage`, and `alice_open_loops` are marked destructive. Codex's default approval rule, as this repo records it, skips its prompt for the first seven, and no test here runs that prompt. In v0.18.0 these tools declare no hints.
 
-On main, not yet released: a long session-brief note is cut at 1,500 characters with a marker outside the quote, later short items still fit, and the brief stays under 9,500 characters. The reserve is UTF-16 code units and includes the caller's newline, so the brief is at most 9,499 minus that reserve. The hook's final cap drops whole trailing lines and does not cut inside a line. `alice-memory doctor` prints `N / 9500 characters`. A newest fact of about 50,000 UTF-8 bytes or more no longer empties the brief; its facts and loops still print. In v0.18.0 that note was dropped when it did not fit the token budget, a brief of many shorter lines could reach about 16,000 characters, the doctor line was a token estimate, and a fact that long made the hook print `{}`.
+From v0.19.0, a long session-brief note is cut to at most 1,500 characters with a marker outside the quote, later short items still fit, and the brief stays under 9,500 characters. The reserve is UTF-16 code units and includes the caller's newline, so the brief is at most 9,499 minus the reserve. The hook's final cap drops whole trailing lines and does not cut inside a line. `alice-memory doctor` prints `N / 9500 characters`. A newest fact of about 50,000 UTF-8 bytes or more no longer empties the brief; its facts and loops still print. In v0.18.0 that note was dropped when it did not fit the token budget, a brief could run past 15,000 characters, the doctor line was a token estimate, and a fact that long could make the hook print `{}`.
 
 Calling directly from a human client (Claude Desktop, an IDE)? `alice_memory_commit` needs only `title` and `canonical_text`, with no identity fields. Agent integrations declare `agent_id` and `agent_type`; see [agent integration](https://github.com/samrusani/AliceMemory/blob/main/docs/alpha/agent-integration.md).
 
@@ -202,7 +206,9 @@ A LongMemEval_s receipt of 81.2% mean over three independent full runs (80.8 / 8
 `v0.18.0` is the latest published release and remains the install, checksum,
 and release-note baseline (the `v0.13.0` tag was never published;
 superseded). Its tag, release record, and published artifacts
-are immutable. `v0.12.0` was the structural refactor release. Structure only. Zero behavior change.
+are immutable.
+`v0.19.0` is the current release candidate. It is not published.
+`v0.12.0` was the structural refactor release. Structure only. Zero behavior change.
 Alice is a public-alpha, pre-1.0 project.
 What that means in practice:
 

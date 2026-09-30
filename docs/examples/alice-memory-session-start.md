@@ -21,7 +21,7 @@ The wrapper reads the host payload on stdin, compiles the same brief as
 `hookSpecificOutput.additionalContext` is the Claude Code `SessionStart`
 field. One command covers both.
 
-Unreleased (on main, not in v0.18.0): the brief shows current facts only.
+From v0.19.0, the brief shows current facts only.
 A memory with `superseded_by` set, or status `superseded`, is left out,
 and so is a `**source**` line whose captured sentence was corrected or
 superseded after the capture. In v0.18.0 SessionStart and

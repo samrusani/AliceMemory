@@ -1,8 +1,10 @@
 # Sprint 6: host adapters
 
 The OpenCode adapter shipped in v0.18.0: `alice-memory install --host
-opencode` writes `opencode.json` or `opencode.jsonc`. Codex and the Claude
-Code plugin are still design only.
+opencode` writes `opencode.json` or `opencode.jsonc`. The Codex adapter and
+the Claude Code plugin directory shipped in v0.19.0: `alice-memory install
+--host codex` writes `config.toml` and `hooks.json`, and `plugins/alice-memory`
+holds the plugin.
 
 Design only. No installer change ships with this note.
 

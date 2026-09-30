@@ -28,8 +28,9 @@
 Phases 1 to 5 shipped by `v0.14.0`. `v0.16.0` put the default loop on the
 wheel, and `v0.17.0` hardened install and the write paths. Next is host
 coverage and skill packs. From `v0.18.0`, OpenCode is an opt-in
-`alice-memory install` host. Codex adapters and the skill pack revisions are
-in design.
+`alice-memory install` host, and from `v0.19.0` Codex is one too. The Claude
+Code plugin directory ships in `v0.19.0`. The skill pack revisions are in
+design.
 
 Of the former roadmap list, benchmark replication, multi-session synthesis
 measurement, reference integrations, SQLite vector scale, and the enterprise
@@ -94,3 +95,5 @@ restore, recorded security disposition) shipped in Phases 4 and 5.
 
 `v0.18.0` is the latest published release and remains the install, checksum,
 and baseline reference.
+
+`v0.19.0` is the current release candidate. It is not published.

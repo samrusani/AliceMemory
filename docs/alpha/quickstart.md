@@ -18,8 +18,8 @@ What install writes:
 - For OpenClaw, the receipt also prints an `openclaw mcp add alice ...` line you can run instead.
 - Hermes is opt-in. `--host hermes` configures Hermes only, because any `--host` replaces the default set; pass each host you want to write them together. Install then writes only the `mcp_servers.alice` lines in `~/.hermes/config.yaml` and keeps the rest of the file. Hermes gets no hook. If the file uses YAML the installer does not edit, install changes nothing, prints the lines to add by hand, and exits non-zero.
 - OpenCode is opt-in with `--host opencode`, which writes `opencode.json` or `opencode.jsonc`. See [OpenCode](../integrations/opencode.md).
-- Unreleased (on main, not in v0.18.0): Codex is opt-in with `--host codex`, which edits `~/.codex/config.toml` as text. See [Codex](../integrations/codex.md). v0.18.0 has no `--host codex`.
-- Unreleased (on main, not in v0.18.0): a Claude Code plugin directory is in the repo. v0.18.0 has no plugin. See [Claude Code plugin](../integrations/claude-code-plugin.md).
+- Codex is opt-in with `--host codex`, which edits `~/.codex/config.toml` as text and writes a SessionStart hook to `~/.codex/hooks.json`. See [Codex](../integrations/codex.md). v0.18.0 has no `--host codex`.
+- The Claude Code plugin in `plugins/alice-memory` is available from the `alicememory` marketplace once v0.19.0 is published. Use the plugin or `--host claude-code`, not both. See [Claude Code plugin](../integrations/claude-code-plugin.md). v0.18.0 has no plugin.
 
 The data dir:
 

@@ -1479,52 +1479,53 @@ def _flat_paragraphs(path: Path) -> list[str]:
     return [" ".join(part.split()) for part in text.split("\n\n") if part.strip()]
 
 
-def test_the_docs_keep_the_main_only_marker_and_the_option_rules() -> None:
-    """The plugin docs, the changelog, the README and the quickstart say what main does and v0.18.0 does not.
+def test_the_docs_say_what_v0190_ships_and_keep_the_option_rules() -> None:
+    """The plugin docs, the changelog, the README and the quickstart say what v0.19.0 ships and v0.18.0 does not.
 
-    The plugin page and the plugin README open with the ``Unreleased (on main,
-    not in v0.18.0):`` marker, and so does the paragraph that describes the
-    hook's option variable. That paragraph names ``CLAUDE_PLUGIN_OPTION_DATA_DIR``,
+    The plugin page and the plugin README open by saying the plugin ships in
+    v0.19.0 and that v0.18.0 has no Claude Code plugin. The paragraph that
+    describes the hook's option variable names ``CLAUDE_PLUGIN_OPTION_DATA_DIR``,
     the ``~/.alice`` default and why the hook has no ``--data-dir``. Every
     paragraph that names ``ALICE_MEMORY_DATA_DIR`` says the plugin's hook
     ignores it, and one of them holds the relative-value sentence. The
-    changelog's Unreleased section, the README and the quickstart each keep the
-    plugin line they already have. The reader must not take main's behaviour
-    for v0.18.0's.
+    changelog's v0.19.0 section, the README and the quickstart each keep the
+    plugin line they already have, and the Unreleased section is empty. The
+    reader must not take v0.19.0's behaviour for v0.18.0's.
 
-    Mutations, each one alone: drop the marker from the top of either plugin
-    file or from the option paragraph; change ``ignores`` to ``reads`` for
+    Mutations, each one alone: drop "v0.18.0 has no Claude Code plugin" from the
+    top of either plugin file; change ``ignores`` to ``reads`` for
     ``ALICE_MEMORY_DATA_DIR``; change ``~/.alice`` to ``~/.alice-x`` in the
     option paragraph or the default sentence; delete the relative-value
     sentence; drop the unset-option reason; drop the "In v0.18.0 there is no
-    Claude Code plugin" clause from the changelog, the README or the quickstart.
+    Claude Code plugin" clause from the changelog, the README or the quickstart;
+    move a plugin entry from the v0.19.0 changelog section back under Unreleased.
     """
 
-    marker = "Unreleased (on main, not in v0.18.0):"
     relative = (
         "A relative option value makes the hook print one line asking for an "
         "absolute path, and it opens nothing."
     )
     expected = {
         "docs/integrations/claude-code-plugin.md": (
+            "The plugin directory ships in v0.19.0. v0.18.0 has no Claude Code plugin",
             "with the default `~/.alice`.",
             "Claude Code does not run a hook whose arguments reference a plugin option "
             "that is not set.",
         ),
         "plugins/alice-memory/README.md": (
+            "This plugin directory ships in v0.19.0. v0.18.0 has no Claude Code plugin.",
             "The default is `~/.alice`.",
             "Claude Code does not run a hook whose arguments reference an option "
             "that is not set.",
         ),
     }
-    for name, (default_sentence, reason) in expected.items():
+    for name, (opening, default_sentence, reason) in expected.items():
         paragraphs = _flat_paragraphs(ROOT / name)
         prose = [item for item in paragraphs if not item.startswith("#")]
-        assert prose[0].startswith(marker), name
+        assert prose[0].startswith(opening), name
         assert any(default_sentence in item for item in paragraphs), name
         option = [item for item in paragraphs if "CLAUDE_PLUGIN_OPTION_DATA_DIR" in item]
         assert option, name
-        assert all(item.startswith(marker) for item in option), name
         assert "uses `~/.alice` when the option is unset" in option[0], name
         assert reason in option[0], name
         mentions = [item for item in paragraphs if "ALICE_MEMORY_DATA_DIR" in item]
@@ -1533,9 +1534,10 @@ def test_the_docs_keep_the_main_only_marker_and_the_option_rules() -> None:
         assert any(relative in item for item in mentions), name
 
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
-    unreleased = changelog.split("\n## ")[1]
-    assert unreleased.startswith("Unreleased\n")
-    flat = " ".join(unreleased.split())
+    sections = changelog.split("\n## ")
+    assert sections[1].strip() == "Unreleased"
+    assert sections[2].startswith("v0.19.0 \u2014 2026-09-30\n")
+    flat = " ".join(sections[2].split())
     for sentence in (
         "A Claude Code plugin directory is in the repo.",
         "In v0.18.0 there is no Claude Code plugin.",
@@ -1553,17 +1555,22 @@ def test_the_docs_keep_the_main_only_marker_and_the_option_rules() -> None:
     lines = [
         line
         for line in readme.splitlines()
-        if line.startswith("On main, not yet released:") and "Claude Code plugin" in line
+        if line.startswith("From v0.19.0, folder-import receipt items") and "Claude Code plugin" in line
     ]
     assert len(lines) == 1
-    assert "and the Claude Code plugin directory is in the repo." in lines[0]
-    assert "and there is no Claude Code plugin." in lines[0]
+    assert "The Claude Code plugin is in `plugins/alice-memory`." in lines[0]
+    assert "v0.18.0 has no Claude Code plugin." in lines[0]
+    assert (
+        "The Claude Code plugin in `plugins/alice-memory` is available from the "
+        "`alicememory` marketplace once v0.19.0 is published."
+    ) in readme
 
     quickstart = (ROOT / "docs" / "alpha" / "quickstart.md").read_text(encoding="utf-8")
     assert (
-        "- Unreleased (on main, not in v0.18.0): a Claude Code plugin directory is in "
-        "the repo. v0.18.0 has no plugin. See "
-        "[Claude Code plugin](../integrations/claude-code-plugin.md)."
+        "- The Claude Code plugin in `plugins/alice-memory` is available from the "
+        "`alicememory` marketplace once v0.19.0 is published. Use the plugin or "
+        "`--host claude-code`, not both. See "
+        "[Claude Code plugin](../integrations/claude-code-plugin.md). v0.18.0 has no plugin."
     ) in quickstart.splitlines()
 
 

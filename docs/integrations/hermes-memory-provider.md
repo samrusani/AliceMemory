@@ -182,7 +182,7 @@ Practical default:
 `sync_turn_capture_enabled: false` always wins. Use that when you want bridge recall/prefetch behavior without post-turn capture, even if `bridge_mode` is `assist` or `auto`. `memory_write_capture_enabled` posts to `POST /v0/continuity/captures`.
 
 From v0.18.0, with `sync_turn_capture_enabled` set, or with an explicit `bridge_mode` of `assist` or `auto`, only user-role candidates that match an explicit prefix are auto-saved and the rest are queued. When a candidate extracted from the assistant reply carries a credential, the whole turn is refused, so a valid user decision in that same turn is not saved. `POST /v0/continuity/captures` refuses credential material.
-Unreleased (on main, not in v0.18.0): `POST /v0/continuity/captures/candidates`
+From v0.19.0, `POST /v0/continuity/captures/candidates`
 withholds a token in its response and stores nothing. Committing that
 withheld text is refused with the same 400 as a credential and stores
 nothing. In v0.18.0 that response echoes the token.
