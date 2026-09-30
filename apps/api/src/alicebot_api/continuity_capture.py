@@ -338,7 +338,7 @@ def _candidate_id(*, candidate_type: str, normalized_text: str, source_role: str
     return hashlib.sha256(encoded).hexdigest()
 
 
-def _user_prefix_autosave(
+def user_prefix_autosave(
     *,
     explicit: bool,
     candidate_type: str,
@@ -350,6 +350,10 @@ def _user_prefix_autosave(
 
     Regex hits set ``explicit`` too. Assistant turns do as well. Neither
     is an instruction from the user to save the line.
+
+    This is the one admission rule for automatic writes from a captured
+    turn. The ``/v0/continuity`` capture commit and the ``/v1`` memory
+    operations policy both call it, so the two doors cannot drift apart.
     """
 
     return (
@@ -377,7 +381,7 @@ def _build_candidate_record(candidate: ExtractedCandidate) -> ContinuityCaptureC
     )
     if candidate.candidate_type == "no_op":
         proposed_action: ContinuityCaptureProposedAction = "no_op"
-    elif _user_prefix_autosave(
+    elif user_prefix_autosave(
         explicit=candidate.explicit,
         candidate_type=candidate.candidate_type,
         confidence=candidate.confidence,
@@ -679,7 +683,7 @@ def _resolve_commit_decision(
         return "queued_for_review", "type_requires_review", "review_queue"
 
     if mode in {"assist", "auto"}:
-        if _user_prefix_autosave(
+        if user_prefix_autosave(
             explicit=explicit,
             candidate_type=candidate_type,
             confidence=confidence,
@@ -1052,6 +1056,7 @@ __all__ = [
     "capture_continuity_candidates",
     "capture_continuity_input",
     "commit_continuity_captures",
+    "user_prefix_autosave",
     "withhold_capture_candidates_echo",
     "get_continuity_capture_detail",
     "list_continuity_capture_inbox",
