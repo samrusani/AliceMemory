@@ -384,22 +384,28 @@ def test_pack_drops_a_supersedes_pointer_to_a_predecessor_above_the_ceiling(
         _pack(context, NEW, sensitivity_allowed=("public", "internal", "private", "confidential", "unknown")),
         replacement,
     )
-    assert allowed["supersedes"] == memory_id, "the control: a caller allowed to read it keeps the pointer"
-    assert allowed["validity"]["supersedes_memory_id"] == memory_id
+    assert allowed.get("supersedes") == memory_id, "the control: a caller allowed to read it keeps the pointer"
+    assert (allowed.get("validity") or {}).get("supersedes_memory_id") == memory_id
 
 
-def test_pack_drops_a_supersedes_pointer_it_cannot_resolve(tmp_path: Path, monkeypatch) -> None:
-    """A pointer that cannot be proven visible is dropped, scope or no scope.
+def test_pack_treats_a_pointer_it_cannot_resolve_as_it_did_before(tmp_path: Path, monkeypatch) -> None:
+    """A pointer to no row is not a hidden row, so the fence change leaves it alone.
 
-    Mutation: keep the pointer when the target row is missing.
+    A scoped pack fails closed on it, as before. An unscoped pack keeps it, and the
+    high-depth `supersession_context` shows it as an id-only reference on purpose.
+
+    Mutation: drop an unresolvable pointer on an unscoped pack. Mutation: keep one on a
+    scoped pack.
     """
     context = _context(tmp_path, monkeypatch)
     _source_id, memory_id = _captured(context, monkeypatch)
     replacement = _supersede(context, memory_id)
-    _set(context, replacement, supersedes="00000000-0000-4000-8000-00000000dead")
+    dead = "00000000-0000-4000-8000-00000000dead"
+    _set(context, replacement, supersedes=dead)
 
-    row = _pack_memory(_pack(context, NEW), replacement)
-    assert "supersedes" not in row
+    assert _pack_memory(_pack(context, NEW), replacement).get("supersedes") == dead
+    scoped = _pack_memory(_pack(context, NEW, projects=("acme",)), replacement)
+    assert "supersedes" not in scoped
 
 
 def test_the_predicate_applies_people_and_time_scope_like_the_memory_stages() -> None:

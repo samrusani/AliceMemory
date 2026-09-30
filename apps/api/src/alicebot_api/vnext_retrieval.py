@@ -2257,14 +2257,20 @@ class VNextRetrievalService:
     ) -> None:
         """Remove supersession pointers that would cross the caller's read fence.
 
-        A pointer id is itself sensitive metadata. Packs therefore fail closed
-        when the target cannot be resolved or is not readable under the fence
-        the memory stages ran with: the domain and sensitivity ceiling, and the
-        project, person and time scope when one is active. The ceiling applies
-        with no scope at all, so a visible successor does not carry a
-        ``supersedes`` pointer to a predecessor the caller's sensitivity
-        ceiling hides. Only the two pointer columns are cleaned here. Other
-        fields of a stored row that copy an id are not.
+        A pointer id is itself sensitive metadata. A pointer goes when its
+        target is not readable under the fence the memory stages ran with: the
+        domain and sensitivity ceiling, and the project, person and time scope
+        when one is active. The ceiling applies with no scope at all, so a
+        visible successor does not carry a ``supersedes`` pointer to a
+        predecessor the caller's sensitivity ceiling hides.
+
+        A target that does not resolve is a row this user does not have, not a
+        hidden one, because the lookup applies no fence. A scoped pack fails
+        closed on it. An unscoped pack keeps the pointer, and the high-depth
+        ``supersession_context`` shows it as an id-only reference on purpose.
+
+        Only the two pointer columns are cleaned here. Other fields of a stored
+        row that copy an id are not.
         """
         pointer_ids = [
             str(pointer)
@@ -2287,7 +2293,11 @@ class VNextRetrievalService:
                 if not pointer:
                     continue
                 target = targets.get(str(pointer))
-                if target is None or not memory_visible(target):
+                if target is None:
+                    if scope.active:
+                        memory.pop(pointer_key, None)
+                    continue
+                if not memory_visible(target):
                     memory.pop(pointer_key, None)
 
     def _sanitize_memory_scope_references(
