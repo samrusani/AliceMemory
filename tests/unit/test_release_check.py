@@ -80,7 +80,22 @@ def _seed_metadata_tree(tmp_path: Path, *, python_version: str, web_version: str
         encoding="utf-8",
     )
     (plugin_dir / "hooks" / "hooks.json").write_text(
-        json.dumps({"hooks": {"SessionStart": [{"hooks": [{"command": "uvx", "args": ["--from", pin]}]}]}})
+        json.dumps(
+            {
+                "hooks": {
+                    "SessionStart": [
+                        {
+                            "hooks": [
+                                {
+                                    "command": "uvx",
+                                    "args": ["--from", pin, "alice-memory-session-start"],
+                                }
+                            ]
+                        }
+                    ]
+                }
+            }
+        )
         + "\n",
         encoding="utf-8",
     )

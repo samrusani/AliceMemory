@@ -2521,6 +2521,12 @@ def _mcpb_manifest_issues(root_dir: Path, version: str) -> list[str]:
 def _plugin_metadata_issues(root_dir: Path, version: str) -> list[str]:
     """plugin.json version and both command pins must equal pyproject.
 
+    The hook's args must be exactly ``--from``, the pin, and
+    ``alice-memory-session-start``. It carries no ``--data-dir``: Claude Code
+    does not run a hook whose args reference an unset plugin option, so the
+    hook reads ``CLAUDE_PLUGIN_OPTION_DATA_DIR`` itself. The server's rule is
+    only that it starts with the pin.
+
     A missing or unreadable file is an issue string. This does not raise.
     """
 
@@ -2539,9 +2545,9 @@ def _plugin_metadata_issues(root_dir: Path, version: str) -> list[str]:
             "plugins/alice-memory/.claude-plugin/plugin.json version does not match "
             f"pyproject.toml: {plugin_version!r} != {version!r}"
         )
-    for label, path, args in (
-        ("mcp", mcp_json, _plugin_mcp_args),
-        ("hook", hooks_json, _plugin_hook_args),
+    for label, path, args, tail in (
+        ("mcp", mcp_json, _plugin_mcp_args, None),
+        ("hook", hooks_json, _plugin_hook_args, ["alice-memory-session-start"]),
     ):
         try:
             loaded = json.loads(path.read_text(encoding="utf-8"))
@@ -2551,6 +2557,10 @@ def _plugin_metadata_issues(root_dir: Path, version: str) -> list[str]:
         command_args = args(loaded)
         if command_args is None or command_args[:2] != ["--from", pin]:
             issues.append(f"{label} command does not pin {pin}")
+        elif tail is not None and command_args != ["--from", pin, *tail]:
+            issues.append(
+                f"{label} command args are not exactly {json.dumps(['--from', pin, *tail])}"
+            )
     return issues
 
 

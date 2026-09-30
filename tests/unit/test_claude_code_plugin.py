@@ -5,6 +5,7 @@ Real-host tests run only when ALICE_TEST_REAL_HOSTS=1.
 
 from __future__ import annotations
 
+import io
 import json
 import os
 import secrets
@@ -72,13 +73,7 @@ def _expected_plugin_documents(version: str) -> tuple[dict, dict, dict]:
                         {
                             "type": "command",
                             "command": "uvx",
-                            "args": [
-                                "--from",
-                                pin,
-                                "alice-memory-session-start",
-                                "--data-dir",
-                                "${user_config.data_dir}",
-                            ],
+                            "args": ["--from", pin, "alice-memory-session-start"],
                         }
                     ]
                 }
@@ -135,7 +130,8 @@ def test_plugin_files_match_pyproject() -> None:
     assert handler["type"] == "command"
     assert handler["command"] == "uvx"
     assert "command" in handler and isinstance(handler.get("args"), list)
-    assert "${user_config.data_dir}" in handler["args"]
+    assert handler["args"] == ["--from", f"alice-memory=={version}", "alice-memory-session-start"]
+    assert "user_config" not in json.dumps(hooks)
     assert f"alice-memory=={version}" in handler["args"]
     expected_plugin, expected_mcp, expected_hooks = _expected_plugin_documents(version)
     assert plugin == expected_plugin
@@ -698,6 +694,72 @@ def test_plugin_pin_rules_reject_drift_and_a_longer_version(tmp_path: Path) -> N
     assert any("hook command does not pin alice-memory==1.2.3" in item for item in issues)
 
 
+def test_plugin_hook_args_must_be_exactly_the_pinned_command(tmp_path: Path) -> None:
+    """The hook's args are exactly ``--from``, the pin and the script, and nothing else.
+
+    A ``--data-dir`` with ``${user_config.data_dir}`` is the shape Claude Code
+    refuses to run when the option is unset, so it must be an issue. The
+    server's rule is unchanged: it only has to start with the pin.
+
+    Mutations: go back to the prefix rule ``args[:2] == ["--from", pin]`` for
+    the hook (every extra-arg case below returns no issue), drop the script
+    name from the required tail (the missing and wrong script cases), or apply
+    the exact rule to the server too (the clean tree and the long server args
+    are then reported).
+    """
+
+    from tests.unit.test_release_check import _seed_metadata_tree
+
+    _seed_metadata_tree(tmp_path, python_version="1.2.3", web_version="1.2.3")
+    hooks = tmp_path / "plugins" / "alice-memory" / "hooks" / "hooks.json"
+    mcp = tmp_path / "plugins" / "alice-memory" / ".mcp.json"
+    good = json.loads(hooks.read_text(encoding="utf-8"))
+    pin = "alice-memory==1.2.3"
+    assert good["hooks"]["SessionStart"][0]["hooks"][0]["args"] == [
+        "--from",
+        pin,
+        "alice-memory-session-start",
+    ]
+    assert release_check._plugin_metadata_issues(tmp_path, "1.2.3") == []
+    exact = ["--from", pin, "alice-memory-session-start"]
+    not_exact = [f"hook command args are not exactly {json.dumps(exact)}"]
+
+    def issues_for(args: list[object]) -> list[str]:
+        doc = json.loads(json.dumps(good))
+        doc["hooks"]["SessionStart"][0]["hooks"][0]["args"] = args
+        hooks.write_text(json.dumps(doc), encoding="utf-8")
+        return release_check._plugin_metadata_issues(tmp_path, "1.2.3")
+
+    for args in (
+        [*exact, "--data-dir", "${user_config.data_dir}"],
+        [*exact, "--data-dir", "~/.alice"],
+        [*exact, "extra"],
+        ["--from", pin],
+        ["--from", pin, "alice-memory"],
+        ["--from", pin, "alice-memory-session-start-x"],
+        ["--from", pin, "--data-dir", "/v", "alice-memory-session-start"],
+        ["--from", pin, "Alice-Memory-Session-Start"],
+    ):
+        assert issues_for(args) == not_exact, args
+    assert issues_for(["--with", pin, "alice-memory-session-start"]) == [f"hook command does not pin {pin}"]
+    assert issues_for(["--from", "alice-memory==9.9.9", "alice-memory-session-start"]) == [
+        f"hook command does not pin {pin}"
+    ]
+    assert issues_for(exact) == []
+
+    long_server = json.loads(mcp.read_text(encoding="utf-8"))
+    long_server["mcpServers"]["alice"]["args"] = [
+        "--from",
+        pin,
+        "alice-memory",
+        "mcp",
+        "--data-dir",
+        "${user_config.data_dir}",
+    ]
+    mcp.write_text(json.dumps(long_server), encoding="utf-8")
+    assert release_check._plugin_metadata_issues(tmp_path, "1.2.3") == []
+
+
 def test_marketplace_owner_and_plugin_name_are_checked(tmp_path: Path) -> None:
     path = _good_market(tmp_path)
     base = json.loads(path.read_text(encoding="utf-8"))
@@ -891,6 +953,256 @@ def test_the_final_fit_covers_the_duplicate_prefix(
     assert brief_char_len(additional + "\n") <= 9_500
 
 
+_PLUGIN_ENV_NAMES = ("CLAUDE_PLUGIN_ROOT", "CLAUDE_PLUGIN_OPTION_DATA_DIR", "ALICE_MEMORY_DATA_DIR")
+
+
+def _hook_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """A fresh HOME with none of the plugin or data dir variables set."""
+
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
+    monkeypatch.setattr(Path, "home", lambda: home)
+    monkeypatch.chdir(tmp_path)
+    for name in _PLUGIN_ENV_NAMES:
+        monkeypatch.delenv(name, raising=False)
+    return home
+
+
+def _run_hook(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    *args: str,
+    root: str | None = None,
+    option: str | None = None,
+    env_dir: str | None = None,
+) -> tuple[int, str, str]:
+    """Run the session-start hook once with exactly the given plugin variables set."""
+
+    for name in _PLUGIN_ENV_NAMES:
+        monkeypatch.delenv(name, raising=False)
+    for name, value in (
+        ("CLAUDE_PLUGIN_ROOT", root),
+        ("CLAUDE_PLUGIN_OPTION_DATA_DIR", option),
+        ("ALICE_MEMORY_DATA_DIR", env_dir),
+    ):
+        if value is not None:
+            monkeypatch.setenv(name, value)
+    monkeypatch.setattr(sys, "stdin", io.StringIO(""))
+    code = hook_main([*args, "--format", "markdown"])
+    captured = capsys.readouterr()
+    return code, captured.out, captured.err
+
+
+def _vaults(tmp_path: Path, home: Path) -> set[str]:
+    """Every folder under the test's tree that now holds a memory.db."""
+
+    return {
+        path.parent.relative_to(tmp_path).as_posix()
+        for path in tmp_path.rglob("memory.db")
+    } | ({"home/.alice"} if (home / ".alice" / "memory.db").is_file() else set())
+
+
+def test_plugin_hook_reads_the_option_and_otherwise_uses_the_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """With no --data-dir the plugin hook opens the option's folder, else ~/.alice.
+
+    The plugin's hook carries no ``--data-dir``, because Claude Code does not
+    run a hook that references an unset option. An empty option counts as
+    unset, and ``ALICE_MEMORY_DATA_DIR`` is set in the empty case so a fall
+    through to it shows.
+
+    Mutations: ignore ``CLAUDE_PLUGIN_OPTION_DATA_DIR`` (the set case fails);
+    read it with ``os.environ.get(name, default)`` so an empty value passes
+    through (the empty case opens ``from-env``); drop the ``~/.alice`` default
+    from plugin mode (the unset case fails once ``ALICE_MEMORY_DATA_DIR`` is
+    set, see the ignored-variable test).
+    """
+
+    home = _hook_home(tmp_path, monkeypatch)
+    vault = tmp_path / "option-vault"
+    code, out, err = _run_hook(
+        monkeypatch, capsys, root=str(tmp_path / "plugin"), option=str(vault)
+    )
+    assert code == 0, err
+    assert "is not an absolute path" not in out
+    assert _vaults(tmp_path, home) == {"option-vault"}
+
+    code, out, err = _run_hook(monkeypatch, capsys, root=str(tmp_path / "plugin"))
+    assert code == 0, err
+    assert _vaults(tmp_path, home) == {"option-vault", "home/.alice"}
+
+    (home / ".alice" / "memory.db").unlink()
+    code, out, err = _run_hook(
+        monkeypatch,
+        capsys,
+        root=str(tmp_path / "plugin"),
+        option="",
+        env_dir=str(tmp_path / "from-env"),
+    )
+    assert code == 0, err
+    assert _vaults(tmp_path, home) == {"option-vault", "home/.alice"}
+
+
+def test_plugin_hook_refuses_a_relative_option_value(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A relative option prints the existing one-line refusal, exits 0 and opens nothing.
+
+    Mutation: check only ``--data-dir`` for the absolute rule and let the option
+    value through. The refusal line is missing, a vault is created, and this
+    test fails.
+    """
+
+    home = _hook_home(tmp_path, monkeypatch)
+    for value in ("relative/dir", "alice", "${user_config.data_dir}", "$HOME/.alice"):
+        expected = f'Alice: the data directory "{value}" is not an absolute path; set an absolute path.'
+        code, out, err = _run_hook(
+            monkeypatch, capsys, root=str(tmp_path / "plugin"), option=value
+        )
+        assert code == 0, err
+        assert out == expected + "\n", (value, out)
+        assert expected in err
+        assert _vaults(tmp_path, home) == set(), value
+
+    monkeypatch.setattr(sys, "stdin", io.StringIO(""))
+    code = hook_main([])
+    captured = capsys.readouterr()
+    assert code == 0, captured.err
+    payload = json.loads(captured.out)
+    assert payload["hookSpecificOutput"]["additionalContext"] == expected
+    assert _vaults(tmp_path, home) == set()
+
+
+def test_plugin_hook_ignores_alice_memory_data_dir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """In plugin mode ``ALICE_MEMORY_DATA_DIR`` never picks the folder.
+
+    The server reads only the plugin option, so the hook must not read the
+    variable either, or the two open different vaults.
+
+    Mutations: fall back to ``ALICE_MEMORY_DATA_DIR`` before the default when
+    the option is unset (the unset case opens ``from-env``); consult it before
+    the option (the set case opens ``from-env``).
+    """
+
+    home = _hook_home(tmp_path, monkeypatch)
+    env_dir = tmp_path / "from-env"
+    option = tmp_path / "option-vault"
+    code, out, err = _run_hook(
+        monkeypatch, capsys, root=str(tmp_path / "plugin"), env_dir=str(env_dir)
+    )
+    assert code == 0, err
+    assert _vaults(tmp_path, home) == {"home/.alice"}
+
+    (home / ".alice" / "memory.db").unlink()
+    code, out, err = _run_hook(
+        monkeypatch,
+        capsys,
+        root=str(tmp_path / "plugin"),
+        option=str(option),
+        env_dir=str(env_dir),
+    )
+    assert code == 0, err
+    assert _vaults(tmp_path, home) == {"option-vault"}
+
+
+def test_outside_plugin_mode_the_hook_is_unchanged(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Without ``CLAUDE_PLUGIN_ROOT`` the option is ignored and the old chain runs.
+
+    ``ALICE_MEMORY_DATA_DIR`` is used, and ``~/.alice`` when it is unset. An
+    empty ``CLAUDE_PLUGIN_ROOT`` is not plugin mode either, and a relative
+    option is then not refused.
+
+    Mutations: treat the mere presence of ``CLAUDE_PLUGIN_OPTION_DATA_DIR`` as
+    plugin mode, or drop the root check (the first two cases open
+    ``option-vault``); test ``CLAUDE_PLUGIN_ROOT is not None`` so an empty root
+    counts (the last two cases open ``option-vault`` or print the refusal).
+    """
+
+    home = _hook_home(tmp_path, monkeypatch)
+    env_dir = tmp_path / "from-env"
+    option = tmp_path / "option-vault"
+    code, out, err = _run_hook(monkeypatch, capsys, env_dir=str(env_dir), option=str(option))
+    assert code == 0, err
+    assert _vaults(tmp_path, home) == {"from-env"}
+
+    (env_dir / "memory.db").unlink()
+    code, out, err = _run_hook(monkeypatch, capsys, option=str(option))
+    assert code == 0, err
+    assert _vaults(tmp_path, home) == {"home/.alice"}
+
+    (home / ".alice" / "memory.db").unlink()
+    code, out, err = _run_hook(
+        monkeypatch, capsys, root="", env_dir=str(env_dir), option=str(option)
+    )
+    assert code == 0, err
+    assert _vaults(tmp_path, home) == {"from-env"}
+
+    (env_dir / "memory.db").unlink()
+    code, out, err = _run_hook(monkeypatch, capsys, root="", option="relative")
+    assert code == 0, err
+    assert "is not an absolute path" not in out
+    assert _vaults(tmp_path, home) == {"home/.alice"}
+
+
+def test_an_explicit_data_dir_wins_in_plugin_mode(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A non-empty ``--data-dir`` beats the option and the environment.
+
+    An explicit relative value is refused by name even when the option is a
+    good path. An empty ``--data-dir`` is the same as none, so the option
+    applies.
+
+    Mutations: read the option before ``--data-dir`` (the first case opens
+    ``option-vault``); validate the option instead of the explicit value, or
+    as well as it (the refusal case names the wrong value, or the explicit
+    vault with a relative option is refused); treat an empty
+    ``--data-dir`` as given (the last case opens no vault or the wrong one).
+    """
+
+    home = _hook_home(tmp_path, monkeypatch)
+    explicit = tmp_path / "explicit-vault"
+    option = tmp_path / "option-vault"
+    code, out, err = _run_hook(
+        monkeypatch,
+        capsys,
+        "--data-dir",
+        str(explicit),
+        root=str(tmp_path / "plugin"),
+        option=str(option),
+        env_dir=str(tmp_path / "from-env"),
+    )
+    assert code == 0, err
+    assert _vaults(tmp_path, home) == {"explicit-vault"}
+
+    code, out, err = _run_hook(
+        monkeypatch, capsys, "--data-dir", "rel", root=str(tmp_path / "plugin"), option=str(option)
+    )
+    assert code == 0, err
+    assert out == 'Alice: the data directory "rel" is not an absolute path; set an absolute path.\n'
+    assert _vaults(tmp_path, home) == {"explicit-vault"}
+
+    code, out, err = _run_hook(
+        monkeypatch, capsys, "--data-dir", str(explicit), root=str(tmp_path / "plugin"), option="relative"
+    )
+    assert code == 0, err
+    assert "is not an absolute path" not in out
+    assert _vaults(tmp_path, home) == {"explicit-vault"}
+
+    code, out, err = _run_hook(
+        monkeypatch, capsys, "--data-dir", "", root=str(tmp_path / "plugin"), option=str(option)
+    )
+    assert code == 0, err
+    assert _vaults(tmp_path, home) == {"explicit-vault", "option-vault"}
+
+
 class _AnthropicStub:
     """Loopback stand-in for the Anthropic API. Records method and path only."""
 
@@ -977,6 +1289,49 @@ def _messages_posts(records: list[tuple[str, str]]) -> list[tuple[str, str]]:
     ]
 
 
+def _check_plugin_rows(
+    records: list[dict],
+    pin: str,
+    *,
+    expected_option: str | None,
+    server_data_dir: str,
+    detail: str,
+) -> None:
+    """Assert the hook and server rows one plugin session wrote.
+
+    The hook argv is exactly ``--from``, the pin and the script, with no
+    ``--data-dir``. ``CLAUDE_PLUGIN_ROOT`` is non-empty in the hook. With
+    ``expected_option`` None the plugin option is unset and
+    ``CLAUDE_PLUGIN_OPTION_DATA_DIR`` is absent or empty in the hook. Otherwise
+    it equals ``expected_option``. The server argv ends with
+    ``--data-dir <server_data_dir>``, and at least one server row exists.
+    """
+
+    for row in records:
+        if any("${user_config" in str(item) for item in row["argv"]):
+            raise AssertionError("unsubstituted; stop and report. " + detail)
+    hook_rows = [row for row in records if "alice-memory-session-start" in row["argv"]]
+    assert [row["argv"] for row in hook_rows] == [
+        ["--from", pin, "alice-memory-session-start"]
+    ], detail
+    assert hook_rows[0].get("CLAUDE_PLUGIN_ROOT"), detail
+    option = hook_rows[0].get("CLAUDE_PLUGIN_OPTION_DATA_DIR")
+    if expected_option is None:
+        assert not option, detail
+    else:
+        assert option == expected_option, detail
+    server_rows = [
+        row
+        for row in records
+        if "alice-memory" in row["argv"]
+        and "mcp" in row["argv"]
+        and "alice-memory-session-start" not in row["argv"]
+    ]
+    assert server_rows, detail
+    for row in server_rows:
+        assert row["argv"] == ["--from", pin, "alice-memory", "mcp", "--data-dir", server_data_dir], detail
+
+
 def _claude(args: list[str], *, cwd: Path, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
     try:
         return subprocess.run(
@@ -1061,6 +1416,136 @@ def test_claude_failure_detail_carries_the_code_stderr_stub_and_uvx_records(tmp_
     assert "('POST', '/v1/messages?beta=true')" in detail and "('GET', '/v1/models')" in detail
     assert '{"argv": ["one"]}' in detail and '{"argv": ["two"]}' in detail
     assert "returncode=0 stderr='' stdout=[]" in empty and "uvx=[]" in empty
+
+
+def _plugin_row_set(
+    *, option: str | None, data_dir: str = "~/.alice", root: str | None = "/plugins/alice-memory"
+) -> list[dict]:
+    pin = "alice-memory==1.2.3"
+    return [
+        {
+            "argv": ["--from", pin, "alice-memory-session-start"],
+            "CLAUDE_PLUGIN_ROOT": root,
+            "CLAUDE_PLUGIN_OPTION_DATA_DIR": option,
+        },
+        {
+            "argv": ["--from", pin, "alice-memory", "mcp", "--data-dir", data_dir],
+            "CLAUDE_PLUGIN_ROOT": root,
+            "CLAUDE_PLUGIN_OPTION_DATA_DIR": None,
+        },
+    ]
+
+
+def test_the_plugin_row_check_accepts_the_two_real_shapes_and_nothing_near_them() -> None:
+    """``_check_plugin_rows`` is what the real-host test asserts for both sessions.
+
+    Unset option: the hook argv is exactly the pinned command, the option is
+    absent or empty, and the server row carries ``~/.alice``. Set option: the
+    option equals the vault and the server row carries the vault.
+
+    Mutations, each one alone: allow ``--data-dir`` in the hook argv; drop the
+    ``CLAUDE_PLUGIN_ROOT`` check; accept a set option when it should be unset;
+    accept any option when a value is expected; drop the non-empty server row
+    check; compare the server row to ``~/.alice`` whatever the vault is; drop
+    the unsubstituted check. Each case below then stops raising.
+    """
+
+    pin = "alice-memory==1.2.3"
+    vault = "/case/vault"
+
+    def passes(rows: list[dict], *, option: str | None, data_dir: str = "~/.alice") -> None:
+        _check_plugin_rows(rows, pin, expected_option=option, server_data_dir=data_dir, detail="d")
+
+    def fails(rows: list[dict], *, option: str | None, data_dir: str = "~/.alice") -> str:
+        with pytest.raises(AssertionError) as caught:
+            passes(rows, option=option, data_dir=data_dir)
+        return str(caught.value)
+
+    passes(_plugin_row_set(option=None), option=None)
+    passes(_plugin_row_set(option=""), option=None)
+    passes(_plugin_row_set(option=vault, data_dir=vault), option=vault, data_dir=vault)
+
+    fails(_plugin_row_set(option=vault), option=None)
+    fails(_plugin_row_set(option=None, data_dir=vault), option=vault, data_dir=vault)
+    fails(_plugin_row_set(option="/other", data_dir=vault), option=vault, data_dir=vault)
+    fails(_plugin_row_set(option="", data_dir=vault), option=vault, data_dir=vault)
+    fails(_plugin_row_set(option=vault, data_dir="~/.alice"), option=vault, data_dir=vault)
+    fails(_plugin_row_set(option=None, data_dir=vault), option=None)
+
+    for root in (None, ""):
+        fails(_plugin_row_set(option=None, root=root), option=None)
+
+    extra = _plugin_row_set(option=None)
+    extra[0]["argv"] = [*extra[0]["argv"], "--data-dir", "~/.alice"]
+    fails(extra, option=None)
+    with_placeholder = _plugin_row_set(option=None)
+    with_placeholder[0]["argv"] = [*with_placeholder[0]["argv"], "--data-dir", "${user_config.data_dir}"]
+    assert "unsubstituted" in fails(with_placeholder, option=None)
+    server_placeholder = _plugin_row_set(option=None, data_dir="${user_config.data_dir}")
+    assert "unsubstituted" in fails(server_placeholder, option=None, data_dir="${user_config.data_dir}")
+
+    hook_only = _plugin_row_set(option=None)[:1]
+    fails(hook_only, option=None)
+    server_only = _plugin_row_set(option=None)[1:]
+    fails(server_only, option=None)
+    fails([], option=None)
+    twice = _plugin_row_set(option=None)
+    fails([twice[0], *twice], option=None)
+    wrong_pin = _plugin_row_set(option=None)
+    wrong_pin[0]["argv"][1] = "alice-memory==9.9.9"
+    fails(wrong_pin, option=None)
+
+
+def test_the_real_host_test_wires_the_plugin_row_check_for_both_sessions() -> None:
+    """The real-host test calls the row check with the unset option, then with the vault.
+
+    The real-host test cannot run in the unit job, so this reads its source. The
+    first session expects no option and ``~/.alice`` on the server. The second
+    session, installed with ``--config data_dir=<vault>``, expects the vault
+    as the option and on the server.
+
+    Mutation: pass ``expected_option=None`` or ``server_data_dir="~/.alice"`` in
+    the second call, swap the two calls, or drop either call. This test fails.
+    """
+
+    import ast
+
+    tree = ast.parse(Path(__file__).read_text(encoding="utf-8"))
+    functions = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef) and node.name == "test_real_claude_plugin_install_and_run"
+    ]
+    assert len(functions) == 1
+    calls = [
+        node
+        for node in ast.walk(functions[0])
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "_check_plugin_rows"
+    ]
+    calls.sort(key=lambda call: call.lineno)
+    shown = [
+        (
+            [ast.unparse(arg) for arg in call.args],
+            {keyword.arg: ast.unparse(keyword.value) for keyword in call.keywords},
+        )
+        for call in calls
+    ]
+    assert shown == [
+        (
+            ["records", "pin"],
+            {"expected_option": "None", "server_data_dir": "'~/.alice'", "detail": "detail"},
+        ),
+        (
+            ["records", "pin"],
+            {
+                "expected_option": "str(vault_b)",
+                "server_data_dir": "str(vault_b)",
+                "detail": "detail",
+            },
+        ),
+    ]
 
 
 def test_the_real_host_test_writes_only_under_tmp_path() -> None:
@@ -1196,32 +1681,23 @@ def test_real_claude_plugin_install_and_run(
         records = [
             json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines() if line.strip()
         ]
-        for row in records:
-            if any("${user_config" in str(item) for item in row["argv"]):
-                raise AssertionError("unsubstituted; stop and report. " + detail)
         hook_rows = [row for row in records if "alice-memory-session-start" in row["argv"]]
         if posts and not hook_rows:
             raise AssertionError(
                 "stub saw a request and the hook row is missing; stop and report. " + detail
             )
-        assert [row["argv"] for row in hook_rows] == [
-            ["--from", pin, "alice-memory-session-start", "--data-dir", "~/.alice"]
-        ], detail
-        assert hook_rows[0]["CLAUDE_PLUGIN_ROOT"], detail
+        _check_plugin_rows(
+            records,
+            pin,
+            expected_option=None,
+            server_data_dir="~/.alice",
+            detail=detail,
+        )
         option = hook_rows[0].get("CLAUDE_PLUGIN_OPTION_DATA_DIR")
         note = (tmp_path / "nomock.txt").read_text(encoding="utf-8")
         note = note + f"option={option!r}\n"
         (tmp_path / "nomock.txt").write_text(note, encoding="utf-8")
         print("no-mock run and option:", note)
-        server_rows = [
-            row
-            for row in records
-            if "alice-memory" in row["argv"]
-            and "mcp" in row["argv"]
-            and "alice-memory-session-start" not in row["argv"]
-        ]
-        for row in server_rows:
-            assert row["argv"] == ["--from", pin, "alice-memory", "mcp", "--data-dir", "~/.alice"], detail
 
         removed = _claude(["plugin", "uninstall", CLAUDE_PLUGIN_ID], cwd=project, env=claude_env)
         assert removed.returncode == 0, _claude_detail(removed, api, log_path)
@@ -1247,7 +1723,13 @@ def test_real_claude_plugin_install_and_run(
                 "stub saw a request and the hook row is missing; stop and report. " + detail
             )
         assert hook_rows, detail
-        assert str(vault_b) in hook_rows[0]["argv"], detail
+        _check_plugin_rows(
+            records,
+            pin,
+            expected_option=str(vault_b),
+            server_data_dir=str(vault_b),
+            detail=detail,
+        )
     finally:
         api.close()
 

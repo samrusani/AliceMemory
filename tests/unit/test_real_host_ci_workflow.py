@@ -512,12 +512,14 @@ def test_plugin_hook_trial_is_dispatch_only_pinned_and_uploads_its_own_artifact(
     run reads on the same Python, Node and time limit. Mutation: install
     @latest, remove always() from the upload, drop the artifact name, point the
     upload at another directory, remove the ``Set up Python`` step, change its
-    version, change ``node-version`` or ``timeout-minutes``, or drop the two
-    updater flags from the job env. This test fails.
+    version, change ``node-version`` or ``timeout-minutes``, move the job to
+    another runner OS, or drop the two updater flags from the job env. This
+    test fails.
     """
 
     job = _job("plugin-hook-trial")
     assert job.get("if") == _dispatch_if("plugin-hook-trial")
+    assert job.get("runs-on") == "ubuntu-latest"
     assert job.get("timeout-minutes") == 30
     assert job.get("env") == {"DISABLE_AUTOUPDATER": "1", "DISABLE_UPDATES": "1"}
     setup = {

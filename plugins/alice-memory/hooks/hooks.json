@@ -9,9 +9,7 @@
             "args": [
               "--from",
               "alice-memory==0.18.0",
-              "alice-memory-session-start",
-              "--data-dir",
-              "${user_config.data_dir}"
+              "alice-memory-session-start"
             ]
           }
         ]

@@ -8,6 +8,17 @@
   refused host is that case. Another refused host in the same run keeps
   `install_refused`. An unreadable `~/.claude` does not drop the session
   brief. In v0.18.0 there is no Claude Code plugin.
+- The Claude Code plugin's SessionStart hook reads its data directory from
+  the plugin option `data_dir`, through `CLAUDE_PLUGIN_OPTION_DATA_DIR`,
+  and uses `~/.alice` when the option is unset. That is the folder the
+  plugin's server uses. The hook's command no longer passes `--data-dir`,
+  because Claude Code does not run a hook whose arguments reference an
+  unset plugin option. When `CLAUDE_PLUGIN_ROOT` is set and non-empty and
+  no `--data-dir` is given, `alice-memory-session-start` ignores
+  `ALICE_MEMORY_DATA_DIR`. A relative option value prints the existing
+  one-line refusal and exits 0. Outside the plugin nothing changes. In
+  v0.18.0 there is no Claude Code plugin, and the command reads
+  `--data-dir`, then `ALICE_MEMORY_DATA_DIR`, then `~/.alice`.
 - A newest fact longer than about 50,000 UTF-8 bytes no longer wipes the
   session brief. An excerpt query over 40,000 UTF-8 bytes, whether a fact,
   an explicit query, or a source title, is bounded to a few hundred

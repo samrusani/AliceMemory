@@ -92,6 +92,9 @@ if rejecting and debug is not None and argv[:1] == ["plugin"]:
 if os.environ.get("FAKE_PLUGIN_STDERR") and argv[:1] == ["plugin"]:
     print(os.environ["FAKE_PLUGIN_STDERR"], file=sys.stderr)
     raise SystemExit(1)
+for env_name, content in (("FAKE_TOUCH_EMPTY", ""), ("FAKE_TOUCH_FILLED", "written\n")):
+    if os.environ.get(env_name) and argv[:1] != ["plugin"]:
+        Path(os.environ[env_name]).write_text(content)
 home = Path(os.environ["HOME"])
 state_path = home / ".claude" / "fake-state.json"
 state = json.loads(state_path.read_text()) if state_path.is_file() else {"market": None, "installed": {}}
@@ -159,9 +162,7 @@ if mode != "no-plugin-hooks":
         if hooks_file.is_file():
             for group in json.loads(hooks_file.read_text()).get("hooks", {}).get("SessionStart", []):
                 for handler in group["hooks"]:
-                    blocked = mode == "unset-option" and "data_dir" not in info["config"] and any(
-                        "${user_config.data_dir}" in arg for arg in handler.get("args", [])
-                    )
+                    blocked = mode == "unset-option" and name == "alice-memory" and "data_dir" not in info["config"]
                     args = [substitute(arg, options) for arg in handler.get("args", [])]
                     extra = {"CLAUDE_PLUGIN_ROOT": str(directory)}
                     extra.update({"CLAUDE_PLUGIN_OPTION_" + key.upper(): str(value) for key, value in info["config"].items()})
@@ -357,7 +358,7 @@ def test_six_cases_each_write_a_row(trial: _Trial) -> None:
         assert "api_retry" not in subtypes and "init" not in subtypes
         assert runs[label]["init_event"]["subtype"] == "init"
     assert runs["1"]["hook_events"] == [] and runs["1"]["init_event"] is None
-    hook_argv = ["--from", _pin(), "alice-memory-session-start", "--data-dir", "~/.alice"]
+    hook_argv = ["--from", _pin(), "alice-memory-session-start"]
     mcp_argv = ["--from", _pin(), "alice-memory", "mcp", "--data-dir", "~/.alice"]
     for label in ("1", "2", "3", "4", "6a", "6b"):
         argvs = [record["argv"] for record in runs[label]["uvx_records"]]
@@ -368,7 +369,7 @@ def test_six_cases_each_write_a_row(trial: _Trial) -> None:
     vault = str(trial.temp / "case-5" / "vault")
     assert [
         record["argv"] for record in runs["5"]["uvx_records"] if "alice-memory-session-start" in record["argv"]
-    ] == [["--from", _pin(), "alice-memory-session-start", "--data-dir", vault]]
+    ] == [["--from", _pin(), "alice-memory-session-start"]]
     ok = {"hook_name": "SessionStart:startup", "outcome": "success", "exit_code": 0, "first_line": ""}
     assert runs["1"]["hook_results"] == [] and runs["2"]["hook_results"] == [ok]
     assert runs["3"]["hook_results"] == [ok, ok] and runs["4"]["hook_results"] == [ok, ok]
@@ -412,8 +413,9 @@ def test_a_hook_that_does_not_run_is_a_valid_result(tmp_path: Path, monkeypatch:
     """A missing plugin hook is a result: exit 0, six rows, the headline says so.
 
     The settings hook still fires, so control A shows SessionStart works.
-    Mutation: return 1 when no plugin hook ran, or count the settings hook as
-    the plugin's. This test fails.
+    Mutation: return 1 when no plugin hook ran, count the settings hook as the
+    plugin's, or print ``yes`` in the Markers cell for a marker that did not
+    fire. This test fails.
     """
 
     trial = _Trial(tmp_path, monkeypatch, FAKE_MODE="no-plugin-hooks")
@@ -432,6 +434,9 @@ def test_a_hook_that_does_not_run_is_a_valid_result(tmp_path: Path, monkeypatch:
     assert "control-a fired" in headline and "control-b did not fire" in headline
     text = trial.summary.read_text(encoding="utf-8")
     assert text.startswith("earlier step\n" + headline + "\n")
+    table = [line for line in text.splitlines() if line.startswith("| ")]
+    markers = [re.split(r"(?<!\\)\|", line)[1:-1][6].strip() for line in table[2:]]
+    assert markers == ["-", "-", "control-a: yes", "control-b: no", "-", "-", "-"]
 
 
 def test_control_hooks_are_exec_form_and_the_probe_has_no_user_config(trial: _Trial) -> None:
@@ -516,10 +521,12 @@ def test_an_unset_option_that_blocks_the_hook_shows_in_the_results(
 ) -> None:
     """A hook that starts and fails shows its outcome, exit code and message in the row and the table.
 
-    The fake refuses the plugin hook when ``data_dir`` is not set, as the pinned
-    claude did in the first CI trial, and runs it when ``--config`` set it.
-    Mutation: drop ``hook_results`` from the run record, read the wrong event
-    subtype, or drop the results column. This test fails.
+    The fake refuses the plugin's hook when ``data_dir`` is not set, as the pinned
+    claude did in the first CI trial, and runs it when ``--config`` set it. The
+    current hooks.json no longer names the option, so the fake refuses on the
+    option alone. The point is how the trial reports a hook that starts and
+    fails. Mutation: drop ``hook_results`` from the run record, read the wrong
+    event subtype, or drop the results column. This test fails.
     """
 
     trial = _Trial(tmp_path, monkeypatch, FAKE_MODE="unset-option")
@@ -671,8 +678,12 @@ def test_run_refuses_a_non_empty_artifacts_directory(tmp_path: Path, monkeypatch
 def test_summary_has_one_escaped_line_per_run_and_keeps_earlier_output(trial: _Trial) -> None:
     """The table has a header, a separator, and one line for each of the seven runs.
 
-    A ``|`` in a cell is escaped, and the summary appends. Mutation: skip the
-    escape, overwrite the summary file, or drop a run's line. This test fails.
+    A ``|`` in a cell is escaped, and the summary appends. The Exit, First
+    stderr line and Markers cells are read per row, so a cell cannot say
+    something the run did not do. Mutation: skip the escape, overwrite the
+    summary file, drop a run's line, print a fixed Exit value, print ``yes``
+    for every marker, or print nothing for an empty stderr line. This test
+    fails.
     """
 
     text = trial.summary.read_text(encoding="utf-8")
@@ -685,7 +696,17 @@ def test_summary_has_one_escaped_line_per_run_and_keeps_earlier_output(trial: _T
         assert len(re.split(r"(?<!\\)\|", line)) == 12, line
     assert "API Error: 400 alice\\|test stub" in table[3]
     assert "claude --init-only" in table[2]
-    assert "uvx --from " + _pin() + " alice-memory-session-start --data-dir ~/.alice" in table[3]
+    cells = [[cell.strip() for cell in re.split(r"(?<!\\)\|", line)[1:-1]] for line in table[2:]]
+    assert [row[2] for row in cells] == ["0", "1", "1", "1", "1", "0", "1"]
+    assert [row[3] for row in cells] == ["(empty)"] + ["API Error: 400 alice\\|test stub"] * 4 + [
+        "(empty)",
+        "API Error: 400 alice\\|test stub",
+    ]
+    assert [row[6] for row in cells] == ["-", "-", "control-a: yes", "control-b: yes", "-", "-", "-"]
+    hook_cell = "uvx --from " + _pin() + " alice-memory-session-start"
+    server_cell = "uvx --from " + _pin() + " alice-memory mcp --data-dir ~/.alice"
+    assert cells[1][5] == hook_cell + "<br>" + server_cell
+    assert cells[0][5] == hook_cell
     assert "success (exit 0)" in table[3] and "success (exit 0)<br>success (exit 0)" in table[4]
     assert "control-a: yes" in table[4]
     assert "control-b: yes" in table[5]
@@ -1047,9 +1068,10 @@ def test_the_stub_records_a_request_before_its_delayed_reply() -> None:
 def test_uvx_records_carry_the_plugin_root_and_the_install_time_option(trial: _Trial) -> None:
     """The stub uvx records two env values, and only case 5's hook sees ``data_dir``.
 
-    The hook gets ``CLAUDE_PLUGIN_ROOT`` from the plugin's install directory. A
-    server spawn gets neither, and the outer ``CLAUDE_PLUGIN_ROOT`` does not
-    reach it. Mutation: delete the ``CLAUDE_PLUGIN_OPTION_DATA_DIR`` row or the
+    The hook gets ``CLAUDE_PLUGIN_ROOT`` from the plugin's install directory. In
+    the fake a server spawn gets neither (the real claude also sets the root for
+    the server, which this test does not model), and the outer
+    ``CLAUDE_PLUGIN_ROOT`` does not reach it. Mutation: delete the ``CLAUDE_PLUGIN_OPTION_DATA_DIR`` row or the
     ``CLAUDE_PLUGIN_ROOT`` row from the stub uvx script. This test fails.
     """
 
@@ -1248,3 +1270,137 @@ def test_the_trial_script_passes_the_repos_mypy(tmp_path: Path) -> None:
         check=False,
     )
     assert done.returncode == 0, done.stdout + done.stderr
+
+
+def test_the_command_line_hands_run_its_two_directories_in_order(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """``run <artifacts> <temp>`` calls ``run(artifacts, temp)`` with the default delay.
+
+    The workflow uploads the first path and works in the second, and case 6 needs
+    the five second delay. Mutation: swap the two paths, pass a delay of 0.0 or
+    any other value, drop the ``run`` branch, or let a wrong argument count
+    through. This test fails.
+    """
+
+    module = _load_trial()
+    seen: list[tuple[tuple[object, ...], dict[str, object]]] = []
+
+    def record(*args: object, **kwargs: object) -> int:
+        seen.append((args, kwargs))
+        return 7
+
+    monkeypatch.setattr(module, "run", record)
+    assert module.main(["run", str(tmp_path / "artifacts"), str(tmp_path / "work")]) == 7
+    assert seen == [((tmp_path / "artifacts", tmp_path / "work"), {})]
+    assert isinstance(seen[0][0][0], Path) and isinstance(seen[0][0][1], Path)
+    for bad in ([], ["run"], ["run", "one"], ["run", "one", "two", "three"], ["mark"], ["other", "a", "b"]):
+        assert module.main(bad) == 2, bad
+        assert "usage: real_host_plugin_hook_trial.py run <artifacts> <temp>" in capsys.readouterr().err
+    assert len(seen) == 1
+    marked: list[Path] = []
+    monkeypatch.setattr(module, "mark", lambda marker: marked.append(marker) or 3)
+    assert module.main(["mark", str(tmp_path / "marker")]) == 3
+    assert marked == [tmp_path / "marker"]
+    assert len(seen) == 1
+
+
+def test_a_claude_call_reads_no_stdin_runs_in_the_project_and_times_out_at_the_constant(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Each claude call gets a closed stdin, the case's project as cwd and the module's timeout.
+
+    A run that inherited the checkout as its cwd or a live stdin would not match
+    the real-host test. A timeout typed into the call instead of read from the
+    constant would cut case 6b, which holds two replies. Mutation: drop
+    ``stdin=subprocess.DEVNULL``, drop ``cwd=sandbox.project``, or write a
+    literal timeout in ``_claude``. This test fails.
+    """
+
+    import types
+
+    module = _load_trial()
+    project = tmp_path / "project"
+    project.mkdir()
+    sandbox = types.SimpleNamespace(project=project, env={"KEEP": "1"})
+    seen: list[dict[str, object]] = []
+
+    def fake_run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[bytes]:
+        seen.append({"command": command, **kwargs})
+        return subprocess.CompletedProcess(command, 0, b"out", b"err")
+
+    monkeypatch.setattr(module.subprocess, "run", fake_run)
+    monkeypatch.setattr(module, "_TIMEOUT_SECONDS", 7.5)
+    call = module._claude(["--version"], sandbox)
+    assert call.exit_code == 0 and call.stdout == "out" and call.stderr == "err"
+    assert len(seen) == 1
+    assert seen[0]["command"] == ["claude", "--version"]
+    assert seen[0]["stdin"] is subprocess.DEVNULL
+    assert seen[0]["cwd"] == project
+    assert seen[0]["timeout"] == 7.5
+    assert seen[0]["env"] == {"KEEP": "1"}
+    assert seen[0]["capture_output"] is True and seen[0]["check"] is False
+
+
+def test_the_trial_stub_records_get_and_post_requests_in_order() -> None:
+    """The stub lists every request, GET and POST, with the query string, in arrival order.
+
+    Mutation: delete ``do_GET`` from the handler, or record only POSTs. This
+    test fails.
+    """
+
+    import urllib.error
+    import urllib.request
+
+    module = _load_trial()
+    api = module._Api()
+    try:
+        for method, path in (("GET", "/v1/models"), ("POST", "/v1/messages?beta=true"), ("GET", "/v1/messages?x=1")):
+            data = b"{}" if method == "POST" else None
+            request = urllib.request.Request(api.base_url + path, data=data, method=method)
+            with pytest.raises(urllib.error.HTTPError) as caught:
+                urllib.request.urlopen(request, timeout=10)  # noqa: S310
+            assert caught.value.code == 400
+        records = list(api.records)
+    finally:
+        api.close()
+    assert records == [("GET", "/v1/models"), ("POST", "/v1/messages?beta=true"), ("GET", "/v1/messages?x=1")]
+
+
+def test_a_marker_counts_only_when_the_control_hook_wrote_to_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An empty marker file is not a fired control, and a written one is.
+
+    The fake claude touches or fills the marker during the run, and ``_execute``
+    clears the marker before it. Mutation: count a marker by ``is_file()``
+    alone. This test fails.
+    """
+
+    module = _load_trial()
+    _fake(tmp_path, monkeypatch)
+    artifacts = tmp_path / "artifacts"
+    artifacts.mkdir()
+    api = module._Api()
+    try:
+        empty = tmp_path / "empty.marker"
+        filled = tmp_path / "filled.marker"
+        absent = tmp_path / "absent.marker"
+        stale = tmp_path / "stale.marker"
+        stale.write_text("left over from an earlier run\n", encoding="utf-8")
+        monkeypatch.setenv("FAKE_TOUCH_EMPTY", str(empty))
+        monkeypatch.setenv("FAKE_TOUCH_FILLED", str(filled))
+        sandbox = module._Sandbox(tmp_path / "case", api)
+        run = module._execute(
+            sandbox,
+            api,
+            artifacts,
+            label="x",
+            slug="marker-check",
+            args=module._INIT_ONLY,
+            delay=0.0,
+            markers={"empty": empty, "filled": filled, "absent": absent, "stale": stale},
+        )
+    finally:
+        api.close()
+    assert run["markers"] == {"empty": False, "filled": True, "absent": False, "stale": False}
