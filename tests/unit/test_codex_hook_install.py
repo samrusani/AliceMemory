@@ -236,6 +236,8 @@ def test_codex_hook_rerun_replaces_in_place(
     follows. The group's matcher stays, the receipt says the hook changed,
     and the old file is backed up in the new vault. Mutation: append a second
     Alice group instead of replacing, or move the handler. This test fails.
+    Mutation: leave the ``session_start_backup:`` line out of the receipt. The
+    ``session_start_backup`` assertion fails.
     """
 
     home = tmp_path / "home"
@@ -265,6 +267,7 @@ def test_codex_hook_rerun_replaces_in_place(
     backups = _backups(second, "hooks.json")
     assert len(backups) == 1
     assert backups[0].read_bytes() == seeded
+    assert f"session_start_backup: {backups[0]}" in lines
 
 
 def test_codex_hook_replaces_the_imported_json_mode_item(
@@ -405,6 +408,24 @@ _INVALID_HOOKS = {
     "mcp-tool-timeout-float": {
         "hooks": {"Stop": [{"hooks": [{"type": "mcp_tool", "server": "s", "tool": "t", "timeout": 1.5}]}]}
     },
+    "command-windows-snake-case-not-string": {
+        "hooks": {"Stop": [{"hooks": [{"type": "command", "command": "x", "command_windows": 1}]}]}
+    },
+    "mcp-tool-status-message-not-string": {
+        "hooks": {"Stop": [{"hooks": [{"type": "mcp_tool", "server": "s", "tool": "t", "statusMessage": 7}]}]}
+    },
+    "mcp-tool-input-integer-above-i64": {
+        "hooks": {"Stop": [{"hooks": [{"type": "mcp_tool", "server": "s", "tool": "t", "input": {"a": 2**63}}]}]}
+    },
+    "mcp-tool-input-integer-below-i64": {
+        "hooks": {"Stop": [{"hooks": [{"type": "mcp_tool", "server": "s", "tool": "t", "input": {"a": -(2**63) - 1}}]}]}
+    },
+    "mcp-tool-input-list-holding-null": {
+        "hooks": {"Stop": [{"hooks": [{"type": "mcp_tool", "server": "s", "tool": "t", "input": {"a": [1, None]}}]}]}
+    },
+    "mcp-tool-input-list-holding-huge-integer": {
+        "hooks": {"Stop": [{"hooks": [{"type": "mcp_tool", "server": "s", "tool": "t", "input": {"a": [{"b": 2**64}]}}]}]}
+    },
 }
 
 
@@ -474,6 +495,20 @@ _ACCEPTED_HOOKS = {
     "mcp-tool": {
         "hooks": {"Stop": [{"hooks": [{"type": "mcp_tool", "server": "s", "tool": "t", "input": {"a": [1, "b"]}}]}]}
     },
+    "mcp-tool-input-i64-bounds": {
+        "hooks": {"Stop": [{"hooks": [{
+            "type": "mcp_tool", "server": "s", "tool": "t",
+            "input": {"low": -(2**63), "high": 2**63 - 1, "nested": [{"n": 2**63 - 1}]},
+        }]}]}
+    },
+    "command-windows-both-spellings-null": {
+        "hooks": {"Stop": [{"hooks": [{
+            "type": "command", "command": "x", "commandWindows": None, "command_windows": None,
+        }]}]}
+    },
+    "character-outside-the-bmp": {
+        "hooks": {"Stop": [{"hooks": [{"type": "command", "command": "echo \U0001f600"}]}]}
+    },
 }
 
 
@@ -510,16 +545,36 @@ def test_codex_hooks_file_codex_loads_is_accepted(
         b"not json",
         b"\xff\xfe",
         b'{"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "x", "timeout": 1e999}]}]}}',
+        b'{"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "\\ud800"}]}]}}',
+        b'{"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "\\udc00"}]}]}}',
+        b'{"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "\\ud83d x"}]}]}}',
+        b'{"\\ud800": {}}',
     ],
-    ids=["bom", "duplicate-key", "nan", "top-level-list", "not-json", "not-utf8", "infinity"],
+    ids=[
+        "bom",
+        "duplicate-key",
+        "nan",
+        "top-level-list",
+        "not-json",
+        "not-utf8",
+        "infinity",
+        "lone-leading-surrogate",
+        "lone-trailing-surrogate",
+        "leading-surrogate-then-text",
+        "lone-surrogate-in-a-key",
+    ],
 )
 def test_codex_hooks_file_must_be_strict_json(
     raw: bytes, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """A BOM, a duplicate key, NaN, a non-object top level and non-JSON are refused.
+    """A BOM, a duplicate key, NaN, a non-object top level, non-JSON and a lone surrogate are refused.
 
-    Mutation: parse with plain ``json.loads``. The duplicate key, NaN and
-    BOM cases fail.
+    serde_json, which Codex reads with, rejects a lone surrogate escape that
+    Python turns into a string, so Codex would skip such a file. Mutation:
+    parse with plain ``json.loads``. The duplicate key, NaN and BOM cases
+    fail. Mutation: drop the UTF-8 encode check in ``_strict_hooks_json``, or
+    run it with ``ensure_ascii=True`` so nothing can fail to encode. The
+    surrogate cases fail.
     """
 
     home = tmp_path / "home"
@@ -621,8 +676,10 @@ def test_codex_toml_hooks_get_no_hook_and_a_snippet(
     Two SessionStart sources would inject the brief twice. The receipt is a
     refusal for the hook (exit 1) with the handler as ``[[hooks.SessionStart]]``
     TOML, ``--format markdown`` in its command, and a next line. hooks.json is
-    not created. Mutation: write the hook into config.toml, or into hooks.json
-    anyway. This test fails.
+    not created, so the receipt names no hooks.json path. Mutation: write the
+    hook into config.toml, or into hooks.json anyway. This test fails.
+    Mutation: name hooks.json (``hooks_named = True``) on this path. The
+    ``session_start_path`` assertion fails.
     """
 
     home, vault = tmp_path / "home", tmp_path / "vault"
@@ -640,6 +697,7 @@ def test_codex_toml_hooks_get_no_hook_and_a_snippet(
     assert "session_start: refused" in lines
     assert any(line.startswith("session_start_reason: config.toml already holds hooks") for line in lines)
     assert "action: written" in lines
+    assert "session_start_path:" not in out
     snippet = out.split("snippet:", 1)[1]
     assert "[[hooks.SessionStart]]" in snippet and "[[hooks.SessionStart.hooks]]" in snippet
     assert 'type = "command"' in snippet
@@ -764,7 +822,10 @@ def test_codex_hook_command_carries_format_markdown(
 
     Codex rejects the JSON Cursor and Claude Code read, and injects nothing.
     Mutation: build the command without ``output_format``, or hide
-    ``--format`` in ``shown_hook_words``. This test fails.
+    ``--format`` in ``shown_hook_words``. This test fails. A dry run writes
+    nothing, so it must not ask the user to trust a hook that is not there.
+    Mutation: print the trust line on a dry run (``if hook_written:``). The
+    ``TRUST_NEXT`` assertion fails.
     """
 
     home, vault = tmp_path / "home", tmp_path / "vault"
@@ -779,6 +840,7 @@ def test_codex_hook_command_carries_format_markdown(
     assert shown["hooks"]["SessionStart"][0]["hooks"][0]["timeout"] == 120
     assert shown["hooks"]["SessionStart"][0]["hooks"][0]["additionalContextLimit"] == 0
     assert "session_start: planned (written to hooks.json, not trusted yet)" in out.splitlines()
+    assert TRUST_NEXT not in out.splitlines()
     assert "hidden:" not in out
 
     code, out, err = _install(home, vault, capsys)
@@ -1311,6 +1373,610 @@ def test_codex_hook_write_failure_is_a_failed_host(
     assert "reason: unexpected" not in out
     assert _config(home).is_file()
     assert not _hooks(home).exists()
+
+
+# --- rules a mutation once slipped past -----------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("argv", "expected"),
+    [
+        (["h", "--format", "json"], ["h", "--format", "markdown"]),
+        (["h", "--format=json"], ["h", "--format=markdown"]),
+        (["h", "--format", "json", "--format=json"], ["h", "--format", "json", "--format=markdown"]),
+        (["h", "--format=json", "--format", "json"], ["h", "--format=json", "--format", "markdown"]),
+        (["h"], ["h", "--format", "markdown"]),
+        (["h", "--format"], ["h", "--format", "markdown"]),
+    ],
+    ids=["space", "equals", "last-is-equals", "last-is-space", "none", "dangling"],
+)
+def test_with_output_format_sets_the_last_format_in_its_own_spelling(
+    argv: list[str], expected: list[str]
+) -> None:
+    """The word Codex reads is the last ``--format``, and it keeps the spelling it was written in.
+
+    Mutation: replace the value with ``output_format`` even for the equals
+    spelling (``out[index] = output_format``). The equals cases become a bare
+    ``markdown`` word and fail. Mutation: drop the ``--format=`` branch. The
+    equals cases append a second ``--format`` and fail.
+    """
+
+    assert host_install._with_output_format(argv, "markdown") == expected
+
+
+@pytest.mark.parametrize(
+    ("spelling", "expected_tail"),
+    [
+        ("--format=json", ["--format=markdown"]),
+        ("--format json", ["--format", "markdown"]),
+    ],
+    ids=["equals", "space"],
+)
+def test_codex_hook_kept_json_mode_command_prints_the_argv_to_add(
+    spelling: str, expected_tail: list[str], tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A kept hook that ends in ``--format=json`` is refused with the argv fixed in place.
+
+    The receipt argv is what the user pastes into hooks.json, so it changes
+    the word that is there and adds no second ``--format``. Mutation: rewrite
+    the equals spelling as a bare ``markdown`` word (the argv line vanishes,
+    because a bare word is hidden), or append a second ``--format``. This
+    test fails.
+    """
+
+    vault = (tmp_path / "vault").resolve()
+    home = tmp_path / "home"
+    _seed(
+        _config(home),
+        "[mcp_servers.alice]\n"
+        'command = "uvx"\n'
+        f'args = ["--with", "requests", "alice-memory", "mcp", "--data-dir", "{vault}"]\n',
+    )
+    kept = f"uvx --from alice-memory alice-memory-session-start --data-dir {vault} {spelling}"
+    hooks = _seed(_hooks(home), {"hooks": {"SessionStart": [_user_group(kept)]}})
+    before = hooks.read_bytes()
+    code, out, err = _install(home, None, capsys)
+    assert code == 1, (out, err)
+    assert hooks.read_bytes() == before
+    argv_lines = [line for line in out.splitlines() if line.startswith("session_start_argv: ")]
+    assert len(argv_lines) == 1, out
+    argv = json.loads(argv_lines[0].split(": ", 1)[1])
+    assert argv[-len(expected_tail) :] == expected_tail
+    assert len([word for word in argv if word.startswith("--format")]) == 1
+    assert "json" not in argv and "--format=json" not in argv
+
+
+def test_codex_hook_created_while_running_is_not_overwritten(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A hooks.json the user creates between install's read and its write is left as they made it.
+
+    There was no file when install read, so the write expects none. Mutation:
+    write with ``expect_absent=False``. The user's file is overwritten and
+    this test fails.
+    """
+
+    home, vault = tmp_path / "home", tmp_path / "vault"
+    mine = '{"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "echo mine"}]}]}}\n'
+    real = host_install._write_text
+
+    def racing(path: Path, text: str, **kwargs: object) -> None:
+        if path.name == "hooks.json":
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(mine, encoding="utf-8")
+        real(path, text, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(host_install, "_write_text", racing)
+    code, out, err = _install(home, vault, capsys)
+    assert code == 1, (out, err)
+    assert _hooks(home).read_text(encoding="utf-8") == mine
+    lines = out.splitlines()
+    assert "session_start: refused" in lines
+    assert "session_start_reason: hooks.json changed while install ran" in lines
+    assert MODIFIED not in lines and TRUST_NEXT not in lines
+    assert not list(_hooks(home).parent.glob(".hooks.json.*"))
+
+
+@pytest.mark.parametrize(
+    "variant",
+    ["no-limit", "limit-16000", "async-true", "status-message", "command-windows", "timeout-30"],
+)
+def test_codex_hook_handler_that_differs_in_any_key_is_replaced(
+    variant: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Alice's handler with the right command but any other key is not ``unchanged``.
+
+    A missing ``additionalContextLimit`` lets Codex spill the brief to a
+    file, ``async`` changes when it runs, and ``commandWindows`` changes what
+    runs. Install replaces the whole handler and asks for trust again.
+    Mutation: compare only type, command and timeout in
+    ``_merge_codex_session_start``. Every case but ``timeout-30`` becomes
+    ``unchanged`` and fails; ``timeout-30`` fails on any comparison that
+    leaves timeout out.
+    """
+
+    home, vault = tmp_path / "home", tmp_path / "vault"
+    handler = _handler(vault)
+    if variant == "no-limit":
+        del handler["additionalContextLimit"]
+    elif variant == "limit-16000":
+        handler["additionalContextLimit"] = 16000
+    elif variant == "async-true":
+        handler["async"] = True
+    elif variant == "status-message":
+        handler["statusMessage"] = "Loading Alice"
+    elif variant == "command-windows":
+        handler["commandWindows"] = "echo replaced"
+    else:
+        handler["timeout"] = 30
+    _seed(_hooks(home), {"hooks": {"SessionStart": [{"hooks": [handler]}]}})
+    code, out, err = _install(home, vault, capsys)
+    assert code == 0, (out, err)
+    assert _read(_hooks(home))["hooks"]["SessionStart"] == [{"hooks": [_handler(vault)]}]
+    lines = out.splitlines()
+    assert WRITTEN in lines and MODIFIED in lines and TRUST_NEXT in lines
+    assert UNCHANGED not in lines
+
+
+def test_codex_toml_hooks_rerun_prints_the_hook_again_and_still_refuses(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Until the user adds the printed hook, every run prints it again and exits 1.
+
+    The second run changes nothing, so its action is ``unchanged``, but the
+    hook the user has to add is still missing, so the receipt still carries
+    the snippet. Mutation: drop the snippet from the unchanged receipt
+    (``snippet=None``). The second run loses it and this test fails.
+    """
+
+    home, vault = tmp_path / "home", tmp_path / "vault"
+    _seed(_config(home), _toml_hook())
+    first_code, first_out, first_err = _install(home, vault, capsys)
+    second_code, second_out, second_err = _install(home, vault, capsys)
+    assert (first_code, second_code) == (1, 1), (first_err, second_err)
+    lines = second_out.splitlines()
+    assert "action: unchanged" in lines
+    assert "session_start: refused" in lines
+    assert "snippet:" in lines
+    second = second_out.split("snippet:\n", 1)[1].split("\nnext:", 1)[0]
+    first = first_out.split("snippet:\n", 1)[1].split("\nnext:", 1)[0]
+    assert second == first
+    assert "[[hooks.SessionStart.hooks]]" in second and "--format markdown" in second
+    assert any(line.startswith("next: install did not write hooks.json") for line in lines)
+
+
+def _toml_alice_hook(vault: Path, *, drop: str | None = None, **override: object) -> str:
+    """The TOML hook install prints for ``vault``, with a key dropped or a value changed."""
+
+    values: dict[str, object] = {
+        "type": "command",
+        "command": _command(vault),
+        "timeout": 120,
+        "additionalContextLimit": 0,
+        **override,
+    }
+    if drop is not None:
+        del values[drop]
+    body = "".join(f"{key} = {json.dumps(value)}\n" for key, value in values.items())
+    return "[[hooks.SessionStart]]\n\n[[hooks.SessionStart.hooks]]\n" + body
+
+
+def test_codex_toml_hook_the_user_already_added_is_unchanged(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Once the printed hook is in config.toml, install says so and exits 0.
+
+    The user did what the first run asked, so the next run has nothing to
+    refuse and nothing to print. Mutation: never recognise it (compare
+    against nothing). The second run exits 1 with the snippet and this test
+    fails.
+    """
+
+    home, vault = tmp_path / "home", tmp_path / "vault"
+    config = _seed(_config(home), "# mine\n" + _toml_hook())
+    code, out, err = _install(home, vault, capsys)
+    assert code == 1, (out, err)
+    printed = out.split("snippet:\n", 1)[1].split("\nnext:", 1)[0]
+    config.write_text(config.read_text(encoding="utf-8") + "\n" + printed, encoding="utf-8")
+    before = config.read_bytes()
+    for _ in range(2):
+        code, out, err = _install(home, vault, capsys)
+        assert code == 0, (out, err)
+        lines = out.splitlines()
+        assert "session_start: unchanged in config.toml (Codex runs it only if you have trusted it)" in lines
+        assert "action: unchanged" in lines
+        assert "snippet:" not in lines
+        assert not any(line.startswith("session_start_reason:") for line in lines)
+        assert "session_start_path:" not in out
+        assert TRUST_NEXT not in lines and MODIFIED not in lines
+        assert lines[-1] == CHECK_NEXT
+        assert config.read_bytes() == before
+        assert not _hooks(home).exists()
+
+
+@pytest.mark.parametrize(
+    "hook",
+    [
+        "json-mode-command",
+        "no-limit",
+        "limit-16000",
+        "timeout-30",
+        "other-vault",
+    ],
+)
+def test_codex_toml_hook_that_is_not_the_one_install_would_write_is_refused(
+    hook: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """An Alice hook in config.toml that differs is refused with a replace-by-hand line.
+
+    Install never edits TOML hooks. Telling the user to add the printed hook
+    would leave two Alice hooks and the brief twice, so the reason and the
+    next line say to replace the one that is there. Mutation: recognise any
+    Alice hook in config.toml as current (``plan.toml_alice_handler is not
+    None``). Every case exits 0 and fails. Mutation: compare only the
+    command. The ``no-limit``, ``limit-16000`` and ``timeout-30`` cases fail.
+    Mutation: use the add-it-by-hand reason for a hook that is there. The
+    reason assertion fails.
+    """
+
+    home, vault = tmp_path / "home", tmp_path / "vault"
+    other = tmp_path / "other"
+    if hook == "json-mode-command":
+        text = _toml_alice_hook(
+            vault,
+            command="uvx --from alice-memory alice-memory-session-start --data-dir "
+            f"{shlex.quote(str(vault.resolve()))}",
+        )
+    elif hook == "no-limit":
+        text = _toml_alice_hook(vault, drop="additionalContextLimit")
+    elif hook == "limit-16000":
+        text = _toml_alice_hook(vault, additionalContextLimit=16000)
+    elif hook == "timeout-30":
+        text = _toml_alice_hook(vault, timeout=30)
+    else:
+        text = _toml_alice_hook(other)
+    config = _seed(_config(home), text)
+    code, out, err = _install(home, vault, capsys)
+    assert code == 1, (out, err)
+    lines = out.splitlines()
+    assert "session_start: refused" in lines
+    assert (
+        "session_start_reason: the alice-memory-session-start hook in config.toml is not the "
+        "one install would write, and install does not edit hooks in config.toml"
+    ) in lines
+    assert not any(line.startswith("session_start_reason: config.toml already holds hooks") for line in lines)
+    assert any(
+        line.startswith("next: install did not change the hook in config.toml. Replace the "
+                        "alice-memory-session-start hook there")
+        for line in lines
+    )
+    assert not any(line.startswith("next: install did not write hooks.json") for line in lines)
+    snippet = out.split("snippet:\n", 1)[1].split("\nnext:", 1)[0]
+    parsed = tomllib.loads(snippet[snippet.index("[[hooks.SessionStart]]") :])
+    assert parsed["hooks"]["SessionStart"][0]["hooks"][0]["command"] == _command(vault)
+    assert config.read_text(encoding="utf-8").count("[[hooks.SessionStart]]") == 1
+    assert not _hooks(home).exists()
+
+
+def test_codex_hook_with_a_shell_read_data_dir_is_kept_unless_data_dir_is_passed(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A hook whose ``--data-dir`` the shell expands is the user's to move, so ``--data-dir`` decides.
+
+    Without ``--data-dir`` install keeps the command as it is (an entry
+    install rebuilds nothing for, and one it blocks). With ``--data-dir``, a
+    rebuildable hook moves to it, and a hook install must keep is refused.
+    Mutation: treat every run as if ``--data-dir`` were passed
+    (``explicit = True``). The kept command is rebuilt in the first case and
+    refused in the third, and this test fails.
+    """
+
+    kept = (
+        "uvx --from alice-memory alice-memory-session-start "
+        '--data-dir "$HOME/vault" --format markdown'
+    )
+    vault = (tmp_path / "vault").resolve()
+    document = {"hooks": {"SessionStart": [_user_group(kept)]}}
+
+    plain = tmp_path / "plain"
+    _seed(_hooks(plain), document)
+    code, out, err = _install(plain, None, capsys)
+    assert code == 0, (out, err)
+    assert _read(_hooks(plain))["hooks"]["SessionStart"][0]["hooks"][0] == {
+        "type": "command",
+        "command": kept,
+        "timeout": 120,
+        "additionalContextLimit": 0,
+    }
+    assert any(
+        line.startswith("warning: the SessionStart hook's --data-dir $HOME/vault is not read literally")
+        for line in out.splitlines()
+    ), out
+
+    moved = tmp_path / "moved"
+    _seed(_hooks(moved), document)
+    code, out, err = _install(moved, vault, capsys)
+    assert code == 0, (out, err)
+    assert _read(_hooks(moved))["hooks"]["SessionStart"][0]["hooks"][0] == _handler(vault)
+
+    entry = (
+        "[mcp_servers.alice]\n"
+        'command = "uvx"\n'
+        f'args = ["--with", "requests", "alice-memory", "mcp", "--data-dir", "{vault}"]\n'
+    )
+    blocked = tmp_path / "blocked"
+    _seed(_config(blocked), entry)
+    _seed(_hooks(blocked), document)
+    code, out, err = _install(blocked, None, capsys)
+    assert code == 0, (out, err)
+    assert "session_start: refused" not in out.splitlines()
+    assert _read(_hooks(blocked))["hooks"]["SessionStart"][0]["hooks"][0]["command"] == kept
+
+    refused = tmp_path / "refused"
+    _seed(_config(refused), entry)
+    seeded = _seed(_hooks(refused), document)
+    before = seeded.read_bytes()
+    code, out, err = _install(refused, tmp_path / "elsewhere", capsys)
+    assert code == 1, (out, err)
+    assert "session_start: refused" in out.splitlines()
+    assert seeded.read_bytes() == before
+
+
+def test_codex_hook_dry_run_hides_a_group_key_that_holds_a_number(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Only ``timeout``, ``additionalContextLimit`` and ``async`` are printed as they are.
+
+    A number under any other key of Alice's group is the user's data. It is
+    printed as ``<hidden>`` and named. Mutation: print every int-valued key
+    (``isinstance(value, bool | int)`` alone). The number appears and this
+    test fails.
+    """
+
+    home, vault = tmp_path / "home", tmp_path / "vault"
+    _install(home, vault, capsys)
+    document = _read(_hooks(home))
+    document["hooks"]["SessionStart"][0]["priority"] = 6431907
+    hooks = _seed(_hooks(home), document)
+    before = hooks.read_bytes()
+    code, out, err = _install(home, vault, capsys, "--dry-run")
+    assert code == 0, (out, err)
+    assert hooks.read_bytes() == before
+    assert "6431907" not in out + err
+    hook_part = out.split("\n---\n", 1)[1]
+    shown = json.loads(hook_part.split("\nnext:", 1)[0].split("\nhidden:", 1)[0])
+    group = shown["hooks"]["SessionStart"][0]
+    assert group["priority"] == "<hidden>"
+    assert group["hooks"][0]["timeout"] == 120
+    assert group["hooks"][0]["additionalContextLimit"] == 0
+    assert "hook priority" in out
+
+
+def test_codex_hook_dry_run_prints_only_alices_command_handlers(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A user handler of another type that names the script is not printed as Alice's.
+
+    Mutation: judge a printed handler by its command text alone
+    (``_is_alice_hook_item`` for every host). The user's ``mcp_tool`` group
+    is printed and this test fails.
+    """
+
+    home, vault = tmp_path / "home", tmp_path / "vault"
+    theirs = {
+        "type": "mcp_tool",
+        "server": "s",
+        "tool": "t",
+        "command": "uvx --from alice-memory alice-memory-session-start --data-dir /v",
+    }
+    hooks = _seed(_hooks(home), {"hooks": {"SessionStart": [{"hooks": [theirs]}]}})
+    before = hooks.read_bytes()
+    code, out, err = _install(home, vault, capsys, "--dry-run")
+    assert code == 0, (out, err)
+    assert hooks.read_bytes() == before
+    assert "mcp_tool" not in out
+    hook_part = out.split("\n---\n", 1)[1]
+    shown = json.loads(hook_part.split("\nnext:", 1)[0].split("\nhidden:", 1)[0])
+    assert len(shown["hooks"]["SessionStart"]) == 1
+    assert shown["hooks"]["SessionStart"][0]["hooks"][0]["command"] == _command(vault)
+
+
+@pytest.mark.parametrize(
+    ("body", "noted"),
+    [("[features]\nhooks = false\n", True), ("[features]\nhooks = true\n", False)],
+    ids=["off", "on"],
+)
+def test_codex_hooks_feature_off_note_is_in_a_dry_run(
+    body: str, noted: bool, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A dry run tells the user Codex will run no hook, as a real run does.
+
+    Mutation: print the note only when not a dry run
+    (``plan.hooks_disabled and not dry_run``). This test fails.
+    """
+
+    home = tmp_path / "home"
+    config = _seed(_config(home), body)
+    before = config.read_bytes()
+    code, out, err = _install(home, tmp_path / "vault", capsys, "--dry-run")
+    assert code == 0, (out, err)
+    note = "note: features.hooks is false in config.toml, so Codex will not run any hook"
+    assert (note in out.splitlines()) is noted
+    assert config.read_bytes() == before
+    assert not _hooks(home).exists()
+
+
+def test_codex_hook_windows_kept_hook_refusal_prints_markdown(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A kept hook whose data dir cannot be moved on Windows is refused with a markdown argv.
+
+    The entry's ``--with`` keeps install from rebuilding the hook, the hook's
+    ``C:/`` data dir is one install can rely on, and the new ``--data-dir``
+    holds a ``$`` that PowerShell, cmd and Git Bash do not all keep literal.
+    The hook has no ``--format``. Mutation: leave ``output_format`` out of
+    the first ``_refuse_kept_hook`` call in ``_plan_hook``. The printed argv
+    has no ``--format markdown`` and this test fails.
+    """
+
+    monkeypatch.setattr(host_launcher, "WINDOWS_HOOKS", True)
+    home = tmp_path / "home"
+    _seed(
+        _config(home),
+        "[mcp_servers.alice]\n"
+        'command = "uvx"\n'
+        'args = ["--with", "requests", "alice-memory", "mcp", "--data-dir", "C:/old/vault"]\n',
+    )
+    old = "uvx --from alice-memory alice-memory-session-start --data-dir C:/old/vault"
+    hooks = _seed(_hooks(home), {"hooks": {"SessionStart": [_user_group(old)]}})
+    before = hooks.read_bytes()
+    new_vault = tmp_path / "v$ault"
+    code, out, err = _install(home, new_vault, capsys)
+    assert code == 1, (out, err)
+    assert hooks.read_bytes() == before
+    lines = out.splitlines()
+    assert "session_start: refused" in lines
+    assert any(
+        line.startswith("session_start_reason: the SessionStart hook still points at C:/old/vault")
+        for line in lines
+    ), out
+    argv_lines = [line for line in lines if line.startswith("session_start_argv: ")]
+    assert len(argv_lines) == 1, out
+    argv = json.loads(argv_lines[0].split(": ", 1)[1])
+    assert argv[-4:] == ["--data-dir", str(new_vault.resolve()), "--format", "markdown"]
+
+
+@pytest.mark.parametrize("scenario", ["hooks-write-fails", "hooks-changed", "config-write-fails"])
+def test_codex_hook_modified_line_is_only_printed_once_the_hook_is_written(
+    scenario: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """``The hook changed`` and the trust line say nothing when hooks.json was not written.
+
+    A hook install moved to a new vault is only changed once the file holds
+    the new command. When the hooks write fails, hooks.json changes under
+    install, or config.toml cannot be written first, the old hook is still
+    what Codex trusts. Mutation: add the Modified line when the hook is
+    planned, before any write. Every scenario fails; the last control still
+    prints it.
+    """
+
+    home = tmp_path / "home"
+    first, second = tmp_path / "vault-one", tmp_path / "vault-two"
+    _install(home, first, capsys)
+    real = host_install._write_text
+
+    def wrapped(path: Path, text: str, **kwargs: object) -> None:
+        if scenario == "hooks-write-fails" and path.name == "hooks.json":
+            raise OSError("disk full")
+        if scenario == "config-write-fails" and path.name == "config.toml":
+            raise OSError("disk full")
+        if scenario == "hooks-changed" and path.name == "hooks.json":
+            path.write_text('{"hooks": {}}\n', encoding="utf-8")
+        real(path, text, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(host_install, "_write_text", wrapped)
+    code, out, err = _install(home, second, capsys)
+    assert code == 1, (out, err)
+    lines = out.splitlines()
+    assert MODIFIED not in lines
+    assert TRUST_NEXT not in lines
+    assert WRITTEN not in lines or scenario == "config-write-fails"
+    if scenario == "hooks-changed":
+        assert _hooks(home).read_text(encoding="utf-8") == '{"hooks": {}}\n'
+    else:
+        assert _read(_hooks(home))["hooks"]["SessionStart"][0]["hooks"][0] == _handler(first)
+
+    monkeypatch.setattr(host_install, "_write_text", real)
+    _seed(_hooks(home), {"hooks": {"SessionStart": [{"hooks": [_handler(first)]}]}})
+    code, out, err = _install(home, second, capsys)
+    assert code == 0, (out, err)
+    assert MODIFIED in out.splitlines()
+
+
+@pytest.mark.parametrize("source", ["no-files", "config-without-entry", "config-with-toml-hooks"])
+def test_codex_new_entry_opens_the_data_dir_of_the_hook_already_there(
+    source: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A new MCP entry follows the Alice hook that is already installed, as on Claude Code and Cursor.
+
+    Without ``--data-dir``, the entry and the hook stay on the hook's vault
+    instead of both moving to ``~/.alice`` with a note. The hook is the one in
+    hooks.json, or the one in config.toml when config.toml holds TOML hooks.
+    Mutation: give the new-file branch ``default_dir``, leave ``hook_dir`` out
+    of the ``_plan_codex_text`` call, or read the dir from hooks.json when
+    config.toml holds TOML hooks. The matching case fails.
+    """
+
+    hook_vault = (tmp_path / "hook-vault").resolve()
+    home = tmp_path / "home"
+    if source == "config-with-toml-hooks":
+        _seed(_config(home), _toml_alice_hook(hook_vault))
+        _seed(
+            _hooks(home),
+            {"hooks": {"SessionStart": [{"hooks": [_handler((tmp_path / "ignored").resolve())]}]}},
+        )
+    else:
+        _seed(_hooks(home), {"hooks": {"SessionStart": [_user_group("echo mine"), {"hooks": [_handler(hook_vault)]}]}})
+        if source == "config-without-entry":
+            _seed(_config(home), "[features]\nhooks = true\n")
+    hooks_before = _hooks(home).read_bytes() if _hooks(home).exists() else None
+    code, out, err = _install(home, None, capsys)
+    assert code == 0, (out, err)
+    entry = tomllib.loads(_config(home).read_text(encoding="utf-8"))["mcp_servers"]["alice"]
+    assert entry["args"][-2:] == ["--data-dir", str(hook_vault)]
+    lines = out.splitlines()
+    assert not any(line.startswith("session_start_data_dir:") for line in lines)
+    assert not any("cannot be relied on" in line for line in lines)
+    if source == "config-with-toml-hooks":
+        assert "session_start: unchanged in config.toml (Codex runs it only if you have trusted it)" in lines
+        assert _hooks(home).read_bytes() == hooks_before
+    else:
+        assert UNCHANGED in lines
+        assert _hooks(home).read_bytes() == hooks_before
+        assert _read(_hooks(home))["hooks"]["SessionStart"][1] == {"hooks": [_handler(hook_vault)]}
+
+
+def test_codex_new_entry_takes_an_explicit_data_dir_over_the_hooks(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """``--data-dir`` still decides: the entry and the hook both move to it, and the receipt says so.
+
+    Mutation: let the hook's vault win over ``--data-dir`` for a new entry.
+    This test fails.
+    """
+
+    hook_vault = (tmp_path / "hook-vault").resolve()
+    explicit = (tmp_path / "explicit").resolve()
+    home = tmp_path / "home"
+    _seed(_hooks(home), {"hooks": {"SessionStart": [{"hooks": [_handler(hook_vault)]}]}})
+    code, out, err = _install(home, explicit, capsys)
+    assert code == 0, (out, err)
+    entry = tomllib.loads(_config(home).read_text(encoding="utf-8"))["mcp_servers"]["alice"]
+    assert entry["args"][-2:] == ["--data-dir", str(explicit)]
+    assert _read(_hooks(home))["hooks"]["SessionStart"] == [{"hooks": [_handler(explicit)]}]
+    assert f"session_start_data_dir: {hook_vault} -> {explicit}" in out.splitlines()
+
+
+def test_codex_new_entry_ignores_a_hook_it_cannot_rely_on(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A hook whose ``--data-dir`` is relative gives the new entry no vault, so it uses ``~/.alice``.
+
+    Mutation: trust any hook data dir for a new entry. The entry opens a
+    relative path and this test fails.
+    """
+
+    home = tmp_path / "home"
+    relative = (
+        "uvx --from alice-memory alice-memory-session-start --data-dir relative-vault --format markdown"
+    )
+    _seed(_hooks(home), {"hooks": {"SessionStart": [_user_group(relative)]}})
+    code, out, err = _install(home, None, capsys)
+    assert code == 0, (out, err)
+    entry = tomllib.loads(_config(home).read_text(encoding="utf-8"))["mcp_servers"]["alice"]
+    default = str((home.resolve() / ".alice"))
+    assert entry["args"][-2:] == ["--data-dir", default]
+    assert _read(_hooks(home))["hooks"]["SessionStart"][0]["hooks"][0] == _handler(Path(default))
 
 
 # --- test_markdown_brief_never_starts_with_a_bracket ---------------------------------------

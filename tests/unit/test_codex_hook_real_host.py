@@ -14,8 +14,10 @@ compact JSON, keys sorted, of ``{"event_name": "session_start", "hooks":
 ``timeout`` (600 when unset), ``async`` and, when it is not the default
 2,500, ``additionalContextLimit``. ``codex app-server`` ``hooks/list`` runs
 without credentials, so the test also asks it for ``currentHash`` and
-``trustStatus`` and compares; when the app-server cannot be read the test
-says why and goes on with the computed hash.
+``trustStatus`` and compares. When the app-server cannot be read those
+checks fail and print why (``Rig.alice_hook`` and ``Rig.listed_hooks`` assert
+it). Only control 2, which expects Codex to list no hook at all, tolerates an
+unreadable answer, and says why.
 """
 
 from __future__ import annotations
@@ -546,6 +548,17 @@ class Rig:
     def codex_hooks(self) -> tuple[list[dict], list[str]] | str:
         return codex_hooks(self.env, self.cwd)
 
+    def listed_hooks(self) -> dict[str, dict]:
+        """Every hook Codex's ``hooks/list`` reports, by key. It fails when the app-server is unreadable."""
+
+        listed = self.codex_hooks()
+        assert not isinstance(listed, str), listed
+        hooks, warnings = listed
+        self.say(f"  hooks/list warnings: {warnings}")
+        by_key = {str(hook.get("key")): hook for hook in hooks}
+        assert len(by_key) == len(hooks), hooks
+        return by_key
+
     def alice_hook(self) -> dict:
         """Codex's ``hooks/list`` entry for Alice's hook.
 
@@ -763,8 +776,13 @@ def test_real_codex_ignores_json_hook_output(rig: Rig) -> None:
     Alice's own hook in ``--format json`` and a hook that prints
     ``{"additional_context": "x"}`` are both trusted and run, and neither
     reaches the model, while a trusted hook that prints plain text does. That
-    is why install's hook prints markdown. Mutation: make install write
-    ``--format json``. The main test above fails, and this control shows why.
+    is why install's hook prints markdown. Codex's own ``hooks/list`` says
+    all three are ``trusted`` with the hash computed here, so a hook that
+    injected nothing was one Codex ran, not one it skipped. Mutation: make
+    install write ``--format json``. The main test above fails, and this
+    control shows why. Mutation: trust the wrong key for either control
+    hook. The ``trustStatus`` assertion fails, where ``not injected`` alone
+    would have passed.
     """
 
     tmp_path, monkeypatch = rig.tmp_path, rig.monkeypatch
@@ -785,13 +803,20 @@ def test_real_codex_ignores_json_hook_output(rig: Rig) -> None:
     )
     _write_json(rig.hooks, document)
     rig.trust(0, 1, 2)
+    listed = rig.listed_hooks()
+    for group in range(3):
+        entry = listed.get(rig.key(group))
+        assert entry is not None, (rig.key(group), sorted(listed))
+        assert entry["trustStatus"] == "trusted", entry
+        assert entry["currentHash"] == rig.hash_of(group), (entry, rig.hash_of(group))
     run = rig.run()
     assert any(plain in text for text in run.developer()), run.describe()
     assert "x-control-json-9902" not in run.everything(), run.describe()
     assert LINE_A not in run.everything(), run.describe()
     assert not any(FRAME in text for text in run.developer()), run.describe()
     rig.say(
-        f"control 1: {run.summary()}; the plain-text hook was injected; Alice's hook in --format json "
+        f"control 1: {run.summary()}; hooks/list: all three hooks are trusted with the computed hash; "
+        "the plain-text hook was injected; Alice's hook in --format json "
         "and a hook printing an additional_context object injected nothing"
     )
     rig.flush()

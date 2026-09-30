@@ -1493,9 +1493,12 @@ def _check_codex_hooks_document(doc: Mapping[str, Any]) -> None:
 
 
 def _check_hooks_file(doc: Mapping[str, Any], host: str) -> None:
-    if host == "codex":
-        _check_codex_hooks_document(doc)
-        return
+    """The JSON hosts' hooks file: ``hooks`` an object, the event key a list.
+
+    Codex has its own check, ``_check_codex_hooks_document``, and its own
+    loader, so this is never called for it.
+    """
+
     hooks = doc.get("hooks")
     if hooks is None:
         return
@@ -5513,6 +5516,8 @@ class CodexPlan:
     entry_plan: _EntryPlan | None = None
     toml_hooks: bool = False
     hooks_disabled: bool = False
+    # Alice's own SessionStart handler as config.toml holds it, when config.toml has TOML hooks.
+    toml_alice_handler: Mapping[str, object] | None = None
 
 
 _CODEX_CARRIED_KEYS = (
@@ -6659,8 +6664,15 @@ def _plan_codex_text(
     home: Path,
     search: LauncherSearch,
     problem_of: Callable[[Launcher], str | None] | None = None,
+    hook_dir: str | None = None,
 ) -> CodexPlan:
-    """Plan ``[mcp_servers.alice]`` in ``text``. See ``plan_codex_config``."""
+    """Plan ``[mcp_servers.alice]`` in ``text``. See ``plan_codex_config``.
+
+    ``hook_dir`` is the data dir of the Alice hook already in hooks.json. A
+    new entry opens it, as the other hosts' new entries do, unless
+    config.toml holds TOML hooks: then the one in config.toml is the hook
+    Codex runs, and its data dir is used instead.
+    """
 
     nl = _codex_newline(text)
     headers = _codex_scan(text, nl)
@@ -6678,7 +6690,7 @@ def _plan_codex_text(
             existing,
             key_label="mcp_servers.alice",
             explicit_dir=explicit_dir,
-            new_entry_dir=explicit_dir or default_dir,
+            new_entry_dir=explicit_dir or entry_dir or default_dir,
             default_dir=default_dir,
             home=home,
             search=search,
@@ -6688,6 +6700,10 @@ def _plan_codex_text(
         )
 
     toml_hooks = _codex_toml_has_hooks(document)
+    toml_alice = _codex_toml_alice_handler(document) if toml_hooks else None
+    entry_dir = (
+        _codex_hook_dir(_hook_item_command(toml_alice), home) if toml_hooks else hook_dir
+    )
     hooks_disabled = _codex_hooks_feature_off(document)
     servers = document.get("mcp_servers")
     server_headers = [item for item in headers if item.path[:1] == ("mcp_servers",)]
@@ -6793,6 +6809,7 @@ def _plan_codex_text(
             entry_plan=entry_plan,
             toml_hooks=toml_hooks,
             hooks_disabled=hooks_disabled,
+            toml_alice_handler=toml_alice,
         )
 
     header = alice_headers[0]
@@ -6923,6 +6940,7 @@ def _plan_codex_text(
             entry_plan,
             toml_hooks,
             hooks_disabled,
+            toml_alice,
         )
     if entry_plan.entry is None:
         visible = _visible_dir(alice, home)
@@ -6965,7 +6983,32 @@ def _plan_codex_text(
         entry_plan,
         toml_hooks,
         hooks_disabled,
+        toml_alice,
     )
+
+
+def _codex_toml_alice_handler(document: Mapping[str, object]) -> Mapping[str, object] | None:
+    """Alice's first command handler under ``[[hooks.SessionStart]]`` in config.toml, or None."""
+
+    hooks = document.get("hooks")
+    groups = hooks.get("SessionStart") if isinstance(hooks, dict) else None
+    if not isinstance(groups, list):
+        return None
+    found = _codex_alice_handlers(groups)
+    if not found:
+        return None
+    group_index, handler_index = found[0]
+    handler: Mapping[str, object] = groups[group_index]["hooks"][handler_index]
+    return handler
+
+
+def _codex_hook_dir(command: str | None, home: Path) -> str | None:
+    """The data dir a hook command reads, resolved, or None when install cannot rely on it."""
+
+    if command is None:
+        return None
+    read = read_hook_data_dir(command)
+    return _resolved_dir(read.raw, home) if read.trusted else None
 
 
 def _codex_toml_has_hooks(document: Mapping[str, object]) -> bool:
@@ -7330,6 +7373,7 @@ def _codex_notes(codex_home: Path, platform: str) -> list[str]:
 
 _CODEX_HOOK_WRITTEN = "written to hooks.json, not trusted yet"
 _CODEX_HOOK_UNCHANGED = "unchanged in hooks.json (Codex runs it only if you have trusted it)"
+_CODEX_TOML_HOOK_UNCHANGED = "unchanged in config.toml (Codex runs it only if you have trusted it)"
 _CODEX_TRUST_NEXT = (
     'open Codex. At "Hooks need review", choose Review hooks and trust the '
     "alice-memory-session-start hook, or use /hooks. Until then Codex skips it "
@@ -7345,6 +7389,15 @@ _CODEX_TOML_HOOKS_NEXT = (
     "in hooks.json and run the brief twice. Add the hook above to config.toml by hand, then "
     'trust it: open Codex, choose Review hooks at "Hooks need review", or use /hooks.'
 )
+_CODEX_TOML_STALE_REASON = (
+    "the alice-memory-session-start hook in config.toml is not the one install would write, "
+    "and install does not edit hooks in config.toml"
+)
+_CODEX_TOML_STALE_NEXT = (
+    "install did not change the hook in config.toml. Replace the alice-memory-session-start "
+    "hook there with the one above by hand, so Codex does not run the brief twice, then trust "
+    'it: open Codex, choose Review hooks at "Hooks need review", or use /hooks.'
+)
 _CODEX_HOOK_NOT_WRITTEN_NEXT = (
     "install did not write the SessionStart hook. Add a hook that runs session_start_argv "
     "above, quoted for the shell Codex uses, to hooks.json."
@@ -7354,13 +7407,22 @@ _CODEX_HOOKS_RERUN_NEXT = "hooks.json was not changed. Run install again."
 
 
 def _strict_hooks_json(raw: bytes) -> dict[str, Any]:
-    """hooks.json as a dict: UTF-8, no BOM, no duplicate key, no NaN, an object on top."""
+    """hooks.json as a dict: UTF-8, no BOM, no duplicate key, no NaN, an object on top.
+
+    A lone surrogate escape such as ``\\ud800`` is refused too. Python reads
+    it into a string, and serde_json, which Codex reads with, does not.
+    """
 
     loaded = _parse_opencode_json(raw)
+    if loaded is not None:
+        try:
+            json.dumps(loaded, ensure_ascii=False).encode("utf-8")
+        except UnicodeEncodeError:
+            loaded = None
     if loaded is None:
         raise _MalformedHostFile(
             "hooks.json is not strict JSON: install needs UTF-8 without a BOM, no duplicate "
-            "key, no NaN, and an object at the top level"
+            "key, no NaN, no lone surrogate escape, and an object at the top level"
         )
     return loaded
 
@@ -7382,6 +7444,21 @@ def _load_codex_hooks(path: Path) -> _JsonFile:
         original = _strict_hooks_json(raw)
     _check_codex_hooks_document(doc)
     return _JsonFile(path, target, raw, doc, original)
+
+
+def _codex_hooks_json_dir(path: Path, home: Path) -> str | None:
+    """The data dir of the Alice hook already in hooks.json, for a new entry to open.
+
+    None when there is no such hook, or the file is missing or unusable. It
+    never raises: the hook step reads the file again, after config.toml is
+    planned, and refuses there what Codex would skip.
+    """
+
+    try:
+        doc = _load_codex_hooks(path).doc
+    except (_MalformedHostFile, RecursionError, OSError):
+        return None
+    return _codex_hook_dir(_existing_alice_hook_command(doc, "codex"), home)
 
 
 def _codex_probe_command(doc: Mapping[str, Any]) -> str | None:
@@ -7530,6 +7607,7 @@ def _install_codex_host(
             "refused",
         )
 
+    hook_dir = _codex_hooks_json_dir(hooks_path, home)
     try:
         try:
             target = _host_target(path)
@@ -7540,7 +7618,7 @@ def _install_codex_host(
                 None,
                 key_label="mcp_servers.alice",
                 explicit_dir=explicit_dir,
-                new_entry_dir=default_dir,
+                new_entry_dir=hook_dir or default_dir,
                 default_dir=default_dir,
                 home=home,
                 search=search,
@@ -7570,7 +7648,9 @@ def _install_codex_host(
                 source_text = decoded
                 raise CodexConfigRefused(f"{path.name} is not UTF-8") from None
             source_text = decoded
-            plan = _plan_codex_text(decoded, explicit_dir, default_dir, home=home, search=search)
+            plan = _plan_codex_text(
+                decoded, explicit_dir, default_dir, home=home, search=search, hook_dir=hook_dir
+            )
     except CodexConfigRefused as refusal:
         return refuse(refusal, data_dir)
     except OSError:
@@ -7605,8 +7685,19 @@ def _install_codex_host(
             )
             command = _codex_probe_command(probe.doc) if hook_status == "added" else None
             if command is not None:
-                hook_snippet = _codex_hook_toml(command, hook_hidden)
-                hook_status, hook_problem = "refused", _CODEX_TOML_HOOKS_REASON
+                ours = codex_session_start_handler(command)
+                if plan.toml_alice_handler == ours:
+                    # The hook install would print is already in config.toml, so
+                    # there is nothing to add and nothing to refuse.
+                    hook_status, hook_problem = "already-present", None
+                else:
+                    hook_snippet = _codex_hook_toml(command, hook_hidden)
+                    hook_status = "refused"
+                    hook_problem = (
+                        _CODEX_TOML_HOOKS_REASON
+                        if plan.toml_alice_handler is None
+                        else _CODEX_TOML_STALE_REASON
+                    )
         else:
             hooks = _load_codex_hooks(hooks_path)
             old_hook = _existing_alice_hook_command(hooks.doc, "codex")
@@ -7649,17 +7740,17 @@ def _install_codex_host(
         session_start = (
             f"planned ({_CODEX_HOOK_WRITTEN})" if dry_run else _CODEX_HOOK_WRITTEN
         )
-        if hook_status == "updated" and not dry_run:
-            hook_details.append(_CODEX_MODIFIED_LINE)
     elif hook_status == "already-present":
-        session_start = _CODEX_HOOK_UNCHANGED
+        session_start = _CODEX_TOML_HOOK_UNCHANGED if plan.toml_hooks else _CODEX_HOOK_UNCHANGED
     else:
         session_start = hook_status
     status = "refused" if hook_problem is not None else "ok"
     shown, hidden = _masked(plan.payload, own_env=_own_env(plan.payload))
     success_trailer: list[str] = []
     if hook_snippet is not None:
-        success_trailer.append(f"next: {_CODEX_TOML_HOOKS_NEXT}")
+        success_trailer.append(
+            f"next: {_CODEX_TOML_HOOKS_NEXT if plan.toml_alice_handler is None else _CODEX_TOML_STALE_NEXT}"
+        )
     elif hook_problem is not None:
         success_trailer.append(f"next: {_CODEX_HOOK_NOT_WRITTEN_NEXT}")
     if hook_written and not dry_run:
@@ -7776,6 +7867,10 @@ def _install_codex_host(
                 "failed",
                 plan.used_fallback,
             )
+        if hook_status == "updated":
+            # Said only once the file holds the new command: a run that wrote
+            # nothing has changed nothing for Codex to distrust.
+            hook_details.append(_CODEX_MODIFIED_LINE)
     return _HostResult(
         receipt("written" if action == "written" else action, details, snippet=hook_snippet, trailer=success_trailer),
         status,
