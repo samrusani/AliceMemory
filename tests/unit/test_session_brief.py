@@ -5,6 +5,7 @@ Put next to the on-ramp tests. Each test names the edit that makes it fail.
 
 from __future__ import annotations
 
+import contextlib
 import inspect
 import io
 import json
@@ -1474,6 +1475,21 @@ def _queries_sent_to_the_search(monkeypatch, database: Path, *, query: str | Non
     return seen
 
 
+@contextlib.contextmanager
+def _sqlite_answers_for_itself(monkeypatch):
+    """Switch the store's own query guard off so SQLite's answer can be measured.
+
+    ``SQLiteVNextStore.search_sources`` now refuses a query past the shared
+    limits before it reaches SQLite. The tests that use the real search as the
+    ground truth for those limits (what SQLite takes, what it refuses) need
+    SQLite's own answer, not the guard's.
+    """
+
+    with monkeypatch.context() as patch:
+        patch.setattr(SQLiteVNextStore, "check_source_search_query", lambda self, query: None)
+        yield
+
+
 # Each shape is a newest fact the whole-fact search refuses although it is under
 # the byte limit: (opening, how the rest is built, the SQLite error the real
 # search raises on the whole fact).
@@ -1503,8 +1519,8 @@ def test_a_newest_fact_the_search_would_refuse_keeps_the_brief(
     source search on the whole fact and needs it to fail, so this test
     cannot pass on a fact that never hurt.
 
-    Mutation: drop the distinct-term check in ``_query_fits_the_search``,
-    or raise ``_EXCERPT_QUERY_MAX_PATTERNS`` above SQLite's limit, or skip
+    Mutation: drop the distinct-term check in ``source_search_query_breach``,
+    or raise ``SOURCE_SEARCH_QUERY_MAX_PATTERNS`` above SQLite's limit, or skip
     the check for a short text (the dense shape), or measure only raw bytes
     (the casefold shape). The query handed to the search is the whole fact,
     and this test fails.
@@ -1512,7 +1528,7 @@ def test_a_newest_fact_the_search_would_refuse_keeps_the_brief(
 
     import sqlite3
 
-    from alicebot_api.session_briefing import _EXCERPT_QUERY_MAX_BYTES
+    from alicebot_api.source_search_limits import SOURCE_SEARCH_QUERY_MAX_BYTES
 
     opening, kind, refusal = _REFUSED_FACT_SHAPES[shape]
     if kind == "prose":
@@ -1526,7 +1542,7 @@ def test_a_newest_fact_the_search_would_refuse_keeps_the_brief(
     else:
         newest = opening + "\u0390" * 9_000
         assert len(newest.casefold().encode("utf-8")) > 50_000
-    assert len(newest.encode("utf-8")) < _EXCERPT_QUERY_MAX_BYTES
+    assert len(newest.encode("utf-8")) < SOURCE_SEARCH_QUERY_MAX_BYTES
 
     context = _context(tmp_path, monkeypatch)
     _capture(context, SOURCE_NOTE)
@@ -1537,7 +1553,9 @@ def test_a_newest_fact_the_search_would_refuse_keeps_the_brief(
             store.create_open_loop(
                 {"title": f"loop {index} stays", "domain": "project", "sensitivity": "public"}
             )
-        with pytest.raises(sqlite3.OperationalError, match=refusal):
+        with _sqlite_answers_for_itself(monkeypatch), pytest.raises(
+            sqlite3.OperationalError, match=refusal
+        ):
             store.search_sources(query=newest, sensitivity_allowed=_ALL_SENSITIVITY, limit=8)
     _commit(
         context,
@@ -1639,17 +1657,15 @@ def test_the_term_bound_is_exact_at_the_threshold(tmp_path: Path, monkeypatch) -
     this covers the wiring and not only the helper. A short query reaches
     the search byte for byte.
 
-    Mutation: ``<=`` becomes ``<`` in ``_query_fits_the_search``, or bound
+    Mutation: ``<=`` becomes ``<`` in ``source_search_query_breach``, or bound
     every query, or drop the check. The whole-query assertions fail.
     """
 
-    from alicebot_api.session_briefing import (
-        _EXCERPT_QUERY_MAX_PATTERNS,
-        _bounded_useful_query,
-    )
+    from alicebot_api.session_briefing import _bounded_useful_query
+    from alicebot_api.source_search_limits import SOURCE_SEARCH_QUERY_MAX_PATTERNS
     from alicebot_api.vnext_store import _search_patterns
 
-    limit = _EXCERPT_QUERY_MAX_PATTERNS
+    limit = SOURCE_SEARCH_QUERY_MAX_PATTERNS
     at_limit = _OPENING + _distinct_tokens(limit - 4)
     assert len(_search_patterns(at_limit)) == limit
     over = at_limit + " zqextra"
@@ -1681,11 +1697,12 @@ def test_repeated_words_are_not_counted_as_distinct_terms(tmp_path: Path, monkey
     bounded, the search does not receive ``repeated``, and this test fails.
     """
 
-    from alicebot_api.session_briefing import _EXCERPT_QUERY_MAX_BYTES, _bounded_useful_query
+    from alicebot_api.session_briefing import _bounded_useful_query
+    from alicebot_api.source_search_limits import SOURCE_SEARCH_QUERY_MAX_BYTES
     from alicebot_api.vnext_store import _search_patterns, fts_fallback_tokens
 
     repeated = _OPENING + " ".join(f"word{index % 40}" for index in range(5_000))
-    assert len(repeated.encode("utf-8")) < _EXCERPT_QUERY_MAX_BYTES
+    assert len(repeated.encode("utf-8")) < SOURCE_SEARCH_QUERY_MAX_BYTES
     assert len(fts_fallback_tokens(repeated)) > 5_000
     assert len(_search_patterns(repeated)) < 50
     assert _bounded_useful_query(repeated) == repeated
@@ -1701,25 +1718,27 @@ def test_repeated_words_are_not_counted_as_distinct_terms(tmp_path: Path, monkey
 def test_the_threshold_leaves_room_under_what_sqlite_takes(tmp_path: Path, monkeypatch) -> None:
     """The store takes 1.5 times the threshold, with the heaviest scope on.
 
-    ``_EXCERPT_QUERY_MAX_PATTERNS`` is about half of what SQLite 3.49.1
+    ``SOURCE_SEARCH_QUERY_MAX_PATTERNS`` is about half of what SQLite 3.49.1
     takes. This runs the real search at 1.5 times the threshold, with a
     project and people scope active, so a threshold raised toward the limit
     or a SQLite build with a lower depth limit fails here first.
 
-    Mutation: set ``_EXCERPT_QUERY_MAX_PATTERNS`` to 900. The search below
+    Mutation: set ``SOURCE_SEARCH_QUERY_MAX_PATTERNS`` to 900. The search below
     is refused as ``Expression tree is too large`` and this test fails.
     """
 
     import sqlite3
 
-    from alicebot_api.session_briefing import _EXCERPT_QUERY_MAX_PATTERNS
+    from alicebot_api.source_search_limits import SOURCE_SEARCH_QUERY_MAX_PATTERNS
 
     _context(tmp_path, monkeypatch)
     database = resolve_db_path(data_dir=str(tmp_path), db=None)
-    patterns = _EXCERPT_QUERY_MAX_PATTERNS + _EXCERPT_QUERY_MAX_PATTERNS // 2
+    patterns = SOURCE_SEARCH_QUERY_MAX_PATTERNS + SOURCE_SEARCH_QUERY_MAX_PATTERNS // 2
     query = _distinct_tokens(patterns - 1)
     refused: list[str] = []
-    with sqlite_user_connection(database, USER_ID) as connection:
+    with sqlite_user_connection(database, USER_ID) as connection, _sqlite_answers_for_itself(
+        monkeypatch
+    ):
         store = SQLiteVNextStore(connection, USER_ID)
         for scope in ({}, _HEAVY_SCOPE):
             try:
@@ -1741,12 +1760,12 @@ def test_the_term_bound_sits_at_499_terms_in_literal_sizes(
     """The threshold is pinned by literal sizes, not by the constant.
 
     The other threshold tests build their sizes from
-    ``_EXCERPT_QUERY_MAX_PATTERNS``, so the constant can move and they move
+    ``SOURCE_SEARCH_QUERY_MAX_PATTERNS``, so the constant can move and they move
     with it. These do not: 499 distinct terms (500 patterns with the phrase)
     reach the search whole, 500 are bounded, and the line the changelog
     states stays where it is. The query the search receives is checked too.
 
-    Mutation: set ``_EXCERPT_QUERY_MAX_PATTERNS`` to 100, 250 or 499 (the
+    Mutation: set ``SOURCE_SEARCH_QUERY_MAX_PATTERNS`` to 100, 250 or 499 (the
     300 and 499 cases stop coming back whole), or to 501 or 900 (the 500
     case stops being bounded).
     """
@@ -1843,7 +1862,9 @@ def test_the_byte_bound_measures_the_casefolded_bytes_and_the_raw_bytes(
     assert kelvin_bounded != kelvin
     assert len(kelvin_bounded) <= 300
 
-    with sqlite_user_connection(database, USER_ID) as connection:
+    with sqlite_user_connection(database, USER_ID) as connection, _sqlite_answers_for_itself(
+        monkeypatch
+    ):
         store = SQLiteVNextStore(connection, USER_ID)
         store.search_sources(query=fits, sensitivity_allowed=_ALL_SENSITIVITY, limit=8)
         with pytest.raises(sqlite3.OperationalError, match="LIKE or GLOB pattern too complex"):

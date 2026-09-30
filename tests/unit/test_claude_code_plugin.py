@@ -1602,9 +1602,13 @@ def test_the_docs_say_what_v0190_ships_and_keep_the_option_rules() -> None:
 
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     sections = changelog.split("\n## ")
+    # The Unreleased section holds whatever landed after v0.19.0, so it is not
+    # asserted empty. What this pins is that the plugin entries stay in the
+    # v0.19.0 section and do not move back under it.
     assert sections[1].split("\n", 1)[0].strip() == "Unreleased"
     assert sections[2].startswith("v0.19.0 \u2014 2026-09-30\n")
     flat = " ".join(sections[2].split())
+    unreleased = " ".join(sections[1].split())
     for sentence in (
         "A Claude Code plugin directory is in the repo.",
         "In v0.18.0 there is no Claude Code plugin.",
@@ -1617,6 +1621,7 @@ def test_the_docs_say_what_v0190_ships_and_keep_the_option_rules() -> None:
         "`--data-dir`, then `ALICE_MEMORY_DATA_DIR`, then `~/.alice`.",
     ):
         assert sentence in flat, sentence
+        assert sentence not in unreleased, sentence
 
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     lines = [

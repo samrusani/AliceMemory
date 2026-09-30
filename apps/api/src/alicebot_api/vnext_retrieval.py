@@ -3039,6 +3039,23 @@ class VNextRetrievalService:
         annotate_derived_memory_correction(self.store, compacted)
         return compacted
 
+    def require_source_query_searchable(self, query: str) -> None:
+        """Refuse, before any stage runs, a query the source search cannot take.
+
+        The store owns the limit, because it is the store's SQL that fails: the
+        SQLite store exposes ``check_source_search_query`` and raises
+        ``SourceSearchQueryTooLarge``; the Postgres store and minimal test
+        stores have no such limit and expose nothing, so this does nothing
+        for them. Without this the same refusal still comes from
+        ``search_sources``, only after the memory, vector and graph stages
+        have run. Callers use it only when the source search will run, so a
+        pack that turns sources off keeps taking a long query.
+        """
+
+        check = getattr(self.store, "check_source_search_query", None)
+        if callable(check):
+            check(query)
+
     def search_source_excerpts(
         self,
         *,
@@ -3134,6 +3151,8 @@ class VNextRetrievalService:
         domains = list(interpretation["domains"])
         sensitivity_allowed = list(interpretation["sensitivity_allowed"])
         sources_enabled = bool(interpretation["requires_sources"])
+        if sources_enabled:
+            self.require_source_query_searchable(request.query)
         contradictions_requested = bool(interpretation["requires_contradictions"])
         memory_types = tuple(request.memory_types)
         projects = tuple(sorted(scope.projects))

@@ -495,6 +495,11 @@ echo that internal diagnostic. The response retains `isError: true`, and
 `tool_not_found`, `tool_request_failed`, or `tool_execution_failed` plus a
 static `error.message`. Operator-specific details remain in server logs. This
 also applies to the SQLite `alice-memory mcp` adapter.
+Unreleased (on main, not in v0.19.0): `invalid_request` is a fourth code. It
+answers a recall or context pack query the SQLite source search cannot take
+(see Size bounds). Its `error.message` is not static: it names the limit and
+the measured size, and never repeats the query, for example `query has 1000
+distinct search terms; the limit is 499. Use a shorter query.`
 The task-brief tools name both flags when either one is missing. Permanently
 deleted hosted, channel, chat, chief-of-staff, and model-pack tools never list.
 New integrations should stay on the default three tools; the legacy surface
@@ -515,6 +520,30 @@ provenance over 20,000 characters serialized. That covers
 
 `alice_commit_captures` accepts at most 100 candidates. Each candidate is
 at most 20,000 characters serialized.
+
+Unreleased (on main, not in v0.19.0): on the SQLite vault, `alice_recall` and
+`alice_context_pack` take a `query` of at most 499 distinct search terms and at
+most 40,000 UTF-8 bytes. The bytes are counted as sent and again after case
+folding, because some characters grow when folded (U+0390 goes from 2 bytes to
+6). A search term is an ASCII word of two or more characters that is not a
+stopword. A hyphenated id counts once, and a repeated word counts once,
+ignoring case. A longer query is refused with `invalid_request` and a message
+that names the limit. It is never cut to fit, and no search runs first. A
+context pack applies the limit only when it searches sources, so a pack with
+`include_sources` false or `context_depth` `minimal` still takes a longer
+query. The Postgres backend has no such limit and is unchanged. The same
+refusal comes from the SQLite source search for every other caller, so the
+legacy `alice_vnext_context_pack`, `alice_generate_contradictions` and
+`alice_generate_connections` tools answer it too. In v0.19.0 a query with about
+991 or more distinct terms, or a query over about 50,000 bytes with a captured
+source in the vault, answers `tool_execution_failed`, and a query of 500 to 990
+distinct terms, or of 40,001 to about 50,000 bytes, is taken. A query of any
+size over 40,000 bytes is also taken there when the search reads no source row
+(a vault with no captured source, or filters that exclude every source), and it
+is refused now because the check looks at the query alone. `alice_resume` and
+`alice_recent_decisions` are not covered: a query of about 50,000 bytes or more
+still answers `tool_execution_failed` there once the vault holds a stored
+decision.
 
 ## Trust boundary
 
