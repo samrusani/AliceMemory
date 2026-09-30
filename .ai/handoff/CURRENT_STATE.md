@@ -134,11 +134,14 @@ relative or empty `--data-dir` is refused. There is no schema change.
   bytes with a source in the vault, made the hook print `{}`.
 - Every MCP tool sets `openWorldHint` to false. Five tools are read-only, two
   are non-destructive, and four are destructive. `v0.18.0` tools declare no
-  hints.
+  hints. Unreleased (on main, not in v0.19.0): `alice_memory_review` is
+  read-only, so six tools are read-only and three are destructive.
 - `alice-memory mcp` refuses an empty or relative `--data-dir` with exit 2,
   and the session-start hook prints one line and exits 0 for a relative
   `--data-dir` or plugin `data_dir`. A relative `ALICE_MEMORY_DATA_DIR` is
   not checked. `v0.18.0` creates the vault under the current directory.
+  Unreleased (on main, not in v0.19.0): the hook refuses a relative
+  `ALICE_MEMORY_DATA_DIR` the same way.
 - `alice-memory install --host hermes` keeps a comment in the `alice` block
   when nothing needs to change, and refuses when a change is needed. In
   `v0.18.0` the re-run drops the comment.
