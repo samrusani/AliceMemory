@@ -30,9 +30,20 @@
   `~/.alice`. `alice-memory brief` and `alice-memory mcp` do not read the
   variable, so they are not changed. In v0.19.0 the hook creates the vault
   under the current directory for a relative value.
-
-- Hermes provider 0.5.2 sends the user text and the assistant text of a turn as two separate fields. A reply that contains a line starting with `User:` can no longer become an auto-saved user decision or hide the real user text. A multi-line user message is no longer cut to its first line, and two different turns no longer share a dedupe fingerprint. Each side is capped at 3,800 characters on its own; before, the joined text was capped once. Plugin 0.5.1 shipped in v0.18.0 and v0.19.0 and rebuilt the user text from the assistant reply, so the v0.18.0 statement that only user-role candidates are auto-saved was false for it (see the correction under v0.18.0). The plugin is copied into Hermes by the installer and is not in the wheel, so an existing install keeps the old behavior until you run `scripts/install_hermes_alice_memory_provider.py --force`. A symlink install picks up the change.
-
+- Hermes provider 0.5.2 sends the user text and the assistant text of a turn
+  as two separate fields. A reply that contains a line starting with `User:`
+  can no longer become an auto-saved user decision or hide the real user
+  text. A multi-line user message is no longer cut to its first line, and two
+  different turns no longer share a dedupe fingerprint. Each side is capped
+  at 3,800 characters on its own; before, the joined text was capped once. A
+  lone surrogate in either text no longer raises `UnicodeEncodeError` out of
+  `sync_turn`. Plugin 0.5.1 shipped in v0.18.0 and v0.19.0 and rebuilt the
+  user text from the assistant reply, so the v0.18.0 statement that only
+  user-role candidates are auto-saved was false for it (see the correction
+  under v0.18.0). The plugin is copied into Hermes by the installer and is
+  not in the wheel, so an existing install keeps the old behavior until you
+  run `scripts/install_hermes_alice_memory_provider.py --force`. A symlink
+  install picks up the change.
 - `alice_recall` and `alice_context_pack` refuse, before they search, a query the SQLite source search cannot take, and the tool error names the limit. A query with more than 499 distinct search terms, or over 40,000 UTF-8 bytes (counted as sent and again after case folding), answers `invalid_request` with a message such as `query has 1000 distinct search terms; the limit is 499. Use a shorter query.` The query is never cut to fit. A search term is an ASCII word of two or more characters that is not a stopword, a hyphenated id counts once, and a repeated word counts once. The limits are the session brief's, from one shared function. In v0.19.0 a query with about 991 or more distinct terms, or one over about 50,000 bytes with a captured source in the vault, answers `tool_execution_failed` with no detail, and a query of 500 to 990 distinct terms or 40,001 to about 50,000 bytes is taken. A query of any size over 40,000 bytes is also taken in v0.19.0 when the search reads no source row, which is a vault with no captured source or filters that exclude every source. Those ranges are refused now, because the limits sit at about half of what SQLite takes and the check looks at the query alone, not at what the vault holds. A context pack with `include_sources` false or `context_depth` `minimal` runs no source search and still takes a long query. `invalid_request` is a new MCP tool error code, the only one whose message is not static, and it never repeats the query. The SQLite source search raises the same typed error for every caller, so the legacy `alice_vnext_context_pack`, `alice_generate_contradictions` and `alice_generate_connections` tools answer it too. `alice_resume` and `alice_recent_decisions` are not changed: a query of about 50,000 bytes or more still answers `tool_execution_failed` there once the vault holds a stored decision. The Postgres backend is not changed.
 
 ## v0.19.0 — 2026-09-30
