@@ -446,3 +446,237 @@ def test_the_predicate_applies_people_and_time_scope_like_the_memory_stages() ->
         domains=[], sensitivity_allowed=["private"], scope=None, person_linked_memory_ids=frozenset()
     )
     assert unscoped({"id": "c", "sensitivity": "private", "created_at": "2020-01-01T00:00:00Z"})
+
+
+def _unfiltered(context, **request_fields) -> dict:
+    """The stale excerpt as a compiled pack returns it, for the given request fields."""
+
+    return _source(_pack(context, OLD, **request_fields))
+
+
+def test_a_chain_of_ten_rows_names_no_id() -> None:
+    """The walk takes eight hops. Nine rows are named (above); ten are not.
+
+    With the cap at eight the walk ends on the ninth row, which is still
+    superseded, so the current fact is not known and nothing is named.
+    Mutation: raise the cap from ``range(8)`` to ``range(9)``. The walk then
+    reaches the tenth row and names it.
+    """
+    from alicebot_api.vnext_retrieval import _current_memory_id
+
+    rows = _chain(10)
+    store = _ChainStore(rows)
+    assert _current_memory_id(store, rows["n0"], memory_visible=lambda _row: True) == ""
+
+
+def test_pack_drops_a_superseded_by_pointer_to_a_hidden_successor(tmp_path: Path, monkeypatch) -> None:
+    """``superseded_by`` goes through the same fence as ``supersedes``.
+
+    An older row that still says ``active`` while carrying a pointer to a
+    successor above the ceiling is the shape that named the hidden id on
+    v0.18.0 and v0.19.0. Mutation: apply the visibility check in
+    ``_sanitize_memory_scope_pointers`` to ``supersedes`` only. The pointer
+    and the ``validity.superseded_by_memory_id`` built from it come back.
+    """
+    context = _context(tmp_path, monkeypatch)
+    _source_id, memory_id = _captured(context, monkeypatch)
+    replacement = _supersede(context, memory_id)
+    _set(context, replacement, sensitivity="confidential")
+    _set(context, memory_id, status="active")
+
+    hidden = _pack_memory(_pack(context, OLD), memory_id)
+    assert "superseded_by" not in hidden
+    assert "superseded_by_memory_id" not in (hidden.get("validity") or {})
+    # Not asserted: the row's own ``metadata_json`` still carries a copy of the id.
+    # That place is listed as unfixed in the threat model.
+
+    allowed = _pack_memory(
+        _pack(context, OLD, sensitivity_allowed=("public", "internal", "private", "confidential", "unknown")),
+        memory_id,
+    )
+    assert allowed.get("superseded_by") == replacement, "the control: a caller allowed to read it keeps the pointer"
+
+
+def test_pack_label_hides_a_successor_outside_the_requested_domains(tmp_path: Path, monkeypatch) -> None:
+    """The pack builds its own predicate, and it carries the requested domains.
+
+    Mutation: build the pack-site predicate in ``compile_context_pack`` with
+    ``domains=[]``. The label then names a successor the pack's own memory
+    stages would not return. The recall-site test does not reach this code.
+    """
+    context = _context(tmp_path, monkeypatch)
+    _source_id, memory_id = _captured(context, monkeypatch)
+    replacement = _supersede(context, memory_id)
+    _set(context, replacement, domain="professional")
+
+    narrowed = _unfiltered(context, domains=("project",))
+    assert narrowed["derived_memory_corrected"] is True
+    assert "current_memory_id" not in narrowed
+    assert _unfiltered(context)["current_memory_id"] == replacement, "the control: no domain filter names it"
+
+
+def test_pack_drops_a_supersedes_pointer_to_a_predecessor_outside_the_requested_domains(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """The pointer sanitizer is handed the requested domains.
+
+    Mutation: pass ``domains=[]`` at the ``_sanitize_memory_scope_pointers``
+    call site in ``compile_context_pack``. The ``supersedes`` pointer to a
+    predecessor outside the requested domain then stays.
+    """
+    context = _context(tmp_path, monkeypatch)
+    _source_id, memory_id = _captured(context, monkeypatch)
+    replacement = _supersede(context, memory_id)
+    _set(context, memory_id, domain="professional")
+
+    narrowed = _pack_memory(_pack(context, NEW, domains=("project",)), replacement)
+    assert "supersedes" not in narrowed
+    assert "supersedes_memory_id" not in (narrowed.get("validity") or {})
+    control = _pack_memory(_pack(context, NEW), replacement)
+    assert control.get("supersedes") == memory_id, "the control: no domain filter keeps the pointer"
+
+
+def _people_scoped_vault(context, monkeypatch, *, link_successor: bool) -> str:
+    """Both corrected memories are linked to the person through the entity graph.
+
+    The source carries the person in its own metadata, so only the graph edge
+    decides whether the memories are inside a people-scoped read. Returns the
+    successor's id. With ``link_successor`` false only the older memory is linked.
+    """
+    source_id, memory_id = _captured(context, monkeypatch)
+    replacement = _supersede(context, memory_id)
+    person = _store(context, lambda s: s.create_entity({"entity_type": "person", "name": "Ada"}))
+    linked = (memory_id, replacement) if link_successor else (memory_id,)
+    for linked_id in linked:
+        _store(
+            context,
+            lambda s, linked_id=linked_id: s.create_graph_edge(
+                {
+                    "from_type": "memory",
+                    "from_id": linked_id,
+                    "to_type": "entity",
+                    "to_id": str(person["id"]),
+                    "edge_type": "mentions",
+                    "confidence": 1.0,
+                    "explanation": "test link",
+                    "created_by": "test",
+                }
+            ),
+        )
+
+    def tag(store):
+        row = store.get_source(source_id)
+        metadata = dict(row.get("metadata_json") or {})
+        metadata["people"] = ["ada"]
+        store.update_source(source_id=source_id, patch={"metadata_json": metadata}, actor_type="user")
+
+    _store(context, tag)
+    return replacement
+
+
+def test_recall_label_counts_a_person_link_made_through_the_entity_graph(tmp_path: Path, monkeypatch) -> None:
+    """A memory linked to the person by a graph edge is inside a people-scoped read.
+
+    Mutation: build the predicate at the recall site in ``alice_recall``'s
+    call sequence with ``person_linked_memory_ids=frozenset()``. The label then
+    drops the id of a successor the people-scoped memory stages do return.
+    """
+    context = _context(tmp_path, monkeypatch)
+    replacement = _people_scoped_vault(context, monkeypatch, link_successor=True)
+    source = _source(_call(context, "alice_recall", {"query": OLD, "people": ["ada"]}))
+    assert source["derived_memory_corrected"] is True
+    assert source.get("current_memory_id") == replacement
+
+
+def test_recall_label_hides_a_successor_the_person_is_not_linked_to(tmp_path: Path, monkeypatch) -> None:
+    """The person half of the fence. Only the older memory is linked to the person.
+
+    Mutation: make the predicate ignore an active people scope.
+    """
+    context = _context(tmp_path, monkeypatch)
+    replacement = _people_scoped_vault(context, monkeypatch, link_successor=False)
+    source = _source(_call(context, "alice_recall", {"query": OLD, "people": ["ada"]}))
+    assert source["derived_memory_corrected"] is True
+    assert "current_memory_id" not in source
+    assert replacement not in json.dumps(source, default=str)
+
+
+def test_pack_label_counts_a_person_link_made_through_the_entity_graph(tmp_path: Path, monkeypatch) -> None:
+    """The pack's predicate gets the person links its own memory stages used.
+
+    Mutation: build the pack-site predicate in ``compile_context_pack`` with
+    ``person_linked_memory_ids=frozenset()``.
+    """
+    context = _context(tmp_path, monkeypatch)
+    replacement = _people_scoped_vault(context, monkeypatch, link_successor=True)
+    source = _unfiltered(context, people=("ada",))
+    assert source["derived_memory_corrected"] is True
+    assert source.get("current_memory_id") == replacement
+
+
+def test_pack_label_hides_a_successor_the_person_is_not_linked_to(tmp_path: Path, monkeypatch) -> None:
+    """Pack-site twin of the recall test above.
+
+    Mutation: make the pack-site predicate ignore an active people scope.
+    """
+    context = _context(tmp_path, monkeypatch)
+    replacement = _people_scoped_vault(context, monkeypatch, link_successor=False)
+    source = _unfiltered(context, people=("ada",))
+    assert source["derived_memory_corrected"] is True
+    assert "current_memory_id" not in source
+    assert replacement not in json.dumps(source, default=str)
+
+
+def test_a_stale_quote_elsewhere_in_the_source_does_not_label_the_excerpt() -> None:
+    """The flag is about the passage the agent reads, not any stale quote the source has.
+
+    The stored quote is another passage of the source, so the excerpt the
+    agent reads is not the stale one and gains no keys. A quote that covers the
+    excerpt sets both keys. Mutation: set ``corrected`` before the
+    ``excerpt and not in_excerpt`` check in ``annotate_derived_memory_correction``,
+    which labels every excerpt of a source that has any stale quote.
+    """
+    from alicebot_api.vnext_retrieval import annotate_derived_memory_correction
+
+    memory = {
+        "id": "m1",
+        "status": "superseded",
+        "superseded_by": "m2",
+        "canonical_text": "New text",
+        "updated_at": "2026-02-01T00:00:00Z",
+    }
+
+    class Store:
+        def list_memories_referencing_source(self, **_kw):
+            return [memory]
+
+        def list_provenance_links_for_targets(self, **_kw):
+            return [
+                {
+                    "evidence_role": "quoted_from",
+                    "source_id": "s1",
+                    "quote": "An older sentence about another topic",
+                    "target_id": "m1",
+                }
+            ]
+
+        def get_memory(self, memory_id):
+            return {"id": "m2", "status": "active", "superseded_by": None}
+
+    elsewhere = {
+        "id": "s1",
+        "excerpt": "Entirely different passage that shares no words.",
+        "captured_at": "2026-01-01T00:00:00Z",
+    }
+    annotate_derived_memory_correction(Store(), elsewhere, memory_visible=lambda _row: True)
+    assert "derived_memory_corrected" not in elsewhere
+    assert "current_memory_id" not in elsewhere
+
+    covered = {
+        "id": "s1",
+        "excerpt": "An older sentence about another topic",
+        "captured_at": "2026-01-01T00:00:00Z",
+    }
+    annotate_derived_memory_correction(Store(), covered, memory_visible=lambda _row: True)
+    assert covered.get("derived_memory_corrected") is True
+    assert covered.get("current_memory_id") == "m2"
