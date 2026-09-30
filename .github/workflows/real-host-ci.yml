@@ -423,7 +423,7 @@ jobs:
           ref="$(python3 -c 'import json; print(json.load(open(".claude-plugin/marketplace.json"))["plugins"][0]["source"]["ref"])')"
           version="${ref#v}"
           home="$(mktemp -d)"
-          HOME="$home" claude plugin marketplace add . < /dev/null
+          HOME="$home" claude plugin marketplace add ./ < /dev/null
           HOME="$home" claude plugin install "alice-memory@alicememory" < /dev/null
           HOME="$home" claude plugin list --json > "$RUNNER_TEMP/plugins.json"
           python3 - "$version" "$RUNNER_TEMP/plugins.json" << 'PY'

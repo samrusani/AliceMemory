@@ -19,6 +19,6 @@ The SessionStart hook reads the folder from that option, through the `CLAUDE_PLU
 
 Tool names look like `mcp__plugin_alice-memory_alice__alice_recall`.
 
-Auto-update is off for a third-party marketplace. After a release is published, update with `claude plugin update alice-memory@alicememory`.
+Auto-update is off for a third-party marketplace. After a release is published, pull your clone so its marketplace file carries the new pin, then run `claude plugin update alice-memory@alicememory`.
 
 Claude Code caps a hook's `additionalContext` or plain stdout at 10,000 characters. Over that it injects a file path and a 2,000-character preview.
