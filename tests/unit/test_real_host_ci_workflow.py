@@ -638,3 +638,59 @@ def test_real_host_workflow_grants_contents_read_and_no_secrets() -> None:
     assert "secrets." not in text
     assert "GITHUB_TOKEN" not in text
     assert "GH_TOKEN" not in text
+
+
+def _collected_count(node_id: str) -> int:
+    """How many tests pytest collects for a node id, read from the source.
+
+    A plain function is one test. Each literal ``parametrize`` list multiplies
+    it. A parametrize whose values are not a literal list or tuple fails the
+    test, so a new shape is decided here rather than guessed.
+    """
+
+    path, _, function = node_id.partition("::")
+    tree = ast.parse((REPO_ROOT / path).read_text(encoding="utf-8"))
+    matches = [
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == function
+    ]
+    assert len(matches) == 1, node_id
+    count = 1
+    for decorator in matches[0].decorator_list:
+        if not (isinstance(decorator, ast.Call) and ast.unparse(decorator.func) == "pytest.mark.parametrize"):
+            continue
+        values = decorator.args[1] if len(decorator.args) > 1 else None
+        assert isinstance(values, (ast.List, ast.Tuple)), (node_id, "non-literal parametrize")
+        count *= len(values.elts)
+    return count
+
+
+def test_the_gate_count_is_the_listed_real_host_tests_in_both_jobs() -> None:
+    """Both jobs list the same real-host tests, each one exists, and ``ran != N`` is what they collect.
+
+    A merge from main can add tests to one side of the list and leave the gate
+    number on the other side's count. The gate would then fail every run or,
+    if loosened to pass, stop catching a skipped test. The count is read from
+    the workflow text and compared with the node ids in the same step, where a
+    parametrized id counts once per case (the OpenCode read test runs twice).
+
+    Mutations: change either ``ran != N`` to another number; drop a test from
+    one job's list (the step lookup finds no step, because it needs every
+    test named in one step); list a test that no longer exists in its file;
+    list one test twice; count a parametrized test once. This test fails.
+    """
+
+    listed: dict[str, list[str]] = {}
+    for name in ("pinned", "canary"):
+        run = _pytest_step(_job(name))["run"]
+        ids = re.findall(r"tests/unit/\w+\.py::test_real_\w+", run)
+        assert ids, name
+        assert len(ids) == len(set(ids)), (name, "a test is listed twice")
+        gate = re.findall(r"if ran != (\d+) or skipped != 0", run)
+        expected = sum(_collected_count(node_id) for node_id in ids)
+        assert gate == [str(expected)], (name, gate, expected)
+        listed[name] = ids
+    assert sorted(listed["pinned"]) == sorted(listed["canary"])
+    for node_id in listed["pinned"]:
+        assert _collected_count(node_id) >= 1, node_id

@@ -807,8 +807,9 @@ def test_hook_results_read_the_response_events_only() -> None:
     """Each ``hook_response`` gives its outcome, exit code and first output line, clipped.
 
     The output falls back to stderr and then stdout, and ``hook_started`` gives
-    nothing. Mutation: read ``hook_started`` too, skip the clip, or ignore
-    stderr. This test fails.
+    nothing. When two fields are both set, the earlier one in that order wins.
+    Mutation: read ``hook_started`` too, skip the clip, ignore stderr, or prefer
+    stdout over output or stderr. This test fails.
     """
 
     module = _load_trial()
@@ -819,6 +820,8 @@ def test_hook_results_read_the_response_events_only() -> None:
         {"type": "system", "subtype": "hook_response", "hook_name": "c", "output": "", "stdout": "from stdout", "exit_code": 0, "outcome": "success"},
         {"type": "system", "subtype": "hook_response", "hook_name": "d", "output": "x" * 500, "exit_code": 0, "outcome": "success"},
         {"type": "system", "subtype": "hook_response", "hook_name": "e"},
+        {"type": "system", "subtype": "hook_response", "hook_name": "f", "output": "from output", "stderr": "from stderr", "stdout": "from stdout", "exit_code": 0, "outcome": "success"},
+        {"type": "system", "subtype": "hook_response", "hook_name": "g", "output": "", "stderr": "from stderr", "stdout": "from stdout", "exit_code": 1, "outcome": "error"},
     ]
     results = module.hook_results(events)
     assert [(r["hook_name"], r["outcome"], r["exit_code"]) for r in results] == [
@@ -827,9 +830,12 @@ def test_hook_results_read_the_response_events_only() -> None:
         ("c", "success", 0),
         ("d", "success", 0),
         ("e", None, None),
+        ("f", "success", 0),
+        ("g", "error", 1),
     ]
     assert [r["first_line"] for r in results][:3] == ["first", "from stderr", "from stdout"]
     assert len(results[3]["first_line"]) < 210 and results[4]["first_line"] == ""
+    assert [r["first_line"] for r in results][5:] == ["from output", "from stderr"]
     assert module.hook_results([]) == []
 
 

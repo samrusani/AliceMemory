@@ -23,16 +23,17 @@ absolute path; set an absolute path.`` In JSON that line is
 ``--data-dir`` is the same as none: it falls back to
 ``$ALICE_MEMORY_DATA_DIR``, then ``~/.alice``.
 
-Plugin mode. ``CLAUDE_PLUGIN_ROOT`` is set, and non-empty, only in the
-Claude Code plugin's hook. With no ``--data-dir`` in that mode the data
-directory is ``$CLAUDE_PLUGIN_OPTION_DATA_DIR`` when it is set and
-non-empty, else ``~/.alice``. ``$ALICE_MEMORY_DATA_DIR`` is ignored, so
-the hook and the plugin's server, which reads the same plugin option and
-defaults to the same folder, always open one vault. The absolute-after-``~``
-rule above applies to the option value. The plugin's hook carries no
-``--data-dir`` because Claude Code does not run a hook whose arguments
-reference a plugin option that is unset. Outside plugin mode nothing
-changes, and an explicit ``--data-dir`` wins everywhere.
+Plugin mode. Claude Code sets ``CLAUDE_PLUGIN_ROOT`` for a plugin's hooks
+and servers and not for a hook in ``settings.json``, so a non-empty value
+marks this command as the Claude Code plugin's hook. With no ``--data-dir``
+in that mode the data directory is ``$CLAUDE_PLUGIN_OPTION_DATA_DIR`` when
+it is set and non-empty, else ``~/.alice``. ``$ALICE_MEMORY_DATA_DIR`` is
+ignored, so the hook and the plugin's server, which reads the same plugin
+option and defaults to the same folder, always open one vault. The
+absolute-after-``~`` rule above applies to the option value. The plugin's
+hook carries no ``--data-dir`` because Claude Code does not run a hook whose
+arguments reference a plugin option that is unset. Outside plugin mode
+nothing changes, and an explicit ``--data-dir`` wins everywhere.
 """
 
 from __future__ import annotations
@@ -207,7 +208,9 @@ def _run(args: argparse.Namespace) -> int:
 def _plugin_mode() -> bool:
     """True when this process is the Claude Code plugin's hook.
 
-    ``CLAUDE_PLUGIN_ROOT`` is set only for that hook. An empty value is not
+    Claude Code sets ``CLAUDE_PLUGIN_ROOT`` for a plugin's hooks and servers
+    and not for a hook in ``settings.json``. This command runs only as a hook,
+    so a non-empty value means the plugin's hook. An empty value is not
     plugin mode. Older cached plugin versions do not look for it, so they are
     unchanged.
     """

@@ -2524,8 +2524,10 @@ def _plugin_metadata_issues(root_dir: Path, version: str) -> list[str]:
     The hook's args must be exactly ``--from``, the pin, and
     ``alice-memory-session-start``. It carries no ``--data-dir``: Claude Code
     does not run a hook whose args reference an unset plugin option, so the
-    hook reads ``CLAUDE_PLUGIN_OPTION_DATA_DIR`` itself. The server's rule is
-    only that it starts with the pin.
+    hook reads ``CLAUDE_PLUGIN_OPTION_DATA_DIR`` itself. ``hooks.json`` holds
+    that one handler and nothing else, and no ``user_config`` text anywhere in
+    it, so a second handler, a second group or another event cannot bring the
+    option back. The server's rule is only that it starts with the pin.
 
     A missing or unreadable file is an issue string. This does not raise.
     """
@@ -2550,7 +2552,8 @@ def _plugin_metadata_issues(root_dir: Path, version: str) -> list[str]:
         ("hook", hooks_json, _plugin_hook_args, ["alice-memory-session-start"]),
     ):
         try:
-            loaded = json.loads(path.read_text(encoding="utf-8"))
+            text = path.read_text(encoding="utf-8")
+            loaded = json.loads(text)
         except (OSError, ValueError):
             issues.append(f"{path.relative_to(root_dir).as_posix()} is missing or unreadable")
             continue
@@ -2561,7 +2564,30 @@ def _plugin_metadata_issues(root_dir: Path, version: str) -> list[str]:
             issues.append(
                 f"{label} command args are not exactly {json.dumps(['--from', pin, *tail])}"
             )
+        if label == "hook":
+            relative = path.relative_to(root_dir).as_posix()
+            if "user_config" in text:
+                issues.append(f"{relative} references a plugin option (user_config)")
+            if _plugin_hook_handler_count(loaded) != 1:
+                issues.append(f"{relative} does not hold exactly one hook handler")
     return issues
+
+
+def _plugin_hook_handler_count(loaded: object) -> int:
+    """Handlers across every event and group of a hooks.json document."""
+
+    hooks = loaded.get("hooks") if isinstance(loaded, dict) else None
+    if not isinstance(hooks, dict):
+        return 0
+    count = 0
+    for groups in hooks.values():
+        if not isinstance(groups, list):
+            continue
+        for group in groups:
+            handlers = group.get("hooks") if isinstance(group, dict) else None
+            if isinstance(handlers, list):
+                count += len(handlers)
+    return count
 
 
 def _plugin_mcp_args(loaded: object) -> list[object] | None:
