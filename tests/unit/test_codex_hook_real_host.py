@@ -44,7 +44,7 @@ import pytest
 
 from alicebot_api.host_install import host_file_map
 from alicebot_api.onramp import main as onramp_main
-from tests.unit.codex_hook_helpers import commit_fact
+from tests.unit.codex_hook_helpers import NUMBER_CASES, commit_fact, number_case_document
 from tests.unit.launcher_helpers import pin_launcher_search
 
 REAL_HOSTS_ENV = "ALICE_TEST_REAL_HOSTS"
@@ -872,6 +872,52 @@ def test_real_codex_skips_a_hooks_file_with_an_http_handler(rig: Rig) -> None:
         f"({skipped.summary()}); install refuses the same file"
     )
     rig.flush()
+
+
+@requires_real_codex
+def test_real_codex_and_install_agree_on_hooks_json_number_and_spelling_rules(rig: Rig) -> None:
+    """Codex loads or skips hooks.json exactly where install accepts or refuses it, case by case.
+
+    Each case of ``NUMBER_CASES`` is a hooks.json with a plain command handler
+    under SessionStart (the probe) and the case's handler under Stop. The real
+    ``codex app-server`` ``hooks/list`` lists the probe when Codex loaded the
+    file, and lists nothing with a hooks.json warning when it skipped it. Install
+    is run on the same file. The three must agree: Codex, install, and the
+    table's verdict, which came from a Rust judge built from Codex's own
+    types. That build turns on serde_json's ``arbitrary_precision`` as Codex
+    does, so an ``mcp_tool`` input takes an integer of any size and a ``-0``
+    timeout loads. Every disagreement is collected before the test fails, so one
+    run in the pinned job shows them all. Mutation: restore the i64 range check
+    in ``_codex_toml_representable``, or drop the both-spellings check. The
+    cases it breaks disagree with Codex and this test fails.
+    """
+
+    tmp_path = rig.tmp_path
+    problems: list[str] = []
+    for index, (label, handler, expected) in enumerate(NUMBER_CASES):
+        rig.hooks.write_text(number_case_document(handler), encoding="utf-8")
+        before = rig.hooks.read_bytes()
+        rig.config.unlink(missing_ok=True)
+        listed = rig.codex_hooks()
+        assert not isinstance(listed, str), (label, listed)
+        hooks, warnings = listed
+        loaded = any("probe-hook" in str(hook.get("command")) for hook in hooks)
+        if not loaded and not (hooks == [] and any("hooks.json" in warning for warning in warnings)):
+            problems.append(f"{label}: Codex listed no probe and gave no hooks.json warning: {listed}")
+        code, out, err = rig.install(tmp_path / f"vault-{index}")
+        accepted = code == 0
+        if not accepted and (
+            "Codex would skip this hooks.json" not in out or rig.hooks.read_bytes() != before
+        ):
+            problems.append(f"{label}: install refused for another reason, or wrote: {out} {err}")
+        rig.say(f"{label}: codex {'loads' if loaded else 'skips'}, install {'accepts' if accepted else 'refuses'}")
+        if not (loaded == accepted == expected):
+            problems.append(
+                f"{label}: codex loaded={loaded}, install accepted={accepted}, table says {expected}"
+                + ("" if loaded else f"; codex warnings={warnings}")
+            )
+    rig.flush()
+    assert not problems, "\n".join(problems)
 
 
 @requires_real_codex

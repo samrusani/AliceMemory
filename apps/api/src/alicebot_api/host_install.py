@@ -1387,7 +1387,6 @@ _CODEX_HOOK_EVENTS = (
 _CODEX_HANDLER_TYPES = frozenset({"command", "mcp_tool", "prompt", "agent"})
 _CODEX_SKIPS_HOOKS = "Codex would skip this hooks.json"
 _U64_LIMIT = 2**64
-_I64_LIMIT = 2**63
 
 
 def _codex_skips(detail: str) -> NoReturn:
@@ -1399,17 +1398,19 @@ def _codex_is_u64(value: object) -> bool:
 
 
 def _codex_toml_representable(value: object) -> bool:
-    """False for a null, or an integer outside i64, anywhere in an ``mcp_tool`` input.
+    """False for a null anywhere in an ``mcp_tool`` input.
 
-    Codex hashes the handler as TOML for trust, so it rejects the input at load.
+    Codex hashes the handler as TOML for trust, so it rejects the input at
+    load when ``toml`` cannot represent a value, and it cannot represent a null.
+    An integer of any size passes. Codex's release build enables serde_json's
+    ``arbitrary_precision`` (``codex-exec-server-protocol`` asks for it), which
+    hands each number to ``toml`` as a one-entry table, so nothing is out of
+    range there. A plain serde_json build refuses an integer in [2**63, 2**64)
+    and one too large for a float, and this function does not follow that build.
     """
 
     if value is None:
         return False
-    if isinstance(value, bool):
-        return True
-    if isinstance(value, int):
-        return -_I64_LIMIT <= value < _I64_LIMIT
     if isinstance(value, dict):
         return all(_codex_toml_representable(item) for item in value.values())
     if isinstance(value, list):
@@ -1420,7 +1421,10 @@ def _codex_toml_representable(value: object) -> bool:
 def _check_codex_handler(handler: object, where: str) -> None:
     """Codex's ``HookHandlerConfig`` (config/src/hook_config.rs): tag, required fields, types.
 
-    A field typed ``Option`` accepts null. No message quotes a value from the file.
+    A field typed ``Option`` accepts null. No message quotes a value from the
+    file. A ``-0`` literal for ``timeout`` or ``additionalContextLimit`` reads
+    as 0 in Codex's release build but is skipped by a plain serde_json build;
+    install accepts it, as the release build does.
     """
 
     if not isinstance(handler, dict):
@@ -1433,6 +1437,9 @@ def _check_codex_handler(handler: object, where: str) -> None:
     if kind == "command":
         if not isinstance(handler.get("command"), str):
             _codex_skips(f"{where} has no command string")
+        if "commandWindows" in handler and "command_windows" in handler:
+            # One serde field with an alias: Codex reads both spellings as a duplicate, null included.
+            _codex_skips(f"{where} has both commandWindows and command_windows")
         for key in ("commandWindows", "command_windows", "statusMessage"):
             if handler.get(key) is not None and not isinstance(handler[key], str):
                 _codex_skips(f"{where} has a {key} that is not a string")
@@ -1456,6 +1463,14 @@ def _check_codex_handler(handler: object, where: str) -> None:
 
 
 def _check_codex_hooks_walk(doc: Mapping[str, Any]) -> None:
+    """Refuse what Codex's serde types skip. Two odd shapes Codex loads are refused here too.
+
+    A group written as a JSON array (serde reads a struct from a sequence), and
+    an ``mcp_tool`` input that is a bare decimal or an integer past u64 (with
+    ``arbitrary_precision`` serde_json hands a map to ``Map``), are loaded by
+    Codex and refused by install. Neither turns up in a real file.
+    """
+
     extra = set(doc) - {"description", "hooks"}
     if extra:
         _codex_skips("the top level holds a key other than description and hooks")
@@ -1631,8 +1646,10 @@ class InstallRefused(InstallError):
     """A host file was left unchanged on purpose. ``output`` holds every receipt.
 
     ``kinds`` names each refused host. ``plugin`` is the Claude Code case
-    where the plugin and install's entries both exist. The plugin error is
-    used only when every refusal is that one.
+    where the plugin and install's entries both exist. ``hook_by_hand`` is
+    the Codex case where install wrote config.toml and refused only the hook,
+    because config.toml already defines hooks. Each has its own error, used
+    only when every refusal is that one.
     """
 
     def __init__(self, output: str, *, kinds: Sequence[str] = ()) -> None:
@@ -7457,6 +7474,17 @@ _CODEX_TOML_STALE_NEXT = (
     "hook there with the one above by hand, so Codex does not run the brief twice, then trust "
     'it: open Codex, choose Review hooks at "Hooks need review", or use /hooks.'
 )
+_CODEX_TOML_TWICE_NEXT = (
+    "add the hook above to {config} by hand, then remove Alice's alice-memory-session-start "
+    "hook from {hooks}. Codex runs the hooks in both files, so the brief would be injected "
+    'twice. Then trust the new hook: open Codex, choose Review hooks at "Hooks need review", '
+    "or use /hooks."
+)
+_CODEX_TOML_TWICE_NOTE = (
+    "note: {hooks} also holds the alice-memory-session-start hook, and Codex runs the hooks in "
+    "config.toml and in hooks.json, so the brief is injected twice. Remove the one in "
+    "hooks.json; install does not edit hooks.json when config.toml holds hooks"
+)
 _CODEX_HOOK_NOT_WRITTEN_NEXT = (
     "install did not write the SessionStart hook. Add a hook that runs session_start_argv "
     "above, quoted for the shell Codex uses, to hooks.json."
@@ -7518,6 +7546,28 @@ def _codex_hooks_json_dir(path: Path, home: Path) -> str | None:
     except (_MalformedHostFile, RecursionError, OSError):
         return None
     return _codex_hook_dir(_existing_alice_hook_command(doc, "codex"), home)
+
+
+def _codex_hooks_json_holds_alice(path: Path) -> bool:
+    """True when the hooks.json Codex would load holds an Alice SessionStart handler.
+
+    It never raises, like ``_codex_hooks_json_dir``: a file that is missing,
+    unreadable, or one Codex would skip holds no hook Codex runs, so the
+    answer is False. Unlike ``_load_codex_hooks`` it does not stop at a second
+    Alice handler, because Codex runs both.
+    """
+
+    try:
+        raw = _read_host_file(_host_target(path))
+        if raw is None or not raw.strip():
+            return False
+        doc = _strict_hooks_json(raw)
+        _check_codex_hooks_walk(doc)
+    except (_MalformedHostFile, RecursionError, OSError):
+        return False
+    hooks = doc.get("hooks")
+    groups = hooks.get("SessionStart") if isinstance(hooks, dict) else None
+    return isinstance(groups, list) and bool(_codex_alice_handlers(groups))
 
 
 def _codex_probe_command(doc: Mapping[str, Any]) -> str | None:
@@ -7723,6 +7773,15 @@ def _install_codex_host(
         details.append(home_note)
     if plan.hooks_disabled:
         details.append(_CODEX_HOOKS_OFF_NOTE)
+    # With hooks in config.toml install never writes hooks.json, but an Alice hook the
+    # user's hooks.json already holds runs beside the one in config.toml, once trusted.
+    json_alice = (
+        plan.toml_hooks
+        and not plan.hooks_disabled
+        and _codex_hooks_json_holds_alice(hooks_path)
+    )
+    if json_alice and plan.toml_alice_handler is not None:
+        details.append(_CODEX_TOML_TWICE_NOTE.format(hooks=hooks_path))
     hook_entry_plan = plan.entry_plan
     assert hook_entry_plan is not None  # nosec B101 # narrows the type for mypy; every CodexPlan built above carries its entry plan
 
@@ -7807,9 +7866,13 @@ def _install_codex_host(
     shown, hidden = _masked(plan.payload, own_env=_own_env(plan.payload))
     success_trailer: list[str] = []
     if hook_snippet is not None:
-        success_trailer.append(
-            f"next: {_CODEX_TOML_HOOKS_NEXT if plan.toml_alice_handler is None else _CODEX_TOML_STALE_NEXT}"
-        )
+        if plan.toml_alice_handler is not None:
+            toml_next = _CODEX_TOML_STALE_NEXT
+        elif json_alice:
+            toml_next = _CODEX_TOML_TWICE_NEXT.format(config=path, hooks=hooks_path)
+        else:
+            toml_next = _CODEX_TOML_HOOKS_NEXT
+        success_trailer.append(f"next: {toml_next}")
     elif hook_problem is not None:
         success_trailer.append(f"next: {_CODEX_HOOK_NOT_WRITTEN_NEXT}")
     if hook_written and not dry_run:
@@ -7930,10 +7993,14 @@ def _install_codex_host(
             # Said only once the file holds the new command: a run that wrote
             # nothing has changed nothing for Codex to distrust.
             hook_details.append(_CODEX_MODIFIED_LINE)
+    # A dry run and a run that changed nothing returned above, so config.toml was written
+    # here. The hook snippet exists only when config.toml already holds hooks and install
+    # refused just the hook: its own error code, so a caller sees the entry is in place.
     return _HostResult(
         receipt("written" if action == "written" else action, details, snippet=hook_snippet, trailer=success_trailer),
         status,
         plan.used_fallback,
+        refusal_kind="hook_by_hand" if hook_snippet is not None else None,
     )
 
 

@@ -216,6 +216,10 @@ _ERROR_CONTRACTS: dict[str, str] = {
         "A host config was left unchanged because install could not edit it safely; "
         "add the printed snippet by hand"
     ),
+    "install_hook_by_hand": (
+        "Install wrote the MCP entry to config.toml but could not add the SessionStart hook, "
+        "because config.toml already defines hooks; add the printed hook to config.toml by hand"
+    ),
     "install_refused_plugin": (
         "The alice-memory plugin is enabled and install's Claude Code entries exist. "
         "Run claude mcp remove alice --scope user, remove the session-start hook, "
@@ -1413,6 +1417,8 @@ def _run_install(args: argparse.Namespace) -> int:
         print(refused.output)
         if refused.kinds and all(kind == "plugin" for kind in refused.kinds):
             _emit_error("install_refused_plugin")
+        elif refused.kinds and all(kind == "hook_by_hand" for kind in refused.kinds):
+            _emit_error("install_hook_by_hand")
         else:
             _emit_error("install_refused")
         return 1

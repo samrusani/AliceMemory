@@ -1,7 +1,9 @@
 """Helpers the Codex hook tests share. Nothing here imports a host module.
 
 ``commit_fact`` puts one known fact in a vault, so a session brief has a line a
-test can look for.
+test can look for. ``NUMBER_CASES`` is the table of hooks.json handlers whose
+numbers and field spellings decide whether Codex loads the file, shared by the
+install test and the real-Codex test that compares the two.
 """
 
 from __future__ import annotations
@@ -46,3 +48,87 @@ def commit_fact(vault: Path, monkeypatch: pytest.MonkeyPatch, title: str, text: 
         },
     )
     assert payload["status"] == "committed", payload
+
+
+def _mcp(literal: str) -> str:
+    return '{"type":"mcp_tool","server":"s","tool":"t","input":{"a":%s}}' % literal
+
+
+def _command(key: str, literal: str) -> str:
+    return '{"type":"command","command":"x","%s":%s}' % (key, literal)
+
+
+# (label, handler text for the Stop event, whether Codex loads the file and install accepts it).
+# The verdicts are those of a Rust judge that copies HooksFile, MatcherGroup and
+# HookHandlerConfig from Codex 0.158.0 (config/src/hook_config.rs) and reads the
+# text with serde_json, built with serde_json's arbitrary_precision feature as Codex
+# is (codex-exec-server-protocol enables it). A build without that feature differs on
+# the labels marked (plain): it skips an integer in [2**63, 2**64) in an mcp_tool
+# input ("u64 value was too large") and one too large for a float ("number out of
+# range"), and it skips a -0 timeout or limit. Only test_codex_hook_real_host.py, in the
+# pinned job, runs the real Codex over this table.
+_BIG = "1" + "0" * 399
+NUMBER_CASES: list[tuple[str, str, bool]] = [
+    ("mcp-int-2^63-1", _mcp(str(2**63 - 1)), True),
+    ("mcp-int-2^63 (plain)", _mcp(str(2**63)), True),
+    ("mcp-int-2^64-1 (plain)", _mcp(str(2**64 - 1)), True),
+    ("mcp-int-2^64", _mcp(str(2**64)), True),
+    ("mcp-int-minus-2^63", _mcp(str(-(2**63))), True),
+    ("mcp-int-minus-2^63-1", _mcp(str(-(2**63) - 1)), True),
+    ("mcp-int-1e30", _mcp(str(10**30)), True),
+    ("mcp-int-400-digits (plain)", _mcp(_BIG), True),
+    ("mcp-list-holding-2^63 (plain)", _mcp("[[1,%d]]" % 2**63), True),
+    ("mcp-nested-holding-minus-2^63-1", _mcp('{"b":{"c":%d}}' % (-(2**63) - 1)), True),
+    ("mcp-float", _mcp("1.5"), True),
+    ("mcp-null", _mcp("null"), False),
+    ("mcp-list-holding-null", _mcp("[1,null]"), False),
+    ("timeout-0", _command("timeout", "0"), True),
+    ("timeout-2^64-1", _command("timeout", str(2**64 - 1)), True),
+    ("timeout-2^64", _command("timeout", str(2**64)), False),
+    ("timeout-minus-0 (plain)", _command("timeout", "-0"), True),
+    ("timeout-5.0", _command("timeout", "5.0"), False),
+    ("timeout-1e2", _command("timeout", "1e2"), False),
+    ("timeout-minus-0.0", _command("timeout", "-0.0"), False),
+    ("timeout-minus-1", _command("timeout", "-1"), False),
+    ("limit-minus-0 (plain)", _command("additionalContextLimit", "-0"), True),
+    ("limit-2^64", _command("additionalContextLimit", str(2**64)), False),
+    ("commandWindows-only", _command("commandWindows", '"w"'), True),
+    ("command_windows-only", _command("command_windows", '"w"'), True),
+    (
+        "both-spellings-null",
+        '{"type":"command","command":"x","commandWindows":null,"command_windows":null}',
+        False,
+    ),
+    (
+        "both-spellings-strings",
+        '{"type":"command","command":"x","commandWindows":"a","command_windows":"b"}',
+        False,
+    ),
+    (
+        "both-spellings-same-string",
+        '{"type":"command","command":"x","commandWindows":"a","command_windows":"a"}',
+        False,
+    ),
+    (
+        "both-spellings-null-then-string",
+        '{"type":"command","command":"x","commandWindows":null,"command_windows":"b"}',
+        False,
+    ),
+    (
+        "both-spellings-string-then-null",
+        '{"type":"command","command":"x","commandWindows":"a","command_windows":null}',
+        False,
+    ),
+]
+
+
+def number_case_document(handler: str) -> str:
+    """A hooks.json text with ``handler`` under Stop and a plain command handler under SessionStart.
+
+    The SessionStart handler is the probe: Codex lists it when it loads the file.
+    """
+
+    return (
+        '{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"echo probe-hook"}]}],'
+        '"Stop":[{"hooks":[%s]}]}}\n' % handler
+    )

@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import shlex
 import stat
 import sys
@@ -29,8 +30,9 @@ import pytest
 from alicebot_api import host_install, host_launcher, session_start_hook
 from alicebot_api.host_install import host_file_map
 from alicebot_api.host_launcher import hook_output_format, split_command
+from alicebot_api.onramp import _ERROR_CONTRACTS
 from alicebot_api.onramp import main as onramp_main
-from tests.unit.codex_hook_helpers import commit_fact
+from tests.unit.codex_hook_helpers import NUMBER_CASES, commit_fact, number_case_document
 from tests.unit.launcher_helpers import make_scripts, pin_launcher_search
 
 pytestmark = pytest.mark.usefixtures("uvx_on_path")
@@ -411,20 +413,26 @@ _INVALID_HOOKS = {
     "command-windows-snake-case-not-string": {
         "hooks": {"Stop": [{"hooks": [{"type": "command", "command": "x", "command_windows": 1}]}]}
     },
+    "command-windows-both-spellings-null": {
+        "hooks": {"Stop": [{"hooks": [{
+            "type": "command", "command": "x", "commandWindows": None, "command_windows": None,
+        }]}]}
+    },
+    "command-windows-both-spellings-strings": {
+        "hooks": {"Stop": [{"hooks": [{
+            "type": "command", "command": "x", "commandWindows": "a", "command_windows": "b",
+        }]}]}
+    },
+    "command-windows-both-spellings-mixed": {
+        "hooks": {"Stop": [{"hooks": [{
+            "type": "command", "command": "x", "commandWindows": None, "command_windows": "b",
+        }]}]}
+    },
     "mcp-tool-status-message-not-string": {
         "hooks": {"Stop": [{"hooks": [{"type": "mcp_tool", "server": "s", "tool": "t", "statusMessage": 7}]}]}
     },
-    "mcp-tool-input-integer-above-i64": {
-        "hooks": {"Stop": [{"hooks": [{"type": "mcp_tool", "server": "s", "tool": "t", "input": {"a": 2**63}}]}]}
-    },
-    "mcp-tool-input-integer-below-i64": {
-        "hooks": {"Stop": [{"hooks": [{"type": "mcp_tool", "server": "s", "tool": "t", "input": {"a": -(2**63) - 1}}]}]}
-    },
     "mcp-tool-input-list-holding-null": {
         "hooks": {"Stop": [{"hooks": [{"type": "mcp_tool", "server": "s", "tool": "t", "input": {"a": [1, None]}}]}]}
-    },
-    "mcp-tool-input-list-holding-huge-integer": {
-        "hooks": {"Stop": [{"hooks": [{"type": "mcp_tool", "server": "s", "tool": "t", "input": {"a": [{"b": 2**64}]}}]}]}
     },
 }
 
@@ -501,10 +509,17 @@ _ACCEPTED_HOOKS = {
             "input": {"low": -(2**63), "high": 2**63 - 1, "nested": [{"n": 2**63 - 1}]},
         }]}]}
     },
-    "command-windows-both-spellings-null": {
-        "hooks": {"Stop": [{"hooks": [{
-            "type": "command", "command": "x", "commandWindows": None, "command_windows": None,
-        }]}]}
+    "mcp-tool-input-integer-above-i64": {
+        "hooks": {"Stop": [{"hooks": [{"type": "mcp_tool", "server": "s", "tool": "t", "input": {"a": 2**63}}]}]}
+    },
+    "mcp-tool-input-integer-below-i64": {
+        "hooks": {"Stop": [{"hooks": [{"type": "mcp_tool", "server": "s", "tool": "t", "input": {"a": -(2**63) - 1}}]}]}
+    },
+    "mcp-tool-input-list-holding-huge-integer": {
+        "hooks": {"Stop": [{"hooks": [{"type": "mcp_tool", "server": "s", "tool": "t", "input": {"a": [{"b": 2**64}]}}]}]}
+    },
+    "command-windows-one-spelling": {
+        "hooks": {"Stop": [{"hooks": [{"type": "command", "command": "x", "commandWindows": None}]}]}
     },
     "character-outside-the-bmp": {
         "hooks": {"Stop": [{"hooks": [{"type": "command", "command": "echo \U0001f600"}]}]}
@@ -533,6 +548,53 @@ def test_codex_hooks_file_codex_loads_is_accepted(
         assert written["hooks"][key] == value
     if "description" in document:
         assert written["description"] == document["description"]
+
+
+@pytest.mark.parametrize(
+    ("label", "handler", "accepted"), NUMBER_CASES, ids=[case[0] for case in NUMBER_CASES]
+)
+def test_codex_hooks_file_number_and_spelling_rules_match_the_serde_judge(
+    label: str, handler: str, accepted: bool, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Install agrees with Codex on which numbers and field spellings make it skip hooks.json.
+
+    ``NUMBER_CASES`` holds each verdict from a Rust judge built from Codex
+    0.158.0's own ``HookHandlerConfig`` and serde_json (see the table's
+    comment for the build, and for the labels a plain serde_json build
+    would call differently). An ``mcp_tool`` input refuses only a null:
+    integers at and beyond the i64 and u64 limits load. A ``timeout`` or
+    ``additionalContextLimit`` must be a whole number from 0 to 2**64-1, and a
+    handler that spells both ``commandWindows`` and ``command_windows`` is
+    skipped, null included. An accepted file gets Alice's group appended
+    after the user's, and their handler is kept as written. A refused one is
+    left as it was and nothing else is written. Mutations: restore the i64
+    range check in ``_codex_toml_representable`` (every integer case above
+    2**63-1 or below -2**63 fails); refuse only [2**63, 2**64) (the
+    ``2^63`` and ``2^64-1`` cases fail); drop the both-spellings check (the
+    five ``both-spellings`` cases fail); let ``_codex_is_u64`` accept 2**64
+    (the ``timeout-2^64`` and ``limit-2^64`` cases fail).
+    """
+
+    home, vault = tmp_path / "home", tmp_path / "vault"
+    seeded = _seed(_hooks(home), number_case_document(handler))
+    before = seeded.read_bytes()
+    code, out, err = _install(home, vault, capsys)
+    if not accepted:
+        assert code == 1, (label, out, err)
+        assert seeded.read_bytes() == before
+        assert not _config(home).exists() and not vault.exists()
+        lines = out.splitlines()
+        assert "action: refused" in lines
+        assert any(
+            line.startswith("reason: Codex would skip this hooks.json: ") for line in lines
+        ), out
+        assert "session_start: none" in lines
+        return
+    assert code == 0, (label, out, err)
+    written = _read(_hooks(home))["hooks"]
+    assert written["Stop"] == [{"hooks": [json.loads(handler)]}]
+    probe = {"hooks": [{"type": "command", "command": "echo probe-hook"}]}
+    assert written["SessionStart"] == [probe, {"hooks": [_handler(vault)]}]
 
 
 @pytest.mark.parametrize(
@@ -2037,3 +2099,418 @@ def test_markdown_brief_never_starts_with_a_bracket(
     # The JSON form is what Codex rejects, so the hook must not use it.
     as_json = _hook_output(monkeypatch, capsys, "--format", "json", "--data-dir", str(vault))
     assert first(as_json) == "{"
+
+
+# --- round 3: paths the round 2 recheck found untested --------------------------------------
+
+DRY_RUN_REFUSAL = "dry run: install would refuse this file; nothing was attempted"
+_STOP_HOOK = (
+    "[[hooks.Stop]]\n\n[[hooks.Stop.hooks]]\n"
+    'type = "command"\n'
+    'command = "echo stop"\n'
+)
+
+
+@pytest.mark.parametrize("state", ["no-alice-hook", "matching-alice-hook", "stale-alice-hook"])
+def test_codex_toml_hooks_dry_run_prints_the_hook_and_says_it_would_refuse(
+    state: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A dry run with a ``[[hooks.Stop]]`` command hook in config.toml changes nothing and says what a run would do.
+
+    With no Alice hook there, or a stale one, the receipt prints the TOML hook
+    to add after the ``---`` line, adds the ``dry run: install would refuse``
+    line, and exits 1. With Alice's matching hook already there it exits 0
+    and prints neither. config.toml keeps its bytes, and no hooks.json,
+    vault or backup appears. Mutation: replace the ``if hook_snippet is not
+    None:`` block of the dry run with ``if False:``. The ``no-alice-hook``
+    and ``stale-alice-hook`` cases lose the snippet and fail. Mutation:
+    replace ``if hook_problem is not None: dry_trailer.append(_DRY_RUN_REFUSAL)``
+    with ``if False:``. The same two cases lose the refusal line and fail.
+    """
+
+    home, vault = tmp_path / "home", tmp_path / "vault"
+    alice = {
+        "no-alice-hook": "",
+        "matching-alice-hook": "\n" + _toml_alice_hook(vault),
+        "stale-alice-hook": "\n" + _toml_alice_hook(vault, timeout=30),
+    }[state]
+    config = _seed(_config(home), _STOP_HOOK + alice)
+    before = config.read_bytes()
+    code, out, err = _install(home, vault, capsys, "--dry-run")
+    lines = out.splitlines()
+    assert config.read_bytes() == before
+    assert not _hooks(home).exists()
+    assert not vault.exists()
+    assert "action: dry-run" in lines
+    snippet = out.split("snippet:\n", 1)[1]
+    if state == "matching-alice-hook":
+        assert code == 0, (out, err)
+        assert "\n---\n" not in snippet
+        assert DRY_RUN_REFUSAL not in lines
+        assert "session_start: unchanged in config.toml (Codex runs it only if you have trusted it)" in lines
+        return
+    assert code == 1, (out, err)
+    assert "\n---\n" in snippet
+    hook_part = snippet.split("\n---\n", 1)[1].split("\nnext:", 1)[0]
+    parsed = tomllib.loads(hook_part[hook_part.index("[[hooks.SessionStart]]") :])
+    handler = parsed["hooks"]["SessionStart"][0]["hooks"][0]
+    assert handler["command"] == _command(vault)
+    assert handler["timeout"] == 120 and handler["additionalContextLimit"] == 0
+    assert DRY_RUN_REFUSAL in lines
+    assert "session_start: refused" in lines
+
+
+@pytest.mark.parametrize("kind", ["directory", "mode-0"])
+@pytest.mark.parametrize("dry_run", [False, True], ids=["written", "dry-run"])
+def test_codex_hooks_file_that_cannot_be_read_is_a_failed_host_and_writes_nothing(
+    kind: str, dry_run: bool, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A hooks.json that is a directory, or a file nobody can read, fails the host before any write.
+
+    Exit 1, ``action: failed`` and the generic file reason. config.toml, the
+    vault and the backups do not exist afterwards. Mutation: change the
+    ``except OSError`` after the hook-load ``try`` block to ``except
+    ZeroDivisionError``. The OSError escapes to the host's catch-all, whose
+    reason is ``unexpected ...Error``, and the reason assertion fails.
+    """
+
+    if kind == "mode-0" and os.geteuid() == 0:
+        pytest.skip("root reads a file with mode 0")
+    home, vault = tmp_path / "home", tmp_path / "vault"
+    hooks = _hooks(home)
+    if kind == "directory":
+        hooks.mkdir(parents=True)
+    else:
+        _seed(hooks, {"hooks": {}})
+        hooks.chmod(0)
+    try:
+        code, out, err = _install(home, vault, capsys, *(["--dry-run"] if dry_run else []))
+    finally:
+        if kind == "mode-0":
+            hooks.chmod(0o600)
+    assert code == 1, (out, err)
+    lines = out.splitlines()
+    assert "action: failed" in lines
+    assert "reason: the file could not be read or written" in lines
+    assert f"file: {hooks}" in lines
+    assert not _config(home).exists()
+    assert not vault.exists()
+    assert not _backups(vault, "hooks.json") and not _backups(vault, "config.toml")
+
+
+def test_codex_hook_refusal_prints_no_argv_and_no_secret_for_a_kept_json_mode_hook(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A kept JSON-mode hook with an ``API_KEY=...`` prefix is refused without printing its argv.
+
+    The entry's ``--index-url`` keeps install from rebuilding the hook, and
+    the kept command prints JSON, which Codex rejects. Any argv the receipt
+    printed would have the prefix hidden, so it could only be used by pasting
+    the secret back: the receipt prints none, and neither the prefix value
+    nor the index credential shows in stdout or stderr. Mutation: drop the
+    ``if not hidden:`` guard in ``_plan_hook``'s kept-command format refusal.
+    A masked ``session_start_argv:`` line appears and this test fails.
+    """
+
+    vault = (tmp_path / "vault").resolve()
+    home = tmp_path / "home"
+    _seed(
+        _config(home),
+        "[mcp_servers.alice]\n"
+        'command = "uvx"\n'
+        f'args = ["--index-url", "https://user:{CANARY}@h.example/simple", "alice-memory", "mcp", "--data-dir", "{vault}"]\n',
+    )
+    kept = (
+        f"API_KEY={CANARY}-key uvx --from alice-memory alice-memory-session-start "
+        f"--data-dir {shlex.quote(str(vault))} --format json"
+    )
+    hooks = _seed(_hooks(home), {"hooks": {"SessionStart": [_user_group(kept)]}})
+    before = hooks.read_bytes()
+    code, out, err = _install(home, None, capsys)
+    assert code == 1, (out, err)
+    assert hooks.read_bytes() == before
+    lines = out.splitlines()
+    assert "session_start: refused" in lines
+    assert any(
+        "does not print --format markdown, which Codex needs" in line for line in lines
+    ), out
+    assert not any(line.startswith("session_start_argv: ") for line in lines), out
+    assert CANARY not in out + err
+    assert "API_KEY" not in out + err
+
+
+def test_codex_group_without_a_hooks_list_is_kept_and_alices_group_is_appended(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """``{"matcher": "x"}`` in ``hooks.SessionStart`` has no ``hooks`` list, and Codex loads it.
+
+    Install keeps it first, byte for byte, and appends Alice's group, so
+    Codex's trust keys for the user's group do not move. Mutation: read the
+    group's list with ``group["hooks"]`` in ``_codex_alice_handlers`` (assume
+    it exists). A ``KeyError`` ends the run and this test fails.
+    """
+
+    home, vault = tmp_path / "home", tmp_path / "vault"
+    bare = {"matcher": "x"}
+    _seed(_hooks(home), {"hooks": {"SessionStart": [bare]}})
+    code, out, err = _install(home, vault, capsys)
+    assert code == 0, (out, err)
+    written = _read(_hooks(home))["hooks"]["SessionStart"]
+    assert written == [bare, {"hooks": [_handler(vault)]}]
+    assert WRITTEN in out.splitlines()
+    again_code, again_out, again_err = _install(home, vault, capsys)
+    assert again_code == 0, (again_out, again_err)
+    assert _read(_hooks(home))["hooks"]["SessionStart"] == written
+    assert UNCHANGED in again_out.splitlines()
+
+
+# --- round 3: Alice's hook in hooks.json while config.toml holds hooks ----------------------
+
+
+def _alice_hooks_json(vault: Path) -> dict:
+    """The hooks.json install writes for ``vault``: Alice's handler in its own group."""
+
+    return {"hooks": {"SessionStart": [{"hooks": [_handler(vault)]}]}}
+
+
+def _twice_next(home: Path) -> str:
+    return (
+        f"next: add the hook above to {_config(home)} by hand, then remove Alice's "
+        f"alice-memory-session-start hook from {_hooks(home)}. Codex runs the hooks in both "
+        "files, so the brief would be injected twice. Then trust the new hook: open Codex, "
+        'choose Review hooks at "Hooks need review", or use /hooks.'
+    )
+
+
+@pytest.mark.parametrize("dry_run", [False, True], ids=["written", "dry-run"])
+def test_codex_toml_hooks_and_an_alice_hook_in_hooks_json_say_to_move_it(
+    dry_run: bool, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """With hooks in config.toml and Alice's hook already in hooks.json, the next line names both files.
+
+    Codex runs the hooks in both, so adding the printed hook to config.toml
+    alone would inject the brief twice. The next line says to add it to
+    config.toml and then remove Alice's from hooks.json, with both paths.
+    Install still never edits hooks.json: its bytes stay, and no backup is
+    made. Mutation: keep the plain ``_CODEX_TOML_HOOKS_NEXT`` line on this
+    path. The exact-line assertion fails.
+    """
+
+    home, vault = tmp_path / "home", tmp_path / "vault"
+    _seed(_config(home), _toml_hook())
+    hooks = _seed(_hooks(home), _alice_hooks_json(vault))
+    before = hooks.read_bytes()
+    code, out, err = _install(home, vault, capsys, *(["--dry-run"] if dry_run else []))
+    assert code == 1, (out, err)
+    lines = out.splitlines()
+    assert _twice_next(home) in lines
+    assert not any(line.startswith("next: install did not write hooks.json") for line in lines)
+    assert hooks.read_bytes() == before
+    assert not _backups(vault, "hooks.json")
+    snippet = out.split("snippet:\n", 1)[1]
+    assert "[[hooks.SessionStart.hooks]]" in snippet and "--format markdown" in snippet
+
+
+@pytest.mark.parametrize(
+    "state",
+    ["no-alice-hook-in-hooks-json", "hooks-json-codex-skips", "hooks-json-unreadable", "hooks-off"],
+)
+def test_codex_toml_hooks_keep_the_plain_next_line_when_nothing_runs_twice(
+    state: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The move-it line is only for a hooks.json Codex loads with Alice's hook in it, with hooks on.
+
+    A hooks.json with only the user's own hook, one Codex would skip (an
+    ``http`` sibling), one that is a directory, or Alice's hook with
+    ``features.hooks = false`` runs nothing twice, so the plain line stays
+    and the run does not fail. Mutation: read hooks.json without the
+    tolerant catch (``except (_MalformedHostFile, RecursionError, OSError)``
+    becomes ``except ZeroDivisionError``). The ``hooks-json-codex-skips``
+    and ``hooks-json-unreadable`` cases fail. Mutation: drop ``not
+    plan.hooks_disabled``. The ``hooks-off`` case fails.
+    """
+
+    home, vault = tmp_path / "home", tmp_path / "vault"
+    config_text = _toml_hook()
+    if state == "hooks-off":
+        config_text += "\n[features]\nhooks = false\n"
+    _seed(_config(home), config_text)
+    alice = _alice_hooks_json(vault)
+    if state == "no-alice-hook-in-hooks-json":
+        _seed(_hooks(home), {"hooks": {"SessionStart": [_user_group("echo mine")]}})
+    elif state == "hooks-json-codex-skips":
+        skipped = json.loads(json.dumps(alice))
+        skipped["hooks"]["Stop"] = [{"hooks": [{"type": "http", "url": "http://127.0.0.1:9/x"}]}]
+        _seed(_hooks(home), skipped)
+    elif state == "hooks-json-unreadable":
+        _hooks(home).mkdir(parents=True)
+    else:
+        _seed(_hooks(home), alice)
+    code, out, err = _install(home, vault, capsys)
+    assert code == 1, (state, out, err)
+    lines = out.splitlines()
+    assert "action: written" in lines
+    assert any(line.startswith("next: install did not write hooks.json") for line in lines)
+    assert _twice_next(home) not in lines
+    assert not any("injected twice" in line for line in lines), out
+
+
+@pytest.mark.parametrize("hook", ["matching", "stale"])
+@pytest.mark.parametrize("dry_run", [False, True], ids=["written", "dry-run"])
+def test_codex_toml_alice_hook_and_one_in_hooks_json_get_a_note(
+    hook: str, dry_run: bool, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """When config.toml already holds Alice's hook and hooks.json does too, a note says Codex runs both.
+
+    The matching hook in config.toml is the unchanged case (exit 0); a stale
+    one is refused (exit 1) with its own next line. Either way the note names
+    hooks.json and says to remove the one there, and install does not touch
+    hooks.json. With no Alice hook in hooks.json there is no note. Mutation:
+    never add the note (``if json_alice and plan.toml_alice_handler is not
+    None`` becomes ``if False``). Both hook cases fail.
+    """
+
+    home, vault = tmp_path / "home", tmp_path / "vault"
+    toml_hook = _toml_alice_hook(vault, timeout=30) if hook == "stale" else _toml_alice_hook(vault)
+    _seed(_config(home), _STOP_HOOK + "\n" + toml_hook)
+    alice_json = _seed(_hooks(home), _alice_hooks_json(vault))
+    before = alice_json.read_bytes()
+    extra = ["--dry-run"] if dry_run else []
+    code, out, err = _install(home, vault, capsys, *extra)
+    lines = out.splitlines()
+    note = (
+        f"note: {_hooks(home)} also holds the alice-memory-session-start hook, and Codex runs "
+        "the hooks in config.toml and in hooks.json, so the brief is injected twice. Remove the "
+        "one in hooks.json; install does not edit hooks.json when config.toml holds hooks"
+    )
+    assert note in lines
+    assert code == (1 if hook == "stale" else 0), (out, err)
+    assert alice_json.read_bytes() == before
+    assert not _backups(vault, "hooks.json")
+
+    # The control: the same config.toml with no Alice hook in hooks.json has no note.
+    other = tmp_path / "other"
+    _seed(_config(other), _STOP_HOOK + "\n" + toml_hook)
+    _seed(_hooks(other), {"hooks": {"SessionStart": [_user_group("echo mine")]}})
+    _, control_out, _ = _install(other, vault, capsys, *extra)
+    assert "also holds the alice-memory-session-start hook" not in control_out
+
+
+# --- round 3: the error code when config.toml holds hooks -----------------------------------
+
+HOOK_BY_HAND_MESSAGE = (
+    "Install wrote the MCP entry to config.toml but could not add the SessionStart hook, "
+    "because config.toml already defines hooks; add the printed hook to config.toml by hand"
+)
+
+
+def _error_record(err: str) -> dict:
+    return json.loads(err.strip().splitlines()[-1])
+
+
+def _error(code: str) -> dict:
+    return {"error": {"code": code, "message": _ERROR_CONTRACTS[code]}}
+
+
+@pytest.mark.parametrize("hook", ["none", "stale"])
+def test_codex_toml_hooks_refusal_has_its_own_error_code(
+    hook: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Install wrote config.toml and refused only the hook: exit 1 with ``install_hook_by_hand``.
+
+    The generic ``install_refused`` says the host config was left unchanged,
+    which is not true here. The new message says the MCP entry was written,
+    the hook was not, and why. It is used only on this path, for a config.toml
+    with no Alice hook and for one with a stale hook. Mutation: emit
+    ``install_refused`` on this path (drop the ``hook_by_hand`` branch in
+    ``_run_install``). The record assertion fails.
+    """
+
+    home, vault = tmp_path / "home", tmp_path / "vault"
+    text = _toml_hook() if hook == "none" else _STOP_HOOK + "\n" + _toml_alice_hook(vault, timeout=30)
+    _seed(_config(home), text)
+    code, out, err = _install(home, vault, capsys)
+    assert code == 1, (out, err)
+    assert "action: written" in out.splitlines()
+    assert _ERROR_CONTRACTS["install_hook_by_hand"] == HOOK_BY_HAND_MESSAGE
+    assert _error_record(err) == {
+        "error": {"code": "install_hook_by_hand", "message": HOOK_BY_HAND_MESSAGE}
+    }
+    assert "install_refused" not in err
+
+
+def _scenario_unchanged(home: Path, vault: Path, capsys, monkeypatch) -> tuple[int, str, str]:
+    _seed(_config(home), _toml_hook())
+    _install(home, vault, capsys)
+    return _install(home, vault, capsys)
+
+
+def _scenario_dry_run(home: Path, vault: Path, capsys, monkeypatch) -> tuple[int, str, str]:
+    _seed(_config(home), _toml_hook())
+    return _install(home, vault, capsys, "--dry-run")
+
+
+def _scenario_config_refused(home: Path, vault: Path, capsys, monkeypatch) -> tuple[int, str, str]:
+    _seed(
+        _config(home),
+        '[mcp_servers.alice]\ncommand = "uvx"\nargs = ["alice-memory", "mcp"]\ncwd = "/tmp/work"\n',
+    )
+    return _install(home, vault, capsys)
+
+
+def _scenario_hooks_json_skipped(home: Path, vault: Path, capsys, monkeypatch) -> tuple[int, str, str]:
+    _seed(_hooks(home), _INVALID_HOOKS["handler-type-http"])
+    return _install(home, vault, capsys)
+
+
+def _scenario_hook_cannot_be_quoted(home: Path, vault: Path, capsys, monkeypatch) -> tuple[int, str, str]:
+    # config.toml holds hooks, but the hook install would print cannot be written for a Windows
+    # shell, so there is no hook to add and "config.toml already defines hooks" would be wrong.
+    monkeypatch.setattr(host_launcher, "WINDOWS_HOOKS", True)
+    _seed(_config(home), _toml_hook())
+    return _install(home, vault.parent / "O'Brien" / ".alice", capsys)
+
+
+def _scenario_two_hosts(home: Path, vault: Path, capsys, monkeypatch) -> tuple[int, str, str]:
+    _seed(_config(home), _toml_hook())
+    cursor = home / ".cursor" / "mcp.json"
+    cursor.parent.mkdir(parents=True)
+    cursor.write_text("{", encoding="utf-8")
+    code = onramp_main(
+        ["install", "--home", str(home), "--host", "codex", "--host", "cursor", "--data-dir", str(vault)]
+    )
+    captured = capsys.readouterr()
+    return code, captured.out, captured.err
+
+
+@pytest.mark.parametrize(
+    "scenario",
+    [
+        _scenario_unchanged,
+        _scenario_dry_run,
+        _scenario_config_refused,
+        _scenario_hooks_json_skipped,
+        _scenario_hook_cannot_be_quoted,
+        _scenario_two_hosts,
+    ],
+    ids=lambda fn: fn.__name__.removeprefix("_scenario_"),
+)
+def test_every_other_codex_refusal_still_emits_install_refused(
+    scenario, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Only a written config.toml with a refused hook has the new code; every other refusal is unchanged.
+
+    A run that changed nothing, a dry run, a config.toml install cannot edit, a
+    hooks.json Codex would skip, a hook that cannot be quoted for a Windows
+    shell (no hook to add by hand), and a second refused host all keep
+    ``install_refused``, exit 1. Mutation: give ``_HostResult`` the
+    ``hook_by_hand`` kind whenever ``hook_problem`` is set (test
+    ``hook_snippet is not None`` as ``hook_problem is not None``). The
+    ``hook_cannot_be_quoted`` case fails. Mutation: set the kind on every
+    refusal. Every case fails.
+    """
+
+    home, vault = tmp_path / "home", tmp_path / "vault"
+    code, out, err = scenario(home, vault, capsys, monkeypatch)
+    assert code == 1, (out, err)
+    assert _error_record(err) == _error("install_refused"), err
