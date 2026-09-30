@@ -147,6 +147,7 @@ jobs:
             tests/unit/test_codex_hook_real_host.py::test_real_codex_runs_the_session_start_hook \
             tests/unit/test_codex_hook_real_host.py::test_real_codex_ignores_json_hook_output \
             tests/unit/test_codex_hook_real_host.py::test_real_codex_skips_a_hooks_file_with_an_http_handler \
+            tests/unit/test_codex_hook_real_host.py::test_real_codex_does_not_spill_a_large_brief \
             -q --tb=short -rP --junitxml "$RUNNER_TEMP/real-hosts.xml"
           "$ALICE_PYTHON" - "$RUNNER_TEMP/real-hosts.xml" <<'PY'
           import sys
@@ -156,7 +157,7 @@ jobs:
           suites = [root] if root.tag == "testsuite" else list(root.findall("testsuite"))
           ran = sum(int(suite.attrib.get("tests", "0")) for suite in suites)
           skipped = sum(int(suite.attrib.get("skipped", "0")) for suite in suites)
-          if ran != 11 or skipped != 0:
+          if ran != 12 or skipped != 0:
               raise SystemExit(
                   f"real host tests did not all run: tests={ran} skipped={skipped}"
               )
@@ -230,6 +231,7 @@ jobs:
             tests/unit/test_codex_hook_real_host.py::test_real_codex_runs_the_session_start_hook \
             tests/unit/test_codex_hook_real_host.py::test_real_codex_ignores_json_hook_output \
             tests/unit/test_codex_hook_real_host.py::test_real_codex_skips_a_hooks_file_with_an_http_handler \
+            tests/unit/test_codex_hook_real_host.py::test_real_codex_does_not_spill_a_large_brief \
             -q --tb=short -rP --junitxml "$RUNNER_TEMP/real-hosts.xml"
           "$ALICE_PYTHON" - "$RUNNER_TEMP/real-hosts.xml" <<'PY'
           import sys
@@ -239,7 +241,7 @@ jobs:
           suites = [root] if root.tag == "testsuite" else list(root.findall("testsuite"))
           ran = sum(int(suite.attrib.get("tests", "0")) for suite in suites)
           skipped = sum(int(suite.attrib.get("skipped", "0")) for suite in suites)
-          if ran != 11 or skipped != 0:
+          if ran != 12 or skipped != 0:
               raise SystemExit(
                   f"real host tests did not all run: tests={ran} skipped={skipped}"
               )

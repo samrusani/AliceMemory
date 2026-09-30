@@ -977,6 +977,11 @@ def test_codex_hook_never_writes_a_url(
             for line in lines
         ), out
         assert secret not in out + err
+        if label == "index":
+            after = [line for line in lines if line.startswith("session_start_argv_after_change: ")]
+            assert after, out
+            argv = json.loads(after[0].split(": ", 1)[1])
+            assert argv[-4:] == ["--data-dir", str(vault), "--format", "markdown"]
 
 
 def test_codex_hook_carries_the_allowlisted_uvx_options(
@@ -1037,6 +1042,137 @@ def test_codex_hook_dry_run_masks_a_kept_command(
     assert secret not in out + err
     assert "<hidden> uvx --from alice-memory alice-memory-session-start" in out
     assert "hook command (1 word install does not print)" in out
+
+
+def test_codex_hook_refuses_a_kept_hook_it_cannot_move_and_prints_markdown(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A kept hook whose data dir install cannot rely on is refused, with the argv to add by hand.
+
+    ``--data-dir`` is passed, the entry's ``--with`` stops install from
+    rebuilding the hook, and the old hook's relative data dir cannot be
+    trusted. The printed argv has the new data dir and ends in
+    ``--format markdown``. Mutation: leave ``output_format`` out of the
+    ``_refuse_kept_hook`` call. This test fails.
+    """
+
+    old_vault = (tmp_path / "old").resolve()
+    new_vault = (tmp_path / "new").resolve()
+    home = tmp_path / "home"
+    _seed(
+        _config(home),
+        "[mcp_servers.alice]\n"
+        'command = "uvx"\n'
+        f'args = ["--with", "requests", "alice-memory", "mcp", "--data-dir", "{old_vault}"]\n',
+    )
+    hooks = _seed(
+        _hooks(home),
+        {
+            "hooks": {
+                "SessionStart": [
+                    _user_group(
+                        "uvx --from alice-memory alice-memory-session-start --data-dir relative-vault"
+                    )
+                ]
+            }
+        },
+    )
+    before = hooks.read_bytes()
+    code, out, err = _install(home, new_vault, capsys)
+    assert code == 1, (out, err)
+    assert hooks.read_bytes() == before
+    lines = out.splitlines()
+    assert "session_start: refused" in lines
+    argv_lines = [line for line in lines if line.startswith("session_start_argv: ")]
+    assert argv_lines, out
+    argv = json.loads(argv_lines[0].split(": ", 1)[1])
+    assert argv[-4:] == ["--data-dir", str(new_vault), "--format", "markdown"]
+
+
+def test_codex_hook_dry_run_hides_group_keys_from_the_file(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Alice's group is printed with every key install did not write hidden.
+
+    A ``matcher`` on the group stays in place on a re-run, so the dry run
+    prints it as ``<hidden>`` and names it. Mutation: print the group's
+    other keys as they are. The secret appears and this test fails.
+    """
+
+    secret = "startup|" + "matchercanary"
+    home, vault = tmp_path / "home", tmp_path / "vault"
+    _install(home, vault, capsys)
+    document = _read(_hooks(home))
+    document["hooks"]["SessionStart"][0]["matcher"] = secret
+    hooks = _seed(_hooks(home), document)
+    before = hooks.read_bytes()
+    code, out, err = _install(home, vault, capsys, "--dry-run")
+    assert code == 0, (out, err)
+    assert hooks.read_bytes() == before
+    assert secret not in out + err
+    assert '"matcher": "<hidden>"' in out
+    assert "hook matcher" in out
+
+
+def test_codex_hook_of_a_db_entry_keeps_its_own_data_dir_and_prints_markdown(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A ``--db`` entry keeps the hook on the hook's own store, rebuilt with ``--format markdown``.
+
+    ``--data-dir`` does not move a ``--db`` entry. The imported JSON-mode
+    hook keeps its data dir and gets the launcher and the markdown format.
+    Mutation: leave ``output_format`` out of the own-dir rebuild. This test
+    fails.
+    """
+
+    home = tmp_path / "home"
+    own = (tmp_path / "own-store").resolve()
+    _seed(
+        _config(home),
+        "[mcp_servers.alice]\n"
+        'command = "uvx"\n'
+        f'args = ["alice-memory", "mcp", "--db", "{tmp_path / "alice.sqlite"}"]\n',
+    )
+    _seed(
+        _hooks(home),
+        {
+            "hooks": {
+                "SessionStart": [
+                    _user_group(
+                        f"uvx --from alice-memory alice-memory-session-start --data-dir {own}"
+                    )
+                ]
+            }
+        },
+    )
+    code, out, err = _install(home, None, capsys)
+    assert code == 0, (out, err)
+    handler = _read(_hooks(home))["hooks"]["SessionStart"][0]["hooks"][0]
+    assert handler == _handler(own)
+
+
+def test_codex_hook_only_command_handlers_count_as_alices(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A handler of another type that names the script is not Alice's, so it is left alone.
+
+    Mutation: match on the command text alone. Install would replace the
+    user's ``mcp_tool`` handler, and this test fails.
+    """
+
+    home, vault = tmp_path / "home", tmp_path / "vault"
+    theirs = {
+        "type": "mcp_tool",
+        "server": "s",
+        "tool": "t",
+        "command": "uvx --from alice-memory alice-memory-session-start --data-dir /v",
+    }
+    _seed(_hooks(home), {"hooks": {"SessionStart": [{"hooks": [theirs]}]}})
+    code, out, err = _install(home, vault, capsys)
+    assert code == 0, (out, err)
+    groups = _read(_hooks(home))["hooks"]["SessionStart"]
+    assert groups[0] == {"hooks": [theirs]}
+    assert groups[1] == {"hooks": [_handler(vault)]}
 
 
 def test_codex_hook_windows_mode(

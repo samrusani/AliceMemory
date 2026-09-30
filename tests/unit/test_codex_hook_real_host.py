@@ -178,6 +178,10 @@ class ResponsesServer:
         owner = self
 
         class Handler(http.server.BaseHTTPRequestHandler):
+            # Codex tries a WebSocket first. An HTTP/1.0 answer to that upgrade is a protocol
+            # error that it retries; an HTTP/1.1 404 is a refusal it falls back from at once.
+            protocol_version = "HTTP/1.1"
+
             def log_message(self, format: str, *args: object) -> None:  # noqa: A002
                 return
 
@@ -208,7 +212,9 @@ class ResponsesServer:
                 self.send_header("Content-Type", "text/event-stream")
                 self.send_header("Cache-Control", "no-cache")
                 self.send_header("Content-Length", str(len(payload)))
+                self.send_header("Connection", "close")
                 self.end_headers()
+                self.close_connection = True
                 self.wfile.write(payload)
                 self.wfile.flush()
 
@@ -252,17 +258,41 @@ def developer_texts(request: dict) -> list[str]:
     return texts
 
 
+def request_tools(request: dict) -> list[dict]:
+    """The tools a request offers.
+
+    The default model in codex 0.158.0 uses "responses lite", which sends the
+    tools as an ``additional_tools`` item at the start of ``input`` and no top
+    level ``tools``. Older models send ``tools``. Both are read.
+    """
+
+    body = request["body"]
+    if not isinstance(body, dict):
+        return []
+    found: list[dict] = []
+    top = body.get("tools")
+    if isinstance(top, list):
+        found.extend(tool for tool in top if isinstance(tool, dict))
+    items = body.get("input")
+    for item in items if isinstance(items, list) else []:
+        if isinstance(item, dict) and item.get("type") == "additional_tools":
+            listed = item.get("tools")
+            if isinstance(listed, list):
+                found.extend(tool for tool in listed if isinstance(tool, dict))
+    return found
+
+
 def has_alice_recall(request: dict) -> bool:
     """True when the request carries a ``namespace`` tool ``mcp__alice...`` with child ``alice_recall``."""
 
-    tools = request["body"].get("tools") if isinstance(request["body"], dict) else None
-    for tool in tools if isinstance(tools, list) else []:
-        if not (isinstance(tool, dict) and tool.get("type") == "namespace"):
-            continue
-        if not str(tool.get("name", "")).startswith("mcp__alice"):
+    for tool in request_tools(request):
+        if tool.get("type") != "namespace" or not str(tool.get("name", "")).startswith("mcp__alice"):
             continue
         children = tool.get("tools")
-        if any(isinstance(child, dict) and child.get("name") == "alice_recall" for child in children or []):
+        if any(
+            isinstance(child, dict) and child.get("name") == "alice_recall"
+            for child in children or []
+        ):
             return True
     return False
 
@@ -376,7 +406,7 @@ class Run:
             for request in self.requests
         ]
         tools = [
-            [str(tool.get("name")) for tool in (request["body"].get("tools") or [])]
+            [f"{tool.get('type')}:{tool.get('name')}" for tool in request_tools(request)]
             for request in self.requests
         ]
         return (
@@ -491,13 +521,15 @@ class Rig:
     def codex_hooks(self) -> tuple[list[dict], list[str]] | str:
         return codex_hooks(self.env, self.cwd)
 
-    def alice_hook(self) -> dict | None:
-        """Codex's ``hooks/list`` entry for Alice's hook, or None when it cannot be read."""
+    def alice_hook(self) -> dict:
+        """Codex's ``hooks/list`` entry for Alice's hook.
+
+        ``codex app-server`` answers ``hooks/list`` with no credentials, so this
+        is the independent check on the hash and the trust status.
+        """
 
         listed = self.codex_hooks()
-        if isinstance(listed, str):
-            print(f"hooks/list not available: {listed}")
-            return None
+        assert not isinstance(listed, str), listed
         hooks, warnings = listed
         print(f"hooks/list warnings: {warnings}")
         found = [hook for hook in hooks if "alice-memory-session-start" in str(hook.get("command"))]
@@ -589,11 +621,11 @@ def test_real_codex_runs_the_session_start_hook(rig: Rig) -> None:
     assert not any(LINE_A in text for text in first.developer()), first.describe()
     assert LINE_A not in first.everything(), first.describe()
     listed = rig.alice_hook()
-    if listed is not None:
-        assert listed["key"] == rig.key(1), listed
-        assert listed["trustStatus"] == "untrusted", listed
-        assert listed["currentHash"] == rig.hash_of(1), (listed, rig.hash_of(1))
-        assert listed["additionalContextLimit"] == 0 and listed["timeoutSec"] == 120, listed
+    assert listed["key"] == rig.key(1), listed
+    assert listed["trustStatus"] == "untrusted", listed
+    assert listed["currentHash"] == rig.hash_of(1), (listed, rig.hash_of(1))
+    assert listed["additionalContextLimit"] == 0 and listed["timeoutSec"] == 120, listed
+    print(f"step 2: hooks/list says untrusted, currentHash matches the computed {listed['currentHash']}")
     print(f"step 2: user group ran, no brief line in {len(first.developer())} developer messages")
 
     # 3. Trust Alice's item, run again without the bypass flag.
@@ -604,8 +636,7 @@ def test_real_codex_runs_the_session_start_hook(rig: Rig) -> None:
     assert any(LINE_A in text for text in second.developer()), second.describe()
     assert any(has_alice_recall(request) for request in second.requests), second.describe()
     listed = rig.alice_hook()
-    if listed is not None:
-        assert listed["trustStatus"] == "trusted", listed
+    assert listed["trustStatus"] == "trusted", listed
     print("step 3: developer message holds the brief line; mcp__alice namespace has alice_recall")
 
     # 4. A second user group after Alice's, install again with nothing changed.
@@ -648,9 +679,8 @@ def test_real_codex_runs_the_session_start_hook(rig: Rig) -> None:
     assert LINE_A not in fourth.everything() and LINE_B not in fourth.everything()
     assert any(has_alice_recall(request) for request in fourth.requests), fourth.describe()
     listed = rig.alice_hook()
-    if listed is not None:
-        assert listed["trustStatus"] == "modified", listed
-        assert listed["currentHash"] == rig.hash_of(1), (listed, rig.hash_of(1))
+    assert listed["trustStatus"] == "modified", listed
+    assert listed["currentHash"] == rig.hash_of(1), (listed, rig.hash_of(1))
     print("step 5: hook changed, Codex skipped it; neither line appeared")
 
     rig.trust(1)
@@ -746,13 +776,58 @@ def test_real_codex_skips_a_hooks_file_with_an_http_handler(rig: Rig) -> None:
     assert not marker.exists(), skipped.describe()
     assert LINE_A not in skipped.everything(), skipped.describe()
     listed = rig.codex_hooks()
+    print(f"control 2: hooks/list said {listed}")
     if not isinstance(listed, str):
         hooks, warnings = listed
         assert hooks == [] and any("hooks.json" in warning for warning in warnings), listed
-        print(f"control 2: codex warns {warnings}")
 
     code, out, err = rig.install(vault)
     assert code == 1, (out, err)
     assert rig.hooks.read_bytes() == broken_bytes
     assert "Codex would skip this hooks.json" in out
     print("control 2: codex skipped the whole file; install refuses it")
+
+
+@requires_real_codex
+def test_real_codex_does_not_spill_a_large_brief(rig: Rig) -> None:
+    """``additionalContextLimit: 0`` keeps Codex from spilling a large brief to a file.
+
+    Codex counts one token per four bytes, so five facts of about 1,300
+    Chinese characters each make a brief of about 4,900 tokens, over its
+    default limit of 2,500. With install's ``0`` the developer message holds
+    every fact and no spill footer. As a control, the same hook with the key
+    removed is spilled to a file: the message ends with a "Full hook output
+    saved to" footer and the middle of the brief is cut. Mutation: write a
+    limit other than 0, or leave the key out. The first half fails.
+    """
+
+    tmp_path, monkeypatch = rig.tmp_path, rig.monkeypatch
+    vault = tmp_path / "vault"
+    marks = [f"END-MARK-{number}" for number in range(5)]
+    for number, mark in enumerate(marks):
+        body = "".join(chr(0x4E00 + number * 400 + offset) for offset in range(1300))
+        commit_fact(vault, monkeypatch, f"Large fact {number}", f"{body} {mark}")
+    code, out, err = rig.install(vault)
+    assert code == 0, (out, err)
+    rig.trust(0)
+
+    whole = rig.run()
+    texts = [text for text in whole.developer() if FRAME in text]
+    assert len(texts) == 1, whole.describe()
+    text = texts[0]
+    assert len(text.encode("utf-8")) > 4 * DEFAULT_LIMIT, len(text.encode("utf-8"))
+    assert all(mark in text for mark in marks), whole.describe()
+    assert "Full hook output saved to" not in text, whole.describe()
+    print(f"large brief: {len(text.encode('utf-8'))} bytes injected whole, every fact present")
+
+    document = json.loads(rig.hooks.read_text(encoding="utf-8"))
+    handler = document["hooks"]["SessionStart"][0]["hooks"][0]
+    assert handler.pop("additionalContextLimit") == 0
+    _write_json(rig.hooks, document)
+    rig.trust(0)
+    spilled = rig.run()
+    previews = [text for text in spilled.developer() if FRAME in text]
+    assert len(previews) == 1, spilled.describe()
+    assert "Full hook output saved to" in previews[0], spilled.describe()
+    assert not all(mark in previews[0] for mark in marks), spilled.describe()
+    print("control 3: without the key Codex spilled the brief to a file and kept a preview")

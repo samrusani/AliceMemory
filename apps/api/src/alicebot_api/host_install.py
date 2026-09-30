@@ -625,8 +625,8 @@ def _merge_codex_session_start(doc: dict[str, Any], command: str) -> str:
     which has no ``additionalContextLimit`` and prints the wrong format. The
     replacement is the whole handler, so a key such as ``async`` or
     ``commandWindows`` that would change what runs does not survive. The
-    group, and any ``matcher`` on it, stay. More than one Alice handler was
-    refused before this runs.
+    group, and any ``matcher`` on it, stay. ``_check_codex_hooks_document``
+    refuses more than one Alice handler before this runs, so ``found[0]`` is the only one.
     """
 
     hooks = _require_mapping(doc.get("hooks"), "hooks")
@@ -643,8 +643,6 @@ def _merge_codex_session_start(doc: dict[str, Any], command: str) -> str:
     if not found:
         existing.append(codex_session_start_group(command))
         return "added"
-    if len(found) > 1:
-        raise _MalformedHostFile("hooks.SessionStart holds more than one alice-memory-session-start hook")
     group_index, handler_index = found[0]
     if existing[group_index]["hooks"][handler_index] == handler:
         return "already-present"
@@ -1484,13 +1482,10 @@ def _check_codex_hooks_document(doc: Mapping[str, Any]) -> None:
     included, so install does not add to a file it would then hide.
     """
 
-    try:
-        _check_codex_hooks_walk(doc)
-        hooks = doc.get("hooks")
-        groups = hooks.get("SessionStart") if isinstance(hooks, dict) else None
-        found = _codex_alice_handlers(groups) if isinstance(groups, list) else []
-    except RecursionError:
-        raise _MalformedHostFile("hooks.json is nested too deeply to read") from None
+    _check_codex_hooks_walk(doc)
+    hooks = doc.get("hooks")
+    groups = hooks.get("SessionStart") if isinstance(hooks, dict) else None
+    found = _codex_alice_handlers(groups) if isinstance(groups, list) else []
     if len(found) > 1:
         raise _MalformedHostFile(
             "hooks.json holds more than one alice-memory-session-start hook in hooks.SessionStart"
@@ -7630,7 +7625,7 @@ def _install_codex_host(
         reason = (
             str(problem)
             if isinstance(problem, _MalformedHostFile)
-            else "hooks.json is nested too deeply to write"
+            else "hooks.json is nested too deeply to read"
         )
         details[:] = [f"reason: {reason}", f"file: {hooks_path}"]
         hook_details.clear()
