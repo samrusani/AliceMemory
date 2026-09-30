@@ -12,7 +12,12 @@ Mutation notes live on each test. A miss raises AssertionError.
 
 from __future__ import annotations
 
+import ast
+import json
 import re
+import subprocess
+import sys
+import tempfile
 from pathlib import Path
 
 import yaml
@@ -26,8 +31,19 @@ CLAUDE_NPM = "@anthropic-ai/claude-code@2.1.281"
 HERMES_PIP = "hermes-agent==0.19.0"
 CLAUDE_VERSION = "2.1.281 (Claude Code)"
 HERMES_VERSION = "Hermes Agent v0.19.0 (2026.7.20)"
-PINNED_IF = "${{ github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' }}"
+PINNED_IF = (
+    "${{ github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' "
+    "&& (inputs.job == 'all' || inputs.job == 'pinned')) }}"
+)
 CANARY_IF = "${{ github.event_name == 'schedule' }}"
+DISPATCH_JOBS = ("pinned", "hook-trial", "plugin-hook-trial", "marketplace-check")
+
+
+def _dispatch_if(name: str) -> str:
+    return (
+        "${{ github.event_name == 'workflow_dispatch' && "
+        f"(inputs.job == 'all' || inputs.job == '{name}') }}}}"
+    )
 OPS_TITLE = "[ops] real-host canary failure"
 ACTION_SHA = re.compile(r"^[0-9a-f]{40}$")
 _SETUP_PYTHON = "setup-python"
@@ -100,6 +116,8 @@ def _host_change_paths() -> set[str]:
     found = set(SOURCE_PATHS)
     found.add(WORKFLOW_RELATIVE)
     found.add("scripts/fuzz_codex_config_writer.py")
+    found.add("plugins/alice-memory/**")
+    found.add(".claude-plugin/**")
     tests = REPO_ROOT / "tests"
     for path in tests.rglob("*.py"):
         text = path.read_text(encoding="utf-8")
@@ -155,6 +173,8 @@ def _pytest_step(job: dict) -> dict:
         and "test_real_codex_reads_the_written_config" in step.get("run", "")
         and "test_real_codex_rejects_a_broken_alice_entry" in step.get("run", "")
         and "test_real_codex_tools_key_and_table" in step.get("run", "")
+        and "test_real_claude_validates_the_plugin" in step.get("run", "")
+        and "test_real_claude_plugin_install_and_run" in step.get("run", "")
     ]
     assert len(matched) == 1
     return matched[0]
@@ -206,7 +226,7 @@ def test_pinned_job_pins_the_trialed_hosts_and_refuses_a_skip() -> None:
     assert "opencode-ai@1.18.32" in script
     assert "@openai/codex@0.158.0" in script
     assert "codex-cli 0.158.0" in script
-    assert "ran != 8" in script
+    assert "ran != 10" in script
     assert "@latest" not in script
     assert CLAUDE_VERSION in script
     assert HERMES_VERSION in script
@@ -255,7 +275,7 @@ def test_weekly_canary_does_not_pin_claude_or_hermes() -> None:
     assert "opencode-ai@1.18.32" not in script
     assert "@openai/codex@latest" in script
     assert "@openai/codex@0.158.0" not in script
-    assert "ran != 8" in script
+    assert "ran != 10" in script
     assert re.search(r"(^|\s)hermes-agent($|\s)", script)
     step = _pytest_step(_job("canary"))
     assert step.get("env", {}).get("ALICE_TEST_REAL_HOSTS") == "1"
@@ -415,7 +435,7 @@ def test_hook_trial_is_dispatch_only_pinned_and_uploads() -> None:
     """
 
     job = _job("hook-trial")
-    assert job.get("if") == "${{ github.event_name == 'workflow_dispatch' }}"
+    assert job.get("if") == _dispatch_if("hook-trial")
     script = _run_text(job)
     assert CLAUDE_NPM in script
     assert "@latest" not in script
@@ -429,6 +449,176 @@ def test_hook_trial_is_dispatch_only_pinned_and_uploads() -> None:
     _assert_failure_fails_the_job(job)
     for name in ("pinned", "canary"):
         assert "real_host_hook_trial.py" not in _run_text(_job(name))
+
+
+def _evaluate(node: ast.AST, names: dict[str, str]) -> bool | str:
+    """Evaluate the only expression shapes these workflows use, and refuse the rest."""
+
+    if isinstance(node, ast.Expression):
+        return _evaluate(node.body, names)
+    if isinstance(node, ast.BoolOp):
+        values = [_evaluate(item, names) for item in node.values]
+        return all(values) if isinstance(node.op, ast.And) else any(values)
+    if isinstance(node, ast.Compare) and len(node.ops) == 1 and isinstance(node.ops[0], ast.Eq):
+        return _evaluate(node.left, names) == _evaluate(node.comparators[0], names)
+    if isinstance(node, ast.Name):
+        return names[node.id]
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    raise AssertionError(f"unsupported expression node: {ast.dump(node)}")
+
+
+def _job_runs(condition: str, event: str, job_input: str) -> bool:
+    match = re.fullmatch(r"\$\{\{ (.*) \}\}", condition)
+    assert match, condition
+    text = match.group(1).replace("&&", " and ").replace("||", " or ")
+    text = text.replace("github.event_name", "event_name").replace("inputs.job", "job_input")
+    return bool(_evaluate(ast.parse(text, mode="eval"), {"event_name": event, "job_input": job_input}))
+
+
+def _jobs_that_run(event: str, job_input: str) -> list[str]:
+    jobs = _load_workflow()["jobs"]
+    return [name for name, job in jobs.items() if _job_runs(job["if"], event, job_input)]
+
+
+def test_dispatch_input_selects_which_dispatch_job_runs() -> None:
+    """A dispatch with a job name runs that job alone. ``all`` runs every dispatch job.
+
+    Pull requests still run only the pinned job, and the schedule only the canary.
+    The ``if`` lines are evaluated, not compared as text. Mutation: drop the
+    input test from one job, run the pinned job on any dispatch, add
+    ``pull_request`` to a dispatch-only job, or leave a job out of the options.
+    This test fails.
+    """
+
+    workflow = _load_workflow()
+    dispatch = workflow["on"]["workflow_dispatch"]
+    assert isinstance(dispatch, dict)
+    option = dispatch["inputs"]["job"]
+    assert option["type"] == "choice" and option["default"] == "all"
+    assert option["options"] == ["all", *DISPATCH_JOBS]
+    dispatch_jobs = {
+        name for name, job in workflow["jobs"].items() if "'workflow_dispatch'" in job["if"]
+    }
+    assert dispatch_jobs == set(DISPATCH_JOBS)
+    for name in DISPATCH_JOBS:
+        assert _jobs_that_run("workflow_dispatch", name) == [name], name
+    assert _jobs_that_run("workflow_dispatch", "all") == list(
+        job for job in workflow["jobs"] if job in DISPATCH_JOBS
+    )
+    assert "canary" not in _jobs_that_run("workflow_dispatch", "all")
+    for stray in ("", "plugin-hook-trial", "all"):
+        assert _jobs_that_run("pull_request", stray) == ["pinned"], stray
+    assert _jobs_that_run("schedule", "") == ["canary"]
+    assert _jobs_that_run("workflow_dispatch", "") == []
+
+
+def test_plugin_hook_trial_is_dispatch_only_pinned_and_uploads_its_own_artifact() -> None:
+    """The plugin hook trial runs the script on the pinned claude and always uploads its report.
+
+    The upload has its own name, so it does not collide with the hook trial's
+    artifact when ``all`` runs both. The runner setup is pinned too, so a later
+    run reads on the same Python, Node and time limit. Mutation: install
+    @latest, remove always() from the upload, drop the artifact name, point the
+    upload at another directory, remove the ``Set up Python`` step, change its
+    version, change ``node-version`` or ``timeout-minutes``, move the job to
+    another runner OS, or drop the two updater flags from the job env. This
+    test fails.
+    """
+
+    job = _job("plugin-hook-trial")
+    assert job.get("if") == _dispatch_if("plugin-hook-trial")
+    assert job.get("runs-on") == "ubuntu-latest"
+    assert job.get("timeout-minutes") == 30
+    assert job.get("env") == {"DISABLE_AUTOUPDATER": "1", "DISABLE_UPDATES": "1"}
+    setup = {
+        step["name"]: step.get("with", {})
+        for step in _steps(job)
+        if isinstance(step.get("uses"), str) and "setup-" in step["uses"]
+    }
+    assert setup == {
+        "Set up Python": {"python-version": "3.12"},
+        "Set up Node": {"node-version": "22.14.0"},
+    }
+    assert [step["name"] for step in _steps(job)] == [
+        "Checkout",
+        "Set up Python",
+        "Set up Node",
+        "Install pinned Claude Code",
+        "Run the plugin hook trial",
+        "Upload trial artifacts",
+    ]
+    script = _run_text(job)
+    assert CLAUDE_NPM in script
+    assert "@latest" not in script
+    runs = [step["run"] for step in _steps(job) if "real_host_plugin_hook_trial.py" in step.get("run", "")]
+    assert runs == [
+        'python scripts/real_host_plugin_hook_trial.py run "$RUNNER_TEMP/plugin-hook-trial" '
+        '"$RUNNER_TEMP/plugin-hook-work"'
+    ]
+    uploads = [step for step in _steps(job) if isinstance(step.get("uses"), str) and "upload-artifact@" in step["uses"]]
+    assert len(uploads) == 1
+    assert "always()" in str(uploads[0].get("if"))
+    upload_with = uploads[0].get("with", {})
+    assert upload_with.get("name") == "plugin-hook-trial"
+    assert upload_with.get("path") == "${{ runner.temp }}/plugin-hook-trial/"
+    assert upload_with.get("if-no-files-found") == "error"
+    assert job.get("permissions") == {"contents": "read"}
+    _assert_actions_are_sha_pinned(job)
+    _assert_failure_fails_the_job(job)
+    for name in ("pinned", "canary", "hook-trial", "marketplace-check"):
+        assert "real_host_plugin_hook_trial.py" not in _run_text(_job(name))
+
+
+def _marketplace_check_body(script: str) -> str:
+    marker = "python3 - \"$version\" \"$RUNNER_TEMP/plugins.json\" << 'PY'\n"
+    start = script.index(marker) + len(marker)
+    end = script.index("\nPY", start)
+    return script[start:end]
+
+
+def _run_marketplace_body(body: str, version: str, payload: object) -> subprocess.CompletedProcess[str]:
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "plugins.json"
+        path.write_text(json.dumps(payload), encoding="utf-8")
+        return subprocess.run(
+            [sys.executable, "-", version, str(path)],
+            input=body,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+
+
+def test_marketplace_check_compares_the_installed_version() -> None:
+    """The dispatch-only job fails unless the installed plugin version matches.
+
+    The heredoc is executed. An inverted comparison or ``if False`` accepts
+    a wrong row. Mutation: drop the version comparison. This test fails.
+    """
+
+    job = _job("marketplace-check")
+    assert job.get("if") == _dispatch_if("marketplace-check")
+    script = _run_text(job)
+    assert "@anthropic-ai/claude-code@2.1.281" in script
+    assert "claude plugin validate . --strict --json" in script
+    assert 'claude plugin install "alice-memory@alicememory"' in script
+    assert "alice-memory@alicememory" in script
+    assert 'python3 - "$version" "$RUNNER_TEMP/plugins.json"' in script
+    assert "python -c" not in script
+    assert 'version="${ref#v}"' in script
+    body = _marketplace_check_body(script)
+    assert 'str(row.get("version")) == expected' in body
+
+    def row(version: str = "1.2.3", enabled: bool = True, plugin_id: str = "alice-memory@alicememory") -> dict:
+        return {"id": plugin_id, "enabled": enabled, "version": version}
+
+    assert _run_marketplace_body(body, "1.2.3", [row()]).returncode == 0
+    assert _run_marketplace_body(body, "1.2.3", [row(version="9.9.9")]).returncode != 0
+    assert _run_marketplace_body(body, "1.2.3", [row(version="v1.2.3")]).returncode != 0
+    assert _run_marketplace_body(body, "1.2.3", [row(enabled=False)]).returncode != 0
+    assert _run_marketplace_body(body, "1.2.3", [row(plugin_id="other@alicememory")]).returncode != 0
+    assert _run_marketplace_body(body, "1.2.3", [row(), row()]).returncode != 0
 
 
 def test_real_host_workflow_grants_contents_read_and_no_secrets() -> None:
@@ -448,3 +638,59 @@ def test_real_host_workflow_grants_contents_read_and_no_secrets() -> None:
     assert "secrets." not in text
     assert "GITHUB_TOKEN" not in text
     assert "GH_TOKEN" not in text
+
+
+def _collected_count(node_id: str) -> int:
+    """How many tests pytest collects for a node id, read from the source.
+
+    A plain function is one test. Each literal ``parametrize`` list multiplies
+    it. A parametrize whose values are not a literal list or tuple fails the
+    test, so a new shape is decided here rather than guessed.
+    """
+
+    path, _, function = node_id.partition("::")
+    tree = ast.parse((REPO_ROOT / path).read_text(encoding="utf-8"))
+    matches = [
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == function
+    ]
+    assert len(matches) == 1, node_id
+    count = 1
+    for decorator in matches[0].decorator_list:
+        if not (isinstance(decorator, ast.Call) and ast.unparse(decorator.func) == "pytest.mark.parametrize"):
+            continue
+        values = decorator.args[1] if len(decorator.args) > 1 else None
+        assert isinstance(values, (ast.List, ast.Tuple)), (node_id, "non-literal parametrize")
+        count *= len(values.elts)
+    return count
+
+
+def test_the_gate_count_is_the_listed_real_host_tests_in_both_jobs() -> None:
+    """Both jobs list the same real-host tests, each one exists, and ``ran != N`` is what they collect.
+
+    A merge from main can add tests to one side of the list and leave the gate
+    number on the other side's count. The gate would then fail every run or,
+    if loosened to pass, stop catching a skipped test. The count is read from
+    the workflow text and compared with the node ids in the same step, where a
+    parametrized id counts once per case (the OpenCode read test runs twice).
+
+    Mutations: change either ``ran != N`` to another number; drop a test from
+    one job's list (the step lookup finds no step, because it needs every
+    test named in one step); list a test that no longer exists in its file;
+    list one test twice; count a parametrized test once. This test fails.
+    """
+
+    listed: dict[str, list[str]] = {}
+    for name in ("pinned", "canary"):
+        run = _pytest_step(_job(name))["run"]
+        ids = re.findall(r"tests/unit/\w+\.py::test_real_\w+", run)
+        assert ids, name
+        assert len(ids) == len(set(ids)), (name, "a test is listed twice")
+        gate = re.findall(r"if ran != (\d+) or skipped != 0", run)
+        expected = sum(_collected_count(node_id) for node_id in ids)
+        assert gate == [str(expected)], (name, gate, expected)
+        listed[name] = ids
+    assert sorted(listed["pinned"]) == sorted(listed["canary"])
+    for node_id in listed["pinned"]:
+        assert _collected_count(node_id) >= 1, node_id

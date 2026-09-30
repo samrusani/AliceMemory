@@ -3,6 +3,23 @@
 ## Unreleased
 
 - `alice-memory install --host codex` edits `~/.codex/config.toml` as text and writes only the alice MCP entry. It is opt-in, writes no `env` table, and does not write a SessionStart hook. A comment inside `command`, `args`, or an inline `env` is refused. An integer in value position outside the i64 range, or a float in value position that is not finite, is refused and the reason names the line. A dry run renders carried lines from the parsed values and hides a token or a URL in `env_vars` and in `tools` values. A `tools` value that is not a table, or an `approval_mode` outside `auto`, `prompt`, `writes`, and `approve`, or an `output_token_limit` that is not a positive integer, is refused. A `config.toml` nested so deeply that it cannot be parsed is refused with `config.toml nests too deeply`, and a profile layer nested that deeply, or one that is not UTF-8, gets the unreadable-layer note, and a `hooks.json` nested that deeply gets no hook note and does not stop install. A success receipt ends with `codex mcp get alice`. In v0.18.0 there is no `--host codex`.
+- A Claude Code plugin directory is in the repo. Install skips when that
+  plugin is enabled and install has not written Claude Code entries, and
+  refuses when both exist. That plugin error is used only when every
+  refused host is that case. Another refused host in the same run keeps
+  `install_refused`. An unreadable `~/.claude` does not drop the session
+  brief. In v0.18.0 there is no Claude Code plugin.
+- The Claude Code plugin's SessionStart hook reads its data directory from
+  the plugin option `data_dir`, through `CLAUDE_PLUGIN_OPTION_DATA_DIR`,
+  and uses `~/.alice` when the option is unset. That is the folder the
+  plugin's server uses. The hook's command no longer passes `--data-dir`,
+  because Claude Code does not run a hook whose arguments reference an
+  unset plugin option. When `CLAUDE_PLUGIN_ROOT` is set and non-empty and
+  no `--data-dir` is given, `alice-memory-session-start` ignores
+  `ALICE_MEMORY_DATA_DIR`. A relative option value prints the existing
+  one-line refusal and exits 0. Outside the plugin nothing changes. In
+  v0.18.0 there is no Claude Code plugin, and the command reads
+  `--data-dir`, then `ALICE_MEMORY_DATA_DIR`, then `~/.alice`.
 - A newest fact longer than about 50,000 UTF-8 bytes no longer wipes the
   session brief. An excerpt query over 40,000 UTF-8 bytes, whether a fact,
   an explicit query, or a source title, is bounded to a few hundred

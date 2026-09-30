@@ -7,6 +7,9 @@ name: Real host CI
 # opencode 1.18.32, codex-cli 0.158.0.
 # The Monday canary installs current claude, hermes, opencode, and codex and opens
 # an [ops] issue when that run fails. The canary does not pin a version.
+# A manual dispatch takes a `job` input. `all` runs every dispatch job. A job
+# name runs that job alone, so the plugin hook trial can run on a branch that
+# has no committed marketplace file.
 # Pytest uses the setup-python interpreter recorded during the Alice
 # install. The Hermes virtualenv bin stays on PATH so hermes resolves,
 # and that package install does not include pytest.
@@ -21,6 +24,7 @@ on:
       - scripts/fuzz_codex_config_writer.py
       - tests/unit/launcher_helpers.py
       - tests/unit/test_absolute_uvx.py
+      - tests/unit/test_claude_code_plugin.py
       - tests/unit/test_claude_code_session_start_hook.py
       - tests/unit/test_codex_config_install.py
       - tests/unit/test_data_dir_guard.py
@@ -43,9 +47,22 @@ on:
       - tests/unit/test_session_brief.py
       - tests/unit/test_sleep_time_proposals.py
       - tests/unit/test_validity_on_by_default.py
+      - plugins/alice-memory/**
+      - .claude-plugin/**
   schedule:
     - cron: "41 6 * * 1"
   workflow_dispatch:
+    inputs:
+      job:
+        description: Which dispatch job to run. all runs every one of them.
+        type: choice
+        options:
+          - all
+          - pinned
+          - hook-trial
+          - plugin-hook-trial
+          - marketplace-check
+        default: all
 
 permissions:
   contents: read
@@ -57,7 +74,7 @@ concurrency:
 jobs:
   pinned:
     name: Pinned real hosts
-    if: "${{ github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' }}"
+    if: "${{ github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && (inputs.job == 'all' || inputs.job == 'pinned')) }}"
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -140,6 +157,8 @@ jobs:
             tests/unit/test_codex_config_install.py::test_real_codex_reads_the_written_config \
             tests/unit/test_codex_config_install.py::test_real_codex_rejects_a_broken_alice_entry \
             tests/unit/test_codex_config_install.py::test_real_codex_tools_key_and_table \
+            tests/unit/test_claude_code_plugin.py::test_real_claude_validates_the_plugin \
+            tests/unit/test_claude_code_plugin.py::test_real_claude_plugin_install_and_run \
             -q --tb=short --junitxml "$RUNNER_TEMP/real-hosts.xml"
           "$ALICE_PYTHON" - "$RUNNER_TEMP/real-hosts.xml" <<'PY'
           import sys
@@ -149,7 +168,7 @@ jobs:
           suites = [root] if root.tag == "testsuite" else list(root.findall("testsuite"))
           ran = sum(int(suite.attrib.get("tests", "0")) for suite in suites)
           skipped = sum(int(suite.attrib.get("skipped", "0")) for suite in suites)
-          if ran != 8 or skipped != 0:
+          if ran != 10 or skipped != 0:
               raise SystemExit(
                   f"real host tests did not all run: tests={ran} skipped={skipped}"
               )
@@ -220,6 +239,8 @@ jobs:
             tests/unit/test_codex_config_install.py::test_real_codex_reads_the_written_config \
             tests/unit/test_codex_config_install.py::test_real_codex_rejects_a_broken_alice_entry \
             tests/unit/test_codex_config_install.py::test_real_codex_tools_key_and_table \
+            tests/unit/test_claude_code_plugin.py::test_real_claude_validates_the_plugin \
+            tests/unit/test_claude_code_plugin.py::test_real_claude_plugin_install_and_run \
             -q --tb=short --junitxml "$RUNNER_TEMP/real-hosts.xml"
           "$ALICE_PYTHON" - "$RUNNER_TEMP/real-hosts.xml" <<'PY'
           import sys
@@ -229,7 +250,7 @@ jobs:
           suites = [root] if root.tag == "testsuite" else list(root.findall("testsuite"))
           ran = sum(int(suite.attrib.get("tests", "0")) for suite in suites)
           skipped = sum(int(suite.attrib.get("skipped", "0")) for suite in suites)
-          if ran != 8 or skipped != 0:
+          if ran != 10 or skipped != 0:
               raise SystemExit(
                   f"real host tests did not all run: tests={ran} skipped={skipped}"
               )
@@ -283,7 +304,7 @@ jobs:
 
   hook-trial:
     name: SessionEnd hook trial
-    if: "${{ github.event_name == 'workflow_dispatch' }}"
+    if: "${{ github.event_name == 'workflow_dispatch' && (inputs.job == 'all' || inputs.job == 'hook-trial') }}"
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -320,3 +341,94 @@ jobs:
         with:
           path: ${{ runner.temp }}/artifacts/
           if-no-files-found: error
+
+  plugin-hook-trial:
+    name: Claude Code plugin hook trial
+    if: "${{ github.event_name == 'workflow_dispatch' && (inputs.job == 'all' || inputs.job == 'plugin-hook-trial') }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      DISABLE_AUTOUPDATER: "1"
+      DISABLE_UPDATES: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22.14.0"
+
+      - name: Install pinned Claude Code
+        run: npm install -g @anthropic-ai/claude-code@2.1.281
+
+      - name: Run the plugin hook trial
+        run: python scripts/real_host_plugin_hook_trial.py run "$RUNNER_TEMP/plugin-hook-trial" "$RUNNER_TEMP/plugin-hook-work"
+
+      - name: Upload trial artifacts
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: plugin-hook-trial
+          path: ${{ runner.temp }}/plugin-hook-trial/
+          if-no-files-found: error
+
+  marketplace-check:
+    name: Claude Code marketplace check
+    if: "${{ github.event_name == 'workflow_dispatch' && (inputs.job == 'all' || inputs.job == 'marketplace-check') }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      DISABLE_AUTOUPDATER: "1"
+      DISABLE_UPDATES: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22.14.0"
+
+      - name: Install pinned Claude Code
+        run: npm install -g @anthropic-ai/claude-code@2.1.281
+
+      - name: Validate the committed marketplace
+        run: |
+          test -f .claude-plugin/marketplace.json
+          claude plugin validate . --strict --json
+          ref="$(python3 -c 'import json; print(json.load(open(".claude-plugin/marketplace.json"))["plugins"][0]["source"]["ref"])')"
+          version="${ref#v}"
+          home="$(mktemp -d)"
+          HOME="$home" claude plugin marketplace add . < /dev/null
+          HOME="$home" claude plugin install "alice-memory@alicememory" < /dev/null
+          HOME="$home" claude plugin list --json > "$RUNNER_TEMP/plugins.json"
+          python3 - "$version" "$RUNNER_TEMP/plugins.json" << 'PY'
+          import json
+          import sys
+
+          expected, path = sys.argv[1], sys.argv[2]
+          payload = json.load(open(path, encoding="utf-8"))
+          rows = payload if isinstance(payload, list) else payload.get("plugins", payload.get("items", []))
+          if not isinstance(rows, list):
+              raise SystemExit(f"plugin list was not a list: {payload}")
+          matched = [
+              row
+              for row in rows
+              if isinstance(row, dict)
+              and row.get("id") == "alice-memory@alicememory"
+              and row.get("enabled") is True
+              and str(row.get("version")) == expected
+          ]
+          if len(rows) != 1 or len(matched) != 1:
+              raise SystemExit(f"plugin list did not match {expected}: {payload}")
+          PY

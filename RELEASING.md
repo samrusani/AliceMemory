@@ -22,9 +22,23 @@ A stable publication uses all of the following on the same commit:
 - non-draft, non-prerelease GitHub release `vX.Y.Z`;
 - wheel and sdist metadata version `X.Y.Z`;
 - `packaging/mcpb/manifest.json` version `X.Y.Z`.
+- `plugins/alice-memory/.claude-plugin/plugin.json` version `X.Y.Z`, and both
+  plugin commands pin `alice-memory==X.Y.Z`.
 
-The release PR bumps `pyproject.toml`, `apps/web/package.json`, and
-`packaging/mcpb/manifest.json` to that same version.
+The release PR bumps `pyproject.toml`, `apps/web/package.json`,
+`packaging/mcpb/manifest.json`, and the plugin (version and both pins) to
+that same version.
+
+The release PR's README wording for the plugin says it is available from the
+marketplace once the release is published.
+
+The post-publication PR adds `.claude-plugin/marketplace.json` at the
+repository root. The file has `name` `alicememory`, `owner` with `name`
+`Alice Memory`, a `description`, and one plugin entry. That entry's `name`
+matches `plugin.json`. Its `source` is `git-subdir`, with `url`
+`samrusani/AliceMemory`, `path` `plugins/alice-memory`, `ref` `vX.Y.Z`,
+and `sha`, the full 40-character lowercase tag commit. Then it dispatches
+the marketplace check in the real-host workflow.
 
 ## Manual Repository Prerequisites
 

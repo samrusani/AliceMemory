@@ -67,6 +67,38 @@ def _seed_metadata_tree(tmp_path: Path, *, python_version: str, web_version: str
         json.dumps({"version": python_version}) + "\n",
         encoding="utf-8",
     )
+    plugin_dir = tmp_path / "plugins" / "alice-memory"
+    (plugin_dir / ".claude-plugin").mkdir(parents=True)
+    (plugin_dir / "hooks").mkdir()
+    (plugin_dir / ".claude-plugin" / "plugin.json").write_text(
+        json.dumps({"name": "alice-memory", "version": python_version}) + "\n",
+        encoding="utf-8",
+    )
+    pin = f"alice-memory=={python_version}"
+    (plugin_dir / ".mcp.json").write_text(
+        json.dumps({"mcpServers": {"alice": {"command": "uvx", "args": ["--from", pin]}}}) + "\n",
+        encoding="utf-8",
+    )
+    (plugin_dir / "hooks" / "hooks.json").write_text(
+        json.dumps(
+            {
+                "hooks": {
+                    "SessionStart": [
+                        {
+                            "hooks": [
+                                {
+                                    "command": "uvx",
+                                    "args": ["--from", pin, "alice-memory-session-start"],
+                                }
+                            ]
+                        }
+                    ]
+                }
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
 
 
 def _write_distribution_pair(
