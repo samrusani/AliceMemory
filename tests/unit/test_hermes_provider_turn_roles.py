@@ -1,6 +1,6 @@
 """The Hermes provider keeps the user side and the assistant side of a turn apart.
 
-Daybreak finding DB-001. Before plugin 0.5.2 the provider joined a turn into
+Security review finding DB-001. Before plugin 0.5.2 the provider joined a turn into
 "User: ...\\nAssistant: ..." and split it back with ``str.splitlines``, so a
 reply with a line break followed by "User: decision: ..." was sent to the
 server as the user's own text. The server then auto-saved it as a user
