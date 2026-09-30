@@ -45,6 +45,7 @@ from alicebot_api.vnext_retrieval import (
     VNextRetrievalService,
     VNextRetrievalStore,
     _ResolvedRetrievalScope,
+    _WORD_TRIM_FLOOR,
     _prefer_current_versions,
     classify_pack_view,
 )
@@ -54,9 +55,12 @@ COMMITTED_MEMORY_STATUSES = MEMORY_SEARCHABLE_STATUSES
 OPEN_LOOP_ACTIVE_STATUSES = ("open", "waiting")
 # Claude Code injects only a path and a preview once additionalContext or
 # plain stdout is over 10,000 characters. Those characters are UTF-16 code
-# units. 9,500 leaves room for the newline markdown stdout adds and for a
-# later change. Cursor's hook docs do not state a character cap. Every host
-# uses this cap, and it is the brief's only size limit.
+# units. ``reserve`` is the caller's prefix in those same units, including
+# the newline the caller puts between the prefix and the brief. The brief
+# itself is at most 9,499 minus that reserve, so the prefix, the brief, and
+# one trailing newline stay under 9,500. Cursor's hook docs do not state a
+# character cap. Every host uses this cap, and it is the brief's only size
+# limit.
 SESSION_BRIEF_CHAR_CAP = 9_500
 SESSION_BRIEF_LINE_CAP = 1_500
 FACT_LIMIT = 8
@@ -428,6 +432,42 @@ def _matches_project_scope(resource_scope: tuple[str, ...], project_scope: tuple
     return project_scopes_overlap(resource_scope, project_scope)
 
 
+# A fact used as the excerpt query is passed to the source search whole, and
+# the search wraps it in % for LIKE. SQLite refuses a LIKE pattern over
+# 50,000 bytes ("LIKE or GLOB pattern too complex"), and the hook then
+# printed {}. A query of up to _EXCERPT_QUERY_MAX_BYTES UTF-8 bytes is passed
+# through exactly as before, so every brief that worked before is unchanged.
+# Only a longer one is bounded to a few hundred characters of its FTS tokens.
+_EXCERPT_QUERY_MAX_BYTES = 40_000
+_EXCERPT_QUERY_MAX_CHARS = 300
+
+
+def _bound_excerpt_query(text: str) -> str:
+    """The excerpt search string: FTS tokens, or the first few hundred characters."""
+
+    tokens = fts_fallback_tokens(text)
+    if tokens:
+        chosen: list[str] = []
+        for token in tokens:
+            candidate = " ".join((*chosen, token))
+            if len(candidate) > _EXCERPT_QUERY_MAX_CHARS:
+                if not chosen:
+                    chosen.append(token[:_EXCERPT_QUERY_MAX_CHARS])
+                break
+            chosen.append(token)
+        return " ".join(chosen)
+    return " ".join(text.split())[:_EXCERPT_QUERY_MAX_CHARS]
+
+
+def _bounded_useful_query(text: str) -> str | None:
+    if len(text.encode("utf-8", "surrogatepass")) <= _EXCERPT_QUERY_MAX_BYTES:
+        return text if _is_useful_query(text) else None
+    bounded = _bound_excerpt_query(text)
+    if _is_useful_query(bounded):
+        return bounded
+    return None
+
+
 def _resolve_excerpt_query(
     store: SessionBriefStore,
     query: str | None,
@@ -440,16 +480,19 @@ def _resolve_excerpt_query(
 ) -> str | None:
     if query is not None:
         stripped = query.strip()
-        if _is_useful_query(stripped):
-            return stripped
+        bounded = _bounded_useful_query(stripped)
+        if bounded is not None:
+            return bounded
     for row in facts:
         text = _memory_text(row)
-        if _is_useful_query(text):
-            return text
+        bounded = _bounded_useful_query(text)
+        if bounded is not None:
+            return bounded
     for row in open_loops:
         text = _loop_text(row)
-        if _is_useful_query(text):
-            return text
+        bounded = _bounded_useful_query(text)
+        if bounded is not None:
+            return bounded
     fenced = 0
     for event in store.list_events(target_type="source"):
         target_id = event.get("target_id")
@@ -464,8 +507,10 @@ def _resolve_excerpt_query(
         ):
             continue
         hint = _source_query_hint(store, source)
-        if hint is not None and _is_useful_query(hint):
-            return hint
+        if hint is not None:
+            bounded = _bounded_useful_query(hint)
+            if bounded is not None:
+                return bounded
         fenced += 1
         if fenced >= SOURCE_LIMIT:
             break
@@ -531,7 +576,11 @@ def brief_char_len(text: str) -> int:
 
 
 def _brief_body_limit(reserve: int) -> int:
-    """Units left for the brief after ``reserve`` and one markdown newline."""
+    """UTF-16 units left for the brief.
+
+    ``reserve`` counts the caller's prefix, including the newline between
+    that prefix and the brief. The brief is at most 9,499 minus the reserve.
+    """
 
     return SESSION_BRIEF_CHAR_CAP - 1 - max(reserve, 0)
 
@@ -543,13 +592,50 @@ def _brief_rendered(lines: Sequence[str]) -> str:
 def _is_grapheme_extend(char: str) -> bool:
     if char in {"\u200d", "\ufe0f", "\ufe0e"}:
         return True
-    if 0x1F3FB <= ord(char) <= 0x1F3FF:
+    code = ord(char)
+    if 0x1F3FB <= code <= 0x1F3FF:
+        return True
+    # Tag characters, including the cancel tag, extend a tag-sequence flag.
+    if 0xE0020 <= code <= 0xE007F:
         return True
     return unicodedata.category(char) in {"Mn", "Mc", "Me"}
 
 
+def _hangul_syllable_type(char: str) -> str | None:
+    code = ord(char)
+    if 0x1100 <= code <= 0x115F or 0xA960 <= code <= 0xA97C:
+        return "L"
+    if 0x1160 <= code <= 0x11A7 or 0xD7B0 <= code <= 0xD7C6:
+        return "V"
+    if 0x11A8 <= code <= 0x11FF or 0xD7CB <= code <= 0xD7FB:
+        return "T"
+    if 0xAC00 <= code <= 0xD7A3:
+        return "LV" if (code - 0xAC00) % 28 == 0 else "LVT"
+    return None
+
+
+def _hangul_joins(current: str, char: str) -> bool:
+    left = _hangul_syllable_type(current[-1])
+    right = _hangul_syllable_type(char)
+    if left is None or right is None:
+        return False
+    if left == "L" and right in {"L", "V", "LV", "LVT"}:
+        return True
+    if left in {"LV", "V"} and right in {"V", "T"}:
+        return True
+    return left in {"LVT", "T"} and right == "T"
+
+
 def _grapheme_clusters(text: str) -> list[str]:
-    """Extended grapheme clusters, enough to cut on a cluster boundary."""
+    """Extended grapheme clusters, enough to cut on a cluster boundary.
+
+    Tag characters U+E0020 through U+E007F stay with the base, so a
+    tag-sequence flag such as England is one cluster. Hangul L, V, T, LV,
+    and LVT syllables join. Known splits, documented and left as they are:
+    Devanagari conjuncts, Thai and Lao SARA AM, Prepend characters such as
+    U+0600, a regional-indicator pair after a stray ZWJ, and marks newer
+    than the Unicode tables of the running Python.
+    """
 
     if not text:
         return []
@@ -557,7 +643,7 @@ def _grapheme_clusters(text: str) -> list[str]:
     current = text[0]
     for char in text[1:]:
         previous = current[-1]
-        if _is_grapheme_extend(char) or previous == "\u200d":
+        if _is_grapheme_extend(char) or previous == "\u200d" or _hangul_joins(current, char):
             current += char
             continue
         if (
@@ -585,20 +671,29 @@ def _cut_brief_line(label: str, prefix: str, stored_units: int) -> str:
 
 
 def _shorten_to_word_boundary(source: str, prefix: str) -> str:
-    """Drop a trailing partial word. A prefix with no space stays as it is."""
+    """Drop a trailing partial word.
+
+    When that word-boundary prefix keeps less than 60% of the grapheme
+    prefix that fits, keep the grapheme prefix. A short first word in
+    front of a URL, or in front of a long CJK run, would otherwise
+    collapse the note to that first word. The excerpt trimmer uses the
+    same ``_WORD_TRIM_FLOOR``.
+    """
 
     if not prefix or prefix == source:
         return prefix.rstrip() if prefix == source else prefix
     next_char = source[len(prefix) : len(prefix) + 1]
     if prefix[-1].isspace() or (next_char != "" and next_char.isspace()):
-        return prefix.rstrip()
-    trimmed = prefix.rstrip()
-    index = len(trimmed)
-    while index > 0 and not trimmed[index - 1].isspace():
-        index -= 1
-    if index == 0:
+        bounded = prefix.rstrip()
+    else:
+        trimmed = prefix.rstrip()
+        index = len(trimmed)
+        while index > 0 and not trimmed[index - 1].isspace():
+            index -= 1
+        bounded = prefix if index == 0 else trimmed[:index].rstrip()
+    if brief_char_len(bounded) < _WORD_TRIM_FLOOR * brief_char_len(prefix):
         return prefix
-    return trimmed[:index].rstrip()
+    return bounded
 
 
 def _brief_line_for(label: str, text: str) -> str | None:
@@ -640,28 +735,20 @@ def _brief_line_for(label: str, text: str) -> str | None:
 def fit_emitted_session_brief(text: str) -> str:
     """The string a host counts, with room left for one trailing newline.
 
-    The longest prefix at a grapheme boundary whose UTF-16 length is under
-    9,500 once that newline is added. A string that already fits is returned
-    unchanged, apart from a trailing newline.
+    Whole trailing lines are dropped until the UTF-16 length is at most
+    9,499. A line is never cut in the middle, so a closing quote stays
+    intact. A string that already fits is returned unchanged, apart from
+    a trailing newline.
     """
 
     body = text.rstrip("\n")
     limit = _brief_body_limit(0)
     if brief_char_len(body) <= limit:
         return body
-    graphemes = _grapheme_clusters(body)
-    lo = 0
-    hi = len(graphemes)
-    best = 0
-    while lo <= hi:
-        mid = (lo + hi) // 2
-        candidate = "".join(graphemes[:mid])
-        if brief_char_len(candidate) <= limit:
-            best = mid
-            lo = mid + 1
-        else:
-            hi = mid - 1
-    return "".join(graphemes[:best])
+    lines = body.split("\n")
+    while lines and brief_char_len("\n".join(lines)) > limit:
+        lines.pop()
+    return "\n".join(lines)
 
 
 def _render_brief(
