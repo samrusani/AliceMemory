@@ -684,8 +684,9 @@ def test_marketplace_check_adds_the_marketplace_by_path_url_and_shorthand() -> N
     Mutations: drop the URL step; change its URL; run any ``claude plugin``
     command without ``HOME="$home"``; reuse one home for two steps; drop the
     list check from the URL step; mark the URL step ``continue-on-error``;
-    drop ``continue-on-error`` from the shorthand step; change the shorthand.
-    This test fails.
+    drop ``continue-on-error`` from the shorthand step; change the shorthand;
+    drop ``timeout 180`` or ``< /dev/null`` from a shorthand command; drop
+    ``2>&1`` from the shorthand add. This test fails.
     """
 
     job = _job("marketplace-check")
@@ -733,6 +734,19 @@ def test_marketplace_check_adds_the_marketplace_by_path_url_and_shorthand() -> N
                 assert line.lstrip().startswith('HOME="$home" '), (label, line)
         assert commands == 3, label
     assert f'source_arg="{MARKETPLACE_SHORTHAND}"' in shorthand_step["run"]
+    # The shorthand can hang, so each of its three claude commands runs under a
+    # 180 second timeout, with stdin from /dev/null, in its own HOME.
+    shorthand_commands = [
+        line.strip()
+        for line in shorthand_step["run"].splitlines()
+        if re.search(r"\bclaude plugin (marketplace|install|list)\b", line)
+        and not line.lstrip().startswith(("echo", "#"))
+    ]
+    assert len(shorthand_commands) == 3
+    for command in shorthand_commands:
+        assert command.startswith('HOME="$home" timeout 180 claude plugin '), command
+        assert " < /dev/null" in command, command
+    assert shorthand_commands[0].endswith('< /dev/null > "$add_log" 2>&1')
     assert "plugins.json" in path_step["run"]
     assert "plugins-https.json" in url_step["run"]
     assert "plugins-shorthand.json" in shorthand_step["run"]
@@ -743,6 +757,9 @@ def test_marketplace_check_adds_the_marketplace_by_path_url_and_shorthand() -> N
     assert "EXPECTED_PLUGIN_VERSION" in shorthand_step["run"]
     assert 'python3 scripts/check_marketplace_plugin_list.py "$version"' in path_step["run"]
     assert 'python3 scripts/check_marketplace_plugin_list.py "$expected"' in url_step["run"]
+
+
+STDIN_SENTINEL = "unredirected stdin\n"
 
 
 class _StubbedClaude:
@@ -767,17 +784,23 @@ class _StubbedClaude:
         self.tmpdir = tmp_path / "tmp"
         self.tmpdir.mkdir()
         self.log = tmp_path / "calls.log"
+        self.stdin_log = tmp_path / "stdin.log"
+        self.timeout_log = tmp_path / "timeouts.log"
         self.output = tmp_path / "github-output"
         self.summary = tmp_path / "github-summary"
         self.github_env = tmp_path / "github-env"
-        for path in (self.log, self.output, self.summary, self.github_env):
+        for path in (self.log, self.stdin_log, self.timeout_log, self.output, self.summary, self.github_env):
             path.write_text("", encoding="utf-8")
         claude = self.bin / "claude"
         claude.write_text(
             "#!/bin/bash\n"
             'echo "$HOME|$*" >> "$STUB_LOG"\n'
+            'size="$(cat | wc -c)"\n'
+            'echo "$((size))" >> "$STUB_STDIN_LOG"\n'
             'case "$2" in\n'
-            '  marketplace) echo "$STUB_ADD_OUTPUT"; exit "${STUB_ADD_STATUS:-0}" ;;\n'
+            "  marketplace)\n"
+            '    if [ "$STUB_ADD_STREAM" = stderr ]; then echo "$STUB_ADD_OUTPUT" >&2; else echo "$STUB_ADD_OUTPUT"; fi\n'
+            '    exit "${STUB_ADD_STATUS:-0}" ;;\n'
             '  install) exit "${STUB_INSTALL_STATUS:-0}" ;;\n'
             '  list) echo "$STUB_LIST_JSON"; exit "${STUB_LIST_STATUS:-0}" ;;\n'
             "esac\n"
@@ -785,7 +808,10 @@ class _StubbedClaude:
             encoding="utf-8",
         )
         timeout = self.bin / "timeout"
-        timeout.write_text('#!/bin/bash\nshift\nexec "$@"\n', encoding="utf-8")
+        timeout.write_text(
+            '#!/bin/bash\necho "$1|$2" >> "$STUB_TIMEOUT_LOG"\nshift\nexec "$@"\n',
+            encoding="utf-8",
+        )
         for path in (claude, timeout):
             path.chmod(0o755)
         (self.bin / "python3").symlink_to(sys.executable)
@@ -805,6 +831,8 @@ class _StubbedClaude:
             "GITHUB_STEP_SUMMARY": str(self.summary),
             "GITHUB_ENV": str(self.github_env),
             "STUB_LOG": str(self.log),
+            "STUB_STDIN_LOG": str(self.stdin_log),
+            "STUB_TIMEOUT_LOG": str(self.timeout_log),
             "STUB_LIST_JSON": json.dumps([_plugin_row("0.19.0")]),
             "EXPECTED_PLUGIN_VERSION": "0.19.0",
             **stub,
@@ -817,11 +845,24 @@ class _StubbedClaude:
             text=True,
             capture_output=True,
             check=False,
+            # A command that does not redirect stdin reads this and the stub logs it.
+            input=STDIN_SENTINEL,
         )
 
     def calls(self) -> list[tuple[str, str]]:
         rows = [line.split("|", 1) for line in self.log.read_text(encoding="utf-8").splitlines()]
         return [(home, arguments) for home, arguments in rows]
+
+    def stdin_sizes(self) -> list[int]:
+        """Bytes of stdin each claude call received, in call order."""
+
+        return [int(line) for line in self.stdin_log.read_text(encoding="utf-8").splitlines()]
+
+    def timeouts(self) -> list[tuple[str, str]]:
+        """The duration and the command of each ``timeout`` call, in call order."""
+
+        rows = [line.split("|", 1) for line in self.timeout_log.read_text(encoding="utf-8").splitlines()]
+        return [(duration, command) for duration, command in rows]
 
 
 def test_path_step_reads_the_expected_version_and_adds_from_a_fresh_home(tmp_path: Path) -> None:
@@ -898,27 +939,58 @@ def test_url_step_adds_the_https_url_installs_and_checks_the_list(tmp_path: Path
             assert bad.calls() == []
 
 
+# Each case is the stub's answers, the result the step records, a fragment of
+# the reason it gives, and how many claude calls the step makes before it stops.
+# The add output of a failed add is on stderr, which is where ssh and git write
+# it. Each of the three SSH signs has a case of its own, so dropping any one
+# alternative from the step's grep fails a case.
 SHORTHAND_CASES = {
     "works": (
-        {},
+        {"STUB_ADD_OUTPUT": "marketplace added on stdout"},
         "works",
         "the add and the install worked, and the plugin list held alice-memory@alicememory 0.19.0, enabled",
         3,
     ),
     "ssh": (
-        {"STUB_ADD_STATUS": "128", "STUB_ADD_OUTPUT": "git@github.com: Permission denied (publickey)."},
+        {
+            "STUB_ADD_STATUS": "128",
+            "STUB_ADD_STREAM": "stderr",
+            "STUB_ADD_OUTPUT": "git@github.com: Permission denied (publickey).",
+        },
+        "add-failed",
+        "cloned over SSH and the runner has no SSH key (exit 128)",
+        1,
+    ),
+    "ssh-permission-denied": (
+        {"STUB_ADD_STATUS": "128", "STUB_ADD_STREAM": "stderr", "STUB_ADD_OUTPUT": "Permission denied (publickey)."},
+        "add-failed",
+        "cloned over SSH and the runner has no SSH key (exit 128)",
+        1,
+    ),
+    "ssh-address": (
+        {
+            "STUB_ADD_STATUS": "128",
+            "STUB_ADD_STREAM": "stderr",
+            "STUB_ADD_OUTPUT": "could not clone from git@github.com:samrusani/AliceMemory.git",
+        },
         "add-failed",
         "cloned over SSH and the runner has no SSH key (exit 128)",
         1,
     ),
     "host-key": (
-        {"STUB_ADD_STATUS": "128", "STUB_ADD_OUTPUT": "Host key verification failed."},
+        {"STUB_ADD_STATUS": "128", "STUB_ADD_STREAM": "stderr", "STUB_ADD_OUTPUT": "Host key verification failed."},
         "add-failed",
         "cloned over SSH",
         1,
     ),
     "other": (
-        {"STUB_ADD_STATUS": "1", "STUB_ADD_OUTPUT": "repository not found"},
+        {"STUB_ADD_STATUS": "1", "STUB_ADD_STREAM": "stderr", "STUB_ADD_OUTPUT": "repository not found"},
+        "add-failed",
+        "the add failed with exit 1, and the output above says why",
+        1,
+    ),
+    "other-on-stdout": (
+        {"STUB_ADD_STATUS": "1", "STUB_ADD_OUTPUT": "repository not found on stdout"},
         "add-failed",
         "the add failed with exit 1, and the output above says why",
         1,
@@ -951,12 +1023,18 @@ def test_shorthand_step_reports_each_outcome_and_never_fails(case: str, tmp_path
 
     The failure is an annotation, a line in the log, a step summary and the
     step output ``result``. A clone over SSH is named as that only when the
-    output shows one. The step stops at the first failed command, so a failed
-    add never reaches the install.
+    output shows one, and each of the three signs of one is enough. The step
+    stops at the first failed command, so a failed add never reaches the
+    install. Every claude call runs under ``timeout 180`` and with stdin from
+    ``/dev/null``. The add output, stdout and stderr both, is printed in the
+    step log above the reason, because the reason can say "the output above".
 
     Mutation: drop ``exit 0``, drop ``set +e``, drop the ``result`` output,
-    treat every add failure as SSH, run the install after a failed add, or
-    drop ``HOME="$home"``. This test fails.
+    treat every add failure as SSH, run the install after a failed add, drop
+    ``HOME="$home"``, drop ``timeout 180`` from any claude call, drop the
+    ``cat`` of the add log, drop ``2>&1`` from the add, drop one alternative
+    of the SSH grep, or drop ``< /dev/null`` from any claude call. This test
+    fails.
     """
 
     overrides, result, message, calls_made = SHORTHAND_CASES[case]
@@ -968,14 +1046,20 @@ def test_shorthand_step_reports_each_outcome_and_never_fails(case: str, tmp_path
     assert completed.returncode == 0, completed.stdout + completed.stderr
     assert stub.output.read_text(encoding="utf-8") == f"result={result}\n"
     combined = completed.stdout
-    assert f"claude plugin marketplace add {MARKETPLACE_SHORTHAND}: {result}," in combined
+    verdict = f"claude plugin marketplace add {MARKETPLACE_SHORTHAND}: {result},"
+    assert verdict in combined
     assert message in combined
+    raw = overrides.get("STUB_ADD_OUTPUT", "")
+    if raw:
+        assert raw in combined, (completed.stdout, completed.stderr)
+        assert raw not in completed.stderr
+        assert combined.index(raw) < combined.index(verdict)
     if result == "works":
         assert "::warning" not in combined
     else:
         assert f"::warning title=Marketplace shorthand did not work::claude plugin marketplace add {MARKETPLACE_SHORTHAND} gave {result}:" in combined
         assert "::notice" not in combined
-    if case in {"other", "timeout"}:
+    if case in {"other", "other-on-stdout", "timeout"}:
         assert "SSH" not in combined
     summary = stub.summary.read_text(encoding="utf-8")
     assert "### Marketplace shorthand" in summary
@@ -985,8 +1069,11 @@ def test_shorthand_step_reports_each_outcome_and_never_fails(case: str, tmp_path
     assert calls[0][1] == f"plugin marketplace add {MARKETPLACE_SHORTHAND}"
     assert {home for home, _ in calls} != {str(stub.runner_home)}
     assert len({home for home, _ in calls}) == 1
-    if case in {"ssh", "host-key", "other", "timeout"}:
+    if result in {"add-failed"}:
         assert all("install" not in arguments for _, arguments in calls)
+    # Every claude call is wrapped in timeout 180, and none reads the step's stdin.
+    assert stub.timeouts() == [("180", "claude")] * calls_made
+    assert stub.stdin_sizes() == [0] * calls_made
 
 
 def test_real_host_workflow_grants_contents_read_and_no_secrets() -> None:

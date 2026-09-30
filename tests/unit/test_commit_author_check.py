@@ -177,6 +177,35 @@ def test_ignores_disallowed_email_outside_the_pull_request_range(
     assert "PASS (1 commits)" in output
 
 
+def test_ignores_a_disallowed_email_that_landed_on_base_after_the_branch_point(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The range is base..head, so a commit only the base has is not the pull request's.
+
+    The pull request branched from the fork point. The base has moved on with
+    a commit that carries a disallowed address. A symmetric range (base...head)
+    would count that commit against the pull request.
+
+    Mutation: change ``base..head`` to ``base...head`` in commits_in_range.
+    This test fails.
+    """
+
+    repo = _init_repo(tmp_path / "repo")
+    _commit(repo, author="noreply@github.com", committer="noreply@github.com", message="fork point")
+    _git(repo, "checkout", "-b", "feature")
+    head = _commit(repo, author=OWNER_NOREPLY, committer=OWNER_NOREPLY, message="pull request")
+    _git(repo, "checkout", "main")
+    base = _commit(repo, author=BAD_EMAIL, committer=BAD_EMAIL, message="landed on base after the branch point")
+    assert _git(repo, "merge-base", base, head).strip() not in {base, head}
+
+    code, output = _run(repo, base, head, capsys)
+
+    assert code == 0, output
+    assert BAD_EMAIL not in output
+    assert "PASS (1 commits)" in output
+
+
 def test_allows_every_listed_address_in_the_pull_request_range(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
