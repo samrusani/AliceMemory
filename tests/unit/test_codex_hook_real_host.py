@@ -396,6 +396,17 @@ class Run:
     def everything(self) -> str:
         return json.dumps([request["body"] for request in self.requests])
 
+    def alice_context(self) -> str:
+        """The developer message that carries the brief, or an empty string."""
+
+        return next((text for text in self.developer() if FRAME in text), "")
+
+    def summary(self) -> str:
+        return (
+            f"exit={self.proc.returncode} requests={len(self.requests)} "
+            f"developer_messages={len(self.developer())}"
+        )
+
     def describe(self) -> str:
         roles = [
             [
@@ -428,6 +439,7 @@ class Rig:
         self.monkeypatch = monkeypatch
         self.capsys = capsys
         self.server = server
+        self.evidence: list[str] = []
         self.home = tmp_path / "home"
         self.cwd = tmp_path / "cwd"
         self.cwd.mkdir()
@@ -455,6 +467,15 @@ class Rig:
             }
         )
         self.env = env
+
+    def say(self, text: str) -> None:
+        """Keep a line of evidence. ``install`` reads and clears the captured output, so a print
+        made before it would be lost; ``flush`` prints them all at the end."""
+
+        self.evidence.append(text)
+
+    def flush(self) -> None:
+        print("\n".join(self.evidence))
 
     def install(self, vault: Path, *extra: str) -> tuple[int, str, str]:
         code = onramp_main(
@@ -535,7 +556,7 @@ class Rig:
         listed = self.codex_hooks()
         assert not isinstance(listed, str), listed
         hooks, warnings = listed
-        print(f"hooks/list warnings: {warnings}")
+        self.say(f"  hooks/list warnings: {warnings}")
         found = [hook for hook in hooks if "alice-memory-session-start" in str(hook.get("command"))]
         assert len(found) == 1, (found, hooks)
         return found[0]
@@ -617,7 +638,9 @@ def test_real_codex_runs_the_session_start_hook(rig: Rig) -> None:
     assert "trusted_hash" not in rig.hooks.read_text(encoding="utf-8")
     state = tomllib.loads(rig.config.read_text(encoding="utf-8"))["hooks"]["state"]
     assert list(state) == [rig.key(0)]
-    print(f"step 1: installed; alice hook is group 1 of {len(written)}")
+    rig.say(f"step 1: installed. hooks.json has {len(written)} SessionStart groups; group 0 is the "
+            f"user's, group 1 is Alice's; backups equal the seeds")
+    rig.say(f"  alice command: {written[1]['hooks'][0]['command'].replace(str(tmp_path), '<tmp>')}")
 
     # 2. First run, no bypass flag: Alice's hook is untrusted.
     first = rig.run()
@@ -629,8 +652,14 @@ def test_real_codex_runs_the_session_start_hook(rig: Rig) -> None:
     assert listed["trustStatus"] == "untrusted", listed
     assert listed["currentHash"] == rig.hash_of(1), (listed, rig.hash_of(1))
     assert listed["additionalContextLimit"] == 0 and listed["timeoutSec"] == 120, listed
-    print(f"step 2: hooks/list says untrusted, currentHash matches the computed {listed['currentHash']}")
-    print(f"step 2: user group ran, no brief line in {len(first.developer())} developer messages")
+    rig.say(
+        f"step 2: {first.summary()}; the user's marker was written; no brief line "
+        f"({LINE_A}) in any developer message"
+    )
+    rig.say(
+        f"  hooks/list: trustStatus={listed['trustStatus']} "
+        f"currentHash={listed['currentHash']} (equals the hash computed here)"
+    )
 
     # 3. Trust Alice's item, run again without the bypass flag.
     rig.trust(1)
@@ -641,7 +670,19 @@ def test_real_codex_runs_the_session_start_hook(rig: Rig) -> None:
     assert any(has_alice_recall(request) for request in second.requests), second.describe()
     listed = rig.alice_hook()
     assert listed["trustStatus"] == "trusted", listed
-    print("step 3: developer message holds the brief line; mcp__alice namespace has alice_recall")
+    rig.say(
+        f"step 3: {second.summary()}; a developer message holds {LINE_A}: "
+        f"{second.alice_context()[:170]!r}"
+    )
+    rig.say(
+        "  tools: "
+        + ", ".join(
+            f"{tool.get('name')}[{','.join(str(child.get('name')) for child in tool.get('tools') or [])}]"
+            for tool in request_tools(second.requests[0])
+            if str(tool.get("name", "")).startswith("mcp__alice")
+        )
+    )
+    rig.say(f"  hooks/list: trustStatus={listed['trustStatus']}")
 
     # 4. A second user group after Alice's, install again with nothing changed.
     document = json.loads(rig.hooks.read_text(encoding="utf-8"))
@@ -661,7 +702,10 @@ def test_real_codex_runs_the_session_start_hook(rig: Rig) -> None:
     third = rig.run()
     assert marker.exists() and not second_marker.exists(), third.describe()
     assert any(LINE_A in text for text in third.developer()), third.describe()
-    print("step 4: alice's line still present, groups 0 and 2 kept their indexes")
+    rig.say(
+        f"step 4: install said unchanged; groups are user, alice, second user; {third.summary()}; "
+        f"the brief line is still present; the second group ran nothing (untrusted)"
+    )
 
     # 5. A new data dir changes the hook, so Codex skips it until it is trusted again.
     before_change = rig.hooks.read_bytes()
@@ -685,13 +729,17 @@ def test_real_codex_runs_the_session_start_hook(rig: Rig) -> None:
     listed = rig.alice_hook()
     assert listed["trustStatus"] == "modified", listed
     assert listed["currentHash"] == rig.hash_of(1), (listed, rig.hash_of(1))
-    print("step 5: hook changed, Codex skipped it; neither line appeared")
+    rig.say(
+        f"step 5: install said written and changed, with the trust line; {fourth.summary()}; "
+        f"the user's group still ran; neither {LINE_A} nor {LINE_B} appeared; "
+        f"hooks/list: trustStatus={listed['trustStatus']}"
+    )
 
     rig.trust(1)
     fifth = rig.run()
     assert any(LINE_B in text for text in fifth.developer()), fifth.describe()
     assert not any(LINE_A in text for text in fifth.developer()), fifth.describe()
-    print("step 5b: trusted again, the second vault's line appears and the first's does not")
+    rig.say(f"step 5b: trusted again, {fifth.summary()}: {LINE_B} appears and {LINE_A} does not")
 
     # 6. The dry run masks the hook.
     secret = "startup|" + secrets.token_hex(6)
@@ -704,7 +752,8 @@ def test_real_codex_runs_the_session_start_hook(rig: Rig) -> None:
     assert secret not in out + err
     assert "<hidden>" in out and "hook matcher" in out
     assert "--format markdown" in out
-    print("step 6: dry run hides the matcher and shows --format markdown")
+    rig.say("step 6: the dry run printed <hidden> for the matcher and showed --format markdown")
+    rig.flush()
 
 
 @requires_real_codex
@@ -741,7 +790,11 @@ def test_real_codex_ignores_json_hook_output(rig: Rig) -> None:
     assert "x-control-json-9902" not in run.everything(), run.describe()
     assert LINE_A not in run.everything(), run.describe()
     assert not any(FRAME in text for text in run.developer()), run.describe()
-    print("control 1: plain text injected; JSON with additional_context injected nothing")
+    rig.say(
+        f"control 1: {run.summary()}; the plain-text hook was injected; Alice's hook in --format json "
+        "and a hook printing an additional_context object injected nothing"
+    )
+    rig.flush()
 
 
 @requires_real_codex
@@ -780,7 +833,7 @@ def test_real_codex_skips_a_hooks_file_with_an_http_handler(rig: Rig) -> None:
     assert not marker.exists(), skipped.describe()
     assert LINE_A not in skipped.everything(), skipped.describe()
     listed = rig.codex_hooks()
-    print(f"control 2: hooks/list said {listed}")
+    rig.say(f"control 2: hooks/list said {listed}")
     if not isinstance(listed, str):
         hooks, warnings = listed
         assert hooks == [] and any("hooks.json" in warning for warning in warnings), listed
@@ -789,7 +842,11 @@ def test_real_codex_skips_a_hooks_file_with_an_http_handler(rig: Rig) -> None:
     assert code == 1, (out, err)
     assert rig.hooks.read_bytes() == broken_bytes
     assert "Codex would skip this hooks.json" in out
-    print("control 2: codex skipped the whole file; install refuses it")
+    rig.say(
+        "control 2: with an http sibling and --dangerously-bypass-hook-trust Codex ran nothing "
+        f"({skipped.summary()}); install refuses the same file"
+    )
+    rig.flush()
 
 
 @requires_real_codex
@@ -822,7 +879,11 @@ def test_real_codex_does_not_spill_a_large_brief(rig: Rig) -> None:
     assert len(text.encode("utf-8")) > 4 * DEFAULT_LIMIT, len(text.encode("utf-8"))
     assert all(mark in text for mark in marks), whole.describe()
     assert "Full hook output saved to" not in text, whole.describe()
-    print(f"large brief: {len(text.encode('utf-8'))} bytes injected whole, every fact present")
+    rig.say(
+        f"large brief: {len(text.encode('utf-8'))} bytes "
+        f"(about {len(text.encode('utf-8')) // 4} tokens) injected whole, every fact present, "
+        "no spill footer"
+    )
 
     document = json.loads(rig.hooks.read_text(encoding="utf-8"))
     handler = document["hooks"]["SessionStart"][0]["hooks"][0]
@@ -834,4 +895,8 @@ def test_real_codex_does_not_spill_a_large_brief(rig: Rig) -> None:
     assert len(previews) == 1, spilled.describe()
     assert "Full hook output saved to" in previews[0], spilled.describe()
     assert not all(mark in previews[0] for mark in marks), spilled.describe()
-    print("control 3: without the key Codex spilled the brief to a file and kept a preview")
+    rig.say(
+        f"control 3: without additionalContextLimit Codex spilled it: {len(previews[0].encode('utf-8'))} "
+        f"bytes kept, footer {previews[0].splitlines()[-1]!r}"
+    )
+    rig.flush()
