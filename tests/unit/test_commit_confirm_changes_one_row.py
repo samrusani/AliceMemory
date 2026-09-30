@@ -1,6 +1,6 @@
 """`alice_memory_commit` can finish a pending write, and that changes exactly one memory row.
 
-Daybreak DB-007. v0.19.0 annotates `alice_memory_commit` with `destructiveHint: false`,
+Security review finding DB-007. v0.19.0 annotates `alice_memory_commit` with `destructiveHint: false`,
 the same as `alice_capture`. By the approval rule the code records for Codex's default
 mode, such a tool runs with no prompt. The hint is true of adding a fact. It is not true
 of the call that carries `confirmation_id` and `confirmation_action`: that call updates
