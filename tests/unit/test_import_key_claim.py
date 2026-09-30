@@ -805,12 +805,14 @@ def test_an_identity_held_as_text_with_a_claim_inside_it_is_downgraded() -> None
     assert stored["agent_identity"]["claimed_auth"] == "agent_api_key"
 
 
-def test_a_json_text_too_deep_to_decode_is_stored_as_text_and_the_import_succeeds(
+def test_a_json_text_too_deep_to_decode_is_refused_not_stored(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """json.loads raises RecursionError on text nested about 100,000 levels. That text is not an
-    identity anyone can read, so it is left as it is. Stop catching RecursionError and the import
-    dies with a traceback."""
+    """json.loads raises RecursionError on text nested about 100,000 levels. That text cannot be checked
+    for a claim, and storing it makes alice_recall and alice_resume raise on the row. Import refuses it
+    as it refuses a mapping past the limit. Let the RecursionError escape (drop the except clause that
+    turns it into _ImportError) and the code is alice_memory_failed, and swallow it and the row is
+    stored."""
     database, context = _vault(tmp_path, "origin")
     _commit_note(context)
     export = _export(database, tmp_path / "origin.jsonl")
@@ -820,8 +822,8 @@ def test_a_json_text_too_deep_to_decode_is_stored_as_text_and_the_import_succeed
     forged = export.write(tmp_path / "forged.jsonl")
     target = tmp_path / "target" / "memory.db"
     capsys.readouterr()
-    assert _import(target, forged) == 0
+    assert _import(target, forged) == 1
     captured = capsys.readouterr()
+    assert '"code":"restore_failed"' in captured.err
     assert "Traceback" not in captured.err
-    stored = json.loads(str(_stored(target, "memories", "metadata_json")[0]))
-    assert stored["agentic_memory"] == bomb
+    assert not target.exists()

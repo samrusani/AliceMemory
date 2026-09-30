@@ -3001,14 +3001,21 @@ _KEY_CLAIM_MAX_DEPTH = 256
 
 
 def _mapping_or_json_text(value: object) -> Mapping[str, object] | None:
-    """A mapping, or JSON text that decodes to one, as the writer labels read it."""
+    """A mapping, or JSON text that decodes to one, as the writer labels read it.
+
+    JSON text too deep for the decoder (it raises RecursionError, at about ten
+    thousand levels) is refused like a mapping past the walk limit. It cannot be
+    checked for a claim, and the readers that decode it the same way fail on it.
+    """
     if isinstance(value, Mapping):
         return value
     if isinstance(value, str) and value.strip().startswith("{"):
         try:
             decoded = json.loads(value)
-        except (json.JSONDecodeError, RecursionError):
+        except json.JSONDecodeError:
             return None
+        except RecursionError as exc:
+            raise _ImportError("a record nests its provenance too deeply to check for key claims") from exc
         return decoded if isinstance(decoded, Mapping) else None
     return None
 
