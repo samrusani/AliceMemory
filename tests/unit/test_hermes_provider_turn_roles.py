@@ -250,6 +250,65 @@ def test_two_different_turns_never_share_a_dedupe_fingerprint(
     assert all(value.startswith("sync_turn:") for value in fingerprints)
 
 
+# Each turn differs from every other one in a way some wrong fingerprint would
+# miss: one side equal and the other different, a moved split point, a swap,
+# equal lengths, a case or inner-space change, and for each character a join
+# could use, a turn with that character on either side of the split.
+_JOIN_CHARACTERS = (" ", "|", "||", ":", "\t", ",", "\n", "\x00", "\x1f", " ")
+_DISTINCT_TURNS = [
+    ("a", "b"),
+    ("a", "c"),
+    ("c", "b"),
+    ("b", "a"),
+    ("ok", "reply one"),
+    ("ok", "reply two"),
+    ("ok two", "reply one"),
+    ("ab", "c"),
+    ("a", "bc"),
+    ("abc", ""),
+    ("", "abc"),
+    ("yes", "abc"),
+    ("no!", "xyz"),
+    ("A", "b"),
+    ("a", "B"),
+    ("a  b", "c"),
+    ("a\nAssistant: b", ""),
+    *[(f"a{character}b", "c") for character in _JOIN_CHARACTERS],
+    *[("a", f"b{character}c") for character in _JOIN_CHARACTERS],
+]
+
+
+def test_every_distinct_turn_has_its_own_fingerprint_and_its_own_capture(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Mutation: hash a joined or partial form of the turn.
+
+    Each of these fingerprints is wrong for some pair of turns, and the second
+    turn of the pair is dropped as a duplicate: the two sides concatenated with
+    no separator, or joined on one character (a space, ``|``, ``:``, a tab), the
+    user side alone, the assistant side alone, the JSON of the concatenation,
+    the two lengths, or a case-folded or whitespace-normalised side. The pairs
+    above cover each one, so every turn must reach the server and carry its own
+    fingerprint.
+    """
+
+    assert len(set(_DISTINCT_TURNS)) == len(_DISTINCT_TURNS)
+    store, posts = ContinuityCaptureStoreStub(), []
+    provider = _provider(monkeypatch, store, posts)
+
+    for user, reply in _DISTINCT_TURNS:
+        provider.sync_turn(user, reply)
+    _flush(provider)
+
+    candidate_posts = _posted(posts, _CANDIDATES_PATH)
+    assert [(post["user_content"], post["assistant_content"]) for post in candidate_posts] == [
+        (user.strip(), reply.strip()) for user, reply in _DISTINCT_TURNS
+    ]
+    fingerprints = [post["sync_fingerprint"] for post in _posted(posts, _COMMIT_PATH)]
+    assert len(fingerprints) == len(_DISTINCT_TURNS)
+    assert len(set(fingerprints)) == len(_DISTINCT_TURNS)
+
+
 def test_the_same_turn_sent_twice_is_still_deduplicated(monkeypatch: pytest.MonkeyPatch) -> None:
     """Mutation: make the fingerprint unique per call, for example by adding a counter."""
 
