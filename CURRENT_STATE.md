@@ -181,7 +181,12 @@ There is no schema change.
   object gets the same credential check as memory commit. In `v0.17.0`, assist
   saves any explicit match at confidence 0.9 or more from either role, auto
   saves at 0.85 or more, and only the credential floor runs, so
-  `PASSWORD_DB=<value>` is stored.
+  `PASSWORD_DB=<value>` is stored. That rule is the `/v0/continuity` capture
+  commit. The `/v1` memory operations commit reads no role in `v0.19.0`:
+  assist applies an explicit match of an allowed type at 0.9 or more from
+  either role, and auto applies any match of an allowed type at 0.9 or more.
+  Unreleased (on main, not in v0.19.0): it applies only a user turn that
+  matches an explicit prefix, as the capture commit does.
 - A JSON write under `/v0` that names the user only in the
   `X-AliceBot-User-Id` header reaches the route with that user in the body. In
   `v0.17.0`, `POST /v0/continuity/captures/candidates` answers that request

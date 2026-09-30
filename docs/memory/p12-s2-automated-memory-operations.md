@@ -33,7 +33,9 @@ The default gate is conservative:
 - low-confidence candidates route to `review_required`
 - `DELETE` routes to `review_required`
 - `NOOP` routes to `skip`
-- explicit high-confidence candidates in `assist` and `auto` modes can `auto_apply`
+- in v0.19.0, `assist` mode can `auto_apply` an explicit candidate of an allowed type at confidence 0.9 or more, and `auto` mode any candidate of an allowed type at 0.9 or more, from the user or the assistant alike
+
+Unreleased (on main, not in v0.19.0): `assist` and `auto` modes can `auto_apply` only a candidate that came from the user, matched an explicit prefix (`decision:`, `preference:`, `commitment:` and the other prefixes in the capture rules) and has confidence 0.9 or more. This is the rule the `/v0/continuity` capture commit applies, and both call one function, `user_prefix_autosave`. A candidate from the assistant, or a phrase match from either role, is `review_required`. `manual` mode queues every candidate. Commit skips a `review_required` candidate unless the request sets `include_review_required`, and it checks the rule again on a row that was stored as `auto_apply` before this change. The role is the request field that carried the text, so a caller that puts text in `user_content` is still taken at its word.
 
 ## Storage
 
