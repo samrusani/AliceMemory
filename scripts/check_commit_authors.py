@@ -21,6 +21,9 @@ from pathlib import Path
 # noreply address is not one of them and fails, which is why no domain is
 # allowed as a whole.
 # samrusani@users.noreply.github.com is the owner's GitHub noreply address.
+# 14844597+samrusani@users.noreply.github.com is the same address in the
+# id form GitHub uses for commits made on github.com (web edits and
+# suggestions); 14844597 is the owner's GitHub account id.
 # noreply@github.com is GitHub's own noreply identity. History records it
 # as the committer on web merges. The committer name is GitHub.
 # cursoragent@cursor.com is the Cursor agent role address. It is this
@@ -35,6 +38,7 @@ from pathlib import Path
 EXACT_ALLOWLIST = frozenset(
     {
         "samrusani@users.noreply.github.com",
+        "14844597+samrusani@users.noreply.github.com",
         "noreply@github.com",
         "cursoragent@cursor.com",
         "49699333+dependabot[bot]@users.noreply.github.com",

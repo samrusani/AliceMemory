@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- The commit author check accepts five exact addresses and no domain as a whole: the owner's GitHub noreply address, `noreply@github.com`, `cursoragent@cursor.com`, and the Dependabot and github-actions bot noreply addresses. A misspelled noreply address fails and the failure names the commit. In v0.19.0 the check allows any address at `users.noreply.github.com`.
+- The commit author check accepts six exact addresses and no domain as a whole: the owner's GitHub noreply address in its plain and id forms, `noreply@github.com`, `cursoragent@cursor.com`, and the Dependabot and github-actions bot noreply addresses. A misspelled noreply address fails and the failure names the commit. In v0.19.0 the check allows any address at `users.noreply.github.com`.
 - The dispatch-only Real host CI marketplace check adds the marketplace from `./` and from the HTTPS clone URL, each into a fresh HOME, installs `alice-memory@alicememory` and checks the plugin list for its id, enabled state and version. It also tries the `samrusani/AliceMemory` shorthand and reports whether it works, as an annotation and a step summary, without failing the job. In v0.19.0 the check adds the marketplace from `.` only.
 
 ## v0.19.0 — 2026-09-30

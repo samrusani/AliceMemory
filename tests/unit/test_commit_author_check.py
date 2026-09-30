@@ -22,10 +22,12 @@ import scripts.check_commit_authors as commit_authors
 REPO_ROOT = Path(__file__).resolve().parents[2]
 BAD_EMAIL = "bad-author@example.com"
 OWNER_NOREPLY = "samrusani@users.noreply.github.com"
+OWNER_ID_NOREPLY = "14844597+samrusani@users.noreply.github.com"
 DEPENDABOT = "49699333+dependabot[bot]@users.noreply.github.com"
 GITHUB_ACTIONS = "41898282+github-actions[bot]@users.noreply.github.com"
 ALLOWED_ADDRESSES = (
     OWNER_NOREPLY,
+    OWNER_ID_NOREPLY,
     "noreply@github.com",
     "cursoragent@cursor.com",
     DEPENDABOT,
@@ -294,6 +296,10 @@ def test_allowlist_accepts_the_listed_addresses(email: str) -> None:
         # Another account at the GitHub noreply domain, with and without an id.
         "example-user@users.noreply.github.com",
         "12345+example-user@users.noreply.github.com",
+        # The owner's id form with the wrong id, a misspelled name, or no plus sign.
+        "14844598+samrusani@users.noreply.github.com",
+        "14844597+samirusani@users.noreply.github.com",
+        "14844597samrusani@users.noreply.github.com",
         # The bots with the wrong id, and with no id.
         "49699334+dependabot[bot]@users.noreply.github.com",
         "dependabot[bot]@users.noreply.github.com",
@@ -329,7 +335,7 @@ def test_allowlist_rejects_other_addresses(email: str) -> None:
 
 
 def test_exact_allowlist_is_only_the_listed_addresses() -> None:
-    """The allowlist is these five addresses, all lower-case, none a domain.
+    """The allowlist is these six addresses, all lower-case, none a domain.
 
     Mutation: add an address, add a bare domain, or restore the noreply
     domain rule. This test fails. The lower-case check matters because the
@@ -338,7 +344,7 @@ def test_exact_allowlist_is_only_the_listed_addresses() -> None:
     """
 
     assert commit_authors.EXACT_ALLOWLIST == frozenset(ALLOWED_ADDRESSES)
-    assert len(ALLOWED_ADDRESSES) == 5
+    assert len(ALLOWED_ADDRESSES) == 6
     for entry in commit_authors.EXACT_ALLOWLIST:
         assert entry == entry.strip().lower()
         assert entry.count("@") == 1
