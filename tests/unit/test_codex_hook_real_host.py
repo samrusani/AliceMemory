@@ -35,6 +35,7 @@ import shutil
 import subprocess
 import sys
 import threading
+import time
 import tomllib
 from collections.abc import Iterator
 from dataclasses import dataclass, field
@@ -67,6 +68,7 @@ MODIFIED = "The hook changed, so Codex will skip it until you trust it again."
 WRITTEN = "session_start: written to hooks.json, not trusted yet"
 UNCHANGED = "session_start: unchanged in hooks.json (Codex runs it only if you have trusted it)"
 DEFAULT_LIMIT = 2500
+HASH_PANIC = "should serialize to TOML"
 
 
 # --- the trust hash -------------------------------------------------------------------------
@@ -339,11 +341,17 @@ def codex_hooks(env: dict[str, str], cwd: Path) -> tuple[list[dict], list[str]] 
         proc.stdin.flush()
 
     def response(request_id: int) -> dict | None:
-        while True:
+        # Codex's trust-hash step is an unreachable!. When a handler makes it panic the
+        # app-server stays up and never answers, so a wait for the full 90 seconds would
+        # follow: give up as soon as stderr names that panic.
+        deadline = time.monotonic() + 90
+        while time.monotonic() < deadline:
             try:
-                line = lines.get(timeout=90)
+                line = lines.get(timeout=1)
             except queue.Empty:
-                return None
+                if any(HASH_PANIC in text for text in stderr_lines):
+                    return None
+                continue
             if line is None:
                 return None
             try:
@@ -352,6 +360,7 @@ def codex_hooks(env: dict[str, str], cwd: Path) -> tuple[list[dict], list[str]] 
                 continue
             if message.get("id") == request_id and ("result" in message or "error" in message):
                 return message
+        return None
 
     try:
         send(
@@ -363,12 +372,12 @@ def codex_hooks(env: dict[str, str], cwd: Path) -> tuple[list[dict], list[str]] 
         )
         started = response(1)
         if started is None or "error" in started:
-            return f"initialize failed: {started} stderr={''.join(stderr_lines)[-600:]}"
+            return f"initialize failed: {started} stderr={''.join(stderr_lines)[-1500:]}"
         send({"method": "initialized"})
         send({"id": 2, "method": "hooks/list", "params": {"cwds": [str(cwd)]}})
         listed = response(2)
         if listed is None or "error" in listed:
-            return f"hooks/list failed: {listed} stderr={''.join(stderr_lines)[-600:]}"
+            return f"hooks/list failed: {listed} stderr={''.join(stderr_lines)[-1500:]}"
         entries = listed["result"]["data"]
         entry = entries[0] if entries else {"hooks": [], "warnings": [], "errors": []}
         if entry.get("errors"):
@@ -905,7 +914,7 @@ def test_real_codex_and_install_agree_on_hooks_json_number_and_spelling_rules(ri
         listed = rig.codex_hooks()
         warnings: list[str] = []
         if isinstance(listed, str):
-            verdict = "crashes" if "should serialize to TOML" in listed else "unreadable"
+            verdict = "crashes" if HASH_PANIC in listed else "unreadable"
             if verdict == "unreadable":
                 problems.append(f"{label}: hooks/list could not be read: {listed[-400:]}")
         else:
