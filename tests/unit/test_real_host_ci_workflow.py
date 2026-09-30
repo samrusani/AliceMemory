@@ -115,6 +115,7 @@ def _host_change_paths() -> set[str]:
 
     found = set(SOURCE_PATHS)
     found.add(WORKFLOW_RELATIVE)
+    found.add("scripts/fuzz_codex_config_writer.py")
     found.add("plugins/alice-memory/**")
     found.add(".claude-plugin/**")
     tests = REPO_ROOT / "tests"
@@ -169,6 +170,9 @@ def _pytest_step(job: dict) -> dict:
         and "test_real_hermes_loads_the_written_config" in step.get("run", "")
         and "test_real_opencode_reads_the_written_config" in step.get("run", "")
         and "test_real_opencode_rejects_a_broken_alice_entry" in step.get("run", "")
+        and "test_real_codex_reads_the_written_config" in step.get("run", "")
+        and "test_real_codex_rejects_a_broken_alice_entry" in step.get("run", "")
+        and "test_real_codex_tools_key_and_table" in step.get("run", "")
         and "test_real_claude_validates_the_plugin" in step.get("run", "")
         and "test_real_claude_plugin_install_and_run" in step.get("run", "")
     ]
@@ -220,7 +224,9 @@ def test_pinned_job_pins_the_trialed_hosts_and_refuses_a_skip() -> None:
     assert CLAUDE_NPM in script
     assert HERMES_PIP in script
     assert "opencode-ai@1.18.32" in script
-    assert "ran != 7" in script
+    assert "@openai/codex@0.158.0" in script
+    assert "codex-cli 0.158.0" in script
+    assert "ran != 10" in script
     assert "@latest" not in script
     assert CLAUDE_VERSION in script
     assert HERMES_VERSION in script
@@ -267,7 +273,9 @@ def test_weekly_canary_does_not_pin_claude_or_hermes() -> None:
     assert "@anthropic-ai/claude-code@latest" in script
     assert "opencode-ai@latest" in script
     assert "opencode-ai@1.18.32" not in script
-    assert "ran != 7" in script
+    assert "@openai/codex@latest" in script
+    assert "@openai/codex@0.158.0" not in script
+    assert "ran != 10" in script
     assert re.search(r"(^|\s)hermes-agent($|\s)", script)
     step = _pytest_step(_job("canary"))
     assert step.get("env", {}).get("ALICE_TEST_REAL_HOSTS") == "1"
@@ -289,6 +297,7 @@ def test_weekly_canary_opens_an_ops_issue_on_failure() -> None:
     script = step.get("with", {}).get("script", "")
     assert OPS_TITLE in script
     assert "opencode" in script
+    assert "codex" in script
     assert "github.rest.issues.listForRepo" in script
     assert "github.rest.issues.createComment" in script
     assert "await github.rest.issues.create({" in script

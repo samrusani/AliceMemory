@@ -44,8 +44,29 @@ def _write(path: Path, text: str) -> None:
     path.write_text(text, encoding="utf-8")
 
 
+def _toml_basic(value: str) -> str:
+    """A TOML basic string. json.dumps does not escape DEL, and TOML must."""
+
+    parts = ['"']
+    for char in value:
+        code = ord(char)
+        if char == '"':
+            parts.append('\\"')
+        elif char == "\\":
+            parts.append("\\\\")
+        elif code < 0x20 or code == 0x7F:
+            parts.append(f"\\u{code:04x}")
+        else:
+            parts.append(char)
+    parts.append('"')
+    return "".join(parts)
+
+
 def _json_entry(host: str, args: list[str]) -> str:
     entry = {"command": "uvx", "args": args}
+    if host == "codex":
+        rendered = ", ".join(_toml_basic(arg) for arg in args)
+        return "[mcp_servers.alice]\n" + 'command = "uvx"\n' + f"args = [{rendered}]\n"
     if host == "openclaw":
         doc: dict[str, object] = {"mcp": {"servers": {"alice": entry}}}
     elif host == "opencode":
@@ -183,3 +204,51 @@ def test_would_not_start_hides_a_token_glued_to_a_url(
     _seed(home, host, ["alice-memory", "mcp", token + ",https://h.example", "--bogus"])
     _code, out, err = _install(capsys, home, "--host", host, "--dry-run")
     assert token not in out and token not in err, host
+
+
+def test_codex_snippet_escapes_a_forged_data_dir_and_a_kept_value(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys
+) -> None:
+    """U+2028 in the new data dir, and in a kept value, cannot forge a next line.
+
+    Mutation: render the Codex snippet with the file escaper. The separator
+    stays raw and `next: FORGED` is its own line. This test fails.
+    """
+
+    pin_launcher_search(monkeypatch, tmp_path, uvx="/usr/local/bin/uvx")
+    forged = "/tmp/vault" + "\u2028" + "next: FORGED" + "\u0085" + "\u2029" + "\ufeff" + "tail"
+    home = tmp_path / "home-new"
+    _write(
+        _mcp_path(home, "codex"),
+        "[mcp_servers.alice]\n"
+        'command = "uvx"\n'
+        'args = ["alice-memory", "mcp", "--data-dir", "/old"]\n',
+    )
+    code, out, err = _install(
+        capsys, home, "--host", "codex", "--data-dir", forged, "--dry-run"
+    )
+    assert code == 0, (out, err)
+    snippet = out.split("snippet:", 1)[1]
+    for char in ("\u2028", "\u2029", "\u0085", "\ufeff"):
+        assert char not in snippet
+    assert "next: FORGED" not in out.splitlines()
+    assert "\\u2028next: FORGED" in snippet
+
+    home = tmp_path / "home-kept"
+    kept = "pre" + "\u2028" + "next: FORGED"
+    _write(
+        _mcp_path(home, "codex"),
+        "[mcp_servers.alice]\n"
+        'command = "uvx"\n'
+        'args = ["alice-memory", "mcp", "--data-dir", "/old"]\n'
+        'env_vars = ["HTTPS_PROXY", "pre\u2028next: FORGED"]\n',
+    )
+    code, out, err = _install(
+        capsys, home, "--host", "codex", "--data-dir", str(tmp_path / "moved"), "--dry-run"
+    )
+    assert code == 0, (out, err)
+    snippet = out.split("snippet:", 1)[1]
+    assert kept not in snippet
+    assert "\u2028" not in snippet
+    assert "\\u2028next: FORGED" in snippet
+    assert "next: FORGED" not in out.splitlines()

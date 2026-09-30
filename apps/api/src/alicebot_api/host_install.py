@@ -10,6 +10,7 @@ import argparse
 import contextlib
 import io
 import json
+import math
 import os
 import re
 import shutil
@@ -19,7 +20,7 @@ import tomllib
 import zipfile
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, time
 from pathlib import Path, PureWindowsPath
 from typing import Any, NoReturn
 
@@ -73,6 +74,7 @@ INSTALL_HOSTS = (
     "openclaw",
     "hermes",
     "opencode",
+    "codex",
 )
 DEFAULT_INSTALL_HOSTS = (
     "claude-desktop",
@@ -139,16 +141,22 @@ def claude_desktop_config_path(home: Path, platform: str | None = None) -> Path:
 
 
 def host_file_map(
-    home: Path, platform: str | None = None, *, config_home: Path | None = None
+    home: Path,
+    platform: str | None = None,
+    *,
+    config_home: Path | None = None,
+    codex_home: Path | None = None,
 ) -> dict[str, dict[str, Path]]:
     """Host config paths under ``home``.
 
     ``config_home`` is OpenCode's config directory parent. It defaults to
     ``home / ".config"`` on every platform, including Windows.
+    ``codex_home`` is Codex's config directory. It defaults to ``home / ".codex"``.
     """
 
     opencode_config = home / ".config" if config_home is None else config_home
     opencode_dir = opencode_config / "opencode"
+    codex_dir = home / ".codex" if codex_home is None else codex_home
     return {
         "claude-desktop": {"mcp": claude_desktop_config_path(home, platform)},
         "claude-code": {
@@ -168,6 +176,7 @@ def host_file_map(
             "home_json": home / ".opencode" / "opencode.json",
             "home_jsonc": home / ".opencode" / "opencode.jsonc",
         },
+        "codex": {"mcp": codex_dir / "config.toml"},
     }
 
 
@@ -286,6 +295,8 @@ def _alice_server_keys(host: str) -> tuple[str, ...]:
         return ("mcp", "servers", "alice")
     if host == "opencode":
         return ("mcp", "alice")
+    if host == "codex":
+        return ("mcp_servers", "alice")
     return ("mcpServers", "alice")
 
 
@@ -336,8 +347,26 @@ def _ensure_private_parents(path: Path) -> None:
         directory.chmod(0o700)
 
 
-def _write_text(path: Path, text: str, *, newline: str | None = None) -> None:
-    """Atomically replace ``path``. ``newline=""`` writes line breaks as given."""
+class _HostFileChanged(InstallError):
+    """The host file changed after install read it and before the replace."""
+
+
+def _write_text(
+    path: Path,
+    text: str,
+    *,
+    newline: str | None = None,
+    expected: bytes | None = None,
+    expect_absent: bool = False,
+    backup: Path | None = None,
+) -> None:
+    """Atomically replace ``path``. ``newline=""`` writes line breaks as given.
+
+    When ``expected`` is set, or ``expect_absent`` is set, the bytes on disk
+    are compared after the temp file is written and just before the replace.
+    A mismatch removes the temp file and ``backup``, and raises
+    ``_HostFileChanged``. The destination is left as it was.
+    """
 
     _ensure_private_parents(path)
     handle = tempfile.NamedTemporaryFile(
@@ -353,7 +382,20 @@ def _write_text(path: Path, text: str, *, newline: str | None = None) -> None:
     try:
         handle.write(text)
         handle.close()
+        if expected is not None or expect_absent:
+            try:
+                current = path.read_bytes() if path.exists() else None
+            except OSError:
+                current = None
+            mismatch = path.exists() if expect_absent else current != expected
+            if mismatch:
+                tmp_path.unlink(missing_ok=True)
+                if backup is not None:
+                    backup.unlink(missing_ok=True)
+                raise _HostFileChanged()
         tmp_path.replace(path)
+    except _HostFileChanged:
+        raise
     except Exception:
         handle.close()
         if tmp_path.exists():
@@ -3091,7 +3133,7 @@ def _format_host_receipt(
         if hooks_target is not None and hooks_target != hooks_path:
             lines.append(_seal_receipt_line(f"session_start_target: {hooks_target}"))
     lines.extend(_seal_receipt_line(item, mask=True) for item in hook_details)
-    if host in {"openclaw", "hermes", "opencode"}:
+    if host in {"openclaw", "hermes", "opencode", "codex"}:
         lines.append(_seal_receipt_line(f"note: {BRIEF_HINT}"))
     if snippet is not None:
         lines.append("snippet:")
@@ -5212,6 +5254,2092 @@ def _install_opencode_host(
     return _HostResult(receipt("written", target_path, snippet=None), "ok", plan.used_fallback)
 
 
+class CodexConfigRefused(HermesConfigRefused):
+    """install left config.toml untouched because it could not edit it safely."""
+
+
+@dataclass(frozen=True)
+class CodexPlan:
+    """What install --host codex would write, and what the receipt says about it."""
+
+    text: str | None
+    data_dir: str
+    payload: Mapping[str, object]
+    details: tuple[str, ...] = ()
+    used_fallback: bool = False
+    carried_lines: tuple[str, ...] = ()
+    carried_hidden: tuple[str, ...] = ()
+
+
+_CODEX_CARRIED_KEYS = (
+    "startup_timeout_sec",
+    "tool_timeout_sec",
+    "startup_timeout_ms",
+    "enabled",
+    "default_tools_approval_mode",
+    "env_vars",
+)
+_CODEX_CARRIED = frozenset(_CODEX_CARRIED_KEYS)
+_CODEX_APPROVAL_MODES = frozenset({"auto", "prompt", "writes", "approve"})
+_CODEX_I64 = 2**63
+_CODEX_BARE_KEY = re.compile(r"[A-Za-z0-9_-]+")
+_CODEX_TIME_WITHOUT_SECONDS = re.compile(
+    r"(?:\d{4}-\d{2}-\d{2}[Tt ]\d{2}:\d{2}(?!:\d)|\d{2}:\d{2}(?!:\d))"
+    r"(?:[Zz]|[+-]\d{2}:\d{2})?"
+)
+_CODEX_BASIC_ESCAPES = {
+    "b": "\b",
+    "t": "\t",
+    "n": "\n",
+    "f": "\f",
+    "r": "\r",
+    '"': '"',
+    "\\": "\\",
+}
+
+
+_CODEX_HAND_NEXT = (
+    "config.toml was not changed. Edit the alice entry by hand instead, "
+    "then check it with: codex mcp get alice"
+)
+_CODEX_COMMENT_NEXT = "config.toml was not changed. Remove the comment, then run install again."
+_CODEX_QUOTE_NEXT = "config.toml was not changed. Quote the value, then run install again."
+_CODEX_TOOLS_NEXT = (
+    "config.toml was not changed. Move each tools.<name> key into its own "
+    "[mcp_servers.alice.tools.<name>] table, then run install again."
+)
+_CODEX_RERUN_NEXT = "config.toml was not changed. Run install again."
+_CODEX_TOO_DEEP = "config.toml nests too deeply"
+_CODEX_CHECK_NEXT = "check it with: codex mcp get alice"
+_CODEX_HOME_NEXT = (
+    "Set CODEX_HOME to an absolute path, or pass --home, then run install again."
+)
+_CODEX_HOME_DIR_NEXT = (
+    "config.toml was not changed. Point CODEX_HOME at an existing directory, "
+    "or pass --home, then run install again."
+)
+_CODEX_ENV_NEXT = (
+    'config.toml was not changed. Move each env key into [mcp_servers.alice.env] '
+    'as KEY = "value", then run install again.'
+)
+_CODEX_TOOLS_FIX = (
+    "config.toml was not changed. Fix the {name} entry, then run install again."
+)
+_CODEX_DIR_PLACEHOLDER = "<the data dir your existing alice entry uses>"
+_CODEX_I64_MIN = -(2**63)
+_CODEX_I64_MAX = 2**63 - 1
+_CODEX_FLOAT_SPECIALS = frozenset({"inf", "+inf", "-inf", "nan", "+nan", "-nan"})
+_CODEX_INT_TOKEN = re.compile(
+    r"[+-]?(?:0x[0-9A-Fa-f](?:_?[0-9A-Fa-f])*|0o[0-7](?:_?[0-7])*|0b[01](?:_?[01])*|"
+    r"0|[1-9](?:_?[0-9])*)\Z"
+)
+_CODEX_FLOAT_TOKEN = re.compile(
+    r"[+-]?(?:0|[1-9](?:_?[0-9])*)(?:\.[0-9](?:_?[0-9])*)?(?:[eE][+-]?[0-9](?:_?[0-9])*)\Z|"
+    r"[+-]?(?:0|[1-9](?:_?[0-9])*)\.[0-9](?:_?[0-9])*(?:[eE][+-]?[0-9](?:_?[0-9])*)?\Z"
+)
+_CODEX_DATETIME_TOKEN = re.compile(
+    r"\d{4}-\d{2}-\d{2}(?:[Tt ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:[Zz]|[+-]\d{2}:\d{2})?)?\Z|"
+    r"\d{2}:\d{2}:\d{2}(?:\.\d+)?\Z"
+)
+
+
+def _codex_refuse(
+    reason: str,
+    *,
+    key: str | None = None,
+    fix: str | None = None,
+    located: bool = False,
+    data_dir: str | None = None,
+    placeholder: bool = False,
+    payload: Mapping[str, object] | None = None,
+    line: int | None = None,
+) -> NoReturn:
+    next_step = fix
+    if next_step is None and key is not None:
+        next_step = (
+            f"install will not edit an alice entry that holds {key}. "
+            f"Keep editing it by hand, or remove {key} for good and run install again."
+        )
+    raise CodexConfigRefused(
+        reason,
+        line,
+        next_step=next_step,
+        located=located,
+        data_dir=data_dir,
+        placeholder=placeholder,
+        payload=payload,
+    )
+
+
+def _toml_basic(value: str) -> str:
+    """A TOML basic string. Quotes, backslashes, C0 controls and DEL are escaped."""
+
+    parts = ['"']
+    for char in value:
+        code = ord(char)
+        if char == '"':
+            parts.append('\\"')
+        elif char == "\\":
+            parts.append("\\\\")
+        elif code < 0x20 or code == 0x7F:
+            parts.append(f"\\u{code:04x}")
+        else:
+            parts.append(char)
+    parts.append('"')
+    return "".join(parts)
+
+
+def _toml_snippet(value: str) -> str:
+    """A TOML basic string for a receipt snippet.
+
+    Same escapes as ``_toml_basic``, plus C1 controls, U+2028, U+2029 and
+    U+FEFF, so a value cannot forge a receipt line. The file still uses
+    ``_toml_basic``.
+    """
+
+    parts = ['"']
+    for char in value:
+        code = ord(char)
+        if char == '"':
+            parts.append('\\"')
+        elif char == "\\":
+            parts.append("\\\\")
+        elif (
+            code < 0x20
+            or code == 0x7F
+            or 0x80 <= code <= 0x9F
+            or code in (0x2028, 0x2029, 0xFEFF)
+        ):
+            parts.append(f"\\u{code:04x}")
+        else:
+            parts.append(char)
+    parts.append('"')
+    return "".join(parts)
+
+
+def _codex_snippet_line(line: str) -> str:
+    """One carried line for the snippet, with receipt-forging characters escaped."""
+
+    parts: list[str] = []
+    for char in line:
+        code = ord(char)
+        if code < 0x20 or code == 0x7F or 0x80 <= code <= 0x9F or code in (0x2028, 0x2029, 0xFEFF):
+            parts.append(f"\\u{code:04x}")
+        else:
+            parts.append(char)
+    return "".join(parts)
+
+
+def _codex_ml_spans(text: str) -> list[tuple[int, int]]:
+    """Spans of multi-line strings, so line endings inside them can be ignored."""
+
+    spans: list[tuple[int, int]] = []
+    index = 0
+    length = len(text)
+    while index < length:
+        char = text[index]
+        if char in "\"'":
+            quote = char
+            end, count = _codex_quote_run(text, index, quote)
+            # Six to eight quotes is an empty multi-line string, or one with
+            # one or two quotes of content. It is a finished span.
+            if 6 <= count <= 8:
+                spans.append((index, end))
+                index = end
+                continue
+            if count >= 3:
+                start = index
+                index = end
+                if text.startswith("\r\n", index):
+                    index += 2
+                elif index < length and text[index] == "\n":
+                    index += 1
+                basic = quote == '"'
+                while index < length:
+                    if basic and text[index] == "\\":
+                        nxt = index + 1
+                        if nxt >= length:
+                            break
+                        if text[nxt] in " \t\r\n":
+                            cursor = nxt
+                            while cursor < length and text[cursor] in " \t":
+                                cursor += 1
+                            if text.startswith("\r\n", cursor):
+                                cursor += 2
+                            elif cursor < length and text[cursor] == "\n":
+                                cursor += 1
+                            else:
+                                index = nxt + 1
+                                continue
+                            while cursor < length and text[cursor] in " \t":
+                                cursor += 1
+                            index = cursor
+                            continue
+                        index = nxt + 1
+                        continue
+                    if text[index] == quote:
+                        qend, qcount = _codex_quote_run(text, index, quote)
+                        if qcount >= 3:
+                            close = index + 5 if qcount > 5 else qend
+                            spans.append((start, close))
+                            index = close
+                            break
+                        index = qend
+                        continue
+                    index += 1
+                continue
+            if count == 1:
+                index += 1
+                while index < length:
+                    if quote == '"' and text[index] == "\\":
+                        if index + 1 >= length:
+                            break
+                        index += 2
+                        continue
+                    if text[index] == quote:
+                        index += 1
+                        break
+                    if text[index] in "\r\n":
+                        break
+                    index += 1
+                continue
+            index = end
+            continue
+        if char == "#":
+            while index < length and text[index] not in "\r\n":
+                index += 1
+            continue
+        index += 1
+    return spans
+
+
+def _codex_newline(text: str) -> str:
+    """The file's newline, from breaks outside multi-line strings.
+
+    A CRLF inside a multi-line string is accepted when every other break is
+    LF. A lone CR is refused. A BOM is refused. Mixed endings outside
+    multi-line strings are refused.
+    """
+
+    if text.startswith("\ufeff"):
+        _codex_refuse("config.toml starts with a BOM; remove the BOM")
+    spans = _codex_ml_spans(text)
+
+    def inside(position: int) -> bool:
+        return any(start <= position < stop for start, stop in spans)
+
+    saw_crlf = False
+    saw_lf = False
+    index = 0
+    while index < len(text):
+        if text.startswith("\r\n", index):
+            if not inside(index):
+                saw_crlf = True
+            index += 2
+            continue
+        if text[index] == "\r":
+            _codex_refuse("config.toml has a lone CR")
+        if text[index] == "\n" and not inside(index):
+            saw_lf = True
+        index += 1
+    if saw_crlf and saw_lf:
+        _codex_refuse("config.toml has mixed line endings")
+    return "\r\n" if saw_crlf else "\n"
+
+
+def _codex_value_position(text: str, index: int, stack: Sequence[str]) -> bool:
+    """True when the token at ``index`` is a value, not a bare key.
+
+    A number-like key such as ``9223372036854775808 = 1`` is a key Codex
+    loads. Only a token after ``=``, or inside an array, is a value.
+    """
+
+    cursor = index - 1
+    while cursor >= 0 and text[cursor] in " \t":
+        cursor -= 1
+    if cursor < 0:
+        return False
+    previous = text[cursor]
+    if previous == "=":
+        return True
+    in_array = bool(stack) and stack[-1] == "["
+    if previous in "[," :
+        return in_array
+    if previous in "\r\n":
+        return in_array
+    return False
+
+
+def _codex_number_token_problem(token: str) -> str | None:
+    """A refusal reason for one number token, or None when the token may stay.
+
+    Integers outside ``[-2^63, 2^63-1]`` are refused, in decimal, hex, octal
+    and binary, underscores included. A float that is not finite is refused
+    unless the token is literally ``inf`` or ``nan`` (an optional sign is the
+    same literal). Datetimes and other tokens are not number-range errors.
+    """
+
+    if _CODEX_TIME_WITHOUT_SECONDS.fullmatch(token):
+        return "config.toml has a time or datetime without seconds"
+    if token.lower() in _CODEX_FLOAT_SPECIALS:
+        return None
+    if _CODEX_DATETIME_TOKEN.fullmatch(token):
+        return None
+    if _CODEX_INT_TOKEN.fullmatch(token):
+        body = token
+        sign = 1
+        if body[:1] in "+-":
+            sign = -1 if body[0] == "-" else 1
+            body = body[1:]
+        digits = body.replace("_", "")
+        base = 10
+        if digits[:2].lower() == "0x":
+            base = 16
+            digits = digits[2:]
+        elif digits[:2].lower() == "0o":
+            base = 8
+            digits = digits[2:]
+        elif digits[:2].lower() == "0b":
+            base = 2
+            digits = digits[2:]
+        try:
+            integer = sign * int(digits, base)
+        except ValueError:
+            return None
+        if integer < _CODEX_I64_MIN or integer > _CODEX_I64_MAX:
+            return "config.toml has an integer outside the i64 range"
+        return None
+    if _CODEX_FLOAT_TOKEN.fullmatch(token):
+        try:
+            number = float(token.replace("_", ""))
+        except ValueError:
+            return None
+        if not math.isfinite(number):
+            return "config.toml has a float that is not finite"
+    return None
+
+
+def _codex_starts(text: str, index: int, nl: str) -> bool:
+    return text.startswith(nl, index)
+
+
+def _codex_quote_run(text: str, index: int, quote: str) -> tuple[int, int]:
+    end = index
+    while end < len(text) and text[end] == quote:
+        end += 1
+    return end, end - index
+
+
+def _codex_skip_ml_string(text: str, index: int, quote: str, *, basic: bool, nl: str) -> tuple[int, bool]:
+    """Index after a multi-line string, and whether it contained a newline."""
+
+    index += 3
+    if _codex_starts(text, index, nl):
+        index += len(nl)
+    saw_newline = False
+    while index < len(text):
+        if basic and text[index] == "\\":
+            nxt = index + 1
+            if nxt >= len(text):
+                _codex_refuse("config.toml has an unterminated string")
+            if text[nxt] == "e":
+                _codex_refuse("config.toml uses a \\e escape")
+            if text[nxt] == "x":
+                _codex_refuse("config.toml uses a \\x escape")
+            if text[nxt] in " \t\r\n":
+                cursor = nxt
+                while cursor < len(text) and text[cursor] in " \t":
+                    cursor += 1
+                if _codex_starts(text, cursor, nl):
+                    cursor += len(nl)
+                    while cursor < len(text) and text[cursor] in " \t":
+                        cursor += 1
+                    index = cursor
+                    saw_newline = True
+                    continue
+            index = nxt + 1
+            continue
+        if text[index] == quote:
+            end, count = _codex_quote_run(text, index, quote)
+            if count >= 3:
+                if count > 5:
+                    return index + 5, saw_newline
+                return end, saw_newline
+            index = end
+            continue
+        if _codex_starts(text, index, nl):
+            saw_newline = True
+            index += len(nl)
+            continue
+        index += 1
+    _codex_refuse("config.toml has an unterminated string")
+
+
+def _codex_skip_basic(text: str, index: int, nl: str) -> tuple[int, bool]:
+    """Index after a basic string. Refuses TOML 1.1 escapes."""
+
+    if text.startswith('"""', index):
+        return _codex_skip_ml_string(text, index, '"', basic=True, nl=nl)
+    index += 1
+    while index < len(text):
+        char = text[index]
+        if char == "\\":
+            nxt = index + 1
+            if nxt >= len(text):
+                _codex_refuse("config.toml has an unterminated string")
+            if text[nxt] == "e":
+                _codex_refuse("config.toml uses a \\e escape")
+            if text[nxt] == "x":
+                _codex_refuse("config.toml uses a \\x escape")
+            if _codex_starts(text, nxt, nl):
+                _codex_refuse("config.toml has a newline inside a basic string")
+            index = nxt + 1
+            continue
+        if char == '"':
+            return index + 1, False
+        if _codex_starts(text, index, nl):
+            _codex_refuse("config.toml has a newline inside a basic string")
+        index += 1
+    _codex_refuse("config.toml has an unterminated string")
+
+
+def _codex_skip_literal(text: str, index: int, nl: str) -> tuple[int, bool]:
+    if text.startswith("'''", index):
+        return _codex_skip_ml_string(text, index, "'", basic=False, nl=nl)
+    index += 1
+    while index < len(text):
+        if text[index] == "'":
+            return index + 1, False
+        if _codex_starts(text, index, nl):
+            _codex_refuse("config.toml has a newline inside a literal string")
+        index += 1
+    _codex_refuse("config.toml has an unterminated string")
+
+
+def _codex_skip_string(text: str, index: int, nl: str) -> tuple[int, bool]:
+    if text[index] == '"':
+        return _codex_skip_basic(text, index, nl)
+    if text[index] == "'":
+        return _codex_skip_literal(text, index, nl)
+    _codex_refuse("config.toml has a string this writer does not read")
+
+
+def _codex_decode_basic(text: str, index: int) -> tuple[str, int]:
+    """A single-line basic string used as a key, decoded."""
+
+    if text.startswith('"""', index):
+        _codex_refuse("config.toml has a multi-line string where a key was expected")
+    end, _saw = _codex_skip_basic(text, index, "\n")
+    inner = text[index + 1 : end - 1]
+    out: list[str] = []
+    cursor = 0
+    while cursor < len(inner):
+        char = inner[cursor]
+        if char != "\\":
+            out.append(char)
+            cursor += 1
+            continue
+        code = inner[cursor + 1]
+        if code in _CODEX_BASIC_ESCAPES:
+            out.append(_CODEX_BASIC_ESCAPES[code])
+            cursor += 2
+            continue
+        if code in "uU":
+            width = 4 if code == "u" else 8
+            digits = inner[cursor + 2 : cursor + 2 + width]
+            if len(digits) != width or any(item not in "0123456789abcdefABCDEF" for item in digits):
+                _codex_refuse("config.toml has a bad unicode escape")
+            out.append(chr(int(digits, 16)))
+            cursor += 2 + width
+            continue
+        _codex_refuse("config.toml has an unknown escape")
+    return "".join(out), end
+
+
+def _codex_decode_literal(text: str, index: int) -> tuple[str, int]:
+    if text.startswith("'''", index):
+        _codex_refuse("config.toml has a multi-line string where a key was expected")
+    end, _saw = _codex_skip_literal(text, index, "\n")
+    return text[index + 1 : end - 1], end
+
+
+def _codex_read_key(text: str, index: int) -> tuple[tuple[str, ...], int]:
+    parts: list[str] = []
+    while index < len(text):
+        while index < len(text) and text[index] in " \t":
+            index += 1
+        if index >= len(text):
+            _codex_refuse("config.toml has a key this writer does not read")
+        if text[index] == '"':
+            value, index = _codex_decode_basic(text, index)
+        elif text[index] == "'":
+            value, index = _codex_decode_literal(text, index)
+        else:
+            match = _CODEX_BARE_KEY.match(text, index)
+            if match is None:
+                _codex_refuse("config.toml has a key this writer does not read")
+            value = match.group(0)
+            index = match.end()
+        parts.append(value)
+        while index < len(text) and text[index] in " \t":
+            index += 1
+        if index < len(text) and text[index] == ".":
+            index += 1
+            continue
+        break
+    if not parts:
+        _codex_refuse("config.toml has a key this writer does not read")
+    return tuple(parts), index
+
+
+@dataclass(frozen=True)
+class _CodexHeader:
+    start: int
+    end: int
+    path: tuple[str, ...]
+    array: bool
+    trailing_comment: bool
+
+
+@dataclass(frozen=True)
+class _CodexStmt:
+    kind: str
+    start: int
+    end: int
+    line_end: int
+    key: tuple[str, ...] = ()
+    raw: str = ""
+    trailing_comment: bool = False
+
+
+def _codex_skip_container(text: str, index: int, nl: str, opening: str, closing: str) -> int:
+    depth = 0
+    while index < len(text):
+        if text[index] in "\"'":
+            index, _saw_newline = _codex_skip_string(text, index, nl)
+            continue
+        if opening == "{" and text[index] == "[":
+            index = _codex_skip_container(text, index, nl, "[", "]")
+            continue
+        if text[index] == "#":
+            if opening == "{":
+                _codex_refuse("config.toml has a comment inside an inline table")
+            while index < len(text) and not _codex_starts(text, index, nl):
+                index += 1
+            continue
+        if _codex_starts(text, index, nl):
+            if opening == "{":
+                _codex_refuse("config.toml has a newline inside an inline table")
+            index += len(nl)
+            continue
+        if text[index] == opening:
+            depth += 1
+            index += 1
+            continue
+        if text[index] == closing:
+            depth -= 1
+            index += 1
+            if depth == 0:
+                return index
+            continue
+        if text[index] == "," and opening == "{":
+            look = index + 1
+            while look < len(text) and text[look] in " \t":
+                look += 1
+            if look < len(text) and text[look] == "}":
+                _codex_refuse("config.toml has a trailing comma inside an inline table")
+        index += 1
+    _codex_refuse("config.toml has an unclosed value")
+
+
+def _codex_skip_value(text: str, index: int, nl: str) -> int:
+    if index >= len(text):
+        _codex_refuse("config.toml has a value this writer does not read")
+    if text[index] in "\"'":
+        end, _saw = _codex_skip_string(text, index, nl)
+        return end
+    if text[index] == "[":
+        return _codex_skip_container(text, index, nl, "[", "]")
+    if text[index] == "{":
+        return _codex_skip_container(text, index, nl, "{", "}")
+    while index < len(text) and not _codex_starts(text, index, nl) and text[index] != "#":
+        index += 1
+    return index
+
+
+def _codex_scan(text: str, nl: str) -> list[_CodexHeader]:
+    """Headers, plus the TOML 1.1 refusals. Strings and arrays hide `[`.
+
+    A newline is refused only at inline-table level. A newline inside a
+    nested array or a multi-line string is TOML 1.0 and stays. Integer and
+    float tokens outside Codex's range are refused anywhere in the file.
+    """
+
+    headers: list[_CodexHeader] = []
+    index = 0
+    line_origin = 0
+    line_start = True
+    stack: list[str] = []
+    length = len(text)
+    while index < length:
+        if _codex_starts(text, index, nl):
+            if stack and stack[-1] == "{":
+                _codex_refuse("config.toml has a newline inside an inline table")
+            index += len(nl)
+            line_origin = index
+            line_start = True
+            continue
+        char = text[index]
+        if char in " \t":
+            index += 1
+            continue
+        if line_start and char == "[" and not stack:
+            array = text.startswith("[[", index)
+            cursor = index + (2 if array else 1)
+            path, cursor = _codex_read_key(text, cursor)
+            if array:
+                if not text.startswith("]]", cursor):
+                    _codex_refuse("config.toml has a header this writer does not read")
+                cursor += 2
+            elif cursor >= length or text[cursor] != "]":
+                _codex_refuse("config.toml has a header this writer does not read")
+            else:
+                cursor += 1
+            while cursor < length and text[cursor] in " \t":
+                cursor += 1
+            trailing = cursor < length and text[cursor] == "#"
+            if trailing:
+                while cursor < length and not _codex_starts(text, cursor, nl):
+                    cursor += 1
+            elif cursor < length and not _codex_starts(text, cursor, nl):
+                _codex_refuse("config.toml has a header this writer does not read")
+            end = cursor + len(nl) if _codex_starts(text, cursor, nl) else cursor
+            headers.append(
+                _CodexHeader(line_origin, end, path, array, trailing)
+            )
+            index = end
+            line_origin = index
+            line_start = True
+            continue
+        line_start = False
+        if char == "#":
+            if stack and stack[-1] == "{":
+                _codex_refuse("config.toml has a comment inside an inline table")
+            while index < length and not _codex_starts(text, index, nl):
+                index += 1
+            continue
+        if char in "\"'":
+            index, _saw_newline = _codex_skip_string(text, index, nl)
+            continue
+        if char == "{":
+            stack.append("{")
+            index += 1
+            continue
+        if char == "}":
+            if stack and stack[-1] == "{":
+                stack.pop()
+            index += 1
+            continue
+        if char == "[":
+            stack.append("[")
+            index += 1
+            continue
+        if char == "]":
+            if stack and stack[-1] == "[":
+                stack.pop()
+            index += 1
+            continue
+        if char == ",":
+            look = index + 1
+            while look < length and text[look] in " \t":
+                look += 1
+            if stack and stack[-1] == "{" and look < length and text[look] == "}":
+                _codex_refuse("config.toml has a trailing comma inside an inline table")
+            index += 1
+            continue
+        if _codex_value_position(text, index, stack) and (
+            char.isdigit() or char in "+-" or text.startswith(("inf", "nan"), index)
+        ):
+            end = index + (1 if char in "+-" else 0)
+            if end < length and text[end] in "+-":
+                end += 1
+            while end < length and text[end] not in " \t\r\n,]}#":
+                end += 1
+            token = text[index:end]
+            problem = _codex_number_token_problem(token)
+            if problem is not None and (
+                _CODEX_INT_TOKEN.fullmatch(token)
+                or _CODEX_FLOAT_TOKEN.fullmatch(token)
+                or _CODEX_TIME_WITHOUT_SECONDS.fullmatch(token)
+                or token.lower() in _CODEX_FLOAT_SPECIALS
+                or _CODEX_DATETIME_TOKEN.fullmatch(token)
+            ):
+                if problem:
+                    line_no = text.count("\n", 0, index) + 1
+                    _codex_refuse(problem, line=line_no)
+                index = end
+                continue
+        index += 1
+    return headers
+
+
+def _codex_statements(text: str, start: int, end: int, nl: str) -> list[_CodexStmt]:
+    """Key lines, blanks and comments in one table body. Strings are not headers."""
+
+    stmts: list[_CodexStmt] = []
+    index = start
+    while index < end:
+        while index < end and text[index] in " \t":
+            index += 1
+        if index >= end:
+            break
+        if _codex_starts(text, index, nl):
+            line_end = index + len(nl)
+            stmts.append(_CodexStmt("blank", index, line_end, line_end))
+            index = line_end
+            continue
+        if text[index] == "#":
+            comment_end = index
+            while comment_end < end and not _codex_starts(text, comment_end, nl):
+                comment_end += 1
+            line_end = comment_end + len(nl) if _codex_starts(text, comment_end, nl) else comment_end
+            stmts.append(_CodexStmt("comment", index, comment_end, line_end, raw=text[index:comment_end]))
+            index = line_end
+            continue
+        key_at = index
+        key, index = _codex_read_key(text, index)
+        while index < end and text[index] in " \t":
+            index += 1
+        if index >= end or text[index] != "=":
+            _codex_refuse("config.toml has a line this writer does not read")
+        index += 1
+        while index < end and text[index] in " \t":
+            index += 1
+        value_end = _codex_skip_value(text, index, nl)
+        while value_end > index and text[value_end - 1] in " \t":
+            value_end -= 1
+        index = value_end
+        while index < end and text[index] in " \t":
+            index += 1
+        trailing = index < end and text[index] == "#"
+        if trailing:
+            while index < end and not _codex_starts(text, index, nl):
+                index += 1
+        line_end = index + len(nl) if _codex_starts(text, index, nl) else index
+        stmts.append(
+            _CodexStmt(
+                "kv",
+                key_at,
+                value_end,
+                line_end,
+                key,
+                text[key_at:value_end],
+                trailing,
+            )
+        )
+        index = line_end
+    return stmts
+
+
+def _codex_comments_outside(text: str, nl: str, spans: Sequence[tuple[int, int]]) -> list[str]:
+    """Comment texts whose `#` is outside ``spans``, in order."""
+
+    found: list[str] = []
+    index = 0
+    while index < len(text):
+        if text[index] in "\"'":
+            index, _saw = _codex_skip_string(text, index, nl)
+            continue
+        if text[index] == "#":
+            end = index
+            while end < len(text) and not _codex_starts(text, end, nl):
+                end += 1
+            if not any(start <= index < stop for start, stop in spans):
+                found.append(text[index:end])
+            index = end
+            continue
+        index += 1
+    return found
+
+
+def _codex_region(stmts: Sequence[_CodexStmt], header: _CodexHeader) -> tuple[int, int]:
+    keys = [item for item in stmts if item.kind == "kv"]
+    if not keys:
+        return header.start, header.end
+    return header.start, keys[-1].line_end
+
+
+def _codex_carry_problem(key: str, value: object) -> str | None:
+    """Why a carried value cannot stay, or None when it can.
+
+    ``install does not carry this form`` is for a value Codex loads and this
+    writer does not keep. ``Codex would refuse to load this value`` is for a
+    value that fails Codex's own type rule.
+    """
+
+    if key in {"startup_timeout_sec", "tool_timeout_sec"}:
+        if isinstance(value, bool) or not isinstance(value, int | float) or (
+            isinstance(value, float) and not math.isfinite(value)
+        ):
+            return f"Codex would refuse to load this value for {key}"
+        if isinstance(value, int | float) and not isinstance(value, bool) and value < 0:
+            return f"Codex would refuse to load this value for {key}"
+        if isinstance(value, int | float) and not isinstance(value, bool) and value >= _CODEX_I64:
+            return f"install does not carry this form of {key}"
+        return None
+    if key == "startup_timeout_ms":
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0 or value >= _CODEX_I64:
+            if isinstance(value, int) and not isinstance(value, bool) and value >= _CODEX_I64:
+                return f"install does not carry this form of {key}"
+            return f"Codex would refuse to load this value for {key}"
+        return None
+    if key == "enabled":
+        if not isinstance(value, bool):
+            return f"Codex would refuse to load this value for {key}"
+        return None
+    if key == "default_tools_approval_mode":
+        if not isinstance(value, str) or value not in _CODEX_APPROVAL_MODES:
+            return f"Codex would refuse to load this value for {key}"
+        return None
+    if key == "env_vars":
+        if isinstance(value, list) and not all(isinstance(item, str) for item in value):
+            return f"install does not carry this form of {key}"
+        if not isinstance(value, list):
+            return f"Codex would refuse to load this value for {key}"
+        return None
+    return None
+
+
+def _codex_refusal_payload(alice: object) -> dict[str, object] | None:
+    """The entry's own launcher for a refusal snippet, or None.
+
+    Only a whole launcher counts: a string ``command`` and ``args`` that is a
+    list of strings. A partial entry would print ``command = ""`` or
+    ``args = []``, which is not something to paste, so the caller falls back
+    to the placeholder launcher.
+    """
+
+    if not isinstance(alice, dict):
+        return None
+    command = alice.get("command")
+    args = alice.get("args")
+    if not isinstance(command, str):
+        return None
+    if not isinstance(args, list) or not all(isinstance(item, str) for item in args):
+        return None
+    payload: dict[str, object] = {"command": command, "args": args}
+    env = alice.get("env")
+    if isinstance(env, dict) and env:
+        payload["env"] = env
+    return payload
+
+
+def _codex_inline_pairs(text: str, raw: str) -> list[str]:
+    """``KEY = value`` slices from one inline table assignment."""
+
+    brace = raw.find("{")
+    if brace < 0:
+        _codex_refuse("config.toml has an env value this writer does not read", fix=_CODEX_ENV_NEXT)
+    body = raw[brace + 1 :]
+    if not body.endswith("}"):
+        _codex_refuse("config.toml has an env value this writer does not read", fix=_CODEX_ENV_NEXT)
+    body = body[:-1]
+    pairs: list[str] = []
+    index = 0
+    while index < len(body):
+        while index < len(body) and body[index] in " \t":
+            index += 1
+        if index >= len(body):
+            break
+        key_at = index
+        _key, index = _codex_read_key(body, index)
+        while index < len(body) and body[index] in " \t":
+            index += 1
+        if index >= len(body) or body[index] != "=":
+            _codex_refuse("config.toml has an env value this writer does not read", fix=_CODEX_ENV_NEXT)
+        index += 1
+        while index < len(body) and body[index] in " \t":
+            index += 1
+        value_end = _codex_skip_value(body, index, "\n")
+        pairs.append(body[key_at:value_end].strip())
+        index = value_end
+        while index < len(body) and body[index] in " \t,":
+            if body[index] == ",":
+                index += 1
+                break
+            index += 1
+    if not pairs and body.strip():
+        _codex_refuse("config.toml has an env value this writer does not read", fix=_CODEX_ENV_NEXT)
+    return pairs
+
+
+def _codex_check_env(
+    names: Mapping[str, object], raw_lines: Sequence[str]
+) -> tuple[str, str | None, str | None] | None:
+    """A refusal ``(reason, key, fix)`` for env, or None when the env can be carried."""
+
+    for name, value in names.items():
+        if name not in _DOCUMENTED_ENV_NAMES and name != ALICE_MEMORY_DATA_DIR_ENV:
+            return (
+                f"install will not edit an alice entry that holds env.{name}",
+                f"env.{name}",
+                None,
+            )
+        if not isinstance(value, str):
+            return (f"env.{name} is not a quoted string", None, _CODEX_QUOTE_NEXT)
+    if len(raw_lines) != len(names):
+        return ("config.toml has an env value this writer does not read", None, _CODEX_HAND_NEXT)
+    return None
+
+
+def _codex_render_block(
+    entry: Mapping[str, object],
+    carried: Sequence[str],
+    env_lines: Sequence[str],
+    nl: str,
+) -> str:
+    command = entry["command"]
+    args = entry["args"]
+    assert isinstance(command, str)  # nosec B101 # narrows the type for mypy; the planner only renders a string command
+    assert isinstance(args, list)  # nosec B101 # narrows the type for mypy; the planner only renders a list of args
+    lines = [
+        "[mcp_servers.alice]",
+        f"command = {_toml_basic(command)}",
+        "args = [" + ", ".join(_toml_basic(str(item)) for item in args) + "]",
+        *carried,
+    ]
+    if env_lines:
+        lines.append("")
+        lines.append("[mcp_servers.alice.env]")
+        lines.extend(env_lines)
+    return nl.join(lines) + nl
+
+
+def _codex_splice(
+    text: str, removals: Sequence[tuple[int, int]], insert_at: int, block: str
+) -> tuple[str, tuple[int, int]]:
+    """Replace ``removals`` and insert ``block`` at ``insert_at``. Return the text and the new span."""
+
+    parts: list[str] = []
+    cursor = 0
+    inserted: tuple[int, int] | None = None
+    placed = False
+    ordered = sorted(removals)
+
+    def emit_insert() -> None:
+        nonlocal inserted, placed
+        if placed:
+            return
+        start = sum(len(part) for part in parts)
+        parts.append(block)
+        inserted = (start, start + len(block))
+        placed = True
+
+    for start, end in ordered:
+        if not placed and insert_at < start and cursor <= insert_at:
+            parts.append(text[cursor:insert_at])
+            emit_insert()
+            cursor = insert_at
+        if cursor < start:
+            parts.append(text[cursor:start])
+        if not placed and insert_at == start:
+            emit_insert()
+        cursor = max(cursor, end)
+    if not placed:
+        parts.append(text[cursor:insert_at])
+        emit_insert()
+        parts.append(text[insert_at:])
+    else:
+        parts.append(text[cursor:])
+    assert inserted is not None  # nosec B101 # narrows the type for mypy; emit_insert always runs
+    return "".join(parts), inserted
+
+
+def _codex_equal(left: object, right: object) -> bool:
+    """Structural equality. NaN matches NaN; the byte check compares NaN as text."""
+
+    if isinstance(left, float) and isinstance(right, float):
+        if math.isnan(left) and math.isnan(right):
+            return True
+        return left == right
+    if isinstance(left, dict) and isinstance(right, dict):
+        return left.keys() == right.keys() and all(_codex_equal(left[key], right[key]) for key in left)
+    if isinstance(left, list) and isinstance(right, list):
+        return len(left) == len(right) and all(_codex_equal(a, b) for a, b in zip(left, right, strict=True))
+    return left == right
+
+
+def _codex_copy(value: object) -> object:
+    """A recursive copy that keeps datetimes and NaN. Not a JSON round trip."""
+
+    if isinstance(value, dict):
+        return {key: _codex_copy(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_codex_copy(item) for item in value]
+    return value
+
+
+def _codex_strip(doc: Mapping[str, object]) -> dict[str, object]:
+    """The document without the keys install rewrites. ``tools`` stays."""
+
+    copied = _codex_copy(doc)
+    if not isinstance(copied, dict):
+        return {}
+    servers = copied.get("mcp_servers")
+    if isinstance(servers, dict) and "alice" in servers:
+        alice = servers["alice"]
+        if isinstance(alice, dict):
+            for key in ("command", "args", "env", *_CODEX_CARRIED_KEYS):
+                alice.pop(key, None)
+            if not alice:
+                servers.pop("alice")
+        if not servers:
+            copied.pop("mcp_servers")
+    return copied
+
+
+def _codex_raw_has_comment(raw: str, nl: str) -> bool:
+    """True when ``#`` starts a comment inside ``raw``, strings aside."""
+
+    index = 0
+    while index < len(raw):
+        if raw[index] in "\"'":
+            index, _saw = _codex_skip_string(raw, index, nl)
+            continue
+        if raw[index] == "#":
+            return True
+        index += 1
+    return False
+
+
+def _codex_env_absent(value: object) -> bool:
+    return value is None or value == {}
+
+
+def _codex_guard(
+    original: str,
+    edited: str,
+    nl: str,
+    entry: Mapping[str, object],
+    removals: Sequence[tuple[int, int]],
+    inserted: tuple[int, int],
+    old_doc: Mapping[str, object],
+) -> None:
+    try:
+        new_doc = tomllib.loads(edited)
+    except tomllib.TOMLDecodeError as exc:
+        _codex_refuse(f"the edited config.toml is not valid TOML ({exc})")
+    except RecursionError:
+        _codex_refuse(_CODEX_TOO_DEEP)
+    try:
+        _codex_guard_values(original, edited, nl, entry, removals, inserted, old_doc, new_doc)
+    except RecursionError:
+        # A value can parse and still be too deep for the walkers that compare it.
+        _codex_refuse(_CODEX_TOO_DEEP)
+
+
+def _codex_guard_values(
+    original: str,
+    edited: str,
+    nl: str,
+    entry: Mapping[str, object],
+    removals: Sequence[tuple[int, int]],
+    inserted: tuple[int, int],
+    old_doc: Mapping[str, object],
+    new_doc: Mapping[str, object],
+) -> None:
+    new_servers = new_doc.get("mcp_servers")
+    new_alice = new_servers.get("alice") if isinstance(new_servers, dict) else None
+    if not isinstance(new_alice, dict):
+        _codex_refuse("the edited config.toml is missing mcp_servers.alice")
+    if new_alice.get("command") != entry.get("command") or new_alice.get("args") != entry.get("args"):
+        _codex_refuse("the edited config.toml does not match the plan")
+    old_servers = old_doc.get("mcp_servers")
+    old_alice = old_servers.get("alice") if isinstance(old_servers, dict) else {}
+    if not isinstance(old_alice, dict):
+        old_alice = {}
+    for key in (*_CODEX_CARRIED_KEYS, "env"):
+        old_value = old_alice.get(key)
+        new_value = new_alice.get(key)
+        if key == "env" and _codex_env_absent(old_value) and _codex_env_absent(new_value):
+            continue
+        if not _codex_equal(old_value, new_value):
+            _codex_refuse("the edited config.toml changed a carried value")
+    if not _codex_equal(_codex_strip(old_doc), _codex_strip(new_doc)):
+        _codex_refuse("the edited config.toml changed a value outside alice")
+    outside_old = _codex_outside(original, removals)
+    outside_new = _codex_outside(edited, (inserted,))
+    if outside_old != outside_new:
+        _codex_refuse("the edited config.toml changed bytes outside alice")
+    # A block that ends inside a comment can leave the outside bytes unchanged
+    # and still drop or join an outside comment. This check is the one that
+    # refuses that edit.
+    if _codex_comments_outside(original, nl, removals) != _codex_comments_outside(edited, nl, (inserted,)):
+        _codex_refuse("the edited config.toml changed a comment outside alice")
+
+
+def _codex_outside(text: str, spans: Sequence[tuple[int, int]]) -> str:
+    parts: list[str] = []
+    cursor = 0
+    for start, end in sorted(spans):
+        parts.append(text[cursor:start])
+        cursor = max(cursor, end)
+    parts.append(text[cursor:])
+    return "".join(parts)
+
+
+def _codex_body(text: str, headers: Sequence[_CodexHeader], header: _CodexHeader, nl: str) -> list[_CodexStmt]:
+    later = [item.start for item in headers if item.start > header.start]
+    end = min(later) if later else len(text)
+    return _codex_statements(text, header.end, end, nl)
+
+
+def _codex_prepare_insert(text: str, nl: str, block: str) -> tuple[str, tuple[int, int]]:
+    """Append ``block`` at EOF: a final newline if missing, then one blank line."""
+
+    base = text
+    if base == "":
+        base = nl
+    elif not base.endswith(nl):
+        base += nl
+    base += nl
+    edited = base + block
+    return edited, (len(text), len(edited))
+
+
+def _plan_codex_text(
+    text: str,
+    explicit_dir: str | None,
+    default_dir: str,
+    *,
+    home: Path,
+    search: LauncherSearch,
+    problem_of: Callable[[Launcher], str | None] | None = None,
+) -> CodexPlan:
+    """Plan ``[mcp_servers.alice]`` in ``text``. See ``plan_codex_config``."""
+
+    nl = _codex_newline(text)
+    headers = _codex_scan(text, nl)
+    try:
+        document = tomllib.loads(text) if text.strip() else {}
+    except tomllib.TOMLDecodeError as exc:
+        _codex_refuse(f"config.toml is not valid TOML ({exc})")
+    except RecursionError:
+        _codex_refuse(_CODEX_TOO_DEEP)
+    if not isinstance(document, dict):
+        _codex_refuse("config.toml's top level is not a table")
+
+    def fresh(existing: object) -> _EntryPlan:
+        return _plan_entry(
+            existing,
+            key_label="mcp_servers.alice",
+            explicit_dir=explicit_dir,
+            new_entry_dir=explicit_dir or default_dir,
+            default_dir=default_dir,
+            home=home,
+            search=search,
+            with_env=False,
+            needs_hook=False,
+            problem_of=problem_of,
+        )
+
+    servers = document.get("mcp_servers")
+    server_headers = [item for item in headers if item.path[:1] == ("mcp_servers",)]
+
+    def _located(reason: str, *, key: str | None = None, fix: str | None = None) -> NoReturn:
+        target = servers.get("alice") if isinstance(servers, dict) else None
+        visible = _visible_dir(target, home) if isinstance(target, dict) else None
+        payload: dict[str, object] | None = None
+        if isinstance(target, dict):
+            payload = _codex_refusal_payload(target)
+        _codex_refuse(
+            reason,
+            key=key,
+            fix=fix,
+            located=True,
+            data_dir=visible,
+            placeholder=visible is None,
+            payload=payload,
+        )
+
+    if servers is not None and not isinstance(servers, dict):
+        _codex_refuse("mcp_servers is not a table")
+    if isinstance(servers, dict) and not server_headers:
+        root_end = headers[0].start if headers else len(text)
+        root_stmts = _codex_statements(text, 0, root_end, nl)
+        alice_dotted = any(
+            stmt.kind == "kv" and len(stmt.key) >= 2 and stmt.key[:2] == ("mcp_servers", "alice")
+            for stmt in root_stmts
+        )
+        inline = any(stmt.kind == "kv" and stmt.key == ("mcp_servers",) for stmt in root_stmts)
+        if alice_dotted:
+            _codex_refuse("mcp_servers.alice is dotted keys, not a [mcp_servers.alice] table")
+        if inline:
+            _codex_refuse("mcp_servers is an inline table")
+        # A dotted key for another server defines the table. A header
+        # sub-table [mcp_servers.alice] under it is valid, so insert.
+    for item in headers:
+        if len(item.path) <= 2 or item.path[:2] != ("mcp_servers", "alice"):
+            continue
+        if item.path[2] == "env" and len(item.path) == 3 and not item.array:
+            continue
+        if item.path[2] == "tools":
+            if item.array:
+                _located("install will not edit an array of tools tables", fix=_CODEX_HAND_NEXT)
+            continue
+        if item.path[2] == "env":
+            _located(
+                "env is not a [mcp_servers.alice.env] table of strings",
+                fix=_CODEX_ENV_NEXT,
+            )
+        _located(
+            f"install will not edit an alice entry that holds {item.path[2]}",
+            key=item.path[2],
+        )
+    alice_headers = [
+        item for item in headers if item.path == ("mcp_servers", "alice") and not item.array
+    ]
+    tools_headers = [
+        item
+        for item in headers
+        if not item.array and len(item.path) >= 3 and item.path[:3] == ("mcp_servers", "alice", "tools")
+    ]
+    if tools_headers and not alice_headers:
+        _codex_refuse("a tools table exists and [mcp_servers.alice] does not")
+    if len(alice_headers) > 1:
+        _located("mcp_servers.alice appears more than once")
+    if isinstance(servers, dict) and "alice" in servers and not alice_headers:
+        parent = next((item for item in headers if item.path == ("mcp_servers",) and not item.array), None)
+        dotted_inside = False
+        inline_inside = False
+        if parent is not None:
+            for stmt in _codex_body(text, headers, parent, nl):
+                if stmt.kind != "kv" or not stmt.key or stmt.key[0] != "alice":
+                    continue
+                if len(stmt.key) > 1:
+                    dotted_inside = True
+                elif stmt.raw.lstrip().startswith("alice") and "{" in stmt.raw:
+                    inline_inside = True
+        if dotted_inside:
+            _codex_refuse("mcp_servers.alice is dotted keys, not a [mcp_servers.alice] table")
+        if inline_inside:
+            _codex_refuse("mcp_servers.alice is an inline table")
+        _codex_refuse("mcp_servers.alice is an inline table or dotted keys, not a [mcp_servers.alice] table")
+
+    if not alice_headers:
+        entry_plan = fresh(None)
+        if entry_plan.entry is None:
+            raise CodexConfigRefused(
+                entry_plan.refusal or "install could not plan a new alice entry",
+                next_step=entry_plan.next_step,
+            )
+        block = _codex_render_block(entry_plan.entry, (), (), nl)
+        edited, inserted = _codex_prepare_insert(text, nl, block)
+        _codex_guard(text, edited, nl, entry_plan.entry, (), inserted, document)
+        notes = _codex_server_notes(servers)
+        details = [*entry_plan.details, *notes]
+        return CodexPlan(
+            None if edited == text else edited,
+            entry_plan.data_dir,
+            entry_plan.entry,
+            tuple(details),
+            entry_plan.used_fallback,
+        )
+
+    header = alice_headers[0]
+    if header.trailing_comment:
+        _located("a comment on an alice header", fix=_CODEX_COMMENT_NEXT)
+    env_headers = [
+        item
+        for item in headers
+        if item.path == ("mcp_servers", "alice", "env") and not item.array
+    ]
+    if len(env_headers) > 1:
+        _located("mcp_servers.alice.env appears more than once", fix=_CODEX_ENV_NEXT)
+    for item in headers:
+        if item.path[:2] != ("mcp_servers", "alice") or len(item.path) <= 2:
+            continue
+        if item.path[2] == "env" and len(item.path) == 3 and not item.array:
+            continue
+        if item.path[2] == "tools":
+            if item.array:
+                _located("install will not edit an array of tools tables", fix=_CODEX_HAND_NEXT)
+            continue
+        if item.path[2] == "env":
+            _located(
+                "env is not a [mcp_servers.alice.env] table of strings",
+                fix=_CODEX_ENV_NEXT,
+            )
+        _located(
+            f"install will not edit an alice entry that holds {item.path[2]}",
+            key=item.path[2],
+        )
+    stmts = _codex_body(text, headers, header, nl)
+    carried: list[str] = []
+    carried_keys: list[tuple[str, ...]] = []
+    env_lines: list[str] = []
+    inline_env = False
+    for stmt in stmts:
+        if stmt.kind == "comment" and stmt.start < _codex_region(stmts, header)[1]:
+            _located("a comment between alice key lines", fix=_CODEX_COMMENT_NEXT)
+        if stmt.kind != "kv":
+            continue
+        if stmt.trailing_comment:
+            _located("a trailing comment on an alice key", fix=_CODEX_COMMENT_NEXT)
+        name = stmt.key[0] if stmt.key else ""
+        if stmt.key in {("command",), ("args",), ("env",)} and _codex_raw_has_comment(stmt.raw, nl):
+            _located("a comment inside an alice value", fix=_CODEX_COMMENT_NEXT)
+        if stmt.key == ("command",) or stmt.key == ("args",):
+            continue
+        if stmt.key == ("env",):
+            inline_env = True
+            env_lines = _codex_inline_pairs(text, stmt.raw)
+            continue
+        if name == "env":
+            _located(
+                "env is not a [mcp_servers.alice.env] table of strings",
+                fix=_CODEX_ENV_NEXT,
+            )
+        if name == "tools" or (stmt.key and stmt.key[0] == "tools"):
+            carried.append(stmt.raw)
+            carried_keys.append(stmt.key)
+            continue
+        if name not in _CODEX_CARRIED:
+            _located(f"install will not edit an alice entry that holds {name}", key=name)
+        carried.append(stmt.raw)
+        carried_keys.append(stmt.key)
+    if any(stmt.kind == "kv" and stmt.key and stmt.key[0] == "tools" for stmt in stmts) and tools_headers:
+        _located("alice has a tools key and a tools table", fix=_CODEX_TOOLS_NEXT)
+    if env_headers:
+        if inline_env:
+            _located("install will not edit an alice entry that holds env twice", fix=_CODEX_ENV_NEXT)
+        if env_headers[0].trailing_comment:
+            _located("a comment on an alice header", fix=_CODEX_COMMENT_NEXT)
+        env_stmts = _codex_body(text, headers, env_headers[0], nl)
+        region_end = _codex_region(env_stmts, env_headers[0])[1]
+        for stmt in env_stmts:
+            if stmt.kind == "comment" and stmt.start < region_end:
+                _located("a comment between alice key lines", fix=_CODEX_COMMENT_NEXT)
+            if stmt.kind != "kv":
+                continue
+            if stmt.trailing_comment:
+                _located("a trailing comment on an alice key", fix=_CODEX_COMMENT_NEXT)
+            if len(stmt.key) != 1:
+                _located("env is not a table of strings", fix=_CODEX_ENV_NEXT)
+            env_lines.append(stmt.raw)
+
+    alice = servers.get("alice") if isinstance(servers, dict) else None
+    if not isinstance(alice, dict):
+        _located("mcp_servers.alice is not a table")
+    tools_problem = _codex_tools_shape_problem(alice.get("tools"))
+    if tools_problem is not None:
+        tool_name, tool_detail = tools_problem
+        _located(tool_detail, fix=_CODEX_TOOLS_FIX.format(name=tool_name))
+    for key in _CODEX_CARRIED_KEYS:
+        if key in alice:
+            problem = _codex_carry_problem(key, alice[key])
+            if problem is not None:
+                _located(problem)
+    env_value = alice.get("env")
+    if _codex_env_absent(env_value):
+        env_value = None
+        env_lines = []
+    elif isinstance(env_value, dict):
+        env_problem = _codex_check_env(env_value, env_lines)
+        if env_problem is not None:
+            reason, env_key, fix = env_problem
+            _located(reason, key=env_key, fix=fix)
+    elif env_value is not None:
+        _located("Codex would refuse to load this value for env", fix=_CODEX_ENV_NEXT)
+    elif env_lines:
+        _located("config.toml has an env value this writer does not read", fix=_CODEX_ENV_NEXT)
+
+    probe: dict[str, object] = {"command": alice.get("command"), "args": alice.get("args")}
+    if isinstance(env_value, dict) and env_value:
+        probe["env"] = env_value
+    entry_plan = fresh(probe)
+    if entry_plan.entry is None and entry_plan.refusal is None:
+        details = [*entry_plan.details, *_codex_server_notes(servers)]
+        if alice.get("enabled") is False:
+            details.append("note: Codex will not start alice")
+        carried_lines, carried_hidden = _codex_snippet_lines(alice, carried_keys)
+        return CodexPlan(
+            None,
+            entry_plan.data_dir,
+            probe,
+            tuple(details),
+            False,
+            carried_lines,
+            carried_hidden,
+        )
+    if entry_plan.entry is None:
+        visible = _visible_dir(alice, home)
+        raise CodexConfigRefused(
+            entry_plan.refusal or "mcp_servers.alice exists and install did not write it",
+            data_dir=visible or entry_plan.data_dir,
+            payload=entry_plan.paste or _codex_refusal_payload(alice),
+            next_step=entry_plan.next_step,
+            located=True,
+            placeholder=visible is None and entry_plan.paste is None,
+        )
+    block = _codex_render_block(entry_plan.entry, carried, env_lines, nl)
+    removals = [_codex_region(stmts, header)]
+    insert_at = header.start
+    # An empty env table stays, including a comment that is the only line in it.
+    # The guard treats {} and a missing env as the same value.
+    if env_headers and not _codex_env_absent(alice.get("env")):
+        removals.append(_codex_region(_codex_body(text, headers, env_headers[0], nl), env_headers[0]))
+    if len(removals) == 2:
+        (first_start, first_end), (second_start, second_end) = sorted(removals)
+        if text[first_end:second_start].strip(" \t\r\n") == "":
+            # The blank line between Alice's two regions is replaced by the one the block emits.
+            removals = [(first_start, second_end)]
+            insert_at = first_start
+    edited, inserted = _codex_splice(text, removals, insert_at, block)
+    _codex_guard(text, edited, nl, entry_plan.entry, removals, inserted, document)
+    details = list(entry_plan.details)
+    if alice.get("enabled") is False:
+        details.append("note: Codex will not start alice")
+    details.extend(_codex_server_notes(servers))
+    carried_lines, carried_hidden = _codex_snippet_lines(alice, carried_keys)
+    return CodexPlan(
+        None if edited == text else edited,
+        entry_plan.data_dir,
+        entry_plan.entry,
+        tuple(details),
+        entry_plan.used_fallback,
+        carried_lines,
+        carried_hidden,
+    )
+
+
+def _codex_server_notes(servers: object) -> list[str]:
+    if not isinstance(servers, dict):
+        return []
+    names = [
+        name
+        for name, value in servers.items()
+        if name != "alice" and parse_launcher(value) is not None
+    ]
+    if not names:
+        return []
+    return [f"note: Codex will run both alice and {', '.join(names)}"]
+
+
+def plan_codex_config(text: str, data_dir: str) -> str | None:
+    """Return ``text`` with mcp_servers.alice on ``data_dir``, or None when it already is.
+
+    This is install with --data-dir passed, uvx on PATH, and every existing
+    launcher treated as able to run. Only Alice's main and env regions change.
+    ``tools`` tables stay. Raises CodexConfigRefused when the file is outside
+    the shapes this writer edits.
+    """
+
+    home = Path.home()
+    return _plan_codex_text(
+        text,
+        data_dir,
+        str(resolve_user_path(DEFAULT_DATA_DIR, home)),
+        home=home,
+        search=LauncherSearch(UVX_LAUNCHER, None, True),
+        problem_of=lambda _launcher: None,
+    ).text
+
+
+def _codex_debug_string(value: str) -> str:
+    """Rust's ``{:?}`` for a string: double quotes and escaped quotes."""
+
+    return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def _codex_directory(home: Path, *, explicit_home: bool, platform: str) -> tuple[Path, str | None]:
+    """Codex's config directory, and a refusal message when the value cannot be used.
+
+    With ``--home``, the directory is ``<home>/.codex``. Otherwise a non-empty
+    ``CODEX_HOME`` is used. A relative value is refused. A missing path or a
+    file is refused with Codex's own messages. Otherwise ``~/.codex``, which
+    on Windows is ``%USERPROFILE%\\.codex``.
+    """
+
+    if explicit_home:
+        return home / ".codex", None
+    raw = os.environ.get("CODEX_HOME")
+    if raw:
+        if raw.startswith("~") or not Path(raw).is_absolute():
+            return home / ".codex", f"CODEX_HOME {raw} is not an absolute path"
+        path = Path(raw)
+        if not path.exists():
+            shown = _codex_debug_string(raw)
+            return path, f"CODEX_HOME points to {shown}, but that path does not exist"
+        if not path.is_dir():
+            shown = _codex_debug_string(raw)
+            return path, f"CODEX_HOME points to {shown}, but that path is not a directory"
+        return path.resolve(), None
+    if platform == "win32":
+        return home / ".codex", None
+    return home / ".codex", None
+
+
+def _codex_tools_shape_problem(tools: object) -> tuple[str, str] | None:
+    """``(tools.<name>, reason)`` when Codex would not load Alice's tools table."""
+
+    if tools is None:
+        return None
+    if not isinstance(tools, dict):
+        return ("tools", "tools is not a table")
+    for name, value in tools.items():
+        label = f"tools.{name}"
+        if not isinstance(value, dict):
+            return (label, f"{label} is not a table")
+        mode = value.get("approval_mode")
+        if "approval_mode" in value and (not isinstance(mode, str) or mode not in _CODEX_APPROVAL_MODES):
+            return (
+                label,
+                f"{label}.approval_mode is not auto, prompt, writes, or approve",
+            )
+        if "output_token_limit" in value:
+            limit = value.get("output_token_limit")
+            if isinstance(limit, bool) or not isinstance(limit, int) or limit <= 0:
+                return (label, f"{label}.output_token_limit is not a positive integer")
+    return None
+
+
+def _codex_lookup_path(root: Mapping[str, object], key: Sequence[str]) -> object:
+    node: object = root
+    for part in key:
+        if not isinstance(node, Mapping) or part not in node:
+            return None
+        node = node[part]
+    return node
+
+
+def _codex_unquoted_time(value: date | time) -> str:
+    """A date or time as the file writes it: unquoted, with ``Z`` for UTC."""
+
+    rendered = value.isoformat()
+    if rendered.endswith("+00:00"):
+        return rendered[:-6] + "Z"
+    return rendered
+
+
+def _codex_format_carried(
+    value: object, *, mask_strings: bool, masked: list[str] | None = None
+) -> str:
+    """One carried value, from the parse. Arrays stay on one line."""
+
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, datetime):
+        return _codex_unquoted_time(value)
+    if isinstance(value, date):
+        return _codex_unquoted_time(value)
+    if isinstance(value, time):
+        return _codex_unquoted_time(value)
+    if isinstance(value, int) and not isinstance(value, bool):
+        return str(value)
+    if isinstance(value, float):
+        if math.isnan(value):
+            return "nan"
+        if math.isinf(value):
+            return "inf" if value > 0 else "-inf"
+        return str(value)
+    if isinstance(value, str):
+        if mask_strings:
+            shown, found = _masked_words([value])
+            if masked is not None:
+                masked.extend(found)
+            return _toml_snippet(shown[0] if shown else _HIDDEN)
+        return _toml_snippet(value)
+    if isinstance(value, list):
+        rendered = [
+            _codex_format_carried(item, mask_strings=mask_strings, masked=masked) for item in value
+        ]
+        return "[" + ", ".join(rendered) + "]"
+    if isinstance(value, dict):
+        pairs: list[str] = []
+        for name, item in value.items():
+            shown_key = name if _CODEX_BARE_KEY.fullmatch(name) else _toml_snippet(name)
+            pairs.append(
+                f"{shown_key} = {_codex_format_carried(item, mask_strings=mask_strings, masked=masked)}"
+            )
+        return "{ " + ", ".join(pairs) + " }"
+    return _toml_snippet(str(value))
+
+
+def _codex_carried_snippet_line(
+    key: Sequence[str], value: object, masked: list[str]
+) -> str:
+    mask = bool(key) and key[0] in {"env_vars", "tools"}
+    name = ".".join(
+        part if _CODEX_BARE_KEY.fullmatch(part) else _toml_snippet(part) for part in key
+    )
+    return f"{name} = {_codex_format_carried(value, mask_strings=mask, masked=masked)}"
+
+
+def _codex_snippet_lines(
+    alice: Mapping[str, object], keys: Sequence[tuple[str, ...]]
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    masked: list[str] = []
+    lines = tuple(
+        _codex_carried_snippet_line(key, _codex_lookup_path(alice, key), masked) for key in keys
+    )
+    return lines, tuple(dict.fromkeys(masked))
+
+
+def _codex_env_name(name: str) -> str:
+    if _CODEX_BARE_KEY.fullmatch(name):
+        return name
+    return _toml_snippet(name)
+
+
+def _codex_header_segment(name: str) -> str:
+    return rf"(?:{name}|\"{name}\"|'{name}')"
+
+
+def _codex_text_has_alice(text: str) -> bool:
+    """True when an unparsed file names an alice header.
+
+    Quoted or spaced segments count. A leading BOM is ignored. Call this
+    only when ``tomllib`` failed: a header inside a string is not an entry
+    once the file parses.
+    """
+
+    if text.startswith("\ufeff"):
+        text = text[1:]
+    gap = r"[ \t]*"
+    mcp = _codex_header_segment("mcp_servers")
+    alice = _codex_header_segment("alice")
+    if re.search(rf"(?m)^{gap}\[{gap}{mcp}{gap}\.{gap}{alice}(?:{gap}\]|{gap}\.)", text):
+        return True
+    if re.search(rf"(?m)^{gap}{mcp}{gap}\.{gap}{alice}(?:{gap}\.|{gap}=)", text):
+        return True
+    if re.search(rf"(?m)^{gap}\[{gap}{mcp}{gap}\]{gap}(?:#.*)?$", text) and re.search(
+        rf"(?m)^{gap}{alice}{gap}[=.]", text
+    ):
+        return True
+    if re.search(rf"(?m)^{gap}{mcp}{gap}={gap}\{{", text) and re.search(rf"\b{alice}\b", text):
+        return True
+    return False
+
+
+def _codex_locate_for_refusal(
+    text: str, home: Path
+) -> tuple[str, str | None, dict[str, object] | None]:
+    """Best-effort alice location for a refusal that happened before the planner.
+
+    ``dir`` carries the entry's data dir. ``placeholder`` means alice is
+    named but the dir could not be read. ``absent`` means no alice entry.
+    When the file parses, the third item is the entry's own command, args,
+    and env. The header regex runs only when ``tomllib`` fails.
+    """
+
+    body = text[1:] if text.startswith("\ufeff") else text
+    parsed: object | None
+    try:
+        parsed = tomllib.loads(body)
+    except (tomllib.TOMLDecodeError, RecursionError):
+        parsed = None
+    if isinstance(parsed, dict):
+        servers = parsed.get("mcp_servers")
+        alice = servers.get("alice") if isinstance(servers, dict) else None
+        if isinstance(alice, dict):
+            payload = _codex_refusal_payload(alice)
+            visible = _visible_dir(alice, home)
+            if visible:
+                return "dir", visible, payload
+            return "placeholder", None, payload
+        return "absent", None, None
+    if _codex_text_has_alice(body):
+        return "placeholder", None, None
+    return "absent", None, None
+
+
+def _codex_snippet(
+    payload: Mapping[str, object], extra_lines: Sequence[str] = ()
+) -> str:
+    """The alice entry as TOML, with values already masked.
+
+    ``extra_lines`` are carried keys and tools lines that will be written.
+    The snippet escaper also hides C1 controls and the Unicode line breaks
+    that ``_toml_basic`` leaves raw.
+    """
+
+    command = payload.get("command", "")
+    args = payload.get("args", [])
+    lines = ["[mcp_servers.alice]"]
+    if isinstance(command, str):
+        lines.append(f"command = {_toml_snippet(command)}")
+    else:
+        lines.append('command = "<hidden>"')
+    rendered: list[str] = []
+    if isinstance(args, list):
+        for item in args:
+            rendered.append(_toml_snippet(item) if isinstance(item, str) else '"<hidden>"')
+    lines.append("args = [" + ", ".join(rendered) + "]")
+    for extra in extra_lines:
+        lines.append(_codex_snippet_line(extra))
+    env = payload.get("env")
+    for key, value in payload.items():
+        if key in {"command", "args", "env"}:
+            continue
+        if isinstance(value, bool):
+            lines.append(f"{key} = {'true' if value else 'false'}")
+        elif isinstance(value, int) and not isinstance(value, bool):
+            lines.append(f"{key} = {value}")
+        elif isinstance(value, float):
+            lines.append(f"{key} = {value}")
+        else:
+            lines.append(f"{key} = {_toml_snippet(value if isinstance(value, str) else str(value))}")
+    if isinstance(env, dict) and env:
+        lines.append("")
+        lines.append("[mcp_servers.alice.env]")
+        for name, item in env.items():
+            shown = item if isinstance(item, str) else "<hidden>"
+            lines.append(f"{_codex_env_name(str(name))} = {_toml_snippet(shown)}")
+    return "\n".join(lines) + "\n"
+
+
+def _codex_layer_paths(codex_home: Path, platform: str) -> list[Path]:
+    """Profile files, the system config, and the managed config."""
+
+    paths: list[Path] = []
+    if platform == "win32":
+        program_data = os.environ.get("PROGRAMDATA") or r"C:\ProgramData"
+        paths.append(Path(program_data) / "OpenAI" / "Codex" / "config.toml")
+        paths.append(codex_home / "managed_config.toml")
+    else:
+        paths.append(Path("/etc/codex/config.toml"))
+        paths.append(Path("/etc/codex/managed_config.toml"))
+    if codex_home.is_dir():
+        paths.extend(sorted(path for path in codex_home.glob("*.config.toml") if path.is_file()))
+    return paths
+
+
+def _codex_layer_defines_alice(path: Path) -> str | None:
+    """A note when ``path`` defines alice or cannot be read. None when it does not."""
+
+    try:
+        if not path.exists():
+            return None
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return f"note: {path} could not be read"
+    try:
+        loaded = tomllib.loads(text)
+    except (tomllib.TOMLDecodeError, RecursionError):
+        return f"note: {path} could not be read"
+    servers = loaded.get("mcp_servers") if isinstance(loaded, dict) else None
+    alice = servers.get("alice") if isinstance(servers, dict) else None
+    if alice is None:
+        return None
+    return f"note: {path} defines mcp_servers.alice, and Codex merges it"
+
+
+def _codex_hook_commands(node: object) -> list[str]:
+    """Every ``command`` string in a parsed hooks.json, at any depth."""
+
+    found: list[str] = []
+    if isinstance(node, dict):
+        command = node.get("command")
+        if isinstance(command, str):
+            found.append(command)
+        for value in node.values():
+            found.extend(_codex_hook_commands(value))
+    elif isinstance(node, list):
+        for item in node:
+            found.extend(_codex_hook_commands(item))
+    return found
+
+
+def _codex_hook_note(codex_home: Path) -> str | None:
+    """The import copies a JSON-mode SessionStart hook. Codex rejects its output.
+
+    hooks.json is the user's file and this note is advice only, so a file
+    install cannot read gives no note. That includes a document nested so
+    deeply that ``json.loads`` or the command walk raises RecursionError.
+    """
+
+    path = codex_home / "hooks.json"
+    if not path.is_file():
+        return None
+    try:
+        loaded = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, RecursionError):
+        return None
+    try:
+        found = _codex_hook_commands(loaded)
+    except RecursionError:
+        return None
+
+    def last_format(command: str) -> str | None:
+        words = command.split()
+        found: str | None = None
+        index = 0
+        while index < len(words):
+            word = words[index]
+            if word == "--format" and index + 1 < len(words):
+                found = words[index + 1]
+                index += 2
+                continue
+            if word.startswith("--format="):
+                found = word.split("=", 1)[1]
+            index += 1
+        return found
+
+    for command in found:
+        if "alice-memory-session-start" not in command:
+            continue
+        if last_format(command) == "markdown":
+            continue
+        return (
+            "note: Codex rejects the output of alice-memory-session-start. "
+            "Remove it from hooks.json"
+        )
+    return None
+
+
+def _codex_notes(codex_home: Path, platform: str) -> list[str]:
+    notes: list[str] = []
+    for path in _codex_layer_paths(codex_home, platform):
+        if path.name == "config.toml" and path.parent == codex_home:
+            continue
+        note = _codex_layer_defines_alice(path)
+        if note is not None:
+            notes.append(note)
+    hook = _codex_hook_note(codex_home)
+    if hook is not None:
+        notes.append(hook)
+    return notes
+
+
+def _install_codex_host(
+    *,
+    home: Path,
+    explicit_home: bool,
+    explicit_dir: str | None,
+    default_dir: str,
+    dry_run: bool,
+    search: LauncherSearch,
+    platform: str,
+) -> _HostResult:
+    codex_home, home_problem = _codex_directory(home, explicit_home=explicit_home, platform=platform)
+    path = host_file_map(home, platform, codex_home=codex_home)["codex"]["mcp"]
+    data_dir = explicit_dir or default_dir
+    launcher = search.launcher or UVX_LAUNCHER
+    target: Path | None = None
+
+    def receipt(action: str, details: Sequence[str], **extra: Any) -> str:
+        return _format_host_receipt(
+            host="codex",
+            mcp_path=path,
+            hooks_path=None,
+            action=action,
+            details=details,
+            session_start="none",
+            data_dir=data_dir,
+            target=target,
+            file_format="toml, edited as text",
+            launcher=launcher,
+            **extra,
+        )
+
+    def elsewhere_note() -> str | None:
+        if not explicit_home:
+            return None
+        raw = os.environ.get("CODEX_HOME")
+        if not raw:
+            return None
+        try:
+            same = Path(raw).expanduser().resolve() == (home / ".codex").resolve()
+        except OSError:
+            same = False
+        if same:
+            return None
+        return "note: --home is in use, and CODEX_HOME points elsewhere"
+
+    if home_problem is not None:
+        snippet = _codex_snippet(mcp_server_payload(data_dir, with_env=False, launcher=launcher))
+        if "is not an absolute path" in home_problem:
+            trailer = [f"next: {_CODEX_HOME_NEXT}"]
+        elif "does not exist" in home_problem or "not a directory" in home_problem:
+            trailer = [f"next: {_CODEX_HOME_DIR_NEXT}"]
+        else:
+            trailer = [f"next: config.toml was not changed. {home_problem}"]
+        if dry_run:
+            trailer.append(_DRY_RUN_REFUSAL)
+        home_details = [f"reason: {home_problem}", *_codex_notes(codex_home, platform)]
+        note = elsewhere_note()
+        if note is not None:
+            home_details.append(note)
+        return _HostResult(
+            receipt(_refusal_action(dry_run), home_details, snippet=snippet, trailer=trailer),
+            "refused",
+        )
+
+    source_text: str | None = None
+
+    def refuse(reason: CodexConfigRefused, directory: str) -> _HostResult:
+        if source_text and not reason.located:
+            mode, found_dir, found_payload = _codex_locate_for_refusal(source_text, home)
+            if found_payload is not None and reason.payload is None:
+                reason.payload = found_payload
+            if mode == "dir":
+                reason.located = True
+                reason.data_dir = found_dir
+                reason.placeholder = False
+            elif mode == "placeholder":
+                reason.located = True
+                reason.placeholder = True
+                reason.data_dir = None
+        if reason.payload is not None:
+            payload: Mapping[str, object] = reason.payload
+        elif reason.placeholder:
+            payload = mcp_server_payload(_CODEX_DIR_PLACEHOLDER, with_env=False, launcher=launcher)
+        elif reason.located and reason.data_dir:
+            payload = mcp_server_payload(reason.data_dir, with_env=False, launcher=launcher)
+        else:
+            payload = mcp_server_payload(reason.data_dir or directory, with_env=False, launcher=launcher)
+        shown, hidden = _masked(payload, own_env=_own_env(payload) if isinstance(payload, Mapping) else None)
+        snippet = _codex_snippet(shown)
+        trailer: list[str] = []
+        if hidden:
+            trailer.append(_keep_line(hidden))
+        if reason.next_step:
+            trailer.append(f"next: {reason.next_step}")
+        elif reason.located:
+            trailer.append(f"next: {_CODEX_HAND_NEXT}")
+        else:
+            trailer.append(
+                "next: config.toml was not changed. Add the alice entry above under "
+                "[mcp_servers] by hand, then check it with: codex mcp get alice"
+            )
+        if dry_run:
+            trailer.append(_DRY_RUN_REFUSAL)
+        refusal_details = [f"reason: {reason.detail}", *_codex_notes(codex_home, platform)]
+        note = elsewhere_note()
+        if note is not None:
+            refusal_details.append(note)
+        return _HostResult(
+            receipt(_refusal_action(dry_run), refusal_details, snippet=snippet, trailer=trailer),
+            "refused",
+        )
+
+    try:
+        try:
+            target = _host_target(path)
+        except _MalformedHostFile as problem:
+            raise CodexConfigRefused(str(problem)) from None
+        if not target.exists():
+            entry_plan = _plan_entry(
+                None,
+                key_label="mcp_servers.alice",
+                explicit_dir=explicit_dir,
+                new_entry_dir=default_dir,
+                default_dir=default_dir,
+                home=home,
+                search=search,
+                with_env=False,
+                needs_hook=False,
+            )
+            if entry_plan.entry is None:
+                raise CodexConfigRefused(entry_plan.refusal or "install could not plan a new alice entry", next_step=entry_plan.next_step)
+            block = _codex_render_block(entry_plan.entry, (), (), "\n")
+            plan = CodexPlan(block, entry_plan.data_dir, entry_plan.entry, tuple(entry_plan.details), entry_plan.used_fallback)
+            original = None
+        elif not target.is_file():
+            raise CodexConfigRefused(f"{path.name} is not a regular file")
+        else:
+            original = target.read_bytes()
+            try:
+                decoded = original.decode("utf-8")
+            except UnicodeDecodeError:
+                decoded = original.decode("utf-8", errors="replace")
+                source_text = decoded
+                raise CodexConfigRefused(f"{path.name} is not UTF-8") from None
+            source_text = decoded
+            plan = _plan_codex_text(decoded, explicit_dir, default_dir, home=home, search=search)
+    except CodexConfigRefused as refusal:
+        return refuse(refusal, data_dir)
+    except OSError:
+        return _HostResult(receipt("failed", (f"file: {path}", f"reason: {_FAILED_REASON}"), snippet=None), "failed")
+
+    data_dir = plan.data_dir
+    details = list(plan.details)
+    details.extend(_codex_notes(codex_home, platform))
+    home_note = elsewhere_note()
+    if home_note is not None:
+        details.append(home_note)
+    shown, hidden = _masked(plan.payload, own_env=_own_env(plan.payload))
+    success_trailer = [f"next: {_CODEX_CHECK_NEXT}"]
+    if dry_run:
+        if plan.text is None:
+            details.append("planned: unchanged")
+        elif original is None:
+            details.append("planned: create")
+        else:
+            details.append("planned: edit, with a backup first")
+        dry_trailer: list[str] = []
+        shown_hidden = list(dict.fromkeys([*hidden, *plan.carried_hidden]))
+        if shown_hidden:
+            dry_trailer.append(_hidden_line(shown_hidden))
+        dry_trailer.extend(success_trailer)
+        return _HostResult(
+            receipt(
+                "dry-run",
+                details,
+                snippet=_codex_snippet(shown, plan.carried_lines),
+                trailer=dry_trailer,
+            ),
+            "ok",
+            plan.used_fallback,
+        )
+    if plan.text is None:
+        return _HostResult(
+            receipt("unchanged", details, snippet=None, trailer=success_trailer),
+            "ok",
+            plan.used_fallback,
+        )
+    backup_path: Path | None = None
+    try:
+        if original is not None:
+            backup_path = _backup_host_file(
+                target, original, backup_dir=_backup_dir(plan.data_dir), host="codex"
+            )
+            details.append(f"backup: {backup_path}")
+        _write_text(
+            target,
+            plan.text,
+            newline="",
+            expected=original,
+            expect_absent=original is None,
+            backup=backup_path,
+        )
+        if original is None:
+            target.chmod(0o600)
+    except _HostFileChanged:
+        return refuse(
+            CodexConfigRefused(
+                "config.toml changed while install ran",
+                next_step=_CODEX_RERUN_NEXT,
+            ),
+            data_dir,
+        )
+    except CodexConfigRefused as refusal:
+        return refuse(refusal, data_dir)
+    except (_BackupFailed, OSError, InstallError) as problem:
+        reason = problem.reason() if isinstance(problem, _BackupFailed) else _FAILED_REASON
+        return _HostResult(
+            receipt("failed", (f"file: {target}", f"reason: {reason}", *details), snippet=None),
+            "failed",
+            plan.used_fallback,
+        )
+    return _HostResult(
+        receipt("written", details, snippet=None, trailer=success_trailer),
+        "ok",
+        plan.used_fallback,
+    )
+
+
 def run_host_install(
     *,
     home: str | None,
@@ -5236,45 +7364,79 @@ def run_host_install(
     default_dir = str(resolve_user_path(DEFAULT_DATA_DIR, resolved_home))
     planned = _plan_hosts(hosts)
     search = find_launcher()
-    results: list[_HostResult] = []
-    for host in planned:
+    def one_host(host: str) -> _HostResult:
         if host == "hermes":
-            results.append(
-                _install_hermes_host(
-                    home=resolved_home,
-                    explicit_dir=explicit_dir,
-                    default_dir=default_dir,
-                    dry_run=dry_run,
-                    search=search,
-                )
+            return _install_hermes_host(
+                home=resolved_home,
+                explicit_dir=explicit_dir,
+                default_dir=default_dir,
+                dry_run=dry_run,
+                search=search,
             )
-        elif host == "opencode":
+        if host == "codex":
+            return _install_codex_host(
+                home=resolved_home,
+                explicit_home=home is not None,
+                explicit_dir=explicit_dir,
+                default_dir=default_dir,
+                dry_run=dry_run,
+                search=search,
+                platform=sys.platform,
+            )
+        if host == "opencode":
             config_home = resolved_home / ".config"
             xdg_problem = None
             if home is None:
                 config_home, xdg_problem = _opencode_config_home(resolved_home)
-            results.append(
-                _install_opencode_host(
-                    home=resolved_home,
-                    config_home=config_home,
-                    explicit_dir=explicit_dir,
-                    default_dir=default_dir,
-                    dry_run=dry_run,
-                    search=search,
-                    xdg_problem=xdg_problem,
-                )
+            return _install_opencode_host(
+                home=resolved_home,
+                config_home=config_home,
+                explicit_dir=explicit_dir,
+                default_dir=default_dir,
+                dry_run=dry_run,
+                search=search,
+                xdg_problem=xdg_problem,
             )
+        return _install_json_host(
+            host,
+            home=resolved_home,
+            explicit_dir=explicit_dir,
+            default_dir=default_dir,
+            dry_run=dry_run,
+            search=search,
+        )
+
+    def failed_host(host: str, exc: BaseException) -> _HostResult:
+        if host == "codex":
+            codex_home, _problem = _codex_directory(
+                resolved_home, explicit_home=home is not None, platform=sys.platform
+            )
+            mcp_path = host_file_map(resolved_home, sys.platform, codex_home=codex_home)["codex"]["mcp"]
         else:
-            results.append(
-                _install_json_host(
-                    host,
-                    home=resolved_home,
-                    explicit_dir=explicit_dir,
-                    default_dir=default_dir,
-                    dry_run=dry_run,
-                    search=search,
-                )
+            try:
+                mcp_path = host_file_map(resolved_home)[host]["mcp"]
+            except Exception:
+                mcp_path = resolved_home / host
+        lines = [
+            _seal_receipt_line(f"host: {host}"),
+            _seal_receipt_line(f"path: {mcp_path}"),
+            _seal_receipt_line("action: failed"),
+            _seal_receipt_line(f"reason: unexpected {type(exc).__name__}"),
+        ]
+        if host == "codex":
+            lines.append(
+                _seal_receipt_line("next: config.toml was not changed. Run install again.")
             )
+            if dry_run:
+                lines.append(_seal_receipt_line(_DRY_RUN_REFUSAL))
+        return _HostResult("\n".join(lines), "failed")
+
+    results: list[_HostResult] = []
+    for host in planned:
+        try:
+            results.append(one_host(host))
+        except Exception as exc:
+            results.append(failed_host(host, exc))
     if write_mcpb:
         results.append(
             _install_mcpb(Path(write_mcpb), dry_run=dry_run, uvx_on_path=search.uvx_on_path)
@@ -5325,6 +7487,9 @@ __all__ = [
     "is_install_shaped_entry",
     "mcp_server_payload",
     "openclaw_add_line",
+    "CodexConfigRefused",
+    "CodexPlan",
+    "plan_codex_config",
     "plan_hermes_config",
     "resolve_home",
     "resolve_user_path",
