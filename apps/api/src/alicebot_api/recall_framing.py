@@ -173,6 +173,17 @@ def _writer_label(*, writer_id: str, key_presented: bool) -> dict[str, str]:
     return {"id": writer_id, "established": established}
 
 
+def _presented_key(identity: Mapping[str, object]) -> bool:
+    """True only for the exact ``auth`` value a key-authenticated write stores.
+
+    The value is compared as stored. It is not trimmed or case-folded: the
+    product writes ``agent_api_key`` and nothing else, so a value that differs
+    by case or whitespace is a claim no write of ours made, and is not verified.
+    """
+
+    return identity.get("auth") == AGENT_KEY_AUTH
+
+
 def writer_from_actor(
     *,
     actor_type: str | None,
@@ -218,12 +229,11 @@ def writer_attribution(row: Mapping[str, object] | None) -> dict[str, str]:
         agent_id = _text(source.get("actor_id"))
     if actor_type in {"user", "system", "human"} and _text(source.get("created_by_agent_id")) is None:
         agent_id = None
-    auth = _text(identity.get("auth"))
     if agent_id is None:
         return _writer_label(writer_id=WRITER_OWNER, key_presented=False)
     return _writer_label(
         writer_id=_declared_writer_id(agent_id),
-        key_presented=auth == AGENT_KEY_AUTH,
+        key_presented=_presented_key(identity),
     )
 
 
@@ -273,7 +283,7 @@ def _key_presented_for_revision(
     memory_id = str(revision.get("memory_id") or "")
     expected_action = _REWRITE_POLICY_ACTIONS.get(str(revision.get("action") or ""))
     revision_at = _parse_instant(revision.get("created_at"))
-    chosen_auth: str | None = None
+    chosen_key = False
     chosen_at: datetime | None = None
     for event in events:
         if not isinstance(event, Mapping):
@@ -292,11 +302,10 @@ def _key_presented_for_revision(
         if revision_at is not None and occurred is not None and occurred > revision_at + timedelta(seconds=2):
             continue
         identity = _as_mapping(payload.get("agent_identity")) or {}
-        auth = _text(identity.get("auth"))
         if chosen_at is None or (occurred is not None and occurred >= chosen_at):
             chosen_at = occurred or chosen_at
-            chosen_auth = auth
-    return chosen_auth == AGENT_KEY_AUTH
+            chosen_key = _presented_key(identity)
+    return chosen_key
 
 
 def _latest_text_rewrite(revisions: Sequence[object]) -> Mapping[str, object] | None:
@@ -387,6 +396,7 @@ def writer_for_recent_change(store: object, change: Mapping[str, object]) -> dic
     target_id = _text(change.get("target_id"))
     payload_identity = _as_mapping(_event_payload(change).get("agent_identity")) or {}
     payload_auth = _text(payload_identity.get("auth"))
+    payload_key = _presented_key(payload_identity)
     if actor_id is None and actor_type == "agent" and target_id:
         revision = _revision_nearest(store, target_id, change.get("occurred_at"))
         if revision is not None:
@@ -409,7 +419,7 @@ def writer_for_recent_change(store: object, change: Mapping[str, object]) -> dic
         memory = getter(target_id) if callable(getter) else None
         if isinstance(memory, Mapping):
             actor_id = _text(memory.get("created_by_agent_id"))
-    key_presented = payload_auth == AGENT_KEY_AUTH
+    key_presented = payload_key
     if not key_presented and target_id and actor_id:
         getter = getattr(store, "get_memory", None)
         memory = getter(target_id) if callable(getter) else None
