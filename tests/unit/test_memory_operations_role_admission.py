@@ -15,7 +15,9 @@ The server derives the role from which field carried the text
 app and read the role back from the stored candidate. Only the Postgres layer
 is replaced, by an in-memory store. Reproduced on origin/main before the fix:
 every assistant-role and regex-hit case below returned ``auto_apply`` and
-created an active object.
+created an active object. The same holds when the candidate would change a
+memory: an assistant ``decision: use MySQL for billing`` replaced an active
+user Decision (UPDATE or SUPERSEDE), which is the worst shape of the bug.
 """
 
 from __future__ import annotations
@@ -24,6 +26,8 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 import itertools
 import json
+from pathlib import Path
+import re
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -41,6 +45,7 @@ from alicebot_api.routers import continuity as continuity_router
 USER_ID = UUID("11111111-1111-4111-8111-111111111111")
 GENERATE_PATH = "/v1/memory/operations/candidates/generate"
 COMMIT_PATH = "/v1/memory/operations/commit"
+LIST_PATH = "/v1/memory/operations/candidates"
 
 
 class OperationsStore:
@@ -53,6 +58,7 @@ class OperationsStore:
         self.candidates: dict[UUID, dict[str, Any]] = {}
         self.candidates_by_sync_source: dict[tuple[str, str], UUID] = {}
         self.operations: dict[UUID, dict[str, Any]] = {}
+        self.corrections: list[dict[str, Any]] = []
 
     def create_continuity_capture_event(
         self, *, raw_content: str, explicit_signal: str | None, admission_posture: str, admission_reason: str
@@ -82,6 +88,9 @@ class OperationsStore:
         is_preserved: bool = True,
         is_searchable: bool = True,
         is_promotable: bool = True,
+        last_confirmed_at: datetime | None = None,
+        supersedes_object_id: UUID | None = None,
+        superseded_by_object_id: UUID | None = None,
     ) -> dict[str, Any]:
         row = {
             "id": uuid4(),
@@ -96,9 +105,9 @@ class OperationsStore:
             "body": body,
             "provenance": provenance,
             "confidence": confidence,
-            "last_confirmed_at": None,
-            "supersedes_object_id": None,
-            "superseded_by_object_id": None,
+            "last_confirmed_at": last_confirmed_at,
+            "supersedes_object_id": supersedes_object_id,
+            "superseded_by_object_id": superseded_by_object_id,
             "created_at": self.base_time,
             "updated_at": self.base_time,
         }
@@ -108,6 +117,41 @@ class OperationsStore:
     def get_continuity_object_optional(self, continuity_object_id: UUID) -> dict[str, Any] | None:
         row = self.objects.get(continuity_object_id)
         return None if row is None else dict(row)
+
+    def update_continuity_object_optional(self, *, continuity_object_id: UUID, **fields: Any) -> dict[str, Any] | None:
+        row = self.objects.get(continuity_object_id)
+        if row is None:
+            return None
+        row.update(fields)
+        return dict(row)
+
+    def create_continuity_correction_event(
+        self,
+        *,
+        continuity_object_id: UUID,
+        action: str,
+        reason: str | None,
+        before_snapshot: Any,
+        after_snapshot: Any,
+        payload: Any,
+    ) -> dict[str, Any]:
+        row = {
+            "id": uuid4(),
+            "user_id": USER_ID,
+            "continuity_object_id": continuity_object_id,
+            "action": action,
+            "reason": reason,
+            "before_snapshot": before_snapshot,
+            "after_snapshot": after_snapshot,
+            "payload": payload,
+            "created_at": self.base_time,
+        }
+        self.corrections.append(row)
+        return dict(row)
+
+    def list_continuity_correction_events(self, *, continuity_object_id: UUID, limit: int) -> list[dict[str, Any]]:
+        rows = [dict(row) for row in self.corrections if row["continuity_object_id"] == continuity_object_id]
+        return rows[:limit]
 
     def list_continuity_recall_candidates(self) -> list[dict[str, Any]]:
         rows = []
@@ -186,9 +230,27 @@ class OperationsStore:
         rows = [
             dict(row)
             for row in self.candidates.values()
-            if sync_fingerprint is None or row["sync_fingerprint"] == sync_fingerprint
+            if (sync_fingerprint is None or row["sync_fingerprint"] == sync_fingerprint)
+            and (policy_action is None or row["policy_action"] == policy_action)
+            and (operation_type is None or row["operation_type"] == operation_type)
         ]
         return rows[:limit]
+
+    def count_memory_operation_candidates(
+        self,
+        *,
+        policy_action: str | None = None,
+        operation_type: str | None = None,
+        sync_fingerprint: str | None = None,
+    ) -> int:
+        return len(
+            self.list_memory_operation_candidates(
+                limit=10_000,
+                policy_action=policy_action,
+                operation_type=operation_type,
+                sync_fingerprint=sync_fingerprint,
+            )
+        )
 
     def get_memory_operation_optional(self, operation_id: UUID) -> dict[str, Any] | None:
         row = self.operations.get(operation_id)
@@ -246,8 +308,10 @@ def _fake_connection(*args: object, **kwargs: object):  # type: ignore[no-untype
     yield object()
 
 
-def _invoke(path: str, payload: dict[str, object]) -> tuple[int, dict[str, Any]]:
-    body = json.dumps(payload).encode()
+def _invoke(
+    path: str, payload: dict[str, object] | None = None, *, method: str = "POST", query: str = ""
+) -> tuple[int, dict[str, Any]]:
+    body = b"" if payload is None else json.dumps(payload).encode()
     messages: list[dict[str, Any]] = []
     received = False
 
@@ -265,11 +329,11 @@ def _invoke(path: str, payload: dict[str, object]) -> tuple[int, dict[str, Any]]
         "type": "http",
         "asgi": {"version": "3.0"},
         "http_version": "1.1",
-        "method": "POST",
+        "method": method,
         "scheme": "http",
         "path": path,
         "raw_path": path.encode(),
-        "query_string": b"",
+        "query_string": query.encode(),
         "headers": [
             (b"content-type", b"application/json"),
             (b"x-alicebot-user-id", str(USER_ID).encode()),
@@ -457,6 +521,78 @@ def test_the_owner_can_still_approve_a_queued_assistant_candidate(store: Operati
     assert store.active_titles() == ["Decision: ship the release on Friday"]
 
 
+# A seed decision, the same subject restated by the other side, and the operation
+# that classifies it. Overlap makes the first an UPDATE. A ``subject is value``
+# shape makes the second a SUPERSEDE, which writes a replacement object.
+CHANGE_CASES = (
+    ("decision: use Postgres for billing", "use MySQL for billing", "UPDATE"),
+    ("decision: billing database is Postgres", "billing database is MySQL", "SUPERSEDE"),
+)
+
+
+@pytest.mark.parametrize("mode", ["assist", "auto"])
+@pytest.mark.parametrize(("seed", "changed", "operation_type"), CHANGE_CASES)
+def test_assistant_line_never_rewrites_an_existing_user_decision(
+    store: OperationsStore, mode: str, seed: str, changed: str, operation_type: str
+) -> None:
+    """The worst shape of DB-001: the assistant replaces a memory the user stored.
+
+    The user stored a Decision. An assistant reply that restates it with a
+    different value matches it, so the candidate is an UPDATE or a SUPERSEDE
+    and not an ADD. Mutation: in ``_resolve_policy_action`` admit those two
+    operation types whatever the role (``_admitted_for_auto_apply(candidate_payload)
+    or operation_type in {"UPDATE", "SUPERSEDE"}``). The candidate is applied
+    and this test fails on ``policy_action``.
+    """
+
+    _turn(user=seed, assistant="Noted.", mode="assist", fingerprint="seed")
+    titles_before = store.active_titles()
+    assert len(titles_before) == 1
+
+    generated, committed = _turn(
+        user="what next?", assistant=f"decision: {changed}", mode=mode, fingerprint=f"over-{mode}"
+    )
+
+    (item,) = generated["items"]
+    assert item["candidate_payload"]["source_role"] == "assistant"
+    assert item["operation_type"] == operation_type
+    assert item["target_continuity_object_id"] is not None
+    assert item["policy_action"] == "review_required"
+    assert item["policy_reason"] == f"{mode}_mode_review_gate"
+    assert committed["summary"]["applied_count"] == 0
+    assert committed["summary"]["skipped_count"] == 1
+    assert store.active_titles() == titles_before
+    assert len(store.objects) == 1
+    assert store.corrections == []
+
+
+@pytest.mark.parametrize("mode", ["assist", "auto"])
+@pytest.mark.parametrize(("seed", "changed", "operation_type"), CHANGE_CASES)
+def test_a_user_prefix_line_still_replaces_an_existing_decision(
+    store: OperationsStore, mode: str, seed: str, changed: str, operation_type: str
+) -> None:
+    """Control for the test above: the same turn from the user is applied.
+
+    Without this the test above would also pass if the store could not apply a
+    change at all. Mutation: make ``_admitted_for_auto_apply`` return False.
+    The user line is queued and this test fails on ``applied_count``.
+    """
+
+    _turn(user=seed, assistant="Noted.", mode="assist", fingerprint="seed")
+
+    generated, committed = _turn(
+        user=f"decision: {changed}", assistant="Noted.", mode=mode, fingerprint=f"user-over-{mode}"
+    )
+
+    (item,) = generated["items"]
+    assert item["candidate_payload"]["source_role"] == "user"
+    assert item["operation_type"] == operation_type
+    assert item["policy_action"] == "auto_apply"
+    assert committed["summary"]["applied_count"] == 1
+    assert len(store.corrections) == 1
+    assert store.active_titles() == [f"Decision: {changed}"]
+
+
 _MISSING = object()
 
 
@@ -510,6 +646,9 @@ def test_policy_applies_a_user_prefix_candidate_at_the_confidence_boundary(mode:
         {"source_role": ""},
         {"source_role": "assistant"},
         {"source_role": "combined"},
+        {"source_role": "User"},
+        {"source_role": "USER"},
+        {"source_role": " user "},
         {"explicit": False},
         {"explicit": _MISSING},
         {"explicit": "true"},
@@ -525,7 +664,12 @@ def test_policy_queues_a_candidate_that_fails_any_term_of_the_rule(mode: str, ov
 
     Mutation: read the role as ``candidate_payload.get("source_role", "user")``
     in ``_admitted_for_auto_apply``. The missing-role case fails. Mutation:
-    pass ``explicit=True`` there. The ``explicit`` cases fail.
+    pass ``explicit=True`` there. The ``explicit`` cases fail. Mutation: read
+    the role as ``str(...).strip().lower()``. The ``User`` and ``USER`` cases
+    fail. Mutation: read it as ``str(...).strip()``. The padded case fails.
+    The role is compared exactly. The generate route writes ``user``,
+    ``assistant`` or ``combined`` and nothing else, so a stored row with any
+    other spelling was written by hand and is queued.
     """
 
     action, reason = _resolve_policy_action(
@@ -605,7 +749,19 @@ def test_the_two_policies_share_one_rule_and_agree_on_every_combination() -> Non
     assert auto_applied > 0
 
 
-def _plant(store: OperationsStore, *, payload: dict[str, object], policy_action: str = "auto_apply") -> UUID:
+V0190_ASSIST_REASON = "assist_mode_allowlist_explicit_high_confidence"
+V0190_AUTO_REASON = "auto_mode_allowlist_high_confidence"
+
+
+def _plant(
+    store: OperationsStore,
+    *,
+    payload: dict[str, object],
+    policy_action: str = "auto_apply",
+    policy_reason: str = V0190_ASSIST_REASON,
+    operation_type: str = "ADD",
+    target_id: UUID | None = None,
+) -> UUID:
     row = store.create_memory_operation_candidate(
         sync_fingerprint=f"planted-{uuid4()}",
         source_kind="sync_turn",
@@ -613,11 +769,11 @@ def _plant(store: OperationsStore, *, payload: dict[str, object], policy_action:
         source_candidate_type=str(payload.get("candidate_type", "decision")),
         candidate_payload=payload,
         source_scope={},
-        operation_type="ADD",
-        operation_reason="no_current_target_match",
+        operation_type=operation_type,
+        operation_reason="no_current_target_match" if operation_type == "ADD" else "subject_key_match_changed_fact",
         policy_action=policy_action,
-        policy_reason="assist_mode_allowlist_explicit_high_confidence",
-        target_continuity_object_id=None,
+        policy_reason=policy_reason,
+        target_continuity_object_id=target_id,
         target_snapshot={},
     )
     return row["id"]
@@ -694,3 +850,160 @@ def test_commit_still_skips_a_stored_review_required_row(store: OperationsStore)
     assert committed["summary"]["skipped_count"] == 1
     assert committed["candidates"][0]["policy_reason"] == "assist_mode_allowlist_explicit_high_confidence"
     assert store.active_titles() == []
+
+
+@pytest.mark.parametrize("operation_type", ["UPDATE", "SUPERSEDE"])
+@pytest.mark.parametrize("stored_reason", [V0190_ASSIST_REASON, V0190_AUTO_REASON])
+def test_a_stored_assistant_row_that_would_change_a_memory_is_not_applied(
+    store: OperationsStore, operation_type: str, stored_reason: str
+) -> None:
+    """A v0.19.0 row that would replace a user's memory is checked again at commit.
+
+    The row is ``auto_apply``, role assistant, and targets the user's stored
+    Decision, under either reason string v0.19.0 wrote. Commit skips it and
+    the Decision is untouched. Mutation: return the stored policy from
+    ``_effective_policy`` for a row whose ``operation_type`` is UPDATE or
+    SUPERSEDE. Mutation: return it when the stored reason starts with
+    ``auto_mode``. Mutation: return it unless the stored reason is
+    ``assist_mode_allowlist_explicit_high_confidence``. Each applies the
+    change and fails on ``applied_count``.
+    """
+
+    _turn(user="decision: use Postgres for billing", assistant="Noted.", mode="assist", fingerprint="seed")
+    (target_id,) = store.objects
+    operations_before = dict(store.operations)
+    candidate_id = _plant(
+        store,
+        payload=_payload(source_role="assistant", normalized_text="use MySQL for billing"),
+        policy_reason=stored_reason,
+        operation_type=operation_type,
+        target_id=target_id,
+    )
+
+    status, committed = _invoke(COMMIT_PATH, {"candidate_ids": [str(candidate_id)]})
+
+    assert status == 200, committed
+    assert committed["summary"]["applied_count"] == 0
+    assert committed["summary"]["skipped_count"] == 1
+    (listed,) = committed["candidates"]
+    assert listed["policy_action"] == "review_required"
+    assert listed["policy_reason"] == "stored_auto_apply_fails_admission_rule"
+    assert store.active_titles() == ["Decision: use Postgres for billing"]
+    assert store.corrections == []
+    assert store.operations == operations_before
+
+
+@pytest.mark.parametrize("operation_type", ["UPDATE", "SUPERSEDE"])
+@pytest.mark.parametrize("stored_reason", [V0190_ASSIST_REASON, V0190_AUTO_REASON])
+def test_a_stored_user_row_that_changes_a_memory_is_still_applied(
+    store: OperationsStore, operation_type: str, stored_reason: str
+) -> None:
+    """Control for the test above: the same row from the user passes the rule.
+
+    Without it the test above would also pass if the planted row could never
+    be applied. Mutation: make ``_effective_policy`` demote every stored
+    ``auto_apply`` row. This test fails on ``applied_count``.
+    """
+
+    _turn(user="decision: use Postgres for billing", assistant="Noted.", mode="assist", fingerprint="seed")
+    (target_id,) = store.objects
+    candidate_id = _plant(
+        store,
+        payload=_payload(source_role="user", normalized_text="use MySQL for billing"),
+        policy_reason=stored_reason,
+        operation_type=operation_type,
+        target_id=target_id,
+    )
+
+    status, committed = _invoke(COMMIT_PATH, {"candidate_ids": [str(candidate_id)]})
+
+    assert status == 200, committed
+    assert committed["summary"]["applied_count"] == 1
+    assert committed["summary"]["skipped_count"] == 0
+    assert len(store.corrections) == 1
+    assert store.active_titles() == ["Decision: use MySQL for billing"]
+
+
+def test_a_row_stored_by_v0190_keeps_its_label_in_list_and_replay_until_commit_queues_it(
+    store: OperationsStore,
+) -> None:
+    """The CHANGELOG says list and replay show the stored label. This holds it to that.
+
+    The row is generated on this code, then rewritten as v0.19.0 stored it: an
+    assistant candidate labelled ``auto_apply``. List and a replayed generate
+    serialize the stored row. Commit applies nothing, reports
+    ``review_required`` with the stored-row reason, and does not write that
+    label back. Mutation: serialize the row through ``_effective_policy`` in
+    ``list_memory_operation_candidates``. The list assertion fails. Mutation:
+    do the same for the replayed row in ``generate_memory_operation_candidates``.
+    The replay assertion fails.
+    """
+
+    fingerprint = "v0190-row"
+    request = {
+        "user_content": "What is the plan?",
+        "assistant_content": "decision: ship the release on Friday",
+        "mode": "assist",
+        "sync_fingerprint": fingerprint,
+    }
+    status, generated = _invoke(GENERATE_PATH, request)
+    assert status == 200, generated
+    (item,) = generated["items"]
+    assert item["policy_action"] == "review_required"
+    candidate_id = UUID(item["id"])
+    stored = store.candidates[candidate_id]
+    stored["policy_action"] = "auto_apply"
+    stored["policy_reason"] = V0190_ASSIST_REASON
+
+    status, listed = _invoke(LIST_PATH, method="GET", query=f"sync_fingerprint={fingerprint}")
+    assert status == 200, listed
+    assert [(row["policy_action"], row["policy_reason"]) for row in listed["items"]] == [
+        ("auto_apply", V0190_ASSIST_REASON)
+    ]
+
+    status, replayed = _invoke(GENERATE_PATH, request)
+    assert status == 200, replayed
+    assert [(row["policy_action"], row["policy_reason"]) for row in replayed["items"]] == [
+        ("auto_apply", V0190_ASSIST_REASON)
+    ]
+    assert replayed["summary"]["auto_apply_count"] == 1
+
+    status, committed = _invoke(COMMIT_PATH, {"sync_fingerprint": fingerprint})
+    assert status == 200, committed
+    assert committed["summary"]["applied_count"] == 0
+    assert committed["summary"]["skipped_count"] == 1
+    assert [(row["policy_action"], row["policy_reason"]) for row in committed["candidates"]] == [
+        ("review_required", "stored_auto_apply_fails_admission_rule")
+    ]
+    assert store.active_titles() == []
+    assert (stored["policy_action"], stored["policy_reason"]) == ("auto_apply", V0190_ASSIST_REASON)
+
+
+def test_no_doc_or_source_names_the_shared_rule_by_its_old_private_name() -> None:
+    """The rule is ``user_prefix_autosave``. A doc that says ``_user_prefix_autosave`` is stale.
+
+    ``docs/plans/sprint-5-lifecycle.md`` named the private function after it
+    was renamed, and ``check_control_doc_truth`` does not look at that file.
+    Mutation: put the underscore back in that line of the plan. This test
+    fails and names the file.
+    """
+
+    assert callable(continuity_capture.user_prefix_autosave)
+    assert not hasattr(continuity_capture, "_user_prefix_autosave")
+
+    root = Path(__file__).resolve().parents[2]
+    old_name = re.compile(r"(?<![A-Za-z0-9])_user_prefix_autosave(?![A-Za-z0-9_])")
+    scanned = [
+        *root.glob("*.md"),
+        *(root / "docs").rglob("*.md"),
+        *(root / ".ai").rglob("*.md"),
+        *(root / "apps" / "api" / "src").rglob("*.py"),
+        *(root / "scripts").rglob("*.py"),
+    ]
+    assert any(path.name == "sprint-5-lifecycle.md" for path in scanned)
+    stale = [
+        str(path.relative_to(root))
+        for path in scanned
+        if old_name.search(path.read_text(encoding="utf-8"))
+    ]
+    assert stale == []
