@@ -25,7 +25,9 @@ absolute path; set an absolute path.`` In JSON that line is
 ``--data-dir`` is the same as none: it falls back to
 ``$ALICE_MEMORY_DATA_DIR``, then ``~/.alice``. An empty
 ``$ALICE_MEMORY_DATA_DIR`` is the same as unset. Nothing is created for a
-refused value.
+refused value. With no value at all outside plugin mode the built-in
+``~/.alice`` default is used and is not checked. The value in the line has
+control characters escaped and is cut at 200 characters.
 
 Plugin mode. Claude Code sets ``CLAUDE_PLUGIN_ROOT`` for a plugin's hooks
 and servers and not for a hook in ``settings.json``, so a non-empty value
@@ -155,9 +157,33 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+_REFUSAL_VALUE_LIMIT = 200
+
+
+def _refusal_value(value: str) -> str:
+    """The refused value as one short printable line.
+
+    The value comes from a flag or an environment variable, and the refusal
+    line goes into the model's context without the brief's size guards. A
+    control character or line break is written as an escape (``\\n``), and the
+    text is cut at 200 characters with ``...``. A normal path is unchanged.
+    """
+
+    shown: list[str] = []
+    used = 0
+    for char in value:
+        piece = char if char.isprintable() else char.encode("unicode_escape").decode("ascii")
+        if used + len(piece) > _REFUSAL_VALUE_LIMIT:
+            shown.append("...")
+            break
+        shown.append(piece)
+        used += len(piece)
+    return "".join(shown)
+
+
 def _data_dir_refusal_line(value: str) -> str:
     return (
-        f'Alice: the data directory "{value}" is not an absolute path; '
+        f'Alice: the data directory "{_refusal_value(value)}" is not an absolute path; '
         "set an absolute path."
     )
 
@@ -184,14 +210,16 @@ def _run(args: argparse.Namespace) -> int:
     if not requested and _plugin_mode():
         requested = os.environ.get(CLAUDE_PLUGIN_OPTION_DATA_DIR_ENV) or DEFAULT_DATA_DIR
     if not requested:
-        requested = os.environ.get(ALICE_MEMORY_DATA_DIR_ENV) or DEFAULT_DATA_DIR
-    # One check for every source: --data-dir, the plugin option, the variable
-    # and the default. A refused value creates nothing.
-    if not data_dir_absolute_after_tilde(requested):
+        requested = os.environ.get(ALICE_MEMORY_DATA_DIR_ENV) or ""
+    # A value somebody gave is checked: --data-dir, the plugin option (or its
+    # ~/.alice default in plugin mode), and a non-empty variable. With none of
+    # them outside plugin mode the built-in ~/.alice default is used unchecked,
+    # as before. A refused value creates nothing.
+    if requested and not data_dir_absolute_after_tilde(requested):
         _emit_data_dir_refusal(requested, args.format)
         return 0
 
-    db_path = resolve_db_path(data_dir=requested, db=None)
+    db_path = resolve_db_path(data_dir=requested or DEFAULT_DATA_DIR, db=None)
     bootstrap_database(
         db_path,
         user_id=UUID(str(args.user_id)),

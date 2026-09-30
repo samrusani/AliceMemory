@@ -21,13 +21,15 @@
   directory "<value>" is not an absolute path; set an absolute path.`, in
   `--format markdown` and in JSON, and exits 0. Nothing is created: no vault,
   and no folder under the current directory, including for the literal
-  `${HOME}/.alice` that a host leaves unexpanded. The variable is the value in
-  use only when there is no `--data-dir` and the hook is not running as the
-  Claude Code plugin's hook, where it is still ignored. An empty variable is
-  the same as unset, and the hook opens `~/.alice`. `alice-memory brief` and
-  `alice-memory mcp` do not read the variable, so they are not changed. In
-  v0.19.0 the hook creates the vault under the current directory for a
-  relative value.
+  `${HOME}/.alice` that a host leaves unexpanded. The value in the line has
+  line breaks and other control characters written as escapes and is cut at
+  200 characters with `...`, for `--data-dir` and the variable alike. The
+  variable is the value in use only when there is no `--data-dir` and the
+  hook is not running as the Claude Code plugin's hook, where it is still
+  ignored. An empty variable is the same as unset, and the hook opens
+  `~/.alice`. `alice-memory brief` and `alice-memory mcp` do not read the
+  variable, so they are not changed. In v0.19.0 the hook creates the vault
+  under the current directory for a relative value.
 
 ## v0.19.0 — 2026-09-30
 

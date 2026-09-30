@@ -411,6 +411,113 @@ def test_review_list_and_detail_change_only_event_log_identity_and_key_time(
     _assert_other_tables_unchanged(before_key, _snapshot(database), _REVIEW_WRITE_TABLES)
 
 
+_READ_ONLY_IDENTITY = {
+    "agent_id": "hermes",
+    "agent_type": "personal_assistant",
+    "permission_profile": "read_only_agent",
+}
+_UNKNOWN_MEMORY_ID = "00000000-0000-0000-0000-0000000000aa"
+
+
+def _seed_sensitive(context: MCPRuntimeContext) -> str:
+    """One highly sensitive financial memory, which a read-only agent may not see."""
+
+    proposed = _call(
+        context,
+        "alice_memory_commit",
+        title="Tax note",
+        canonical_text="The tax filing sits in the blue folder.",
+        memory_type="decision",
+        domain="financial",
+        sensitivity="highly_sensitive",
+        confidence=0.96,
+        rationale="User said: remember this",
+    )
+    memory = proposed["memory"]
+    assert memory["domain"] == "financial" and memory["sensitivity"] == "highly_sensitive", proposed
+    return str(memory["id"])
+
+
+def _review_refused(context: MCPRuntimeContext, match: str, **arguments: object) -> None:
+    from alicebot_api.mcp_tools import MCPToolError
+
+    with pytest.raises(MCPToolError, match=match):
+        _call(context, "alice_memory_review", **arguments)
+
+
+def test_review_refusals_write_nothing_but_the_audit_rows(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A refused review call writes no memory, source or revision either.
+
+    A policy block raises after the store context has committed, so a write
+    made on that path would persist. Both blocked shapes are run, each with
+    every table snapshotted around them: a detail call on a memory a read-only
+    agent may not see, and a list call for a domain and sensitivity it may not
+    see; then, with a project-scoped agent API key, a list call for another
+    project and a detail call on a memory outside the key's project. The
+    not-found id and the detail call filtered out by the caller's own domains
+    or projects are run too. Only ``event_log``, ``agent_identities`` and, with
+    a key, ``agent_api_keys`` may differ, and the blocked calls do leave an
+    event log row, so the blocked path was reached.
+
+    Mutations, each one alone: a detail call blocked by policy rewrites a
+    memory row; a list call blocked by policy rewrites one; a call blocked
+    only by the key's project binding rewrites one. This test fails.
+    """
+
+    context = _context(tmp_path, monkeypatch)
+    active_id, candidate_id = _seed_active_and_candidate(context)
+    sensitive_id = _seed_sensitive(context)
+    database = _db_path(context)
+    blocked = "agent policy blocked"
+
+    before = _snapshot(database)
+    _review_refused(context, blocked, review_item_id=sensitive_id, **_READ_ONLY_IDENTITY)
+    _review_refused(
+        context,
+        blocked,
+        status="all",
+        domains=["financial"],
+        sensitivity_allowed=["private"],
+        **_READ_ONLY_IDENTITY,
+    )
+    _review_refused(context, "was not found", review_item_id=_UNKNOWN_MEMORY_ID, **_READ_ONLY_IDENTITY)
+    _review_refused(
+        context,
+        "outside the effective review filters",
+        review_item_id=active_id,
+        domains=["financial"],
+        **_READ_ONLY_IDENTITY,
+    )
+    after = _snapshot(database)
+    _assert_other_tables_unchanged(before, after, _REVIEW_WRITE_TABLES)
+    assert len(after["event_log"]) > len(before["event_log"])
+
+    from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
+    from alicebot_api.vnext_agent_keys import create_agent_key
+
+    with sqlite_user_connection(database, USER_ID) as connection:
+        _record, raw_key = create_agent_key(
+            SQLiteVNextStore(connection, USER_ID),
+            user_id=USER_ID,
+            agent_id="hermes",
+            permission_profile="trusted_local_agent",
+            label="review refusal test",
+            project_scope="cedar",
+        )
+    monkeypatch.setenv(AGENT_API_KEY_ENV, raw_key)
+    before_key = _snapshot(database)
+    _review_refused(context, blocked, status="all", projects=["nope"])
+    _review_refused(context, blocked, review_item_id=candidate_id)
+    _review_refused(
+        context, "outside the effective review filters", review_item_id=active_id, projects=["nope"]
+    )
+    after_key = _snapshot(database)
+    _assert_other_tables_unchanged(before_key, after_key, _REVIEW_WRITE_TABLES)
+    assert len(after_key["event_log"]) > len(before_key["event_log"])
+
+
 _ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -425,7 +532,9 @@ def test_the_docs_and_the_hint_comment_say_review_is_read_only_on_main() -> None
     Mutations, each one alone: move the entry out of the Unreleased section;
     drop the ``In v0.19.0`` clause; write the main behaviour into a ``From
     v0.19.0`` README line; put ``A policy audit row`` back into the comment;
-    drop the marked note from the control documents. This test fails.
+    drop the marked note from the control documents; drop the README's ``no test
+    here runs that prompt`` caveat; change the tables the changelog says review
+    writes with an identity or a key. This test fails.
     """
 
     sections = (_ROOT / "CHANGELOG.md").read_text(encoding="utf-8").split("\n## ")
@@ -436,6 +545,11 @@ def test_the_docs_and_the_hint_comment_say_review_is_read_only_on_main() -> None
         "In v0.19.0 `alice_memory_review` sets `destructiveHint` to true, grouped with the tools "
         "that act on the review queue, and Codex still asks before it runs."
     ) in unreleased
+    assert (
+        "With an identity only `event_log` and `agent_identities` rows change, and with a key the "
+        "key's last-used time changes too"
+    ) in unreleased
+    assert "No test here runs a Codex approval prompt." in unreleased
 
     readme = (_ROOT / "README.md").read_text(encoding="utf-8").splitlines()
     on_main = [
@@ -445,6 +559,7 @@ def test_the_docs_and_the_hint_comment_say_review_is_read_only_on_main() -> None
     ]
     assert len(on_main) == 1
     assert "In v0.19.0 `alice_memory_review` is marked destructive" in on_main[0]
+    assert "and no test here runs that prompt" in on_main[0]
     released = [line for line in readme if line.startswith("From v0.19.0, every MCP tool declares hints.")]
     assert len(released) == 1
     assert "`alice_memory_review`, `alice_memory_correct`, `alice_memory_manage`, and `alice_open_loops` are marked destructive" in released[0]
