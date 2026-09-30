@@ -28,6 +28,16 @@
   so an ordinary brief is unchanged. The brief still prints its facts and
   loops, and its sources when the fact's words match one. In v0.18.0 the
   same fact raises a SQLite pattern error and the hook prints `{}`.
+- A newest fact, open loop, explicit query, or source title with more than
+  about 990 distinct words no longer wipes the session brief, even when it is
+  well under 40,000 UTF-8 bytes (about 32 KB of ordinary prose, or 7 KB of
+  short distinct tokens). SQLite refuses the source search's pattern list at
+  that size with `Expression tree is too large`, so the hook printed `{}` and
+  `alice-memory brief` exited 1. An excerpt query with more than 499 distinct
+  words is now bounded to a few hundred characters of its FTS tokens, the way
+  a query over 40,000 bytes is. A query with 499 or fewer is used exactly as
+  before, and a repeated word counts once. In v0.18.0 the same text raises
+  that error and the hook prints `{}`.
 - `alice-memory install --host hermes` leaves a comment in place when the
   `alice` block, with comment lines and inline comments removed, already
   matches what install would write. The receipt says unchanged and the
