@@ -2,6 +2,36 @@
 
 ## Unreleased
 
+- The commit author check accepts six exact addresses and no domain as a whole: the owner's GitHub noreply address in its plain and id forms, `noreply@github.com`, `cursoragent@cursor.com`, and the Dependabot and github-actions bot noreply addresses. A misspelled noreply address fails and the failure names the commit. In v0.19.0 the check allows any address at `users.noreply.github.com`.
+- The dispatch-only Real host CI marketplace check adds the marketplace from `./` and from the HTTPS clone URL, each into a fresh HOME, installs `alice-memory@alicememory` and checks the plugin list for its id, enabled state and version. It also tries the `samrusani/AliceMemory` shorthand and reports whether it works, as an annotation and a step summary, without failing the job. In v0.19.0 the check adds the marketplace from `.` only.
+- `alice_memory_review` sets `readOnlyHint` and no longer sets
+  `destructiveHint`. It only lists review items or shows one, and changes no
+  memory, source, or revision. Every table was snapshotted before and after
+  list and detail calls, with no identity, with an agent identity in the
+  payload, and with an agent API key. With no identity nothing changes. With
+  an identity only `event_log` and `agent_identities` rows change, and with a
+  key the key's last-used time changes too, the same rows the read-only tools
+  write. `alice_memory_correct`, `alice_memory_manage`, and `alice_open_loops`
+  still set `destructiveHint` to true. By the approval rule as the code
+  records it, Codex's default mode should no longer wait for approval before
+  `alice_memory_review`. No test here runs a Codex approval prompt. In
+  v0.19.0 `alice_memory_review` sets `destructiveHint` to true, grouped with
+  the tools that act on the review queue, and Codex still asks before it runs.
+- `alice-memory-session-start` refuses a non-empty `ALICE_MEMORY_DATA_DIR`
+  that is not absolute after `~` expansion, when the variable is the value in
+  use. It prints the line it prints for `--data-dir`, `Alice: the data
+  directory "<value>" is not an absolute path; set an absolute path.`, in
+  `--format markdown` and in JSON, and exits 0. Nothing is created: no vault,
+  and no folder under the current directory, including for the literal
+  `${HOME}/.alice` that a host leaves unexpanded. The value in the line has
+  line breaks and other control characters written as escapes and is cut at
+  200 characters with `...`, for `--data-dir` and the variable alike. The
+  variable is the value in use only when there is no `--data-dir` and the
+  hook is not running as the Claude Code plugin's hook, where it is still
+  ignored. An empty variable is the same as unset, and the hook opens
+  `~/.alice`. `alice-memory brief` and `alice-memory mcp` do not read the
+  variable, so they are not changed. In v0.19.0 the hook creates the vault
+  under the current directory for a relative value.
 - `alice_recall` and `alice_context_pack` refuse, before they search, a query the SQLite source search cannot take, and the tool error names the limit. A query with more than 499 distinct search terms, or over 40,000 UTF-8 bytes (counted as sent and again after case folding), answers `invalid_request` with a message such as `query has 1000 distinct search terms; the limit is 499. Use a shorter query.` The query is never cut to fit. A search term is an ASCII word of two or more characters that is not a stopword, a hyphenated id counts once, and a repeated word counts once. The limits are the session brief's, from one shared function. In v0.19.0 a query with about 991 or more distinct terms, or one over about 50,000 bytes with a captured source in the vault, answers `tool_execution_failed` with no detail, and a query of 500 to 990 distinct terms or 40,001 to about 50,000 bytes is taken. A query of any size over 40,000 bytes is also taken in v0.19.0 when the search reads no source row, which is a vault with no captured source or filters that exclude every source. Those ranges are refused now, because the limits sit at about half of what SQLite takes and the check looks at the query alone, not at what the vault holds. A context pack with `include_sources` false or `context_depth` `minimal` runs no source search and still takes a long query. `invalid_request` is a new MCP tool error code, the only one whose message is not static, and it never repeats the query. The SQLite source search raises the same typed error for every caller, so the legacy `alice_vnext_context_pack`, `alice_generate_contradictions` and `alice_generate_connections` tools answer it too. `alice_resume` and `alice_recent_decisions` are not changed: a query of about 50,000 bytes or more still answers `tool_execution_failed` there once the vault holds a stored decision. The Postgres backend is not changed.
 - `alice-memory import` no longer restores a writer label of `verified_by_key`. A stored claim that an agent API key wrote a row (an `agent_identity` with `auth` equal to `agent_api_key`, in `metadata_json` or `payload_json` of any record, including JSON text the readers decode) is restored as `auth: imported_claim`, with the original kept as `claimed_auth`, and an event row that changed has its `integrity_hash` cleared. A backup file can be edited and re-signed, and its footer shows integrity, not who wrote a row. The receipt prints `provenance claims restored as unverified: N` after the per-type lines, counting rows, every time. A note a key really wrote reads `declared_on_keyless_install` after a restore, so `export`, `import`, `export` is identical except for rows that carried a key claim. `--mode skip` also accepts an existing row that equals the file's row as the file gives it, so a vault can import its own export. Recall, resume and the context pack now compare `auth` exactly, so a value padded with whitespace is no longer read as a key claim. In v0.19.0 and v0.18.0 a row restored from an edited, re-signed backup reads `verified_by_key` with no key behind it, and so does an `auth` value padded with whitespace. A `metadata_json` or `payload_json` nested deeper than 256 levels is refused at import with `restore_failed`; the product writes an identity at most three levels down.
 - `alice-memory doctor` reads the text of every source chunk, with the commit door's verdict, as well as the source row and `raw_text`. A token that sits only in a chunk now flags its source under `flagged sources` and `flagged source ids`. In v0.19.0 and v0.18.0 that source prints `flagged sources: 0`, although recall, the session brief and the session hook return the chunk. Chunks of a deleted source are not read.
