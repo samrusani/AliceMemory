@@ -49,8 +49,8 @@ on:
       - tests/unit/test_install_without_uvx.py
       - tests/unit/test_opencode_config_install.py
       - tests/unit/test_session_brief.py
-      - tests/unit/test_session_hook_wire_text_notes.py
       - tests/unit/test_sleep_time_proposals.py
+      - tests/unit/test_session_hook_wire_text_notes.py
       - tests/unit/test_validity_on_by_default.py
       - plugins/alice-memory/**
       - .claude-plugin/**
