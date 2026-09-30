@@ -40,8 +40,13 @@ prints MCP protocol on stdout.
 Copy `docs/examples/cursor-session-start-hooks.json` into the project's
 `.cursor/hooks.json`, or merge the `sessionStart` block into an existing
 file. Point `ALICE_MEMORY_DATA_DIR` at the vault the host should read, as an
-absolute path. The hook refuses a relative `--data-dir`, but it does not check
-this variable, so a relative value creates a vault under the current directory.
+absolute path. The hook refuses a relative `--data-dir`, but in v0.19.0 it does
+not check this variable, so a relative value creates a vault under the current
+directory. Unreleased (on main, not in v0.19.0): the hook refuses a non-empty
+value that is not absolute after `~` expansion, in `--format markdown` and in
+JSON, with the same one line it prints for `--data-dir`. It exits 0 and creates
+nothing. The value in the line has control characters written as escapes and is
+cut at 200 characters. An empty value is the same as unset.
 
 ```bash
 export ALICE_MEMORY_DATA_DIR="$HOME/.alice"
