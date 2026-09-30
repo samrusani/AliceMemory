@@ -99,9 +99,9 @@ that could not run on a CI runner.
 It takes the work on `main` since `v0.18.0`. Codex is a new opt-in install
 host that writes an MCP entry and a SessionStart hook. The Claude Code plugin
 directory is in the repo. The session brief is cut to fit Claude Code's size
-cap, leaves out superseded facts, and no longer fails on a newest fact over
-about 50,000 bytes. Every MCP tool declares hints, and a relative or empty
-data dir is refused. There is no schema change.
+cap, leaves out superseded facts, and no longer fails on a long newest fact,
+open loop, query or source title. Every MCP tool declares hints, and a
+relative or empty `--data-dir` is refused. There is no schema change.
 
 - [v0.19.0 release notes](https://github.com/samrusani/AliceMemory/blob/main/docs/release/v0.19.0-release-notes.md)
 
@@ -119,17 +119,21 @@ data dir is refused. There is no schema change.
   both exist. The marketplace file is not in the tag. `v0.18.0` has no plugin.
 - The session brief cuts a long note to at most 1,500 characters, stays under
   9,500 characters, and leaves out a superseded fact and a source line whose
-  captured sentence was corrected later. A newest fact over about 50,000
-  bytes no longer empties it, but a fact with more than about 990 distinct
-  words still does. In `v0.18.0` a note over the token budget was dropped, a
-  brief could pass 15,000 characters, and a very long fact could make the
-  hook print `{}`.
+  captured sentence was corrected later. A long newest fact, open loop,
+  explicit query or source title no longer empties it, including one with
+  more than about 990 distinct words. `alice_recall` and
+  `alice_context_pack` are not changed and still return a tool error for a
+  query with about 991 or more distinct search terms. In `v0.18.0` a note
+  over the token budget was dropped, a brief could pass 15,000 characters,
+  and a fact with more than about 990 distinct words, or over about 50,000
+  bytes with a source in the vault, made the hook print `{}`.
 - Every MCP tool sets `openWorldHint` to false. Five tools are read-only, two
   are non-destructive, and four are destructive. `v0.18.0` tools declare no
   hints.
 - `alice-memory mcp` refuses an empty or relative `--data-dir` with exit 2,
-  and the session-start hook prints one line and exits 0. `v0.18.0` creates
-  the vault under the current directory.
+  and the session-start hook prints one line and exits 0 for a relative
+  `--data-dir` or plugin `data_dir`. A relative `ALICE_MEMORY_DATA_DIR` is
+  not checked. `v0.18.0` creates the vault under the current directory.
 - `alice-memory install --host hermes` keeps a comment in the `alice` block
   when nothing needs to change, and refuses when a change is needed. In
   `v0.18.0` the re-run drops the comment.

@@ -39,7 +39,9 @@ prints MCP protocol on stdout.
 
 Copy `docs/examples/cursor-session-start-hooks.json` into the project's
 `.cursor/hooks.json`, or merge the `sessionStart` block into an existing
-file. Point `ALICE_MEMORY_DATA_DIR` at the vault the host should read.
+file. Point `ALICE_MEMORY_DATA_DIR` at the vault the host should read, as an
+absolute path. The hook refuses a relative `--data-dir`, but it does not check
+this variable, so a relative value creates a vault under the current directory.
 
 ```bash
 export ALICE_MEMORY_DATA_DIR="$HOME/.alice"

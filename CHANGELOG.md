@@ -30,14 +30,16 @@
   distinct search terms (the next entry) is used exactly as before, so an
   ordinary brief is unchanged. The brief still prints its facts and
   loops, and its sources when the fact's words match one. In v0.18.0 the
-  same fact raises a SQLite pattern error and the hook prints `{}`.
+  same fact, with a captured source in the vault, raises a SQLite pattern
+  error and the hook prints `{}`.
 - A newest fact, open loop, explicit query, or source title with too many
   distinct search terms no longer wipes the session brief, even when it is
   well under 40,000 UTF-8 bytes. A search term is an ASCII word of two or
   more characters that is not a stopword, and a hyphenated id counts once.
   SQLite refuses the source search at about 990 of them, which is roughly
-  30 KB of ordinary prose or 3 KB of two-character tokens. The hook then
-  printed `{}` and `alice-memory brief` exited 1, with the SQLite error
+  30 KB of ordinary prose (less when the words are rare) or 3 KB of
+  two-character tokens. In v0.18.0 the hook then printed `{}` and
+  `alice-memory brief` exited 1, in any vault, with the SQLite error
   `Expression tree is too large`. An excerpt query with more than 499
   distinct search terms is now bounded to a few hundred characters of its
   FTS tokens, the way a query over 40,000 bytes is. A query with 499 or
@@ -46,9 +48,10 @@
   search binds the folded text and some characters grow when folded. A
   fact of 9,000 U+0390 characters is 18,000 bytes, folds to 54,000, and
   was refused with `LIKE or GLOB pattern too complex`. In v0.18.0 the same
-  text raises a SQLite error and the hook prints `{}`. `alice_recall` and
-  `alice_context_pack` are not changed: a query with 991 or more distinct
-  search terms still fails there with the same error.
+  text, with a captured source in the vault, raises a SQLite error and the
+  hook prints `{}`. `alice_recall` and `alice_context_pack` are not
+  changed: a query with 991 or more distinct search terms still returns a
+  tool error there (`tool_execution_failed`), as it does in v0.18.0.
 - `alice-memory install --host hermes` leaves a comment in place when the
   `alice` block, with comment lines and inline comments removed, already
   matches what install would write. The receipt says unchanged and the
@@ -61,10 +64,14 @@
   `destructiveHint` to false. `alice_memory_review`, `alice_memory_correct`,
   `alice_memory_manage`, and `alice_open_loops` set `destructiveHint` to
   true. The hints follow Codex's default approval rule as the code records
-  it, so in Codex's default mode those tools should no longer wait for
-  approval. No test here runs a Codex approval prompt. An event log row from
-  `alice_context_pack`, or an agent identity row, is not a state change the
-  client asked for. In v0.18.0 these tools declare no hints.
+  it, so in Codex's default mode the read-only and non-destructive tools
+  should no longer wait for approval. No test here runs a Codex approval
+  prompt. An event log row from `alice_context_pack`, or an agent identity
+  row, is not a state change the client asked for. `alice_memory_review`
+  only lists or shows review items and changes no memory or source, so its
+  destructive flag is conservative: it is grouped with the tools that act
+  on the review queue, and Codex still asks before it runs. In v0.18.0
+  these tools declare no hints.
 - A long session-brief note is cut at 1,500 characters, on the last word
   boundary, or on a grapheme boundary when the note has no word break. When
   the word-boundary prefix keeps less than 60% of what fits, the cut keeps
@@ -85,12 +92,16 @@
 - `alice-memory mcp` refuses a `--data-dir` that is empty or not absolute
   after `~` expansion, names the value, and exits 2.
   `alice-memory-session-start` refuses a non-empty value that is not
-  absolute after expansion: it prints one line and exits 0. An empty
-  session-start value still falls back to `$ALICE_MEMORY_DATA_DIR`, then
-  `~/.alice`. An MCPB default that Claude Desktop leaves as a literal
-  `${HOME}/.alice` now exits 2, instead of creating a vault under the cwd.
-  In v0.18.0 a relative data dir is accepted, and that literal
-  `${HOME}/.alice` creates a vault under the cwd.
+  absolute after expansion: it prints one line and exits 0. That refusal
+  covers a `--data-dir` value and the Claude Code plugin's `data_dir`
+  option. It does not cover `ALICE_MEMORY_DATA_DIR`: an empty session-start
+  value still falls back to that variable, then `~/.alice`, and a relative
+  value in the variable is not checked, so the hook still creates a vault
+  under the cwd for it. Only the hook reads the variable. An MCPB default
+  that Claude Desktop leaves as a literal `${HOME}/.alice` now exits 2,
+  instead of creating a vault under the cwd. In v0.18.0 a relative data dir
+  is accepted, and that literal `${HOME}/.alice` creates a vault under the
+  cwd.
 - A ChatGPT conversation title that holds a token is stored as `withheld`
   and counted in `skipped_credentials` and `skipped_credential_items` as
   `conversation X title`. In v0.18.0 that title is stored as `withheld`
@@ -128,10 +139,12 @@
   `compile_local_session_brief`) shows current facts only. A memory whose
   `superseded_by` is set, or whose status is `superseded`, is omitted. A
   `**source**` line is omitted when the captured sentence's `quoted_from`
-  memory was corrected or superseded after that capture. `alice_recall`
-  still returns the older row after the current one, with
-  `validity.superseded: true`, which `alice_context_pack` already set.
-  Recall and the context pack keep the old passage under `sources` and add
+  memory was corrected or superseded after that capture. When the older
+  row is still active and carries `superseded_by`, `alice_recall` still
+  returns it after the current one, with `validity.superseded: true`,
+  which `alice_context_pack` already set. A row that a correction moved to
+  `superseded` is not returned by recall at all. Recall and the context
+  pack keep the old passage under `sources` and add
   `derived_memory_corrected: true` plus `current_memory_id`. The stored
   chunk and the `quoted_from` quote are unchanged. In v0.18.0 the brief
   still prints that older sentence as a `**fact**` or a `**source**` line,
