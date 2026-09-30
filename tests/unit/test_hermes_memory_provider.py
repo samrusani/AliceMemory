@@ -374,10 +374,10 @@ def test_sync_turn_deduplicates_repeated_callbacks_and_flushes_on_session_end(
         "session_end_flush_timeout_seconds": 5.0,
     }
 
-    captured: list[str] = []
+    captured: list[object] = []
 
     def _fake_post_capture(
-        raw_content: str,
+        raw_content: object,
         timeout: float | None = None,
         deadline: float | None = None,
     ) -> None:
@@ -391,7 +391,7 @@ def test_sync_turn_deduplicates_repeated_callbacks_and_flushes_on_session_end(
     provider.on_session_end(session_id="session-a")
     provider.on_session_end(session_id="session-a")
 
-    assert captured == ["User: Need decision\nAssistant: Decision confirmed"]
+    assert captured == [module._TurnCapture("Need decision", "Decision confirmed")]
 
 
 def test_memory_write_deduplicates_repeated_callbacks(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -431,10 +431,10 @@ def test_sync_turn_allows_same_content_after_session_flush(monkeypatch: pytest.M
         "session_end_flush_timeout_seconds": 5.0,
     }
 
-    captured: list[str] = []
+    captured: list[object] = []
 
     def _fake_post_capture(
-        raw_content: str,
+        raw_content: object,
         timeout: float | None = None,
         deadline: float | None = None,
     ) -> None:
@@ -450,8 +450,8 @@ def test_sync_turn_allows_same_content_after_session_flush(monkeypatch: pytest.M
     provider.on_session_end(session_id="session-c")
 
     assert captured == [
-        "User: Need decision\nAssistant: Decision confirmed",
-        "User: Need decision\nAssistant: Decision confirmed",
+        module._TurnCapture("Need decision", "Decision confirmed"),
+        module._TurnCapture("Need decision", "Decision confirmed"),
     ]
 
 
@@ -516,9 +516,14 @@ def test_post_capture_uses_b2_candidate_commit_pipeline_for_sync_turn(monkeypatc
 
     monkeypatch.setattr(provider, "_request_json", _fake_request_json)
 
-    provider._post_capture("User: Decision: Keep scope tight\nAssistant: Confirmed")
+    provider._post_capture(module._TurnCapture("Decision: Keep scope tight", "Confirmed"))
 
     assert requests[0][0:2] == ("POST", "/v0/continuity/captures/candidates")
+    assert requests[0][2] == {
+        "user_content": "Decision: Keep scope tight",
+        "assistant_content": "Confirmed",
+        "source_kind": "sync_turn",
+    }
     assert requests[1][0:2] == ("POST", "/v0/continuity/captures/commit")
     assert requests[1][2] is not None
     assert requests[1][2]["mode"] == "assist"
@@ -944,10 +949,11 @@ def test_post_capture_falls_back_to_legacy_endpoint_when_b2_endpoints_unavailabl
 
     monkeypatch.setattr(provider, "_request_json", _fake_request_json)
 
-    provider._post_capture("User: Decision: Keep scope tight\nAssistant: Confirmed")
+    provider._post_capture(module._TurnCapture("Decision: Keep scope tight", "Confirmed"))
 
     assert requests[0][1] == "/v0/continuity/captures/candidates"
     assert requests[1][1] == "/v0/continuity/captures"
+    assert requests[1][2] == {"raw_content": "User: Decision: Keep scope tight\nAssistant: Confirmed"}
 
 
 def test_post_capture_does_not_fall_back_when_commit_returns_400(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -978,12 +984,12 @@ def test_post_capture_does_not_fall_back_when_commit_returns_400(monkeypatch: py
         return {"ok": True}
 
     monkeypatch.setattr(provider, "_request_json", _fake_request_json)
-    raw = f"User: decision: keep {token} out of the inbox\nAssistant: noted"
+    turn = module._TurnCapture(f"decision: keep {token} out of the inbox", "noted")
 
     with pytest.raises(RuntimeError, match="HTTP status 400"):
-        provider._post_capture(raw)
+        provider._post_capture(turn)
 
-    assert token in raw
+    assert token in turn.user_text
     legacy = [item for item in requests if item[1] == "/v0/continuity/captures"]
     assert legacy == []
     for _method, path, payload in requests:

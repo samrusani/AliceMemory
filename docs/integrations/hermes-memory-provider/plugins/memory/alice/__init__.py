@@ -23,12 +23,32 @@ import urllib.parse
 import urllib.request
 import uuid
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, NamedTuple, Optional, Union
 
 from agent.memory_provider import MemoryProvider
 from tools.registry import tool_error
 
 logger = logging.getLogger(__name__)
+
+
+class _TurnCapture(NamedTuple):
+    """One turn with the two sides kept apart.
+
+    The provider never joins a turn into one text of "User:" and "Assistant:"
+    lines and parses it back. Model output can hold a line that starts with
+    "User:", and splitting on any line break, including the ones str.splitlines
+    honours beyond the newline, would move that line to the user side. The two
+    fields travel from sync_turn to the candidates request as they are.
+    """
+
+    user_text: str
+    assistant_text: str
+
+
+# What the capture queue carries. A turn is a _TurnCapture. Everything else, such
+# as the built-in memory mirror, is one opaque text.
+_CaptureItem = Union[str, _TurnCapture]
+
 
 # Same sentence as alicebot_api.session_briefing.SESSION_BRIEF_FRAME. This plugin
 # cannot import the server package; the prefetch text is built here.
@@ -485,7 +505,7 @@ class AliceMemoryProvider(MemoryProvider):
         self._prefetch_lock = threading.Lock()
 
         self._capture_thread: Optional[threading.Thread] = None
-        self._capture_queue: List[tuple[str, str]] = []
+        self._capture_queue: List[tuple[str, _CaptureItem]] = []
         self._capture_pending_fingerprints: set[str] = set()
         self._capture_recent_fingerprints: Dict[str, float] = {}
         self._capture_attempts: Dict[str, int] = {}
@@ -663,11 +683,12 @@ class AliceMemoryProvider(MemoryProvider):
         if self._config.get("bridge_mode", _DEFAULT_BRIDGE_MODE) == "manual":
             return
 
-        raw_content = self._build_turn_capture_payload(user_content, assistant_content)
-        if not raw_content:
+        user_text = (user_content or "").strip()[:_DEFAULT_CAPTURE_CHAR_LIMIT]
+        assistant_text = (assistant_content or "").strip()[:_DEFAULT_CAPTURE_CHAR_LIMIT]
+        if not user_text and not assistant_text:
             return
 
-        self._enqueue_capture(kind="sync_turn", raw_content=raw_content)
+        self._enqueue_capture(kind="sync_turn", raw_content=_TurnCapture(user_text, assistant_text))
 
     def on_memory_write(self, action: str, target: str, content: str) -> None:
         if not self._config.get("memory_write_capture_enabled", False):
@@ -865,8 +886,14 @@ class AliceMemoryProvider(MemoryProvider):
             return ""
         return _STORED_NOTE_FRAMING + "\n" + "\n".join(lines)
 
-    def _capture_fingerprint(self, *, kind: str, raw_content: str) -> str:
-        digest = hashlib.sha256(raw_content.encode("utf-8")).hexdigest()
+    def _capture_fingerprint(self, *, kind: str, raw_content: _CaptureItem) -> str:
+        if isinstance(raw_content, _TurnCapture):
+            # Hash the two sides as a JSON list. Any joined string collides for
+            # some pair of turns, because the text can contain the separator.
+            encoded = json.dumps([raw_content.user_text, raw_content.assistant_text]).encode("utf-8")
+        else:
+            encoded = raw_content.encode("utf-8")
+        digest = hashlib.sha256(encoded).hexdigest()
         return f"{kind}:{digest}"
 
     def _prune_recent_capture_fingerprints(self, *, now: float) -> None:
@@ -882,7 +909,7 @@ class AliceMemoryProvider(MemoryProvider):
             name="alice-sync-capture",
         )
 
-    def _enqueue_capture(self, *, kind: str, raw_content: str) -> None:
+    def _enqueue_capture(self, *, kind: str, raw_content: _CaptureItem) -> None:
         fingerprint = self._capture_fingerprint(kind=kind, raw_content=raw_content)
         worker_to_start: Optional[threading.Thread] = None
         now = time.monotonic()
@@ -1008,21 +1035,6 @@ class AliceMemoryProvider(MemoryProvider):
                 self._capture_recent_fingerprints[fingerprint] = time.monotonic()
                 self._capture_attempts.pop(fingerprint, None)
 
-    def _is_sync_turn_payload(self, raw_content: str) -> bool:
-        stripped = raw_content.strip()
-        return stripped.startswith("User:") or stripped.startswith("Assistant:")
-
-    def _split_turn_capture_payload(self, raw_content: str) -> tuple[str, str]:
-        user_text = ""
-        assistant_text = ""
-        for line in raw_content.splitlines():
-            if line.startswith("User: "):
-                user_text = line[len("User: ") :].strip()
-                continue
-            if line.startswith("Assistant: "):
-                assistant_text = line[len("Assistant: ") :].strip()
-        return user_text, assistant_text
-
     def _request_capture_json(
         self,
         method: str,
@@ -1039,12 +1051,12 @@ class AliceMemoryProvider(MemoryProvider):
 
     def _post_sync_turn_capture(
         self,
-        raw_content: str,
+        raw_content: _TurnCapture,
         *,
         timeout: Optional[float] = None,
         deadline: Optional[float] = None,
     ) -> None:
-        user_text, assistant_text = self._split_turn_capture_payload(raw_content)
+        user_text, assistant_text = raw_content.user_text, raw_content.assistant_text
         mode = _parse_bridge_mode(
             self._config.get("bridge_mode", _DEFAULT_BRIDGE_MODE),
             default=_DEFAULT_BRIDGE_MODE,
@@ -1055,8 +1067,8 @@ class AliceMemoryProvider(MemoryProvider):
             "POST",
             "/v0/continuity/captures/candidates",
             payload={
-                "user_content": user_text[:_DEFAULT_CAPTURE_CHAR_LIMIT],
-                "assistant_content": assistant_text[:_DEFAULT_CAPTURE_CHAR_LIMIT],
+                "user_content": user_text,
+                "assistant_content": assistant_text,
                 "source_kind": "sync_turn",
             },
             timeout=timeout,
@@ -1081,12 +1093,12 @@ class AliceMemoryProvider(MemoryProvider):
 
     def _post_capture(
         self,
-        raw_content: str,
+        raw_content: _CaptureItem,
         *,
         timeout: Optional[float] = None,
         deadline: Optional[float] = None,
     ) -> None:
-        if self._is_sync_turn_payload(raw_content):
+        if isinstance(raw_content, _TurnCapture):
             mode = _parse_bridge_mode(
                 self._config.get("bridge_mode", _DEFAULT_BRIDGE_MODE),
                 default=_DEFAULT_BRIDGE_MODE,
@@ -1107,6 +1119,11 @@ class AliceMemoryProvider(MemoryProvider):
                         "Alice candidate routes returned HTTP 404, falling back to the legacy capture path"
                     )
 
+        if isinstance(raw_content, _TurnCapture):
+            # The legacy route takes one text and reads no roles out of it. It
+            # derives an object only when the whole text starts with a prefix,
+            # and this text starts with a role label, so the label stays.
+            raw_content = self._build_turn_capture_payload(raw_content.user_text, raw_content.assistant_text)
         payload = {
             "raw_content": raw_content[:_DEFAULT_CAPTURE_CHAR_LIMIT],
         }
@@ -1119,6 +1136,8 @@ class AliceMemoryProvider(MemoryProvider):
         )
 
     def _build_turn_capture_payload(self, user_content: str, assistant_content: str) -> str:
+        # Only the legacy capture route uses this text. Nothing parses it back
+        # into roles: that route reads a prefix at the start of the whole text.
         user_text = (user_content or "").strip()
         assistant_text = (assistant_content or "").strip()
         if not user_text and not assistant_text:
