@@ -3,6 +3,9 @@
 The self-test plants bad-author@example.com on a commit inside the merge
 range. Allowing every address, or returning no commits for that range, makes
 this test fail by assertion.
+
+The allowlist is exact addresses only. No domain is allowed as a whole, so a
+misspelling of the owner's GitHub noreply address fails.
 """
 
 from __future__ import annotations
@@ -18,6 +21,23 @@ import scripts.check_commit_authors as commit_authors
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 BAD_EMAIL = "bad-author@example.com"
+OWNER_NOREPLY = "samrusani@users.noreply.github.com"
+DEPENDABOT = "49699333+dependabot[bot]@users.noreply.github.com"
+GITHUB_ACTIONS = "41898282+github-actions[bot]@users.noreply.github.com"
+ALLOWED_ADDRESSES = (
+    OWNER_NOREPLY,
+    "noreply@github.com",
+    "cursoragent@cursor.com",
+    DEPENDABOT,
+    GITHUB_ACTIONS,
+)
+# One letter dropped, one letter doubled, and a letter swapped, each at the
+# noreply domain. None of them is the owner's address.
+MISSPELLED_OWNER_NOREPLY = (
+    "samrusan@users.noreply.github.com",
+    "samrusanni@users.noreply.github.com",
+    "samrusoni@users.noreply.github.com",
+)
 
 
 def _git(repo: Path, *args: str, env: dict[str, str] | None = None) -> str:
@@ -157,10 +177,16 @@ def test_ignores_disallowed_email_outside_the_pull_request_range(
     assert "PASS (1 commits)" in output
 
 
-def test_allows_role_and_noreply_addresses_in_the_pull_request_range(
+def test_allows_every_listed_address_in_the_pull_request_range(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
+    """Each listed address passes as author and as committer inside the range.
+
+    Mutation: drop any one address from EXACT_ALLOWLIST. This test fails and
+    the failure names that commit.
+    """
+
     repo = _init_repo(tmp_path / "repo")
     base = _commit(
         repo,
@@ -168,36 +194,60 @@ def test_allows_role_and_noreply_addresses_in_the_pull_request_range(
         committer="noreply@github.com",
         message="base",
     )
-    _commit(
-        repo,
-        author="49699333+dependabot[bot]@users.noreply.github.com",
-        committer="noreply@github.com",
-        message="dependabot",
-    )
-    head = _commit(
-        repo,
-        author="cursoragent@cursor.com",
-        committer="example-user@users.noreply.github.com",
-        message="agent and noreply",
-    )
+    head = base
+    for email in ALLOWED_ADDRESSES:
+        _commit(repo, author=email, committer="noreply@github.com", message=f"author {email}")
+        head = _commit(repo, author="noreply@github.com", committer=email, message=f"committer {email}")
 
     code, output = _run(repo, base, head, capsys)
 
-    assert code == 0
-    assert "PASS (2 commits)" in output
+    assert code == 0, output
+    assert f"PASS ({2 * len(ALLOWED_ADDRESSES)} commits)" in output
+
+
+@pytest.mark.parametrize("email", MISSPELLED_OWNER_NOREPLY)
+def test_rejects_a_misspelled_owner_noreply_address_in_the_range(
+    email: str,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A noreply address that is not the owner's fails, as author and as committer.
+
+    The old check allowed any address at the GitHub noreply domain, so these
+    passed. Mutation: allow the noreply domain again. This test fails.
+    """
+
+    repo = _init_repo(tmp_path / "repo")
+    base = _commit(
+        repo,
+        author=OWNER_NOREPLY,
+        committer="noreply@github.com",
+        message="base",
+    )
+    as_author = _commit(repo, author=email, committer=OWNER_NOREPLY, message="misspelled author")
+    as_committer = _commit(repo, author=OWNER_NOREPLY, committer=email, message="misspelled committer")
+
+    code, output = _run(repo, base, as_committer, capsys)
+
+    assert code == 1
+    assert f"{as_author} author {email}" in output
+    assert f"{as_author} committer " not in output
+    assert f"{as_committer} committer {email}" in output
+    assert f"{as_committer} author " not in output
 
 
 @pytest.mark.parametrize(
     "email",
     (
-        "noreply@github.com",
-        "cursoragent@cursor.com",
+        *ALLOWED_ADDRESSES,
         "CursorAgent@Cursor.com",
-        "49699333+dependabot[bot]@users.noreply.github.com",
-        "example-user@users.noreply.github.com",
+        "SamRusani@Users.NoReply.GitHub.com",
+        "49699333+Dependabot[bot]@users.noreply.github.com",
+        "41898282+GitHub-Actions[bot]@users.noreply.github.com",
+        " noreply@github.com ",
     ),
 )
-def test_allowlist_accepts_role_and_noreply_addresses(email: str) -> None:
+def test_allowlist_accepts_the_listed_addresses(email: str) -> None:
     assert commit_authors.email_allowed(email)
 
 
@@ -206,25 +256,65 @@ def test_allowlist_accepts_role_and_noreply_addresses(email: str) -> None:
     (
         BAD_EMAIL,
         "person@example.com",
+        "alex@gmail.com",
+        "sam@example.org",
         "",
         "not-an-email",
         "@users.noreply.github.com",
+        *MISSPELLED_OWNER_NOREPLY,
+        # Another account at the GitHub noreply domain, with and without an id.
+        "example-user@users.noreply.github.com",
+        "12345+example-user@users.noreply.github.com",
+        # The bots with the wrong id, and with no id.
+        "49699334+dependabot[bot]@users.noreply.github.com",
+        "dependabot[bot]@users.noreply.github.com",
+        "41898283+github-actions[bot]@users.noreply.github.com",
+        "github-actions[bot]@users.noreply.github.com",
+        # Lookalike domains: each allowed address with something added to the end.
         "user@users.noreply.github.com.example.com",
+        f"{OWNER_NOREPLY}.example.com",
         "noreply@github.com.example.com",
+        "noreply@github.co",
+        "cursoragent@cursor.com.example.org",
+        "cursoragent@cursor.co",
+        f"{DEPENDABOT}.example.com",
+        f"{GITHUB_ACTIONS}.example.com",
+        # Lookalike local parts: something added in front of each address.
+        f"x{OWNER_NOREPLY}",
+        "evilnoreply@github.com",
+        "not-cursoragent@cursor.com",
+        f"x{DEPENDABOT}",
+        f"x{GITHUB_ACTIONS}",
+        # Lookalike domains: the local part kept, the domain replaced.
+        "samrusani@users-noreply.github.com",
+        "samrusani@users.noreply.github.org",
+        "noreply@githu6.com",
+        "cursoragent@cursor.example",
+        # Two addresses in one field.
+        f"{OWNER_NOREPLY}, {BAD_EMAIL}",
+        f"{OWNER_NOREPLY}@{BAD_EMAIL}",
     ),
 )
 def test_allowlist_rejects_other_addresses(email: str) -> None:
     assert not commit_authors.email_allowed(email)
 
 
-def test_exact_allowlist_is_only_machine_and_role_addresses() -> None:
-    assert commit_authors.EXACT_ALLOWLIST == frozenset(
-        {
-            "noreply@github.com",
-            "cursoragent@cursor.com",
-        }
-    )
-    assert commit_authors.GITHUB_NOREPLY_DOMAIN == "users.noreply.github.com"
+def test_exact_allowlist_is_only_the_listed_addresses() -> None:
+    """The allowlist is these five addresses, all lower-case, none a domain.
+
+    Mutation: add an address, add a bare domain, or restore the noreply
+    domain rule. This test fails. The lower-case check matters because the
+    comparison lower-cases the commit's address: an entry with a capital
+    letter could never match.
+    """
+
+    assert commit_authors.EXACT_ALLOWLIST == frozenset(ALLOWED_ADDRESSES)
+    assert len(ALLOWED_ADDRESSES) == 5
+    for entry in commit_authors.EXACT_ALLOWLIST:
+        assert entry == entry.strip().lower()
+        assert entry.count("@") == 1
+        assert entry.split("@", 1)[0], entry
+    assert not hasattr(commit_authors, "GITHUB_NOREPLY_DOMAIN")
 
 
 def test_git_failure_is_a_failed_check(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:

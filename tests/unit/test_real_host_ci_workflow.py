@@ -15,11 +15,13 @@ from __future__ import annotations
 import ast
 import json
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
 
+import pytest
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -577,31 +579,49 @@ def test_plugin_hook_trial_is_dispatch_only_pinned_and_uploads_its_own_artifact(
         assert "real_host_plugin_hook_trial.py" not in _run_text(_job(name))
 
 
-def _marketplace_check_body(script: str) -> str:
-    marker = "python3 - \"$version\" \"$RUNNER_TEMP/plugins.json\" << 'PY'\n"
-    start = script.index(marker) + len(marker)
-    end = script.index("\nPY", start)
-    return script[start:end]
+MARKETPLACE_URL = "https://github.com/samrusani/AliceMemory.git"
+MARKETPLACE_SHORTHAND = "samrusani/AliceMemory"
+PLUGIN_LIST_SCRIPT = REPO_ROOT / "scripts" / "check_marketplace_plugin_list.py"
+MARKETPLACE_STEPS = (
+    "Checkout",
+    "Set up Node",
+    "Install pinned Claude Code",
+    "Validate the committed marketplace",
+    "Add the marketplace from the HTTPS URL",
+    "Try the owner/repo shorthand",
+)
 
 
-def _run_marketplace_body(body: str, version: str, payload: object) -> subprocess.CompletedProcess[str]:
+def _marketplace_step(name: str) -> dict:
+    matched = [step for step in _steps(_job("marketplace-check")) if step.get("name") == name]
+    assert len(matched) == 1, name
+    return matched[0]
+
+
+def _run_plugin_list_check(version: str, payload: object) -> subprocess.CompletedProcess[str]:
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(tmp) / "plugins.json"
         path.write_text(json.dumps(payload), encoding="utf-8")
         return subprocess.run(
-            [sys.executable, "-", version, str(path)],
-            input=body,
+            [sys.executable, str(PLUGIN_LIST_SCRIPT), version, str(path)],
             text=True,
             capture_output=True,
             check=False,
         )
 
 
+def _plugin_row(version: str = "1.2.3", enabled: object = True, plugin_id: str = "alice-memory@alicememory") -> dict:
+    return {"id": plugin_id, "enabled": enabled, "version": version}
+
+
 def test_marketplace_check_compares_the_installed_version() -> None:
     """The dispatch-only job fails unless the installed plugin version matches.
 
-    The heredoc is executed. An inverted comparison or ``if False`` accepts
-    a wrong row. Mutation: drop the version comparison. This test fails.
+    Every marketplace step hands the plugin list to one script, and that script
+    is executed here. An inverted comparison, a dropped ``enabled`` test, a
+    dropped id test or ``if False`` accepts a wrong row. Mutation: drop the
+    version comparison from ``scripts/check_marketplace_plugin_list.py``. This
+    test fails.
     """
 
     job = _job("marketplace-check")
@@ -610,22 +630,363 @@ def test_marketplace_check_compares_the_installed_version() -> None:
     assert "@anthropic-ai/claude-code@2.1.281" in script
     assert "claude plugin validate . --strict --json" in script
     assert 'claude plugin install "alice-memory@alicememory"' in script
-    assert "alice-memory@alicememory" in script
-    assert 'python3 - "$version" "$RUNNER_TEMP/plugins.json"' in script
-    assert "python -c" not in script
+    assert "python3 -c" in script
     assert 'version="${ref#v}"' in script
-    body = _marketplace_check_body(script)
-    assert 'str(row.get("version")) == expected' in body
+    assert "python3 - " not in script
+    source = PLUGIN_LIST_SCRIPT.read_text(encoding="utf-8")
+    assert 'str(row.get("version")) == expected_version' in source
 
-    def row(version: str = "1.2.3", enabled: bool = True, plugin_id: str = "alice-memory@alicememory") -> dict:
-        return {"id": plugin_id, "enabled": enabled, "version": version}
+    assert _run_plugin_list_check("1.2.3", [_plugin_row()]).returncode == 0
+    assert _run_plugin_list_check("1.2.3", {"plugins": [_plugin_row()]}).returncode == 0
+    assert _run_plugin_list_check("1.2.3", {"items": [_plugin_row()]}).returncode == 0
+    assert _run_plugin_list_check("1.2.3", [_plugin_row(version="9.9.9")]).returncode != 0
+    assert _run_plugin_list_check("1.2.3", [_plugin_row(version="v1.2.3")]).returncode != 0
+    assert _run_plugin_list_check("1.2.3", [_plugin_row(enabled=False)]).returncode != 0
+    assert _run_plugin_list_check("1.2.3", [_plugin_row(enabled="true")]).returncode != 0
+    assert _run_plugin_list_check("1.2.3", [_plugin_row(enabled=1)]).returncode != 0
+    assert _run_plugin_list_check("1.2.3", [_plugin_row(enabled=None)]).returncode != 0
+    assert _run_plugin_list_check("1.2.3", [_plugin_row(plugin_id="other@alicememory")]).returncode != 0
+    assert _run_plugin_list_check("1.2.3", [_plugin_row(), _plugin_row()]).returncode != 0
+    assert _run_plugin_list_check("1.2.3", [_plugin_row(), {"id": "x@y", "enabled": True, "version": "1"}]).returncode != 0
+    assert _run_plugin_list_check("1.2.3", []).returncode != 0
+    assert _run_plugin_list_check("1.2.3", {"plugins": "not a list"}).returncode != 0
+    assert _run_plugin_list_check("1.2.3", "not a list").returncode != 0
+    assert _run_plugin_list_check("1.2.3", [[_plugin_row()]]).returncode != 0
 
-    assert _run_marketplace_body(body, "1.2.3", [row()]).returncode == 0
-    assert _run_marketplace_body(body, "1.2.3", [row(version="9.9.9")]).returncode != 0
-    assert _run_marketplace_body(body, "1.2.3", [row(version="v1.2.3")]).returncode != 0
-    assert _run_marketplace_body(body, "1.2.3", [row(enabled=False)]).returncode != 0
-    assert _run_marketplace_body(body, "1.2.3", [row(plugin_id="other@alicememory")]).returncode != 0
-    assert _run_marketplace_body(body, "1.2.3", [row(), row()]).returncode != 0
+
+def test_plugin_list_check_fails_on_a_missing_or_broken_file_and_on_bad_arguments(tmp_path: Path) -> None:
+    broken = tmp_path / "broken.json"
+    broken.write_text("{not json", encoding="utf-8")
+    for arguments in (
+        ["1.2.3", str(tmp_path / "missing.json")],
+        ["1.2.3", str(broken)],
+        ["1.2.3"],
+        ["", str(broken)],
+    ):
+        completed = subprocess.run(
+            [sys.executable, str(PLUGIN_LIST_SCRIPT), *arguments],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        assert completed.returncode == 1, arguments
+        assert completed.stderr.strip(), arguments
+
+
+def test_marketplace_check_adds_the_marketplace_by_path_url_and_shorthand() -> None:
+    """The job adds the marketplace from ./, from the HTTPS URL, then tries the shorthand.
+
+    Each form gets its own fresh HOME, installs ``alice-memory@alicememory``
+    and lists it. The path and URL steps fail the job. The shorthand step is
+    the only step that may not. The URL in the second step is the one the
+    marketplace file pins for the plugin source, so the two cannot drift.
+
+    Mutations: drop the URL step; change its URL; run any ``claude plugin``
+    command without ``HOME="$home"``; reuse one home for two steps; drop the
+    list check from the URL step; mark the URL step ``continue-on-error``;
+    drop ``continue-on-error`` from the shorthand step; change the shorthand.
+    This test fails.
+    """
+
+    job = _job("marketplace-check")
+    assert [step["name"] for step in _steps(job)] == list(MARKETPLACE_STEPS)
+    assert job.get("continue-on-error") in (None, False)
+    assert job.get("permissions") == {"contents": "read"}
+    assert job.get("timeout-minutes") == 30
+    _assert_actions_are_sha_pinned(job)
+
+    path_step = _marketplace_step("Validate the committed marketplace")
+    url_step = _marketplace_step("Add the marketplace from the HTTPS URL")
+    shorthand_step = _marketplace_step("Try the owner/repo shorthand")
+
+    marketplace = json.loads((REPO_ROOT / ".claude-plugin" / "marketplace.json").read_text(encoding="utf-8"))
+    assert marketplace["plugins"][0]["source"]["url"] == MARKETPLACE_URL
+
+    for step in (path_step, url_step):
+        assert step.get("continue-on-error") in (None, False), step["name"]
+    assert path_step.get("if") is None
+    assert url_step.get("if") == "${{ !cancelled() }}"
+    assert shorthand_step.get("if") == "${{ !cancelled() }}"
+    # The workflow loader here reads the YAML word true as a string.
+    assert shorthand_step.get("continue-on-error") in (True, "true")
+    assert shorthand_step.get("timeout-minutes") == 15
+    assert shorthand_step.get("id") == "shorthand"
+
+    sources = {
+        "path": (path_step, "claude plugin marketplace add ./ < /dev/null"),
+        "url": (url_step, f"claude plugin marketplace add {MARKETPLACE_URL} < /dev/null"),
+        "shorthand": (shorthand_step, f'claude plugin marketplace add "$source_arg" < /dev/null'),
+    }
+    for label, (step, add_command) in sources.items():
+        run = step["run"]
+        assert run.count("mktemp -d") == 1, label
+        assert add_command in run, label
+        assert 'claude plugin install "alice-memory@alicememory" < /dev/null' in run, label
+        assert "claude plugin list --json" in run, label
+        assert "scripts/check_marketplace_plugin_list.py" in run, label
+        commands = 0
+        for line in run.splitlines():
+            if line.lstrip().startswith(("echo", "#")):
+                continue
+            if re.search(r"\bclaude plugin (marketplace|install|list)\b", line):
+                commands += 1
+                assert line.lstrip().startswith('HOME="$home" '), (label, line)
+        assert commands == 3, label
+    assert f'source_arg="{MARKETPLACE_SHORTHAND}"' in shorthand_step["run"]
+    assert "plugins.json" in path_step["run"]
+    assert "plugins-https.json" in url_step["run"]
+    assert "plugins-shorthand.json" in shorthand_step["run"]
+    # The expected version is read once, from the marketplace file, and shared.
+    assert path_step["run"].count("EXPECTED_PLUGIN_VERSION") == 1
+    assert 'echo "EXPECTED_PLUGIN_VERSION=$version" >> "$GITHUB_ENV"' in path_step["run"]
+    assert "EXPECTED_PLUGIN_VERSION" in url_step["run"]
+    assert "EXPECTED_PLUGIN_VERSION" in shorthand_step["run"]
+    assert 'python3 scripts/check_marketplace_plugin_list.py "$version"' in path_step["run"]
+    assert 'python3 scripts/check_marketplace_plugin_list.py "$expected"' in url_step["run"]
+
+
+class _StubbedClaude:
+    """Runs a workflow step's script with a stand-in for claude, timeout and python3.
+
+    The real claude is never reached: PATH holds the stub directory, then
+    ``/usr/bin:/bin``. The stand-in records the HOME and the arguments of each
+    call and answers from the environment. The step's own HOME is a scratch
+    directory, so a call made without ``HOME="$home"`` still touches nothing
+    real.
+    """
+
+    def __init__(self, tmp_path: Path) -> None:
+        tmp_path.mkdir(parents=True, exist_ok=True)
+        self.root = tmp_path
+        self.bin = tmp_path / "bin"
+        self.bin.mkdir()
+        self.runner_home = tmp_path / "runner-home"
+        self.runner_home.mkdir()
+        self.runner_temp = tmp_path / "runner-temp"
+        self.runner_temp.mkdir()
+        self.tmpdir = tmp_path / "tmp"
+        self.tmpdir.mkdir()
+        self.log = tmp_path / "calls.log"
+        self.output = tmp_path / "github-output"
+        self.summary = tmp_path / "github-summary"
+        self.github_env = tmp_path / "github-env"
+        for path in (self.log, self.output, self.summary, self.github_env):
+            path.write_text("", encoding="utf-8")
+        claude = self.bin / "claude"
+        claude.write_text(
+            "#!/bin/bash\n"
+            'echo "$HOME|$*" >> "$STUB_LOG"\n'
+            'case "$2" in\n'
+            '  marketplace) echo "$STUB_ADD_OUTPUT"; exit "${STUB_ADD_STATUS:-0}" ;;\n'
+            '  install) exit "${STUB_INSTALL_STATUS:-0}" ;;\n'
+            '  list) echo "$STUB_LIST_JSON"; exit "${STUB_LIST_STATUS:-0}" ;;\n'
+            "esac\n"
+            "exit 0\n",
+            encoding="utf-8",
+        )
+        timeout = self.bin / "timeout"
+        timeout.write_text('#!/bin/bash\nshift\nexec "$@"\n', encoding="utf-8")
+        for path in (claude, timeout):
+            path.chmod(0o755)
+        (self.bin / "python3").symlink_to(sys.executable)
+        self.path = f"{self.bin}:/usr/bin:/bin"
+        found = shutil.which("claude", path=self.path)
+        assert found == str(claude), found
+
+    def run(self, step: dict, **stub: str) -> subprocess.CompletedProcess[str]:
+        script = self.root / "step.sh"
+        script.write_text(step["run"], encoding="utf-8")
+        env = {
+            "PATH": self.path,
+            "HOME": str(self.runner_home),
+            "RUNNER_TEMP": str(self.runner_temp),
+            "TMPDIR": str(self.tmpdir),
+            "GITHUB_OUTPUT": str(self.output),
+            "GITHUB_STEP_SUMMARY": str(self.summary),
+            "GITHUB_ENV": str(self.github_env),
+            "STUB_LOG": str(self.log),
+            "STUB_LIST_JSON": json.dumps([_plugin_row("0.19.0")]),
+            "EXPECTED_PLUGIN_VERSION": "0.19.0",
+            **stub,
+        }
+        env = {key: value for key, value in env.items() if value is not None}
+        return subprocess.run(
+            ["/bin/bash", "-e", str(script)],
+            cwd=REPO_ROOT,
+            env=env,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+
+    def calls(self) -> list[tuple[str, str]]:
+        rows = [line.split("|", 1) for line in self.log.read_text(encoding="utf-8").splitlines()]
+        return [(home, arguments) for home, arguments in rows]
+
+
+def test_path_step_reads_the_expected_version_and_adds_from_a_fresh_home(tmp_path: Path) -> None:
+    """Step one records the marketplace ref as the version, then adds ./ into its own HOME.
+
+    Mutation: add the marketplace without ``HOME="$home"``, skip the list
+    check, or write the ref with its ``v``. This test fails.
+    """
+
+    stub = _StubbedClaude(tmp_path)
+    marketplace = json.loads((REPO_ROOT / ".claude-plugin" / "marketplace.json").read_text(encoding="utf-8"))
+    ref = marketplace["plugins"][0]["source"]["ref"]
+    version = ref.removeprefix("v")
+    step = _marketplace_step("Validate the committed marketplace")
+
+    completed = stub.run(step, EXPECTED_PLUGIN_VERSION=None, STUB_LIST_JSON=json.dumps([_plugin_row(version)]))
+
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert stub.github_env.read_text(encoding="utf-8") == f"EXPECTED_PLUGIN_VERSION={version}\n"
+    calls = stub.calls()
+    assert [arguments for _, arguments in calls] == [
+        "plugin validate . --strict --json",
+        "plugin marketplace add ./",
+        "plugin install alice-memory@alicememory",
+        "plugin list --json",
+    ]
+    homes = {home for home, arguments in calls if "validate" not in arguments}
+    assert len(homes) == 1
+    assert homes != {str(stub.runner_home)}
+
+    wrong = _StubbedClaude(tmp_path / "wrong")
+    failed = wrong.run(step, EXPECTED_PLUGIN_VERSION=None, STUB_LIST_JSON=json.dumps([_plugin_row("9.9.9")]))
+    assert failed.returncode != 0
+
+
+def test_url_step_adds_the_https_url_installs_and_checks_the_list(tmp_path: Path) -> None:
+    """Step two adds the HTTPS URL into a fresh HOME and fails the job on any miss.
+
+    Mutation: change the URL, drop the install, drop the list check, drop the
+    ``${EXPECTED_PLUGIN_VERSION:?}`` guard, or add ``|| true`` to a command.
+    This test fails.
+    """
+
+    step = _marketplace_step("Add the marketplace from the HTTPS URL")
+    stub = _StubbedClaude(tmp_path / "ok")
+
+    completed = stub.run(step)
+
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    calls = stub.calls()
+    assert [arguments for _, arguments in calls] == [
+        f"plugin marketplace add {MARKETPLACE_URL}",
+        "plugin install alice-memory@alicememory",
+        "plugin list --json",
+    ]
+    assert len({home for home, _ in calls}) == 1
+    assert calls[0][0] != str(stub.runner_home)
+
+    failures = {
+        "add": {"STUB_ADD_STATUS": "1"},
+        "install": {"STUB_INSTALL_STATUS": "1"},
+        "list": {"STUB_LIST_STATUS": "1"},
+        "version": {"STUB_LIST_JSON": json.dumps([_plugin_row("9.9.9")])},
+        "enabled": {"STUB_LIST_JSON": json.dumps([_plugin_row("0.19.0", enabled=False)])},
+        "id": {"STUB_LIST_JSON": json.dumps([_plugin_row("0.19.0", plugin_id="other@alicememory")])},
+        "unset version": {"EXPECTED_PLUGIN_VERSION": None},
+    }
+    for label, overrides in failures.items():
+        bad = _StubbedClaude(tmp_path / label.replace(" ", "-"))
+        result = bad.run(step, **overrides)
+        assert result.returncode != 0, label
+        if label == "unset version":
+            assert "the expected plugin version was not read" in result.stderr
+            assert bad.calls() == []
+
+
+SHORTHAND_CASES = {
+    "works": (
+        {},
+        "works",
+        "the add and the install worked, and the plugin list held alice-memory@alicememory 0.19.0, enabled",
+        3,
+    ),
+    "ssh": (
+        {"STUB_ADD_STATUS": "128", "STUB_ADD_OUTPUT": "git@github.com: Permission denied (publickey)."},
+        "add-failed",
+        "cloned over SSH and the runner has no SSH key (exit 128)",
+        1,
+    ),
+    "host-key": (
+        {"STUB_ADD_STATUS": "128", "STUB_ADD_OUTPUT": "Host key verification failed."},
+        "add-failed",
+        "cloned over SSH",
+        1,
+    ),
+    "other": (
+        {"STUB_ADD_STATUS": "1", "STUB_ADD_OUTPUT": "repository not found"},
+        "add-failed",
+        "the add failed with exit 1, and the output above says why",
+        1,
+    ),
+    "timeout": (
+        {"STUB_ADD_STATUS": "124", "STUB_ADD_OUTPUT": ""},
+        "add-failed",
+        "did not finish in 180 seconds",
+        1,
+    ),
+    "install": ({"STUB_INSTALL_STATUS": "3"}, "install-failed", "the add worked, and the install failed with exit 3", 2),
+    "list": (
+        {"STUB_LIST_STATUS": "4"},
+        "list-failed",
+        "the add and the install worked, and the plugin list failed with exit 4",
+        3,
+    ),
+    "mismatch": (
+        {"STUB_LIST_JSON": json.dumps([_plugin_row("9.9.9")])},
+        "list-mismatch",
+        "the plugin list did not hold alice-memory@alicememory 0.19.0, enabled",
+        3,
+    ),
+}
+
+
+@pytest.mark.parametrize("case", sorted(SHORTHAND_CASES))
+def test_shorthand_step_reports_each_outcome_and_never_fails(case: str, tmp_path: Path) -> None:
+    """Whatever the shorthand does, the step ends 0, says what happened, and records it.
+
+    The failure is an annotation, a line in the log, a step summary and the
+    step output ``result``. A clone over SSH is named as that only when the
+    output shows one. The step stops at the first failed command, so a failed
+    add never reaches the install.
+
+    Mutation: drop ``exit 0``, drop ``set +e``, drop the ``result`` output,
+    treat every add failure as SSH, run the install after a failed add, or
+    drop ``HOME="$home"``. This test fails.
+    """
+
+    overrides, result, message, calls_made = SHORTHAND_CASES[case]
+    stub = _StubbedClaude(tmp_path)
+    step = _marketplace_step("Try the owner/repo shorthand")
+
+    completed = stub.run(step, **overrides)
+
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert stub.output.read_text(encoding="utf-8") == f"result={result}\n"
+    combined = completed.stdout
+    assert f"claude plugin marketplace add {MARKETPLACE_SHORTHAND}: {result}," in combined
+    assert message in combined
+    if result == "works":
+        assert "::warning" not in combined
+    else:
+        assert f"::warning title=Marketplace shorthand did not work::claude plugin marketplace add {MARKETPLACE_SHORTHAND} gave {result}:" in combined
+        assert "::notice" not in combined
+    if case in {"other", "timeout"}:
+        assert "SSH" not in combined
+    summary = stub.summary.read_text(encoding="utf-8")
+    assert "### Marketplace shorthand" in summary
+    assert f"**{result}**" in summary
+    calls = stub.calls()
+    assert len(calls) == calls_made
+    assert calls[0][1] == f"plugin marketplace add {MARKETPLACE_SHORTHAND}"
+    assert {home for home, _ in calls} != {str(stub.runner_home)}
+    assert len({home for home, _ in calls}) == 1
+    if case in {"ssh", "host-key", "other", "timeout"}:
+        assert all("install" not in arguments for _, arguments in calls)
 
 
 def test_real_host_workflow_grants_contents_read_and_no_secrets() -> None:

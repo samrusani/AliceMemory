@@ -1549,8 +1549,9 @@ def test_the_docs_say_what_v0190_ships_and_keep_the_option_rules() -> None:
     paragraph that names ``ALICE_MEMORY_DATA_DIR`` says the plugin's hook
     ignores it, and one of them holds the relative-value sentence. The
     changelog's v0.19.0 section, the README and the quickstart each keep the
-    plugin line they already have, and the Unreleased section is empty. The
-    README, the quickstart, the plugin page and the plugin README say the plugin
+    plugin line they already have, and the changelog's plugin lines stay under
+    v0.19.0, not under Unreleased. The README, the quickstart, the plugin page
+    and the plugin README say the plugin
     installs from the `alicememory` marketplace, give the two commands, and no
     longer say it arrives once v0.19.0 is published. The reader must not take
     v0.19.0's behaviour for v0.18.0's.
@@ -1601,7 +1602,7 @@ def test_the_docs_say_what_v0190_ships_and_keep_the_option_rules() -> None:
 
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     sections = changelog.split("\n## ")
-    assert sections[1].strip() == "Unreleased"
+    assert sections[1].startswith("Unreleased\n")
     assert sections[2].startswith("v0.19.0 \u2014 2026-09-30\n")
     flat = " ".join(sections[2].split())
     for sentence in (

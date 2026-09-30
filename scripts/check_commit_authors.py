@@ -2,8 +2,9 @@
 """Fail a pull request whose commits use an email outside the allowlist.
 
 The range is the commits that would merge (`base..head`), not the history of
-the base branch. Author email and committer email are both read. A personal
-mailbox is never an allowlist entry.
+the base branch. Author email and committer email are both read. Every
+allowed address is listed in full. No domain is allowed as a whole, and a
+personal mailbox is never an allowlist entry.
 """
 
 from __future__ import annotations
@@ -14,22 +15,30 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-# GitHub's private noreply form. Any non-empty local part is allowed, which
-# covers machine accounts that use this form. History includes
-# 49699333+dependabot[bot]@users.noreply.github.com. github-actions does not
-# appear in this repository's history, so it has no exact entry; the standard
-# github-actions noreply address still matches this domain.
-GITHUB_NOREPLY_DOMAIN = "users.noreply.github.com"
-
-# Exact addresses. Each one is a machine or role account.
+# Exact addresses, compared after trimming and lower-casing because GitHub
+# reads an address without regard to case. Each one is the owner's GitHub
+# noreply address, a GitHub identity, a bot, or a role account. A misspelled
+# noreply address is not one of them and fails, which is why no domain is
+# allowed as a whole.
+# samrusani@users.noreply.github.com is the owner's GitHub noreply address.
 # noreply@github.com is GitHub's own noreply identity. History records it
 # as the committer on web merges. The committer name is GitHub.
 # cursoragent@cursor.com is the Cursor agent role address. It is this
-# environment's git user.email and it already appears in history.
+# environment's git user.email and it already appears in history. Open
+# pull requests from the paused external team still carry it.
+# 49699333+dependabot[bot]@users.noreply.github.com is Dependabot. History
+# records it as the author of its pull request commits.
+# 41898282+github-actions[bot]@users.noreply.github.com is the standard
+# address of the github-actions bot. It does not appear in this repository's
+# history. It is listed so a workflow that commits as that bot is not
+# rejected.
 EXACT_ALLOWLIST = frozenset(
     {
+        "samrusani@users.noreply.github.com",
         "noreply@github.com",
         "cursoragent@cursor.com",
+        "49699333+dependabot[bot]@users.noreply.github.com",
+        "41898282+github-actions[bot]@users.noreply.github.com",
     }
 )
 
@@ -49,15 +58,7 @@ class Violation:
 
 
 def email_allowed(email: str) -> bool:
-    normalized = email.strip().lower()
-    if normalized.count("@") != 1:
-        return False
-    local, domain = normalized.split("@", 1)
-    if not local or not domain or any(character.isspace() for character in normalized):
-        return False
-    if normalized in EXACT_ALLOWLIST:
-        return True
-    return domain == GITHUB_NOREPLY_DOMAIN
+    return email.strip().lower() in EXACT_ALLOWLIST
 
 
 def commits_in_range(repo: Path, base: str, head: str) -> list[CommitEmails]:

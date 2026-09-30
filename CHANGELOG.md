@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- The commit author check accepts five exact addresses and no domain as a whole: the owner's GitHub noreply address, `noreply@github.com`, `cursoragent@cursor.com`, and the Dependabot and github-actions bot noreply addresses. A misspelled noreply address fails and the failure names the commit. In v0.19.0 the check allows any address at `users.noreply.github.com`.
+- The dispatch-only Real host CI marketplace check adds the marketplace from `./` and from the HTTPS clone URL, each into a fresh HOME, installs `alice-memory@alicememory` and checks the plugin list for its id, enabled state and version. It also tries the `samrusani/AliceMemory` shorthand and reports whether it works, as an annotation and a step summary, without failing the job. In v0.19.0 the check adds the marketplace from `.` only.
+
 ## v0.19.0 — 2026-09-30
 
 - `alice-memory install --host codex` edits `~/.codex/config.toml` as text and writes the alice MCP entry there. It is opt-in and writes no `env` table. A comment inside `command`, `args`, or an inline `env` is refused. An integer in value position outside the i64 range, or a float in value position that is not finite, is refused and the reason names the line. A dry run renders carried lines from the parsed values and hides a token or a URL in `env_vars` and in `tools` values. A `tools` value that is not a table, or an `approval_mode` outside `auto`, `prompt`, `writes`, and `approve`, or an `output_token_limit` that is not a positive integer, is refused. A `config.toml` nested so deeply that it cannot be parsed is refused with `config.toml nests too deeply`, and a profile layer nested that deeply, or one that is not UTF-8, gets the unreadable-layer note. A success receipt ends with `codex mcp get alice`. In v0.18.0 there is no `--host codex`.
