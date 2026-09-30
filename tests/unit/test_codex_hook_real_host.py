@@ -876,45 +876,58 @@ def test_real_codex_skips_a_hooks_file_with_an_http_handler(rig: Rig) -> None:
 
 @requires_real_codex
 def test_real_codex_and_install_agree_on_hooks_json_number_and_spelling_rules(rig: Rig) -> None:
-    """Codex loads or skips hooks.json exactly where install accepts or refuses it, case by case.
+    """Codex loads or fails on hooks.json exactly where install accepts or refuses it, case by case.
 
     Each case of ``NUMBER_CASES`` is a hooks.json with a plain command handler
-    under SessionStart (the probe) and the case's handler under Stop. The real
-    ``codex app-server`` ``hooks/list`` lists the probe when Codex loaded the
-    file, and lists nothing with a hooks.json warning when it skipped it. Install
-    is run on the same file. The three must agree: Codex, install, and the
-    table's verdict, which came from a Rust judge built from Codex's own
-    types. That build turns on serde_json's ``arbitrary_precision`` as Codex
-    does, so an ``mcp_tool`` input takes an integer of any size and a ``-0``
-    timeout loads. Every disagreement is collected before the test fails, so one
-    run in the pinned job shows them all. Mutation: restore the i64 range check
-    in ``_codex_toml_representable``, or drop the both-spellings check. The
-    cases it breaks disagree with Codex and this test fails.
+    under SessionStart (the probe) and the case's handler under its event. The
+    real ``codex app-server`` ``hooks/list`` lists the probe when Codex loaded
+    the file, lists nothing with a hooks.json warning when it skipped it, and
+    dies with a panic in its trust-hash step (``normalized hook identity
+    should serialize to TOML``) when a handler holds a number TOML cannot
+    store. Install is run on the same file and must accept only the first.
+    The three must agree: Codex, install, and the table's verdict, which came
+    from a Rust judge built from Codex's own types and its hash step. That
+    build turns on serde_json's ``arbitrary_precision`` as Codex does, so an
+    ``mcp_tool`` input takes an integer of any size and a ``-0`` timeout loads.
+    Every disagreement is collected before the test fails, so one run in the
+    pinned job shows them all. Mutation: restore the i64 range check in
+    ``_codex_toml_representable``, accept a timeout up to 2**64-1, or drop the
+    both-spellings check. The cases it breaks disagree with Codex and this test
+    fails.
     """
 
     tmp_path = rig.tmp_path
     problems: list[str] = []
-    for index, (label, handler, expected) in enumerate(NUMBER_CASES):
-        rig.hooks.write_text(number_case_document(handler), encoding="utf-8")
+    for index, (label, handler, expected, event) in enumerate(NUMBER_CASES):
+        rig.hooks.write_text(number_case_document(handler, event), encoding="utf-8")
         before = rig.hooks.read_bytes()
         rig.config.unlink(missing_ok=True)
         listed = rig.codex_hooks()
-        assert not isinstance(listed, str), (label, listed)
-        hooks, warnings = listed
-        loaded = any("probe-hook" in str(hook.get("command")) for hook in hooks)
-        if not loaded and not (hooks == [] and any("hooks.json" in warning for warning in warnings)):
-            problems.append(f"{label}: Codex listed no probe and gave no hooks.json warning: {listed}")
+        warnings: list[str] = []
+        if isinstance(listed, str):
+            verdict = "crashes" if "should serialize to TOML" in listed else "unreadable"
+            if verdict == "unreadable":
+                problems.append(f"{label}: hooks/list could not be read: {listed[-400:]}")
+        else:
+            hooks, warnings = listed
+            if any("probe-hook" in str(hook.get("command")) for hook in hooks):
+                verdict = "loads"
+            elif hooks == [] and any("hooks.json" in warning for warning in warnings):
+                verdict = "skips"
+            else:
+                verdict = "unclear"
+                problems.append(f"{label}: Codex listed no probe and gave no hooks.json warning: {listed}")
         code, out, err = rig.install(tmp_path / f"vault-{index}")
         accepted = code == 0
         if not accepted and (
             "Codex would skip this hooks.json" not in out or rig.hooks.read_bytes() != before
         ):
             problems.append(f"{label}: install refused for another reason, or wrote: {out} {err}")
-        rig.say(f"{label}: codex {'loads' if loaded else 'skips'}, install {'accepts' if accepted else 'refuses'}")
-        if not (loaded == accepted == expected):
+        rig.say(f"{label}: codex {verdict}, install {'accepts' if accepted else 'refuses'}")
+        if not (accepted == expected == (verdict == "loads")):
             problems.append(
-                f"{label}: codex loaded={loaded}, install accepted={accepted}, table says {expected}"
-                + ("" if loaded else f"; codex warnings={warnings}")
+                f"{label}: codex {verdict}, install accepted={accepted}, table says {expected}"
+                + (f"; codex warnings={warnings}" if verdict == "skips" else "")
             )
     rig.flush()
     assert not problems, "\n".join(problems)

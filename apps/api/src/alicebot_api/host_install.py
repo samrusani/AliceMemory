@@ -1369,6 +1369,8 @@ def _alice_container(doc: dict[str, Any], host: str) -> dict[str, Any] | None:
     return current
 
 
+# Written in two pieces: a test forbids the apps tree from spelling that hook's name whole.
+_CODEX_SESSION_END = "Session" "End"
 _CODEX_HOOK_EVENTS = (
     "PreToolUse",
     "PermissionRequest",
@@ -1376,13 +1378,18 @@ _CODEX_HOOK_EVENTS = (
     "PreCompact",
     "PostCompact",
     "SessionStart",
-    # Written in two pieces: a test forbids the apps tree from spelling that hook's name whole.
-    "Session" "End",
+    _CODEX_SESSION_END,
     "UserPromptSubmit",
     "SubagentStart",
     "SubagentStop",
     "Stop",
     "Interrupt",
+)
+# Codex clamps the timeout of these two events to 3 seconds, before it hashes the handler.
+_CODEX_CLAMPED_EVENTS = frozenset({_CODEX_SESSION_END, "Interrupt"})
+# The events whose handlers keep additionalContextLimit; the others drop it (hooks/src/engine/discovery.rs).
+_CODEX_CONTEXT_EVENTS = frozenset(
+    {"PreToolUse", "PostToolUse", "SessionStart", "UserPromptSubmit", "SubagentStart"}
 )
 _CODEX_HANDLER_TYPES = frozenset({"command", "mcp_tool", "prompt", "agent"})
 _CODEX_SKIPS_HOOKS = "Codex would skip this hooks.json"
@@ -1418,13 +1425,31 @@ def _codex_toml_representable(value: object) -> bool:
     return True
 
 
-def _check_codex_handler(handler: object, where: str) -> None:
+def _codex_cannot_hash(value: object, applies: bool, where: str, key: str) -> None:
+    """Refuse a whole number above i64 that Codex would fail on when it hashes the handler.
+
+    Codex reads ``timeout`` and ``additionalContextLimit`` as u64, then hashes
+    each loaded handler as TOML for its trust record, and TOML has no integer
+    above 2**63-1. That step is an ``unreachable!``: Codex panics rather than
+    skips (hooks/src/engine/discovery.rs, ``hook_hash``). ``applies`` is False
+    where Codex does not hash the value.
+    """
+
+    if applies and isinstance(value, int) and value > _CODEX_I64_MAX:
+        _codex_skips(f"{where} has a {key} above 2**63-1, which Codex cannot hash for trust")
+
+
+def _check_codex_handler(handler: object, where: str, event: str) -> None:
     """Codex's ``HookHandlerConfig`` (config/src/hook_config.rs): tag, required fields, types.
 
     A field typed ``Option`` accepts null. No message quotes a value from the
     file. A ``-0`` literal for ``timeout`` or ``additionalContextLimit`` reads
     as 0 in Codex's release build but is skipped by a plain serde_json build;
-    install accepts it, as the release build does.
+    install accepts it, as the release build does. ``event`` decides which
+    numbers Codex hashes: a handler with an empty command, or an ``mcp_tool``
+    with an empty server or tool, is dropped first, the two clamped events
+    never hash a large timeout, and only five events keep
+    ``additionalContextLimit``.
     """
 
     if not isinstance(handler, dict):
@@ -1448,6 +1473,14 @@ def _check_codex_handler(handler: object, where: str) -> None:
                 _codex_skips(f"{where} has a {key} that is not a whole number of at least 0")
         if "async" in handler and not isinstance(handler["async"], bool):
             _codex_skips(f"{where} has an async that is not true or false")
+        if handler["command"].strip():
+            _codex_cannot_hash(handler.get("timeout"), event not in _CODEX_CLAMPED_EVENTS, where, "timeout")
+            _codex_cannot_hash(
+                handler.get("additionalContextLimit"),
+                event in _CODEX_CONTEXT_EVENTS,
+                where,
+                "additionalContextLimit",
+            )
     elif kind == "mcp_tool":
         for key in ("server", "tool"):
             if not isinstance(handler.get(key), str):
@@ -1460,6 +1493,10 @@ def _check_codex_handler(handler: object, where: str) -> None:
             _codex_skips(f"{where} has a timeout that is not a whole number of at least 0")
         if handler.get("statusMessage") is not None and not isinstance(handler["statusMessage"], str):
             _codex_skips(f"{where} has a statusMessage that is not a string")
+        if handler["server"].strip() and handler["tool"].strip():
+            _codex_cannot_hash(
+                handler.get("timeout"), event not in _CODEX_CLAMPED_EVENTS, where, "timeout"
+            )
 
 
 def _check_codex_hooks_walk(doc: Mapping[str, Any]) -> None:
@@ -1497,7 +1534,7 @@ def _check_codex_hooks_walk(doc: Mapping[str, Any]) -> None:
             if not isinstance(handlers, list):
                 _codex_skips(f"{where}.hooks is not a list")
             for handler_index, handler in enumerate(handlers):
-                _check_codex_handler(handler, f"{where}.hooks[{handler_index}]")
+                _check_codex_handler(handler, f"{where}.hooks[{handler_index}]", event)
 
 
 def _check_codex_hooks_document(doc: Mapping[str, Any]) -> None:

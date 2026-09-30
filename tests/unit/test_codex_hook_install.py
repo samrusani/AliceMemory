@@ -551,32 +551,43 @@ def test_codex_hooks_file_codex_loads_is_accepted(
 
 
 @pytest.mark.parametrize(
-    ("label", "handler", "accepted"), NUMBER_CASES, ids=[case[0] for case in NUMBER_CASES]
+    ("label", "handler", "accepted", "event"), NUMBER_CASES, ids=[case[0] for case in NUMBER_CASES]
 )
 def test_codex_hooks_file_number_and_spelling_rules_match_the_serde_judge(
-    label: str, handler: str, accepted: bool, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    label: str,
+    handler: str,
+    accepted: bool,
+    event: str,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Install agrees with Codex on which numbers and field spellings make it skip hooks.json.
 
     ``NUMBER_CASES`` holds each verdict from a Rust judge built from Codex
-    0.158.0's own ``HookHandlerConfig`` and serde_json (see the table's
-    comment for the build, and for the labels a plain serde_json build
-    would call differently). An ``mcp_tool`` input refuses only a null:
-    integers at and beyond the i64 and u64 limits load. A ``timeout`` or
-    ``additionalContextLimit`` must be a whole number from 0 to 2**64-1, and a
-    handler that spells both ``commandWindows`` and ``command_windows`` is
-    skipped, null included. An accepted file gets Alice's group appended
-    after the user's, and their handler is kept as written. A refused one is
-    left as it was and nothing else is written. Mutations: restore the i64
-    range check in ``_codex_toml_representable`` (every integer case above
-    2**63-1 or below -2**63 fails); refuse only [2**63, 2**64) (the
-    ``2^63`` and ``2^64-1`` cases fail); drop the both-spellings check (the
-    five ``both-spellings`` cases fail); let ``_codex_is_u64`` accept 2**64
-    (the ``timeout-2^64`` and ``limit-2^64`` cases fail).
+    0.158.0's own ``HookHandlerConfig``, serde_json, and the step that hashes
+    each handler as TOML (see the table's comment for the build, and for the
+    labels a plain serde_json build would call differently). An ``mcp_tool``
+    input refuses only a null: integers at and beyond the i64 and u64 limits
+    load. A ``timeout`` must be a whole number from 0 to 2**63-1, because
+    Codex reads a u64 and then panics hashing one above i64, except where
+    it hashes none (a clamped event, an empty command, an empty ``mcp_tool``
+    server or tool); ``additionalContextLimit`` follows the same rule on the
+    five events that keep it. A handler that spells both ``commandWindows``
+    and ``command_windows`` is skipped, null included. An accepted file gets
+    Alice's group appended after the user's, and their handler is kept as
+    written. A refused one is left as it was and nothing else is written.
+    Mutations: restore the i64 range check in ``_codex_toml_representable``
+    (every integer case above 2**63-1 or below -2**63 fails); refuse only
+    [2**63, 2**64) there (the ``2^63`` and ``2^64-1`` cases fail); drop the
+    both-spellings check (the five ``both-spellings`` cases fail); accept a
+    ``timeout`` up to 2**64-1 again (the ``crash`` cases fail); hash a
+    timeout on a clamped event, on an empty command or on an empty tool (the
+    matching accepted case fails); apply ``additionalContextLimit`` to every
+    event (``limit-2^63-on-an-event-that-drops-it`` fails).
     """
 
     home, vault = tmp_path / "home", tmp_path / "vault"
-    seeded = _seed(_hooks(home), number_case_document(handler))
+    seeded = _seed(_hooks(home), number_case_document(handler, event))
     before = seeded.read_bytes()
     code, out, err = _install(home, vault, capsys)
     if not accepted:
@@ -592,9 +603,14 @@ def test_codex_hooks_file_number_and_spelling_rules_match_the_serde_judge(
         return
     assert code == 0, (label, out, err)
     written = _read(_hooks(home))["hooks"]
-    assert written["Stop"] == [{"hooks": [json.loads(handler)]}]
     probe = {"hooks": [{"type": "command", "command": "echo probe-hook"}]}
-    assert written["SessionStart"] == [probe, {"hooks": [_handler(vault)]}]
+    case = {"hooks": [json.loads(handler)]}
+    alice = {"hooks": [_handler(vault)]}
+    if event == "SessionStart":
+        assert written["SessionStart"] == [probe, case, alice]
+    else:
+        assert written[event] == [case]
+        assert written["SessionStart"] == [probe, alice]
 
 
 @pytest.mark.parametrize(
