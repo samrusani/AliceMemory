@@ -160,6 +160,17 @@ active-key or RLS bypass remains in scope.
   no symlinks.
 - Python dependency advisories are monitored by Dependabot but are not checked
   by a fail-closed install-tree audit in CI.
+- A memory id is itself sensitive metadata (added 2026-09-30). The correction
+  label on a recalled or packed source excerpt, and the `supersedes` and
+  `superseded_by` fields on a context pack's memories, follow the same
+  sensitivity, domain, project, person and time fence as the memory reads.
+  Three places still carry a memory id without the sensitivity and domain
+  fence: `validity.superseded_by_memory_id` on an `alice_recall` result whose
+  row still carries a `superseded_by` pointer, the `target_id` of each entry in
+  a context pack's `recent_changes`, and ids copied into a stored memory's
+  `metadata_json`, which the full pack returns. Each needs a memory the caller
+  cannot read, so each differs from the owner's view only for key-bound agents
+  or an explicit sensitivity ceiling.
 - Stage A tests are team-authored. They reduce review cost; they do not replace
   adversarial testing by the owner-appointed Stage B reviewer.
 

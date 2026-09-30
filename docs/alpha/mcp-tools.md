@@ -94,6 +94,12 @@ Remember, recall, continue. These are the only tools in a default
   superseded after the capture adds `derived_memory_corrected: true` and
   `current_memory_id`. In v0.18.0 that older row has no validity label
   and the excerpt is unmarked, so the old sentence reads like the fact.
+  Unreleased (on main, not in v0.19.0): `current_memory_id` is left off when
+  that memory, or any memory on the way to the current one, is outside the
+  caller's sensitivity ceiling, domain filter, or project, person and time
+  scope, or cannot be found, and for a chain of more than eight corrections.
+  `derived_memory_corrected` stays true. In v0.19.0 the id is named whatever
+  the caller may read.
 - `alice_resume` — a pick-work-back-up brief: last decision, suggested next
   action, open loops, and recent changes. From v0.18.0, this brief,
   `alice_recent_decisions`, and the next-action list read only active
