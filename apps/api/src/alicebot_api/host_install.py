@@ -83,6 +83,16 @@ DEFAULT_INSTALL_HOSTS = (
     "cursor",
     "openclaw",
 )
+CLAUDE_MARKETPLACE_NAME = "alicememory"
+CLAUDE_PLUGIN_ID = "alice-memory@alicememory"
+_CLAUDE_PLUGIN_SKIP = "skipped (the alice-memory plugin is enabled)"
+_CLAUDE_PLUGIN_NEXT = (
+    "run `claude mcp remove alice --scope user`, remove the "
+    "alice-memory-session-start hook from ~/.claude/settings.json, or disable the plugin."
+)
+_CLAUDE_PLUGIN_DISABLED_NOTE = (
+    "note: the alice-memory plugin is disabled. Enabling it later sets Alice up twice."
+)
 
 _SESSION_START_HOSTS = frozenset({"claude-code", "cursor"})
 
@@ -1618,11 +1628,17 @@ class HermesConfigRefused(InstallError):
 
 
 class InstallRefused(InstallError):
-    """A host file was left unchanged on purpose. ``output`` holds every receipt."""
+    """A host file was left unchanged on purpose. ``output`` holds every receipt.
 
-    def __init__(self, output: str) -> None:
+    ``kinds`` names each refused host. ``plugin`` is the Claude Code case
+    where the plugin and install's entries both exist. The plugin error is
+    used only when every refusal is that one.
+    """
+
+    def __init__(self, output: str, *, kinds: Sequence[str] = ()) -> None:
         super().__init__("a host config was left unchanged")
         self.output = output
+        self.kinds = tuple(kinds)
 
 
 class InstallFailed(InstallError):
@@ -3084,6 +3100,7 @@ class _HostResult:
     receipt: str
     status: str  # "ok", "refused" or "failed"
     used_fallback: bool = False  # an entry runs a launcher install could not confirm here
+    refusal_kind: str | None = None
 
 
 _FAILED_REASON = "the file could not be read or written"
@@ -3719,6 +3736,24 @@ def _dry_run_json_snippet(
     return "\n---\n".join(part.rstrip() for part in parts) + "\n", list(dict.fromkeys(hidden))
 
 
+def _claude_plugin_state(doc: Mapping[str, Any]) -> str:
+    """``enabled``, ``disabled``, or ``absent`` for the Alice plugin id.
+
+    A missing ``enabledPlugins``, a non-object value, or another plugin id
+    is ``absent``. Install then writes as usual.
+    """
+
+    plugins = doc.get("enabledPlugins")
+    if not isinstance(plugins, dict):
+        return "absent"
+    value = plugins.get(CLAUDE_PLUGIN_ID)
+    if value is True:
+        return "enabled"
+    if value is False:
+        return "disabled"
+    return "absent"
+
+
 def _install_json_host(
     host: str,
     *,
@@ -3851,6 +3886,30 @@ def _install_json_host(
         return _HostResult(receipt("failed", snippet=None), "failed")
 
     assert mcp is not None  # nosec B101 # narrows the type for mypy; the failure paths above return
+    if host == "claude-code" and hooks is not None:
+        plugin_state = _claude_plugin_state(hooks.doc)
+        has_install_entry = existing is not None or old_hook is not None
+        if plugin_state == "enabled" and not has_install_entry:
+            details.clear()
+            hook_details.clear()
+            session_start = "skipped"
+            return _HostResult(receipt(_CLAUDE_PLUGIN_SKIP, snippet=None), "ok")
+        if plugin_state == "enabled" and has_install_entry:
+            details[:] = [
+                "reason: the alice-memory plugin is enabled and install's entries exist"
+            ]
+            hook_details.clear()
+            session_start = "none"
+            plugin_trailer: tuple[str, ...] = (f"next: {_CLAUDE_PLUGIN_NEXT}",)
+            if dry_run:
+                plugin_trailer = (*plugin_trailer, _DRY_RUN_REFUSAL)
+            return _HostResult(
+                receipt(_refusal_action(dry_run), snippet=None, trailer=plugin_trailer),
+                "refused",
+                refusal_kind="plugin",
+            )
+        if plugin_state == "disabled":
+            details.append(_CLAUDE_PLUGIN_DISABLED_NOTE)
     refused = plan.refusal is not None or hook_problem is not None
     if plan.refusal is not None:
         details.insert(0, f"reason: {plan.refusal}")
@@ -7988,7 +8047,12 @@ def run_host_install(
     if "failed" in statuses:
         raise InstallFailed(output)
     if "refused" in statuses:
-        raise InstallRefused(output)
+        kinds = tuple(
+            result.refusal_kind or "other"
+            for result in results
+            if result.status == "refused"
+        )
+        raise InstallRefused(output, kinds=kinds)
     return output
 
 

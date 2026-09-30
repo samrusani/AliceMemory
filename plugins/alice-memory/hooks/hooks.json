@@ -1,0 +1,19 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uvx",
+            "args": [
+              "--from",
+              "alice-memory==0.18.0",
+              "alice-memory-session-start"
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

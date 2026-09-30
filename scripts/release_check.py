@@ -2466,6 +2466,10 @@ def validate_metadata(root_dir: Path = ROOT_DIR) -> tuple[ReleaseMetadata, list[
             f"{metadata.web_version!r} != {metadata.version!r}"
         )
     issues.extend(_mcpb_manifest_issues(root_dir, metadata.version))
+    issues.extend(_plugin_metadata_issues(root_dir, metadata.version))
+    marketplace = root_dir / ".claude-plugin" / "marketplace.json"
+    if marketplace.is_file():
+        issues.extend(_marketplace_issues(root_dir, marketplace))
 
     api_source = (root_dir / "apps" / "api" / "src" / "alicebot_api" / "main.py").read_text(encoding="utf-8")
     try:
@@ -2512,6 +2516,167 @@ def _mcpb_manifest_issues(root_dir: Path, version: str) -> list[str]:
             f"{manifest_version!r} != {version!r}"
         ]
     return []
+
+
+def _plugin_metadata_issues(root_dir: Path, version: str) -> list[str]:
+    """plugin.json version and both command pins must equal pyproject.
+
+    The hook's args must be exactly ``--from``, the pin, and
+    ``alice-memory-session-start``. It carries no ``--data-dir``: Claude Code
+    does not run a hook whose args reference an unset plugin option, so the
+    hook reads ``CLAUDE_PLUGIN_OPTION_DATA_DIR`` itself. ``hooks.json`` holds
+    that one handler and nothing else, and no ``user_config`` text anywhere in
+    it, so a second handler, a second group or another event cannot bring the
+    option back. The server's rule is only that it starts with the pin.
+
+    A missing or unreadable file is an issue string. This does not raise.
+    """
+
+    plugin_json = root_dir / "plugins" / "alice-memory" / ".claude-plugin" / "plugin.json"
+    mcp_json = root_dir / "plugins" / "alice-memory" / ".mcp.json"
+    hooks_json = root_dir / "plugins" / "alice-memory" / "hooks" / "hooks.json"
+    issues: list[str] = []
+    pin = f"alice-memory=={version}"
+    try:
+        plugin = json.loads(plugin_json.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return ["plugins/alice-memory/.claude-plugin/plugin.json is missing or unreadable"]
+    plugin_version = plugin.get("version") if isinstance(plugin, dict) else None
+    if plugin_version != version:
+        issues.append(
+            "plugins/alice-memory/.claude-plugin/plugin.json version does not match "
+            f"pyproject.toml: {plugin_version!r} != {version!r}"
+        )
+    for label, path, args, tail in (
+        ("mcp", mcp_json, _plugin_mcp_args, None),
+        ("hook", hooks_json, _plugin_hook_args, ["alice-memory-session-start"]),
+    ):
+        try:
+            text = path.read_text(encoding="utf-8")
+            loaded = json.loads(text)
+        except (OSError, ValueError):
+            issues.append(f"{path.relative_to(root_dir).as_posix()} is missing or unreadable")
+            continue
+        command_args = args(loaded)
+        if command_args is None or command_args[:2] != ["--from", pin]:
+            issues.append(f"{label} command does not pin {pin}")
+        elif tail is not None and command_args != ["--from", pin, *tail]:
+            issues.append(
+                f"{label} command args are not exactly {json.dumps(['--from', pin, *tail])}"
+            )
+        if label == "hook":
+            relative = path.relative_to(root_dir).as_posix()
+            if "user_config" in text:
+                issues.append(f"{relative} references a plugin option (user_config)")
+            if _plugin_hook_handler_count(loaded) != 1:
+                issues.append(f"{relative} does not hold exactly one hook handler")
+    return issues
+
+
+def _plugin_hook_handler_count(loaded: object) -> int:
+    """Handlers across every event and group of a hooks.json document."""
+
+    hooks = loaded.get("hooks") if isinstance(loaded, dict) else None
+    if not isinstance(hooks, dict):
+        return 0
+    count = 0
+    for groups in hooks.values():
+        if not isinstance(groups, list):
+            continue
+        for group in groups:
+            handlers = group.get("hooks") if isinstance(group, dict) else None
+            if isinstance(handlers, list):
+                count += len(handlers)
+    return count
+
+
+def _plugin_mcp_args(loaded: object) -> list[object] | None:
+    if not isinstance(loaded, dict):
+        return None
+    servers = loaded.get("mcpServers")
+    alice = servers.get("alice") if isinstance(servers, dict) else None
+    args = alice.get("args") if isinstance(alice, dict) else None
+    return args if isinstance(args, list) else None
+
+
+def _plugin_hook_args(loaded: object) -> list[object] | None:
+    if not isinstance(loaded, dict):
+        return None
+    hooks = loaded.get("hooks")
+    session = hooks.get("SessionStart") if isinstance(hooks, dict) else None
+    group = session[0] if isinstance(session, list) and session else None
+    handlers = group.get("hooks") if isinstance(group, dict) else None
+    handler = handlers[0] if isinstance(handlers, list) and handlers else None
+    args = handler.get("args") if isinstance(handler, dict) else None
+    return args if isinstance(args, list) else None
+
+
+def _marketplace_issues(root_dir: Path, path: Path) -> list[str]:
+    """Checks for a committed marketplace file. Absent means no issues."""
+
+    try:
+        loaded = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return [".claude-plugin/marketplace.json is missing or unreadable"]
+    if not isinstance(loaded, dict):
+        return [".claude-plugin/marketplace.json is not an object"]
+    issues: list[str] = []
+    if not isinstance(loaded.get("description"), str) or not loaded.get("description"):
+        issues.append(".claude-plugin/marketplace.json description is missing")
+    if loaded.get("name") != "alicememory":
+        issues.append(".claude-plugin/marketplace.json name is not alicememory")
+    owner = loaded.get("owner")
+    owner_name = owner.get("name") if isinstance(owner, dict) else None
+    if not isinstance(owner_name, str) or not owner_name.strip():
+        issues.append(".claude-plugin/marketplace.json owner is missing")
+    plugins = loaded.get("plugins")
+    entry = plugins[0] if isinstance(plugins, list) and plugins else None
+    if not isinstance(entry, dict):
+        return [*issues, ".claude-plugin/marketplace.json has no plugin entry"]
+    plugin_json = root_dir / "plugins" / "alice-memory" / ".claude-plugin" / "plugin.json"
+    try:
+        plugin = json.loads(plugin_json.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        plugin = {}
+    plugin_name = plugin.get("name") if isinstance(plugin, dict) else None
+    if entry.get("name") != plugin_name:
+        issues.append(".claude-plugin/marketplace.json entry name does not match plugin.json")
+    source = entry.get("source")
+    if not isinstance(source, dict):
+        issues.append(".claude-plugin/marketplace.json source is not an object")
+        return issues
+    if source.get("source") != "git-subdir":
+        issues.append(".claude-plugin/marketplace.json source is not git-subdir")
+    if source.get("url") != "samrusani/AliceMemory":
+        issues.append(".claude-plugin/marketplace.json url is not samrusani/AliceMemory")
+    if source.get("path") != "plugins/alice-memory":
+        issues.append(".claude-plugin/marketplace.json path is not plugins/alice-memory")
+    ref = source.get("ref")
+    sha = source.get("sha")
+    if not isinstance(ref, str) or not re.fullmatch(r"v(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)", ref):
+        issues.append(".claude-plugin/marketplace.json ref is not a v tag")
+    else:
+        try:
+            changelog = (root_dir / "CHANGELOG.md").read_text(encoding="utf-8")
+        except (OSError, ValueError):
+            changelog = ""
+        heading = re.compile(
+            rf"^## {re.escape(ref)} — \d{{4}}-\d{{2}}-\d{{2}}$",
+            flags=re.MULTILINE,
+        )
+        if heading.search(changelog) is None:
+            issues.append(".claude-plugin/marketplace.json ref has no dated CHANGELOG heading")
+    if not isinstance(sha, str) or not re.fullmatch(r"[0-9a-f]{40}", sha):
+        issues.append(".claude-plugin/marketplace.json sha is not 40 lowercase hex characters")
+    from alicebot_api.host_install import CLAUDE_PLUGIN_ID
+
+    expected_id = f"{entry.get('name')}@{loaded.get('name')}"
+    if expected_id != CLAUDE_PLUGIN_ID:
+        issues.append(
+            ".claude-plugin/marketplace.json id does not match CLAUDE_PLUGIN_ID: "
+            f"{expected_id!r} != {CLAUDE_PLUGIN_ID!r}"
+        )
+    return issues
 
 
 def validate_release_document_state(
