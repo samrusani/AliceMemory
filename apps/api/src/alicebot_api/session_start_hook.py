@@ -15,6 +15,15 @@ is known, fail-open is a single blank line and exit 0. If argparse
 fails before format is known, ``{}`` is still correct for the default
 JSON host. Never failClosed. Never print MCP protocol on stdout.
 
+The hook never inspects the content of a stored note. The brief always
+opens with ``SESSION_BRIEF_FRAME``, and every stored string is flattened
+onto one line and JSON-quoted behind a label, so a note cannot be protocol
+framing whatever it says. A note about ``jsonrpc`` or ``Content-Length:``
+is an ordinary note. Through v0.19.0 this module dropped the whole brief
+when the text held either string. That check dates from v0.16.0, when the
+hook parsed the output of a child ``alice-memory brief`` process, and it
+had no purpose once brief compilation moved in-process.
+
 A non-empty ``--data-dir`` that is not absolute after ``~`` expansion is
 not fail-open. The command exits 0 and prints one line, in the chosen
 format and on stderr: ``Alice: the data directory "<value>" is not an
@@ -198,9 +207,6 @@ def _run(args: argparse.Namespace) -> int:
         reserve=brief_char_len(prefix),
     )
     markdown = fit_emitted_session_brief(prefix + markdown)
-    if "jsonrpc" in markdown or "Content-Length:" in markdown:
-        _fail_open(args.format)
-        return 0
     _emit_context(markdown.rstrip("\n"), output_format=args.format)
     return 0
 
