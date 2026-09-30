@@ -2,7 +2,7 @@
 
 
 
-`v0.17.0` is the latest published release and remains the checksum/install
+`v0.19.0` is the latest published release and remains the checksum/install
 baseline.
 Preparing candidate documents does not authorize a tag, PyPI upload, or GitHub
 Release.
@@ -20,7 +20,30 @@ A stable publication uses all of the following on the same commit:
 - package version `X.Y.Z`;
 - annotated Git tag `vX.Y.Z`;
 - non-draft, non-prerelease GitHub release `vX.Y.Z`;
-- wheel and sdist metadata version `X.Y.Z`.
+- wheel and sdist metadata version `X.Y.Z`;
+- `packaging/mcpb/manifest.json` version `X.Y.Z`.
+- `plugins/alice-memory/.claude-plugin/plugin.json` version `X.Y.Z`, and both
+  plugin commands pin `alice-memory==X.Y.Z`.
+
+The release PR bumps `pyproject.toml`, `apps/web/package.json`,
+`packaging/mcpb/manifest.json`, and the plugin (version and both pins) to
+that same version.
+
+For the first release that ships the plugin, the release PR's README wording
+says it is available from the marketplace once the release is published. The
+post-publication PR changes that wording to say it installs from the
+marketplace.
+
+The post-publication PR adds `.claude-plugin/marketplace.json` at the
+repository root, or, when the file exists, moves its plugin entry's `ref` and
+`sha` to the new tag. The file has `name` `alicememory`, `owner` with `name`
+`Alice Memory`, a `description`, and one plugin entry. That entry's `name`
+matches `plugin.json`. Its `source` is `git-subdir`, with `url`
+`https://github.com/samrusani/AliceMemory.git` (the `owner/repo` shorthand
+makes Claude Code clone over SSH, which fails without GitHub SSH keys),
+`path` `plugins/alice-memory`, `ref` `vX.Y.Z`,
+and `sha`, the full 40-character lowercase tag commit. Then it dispatches
+the marketplace check in the real-host workflow.
 
 ## Manual Repository Prerequisites
 
@@ -209,13 +232,15 @@ compact dataset-manifest/slice consistency contract, and the offline evidence
 replay. Web gates include units, core plus vNext per-file coverage,
 TypeScript, lint, the production build, navigation/axe/outage browser
 tests, and bundle budgets. It also builds both distributions, runs Twine, and
-tests the installed wheel/sdist across all four public entrypoints. It first
-fetches `origin/main`, and writes `$DIST_DIR/SHA256SUMS` only after both
+tests the installed wheel and sdist across all five console entrypoints. It
+first fetches `origin/main`, and writes `$DIST_DIR/SHA256SUMS` only after both
 artifacts pass.
 
 Web dependency auditing deliberately remains on
 `apps/web/scripts/npm-advisory-audit.mjs` while the reproducible web toolchain
-is pinned to Node 20 and pnpm 10.23.0. pnpm 11 now uses npm's bulk advisory
+is pinned to Node 22.22.2 and pnpm 10.23.0. From v0.19.0, the web test job
+and the deployment-guide smoke job pin Node 22.22.2. The v0.18.0 tag pins
+those jobs to Node 20. pnpm 11 now uses npm's bulk advisory
 endpoint, as recorded in the [pnpm 11 audit migration](https://github.com/orgs/pnpm/discussions/11377),
 but upgrading the package-manager major is a separate compatibility carrier.
 The repository wrapper already calls that bulk endpoint directly and fails
@@ -431,5 +456,5 @@ the tag and must not have claimed publication early.
 Verify checksum files on Linux with `sha256sum -c SHA256SUMS` and on stock
 macOS with `shasum -a 256 -c SHA256SUMS`.
 
-`v0.17.0` is the latest published release and remains the install, checksum,
+`v0.19.0` is the latest published release and remains the install, checksum,
 and baseline reference.

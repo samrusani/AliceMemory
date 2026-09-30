@@ -6,15 +6,28 @@ retrieval, resumption, and explainability across HTTP, CLI, and MCP surfaces.
 
 ## Install
 
+With uv:
+
 ```bash
-pip install alice-memory
+uvx alice-memory install
 ```
 
-The installed distribution provides the `alice-memory`, `alicebot`, `alice`,
-and `alicebot-mcp` entrypoints.
+Without uv, with Python 3.12 or later:
+
+```bash
+pip install alice-memory && alice-memory install
+```
+
+Either way, `alice-memory install` writes the MCP config for Claude Desktop,
+Claude Code, Cursor, and OpenClaw. Hermes, OpenCode, and Codex are opt-in, with
+`--host hermes`, `--host opencode`, and `--host codex`.
+
+The package installs the `alice-memory`, `alice`, `alicebot`, `alicebot-mcp`,
+and `alice-memory-session-start` commands.
 
 ## Learn more
 
+- [Website](https://www.alicememory.com)
 - [Source and documentation](https://github.com/samrusani/AliceMemory)
 - [Release history](https://github.com/samrusani/AliceMemory/releases)
 - [Issue tracker](https://github.com/samrusani/AliceMemory/issues)

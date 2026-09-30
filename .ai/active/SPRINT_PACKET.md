@@ -26,6 +26,7 @@ route and tool registries, entrypoints, and compatibility imports.
   remaining P0-P3 findings. The independent final verdict is owned only by the
   handoff's `REVIEW_REPORT.md`; exact-SHA external release verification remains
   release-engineer work.
+- Correction (2026-09-27): the reviews called independent above were internal adversarial review, not an independent or external audit.
 
 ## Completed structure moves
 

@@ -2,7 +2,7 @@
   "manifest_version": "0.3",
   "name": "alice-memory",
   "display_name": "Alice Memory",
-  "version": "0.15.7",
+  "version": "0.19.0",
   "description": "Local-first memory for AI agents. Import is a source. Commit is a fact.",
   "author": {
     "name": "Sami Rusani",

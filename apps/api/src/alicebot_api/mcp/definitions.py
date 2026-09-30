@@ -2054,3 +2054,43 @@ _LEGACY_TOOL_DEFINITIONS: list[dict[str, object]] = [
         "inputSchema": _vnext_agent_tool_schema(),
     },
 ]
+
+
+# Codex skips approval when readOnlyHint is true, or when destructiveHint
+# and openWorldHint are both false. Alice is local. A policy audit row or
+# an agent identity row is not a state change the client asked for.
+_READ_ONLY_HINT_TOOLS = frozenset(
+    {
+        "alice_recall",
+        "alice_resume",
+        "alice_context_pack",
+        "alice_recent_decisions",
+        "alice_explain",
+    }
+)
+_ADD_ONLY_HINT_TOOLS = frozenset({"alice_memory_commit", "alice_capture"})
+_DESTRUCTIVE_HINT_TOOLS = frozenset(
+    {
+        "alice_memory_review",
+        "alice_memory_correct",
+        "alice_memory_manage",
+        "alice_open_loops",
+    }
+)
+
+
+def _apply_tool_hints(definitions: list[dict[str, object]]) -> None:
+    for index, tool in enumerate(definitions):
+        name = str(tool["name"])
+        annotations: dict[str, bool] = {"openWorldHint": False}
+        if name in _READ_ONLY_HINT_TOOLS:
+            annotations["readOnlyHint"] = True
+        elif name in _ADD_ONLY_HINT_TOOLS:
+            annotations["destructiveHint"] = False
+        elif name in _DESTRUCTIVE_HINT_TOOLS:
+            annotations["destructiveHint"] = True
+        definitions[index] = {**tool, "annotations": annotations}
+
+
+_apply_tool_hints(_CORE_TOOL_DEFINITIONS)
+_apply_tool_hints(_LEGACY_TOOL_DEFINITIONS)

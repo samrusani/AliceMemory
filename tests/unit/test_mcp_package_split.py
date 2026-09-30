@@ -163,8 +163,12 @@ def test_mcp_registry_order_definitions_and_alias_identity_are_frozen() -> None:
     # Re-minted 2026-09-23. MCP tool descriptions now say the sentence is stated
     # once on the result, before the quoted items. No tool added, removed, or
     # renamed. Legacy definitions are unchanged.
-    assert _digest(core_definitions) == "acb550253aefafed73586fcba76f6b15797e9f0c36466212fb2b286102bd6dfa"
-    assert _digest(legacy_definitions) == "2c21d4d624da448969554137e0b9cbae14c34cfaa0454e76d22ae480a6a29a58"
+    # Re-minted 2026-09-29 (#470). Every core and legacy tool gains an
+    # annotations object: openWorldHint false, plus readOnlyHint or
+    # destructiveHint per the MCP definitions. No tool added, removed, or
+    # renamed, and no description changed.
+    assert _digest(core_definitions) == "c5cebf8bdd8b3238c6b42f15c0d2463e155ac8af56467c54a19628ba1b88141e"
+    assert _digest(legacy_definitions) == "6b302f61e48d4f6196af8a7d2c8882130d565d84134f51bba38648f84c09089e"
     ordered_handler_map = [(name, handler.__name__) for name, handler in handlers.items()]
     assert _digest(ordered_handler_map) == "d864c98bb914bbc6ace464fa8020b3ed264f17f2061a6101aae677d801032ae5"
     for first, second in EXPECTED_ALIAS_PAIRS:

@@ -1,0 +1,19 @@
+{
+  "name": "alicememory",
+  "owner": {"name": "Alice Memory"},
+  "description": "Alice Memory plugins for Claude Code.",
+  "metadata": {"description": "Alice Memory plugins for Claude Code."},
+  "plugins": [
+    {
+      "name": "alice-memory",
+      "description": "Local-first memory for Claude Code: an MCP server and a SessionStart brief on one SQLite file.",
+      "source": {
+        "source": "git-subdir",
+        "url": "https://github.com/samrusani/AliceMemory.git",
+        "path": "plugins/alice-memory",
+        "ref": "v0.19.0",
+        "sha": "0751f096e89c0b57a68a9ab34e53029b90372bfe"
+      }
+    }
+  ]
+}

@@ -2,7 +2,7 @@
 
 This alpha is intentionally limited.
 
-- local setup is still technical
+- the Postgres stack setup is still technical; the SQLite install is one command
 - no hosted cloud
 - no production SLA
 - no managed Gmail OAuth consent/account-linking flow; manual operator-token
@@ -30,16 +30,19 @@ This alpha is intentionally limited.
 - generic thread, approval, task, and trace histories are client-bounded, but their list endpoints do not yet provide cursor pagination
 - team accounts, billing, cloud sync, mobile app, and hosted deployment are out of scope
 
-SQLite mode (`alice-memory mcp`) is the trial/single-agent path and carries extra boundaries:
+SQLite mode (`alice-memory install`, `alice-memory mcp`) is the default single-user path and carries extra boundaries:
 
-- core MCP tools only (11 as of this release); optional long-tail memory tools
-  require `ALICE_MCP_LEGACY_TOOLS=1` and remain Postgres-only
+- the default three MCP tools, or all eleven core tools with
+  `ALICE_MCP_FULL_TOOLS=1`; optional long-tail memory tools need
+  `ALICE_MCP_LEGACY_TOOLS=1` and Postgres
 - no web console review — review runs through `alice_memory_review` / `alice_memory_correct`
 - no scheduler
 - agent API keys cannot be created (`alicebot agent keys create` requires Postgres); leave `ALICE_AGENT_API_KEY` unset — agent identity is still honored and audited as `unauthenticated_local`, while a set key fails closed and rejects every write
 - one user per local database file
 - no automatic migration to Postgres; `alice-memory export` creates a versioned, integrity-checked local backup and `alice-memory import` restores it into another local database (portable ids and timestamps preserved). A plain import refuses a backup that holds credential material (`import_credential_material`, exit 1, nothing written). `alice-memory export` lists the offenders on stderr and exits 0. `--quarantine` removes the credential from the named memory and from the records derived from it, and reports any other copies it finds. The named memory is stored as `rejected`. It is not a PostgreSQL import. A Postgres URL passed as `--db` is refused on every `alice-memory` subcommand, including `install --dry-run`, with exit 2 and `sqlite_db_path_required`.
 - tool failures over stdio return a generic code and no detail: `tool_not_found`, `tool_request_failed`, or `tool_execution_failed`
+- `alice_recall` and `alice_context_pack` return a tool error (`tool_execution_failed`) for a query with about 991 or more distinct search terms, because SQLite refuses the search (`Expression tree is too large`). A search term is an ASCII word of two or more characters that is not a stopword, and a repeated word counts once. That is roughly 30,000 bytes of ordinary prose. The session brief bounds such a string, so a long newest fact, open loop, explicit query or source title no longer empties it. These two tools do not, and v0.18.0 fails the same way. With a captured source in the vault, a query over about 50,000 bytes also returns that error (SQLite `LIKE or GLOB pattern too complex`), in both versions. Keep the query short.
+- a relative `ALICE_MEMORY_DATA_DIR` is not checked: the session-start hook still creates a vault under the current directory for it, including the literal text `${HOME}/.alice`. `alice-memory mcp` and the hook refuse a relative `--data-dir`, and the hook refuses a relative Claude Code plugin `data_dir` option, but only the hook reads this variable. Set it to an absolute path.
 - embedding vectors are not exported: after `alice-memory import`, memories are keyword-searchable (FTS) immediately; configure `ALICE_EMBEDDINGS_*` and run `alice-memory reindex-embeddings` to restore vector search
 - import never overwrites existing rows: `--mode skip` accepts an existing id only when every portable field is identical; divergent collisions abort, and `--mode fail` aborts on any collision
 - users, agent identities/API keys, embedding vectors, and soft-deleted rows are not portable; fact keys and entity relationship history are included, while nullable references to omitted rows are cleared and graph edges with omitted known endpoints are excluded so the portable set remains foreign-key closed

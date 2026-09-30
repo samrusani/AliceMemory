@@ -23,8 +23,8 @@ def test_normalize_casefolds_names() -> None:
 
 
 def test_normalize_collapses_whitespace_runs_and_trims_edges() -> None:
-    assert normalize_entity_name("  Sam \t  Rusani\n") == "sam rusani"
-    assert normalize_entity_name("Sam Rusani") == "sam rusani"
+    assert normalize_entity_name("  Alex \t  Rivera\n") == "alex rivera"
+    assert normalize_entity_name("Alex Rivera") == "alex rivera"
     # Tabs, newlines, and multi-space runs all collapse to single spaces.
     assert normalize_entity_name("a\tb\nc   d") == "a b c d"
 
@@ -43,7 +43,7 @@ def test_normalize_strips_punctuation_from_token_edges() -> None:
 
 
 def test_normalize_drops_tokens_that_were_pure_punctuation() -> None:
-    assert normalize_entity_name("sam - rusani") == "sam rusani"
+    assert normalize_entity_name("alex - rivera") == "alex rivera"
     assert normalize_entity_name("alpha -- beta") == "alpha beta"
 
 

@@ -1,3 +1,5 @@
+> Historical: kept for reference; not current guidance.
+
  Installation issues to fix (reproducible):
 
  Resolution: fixed for `v0.6.0-alpha-rc.2`. The installer/setup path now pins pnpm, creates `.env.lite`, validates env files before sourcing, quotes values with spaces, defaults the local Ubuntu template to development mode, requires the repo venv, and aligns Docker Compose Postgres credentials with the active Alice env.

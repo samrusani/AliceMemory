@@ -19,6 +19,11 @@ from .shared import _json_object
 
 _SQLITE_REVIEWABLE_STATUSES = frozenset({"active", "candidate"})
 
+# Agent context reads active memory only. Candidates stay in the review
+# tools until a reviewer promotes them. ``_vnext_resume`` is the SQLite and
+# Postgres resume path, so this tuple is what both stores are asked for.
+_CONTEXT_MEMORY_STATUSES = frozenset({"active"})
+
 
 _SQLITE_NEXT_ACTION_MEMORY_TYPES = frozenset({"open_loop", "commitment"})
 

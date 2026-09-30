@@ -1739,7 +1739,7 @@ def test_vnext_project_and_open_loop_cli(monkeypatch) -> None:
             "sensitivity": "private",
             "metadata_json": {
                 "project_scope": ["project-1"],
-                "raw_text": "Project: Alice vNext needs project automation.\nTODO: validate dashboard Owner: Samir",
+                "raw_text": "Project: Alice vNext needs project automation.\nTODO: validate dashboard Owner: Jordan",
             },
         }
     )
@@ -1788,7 +1788,7 @@ def test_vnext_project_and_open_loop_cli(monkeypatch) -> None:
     assert update_payload["artifact_type"] == "project_update"
     assert update_payload["metadata_json"]["candidate_memory_id"] == "memory-1"
     assert extract_payload["created_count"] == 1
-    assert extract_payload["open_loops"][0]["metadata_json"]["owner"] == "Samir"
+    assert extract_payload["open_loops"][0]["metadata_json"]["owner"] == "Jordan"
     assert review_update_payload["status"] == "accepted"
     assert store.projects["project-1"]["current_state"] == "Project automation reviewed."
     assert review_loop_payload["due_at"] == "2026-05-12T09:00:00Z"

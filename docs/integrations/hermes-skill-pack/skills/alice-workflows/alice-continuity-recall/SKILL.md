@@ -12,6 +12,11 @@ metadata:
 
 # Alice Continuity Recall
 
+Legacy pack. The supported Hermes pack is `agent-skills/hermes/alice-memory`.
+This skill needs the full tool surface: set `ALICE_MCP_FULL_TOOLS=1` in the
+Alice MCP server env. On the default three tools, only the `alice_recall` step
+works.
+
 ## Goal
 
 Produce recall answers from Alice continuity records instead of free-form memory.
@@ -28,7 +33,9 @@ Use this skill when the user asks:
 - `mcp_<alice_server>_alice_recall`
 - Optional: `mcp_<alice_server>_alice_recent_decisions`
 
-`<alice_server>` is usually `alice_core`.
+`<alice_server>` is the key under `mcp_servers`. It is `alice` when
+`alice-memory install --host hermes` wrote it and `alice_core` in the example
+configs.
 
 ## Workflow
 
@@ -40,11 +47,11 @@ Use this skill when the user asks:
 ## Tool Call Templates
 
 ```text
-mcp_alice_core_alice_recall({"query":"<topic>","thread_id":"<uuid>","limit":5})
+mcp_<alice_server>_alice_recall({"query":"<topic>","thread_id":"<uuid>","limit":5})
 ```
 
 ```text
-mcp_alice_core_alice_recent_decisions({"thread_id":"<uuid>","limit":5})
+mcp_<alice_server>_alice_recent_decisions({"thread_id":"<uuid>","limit":5})
 ```
 
 ## Output Contract

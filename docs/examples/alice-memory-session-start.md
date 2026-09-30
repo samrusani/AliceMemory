@@ -21,6 +21,14 @@ The wrapper reads the host payload on stdin, compiles the same brief as
 `hookSpecificOutput.additionalContext` is the Claude Code `SessionStart`
 field. One command covers both.
 
+From v0.19.0, the brief shows current facts only.
+A memory with `superseded_by` set, or status `superseded`, is left out,
+and so is a `**source**` line whose captured sentence was corrected or
+superseded after the capture. In v0.18.0 SessionStart and
+`alice-memory brief` still print that older sentence as a `**fact**` or
+a `**source**` line. Recall and the context pack keep the passage and
+label it; this hook does not.
+
 On any error the JSON wrapper prints `{}` and exits 0. After
 `--format markdown` is known, fail-open is a single blank line and
 exit 0. If argparse fails before format is known, `{}` is still
@@ -31,7 +39,9 @@ prints MCP protocol on stdout.
 
 Copy `docs/examples/cursor-session-start-hooks.json` into the project's
 `.cursor/hooks.json`, or merge the `sessionStart` block into an existing
-file. Point `ALICE_MEMORY_DATA_DIR` at the vault the host should read.
+file. Point `ALICE_MEMORY_DATA_DIR` at the vault the host should read, as an
+absolute path. The hook refuses a relative `--data-dir`, but it does not check
+this variable, so a relative value creates a vault under the current directory.
 
 ```bash
 export ALICE_MEMORY_DATA_DIR="$HOME/.alice"
@@ -118,7 +128,8 @@ and does not touch the file when its parsed JSON would not change. If
 points to and keeps the link; the backup still goes to the data dir,
 not next to the target. `alice-memory install --dry-run` prints the
 Alice entry and the hook it would write, with every value from your
-entry except `command`, `type`, `timeout` and `cwd` hidden, and changes
+entry hidden except `command`, `type`, `timeout`, `cwd` and, from v0.19.0,
+booleans and numbers on top-level keys (v0.18.0 hid those too), and changes
 nothing.
 
 If the `alice` entry in `~/.claude.json` is not one install wrote (the

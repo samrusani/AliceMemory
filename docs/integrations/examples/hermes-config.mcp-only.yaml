@@ -17,6 +17,7 @@ mcp_servers:
       ALICE_MCP_FULL_TOOLS: "1"
     tools:
       include:
+        - alice_memory_commit
         - alice_recall
         - alice_resume
         - alice_open_loops

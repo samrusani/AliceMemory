@@ -25,7 +25,11 @@ ruled (H1) that the two doors v0.16.0 checked get parity by construction:
   the body. The helper runs the credential floor and then
   `commit_gate_refuses`. The record also runs the floor on the stored
   body before that call.
-- Every remaining door keeps credential_floor alone.
+- Capture and the source doctor use ``commit_door_fields_verdict``: the
+  floor, then this commit gate on every string. A low-entropy AKIA-shaped
+  key the floor treats as a placeholder is refused there, as the commit
+  door already refuses it. Every other remaining door keeps
+  credential_floor alone.
 
 What "the same as v0.16.0" means here. The rules below are v0.16.0's, with
 the same patterns, the same surfaces (each field raw and normalised; the
@@ -70,6 +74,7 @@ from alicebot_api.credential_floor import (
     VERDICT_CREDENTIAL,
     credential_verdict,
     normalize_for_matching,
+    string_values,
 )
 
 # ---------------------------------------------------------------------------
@@ -771,6 +776,23 @@ def commit_door_secret_verdict(
     return None
 
 
+def commit_door_fields_verdict(*fields: object) -> str | None:
+    """The commit door's verdict over every string in ``fields``.
+
+    ``credential_verdict`` first. When that is clean, the legacy commit
+    gate runs on each string. Capture and the doctor use this so they
+    refuse a low-entropy AKIA-shaped key the floor leaves alone.
+    """
+
+    verdict = credential_verdict(*fields)
+    if verdict is not None:
+        return verdict
+    for text in string_values(fields):
+        if text and commit_gate_refuses("", text):
+            return VERDICT_CREDENTIAL
+    return None
+
+
 def promotion_floor_refuses(
     title: str,
     canonical_text: str,
@@ -793,6 +815,7 @@ __all__ = [
     "carve_out_sk_word_chain",
     "carve_out_ssh_public_key",
     "carve_out_structural_key_name",
+    "commit_door_fields_verdict",
     "commit_door_secret_verdict",
     "commit_gate_refuses",
     "excused",

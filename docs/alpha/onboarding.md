@@ -18,6 +18,9 @@ onboarding program.
 
 ## Install
 
+The clone checks out `main`, which can be ahead of the latest release. To run
+v0.19.0, run `git checkout v0.19.0` before `make setup`.
+
 ```bash
 git clone https://github.com/samrusani/AliceMemory.git
 cd AliceMemory
@@ -30,10 +33,13 @@ make dev
 
 ## Connect An Agent
 
-Start the eleven-tool core MCP server:
+Start the MCP server. It lists three tools by default. Set
+`ALICE_MCP_FULL_TOOLS=1` to list all eleven core tools:
 
 ```bash
 alicebot-mcp
+# or, with all eleven core tools:
+ALICE_MCP_FULL_TOOLS=1 alicebot-mcp
 ```
 
 Use [mcp-tools.md](mcp-tools.md), [agent-integration.md](agent-integration.md),

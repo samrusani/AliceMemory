@@ -2300,7 +2300,7 @@ ENTITY_RESOLUTION_TITLE = "Entity resolution (capture pipeline extraction + cano
 
 _ENTITY_RESOLUTION_GROUPS: tuple[JsonObject, ...] = (
     {
-        "group_key": "person-sami",
+        "group_key": "person-jane",
         "canonical_name": "Jane Doe",
         "entity_type": "person",
         "expected_alias": "dr jane doe",

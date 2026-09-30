@@ -1,4 +1,4 @@
-# AliceBot evals
+# Alice evals
 
 This page documents what each eval in this repository actually measures, what
 requires a live database, and which historical numbers should *not* be read

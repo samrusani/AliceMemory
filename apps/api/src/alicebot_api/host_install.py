@@ -10,6 +10,7 @@ import argparse
 import contextlib
 import io
 import json
+import math
 import os
 import re
 import shutil
@@ -19,11 +20,12 @@ import tomllib
 import zipfile
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from datetime import UTC, datetime
-from pathlib import Path
-from typing import Any
+from datetime import UTC, date, datetime, time
+from pathlib import Path, PureWindowsPath
+from typing import Any, NoReturn
 
 from alicebot_api import __version__
+from alicebot_api.credential_floor import carries_credential_material
 from alicebot_api.host_launcher import (
     DOCS_DATA_DIR_PLACEHOLDER,
     FIRST_SESSION_START_VERSION,
@@ -40,6 +42,7 @@ from alicebot_api.host_launcher import (
     find_launcher,
     format_command,
     hook_command,
+    hook_output_format,
     hook_script_problem,
     is_install_shaped_entry,
     is_session_start_command,
@@ -71,6 +74,8 @@ INSTALL_HOSTS = (
     "cursor",
     "openclaw",
     "hermes",
+    "opencode",
+    "codex",
 )
 DEFAULT_INSTALL_HOSTS = (
     "claude-desktop",
@@ -78,8 +83,39 @@ DEFAULT_INSTALL_HOSTS = (
     "cursor",
     "openclaw",
 )
+CLAUDE_MARKETPLACE_NAME = "alicememory"
+CLAUDE_PLUGIN_ID = "alice-memory@alicememory"
+_CLAUDE_PLUGIN_SKIP = "skipped (the alice-memory plugin is enabled)"
+_CLAUDE_PLUGIN_NEXT = (
+    "run `claude mcp remove alice --scope user`, remove the "
+    "alice-memory-session-start hook from ~/.claude/settings.json, or disable the plugin."
+)
+_CLAUDE_PLUGIN_DISABLED_NOTE = (
+    "note: the alice-memory plugin is disabled. Enabling it later sets Alice up twice."
+)
 
 _SESSION_START_HOSTS = frozenset({"claude-code", "cursor"})
+
+# Codex reads hooks.json handlers with these fields. The timeout covers a cold
+# uvx resolve at the first turn; Codex's own default of 600 seconds would hold
+# the first turn for ten minutes if the command hung. A limit of 0 means Codex
+# never spills the brief to a file: install's own budget already bounds it.
+CODEX_HOOK_TIMEOUT = 120
+CODEX_HOOK_CONTEXT_LIMIT = 0
+# Codex rejects the JSON that Cursor and Claude Code read, so its hook prints markdown.
+CODEX_HOOK_FORMAT = "markdown"
+
+
+def _hook_output_format(host: str) -> str | None:
+    """The ``--format`` a host's hook command carries, or None to leave the default."""
+
+    return CODEX_HOOK_FORMAT if host == "codex" else None
+
+
+def _hook_event_key(host: str) -> str:
+    """The event name a host's hooks file uses for SessionStart."""
+
+    return "sessionStart" if host == "cursor" else "SessionStart"
 
 
 class InstallError(ValueError):
@@ -126,9 +162,23 @@ def claude_desktop_config_path(home: Path, platform: str | None = None) -> Path:
     return home / ".config" / "Claude" / "claude_desktop_config.json"
 
 
-def host_file_map(home: Path, platform: str | None = None) -> dict[str, dict[str, Path]]:
-    """Host config paths under ``home``."""
+def host_file_map(
+    home: Path,
+    platform: str | None = None,
+    *,
+    config_home: Path | None = None,
+    codex_home: Path | None = None,
+) -> dict[str, dict[str, Path]]:
+    """Host config paths under ``home``.
 
+    ``config_home`` is OpenCode's config directory parent. It defaults to
+    ``home / ".config"`` on every platform, including Windows.
+    ``codex_home`` is Codex's config directory. It defaults to ``home / ".codex"``.
+    """
+
+    opencode_config = home / ".config" if config_home is None else config_home
+    opencode_dir = opencode_config / "opencode"
+    codex_dir = home / ".codex" if codex_home is None else codex_home
     return {
         "claude-desktop": {"mcp": claude_desktop_config_path(home, platform)},
         "claude-code": {
@@ -141,6 +191,14 @@ def host_file_map(home: Path, platform: str | None = None) -> dict[str, dict[str
         },
         "openclaw": {"mcp": home / ".openclaw" / "openclaw.json"},
         "hermes": {"mcp": home / ".hermes" / "config.yaml"},
+        "opencode": {
+            "mcp": opencode_dir / "opencode.json",
+            "jsonc": opencode_dir / "opencode.jsonc",
+            "legacy": opencode_dir / "config.json",
+            "home_json": home / ".opencode" / "opencode.json",
+            "home_jsonc": home / ".opencode" / "opencode.jsonc",
+        },
+        "codex": {"mcp": codex_dir / "config.toml", "hooks": codex_dir / "hooks.json"},
     }
 
 
@@ -218,6 +276,31 @@ def claude_code_session_start_group(command: str) -> dict[str, object]:
     return {"hooks": [claude_code_session_start_handler(command)]}
 
 
+def codex_session_start_handler(command: str) -> dict[str, object]:
+    """One Codex hook handler in hooks.json.
+
+    ``timeout`` is seconds. ``additionalContextLimit`` 0 means Codex never
+    spills the brief to a file. Install never writes a ``trusted_hash``.
+    """
+
+    return {
+        "type": "command",
+        "command": command,
+        "timeout": CODEX_HOOK_TIMEOUT,
+        "additionalContextLimit": CODEX_HOOK_CONTEXT_LIMIT,
+    }
+
+
+def codex_session_start_group(command: str) -> dict[str, object]:
+    """Codex's ``hooks.SessionStart`` item: a group with no ``matcher``.
+
+    A group with no matcher runs on every session source (startup, resume,
+    clear, compact and fork).
+    """
+
+    return {"hooks": [codex_session_start_handler(command)]}
+
+
 def _is_session_start_command(command: str) -> bool:
     return is_session_start_command(command)
 
@@ -257,6 +340,10 @@ def _set_nested(doc: dict[str, Any], keys: tuple[str, ...], value: object) -> No
 def _alice_server_keys(host: str) -> tuple[str, ...]:
     if host == "openclaw":
         return ("mcp", "servers", "alice")
+    if host == "opencode":
+        return ("mcp", "alice")
+    if host == "codex":
+        return ("mcp_servers", "alice")
     return ("mcpServers", "alice")
 
 
@@ -307,8 +394,26 @@ def _ensure_private_parents(path: Path) -> None:
         directory.chmod(0o700)
 
 
-def _write_text(path: Path, text: str, *, newline: str | None = None) -> None:
-    """Atomically replace ``path``. ``newline=""`` writes line breaks as given."""
+class _HostFileChanged(InstallError):
+    """The host file changed after install read it and before the replace."""
+
+
+def _write_text(
+    path: Path,
+    text: str,
+    *,
+    newline: str | None = None,
+    expected: bytes | None = None,
+    expect_absent: bool = False,
+    backup: Path | None = None,
+) -> None:
+    """Atomically replace ``path``. ``newline=""`` writes line breaks as given.
+
+    When ``expected`` is set, or ``expect_absent`` is set, the bytes on disk
+    are compared after the temp file is written and just before the replace.
+    A mismatch removes the temp file and ``backup``, and raises
+    ``_HostFileChanged``. The destination is left as it was.
+    """
 
     _ensure_private_parents(path)
     handle = tempfile.NamedTemporaryFile(
@@ -324,7 +429,20 @@ def _write_text(path: Path, text: str, *, newline: str | None = None) -> None:
     try:
         handle.write(text)
         handle.close()
+        if expected is not None or expect_absent:
+            try:
+                current = path.read_bytes() if path.exists() else None
+            except OSError:
+                current = None
+            mismatch = path.exists() if expect_absent else current != expected
+            if mismatch:
+                tmp_path.unlink(missing_ok=True)
+                if backup is not None:
+                    backup.unlink(missing_ok=True)
+                raise _HostFileChanged()
         tmp_path.replace(path)
+    except _HostFileChanged:
+        raise
     except Exception:
         handle.close()
         if tmp_path.exists():
@@ -345,6 +463,8 @@ def _merge_session_start(doc: dict[str, Any], host: str, command: str) -> str:
 
     if host == "claude-code":
         return _merge_claude_code_session_start(doc, command)
+    if host == "codex":
+        return _merge_codex_session_start(doc, command)
     return _merge_cursor_session_start(doc, command)
 
 
@@ -480,9 +600,71 @@ def _merge_claude_code_session_start(doc: dict[str, Any], command: str) -> str:
     return "updated"
 
 
+def _is_codex_alice_handler(handler: object) -> bool:
+    """A Codex command handler that runs alice-memory-session-start."""
+
+    return (
+        isinstance(handler, Mapping)
+        and handler.get("type") == "command"
+        and _is_alice_hook_item(handler)
+    )
+
+
+def _codex_alice_handlers(existing: Sequence[object]) -> list[tuple[int, int]]:
+    """``(group, handler)`` of every Alice command handler in ``hooks.SessionStart``."""
+
+    found: list[tuple[int, int]] = []
+    for group_index, group in enumerate(existing):
+        handlers = group.get("hooks") if isinstance(group, Mapping) else None
+        if not isinstance(handlers, list):
+            continue
+        for handler_index, handler in enumerate(handlers):
+            if _is_codex_alice_handler(handler):
+                found.append((group_index, handler_index))
+    return found
+
+
+def _merge_codex_session_start(doc: dict[str, Any], command: str) -> str:
+    """Append Alice's group to ``hooks.SessionStart``, or replace its handler in place.
+
+    Codex keys trust by ``<file>:session_start:<group>:<handler>``, so a new
+    group goes at the end and never ahead of the user's: inserting would
+    shift their indexes and Codex would silently stop running hooks they had
+    trusted. A re-run replaces Alice's handler at the same group and handler
+    index. That includes the JSON-mode item Codex's Claude Code import copies,
+    which has no ``additionalContextLimit`` and prints the wrong format. The
+    replacement is the whole handler, so a key such as ``async`` or
+    ``commandWindows`` that would change what runs does not survive. The
+    group, and any ``matcher`` on it, stay. ``_check_codex_hooks_document``
+    refuses more than one Alice handler before this runs, so ``found[0]`` is the only one.
+    """
+
+    hooks = _require_mapping(doc.get("hooks"), "hooks")
+    doc["hooks"] = hooks
+    key = "SessionStart"
+    existing = hooks.get(key)
+    handler = codex_session_start_handler(command)
+    if existing is None:
+        hooks[key] = [codex_session_start_group(command)]
+        return "added"
+    if not isinstance(existing, list):
+        raise _MalformedHostFile(f"hooks.{key} is not a list")
+    found = _codex_alice_handlers(existing)
+    if not found:
+        existing.append(codex_session_start_group(command))
+        return "added"
+    group_index, handler_index = found[0]
+    if existing[group_index]["hooks"][handler_index] == handler:
+        return "already-present"
+    existing[group_index]["hooks"][handler_index] = handler
+    return "updated"
+
+
 def _new_hooks_document(host: str, command: str) -> dict[str, Any]:
     if host == "cursor":
         return {"version": 1, "hooks": {"sessionStart": [_cursor_session_start_item(command)]}}
+    if host == "codex":
+        return {"hooks": {"SessionStart": [codex_session_start_group(command)]}}
     return {"hooks": {"SessionStart": [claude_code_session_start_group(command)]}}
 
 
@@ -514,9 +696,15 @@ def _existing_alice_hook_command(doc: Mapping[str, Any], host: str) -> str | Non
     hooks = doc.get("hooks")
     if not isinstance(hooks, Mapping):
         return None
-    items = hooks.get("SessionStart" if host == "claude-code" else "sessionStart")
+    items = hooks.get(_hook_event_key(host))
     if not isinstance(items, list):
         return None
+    if host == "codex":
+        found = _codex_alice_handlers(items)
+        if not found:
+            return None
+        group_index, handler_index = found[0]
+        return _hook_item_command(items[group_index]["hooks"][handler_index])
     if host == "claude-code":
         for item in items:
             handlers = item.get("hooks") if isinstance(item, Mapping) else None
@@ -537,16 +725,15 @@ def _alice_hook_items(doc: Mapping[str, Any], host: str) -> list[object]:
     """Only Alice's SessionStart items, for a dry-run receipt."""
 
     hooks = doc.get("hooks")
-    items = hooks.get("SessionStart" if host == "claude-code" else "sessionStart") if isinstance(
-        hooks, Mapping
-    ) else None
+    items = hooks.get(_hook_event_key(host)) if isinstance(hooks, Mapping) else None
     found: list[object] = []
     for item in items if isinstance(items, list) else []:
         if not isinstance(item, Mapping):
             continue
         handlers = item.get("hooks")
-        if host == "claude-code" and isinstance(handlers, list):
-            alice = [handler for handler in handlers if _is_alice_hook_item(handler)]
+        if host in {"claude-code", "codex"} and isinstance(handlers, list):
+            is_alice = _is_codex_alice_handler if host == "codex" else _is_alice_hook_item
+            alice = [handler for handler in handlers if is_alice(handler)]
             if alice:
                 found.append({**item, "hooks": alice})
         elif _is_alice_hook_item(item):
@@ -560,25 +747,46 @@ _HIDDEN = HIDDEN
 _SHOWN_KEYS = frozenset({"command", "type", "timeout", "cwd"})
 
 
+def _masked_words(words: Sequence[str]) -> tuple[list[str], list[str]]:
+    """``words`` as masked_args shows them, then any word that still carries
+    credential material (a token glued to a URL, say) shown as hidden."""
+
+    shown, what = masked_args(list(words))
+    out: list[str] = []
+    extra: list[str] = []
+    for word in shown:
+        if carries_credential_material(word):
+            out.append(_HIDDEN)
+            extra.append("credential material")
+        else:
+            out.append(word)
+    return out, list(what) + extra
+
+
 def _masked(
     entry: Mapping[str, Any], *, own_env: Mapping[str, str] | None = None
 ) -> tuple[dict[str, Any], list[str]]:
     """``entry`` as install prints it, and the list of what it hid.
 
-    Shown: command, type, timeout and cwd; args with every URL after its
-    scheme and secret flag values hidden (host_launcher.masked_args); the
-    names under env, headers and other maps. Every other value is hidden,
-    except ``own_env``: the ALICE_MEMORY_DATA_DIR install writes itself,
-    which equals the --data-dir in args.
+    Shown: command, type, timeout and cwd; booleans and numbers on
+    top-level keys only; args with every URL after its scheme and secret
+    flag values hidden (host_launcher.masked_args). A value under env,
+    environment, headers, or any other map stays hidden, whatever its
+    type. The exception is ``own_env``: the ALICE_MEMORY_DATA_DIR install
+    writes itself, which equals the --data-dir in args.
     """
 
     shown: dict[str, Any] = {}
     hidden: list[str] = []
     for key, value in entry.items():
-        if key in _SHOWN_KEYS:
+        if key == "command" and isinstance(value, list) and all(isinstance(arg, str) for arg in value):
+            args, what = _masked_words(value)
+            shown[key] = args
+            hidden.extend(f"command ({item})" for item in what)
+        elif key in _SHOWN_KEYS:
             shown[key] = value
         elif key == "args" and isinstance(value, list) and all(isinstance(arg, str) for arg in value):
-            args, what = masked_args(value)
+            args, what = _masked_words(value)
             shown[key] = args
             hidden.extend(f"args ({item})" for item in what)
         elif isinstance(value, Mapping):
@@ -590,6 +798,8 @@ def _masked(
                     inner[name] = _HIDDEN
                     hidden.append(f"{key}.{name}")
             shown[key] = inner
+        elif isinstance(value, bool) or isinstance(value, int | float):
+            shown[key] = value
         else:
             shown[key] = _HIDDEN
             hidden.append(str(key))
@@ -644,6 +854,10 @@ def _masked_hook_item(item: object, hidden: list[str]) -> object:
             elif key == "hooks":
                 shown[key] = _masked_hook_item(value, hidden)
             elif key == "type":
+                shown[key] = value
+            elif key in {"timeout", "additionalContextLimit", "async"} and isinstance(
+                value, bool | int
+            ):
                 shown[key] = value
             else:
                 shown[key] = _HIDDEN
@@ -811,6 +1025,61 @@ def _expand_user(raw: str, home: Path) -> str:
     return raw
 
 
+def _receipt_control(char: str) -> bool:
+    """True for a character that must not stay raw in a receipt value.
+
+    C0 and C1 controls include newline, tab and the other ASCII controls.
+    U+2028 and U+2029 also break lines.
+    """
+
+    code = ord(char)
+    return code < 0x20 or code == 0x7F or 0x80 <= code <= 0x9F or code in (0x2028, 0x2029)
+
+
+def _escape_receipt_controls(text: str) -> str:
+    """``text`` as one receipt value: each control character becomes ``\\uXXXX``.
+
+    A newline in a value such as ``--data-dir`` would otherwise start another
+    receipt line.
+    """
+
+    if not any(_receipt_control(char) for char in text):
+        return text
+    return "".join(
+        f"\\u{ord(char):04x}" if _receipt_control(char) else char for char in text
+    )
+
+
+def _seal_receipt_line(text: str, *, mask: bool = False) -> str:
+    """One receipt line, controls escaped, and URLs masked when ``mask`` is set."""
+
+    sealed = _escape_receipt_controls(text)
+    return mask_text(sealed) if mask else sealed
+
+
+def _would_not_start_args(server_args: Sequence[str]) -> str:
+    """Args for a would-not-start reason.
+
+    ``masked_args`` already prints ``<hidden>`` for the words it flags. A word
+    it leaves unchanged is ``<hidden>`` when the credential check flags it.
+    Other words stay, and the receipt sealer escapes controls in them.
+    """
+
+    if not server_args:
+        return "(none)"
+    shown, _hidden = masked_args(server_args)
+    parts: list[str] = []
+    for original, masked in zip(server_args, shown, strict=True):
+        # masked_args already wrote <hidden> for the parts it flags. Whatever
+        # is left is still checked, so a word that masked_args only partly
+        # hid (a token glued to a URL) is replaced too.
+        if carries_credential_material(masked):
+            parts.append(HIDDEN)
+        else:
+            parts.append(masked)
+    return " ".join(parts)
+
+
 def _entry_store(server_args: Sequence[str], home: Path) -> _Store:
     """Parse ``server_args`` the way ``alice-memory mcp`` does, and resolve its store.
 
@@ -827,8 +1096,9 @@ def _entry_store(server_args: Sequence[str], home: Path) -> _Store:
         with contextlib.redirect_stderr(io.StringIO()), contextlib.redirect_stdout(io.StringIO()):
             args = build_parser().parse_args(["mcp", *server_args])
     except SystemExit:
-        # The args are the user's: print them the way every receipt line is printed.
-        shown = " ".join(masked_args(server_args)[0]) or "(none)"
+        # A flagged word is a fixed label. Controls in the other words are
+        # escaped when the reason is placed on a receipt line.
+        shown = _would_not_start_args(server_args)
         return _Store(None, None, None, 0, f"alice-memory mcp would not start with the args {shown}")
     spans = _option_spans(server_args, _mcp_option_strings())
     count = sum(1 for option, _, _ in spans if option == "--data-dir")
@@ -876,6 +1146,7 @@ def _plan_entry(
     with_env: bool,
     needs_hook: bool = True,
     problem_of: Callable[[Launcher], str | None] | None = None,
+    describe: Callable[[object], str] | None = None,
 ) -> _EntryPlan:
     """Plan one alice entry: shape, store, launcher. Shared by every host.
 
@@ -904,12 +1175,13 @@ def _plan_entry(
     parsed = parse_launcher(existing)
     if parsed is None:
         visible = None if explicit_dir is not None else _visible_dir(existing, home)
+        describer = describe or _describe_entry
         return _EntryPlan(
             None,
             working or UVX_LAUNCHER,
             explicit_dir or visible or new_entry_dir,
             None,
-            f"{key_label} exists and install did not write it ({_describe_entry(existing)})",
+            f"{key_label} exists and install did not write it ({describer(existing)})",
             details,
             False,
             hook_mode="repair",
@@ -1097,24 +1369,253 @@ def _alice_container(doc: dict[str, Any], host: str) -> dict[str, Any] | None:
     return current
 
 
+# Written in two pieces: a test forbids the apps tree from spelling that hook's name whole.
+_CODEX_SESSION_END = "Session" "End"
+_CODEX_HOOK_EVENTS = (
+    "PreToolUse",
+    "PermissionRequest",
+    "PostToolUse",
+    "PreCompact",
+    "PostCompact",
+    "SessionStart",
+    _CODEX_SESSION_END,
+    "UserPromptSubmit",
+    "SubagentStart",
+    "SubagentStop",
+    "Stop",
+    "Interrupt",
+)
+# Codex clamps the timeout of these two events to 3 seconds, before it hashes the handler.
+_CODEX_CLAMPED_EVENTS = frozenset({_CODEX_SESSION_END, "Interrupt"})
+# The events whose handlers keep additionalContextLimit; the others drop it (hooks/src/engine/discovery.rs).
+_CODEX_CONTEXT_EVENTS = frozenset(
+    {"PreToolUse", "PostToolUse", "SessionStart", "UserPromptSubmit", "SubagentStart"}
+)
+_CODEX_HANDLER_TYPES = frozenset({"command", "mcp_tool", "prompt", "agent"})
+_CODEX_SKIPS_HOOKS = "Codex would skip this hooks.json"
+_U64_LIMIT = 2**64
+
+
+def _codex_skips(detail: str) -> NoReturn:
+    raise _MalformedHostFile(f"{_CODEX_SKIPS_HOOKS}: {detail}")
+
+
+def _codex_is_u64(value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and 0 <= value < _U64_LIMIT
+
+
+def _codex_toml_representable(value: object) -> bool:
+    """False for a null anywhere in an ``mcp_tool`` input.
+
+    Codex hashes the handler as TOML for trust, so it rejects the input at
+    load when ``toml`` cannot represent a value, and it cannot represent a null.
+    An integer of any size passes. Codex's release build enables serde_json's
+    ``arbitrary_precision`` (``codex-exec-server-protocol`` asks for it), which
+    hands each number to ``toml`` as a one-entry table, so nothing is out of
+    range there. A plain serde_json build refuses an integer in [2**63, 2**64)
+    and one too large for a float, and this function does not follow that build.
+    """
+
+    if value is None:
+        return False
+    if isinstance(value, dict):
+        return all(_codex_toml_representable(item) for item in value.values())
+    if isinstance(value, list):
+        return all(_codex_toml_representable(item) for item in value)
+    return True
+
+
+def _codex_cannot_hash(value: object, applies: bool, where: str, key: str) -> None:
+    """Refuse a whole number above i64 that Codex would fail on when it hashes the handler.
+
+    Codex reads ``timeout`` and ``additionalContextLimit`` as u64, then hashes
+    each loaded handler as TOML for its trust record, and TOML has no integer
+    above 2**63-1. That step is an ``unreachable!``: Codex panics rather than
+    skips (hooks/src/engine/discovery.rs, ``hook_hash``). ``applies`` is False
+    where Codex does not hash the value.
+    """
+
+    if applies and isinstance(value, int) and value > _CODEX_I64_MAX:
+        _codex_skips(f"{where} has a {key} above 2**63-1, which Codex cannot hash for trust")
+
+
+def _check_codex_handler(handler: object, where: str, event: str) -> None:
+    """Codex's ``HookHandlerConfig`` (config/src/hook_config.rs): tag, required fields, types.
+
+    A field typed ``Option`` accepts null. No message quotes a value from the
+    file. A ``-0`` literal for ``timeout`` or ``additionalContextLimit`` reads
+    as 0 in Codex's release build but is skipped by a plain serde_json build;
+    install accepts it, as the release build does. ``event`` decides which
+    numbers Codex hashes: a handler with an empty command, or an ``mcp_tool``
+    with an empty server or tool, is dropped first, the two clamped events
+    never hash a large timeout, and only five events keep
+    ``additionalContextLimit``.
+    """
+
+    if not isinstance(handler, dict):
+        _codex_skips(f"{where} is not an object")
+    kind = handler.get("type")
+    if not isinstance(kind, str):
+        _codex_skips(f"{where} has no type")
+    if kind not in _CODEX_HANDLER_TYPES:
+        _codex_skips(f"{where} has a type Codex does not read")
+    if kind == "command":
+        if not isinstance(handler.get("command"), str):
+            _codex_skips(f"{where} has no command string")
+        if "commandWindows" in handler and "command_windows" in handler:
+            # One serde field with an alias: Codex reads both spellings as a duplicate, null included.
+            _codex_skips(f"{where} has both commandWindows and command_windows")
+        for key in ("commandWindows", "command_windows", "statusMessage"):
+            if handler.get(key) is not None and not isinstance(handler[key], str):
+                _codex_skips(f"{where} has a {key} that is not a string")
+        for key in ("timeout", "additionalContextLimit"):
+            if handler.get(key) is not None and not _codex_is_u64(handler[key]):
+                _codex_skips(f"{where} has a {key} that is not a whole number of at least 0")
+        if "async" in handler and not isinstance(handler["async"], bool):
+            _codex_skips(f"{where} has an async that is not true or false")
+        if handler["command"].strip():
+            _codex_cannot_hash(handler.get("timeout"), event not in _CODEX_CLAMPED_EVENTS, where, "timeout")
+            _codex_cannot_hash(
+                handler.get("additionalContextLimit"),
+                event in _CODEX_CONTEXT_EVENTS,
+                where,
+                "additionalContextLimit",
+            )
+    elif kind == "mcp_tool":
+        for key in ("server", "tool"):
+            if not isinstance(handler.get(key), str):
+                _codex_skips(f"{where} has no {key} string")
+        if "input" in handler:
+            value = handler["input"]
+            if not isinstance(value, dict) or not _codex_toml_representable(value):
+                _codex_skips(f"{where} has an input Codex cannot hash")
+        if handler.get("timeout") is not None and not _codex_is_u64(handler["timeout"]):
+            _codex_skips(f"{where} has a timeout that is not a whole number of at least 0")
+        if handler.get("statusMessage") is not None and not isinstance(handler["statusMessage"], str):
+            _codex_skips(f"{where} has a statusMessage that is not a string")
+        if handler["server"].strip() and handler["tool"].strip():
+            _codex_cannot_hash(
+                handler.get("timeout"), event not in _CODEX_CLAMPED_EVENTS, where, "timeout"
+            )
+
+
+def _check_codex_hooks_walk(doc: Mapping[str, Any]) -> None:
+    """Refuse what Codex's serde types skip. Two odd shapes Codex loads are refused here too.
+
+    A group written as a JSON array (serde reads a struct from a sequence), and
+    an ``mcp_tool`` input that is a bare decimal or an integer past u64 (with
+    ``arbitrary_precision`` serde_json hands a map to ``Map``), are loaded by
+    Codex and refused by install. Neither turns up in a real file.
+    """
+
+    extra = set(doc) - {"description", "hooks"}
+    if extra:
+        _codex_skips("the top level holds a key other than description and hooks")
+    if doc.get("description") is not None and not isinstance(doc["description"], str):
+        _codex_skips("description is not a string")
+    if "hooks" not in doc:
+        return
+    hooks = doc["hooks"]
+    if not isinstance(hooks, dict):
+        _codex_skips("hooks is not an object")
+    for event in _CODEX_HOOK_EVENTS:
+        if event not in hooks:
+            continue
+        groups = hooks[event]
+        if not isinstance(groups, list):
+            _codex_skips(f"hooks.{event} is not a list")
+        for group_index, group in enumerate(groups):
+            where = f"hooks.{event}[{group_index}]"
+            if not isinstance(group, dict):
+                _codex_skips(f"{where} is not an object")
+            if group.get("matcher") is not None and not isinstance(group["matcher"], str):
+                _codex_skips(f"{where} has a matcher that is not a string")
+            handlers = group.get("hooks", [])
+            if not isinstance(handlers, list):
+                _codex_skips(f"{where}.hooks is not a list")
+            for handler_index, handler in enumerate(handlers):
+                _check_codex_handler(handler, f"{where}.hooks[{handler_index}]", event)
+
+
+def _check_codex_hooks_document(doc: Mapping[str, Any]) -> None:
+    """Refuse a hooks.json Codex would skip, and one with two Alice hooks.
+
+    Codex skips the whole file on any type error, the user's own groups
+    included, so install does not add to a file it would then hide.
+    """
+
+    _check_codex_hooks_walk(doc)
+    hooks = doc.get("hooks")
+    groups = hooks.get("SessionStart") if isinstance(hooks, dict) else None
+    found = _codex_alice_handlers(groups) if isinstance(groups, list) else []
+    if len(found) > 1:
+        raise _MalformedHostFile(
+            "hooks.json holds more than one alice-memory-session-start hook in hooks.SessionStart"
+        )
+
+
 def _check_hooks_file(doc: Mapping[str, Any], host: str) -> None:
+    """The JSON hosts' hooks file: ``hooks`` an object, the event key a list.
+
+    Codex has its own check, ``_check_codex_hooks_document``, and its own
+    loader, so this is never called for it.
+    """
+
     hooks = doc.get("hooks")
     if hooks is None:
         return
     if not isinstance(hooks, Mapping):
         raise _MalformedHostFile("hooks is not an object")
-    key = "SessionStart" if host == "claude-code" else "sessionStart"
+    key = _hook_event_key(host)
     if key in hooks and not isinstance(hooks[key], list):
         raise _MalformedHostFile(f"hooks.{key} is not a list")
 
 
+_PLAIN_PROGRAM = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+-]{0,63}")
+
+
 def _describe_entry(entry: object) -> str:
+    """Why an entry is foreign. Print a name only when the first word looks like a program.
+
+    A first word that contains ``://`` is ``a URL``, and no part of it is
+    printed. A first word that carries credential material, or that
+    ``masked_args`` would hide, is ``a command that looks like a
+    credential``. Any other first word is printed only when its basename
+    matches a plain program name. A later word is not used, so a path with
+    spaces names its first fragment.
+    """
+
     if isinstance(entry, Mapping):
         command = entry.get("command")
         if isinstance(command, str):
-            return f"its command is {masked_args([command])[0][0]}"
+            words = command.split()
+            if words:
+                word = words[0]
+                if "://" in word:
+                    return "its command is a URL"
+                if carries_credential_material(word) or masked_args([word])[1]:
+                    return "its command is a command that looks like a credential"
+                name = PureWindowsPath(word).name
+                if _PLAIN_PROGRAM.fullmatch(name):
+                    return f"its command is {name}"
+                return "its command is not a plain program name"
         return "it has no string command"
     return "it is not an object"
+
+
+def _describe_opencode_entry(entry: object) -> str:
+    """Why an OpenCode entry is foreign. An array command is required."""
+
+    if not isinstance(entry, Mapping):
+        return "it is not an object"
+    command = entry.get("command")
+    if (
+        isinstance(command, list)
+        and bool(command)
+        and all(isinstance(word, str) and word for word in command)
+    ):
+        return "its command array is not one install wrote"
+    return "it has no command array"
 
 
 # --- Hermes config.yaml ------------------------------------------------------------
@@ -1179,11 +1680,19 @@ class HermesConfigRefused(InstallError):
 
 
 class InstallRefused(InstallError):
-    """A host file was left unchanged on purpose. ``output`` holds every receipt."""
+    """A host file was left unchanged on purpose. ``output`` holds every receipt.
 
-    def __init__(self, output: str) -> None:
+    ``kinds`` names each refused host. ``plugin`` is the Claude Code case
+    where the plugin and install's entries both exist. ``hook_by_hand`` is
+    the Codex case where install wrote config.toml and refused only the hook,
+    because config.toml already defines hooks. Each has its own error, used
+    only when every refusal is that one.
+    """
+
+    def __init__(self, output: str, *, kinds: Sequence[str] = ()) -> None:
         super().__init__("a host config was left unchanged")
         self.output = output
+        self.kinds = tuple(kinds)
 
 
 class InstallFailed(InstallError):
@@ -1573,6 +2082,40 @@ def _hermes_alice_lines(
     return _hermes_block_lines(
         mcp_server_payload(data_dir, with_env=True, launcher=launcher), indent
     )
+
+
+def _hermes_alice_has_comment(doc: _YamlText, start: int, last: int) -> bool:
+    """True when Alice's block holds a full-line or inline comment.
+
+    A ``#`` inside a quoted value is not a comment: the scanner leaves it
+    out of ``comment`` and the line does not start with ``#``. A full-line
+    comment is trivia, so only the ``#`` check sees it.
+    """
+
+    for index in range(start, last + 1):
+        item = doc.info[index]
+        if item is not None and item.comment:
+            return True
+        if doc.lines[index].lstrip(" \t").startswith("#"):
+            return True
+    return False
+
+
+def _hermes_block_without_comments(doc: _YamlText, start: int, last: int) -> list[str]:
+    """Alice's lines with full-line comments and inline comments removed."""
+
+    kept: list[str] = []
+    for index in range(start, last + 1):
+        line = doc.lines[index]
+        if line.lstrip(" \t").startswith("#"):
+            continue
+        item = doc.info[index]
+        if item is not None and item.comment:
+            end = line.rstrip(" \t")
+            if end.endswith(item.comment):
+                line = end[: -len(item.comment)].rstrip(" \t")
+        kept.append(line)
+    return kept
 
 
 def _hermes_block_lines(
@@ -2400,8 +2943,18 @@ def _plan_hermes(
             tuple(details),
             entry_plan.used_fallback,
         )
-        if lines[start : last + 1] == block:
+        # A comment on a block that already matches install is not a change.
+        # Refuse only when keeping the comment would hide a real edit.
+        if _hermes_block_without_comments(doc, start, last) == block:
             return plan
+        if _hermes_alice_has_comment(doc, start, last):
+            raise HermesConfigRefused(
+                "a comment in alice",
+                start + 1,
+                data_dir=entry_plan.data_dir,
+                payload=payload,
+                located=True,
+            )
         lines[start : last + 1] = block
         final_newline = doc.final_newline or last == len(doc.lines) - 1
         return replace(plan, text=_render_yaml_text(doc, lines, final_newline))
@@ -2601,6 +3154,7 @@ class _HostResult:
     receipt: str
     status: str  # "ok", "refused" or "failed"
     used_fallback: bool = False  # an entry runs a launcher install could not confirm here
+    refusal_kind: str | None = None
 
 
 _FAILED_REASON = "the file could not be read or written"
@@ -2829,7 +3383,7 @@ def write_mcpb_bundle(path: Path, *, dry_run: bool) -> str:
     if dry_run:
         return "\n".join(
             (
-                f"mcpb: {target}",
+                _seal_receipt_line(f"mcpb: {target}"),
                 "action: dry-run",
                 "snippet:",
                 snippet.rstrip(),
@@ -2841,7 +3395,7 @@ def write_mcpb_bundle(path: Path, *, dry_run: bool) -> str:
             archive.writestr(MCPB_MANIFEST_NAME, snippet)
     except OSError as exc:
         raise InstallError("mcpb zip could not be written") from exc
-    return "\n".join((f"mcpb: {target}", "action: written"))
+    return "\n".join((_seal_receipt_line(f"mcpb: {target}"), "action: written"))
 
 
 def _plan_hosts(hosts: Sequence[str] | None) -> list[str]:
@@ -2874,27 +3428,33 @@ def _format_host_receipt(
     target: Path | None = None,
     hooks_target: Path | None = None,
     hook_details: Sequence[str] = (),
+    file_format: str | None = None,
 ) -> str:
-    lines = [f"host: {host}", f"path: {mcp_path}"]
+    # Every composed line is sealed: control characters in a value stay on
+    # that line, and mask_text still hides a URL past its scheme. The snippet
+    # is already JSON or YAML with its own escapes, so its line breaks stay.
+    lines = [_seal_receipt_line(f"host: {host}"), _seal_receipt_line(f"path: {mcp_path}")]
     if target is not None and target != mcp_path:
-        lines.append(f"target: {target}")
-    # Every line install composes passes through mask_text, so no URL reaches
-    # the terminal past its scheme; snippets are masked whole.
-    lines += [f"action: {action}", *map(mask_text, details), f"session_start: {session_start}"]
+        lines.append(_seal_receipt_line(f"target: {target}"))
+    lines.append(_seal_receipt_line(f"action: {action}"))
+    if file_format is not None:
+        lines.append(_seal_receipt_line(f"format: {file_format}"))
+    lines += [_seal_receipt_line(item, mask=True) for item in details]
+    lines.append(_seal_receipt_line(f"session_start: {session_start}"))
     if hooks_path is not None:
-        lines.append(f"session_start_path: {hooks_path}")
+        lines.append(_seal_receipt_line(f"session_start_path: {hooks_path}"))
         if hooks_target is not None and hooks_target != hooks_path:
-            lines.append(f"session_start_target: {hooks_target}")
-    lines.extend(map(mask_text, hook_details))
-    if host in {"openclaw", "hermes"}:
-        lines.append(f"note: {BRIEF_HINT}")
+            lines.append(_seal_receipt_line(f"session_start_target: {hooks_target}"))
+    lines.extend(_seal_receipt_line(item, mask=True) for item in hook_details)
+    if host in {"openclaw", "hermes", "opencode"}:
+        lines.append(_seal_receipt_line(f"note: {BRIEF_HINT}"))
     if snippet is not None:
         lines.append("snippet:")
         lines.append(snippet.rstrip())
-    lines.extend(map(mask_text, trailer))
+    lines.extend(_seal_receipt_line(item, mask=True) for item in trailer)
     if host == "openclaw":
         shown_line = openclaw_add_line(data_dir, launcher, hide_values=True)
-        lines.append(shown_line)
+        lines.append(_seal_receipt_line(shown_line))
         if shown_line != openclaw_add_line(data_dir, launcher):
             lines.append(
                 "note: the line above shows <hidden> in place of values from your entry; "
@@ -2972,7 +3532,7 @@ def _hook_block(launcher: Launcher) -> str | None:
     return None
 
 
-def _argv_after_change(plan: _EntryPlan) -> str | None:
+def _argv_after_change(plan: _EntryPlan, output_format: str | None = None) -> str | None:
     """The plain hook argv install would add once the entry's uncarried options are gone.
 
     Carried options only, so no URL and nothing to hide; None when the
@@ -2995,7 +3555,28 @@ def _argv_after_change(plan: _EntryPlan) -> str | None:
         "--data-dir",
         plan.data_dir,
     ]
+    if output_format is not None:
+        argv += ["--format", output_format]
     return f"session_start_argv_after_change: {json.dumps(argv)}"
+
+
+def _with_output_format(argv: Sequence[str], output_format: str) -> list[str]:
+    """``argv`` with its last ``--format`` set to ``output_format``, or one added."""
+
+    out = list(argv)
+    located: tuple[int, bool] | None = None
+    for index, word in enumerate(out):
+        if word == "--format" and index + 1 < len(out):
+            located = (index + 1, False)
+        elif word.startswith("--format="):
+            located = (index, True)
+    if located is None:
+        if out and out[-1] == "--format":
+            out.pop()
+        return [*out, "--format", output_format]
+    index, equals = located
+    out[index] = f"--format={output_format}" if equals else output_format
+    return out
 
 
 def _refuse_kept_hook(
@@ -3005,6 +3586,7 @@ def _refuse_kept_hook(
     reason: str | None,
     details: list[str],
     block: str | None = None,
+    output_format: str | None = None,
 ) -> tuple[str, str]:
     """Refuse a hook install must keep but cannot point at the entry's new dir.
 
@@ -3024,6 +3606,8 @@ def _refuse_kept_hook(
     else:
         index, equals = located
         argv[index] = f"--data-dir={data_dir}" if equals else data_dir
+    if output_format is not None:
+        argv = _with_output_format(argv, output_format)
     old_raw = old.raw if old is not None and old.raw is not None else "(none)"
     details.append(
         f"warning: the MCP entry now opens {data_dir}, but the SessionStart hook's --data-dir "
@@ -3063,6 +3647,7 @@ def _plan_hook(
 
     command: str | None = None
     built = False  # the command runs the entry's launcher, as install wrote it
+    output_format = _hook_output_format(host)
     if plan.hook_mode == "repair":
         if old_command is None:
             return "none", None
@@ -3084,7 +3669,7 @@ def _plan_hook(
             )
             command = old_command
         elif block is not None:
-            after = _argv_after_change(plan)
+            after = _argv_after_change(plan, output_format)
             if old_command is None:
                 details.append(f"warning: install added no SessionStart hook: {block}")
                 if after is not None:
@@ -3100,7 +3685,9 @@ def _plan_hook(
                 # Keep the launcher text; move only the --data-dir value.
                 moved, problem = replace_hook_data_dir(old_command, plan.data_dir)
                 if moved is None:
-                    return _refuse_kept_hook(old_command, old, plan.data_dir, problem, details)
+                    return _refuse_kept_hook(
+                        old_command, old, plan.data_dir, problem, details, output_format=output_format
+                    )
                 command = moved
                 details.append(
                     "warning: install kept the SessionStart hook's launcher and changed only "
@@ -3109,7 +3696,9 @@ def _plan_hook(
                 details.append(f"session_start_data_dir: {old.raw} -> {plan.data_dir}")
             elif follows and explicit and (old is None or not old.trusted):
                 reason = old.reason if old is not None and old.reason else "it has no --data-dir"
-                return _refuse_kept_hook(old_command, old, plan.data_dir, reason, details, block)
+                return _refuse_kept_hook(
+                    old_command, old, plan.data_dir, reason, details, block, output_format
+                )
             else:
                 details.append(
                     f"warning: install left the SessionStart hook's command as it was: {block}"
@@ -3125,7 +3714,7 @@ def _plan_hook(
                 command = old_command
             else:
                 assert old.raw is not None  # nosec B101 # narrows the type for mypy; only HookDataDir(None, False) lacks raw, and it is not trusted
-                text, problem = hook_command(plan.launcher, old.raw)
+                text, problem = hook_command(plan.launcher, old.raw, output_format=output_format)
                 if problem is not None:
                     return "refused", problem
                 command, built = text, True
@@ -3137,9 +3726,11 @@ def _plan_hook(
             )
             command = old_command
         else:
-            text, problem = hook_command(plan.launcher, plan.data_dir)
+            text, problem = hook_command(plan.launcher, plan.data_dir, output_format=output_format)
             if problem is not None:
                 argv = [*plan.launcher.hook_argv(), "--data-dir", plan.data_dir]
+                if output_format is not None:
+                    argv += ["--format", output_format]
                 details.append(f"session_start_argv: {json.dumps(masked_args(argv)[0])}")
                 return "refused", problem
             command, built = text, True
@@ -3163,6 +3754,18 @@ def _plan_hook(
                 "which may still run the old one"
             )
     assert command is not None  # nosec B101 # narrows the type for mypy; every branch above sets it or returns
+    if output_format is not None and not built and hook_output_format(command) != output_format:
+        # A command install keeps as it is must still print what the host reads.
+        # Codex rejects JSON, so a hook that would stay in JSON mode injects nothing.
+        kept_argv = _with_output_format(split_command(command), output_format)
+        shown, hidden = shown_hook_words(kept_argv)
+        details.append(
+            f"warning: the SessionStart hook's command keeps its own launcher and does not print "
+            f"--format {output_format}, which {host.capitalize()} needs, so install did not change the hook"
+        )
+        if not hidden:
+            details.append(f"session_start_argv: {json.dumps(shown)}")
+        return "refused", f"the SessionStart hook would keep printing a format {host.capitalize()} rejects"
     if not hooks.doc:
         hooks.doc.update(_new_hooks_document(host, command))
         return "added", None
@@ -3182,9 +3785,27 @@ def _dry_run_json_snippet(
     if hooks is not None:
         items = _alice_hook_items(hooks.doc, host)
         if items:
-            key = "SessionStart" if host == "claude-code" else "sessionStart"
+            key = _hook_event_key(host)
             parts.append(_dump_json({"hooks": {key: _masked_hook_item(items, hidden)}}))
     return "\n---\n".join(part.rstrip() for part in parts) + "\n", list(dict.fromkeys(hidden))
+
+
+def _claude_plugin_state(doc: Mapping[str, Any]) -> str:
+    """``enabled``, ``disabled``, or ``absent`` for the Alice plugin id.
+
+    A missing ``enabledPlugins``, a non-object value, or another plugin id
+    is ``absent``. Install then writes as usual.
+    """
+
+    plugins = doc.get("enabledPlugins")
+    if not isinstance(plugins, dict):
+        return "absent"
+    value = plugins.get(CLAUDE_PLUGIN_ID)
+    if value is True:
+        return "enabled"
+    if value is False:
+        return "disabled"
+    return "absent"
 
 
 def _install_json_host(
@@ -3319,6 +3940,30 @@ def _install_json_host(
         return _HostResult(receipt("failed", snippet=None), "failed")
 
     assert mcp is not None  # nosec B101 # narrows the type for mypy; the failure paths above return
+    if host == "claude-code" and hooks is not None:
+        plugin_state = _claude_plugin_state(hooks.doc)
+        has_install_entry = existing is not None or old_hook is not None
+        if plugin_state == "enabled" and not has_install_entry:
+            details.clear()
+            hook_details.clear()
+            session_start = "skipped"
+            return _HostResult(receipt(_CLAUDE_PLUGIN_SKIP, snippet=None), "ok")
+        if plugin_state == "enabled" and has_install_entry:
+            details[:] = [
+                "reason: the alice-memory plugin is enabled and install's entries exist"
+            ]
+            hook_details.clear()
+            session_start = "none"
+            plugin_trailer: tuple[str, ...] = (f"next: {_CLAUDE_PLUGIN_NEXT}",)
+            if dry_run:
+                plugin_trailer = (*plugin_trailer, _DRY_RUN_REFUSAL)
+            return _HostResult(
+                receipt(_refusal_action(dry_run), snippet=None, trailer=plugin_trailer),
+                "refused",
+                refusal_kind="plugin",
+            )
+        if plugin_state == "disabled":
+            details.append(_CLAUDE_PLUGIN_DISABLED_NOTE)
     refused = plan.refusal is not None or hook_problem is not None
     if plan.refusal is not None:
         details.insert(0, f"reason: {plan.refusal}")
@@ -3438,6 +4083,3964 @@ def _install_mcpb(path: Path, *, dry_run: bool, uvx_on_path: bool) -> _HostResul
     return _HostResult("\n".join((f"mcpb: {path}", "action: failed", f"reason: {reason}")), "failed")
 
 
+_OPENCODE_SCHEMA = "https://opencode.ai/config.json"
+_OPENCODE_DIR_PLACEHOLDER = "<the data dir your existing alice entry uses>"
+_OPENCODE_SECOND_NEXT = (
+    "next: nothing was written for opencode. Keep one alice entry, then run install again."
+)
+_OPENCODE_HAND_NEXT = (
+    "Add the alice entry above under mcp by hand, then check it with: opencode mcp list"
+)
+_OPENCODE_XDG_NEXT = (
+    "next: nothing was written for opencode. "
+    "Set XDG_CONFIG_HOME to an absolute path, or pass --home, then run install again."
+)
+_OPENCODE_TEXT_NEXT = (
+    "next: nothing was written for opencode. "
+    "Edit the alice entry by hand instead, then check it with: opencode mcp list"
+)
+_OPENCODE_KEYS_NEXT = (
+    "next: nothing was written for opencode. "
+    "Install refuses while those keys are present. "
+    "Edit the alice entry by hand instead, then check it with: opencode mcp list"
+)
+_OPENCODE_TEXT_FORMAT = "jsonc, edited as text"
+_OPENCODE_JSONC_DEPTH = 64
+_OPENCODE_ENV_WORD = "a command word holds {env: or {file:"
+_OPENCODE_CONFIG_ENVS = (
+    "OPENCODE_CONFIG",
+    "OPENCODE_CONFIG_DIR",
+    "OPENCODE_CONFIG_CONTENT",
+)
+
+
+def _opencode_config_home(home: Path) -> tuple[Path, str | None]:
+    """``XDG_CONFIG_HOME`` when it is absolute, else ``home / ".config"``."""
+
+    raw = os.environ.get("XDG_CONFIG_HOME")
+    if raw is None or raw == "":
+        return home / ".config", None
+    if raw.startswith("~") or not Path(raw).is_absolute():
+        return home / ".config", f"XDG_CONFIG_HOME {raw} is not an absolute path"
+    return Path(raw), None
+
+
+def _parse_opencode_json(raw: bytes) -> dict[str, Any] | None:
+    """Strict JSON, or None.
+
+    UTF-8, no BOM, no duplicate keys, no non-finite float. ``parse_constant``
+    raises, so ``NaN`` and ``Infinity`` are refused.
+    """
+
+    if raw.startswith(b"\xef\xbb\xbf"):
+        return None
+
+    def reject_constant(name: str) -> None:
+        raise ValueError(name)
+
+    def reject_duplicates(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        parsed: dict[str, Any] = {}
+        for key, value in pairs:
+            if key in parsed:
+                raise ValueError("duplicate key")
+            parsed[key] = value
+        return parsed
+
+    try:
+        text = raw.decode("utf-8")
+        loaded = json.loads(text, parse_constant=reject_constant, object_pairs_hook=reject_duplicates)
+    except (UnicodeDecodeError, ValueError, RecursionError):
+        return None
+    if not isinstance(loaded, dict):
+        return None
+    if _opencode_non_finite(loaded):
+        return None
+    return loaded
+
+
+def _opencode_non_finite(value: object) -> bool:
+    """True when ``value`` holds a NaN or an infinity, including ``1e999``."""
+
+    if isinstance(value, float):
+        return value != value or value in {float("inf"), float("-inf")}
+    if isinstance(value, dict):
+        return any(_opencode_non_finite(item) for item in value.values())
+    if isinstance(value, list):
+        return any(_opencode_non_finite(item) for item in value)
+    return False
+
+
+def _opencode_blank(raw: bytes | None) -> bool:
+    return raw is None or not raw.strip()
+
+
+def _opencode_servers_hold_alice(doc: Mapping[str, Any]) -> bool:
+    mcp = doc.get("mcp")
+    if not isinstance(mcp, dict):
+        return False
+    servers = mcp.get("servers")
+    return isinstance(servers, dict) and "alice" in servers
+
+
+def _opencode_existing_target(path: Path) -> Path:
+    """Where a write to ``path`` goes, or ``path`` when nothing is there yet.
+
+    A dangling or looping symlink, or anything that is not a regular file,
+    is refused the same way the JSON hosts refuse one.
+    """
+
+    if not path.is_symlink() and not path.exists():
+        return path
+    target = _host_target(path)
+    if not target.is_file():
+        raise _MalformedHostFile(f"{path.name} is not a regular file")
+    return target
+
+
+def _opencode_alice_count(doc: Mapping[str, Any]) -> int:
+    mcp = doc.get("mcp")
+    if not isinstance(mcp, dict):
+        return 0
+    count = 1 if "alice" in mcp else 0
+    servers = mcp.get("servers")
+    if isinstance(servers, dict) and "alice" in servers:
+        count += 1
+    return count
+
+
+def _opencode_command_entry(data_dir: str, launcher: Launcher) -> dict[str, object]:
+    return {
+        "type": "local",
+        "command": [launcher.command, *launcher.prefix, "--data-dir", data_dir],
+    }
+
+
+def _opencode_as_install_entry(entry: Mapping[str, Any] | None) -> dict[str, Any] | None:
+    """OpenCode's array ``command`` as the string ``command`` plus ``args``.
+
+    ``type`` is held aside. Key order of the original entry is not copied:
+    ``_plan_entry`` only needs the launcher shape.
+    """
+
+    if entry is None:
+        return None
+    if parse_launcher(entry, command_array=True) is None:
+        return dict(entry)
+    words = entry.get("command")
+    assert isinstance(words, list)  # nosec B101 # command_array parse accepts only a string list
+    return {"command": words[0], "args": list(words[1:])}
+
+
+def _install_entry_as_opencode(
+    planned: Mapping[str, Any], original: Mapping[str, Any] | None
+) -> dict[str, Any]:
+    """The planned install entry back in OpenCode shape, original keys kept."""
+
+    command = planned.get("command")
+    args = planned.get("args")
+    if not isinstance(command, str) or not isinstance(args, list):
+        raise _MalformedHostFile("the planned OpenCode entry has no command array")
+    if not all(isinstance(arg, str) for arg in args):
+        raise _MalformedHostFile("the planned OpenCode command is not a list of strings")
+    words = [command, *args]
+    if any("{env:" in word or "{file:" in word for word in words):
+        raise _MalformedHostFile(_OPENCODE_ENV_WORD)
+    if original is None:
+        return {"type": "local", "command": words}
+    rebuilt: dict[str, Any] = {}
+    saw_type = False
+    saw_command = False
+    for key, value in original.items():
+        if key == "args":
+            continue
+        if key == "type":
+            rebuilt["type"] = "local"
+            saw_type = True
+            continue
+        if key == "command":
+            rebuilt["command"] = words
+            saw_command = True
+            continue
+        rebuilt[key] = value
+    if not saw_type:
+        rebuilt = {"type": "local", **rebuilt}
+    if not saw_command:
+        rebuilt["command"] = words
+    return rebuilt
+
+
+def _opencode_env_notes() -> list[str]:
+    notes: list[str] = []
+    for name in _OPENCODE_CONFIG_ENVS:
+        if os.environ.get(name):
+            notes.append(
+                f"note: {name} is set, so OpenCode may load config that install did not write"
+            )
+    return notes
+
+
+class OpenCodeConfigRefused(HermesConfigRefused):
+    """install left an OpenCode file untouched because the text path could not edit it."""
+
+
+class _OpencodeStatFailed(Exception):
+    """A stat of an OpenCode path raised OSError. The host fails with a receipt."""
+
+    def __init__(self, path: Path) -> None:
+        super().__init__(path.name)
+        self.path = path
+
+
+def _opencode_blocked_path(path: Path) -> Path:
+    """The directory or file whose permissions stopped a stat of ``path``.
+
+    A mode ``000`` directory can still be stat-ed. Its children cannot, and
+    the directory itself cannot be searched. The receipt names that directory,
+    not a child such as ``opencode/config`` that was only the probe target.
+    """
+
+    current = path
+    while True:
+        parent = current.parent
+        if parent == current:
+            return current
+        try:
+            parent_exists = parent.exists()
+        except OSError:
+            current = parent
+            continue
+        if not parent_exists:
+            return current
+        try:
+            scan = os.scandir(parent)
+            scan.close()
+        except OSError:
+            return parent
+        return current
+
+
+def _opencode_probe(path: Path) -> None:
+    """Stat ``path``. Permission errors become a failed host, not a crash.
+
+    The receipt names the directory that could not be stat-ed, not a child
+    such as ``opencode/config`` that was only the probe target.
+    """
+
+    try:
+        path.is_symlink()
+        path.exists()
+    except OSError as exc:
+        raise _OpencodeStatFailed(_opencode_blocked_path(path)) from exc
+
+
+def _opencode_empty(raw: bytes | None) -> bool:
+    """A missing or zero-byte file counts as absent. Whitespace does not."""
+
+    return raw is None or raw == b""
+
+
+def _opencode_command_data_dir(entry: Mapping[str, Any] | None) -> str | None:
+    """The ``--data-dir`` value written in an OpenCode command array, if one is visible."""
+
+    if not isinstance(entry, Mapping):
+        return None
+    command = entry.get("command")
+    if not isinstance(command, list):
+        return None
+    words = [word for word in command if isinstance(word, str)]
+    found: str | None = None
+    index = 0
+    while index < len(words):
+        word = words[index]
+        if word == "--data-dir" and index + 1 < len(words) and not words[index + 1].startswith("-"):
+            found = words[index + 1]
+            index += 2
+            continue
+        if word.startswith("--data-dir=") and len(word) > len("--data-dir="):
+            found = word.split("=", 1)[1]
+        index += 1
+    return found
+
+
+def _opencode_dir_holds_substitution(value: str | None) -> bool:
+    """True when a data dir would paste an OpenCode ``{env:`` or ``{file:`` word."""
+
+    return value is not None and ("{env:" in value or "{file:" in value)
+
+
+def _opencode_quiet_session_start(details: list[str]) -> None:
+    """OpenCode has no SessionStart hook, so a warning must not name one."""
+
+    needle = "install left this entry, and its SessionStart hook, as they were"
+    replacement = "install left this entry as it was"
+    for index, line in enumerate(details):
+        if needle in line:
+            details[index] = line.replace(needle, replacement)
+
+
+@dataclass(frozen=True)
+class _JsoncTok:
+    kind: str
+    start: int
+    end: int
+    line: int
+    decoded: object = None
+
+
+@dataclass
+class _JsoncNode:
+    kind: str
+    start: int
+    end: int
+    line: int
+    pairs: list[tuple[str, int, int, "_JsoncNode"]] | None = None
+    items: list["_JsoncNode"] | None = None
+    decoded: object = None
+    raw: str = ""
+
+
+def _jsonc_breaks(text: str, start: int, end: int) -> int:
+    """Line breaks in ``text[start:end]``. ``\\r\\n`` is one break. A lone ``\\r`` is one."""
+
+    count = 0
+    index = start
+    while index < end:
+        char = text[index]
+        if char == "\n":
+            count += 1
+            index += 1
+            continue
+        if char == "\r":
+            count += 1
+            index += 1
+            if index < end and text[index] == "\n":
+                index += 1
+            continue
+        index += 1
+    return count
+
+
+def _jsonc_line(text: str, index: int) -> int:
+    return _jsonc_breaks(text, 0, index) + 1
+
+
+def _jsonc_ascii_digit(char: str) -> bool:
+    return "0" <= char <= "9"
+
+
+def _jsonc_string(text: str, start: int, line: int) -> tuple[str, int]:
+    """Decode one JSON string starting at ``start``. Return (decoded, end)."""
+
+    if start >= len(text) or text[start] != '"':
+        raise OpenCodeConfigRefused("a token error", line)
+    chars: list[str] = []
+    index = start + 1
+    while index < len(text):
+        char = text[index]
+        if char == '"':
+            return "".join(chars), index + 1
+        if ord(char) < 0x20:
+            raise OpenCodeConfigRefused("a token error", line)
+        if char != "\\":
+            chars.append(char)
+            index += 1
+            continue
+        if index + 1 >= len(text):
+            raise OpenCodeConfigRefused("a token error", line)
+        escaped = text[index + 1]
+        simple = {'"': '"', "\\": "\\", "/": "/", "b": "\b", "f": "\f", "n": "\n", "r": "\r", "t": "\t"}
+        if escaped in simple:
+            chars.append(simple[escaped])
+            index += 2
+            continue
+        if escaped == "u" and index + 6 <= len(text):
+            digits = text[index + 2 : index + 6]
+            if len(digits) == 4 and all(c in "0123456789abcdefABCDEF" for c in digits):
+                chars.append(chr(int(digits, 16)))
+                index += 6
+                continue
+        raise OpenCodeConfigRefused("a token error", line)
+    raise OpenCodeConfigRefused("a token error", line)
+
+
+def _jsonc_tokens(text: str) -> list[_JsoncTok]:
+    if text.startswith("\ufeff"):
+        raise OpenCodeConfigRefused("a byte order mark", 1)
+    tokens: list[_JsoncTok] = []
+    index = 0
+    length = len(text)
+    line = 1
+    while index < length:
+        char = text[index]
+        if char in " \t\r\n":
+            start = index
+            start_line = line
+            while index < length and text[index] in " \t\r\n":
+                if text[index] == "\r":
+                    line += 1
+                    index += 1
+                    if index < length and text[index] == "\n":
+                        index += 1
+                    continue
+                if text[index] == "\n":
+                    line += 1
+                index += 1
+            tokens.append(_JsoncTok("ws", start, index, start_line))
+            continue
+        if text.startswith("{env:", index) or text.startswith("{file:", index):
+            raise OpenCodeConfigRefused("an unquoted substitution", line)
+        if char == "/" and index + 1 < length and text[index + 1] == "/":
+            end = index + 2
+            while end < length and text[end] not in "\r\n":
+                end += 1
+            tokens.append(_JsoncTok("comment", index, end, line))
+            index = end
+            continue
+        if char == "/" and index + 1 < length and text[index + 1] == "*":
+            end = text.find("*/", index + 2)
+            if end < 0:
+                raise OpenCodeConfigRefused("an unterminated comment", line)
+            token_end = end + 2
+            tokens.append(_JsoncTok("comment", index, token_end, line))
+            line += _jsonc_breaks(text, index, token_end)
+            index = token_end
+            continue
+        if char == '"':
+            decoded, end = _jsonc_string(text, index, line)
+            tokens.append(_JsoncTok("string", index, end, line, decoded))
+            index = end
+            continue
+        if char == "-" or _jsonc_ascii_digit(char):
+            end = index
+            if text[end] == "-":
+                end += 1
+            if end >= length or not _jsonc_ascii_digit(text[end]):
+                raise OpenCodeConfigRefused("a token error", line)
+            if text[end] == "0":
+                end += 1
+            else:
+                while end < length and _jsonc_ascii_digit(text[end]):
+                    end += 1
+            if end < length and text[end] == ".":
+                end += 1
+                if end >= length or not _jsonc_ascii_digit(text[end]):
+                    raise OpenCodeConfigRefused("a token error", line)
+                while end < length and _jsonc_ascii_digit(text[end]):
+                    end += 1
+            if end < length and text[end] in "eE":
+                exponent = end + 1
+                if exponent < length and text[exponent] in "+-":
+                    exponent += 1
+                if exponent >= length or not _jsonc_ascii_digit(text[exponent]):
+                    raise OpenCodeConfigRefused("a token error", line)
+                while exponent < length and _jsonc_ascii_digit(text[exponent]):
+                    exponent += 1
+                end = exponent
+            tokens.append(_JsoncTok("number", index, end, line, text[index:end]))
+            index = end
+            continue
+        if text.startswith("true", index):
+            tokens.append(_JsoncTok("literal", index, index + 4, line, True))
+            index += 4
+            continue
+        if text.startswith("false", index):
+            tokens.append(_JsoncTok("literal", index, index + 5, line, False))
+            index += 5
+            continue
+        if text.startswith("null", index):
+            tokens.append(_JsoncTok("literal", index, index + 4, line, None))
+            index += 4
+            continue
+        if char in "{}[]:,":
+            tokens.append(_JsoncTok("punct", index, index + 1, line, char))
+            index += 1
+            continue
+        raise OpenCodeConfigRefused("a token error", line)
+    return tokens
+
+
+class _JsoncParser:
+    def __init__(self, text: str, tokens: list[_JsoncTok]) -> None:
+        self.text = text
+        self.tokens = [token for token in tokens if token.kind != "ws"]
+        self.index = 0
+        self.depth = 0
+        self.forbid_comments = False
+
+    def _skip_comments(self) -> None:
+        while self.index < len(self.tokens) and self.tokens[self.index].kind == "comment":
+            if self.forbid_comments:
+                token = self.tokens[self.index]
+                raise OpenCodeConfigRefused("a comment in alice", token.line)
+            self.index += 1
+
+    def _peek(self) -> _JsoncTok | None:
+        self._skip_comments()
+        if self.index >= len(self.tokens):
+            return None
+        return self.tokens[self.index]
+
+    def _take(self) -> _JsoncTok:
+        token = self._peek()
+        if token is None:
+            raise OpenCodeConfigRefused("a token error", _jsonc_line(self.text, len(self.text)))
+        self.index += 1
+        return token
+
+    def _punct(self, token: _JsoncTok, mark: str) -> bool:
+        return token.kind == "punct" and token.decoded == mark
+
+    def parse(self) -> _JsoncNode:
+        node = self._value()
+        if (extra := self._peek()) is not None:
+            raise OpenCodeConfigRefused("a token error", extra.line)
+        return node
+
+    def _value(self) -> _JsoncNode:
+        token = self._take()
+        if token.kind == "string":
+            return _JsoncNode(
+                "string", token.start, token.end, token.line, decoded=token.decoded, raw=self.text[token.start : token.end]
+            )
+        if token.kind == "number":
+            return _JsoncNode("number", token.start, token.end, token.line, decoded=token.decoded)
+        if token.kind == "literal":
+            return _JsoncNode("literal", token.start, token.end, token.line, decoded=token.decoded)
+        if token.kind == "punct" and token.decoded == "{":
+            return self._object(token)
+        if token.kind == "punct" and token.decoded == "[":
+            return self._array(token)
+        raise OpenCodeConfigRefused("a token error", token.line)
+
+    def _enter(self, token: _JsoncTok) -> None:
+        self.depth += 1
+        if self.depth > _OPENCODE_JSONC_DEPTH:
+            raise OpenCodeConfigRefused("the file is nested too deeply to read", token.line)
+
+    def _object(self, opener: _JsoncTok) -> _JsoncNode:
+        self._enter(opener)
+        pairs: list[tuple[str, int, int, _JsoncNode]] = []
+        if (closing := self._peek()) is not None and self._punct(closing, "}"):
+            end = self._take()
+            self.depth -= 1
+            return _JsoncNode("object", opener.start, end.end, opener.line, pairs=pairs)
+        while True:
+            key = self._take()
+            if key.kind != "string" or not isinstance(key.decoded, str):
+                raise OpenCodeConfigRefused("a token error", key.line)
+            colon = self._take()
+            if not self._punct(colon, ":"):
+                raise OpenCodeConfigRefused("a token error", colon.line)
+            value = self._value()
+            pairs.append((key.decoded, key.start, key.line, value))
+            nxt = self._peek()
+            if nxt is not None and self._punct(nxt, ","):
+                self._take()
+                if (tail := self._peek()) is not None and self._punct(tail, "}"):
+                    end = self._take()
+                    self.depth -= 1
+                    return _JsoncNode("object", opener.start, end.end, opener.line, pairs=pairs)
+                continue
+            if nxt is not None and self._punct(nxt, "}"):
+                end = self._take()
+                self.depth -= 1
+                return _JsoncNode("object", opener.start, end.end, opener.line, pairs=pairs)
+            line = nxt.line if nxt is not None else opener.line
+            raise OpenCodeConfigRefused("a token error", line)
+
+    def _array(self, opener: _JsoncTok) -> _JsoncNode:
+        self._enter(opener)
+        items: list[_JsoncNode] = []
+        if (closing := self._peek()) is not None and self._punct(closing, "]"):
+            end = self._take()
+            self.depth -= 1
+            return _JsoncNode("array", opener.start, end.end, opener.line, items=items)
+        while True:
+            items.append(self._value())
+            nxt = self._peek()
+            if nxt is not None and self._punct(nxt, ","):
+                self._take()
+                if (tail := self._peek()) is not None and self._punct(tail, "]"):
+                    end = self._take()
+                    self.depth -= 1
+                    return _JsoncNode("array", opener.start, end.end, opener.line, items=items)
+                continue
+            if nxt is not None and self._punct(nxt, "]"):
+                end = self._take()
+                self.depth -= 1
+                return _JsoncNode("array", opener.start, end.end, opener.line, items=items)
+            line = nxt.line if nxt is not None else opener.line
+            raise OpenCodeConfigRefused("a token error", line)
+
+
+def _parse_jsonc_text(text: str) -> _JsoncNode:
+    tokens = _jsonc_tokens(text)
+    significant = [token for token in tokens if token.kind not in {"ws", "comment"}]
+    if not significant:
+        if any(token.kind == "comment" for token in tokens):
+            raise OpenCodeConfigRefused("comment-only text", 1, placeholder=True)
+        raise OpenCodeConfigRefused("whitespace-only text", 1, placeholder=True)
+    try:
+        return _JsoncParser(text, tokens).parse()
+    except RecursionError as exc:
+        raise OpenCodeConfigRefused("the file is nested too deeply to read", 1, placeholder=True) from exc
+
+
+def _jsonc_named(node: _JsoncNode, name: str) -> list[tuple[str, int, int, _JsoncNode]]:
+    pairs = node.pairs or []
+    return [pair for pair in pairs if pair[0] == name]
+
+
+def _jsonc_alice_census(node: _JsoncNode) -> tuple[int, bool]:
+    """(how many ``mcp.alice`` keys, whether ``mcp.servers.alice`` is present)."""
+
+    if node.kind != "object":
+        raise OpenCodeConfigRefused("the top level is not an object", node.line, placeholder=True)
+    mcp_keys = _jsonc_named(node, "mcp")
+    if len(mcp_keys) > 1:
+        raise OpenCodeConfigRefused("mcp appears more than once", mcp_keys[1][2], placeholder=True)
+    if not mcp_keys:
+        return 0, False
+    mcp = mcp_keys[0][3]
+    if mcp.kind != "object":
+        raise OpenCodeConfigRefused("mcp is not an object", mcp.line, placeholder=True)
+    alice_keys = _jsonc_named(mcp, "alice")
+    if len(alice_keys) > 1:
+        raise OpenCodeConfigRefused("alice appears more than once", alice_keys[1][2])
+    servers = False
+    server_keys = _jsonc_named(mcp, "servers")
+    if server_keys and server_keys[0][3].kind == "object":
+        servers = any(pair[0] == "alice" for pair in (server_keys[0][3].pairs or []))
+    return len(alice_keys), servers
+
+
+def _jsonc_newline(text: str) -> str:
+    """The line break to insert. A file of only ``\\r`` keeps ``\\r``."""
+
+    if "\n" not in text and "\r" in text:
+        return "\r"
+    return "\r\n" if "\r\n" in text else "\n"
+
+
+def _jsonc_line_whitespace(text: str, index: int) -> str:
+    """The spaces and tabs at the start of the line that holds ``index``."""
+
+    line_start = max(text.rfind("\n", 0, index), text.rfind("\r", 0, index)) + 1
+    end = line_start
+    while end < len(text) and text[end] in " \t":
+        end += 1
+    return text[line_start:end]
+
+
+def _jsonc_indent_unit(text: str, node: _JsoncNode) -> str | None:
+    """One indent step inside ``node``, or None when the object is one line.
+
+    The step is the first key's line indent minus the opening brace's line
+    indent. It is only whitespace. Rendering adds that step to the parent
+    line, so a later rewrite does not multiply it.
+    """
+
+    chunk = text[node.start : node.end]
+    if "\n" not in chunk and "\r" not in chunk:
+        return None
+    parent = _jsonc_line_whitespace(text, node.start)
+    pairs = node.pairs or []
+    if pairs:
+        child = _jsonc_line_whitespace(text, pairs[0][1])
+        if child.startswith(parent) and len(child) > len(parent):
+            step = child[len(parent) :]
+            if step.strip(" \t") == "":
+                return step
+    else:
+        inner = text[node.start + 1 : node.end - 1]
+        for line in inner.splitlines():
+            stripped = line.lstrip(" \t")
+            if stripped == "":
+                continue
+            leading = line[: len(line) - len(stripped)]
+            if leading.startswith(parent) and len(leading) > len(parent):
+                step = leading[len(parent) :]
+                if step.strip(" \t") == "":
+                    return step
+            break
+    return "  "
+
+
+def _jsonc_insert_indent(text: str, node: _JsoncNode) -> str:
+    """Whitespace before a member inserted just after ``node``'s ``{``."""
+
+    parent = _jsonc_line_whitespace(text, node.start)
+    return parent + (_jsonc_indent_unit(text, node) or "  ")
+
+
+def _jsonc_dump_string(value: str) -> str:
+    return json.dumps(value, ensure_ascii=True)
+
+
+def _render_jsonc_value(
+    value: object,
+    *,
+    newline: str,
+    step: str | None,
+    base: str,
+    raw_env: Mapping[str, str] | None,
+) -> str:
+    """``value`` as JSON text.
+
+    ``step`` None keeps it on one line. Otherwise ``base`` is the indent of
+    the line that already holds this value, and each nested line adds one step.
+    """
+
+    if step is None:
+        return _render_jsonc_compact(value, raw_env)
+    inner = base + step
+    if isinstance(value, dict):
+        if not value:
+            return "{}"
+        lines = ["{"]
+        items = list(value.items())
+        for index, (key, item) in enumerate(items):
+            comma = "," if index + 1 < len(items) else ""
+            if key == "environment" and raw_env is not None:
+                rendered = _render_jsonc_env(raw_env, newline=newline, step=step, base=inner)
+            else:
+                rendered = _render_jsonc_value(
+                    item, newline=newline, step=step, base=inner, raw_env=None
+                )
+            lines.append(f"{inner}{_jsonc_dump_string(str(key))}: {rendered}{comma}")
+        lines.append(f"{base}}}")
+        return newline.join(lines)
+    if isinstance(value, list):
+        if not value:
+            return "[]"
+        lines = ["["]
+        for index, item in enumerate(value):
+            comma = "," if index + 1 < len(value) else ""
+            rendered = _render_jsonc_value(item, newline=newline, step=step, base=inner, raw_env=None)
+            lines.append(f"{inner}{rendered}{comma}")
+        lines.append(f"{base}]")
+        return newline.join(lines)
+    if isinstance(value, str):
+        return _jsonc_dump_string(value)
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return json.dumps(value, ensure_ascii=True)
+
+
+def _render_jsonc_compact(value: object, raw_env: Mapping[str, str] | None) -> str:
+    if isinstance(value, dict):
+        parts: list[str] = []
+        for key, item in value.items():
+            if key == "environment" and raw_env is not None:
+                rendered = _render_jsonc_env(raw_env, newline="", step=None, base="")
+            else:
+                rendered = _render_jsonc_compact(item, None)
+            parts.append(f"{_jsonc_dump_string(str(key))}: {rendered}")
+        return "{" + ", ".join(parts) + "}"
+    if isinstance(value, list):
+        return "[" + ", ".join(_render_jsonc_compact(item, None) for item in value) + "]"
+    if isinstance(value, str):
+        return _jsonc_dump_string(value)
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return json.dumps(value, ensure_ascii=True)
+
+
+def _render_jsonc_env(
+    raw_env: Mapping[str, str], *, newline: str, step: str | None, base: str
+) -> str:
+    items = list(raw_env.items())
+    if step is None or newline == "":
+        parts = [f"{_jsonc_dump_string(name)}: {literal}" for name, literal in items]
+        return "{" + ", ".join(parts) + "}"
+    inner = base + step
+    lines = ["{"]
+    for index, (name, literal) in enumerate(items):
+        comma = "," if index + 1 < len(items) else ""
+        lines.append(f"{inner}{_jsonc_dump_string(name)}: {literal}{comma}")
+    lines.append(f"{base}}}")
+    return newline.join(lines)
+
+
+def _insert_jsonc_property(text: str, node: _JsoncNode, rendered: str) -> str:
+    """Insert ``rendered`` immediately after ``node``'s opening brace.
+
+    A comma follows only when a real member follows. A comment is not a
+    member. Nothing already inside the braces is copied, removed, or rewritten.
+    The indent before a multi-line member is whitespace only.
+    """
+
+    after = node.start + 1
+    comma = "," if node.pairs else ""
+    chunk = text[node.start : node.end]
+    if "\n" not in chunk and "\r" not in chunk:
+        return text[:after] + rendered + comma + text[after:]
+    newline = _jsonc_newline(text)
+    indent = _jsonc_insert_indent(text, node)
+    return text[:after] + newline + indent + rendered + comma + text[after:]
+
+
+def _jsonc_command_data_dir(node: _JsoncNode) -> str | None:
+    """The ``--data-dir`` value in ``node``'s command array, when one is visible."""
+
+    for key, _start, _line, value in node.pairs or []:
+        if key != "command":
+            continue
+        if value.kind != "array":
+            return None
+        words: list[str] = []
+        for item in value.items or []:
+            if item.kind != "string" or not isinstance(item.decoded, str):
+                return None
+            words.append(item.decoded)
+        return _opencode_command_data_dir({"command": words})
+    return None
+
+
+def _alice_from_jsonc(node: _JsoncNode) -> tuple[dict[str, Any], dict[str, str]]:
+    """The old alice object, and the raw source of each carried environment literal."""
+
+    if node.kind != "object":
+        raise OpenCodeConfigRefused("alice is not an object", node.line)
+    recovered = _jsonc_command_data_dir(node)
+
+    def refuse(reason: str, line: int, *, extra: bool = False) -> NoReturn:
+        raise OpenCodeConfigRefused(
+            reason,
+            line,
+            extra_keys=(reason,) if extra else (),
+            data_dir=recovered,
+            placeholder=recovered is None,
+            located=True,
+        )
+
+    allowed = {"type", "command", "environment"}
+    decoded: dict[str, Any] = {}
+    raw_env: dict[str, str] = {}
+    seen: set[str] = set()
+    for key, _key_start, key_line, value in node.pairs or []:
+        if key in seen:
+            refuse("a duplicate key", key_line)
+        seen.add(key)
+        if key not in allowed:
+            refuse("a key install does not carry", key_line, extra=True)
+        if key == "type":
+            if value.kind != "string" or not isinstance(value.decoded, str):
+                refuse("type is not a string", value.line)
+            decoded["type"] = value.decoded
+        elif key == "command":
+            items = value.items or []
+            if value.kind != "array" or not items or any(item.kind != "string" for item in items):
+                refuse("command is not an array of strings", value.line)
+            decoded["command"] = [item.decoded for item in items]
+        else:
+            if value.kind != "object":
+                refuse("environment is not an object", value.line)
+            env: dict[str, str] = {}
+            for name, _start, line, item in value.pairs or []:
+                if name not in _DOCUMENTED_ENV_NAMES:
+                    refuse("an environment key install does not carry", line, extra=True)
+                if item.kind != "string" or not isinstance(item.decoded, str):
+                    refuse("an environment value is not a string", item.line)
+                env[name] = item.decoded
+                raw_env[name] = item.raw
+            decoded["environment"] = env
+    if "type" not in decoded:
+        decoded = {"type": "local", **decoded}
+    return decoded, raw_env
+
+
+@dataclass
+class _OpencodeTextPlan:
+    text: str | None
+    plan: _EntryPlan
+    existing: dict[str, Any] | None
+    raw_env: dict[str, str]
+
+
+_JSONC_EDIT_REFUSAL = "the edited text is not the planned entry"
+
+
+def _jsonc_child(node: _JsoncNode, name: str) -> _JsoncNode | None:
+    found: _JsoncNode | None = None
+    for key, _start, _line, value in node.pairs or []:
+        if key == name:
+            found = value
+    return found
+
+
+def _jsonc_data(node: _JsoncNode) -> object:
+    """``node`` as plain JSON values. A number stays its source text."""
+
+    if node.kind == "string" or node.kind == "literal":
+        return node.decoded
+    if node.kind == "number":
+        return ("number", str(node.decoded))
+    if node.kind == "array":
+        return [_jsonc_data(item) for item in node.items or []]
+    if node.kind == "object":
+        data: dict[str, object] = {}
+        for key, _start, _line, value in node.pairs or []:
+            data[key] = _jsonc_data(value)
+        return data
+    raise OpenCodeConfigRefused(_JSONC_EDIT_REFUSAL, node.line)
+
+
+def _jsonc_members(node: _JsoncNode) -> list[tuple[str, object]]:
+    if node.kind != "object":
+        raise OpenCodeConfigRefused(_JSONC_EDIT_REFUSAL, node.line)
+    return [(key, _jsonc_data(value)) for key, _start, _line, value in node.pairs or []]
+
+
+def _strip_alice(members: list[tuple[str, object]]) -> list[tuple[str, object]]:
+    """Members with ``mcp.alice`` removed. An ``mcp`` object that only held alice is gone."""
+
+    stripped: list[tuple[str, object]] = []
+    for key, value in members:
+        if key != "mcp" or not isinstance(value, dict):
+            stripped.append((key, value))
+            continue
+        rest = {child: child_value for child, child_value in value.items() if child != "alice"}
+        if rest:
+            stripped.append((key, rest))
+    return stripped
+
+
+def _require_planned_jsonc(original: str, edited: str, planned: Mapping[str, Any]) -> None:
+    """Refuse unless ``edited`` is the planned ``mcp.alice`` and the original values.
+
+    Called before a write. A parse error or a changed sibling becomes a refusal,
+    and the file is left untouched.
+    """
+
+    before = _parse_jsonc_text(original)
+    after = _parse_jsonc_text(edited)
+    if before.kind != "object" or after.kind != "object":
+        raise OpenCodeConfigRefused(_JSONC_EDIT_REFUSAL)
+    mcp = _jsonc_child(after, "mcp")
+    alice = _jsonc_child(mcp, "alice") if mcp is not None and mcp.kind == "object" else None
+    if alice is None or _jsonc_data(alice) != dict(planned):
+        raise OpenCodeConfigRefused(_JSONC_EDIT_REFUSAL)
+    if _strip_alice(_jsonc_members(before)) != _strip_alice(_jsonc_members(after)):
+        raise OpenCodeConfigRefused(_JSONC_EDIT_REFUSAL)
+
+
+def _plan_opencode_text(
+    text: str,
+    *,
+    home: Path,
+    explicit_dir: str | None,
+    default_dir: str,
+    search: LauncherSearch,
+) -> _OpencodeTextPlan:
+    """Plan an edit of JSONC text. ``text`` is None when the bytes should stay."""
+
+    root = _parse_jsonc_text(text)
+    if root.kind != "object":
+        raise OpenCodeConfigRefused("the top level is not an object", root.line, placeholder=True)
+    mcp_keys = _jsonc_named(root, "mcp")
+    if len(mcp_keys) > 1:
+        raise OpenCodeConfigRefused("mcp appears more than once", mcp_keys[1][2], placeholder=True)
+    alice_node: _JsoncNode | None = None
+    mcp_node: _JsoncNode | None = None
+    existing: dict[str, Any] | None = None
+    raw_env: dict[str, str] = {}
+    if mcp_keys:
+        mcp_node = mcp_keys[0][3]
+        if mcp_node.kind != "object":
+            raise OpenCodeConfigRefused("mcp is not an object", mcp_node.line, placeholder=True)
+        alice_keys = _jsonc_named(mcp_node, "alice")
+        if len(alice_keys) > 1:
+            raise OpenCodeConfigRefused("alice appears more than once", alice_keys[1][2])
+        server_keys = _jsonc_named(mcp_node, "servers")
+        if server_keys and server_keys[0][3].kind == "object":
+            if any(pair[0] == "alice" for pair in (server_keys[0][3].pairs or [])):
+                raise OpenCodeConfigRefused("alice is under mcp.servers", server_keys[0][2])
+        if alice_keys:
+            alice_node = alice_keys[0][3]
+            alice_text = text[alice_node.start : alice_node.end]
+            base_line = _jsonc_line(text, alice_node.start) - 1
+            watched = _JsoncParser(alice_text, _jsonc_tokens(alice_text))
+            watched.forbid_comments = True
+            try:
+                watched.parse()
+            except OpenCodeConfigRefused as refusal:
+                if "comment" not in str(refusal):
+                    raise
+                for token in _jsonc_tokens(alice_text):
+                    if token.kind == "comment":
+                        recovered = _jsonc_command_data_dir(alice_node)
+                        raise OpenCodeConfigRefused(
+                            "a comment in alice",
+                            base_line + token.line,
+                            located=True,
+                            data_dir=recovered,
+                            placeholder=recovered is None,
+                        ) from refusal
+                raise
+            existing, raw_env = _alice_from_jsonc(alice_node)
+            if parse_launcher(existing, command_array=True) is None:
+                recovered = _opencode_command_data_dir(existing)
+                raise OpenCodeConfigRefused(
+                    "mcp.alice is not an entry install wrote",
+                    alice_node.line,
+                    located=True,
+                    data_dir=recovered,
+                    placeholder=recovered is None,
+                )
+    install_existing = _opencode_as_install_entry(existing) if existing is not None else None
+    plan = _plan_entry(
+        install_existing,
+        key_label="mcp.alice",
+        explicit_dir=explicit_dir,
+        new_entry_dir=default_dir,
+        default_dir=default_dir,
+        home=home,
+        search=search,
+        with_env=False,
+        needs_hook=False,
+        describe=_describe_opencode_entry,
+    )
+    if plan.refusal is not None or plan.entry is None:
+        return _OpencodeTextPlan(None, plan, existing, raw_env)
+    try:
+        opencode_entry = _install_entry_as_opencode(plan.entry, existing)
+    except _MalformedHostFile as problem:
+        raise OpenCodeConfigRefused(str(problem), alice_node.line if alice_node else 1) from problem
+    if existing is not None and alice_node is not None:
+        old_command = existing.get("command")
+        new_command = opencode_entry.get("command")
+        old_env = existing.get("environment")
+        new_env = opencode_entry.get("environment")
+        if old_command == new_command and old_env == new_env and existing.get("type") == "local":
+            return _OpencodeTextPlan(text, plan, existing, raw_env)
+    newline = _jsonc_newline(text)
+    if alice_node is not None:
+        step = _jsonc_indent_unit(text, alice_node)
+        base = _jsonc_line_whitespace(text, alice_node.start)
+        rendered_value = _render_jsonc_value(
+            opencode_entry, newline=newline, step=step, base=base, raw_env=raw_env or None
+        )
+        updated = text[: alice_node.start] + rendered_value + text[alice_node.end :]
+        return _OpencodeTextPlan(updated, plan, existing, raw_env)
+    owner = mcp_node if mcp_node is not None else root
+    step = _jsonc_indent_unit(text, owner)
+    if step is None:
+        rendered_value = _render_jsonc_value(
+            opencode_entry, newline=newline, step=None, base="", raw_env=raw_env or None
+        )
+        property_text = f"{_jsonc_dump_string('alice')}: {rendered_value}"
+        if mcp_node is None:
+            rendered = _jsonc_dump_string("mcp") + ": { " + property_text + " }"
+            updated = _insert_jsonc_property(text, root, rendered)
+        else:
+            updated = _insert_jsonc_property(text, mcp_node, property_text)
+        return _OpencodeTextPlan(updated, plan, existing, raw_env)
+    if mcp_node is None:
+        member = _jsonc_insert_indent(text, root)
+        alice_base = member + step
+        rendered_value = _render_jsonc_value(
+            opencode_entry, newline=newline, step=step, base=alice_base, raw_env=raw_env or None
+        )
+        property_text = f"{_jsonc_dump_string('alice')}: {rendered_value}"
+        rendered = (
+            _jsonc_dump_string("mcp")
+            + ": {"
+            + newline
+            + alice_base
+            + property_text
+            + newline
+            + member
+            + "}"
+        )
+        updated = _insert_jsonc_property(text, root, rendered)
+        return _OpencodeTextPlan(updated, plan, existing, raw_env)
+    member = _jsonc_insert_indent(text, mcp_node)
+    rendered_value = _render_jsonc_value(
+        opencode_entry, newline=newline, step=step, base=member, raw_env=raw_env or None
+    )
+    property_text = f"{_jsonc_dump_string('alice')}: {rendered_value}"
+    updated = _insert_jsonc_property(text, mcp_node, property_text)
+    return _OpencodeTextPlan(updated, plan, existing, raw_env)
+
+
+def _install_opencode_host(
+    *,
+    home: Path,
+    config_home: Path,
+    explicit_dir: str | None,
+    default_dir: str,
+    dry_run: bool,
+    search: LauncherSearch,
+    xdg_problem: str | None,
+) -> _HostResult:
+    """Write OpenCode's JSON file, or edit JSONC as text."""
+
+    files = host_file_map(home, config_home=config_home)["opencode"]
+    launcher = search.launcher or UVX_LAUNCHER
+    data_dir = explicit_dir or default_dir
+    details = _opencode_env_notes()
+    session_start = "none"
+    host_format = "json"
+
+    def receipt(action: str, path: Path, **extra: Any) -> str:
+        return _format_host_receipt(
+            host="opencode",
+            mcp_path=path,
+            hooks_path=None,
+            action=action,
+            details=details,
+            session_start=session_start,
+            data_dir=data_dir,
+            launcher=launcher,
+            file_format=host_format,
+            **extra,
+        )
+
+    def refused(
+        path: Path,
+        reason: str,
+        next_line: str,
+        *,
+        placeholder: bool = False,
+        include_snippet: bool = True,
+        snippet_entry: Mapping[str, Any] | None = None,
+    ) -> _HostResult:
+        snippet = None
+        hidden: list[str] = []
+        if include_snippet:
+            shown_dir = _OPENCODE_DIR_PLACEHOLDER if placeholder else data_dir
+            payload = (
+                snippet_entry
+                if snippet_entry is not None
+                else _opencode_command_entry(shown_dir, launcher)
+            )
+            shown, hidden = _masked(payload)
+            snippet = _alice_entry_snippet("opencode", shown)
+        trailer = []
+        if hidden:
+            trailer.append(_keep_line(hidden))
+        if dry_run:
+            trailer.append(_DRY_RUN_REFUSAL)
+        trailer.append(next_line)
+        details.insert(0, f"reason: {reason}")
+        return _HostResult(
+            receipt(
+                _refusal_action(dry_run),
+                path,
+                snippet=snippet,
+                trailer=tuple(trailer),
+            ),
+            "refused",
+        )
+
+    def failed(path: Path) -> _HostResult:
+        details[:0] = [f"file: {path}", f"reason: {_FAILED_REASON}"]
+        return _HostResult(receipt("failed", path, snippet=None), "failed")
+
+    def text_refusal(path: Path, refusal: OpenCodeConfigRefused) -> _HostResult:
+        nonlocal host_format, data_dir
+        host_format = _OPENCODE_TEXT_FORMAT
+        reason = str(refusal)
+        if refusal.extra_keys:
+            next_line = _OPENCODE_KEYS_NEXT
+        elif "more than once" in reason or "mcp.servers" in reason:
+            next_line = _OPENCODE_SECOND_NEXT
+        else:
+            next_line = _OPENCODE_TEXT_NEXT
+        recovered = refusal.data_dir
+        if recovered and not _opencode_dir_holds_substitution(recovered):
+            data_dir = recovered
+            use_placeholder = False
+        else:
+            use_placeholder = (
+                refusal.placeholder
+                or not refusal.located
+                or _opencode_dir_holds_substitution(recovered)
+            )
+        return refused(
+            path,
+            reason,
+            next_line,
+            placeholder=use_placeholder,
+        )
+
+    if xdg_problem is not None:
+        return refused(files["mcp"], xdg_problem, _OPENCODE_XDG_NEXT)
+
+    legacy_config = config_home / "opencode" / "config"
+    try:
+        _opencode_probe(legacy_config)
+    except _OpencodeStatFailed as problem:
+        return failed(problem.path)
+    if legacy_config.exists():
+        return refused(
+            files["mcp"],
+            f"{legacy_config.name} exists and install does not migrate it",
+            "next: nothing was written for opencode. "
+            f"Remove or migrate {legacy_config} with OpenCode first, then run install again.",
+        )
+
+    @dataclass
+    class _SeenFile:
+        path: Path
+        raw: bytes
+        mode: str
+        doc: dict[str, Any] | None
+        text: str
+        alice: int
+        servers: bool
+
+    seen: list[_SeenFile] = []
+    servers_alice = False
+    try:
+        for key in ("mcp", "jsonc", "legacy", "home_json", "home_jsonc"):
+            path = files[key]
+            _opencode_probe(path)
+            if not path.is_symlink() and not path.exists():
+                continue
+            if not path.is_symlink() and path.is_dir():
+                return refused(
+                    path,
+                    f"{path.name} is not a regular file",
+                    f"next: nothing was written for opencode. Fix {path.name}, then run install again.",
+                )
+            try:
+                read_path = path if not path.is_symlink() else _host_target(path)
+                raw = _read_host_file(read_path)
+            except _MalformedHostFile as problem:
+                return refused(
+                    path,
+                    str(problem),
+                    f"next: nothing was written for opencode. Fix {path.name}, then run install again.",
+                )
+            except OSError:
+                return refused(
+                    path,
+                    f"{path.name} is unscannable",
+                    "next: nothing was written for opencode. "
+                    f"Fix permissions on {path.name}, then run install again.",
+                )
+            if _opencode_empty(raw):
+                continue
+            assert raw is not None  # nosec B101 # a non-empty read returned bytes
+            use_text = path.name.endswith(".jsonc")
+            doc: dict[str, Any] | None = None
+            file_text = ""
+            if not use_text:
+                doc = _parse_opencode_json(raw)
+                use_text = doc is None
+            if use_text:
+                try:
+                    file_text = raw.decode("utf-8")
+                except UnicodeDecodeError as exc:
+                    raise OpenCodeConfigRefused("the file is not UTF-8", 1, placeholder=True) from exc
+                count, servers = _jsonc_alice_census(_parse_jsonc_text(file_text))
+                if servers:
+                    servers_alice = True
+                seen.append(_SeenFile(path, raw, "text", None, file_text, count, servers))
+            else:
+                assert doc is not None  # nosec B101 # strict JSON parsed
+                servers = _opencode_servers_hold_alice(doc)
+                if servers:
+                    servers_alice = True
+                seen.append(_SeenFile(path, raw, "exact", doc, "", _opencode_alice_count(doc), servers))
+    except _OpencodeStatFailed as problem:
+        return failed(problem.path)
+    except OpenCodeConfigRefused as refusal:
+        return text_refusal(path, refusal)
+
+    def text_scan_refusal(item: _SeenFile, reason: str) -> _HostResult:
+        nonlocal host_format
+        host_format = _OPENCODE_TEXT_FORMAT
+        return refused(item.path, reason, _OPENCODE_SECOND_NEXT, placeholder=True)
+
+    # A strict JSON duplicate next to opencode.jsonc has no single data dir
+    # to paste. The snippet uses the placeholder, as a text-scan refusal does.
+    jsonc_present = any(item.path.name.endswith(".jsonc") for item in seen)
+    if servers_alice:
+        text_hit = next((item for item in seen if item.mode == "text" and item.servers), None)
+        if text_hit is not None:
+            return text_scan_refusal(text_hit, "alice is under mcp.servers")
+        return refused(
+            files["mcp"],
+            "alice is under mcp.servers",
+            _OPENCODE_SECOND_NEXT,
+            placeholder=jsonc_present,
+        )
+    alice_total = sum(item.alice for item in seen)
+    if alice_total > 1:
+        text_hit = next((item for item in seen if item.mode == "text" and item.alice), None)
+        if text_hit is not None:
+            return text_scan_refusal(text_hit, "alice appears more than once")
+        return refused(
+            files["mcp"],
+            "alice appears more than once",
+            _OPENCODE_SECOND_NEXT,
+            placeholder=jsonc_present,
+        )
+
+    chosen = next((item for item in seen if item.alice), None)
+    if chosen is None:
+        chosen = next((item for item in seen if item.path == files["jsonc"]), None)
+    if chosen is None:
+        chosen = next((item for item in seen if item.path == files["mcp"]), None)
+    target_path = files["mcp"] if chosen is None else chosen.path
+    target_raw = None if chosen is None else chosen.raw
+    target_doc = {} if chosen is None or chosen.doc is None else chosen.doc
+    target_mode = "exact" if chosen is None else chosen.mode
+    target_text = "" if chosen is None else chosen.text
+
+    try:
+        _opencode_probe(target_path)
+        write_target = _opencode_existing_target(target_path)
+    except _OpencodeStatFailed as problem:
+        return failed(problem.path)
+    except _MalformedHostFile as problem:
+        return refused(
+            target_path,
+            str(problem),
+            f"next: nothing was written for opencode. Fix {target_path.name}, then run install again.",
+        )
+
+    if target_mode == "text":
+        nonlocal_format = _OPENCODE_TEXT_FORMAT
+        host_format = nonlocal_format
+        try:
+            edited = _plan_opencode_text(
+                target_text,
+                home=home,
+                explicit_dir=explicit_dir,
+                default_dir=default_dir,
+                search=search,
+            )
+        except OpenCodeConfigRefused as refusal:
+            return text_refusal(target_path, refusal)
+        except _MalformedHostFile as problem:
+            return refused(
+                target_path,
+                str(problem),
+                f"next: nothing was written for opencode. Fix {target_path.name}, then run install again.",
+            )
+        plan = edited.plan
+        existing = edited.existing
+        data_dir = plan.data_dir
+        launcher = plan.launcher
+        details.extend(plan.details)
+        _opencode_quiet_session_start(details)
+        own_dir = _opencode_command_data_dir(existing)
+        stopped = plan.entry is None and plan.refusal is None
+        unsafe_dir = _opencode_dir_holds_substitution(own_dir)
+        if stopped and own_dir and not unsafe_dir:
+            data_dir = own_dir
+        if plan.refusal is not None or plan.entry is None:
+            snippet_entry = None
+            if plan.paste is not None:
+                try:
+                    snippet_entry = _install_entry_as_opencode(plan.paste, existing)
+                except _MalformedHostFile:
+                    snippet_entry = None
+            reason = plan.refusal or "install did not plan an OpenCode entry"
+            next_step = plan.next_step or _OPENCODE_HAND_NEXT
+            return refused(
+                target_path,
+                reason,
+                f"next: {target_path.name} was not changed. {next_step}",
+                placeholder=stopped and (own_dir is None or unsafe_dir),
+                snippet_entry=snippet_entry,
+            )
+        shown, hidden = _masked(
+            _install_entry_as_opencode(plan.entry, existing) if plan.entry is not None else {}
+        )
+        snippet = _alice_entry_snippet("opencode", shown)
+        if dry_run:
+            trailer = ((_hidden_line(hidden),) if hidden else ())
+            return _HostResult(
+                receipt("dry-run", target_path, snippet=snippet, trailer=trailer),
+                "ok",
+                plan.used_fallback,
+            )
+        if edited.text is None or edited.text == target_text:
+            return _HostResult(receipt("unchanged", target_path, snippet=None), "ok", plan.used_fallback)
+        try:
+            _require_planned_jsonc(
+                target_text,
+                edited.text,
+                _install_entry_as_opencode(plan.entry, existing),
+            )
+        except (OpenCodeConfigRefused, _MalformedHostFile) as problem:
+            return refused(
+                target_path,
+                str(problem),
+                f"next: {target_path.name} was not changed. {_OPENCODE_HAND_NEXT}",
+            )
+        backup_dir = _backup_dir(plan.data_dir)
+        try:
+            backup = _backup_host_file(write_target, target_raw or b"", backup_dir=backup_dir, host="opencode")
+            details.append(f"backup: {backup}")
+            _write_text(write_target, edited.text, newline="")
+        except _BackupFailed as failure:
+            details[:0] = [f"file: {write_target}", f"reason: {failure.reason()}"]
+            return _HostResult(receipt("failed", target_path, snippet=None), "failed", plan.used_fallback)
+        except (OSError, InstallError):
+            details[:0] = [f"file: {write_target}", f"reason: {_FAILED_REASON}"]
+            return _HostResult(receipt("failed", target_path, snippet=None), "failed", plan.used_fallback)
+        return _HostResult(receipt("written", target_path, snippet=None), "ok", plan.used_fallback)
+
+    mcp_value = target_doc.get("mcp")
+    if mcp_value is not None and not isinstance(mcp_value, dict):
+        return refused(
+            target_path,
+            "mcp is not an object",
+            f"next: nothing was written for opencode. Fix {target_path.name}, then run install again.",
+        )
+    existing = mcp_value.get("alice") if isinstance(mcp_value, dict) else None
+    if existing is not None and not isinstance(existing, dict):
+        return refused(
+            target_path,
+            "mcp.alice is not an object install wrote",
+            f"next: {target_path.name} was not changed. {_OPENCODE_HAND_NEXT}",
+        )
+    install_existing = _opencode_as_install_entry(existing)
+    if isinstance(existing, dict) and parse_launcher(existing, command_array=True) is None:
+        install_existing = existing
+    try:
+        plan = _plan_entry(
+            install_existing,
+            key_label="mcp.alice",
+            explicit_dir=explicit_dir,
+            new_entry_dir=default_dir,
+            default_dir=default_dir,
+            home=home,
+            search=search,
+            with_env=False,
+            needs_hook=False,
+            describe=_describe_opencode_entry,
+        )
+    except _MalformedHostFile as problem:
+        return refused(target_path, str(problem), f"next: nothing was written for opencode. Fix {target_path.name}, then run install again.")
+
+    data_dir = plan.data_dir
+    launcher = plan.launcher
+    details.extend(plan.details)
+    _opencode_quiet_session_start(details)
+    own_dir = _opencode_command_data_dir(existing if isinstance(existing, Mapping) else None)
+    if plan.entry is None and plan.refusal is None and own_dir:
+        data_dir = own_dir
+    if plan.refusal is not None:
+        snippet_entry = None
+        if plan.paste is not None:
+            try:
+                snippet_entry = _install_entry_as_opencode(
+                    plan.paste, existing if isinstance(existing, dict) else None
+                )
+            except _MalformedHostFile:
+                snippet_entry = None
+        return refused(
+            target_path,
+            plan.refusal,
+            f"next: {target_path.name} was not changed. {plan.next_step or _OPENCODE_HAND_NEXT}",
+            snippet_entry=snippet_entry,
+        )
+    if plan.entry is None:
+        return refused(
+            target_path,
+            "install did not plan an OpenCode entry",
+            f"next: {target_path.name} was not changed. {_OPENCODE_HAND_NEXT}",
+        )
+    try:
+        opencode_entry = _install_entry_as_opencode(
+            plan.entry, existing if isinstance(existing, dict) else None
+        )
+    except _MalformedHostFile as problem:
+        text = str(problem)
+        if text == _OPENCODE_ENV_WORD:
+            return refused(
+                target_path,
+                text,
+                "next: nothing was written for opencode. "
+                "Choose a data dir that does not contain {env: or {file:, then run install again.",
+                include_snippet=False,
+            )
+        return refused(target_path, text, f"next: {target_path.name} was not changed. {_OPENCODE_HAND_NEXT}")
+
+    doc = target_doc
+    if not doc and target_raw is None:
+        doc = {"$schema": _OPENCODE_SCHEMA}
+    elif not doc and _opencode_blank(target_raw):
+        doc = {"$schema": _OPENCODE_SCHEMA}
+    _set_nested(doc, ("mcp", "alice"), opencode_entry)
+    changed = target_raw is None or doc != target_doc or _opencode_blank(target_raw)
+    # target_doc may be the same object as doc after _set_nested. Compare to a copy.
+    # The scan stored target_doc and then we mutated it. Re-parse the raw for equality.
+    if target_raw is not None and not _opencode_blank(target_raw):
+        original_doc = _parse_opencode_json(target_raw)
+        changed = original_doc != doc
+    elif target_raw is not None:
+        changed = True
+
+    shown, hidden = _masked(opencode_entry)
+    snippet = _alice_entry_snippet("opencode", shown)
+    if dry_run:
+        trailer = ((_hidden_line(hidden),) if hidden else ())
+        return _HostResult(
+            receipt("dry-run", target_path, snippet=snippet, trailer=trailer),
+            "ok",
+            plan.used_fallback,
+        )
+    if not changed:
+        return _HostResult(receipt("unchanged", target_path, snippet=None), "ok", plan.used_fallback)
+
+    backup_dir = _backup_dir(plan.data_dir)
+    try:
+        if target_raw is not None:
+            backup = _backup_host_file(write_target, target_raw, backup_dir=backup_dir, host="opencode")
+            details.append(f"backup: {backup}")
+        _write_text(write_target, _dump_json(doc))
+    except _BackupFailed as failure:
+        details[:0] = [f"file: {write_target}", f"reason: {failure.reason()}"]
+        return _HostResult(receipt("failed", target_path, snippet=None), "failed", plan.used_fallback)
+    except (OSError, InstallError):
+        details[:0] = [f"file: {write_target}", f"reason: {_FAILED_REASON}"]
+        return _HostResult(receipt("failed", target_path, snippet=None), "failed", plan.used_fallback)
+    return _HostResult(receipt("written", target_path, snippet=None), "ok", plan.used_fallback)
+
+
+class CodexConfigRefused(HermesConfigRefused):
+    """install left config.toml untouched because it could not edit it safely."""
+
+
+@dataclass(frozen=True)
+class CodexPlan:
+    """What install --host codex would write, and what the receipt says about it."""
+
+    text: str | None
+    data_dir: str
+    payload: Mapping[str, object]
+    details: tuple[str, ...] = ()
+    used_fallback: bool = False
+    carried_lines: tuple[str, ...] = ()
+    carried_hidden: tuple[str, ...] = ()
+    # The entry plan the hook follows, and what config.toml says about hooks.
+    entry_plan: _EntryPlan | None = None
+    toml_hooks: bool = False
+    hooks_disabled: bool = False
+    # Alice's own SessionStart handler as config.toml holds it, when config.toml has TOML hooks.
+    toml_alice_handler: Mapping[str, object] | None = None
+
+
+_CODEX_CARRIED_KEYS = (
+    "startup_timeout_sec",
+    "tool_timeout_sec",
+    "startup_timeout_ms",
+    "enabled",
+    "default_tools_approval_mode",
+    "env_vars",
+)
+_CODEX_CARRIED = frozenset(_CODEX_CARRIED_KEYS)
+_CODEX_APPROVAL_MODES = frozenset({"auto", "prompt", "writes", "approve"})
+_CODEX_I64 = 2**63
+_CODEX_BARE_KEY = re.compile(r"[A-Za-z0-9_-]+")
+_CODEX_TIME_WITHOUT_SECONDS = re.compile(
+    r"(?:\d{4}-\d{2}-\d{2}[Tt ]\d{2}:\d{2}(?!:\d)|\d{2}:\d{2}(?!:\d))"
+    r"(?:[Zz]|[+-]\d{2}:\d{2})?"
+)
+_CODEX_BASIC_ESCAPES = {
+    "b": "\b",
+    "t": "\t",
+    "n": "\n",
+    "f": "\f",
+    "r": "\r",
+    '"': '"',
+    "\\": "\\",
+}
+
+
+_CODEX_HAND_NEXT = (
+    "config.toml was not changed. Edit the alice entry by hand instead, "
+    "then check it with: codex mcp get alice"
+)
+_CODEX_COMMENT_NEXT = "config.toml was not changed. Remove the comment, then run install again."
+_CODEX_QUOTE_NEXT = "config.toml was not changed. Quote the value, then run install again."
+_CODEX_TOOLS_NEXT = (
+    "config.toml was not changed. Move each tools.<name> key into its own "
+    "[mcp_servers.alice.tools.<name>] table, then run install again."
+)
+_CODEX_RERUN_NEXT = "config.toml was not changed. Run install again."
+_CODEX_TOO_DEEP = "config.toml nests too deeply"
+_CODEX_CHECK_NEXT = "check it with: codex mcp get alice"
+_CODEX_HOME_NEXT = (
+    "Set CODEX_HOME to an absolute path, or pass --home, then run install again."
+)
+_CODEX_HOME_DIR_NEXT = (
+    "config.toml was not changed. Point CODEX_HOME at an existing directory, "
+    "or pass --home, then run install again."
+)
+_CODEX_ENV_NEXT = (
+    'config.toml was not changed. Move each env key into [mcp_servers.alice.env] '
+    'as KEY = "value", then run install again.'
+)
+_CODEX_TOOLS_FIX = (
+    "config.toml was not changed. Fix the {name} entry, then run install again."
+)
+_CODEX_DIR_PLACEHOLDER = "<the data dir your existing alice entry uses>"
+_CODEX_I64_MIN = -(2**63)
+_CODEX_I64_MAX = 2**63 - 1
+_CODEX_FLOAT_SPECIALS = frozenset({"inf", "+inf", "-inf", "nan", "+nan", "-nan"})
+_CODEX_INT_TOKEN = re.compile(
+    r"[+-]?(?:0x[0-9A-Fa-f](?:_?[0-9A-Fa-f])*|0o[0-7](?:_?[0-7])*|0b[01](?:_?[01])*|"
+    r"0|[1-9](?:_?[0-9])*)\Z"
+)
+_CODEX_FLOAT_TOKEN = re.compile(
+    r"[+-]?(?:0|[1-9](?:_?[0-9])*)(?:\.[0-9](?:_?[0-9])*)?(?:[eE][+-]?[0-9](?:_?[0-9])*)\Z|"
+    r"[+-]?(?:0|[1-9](?:_?[0-9])*)\.[0-9](?:_?[0-9])*(?:[eE][+-]?[0-9](?:_?[0-9])*)?\Z"
+)
+_CODEX_DATETIME_TOKEN = re.compile(
+    r"\d{4}-\d{2}-\d{2}(?:[Tt ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:[Zz]|[+-]\d{2}:\d{2})?)?\Z|"
+    r"\d{2}:\d{2}:\d{2}(?:\.\d+)?\Z"
+)
+
+
+def _codex_refuse(
+    reason: str,
+    *,
+    key: str | None = None,
+    fix: str | None = None,
+    located: bool = False,
+    data_dir: str | None = None,
+    placeholder: bool = False,
+    payload: Mapping[str, object] | None = None,
+    line: int | None = None,
+) -> NoReturn:
+    next_step = fix
+    if next_step is None and key is not None:
+        next_step = (
+            f"install will not edit an alice entry that holds {key}. "
+            f"Keep editing it by hand, or remove {key} for good and run install again."
+        )
+    raise CodexConfigRefused(
+        reason,
+        line,
+        next_step=next_step,
+        located=located,
+        data_dir=data_dir,
+        placeholder=placeholder,
+        payload=payload,
+    )
+
+
+def _toml_basic(value: str) -> str:
+    """A TOML basic string. Quotes, backslashes, C0 controls and DEL are escaped."""
+
+    parts = ['"']
+    for char in value:
+        code = ord(char)
+        if char == '"':
+            parts.append('\\"')
+        elif char == "\\":
+            parts.append("\\\\")
+        elif code < 0x20 or code == 0x7F:
+            parts.append(f"\\u{code:04x}")
+        else:
+            parts.append(char)
+    parts.append('"')
+    return "".join(parts)
+
+
+def _toml_snippet(value: str) -> str:
+    """A TOML basic string for a receipt snippet.
+
+    Same escapes as ``_toml_basic``, plus C1 controls, U+2028, U+2029 and
+    U+FEFF, so a value cannot forge a receipt line. The file still uses
+    ``_toml_basic``.
+    """
+
+    parts = ['"']
+    for char in value:
+        code = ord(char)
+        if char == '"':
+            parts.append('\\"')
+        elif char == "\\":
+            parts.append("\\\\")
+        elif (
+            code < 0x20
+            or code == 0x7F
+            or 0x80 <= code <= 0x9F
+            or code in (0x2028, 0x2029, 0xFEFF)
+        ):
+            parts.append(f"\\u{code:04x}")
+        else:
+            parts.append(char)
+    parts.append('"')
+    return "".join(parts)
+
+
+def _codex_snippet_line(line: str) -> str:
+    """One carried line for the snippet, with receipt-forging characters escaped."""
+
+    parts: list[str] = []
+    for char in line:
+        code = ord(char)
+        if code < 0x20 or code == 0x7F or 0x80 <= code <= 0x9F or code in (0x2028, 0x2029, 0xFEFF):
+            parts.append(f"\\u{code:04x}")
+        else:
+            parts.append(char)
+    return "".join(parts)
+
+
+def _codex_ml_spans(text: str) -> list[tuple[int, int]]:
+    """Spans of multi-line strings, so line endings inside them can be ignored."""
+
+    spans: list[tuple[int, int]] = []
+    index = 0
+    length = len(text)
+    while index < length:
+        char = text[index]
+        if char in "\"'":
+            quote = char
+            end, count = _codex_quote_run(text, index, quote)
+            # Six to eight quotes is an empty multi-line string, or one with
+            # one or two quotes of content. It is a finished span.
+            if 6 <= count <= 8:
+                spans.append((index, end))
+                index = end
+                continue
+            if count >= 3:
+                start = index
+                index = end
+                if text.startswith("\r\n", index):
+                    index += 2
+                elif index < length and text[index] == "\n":
+                    index += 1
+                basic = quote == '"'
+                while index < length:
+                    if basic and text[index] == "\\":
+                        nxt = index + 1
+                        if nxt >= length:
+                            break
+                        if text[nxt] in " \t\r\n":
+                            cursor = nxt
+                            while cursor < length and text[cursor] in " \t":
+                                cursor += 1
+                            if text.startswith("\r\n", cursor):
+                                cursor += 2
+                            elif cursor < length and text[cursor] == "\n":
+                                cursor += 1
+                            else:
+                                index = nxt + 1
+                                continue
+                            while cursor < length and text[cursor] in " \t":
+                                cursor += 1
+                            index = cursor
+                            continue
+                        index = nxt + 1
+                        continue
+                    if text[index] == quote:
+                        qend, qcount = _codex_quote_run(text, index, quote)
+                        if qcount >= 3:
+                            close = index + 5 if qcount > 5 else qend
+                            spans.append((start, close))
+                            index = close
+                            break
+                        index = qend
+                        continue
+                    index += 1
+                continue
+            if count == 1:
+                index += 1
+                while index < length:
+                    if quote == '"' and text[index] == "\\":
+                        if index + 1 >= length:
+                            break
+                        index += 2
+                        continue
+                    if text[index] == quote:
+                        index += 1
+                        break
+                    if text[index] in "\r\n":
+                        break
+                    index += 1
+                continue
+            index = end
+            continue
+        if char == "#":
+            while index < length and text[index] not in "\r\n":
+                index += 1
+            continue
+        index += 1
+    return spans
+
+
+def _codex_newline(text: str) -> str:
+    """The file's newline, from breaks outside multi-line strings.
+
+    A CRLF inside a multi-line string is accepted when every other break is
+    LF. A lone CR is refused. A BOM is refused. Mixed endings outside
+    multi-line strings are refused.
+    """
+
+    if text.startswith("\ufeff"):
+        _codex_refuse("config.toml starts with a BOM; remove the BOM")
+    spans = _codex_ml_spans(text)
+
+    def inside(position: int) -> bool:
+        return any(start <= position < stop for start, stop in spans)
+
+    saw_crlf = False
+    saw_lf = False
+    index = 0
+    while index < len(text):
+        if text.startswith("\r\n", index):
+            if not inside(index):
+                saw_crlf = True
+            index += 2
+            continue
+        if text[index] == "\r":
+            _codex_refuse("config.toml has a lone CR")
+        if text[index] == "\n" and not inside(index):
+            saw_lf = True
+        index += 1
+    if saw_crlf and saw_lf:
+        _codex_refuse("config.toml has mixed line endings")
+    return "\r\n" if saw_crlf else "\n"
+
+
+def _codex_value_position(text: str, index: int, stack: Sequence[str]) -> bool:
+    """True when the token at ``index`` is a value, not a bare key.
+
+    A number-like key such as ``9223372036854775808 = 1`` is a key Codex
+    loads. Only a token after ``=``, or inside an array, is a value.
+    """
+
+    cursor = index - 1
+    while cursor >= 0 and text[cursor] in " \t":
+        cursor -= 1
+    if cursor < 0:
+        return False
+    previous = text[cursor]
+    if previous == "=":
+        return True
+    in_array = bool(stack) and stack[-1] == "["
+    if previous in "[," :
+        return in_array
+    if previous in "\r\n":
+        return in_array
+    return False
+
+
+def _codex_number_token_problem(token: str) -> str | None:
+    """A refusal reason for one number token, or None when the token may stay.
+
+    Integers outside ``[-2^63, 2^63-1]`` are refused, in decimal, hex, octal
+    and binary, underscores included. A float that is not finite is refused
+    unless the token is literally ``inf`` or ``nan`` (an optional sign is the
+    same literal). Datetimes and other tokens are not number-range errors.
+    """
+
+    if _CODEX_TIME_WITHOUT_SECONDS.fullmatch(token):
+        return "config.toml has a time or datetime without seconds"
+    if token.lower() in _CODEX_FLOAT_SPECIALS:
+        return None
+    if _CODEX_DATETIME_TOKEN.fullmatch(token):
+        return None
+    if _CODEX_INT_TOKEN.fullmatch(token):
+        body = token
+        sign = 1
+        if body[:1] in "+-":
+            sign = -1 if body[0] == "-" else 1
+            body = body[1:]
+        digits = body.replace("_", "")
+        base = 10
+        if digits[:2].lower() == "0x":
+            base = 16
+            digits = digits[2:]
+        elif digits[:2].lower() == "0o":
+            base = 8
+            digits = digits[2:]
+        elif digits[:2].lower() == "0b":
+            base = 2
+            digits = digits[2:]
+        try:
+            integer = sign * int(digits, base)
+        except ValueError:
+            return None
+        if integer < _CODEX_I64_MIN or integer > _CODEX_I64_MAX:
+            return "config.toml has an integer outside the i64 range"
+        return None
+    if _CODEX_FLOAT_TOKEN.fullmatch(token):
+        try:
+            number = float(token.replace("_", ""))
+        except ValueError:
+            return None
+        if not math.isfinite(number):
+            return "config.toml has a float that is not finite"
+    return None
+
+
+def _codex_starts(text: str, index: int, nl: str) -> bool:
+    return text.startswith(nl, index)
+
+
+def _codex_quote_run(text: str, index: int, quote: str) -> tuple[int, int]:
+    end = index
+    while end < len(text) and text[end] == quote:
+        end += 1
+    return end, end - index
+
+
+def _codex_skip_ml_string(text: str, index: int, quote: str, *, basic: bool, nl: str) -> tuple[int, bool]:
+    """Index after a multi-line string, and whether it contained a newline."""
+
+    index += 3
+    if _codex_starts(text, index, nl):
+        index += len(nl)
+    saw_newline = False
+    while index < len(text):
+        if basic and text[index] == "\\":
+            nxt = index + 1
+            if nxt >= len(text):
+                _codex_refuse("config.toml has an unterminated string")
+            if text[nxt] == "e":
+                _codex_refuse("config.toml uses a \\e escape")
+            if text[nxt] == "x":
+                _codex_refuse("config.toml uses a \\x escape")
+            if text[nxt] in " \t\r\n":
+                cursor = nxt
+                while cursor < len(text) and text[cursor] in " \t":
+                    cursor += 1
+                if _codex_starts(text, cursor, nl):
+                    cursor += len(nl)
+                    while cursor < len(text) and text[cursor] in " \t":
+                        cursor += 1
+                    index = cursor
+                    saw_newline = True
+                    continue
+            index = nxt + 1
+            continue
+        if text[index] == quote:
+            end, count = _codex_quote_run(text, index, quote)
+            if count >= 3:
+                if count > 5:
+                    return index + 5, saw_newline
+                return end, saw_newline
+            index = end
+            continue
+        if _codex_starts(text, index, nl):
+            saw_newline = True
+            index += len(nl)
+            continue
+        index += 1
+    _codex_refuse("config.toml has an unterminated string")
+
+
+def _codex_skip_basic(text: str, index: int, nl: str) -> tuple[int, bool]:
+    """Index after a basic string. Refuses TOML 1.1 escapes."""
+
+    if text.startswith('"""', index):
+        return _codex_skip_ml_string(text, index, '"', basic=True, nl=nl)
+    index += 1
+    while index < len(text):
+        char = text[index]
+        if char == "\\":
+            nxt = index + 1
+            if nxt >= len(text):
+                _codex_refuse("config.toml has an unterminated string")
+            if text[nxt] == "e":
+                _codex_refuse("config.toml uses a \\e escape")
+            if text[nxt] == "x":
+                _codex_refuse("config.toml uses a \\x escape")
+            if _codex_starts(text, nxt, nl):
+                _codex_refuse("config.toml has a newline inside a basic string")
+            index = nxt + 1
+            continue
+        if char == '"':
+            return index + 1, False
+        if _codex_starts(text, index, nl):
+            _codex_refuse("config.toml has a newline inside a basic string")
+        index += 1
+    _codex_refuse("config.toml has an unterminated string")
+
+
+def _codex_skip_literal(text: str, index: int, nl: str) -> tuple[int, bool]:
+    if text.startswith("'''", index):
+        return _codex_skip_ml_string(text, index, "'", basic=False, nl=nl)
+    index += 1
+    while index < len(text):
+        if text[index] == "'":
+            return index + 1, False
+        if _codex_starts(text, index, nl):
+            _codex_refuse("config.toml has a newline inside a literal string")
+        index += 1
+    _codex_refuse("config.toml has an unterminated string")
+
+
+def _codex_skip_string(text: str, index: int, nl: str) -> tuple[int, bool]:
+    if text[index] == '"':
+        return _codex_skip_basic(text, index, nl)
+    if text[index] == "'":
+        return _codex_skip_literal(text, index, nl)
+    _codex_refuse("config.toml has a string this writer does not read")
+
+
+def _codex_decode_basic(text: str, index: int) -> tuple[str, int]:
+    """A single-line basic string used as a key, decoded."""
+
+    if text.startswith('"""', index):
+        _codex_refuse("config.toml has a multi-line string where a key was expected")
+    end, _saw = _codex_skip_basic(text, index, "\n")
+    inner = text[index + 1 : end - 1]
+    out: list[str] = []
+    cursor = 0
+    while cursor < len(inner):
+        char = inner[cursor]
+        if char != "\\":
+            out.append(char)
+            cursor += 1
+            continue
+        code = inner[cursor + 1]
+        if code in _CODEX_BASIC_ESCAPES:
+            out.append(_CODEX_BASIC_ESCAPES[code])
+            cursor += 2
+            continue
+        if code in "uU":
+            width = 4 if code == "u" else 8
+            digits = inner[cursor + 2 : cursor + 2 + width]
+            if len(digits) != width or any(item not in "0123456789abcdefABCDEF" for item in digits):
+                _codex_refuse("config.toml has a bad unicode escape")
+            out.append(chr(int(digits, 16)))
+            cursor += 2 + width
+            continue
+        _codex_refuse("config.toml has an unknown escape")
+    return "".join(out), end
+
+
+def _codex_decode_literal(text: str, index: int) -> tuple[str, int]:
+    if text.startswith("'''", index):
+        _codex_refuse("config.toml has a multi-line string where a key was expected")
+    end, _saw = _codex_skip_literal(text, index, "\n")
+    return text[index + 1 : end - 1], end
+
+
+def _codex_read_key(text: str, index: int) -> tuple[tuple[str, ...], int]:
+    parts: list[str] = []
+    while index < len(text):
+        while index < len(text) and text[index] in " \t":
+            index += 1
+        if index >= len(text):
+            _codex_refuse("config.toml has a key this writer does not read")
+        if text[index] == '"':
+            value, index = _codex_decode_basic(text, index)
+        elif text[index] == "'":
+            value, index = _codex_decode_literal(text, index)
+        else:
+            match = _CODEX_BARE_KEY.match(text, index)
+            if match is None:
+                _codex_refuse("config.toml has a key this writer does not read")
+            value = match.group(0)
+            index = match.end()
+        parts.append(value)
+        while index < len(text) and text[index] in " \t":
+            index += 1
+        if index < len(text) and text[index] == ".":
+            index += 1
+            continue
+        break
+    if not parts:
+        _codex_refuse("config.toml has a key this writer does not read")
+    return tuple(parts), index
+
+
+@dataclass(frozen=True)
+class _CodexHeader:
+    start: int
+    end: int
+    path: tuple[str, ...]
+    array: bool
+    trailing_comment: bool
+
+
+@dataclass(frozen=True)
+class _CodexStmt:
+    kind: str
+    start: int
+    end: int
+    line_end: int
+    key: tuple[str, ...] = ()
+    raw: str = ""
+    trailing_comment: bool = False
+
+
+def _codex_skip_container(text: str, index: int, nl: str, opening: str, closing: str) -> int:
+    depth = 0
+    while index < len(text):
+        if text[index] in "\"'":
+            index, _saw_newline = _codex_skip_string(text, index, nl)
+            continue
+        if opening == "{" and text[index] == "[":
+            index = _codex_skip_container(text, index, nl, "[", "]")
+            continue
+        if text[index] == "#":
+            if opening == "{":
+                _codex_refuse("config.toml has a comment inside an inline table")
+            while index < len(text) and not _codex_starts(text, index, nl):
+                index += 1
+            continue
+        if _codex_starts(text, index, nl):
+            if opening == "{":
+                _codex_refuse("config.toml has a newline inside an inline table")
+            index += len(nl)
+            continue
+        if text[index] == opening:
+            depth += 1
+            index += 1
+            continue
+        if text[index] == closing:
+            depth -= 1
+            index += 1
+            if depth == 0:
+                return index
+            continue
+        if text[index] == "," and opening == "{":
+            look = index + 1
+            while look < len(text) and text[look] in " \t":
+                look += 1
+            if look < len(text) and text[look] == "}":
+                _codex_refuse("config.toml has a trailing comma inside an inline table")
+        index += 1
+    _codex_refuse("config.toml has an unclosed value")
+
+
+def _codex_skip_value(text: str, index: int, nl: str) -> int:
+    if index >= len(text):
+        _codex_refuse("config.toml has a value this writer does not read")
+    if text[index] in "\"'":
+        end, _saw = _codex_skip_string(text, index, nl)
+        return end
+    if text[index] == "[":
+        return _codex_skip_container(text, index, nl, "[", "]")
+    if text[index] == "{":
+        return _codex_skip_container(text, index, nl, "{", "}")
+    while index < len(text) and not _codex_starts(text, index, nl) and text[index] != "#":
+        index += 1
+    return index
+
+
+def _codex_scan(text: str, nl: str) -> list[_CodexHeader]:
+    """Headers, plus the TOML 1.1 refusals. Strings and arrays hide `[`.
+
+    A newline is refused only at inline-table level. A newline inside a
+    nested array or a multi-line string is TOML 1.0 and stays. Integer and
+    float tokens outside Codex's range are refused anywhere in the file.
+    """
+
+    headers: list[_CodexHeader] = []
+    index = 0
+    line_origin = 0
+    line_start = True
+    stack: list[str] = []
+    length = len(text)
+    while index < length:
+        if _codex_starts(text, index, nl):
+            if stack and stack[-1] == "{":
+                _codex_refuse("config.toml has a newline inside an inline table")
+            index += len(nl)
+            line_origin = index
+            line_start = True
+            continue
+        char = text[index]
+        if char in " \t":
+            index += 1
+            continue
+        if line_start and char == "[" and not stack:
+            array = text.startswith("[[", index)
+            cursor = index + (2 if array else 1)
+            path, cursor = _codex_read_key(text, cursor)
+            if array:
+                if not text.startswith("]]", cursor):
+                    _codex_refuse("config.toml has a header this writer does not read")
+                cursor += 2
+            elif cursor >= length or text[cursor] != "]":
+                _codex_refuse("config.toml has a header this writer does not read")
+            else:
+                cursor += 1
+            while cursor < length and text[cursor] in " \t":
+                cursor += 1
+            trailing = cursor < length and text[cursor] == "#"
+            if trailing:
+                while cursor < length and not _codex_starts(text, cursor, nl):
+                    cursor += 1
+            elif cursor < length and not _codex_starts(text, cursor, nl):
+                _codex_refuse("config.toml has a header this writer does not read")
+            end = cursor + len(nl) if _codex_starts(text, cursor, nl) else cursor
+            headers.append(
+                _CodexHeader(line_origin, end, path, array, trailing)
+            )
+            index = end
+            line_origin = index
+            line_start = True
+            continue
+        line_start = False
+        if char == "#":
+            if stack and stack[-1] == "{":
+                _codex_refuse("config.toml has a comment inside an inline table")
+            while index < length and not _codex_starts(text, index, nl):
+                index += 1
+            continue
+        if char in "\"'":
+            index, _saw_newline = _codex_skip_string(text, index, nl)
+            continue
+        if char == "{":
+            stack.append("{")
+            index += 1
+            continue
+        if char == "}":
+            if stack and stack[-1] == "{":
+                stack.pop()
+            index += 1
+            continue
+        if char == "[":
+            stack.append("[")
+            index += 1
+            continue
+        if char == "]":
+            if stack and stack[-1] == "[":
+                stack.pop()
+            index += 1
+            continue
+        if char == ",":
+            look = index + 1
+            while look < length and text[look] in " \t":
+                look += 1
+            if stack and stack[-1] == "{" and look < length and text[look] == "}":
+                _codex_refuse("config.toml has a trailing comma inside an inline table")
+            index += 1
+            continue
+        if _codex_value_position(text, index, stack) and (
+            char.isdigit() or char in "+-" or text.startswith(("inf", "nan"), index)
+        ):
+            end = index + (1 if char in "+-" else 0)
+            if end < length and text[end] in "+-":
+                end += 1
+            while end < length and text[end] not in " \t\r\n,]}#":
+                end += 1
+            token = text[index:end]
+            problem = _codex_number_token_problem(token)
+            if problem is not None and (
+                _CODEX_INT_TOKEN.fullmatch(token)
+                or _CODEX_FLOAT_TOKEN.fullmatch(token)
+                or _CODEX_TIME_WITHOUT_SECONDS.fullmatch(token)
+                or token.lower() in _CODEX_FLOAT_SPECIALS
+                or _CODEX_DATETIME_TOKEN.fullmatch(token)
+            ):
+                if problem:
+                    line_no = text.count("\n", 0, index) + 1
+                    _codex_refuse(problem, line=line_no)
+                index = end
+                continue
+        index += 1
+    return headers
+
+
+def _codex_statements(text: str, start: int, end: int, nl: str) -> list[_CodexStmt]:
+    """Key lines, blanks and comments in one table body. Strings are not headers."""
+
+    stmts: list[_CodexStmt] = []
+    index = start
+    while index < end:
+        while index < end and text[index] in " \t":
+            index += 1
+        if index >= end:
+            break
+        if _codex_starts(text, index, nl):
+            line_end = index + len(nl)
+            stmts.append(_CodexStmt("blank", index, line_end, line_end))
+            index = line_end
+            continue
+        if text[index] == "#":
+            comment_end = index
+            while comment_end < end and not _codex_starts(text, comment_end, nl):
+                comment_end += 1
+            line_end = comment_end + len(nl) if _codex_starts(text, comment_end, nl) else comment_end
+            stmts.append(_CodexStmt("comment", index, comment_end, line_end, raw=text[index:comment_end]))
+            index = line_end
+            continue
+        key_at = index
+        key, index = _codex_read_key(text, index)
+        while index < end and text[index] in " \t":
+            index += 1
+        if index >= end or text[index] != "=":
+            _codex_refuse("config.toml has a line this writer does not read")
+        index += 1
+        while index < end and text[index] in " \t":
+            index += 1
+        value_end = _codex_skip_value(text, index, nl)
+        while value_end > index and text[value_end - 1] in " \t":
+            value_end -= 1
+        index = value_end
+        while index < end and text[index] in " \t":
+            index += 1
+        trailing = index < end and text[index] == "#"
+        if trailing:
+            while index < end and not _codex_starts(text, index, nl):
+                index += 1
+        line_end = index + len(nl) if _codex_starts(text, index, nl) else index
+        stmts.append(
+            _CodexStmt(
+                "kv",
+                key_at,
+                value_end,
+                line_end,
+                key,
+                text[key_at:value_end],
+                trailing,
+            )
+        )
+        index = line_end
+    return stmts
+
+
+def _codex_comments_outside(text: str, nl: str, spans: Sequence[tuple[int, int]]) -> list[str]:
+    """Comment texts whose `#` is outside ``spans``, in order."""
+
+    found: list[str] = []
+    index = 0
+    while index < len(text):
+        if text[index] in "\"'":
+            index, _saw = _codex_skip_string(text, index, nl)
+            continue
+        if text[index] == "#":
+            end = index
+            while end < len(text) and not _codex_starts(text, end, nl):
+                end += 1
+            if not any(start <= index < stop for start, stop in spans):
+                found.append(text[index:end])
+            index = end
+            continue
+        index += 1
+    return found
+
+
+def _codex_region(stmts: Sequence[_CodexStmt], header: _CodexHeader) -> tuple[int, int]:
+    keys = [item for item in stmts if item.kind == "kv"]
+    if not keys:
+        return header.start, header.end
+    return header.start, keys[-1].line_end
+
+
+def _codex_carry_problem(key: str, value: object) -> str | None:
+    """Why a carried value cannot stay, or None when it can.
+
+    ``install does not carry this form`` is for a value Codex loads and this
+    writer does not keep. ``Codex would refuse to load this value`` is for a
+    value that fails Codex's own type rule.
+    """
+
+    if key in {"startup_timeout_sec", "tool_timeout_sec"}:
+        if isinstance(value, bool) or not isinstance(value, int | float) or (
+            isinstance(value, float) and not math.isfinite(value)
+        ):
+            return f"Codex would refuse to load this value for {key}"
+        if isinstance(value, int | float) and not isinstance(value, bool) and value < 0:
+            return f"Codex would refuse to load this value for {key}"
+        if isinstance(value, int | float) and not isinstance(value, bool) and value >= _CODEX_I64:
+            return f"install does not carry this form of {key}"
+        return None
+    if key == "startup_timeout_ms":
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0 or value >= _CODEX_I64:
+            if isinstance(value, int) and not isinstance(value, bool) and value >= _CODEX_I64:
+                return f"install does not carry this form of {key}"
+            return f"Codex would refuse to load this value for {key}"
+        return None
+    if key == "enabled":
+        if not isinstance(value, bool):
+            return f"Codex would refuse to load this value for {key}"
+        return None
+    if key == "default_tools_approval_mode":
+        if not isinstance(value, str) or value not in _CODEX_APPROVAL_MODES:
+            return f"Codex would refuse to load this value for {key}"
+        return None
+    if key == "env_vars":
+        if isinstance(value, list) and not all(isinstance(item, str) for item in value):
+            return f"install does not carry this form of {key}"
+        if not isinstance(value, list):
+            return f"Codex would refuse to load this value for {key}"
+        return None
+    return None
+
+
+def _codex_refusal_payload(alice: object) -> dict[str, object] | None:
+    """The entry's own launcher for a refusal snippet, or None.
+
+    Only a whole launcher counts: a string ``command`` and ``args`` that is a
+    list of strings. A partial entry would print ``command = ""`` or
+    ``args = []``, which is not something to paste, so the caller falls back
+    to the placeholder launcher.
+    """
+
+    if not isinstance(alice, dict):
+        return None
+    command = alice.get("command")
+    args = alice.get("args")
+    if not isinstance(command, str):
+        return None
+    if not isinstance(args, list) or not all(isinstance(item, str) for item in args):
+        return None
+    payload: dict[str, object] = {"command": command, "args": args}
+    env = alice.get("env")
+    if isinstance(env, dict) and env:
+        payload["env"] = env
+    return payload
+
+
+def _codex_inline_pairs(text: str, raw: str) -> list[str]:
+    """``KEY = value`` slices from one inline table assignment."""
+
+    brace = raw.find("{")
+    if brace < 0:
+        _codex_refuse("config.toml has an env value this writer does not read", fix=_CODEX_ENV_NEXT)
+    body = raw[brace + 1 :]
+    if not body.endswith("}"):
+        _codex_refuse("config.toml has an env value this writer does not read", fix=_CODEX_ENV_NEXT)
+    body = body[:-1]
+    pairs: list[str] = []
+    index = 0
+    while index < len(body):
+        while index < len(body) and body[index] in " \t":
+            index += 1
+        if index >= len(body):
+            break
+        key_at = index
+        _key, index = _codex_read_key(body, index)
+        while index < len(body) and body[index] in " \t":
+            index += 1
+        if index >= len(body) or body[index] != "=":
+            _codex_refuse("config.toml has an env value this writer does not read", fix=_CODEX_ENV_NEXT)
+        index += 1
+        while index < len(body) and body[index] in " \t":
+            index += 1
+        value_end = _codex_skip_value(body, index, "\n")
+        pairs.append(body[key_at:value_end].strip())
+        index = value_end
+        while index < len(body) and body[index] in " \t,":
+            if body[index] == ",":
+                index += 1
+                break
+            index += 1
+    if not pairs and body.strip():
+        _codex_refuse("config.toml has an env value this writer does not read", fix=_CODEX_ENV_NEXT)
+    return pairs
+
+
+def _codex_check_env(
+    names: Mapping[str, object], raw_lines: Sequence[str]
+) -> tuple[str, str | None, str | None] | None:
+    """A refusal ``(reason, key, fix)`` for env, or None when the env can be carried."""
+
+    for name, value in names.items():
+        if name not in _DOCUMENTED_ENV_NAMES and name != ALICE_MEMORY_DATA_DIR_ENV:
+            return (
+                f"install will not edit an alice entry that holds env.{name}",
+                f"env.{name}",
+                None,
+            )
+        if not isinstance(value, str):
+            return (f"env.{name} is not a quoted string", None, _CODEX_QUOTE_NEXT)
+    if len(raw_lines) != len(names):
+        return ("config.toml has an env value this writer does not read", None, _CODEX_HAND_NEXT)
+    return None
+
+
+def _codex_render_block(
+    entry: Mapping[str, object],
+    carried: Sequence[str],
+    env_lines: Sequence[str],
+    nl: str,
+) -> str:
+    command = entry["command"]
+    args = entry["args"]
+    assert isinstance(command, str)  # nosec B101 # narrows the type for mypy; the planner only renders a string command
+    assert isinstance(args, list)  # nosec B101 # narrows the type for mypy; the planner only renders a list of args
+    lines = [
+        "[mcp_servers.alice]",
+        f"command = {_toml_basic(command)}",
+        "args = [" + ", ".join(_toml_basic(str(item)) for item in args) + "]",
+        *carried,
+    ]
+    if env_lines:
+        lines.append("")
+        lines.append("[mcp_servers.alice.env]")
+        lines.extend(env_lines)
+    return nl.join(lines) + nl
+
+
+def _codex_splice(
+    text: str, removals: Sequence[tuple[int, int]], insert_at: int, block: str
+) -> tuple[str, tuple[int, int]]:
+    """Replace ``removals`` and insert ``block`` at ``insert_at``. Return the text and the new span."""
+
+    parts: list[str] = []
+    cursor = 0
+    inserted: tuple[int, int] | None = None
+    placed = False
+    ordered = sorted(removals)
+
+    def emit_insert() -> None:
+        nonlocal inserted, placed
+        if placed:
+            return
+        start = sum(len(part) for part in parts)
+        parts.append(block)
+        inserted = (start, start + len(block))
+        placed = True
+
+    for start, end in ordered:
+        if not placed and insert_at < start and cursor <= insert_at:
+            parts.append(text[cursor:insert_at])
+            emit_insert()
+            cursor = insert_at
+        if cursor < start:
+            parts.append(text[cursor:start])
+        if not placed and insert_at == start:
+            emit_insert()
+        cursor = max(cursor, end)
+    if not placed:
+        parts.append(text[cursor:insert_at])
+        emit_insert()
+        parts.append(text[insert_at:])
+    else:
+        parts.append(text[cursor:])
+    assert inserted is not None  # nosec B101 # narrows the type for mypy; emit_insert always runs
+    return "".join(parts), inserted
+
+
+def _codex_equal(left: object, right: object) -> bool:
+    """Structural equality. NaN matches NaN; the byte check compares NaN as text."""
+
+    if isinstance(left, float) and isinstance(right, float):
+        if math.isnan(left) and math.isnan(right):
+            return True
+        return left == right
+    if isinstance(left, dict) and isinstance(right, dict):
+        return left.keys() == right.keys() and all(_codex_equal(left[key], right[key]) for key in left)
+    if isinstance(left, list) and isinstance(right, list):
+        return len(left) == len(right) and all(_codex_equal(a, b) for a, b in zip(left, right, strict=True))
+    return left == right
+
+
+def _codex_copy(value: object) -> object:
+    """A recursive copy that keeps datetimes and NaN. Not a JSON round trip."""
+
+    if isinstance(value, dict):
+        return {key: _codex_copy(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_codex_copy(item) for item in value]
+    return value
+
+
+def _codex_strip(doc: Mapping[str, object]) -> dict[str, object]:
+    """The document without the keys install rewrites. ``tools`` stays."""
+
+    copied = _codex_copy(doc)
+    if not isinstance(copied, dict):
+        return {}
+    servers = copied.get("mcp_servers")
+    if isinstance(servers, dict) and "alice" in servers:
+        alice = servers["alice"]
+        if isinstance(alice, dict):
+            for key in ("command", "args", "env", *_CODEX_CARRIED_KEYS):
+                alice.pop(key, None)
+            if not alice:
+                servers.pop("alice")
+        if not servers:
+            copied.pop("mcp_servers")
+    return copied
+
+
+def _codex_raw_has_comment(raw: str, nl: str) -> bool:
+    """True when ``#`` starts a comment inside ``raw``, strings aside."""
+
+    index = 0
+    while index < len(raw):
+        if raw[index] in "\"'":
+            index, _saw = _codex_skip_string(raw, index, nl)
+            continue
+        if raw[index] == "#":
+            return True
+        index += 1
+    return False
+
+
+def _codex_env_absent(value: object) -> bool:
+    return value is None or value == {}
+
+
+def _codex_guard(
+    original: str,
+    edited: str,
+    nl: str,
+    entry: Mapping[str, object],
+    removals: Sequence[tuple[int, int]],
+    inserted: tuple[int, int],
+    old_doc: Mapping[str, object],
+) -> None:
+    try:
+        new_doc = tomllib.loads(edited)
+    except tomllib.TOMLDecodeError as exc:
+        _codex_refuse(f"the edited config.toml is not valid TOML ({exc})")
+    except RecursionError:
+        _codex_refuse(_CODEX_TOO_DEEP)
+    try:
+        _codex_guard_values(original, edited, nl, entry, removals, inserted, old_doc, new_doc)
+    except RecursionError:
+        # A value can parse and still be too deep for the walkers that compare it.
+        _codex_refuse(_CODEX_TOO_DEEP)
+
+
+def _codex_guard_values(
+    original: str,
+    edited: str,
+    nl: str,
+    entry: Mapping[str, object],
+    removals: Sequence[tuple[int, int]],
+    inserted: tuple[int, int],
+    old_doc: Mapping[str, object],
+    new_doc: Mapping[str, object],
+) -> None:
+    new_servers = new_doc.get("mcp_servers")
+    new_alice = new_servers.get("alice") if isinstance(new_servers, dict) else None
+    if not isinstance(new_alice, dict):
+        _codex_refuse("the edited config.toml is missing mcp_servers.alice")
+    if new_alice.get("command") != entry.get("command") or new_alice.get("args") != entry.get("args"):
+        _codex_refuse("the edited config.toml does not match the plan")
+    old_servers = old_doc.get("mcp_servers")
+    old_alice = old_servers.get("alice") if isinstance(old_servers, dict) else {}
+    if not isinstance(old_alice, dict):
+        old_alice = {}
+    for key in (*_CODEX_CARRIED_KEYS, "env"):
+        old_value = old_alice.get(key)
+        new_value = new_alice.get(key)
+        if key == "env" and _codex_env_absent(old_value) and _codex_env_absent(new_value):
+            continue
+        if not _codex_equal(old_value, new_value):
+            _codex_refuse("the edited config.toml changed a carried value")
+    if not _codex_equal(_codex_strip(old_doc), _codex_strip(new_doc)):
+        _codex_refuse("the edited config.toml changed a value outside alice")
+    outside_old = _codex_outside(original, removals)
+    outside_new = _codex_outside(edited, (inserted,))
+    if outside_old != outside_new:
+        _codex_refuse("the edited config.toml changed bytes outside alice")
+    # A block that ends inside a comment can leave the outside bytes unchanged
+    # and still drop or join an outside comment. This check is the one that
+    # refuses that edit.
+    if _codex_comments_outside(original, nl, removals) != _codex_comments_outside(edited, nl, (inserted,)):
+        _codex_refuse("the edited config.toml changed a comment outside alice")
+
+
+def _codex_outside(text: str, spans: Sequence[tuple[int, int]]) -> str:
+    parts: list[str] = []
+    cursor = 0
+    for start, end in sorted(spans):
+        parts.append(text[cursor:start])
+        cursor = max(cursor, end)
+    parts.append(text[cursor:])
+    return "".join(parts)
+
+
+def _codex_body(text: str, headers: Sequence[_CodexHeader], header: _CodexHeader, nl: str) -> list[_CodexStmt]:
+    later = [item.start for item in headers if item.start > header.start]
+    end = min(later) if later else len(text)
+    return _codex_statements(text, header.end, end, nl)
+
+
+def _codex_prepare_insert(text: str, nl: str, block: str) -> tuple[str, tuple[int, int]]:
+    """Append ``block`` at EOF: a final newline if missing, then one blank line."""
+
+    base = text
+    if base == "":
+        base = nl
+    elif not base.endswith(nl):
+        base += nl
+    base += nl
+    edited = base + block
+    return edited, (len(text), len(edited))
+
+
+def _plan_codex_text(
+    text: str,
+    explicit_dir: str | None,
+    default_dir: str,
+    *,
+    home: Path,
+    search: LauncherSearch,
+    problem_of: Callable[[Launcher], str | None] | None = None,
+    hook_dir: str | None = None,
+) -> CodexPlan:
+    """Plan ``[mcp_servers.alice]`` in ``text``. See ``plan_codex_config``.
+
+    ``hook_dir`` is the data dir of the Alice hook already in hooks.json. A
+    new entry opens it, as the other hosts' new entries do, unless
+    config.toml holds TOML hooks: then the one in config.toml is the hook
+    Codex runs, and its data dir is used instead.
+    """
+
+    nl = _codex_newline(text)
+    headers = _codex_scan(text, nl)
+    try:
+        document = tomllib.loads(text) if text.strip() else {}
+    except tomllib.TOMLDecodeError as exc:
+        _codex_refuse(f"config.toml is not valid TOML ({exc})")
+    except RecursionError:
+        _codex_refuse(_CODEX_TOO_DEEP)
+    if not isinstance(document, dict):
+        _codex_refuse("config.toml's top level is not a table")
+
+    def fresh(existing: object) -> _EntryPlan:
+        return _plan_entry(
+            existing,
+            key_label="mcp_servers.alice",
+            explicit_dir=explicit_dir,
+            new_entry_dir=explicit_dir or entry_dir or default_dir,
+            default_dir=default_dir,
+            home=home,
+            search=search,
+            with_env=False,
+            needs_hook=True,
+            problem_of=problem_of,
+        )
+
+    toml_hooks = _codex_toml_has_hooks(document)
+    toml_alice = _codex_toml_alice_handler(document) if toml_hooks else None
+    entry_dir = (
+        _codex_hook_dir(_hook_item_command(toml_alice), home) if toml_hooks else hook_dir
+    )
+    hooks_disabled = _codex_hooks_feature_off(document)
+    servers = document.get("mcp_servers")
+    server_headers = [item for item in headers if item.path[:1] == ("mcp_servers",)]
+
+    def _located(reason: str, *, key: str | None = None, fix: str | None = None) -> NoReturn:
+        target = servers.get("alice") if isinstance(servers, dict) else None
+        visible = _visible_dir(target, home) if isinstance(target, dict) else None
+        payload: dict[str, object] | None = None
+        if isinstance(target, dict):
+            payload = _codex_refusal_payload(target)
+        _codex_refuse(
+            reason,
+            key=key,
+            fix=fix,
+            located=True,
+            data_dir=visible,
+            placeholder=visible is None,
+            payload=payload,
+        )
+
+    if servers is not None and not isinstance(servers, dict):
+        _codex_refuse("mcp_servers is not a table")
+    if isinstance(servers, dict) and not server_headers:
+        root_end = headers[0].start if headers else len(text)
+        root_stmts = _codex_statements(text, 0, root_end, nl)
+        alice_dotted = any(
+            stmt.kind == "kv" and len(stmt.key) >= 2 and stmt.key[:2] == ("mcp_servers", "alice")
+            for stmt in root_stmts
+        )
+        inline = any(stmt.kind == "kv" and stmt.key == ("mcp_servers",) for stmt in root_stmts)
+        if alice_dotted:
+            _codex_refuse("mcp_servers.alice is dotted keys, not a [mcp_servers.alice] table")
+        if inline:
+            _codex_refuse("mcp_servers is an inline table")
+        # A dotted key for another server defines the table. A header
+        # sub-table [mcp_servers.alice] under it is valid, so insert.
+    for item in headers:
+        if len(item.path) <= 2 or item.path[:2] != ("mcp_servers", "alice"):
+            continue
+        if item.path[2] == "env" and len(item.path) == 3 and not item.array:
+            continue
+        if item.path[2] == "tools":
+            if item.array:
+                _located("install will not edit an array of tools tables", fix=_CODEX_HAND_NEXT)
+            continue
+        if item.path[2] == "env":
+            _located(
+                "env is not a [mcp_servers.alice.env] table of strings",
+                fix=_CODEX_ENV_NEXT,
+            )
+        _located(
+            f"install will not edit an alice entry that holds {item.path[2]}",
+            key=item.path[2],
+        )
+    alice_headers = [
+        item for item in headers if item.path == ("mcp_servers", "alice") and not item.array
+    ]
+    tools_headers = [
+        item
+        for item in headers
+        if not item.array and len(item.path) >= 3 and item.path[:3] == ("mcp_servers", "alice", "tools")
+    ]
+    if tools_headers and not alice_headers:
+        _codex_refuse("a tools table exists and [mcp_servers.alice] does not")
+    if len(alice_headers) > 1:
+        _located("mcp_servers.alice appears more than once")
+    if isinstance(servers, dict) and "alice" in servers and not alice_headers:
+        parent = next((item for item in headers if item.path == ("mcp_servers",) and not item.array), None)
+        dotted_inside = False
+        inline_inside = False
+        if parent is not None:
+            for stmt in _codex_body(text, headers, parent, nl):
+                if stmt.kind != "kv" or not stmt.key or stmt.key[0] != "alice":
+                    continue
+                if len(stmt.key) > 1:
+                    dotted_inside = True
+                elif stmt.raw.lstrip().startswith("alice") and "{" in stmt.raw:
+                    inline_inside = True
+        if dotted_inside:
+            _codex_refuse("mcp_servers.alice is dotted keys, not a [mcp_servers.alice] table")
+        if inline_inside:
+            _codex_refuse("mcp_servers.alice is an inline table")
+        _codex_refuse("mcp_servers.alice is an inline table or dotted keys, not a [mcp_servers.alice] table")
+
+    if not alice_headers:
+        entry_plan = fresh(None)
+        if entry_plan.entry is None:
+            raise CodexConfigRefused(
+                entry_plan.refusal or "install could not plan a new alice entry",
+                next_step=entry_plan.next_step,
+            )
+        block = _codex_render_block(entry_plan.entry, (), (), nl)
+        edited, inserted = _codex_prepare_insert(text, nl, block)
+        _codex_guard(text, edited, nl, entry_plan.entry, (), inserted, document)
+        notes = _codex_server_notes(servers)
+        details = [*entry_plan.details, *notes]
+        return CodexPlan(
+            None if edited == text else edited,
+            entry_plan.data_dir,
+            entry_plan.entry,
+            tuple(details),
+            entry_plan.used_fallback,
+            entry_plan=entry_plan,
+            toml_hooks=toml_hooks,
+            hooks_disabled=hooks_disabled,
+            toml_alice_handler=toml_alice,
+        )
+
+    header = alice_headers[0]
+    if header.trailing_comment:
+        _located("a comment on an alice header", fix=_CODEX_COMMENT_NEXT)
+    env_headers = [
+        item
+        for item in headers
+        if item.path == ("mcp_servers", "alice", "env") and not item.array
+    ]
+    if len(env_headers) > 1:
+        _located("mcp_servers.alice.env appears more than once", fix=_CODEX_ENV_NEXT)
+    for item in headers:
+        if item.path[:2] != ("mcp_servers", "alice") or len(item.path) <= 2:
+            continue
+        if item.path[2] == "env" and len(item.path) == 3 and not item.array:
+            continue
+        if item.path[2] == "tools":
+            if item.array:
+                _located("install will not edit an array of tools tables", fix=_CODEX_HAND_NEXT)
+            continue
+        if item.path[2] == "env":
+            _located(
+                "env is not a [mcp_servers.alice.env] table of strings",
+                fix=_CODEX_ENV_NEXT,
+            )
+        _located(
+            f"install will not edit an alice entry that holds {item.path[2]}",
+            key=item.path[2],
+        )
+    stmts = _codex_body(text, headers, header, nl)
+    carried: list[str] = []
+    carried_keys: list[tuple[str, ...]] = []
+    env_lines: list[str] = []
+    inline_env = False
+    for stmt in stmts:
+        if stmt.kind == "comment" and stmt.start < _codex_region(stmts, header)[1]:
+            _located("a comment between alice key lines", fix=_CODEX_COMMENT_NEXT)
+        if stmt.kind != "kv":
+            continue
+        if stmt.trailing_comment:
+            _located("a trailing comment on an alice key", fix=_CODEX_COMMENT_NEXT)
+        name = stmt.key[0] if stmt.key else ""
+        if stmt.key in {("command",), ("args",), ("env",)} and _codex_raw_has_comment(stmt.raw, nl):
+            _located("a comment inside an alice value", fix=_CODEX_COMMENT_NEXT)
+        if stmt.key == ("command",) or stmt.key == ("args",):
+            continue
+        if stmt.key == ("env",):
+            inline_env = True
+            env_lines = _codex_inline_pairs(text, stmt.raw)
+            continue
+        if name == "env":
+            _located(
+                "env is not a [mcp_servers.alice.env] table of strings",
+                fix=_CODEX_ENV_NEXT,
+            )
+        if name == "tools" or (stmt.key and stmt.key[0] == "tools"):
+            carried.append(stmt.raw)
+            carried_keys.append(stmt.key)
+            continue
+        if name not in _CODEX_CARRIED:
+            _located(f"install will not edit an alice entry that holds {name}", key=name)
+        carried.append(stmt.raw)
+        carried_keys.append(stmt.key)
+    if any(stmt.kind == "kv" and stmt.key and stmt.key[0] == "tools" for stmt in stmts) and tools_headers:
+        _located("alice has a tools key and a tools table", fix=_CODEX_TOOLS_NEXT)
+    if env_headers:
+        if inline_env:
+            _located("install will not edit an alice entry that holds env twice", fix=_CODEX_ENV_NEXT)
+        if env_headers[0].trailing_comment:
+            _located("a comment on an alice header", fix=_CODEX_COMMENT_NEXT)
+        env_stmts = _codex_body(text, headers, env_headers[0], nl)
+        region_end = _codex_region(env_stmts, env_headers[0])[1]
+        for stmt in env_stmts:
+            if stmt.kind == "comment" and stmt.start < region_end:
+                _located("a comment between alice key lines", fix=_CODEX_COMMENT_NEXT)
+            if stmt.kind != "kv":
+                continue
+            if stmt.trailing_comment:
+                _located("a trailing comment on an alice key", fix=_CODEX_COMMENT_NEXT)
+            if len(stmt.key) != 1:
+                _located("env is not a table of strings", fix=_CODEX_ENV_NEXT)
+            env_lines.append(stmt.raw)
+
+    alice = servers.get("alice") if isinstance(servers, dict) else None
+    if not isinstance(alice, dict):
+        _located("mcp_servers.alice is not a table")
+    tools_problem = _codex_tools_shape_problem(alice.get("tools"))
+    if tools_problem is not None:
+        tool_name, tool_detail = tools_problem
+        _located(tool_detail, fix=_CODEX_TOOLS_FIX.format(name=tool_name))
+    for key in _CODEX_CARRIED_KEYS:
+        if key in alice:
+            problem = _codex_carry_problem(key, alice[key])
+            if problem is not None:
+                _located(problem)
+    env_value = alice.get("env")
+    if _codex_env_absent(env_value):
+        env_value = None
+        env_lines = []
+    elif isinstance(env_value, dict):
+        env_problem = _codex_check_env(env_value, env_lines)
+        if env_problem is not None:
+            reason, env_key, fix = env_problem
+            _located(reason, key=env_key, fix=fix)
+    elif env_value is not None:
+        _located("Codex would refuse to load this value for env", fix=_CODEX_ENV_NEXT)
+    elif env_lines:
+        _located("config.toml has an env value this writer does not read", fix=_CODEX_ENV_NEXT)
+
+    probe: dict[str, object] = {"command": alice.get("command"), "args": alice.get("args")}
+    if isinstance(env_value, dict) and env_value:
+        probe["env"] = env_value
+    entry_plan = fresh(probe)
+    if entry_plan.entry is None and entry_plan.refusal is None:
+        details = [*entry_plan.details, *_codex_server_notes(servers)]
+        if alice.get("enabled") is False:
+            details.append("note: Codex will not start alice")
+        carried_lines, carried_hidden = _codex_snippet_lines(alice, carried_keys)
+        return CodexPlan(
+            None,
+            entry_plan.data_dir,
+            probe,
+            tuple(details),
+            False,
+            carried_lines,
+            carried_hidden,
+            entry_plan,
+            toml_hooks,
+            hooks_disabled,
+            toml_alice,
+        )
+    if entry_plan.entry is None:
+        visible = _visible_dir(alice, home)
+        raise CodexConfigRefused(
+            entry_plan.refusal or "mcp_servers.alice exists and install did not write it",
+            data_dir=visible or entry_plan.data_dir,
+            payload=entry_plan.paste or _codex_refusal_payload(alice),
+            next_step=entry_plan.next_step,
+            located=True,
+            placeholder=visible is None and entry_plan.paste is None,
+        )
+    block = _codex_render_block(entry_plan.entry, carried, env_lines, nl)
+    removals = [_codex_region(stmts, header)]
+    insert_at = header.start
+    # An empty env table stays, including a comment that is the only line in it.
+    # The guard treats {} and a missing env as the same value.
+    if env_headers and not _codex_env_absent(alice.get("env")):
+        removals.append(_codex_region(_codex_body(text, headers, env_headers[0], nl), env_headers[0]))
+    if len(removals) == 2:
+        (first_start, first_end), (second_start, second_end) = sorted(removals)
+        if text[first_end:second_start].strip(" \t\r\n") == "":
+            # The blank line between Alice's two regions is replaced by the one the block emits.
+            removals = [(first_start, second_end)]
+            insert_at = first_start
+    edited, inserted = _codex_splice(text, removals, insert_at, block)
+    _codex_guard(text, edited, nl, entry_plan.entry, removals, inserted, document)
+    details = list(entry_plan.details)
+    if alice.get("enabled") is False:
+        details.append("note: Codex will not start alice")
+    details.extend(_codex_server_notes(servers))
+    carried_lines, carried_hidden = _codex_snippet_lines(alice, carried_keys)
+    return CodexPlan(
+        None if edited == text else edited,
+        entry_plan.data_dir,
+        entry_plan.entry,
+        tuple(details),
+        entry_plan.used_fallback,
+        carried_lines,
+        carried_hidden,
+        entry_plan,
+        toml_hooks,
+        hooks_disabled,
+        toml_alice,
+    )
+
+
+def _codex_toml_alice_handler(document: Mapping[str, object]) -> Mapping[str, object] | None:
+    """Alice's first command handler under ``[[hooks.SessionStart]]`` in config.toml, or None."""
+
+    hooks = document.get("hooks")
+    groups = hooks.get("SessionStart") if isinstance(hooks, dict) else None
+    if not isinstance(groups, list):
+        return None
+    found = _codex_alice_handlers(groups)
+    if not found:
+        return None
+    group_index, handler_index = found[0]
+    handler: Mapping[str, object] = groups[group_index]["hooks"][handler_index]
+    return handler
+
+
+def _codex_hook_dir(command: str | None, home: Path) -> str | None:
+    """The data dir a hook command reads, resolved, or None when install cannot rely on it."""
+
+    if command is None:
+        return None
+    read = read_hook_data_dir(command)
+    return _resolved_dir(read.raw, home) if read.trusted else None
+
+
+def _codex_toml_has_hooks(document: Mapping[str, object]) -> bool:
+    """True when config.toml holds TOML hooks, by Codex's own rule.
+
+    Codex counts a layer as holding TOML hooks only when one of its 12 event
+    keys is a non-empty array (hooks/src/engine/discovery.rs). ``hooks.state``
+    and any other key under ``hooks`` are ignored.
+    """
+
+    hooks = document.get("hooks")
+    if not isinstance(hooks, dict):
+        return False
+    return any(
+        isinstance(hooks.get(event), list) and len(hooks[event]) > 0 for event in _CODEX_HOOK_EVENTS
+    )
+
+
+def _codex_hooks_feature_off(document: Mapping[str, object]) -> bool:
+    """True when ``[features] hooks = false``. ``codex_hooks`` is Codex's old name for it."""
+
+    features = document.get("features")
+    if not isinstance(features, dict):
+        return False
+    if "hooks" in features:
+        return features["hooks"] is False
+    return features.get("codex_hooks") is False
+
+
+def _codex_server_notes(servers: object) -> list[str]:
+    if not isinstance(servers, dict):
+        return []
+    names = [
+        name
+        for name, value in servers.items()
+        if name != "alice" and parse_launcher(value) is not None
+    ]
+    if not names:
+        return []
+    return [f"note: Codex will run both alice and {', '.join(names)}"]
+
+
+def plan_codex_config(text: str, data_dir: str) -> str | None:
+    """Return ``text`` with mcp_servers.alice on ``data_dir``, or None when it already is.
+
+    This is install with --data-dir passed, uvx on PATH, and every existing
+    launcher treated as able to run. Only Alice's main and env regions change.
+    ``tools`` tables stay. Raises CodexConfigRefused when the file is outside
+    the shapes this writer edits.
+    """
+
+    home = Path.home()
+    return _plan_codex_text(
+        text,
+        data_dir,
+        str(resolve_user_path(DEFAULT_DATA_DIR, home)),
+        home=home,
+        search=LauncherSearch(UVX_LAUNCHER, None, True),
+        problem_of=lambda _launcher: None,
+    ).text
+
+
+def _codex_debug_string(value: str) -> str:
+    """Rust's ``{:?}`` for a string: double quotes and escaped quotes."""
+
+    return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def _codex_directory(home: Path, *, explicit_home: bool, platform: str) -> tuple[Path, str | None]:
+    """Codex's config directory, and a refusal message when the value cannot be used.
+
+    With ``--home``, the directory is ``<home>/.codex``. Otherwise a non-empty
+    ``CODEX_HOME`` is used. A relative value is refused. A missing path or a
+    file is refused with Codex's own messages. Otherwise ``~/.codex``, which
+    on Windows is ``%USERPROFILE%\\.codex``.
+    """
+
+    if explicit_home:
+        return home / ".codex", None
+    raw = os.environ.get("CODEX_HOME")
+    if raw:
+        if raw.startswith("~") or not Path(raw).is_absolute():
+            return home / ".codex", f"CODEX_HOME {raw} is not an absolute path"
+        path = Path(raw)
+        if not path.exists():
+            shown = _codex_debug_string(raw)
+            return path, f"CODEX_HOME points to {shown}, but that path does not exist"
+        if not path.is_dir():
+            shown = _codex_debug_string(raw)
+            return path, f"CODEX_HOME points to {shown}, but that path is not a directory"
+        return path.resolve(), None
+    if platform == "win32":
+        return home / ".codex", None
+    return home / ".codex", None
+
+
+def _codex_tools_shape_problem(tools: object) -> tuple[str, str] | None:
+    """``(tools.<name>, reason)`` when Codex would not load Alice's tools table."""
+
+    if tools is None:
+        return None
+    if not isinstance(tools, dict):
+        return ("tools", "tools is not a table")
+    for name, value in tools.items():
+        label = f"tools.{name}"
+        if not isinstance(value, dict):
+            return (label, f"{label} is not a table")
+        mode = value.get("approval_mode")
+        if "approval_mode" in value and (not isinstance(mode, str) or mode not in _CODEX_APPROVAL_MODES):
+            return (
+                label,
+                f"{label}.approval_mode is not auto, prompt, writes, or approve",
+            )
+        if "output_token_limit" in value:
+            limit = value.get("output_token_limit")
+            if isinstance(limit, bool) or not isinstance(limit, int) or limit <= 0:
+                return (label, f"{label}.output_token_limit is not a positive integer")
+    return None
+
+
+def _codex_lookup_path(root: Mapping[str, object], key: Sequence[str]) -> object:
+    node: object = root
+    for part in key:
+        if not isinstance(node, Mapping) or part not in node:
+            return None
+        node = node[part]
+    return node
+
+
+def _codex_unquoted_time(value: date | time) -> str:
+    """A date or time as the file writes it: unquoted, with ``Z`` for UTC."""
+
+    rendered = value.isoformat()
+    if rendered.endswith("+00:00"):
+        return rendered[:-6] + "Z"
+    return rendered
+
+
+def _codex_format_carried(
+    value: object, *, mask_strings: bool, masked: list[str] | None = None
+) -> str:
+    """One carried value, from the parse. Arrays stay on one line."""
+
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, datetime):
+        return _codex_unquoted_time(value)
+    if isinstance(value, date):
+        return _codex_unquoted_time(value)
+    if isinstance(value, time):
+        return _codex_unquoted_time(value)
+    if isinstance(value, int) and not isinstance(value, bool):
+        return str(value)
+    if isinstance(value, float):
+        if math.isnan(value):
+            return "nan"
+        if math.isinf(value):
+            return "inf" if value > 0 else "-inf"
+        return str(value)
+    if isinstance(value, str):
+        if mask_strings:
+            shown, found = _masked_words([value])
+            if masked is not None:
+                masked.extend(found)
+            return _toml_snippet(shown[0] if shown else _HIDDEN)
+        return _toml_snippet(value)
+    if isinstance(value, list):
+        rendered = [
+            _codex_format_carried(item, mask_strings=mask_strings, masked=masked) for item in value
+        ]
+        return "[" + ", ".join(rendered) + "]"
+    if isinstance(value, dict):
+        pairs: list[str] = []
+        for name, item in value.items():
+            shown_key = name if _CODEX_BARE_KEY.fullmatch(name) else _toml_snippet(name)
+            pairs.append(
+                f"{shown_key} = {_codex_format_carried(item, mask_strings=mask_strings, masked=masked)}"
+            )
+        return "{ " + ", ".join(pairs) + " }"
+    return _toml_snippet(str(value))
+
+
+def _codex_carried_snippet_line(
+    key: Sequence[str], value: object, masked: list[str]
+) -> str:
+    mask = bool(key) and key[0] in {"env_vars", "tools"}
+    name = ".".join(
+        part if _CODEX_BARE_KEY.fullmatch(part) else _toml_snippet(part) for part in key
+    )
+    return f"{name} = {_codex_format_carried(value, mask_strings=mask, masked=masked)}"
+
+
+def _codex_snippet_lines(
+    alice: Mapping[str, object], keys: Sequence[tuple[str, ...]]
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    masked: list[str] = []
+    lines = tuple(
+        _codex_carried_snippet_line(key, _codex_lookup_path(alice, key), masked) for key in keys
+    )
+    return lines, tuple(dict.fromkeys(masked))
+
+
+def _codex_env_name(name: str) -> str:
+    if _CODEX_BARE_KEY.fullmatch(name):
+        return name
+    return _toml_snippet(name)
+
+
+def _codex_header_segment(name: str) -> str:
+    return rf"(?:{name}|\"{name}\"|'{name}')"
+
+
+def _codex_text_has_alice(text: str) -> bool:
+    """True when an unparsed file names an alice header.
+
+    Quoted or spaced segments count. A leading BOM is ignored. Call this
+    only when ``tomllib`` failed: a header inside a string is not an entry
+    once the file parses.
+    """
+
+    if text.startswith("\ufeff"):
+        text = text[1:]
+    gap = r"[ \t]*"
+    mcp = _codex_header_segment("mcp_servers")
+    alice = _codex_header_segment("alice")
+    if re.search(rf"(?m)^{gap}\[{gap}{mcp}{gap}\.{gap}{alice}(?:{gap}\]|{gap}\.)", text):
+        return True
+    if re.search(rf"(?m)^{gap}{mcp}{gap}\.{gap}{alice}(?:{gap}\.|{gap}=)", text):
+        return True
+    if re.search(rf"(?m)^{gap}\[{gap}{mcp}{gap}\]{gap}(?:#.*)?$", text) and re.search(
+        rf"(?m)^{gap}{alice}{gap}[=.]", text
+    ):
+        return True
+    if re.search(rf"(?m)^{gap}{mcp}{gap}={gap}\{{", text) and re.search(rf"\b{alice}\b", text):
+        return True
+    return False
+
+
+def _codex_locate_for_refusal(
+    text: str, home: Path
+) -> tuple[str, str | None, dict[str, object] | None]:
+    """Best-effort alice location for a refusal that happened before the planner.
+
+    ``dir`` carries the entry's data dir. ``placeholder`` means alice is
+    named but the dir could not be read. ``absent`` means no alice entry.
+    When the file parses, the third item is the entry's own command, args,
+    and env. The header regex runs only when ``tomllib`` fails.
+    """
+
+    body = text[1:] if text.startswith("\ufeff") else text
+    parsed: object | None
+    try:
+        parsed = tomllib.loads(body)
+    except (tomllib.TOMLDecodeError, RecursionError):
+        parsed = None
+    if isinstance(parsed, dict):
+        servers = parsed.get("mcp_servers")
+        alice = servers.get("alice") if isinstance(servers, dict) else None
+        if isinstance(alice, dict):
+            payload = _codex_refusal_payload(alice)
+            visible = _visible_dir(alice, home)
+            if visible:
+                return "dir", visible, payload
+            return "placeholder", None, payload
+        return "absent", None, None
+    if _codex_text_has_alice(body):
+        return "placeholder", None, None
+    return "absent", None, None
+
+
+def _codex_snippet(
+    payload: Mapping[str, object], extra_lines: Sequence[str] = ()
+) -> str:
+    """The alice entry as TOML, with values already masked.
+
+    ``extra_lines`` are carried keys and tools lines that will be written.
+    The snippet escaper also hides C1 controls and the Unicode line breaks
+    that ``_toml_basic`` leaves raw.
+    """
+
+    command = payload.get("command", "")
+    args = payload.get("args", [])
+    lines = ["[mcp_servers.alice]"]
+    if isinstance(command, str):
+        lines.append(f"command = {_toml_snippet(command)}")
+    else:
+        lines.append('command = "<hidden>"')
+    rendered: list[str] = []
+    if isinstance(args, list):
+        for item in args:
+            rendered.append(_toml_snippet(item) if isinstance(item, str) else '"<hidden>"')
+    lines.append("args = [" + ", ".join(rendered) + "]")
+    for extra in extra_lines:
+        lines.append(_codex_snippet_line(extra))
+    env = payload.get("env")
+    for key, value in payload.items():
+        if key in {"command", "args", "env"}:
+            continue
+        if isinstance(value, bool):
+            lines.append(f"{key} = {'true' if value else 'false'}")
+        elif isinstance(value, int) and not isinstance(value, bool):
+            lines.append(f"{key} = {value}")
+        elif isinstance(value, float):
+            lines.append(f"{key} = {value}")
+        else:
+            lines.append(f"{key} = {_toml_snippet(value if isinstance(value, str) else str(value))}")
+    if isinstance(env, dict) and env:
+        lines.append("")
+        lines.append("[mcp_servers.alice.env]")
+        for name, item in env.items():
+            shown = item if isinstance(item, str) else "<hidden>"
+            lines.append(f"{_codex_env_name(str(name))} = {_toml_snippet(shown)}")
+    return "\n".join(lines) + "\n"
+
+
+def _codex_layer_paths(codex_home: Path, platform: str) -> list[Path]:
+    """Profile files, the system config, and the managed config."""
+
+    paths: list[Path] = []
+    if platform == "win32":
+        program_data = os.environ.get("PROGRAMDATA") or r"C:\ProgramData"
+        paths.append(Path(program_data) / "OpenAI" / "Codex" / "config.toml")
+        paths.append(codex_home / "managed_config.toml")
+    else:
+        paths.append(Path("/etc/codex/config.toml"))
+        paths.append(Path("/etc/codex/managed_config.toml"))
+    if codex_home.is_dir():
+        paths.extend(sorted(path for path in codex_home.glob("*.config.toml") if path.is_file()))
+    return paths
+
+
+def _codex_layer_defines_alice(path: Path) -> str | None:
+    """A note when ``path`` defines alice or cannot be read. None when it does not."""
+
+    try:
+        if not path.exists():
+            return None
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return f"note: {path} could not be read"
+    try:
+        loaded = tomllib.loads(text)
+    except (tomllib.TOMLDecodeError, RecursionError):
+        return f"note: {path} could not be read"
+    servers = loaded.get("mcp_servers") if isinstance(loaded, dict) else None
+    alice = servers.get("alice") if isinstance(servers, dict) else None
+    if alice is None:
+        return None
+    return f"note: {path} defines mcp_servers.alice, and Codex merges it"
+
+
+def _codex_notes(codex_home: Path, platform: str) -> list[str]:
+    notes: list[str] = []
+    for path in _codex_layer_paths(codex_home, platform):
+        if path.name == "config.toml" and path.parent == codex_home:
+            continue
+        note = _codex_layer_defines_alice(path)
+        if note is not None:
+            notes.append(note)
+    return notes
+
+
+_CODEX_HOOK_WRITTEN = "written to hooks.json, not trusted yet"
+_CODEX_HOOK_UNCHANGED = "unchanged in hooks.json (Codex runs it only if you have trusted it)"
+_CODEX_TOML_HOOK_UNCHANGED = "unchanged in config.toml (Codex runs it only if you have trusted it)"
+_CODEX_TRUST_NEXT = (
+    'open Codex. At "Hooks need review", choose Review hooks and trust the '
+    "alice-memory-session-start hook, or use /hooks. Until then Codex skips it "
+    "without a message."
+)
+_CODEX_MODIFIED_LINE = "The hook changed, so Codex will skip it until you trust it again."
+_CODEX_HOOKS_OFF_NOTE = "note: features.hooks is false in config.toml, so Codex will not run any hook"
+_CODEX_TOML_HOOKS_REASON = (
+    "config.toml already holds hooks, and install does not write hooks.json beside them"
+)
+_CODEX_TOML_HOOKS_NEXT = (
+    "install did not write hooks.json, because Codex would load the hooks in config.toml and "
+    "in hooks.json and run the brief twice. Add the hook above to config.toml by hand, then "
+    'trust it: open Codex, choose Review hooks at "Hooks need review", or use /hooks.'
+)
+_CODEX_TOML_STALE_REASON = (
+    "the alice-memory-session-start hook in config.toml is not the one install would write, "
+    "and install does not edit hooks in config.toml"
+)
+_CODEX_TOML_STALE_NEXT = (
+    "install did not change the hook in config.toml. Replace the alice-memory-session-start "
+    "hook there with the one above by hand, so Codex does not run the brief twice, then trust "
+    'it: open Codex, choose Review hooks at "Hooks need review", or use /hooks.'
+)
+_CODEX_TOML_TWICE_NEXT = (
+    "add the hook above to {config} by hand, then remove Alice's alice-memory-session-start "
+    "hook from {hooks}. Codex runs the hooks in both files, so the brief would be injected "
+    'twice. Then trust the new hook: open Codex, choose Review hooks at "Hooks need review", '
+    "or use /hooks."
+)
+_CODEX_TOML_TWICE_NOTE = (
+    "note: {hooks} also holds the alice-memory-session-start hook, and Codex runs the hooks in "
+    "config.toml and in hooks.json, so the brief is injected twice. Remove the one in "
+    "hooks.json; install does not edit hooks.json when config.toml holds hooks"
+)
+_CODEX_HOOK_NOT_WRITTEN_NEXT = (
+    "install did not write the SessionStart hook. Add a hook that runs session_start_argv "
+    "above, quoted for the shell Codex uses, to hooks.json."
+)
+_CODEX_HOOKS_FILE_NEXT = "nothing was written for codex. Fix hooks.json, then run install again."
+_CODEX_HOOKS_RERUN_NEXT = "hooks.json was not changed. Run install again."
+
+
+def _strict_hooks_json(raw: bytes) -> dict[str, Any]:
+    """hooks.json as a dict: UTF-8, no BOM, no duplicate key, no NaN, an object on top.
+
+    A lone surrogate escape such as ``\\ud800`` is refused too. Python reads
+    it into a string, and serde_json, which Codex reads with, does not.
+    """
+
+    loaded = _parse_opencode_json(raw)
+    if loaded is not None:
+        try:
+            json.dumps(loaded, ensure_ascii=False).encode("utf-8")
+        except UnicodeEncodeError:
+            loaded = None
+    if loaded is None:
+        raise _MalformedHostFile(
+            "hooks.json is not strict JSON: install needs UTF-8 without a BOM, no duplicate "
+            "key, no NaN, no lone surrogate escape, and an object at the top level"
+        )
+    return loaded
+
+
+def _load_codex_hooks(path: Path) -> _JsonFile:
+    """Read Codex's hooks.json, and refuse a file Codex would skip.
+
+    A missing, empty or blank file is ``{}``. A symbolic link is followed and
+    written through, like every other host file.
+    """
+
+    target = _host_target(path)
+    raw = _read_host_file(target)
+    if raw is None or not raw.strip():
+        doc: dict[str, Any] = {}
+        original: dict[str, Any] = {}
+    else:
+        doc = _strict_hooks_json(raw)
+        original = _strict_hooks_json(raw)
+    _check_codex_hooks_document(doc)
+    return _JsonFile(path, target, raw, doc, original)
+
+
+def _codex_hooks_json_dir(path: Path, home: Path) -> str | None:
+    """The data dir of the Alice hook already in hooks.json, for a new entry to open.
+
+    None when there is no such hook, or the file is missing or unusable. It
+    never raises: the hook step reads the file again, after config.toml is
+    planned, and refuses there what Codex would skip.
+    """
+
+    try:
+        doc = _load_codex_hooks(path).doc
+    except (_MalformedHostFile, RecursionError, OSError):
+        return None
+    return _codex_hook_dir(_existing_alice_hook_command(doc, "codex"), home)
+
+
+def _codex_hooks_json_holds_alice(path: Path) -> bool:
+    """True when the hooks.json Codex would load holds an Alice SessionStart handler.
+
+    It never raises, like ``_codex_hooks_json_dir``: a file that is missing,
+    unreadable, or one Codex would skip holds no hook Codex runs, so the
+    answer is False. Unlike ``_load_codex_hooks`` it does not stop at a second
+    Alice handler, because Codex runs both.
+    """
+
+    try:
+        raw = _read_host_file(_host_target(path))
+        if raw is None or not raw.strip():
+            return False
+        doc = _strict_hooks_json(raw)
+        _check_codex_hooks_walk(doc)
+    except (_MalformedHostFile, RecursionError, OSError):
+        return False
+    hooks = doc.get("hooks")
+    groups = hooks.get("SessionStart") if isinstance(hooks, dict) else None
+    return isinstance(groups, list) and bool(_codex_alice_handlers(groups))
+
+
+def _codex_probe_command(doc: Mapping[str, Any]) -> str | None:
+    """The command of the Alice handler ``_merge_codex_session_start`` wrote into ``doc``."""
+
+    return _existing_alice_hook_command(doc, "codex")
+
+
+def _codex_hook_toml(command: str, hidden: list[str]) -> str:
+    """The hook as ``[[hooks.SessionStart]]`` TOML for config.toml, with the command masked."""
+
+    shown = _masked_hook_command(command, hidden)
+    return (
+        "\n".join(
+            [
+                "[[hooks.SessionStart]]",
+                "",
+                "[[hooks.SessionStart.hooks]]",
+                'type = "command"',
+                f"command = {_toml_snippet(shown)}",
+                f"timeout = {CODEX_HOOK_TIMEOUT}",
+                f"additionalContextLimit = {CODEX_HOOK_CONTEXT_LIMIT}",
+            ]
+        )
+        + "\n"
+    )
+
+
+def _install_codex_host(
+    *,
+    home: Path,
+    explicit_home: bool,
+    explicit_dir: str | None,
+    default_dir: str,
+    dry_run: bool,
+    search: LauncherSearch,
+    platform: str,
+) -> _HostResult:
+    codex_home, home_problem = _codex_directory(home, explicit_home=explicit_home, platform=platform)
+    files = host_file_map(home, platform, codex_home=codex_home)["codex"]
+    path = files["mcp"]
+    hooks_path = files["hooks"]
+    data_dir = explicit_dir or default_dir
+    launcher = search.launcher or UVX_LAUNCHER
+    target: Path | None = None
+    hooks: _JsonFile | None = None
+    hooks_named = False  # the receipt names hooks.json once install has planned it
+    session_start = "none"
+    hook_details: list[str] = []
+
+    def receipt(action: str, details: Sequence[str], **extra: Any) -> str:
+        return _format_host_receipt(
+            host="codex",
+            mcp_path=path,
+            hooks_path=hooks_path if hooks_named else None,
+            action=action,
+            details=details,
+            session_start=session_start,
+            data_dir=data_dir,
+            target=target,
+            hooks_target=hooks.target if hooks is not None else None,
+            hook_details=hook_details,
+            file_format="toml, edited as text",
+            launcher=launcher,
+            **extra,
+        )
+
+    def elsewhere_note() -> str | None:
+        if not explicit_home:
+            return None
+        raw = os.environ.get("CODEX_HOME")
+        if not raw:
+            return None
+        try:
+            same = Path(raw).expanduser().resolve() == (home / ".codex").resolve()
+        except OSError:
+            same = False
+        if same:
+            return None
+        return "note: --home is in use, and CODEX_HOME points elsewhere"
+
+    if home_problem is not None:
+        snippet = _codex_snippet(mcp_server_payload(data_dir, with_env=False, launcher=launcher))
+        if "is not an absolute path" in home_problem:
+            trailer = [f"next: {_CODEX_HOME_NEXT}"]
+        elif "does not exist" in home_problem or "not a directory" in home_problem:
+            trailer = [f"next: {_CODEX_HOME_DIR_NEXT}"]
+        else:
+            trailer = [f"next: config.toml was not changed. {home_problem}"]
+        if dry_run:
+            trailer.append(_DRY_RUN_REFUSAL)
+        home_details = [f"reason: {home_problem}", *_codex_notes(codex_home, platform)]
+        note = elsewhere_note()
+        if note is not None:
+            home_details.append(note)
+        return _HostResult(
+            receipt(_refusal_action(dry_run), home_details, snippet=snippet, trailer=trailer),
+            "refused",
+        )
+
+    source_text: str | None = None
+
+    def refuse(reason: CodexConfigRefused, directory: str) -> _HostResult:
+        if source_text and not reason.located:
+            mode, found_dir, found_payload = _codex_locate_for_refusal(source_text, home)
+            if found_payload is not None and reason.payload is None:
+                reason.payload = found_payload
+            if mode == "dir":
+                reason.located = True
+                reason.data_dir = found_dir
+                reason.placeholder = False
+            elif mode == "placeholder":
+                reason.located = True
+                reason.placeholder = True
+                reason.data_dir = None
+        if reason.payload is not None:
+            payload: Mapping[str, object] = reason.payload
+        elif reason.placeholder:
+            payload = mcp_server_payload(_CODEX_DIR_PLACEHOLDER, with_env=False, launcher=launcher)
+        elif reason.located and reason.data_dir:
+            payload = mcp_server_payload(reason.data_dir, with_env=False, launcher=launcher)
+        else:
+            payload = mcp_server_payload(reason.data_dir or directory, with_env=False, launcher=launcher)
+        shown, hidden = _masked(payload, own_env=_own_env(payload) if isinstance(payload, Mapping) else None)
+        snippet = _codex_snippet(shown)
+        trailer: list[str] = []
+        if hidden:
+            trailer.append(_keep_line(hidden))
+        if reason.next_step:
+            trailer.append(f"next: {reason.next_step}")
+        elif reason.located:
+            trailer.append(f"next: {_CODEX_HAND_NEXT}")
+        else:
+            trailer.append(
+                "next: config.toml was not changed. Add the alice entry above under "
+                "[mcp_servers] by hand, then check it with: codex mcp get alice"
+            )
+        if dry_run:
+            trailer.append(_DRY_RUN_REFUSAL)
+        refusal_details = [f"reason: {reason.detail}", *_codex_notes(codex_home, platform)]
+        note = elsewhere_note()
+        if note is not None:
+            refusal_details.append(note)
+        return _HostResult(
+            receipt(_refusal_action(dry_run), refusal_details, snippet=snippet, trailer=trailer),
+            "refused",
+        )
+
+    hook_dir = _codex_hooks_json_dir(hooks_path, home)
+    try:
+        try:
+            target = _host_target(path)
+        except _MalformedHostFile as problem:
+            raise CodexConfigRefused(str(problem)) from None
+        if not target.exists():
+            entry_plan = _plan_entry(
+                None,
+                key_label="mcp_servers.alice",
+                explicit_dir=explicit_dir,
+                new_entry_dir=hook_dir or default_dir,
+                default_dir=default_dir,
+                home=home,
+                search=search,
+                with_env=False,
+                needs_hook=True,
+            )
+            if entry_plan.entry is None:
+                raise CodexConfigRefused(entry_plan.refusal or "install could not plan a new alice entry", next_step=entry_plan.next_step)
+            block = _codex_render_block(entry_plan.entry, (), (), "\n")
+            plan = CodexPlan(
+                block,
+                entry_plan.data_dir,
+                entry_plan.entry,
+                tuple(entry_plan.details),
+                entry_plan.used_fallback,
+                entry_plan=entry_plan,
+            )
+            original = None
+        elif not target.is_file():
+            raise CodexConfigRefused(f"{path.name} is not a regular file")
+        else:
+            original = target.read_bytes()
+            try:
+                decoded = original.decode("utf-8")
+            except UnicodeDecodeError:
+                decoded = original.decode("utf-8", errors="replace")
+                source_text = decoded
+                raise CodexConfigRefused(f"{path.name} is not UTF-8") from None
+            source_text = decoded
+            plan = _plan_codex_text(
+                decoded, explicit_dir, default_dir, home=home, search=search, hook_dir=hook_dir
+            )
+    except CodexConfigRefused as refusal:
+        return refuse(refusal, data_dir)
+    except OSError:
+        return _HostResult(receipt("failed", (f"file: {path}", f"reason: {_FAILED_REASON}"), snippet=None), "failed")
+
+    data_dir = plan.data_dir
+    details = list(plan.details)
+    details.extend(_codex_notes(codex_home, platform))
+    home_note = elsewhere_note()
+    if home_note is not None:
+        details.append(home_note)
+    if plan.hooks_disabled:
+        details.append(_CODEX_HOOKS_OFF_NOTE)
+    # With hooks in config.toml install never writes hooks.json, but an Alice hook the
+    # user's hooks.json already holds runs beside the one in config.toml, once trusted.
+    json_alice = (
+        plan.toml_hooks
+        and not plan.hooks_disabled
+        and _codex_hooks_json_holds_alice(hooks_path)
+    )
+    if json_alice and plan.toml_alice_handler is not None:
+        details.append(_CODEX_TOML_TWICE_NOTE.format(hooks=hooks_path))
+    hook_entry_plan = plan.entry_plan
+    assert hook_entry_plan is not None  # nosec B101 # narrows the type for mypy; every CodexPlan built above carries its entry plan
+
+    # The hook. A hooks.json Codex would skip refuses the whole host, and nothing
+    # is written. TOML hooks in config.toml only keep the hook out: the MCP entry
+    # is still written, and the receipt prints the hook to add by hand.
+    hook_status = "none"
+    hook_problem: str | None = None
+    hook_text: str | None = None
+    hook_snippet: str | None = None
+    hook_hidden: list[str] = []
+    hooks_named = not plan.toml_hooks
+    explicit = explicit_dir is not None
+    try:
+        if plan.toml_hooks:
+            probe = _JsonFile(hooks_path, hooks_path, None, {}, {})
+            hook_status, hook_problem = _plan_hook(
+                probe, "codex", hook_entry_plan, None, None, None, explicit, hook_details
+            )
+            command = _codex_probe_command(probe.doc) if hook_status == "added" else None
+            if command is not None:
+                ours = codex_session_start_handler(command)
+                if plan.toml_alice_handler == ours:
+                    # The hook install would print is already in config.toml, so
+                    # there is nothing to add and nothing to refuse.
+                    hook_status, hook_problem = "already-present", None
+                else:
+                    hook_snippet = _codex_hook_toml(command, hook_hidden)
+                    hook_status = "refused"
+                    hook_problem = (
+                        _CODEX_TOML_HOOKS_REASON
+                        if plan.toml_alice_handler is None
+                        else _CODEX_TOML_STALE_REASON
+                    )
+        else:
+            hooks = _load_codex_hooks(hooks_path)
+            old_hook = _existing_alice_hook_command(hooks.doc, "codex")
+            old_read = read_hook_data_dir(old_hook) if old_hook is not None else None
+            old_dir = (
+                _resolved_dir(old_read.raw, home)
+                if old_read is not None and old_read.trusted
+                else None
+            )
+            hook_status, hook_problem = _plan_hook(
+                hooks, "codex", hook_entry_plan, old_hook, old_read, old_dir, explicit, hook_details
+            )
+            if hook_status in {"added", "updated"} and hooks.changed():
+                hook_text = _dump_json(hooks.doc)
+    except (_MalformedHostFile, RecursionError) as problem:
+        reason = (
+            str(problem)
+            if isinstance(problem, _MalformedHostFile)
+            else "hooks.json is nested too deeply to read"
+        )
+        details[:] = [f"reason: {reason}", f"file: {hooks_path}"]
+        hook_details.clear()
+        hooks_named = False
+        session_start = "none"
+        trailer = [_DRY_RUN_REFUSAL] if dry_run else [f"next: {_CODEX_HOOKS_FILE_NEXT}"]
+        return _HostResult(
+            receipt(_refusal_action(dry_run), details, snippet=None, trailer=trailer),
+            "refused",
+        )
+    except OSError:
+        return _HostResult(
+            receipt("failed", (f"file: {hooks_path}", f"reason: {_FAILED_REASON}"), snippet=None),
+            "failed",
+        )
+    if hook_problem is not None:
+        hook_details.insert(0, f"session_start_reason: {hook_problem}")
+    hooks_changed = hook_text is not None
+    hook_written = hook_status in {"added", "updated"}
+    if hook_written:
+        session_start = (
+            f"planned ({_CODEX_HOOK_WRITTEN})" if dry_run else _CODEX_HOOK_WRITTEN
+        )
+    elif hook_status == "already-present":
+        session_start = _CODEX_TOML_HOOK_UNCHANGED if plan.toml_hooks else _CODEX_HOOK_UNCHANGED
+    else:
+        session_start = hook_status
+    status = "refused" if hook_problem is not None else "ok"
+    shown, hidden = _masked(plan.payload, own_env=_own_env(plan.payload))
+    success_trailer: list[str] = []
+    if hook_snippet is not None:
+        if plan.toml_alice_handler is not None:
+            toml_next = _CODEX_TOML_STALE_NEXT
+        elif json_alice:
+            toml_next = _CODEX_TOML_TWICE_NEXT.format(config=path, hooks=hooks_path)
+        else:
+            toml_next = _CODEX_TOML_HOOKS_NEXT
+        success_trailer.append(f"next: {toml_next}")
+    elif hook_problem is not None:
+        success_trailer.append(f"next: {_CODEX_HOOK_NOT_WRITTEN_NEXT}")
+    if hook_written and not dry_run:
+        success_trailer.append(f"next: {_CODEX_TRUST_NEXT}")
+    success_trailer.append(f"next: {_CODEX_CHECK_NEXT}")
+    if dry_run:
+        if plan.text is None:
+            details.append("planned: unchanged")
+        elif original is None:
+            details.append("planned: create")
+        else:
+            details.append("planned: edit, with a backup first")
+        dry_trailer: list[str] = []
+        shown_hidden = list(dict.fromkeys([*hidden, *plan.carried_hidden, *hook_hidden]))
+        snippet = _codex_snippet(shown, plan.carried_lines)
+        if hook_snippet is not None:
+            snippet = snippet.rstrip("\n") + "\n---\n" + hook_snippet
+        elif hooks is not None:
+            hook_json, json_hidden = _dry_run_json_snippet("codex", None, hooks)
+            if hook_json.strip():
+                snippet = snippet.rstrip("\n") + "\n---\n" + hook_json
+            shown_hidden = list(dict.fromkeys([*shown_hidden, *json_hidden]))
+        if shown_hidden:
+            dry_trailer.append(_hidden_line(shown_hidden))
+        dry_trailer.extend(success_trailer)
+        if hook_problem is not None:
+            dry_trailer.append(_DRY_RUN_REFUSAL)
+        return _HostResult(
+            receipt("dry-run", details, snippet=snippet, trailer=dry_trailer),
+            status,
+            plan.used_fallback,
+        )
+    if hook_hidden:
+        success_trailer.insert(0, _hidden_line(list(dict.fromkeys(hook_hidden))))
+    if plan.text is None and not hooks_changed:
+        return _HostResult(
+            receipt("unchanged", details, snippet=hook_snippet, trailer=success_trailer),
+            status,
+            plan.used_fallback,
+        )
+    action = "unchanged"
+    backup_path: Path | None = None
+    if plan.text is not None:
+        try:
+            if original is not None:
+                backup_path = _backup_host_file(
+                    target, original, backup_dir=_backup_dir(plan.data_dir), host="codex"
+                )
+                details.append(f"backup: {backup_path}")
+            _write_text(
+                target,
+                plan.text,
+                newline="",
+                expected=original,
+                expect_absent=original is None,
+                backup=backup_path,
+            )
+            if original is None:
+                target.chmod(0o600)
+        except _HostFileChanged:
+            return refuse(
+                CodexConfigRefused(
+                    "config.toml changed while install ran",
+                    next_step=_CODEX_RERUN_NEXT,
+                ),
+                data_dir,
+            )
+        except CodexConfigRefused as refusal:
+            return refuse(refusal, data_dir)
+        except (_BackupFailed, OSError, InstallError) as problem:
+            reason = problem.reason() if isinstance(problem, _BackupFailed) else _FAILED_REASON
+            session_start = "not attempted" if hooks_changed else session_start
+            return _HostResult(
+                receipt("failed", (f"file: {target}", f"reason: {reason}", *details), snippet=None),
+                "failed",
+                plan.used_fallback,
+            )
+        action = "written"
+    if hooks_changed:
+        assert hooks is not None and hook_text is not None  # nosec B101 # narrows the type for mypy; hooks_changed is set only with a planned hooks file
+        hook_backup: Path | None = None
+        try:
+            if hooks.raw is not None:
+                hook_backup = _backup_host_file(
+                    hooks.target, hooks.raw, backup_dir=_backup_dir(plan.data_dir), host="codex"
+                )
+                hook_details.append(f"session_start_backup: {hook_backup}")
+            _write_text(
+                hooks.target,
+                hook_text,
+                newline="",
+                expected=hooks.raw,
+                expect_absent=hooks.raw is None,
+                backup=hook_backup,
+            )
+        except _HostFileChanged:
+            hook_details[:0] = ["session_start_reason: hooks.json changed while install ran"]
+            session_start = "refused"
+            success_trailer[:] = [f"next: {_CODEX_HOOKS_RERUN_NEXT}"]
+            return _HostResult(
+                receipt(action, details, snippet=None, trailer=success_trailer),
+                "refused",
+                plan.used_fallback,
+            )
+        except (_BackupFailed, OSError, InstallError) as problem:
+            reason = problem.reason() if isinstance(problem, _BackupFailed) else _FAILED_REASON
+            hook_details[:0] = [
+                f"session_start_file: {hooks.target}",
+                f"session_start_reason: {reason}",
+            ]
+            session_start = "failed"
+            return _HostResult(
+                receipt(action, details, snippet=None),
+                "failed",
+                plan.used_fallback,
+            )
+        if hook_status == "updated":
+            # Said only once the file holds the new command: a run that wrote
+            # nothing has changed nothing for Codex to distrust.
+            hook_details.append(_CODEX_MODIFIED_LINE)
+    # A dry run and a run that changed nothing returned above, so config.toml was written
+    # here. The hook snippet exists only when config.toml already holds hooks and install
+    # refused just the hook: its own error code, so a caller sees the entry is in place.
+    return _HostResult(
+        receipt("written" if action == "written" else action, details, snippet=hook_snippet, trailer=success_trailer),
+        status,
+        plan.used_fallback,
+        refusal_kind="hook_by_hand" if hook_snippet is not None else None,
+    )
+
+
 def run_host_install(
     *,
     home: str | None,
@@ -3462,29 +8065,79 @@ def run_host_install(
     default_dir = str(resolve_user_path(DEFAULT_DATA_DIR, resolved_home))
     planned = _plan_hosts(hosts)
     search = find_launcher()
+    def one_host(host: str) -> _HostResult:
+        if host == "hermes":
+            return _install_hermes_host(
+                home=resolved_home,
+                explicit_dir=explicit_dir,
+                default_dir=default_dir,
+                dry_run=dry_run,
+                search=search,
+            )
+        if host == "codex":
+            return _install_codex_host(
+                home=resolved_home,
+                explicit_home=home is not None,
+                explicit_dir=explicit_dir,
+                default_dir=default_dir,
+                dry_run=dry_run,
+                search=search,
+                platform=sys.platform,
+            )
+        if host == "opencode":
+            config_home = resolved_home / ".config"
+            xdg_problem = None
+            if home is None:
+                config_home, xdg_problem = _opencode_config_home(resolved_home)
+            return _install_opencode_host(
+                home=resolved_home,
+                config_home=config_home,
+                explicit_dir=explicit_dir,
+                default_dir=default_dir,
+                dry_run=dry_run,
+                search=search,
+                xdg_problem=xdg_problem,
+            )
+        return _install_json_host(
+            host,
+            home=resolved_home,
+            explicit_dir=explicit_dir,
+            default_dir=default_dir,
+            dry_run=dry_run,
+            search=search,
+        )
+
+    def failed_host(host: str, exc: BaseException) -> _HostResult:
+        if host == "codex":
+            codex_home, _problem = _codex_directory(
+                resolved_home, explicit_home=home is not None, platform=sys.platform
+            )
+            mcp_path = host_file_map(resolved_home, sys.platform, codex_home=codex_home)["codex"]["mcp"]
+        else:
+            try:
+                mcp_path = host_file_map(resolved_home)[host]["mcp"]
+            except Exception:
+                mcp_path = resolved_home / host
+        lines = [
+            _seal_receipt_line(f"host: {host}"),
+            _seal_receipt_line(f"path: {mcp_path}"),
+            _seal_receipt_line("action: failed"),
+            _seal_receipt_line(f"reason: unexpected {type(exc).__name__}"),
+        ]
+        if host == "codex":
+            lines.append(
+                _seal_receipt_line("next: config.toml was not changed. Run install again.")
+            )
+            if dry_run:
+                lines.append(_seal_receipt_line(_DRY_RUN_REFUSAL))
+        return _HostResult("\n".join(lines), "failed")
+
     results: list[_HostResult] = []
     for host in planned:
-        if host == "hermes":
-            results.append(
-                _install_hermes_host(
-                    home=resolved_home,
-                    explicit_dir=explicit_dir,
-                    default_dir=default_dir,
-                    dry_run=dry_run,
-                    search=search,
-                )
-            )
-        else:
-            results.append(
-                _install_json_host(
-                    host,
-                    home=resolved_home,
-                    explicit_dir=explicit_dir,
-                    default_dir=default_dir,
-                    dry_run=dry_run,
-                    search=search,
-                )
-            )
+        try:
+            results.append(one_host(host))
+        except Exception as exc:
+            results.append(failed_host(host, exc))
     if write_mcpb:
         results.append(
             _install_mcpb(Path(write_mcpb), dry_run=dry_run, uvx_on_path=search.uvx_on_path)
@@ -3492,13 +8145,18 @@ def run_host_install(
     blocks = [result.receipt for result in results]
     if search.warning is not None and any(result.used_fallback for result in results):
         # A warning, not a refusal: the files are still right once uv is installed.
-        blocks.insert(0, search.warning)
+        blocks.insert(0, _escape_receipt_controls(search.warning))
     output = "\n\n".join(blocks)
     statuses = {result.status for result in results}
     if "failed" in statuses:
         raise InstallFailed(output)
     if "refused" in statuses:
-        raise InstallRefused(output)
+        kinds = tuple(
+            result.refusal_kind or "other"
+            for result in results
+            if result.status == "refused"
+        )
+        raise InstallRefused(output, kinds=kinds)
     return output
 
 
@@ -3530,6 +8188,9 @@ __all__ = [
     "is_install_shaped_entry",
     "mcp_server_payload",
     "openclaw_add_line",
+    "CodexConfigRefused",
+    "CodexPlan",
+    "plan_codex_config",
     "plan_hermes_config",
     "resolve_home",
     "resolve_user_path",

@@ -43,7 +43,9 @@ from alicebot_api.host_launcher import (
     UVX_MISSING_WARNING_PREFIX,
     find_launcher,
     format_command,
+    hook_argv,
     hook_command,
+    hook_output_format,
     in_uv_cache,
     is_session_start_command,
     launcher_in_uv_cache,
@@ -51,6 +53,7 @@ from alicebot_api.host_launcher import (
     parse_launcher,
     read_hook_data_dir,
     script_launcher,
+    shown_hook_words,
     split_command,
 )
 from tests.unit.launcher_helpers import executable, make_scripts, pin_launcher_search
@@ -820,3 +823,143 @@ def test_a_cached_launcher_is_known_as_cached(tmp_path: Path) -> None:
     (tmp_path / "c" / "CACHEDIR.TAG").write_text("Signature: 8a477f597d28d172789f06886806bc55\n", encoding="utf-8")
     assert launcher_in_uv_cache(script_launcher(str(cached / "alice-memory")))
     assert not launcher_in_uv_cache(script_launcher(str(tmp_path / "gone" / "alice-memory")))
+
+
+def test_parse_launcher_command_array() -> None:
+    """OpenCode's command array is opt-in. The default still wants a string.
+
+    Mutation: default command_array=True. A JSON host entry with a string
+    command and args no longer parses, or an array parses without the flag.
+    Mutation: the parser accepts a string command. This test fails.
+    """
+
+    array = {
+        "type": "local",
+        "command": ["uvx", "alice-memory", "mcp", "--data-dir", "/vault"],
+    }
+    assert parse_launcher(array) is None
+    parsed = parse_launcher(array, command_array=True)
+    assert parsed is not None
+    launcher, server_args = parsed
+    assert launcher.command == "uvx"
+    assert server_args == ["--data-dir", "/vault"]
+    assert parse_launcher({"type": "remote", "command": ["uvx"]}, command_array=True) is None
+    assert parse_launcher({"enabled": False}, command_array=True) is None
+    assert (
+        parse_launcher(
+            {"type": "local", "command": ["{env:HOME}/uvx", "alice-memory", "mcp"]},
+            command_array=True,
+        )
+        is None
+    )
+    assert (
+        parse_launcher(
+            {"type": "local", "command": ["uvx", "alice-memory", "mcp"], "args": ["--data-dir"]},
+            command_array=True,
+        )
+        is None
+    )
+    assert (
+        parse_launcher(
+            {"type": "local", "command": "uvx alice-memory mcp --data-dir /vault"},
+            command_array=True,
+        )
+        is None
+    )
+
+
+# --- --format: what Codex's hook prints (PR B) -------------------------------------------
+
+
+def test_hook_command_and_argv_carry_the_output_format() -> None:
+    """``output_format`` adds ``--format <value>`` after ``--data-dir``, in both builders.
+
+    Mutation: ignore ``output_format`` in ``hook_command``, or in ``hook_argv``.
+    The matching assertion fails.
+    """
+
+    launcher = script_launcher("/opt/py/bin/alice-memory")
+    text, problem = hook_command(launcher, "/v", windows=False, output_format="markdown")
+    assert problem is None
+    assert text == "/opt/py/bin/alice-memory-session-start --data-dir /v --format markdown"
+    plain, problem = hook_command(launcher, "/v", windows=False)
+    assert problem is None and "--format" not in plain
+    assert hook_argv(launcher, "/v", "markdown")[-2:] == ["--format", "markdown"]
+    assert hook_argv(launcher, "/v")[-1] == "/v"
+
+
+def test_windows_hook_with_a_space_is_quoted_for_powershell() -> None:
+    """A data dir with a space gets double quotes and the first token stays bare.
+
+    Codex runs a hook through ``powershell -NoProfile -Command`` on Windows.
+    ``'`` and ``$`` are refused, as for every host. Mutation: quote the first
+    token, or allow ``$``. This test fails.
+    """
+
+    launcher = script_launcher("C:\\Tools\\alice-memory.exe")
+    text, problem = hook_command(
+        launcher, "C:\\Users\\Alex Doe\\.alice", windows=True, output_format="markdown"
+    )
+    assert problem is None
+    assert text == (
+        'C:/Tools/alice-memory-session-start.exe --data-dir "C:/Users/Alex Doe/.alice" '
+        "--format markdown"
+    )
+    for bad in ("C:/Users/O'B/.alice", "C:/Users/$HOME/.alice"):
+        refused, why = hook_command(launcher, bad, windows=True, output_format="markdown")
+        assert refused == "" and why is not None
+
+
+def test_shown_hook_words_show_only_json_and_markdown_formats() -> None:
+    """``--format json|markdown`` and ``--format=...`` print; any other value is hidden.
+
+    Mutation: hide ``--format``, or show any value. This test fails.
+    """
+
+    shown, hidden = shown_hook_words(
+        ["uvx", "--from", "alice-memory", "alice-memory-session-start", "--data-dir", "/v",
+         "--format", "markdown"]
+    )
+    assert hidden == 0 and shown[-2:] == ["--format", "markdown"]
+    assert shown_hook_words(["--format=json"]) == (["--format=json"], 0)
+    assert shown_hook_words(["--format=markdown"]) == (["--format=markdown"], 0)
+    assert shown_hook_words(["--format", "https://h/x"]) == (["--format", "<hidden>"], 1)
+    assert shown_hook_words(["--format=SECRET"]) == (["<hidden>"], 1)
+    assert shown_hook_words(["--format", "yaml"]) == (["--format", "<hidden>"], 1)
+
+
+@pytest.mark.parametrize(
+    ("command", "expected"),
+    [
+        ("notify-send done", None),
+        ("uvx alice-memory-session-start --data-dir /v", None),
+        ("uvx alice-memory-session-start --format", None),
+        ("uvx alice-memory-session-start --format=markdown", "markdown"),
+        ("uvx alice-memory-session-start --format=json", "json"),
+        ("uvx alice-memory-session-start --format markdown", "markdown"),
+        ("uvx alice-memory-session-start --format json --format markdown", "markdown"),
+        ("uvx alice-memory-session-start --format markdown --format json", "json"),
+        ("uvx alice-memory-session-start --format markdown --format", None),
+    ],
+    ids=[
+        "unrelated-command",
+        "no-format",
+        "format-as-last-word",
+        "format-equals-markdown",
+        "format-equals-json",
+        "format-markdown",
+        "last-format-wins",
+        "json-after-markdown",
+        "trailing-bare-format",
+    ],
+)
+def test_hook_output_format_reads_the_last_format_like_argparse(
+    command: str, expected: str | None
+) -> None:
+    """Each case pins one rule of the reader that decides whether a kept hook prints markdown.
+
+    Mutations: return the first ``--format``, ignore ``--format=VALUE``, or
+    read past the last word. Each fails at least one case.
+    """
+
+    assert hook_output_format(command, windows=False) == expected

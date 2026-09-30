@@ -24,6 +24,7 @@ from uuid import uuid4
 import pytest
 
 from alicebot_api.chatgpt_import import import_chatgpt_source
+from alicebot_api.credential_floor import carries_credential_material
 from alicebot_api.continuity_evidence import ArchivedArtifactRef
 from alicebot_api.importer_models import (
     ImporterNormalizedBatch,
@@ -969,8 +970,9 @@ def test_each_checked_field_skips_when_only_that_field_holds_a_secret(field_name
     """A secret in only this field is skipped. Dropping the field stores it.
 
     The body holds the secret under ``api_key``. The value alone is not a
-    credential shape, so passing the body by value, the way provenance is
-    passed, stores it. The other fields hold a token at the end of a long note.
+    credential shape, so passing the body by value stores it. Provenance
+    is passed with its keys. The other fields hold a token at the end of a
+    long note.
     """
 
     token = _deploy_token()
@@ -1021,6 +1023,55 @@ def test_each_checked_field_skips_when_only_that_field_holds_a_secret(field_name
     assert receipt["imported_count"] == 1
     assert len(store.objects) == 1
     assert secret_marker not in json.dumps(receipt)
+
+
+def test_importer_provenance_secret_name_with_an_opaque_value_is_skipped() -> None:
+    """A secret name in provenance is skipped. The value alone is not.
+
+    Passing provenance through string_values stores this item.
+    """
+
+    opaque = "b7" + "Qx" * 12
+    assert not carries_credential_material(opaque)
+    secret_item = _normalized_item(
+        item_id="secret-item",
+        title=SAFE,
+        body={"body": SAFE},
+        raw_content=SAFE,
+        segment=SAFE,
+        provenance={"api_key": opaque},
+        line_number=1,
+    )
+    safe_item = _normalized_item(
+        item_id="safe-item",
+        title=SAFE,
+        body={"body": SAFE},
+        raw_content=SAFE,
+        segment=SAFE,
+        line_number=2,
+    )
+    store, receipt = _import_items([secret_item, safe_item])
+
+    assert receipt["skipped_credentials"] == 1
+    assert receipt["imported_count"] == 1
+    assert opaque not in store.stored_text()
+    assert opaque not in json.dumps(receipt)
+
+
+def test_importer_provenance_routing_session_key_is_imported() -> None:
+    item = _normalized_item(
+        item_id="route-item",
+        title=SAFE,
+        body={"body": SAFE},
+        raw_content=SAFE,
+        segment=SAFE,
+        provenance={"session_key": "agent:main:telegram:dm:4471"},
+    )
+    store, receipt = _import_items([item])
+
+    assert receipt["skipped_credentials"] == 0
+    assert receipt["imported_count"] == 1
+    assert len(store.objects) == 1
 
 
 def test_corpus_classifier_reads_the_line_and_not_the_file_path() -> None:

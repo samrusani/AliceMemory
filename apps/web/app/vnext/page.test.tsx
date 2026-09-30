@@ -235,7 +235,11 @@ describe("VNextPage", () => {
     expect(screen.getByText("Follow up with Sam about launch owner")).toBeInTheDocument();
   }, 60000); // heavy multi-action page test; allow bounded CI contention headroom
 
-  it("repopulates source, memory, and connector drafts when their selections change", async () => {
+  // Three selections, three tests. On Node 22 the combined test's coverage
+  // run is about three times the plain run, because each query walks the
+  // instrumented workspace. The render itself stays under a fifth of a
+  // second. Keeping them together tripped the 30s coverage limit.
+  it("repopulates the source draft when the selected source changes", async () => {
     await renderVNextPage();
 
     fireEvent.change(screen.getByLabelText("Selected source title"), {
@@ -250,6 +254,10 @@ describe("VNextPage", () => {
     expect(screen.getByLabelText("Selected source title")).toHaveValue("Launch review note");
     expect(screen.getByLabelText("Source domain")).toHaveValue("project");
     expect(screen.getByLabelText("Source sensitivity")).toHaveValue("private");
+  }, 30000);
+
+  it("repopulates the memory draft when the selected memory changes", async () => {
+    await renderVNextPage();
 
     fireEvent.change(screen.getByLabelText("Edited memory title"), {
       target: { value: "Unsaved memory draft" },
@@ -272,6 +280,10 @@ describe("VNextPage", () => {
     expect(screen.getByLabelText("Open-loop title")).toHaveValue(
       "Vendor legal review is waiting for Priya.",
     );
+  }, 30000);
+
+  it("repopulates the connector draft when the selected connector changes", async () => {
+    await renderVNextPage();
 
     fireEvent.change(screen.getByLabelText("Connector"), {
       target: { value: "browser_clipper" },
@@ -299,7 +311,7 @@ describe("VNextPage", () => {
     expect(screen.getByLabelText("Trusted-client capture secret ref")).toHaveValue(
       "browser.capture_token.default",
     );
-  }, 30000);
+  }, 60000); // CI coverage run on Node 22 took 18.4s; see the note above these tests
 
   it("refreshes Ask Alice output and generates reviewable artifacts", async () => {
     await renderVNextPage();

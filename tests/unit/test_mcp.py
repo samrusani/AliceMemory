@@ -1850,7 +1850,7 @@ class FakeVNextMCPStore:
                 "sensitivity": "private",
                 "metadata_json": {
                     "raw_text": (
-                        "TODO: validate MCP brief generation Owner: Samir\n"
+                        "TODO: validate MCP brief generation Owner: Jordan\n"
                         "Alice should not auto-promote generated artifacts into memory."
                     )
                 },
@@ -3375,7 +3375,7 @@ def test_alice_project_and_open_loop_mcp_tools(monkeypatch, legacy_tools_enabled
     assert update_payload["artifact_type"] == "project_update"
     assert update_payload["metadata_json"]["candidate_memory_id"] == "memory-2"
     assert extract_payload["created_count"] == 1
-    assert extract_payload["open_loops"][0]["metadata_json"]["owner"] == "Samir"
+    assert extract_payload["open_loops"][0]["metadata_json"]["owner"] == "Jordan"
     assert review_update_payload["status"] == "accepted"
     assert store.projects["project-1"]["current_state"] == "Project automation reviewed."
     review_event = next(
@@ -4380,6 +4380,8 @@ def test_alice_recall_results_are_compact_and_trace_is_debug_only(
             "sensitivity",
             "excerpt",
             "excerpt_kind",
+            "derived_memory_corrected",
+            "current_memory_id",
             "writer",
         }, f"alice_recall leaked an uncompacted source field: {sorted(source)}"
         assert "metadata_json" not in source

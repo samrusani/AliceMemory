@@ -1018,3 +1018,88 @@ def test_round3_open_loop_review_action_checks_activation_and_withholds_the_note
     assert status == 200
     assert deferred["rationale_withheld"] is True
     assert _pat_in(app_url, user_id, "continuity_correction_events") == 0
+
+
+def _aws40() -> str:
+    """Forty secret-shaped characters, built at runtime."""
+
+    return "".join(("Kq7m", "N2pL", "9xR4", "vB8w", "C3dF", "6hJ1", "kLa0", "M5yZ", "t8Qn", "E2sP"))
+
+
+def _secret_rows(database_url: str, user_id: UUID, token: str) -> int:
+    with user_connection(database_url, user_id) as conn:
+        return int(
+            _scalar(
+                conn,
+                "SELECT"
+                f" (SELECT count(*) FROM continuity_objects WHERE body::text LIKE '%{token}%')"
+                f" + (SELECT count(*) FROM continuity_correction_events WHERE payload::text LIKE '%{token}%'"
+                f" OR reason LIKE '%{token}%')"
+                f" + (SELECT count(*) FROM memories WHERE value::text LIKE '%{token}%'"
+                f" OR metadata_json::text LIKE '%{token}%')",
+            )
+        )
+
+
+def test_rollup_key_over_an_opaque_value_is_refused_on_the_correction_and_proposal_routes(
+    migrated_database_urls, monkeypatch
+) -> None:
+    """A caller-supplied rollup_key is a secret name on these routes.
+
+    Reproduced on the default surface: edit and supersede of
+    POST /v0/continuity/review-queue/{id}/corrections, and
+    POST /v0/vnext/memory-proposals with the key inside source_refs.
+    Each returns 400 and stores nothing. Mutation: restore the
+    unconditional rollup_key return in _pair_hit. These posts return 200
+    and 201 and the token is in a row.
+    """
+
+    app_url = migrated_database_urls["app"]
+    _use_database(monkeypatch, app_url)
+    user_id = seed_user(app_url, email="floor-rollup-key@example.com")
+    token = _aws40()
+    body = {"decision_text": "Ship the weekly billing report.", "rollup_key": token}
+    status, captured = invoke_request(
+        "POST",
+        "/v0/continuity/captures",
+        payload={"user_id": str(user_id), "raw_content": "Decision: ship the weekly billing report", "explicit_signal": "decision"},
+    )
+    assert status == 201
+    object_id = captured["capture"]["derived_object"]["id"]
+
+    edit_status, _edit_payload = invoke_request(
+        "POST",
+        f"/v0/continuity/review-queue/{object_id}/corrections",
+        payload={"user_id": str(user_id), "action": "edit", "body": body},
+    )
+    assert edit_status == 400
+    supersede_status, _supersede_payload = invoke_request(
+        "POST",
+        f"/v0/continuity/review-queue/{object_id}/corrections",
+        payload={
+            "user_id": str(user_id),
+            "action": "supersede",
+            "replacement_body": body,
+            "replacement_title": "Decision: ship the weekly billing report",
+        },
+    )
+    assert supersede_status == 400
+    assert _secret_rows(app_url, user_id, token) == 0
+
+    proposal_status, _proposal_payload = invoke_request(
+        "POST",
+        "/v0/vnext/memory-proposals",
+        payload={
+            "user_id": str(user_id),
+            "agent_identity": _OPENCLAW,
+            "proposal_type": "candidate_memory",
+            "title": "Deploy cadence",
+            "canonical_text": "The team deploys on Thursdays.",
+            "domain": "project",
+            "sensitivity": "private",
+            "source_refs": [{"source_id": "note-1", "rollup_key": token}],
+        },
+    )
+    assert proposal_status == 400
+    assert _count(app_url, user_id, "memories") == 0
+    assert _secret_rows(app_url, user_id, token) == 0

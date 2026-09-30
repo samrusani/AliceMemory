@@ -8,9 +8,10 @@ stdio, PostgreSQL or a local SQLite on-ramp, import/capture connectors, model
 providers, a scheduler, and local export/backup/log paths.
 
 This model covers the default local-first, single-user, self-hosted product:
-the HTTP API and `/vnext` operator UI, 11 core MCP tools over stdio, per-agent API
-keys, PostgreSQL with per-user RLS, the SQLite on-ramp, connectors/importers,
-model providers, the scheduler, exports/backups, and local logs.
+the HTTP API and `/vnext` operator UI, the core MCP tools over stdio (three by
+default, eleven with `ALICE_MCP_FULL_TOOLS=1`), per-agent API keys, PostgreSQL
+with per-user RLS, the SQLite on-ramp, connectors/importers, model providers,
+the scheduler, exports/backups, and local logs.
 
 The frozen Phase 5 Stage A carrier exposes 183 default HTTP operations, of which
 71 are `/v0/vnext`, and 232 operations when `ALICE_LEGACY_SURFACES=1`; focused

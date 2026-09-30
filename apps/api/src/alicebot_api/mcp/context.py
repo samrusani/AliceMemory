@@ -96,6 +96,10 @@ _COMPACT_SOURCE_FIELDS = (
     "sensitivity",
     "excerpt",
     "excerpt_kind",
+    # Set only when the quoted_from memory was corrected or superseded
+    # after the capture. Absent on every current excerpt.
+    "derived_memory_corrected",
+    "current_memory_id",
 )
 
 

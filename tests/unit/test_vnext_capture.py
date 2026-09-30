@@ -19,6 +19,7 @@ from alicebot_api.vnext_capture import (
     SourceCaptureInput,
     VNextCaptureService,
     VNextCaptureValidationError,
+    CaptureCredentialRefused,
     chunk_text,
     capture_dedupe_key_for_text,
     content_hash_for_text,
@@ -28,6 +29,31 @@ from alicebot_api.vnext_capture import (
 )
 from alicebot_api.vnext_entities import ENTITY_MENTION_EDGE_TYPE
 from alicebot_api.vnext_project_scope import memory_project_scope
+
+
+def test_low_entropy_aws_id_is_refused_by_capture_and_flagged_by_the_doctor() -> None:
+    """The commit door refuses this key. Capture and the doctor follow it.
+
+    The floor treats the repeated tail as a placeholder. Fails if
+    capture_text stores the text, or if source_row_is_flagged stays false.
+    """
+
+    from alicebot_api.credential_floor import credential_verdict
+    from alicebot_api.legacy_credential_check import commit_door_secret_verdict
+    from alicebot_api.vault_doctor import source_row_is_flagged
+
+    key = "AK" + "IA" + ("A" * 16)
+    text = f"Fact: the access id is {key}"
+    assert credential_verdict(text) is None
+    assert commit_door_secret_verdict("", text) is not None
+    store = InMemoryVNextCaptureStore()
+    with pytest.raises(CaptureCredentialRefused):
+        VNextCaptureService(store).capture_text(text)
+    assert store.sources == []
+    assert key not in json.dumps(store.events)
+    assert source_row_is_flagged(
+        {"title": "note", "metadata_json": {"raw_text": text}}
+    )
 
 
 class InMemoryVNextCaptureStore:
@@ -393,30 +419,122 @@ def test_import_markdown_folder_imports_100_files_without_batch_duplicates(tmp_p
     assert result.duplicate_count == 1
     assert result.failed_count == 0
     assert len(store.sources) == 100
-    assert len(store.memories) == 100
+    assert store.memories == []
     assert all(link["evidence_role"] == "quoted_from" for link in store.provenance_links)
     assert store.events[-1]["event_type"] == "source.batch_import_completed"
     assert store.events[-1]["payload_json"]["imported_count"] == 100
 
 
-def test_import_markdown_folder_logs_failed_imports_and_continues(tmp_path: Path) -> None:
+def test_import_markdown_folder_refuses_invalid_utf8_before_any_write(tmp_path: Path) -> None:
+    """The snapshot read refuses a bad file before capture starts.
+
+    Fails if the folder walk goes back to reading each path on its own and
+    counting a decode error as one failed item after the neighbours imported.
+    """
+
     (tmp_path / "good.md").write_text("Fact: Valid markdown still imports.\n", encoding="utf-8")
     (tmp_path / "bad.md").write_bytes(b"\xff\xfe\x00\x00")
 
     store = InMemoryVNextCaptureStore()
     service = VNextCaptureService(store)
 
+    with pytest.raises(VNextCaptureValidationError, match="not valid UTF-8"):
+        service.import_markdown_folder(tmp_path)
+
+    assert store.sources == []
+    assert store.chunks == []
+    assert store.memories == []
+
+
+def test_import_markdown_folder_continues_after_a_capture_failure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    (tmp_path / "a.md").write_text("Fact: alpha stays in the folder.\n", encoding="utf-8")
+    (tmp_path / "b.md").write_text("Fact: beta stays in the folder.\n", encoding="utf-8")
+    store = InMemoryVNextCaptureStore()
+    service = VNextCaptureService(store)
+    real = service.capture_source
+
+    def flaky(source_input: SourceCaptureInput):
+        if "beta" in source_input.raw_text:
+            raise RuntimeError("boom")
+        return real(source_input)
+
+    monkeypatch.setattr(service, "capture_source", flaky)
     result = service.import_markdown_folder(tmp_path)
 
     assert result.status == "partial"
     assert result.imported_count == 1
     assert result.failed_count == 1
     assert len(store.sources) == 1
-    failure_events = [event for event in store.events if event["event_type"] == "source.import_failed"]
-    assert len(failure_events) == 1
-    assert failure_events[0]["payload_json"]["error_code"] == "source_import_failed"
-    assert failure_events[0]["payload_json"]["error_message"] == "Source could not be imported"
-    assert "UnicodeDecodeError" not in str(failure_events[0]["payload_json"])
+
+
+def test_import_markdown_folder_accepts_a_single_file(tmp_path: Path) -> None:
+    path = tmp_path / "note.md"
+    path.write_text("Fact: one file is enough.\n", encoding="utf-8")
+    store = InMemoryVNextCaptureStore()
+
+    result = VNextCaptureService(store).import_markdown_folder(path)
+
+    assert result.status == "ok"
+    assert result.imported_count == 1
+    assert store.sources[0]["title"] == "note"
+
+
+def test_import_markdown_folder_skips_a_filename_token_and_the_receipt_hides_it(tmp_path: Path) -> None:
+    """T3. A file named with a token, and clean text, is skipped.
+
+    Fails if the backstop ignores the title: capture_source with only the
+    title set stores a source. Fails if the receipt includes the raw path:
+    the token is in the dumped record.
+    """
+
+    token = "ghp_" + "0123456789abcdefghijklmnopqrstuvwxyz"
+    folder = tmp_path / "notes"
+    folder.mkdir()
+    (folder / f"{token}.md").write_text("Fact: the launch stays on Tuesday.\n", encoding="utf-8")
+    store = InMemoryVNextCaptureStore()
+    service = VNextCaptureService(store)
+
+    result = service.import_markdown_folder(folder)
+
+    assert result.status == "skipped"
+    assert result.imported_count == 0
+    assert result.failed_count == 0
+    assert result.skipped_count == 1
+    assert store.sources == []
+    assert store.chunks == []
+    assert store.memories == []
+    assert token not in json.dumps(result.to_record())
+    assert token not in json.dumps(store.events)
+
+    with pytest.raises(CaptureCredentialRefused, match="credential material"):
+        service.capture_source(
+            SourceCaptureInput(
+                source_type="manual_text",
+                title=token,
+                raw_text="Fact: the launch stays on Tuesday.\n",
+            )
+        )
+    assert store.sources == []
+
+
+def test_import_chatgpt_refuses_a_non_chat_json_file_and_writes_nothing(tmp_path: Path) -> None:
+    """T5. A JSON file with no conversations is refused.
+
+    The body is ordinary settings text, so a restored json_fallback_v1 path
+    would store a source. Fails if that fallback comes back.
+    """
+
+    export_path = tmp_path / "settings.json"
+    export_path.write_text(json.dumps({"editor": "vim", "theme": "dark"}), encoding="utf-8")
+    store = InMemoryVNextCaptureStore()
+
+    with pytest.raises(VNextCaptureValidationError, match="no conversations"):
+        VNextCaptureService(store).import_chatgpt_export_file(export_path)
+
+    assert store.sources == []
+    assert store.chunks == []
+    assert store.memories == []
+    assert store.events == []
 
 
 def test_import_chatgpt_export_preserves_roles_without_duplicating_raw_json(tmp_path: Path) -> None:
@@ -461,8 +579,7 @@ def test_import_chatgpt_export_preserves_roles_without_duplicating_raw_json(tmp_
         "[TITLE]: Alice vNext\n"
         "[USER]: Fact: ChatGPT exports should preserve provenance."
     )
-    assert store.memories[0]["canonical_text"] == ("[USER]: Fact: ChatGPT exports should preserve provenance.")
-    assert store.memories[0]["metadata_json"]["provenance_role"] == "user"
+    assert store.memories == []
 
 
 def test_import_chatgpt_export_orders_mapping_graph_and_preserves_timestamps_and_repeats(

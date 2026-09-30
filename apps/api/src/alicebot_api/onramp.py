@@ -21,8 +21,9 @@ Subcommands:
 - ``brief``: print a labelled session brief (committed facts and imported
   sources) as markdown on stdout. Host session-start hooks call this.
 - ``doctor``: print a local SQLite vault census on stdout: sources,
-  searchable chunks, committed facts, last brief token estimate,
-  then candidates waiting. Not ``alicebot vnext doctor``.
+  searchable chunks, committed facts, last brief character count
+  (N / 9500 characters), then candidates waiting. Not
+  ``alicebot vnext doctor``. In v0.18.0 this line was a token estimate.
 - ``demo``: import a markdown folder into a SQLite vault, then print
   the import summary, doctor, session brief, and the one source
   snippet a new session will quote. Defaults to ``~/.alice-demo``,
@@ -32,7 +33,7 @@ Subcommands:
   Search is unchanged. Accept is a later commit. Defaults to
   ``~/.alice``, like doctor.
 - ``install``: write host MCP config (and optional SessionStart hooks)
-  under ``--home``. Does not import a vault. Hermes is opt-in.
+  under ``--home``. Does not import a vault. Hermes, OpenCode and Codex are opt-in.
 - ``--version``: print the package version.
 
 Export/import round-trip contract ("you own the memory"):
@@ -93,7 +94,12 @@ from typing import IO
 from uuid import UUID
 
 from alicebot_api import __version__
-from alicebot_api.credential_floor import VERDICT_EXPANSION, credential_verdict, is_derived_copy, string_values
+from alicebot_api.credential_floor import (
+    VERDICT_EXPANSION,
+    credential_verdict,
+    is_derived_copy,
+    is_product_rollup_key,
+)
 from alicebot_api.mcp_server import _DEFAULT_MCP_USER_ID, MCPServer
 from alicebot_api.mcp_tools import MCPRuntimeContext
 from alicebot_api.sqlite_schema import bootstrap_sqlite_schema
@@ -134,6 +140,8 @@ _KNOWN_COMMANDS = (
     "mcp",
     "export",
     "import",
+    "import-markdown",
+    "import-chatgpt",
     "reindex-embeddings",
     "brief",
     "doctor",
@@ -208,15 +216,34 @@ _ERROR_CONTRACTS: dict[str, str] = {
         "A host config was left unchanged because install could not edit it safely; "
         "add the printed snippet by hand"
     ),
+    "install_hook_by_hand": (
+        "Install wrote the MCP entry to config.toml but could not add the SessionStart hook, "
+        "because config.toml already defines hooks; add the printed hook to config.toml by hand"
+    ),
+    "install_refused_plugin": (
+        "The alice-memory plugin is enabled and install's Claude Code entries exist. "
+        "Run claude mcp remove alice --scope user, remove the session-start hook, "
+        "or disable the plugin."
+    ),
+    "data_dir_invalid": (
+        "The data directory is empty or not an absolute path after ~ expansion"
+    ),
 }
 
 
-def _emit_error(code: str) -> None:
-    """Write one compact, stable error record without runtime details."""
+def _emit_error(code: str, *, named: str | None = None) -> None:
+    """Write one compact, stable error record without runtime details.
 
+    ``named`` is included in the message when the contract has to name a value,
+    such as a refused ``--data-dir``.
+    """
+
+    message = _ERROR_CONTRACTS[code]
+    if named is not None:
+        message = f"{message}: {named}"
     print(
         json.dumps(
-            {"error": {"code": code, "message": _ERROR_CONTRACTS[code]}},
+            {"error": {"code": code, "message": message}},
             ensure_ascii=True,
             separators=(",", ":"),
             sort_keys=True,
@@ -323,6 +350,35 @@ def _refuse_postgres_db_argument(args: argparse.Namespace) -> bool:
     if not isinstance(db, str) or not _is_postgres_database_url(db):
         return False
     _emit_error("sqlite_db_path_required")
+    return True
+
+
+def data_dir_absolute_after_tilde(value: str) -> bool:
+    """True when ``value`` is absolute after ``~`` expansion.
+
+    ``Path.expanduser`` is the same expansion ``resolve_db_path`` uses.
+    ``${...}``, ``$HOME``, ``%USERPROFILE%`` and a relative path stay relative.
+    """
+
+    if value == "":
+        return False
+    return Path(value).expanduser().is_absolute()
+
+
+def _refuse_invalid_mcp_data_dir(args: argparse.Namespace) -> bool:
+    """Refuse ``alice-memory mcp --data-dir`` when it is empty or not absolute.
+
+    An empty value, ``${user_config.data_dir}``, ``$HOME/.alice``,
+    ``%USERPROFILE%\\.alice`` and ``alice`` are refused. ``~/.alice`` and an
+    absolute path are accepted. Nothing is written.
+    """
+
+    if getattr(args, "command", None) != "mcp":
+        return False
+    data_dir = getattr(args, "data_dir", None)
+    if not isinstance(data_dir, str) or data_dir_absolute_after_tilde(data_dir):
+        return False
+    _emit_error("data_dir_invalid", named=data_dir)
     return True
 
 
@@ -1025,7 +1081,8 @@ def build_parser() -> argparse.ArgumentParser:
         "install",
         help=(
             "Write host MCP config for Claude Desktop, Claude Code, Cursor, "
-            "and OpenClaw. Hermes is --host hermes. Does not import a vault."
+            "and OpenClaw. Hermes is --host hermes. OpenCode is --host opencode. "
+            "Codex is --host codex. Does not import a vault."
         ),
     )
     # install needs to know whether --data-dir was passed: without it, each
@@ -1047,11 +1104,13 @@ def build_parser() -> argparse.ArgumentParser:
             "cursor",
             "openclaw",
             "hermes",
+            "opencode",
+            "codex",
         ),
         dest="hosts",
         help=(
             "Host to configure. Repeatable. Default: claude-desktop, "
-            "claude-code, cursor, openclaw. Hermes is opt-in."
+            "claude-code, cursor, openclaw. Hermes, OpenCode and Codex are opt-in."
         ),
     )
     install_parser.add_argument(
@@ -1069,6 +1128,34 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Write a Claude Desktop .mcpb zip that launches uvx alice-memory mcp.",
     )
+
+    import_markdown_parser = subparsers.add_parser(
+        "import-markdown",
+        help="Import a Markdown folder or file into local SQLite sources.",
+    )
+    _add_database_arguments(import_markdown_parser)
+    import_markdown_parser.add_argument(
+        "--from",
+        dest="from_path",
+        required=True,
+        help="Markdown file or folder to import.",
+    )
+    import_markdown_parser.add_argument("--domain", default="unknown", help="Source domain.")
+    import_markdown_parser.add_argument("--sensitivity", default="unknown", help="Source sensitivity.")
+
+    import_chatgpt_parser = subparsers.add_parser(
+        "import-chatgpt",
+        help="Import a ChatGPT export JSON file into local SQLite sources.",
+    )
+    _add_database_arguments(import_chatgpt_parser)
+    import_chatgpt_parser.add_argument(
+        "--from",
+        dest="from_path",
+        required=True,
+        help="ChatGPT export JSON file to import.",
+    )
+    import_chatgpt_parser.add_argument("--domain", default="personal", help="Source domain.")
+    import_chatgpt_parser.add_argument("--sensitivity", default="private", help="Source sensitivity.")
     return parser
 
 
@@ -1122,6 +1209,79 @@ def _run_brief(args: argparse.Namespace) -> int:
     )
     print(markdown)
     return 0
+
+
+def _print_batch_record(record: object) -> None:
+    print(json.dumps(record, ensure_ascii=True, sort_keys=True))
+
+
+def _emit_import_path_error(message: str) -> None:
+    """Path and encoding failures. Exit 1. A flagged path is not printed."""
+
+    from alicebot_api.credential_floor import credential_verdict
+
+    if credential_verdict(message) is not None:
+        message = "The import path is withheld"
+    print(
+        json.dumps(
+            {"error": {"code": "import_path", "message": message}},
+            ensure_ascii=True,
+            separators=(",", ":"),
+            sort_keys=True,
+        ),
+        file=sys.stderr,
+        flush=True,
+    )
+
+
+def _run_import_markdown(args: argparse.Namespace) -> int:
+    from alicebot_api.vnext_capture import VNextCaptureService, VNextCaptureValidationError
+
+    db_path = resolve_db_path(data_dir=args.data_dir, db=args.db)
+    bootstrap_database(
+        db_path,
+        user_id=args.user_id,
+        user_email=args.user_email,
+        secure_parent=args.db is None,
+    )
+    try:
+        with sqlite_user_connection(db_path, args.user_id) as conn:
+            store = SQLiteVNextStore(conn, args.user_id)
+            result = VNextCaptureService(store).import_markdown_folder(
+                args.from_path,
+                domain=args.domain,
+                sensitivity=args.sensitivity,
+            )
+    except VNextCaptureValidationError as exc:
+        _emit_import_path_error(str(exc))
+        return 1
+    _print_batch_record(result.to_record())
+    return 1 if result.status == "failed" else 0
+
+
+def _run_import_chatgpt(args: argparse.Namespace) -> int:
+    from alicebot_api.vnext_capture import VNextCaptureService, VNextCaptureValidationError
+
+    db_path = resolve_db_path(data_dir=args.data_dir, db=args.db)
+    bootstrap_database(
+        db_path,
+        user_id=args.user_id,
+        user_email=args.user_email,
+        secure_parent=args.db is None,
+    )
+    try:
+        with sqlite_user_connection(db_path, args.user_id) as conn:
+            store = SQLiteVNextStore(conn, args.user_id)
+            result = VNextCaptureService(store).import_chatgpt_export_file(
+                args.from_path,
+                domain=args.domain,
+                sensitivity=args.sensitivity,
+            )
+    except VNextCaptureValidationError as exc:
+        _emit_import_path_error(str(exc))
+        return 1
+    _print_batch_record(result.to_record())
+    return 1 if result.status == "failed" else 0
 
 
 def _run_doctor(args: argparse.Namespace) -> int:
@@ -1255,7 +1415,12 @@ def _run_install(args: argparse.Namespace) -> int:
         return 1
     except InstallRefused as refused:
         print(refused.output)
-        _emit_error("install_refused")
+        if refused.kinds and all(kind == "plugin" for kind in refused.kinds):
+            _emit_error("install_refused_plugin")
+        elif refused.kinds and all(kind == "hook_by_hand" for kind in refused.kinds):
+            _emit_error("install_hook_by_hand")
+        else:
+            _emit_error("install_refused")
         return 1
     except InstallError:
         _emit_error("install_failed")
@@ -1894,19 +2059,27 @@ class _CredentialFinding:
 # Keys the product itself writes into a memory's metadata_json that the
 # credential name rule would read as secret names. Enumerated from the vNext
 # memory writers (a test walks them and fails on a new one), not guessed:
-# a rollup card's rollup_key ("scope:<hex>:topic:<anchor>") blocked the
-# restore of the product's own export (S4.4 round 3, P2 item 7). Their
-# values are still read, by value.
+# a rollup card's rollup_key. The producer writes topic, entity, and
+# semantic labels, with an optional scope:<16 hex>: prefix. That key
+# blocked the restore of the product's own export (S4.4 round 3, P2 item 7).
+# The string is still read by value, so the label meets the text floor.
 SYSTEM_METADATA_KEYS = frozenset({"rollup_key"})
 
 
 def _without_system_keys(value: object) -> object:
-    """The mapping with each system key's value wrapped in a list, so the
-    floor reads that value on its own and never as a keyed pair."""
+    """The mapping with each product rollup key wrapped in a list, so the
+    floor reads that value on its own and never as a keyed pair.
+
+    Only a value that matches the producer grammar is unwrapped. Any other
+    ``rollup_key`` stays a keyed pair. Wrapping the string in a list keeps
+    the value read and drops the pair, which is how the label is still read.
+    """
 
     if isinstance(value, Mapping):
         return {
-            key: [item] if key in SYSTEM_METADATA_KEYS and isinstance(item, str) else _without_system_keys(item)
+            key: [item]
+            if key in SYSTEM_METADATA_KEYS and is_product_rollup_key(item)
+            else _without_system_keys(item)
             for key, item in value.items()
         }
     if isinstance(value, list):
@@ -1914,12 +2087,32 @@ def _without_system_keys(value: object) -> object:
     return value
 
 
+def _without_product_value_rollup_key(value: object) -> object:
+    """Unwrap ``value.rollup.rollup_key`` when it matches the producer grammar.
+
+    The import value column is otherwise read with its keys. A rollup card
+    stores that key under ``rollup``. A ``rollup_key`` anywhere else in the
+    value column, including the top level, stays a keyed pair. The unwrapped
+    string is still read by value.
+    """
+
+    if not isinstance(value, Mapping):
+        return value
+    rollup = value.get("rollup")
+    if not isinstance(rollup, Mapping) or not is_product_rollup_key(rollup.get("rollup_key")):
+        return value
+    unwrapped_rollup = {
+        key: [item] if key == "rollup_key" else item
+        for key, item in rollup.items()
+    }
+    return {key: unwrapped_rollup if key == "rollup" else item for key, item in value.items()}
+
+
 def _memory_record_credential_fields(record: Mapping[str, object]) -> tuple[tuple[str, object], ...]:
     """The fields of one memory record the floor reads, in reading order.
 
-    Title and canonical text; the value column by value only (owner ruling
-    C3: an importer's structural key over a digest has the same shape as a
-    secret name over a key); metadata_json as a mapping, keyed, except the
+    Title and canonical text; the value column as a mapping, keyed;
+    metadata_json as a mapping, keyed, except the
     keys the product itself writes; then the identifiers memory_key and
     project_id. The summary is left out when it is a derived copy of the
     text (canonical_text[:N] or a "..." preview); a summary that says
@@ -1933,7 +2126,7 @@ def _memory_record_credential_fields(record: Mapping[str, object]) -> tuple[tupl
         fields.append(("summary", summary))
     fields.extend(
         [
-            ("value", string_values(_json_column(record.get("value")))),
+            ("value", _without_product_value_rollup_key(_json_column(record.get("value")))),
             ("metadata_json", _without_system_keys(_json_column(record.get("metadata_json")))),
             ("memory_key", record.get("memory_key")),
             ("project_id", record.get("project_id")),
@@ -3163,11 +3356,17 @@ def main(argv: list[str] | None = None) -> int:
         return int(exc.code) if isinstance(exc.code, int) else 2
     if _refuse_postgres_db_argument(args):
         return 2
+    if _refuse_invalid_mcp_data_dir(args):
+        return 2
     try:
         if args.command == "export":
             return _run_export(args)
         if args.command == "import":
             return _run_import(args)
+        if args.command == "import-markdown":
+            return _run_import_markdown(args)
+        if args.command == "import-chatgpt":
+            return _run_import_chatgpt(args)
         if args.command == "reindex-embeddings":
             return _run_reindex_embeddings(args)
         if args.command == "brief":

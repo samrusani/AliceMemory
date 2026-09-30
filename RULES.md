@@ -23,7 +23,7 @@ These are the standing rules for building Alice. They replace the earlier phase/
 - A change that affects retrieval or memory-commit behavior needs eval results from the production code path before it merges.
 
 ## Interfaces
-- The core MCP surface stays small. New tools need a reason the existing eleven cannot cover. Retained long-tail memory tools require `ALICE_MCP_LEGACY_TOOLS=1`; exactly the three task-brief tools additionally require `ALICE_LEGACY_SURFACES=1`. Every compatibility tool is limited to a keyless local-operator deployment; key-bound MCP is core-only and fails closed.
+- The core MCP surface stays small. New tools need a reason the existing eleven cannot cover. The default handshake exposes three of them. Retained long-tail memory tools require `ALICE_MCP_LEGACY_TOOLS=1`; exactly the three task-brief tools additionally require `ALICE_LEGACY_SURFACES=1`. Every compatibility tool is limited to a keyless local-operator deployment; key-bound MCP is core-only and fails closed.
 - Every new tool, endpoint, or CLI command ships with parameter descriptions. No undocumented parameters.
 - Agent access to the HTTP API is authenticated with per-agent API keys.
 

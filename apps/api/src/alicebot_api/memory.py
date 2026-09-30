@@ -9,7 +9,7 @@ from uuid import UUID
 import psycopg
 
 from alicebot_api.continuity_open_loops import compile_continuity_weekly_review
-from alicebot_api.credential_floor import refuse_credential_material, string_values
+from alicebot_api.credential_floor import refuse_credential_material
 from alicebot_api.contracts import (
     AdmissionDecisionOutput,
     AdmissionAction,
@@ -1748,7 +1748,7 @@ def admit_memory_candidate(
     open_loop_title = candidate.open_loop.title if candidate.open_loop is not None else None
     refuse_credential_material(
         candidate.memory_key,
-        string_values(candidate.value),
+        candidate.value,
         open_loop_title,
         error=MemoryAdmissionValidationError,
     )

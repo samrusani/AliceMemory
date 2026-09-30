@@ -70,7 +70,7 @@ alicebot vnext connectors local-folder add-path ~/Notes/Alice --extension .md --
 alicebot vnext connectors local-folder sync
 alicebot vnext connectors local-folder watch --once
 alicebot vnext connectors browser-clipper capture --url https://example.test/page --selected-text "Fact: browser clips are reviewable." --capture-token "$ALICE_BROWSER_CLIP_TOKEN"
-alicebot vnext agents ingest-output --agent-id openclaw --agent-type coding_agent --title "Sprint summary" --content "Decision: agent output stays review-only." --propose-memory
+alicebot vnext agents ingest-output --agent-id openclaw --agent-type coding_agent --title "Sprint summary" --propose-memory "Decision: agent output stays review-only."
 alicebot vnext dogfooding dashboard
 alicebot vnext migrations status
 alicebot vnext doctor --fix-safe

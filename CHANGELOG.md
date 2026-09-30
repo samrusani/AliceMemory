@@ -2,6 +2,233 @@
 
 ## Unreleased
 
+## v0.19.0 — 2026-09-30
+
+- `alice-memory install --host codex` edits `~/.codex/config.toml` as text and writes the alice MCP entry there. It is opt-in and writes no `env` table. A comment inside `command`, `args`, or an inline `env` is refused. An integer in value position outside the i64 range, or a float in value position that is not finite, is refused and the reason names the line. A dry run renders carried lines from the parsed values and hides a token or a URL in `env_vars` and in `tools` values. A `tools` value that is not a table, or an `approval_mode` outside `auto`, `prompt`, `writes`, and `approve`, or an `output_token_limit` that is not a positive integer, is refused. A `config.toml` nested so deeply that it cannot be parsed is refused with `config.toml nests too deeply`, and a profile layer nested that deeply, or one that is not UTF-8, gets the unreadable-layer note. A success receipt ends with `codex mcp get alice`. In v0.18.0 there is no `--host codex`.
+- `alice-memory install --host codex` also writes a SessionStart hook to `<CODEX_HOME>/hooks.json`, so a new Codex session starts with the session brief. Install appends one group at the end of `hooks.SessionStart`, so the indexes Codex keys its trust records by do not move. The handler is `{"type": "command", "command": ..., "timeout": 120, "additionalContextLimit": 0}` with `--format markdown` in the command, because Codex rejects the JSON that Cursor and Claude Code read. Install never writes `trusted_hash`: Codex skips the hook until you trust it once at "Hooks need review" or with `/hooks`, and skips it again when a re-run changes the command, which the receipt says. A re-run replaces Alice's handler in place, including the JSON-mode item Codex's Claude Code import copies, and any handler of Alice's that differs in a key, such as a missing `additionalContextLimit` or an `async`, is replaced whole. A `hooks.json` with two Alice hooks is refused. A `hooks.json` Codex would skip, for a handler type it does not read, a timeout that is not a whole number or is above 2^63-1 (Codex fails hashing it), a handler with both `commandWindows` and `command_windows`, or a null in an `mcp_tool` input, is refused with `Codex would skip this hooks.json` and nothing is written; an integer of any size in an `mcp_tool` input is accepted. A `hooks.json` nested too deeply to read is refused the same way, and one with a lone surrogate escape is refused as not strict JSON. A new MCP entry opens the data dir of the Alice hook already installed, as the Claude Code and Cursor hosts do. The trust and `The hook changed` lines are printed only once `hooks.json` is written. When `config.toml` already holds hooks, install writes no hook, prints the hook as TOML, and exits 1 until you add it, with the error code `install_hook_by_hand` when install wrote the MCP entry and refused only the hook (every other refusal keeps `install_refused`); once the printed hook is in `config.toml` the next run says `unchanged in config.toml` and exits 0, and an Alice hook there that differs from the printed one gets a line to replace it, not add a second. If `hooks.json` also holds Alice's hook, the next line says to move it (add to `config.toml`, then remove from `hooks.json`) or a note says to remove the one in `hooks.json`, and install never edits `hooks.json` on that path. It notes `[features] hooks = false`, in a dry run too. The Codex receipt no longer carries the `alice-memory brief` note, and the JSON-mode hook note is gone because install replaces that item. In v0.18.0 there is no Codex hook.
+- A Claude Code plugin directory is in the repo. Install skips when that
+  plugin is enabled and install has not written Claude Code entries, and
+  refuses when both exist. That plugin error is used only when every
+  refused host is that case. Another refused host in the same run keeps
+  `install_refused`. An unreadable `~/.claude` does not drop the session
+  brief. In v0.18.0 there is no Claude Code plugin.
+- The Claude Code plugin's SessionStart hook reads its data directory from
+  the plugin option `data_dir`, through `CLAUDE_PLUGIN_OPTION_DATA_DIR`,
+  and uses `~/.alice` when the option is unset. That is the folder the
+  plugin's server uses. The hook's command no longer passes `--data-dir`,
+  because Claude Code does not run a hook whose arguments reference an
+  unset plugin option. When `CLAUDE_PLUGIN_ROOT` is set and non-empty and
+  no `--data-dir` is given, `alice-memory-session-start` ignores
+  `ALICE_MEMORY_DATA_DIR`. A relative option value prints the existing
+  one-line refusal and exits 0. Outside the plugin nothing changes. In
+  v0.18.0 there is no Claude Code plugin, and the command reads
+  `--data-dir`, then `ALICE_MEMORY_DATA_DIR`, then `~/.alice`.
+- A newest fact longer than about 50,000 UTF-8 bytes no longer wipes the
+  session brief. An excerpt query over 40,000 UTF-8 bytes, whether a fact,
+  an explicit query, or a source title, is bounded to a few hundred
+  characters of its FTS tokens. A query under that size with few enough
+  distinct search terms (the next entry) is used exactly as before, so an
+  ordinary brief is unchanged. The brief still prints its facts and
+  loops, and its sources when the fact's words match one. In v0.18.0 the
+  same fact, with a captured source in the vault, raises a SQLite pattern
+  error and the hook prints `{}`.
+- A newest fact, open loop, explicit query, or source title with too many
+  distinct search terms no longer wipes the session brief, even when it is
+  well under 40,000 UTF-8 bytes. A search term is an ASCII word of two or
+  more characters that is not a stopword, and a hyphenated id counts once.
+  SQLite refuses the source search at about 990 of them, which is roughly
+  30 KB of ordinary prose (less when the words are rare) or 3 KB of
+  two-character tokens. In v0.18.0 the hook then printed `{}` and
+  `alice-memory brief` exited 1, in any vault, with the SQLite error
+  `Expression tree is too large`. An excerpt query with more than 499
+  distinct search terms is now bounded to a few hundred characters of its
+  FTS tokens, the way a query over 40,000 bytes is. A query with 499 or
+  fewer is used exactly as before, and a repeated word counts once. The
+  40,000 byte limit is also measured after case folding now, because the
+  search binds the folded text and some characters grow when folded. A
+  fact of 9,000 U+0390 characters is 18,000 bytes, folds to 54,000, and
+  was refused with `LIKE or GLOB pattern too complex`. In v0.18.0 the same
+  text, with a captured source in the vault, raises a SQLite error and the
+  hook prints `{}`. `alice_recall` and `alice_context_pack` are not
+  changed: a query with 991 or more distinct search terms, or with a
+  captured source in the vault a query over about 50,000 bytes, still
+  returns a tool error there (`tool_execution_failed`), as it does in
+  v0.18.0.
+- `alice-memory install --host hermes` leaves a comment in place when the
+  `alice` block, with comment lines and inline comments removed, already
+  matches what install would write. The receipt says unchanged and the
+  file bytes stay. When a real change is still needed, a full-line or
+  inline comment is refused, the file is not changed, and no backup is
+  written. In v0.18.0 that re-run drops the comment.
+- MCP tools set `openWorldHint` to false. `alice_recall`, `alice_resume`,
+  `alice_context_pack`, `alice_recent_decisions`, and `alice_explain` set
+  `readOnlyHint`. `alice_memory_commit` and `alice_capture` set
+  `destructiveHint` to false. `alice_memory_review`, `alice_memory_correct`,
+  `alice_memory_manage`, and `alice_open_loops` set `destructiveHint` to
+  true. The hints follow Codex's default approval rule as the code records
+  it, so in Codex's default mode the read-only and non-destructive tools
+  should no longer wait for approval. No test here runs a Codex approval
+  prompt. An event log row from `alice_context_pack`, or an agent identity
+  row, is not a state change the client asked for. `alice_memory_review`
+  only lists or shows review items and changes no memory or source, so its
+  destructive flag is conservative: it is grouped with the tools that act
+  on the review queue, and Codex still asks before it runs. In v0.18.0
+  these tools declare no hints.
+- A long session-brief note is cut at 1,500 characters, on the last word
+  boundary, or on a grapheme boundary when the note has no word break. When
+  the word-boundary prefix keeps less than 60% of what fits, the cut keeps
+  the grapheme prefix, so a URL or a CJK run is not collapsed to its first
+  word. The marker sits outside the quote: `**fact** (cut; N characters stored): "..."`.
+  N is the stored note's UTF-16 length, not the flattened line. A line that
+  does not fit the room left is skipped, and later short facts, open loops,
+  and sources are still admitted. The brief is counted in UTF-16 code units.
+  `reserve` is the caller's prefix in those units, including the caller's
+  newline, and the brief is at most 9,499 minus that reserve. The hook's
+  final cap drops whole trailing lines and does not cut inside one. The
+  doctor line is `N / 9500 characters`. Tag-sequence flags and Hangul
+  jamo stay in one cluster. Devanagari conjuncts, Thai and Lao SARA AM,
+  and Prepend characters may still be split. In
+  v0.18.0 a note that did not fit the 4,000 token budget was dropped, a
+  brief of many shorter lines could reach about 16,000 characters, and the
+  doctor line was a token estimate.
+- `alice-memory mcp` refuses a `--data-dir` that is empty or not absolute
+  after `~` expansion, names the value, and exits 2.
+  `alice-memory-session-start` refuses a non-empty value that is not
+  absolute after expansion: it prints one line and exits 0. That refusal
+  covers a `--data-dir` value and the Claude Code plugin's `data_dir`
+  option. It does not cover `ALICE_MEMORY_DATA_DIR`: an empty session-start
+  value still falls back to that variable, then `~/.alice`, and a relative
+  value in the variable is not checked, so the hook still creates a vault
+  under the cwd for it. Only the hook reads the variable. An MCPB default
+  that Claude Desktop leaves as a literal `${HOME}/.alice` now exits 2,
+  instead of creating a vault under the cwd. In v0.18.0 a relative data dir
+  is accepted, and that literal `${HOME}/.alice` creates a vault under the
+  cwd.
+- A ChatGPT conversation title that holds a token is stored as `withheld`
+  and counted in `skipped_credentials` and `skipped_credential_items` as
+  `conversation X title`. In v0.18.0 that title is stored as `withheld`
+  and is not counted.
+- A folder-import receipt item names the file, then the line:
+  `file 1 (week.md) line 2`, `file 1 (week.md) lines 3 to 5`, or
+  `file K (name withheld)` when the name is flagged. In v0.18.0 the item
+  is only `line N` or `lines N to M`.
+- The Postgres `flagged_sources` doctor message says
+  `DELETE /v0/vnext/sources/{id}`. In v0.18.0 it says
+  `Delete each listed source with delete_source`.
+- `POST /v0/continuity/captures/candidates` and `alice_capture_candidates`
+  withhold a token in the response. Nothing is stored.
+  `capture_continuity_candidates` still returns the real text, so the
+  memory-operation credential floor sees the token. Committing that
+  withheld text, on `POST /v0/continuity/captures/commit` or
+  `alice_commit_captures`, is refused with the same 400 as a credential
+  and stores nothing. In v0.18.0 the response echoes the token.
+- Each markdown line and each ChatGPT message, title, and id is checked
+  with the commit door's verdict, the same check `capture_source` uses.
+  A flagged line, message, or title is withheld and named, and the rest
+  of the file or conversation is imported. A low-entropy AKIA-shaped key
+  the floor treats as a placeholder is withheld that way, and so is a
+  numeric password written in a sentence, so a folder re-import can skip a
+  line that v0.18.0 imported. The source doctor still flags a stored
+  source that contains the key. In v0.18.0 the line filter misses that
+  key, capture stores it, and the doctor does not flag it.
+- An install dry run shows booleans and numbers on top-level keys of
+  your existing entry, on Claude Desktop, Claude Code, Cursor, OpenClaw
+  and OpenCode alike, including OpenCode's `"enabled": false`. A string
+  value, and any value under `environment`, `env`, `headers`, or another
+  map, stays hidden, whatever its type. In v0.18.0 those top-level values
+  print as `<hidden>`.
+- The session brief (SessionStart, `alice-memory brief`, and
+  `compile_local_session_brief`) shows current facts only. A memory whose
+  `superseded_by` is set, or whose status is `superseded`, is omitted. A
+  `**source**` line is omitted when the captured sentence's `quoted_from`
+  memory was corrected or superseded after that capture. When the older
+  row is still active and carries `superseded_by`, `alice_recall` still
+  returns it after the current one, with `validity.superseded: true`,
+  which `alice_context_pack` already set. A row that a correction moved to
+  `superseded` is not returned by recall at all. Recall and the context
+  pack keep the old passage under `sources` and add
+  `derived_memory_corrected: true` plus `current_memory_id`. The stored
+  chunk and the `quoted_from` quote are unchanged. In v0.18.0 the brief
+  still prints that older sentence as a `**fact**` or a `**source**` line,
+  and recall does not mark the excerpt.
+
+## v0.18.0 — 2026-09-28
+
+- `capture_source` refuses credential
+  material in the title, author, uri, path, external id, text, and metadata
+  keys, and writes nothing. `alice_capture`, capture-text, capture-file,
+  connectors, and both vNext imports use that check. A batch counts the
+  refusal as skipped, not failed. `alice_resume` and
+  `alice_recent_decisions` read only active memories, as the SessionStart
+  brief and `alice-memory brief` already did. The markdown folder import reads through the contained snapshot,
+  so a symlink or a non-regular file is refused and a single file is
+  allowed. A ChatGPT import with no conversations is refused instead of
+  stored. In v0.17.0, capture has no credential check,
+  resume shows candidates, the folder import follows symlinks, and any JSON
+  file is stored.
+
+- `alice-memory import-markdown --from PATH`
+  and `alice-memory import-chatgpt --from PATH` write sources on SQLite for
+  MCP recall. PATH may be a markdown file or a folder. They do not create
+  candidate memories. The line filter runs first, then `capture_source`
+  refuses text that filter could not isolate, and that file is skipped. A
+  flagged line, a private-key block, or an unmatched BEGIN line through the
+  end of the file is stored as `[withheld: credential material]`.
+  `skipped_count` is how many files were skipped for any reason. A refused
+  ChatGPT conversation is counted there too. `skipped_credentials` and
+  `skipped_credential_items` count every credential skip in file content,
+  whole files and withheld units. A flagged file or conversation title is
+  stored as `withheld` and is not counted there. Items say `line N`, `lines N to M`,
+  `conversation X message N`, or `file K (name withheld)`. A token in a
+  file name skips that file. A token in the folder name refuses the import,
+  writes nothing, and does not print the path. One file that is not valid
+  UTF-8 refuses the whole folder and names that file. Exit code 1 means the
+  batch status is `failed`, and it also covers path errors.
+  `alice-memory doctor` lists source ids the floor still flags. SQLite has
+  no way to delete a source yet. On Postgres, delete each listed source with
+  `DELETE /v0/vnext/sources/{id}`. The doctor says when a scan of 10,000 sources
+  stopped early. A SQLite URL on `alicebot vnext sources import-markdown`
+  or `import-chatgpt` exits 2 with `sqlite_import_use_alice_memory` and
+  names the `alice-memory` commands. In v0.17.0, the latest release, those
+  commands do not exist, and a SQLite URL on the `alicebot` imports is
+  `invalid_request`.
+
+- Install receipts escape newlines and other control characters in every
+  value, so a `--data-dir` that holds a newline cannot add a receipt line.
+  When alice-memory mcp would not start, the reason shows each argument word
+  as `masked_args` masks it, and prints `<hidden>` for any word that still
+  carries credential material, such as a token glued to a URL.
+
+- The entity-resolution eval group key is `person-jane`. The pinned case
+  key and corpus digest in the release check match that name.
+
+- A refusal for an alice entry that install did not write prints a
+  command name only when the first word looks like a program name. A
+  token in a later word is not printed. A path with spaces names its
+  first fragment, such as `Program` for `C:\Program Files\nodejs\node.exe`.
+  A first word that contains :// is shown as a URL. A first word that
+  carries credential material, or that would be hidden as a secret flag,
+  is shown as a command that looks like a credential. That check covers
+  recognized token formats, not every scp-style word. Any other first
+  word is printed only when its basename is a plain program name.
+
+- OpenCode is an opt-in install host (`--host opencode`). The default hosts
+  are unchanged. Install writes `mcp.alice` as `type: local` and a `command`
+  array, with no `environment` key, in the strict JSON file that already has
+  it. When alice already sits in `config.json`, that file is the one
+  rewritten. The target is the file that already has `mcp.alice`. When alice sits in `opencode.json` and an `opencode.jsonc` also exists, install targets `opencode.json`. Otherwise it is `opencode.jsonc` when that file exists, and otherwise `opencode.json`. A 0-byte `.jsonc` is skipped. A re-run
+  keeps `timeout`, `enabled`, `cwd`, `environment`, and sibling servers.
+  A dry run masks the command array. An `opencode.jsonc` file is edited
+  as text, and so is an `opencode.json` that is not strict JSON. The text
+  path carries `type`, the `command` array, and documented `environment`
+  string literals, and leaves every other byte. A second `alice` entry
+  or a legacy `config` file is not edited. An unreadable OpenCode
+  directory fails only that host. A strict JSON refusal because alice
+  appears more than once, or under `mcp.servers`, uses the placeholder
+  data dir when an `opencode.jsonc` is also present. There is no
+  SessionStart hook. Check the result with `opencode debug config` and
+  `opencode mcp list`.
+
 - `POST /v0/continuity/captures` runs `commit_door_secret_verdict` on the
   normalized text and returns 400 when that check refuses. Nothing from
   that request is stored. The memory-write mirror, the HTTP 404 fallback,
@@ -32,9 +259,42 @@
 - Design note for Sprint 7 skill packs. It keeps the v0.15.4 commit rule
   and names the packs to revise. No pack ships in this note.
 
+- Provenance, legacy admission `value`, and the import `value` column
+  are read with their keys. A secret name over a secret-shaped value is
+  refused there. `rollup_key` is a weak name at every door. Import unwraps
+  it only where the product writes it: a `metadata_json` key named
+  `rollup_key`, and `value.rollup.rollup_key`. The value must match the
+  producer: an optional `scope:<16 hex>:` prefix, then `topic:`, `entity:`,
+  or `semantic:`, then a label. A label passes when it has at least one
+  letter or digit, no uppercase or titlecase character, no control, format,
+  surrogate, private-use, or unassigned character, and no whitespace other
+  than a plain space. `_digest` keeps 16 hex characters.
+  A 64-hex scope is not this shape. The label is still read by value, so
+  an `sk-` or `xoxb-` anchor is refused. Rollup cards the product's own
+  extraction makes restore, with or without a scope prefix. A scoped entity
+  card whose label breaks one of these rules still blocks the restore; only
+  an entity row written outside the product can have such a label.
+  `{"rollup_key": <opaque>}` in a
+  continuity body, on a correction, and in proposal `source_refs` is refused.
+  `rollup_key=<opaque>` in canonical text is still refused. `rollupKey` and
+  the other spellings stay secret names. The weak tier is still live. A
+  routing `session_key` is an identifier for
+  `agent:<profile>:<channel>:<kind>:<tail>` with an optional
+  `:topic:<digits>` suffix. The profile is a short lowercase word and may
+  contain digits, `-`, or `_`. Channel and kind are short lowercase words.
+  The tail is digits with an optional leading `+` or `-`, or a lowercase
+  UUID. An uppercase profile is refused. An opaque alphanumeric tail such
+  as a Slack `C04...` id is refused. `gpg_key` over a key id is still refused, as in v0.17.0.
+  MCP review provenance stays value-only: its schema allows five keys and
+  no others.
+
 - A blocked idempotent replay of `POST /v0/vnext/memories/commit` returns
-  403 and keeps its policy rows. A new commit that policy rejects still
-  returns 200 with status `rejected`.
+  403 only when the stored domain, sensitivity, and project scope all equal
+  the request's. Otherwise it returns the writer's 400. The policy rows are
+  kept, except that a conflict found after losing the insert race rolls
+  back, by design. MCP `alice_memory_commit` keeps the rows and answers
+  `tool_request_failed`. A new commit that policy rejects still returns 200
+  with status `rejected`.
 
 - Continuity capture auto-save, in assist mode and in auto mode, saves only
   a user-role candidate matched by an explicit prefix rule (`decision:`,
@@ -1081,6 +1341,27 @@ are a read-path change. If you imported on `v0.15.5` or earlier, delete
 those candidates and import again. Re-capture only if you need the new
 list-splitting boundaries. There is no re-chunk migration.
 
+## v0.15.6 — 2026-08-16
+
+- `alice_capture` no longer flattens documents before they are chunked.
+  `mcp/arguments.py` collapsed every whitespace run in `raw_text` to a single
+  space, so a file with 17 newlines was stored with 0 and `chunk_text`, which
+  splits on blank lines, saw one paragraph. The v0.15.5 heading rule was therefore
+  inert on the exact path that produced the bug report. `raw_text` now normalises
+  line endings and trims the ends, and touches nothing inside. Only `raw_text`
+  changes; titles, ids and every other scalar still collapse.
+
+  This also restores the tool's stated contract: `alice_capture` promises text is
+  kept verbatim, and indentation, code blocks and list structure were being
+  destroyed along with the paragraph breaks.
+
+  Introduced in v0.12.0, so it survived every release since.
+
+**Re-import notes on this version**, not on 0.15.5. `content_hash` changes for
+newly captured documents because the stored bytes change, so a re-capture creates
+a new source rather than deduping against the flattened copy. Existing rows are
+untouched and there is no re-chunk migration.
+
 ## v0.15.5 — 2026-08-16
 
 - A host's `PYTHONPATH` no longer shadows the dependencies Alice installed. `uvx`
@@ -1110,27 +1391,6 @@ flattened `raw_text` before chunking ever ran, so the heading rule had no
 boundaries to act on and an import through that tool behaved exactly as it did on
 0.15.4. **Do not re-import notes on 0.15.5.** `v0.15.6` fixes the real cause. The
 `PYTHONPATH` entry is unaffected and was confirmed against the published wheel.
-
-## v0.15.6 — 2026-08-16
-
-- `alice_capture` no longer flattens documents before they are chunked.
-  `mcp/arguments.py` collapsed every whitespace run in `raw_text` to a single
-  space, so a file with 17 newlines was stored with 0 and `chunk_text`, which
-  splits on blank lines, saw one paragraph. The v0.15.5 heading rule was therefore
-  inert on the exact path that produced the bug report. `raw_text` now normalises
-  line endings and trims the ends, and touches nothing inside. Only `raw_text`
-  changes; titles, ids and every other scalar still collapse.
-
-  This also restores the tool's stated contract: `alice_capture` promises text is
-  kept verbatim, and indentation, code blocks and list structure were being
-  destroyed along with the paragraph breaks.
-
-  Introduced in v0.12.0, so it survived every release since.
-
-**Re-import notes on this version**, not on 0.15.5. `content_hash` changes for
-newly captured documents because the stored bytes change, so a re-capture creates
-a new source rather than deduping against the flattened copy. Existing rows are
-untouched and there is no re-chunk migration.
 
 ## v0.15.4 — 2026-08-15
 
@@ -1360,6 +1620,10 @@ release notes.)
 
 ## v0.10.4 — 2026-07-15
 
+Correction (2026-09-27): the fifth audit that the v0.10.4 release notes name
+as the source of these fixes was an internal adversarial review, not an
+independent or external audit. The review passes named here were internal too.
+
 - **Deterministic embedding CAS whitespace.** PostgreSQL now computes the
   signed memory-embedding content digest with the same explicit CPython 3.12
   29-codepoint `str.strip()` character table used by Python and migration
@@ -1503,6 +1767,10 @@ the fixes forward. Migrations `0087`–`0089` apply online-safe persistence
 indexes, durable response jobs with provider revision/fingerprint CAS, and
 graph-edge workflow idempotency.
 
+Correction (2026-09-27): this was an internal adversarial review, not an
+independent or external audit. The review passes named here were internal too.
+The v0.10.3 release notes use the same wording.
+
 - **Project isolation.** Agent project scope now flows through brain,
   connection, contradiction, and project-automation requests, scheduler
   workflows, and store queries; consolidation clusters partition by project
@@ -1563,6 +1831,9 @@ Supersedes the tagged-but-unpublished `v0.10.0` candidate, whose protected
 semantic release gate failed on a query-interpretation defect. All `v0.10.0`
 remediation is carried forward; this release closes the gate failure.
 
+Correction (2026-09-27): the third audit that the v0.10.1 release notes name
+was an internal adversarial review, not an independent or external audit.
+
 - Fixed semantic retrieval for business budget queries: the ambiguous word
   `money` no longer creates an implicit hard `personal`-domain filter, restoring
   signed-vector participation while explicit caller-supplied domains remain
@@ -1577,6 +1848,9 @@ remediation is carried forward; this release closes the gate failure.
 Security, reliability, and quality release. Remediates every finding from the
 third external audit of `v0.9.4` — fixed at the class level — and clears the P2
 backlog.
+
+Correction (2026-09-27): this was an internal adversarial review, not an
+independent or external audit. The v0.10.0 release notes use the same wording.
 
 - Correctness: one signed-vector write contract across the eval seeder and both
   backfill paths (fixes the v0.9.4 backfill regression); scope/status/domain/
@@ -1608,6 +1882,10 @@ it and attempted the original five fixes plus all nine P1 remediations from the
 second audit. A post-publication third audit found partial fixes and regressions.
 The later published v0.10.2 corrective record superseded the historical
 v0.10.0 remediation matrix.
+
+Correction (2026-09-27): the follow-up audit of `v0.9.3`, the second audit,
+and the third audit were each an internal adversarial review, not an
+independent or external audit.
 
 - Lifecycle correctness: all memory lifecycle mutations (confirm, review, correct, undo, forget, expire/unexpire, supersession) route through one central transition table (`vnext_lifecycle`) that rejects invalid transitions — a rejected or superseded row can no longer be confirmed back to active, `correct()` no longer promotes rows while leaving them unconfirmed/review-required, supersession `A → B → A` cycles are blocked, and `unexpire` cannot report active while the row stays stale.
 - Supersession graph mutation is serialized per user with a transaction-scoped advisory lock, and the cycle guard now fails closed when it cannot verify acyclicity within its hop bound — so concurrent supersessions on disjoint row pairs can no longer each pass an unlocked check and together close a cycle (audit 2 P1 #1).

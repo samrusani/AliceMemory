@@ -1,7 +1,7 @@
 """Local SQLite vault census for ``alice-memory doctor``.
 
 Reports what is already stored for one ``user_id``. Sources and searchable
-chunks first. Committed facts next. The last brief token estimate uses
+chunks first. Committed facts next. The last brief character count uses
 ``compile_local_session_brief`` with ``query=None``. Candidates next.
 Sleep proposals last. That count is sidecar rows for this user, not
 memory rows. When the sidecar cannot be read, that line is
@@ -13,17 +13,20 @@ source. Commit is a fact. Counts bind ``user_id``.
 
 from __future__ import annotations
 
+import json
+from collections.abc import Mapping
 from pathlib import Path
 from uuid import UUID
 
+from alicebot_api.legacy_credential_check import commit_door_fields_verdict
 from alicebot_api.session_briefing import (
     COMMITTED_MEMORY_STATUSES,
-    SESSION_BRIEF_TOKEN_BUDGET,
+    SESSION_BRIEF_CHAR_CAP,
+    brief_char_len,
     compile_local_session_brief,
 )
 from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
 from alicebot_api.vault_sleep import SleepError, count_sleep_proposals, sleep_proposals_path
-from alicebot_api.vnext_retrieval import estimate_item_tokens
 
 CANDIDATE_STATUS = "candidate"
 
@@ -97,6 +100,7 @@ def compile_local_vault_doctor(
             CANDIDATE_COUNT_SQL,
             (uid, CANDIDATE_STATUS),
         )
+        flagged_ids = _flagged_source_ids(store)
         try:
             proposal_count = count_sleep_proposals(sleep_proposals_path(resolved), user_id=uid)
             proposal_line = f"sleep proposals: {proposal_count}"
@@ -106,18 +110,77 @@ def compile_local_vault_doctor(
             proposal_line = "sleep proposals: unreadable"
 
     markdown = compile_local_session_brief(resolved, user_id=user_id, query=None)
-    token_estimate = estimate_item_tokens({"text": markdown})
+    character_count = brief_char_len(markdown)
     return "\n".join(
         (
             f"db: {resolved}",
             f"sources: {source_count}",
             f"searchable chunks: {chunk_count}",
             f"committed facts: {fact_count}",
-            f"last brief: {token_estimate} / {SESSION_BRIEF_TOKEN_BUDGET} tokens",
+            f"last brief: {character_count} / {SESSION_BRIEF_CHAR_CAP} characters",
             f"candidates waiting: {candidate_count}",
             proposal_line,
+            f"flagged sources: {len(flagged_ids)}",
+            "flagged source ids: " + ", ".join(flagged_ids),
         )
     )
+
+
+def _cell(row: object, key: str) -> object:
+    if isinstance(row, Mapping):
+        return row.get(key)
+    try:
+        return row[key]  # type: ignore[index]
+    except (KeyError, IndexError, TypeError):
+        return None
+
+
+def source_row_is_flagged(row: object) -> bool:
+    """True when a stored source still carries credential material."""
+
+    metadata = _cell(row, "metadata_json")
+    if isinstance(metadata, str):
+        try:
+            metadata = json.loads(metadata)
+        except json.JSONDecodeError:
+            metadata = {}
+    if not isinstance(metadata, dict):
+        metadata = {}
+    raw_text = metadata.get("raw_text")
+    # Same verdict as the commit door. The floor alone misses a low-entropy
+    # AKIA-shaped key that the legacy gate refuses.
+    return (
+        commit_door_fields_verdict(
+            _cell(row, "title"),
+            _cell(row, "author"),
+            _cell(row, "uri"),
+            _cell(row, "raw_path"),
+            _cell(row, "external_id"),
+            raw_text,
+            metadata,
+        )
+        is not None
+    )
+
+
+def _flagged_source_ids(store: SQLiteVNextStore) -> list[str]:
+    rows = store.conn.execute(
+        """
+        SELECT id, title, author, uri, raw_path, external_id, metadata_json
+        FROM sources
+        WHERE user_id = ?
+          AND deleted_at IS NULL
+        ORDER BY id
+        """,
+        (store.user_id,),
+    ).fetchall()
+    ids: list[str] = []
+    for row in rows:
+        if source_row_is_flagged(row):
+            source_id = _cell(row, "id")
+            if source_id is not None:
+                ids.append(str(source_id))
+    return ids
 
 
 def _scalar_count(

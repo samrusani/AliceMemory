@@ -88,8 +88,19 @@ Remember, recall, continue. These are the only tools in a default
   `low` is the default hybrid behavior) and `budget_strategy`
   (`facts_first` / `recent_first` reorder results; `balanced` is the
   default).
+  From v0.19.0, a result whose `superseded_by`
+  is set stays after the current row and carries `validity.superseded:
+  true`. A source excerpt whose `quoted_from` memory was corrected or
+  superseded after the capture adds `derived_memory_corrected: true` and
+  `current_memory_id`. In v0.18.0 that older row has no validity label
+  and the excerpt is unmarked, so the old sentence reads like the fact.
 - `alice_resume` — a pick-work-back-up brief: last decision, suggested next
-  action, open loops, and recent changes. The policy-resolved project scope is
+  action, open loops, and recent changes. From v0.18.0, this brief,
+  `alice_recent_decisions`, and the next-action list read only active
+  memories. A captured candidate stays in review until the owner promotes
+  it. In v0.17.0 and earlier, resume shows candidates, so a captured line
+  that reads like a decision appears as the last decision. The
+  policy-resolved project scope is
   applied before limits. An optional `query` searches decision/next-action
   memory, open-loop title/description/next-action metadata, and recursive
   string leaf values in relevant loop-event payloads before limits in both
@@ -199,7 +210,10 @@ is a CLI verb, not a fourth always-on agent tool.
   memories, and those stay unsearchable until a reviewer promotes them. Import is a source. Commit
   is a fact. Print the `receipt` field after a capture or commit so the user
   sees what was stored. Do not tell the user they must clear a review queue
-  before a note is usable.
+  before a note is usable. From v0.18.0, `alice_capture` refuses a source
+  that carries credential material and writes nothing. In v0.17.0 and
+  earlier, capture has no credential check, so a note that holds a key is
+  stored and recall returns it.
 - `alice_memory_review` — inspect the review queue, or one item in detail.
 - `alice_memory_correct` — act on a memory: approve, edit-and-approve,
   reject, or supersede with a replacement. Every change is audited.

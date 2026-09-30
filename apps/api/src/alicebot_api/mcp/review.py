@@ -664,8 +664,10 @@ def _vnext_memory_correct(context: MCPRuntimeContext, arguments: Mapping[str, ob
             # The credential floor, on the row as it will be stored. This
             # handler writes the row itself, so it calls the shared check
             # here. A title-only edit is read against the stored text; derived
-            # previews of the text are left out, and provenance is read by
-            # value only.
+            # previews of the text are left out. Provenance is read by value.
+            # Over MCP that is the same as reading keys: _REVIEW_PROVENANCE_SCHEMA
+            # allows only source_id, source_chunk_id, evidence_role, confidence,
+            # and quote, and additional properties are rejected before this runs.
             _refuse_oversized_correction(body=body, provenance=provenance)
             refuse_credential_material(
                 *stored_text_fields(

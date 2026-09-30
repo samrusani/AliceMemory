@@ -446,12 +446,16 @@ def test_release_workflow_is_manual_only_and_scheduler_child_preserves_once() ->
 def test_pnpm10_dependency_audit_decision_is_fail_closed_and_documented() -> None:
     package = json.loads(_read("apps/web/package.json"))
     workflow = _read(".github/workflows/tests.yml")
+    smoke = _read(".github/workflows/deployment-guide-smoke.yml")
     audit_script = _read("apps/web/scripts/npm-advisory-audit.mjs")
     releasing = _read("RELEASING.md")
 
     assert package["packageManager"] == "pnpm@10.23.0"
     assert package["devDependencies"]["semver"] == "7.8.0"
-    assert "node-version: \"20\"" in workflow
+    assert workflow.count('node-version: "22.22.2"') == 1
+    assert smoke.count('node-version: "22.22.2"') == 1
+    assert 'node-version: "20"' not in workflow
+    assert 'node-version: "20"' not in smoke
     assert "node scripts/npm-advisory-audit.mjs --prod --audit-level=high" in workflow
     assert "node scripts/npm-advisory-audit.mjs --audit-level=high" in workflow
     assert "pnpm test:advisory-audit" in workflow
@@ -474,14 +478,17 @@ def test_ci_action_dependency_carrier_uses_exact_atomic_pins() -> None:
         workflows,
     )
 
-    # 22 since real-host-ci.yml checks out once for the pinned job and once
-    # for the weekly canary, and commit-author-check.yml checks out once.
+    # 25 since real-host-ci.yml checks out once for the pinned job, once
+    # for the weekly canary, once for the dispatch-only hook trial, once
+    # for the dispatch-only plugin hook trial, and once for the
+    # dispatch-only marketplace check, and
+    # commit-author-check.yml checks out once.
     # Each uses the checkout SHA already reviewed on the other workflows.
     # The count is the point: it forces a new action usage to be reviewed
     # rather than absorbed.
     assert checkout_refs == [
         "3d3c42e5aac5ba805825da76410c181273ba90b1"
-    ] * 22
+    ] * 25
     assert codeql_refs == [
         "ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd"
     ] * 3

@@ -4,19 +4,22 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "alice-memory"
-version = "0.17.0"
+version = "0.19.0"
 description = "Alice: the continuity layer for AI agents. Local-first memory with provenance, open loops, resumption, and review-governed writes."
 readme = "docs/pypi-description.md"
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [{ name = "Sami Rusani" }]
 requires-python = ">=3.12"
+keywords = ["ai agents", "memory", "mcp", "local-first", "sqlite"]
 classifiers = [
   "Development Status :: 3 - Alpha",
+  "Environment :: Console",
   "Intended Audience :: Developers",
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
   "Programming Language :: Python :: 3.14",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
   "Topic :: Software Development :: Libraries",
 ]
 dependencies = [
@@ -30,7 +33,7 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/samrusani/AliceMemory"
+Homepage = "https://www.alicememory.com"
 Repository = "https://github.com/samrusani/AliceMemory"
 Issues = "https://github.com/samrusani/AliceMemory/issues"
 Changelog = "https://github.com/samrusani/AliceMemory/blob/main/CHANGELOG.md"

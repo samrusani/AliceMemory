@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from datetime import datetime
-from typing import Protocol
+from typing import Protocol, cast
 from alicebot_api.continuity_brief import compile_continuity_brief
 from alicebot_api.continuity_recall import (
     get_retrieval_trace,
@@ -61,6 +61,7 @@ from alicebot_api.vnext_retrieval import (
     VNextRetrievalService,
     _order_memories_for_strategy,
     _prefer_current_versions,
+    _validity_annotation,
     _ResolvedRetrievalScope,
     expand_provenance_once,
     reciprocal_rank_fusion,
@@ -69,9 +70,9 @@ from alicebot_api.vnext_retrieval import (
 from .context import _COMPACT_SOURCE_FIELDS, _compact_fields
 from .projects import _handle_alice_vnext_open_loops
 from .retrieval_shared import (
+    _CONTEXT_MEMORY_STATUSES,
     _SQLITE_NEXT_ACTION_MEMORY_TYPES,
     _SQLITE_OPEN_LOOP_ACTIVE_STATUSES,
-    _SQLITE_REVIEWABLE_STATUSES,
     _compact_vnext_event,
     _compact_vnext_memory,
     _compact_vnext_open_loop,
@@ -309,14 +310,30 @@ def _handle_alice_recall(context: MCPRuntimeContext, arguments: Mapping[str, obj
         # context pack already runs after the budget-strategy reorder.
         # Replacement sits above its superseded ancestor; nothing is dropped.
         ordered_rows, _supersession_reorders = _prefer_current_versions(ordered_rows)
+        # Same pack-mate hint compile_context_pack uses: a row named by a
+        # result's supersedes pointer is superseded even without the column.
+        superseded_by_packmate: dict[str, str] = {}
+        for memory in ordered_rows:
+            pointer = memory.get("supersedes")
+            if pointer:
+                superseded_by_packmate.setdefault(str(pointer), str(memory.get("id") or ""))
         results: list[JsonObject] = []
         for item in ordered_rows:
             provenance_count = len(store.list_provenance_links(target_type="memory", target_id=str(item.get("id"))))
+            compact = _compact_recall_result(
+                item, score=scores[str(item.get("id"))], provenance_count=provenance_count
+            )
+            validity = _validity_annotation(
+                dict(item),
+                superseded_by_hint=superseded_by_packmate.get(str(item.get("id") or "")),
+            )
+            # Only the superseded flag changes the recall shape. Rows that
+            # merely have a validity window keep the compact result.
+            if isinstance(validity, dict) and validity.get("superseded") is True:
+                compact["validity"] = cast(JsonObject, validity)
             results.append(
                 present_model_item(
-                    _compact_recall_result(
-                        item, score=scores[str(item.get("id"))], provenance_count=provenance_count
-                    ),
+                    compact,
                     source=item,
                     writer=memory_writer(store, item),
                 )
@@ -759,7 +776,7 @@ def _vnext_recent_decisions(
             row
             for row in store.list_memories(
                 status=None,
-                statuses=tuple(_SQLITE_REVIEWABLE_STATUSES),
+                statuses=tuple(_CONTEXT_MEMORY_STATUSES),
                 memory_types=("decision",),
                 domains=domain_filter,
                 sensitivity_allowed=sensitivity_filter,
@@ -831,7 +848,7 @@ def _vnext_resume(
     with _vnext_store_context(context) as store:
         decisions = store.list_memories(
             status=None,
-            statuses=tuple(_SQLITE_REVIEWABLE_STATUSES),
+            statuses=tuple(_CONTEXT_MEMORY_STATUSES),
             memory_types=("decision",),
             domains=domain_filter,
             sensitivity_allowed=sensitivity_filter,
@@ -882,7 +899,7 @@ def _vnext_resume(
         if next_action is None:
             todo_memories = store.list_memories(
                 status=None,
-                statuses=tuple(_SQLITE_REVIEWABLE_STATUSES),
+                statuses=tuple(_CONTEXT_MEMORY_STATUSES),
                 memory_types=tuple(_SQLITE_NEXT_ACTION_MEMORY_TYPES),
                 domains=domain_filter,
                 sensitivity_allowed=sensitivity_filter,
@@ -922,7 +939,7 @@ def _vnext_resume(
             event_rows = []
             seen_event_ids: set[str] = set()
             for event in store.list_resume_memory_events(
-                statuses=tuple(_SQLITE_REVIEWABLE_STATUSES),
+                statuses=tuple(_CONTEXT_MEMORY_STATUSES),
                 projects=effective_project_scope,
                 query=query,
                 occurred_at_start=since,

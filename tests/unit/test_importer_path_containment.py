@@ -12,6 +12,8 @@ from uuid import uuid4
 import pytest
 
 from alicebot_api.chatgpt_import import ChatGPTImportValidationError, load_chatgpt_payload
+from alicebot_api.vnext_capture import VNextCaptureService, VNextCaptureValidationError
+from tests.unit.test_vnext_capture import InMemoryVNextCaptureStore
 from alicebot_api.importer_paths import read_contained_source_text
 from alicebot_api.markdown_import import MarkdownImportValidationError, load_markdown_payload
 from alicebot_api.openclaw_adapter import (
@@ -390,3 +392,87 @@ def test_read_contained_source_text_names_the_file_that_is_not_utf8(tmp_path: Pa
     assert broken.name in str(caught.value)
     # The offset is still recoverable for anyone debugging the source file.
     assert isinstance(caught.value.__cause__, UnicodeDecodeError)
+
+
+def _vnext_import(kind: str, path: Path) -> None:
+    service = VNextCaptureService(InMemoryVNextCaptureStore())
+    if kind == "markdown":
+        service.import_markdown_folder(path)
+        return
+    service.import_chatgpt_export_file(path)
+
+
+@pytest.mark.parametrize("kind", ["markdown", "chatgpt"])
+def test_vnext_import_rejects_a_file_symlink_escaping_the_root(tmp_path: Path, kind: str) -> None:
+    """T4. A linked file outside the root is refused.
+
+    Fails if the folder walk goes back to rglob, which follows the link
+    and imports the outside file.
+    """
+
+    if kind == "markdown":
+        secret = _outside_tree(tmp_path, "secret.md", f"- Note: {_OUTSIDE_MARKER}\n")
+        root = _markdown_root(tmp_path)
+        (root / "linked.md").symlink_to(secret)
+    else:
+        secret = _outside_tree(tmp_path, "secret.json", json.dumps({"marker": _OUTSIDE_MARKER}))
+        root = _chatgpt_root(tmp_path)
+        (root / "linked.json").symlink_to(secret)
+
+    with pytest.raises(VNextCaptureValidationError, match="symlinked files"):
+        _vnext_import(kind, root)
+
+
+@pytest.mark.parametrize("kind", ["markdown", "chatgpt"])
+def test_vnext_import_rejects_a_directory_symlink_escaping_the_root(tmp_path: Path, kind: str) -> None:
+    """T4. A linked directory outside the root is refused.
+
+    Fails if rglob is restored: it descends the link.
+    """
+
+    if kind == "markdown":
+        _outside_tree(tmp_path, "secret.md", f"- Note: {_OUTSIDE_MARKER}\n")
+        root = _markdown_root(tmp_path)
+    else:
+        _outside_tree(tmp_path, "secret.json", json.dumps({"marker": _OUTSIDE_MARKER}))
+        root = _chatgpt_root(tmp_path)
+    (root / "linked_dir").symlink_to(tmp_path / "outside", target_is_directory=True)
+
+    with pytest.raises(VNextCaptureValidationError, match="symlinked directories"):
+        _vnext_import(kind, root)
+
+
+@pytest.mark.parametrize("kind", ["markdown", "chatgpt"])
+def test_vnext_import_rejects_a_same_root_alias(tmp_path: Path, kind: str) -> None:
+    """T4. A symlink to another file in the same root is still a symlink."""
+
+    if kind == "markdown":
+        root = _markdown_root(tmp_path)
+        (root / "alias.md").symlink_to(root / "notes.md")
+    else:
+        root = _chatgpt_root(tmp_path)
+        (root / "alias.json").symlink_to(root / "export.json")
+
+    with pytest.raises(VNextCaptureValidationError, match="symlinked files"):
+        _vnext_import(kind, root)
+
+
+@pytest.mark.parametrize("kind", ["markdown", "chatgpt"])
+def test_vnext_import_refuses_a_fifo_instead_of_blocking(tmp_path: Path, kind: str) -> None:
+    """T4. A FIFO is refused. A blocking open fails this test by alarm."""
+
+    if kind == "markdown":
+        root = _markdown_root(tmp_path)
+        os.mkfifo(root / "pipe.md")
+    else:
+        root = _chatgpt_root(tmp_path)
+        os.mkfifo(root / "pipe.json")
+
+    previous = signal.signal(signal.SIGALRM, _raise_timeout)
+    signal.alarm(10)
+    try:
+        with pytest.raises(VNextCaptureValidationError, match="not a regular file"):
+            _vnext_import(kind, root)
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, previous)
