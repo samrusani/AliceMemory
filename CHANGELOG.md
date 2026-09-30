@@ -50,8 +50,10 @@
   was refused with `LIKE or GLOB pattern too complex`. In v0.18.0 the same
   text, with a captured source in the vault, raises a SQLite error and the
   hook prints `{}`. `alice_recall` and `alice_context_pack` are not
-  changed: a query with 991 or more distinct search terms still returns a
-  tool error there (`tool_execution_failed`), as it does in v0.18.0.
+  changed: a query with 991 or more distinct search terms, or with a
+  captured source in the vault a query over about 50,000 bytes, still
+  returns a tool error there (`tool_execution_failed`), as it does in
+  v0.18.0.
 - `alice-memory install --host hermes` leaves a comment in place when the
   `alice` block, with comment lines and inline comments removed, already
   matches what install would write. The receipt says unchanged and the

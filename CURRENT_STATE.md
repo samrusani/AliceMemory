@@ -123,7 +123,8 @@ relative or empty `--data-dir` is refused. There is no schema change.
   explicit query or source title no longer empties it, including one with
   more than about 990 distinct words. `alice_recall` and
   `alice_context_pack` are not changed and still return a tool error for a
-  query with about 991 or more distinct search terms. In `v0.18.0` a note
+  query with about 991 or more distinct search terms, or, with a captured
+  source in the vault, over about 50,000 bytes. In `v0.18.0` a note
   over the token budget was dropped, a brief could pass 15,000 characters,
   and a fact with more than about 990 distinct words, or over about 50,000
   bytes with a source in the vault, made the hook print `{}`.
