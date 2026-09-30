@@ -862,13 +862,15 @@ def test_a_cursor_refusal_is_not_hidden_by_the_plugin(
 def test_duplicate_prefix_is_reserved_and_the_final_fit_cuts_nothing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Seven facts reach the cap, the reserve keeps the prefix inside it, and the fit cuts nothing.
+    """Seven facts reach the cap, and the emitted brief is the reserved brief with the prefix on it.
 
     The first fact is short and the six after it are 20,000 characters each,
-    so the brief fills every slot. Without the reserve the compiled brief plus
-    the prefix passes 9,500. Mutation: drop ``reserve=`` from the hook's
-    compile call. ``additionalContext`` no longer matches the reserved brief,
-    and this test fails.
+    so the brief fills every slot. The final fit cuts nothing, and the text
+    after the prefix equals a compile with the prefix's length reserved.
+    Mutation: pass a reserve that is too large (the brief loses a fact, so
+    ``additional[len(prefix):]`` differs from the reserved compile). The
+    reserve of zero is not visible here, because the final fit drops the same
+    whole trailing lines. ``test_the_hook_reserves_the_prefix_length`` pins it.
     """
 
     import io
@@ -922,18 +924,63 @@ def test_duplicate_prefix_is_reserved_and_the_final_fit_cuts_nothing(
     assert additional[len(prefix) :] == expected
 
 
+def test_the_hook_reserves_the_prefix_length(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The hook asks the compile for room equal to the duplicate line, and for none without it.
+
+    The compile call is patched to record its ``reserve``. The final fit drops
+    whole trailing lines, so the reserve does not always change the emitted
+    text, and the wiring is pinned here. Mutation: pass ``reserve=0``, a
+    reserve that ignores the newline, or a reserve when there is no prefix.
+    This test fails.
+    """
+
+    from alicebot_api import session_start_hook as hook_module
+    from alicebot_api.session_briefing import brief_char_len
+    from tests.unit.test_session_brief import USER_ID
+
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    seen: list[object] = []
+
+    def record(*args: object, **kwargs: object) -> str:
+        seen.append(kwargs.get("reserve"))
+        return "Nothing stored yet."
+
+    monkeypatch.setattr(hook_module, "compile_local_session_brief", record)
+    vault = tmp_path / "vault"
+    monkeypatch.setenv("CLAUDE_PLUGIN_ROOT", str(tmp_path / "plugin"))
+    _seed_server(tmp_path)
+    monkeypatch.setattr(sys, "stdin", io.StringIO(""))
+    code = hook_main(["--data-dir", str(vault), "--user-id", USER_ID, "--format", "json"])
+    captured = capsys.readouterr()
+    assert code == 0, captured.err
+    additional = json.loads(captured.out)["hookSpecificOutput"]["additionalContext"]
+    prefix = additional.split("\n", 1)[0] + "\n"
+    assert prefix.startswith("Alice is set up twice in Claude Code.")
+    assert seen == [brief_char_len(prefix)]
+    assert seen[0] > 100
+
+    (tmp_path / ".claude.json").unlink()
+    monkeypatch.setattr(sys, "stdin", io.StringIO(""))
+    code = hook_main(["--data-dir", str(vault), "--user-id", USER_ID, "--format", "json"])
+    captured = capsys.readouterr()
+    assert code == 0, captured.err
+    assert "set up twice" not in captured.out
+    assert seen == [brief_char_len(prefix), 0]
+
+
 def test_the_final_fit_covers_the_duplicate_prefix(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """A compiled brief that ignores its reserve is still cut with the prefix in place.
 
-    The compile call is patched to return 20,000 characters whatever the
-    reserve says. Mutation: fit the brief before adding the prefix
-    (``prefix + fit(markdown)``). The emitted context passes 9,500 and this
-    test fails.
+    The compile call is patched to return 200 lines of 99 characters whatever
+    the reserve says, about 20,000 characters. The final fit drops whole
+    trailing lines, so the fit has to see the prefix to leave room for it.
+    Mutation: fit the brief before adding the prefix (``prefix + fit(markdown)``),
+    or drop the final fit. The emitted context passes 9,500 and this test fails.
     """
-
-    import io
 
     from alicebot_api import session_start_hook as hook_module
     from alicebot_api.session_briefing import brief_char_len
@@ -943,7 +990,10 @@ def test_the_final_fit_covers_the_duplicate_prefix(
     monkeypatch.setenv("CLAUDE_PLUGIN_ROOT", str(tmp_path / "plugin"))
     _seed_server(tmp_path)
     vault = tmp_path / "vault"
-    monkeypatch.setattr(hook_module, "compile_local_session_brief", lambda *args, **kwargs: "z" * 20000)
+    line = "z" * 99
+    body = "\n".join([line] * 200)
+    assert brief_char_len(body) > 19_000
+    monkeypatch.setattr(hook_module, "compile_local_session_brief", lambda *args, **kwargs: body)
     monkeypatch.setattr(sys, "stdin", io.StringIO(""))
     code = hook_main(["--data-dir", str(vault), "--user-id", USER_ID, "--format", "json"])
     captured = capsys.readouterr()
@@ -951,6 +1001,9 @@ def test_the_final_fit_covers_the_duplicate_prefix(
     additional = json.loads(captured.out)["hookSpecificOutput"]["additionalContext"]
     assert additional.startswith("Alice is set up twice in Claude Code.")
     assert brief_char_len(additional + "\n") <= 9_500
+    kept = additional.split("\n")[1:]
+    assert kept and set(kept) == {line}
+    assert brief_char_len(additional) >= 9_500 - 200
 
 
 _PLUGIN_ENV_NAMES = ("CLAUDE_PLUGIN_ROOT", "CLAUDE_PLUGIN_OPTION_DATA_DIR", "ALICE_MEMORY_DATA_DIR")
