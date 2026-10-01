@@ -293,5 +293,5 @@ def test_no_added_text_uses_an_em_dash_or_an_en_dash() -> None:
         _read("docs/security/external-review-brief.md"),
         _read("apps/api/src/alicebot_api/provider_http.py"),
     ):
-        assert "—" not in text
-        assert "–" not in text
+        assert "\u2014" not in text
+        assert "\u2013" not in text
