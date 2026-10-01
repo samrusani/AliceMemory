@@ -319,6 +319,7 @@ def _run_vnext_memories_backfill_embeddings(ctx: CLIContext, args: argparse.Name
         persist_deferred_memory_embeddings_outcome,
         summarize_embedding_failures,
     )
+    from alicebot_api.vnext_retrieval import MEMORY_SEARCHABLE_STATUSES
 
     provider = get_embedding_provider()
     if provider is None:
@@ -343,7 +344,10 @@ def _run_vnext_memories_backfill_embeddings(ctx: CLIContext, args: argparse.Name
         # Snapshot one page in a short transaction. Provider I/O and vector
         # persistence both happen only after this read transaction closes.
         with _vnext_store_context(ctx) as store:
+            # Only the statuses recall can return: this listing never hands the
+            # text of a forgotten, rejected or candidate memory to the endpoint.
             rows = store.list_memories_missing_embeddings(
+                statuses=MEMORY_SEARCHABLE_STATUSES,
                 limit=batch_size,
                 after_id=after_id,
                 embedding_provider=provider.provider,

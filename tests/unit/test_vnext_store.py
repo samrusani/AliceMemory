@@ -2425,7 +2425,9 @@ def test_update_memory_embedding_and_missing_embedding_listing() -> None:
     store = PostgresVNextStore(RecordingConnection(cursor))
 
     updated = store.update_memory_embedding(memory_id=memory_id, vector=[1.0, 0.5])
-    missing = store.list_memories_missing_embeddings(limit=64, after_id=memory_id)
+    missing = store.list_memories_missing_embeddings(
+        statuses=("active", "accepted"), limit=64, after_id=memory_id
+    )
 
     assert updated == {"id": memory_id}
     assert missing[0]["id"] == memory_id
@@ -2436,7 +2438,8 @@ def test_update_memory_embedding_and_missing_embedding_listing() -> None:
     assert "embedding_vector IS NULL" in missing_query
     assert "%s::uuid IS NULL OR id > %s::uuid" in missing_query
     assert "ORDER BY id ASC" in missing_query
-    assert missing_params == (memory_id, memory_id, 64)
+    assert "AND status IN (%s, %s)" in missing_query
+    assert missing_params == ("active", "accepted", memory_id, memory_id, 64)
 
 
 def test_signed_embedding_update_compares_current_memory_content_digest() -> None:
@@ -2522,6 +2525,7 @@ def test_embedding_digest_sql_uses_exact_python_strip_table_at_every_cas_boundar
 
     missing_cursor = RecordingCursor(fetchone_results=[], fetchall_result=[])
     PostgresVNextStore(RecordingConnection(missing_cursor)).list_memories_missing_embeddings(
+        statuses=("active", "accepted"),
         embedding_provider="stub",
         embedding_model="embed-v1",
         embedding_signature_version=2,
@@ -2545,6 +2549,7 @@ def test_embedding_backfill_includes_unsigned_or_incompatible_vectors() -> None:
     store = PostgresVNextStore(RecordingConnection(cursor))
 
     store.list_memories_missing_embeddings(
+        statuses=("active", "accepted"),
         limit=32,
         embedding_provider="openai_compatible",
         embedding_model="embed-v2",
@@ -2558,7 +2563,7 @@ def test_embedding_backfill_includes_unsigned_or_incompatible_vectors() -> None:
     assert "digest(" in query
     assert "concat_ws(" in query
     assert "embedding_present" in query
-    assert params == ("openai_compatible", "embed-v2", "1", None, None, 32)
+    assert params == ("active", "accepted", "openai_compatible", "embed-v2", "1", None, None, 32)
 
 
 def test_clear_memory_embedding_removes_signature_metadata() -> None:
