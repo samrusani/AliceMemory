@@ -2253,6 +2253,11 @@ def test_the_token_budget_counts_the_row_the_pack_actually_emits() -> None:
     Round 3 measured a 73% under-count per promoted row, so a pack full of
     them overran its declared budget and reported a token estimate that was
     wrong for exactly those rows.
+
+    Mutation: build ``memory_offers`` in ``compile_context_pack`` from the bare
+    ``ordered_memories`` and wrap the selected rows after admission. The pack
+    still emits ``write_provenance``, the budget charges the bare row, and the
+    allocation assertion fails.
     """
 
     from alicebot_api.vnext_retrieval import _with_write_provenance, estimate_item_tokens
@@ -2268,9 +2273,21 @@ def test_the_token_budget_counts_the_row_the_pack_actually_emits() -> None:
     assert "write_provenance" in wrapped
     assert estimate_item_tokens(wrapped) > estimate_item_tokens(raw)
 
-    source = Path(vnext_retrieval_module.__file__).read_text(encoding="utf-8")
-    # The admitted object is the wrapped one, not the original.
-    assert "if budget.admit(wrapped, section=section)" in source
+    # The pack itself must charge the wrapped row. Compile a real pack over
+    # this store and compare what the budget charged for memories with the
+    # price of the row the pack emitted, taken before the separately charged
+    # annotations are added to it.
+    from alicebot_api.vnext_retrieval import VNextRetrievalRequest, VNextRetrievalService
+
+    pack = VNextRetrievalService(store).compile_context_pack(
+        VNextRetrievalRequest(query="owner drinks coffee before noon", domains=("personal",))
+    )
+    emitted = pack["relevant_memories"]
+    assert len(emitted) == 1
+    assert "write_provenance" in emitted[0]
+    annotation_keys = {"staleness", "validity", "currency", "event_time"}
+    priced = {key: value for key, value in emitted[0].items() if key not in annotation_keys}
+    assert pack["budget"]["allocation"]["relevant_memories"] == estimate_item_tokens(priced)
 
 
 def test_the_reject_path_uses_the_same_detector_as_the_floor() -> None:
