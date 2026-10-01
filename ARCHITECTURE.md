@@ -93,7 +93,10 @@ PostgreSQL + pgvector  |  SQLite
   so in its trace.
 - Retrieval runs, candidates, traces, public eval cases/results, and benchmark
   receipts make quality claims inspectable. A historical 79.4% result is not a
-  substitute for repeated measurements on the current candidate.
+  substitute for repeated measurements on the current candidate. It also has a
+  known issue: the harness showed the reader model each session's id, and in
+  that dataset every evidence session id starts with `answer_`. See the README
+  Benchmark section.
 
 ### Provider support
 

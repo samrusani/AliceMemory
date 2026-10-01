@@ -28,6 +28,7 @@ for _path in (_EVAL_DIR, _API_SRC):
 
 from longmemeval import adapter  # noqa: E402
 from longmemeval.dataset import SYNTHETIC_FIXTURE_PATH, load_dataset, parse_question  # noqa: E402
+from longmemeval.session_labels import SESSION_LABEL_MODE_RAW  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -107,7 +108,9 @@ def _run() -> adapter.QuestionRun:
             "src-b": ["the golden retriever puppy chewed a slipper this morning after breakfast"],
         }
     )
-    return adapter.QuestionRun(question, store)  # type: ignore[arg-type]
+    # Stub stores hold the literal session ids written in this module, so the packing
+    # logic is tested in raw mode; labelling is tested in test_session_label_leak_guard.py.
+    return adapter.QuestionRun(question, store, session_label_mode=SESSION_LABEL_MODE_RAW)  # type: ignore[arg-type]
 
 
 _DERIVED_LINES = [
