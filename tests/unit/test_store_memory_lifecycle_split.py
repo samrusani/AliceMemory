@@ -94,11 +94,12 @@ EXPECTED_METADATA_MANIFESTS = {
     "sqlite": "9a5a4a9f0ae533652250a9e9854cd34a068392d71ffde98b012c9c620134d2c4",
 }
 EXPECTED_CLASS_ORDERS = {
-    # Two paired browser-clip capability methods extend both façades.
-    "PostgresVNextStore": (170, "5f28f1a17670a0c8b7b373acd0c314637c58e6a10ccf52053481a8a028bb3c09"),
+    # Two paired browser-clip capability methods extend both façades, and one
+    # more paired method, ``list_memories_referencing_sources``.
+    "PostgresVNextStore": (171, "526374782104a2a120a40fdb3596893975d4e1528d4c8130802cfc830161eb35"),
     # One SQLite-only method more, ``check_source_search_query``: the Postgres
     # source search has no expression-depth or LIKE-length limit to check.
-    "SQLiteVNextStore": (124, "bc5249c5a4944cddec3efb0673e1b8611c387ebf910534d2edfa21c2481c1c1d"),
+    "SQLiteVNextStore": (125, "8597531ec4227a265bcfd8a21e033f618fb3c6842e513d03ade05e0cd97723e3"),
 }
 EXPECTED_FACADE_COMMENT_DIGESTS = {
     POSTGRES_FACADE_PATH: "d8599a46ee26dc35a3ae52c1a98a416509add9ae4a42ece780c5c5ed7e132b93",

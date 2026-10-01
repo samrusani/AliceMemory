@@ -142,9 +142,10 @@ EXPECTED_CLASS_KEY_SHA256 = {
     # Re-minted for the paired browser-clip capability façade methods.
     # The sqlite hash is re-minted again for ``check_source_search_query``. It is
     # SQLite only on purpose: the Postgres source search has no expression-depth
-    # or LIKE-length limit to check.
-    "postgres": "88174a48507e75d260fa597319e8baec273a663b0036899d70c9550138bc6046",
-    "sqlite": "9f73c0a44e1b2bcdf10df190ee16f63d899dd4183a559c9c2bdbeab7aeb50b7d",
+    # or LIKE-length limit to check. Both are re-minted again for the paired
+    # ``list_memories_referencing_sources`` method.
+    "postgres": "650e2e0ff088d67c20c5eb57cb3919803310e1e382cb1d37e5e0c40220b810a0",
+    "sqlite": "497daf56e67e12095ab6df64e2058ff6fa3ab4fdfa761d10524748e5432090cf",
 }
 EXPECTED_SUPPORT_AST_SHA256 = {
     "postgres_columns": {

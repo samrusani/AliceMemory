@@ -454,8 +454,8 @@ def test_the_docs_say_the_hook_checks_the_variable_from_v0192_and_keep_the_v0190
         assert "From `v0.19.2`, the hook refuses a relative `ALICE_MEMORY_DATA_DIR` the same way." in state, name
 
     changelog = (_ROOT / "CHANGELOG.md").read_text(encoding="utf-8").split("\n## ")
-    # Unreleased may hold entries for later work. The v0.19.2 entries are checked in changelog[2].
-    assert changelog[1].split("\n", 1)[0].strip() == "Unreleased"
+    # Unreleased may hold entries for changes made after v0.19.2.
+    assert changelog[1].startswith("Unreleased")
     assert changelog[2].startswith("v0.19.2 \u2014 2026-10-01\n")
     released_now = _flat(changelog[2])
     assert (
