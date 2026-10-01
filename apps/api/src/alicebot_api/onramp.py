@@ -15,7 +15,11 @@ Subcommands:
   database, preserving ids and timestamps so provenance references and
   the audit trail survive the round trip. ``--quarantine`` removes the
   credential from each named memory and from the records derived from it,
-  and reports any other copies it finds.
+  and reports any other copies it finds. Import refuses a memory row that
+  holds credential material in a column the credential check reads. Every
+  other record type is restored, and the receipt lists the table, id and
+  column of each record column that holds credential-shaped text, including
+  the memory columns the check does not read.
 - ``reindex-embeddings``: rebuild missing or provider/model-incompatible
   vectors in place after an import, upgrade, or embedding-model change.
 - ``brief``: print a labelled session brief (committed facts and imported
@@ -61,6 +65,12 @@ Export/import round-trip contract ("you own the memory"):
   quarantined memory, so a later redact can still update the row.
   Append-only triggers on ``event_log``/``memory_revisions`` only block
   UPDATE/DELETE.
+- One exception to ``export -> import -> export`` equality: a stored claim
+  that an agent API key wrote a row (``agent_identity`` with ``auth`` equal to
+  ``agent_api_key``) is restored as ``auth: imported_claim`` with the original
+  value kept as ``claimed_auth``, because the footer is an unkeyed SHA-256 and
+  proves integrity, not authorship. Only rows that carried such a claim
+  differ, and an event row that changed has its integrity hash cleared.
 - Soft-deleted rows are omitted. Nullable references to omitted parents are
   cleared, and graph edges with omitted known endpoints are left behind, so
   the portable record set can be restored into a fresh database.
@@ -80,6 +90,7 @@ import json
 import logging
 import marshal
 import os
+import re
 import shutil
 import sqlite3
 import sys
@@ -120,6 +131,7 @@ from alicebot_api.sqlite_store import (
     ensure_sqlite_user,
     sqlite_user_connection,
 )
+from alicebot_api.vnext_agent_keys import AGENT_KEY_AUTH
 from alicebot_api.vnext_json import json_safe
 from alicebot_api.vnext_embeddings import (
     EMBEDDING_SIGNATURE_VERSION,
@@ -1772,12 +1784,18 @@ def _write_export(
     db_path: Path,
     user_id: UUID,
     credential_findings: list["_CredentialFinding"] | None = None,
+    record_hits: list["_RecordCredentialHit"] | None = None,
 ) -> int:
     """Write a versioned export from a read-only private SQLite snapshot.
 
     When ``credential_findings`` is given, every memory row is also run
     through the same credential check import applies, so the owner hears
     about a row import will refuse while the source vault still exists.
+    When ``record_hits`` is given, every other record is read the way import
+    reads it, and each column that holds credential-shaped text is added. A
+    memory row contributes its columns the check does not read, unless the
+    check refuses the row, which is listed under ``credential_findings`` only.
+    Import restores those records and lists them, so they are not a refusal.
     """
     with _prepared_export_connection(db_path, user_id) as conn:
         header = {
@@ -1798,11 +1816,15 @@ def _write_export(
         written = 0
         for record_type, row in _export_rows(conn, user_id):
             line = _export_line(record_type, row) + "\n"
-            if credential_findings is not None and record_type == "memory" and isinstance(row, Mapping):
+            finding = None
+            if record_type == "memory" and isinstance(row, Mapping):
                 # The header is line 1, so this record lands on line written + 2.
                 finding = _memory_record_credential_finding(row, line_no=written + 2)
-                if finding is not None:
-                    credential_findings.append(finding)
+            if finding is not None and credential_findings is not None:
+                credential_findings.append(finding)
+            if record_hits is not None and finding is None and isinstance(row, Mapping):
+                # A memory row import refuses is listed above and not here.
+                record_hits.extend(_record_credential_hits(record_type, row, line_no=written + 2))
             stream.write(line)
             digest.update(line.encode("utf-8"))
             counts[record_type] += 1
@@ -1819,6 +1841,25 @@ def _write_export(
         return written
 
 
+def _export_record_hit_lines(hits: Sequence["_RecordCredentialHit"]) -> list[str]:
+    """stderr lines for credential-shaped text import does not refuse, or none.
+
+    Named apart from the memory warning: import restores these records.
+    """
+    if not hits:
+        return []
+    lines = [
+        f"alice-memory: line {hit.line_no}: {_record_hit_line(hit)} holds credential-shaped text"
+        for hit in hits
+    ]
+    lines.append(
+        "alice-memory: note: alice-memory import restores these records unchanged and lists them "
+        "on its receipt. It refuses a memory row only for credential-shaped text in its title, "
+        "text, summary, value, metadata, key or project."
+    )
+    return lines
+
+
 def _run_export(args: argparse.Namespace) -> int:
     db_path = resolve_db_path(data_dir=args.data_dir, db=args.db)
     if not db_path.exists():
@@ -1832,6 +1873,7 @@ def _run_export(args: argparse.Namespace) -> int:
         out_path = requested_out_path.resolve()
         temp_path: Path | None = None
         credential_findings: list[_CredentialFinding] = []
+        record_hits: list[_RecordCredentialHit] = []
         try:
             _ensure_private_directory(out_path.parent)
             fd, raw_temp_path = tempfile.mkstemp(
@@ -1848,6 +1890,7 @@ def _run_export(args: argparse.Namespace) -> int:
                     db_path=db_path,
                     user_id=args.user_id,
                     credential_findings=credential_findings,
+                    record_hits=record_hits,
                 )
                 stream.flush()
                 os.fsync(stream.fileno())
@@ -1888,12 +1931,21 @@ def _run_export(args: argparse.Namespace) -> int:
                     file=sys.stderr,
                     flush=True,
                 )
+            for line in _export_record_hit_lines(record_hits):
+                print(line, file=sys.stderr, flush=True)
         except (OSError, ValueError):
             return 2
     else:
         stdout_findings: list[_CredentialFinding] = []
+        stdout_hits: list[_RecordCredentialHit] = []
         try:
-            _write_export(sys.stdout, db_path=db_path, user_id=args.user_id, credential_findings=stdout_findings)
+            _write_export(
+                sys.stdout,
+                db_path=db_path,
+                user_id=args.user_id,
+                credential_findings=stdout_findings,
+                record_hits=stdout_hits,
+            )
             for line in _credential_finding_lines(stdout_findings):
                 _stderr_line(line)
             if stdout_findings:
@@ -1902,6 +1954,8 @@ def _run_export(args: argparse.Namespace) -> int:
                     "the memories listed above in this vault (alice_memory_manage action=redact, "
                     "with ALICE_MCP_FULL_TOOLS=1), then export again."
                 )
+            for line in _export_record_hit_lines(stdout_hits):
+                _stderr_line(line)
         except (
             _BackupError,
             OSError,
@@ -1941,6 +1995,7 @@ class _ValidatedImport:
     content_sha256: str
     manifest_sha256: str
     spool_path: Path
+    record_credential_hits: tuple[_RecordCredentialHit, ...] = ()
 
 
 def _create_import_spool(path: Path) -> tuple[Path, sqlite3.Connection]:
@@ -2056,6 +2111,23 @@ class _CredentialFinding:
     fields: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class _RecordCredentialHit:
+    """One record column that holds credential-shaped text and is not refused.
+
+    Never the text itself. Import and export list these and go on: a vault
+    from before the credential floor can legitimately hold a secret in a
+    source, and no SQLite command removes a source. The columns are those of
+    every non-memory record, and those of a memory row that the credential
+    check does not read (see ``_MEMORY_FLOOR_COLUMNS``).
+    """
+
+    line_no: int
+    table: str
+    row_id: str
+    column: str
+
+
 # Keys the product itself writes into a memory's metadata_json that the
 # credential name rule would read as secret names. Enumerated from the vNext
 # memory writers (a test walks them and fails on a new one), not guessed:
@@ -2158,6 +2230,90 @@ def _memory_record_credential_finding(record: Mapping[str, object], *, line_no: 
     )
 
 
+# Columns import never stores from the file: user_id is rebound to the
+# importing user, so a value the file carries there reaches no row.
+_NOT_STORED_FROM_FILE = frozenset({"user_id"})
+# The memory columns the credential check reads (``_memory_record_credential_fields``).
+# A memory row that holds credential material in one of them is refused, so the
+# report reads the rest of the row: trust_reason, created_by_agent_id (recall
+# returns it as writer.id), the ids, the model name and the digests. The summary
+# is left out because it is read only when it is not a copy of the text.
+_MEMORY_FLOOR_COLUMNS = frozenset(
+    {"title", "canonical_text", "summary", "value", "metadata_json", "memory_key", "project_id"}
+)
+_RECEIPT_ID_MAX_CHARS = 128
+
+
+# Values the product writes into id, hash and time columns. A value that is
+# wholly one of these is not read: the credential check returns nothing for any
+# of them (a test pins that), and they are most of a large export's short
+# columns. Anything that differs, by one character, is read like any other text.
+_STRUCTURAL_VALUE = re.compile(
+    r"""
+      [0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}
+    | (?:sha256:)?[0-9a-f]{32,128}
+    | \d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?(?:Z|[+-]\d{2}:?\d{2})?)?
+    """,
+    re.VERBOSE | re.IGNORECASE | re.ASCII,
+)
+
+
+def _is_structural_value(value: object) -> bool:
+    return isinstance(value, str) and _STRUCTURAL_VALUE.fullmatch(value) is not None
+
+
+def _reported_credential_columns(record_type: str, record: Mapping[str, object]) -> tuple[str, ...]:
+    """The columns of one record that hold credential-shaped text and are not refused.
+
+    Every column the import stores, read by value with the same pair that
+    ``_quarantine_credential_reports`` uses: ``_quarantine_text_column`` picks
+    the text and JSON columns, and ``credential_verdict`` reads each. Ids and
+    hashes are read too, because an id is shown to a model in recall results,
+    except a value that is wholly a UUID, a digest or a timestamp. A memory row
+    is read only in the columns the credential check leaves out.
+    """
+
+    _table, columns = _RECORD_SPECS[record_type]
+    skipped = _NOT_STORED_FROM_FILE | (_MEMORY_FLOOR_COLUMNS if record_type == "memory" else frozenset())
+    return tuple(
+        column
+        for column in columns
+        if column not in skipped
+        and _quarantine_text_column(record.get(column))
+        and not _is_structural_value(record.get(column))
+        and credential_verdict(record.get(column)) is not None
+    )
+
+
+def _record_credential_hits(
+    record_type: str, record: Mapping[str, object], *, line_no: int
+) -> list[_RecordCredentialHit]:
+    table, _columns = _RECORD_SPECS[record_type]
+    row_id = str(record.get("id"))
+    return [
+        _RecordCredentialHit(line_no=line_no, table=table, row_id=row_id, column=column)
+        for column in _reported_credential_columns(record_type, record)
+    ]
+
+
+def _receipt_row_id(hit: _RecordCredentialHit) -> str:
+    """The id for a receipt line, or a stand-in when printing it would print the finding.
+
+    An id that is itself credential-shaped, holds a control character (a newline
+    would start a fake receipt line), or is very long is withheld. The line
+    number still locates the row.
+    """
+
+    row_id = hit.row_id
+    if len(row_id) > _RECEIPT_ID_MAX_CHARS or not row_id.isprintable() or credential_verdict(row_id) is not None:
+        return f"(id withheld, line {hit.line_no})"
+    return row_id
+
+
+def _record_hit_line(hit: _RecordCredentialHit) -> str:
+    return f"{hit.table} {_receipt_row_id(hit)} {hit.column}"
+
+
 def _credential_finding_lines(findings: Sequence[_CredentialFinding]) -> list[str]:
     lines = []
     for finding in findings:
@@ -2194,6 +2350,11 @@ def _validate_import_file(
     path still checks the footer on the file as given, then rewrites the
     named memory before deciding whether any memory row would still carry
     credential material. A normal import refuses here, before any write.
+
+    Every other record type is read too, but only to report: the table, id
+    and column of each hit come back in ``record_credential_hits`` and the
+    import goes on. A memory row the check does not refuse is read in the
+    columns the check leaves out.
     """
     versioned: bool | None = None
     footer: dict[str, object] | None = None
@@ -2207,6 +2368,7 @@ def _validate_import_file(
     spool_complete = False
     record_count = 0
     credential_findings: list[_CredentialFinding] = []
+    record_hits: list[_RecordCredentialHit] = []
     saw_nonblank = False
     export_user_id: str | None = None
     try:
@@ -2314,6 +2476,9 @@ def _validate_import_file(
                     finding = _memory_record_credential_finding(record, line_no=line_no)
                     if finding is not None:
                         credential_findings.append(finding)
+                # Reported, never refused. See _RecordCredentialHit. A memory row the
+                # check refuses aborts the import before the receipt prints.
+                record_hits.extend(_record_credential_hits(record_type, record, line_no=line_no))
                 if progress is not None and (record_count + 1) % _IMPORT_PROGRESS_EVERY == 0:
                     progress(f"alice-memory: validated {record_count + 1} records")
                 counts[record_type] += 1
@@ -2371,6 +2536,7 @@ def _validate_import_file(
         content_sha256=digest.hexdigest(),
         manifest_sha256=manifest_sha256,
         spool_path=spool_path,
+        record_credential_hits=tuple(record_hits),
     )
 
 
@@ -2815,6 +2981,115 @@ def _encode_column_value(column: str, value: object) -> object:
     return value
 
 
+# A backup file cannot prove that an agent API key wrote a row. The footer is an
+# unkeyed SHA-256 over the canonical lines, so anyone can edit a record and
+# recompute it: it shows integrity and says nothing about authorship. Readers
+# label a writer ``verified_by_key`` when a stored ``agent_identity`` says
+# ``auth`` is ``agent_api_key``, so import rewrites that claim before a row is
+# stored. The original value stays readable as ``claimed_auth``.
+_IMPORTED_CLAIM_AUTH = "imported_claim"
+_KEY_CLAIM_COLUMNS = ("metadata_json", "payload_json")
+# The writer-label readers decode a JSON string where they expect a mapping, at
+# these two keys and at the column itself. Prose that merely quotes an identity
+# is not read, so it is not rewritten.
+_KEY_CLAIM_TEXT_CARRIERS = frozenset({"agentic_memory", "agent_identity"})
+# The product writes an identity at most three levels down. A column nested
+# deeper than this is not a product record. A walk that stopped early would
+# leave a claim in place, and one with no limit overflows the stack on a file
+# nested about 900 levels, so import refuses the record instead.
+_KEY_CLAIM_MAX_DEPTH = 256
+
+
+def _mapping_or_json_text(value: object) -> Mapping[str, object] | None:
+    """A mapping, or JSON text that decodes to one, as the writer labels read it.
+
+    JSON text too deep for the decoder (it raises RecursionError, at about ten
+    thousand levels) is refused like a mapping past the walk limit. It cannot be
+    checked for a claim, and the readers that decode it the same way fail on it.
+    """
+    if isinstance(value, Mapping):
+        return value
+    if isinstance(value, str) and value.strip().startswith("{"):
+        try:
+            decoded = json.loads(value)
+        except json.JSONDecodeError:
+            return None
+        except RecursionError as exc:
+            raise _ImportError("a record nests its provenance too deeply to check for key claims") from exc
+        return decoded if isinstance(decoded, Mapping) else None
+    return None
+
+
+def _downgrade_key_claims(value: object, depth: int = 0) -> tuple[object, bool]:
+    """Rewrite every ``agent_identity`` whose ``auth`` is exactly ``agent_api_key``.
+
+    Returns the value and whether anything changed. An unchanged value is
+    returned as it came, so a column with no claim is stored byte for byte.
+    The match is on the exact string the product writes: ``AGENT_API_KEY`` and
+    a padded value are left as they are, and the readers do not verify them.
+    """
+    if depth > _KEY_CLAIM_MAX_DEPTH:
+        raise _ImportError("a record nests its provenance too deeply to check for key claims")
+    if isinstance(value, Mapping):
+        changed = False
+        rewritten: dict[str, object] = {}
+        for key, item in value.items():
+            if key == "agent_identity":
+                identity = _mapping_or_json_text(item)
+                if identity is not None and identity.get("auth") == AGENT_KEY_AUTH:
+                    rewritten[key] = {**identity, "auth": _IMPORTED_CLAIM_AUTH, "claimed_auth": AGENT_KEY_AUTH}
+                    changed = True
+                    continue
+            if key in _KEY_CLAIM_TEXT_CARRIERS and isinstance(item, str):
+                carried = _mapping_or_json_text(item)
+                if carried is not None:
+                    inner, inner_changed = _downgrade_key_claims(carried, depth + 1)
+                    rewritten[key] = inner if inner_changed else item
+                    changed = changed or inner_changed
+                    continue
+            inner, inner_changed = _downgrade_key_claims(item, depth + 1)
+            rewritten[key] = inner
+            changed = changed or inner_changed
+        return (rewritten, True) if changed else (value, False)
+    if isinstance(value, list):
+        changed = False
+        items: list[object] = []
+        for item in value:
+            inner, inner_changed = _downgrade_key_claims(item, depth + 1)
+            items.append(inner)
+            changed = changed or inner_changed
+        return (items, True) if changed else (value, False)
+    return value, False
+
+
+def _downgrade_record_key_claims(record: dict[str, object]) -> tuple[dict[str, object], bool]:
+    """The row to store, and whether a key claim in it was rewritten.
+
+    Reads ``metadata_json`` and ``payload_json`` on every record type, after
+    quarantine replacement. JSON text in those columns is decoded and, when it
+    held a claim, stored as the rewritten mapping. A row that changed loses its
+    ``integrity_hash``, as a quarantined event does: the hash covers the payload.
+    """
+    rewritten = dict(record)
+    changed = False
+    for column in _KEY_CLAIM_COLUMNS:
+        if column not in record:
+            continue
+        raw = record[column]
+        decoded: object = _mapping_or_json_text(raw) if isinstance(raw, str) else raw
+        if decoded is None:
+            continue
+        value, column_changed = _downgrade_key_claims(decoded)
+        if column_changed:
+            rewritten[column] = value
+            changed = True
+    if not changed:
+        return record, False
+    if "integrity_hash" in rewritten:
+        rewritten["integrity_hash"] = None
+    return rewritten, True
+
+
 def _normalized_import_values(
     store: SQLiteVNextStore,
     columns: tuple[str, ...],
@@ -2864,6 +3139,7 @@ def _import_records(
     mode: str,
     plan: _QuarantinePlan | None = None,
     quarantine_tally: dict[str, int] | None = None,
+    claim_tally: dict[str, int] | None = None,
 ) -> dict[str, dict[str, int]]:
     """Insert parsed records in FK-safe order; returns per-type counts.
 
@@ -2881,6 +3157,14 @@ def _import_records(
     constraint violation; the staged transaction rolls back on failure.
     Quarantine replacement happens after the file's SHA-256 check, on the
     row about to be inserted, and is what ``skip`` compares.
+
+    A stored claim that an agent API key wrote a row is rewritten next, on
+    every record type, before the existing-row lookup (see
+    ``_downgrade_record_key_claims``). ``claim_tally`` counts the rows that
+    were inserted with a rewritten claim, by record type. ``skip`` compares
+    the rewritten row, and also accepts an existing row that equals the row
+    as the file gave it: that is a vault re-importing its own export, where
+    nothing new is restored and the existing row stays as it is.
     """
     quarantine_plan = plan if plan is not None else _EMPTY_QUARANTINE_PLAN
     counts: dict[str, dict[str, int]] = {}
@@ -2892,10 +3176,11 @@ def _import_records(
                 for key, amount in added.items():
                     quarantine_tally[key] = quarantine_tally.get(key, 0) + amount
             row_id = str(record["id"])
+            stored, claim_rewritten = _downgrade_record_key_claims(record)
             existing = conn.execute(
                 f"SELECT {', '.join(columns)} FROM {table} WHERE id = ?", (row_id,)
             ).fetchone()
-            values = _normalized_import_values(store, columns, record)
+            values = _normalized_import_values(store, columns, stored)
             if existing is not None:
                 if mode == "fail":
                     raise _ImportError(
@@ -2903,7 +3188,12 @@ def _import_records(
                         "aborting (--mode fail). Rerun with --mode skip to keep "
                         "existing rows and import only new records."
                     )
-                if not _collision_is_identical(dict(existing), columns, values):
+                if not _collision_is_identical(dict(existing), columns, values) and not (
+                    claim_rewritten
+                    and _collision_is_identical(
+                        dict(existing), columns, _normalized_import_values(store, columns, record)
+                    )
+                ):
                     raise _ImportError(
                         f"line {line_no}: {record_type} id {row_id} has the same id "
                         "but different content; refusing to combine incompatible backups"
@@ -2929,6 +3219,8 @@ def _import_records(
                     f"line {line_no}: {record_type} {row_id} could not be imported: {exc}"
                 ) from exc
             tally["imported"] += 1
+            if claim_rewritten and claim_tally is not None:
+                claim_tally[record_type] = claim_tally.get(record_type, 0) + 1
     return counts
 
 
@@ -2956,6 +3248,8 @@ def _print_import_summary(
     quarantine_ids: tuple[str, ...] = (),
     quarantine_counts: dict[str, int] | None = None,
     quarantine_reports: tuple[tuple[str, str, str], ...] = (),
+    restored_claims: int = 0,
+    record_hits: tuple[_RecordCredentialHit, ...] | None = None,
 ) -> None:
     imported_total = sum(tally["imported"] for tally in counts.values())
     skipped_total = sum(tally["skipped"] for tally in counts.values())
@@ -2968,6 +3262,22 @@ def _print_import_summary(
         if tally is None:
             continue
         print(f"  {record_type}: {tally['imported']} imported, {tally['skipped']} skipped")
+    # Always printed, so a zero shows the check ran. Rows, not claims: a row
+    # that carried two claims counts once.
+    print(f"provenance claims restored as unverified: {restored_claims}")
+    if record_hits is not None:
+        # None means --quarantine: its own scan below already lists every
+        # leftover, with the command that removes it. Otherwise the line is
+        # printed every time, so a zero shows the check ran. The matched text
+        # is never printed.
+        print(f"credential-shaped text in records import does not refuse: {len(record_hits)}")
+        for hit in sorted(record_hits, key=lambda item: (item.table, item.row_id, item.column)):
+            print(f"  {_record_hit_line(hit)}")
+        if record_hits:
+            print(
+                "note: import restores these records unchanged and does not refuse them. "
+                "Rotate each credential listed."
+            )
     if quarantine_ids:
         tallies = quarantine_counts or {}
         print(
@@ -3135,6 +3445,7 @@ def _run_import_snapshot(
     target_existed = db_path.exists()
     working_path: Path | None = None
     credential_reports: tuple[tuple[str, str, str], ...] = ()
+    claim_tally: dict[str, int] = {}
     try:
         _ensure_private_directory(db_path.parent)
         fd, raw_working_path = tempfile.mkstemp(
@@ -3167,6 +3478,7 @@ def _run_import_snapshot(
                 mode=args.mode,
                 plan=quarantine_plan,
                 quarantine_tally=quarantine_counts,
+                claim_tally=claim_tally,
             )
         if quarantine_ids:
             # The spool still holds the file. Scan the rewritten rows before
@@ -3239,6 +3551,8 @@ def _run_import_snapshot(
             quarantine_ids=quarantine_ids,
             quarantine_counts=quarantine_counts,
             quarantine_reports=tuple(sorted({*quarantine_plan.reports, *credential_reports})),
+            restored_claims=sum(claim_tally.values()),
+            record_hits=None if quarantine_ids else validated_import.record_credential_hits,
         )
         sys.stdout.flush()
     except (OSError, ValueError) as exc:
