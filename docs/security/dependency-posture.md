@@ -15,14 +15,14 @@
   real-host canary installs the current Claude Code, Hermes, OpenCode and Codex
   CLIs, to catch a host release that breaks Alice. Archive maintenance, which
   runs nightly, installs the project's dev extras by version range and upgrades
-  pip. Unreleased (on main, not in v0.19.2): the canary job holds `contents: read`
-  only and its checkout keeps no credentials, and a separate job that holds only
-  `issues: write`, checks out nothing and installs nothing opens the alert issue
-  when the canary fails. Archive maintenance still holds `issues: write` in the
-  job that installs, and `tests/unit/test_workflow_write_scope_policy.py` lists it
-  as a known residual until it is split. That test fails when any other job that
-  holds a write scope names a package in a pip or npm install command without an
-  exact version.
+  pip. Unreleased (on main, not in v0.19.2): neither holds a write permission in
+  the job that installs. Each of those two jobs holds `contents: read` only and
+  its checkout keeps no credentials, and a separate job in the same workflow that
+  holds only `issues: write`, checks out nothing and installs nothing opens the
+  alert issue when the installing job fails.
+  `tests/unit/test_workflow_write_scope_policy.py` fails when a job that holds a
+  write scope names a package in a pip or npm install command without an exact
+  version.
 - Dependabot checks GitHub Actions, pip, and the web npm ecosystem weekly.
 
 ## Web Advisory Gate

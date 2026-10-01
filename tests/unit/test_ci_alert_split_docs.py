@@ -33,15 +33,19 @@ def _changelog_entry_containing(text: str) -> str:
     return _flat(entries[0])
 
 
-def test_the_changelog_states_the_canary_split_and_what_v0192_did() -> None:
-    """One Unreleased entry carries the canary sentences, with the v0.19.2 behaviour stated.
+def test_the_changelog_states_the_canary_and_archive_split_and_what_v0192_did() -> None:
+    """One Unreleased entry carries both splits, with the v0.19.2 behaviour stated.
 
     Mutations, each one alone: move the sentences under the v0.19.2 heading; delete
-    the sentence that says what v0.19.2 did; delete the sentence that names the
-    separate job and its limits; delete the sentence that says nothing else changed.
+    the sentence that says what v0.19.2 did to the canary; delete the sentence that
+    names the separate canary job and its limits; delete the archive maintenance
+    sentences; say the archive alert reads the schedule from a job output; delete
+    the sentence that says nothing else changed.
     """
 
-    entry = _changelog_entry_containing("Separately, the weekly real-host canary no longer holds issue-write permission")
+    entry = _changelog_entry_containing(
+        "Separately, the weekly real-host canary and the nightly archive maintenance no longer hold issue-write"
+    )
     assert (
         "In v0.19.2 one job installed the current host CLIs with `npm install ...@latest` and `pip install "
         "hermes-agent` and held `issues: write`, and its checkout kept the job token available to later steps, so a "
@@ -52,17 +56,30 @@ def test_the_changelog_states_the_canary_split_and_what_v0192_did() -> None:
         "`canary-alert`, which holds `issues: write` and checks out nothing, runs no shell and installs nothing, opens "
         "the `[ops]` alert issue when the canary job fails."
     ) in entry
-    assert "What the canary runs, and when it alerts, are unchanged." in entry
+    assert (
+        "Archive maintenance had the same arrangement: in v0.19.2 `issues: write` was set for the whole workflow, and "
+        "its job ran `pip install --upgrade pip` and installed the dev extras by version range."
+    ) in entry
+    assert (
+        "Its job now holds `contents: read` only and its checkout keeps no credentials, and a separate job, "
+        "`archive-alert`, opens the `[ops] archive maintenance failure` issue when the maintenance job fails."
+    ) in entry
+    assert (
+        "That job reads the schedule it names from the event that started the run, not from a value the installing "
+        "job wrote."
+    ) in entry
+    assert "What the canary and archive maintenance run, and when they alert, are unchanged." in entry
 
 
-def test_the_threat_model_and_dependency_posture_mark_the_canary_split_unreleased() -> None:
+def test_the_threat_model_and_dependency_posture_mark_the_split_unreleased() -> None:
     """The threat model keeps the v0.19.2 open item and adds the fix marked as main only.
 
     The dependency posture no longer says every job selects its tool versions.
     Mutations, each one alone: delete the DB-008 sentences from the threat model;
-    drop the Unreleased marker from the dependency posture; put back the sentence
-    that says tool versions installed inside jobs are explicitly selected without
-    the word most; delete the sentence that names the canary as unpinned on purpose.
+    delete the archive sentence from the threat model; drop the Unreleased marker
+    from the dependency posture; put back the sentence that says tool versions
+    installed inside jobs are explicitly selected without the word most; delete the
+    sentence that names the canary as unpinned on purpose.
     """
 
     threat_model = _read("docs/security/threat-model.md")
@@ -73,7 +90,13 @@ def test_the_threat_model_and_dependency_posture_mark_the_canary_split_unrelease
     ) in threat_model
     assert "starts only when the canary job's result is `failure`" in threat_model
     assert "v0.19.2 installed unpinned packages in a job that could open and comment on issues" in threat_model
+    assert (
+        "Archive maintenance, which had the same arrangement, is split the same way: its job holds `contents: read` "
+        "only, and a separate `archive-alert` job holds `issues: write` and reads the schedule it names from the event "
+        "that started the run, not from the job that installs."
+    ) in threat_model
     assert "Tool versions installed inside most jobs, such as Gitleaks, are explicitly selected" in posture
     assert "Two scheduled jobs do not pin on purpose." in posture
     assert "The weekly real-host canary installs the current Claude Code, Hermes, OpenCode and Codex CLIs" in posture
-    assert f"{UNRELEASED} the canary job holds `contents: read` only" in posture
+    assert f"{UNRELEASED} neither holds a write permission in the job that installs." in posture
+    assert "Archive maintenance still holds" not in posture

@@ -23,12 +23,8 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 WORKFLOWS = sorted((REPO_ROOT / ".github" / "workflows").glob("*.yml"))
 
 # (workflow file, job) -> why it is still allowed. Remove an entry when its job is split.
-KNOWN_RESIDUAL = {
-    (
-        "archive-maintenance.yml",
-        "archive-maintenance",
-    ): "nightly job: issues: write, pip --upgrade pip and the dev dependency ranges; split the alert step out",
-}
+# Empty: the real-host canary and archive maintenance both hold no write scope where they install.
+KNOWN_RESIDUAL: dict[tuple[str, str], str] = {}
 
 _NPM = re.compile(r"\bnpm\s+(?:install|i|add)\s+([^\n]*)")
 _NPX = re.compile(r"\b(?:npx|uvx|pipx\s+run)\s+(\S+)")
@@ -145,7 +141,7 @@ def test_no_write_scope_job_installs_a_mutable_package() -> None:
 def test_the_known_residual_list_has_no_stale_entries() -> None:
     """A fixed job must leave the list, so the list never hides a new regression.
 
-    Mutation: leave ``archive-maintenance`` listed after its alert step is
+    Mutation: list ``archive-maintenance`` again now that its alert step is
     split out; list a job that does not exist. This test fails.
     """
 
