@@ -580,7 +580,8 @@ def test_the_docs_say_what_v0191_changed_and_what_v0190_still_does() -> None:
     Mutations, each one alone: delete the changelog entry, move it below the
     v0.19.0 heading, drop its lone-surrogate or ``--force`` clause; delete the
     guide's v0.19.1 paragraph or its ``From v0.19.1`` opening; delete the guide's
-    install note; delete either v0.18.0 changelog correction.
+    install note; delete either v0.18.0 changelog correction; delete either of the
+    two dated v0.19.1 updates under the v0.18.0 corrections.
     """
 
     changelog = (REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
@@ -606,6 +607,10 @@ def test_the_docs_say_what_v0191_changed_and_what_v0190_still_does() -> None:
     assert 'The changelog entry that starts "Hermes provider 0.5.2 sends" describes it.' in added[0]
     assert added[1].startswith("The entry above is about `/v0/continuity` captures.")
     assert "The Hermes plugin does not call that route." in added[1]
+    updated = [_flat(part) for part in v0180.split("**Update, added 2026-10-01.**")[1:]]
+    assert len(updated) == 2
+    assert updated[0].startswith("Plugin 0.5.2 is in v0.19.1.")
+    assert updated[1].startswith("From v0.19.1 that policy reads the role and applies only a user turn")
 
     guide = _flat((REPO_ROOT / "docs" / "integrations" / "hermes-memory-provider.md").read_text(encoding="utf-8"))
     marker = "From v0.19.1, plugin 0.5.2 sends the user text and the assistant text"

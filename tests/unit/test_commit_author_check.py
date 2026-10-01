@@ -296,9 +296,9 @@ def test_allowlist_accepts_the_listed_addresses(email: str) -> None:
         # Another account at the GitHub noreply domain, with and without an id.
         "example-user@users.noreply.github.com",
         "12345+example-user@users.noreply.github.com",
-        # The owner's id form with the wrong id, a misspelled name, or no plus sign.
+        # The owner's id form with the wrong id, a different name, or no plus sign.
         "14844598+samrusani@users.noreply.github.com",
-        "14844597+samirusani@users.noreply.github.com",
+        "14844597+example-user@users.noreply.github.com",
         "14844597samrusani@users.noreply.github.com",
         # The bots with the wrong id, and with no id.
         "49699334+dependabot[bot]@users.noreply.github.com",

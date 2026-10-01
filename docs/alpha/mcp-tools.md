@@ -582,8 +582,11 @@ size over 40,000 bytes is also taken there when the search reads no source row
 (a vault with no captured source, or filters that exclude every source), and it
 is refused now because the check looks at the query alone. `alice_resume` and
 `alice_recent_decisions` are not covered: a query of about 50,000 bytes or more
-still answers `tool_execution_failed` there once the vault holds a stored
-decision.
+still answers `tool_execution_failed` from `alice_resume` once the vault holds
+an active memory of any type, and from `alice_recent_decisions` once it holds a
+stored decision. A query inside the limit can still take several seconds on a
+vault with thousands of sources: 3.7 seconds at 499 distinct terms, against 0.30
+seconds for two words, on a synthetic vault of 4,000 captured sources.
 
 ## Trust boundary
 

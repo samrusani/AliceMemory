@@ -195,11 +195,13 @@ active-key or RLS bypass remains in scope.
   names the id whatever the caller may read, and the `recent_changes` and
   `supersession_context` cases are older than v0.19.0.
   One place still carries a memory id without the fence: ids copied into a
-  stored memory's `metadata_json`, which the full pack returns. It needs a
-  memory the caller cannot read, so it differs from the owner's view only for
-  key-bound agents or an explicit sensitivity ceiling. That is the result for
-  `alice_recall`, `alice_context_pack`, `alice_resume`, `alice_recent_decisions`
-  and `alice_open_loops`. The other tools, such as `alice_recent_changes` and
+  stored memory's `metadata_json`, which an `alice_context_pack` call with
+  `debug: true` returns. It needs a memory the caller cannot read and another
+  memory whose `metadata_json` carries its id. The keyless owner, who runs under
+  the default sensitivity ceiling, gets it as well as a key-bound agent, and the
+  default pack does not name it. That is the result for `alice_recall`,
+  `alice_context_pack`, `alice_resume`, `alice_recent_decisions` and
+  `alice_open_loops`. The other tools, such as `alice_recent_changes` and
   `alice_timeline`, were not checked for memory ids.
 - Open items from the internal security review of v0.19.0 (added 2026-10-01).
   They are not fixed in v0.19.1, and the v0.19.1 release notes give the detail.
@@ -211,10 +213,14 @@ active-key or RLS bypass remains in scope.
   from outside the watched folder. The provider helper, which checks the
   configured base URL once, and the embeddings client, which does not check it,
   follow a redirect and send the `Authorization` header to the target; the
-  reranker and fact-key clients use the same opener and were not run. A weekly
-  CI job installs unpinned host packages with issue-write authority. Each of
-  these needs a precondition: a reachable API, a writable watched folder, or a
-  provider endpoint an attacker influences.
+  reranker and fact-key clients use the same opener and were not run. Two
+  scheduled CI jobs, the real-host canary and archive maintenance, hold
+  issue-write authority while they install packages that are not pinned to an
+  exact version: the canary installs the latest host CLIs, and archive
+  maintenance installs the project's dev extras by version range. Each of
+  these needs a precondition: a reachable API, a writable watched folder, a
+  provider endpoint an attacker influences, or a compromised package in one of
+  those CI installs.
 - Stage A tests are team-authored. They reduce review cost; they do not replace
   adversarial testing by the owner-appointed Stage B reviewer.
 
