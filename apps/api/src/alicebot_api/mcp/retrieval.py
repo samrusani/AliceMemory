@@ -776,6 +776,26 @@ def _resume_event_honours_policy_fence(
     )
 
 
+def _require_literal_match_query(store: object, query: str | None) -> None:
+    """Refuse a query the store's literal substring reads cannot take, before any read.
+
+    ``alice_resume`` and ``alice_recent_decisions`` hand the query to four
+    reads that bind it as one LIKE operand. The SQLite store refuses an operand
+    past its limit, with the typed error the server answers as
+    ``invalid_request``. The Postgres store has no such limit and defines no
+    ``check_literal_match_query``, so this does nothing for it. Asking first
+    makes the answer depend on the query alone: without it a caller whose fence
+    admits nothing, or a vault with nothing to match, would be taken where
+    another is refused, because SQLite only fails the reads that reach a row.
+    """
+
+    if query is None:
+        return
+    check = getattr(store, "check_literal_match_query", None)
+    if callable(check):
+        check(query)
+
+
 def _vnext_recent_decisions(
     context: MCPRuntimeContext,
     *,
@@ -794,6 +814,7 @@ def _vnext_recent_decisions(
     sensitivity_filter = list(effective_sensitivity_allowed)
 
     with _vnext_store_context(context) as store:
+        _require_literal_match_query(store, query)
         matched = [
             row
             for row in store.list_memories(
@@ -868,6 +889,7 @@ def _vnext_resume(
     sensitivity_filter = list(effective_sensitivity_allowed)
 
     with _vnext_store_context(context) as store:
+        _require_literal_match_query(store, query)
         decisions = store.list_memories(
             status=None,
             statuses=tuple(_CONTEXT_MEMORY_STATUSES),

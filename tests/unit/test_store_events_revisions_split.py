@@ -145,7 +145,8 @@ EXPECTED_CLASS_KEY_SHA256 = {
     # or LIKE-length limit to check. Both are re-minted again for the paired
     # ``list_memories_referencing_sources`` method.
     "postgres": "650e2e0ff088d67c20c5eb57cb3919803310e1e382cb1d37e5e0c40220b810a0",
-    "sqlite": "497daf56e67e12095ab6df64e2058ff6fa3ab4fdfa761d10524748e5432090cf",
+    # Re-minted for the merge of #500 and #502: ``check_literal_match_query``.
+    "sqlite": "11d9e5df9e51564b5e4ea00510515e8deca6ca8338a96ccecad6e8db7e188f00",
 }
 EXPECTED_SUPPORT_AST_SHA256 = {
     "postgres_columns": {
