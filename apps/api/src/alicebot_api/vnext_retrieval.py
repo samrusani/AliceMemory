@@ -1910,9 +1910,137 @@ def _drop_pointers_outside_fence(
                 holder.pop(pointer_key, None)
 
 
+# Memories asked for per packed source when labelling a corrected excerpt. The
+# label depends on which rows come back, so this stays at the 50 that v0.19.0
+# asked for, not the store's 500 default.
+_CORRECTION_LABEL_MEMORIES_PER_SOURCE = 50
+
+# Memory ids per provenance-link lookup. One statement per packed request is
+# the aim, but a SQLite build from before 3.32 allows only 999 bound
+# variables, so a very large pack splits its ids rather than fails.
+_CORRECTION_LABEL_LINK_BATCH = 500
+
+
+def _memories_referencing_sources(
+    store: object,
+    source_ids: Sequence[str],
+    *,
+    limit_per_source: int,
+) -> dict[str, list[Mapping[str, object]]]:
+    """Memories that reference each source: one batched lookup when the store has one.
+
+    The batched method is what keeps a pack of N sources from asking the store
+    N times. A store without it (a minimal test double, an older store) gets
+    the one-source method once per source, which returns the same rows.
+    """
+
+    batched = getattr(store, "list_memories_referencing_sources", None)
+    if callable(batched):
+        grouped = batched(source_ids, limit_per_source=limit_per_source) or {}
+        return {
+            source_id: [row for row in grouped.get(source_id, ()) if isinstance(row, Mapping)]
+            for source_id in source_ids
+        }
+    single = getattr(store, "list_memories_referencing_source", None)
+    if not callable(single):
+        return {}
+    return {
+        source_id: [
+            row
+            for row in (single(source_id=source_id, limit=limit_per_source) or ())
+            if isinstance(row, Mapping)
+        ]
+        for source_id in source_ids
+    }
+
+
+def _provenance_links_by_memory(
+    store: object,
+    memory_ids: Sequence[str],
+) -> dict[str, list[object]] | None:
+    """Links of every memory in ``memory_ids``, keyed by memory id, or None.
+
+    None means the store has no bulk link lookup, so callers read one memory at
+    a time. An empty dict means the lookup ran and found nothing.
+    """
+
+    list_bulk = getattr(store, "list_provenance_links_for_targets", None)
+    if not callable(list_bulk):
+        return None
+    links_by_memory: dict[str, list[object]] = {}
+    for offset in range(0, len(memory_ids), _CORRECTION_LABEL_LINK_BATCH):
+        batch = list(memory_ids[offset : offset + _CORRECTION_LABEL_LINK_BATCH])
+        for link in list_bulk(target_type="memory", target_ids=batch) or ():
+            if not isinstance(link, Mapping):
+                continue
+            target_id = str(link.get("target_id") or "")
+            links_by_memory.setdefault(target_id, []).append(link)
+    return links_by_memory
+
+
+def annotate_derived_memory_corrections(
+    store: object,
+    sources: Sequence[MutableMapping[str, object]],
+    *,
+    memory_visible: Callable[[Mapping[str, object]], bool],
+) -> None:
+    """Label every packed excerpt whose derived memory was corrected or superseded.
+
+    The batch form of ``annotate_derived_memory_correction``, which is its
+    one-source case. It reads what the labels need from the store once for the
+    whole pack: one lookup of the memories that reference any of the sources,
+    and one lookup of their provenance links. v0.19.0 made both calls once per
+    packed source, and each memory lookup scans the memories table.
+
+    The labels are the ones the one-source function sets. ``memory_visible`` is
+    required and has no default: it is the fence the caller's memory reads run
+    under, applied to every memory the walk to a current fact touches. The
+    stale flag stays set whatever the caller may read; only the pointer id is
+    withheld.
+    """
+
+    sources_by_id: dict[str, list[MutableMapping[str, object]]] = {}
+    for source in sources:
+        source_id = str(source.get("id") or "")
+        if source_id:
+            sources_by_id.setdefault(source_id, []).append(source)
+    if not sources_by_id:
+        return
+    memories_by_source = _memories_referencing_sources(
+        store,
+        list(sources_by_id),
+        limit_per_source=_CORRECTION_LABEL_MEMORIES_PER_SOURCE,
+    )
+    memory_ids_by_source = {
+        source_id: [str(memory.get("id") or "") for memory in rows if str(memory.get("id") or "")]
+        for source_id, rows in memories_by_source.items()
+    }
+    all_memory_ids = list(dict.fromkeys(memory_id for ids in memory_ids_by_source.values() for memory_id in ids))
+    bulk_links = _provenance_links_by_memory(store, all_memory_ids) if all_memory_ids else None
+    for source_id, group in sources_by_id.items():
+        memory_rows = memories_by_source.get(source_id) or []
+        if not memory_rows:
+            continue
+        links_by_memory: dict[str, list[object]] = {}
+        if bulk_links is not None:
+            links_by_memory = {
+                memory_id: bulk_links[memory_id]
+                for memory_id in memory_ids_by_source[source_id]
+                if memory_id in bulk_links
+            }
+        for source in group:
+            _annotate_corrected_source(
+                store,
+                source,
+                memory_rows,
+                links_by_memory=links_by_memory,
+                memory_visible=memory_visible,
+            )
+
+
 def annotate_derived_memory_correction(
     store: object,
-    source: JsonObject,
+    source: MutableMapping[str, object],
     *,
     memory_visible: Callable[[Mapping[str, object]], bool],
 ) -> None:
@@ -1927,27 +2055,23 @@ def annotate_derived_memory_correction(
     fence the caller's memory reads run under. A pointer id is itself
     sensitive metadata, so there is no fallback to an earlier visible hop.
     Ordinary sources gain no keys.
+
+    A pack of several sources calls ``annotate_derived_memory_corrections``
+    instead, so the store is asked once for all of them.
     """
 
+    annotate_derived_memory_corrections(store, [source], memory_visible=memory_visible)
+
+
+def _annotate_corrected_source(
+    store: object,
+    source: MutableMapping[str, object],
+    memory_rows: Sequence[Mapping[str, object]],
+    *,
+    links_by_memory: Mapping[str, Sequence[object]],
+    memory_visible: Callable[[Mapping[str, object]], bool],
+) -> None:
     source_id = str(source.get("id") or "")
-    if source_id == "":
-        return
-    list_refs = getattr(store, "list_memories_referencing_source", None)
-    if not callable(list_refs):
-        return
-    memories = list_refs(source_id=source_id, limit=50) or ()
-    memory_rows = [memory for memory in memories if isinstance(memory, Mapping)]
-    if not memory_rows:
-        return
-    links_by_memory: dict[str, list[object]] = {}
-    list_bulk = getattr(store, "list_provenance_links_for_targets", None)
-    memory_ids = [str(memory.get("id") or "") for memory in memory_rows if str(memory.get("id") or "")]
-    if callable(list_bulk) and memory_ids:
-        for link in list_bulk(target_type="memory", target_ids=memory_ids) or ():
-            if not isinstance(link, Mapping):
-                continue
-            target_id = str(link.get("target_id") or "")
-            links_by_memory.setdefault(target_id, []).append(link)
     captured_at = _parse_timestamp(source.get("captured_at"))
     excerpt = _flat_stored_text(source.get("excerpt"))
     chosen_id: str | None = None
@@ -3237,6 +3361,27 @@ class VNextRetrievalService:
                 best_score, best_text = score, text
         return best_text
 
+    def _packable_sources(
+        self,
+        items: Sequence[JsonObject],
+        *,
+        query: str,
+        memory_visible: Callable[[Mapping[str, object]], bool],
+    ) -> list[JsonObject]:
+        """Compact every ranked source for packing, then label them in one pass.
+
+        The correction label needs the memories that reference each source.
+        Asking the store once per source made recall and the pack scan the
+        memories table once per packed source (v0.19.0 to v0.19.2), so the
+        excerpts are built first and the labels are read for all of them in one
+        lookup. ``memory_visible`` is required and has no default, for the
+        reason ``_packable_source`` gives.
+        """
+
+        compacted = [self._compact_source(item, query=query) for item in items]
+        annotate_derived_memory_corrections(self.store, compacted, memory_visible=memory_visible)
+        return compacted
+
     def _packable_source(
         self,
         item: JsonObject,
@@ -3244,11 +3389,18 @@ class VNextRetrievalService:
         query: str,
         memory_visible: Callable[[Mapping[str, object]], bool],
     ) -> JsonObject:
+        """One source through ``_packable_sources``. Packs call that for the whole list."""
+
+        return self._packable_sources([item], query=query, memory_visible=memory_visible)[0]
+
+    def _compact_source(self, item: JsonObject, *, query: str) -> JsonObject:
         """Compact a ranked source for packing: drop the document, add an excerpt.
 
         The excerpt is the chunk the FTS stage already ranked highest for this
         source, windowed around its best-matching line. Re-deriving a "best"
-        chunk here would discard the ranking that retrieval just did.
+        chunk here would discard the ranking that retrieval just did. The
+        correction label is added afterwards by ``_packable_sources``, once the
+        excerpt exists, because the label is about the passage the agent reads.
         """
 
         compacted = _compact_item(item)
@@ -3280,10 +3432,6 @@ class VNextRetrievalService:
                 winner, query=query, max_chars=SOURCE_EXCERPT_MAX_CHARS
             )
             compacted["excerpt_kind"] = "imported_source_material"
-        # After the excerpt exists, so the label is about the passage the
-        # agent will read. Sources whose derived memory is still current
-        # stay byte-identical.
-        annotate_derived_memory_correction(self.store, compacted, memory_visible=memory_visible)
         return compacted
 
     def memory_visibility(
@@ -3431,11 +3579,11 @@ class VNextRetrievalService:
             sensitivity_allowed=sensitivity_allowed,
             scope=scope,
         )
-        excerpts = [
-            self._packable_source(candidate.item, query=query, memory_visible=memory_visible)
-            for candidate in candidates
-            if candidate.selected
-        ]
+        excerpts = self._packable_sources(
+            [candidate.item for candidate in candidates if candidate.selected],
+            query=query,
+            memory_visible=memory_visible,
+        )
         return excerpts, stage_record
 
     def compile_context_pack(self, request: VNextRetrievalRequest) -> JsonObject:
@@ -3999,11 +4147,11 @@ class VNextRetrievalService:
             scope=scope,
             person_linked_memory_ids=person_linked_memory_ids,
         )
-        ranked_sources = [
-            self._packable_source(candidate.item, query=request.query, memory_visible=pack_memory_visible)
-            for candidate in source_candidates
-            if candidate.selected
-        ]
+        ranked_sources = self._packable_sources(
+            [candidate.item for candidate in source_candidates if candidate.selected],
+            query=request.query,
+            memory_visible=pack_memory_visible,
+        )
         ranked_open_loops = [_compact_item(candidate.item) for candidate in open_loop_candidates if candidate.selected]
 
         # Greedy token-budget packing, section by section. Default

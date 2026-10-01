@@ -166,6 +166,7 @@ from alicebot_api.vnext_stores.sqlite.memory_access import (
     list_memories_by_statuses as _memory_list_memories_by_statuses,
     list_memories_for_staleness_sweep as _memory_list_memories_for_staleness_sweep,
     list_memories_referencing_source as _memory_list_memories_referencing_source,
+    list_memories_referencing_sources as _memory_list_memories_referencing_sources,
     list_pending_derived_candidates_for_member as _memory_list_pending_derived_candidates_for_member,
     list_pending_inline_confirmations as _memory_list_pending_inline_confirmations,
     list_pending_rollup_candidates as _memory_list_pending_rollup_candidates,
@@ -1134,6 +1135,8 @@ class SQLiteVNextStore:
     get_memories_by_ids = _memory_get_memories_by_ids
 
     list_memories_referencing_source = _memory_list_memories_referencing_source
+
+    list_memories_referencing_sources = _memory_list_memories_referencing_sources
 
     get_memory_for_update = _lifecycle_get_memory_for_update
 
