@@ -405,9 +405,14 @@ finalize, resume and recover a release run scripts on the runner's bare Python,
 without `alicebot_api` (one job installs only `build`), so every script they
 run imports only the standard library and sibling scripts.
 `tests/unit/test_publish_workflow_lean_job_imports.py` reads the jobs from
-`publish-pypi.yml` and enforces that, and runs the scripts under `python -I -S`.
-`v0.19.1` was never published because a release script imported the package in
-one of those jobs.
+`publish-pypi.yml` and enforces that, and runs the scripts under `python -I -S`,
+including the rebuild comparison and the finalize, resume and recovery
+invocations with PyPI answered offline. A script started by path has its own
+directory on `sys.path` and not the repository root, so it may import a sibling
+only by bare name. A step in one of those jobs that runs inline Python
+(`python -c`, a heredoc) fails the test unless the test file allowlists it with
+a reason. `v0.19.1` was never published because a release script imported the
+package in one of those jobs.
 
 ### Recovering finalization after PyPI succeeds
 
