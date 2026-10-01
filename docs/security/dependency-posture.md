@@ -9,9 +9,20 @@
   `pyproject.toml`; build-system dependencies are exact pins. The published
   package intentionally permits compatible resolver updates and the repository
   does not currently commit a full Python application lock.
-- GitHub Actions are pinned to commit SHAs. Tool versions installed inside jobs,
-  such as Gitleaks, are explicitly selected and their downloaded archive is
-  checksum-verified.
+- GitHub Actions are pinned to commit SHAs. Tool versions installed inside most
+  jobs, such as Gitleaks, are explicitly selected and their downloaded archive is
+  checksum-verified. Two scheduled jobs do not pin on purpose. The weekly
+  real-host canary installs the current Claude Code, Hermes, OpenCode and Codex
+  CLIs, to catch a host release that breaks Alice. Archive maintenance, which
+  runs nightly, installs the project's dev extras by version range and upgrades
+  pip. Unreleased (on main, not in v0.19.2): the canary job holds `contents: read`
+  only and its checkout keeps no credentials, and a separate job that holds only
+  `issues: write`, checks out nothing and installs nothing opens the alert issue
+  when the canary fails. Archive maintenance still holds `issues: write` in the
+  job that installs, and `tests/unit/test_workflow_write_scope_policy.py` lists it
+  as a known residual until it is split. That test fails when any other job that
+  holds a write scope names a package in a pip or npm install command without an
+  exact version.
 - Dependabot checks GitHub Actions, pip, and the web npm ecosystem weekly.
 
 ## Web Advisory Gate

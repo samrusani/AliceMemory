@@ -7,8 +7,13 @@ name: Real host CI
 # opencode 1.18.32, codex-cli 0.158.0. The Codex hook tests run `codex exec`
 # against a loopback mock of /v1/responses inside pytest, so nothing reaches
 # the network.
-# The Monday canary installs current claude, hermes, opencode, and codex and opens
-# an [ops] issue when that run fails. The canary does not pin a version.
+# The Monday canary installs current claude, hermes, opencode, and codex. The
+# canary does not pin a version. Its job holds contents: read and nothing else,
+# and its checkout keeps no credentials, because the packages it installs can
+# change under it. A failed canary opens an [ops] issue from a separate job,
+# canary-alert. That job holds issues: write, checks out nothing, runs no shell
+# and installs nothing, and it starts only when the canary job's own result is
+# failure, so the skipped canary of a pull request or a dispatch opens nothing.
 # A manual dispatch takes a `job` input. `all` runs every dispatch job. A job
 # name runs that job alone, so the plugin hook trial can run on a branch that
 # has no committed marketplace file.
@@ -191,13 +196,14 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: read
-      issues: write
     env:
       DISABLE_AUTOUPDATER: "1"
       DISABLE_UPDATES: "1"
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -271,8 +277,16 @@ jobs:
               )
           PY
 
+  canary-alert:
+    name: Open the canary failure issue
+    needs: canary
+    if: "${{ always() && needs.canary.result == 'failure' }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
       - name: Create failure alert issue
-        if: failure()
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
