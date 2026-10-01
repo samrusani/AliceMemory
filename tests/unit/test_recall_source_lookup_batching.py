@@ -249,6 +249,44 @@ def test_batched_lookup_edges(tmp_path: Path) -> None:
                 store.list_memories_referencing_sources([a], limit_per_source=bad)
 
 
+def test_batched_lookup_ignores_provenance_links_to_other_target_types(tmp_path: Path) -> None:
+    """A provenance link to an entity or open loop is not a reference to a memory.
+
+    The one-source lookup reads only links whose ``target_type`` is ``memory``.
+    A link to another kind of object can carry an id that is also a memory's id;
+    neither lookup may return that memory for the link's source.
+
+    Mutation: drop ``p.target_type = 'memory'`` from the provenance branch of the
+    batched SQLite statement (the memory comes back for source ``a``).
+    """
+
+    database = _database(tmp_path)
+    with sqlite_user_connection(database, USER_ID) as connection:
+        store = SQLiteVNextStore(connection, USER_ID)
+        a = _source(store, "a")
+        b = _source(store, "b")
+        linked = _memory(store, "linked")
+        _link(store, linked, a)
+        unrelated = _memory(store, "unrelated")
+        for target_type in ("entity", "open_loop", "source"):
+            store.create_provenance_link(
+                {
+                    "target_type": target_type,
+                    "target_id": unrelated,
+                    "source_id": a,
+                    "evidence_role": "supports",
+                    "confidence": 0.9,
+                }
+            )
+
+        one = [row["id"] for row in store.list_memories_referencing_source(source_id=a, limit=50)]
+        batched = store.list_memories_referencing_sources([a, b], limit_per_source=50)
+
+        assert one == [linked]
+        assert [row["id"] for row in batched[a]] == one
+        assert batched[b] == []
+
+
 def test_batched_lookup_is_one_statement_however_many_sources(tmp_path: Path) -> None:
     """One SELECT for 40 sources, not 40.
 
