@@ -99,7 +99,11 @@ EXPECTED_CLASS_ORDERS = {
     "PostgresVNextStore": (171, "526374782104a2a120a40fdb3596893975d4e1528d4c8130802cfc830161eb35"),
     # One SQLite-only method more, ``check_source_search_query``: the Postgres
     # source search has no expression-depth or LIKE-length limit to check.
-    "SQLiteVNextStore": (125, "8597531ec4227a265bcfd8a21e033f618fb3c6842e513d03ade05e0cd97723e3"),
+    # Merge of #500 and #502 (2026-10-01): one more SQLite-only method,
+    # ``check_literal_match_query``, beside the paired
+    # ``list_memories_referencing_sources``. Re-minted for the merged facade
+    # (reviewed change, not drift).
+    "SQLiteVNextStore": (126, "08f33e48b0ada3aee40ab843f826bd0610a31ad495091bf6880bd2b68192084a"),
 }
 EXPECTED_FACADE_COMMENT_DIGESTS = {
     POSTGRES_FACADE_PATH: "d8599a46ee26dc35a3ae52c1a98a416509add9ae4a42ece780c5c5ed7e132b93",
