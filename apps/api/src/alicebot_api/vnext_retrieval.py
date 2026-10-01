@@ -1528,7 +1528,11 @@ _CUTTABLE_TEXT_KEYS = ("excerpt", "canonical_text", "summary", "description")
 
 
 def _cuttable_text_lengths(item: JsonObject) -> list[int]:
-    lengths = [len(text) for key in _CUTTABLE_TEXT_KEYS if isinstance(text := item.get(key), str)]
+    lengths: list[int] = []
+    for key in _CUTTABLE_TEXT_KEYS:
+        text = item.get(key)
+        if isinstance(text, str):
+            lengths.append(len(text))
     value = item.get("value")
     if isinstance(value, Mapping) and isinstance(value.get("text"), str):
         lengths.append(len(value["text"]))
