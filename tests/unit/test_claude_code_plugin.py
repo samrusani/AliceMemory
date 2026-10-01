@@ -1560,7 +1560,7 @@ def test_the_docs_say_what_v0190_ships_and_keep_the_option_rules() -> None:
     paragraph that names ``ALICE_MEMORY_DATA_DIR`` says the plugin's hook
     ignores it, and one of them holds the relative-value sentence. The
     changelog's v0.19.0 section, the README and the quickstart each keep the
-    plugin line they already have, and the sections above v0.19.0's (the empty
+    plugin line they already have, and the sections above v0.19.0's (the
     Unreleased section and v0.19.2's) do not hold a plugin entry of v0.19.0's. The
     README, the quickstart, the plugin page and the plugin README say the plugin
     installs from the `alicememory` marketplace, give the two commands, and no

@@ -578,15 +578,18 @@ def test_the_docs_say_what_v0192_changed_and_what_v0190_still_does() -> None:
     and the changelog entry sits under the v0.19.2 heading, above v0.19.0's.
 
     Mutations, each one alone: delete the changelog entry, move it below the
-    v0.19.0 heading, drop its lone-surrogate or ``--force`` clause; delete the
+    v0.19.0 heading, copy it under Unreleased as well, drop its lone-surrogate
+    or ``--force`` clause; delete the
     guide's v0.19.2 paragraph or its ``From v0.19.2`` opening; delete the guide's
     install note; delete either v0.18.0 changelog correction; delete either of the
     two dated v0.19.2 updates under the v0.18.0 corrections.
     """
 
     changelog = (REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
-    # Unreleased may hold entries for changes made after v0.19.2.
-    assert changelog[changelog.index("## Unreleased") : changelog.index("## v0.19.2")].startswith("## Unreleased")
+    # Unreleased may hold entries for changes made after v0.19.2, but not this one.
+    unreleased = changelog[changelog.index("## Unreleased") : changelog.index("## v0.19.2")]
+    assert unreleased.startswith("## Unreleased")
+    assert "Hermes provider 0.5.2 sends" not in unreleased
     released_now = changelog[changelog.index("## v0.19.2") : changelog.index("## v0.19.0")]
     entries = [_flat(entry) for entry in released_now.split("\n- ") if entry.lstrip("- ").startswith("Hermes provider 0.5.2 sends")]
     assert len(entries) == 1
