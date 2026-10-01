@@ -7,7 +7,10 @@ import math
 from psycopg.types.json import Jsonb
 
 from alicebot_api.store import ContinuityStoreInvariantError
-from alicebot_api.vnext_embeddings import EMBEDDING_SIGNATURE_METADATA_KEY
+from alicebot_api.vnext_embeddings import (
+    EMBEDDING_SIGNATURE_METADATA_KEY,
+    EMBEDDING_TRUNCATED_SIGNATURE_KEY,
+)
 from alicebot_api.vnext_repositories import JsonObject
 from alicebot_api.vnext_stores.postgres.columns import MEMORY_COLUMNS
 
@@ -91,6 +94,36 @@ _MEMORY_EMBEDDING_CONTENT_SHA256_SQL = f"""
 """
 
 
+# The same normalization as above, ending in the length in characters of the
+# text embedded for the row (``len(memory_embedding_text(row))``) instead of its
+# digest. ``list_memories_missing_embeddings`` compares it with the input cap.
+_MEMORY_EMBEDDING_TEXT_CHARS_SQL = f"""
+(
+  SELECT char_length(
+    concat_ws(
+      E'\\n',
+      normalized.title,
+      CASE
+        WHEN normalized.canonical_text IS DISTINCT FROM normalized.title
+          THEN normalized.canonical_text
+      END,
+      CASE
+        WHEN normalized.summary IS DISTINCT FROM normalized.title
+         AND normalized.summary IS DISTINCT FROM normalized.canonical_text
+          THEN normalized.summary
+      END
+    )
+  )
+  FROM (
+    SELECT
+      NULLIF({_python_312_strip_sql("title")}, '') AS title,
+      NULLIF({_python_312_strip_sql("canonical_text")}, '') AS canonical_text,
+      NULLIF({_python_312_strip_sql("summary")}, '') AS summary
+  ) AS normalized
+)
+"""
+
+
 def _vector_literal(vector: list[float]) -> str:
     if not vector:
         raise ContinuityStoreInvariantError("embedding vectors must not be empty")
@@ -116,6 +149,7 @@ def update_memory_embedding(
     endpoint: str | None = None,
     content_sha256: str | None = None,
     signature_version: int = 1,
+    truncated_to_chars: int | None = None,
 ) -> VNextRow | None:
     signature_values = (provider, model, content_sha256)
     if any(value is not None for value in signature_values):
@@ -130,6 +164,8 @@ def update_memory_embedding(
             "endpoint": endpoint if isinstance(endpoint, str) else "",
             "content_sha256": content_sha256,
         }
+        if truncated_to_chars is not None:
+            signature_metadata[EMBEDDING_TRUNCATED_SIGNATURE_KEY] = truncated_to_chars
         return self._fetch_optional_one(
             f"""
                     UPDATE memories
@@ -193,9 +229,14 @@ def list_memories_missing_embeddings(
     embedding_model: str | None = None,
     embedding_endpoint: str | None = None,
     embedding_signature_version: int | None = None,
+    embedding_input_cap: int | None = None,
 ) -> list[VNextRow]:
     signature_sql = ""
     signature_params: list[object] = []
+    if embedding_input_cap is not None and embedding_provider is None and embedding_model is None:
+        raise ContinuityStoreInvariantError(
+            "embedding_input_cap requires embedding_provider and embedding_model"
+        )
     if embedding_provider is not None or embedding_model is not None:
         if not embedding_provider or not embedding_model:
             raise ContinuityStoreInvariantError("embedding_provider and embedding_model must be supplied together")
@@ -222,6 +263,17 @@ def list_memories_missing_embeddings(
                        IS DISTINCT FROM %s
                 """
             signature_params.append(str(embedding_signature_version))
+        if embedding_input_cap is not None:
+            # The label a vector made now would carry: the cap for a text
+            # longer than it, none for a text that fits. A row whose stored
+            # label differs was made under another cap and is made again.
+            signature_sql += f"""
+                  OR metadata_json -> '{EMBEDDING_SIGNATURE_METADATA_KEY}' ->> '{EMBEDDING_TRUNCATED_SIGNATURE_KEY}'
+                       IS DISTINCT FROM (
+                         CASE WHEN ({_MEMORY_EMBEDDING_TEXT_CHARS_SQL}) > %s THEN %s::text END
+                       )
+                """
+            signature_params.extend((embedding_input_cap, str(embedding_input_cap)))
     params: list[object] = [*signature_params, after_id, after_id, limit]
     return self._fetch_all(
         f"""

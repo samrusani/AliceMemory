@@ -2,6 +2,53 @@
 
 ## Unreleased
 
+- One memory the embeddings endpoint refuses no longer costs its whole batch
+  its vectors, a refused memory is named, and over-long text is cut before it
+  is sent. When the endpoint answers a batch with HTTP 400, 413 or 422, Alice
+  sends a one-text probe. If the endpoint accepts the probe, Alice splits the
+  batch in half and retries each half, down to single texts, so the texts the
+  endpoint accepts get vectors and the refused ones are named. A failure that
+  is not about the text (a refused connection, a timeout, 401, 404, 429, a 5xx,
+  or a probe the endpoint also refuses) is not split. Each failure carries the
+  endpoint's status and at most 300 characters of its error message. The
+  message is replaced by a fixed sentence when the credential check flags it,
+  and the configured API key is replaced by `[redacted]` wherever it appears.
+  The reason is printed in reindex output and the process log. It is not
+  written to the event log, which still gets fixed text and now the status
+  number. `alice-memory reindex-embeddings` and `alicebot vnext memories
+  backfill-embeddings` print `failed_ids` (at most 100, with `failed_ids_omitted`
+  for the rest), `failure_reasons` (the most common, with counts),
+  `input_cap_chars` and `truncated_inputs`. An id that is longer than 128
+  characters, holds a control character or is credential-shaped prints as
+  `(id withheld)`. Each memory text, and each recall query, is cut to
+  `ALICE_EMBEDDINGS_MAX_INPUT_CHARS` characters before it is sent. The default
+  is 8000 and the allowed range is 256 to 1000000. 8000 fits a model that takes
+  about 8,000 tokens even at one token per character, and a model with a
+  512-token window needs about 1500. A memory of 8,001 to 20,000 characters (a
+  commit accepts up to 20,000) is embedded from its first 8,000 on a model that
+  could take more, and full-text search still reads all of it, so a vault of
+  long memories on a large-window model can raise the cap. A value outside the
+  range is ignored with a warning. A vector made from a cut text carries `truncated_to_chars` in its
+  signature, set to the cap, and the digest in the signature is still that of
+  the whole text, so an edit past the cut is still seen. A signature with no
+  `truncated_to_chars` is a vector of the whole text. After a change of the
+  cap, reindex re-embeds exactly the rows whose embedded text changes, and a row
+  longer than the cap whose vector has no label, which an older release stored
+  and an endpoint may have cut without saying so, is embedded again once.
+  Nothing is re-embedded by the upgrade itself, and the signature version stays
+  2. `alice-memory doctor` prints `memories without a current vector`, the count
+  of committed facts that have no vector or a vector that is not today's (the
+  rows reindex works on), with `(no embedding provider configured)` after it
+  when no provider is set. Re-running Hermes or OpenCode `install` keeps
+  `ALICE_EMBEDDINGS_MAX_INPUT_CHARS` in an existing entry. In v0.19.2 there is
+  no cap and no splitting. One memory over the endpoint's limit fails its whole
+  batch of 128 with `HTTP 400` and the provider's reason is dropped, reindex
+  prints `embedding_batch_failed` with no id and no reason, an endpoint that cuts
+  text without saying so gives a vector of the head of the text that nothing
+  marks as cut, a recall query over the endpoint's limit turns the vector stage
+  off with `query_embedding_failed`, and the doctor does not count memories
+  without a vector.
+
 ## v0.19.2 — 2026-10-01
 
 - `POST /v1/memory/operations/commit` applies a candidate without review only when it came from the user, matched an explicit prefix such as `decision:` or `preference:`, and scored 0.9 or more, in `assist` and `auto` mode. A candidate from the assistant, and a phrase match from either role such as "I prefer tabs" or "we decided", is stored as `review_required` with the reason `assist_mode_review_gate` or `auto_mode_review_gate`. Commit skips it unless the request sets `include_review_required`. `alicebot mutations` and the `alice_memory_mutations_*` MCP tools run the same code. This is the rule the `/v0/continuity` capture commit has applied since v0.18.0, and both now call one function, `user_prefix_autosave`. A candidate that is applied carries the reason `user_explicit_prefix_rule`. The role is the request field that carried the text, `user_content` or `assistant_content`, so a caller that puts text in `user_content` is still taken at its word. Commit also checks again a row that was stored as `auto_apply` before this change. One that fails the rule is skipped and listed as `review_required` with the reason `stored_auto_apply_fails_admission_rule`, and the stored row is not changed, so list output and a replayed generate keep showing `auto_apply` for it until it is committed, and a list filtered to `review_required` does not include it. In v0.19.0 the policy reads no role. In `assist` mode it applies an explicit candidate of an allowed type at 0.9 or more from either role, and in `auto` mode any candidate of an allowed type at 0.9 or more, so an assistant line `decision: ship X` became an active Decision. The v0.18.0 statement that an assistant candidate is queued covered the `/v0/continuity` capture routes and not this one.
