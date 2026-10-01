@@ -456,6 +456,8 @@ def test_the_docs_say_the_hook_checks_the_variable_from_v0192_and_keep_the_v0190
     changelog = (_ROOT / "CHANGELOG.md").read_text(encoding="utf-8").split("\n## ")
     # Unreleased may hold entries for changes made after v0.19.2.
     assert changelog[1].startswith("Unreleased")
+    # This released entry stays in the v0.19.2 section, not in Unreleased.
+    assert "ALICE_MEMORY_DATA_DIR" not in changelog[1]
     assert changelog[2].startswith("v0.19.2 \u2014 2026-10-01\n")
     released_now = _flat(changelog[2])
     assert (

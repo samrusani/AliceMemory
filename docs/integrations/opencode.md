@@ -68,6 +68,11 @@ byte for byte. `timeout`, `enabled`, `cwd`, any other `environment` name, a
 comment inside `alice`, or a command that is not an array is left unchanged.
 The receipt names the line and does not print the file.
 
+Unreleased (on main, not in v0.19.2): `ALICE_EMBEDDINGS_MAX_INPUT_CHARS`, the
+most characters of one memory's text sent to the embeddings endpoint, is also
+a documented host env key and is carried on the same terms as the seven above.
+In v0.19.2 that name is not carried, so an entry that holds it is refused.
+
 ## What is refused
 
 - `alice` more than once, under `mcp` or `mcp.servers`, including
