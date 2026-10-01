@@ -92,8 +92,7 @@ value, metadata, key and project. Sources, chunks, revisions, provenance
 quotes, open loops, entities, graph edges, relationship events and event rows
 come across unchanged, and so do the other memory columns (`trust_reason`,
 `created_by_agent_id`, the model name and the ids). Recall, the session brief
-and the session hook can return their text. Unreleased (on main, not in
-v0.19.0): import reads every text and JSON column of those records, and those
+and the session hook can return their text. From v0.19.1, import reads every text and JSON column of those records, and those
 memory columns, with the same credential check and lists each hit on the
 receipt, never the text, then exits 0. The receipt line is
 `credential-shaped text in records import does not refuse: N`, printed every
@@ -193,7 +192,7 @@ aborts and writes nothing. The file still carries the credential, so the
 credential refusal fires before the collision check. Existing rows are
 never overwritten. The rejected row and the placeholder stay.
 
-Unreleased (on main, not in v0.19.0): import is for your own backups, and a
+From v0.19.1, import is for your own backups, and a
 backup file is not evidence of who wrote a row. The SHA-256 footer is an
 unkeyed digest: anyone can edit a record and recompute it, so it shows that
 the file is whole and says nothing about authorship. Import therefore rewrites

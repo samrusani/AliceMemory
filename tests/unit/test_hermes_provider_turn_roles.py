@@ -571,23 +571,22 @@ def test_the_false_v0180_claim_is_corrected_where_it_was_made() -> None:
     assert "false for this plugin before version 0.5.2" in guide
 
 
-def test_the_docs_say_what_main_changed_and_what_v0190_still_does() -> None:
-    """The changelog and the provider guide mark plugin 0.5.2 as main only.
+def test_the_docs_say_what_v0191_changed_and_what_v0190_still_does() -> None:
+    """The changelog and the provider guide say plugin 0.5.2 is v0.19.1's.
 
-    v0.19.0 ships plugin 0.5.1, so the guide's paragraph carries the
-    ``Unreleased (on main, not in v0.19.0):`` marker and the changelog entry
-    sits under Unreleased. The release PR converts the marker, and this test
-    changes with it, as the other main-only doc tests do.
+    v0.19.0 ships plugin 0.5.1, so the guide's paragraph starts ``From v0.19.1,``
+    and the changelog entry sits under the v0.19.1 heading, above v0.19.0's.
 
     Mutations, each one alone: delete the changelog entry, move it below the
     v0.19.0 heading, drop its lone-surrogate or ``--force`` clause; delete the
-    guide's Unreleased paragraph or its marker; delete the guide's install
-    note; delete either v0.18.0 changelog correction.
+    guide's v0.19.1 paragraph or its ``From v0.19.1`` opening; delete the guide's
+    install note; delete either v0.18.0 changelog correction.
     """
 
     changelog = (REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
-    unreleased = changelog[changelog.index("## Unreleased") : changelog.index("## v0.19.0")]
-    entries = [_flat(entry) for entry in unreleased.split("\n- ") if entry.lstrip("- ").startswith("Hermes provider 0.5.2 sends")]
+    assert changelog[changelog.index("## Unreleased") : changelog.index("## v0.19.1")].strip() == "## Unreleased"
+    released_now = changelog[changelog.index("## v0.19.1") : changelog.index("## v0.19.0")]
+    entries = [_flat(entry) for entry in released_now.split("\n- ") if entry.lstrip("- ").startswith("Hermes provider 0.5.2 sends")]
     assert len(entries) == 1
     entry = entries[0]
     assert "as two separate fields" in entry
@@ -609,7 +608,7 @@ def test_the_docs_say_what_main_changed_and_what_v0190_still_does() -> None:
     assert "The Hermes plugin does not call that route." in added[1]
 
     guide = _flat((REPO_ROOT / "docs" / "integrations" / "hermes-memory-provider.md").read_text(encoding="utf-8"))
-    marker = "Unreleased (on main, not in v0.19.0): plugin 0.5.2 sends the user text and the assistant text"
+    marker = "From v0.19.1, plugin 0.5.2 sends the user text and the assistant text"
     assert guide.count(marker) == 1
     paragraph = guide[guide.index(marker) :].split(" From v0.19.0,")[0]
     assert "A reply that contains a line starting with `User:` stays assistant text" in paragraph
