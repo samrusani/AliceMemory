@@ -204,6 +204,19 @@ active-key or RLS bypass remains in scope.
   `alice_context_pack`, `alice_resume`, `alice_recent_decisions` and
   `alice_open_loops`. The other tools, such as `alice_recent_changes` and
   `alice_timeline`, were not checked for memory ids.
+  Unreleased (on main, not in v0.19.2): the `metadata_json` place is fenced too
+  (updated 2026-10-01). The pack removes the id of a memory the caller cannot
+  read, under the same fence as the memory reads, from the `metadata_json` of
+  every memory it returns. An id that is the whole string goes with its key or
+  list slot, an id inside a longer string is replaced by `(id withheld)`, and an
+  id that names no memory stays. Only a 36-character UUID is looked for, and
+  only in `metadata_json`: an id in another column of a stored row, or in
+  another spelling, is not. Two further pointer defects are also fixed
+  on main. The correction label names no id when the memory it would name was
+  forgotten, undone or rejected, where v0.19.2 named it. The context pack keeps
+  `validity.superseded: true`, with no id, for a memory whose `superseded_by`
+  pointer names a memory the caller cannot read, where v0.19.2 gave that memory
+  no `validity` in the pack and recall kept `superseded: true`.
 - Open items from the internal security review of v0.19.0 (added 2026-10-01).
   They are not fixed in v0.19.2, and the v0.19.2 release notes give the detail.
   The Postgres stack's HTTP API parses a JSON request body of any size before it
