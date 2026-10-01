@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+- The semantic eval no longer depends on the day it runs. Every retrieval
+  request the eval harness issues now carries a fixed reference time, the
+  corpus epoch `2026-01-01T00:00:00Z`, instead of the wall clock. Retrieval
+  resolves a month or day without a year in a query against that reference
+  time. Through 2026-09-30 the correction case `correction-005` ("who is
+  the Sable data vendor contract with in September") ranked its
+  replacement first by luck of the date: before September 2026 the
+  resolved window came before every eval row, and during September the
+  rows the run wrote fell inside it. From 2026-10-01 the window overlaps
+  the seeded rows but not the new ones, so the replacement ranked second,
+  `replacement_mrr` read 0.9167 instead of 1.0, and
+  `tests/unit/test_release_check.py::test_semantic_eval_report_accepts_one_correction_replacement_miss`
+  failed on every branch. The semantic release gate still validated such
+  a report, but the numbers it attested depended on the day it ran. No
+  expected score changes: every suite metric of the SQLite battery matches
+  the 2026-09-30 run, and a new test runs all six suites under four
+  process clocks and requires identical results. Retrieval itself is unchanged, so this
+  touches no stored data and no API. In v0.19.0 the eval resolved those
+  dates against the day it ran.
 - The commit author check accepts six exact addresses and no domain as a whole: the owner's GitHub noreply address in its plain and id forms, `noreply@github.com`, `cursoragent@cursor.com`, and the Dependabot and github-actions bot noreply addresses. A misspelled noreply address fails and the failure names the commit. In v0.19.0 the check allows any address at `users.noreply.github.com`.
 - The dispatch-only Real host CI marketplace check adds the marketplace from `./` and from the HTTPS clone URL, each into a fresh HOME, installs `alice-memory@alicememory` and checks the plugin list for its id, enabled state and version. It also tries the `samrusani/AliceMemory` shorthand and reports whether it works, as an annotation and a step summary, without failing the job. In v0.19.0 the check adds the marketplace from `.` only.
 - `alice_memory_review` sets `readOnlyHint` and no longer sets
