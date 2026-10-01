@@ -45,7 +45,18 @@ import inspect
 import json
 import logging
 import re
-from typing import Callable, Mapping, MutableMapping, NotRequired, Protocol, Sequence, TypeVar, TypedDict, cast
+from typing import (
+    Callable,
+    Mapping,
+    MutableMapping,
+    NamedTuple,
+    NotRequired,
+    Protocol,
+    Sequence,
+    TypeVar,
+    TypedDict,
+    cast,
+)
 from uuid import uuid4
 
 # Read-only reuse of the contradiction-detection machinery that backs
@@ -1312,6 +1323,8 @@ SOURCE_FALLBACK_CHUNK_SCAN_LIMIT = 24
 # Least fraction of the budget a word-boundary trim may leave before the blunt
 # character cut is preferred instead.
 _WORD_TRIM_FLOOR = 0.6
+# The mark a cut line carries. One character, appended where text was removed.
+_CUT_MARKER = "\u2026"
 
 
 def _tokens(text: str) -> set[str]:
@@ -1437,8 +1450,8 @@ def _trimmed_to_budget(text: str, max_chars: int) -> str:
     sliced = text[:max_chars]
     tidy = sliced.rsplit(" ", 1)[0]
     if len(tidy) >= max_chars * _WORD_TRIM_FLOOR:
-        return tidy + "\u2026"
-    return sliced + "\u2026"
+        return tidy + _CUT_MARKER
+    return sliced + _CUT_MARKER
 
 
 def _query_anchored_window(chunk: str, *, query: str, max_chars: int) -> str:
@@ -1507,16 +1520,126 @@ def estimate_item_tokens(item: JsonObject) -> int:
     return max(1, (chars + TOKEN_ESTIMATE_CHARS_PER_TOKEN - 1) // TOKEN_ESTIMATE_CHARS_PER_TOKEN)
 
 
+# Text a budget cut may shorten: the excerpt a source carries, and the text a
+# memory or open loop carries (a memory row repeats it as canonical_text,
+# summary and value.text). Ids, scope, provenance, metadata and titles are
+# never cut, so a cut item still names what it is and where it came from.
+_CUTTABLE_TEXT_KEYS = ("excerpt", "canonical_text", "summary", "description")
+
+
+def _cuttable_text_lengths(item: JsonObject) -> list[int]:
+    lengths: list[int] = []
+    for key in _CUTTABLE_TEXT_KEYS:
+        text = item.get(key)
+        if isinstance(text, str):
+            lengths.append(len(text))
+    value = item.get("value")
+    if isinstance(value, Mapping) and isinstance(value.get("text"), str):
+        lengths.append(len(value["text"]))
+    return lengths
+
+
+def _cut_text(text: str, *, query: str, max_chars: int) -> str:
+    """Shorten text to about ``max_chars`` and mark the cut.
+
+    The cut is the one a source excerpt already gets: a window around the line
+    that best answers the query, ending in the same one-character marker that
+    ``_trimmed_to_budget`` appends. Text that already fits comes back unchanged.
+    """
+
+    if len(text) <= max_chars:
+        return text
+    window = _query_anchored_window(text, query=query, max_chars=max_chars)
+    if window == text.strip() or window.endswith(_CUT_MARKER):
+        return window
+    return window + _CUT_MARKER
+
+
+def _item_with_text_cut(item: JsonObject, *, query: str, max_chars: int) -> JsonObject:
+    cut = dict(item)
+    for key in _CUTTABLE_TEXT_KEYS:
+        text = cut.get(key)
+        if isinstance(text, str):
+            cut[key] = _cut_text(text, query=query, max_chars=max_chars)
+    value = cut.get("value")
+    if isinstance(value, Mapping) and isinstance(value.get("text"), str):
+        cut["value"] = {**value, "text": _cut_text(value["text"], query=query, max_chars=max_chars)}
+    return cut
+
+
+def _fit_item_to_tokens(item: JsonObject, *, query: str, max_tokens: int) -> JsonObject | None:
+    """The longest cut of ``item`` that the search finds within ``max_tokens``, or None.
+
+    None means the item cannot be made to fit: with every cuttable text reduced
+    to the bare cut marker, the ids, scope and metadata it carries alone cost
+    more than the budget. That irreducible cost is the pack's floor for this
+    item. A returned item was priced with ``estimate_item_tokens`` before it was
+    returned, so it fits whatever the search assumed about how cost grows.
+    """
+
+    best = _item_with_text_cut(item, query=query, max_chars=0)
+    if estimate_item_tokens(best) > max_tokens:
+        return None
+    low, high = 0, max(_cuttable_text_lengths(item), default=0)
+    while low < high:
+        middle = (low + high + 1) // 2
+        candidate = _item_with_text_cut(item, query=query, max_chars=middle)
+        if estimate_item_tokens(candidate) <= max_tokens:
+            best, low = candidate, middle
+        else:
+            high = middle - 1
+    return best
+
+
+class _PackedSections(NamedTuple):
+    """What one pass of the greedy packer admitted, section by section."""
+
+    memories: list[JsonObject]
+    open_loops: list[JsonObject]
+    sources: list[JsonObject]
+    supporting_evidence: list[JsonObject]
+    contradicting_evidence: list[JsonObject]
+    contradictions_stage: str
+
+
+def _first_item_that_fits_when_cut(
+    offers: Mapping[str, Sequence[JsonObject]],
+    *,
+    section_order: Sequence[str],
+    query: str,
+    max_tokens: int,
+) -> tuple[str, int, JsonObject] | None:
+    """The first offered item, in offer order, that a cut can make fit.
+
+    Returns its section, its index in that section, and the cut item. Sections
+    the packer derives rather than ranks (evidence quotes, contradiction
+    records) are not in ``offers`` and are never cut.
+    """
+
+    for section in section_order:
+        for index, offered in enumerate(offers.get(section, ())):
+            fitted = _fit_item_to_tokens(offered, query=query, max_tokens=max_tokens)
+            if fitted is not None:
+                return section, index, fitted
+    return None
+
+
 @dataclass(slots=True)
 class _TokenBudget:
     """Greedy token-budget packer state.
 
-    Items are offered section by section in the strategy's section order.
-    Once one item does not fit, the budget is marked truncated and every
-    later item is dropped too, keeping the packed prefix aligned with the
-    offer order. ``allocation`` records the admitted token estimate per
-    section so agents can see where the budget went; the values always sum
-    to ``token_estimate``.
+    Items are offered section by section in the strategy's section order, and
+    in rank order within a section. An item that does not fit is skipped and
+    the next one is tried, so one large item early in the order cannot take the
+    smaller items behind it down with it. Packed items keep their offer order.
+    ``truncated`` is set when any offered item was dropped or cut.
+    ``allocation`` records the admitted token estimate per section so agents
+    can see where the budget went; the values always sum to ``token_estimate``,
+    which never exceeds ``token_budget``.
+
+    Through v0.19.2 the first item that did not fit latched ``truncated`` and
+    every later item was dropped too, which left a pack empty whenever a large
+    item was ranked first.
     """
 
     token_budget: int | None
@@ -1524,6 +1647,7 @@ class _TokenBudget:
     token_estimate: int = 0
     truncated: bool = False
     dropped_item_count: int = 0
+    cut_item_count: int = 0
     allocation: dict[str, int] = field(default_factory=dict)
 
     def open_section(self, section: str) -> None:
@@ -1533,9 +1657,7 @@ class _TokenBudget:
     def admit(self, item: JsonObject, *, section: str) -> bool:
         self.open_section(section)
         cost = estimate_item_tokens(item)
-        if self.truncated or (
-            self.token_budget is not None and self.token_estimate + cost > self.token_budget
-        ):
+        if self.token_budget is not None and self.token_estimate + cost > self.token_budget:
             self.truncated = True
             self.dropped_item_count += 1
             return False
@@ -1544,7 +1666,7 @@ class _TokenBudget:
         return True
 
     def to_record(self) -> JsonObject:
-        return {
+        record: JsonObject = {
             "token_budget": self.token_budget,
             "token_estimate": self.token_estimate,
             "truncated": self.truncated,
@@ -1552,6 +1674,11 @@ class _TokenBudget:
             "strategy": self.strategy,
             "allocation": dict(self.allocation),
         }
+        if self.cut_item_count:
+            # Absent unless an item was cut to fit, so every pack that was not
+            # cut keeps the report it had.
+            record["cut_item_count"] = self.cut_item_count
+        return record
 
 
 def _parse_timestamp(value: object) -> datetime | None:
@@ -4043,52 +4170,107 @@ class VNextRetrievalService:
             budget_strategy=strategy,
             pack_view=str(interpretation.get("pack_view") or PACK_VIEW_FACTS),
         )
+        # Wrapped before any item is priced. Admitting the bare row and
+        # emitting the wrapped one made the budget count something smaller
+        # than the pack carries, under-counting every promoted row by the
+        # whole provenance record.
+        memory_offers = [_with_write_provenance(item) for item in ordered_memories]
+
+        def pack_sections(
+            budget: _TokenBudget,
+            *,
+            memories: list[JsonObject],
+            open_loops: list[JsonObject],
+            sources: list[JsonObject],
+        ) -> _PackedSections:
+            selected_memories: list[JsonObject] = []
+            selected_open_loops: list[JsonObject] = []
+            selected_sources: list[JsonObject] = []
+            supporting_evidence: list[JsonObject] = []
+            contradicting_evidence: list[JsonObject] = []
+            contradictions_stage = contradictions_not_requested_status
+            memories_packed = False
+            for section in section_order:
+                budget.open_section(section)
+                if section == SECTION_RELEVANT_MEMORIES:
+                    selected_memories = [item for item in memories if budget.admit(item, section=section)]
+                    memories_packed = True
+                elif section == SECTION_OPEN_LOOPS:
+                    selected_open_loops = [item for item in open_loops if budget.admit(item, section=section)]
+                elif section == SECTION_SOURCES:
+                    selected_sources = [item for item in sources if budget.admit(item, section=section)]
+                elif section == SECTION_SUPPORTING_EVIDENCE:
+                    evidence_base = selected_memories if memories_packed else ordered_memories
+                    supporting_evidence = [
+                        evidence
+                        for evidence in self._supporting_evidence(evidence_base, scope=scope)
+                        if budget.admit(evidence, section=section)
+                    ]
+                elif section == SECTION_CONTRADICTING_EVIDENCE:
+                    contradiction_base = selected_memories if memories_packed else ordered_memories
+                    contradiction_records, contradictions_stage = self._contradicting_evidence(
+                        contradiction_base,
+                        requested=contradictions_requested,
+                        domains=domains,
+                        sensitivity_allowed=sensitivity_allowed,
+                        scope=scope,
+                        person_linked_memory_ids=person_linked_memory_ids,
+                        not_requested_status=contradictions_not_requested_status,
+                    )
+                    contradicting_evidence = [
+                        record for record in contradiction_records if budget.admit(record, section=section)
+                    ]
+            return _PackedSections(
+                selected_memories,
+                selected_open_loops,
+                selected_sources,
+                supporting_evidence,
+                contradicting_evidence,
+                contradictions_stage,
+            )
+
         budget = _TokenBudget(token_budget=request.max_tokens, strategy=strategy)
-        selected_memories: list[JsonObject] = []
-        selected_open_loops: list[JsonObject] = []
-        selected_sources: list[JsonObject] = []
-        supporting_evidence: list[JsonObject] = []
-        contradicting_evidence: list[JsonObject] = []
-        contradictions_stage = contradictions_not_requested_status
-        memories_packed = False
-        for section in section_order:
-            budget.open_section(section)
-            if section == SECTION_RELEVANT_MEMORIES:
-                # Wrap before admitting. Admitting the bare row and emitting
-                # the wrapped one made the budget count something smaller
-                # than the pack carries, under-counting every promoted row by
-                # the whole provenance record.
-                selected_memories = [
-                    wrapped
-                    for wrapped in (_with_write_provenance(item) for item in ordered_memories)
-                    if budget.admit(wrapped, section=section)
-                ]
-                memories_packed = True
-            elif section == SECTION_OPEN_LOOPS:
-                selected_open_loops = [item for item in ranked_open_loops if budget.admit(item, section=section)]
-            elif section == SECTION_SOURCES:
-                selected_sources = [item for item in ranked_sources if budget.admit(item, section=section)]
-            elif section == SECTION_SUPPORTING_EVIDENCE:
-                evidence_base = selected_memories if memories_packed else ordered_memories
-                supporting_evidence = [
-                    evidence
-                    for evidence in self._supporting_evidence(evidence_base, scope=scope)
-                    if budget.admit(evidence, section=section)
-                ]
-            elif section == SECTION_CONTRADICTING_EVIDENCE:
-                contradiction_base = selected_memories if memories_packed else ordered_memories
-                contradiction_records, contradictions_stage = self._contradicting_evidence(
-                    contradiction_base,
-                    requested=contradictions_requested,
-                    domains=domains,
-                    sensitivity_allowed=sensitivity_allowed,
-                    scope=scope,
-                    person_linked_memory_ids=person_linked_memory_ids,
-                    not_requested_status=contradictions_not_requested_status,
+        packed = pack_sections(
+            budget, memories=memory_offers, open_loops=ranked_open_loops, sources=ranked_sources
+        )
+        if budget.token_budget is not None and budget.token_estimate == 0:
+            # Nothing fit whole. Cut the first item that can be made to fit,
+            # taking items in offer order, and pack again with that cut item in
+            # place of its whole self. Everything else is offered exactly as it
+            # was, so the cut item is admitted first and the rest are dropped
+            # as before. An item whose ids and metadata alone cost more than
+            # the budget cannot be cut small enough, so the next one is tried.
+            offers = {
+                SECTION_RELEVANT_MEMORIES: list(memory_offers),
+                SECTION_OPEN_LOOPS: list(ranked_open_loops),
+                SECTION_SOURCES: list(ranked_sources),
+            }
+            first_fit = _first_item_that_fits_when_cut(
+                offers,
+                section_order=section_order,
+                query=request.query,
+                max_tokens=budget.token_budget,
+            )
+            if first_fit is not None:
+                fit_section, fit_index, fitted = first_fit
+                offers[fit_section][fit_index] = fitted
+                budget = _TokenBudget(token_budget=request.max_tokens, strategy=strategy)
+                packed = pack_sections(
+                    budget,
+                    memories=offers[SECTION_RELEVANT_MEMORIES],
+                    open_loops=offers[SECTION_OPEN_LOOPS],
+                    sources=offers[SECTION_SOURCES],
                 )
-                contradicting_evidence = [
-                    record for record in contradiction_records if budget.admit(record, section=section)
-                ]
+                budget.truncated = True
+                budget.cut_item_count = 1
+        (
+            selected_memories,
+            selected_open_loops,
+            selected_sources,
+            supporting_evidence,
+            contradicting_evidence,
+            contradictions_stage,
+        ) = packed
         memory_candidates = _apply_budget_exclusions(memory_candidates, selected_memories)
         open_loop_candidates = _apply_budget_exclusions(open_loop_candidates, selected_open_loops)
         source_candidates = _apply_budget_exclusions(source_candidates, selected_sources)

@@ -274,6 +274,7 @@ _TOKEN_REPORT_FIELDS = (
     "token_estimate",
     "truncated",
     "dropped_item_count",
+    "cut_item_count",
     "scope",
     "serialized_token_estimate",
     "excluded_token_estimate",
