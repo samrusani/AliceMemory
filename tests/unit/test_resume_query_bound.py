@@ -749,3 +749,27 @@ def test_no_http_route_builds_the_sqlite_store() -> None:
                 assert not {alias.name for alias in node.names} & forbidden_names, path.name
             elif isinstance(node, ast.Import):
                 assert not {alias.name for alias in node.names} & forbidden_modules, path.name
+
+
+def test_the_escaped_limit_counts_utf8_bytes_not_characters() -> None:
+    """A query of two-byte letters and LIKE wildcards breaks the escaped byte limit.
+
+    11,000 pairs of an e with an acute accent and a percent sign are 33,000 UTF-8
+    bytes raw and 44,000 escaped, but only 33,000 escaped characters. The rule
+    counts bytes, so the query is refused as ``escaped_bytes``.
+
+    Mutation: count the escaped operand in characters instead of UTF-8 bytes in
+    ``literal_match_query_breach`` (the query passes).
+    """
+
+    from alicebot_api.source_search_limits import (
+        SOURCE_SEARCH_QUERY_MAX_BYTES,
+        literal_match_query_breach,
+    )
+
+    query = "\u00e9%" * 11_000
+    assert len(query.encode("utf-8")) <= SOURCE_SEARCH_QUERY_MAX_BYTES
+    breach = literal_match_query_breach(query)
+    assert breach is not None
+    assert breach.reason == "escaped_bytes"
+    assert breach.measured == 44_000
