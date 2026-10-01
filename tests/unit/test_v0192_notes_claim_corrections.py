@@ -2,7 +2,8 @@
 
 Each test names the sites that state one claim and pins the corrected wording at
 every one of them, so a site that is edited back to the old wording fails. The
-claims were checked by running v0.19.2 and v0.19.0 side by side. The
+claims were checked by running v0.19.0 and the v0.19.1 commit side by side;
+v0.19.2 carries that commit's product code unchanged. The
 docstring of each test names the mutation it kills.
 """
 

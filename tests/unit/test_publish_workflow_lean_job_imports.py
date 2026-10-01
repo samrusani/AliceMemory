@@ -2,7 +2,7 @@
 
 ``publish-pypi.yml`` installs the project in one job only. Every other job runs
 ``python scripts/X.py`` on the runner's bare interpreter: no ``alicebot_api``,
-no third-party packages. v0.19.1 was tagged and its publish run failed at the
+no packages outside the standard library. v0.19.1 was tagged and its publish run failed at the
 draft readback because ``release_check.py`` imported ``alicebot_api`` inside a
 function. Nothing in CI ran that script without the package installed, so
 nothing noticed. The workflow runs from the tag, so a tagged commit with that
@@ -25,7 +25,7 @@ Mutations that must fail this file, each alone:
 * put the import of ``CLAUDE_PLUGIN_ID`` from the package back inside
   ``_marketplace_issues`` in ``scripts/release_check.py``: the structural guard
   and the bare execution tests fail;
-* add ``import yaml`` (or any third-party import) at the top or inside a
+* add ``import yaml`` (or any import outside the standard library) at the top or inside a
   function of any script a lean job runs, or add a lean job step that runs
   ``python scripts/run_phase5_ops_evidence.py``: the structural guard fails;
 * call ``validate_semantic_eval_report`` from ``validate_metadata`` so a lean
@@ -458,7 +458,7 @@ def test_lean_job_scripts_import_only_the_standard_library_and_sibling_scripts()
     """Closure of every script a lean job runs is stdlib or ``scripts/`` siblings.
 
     Mutation: put the import of ``CLAUDE_PLUGIN_ID`` from the package
-    back in ``_marketplace_issues``, or add any third-party import anywhere in
+    back in ``_marketplace_issues``, or add any import outside the standard library anywhere in
     a script a lean job runs. This test fails.
     """
 

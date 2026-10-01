@@ -402,8 +402,8 @@ The `Publish to PyPI` workflow then:
 
 Only the first job installs the project. The jobs that stage the draft,
 finalize, resume and recover a release run scripts on the runner's bare Python,
-with no `alicebot_api` and no third-party package, so every script they run
-imports only the standard library and sibling scripts.
+without `alicebot_api` (one job installs only `build`), so every script they
+run imports only the standard library and sibling scripts.
 `tests/unit/test_publish_workflow_lean_job_imports.py` reads the jobs from
 `publish-pypi.yml` and enforces that, and runs the scripts under `python -I -S`.
 `v0.19.1` was never published because a release script imported the package in
