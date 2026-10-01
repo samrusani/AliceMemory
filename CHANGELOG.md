@@ -12,11 +12,13 @@
   resolved window came before every eval row, and during September the
   rows the run wrote fell inside it. From 2026-10-01 the window overlaps
   the seeded rows but not the new ones, so the replacement ranked second,
-  `replacement_mrr` read 0.9167 instead of 1.0, and the semantic release
-  gate and `tests/unit/test_release_check.py` failed. No expected score
-  changes: every suite metric of the SQLite battery matches the 2026-09-30
-  run, and a new test runs all six suites under four process clocks and
-  requires identical results. Retrieval itself is unchanged, so this
+  `replacement_mrr` read 0.9167 instead of 1.0, and
+  `tests/unit/test_release_check.py::test_semantic_eval_report_accepts_one_correction_replacement_miss`
+  failed on every branch. The semantic release gate still validated such
+  a report, but the numbers it attested depended on the day it ran. No
+  expected score changes: every suite metric of the SQLite battery matches
+  the 2026-09-30 run, and a new test runs all six suites under four
+  process clocks and requires identical results. Retrieval itself is unchanged, so this
   touches no stored data and no API. In v0.19.0 the eval resolved those
   dates against the day it ran.
 - The commit author check accepts six exact addresses and no domain as a whole: the owner's GitHub noreply address in its plain and id forms, `noreply@github.com`, `cursoragent@cursor.com`, and the Dependabot and github-actions bot noreply addresses. A misspelled noreply address fails and the failure names the commit. In v0.19.0 the check allows any address at `users.noreply.github.com`.

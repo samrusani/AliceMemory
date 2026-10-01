@@ -1465,7 +1465,10 @@ def test_every_eval_retrieval_request_carries_the_fixed_reference_time(
     assert report["status"] == "pass"
     # Every live suite issued retrieval (queries, probes, filtered variants,
     # graph control runs), and none of those requests left the clock to chance.
-    assert len(seen) >= 100
+    assert len(seen) >= 100, (
+        "too few eval retrieval requests were spied; if a suite was removed or "
+        "stopped issuing retrieval, lower this pin on purpose"
+    )
     assert {request.reference_time for request in seen} == {VNEXT_EVAL_REFERENCE_TIME}
 
 
@@ -1507,4 +1510,7 @@ def test_reference_time_is_the_corpus_epoch_and_no_query_window_reaches_it() -> 
     assert anchored["Meridian launch window March 14"].window_start == datetime(
         2025, 3, 14, tzinfo=timezone.utc
     )
-    assert len(anchored) == 2
+    assert len(anchored) == 2, (
+        "a new eval query now parses a temporal anchor; check that its window "
+        "falls before the corpus epoch, then extend the non-vacuity pins above"
+    )
