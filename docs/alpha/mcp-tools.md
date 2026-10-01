@@ -540,6 +540,8 @@ answers a recall or context pack query the SQLite source search cannot take
 (see Size bounds). Its `error.message` is not static: it names the limit and
 the measured size, and never repeats the query, for example `query has 1000
 distinct search terms; the limit is 499. Use a shorter query.`
+Unreleased (on main, not in v0.19.2): it also answers an `alice_resume` or
+`alice_recent_decisions` query over 40,000 UTF-8 bytes (see Size bounds).
 The task-brief tools name both flags when either one is missing. Permanently
 deleted hosted, channel, chat, chief-of-staff, and model-pack tools never list.
 New integrations should stay on the default three tools; the legacy surface
@@ -580,13 +582,33 @@ source in the vault, answers `tool_execution_failed`, and a query of 500 to 990
 distinct terms, or of 40,001 to about 50,000 bytes, is taken. A query of any
 size over 40,000 bytes is also taken there when the search reads no source row
 (a vault with no captured source, or filters that exclude every source), and it
-is refused now because the check looks at the query alone. `alice_resume` and
-`alice_recent_decisions` are not covered: a query of about 50,000 bytes or more
-still answers `tool_execution_failed` from `alice_resume` once the vault holds
-an active memory of any type, and from `alice_recent_decisions` once it holds a
-stored decision. A query inside the limit can still take several seconds on a
-vault with thousands of sources: 3.7 seconds at 499 distinct terms, against 0.30
+is refused now because the check looks at the query alone. In v0.19.2
+`alice_resume` and `alice_recent_decisions` are not covered: a query of 49,999
+plain bytes or more, or 25,000 underscores or more, answers
+`tool_execution_failed` from `alice_resume` once the vault holds an active memory
+of any type or an open loop, and from `alice_recent_decisions` once it holds a
+stored decision. A query inside the limit can still take several seconds on a vault
+with thousands of sources: 3.7 seconds at 499 distinct terms, against 0.30
 seconds for two words, on a synthetic vault of 4,000 captured sources.
+
+Unreleased (on main, not in v0.19.2): on the SQLite vault, `alice_resume` and
+`alice_recent_decisions` take a `query` of at most 40,000 UTF-8 bytes, the limit
+above. The bytes are counted as sent and again after each backslash, `%` and `_`
+in the query is escaped with a backslash, because that is the text SQLite
+matches: 20,000 underscores are taken and 20,001 are not. These two tools match
+the query as one literal substring, so the limit on distinct search terms and
+the count after case folding do not apply to them, and a query of 4,000 distinct
+terms is taken. A longer query is refused with `invalid_request` and a message
+that names the limit, for example `query is 50399 UTF-8 bytes; the limit is
+40000. Use a shorter query.` Nothing is read first and the query is never cut to
+fit. The answer depends on the query alone, not on what the vault holds or what
+the caller may read, so an empty vault refuses it too. In v0.19.2 a query of
+49,999 plain bytes or more, or 25,000 underscores or more, answers
+`tool_execution_failed` as described above, a query of 40,001 to 49,998 plain
+bytes, or 20,001 to 24,999 underscores, is taken, and so is a query of any size
+on a vault with no active memory, open loop or decision. The Postgres backend
+and the HTTP API, which read the Postgres store, have no such limit and are not
+changed.
 
 ## Trust boundary
 

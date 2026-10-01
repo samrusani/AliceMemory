@@ -31,7 +31,11 @@ from uuid import UUID
 
 import numpy as np
 
-from alicebot_api.source_search_limits import require_source_search_query
+from alicebot_api.source_search_limits import (
+    literal_match_operand,
+    require_literal_match_query,
+    require_source_search_query,
+)
 from alicebot_api.sqlite_schema import bootstrap_sqlite_schema
 from alicebot_api.store import ContinuityStoreInvariantError
 from alicebot_api.vnext_capture import (
@@ -510,7 +514,7 @@ class SQLiteVNextStore:
                 f" OR {_sqlite_ascii_literal_contains_sql("COALESCE(memory.canonical_text, '')")}"
                 f" OR {_sqlite_ascii_literal_contains_sql("COALESCE(memory.summary, '')")})"
             )
-            escaped_query = _escape_like_literal(normalized_query)
+            escaped_query = literal_match_operand(normalized_query)
             params.extend((escaped_query, escaped_query, escaped_query))
         if occurred_at_start is not None:
             filters.append("julianday(event.occurred_at) >= julianday(?)")
@@ -1056,6 +1060,21 @@ class SQLiteVNextStore:
         """
 
         require_source_search_query(query)
+
+    def check_literal_match_query(self, query: str) -> None:
+        """Refuse a query the literal substring reads could not run, with a typed error.
+
+        ``list_memories``, ``list_open_loops``, ``list_open_loop_events`` and
+        ``list_resume_memory_events`` bind a query as one LIKE operand, and
+        SQLite fails them with ``LIKE or GLOB pattern too complex`` past 50,000
+        bytes. Each of the four refuses such a query itself, through
+        ``literal_match_operand``. A caller that wants the refusal before it does
+        other work, and whatever the vault holds or the caller may read, calls
+        this first. The Postgres store has no such limit and defines no such
+        method.
+        """
+
+        require_literal_match_query(query)
 
     def search_sources(
         self,

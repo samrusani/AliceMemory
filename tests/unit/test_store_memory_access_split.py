@@ -42,9 +42,11 @@ SOURCE_RECEIPTS = {
     # the cached candidate SQL now carries the scan's FULL predicate set --
     # including the signature json_extract clauses -- so no predicate is
     # ever captured into the resident data (metadata_json rewrites cannot
-    # stale the cache).
+    # stale the cache). Re-minted again for ``list_memories``, which binds a query
+    # through ``literal_match_operand`` and so refuses one past the LIKE operand
+    # limit. The Postgres carrier is unchanged on purpose: it has no such limit.
     "apps/api/src/alicebot_api/vnext_stores/sqlite/memory_access.py": (
-        "043d5678070e1795194b677e89f74335cadf2d9220da110345dbd0391b742f3b"
+        "3288d2642cd473492387d720d428ce7a8322b36473da9c5e37ef3abe5d65e242"
     ),
 }
 
@@ -159,9 +161,10 @@ SQLITE_QUERY_EXPORTS = (
 EXPECTED_CLASS_ORDERS = {
     # Two paired browser-clip capability methods extend both façades.
     "PostgresVNextStore": (170, "5f28f1a17670a0c8b7b373acd0c314637c58e6a10ccf52053481a8a028bb3c09"),
-    # One SQLite-only method more, ``check_source_search_query``: the Postgres
-    # source search has no expression-depth or LIKE-length limit to check.
-    "SQLiteVNextStore": (124, "bc5249c5a4944cddec3efb0673e1b8611c387ebf910534d2edfa21c2481c1c1d"),
+    # Two SQLite-only methods more, ``check_source_search_query`` and
+    # ``check_literal_match_query``: the Postgres reads have no expression-depth
+    # or LIKE-length limit to check.
+    "SQLiteVNextStore": (125, "316e3274fde3adcac77f84a5ae0eb8bb92d40ac1f0e3edf3dce7093b55d32ef4"),
 }
 
 

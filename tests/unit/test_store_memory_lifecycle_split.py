@@ -96,9 +96,10 @@ EXPECTED_METADATA_MANIFESTS = {
 EXPECTED_CLASS_ORDERS = {
     # Two paired browser-clip capability methods extend both façades.
     "PostgresVNextStore": (170, "5f28f1a17670a0c8b7b373acd0c314637c58e6a10ccf52053481a8a028bb3c09"),
-    # One SQLite-only method more, ``check_source_search_query``: the Postgres
-    # source search has no expression-depth or LIKE-length limit to check.
-    "SQLiteVNextStore": (124, "bc5249c5a4944cddec3efb0673e1b8611c387ebf910534d2edfa21c2481c1c1d"),
+    # Two SQLite-only methods more, ``check_source_search_query`` and
+    # ``check_literal_match_query``: the Postgres reads have no expression-depth
+    # or LIKE-length limit to check.
+    "SQLiteVNextStore": (125, "316e3274fde3adcac77f84a5ae0eb8bb92d40ac1f0e3edf3dce7093b55d32ef4"),
 }
 EXPECTED_FACADE_COMMENT_DIGESTS = {
     POSTGRES_FACADE_PATH: "d8599a46ee26dc35a3ae52c1a98a416509add9ae4a42ece780c5c5ed7e132b93",

@@ -10,6 +10,7 @@ from typing import cast
 
 import numpy as np
 
+from alicebot_api.source_search_limits import literal_match_operand
 from alicebot_api.store import ContinuityStoreInvariantError
 from alicebot_api.vnext_embeddings import (
     EMBEDDING_SIGNATURE_METADATA_KEY,
@@ -25,7 +26,6 @@ from alicebot_api.vnext_stores.retrieval_common import _search_patterns
 from alicebot_api.vnext_stores.sqlite.columns import MEMORY_COLUMNS
 from alicebot_api.vnext_stores.sqlite.primitives import _iso_or_none
 from alicebot_api.vnext_stores.sqlite.query_predicates import (
-    _escape_like_literal,
     _fts_match_any_expression,
     _fts_match_expression,
     _sqlite_ascii_literal_contains_sql,
@@ -341,7 +341,7 @@ def list_memories(
                 f" OR {_sqlite_ascii_literal_contains_sql("COALESCE(canonical_text, '')")}"
                 f" OR {_sqlite_ascii_literal_contains_sql("COALESCE(summary, '')")})"
             )
-            escaped_query = _escape_like_literal(normalized_query)
+            escaped_query = literal_match_operand(normalized_query)
             params.extend((escaped_query, escaped_query, escaped_query))
     order_sql = (
         "ORDER BY created_at DESC, id DESC"

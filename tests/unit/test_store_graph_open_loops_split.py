@@ -105,13 +105,17 @@ SQLITE_COLUMN_NAMES = (
 
 SOURCE_RECEIPTS = {
     POSTGRES_CARRIER_PATH: "9e91fbb96705ccb61c8100c32f8fc7875b6e715d8355865923491c7fa937a102",
-    SQLITE_CARRIER_PATH: "fb0569f51578e3c57f43cd6beb9dc88ab307242f6ef829180e7613b50000283f",
+    # The SQLite carrier is re-minted, with its method AST manifest below, for
+    # ``list_open_loops`` and ``list_open_loop_events``: they bind a query through
+    # ``literal_match_operand`` and so refuse one past the LIKE operand limit.
+    # The Postgres carrier is unchanged on purpose: it has no such limit.
+    SQLITE_CARRIER_PATH: "f5b34e8c1fc4356979d1af3c312ae72e50074a91598c6b220dad30eaa96d5f4b",
     POSTGRES_COLUMNS_PATH: "5b0d972a55abf8590ce14394a37fd71b9b88ba7ab3de82d61efc1bddfc022b71",
     SQLITE_COLUMNS_PATH: "be81b8628d0831d3d02b280b5455fb02333db5740ebef8d85d58024384ae6556",
 }
 EXPECTED_METHOD_AST_MANIFESTS = {
     POSTGRES_CARRIER_PATH: "9a354d1cfb9f134ec7fadb74dd1647b1502ecb2a5b83edb3b65c7123091111ca",
-    SQLITE_CARRIER_PATH: "96a4c8d4ecbbe8dbd4ef4f3f3831a0cc81a049f90192f6bf9a634c3fb6b497be",
+    SQLITE_CARRIER_PATH: "ce092d81cea43cabcc15a9fbfa355e7403a48930a9d071c5c924e27bdbc1cbce",
 }
 EXPECTED_METADATA_MANIFESTS = {
     POSTGRES_CARRIER_PATH: "801a455053962b25972ab783d36b03d0389df5c151cba545b05ee8d150f172b9",
@@ -124,9 +128,10 @@ EXPECTED_COMMENT_MANIFESTS = {
 EXPECTED_CLASS_ORDERS = {
     # Two paired browser-clip capability methods extend both façades.
     "PostgresVNextStore": (170, "5f28f1a17670a0c8b7b373acd0c314637c58e6a10ccf52053481a8a028bb3c09"),
-    # One SQLite-only method more, ``check_source_search_query``: the Postgres
-    # source search has no expression-depth or LIKE-length limit to check.
-    "SQLiteVNextStore": (124, "bc5249c5a4944cddec3efb0673e1b8611c387ebf910534d2edfa21c2481c1c1d"),
+    # Two SQLite-only methods more, ``check_source_search_query`` and
+    # ``check_literal_match_query``: the Postgres reads have no expression-depth
+    # or LIKE-length limit to check.
+    "SQLiteVNextStore": (125, "316e3274fde3adcac77f84a5ae0eb8bb92d40ac1f0e3edf3dce7093b55d32ef4"),
 }
 EXPECTED_COLUMN_AST = {
     POSTGRES_COLUMNS_PATH: {
