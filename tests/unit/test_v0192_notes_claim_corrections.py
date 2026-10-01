@@ -227,15 +227,21 @@ def test_a_long_query_inside_the_limit_can_still_take_seconds() -> None:
     )
 
 
-def test_the_hermes_operator_guide_names_the_current_plugin_version() -> None:
-    """Mutation: put 0.5.1 back as the plugin's own version."""
+def test_the_hermes_operator_guide_names_the_released_and_the_unreleased_plugin_version() -> None:
+    """The guide names 0.5.2 as v0.19.2's version and 0.5.3 as main's.
+
+    Mutations: put 0.5.1 back as the released plugin version in the guide; drop
+    the ``Unreleased (on main, not in v0.19.2): `0.5.3``` marker; leave
+    ``plugin.yaml`` at 0.5.2 once main's plugin is 0.5.3.
+    """
 
     guide = _flat("docs/integrations/hermes-bridge-operator-guide.md")
     assert "keeps its own `0.5.2` integration-contract version in `plugin.yaml`" in guide
+    assert "Unreleased (on main, not in v0.19.2): `0.5.3`." in guide
     plugin = (
         REPO_ROOT / "docs" / "integrations" / "hermes-memory-provider" / "plugins" / "memory" / "alice" / "plugin.yaml"
     ).read_text(encoding="utf-8")
-    assert "version: 0.5.2" in plugin
+    assert "version: 0.5.3" in plugin
 
 
 def test_no_tracked_file_names_the_owner_login_used_as_a_test_fixture() -> None:
