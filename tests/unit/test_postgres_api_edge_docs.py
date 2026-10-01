@@ -63,6 +63,65 @@ def test_the_changelog_entry_sits_under_unreleased_and_states_v0192_for_host_and
     assert "ALICEBOT_ALLOWED_HOSTS" not in released
 
 
+def test_the_changelog_entry_states_the_size_limit_and_the_nesting_limit_with_v0192_beside_each() -> None:
+    """The DB-006 half of the entry: the numbers, the layer, the exceptions, and what v0.19.2 did.
+
+    Mutations, each one alone: delete the sentence that says the limit is the
+    outermost layer; change 4 MiB, 32 MiB or 256 levels in the entry; delete the
+    sentence that says v0.19.2 limited nothing, or the one that gives its
+    measured memory; delete the Caddy sentence; delete the sentence that says
+    the cap counts bytes as sent; delete the browser-clip exception.
+    """
+
+    entry = _entry()
+    assert "Request size and nesting (DB-006):" in entry
+    assert "a request body over 4 MiB (4,194,304 bytes, setting `ALICEBOT_MAX_REQUEST_BODY_BYTES`) is refused with HTTP 413" in entry
+    assert '`{"code": "request_too_large", "message": "The request body is too large"}` before any layer reads it' in entry
+    assert "The limit is a pure ASGI layer registered last, so it is the outermost." in entry
+    assert "A declared `Content-Length` over the cap is refused before a byte is read." in entry
+    assert "the refusal carries `Connection: close`" in entry
+    assert "text written with `\\uXXXX` escapes counts six bytes a character" in entry
+    assert "they have their own cap of 32 MiB (setting `ALICEBOT_MAX_CONNECTOR_SYNC_BODY_BYTES`)" in entry
+    assert "adds `request_body { max_size 4MB }`, the deployment validator requires it" in entry
+    assert "The browser-clip capture route is checked after its body is read, because its capability is in the body." in entry
+    assert "A JSON body nested more than 256 levels deep is refused with HTTP 422" in entry
+    assert "one error of type `json_too_deep` with `loc` `[\"body\"]`, with nothing from the body in it" in entry
+    assert "The check reads the bytes and never decodes the body" in entry
+    assert "In v0.19.2 nothing was limited." in entry
+    assert "the server's memory peaked at 712 MiB (104 MiB idle)" in entry
+    assert "A body nested about 975 levels deep or more answered HTTP 500" in entry
+    assert "A body nested 257 to about 974 levels deep reached the route" in entry
+    assert "The HTTP 422 for a lone surrogate is unchanged." in entry
+
+
+def test_the_threat_model_names_the_size_limit_and_marks_main() -> None:
+    """The size paragraph, the abuse-case row and the open-items bullet say it, marked.
+
+    Mutations, each one alone: delete the marker from the paragraph, the row or
+    the open-items sentence; delete the sentence that says the cap is no rate
+    limit; delete the Caddy sentence.
+    """
+
+    raw = _read("docs/security/threat-model.md")
+    model = _flat(raw)
+    start = model.index(f"{MARKER} the HTTP API caps a request body before any layer reads it")
+    paragraph = model[start:].split(" ### Assets")[0]
+    assert "answers HTTP 413 for a body over `ALICEBOT_MAX_REQUEST_BODY_BYTES` (4 MiB by default)" in paragraph
+    assert "`ALICEBOT_MAX_CONNECTOR_SYNC_BODY_BYTES` (32 MiB by default)" in paragraph
+    assert "nested more than 256 levels deep is refused with HTTP 422" in paragraph
+    assert "In v0.19.2 the identity layer, the two gates and the framework each read a body of any size" in paragraph
+    assert "The cap is a bound on one request, not a rate limit." in paragraph
+    assert "`packaging/cloud/Caddyfile.example` sets `request_body { max_size 4MB }`." in paragraph
+    rows = [line for line in raw.splitlines() if line.startswith("| Oversized or deeply nested request body")]
+    assert len(rows) == 1
+    assert MARKER in rows[0]
+    assert "the cap is no rate limit" in rows[0]
+    assert (
+        f"{MARKER} the `Host` and `Origin` rules above are in (DB-005), and a request body over 4 MiB is refused "
+        "with HTTP 413 before it is read (DB-006)."
+    ) in model
+
+
 def test_the_threat_model_names_dns_rebinding_and_the_host_rule_and_marks_main() -> None:
     """The deployment paragraph, the abuse-case row and the open-items bullet all say what main does, marked.
 
@@ -88,7 +147,7 @@ def test_the_threat_model_names_dns_rebinding_and_the_host_rule_and_marks_main()
     assert MARKER in row[0]
     assert "Not reproduced in a real browser" in row[0]
 
-    assert f"does not check the `Host` header of a keyless loopback request. Unreleased (on main, not in v0.19.2): the `Host` and `Origin` rules above are in (DB-005)." in model
+    assert "does not check the `Host` header of a keyless loopback request. Unreleased (on main, not in v0.19.2): the `Host` and `Origin` rules above are in (DB-005)" in model
 
 
 def test_known_limitations_keeps_v0192_and_marks_main_for_host_and_origin() -> None:
@@ -106,13 +165,19 @@ def test_known_limitations_keeps_v0192_and_marks_main_for_host_and_origin() -> N
     assert len(bullets) == 1
     bullet = bullets[0]
     assert bullet.startswith("- the Postgres stack's HTTP API parses a JSON request body of any size before it authenticates")
-    assert f"it does not check the `Host` header of a keyless loopback request. {MARKER} a keyless request is refused unless its `Host` is `localhost`, `127.0.0.1`, `::1` or a name listed in `ALICEBOT_ALLOWED_HOSTS`" in bullet
+    assert (
+        f"it does not check the `Host` header of a keyless loopback request. {MARKER} a request body over 4 MiB "
+        "(32 MiB for the connector sync routes) is refused with HTTP 413 before any layer reads it, a keyless request "
+        "from another peer is refused before its body is read, a JSON body nested more than 256 levels deep is refused "
+        "with HTTP 422 (DB-006), and a keyless request is refused unless its `Host` is `localhost`, `127.0.0.1`, `::1` "
+        "or a name listed in `ALICEBOT_ALLOWED_HOSTS`"
+    ) in bullet
     assert "(DB-005)" in bullet
     assert bullet.endswith("The legacy `/v0` continuity routes are not behind that check")
 
 
-def test_security_policy_and_deployment_guide_mark_the_host_rule_as_main() -> None:
-    """SECURITY.md and the deployment guide say it, marked, and the example env documents the setting.
+def test_security_policy_deployment_guide_and_env_example_mark_the_edge_rules_as_main() -> None:
+    """SECURITY.md and the deployment guide say it, marked, and the example env documents the settings.
 
     Mutations: delete the marker from either document; delete the commented
     ``ALICEBOT_ALLOWED_HOSTS`` line from the example env.
@@ -123,7 +188,14 @@ def test_security_policy_and_deployment_guide_mark_the_host_rule_as_main() -> No
     guide = _flat(_read("docs/deployment/single-tenant-self-hosted.md"))
     assert f"{MARKER} while keyless, the API also refuses a request whose `Host` is not `localhost`" in guide
     assert "this topology, which requires a key before Caddy starts, is unchanged" in guide
-    assert "# ALICEBOT_ALLOWED_HOSTS=" in _read(".env.example")
+    env = _read(".env.example")
+    assert "# ALICEBOT_ALLOWED_HOSTS=" in env
+    assert "# ALICEBOT_MAX_REQUEST_BODY_BYTES=4194304" in env
+    assert "# ALICEBOT_MAX_CONNECTOR_SYNC_BODY_BYTES=33554432" in env
+    assert f"{MARKER} Alice refuses a request body over 4 MiB with HTTP 413 before it reads it" in guide
+    assert "That Caddy cap also applies to connector sync requests" in guide
+    caddy = _read("packaging/cloud/Caddyfile.example")
+    assert "request_body {\n\t\tmax_size 4MB\n\t}" in caddy
 
 
 def test_the_v0192_release_notes_still_list_the_findings_as_open() -> None:
@@ -144,6 +216,9 @@ def test_no_added_text_uses_an_em_dash_or_an_en_dash() -> None:
         _read("docs/deployment/single-tenant-self-hosted.md"),
         _read(".env.example"),
         _read("apps/api/src/alicebot_api/keyless_edge.py"),
+        _read("apps/api/src/alicebot_api/request_limits.py"),
+        _read("packaging/cloud/Caddyfile.example"),
+        _read("docs/alpha/known-limitations.md").split("Open items from the internal security review")[1],
     ):
         assert "—" not in text
         assert "–" not in text

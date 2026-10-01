@@ -68,6 +68,8 @@ DEFAULT_SECURITY_HEADERS_HSTS_INCLUDE_SUBDOMAINS = True
 DEFAULT_TRUST_PROXY_HEADERS = False
 DEFAULT_TRUSTED_PROXY_IPS: tuple[str, ...] = ()
 DEFAULT_ALLOWED_HOSTS: tuple[str, ...] = ()
+DEFAULT_MAX_REQUEST_BODY_BYTES = 4 * 1024 * 1024
+DEFAULT_MAX_CONNECTOR_SYNC_BODY_BYTES = 32 * 1024 * 1024
 DEFAULT_RETRIEVAL_TRACE_RETENTION_DAYS = 14
 DEFAULT_LEGACY_V0_ENABLED_OUTSIDE_DEV = False
 
@@ -202,6 +204,8 @@ class Settings:
     trust_proxy_headers: bool = DEFAULT_TRUST_PROXY_HEADERS
     trusted_proxy_ips: tuple[str, ...] = DEFAULT_TRUSTED_PROXY_IPS
     allowed_hosts: tuple[str, ...] = DEFAULT_ALLOWED_HOSTS
+    max_request_body_bytes: int = DEFAULT_MAX_REQUEST_BODY_BYTES
+    max_connector_sync_body_bytes: int = DEFAULT_MAX_CONNECTOR_SYNC_BODY_BYTES
     retrieval_trace_retention_days: int = DEFAULT_RETRIEVAL_TRACE_RETENTION_DAYS
     legacy_v0_enabled_outside_dev: bool = DEFAULT_LEGACY_V0_ENABLED_OUTSIDE_DEV
 
@@ -338,6 +342,16 @@ class Settings:
             allowed_hosts=_parse_allowed_hosts(
                 _get_env_csv(current_env, "ALICEBOT_ALLOWED_HOSTS", cls.allowed_hosts),
             ),
+            max_request_body_bytes=_get_env_int(
+                current_env,
+                "ALICEBOT_MAX_REQUEST_BODY_BYTES",
+                cls.max_request_body_bytes,
+            ),
+            max_connector_sync_body_bytes=_get_env_int(
+                current_env,
+                "ALICEBOT_MAX_CONNECTOR_SYNC_BODY_BYTES",
+                cls.max_connector_sync_body_bytes,
+            ),
             retrieval_trace_retention_days=_get_env_int(
                 current_env,
                 "RETRIEVAL_TRACE_RETENTION_DAYS",
@@ -457,6 +471,10 @@ def _validate_settings(
         raise ValueError("CORS_ALLOWED_METHODS must include at least one method")
     if settings.security_headers_hsts_max_age_seconds <= 0:
         raise ValueError("SECURITY_HEADERS_HSTS_MAX_AGE_SECONDS must be a positive integer")
+    if settings.max_request_body_bytes <= 0:
+        raise ValueError("ALICEBOT_MAX_REQUEST_BODY_BYTES must be a positive integer")
+    if settings.max_connector_sync_body_bytes <= 0:
+        raise ValueError("ALICEBOT_MAX_CONNECTOR_SYNC_BODY_BYTES must be a positive integer")
     if settings.retrieval_trace_retention_days <= 0:
         raise ValueError("RETRIEVAL_TRACE_RETENTION_DAYS must be a positive integer")
     if settings.trust_proxy_headers and len(settings.trusted_proxy_ips) == 0:

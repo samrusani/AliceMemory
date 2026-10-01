@@ -336,13 +336,18 @@ def test_the_guard_is_the_innermost_layer() -> None:
 
     Identity, security headers, the ``/v1`` key check and the vNext check all
     come before the guard, so it reads a body only for a request they let
-    through. Mutations: register the guard after the vNext layer, or before
+    through. The request size limit is outside all of them. Mutations: register
+    the guard after the vNext layer, or before
     ``enforce_v1_agent_authentication``.
     """
 
-    order = [middleware.kwargs["dispatch"].__name__ for middleware in main_module.app.user_middleware]
+    order = [
+        middleware.kwargs["dispatch"].__name__ if "dispatch" in middleware.kwargs else middleware.cls.__name__
+        for middleware in main_module.app.user_middleware
+    ]
 
     assert order == [
+        "RequestBodyLimitMiddleware",
         "enforce_authenticated_user_identity",
         "apply_http_security_posture",
         "enforce_v1_agent_authentication",

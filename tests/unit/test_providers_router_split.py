@@ -79,7 +79,21 @@ CARRIER_NAMES = tuple(
 EXPECTED_ROUTE_AST_SHA256 = "9e5d6c2c79cc1391688b74bb5138ccaa881033546e7b0cfd34ad92e8d98ba614"
 EXPECTED_SUPPORT_AST_SHA256 = "bb694bc545e514bb81e2aa568eba1cb72ba813373015d979bac452d23d4dbd74"
 EXPECTED_CARRIER_NAMES_SHA256 = "2c109fc234a05dd8f44e4c34bee49e797fbb5e49e92413391541a7e504da328b"
-# Re-pinned 2026-10-01 (DB-005). A keyless request is refused unless its Host
+# Re-pinned 2026-10-01 (DB-006). A request body is capped before any layer reads
+# it, and a body nested too deeply is a 422. Six definitions changed, found by a
+# per-definition AST diff against origin/main (the two DB-005 ones below are in
+# that list too): _rewrite_user_id_json_body, _v1_request_payload and
+# _vnext_protected_http_auth read the body through request_limits.read_json_body
+# in place of their own request.json() or json.loads and narrow except;
+# _prepare_browser_clip_simple_request catches ValueError and RecursionError;
+# _vnext_protected_http_auth also refuses a keyless request from another peer, or
+# with a foreign Host or Origin, before it reads the body, and
+# enforce_authenticated_user_identity skips the body rewrite for such a request;
+# enforce_v1_agent_authentication answers a body nested too deeply. The size
+# limit itself is app.add_middleware(RequestBodyLimitMiddleware, ...), a
+# registration and not a definition, and lives in request_limits.py. The set of
+# definitions is the same.
+# Earlier re-pin 2026-10-01 (DB-005). A keyless request is refused unless its Host
 # names this machine and its Origin is configured or its own. Two definitions
 # changed, found by a per-definition AST diff against origin/main:
 # _vnext_protected_http_auth and enforce_v1_agent_authentication each call
@@ -97,7 +111,7 @@ EXPECTED_CARRIER_NAMES_SHA256 = "2c109fc234a05dd8f44e4c34bee49e797fbb5e49e924133
 # lone_surrogates.py and main.py only registers it, so it adds no definition
 # here. Earlier re-pin (2026-09-26): _rewrite_user_id_json_body writes the
 # rewritten JSON into request._body before call_next.
-EXPECTED_CARRIER_AST_SHA256 = "7aee107d0b18f17de7b86e6647d412c256698877697e4b0a3fc6bfb775035061"
+EXPECTED_CARRIER_AST_SHA256 = "bf8fb46f60eb4cd60f143c8012dace3e1bc8bbf76c5f108312942c8c8325b75c"
 EXPECTED_ROUTE_NAME_MANIFEST_SHA256 = "1a438538e16120361f92d30375cc94679d598fe4b78ba5a58a7d8a4dda6af83c"
 EXPECTED_OPERATION_MANIFEST_SHA256 = "8b79ceaf996b8c51b5bb2f3f38a8c19a4e33796955d8b8f7a66e7ac01ea1732d"
 EXPECTED_IMPORT_MANIFEST_SHA256 = "17484ccdd460e42e2ad5c82a8ca867664694feaf871118c410a134996a532358"

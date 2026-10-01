@@ -44,6 +44,15 @@ a page on another name that resolves to 127.0.0.1 from calling the API. A reques
 with an agent key is not checked, and this topology, which requires a key before
 Caddy starts, is unchanged.
 
+Unreleased (on main, not in v0.19.2): Alice refuses a request body over 4 MiB with
+HTTP 413 before it reads it (`ALICEBOT_MAX_REQUEST_BODY_BYTES`, in bytes), and
+the connector sync routes, which take lists of whole documents, have a separate
+cap of 32 MiB (`ALICEBOT_MAX_CONNECTOR_SYNC_BODY_BYTES`). The Caddy example caps
+the body at the proxy too, with `request_body { max_size 4MB }` in the site block,
+so an oversized upload is refused before it reaches Alice. That Caddy cap also
+applies to connector sync requests; raise it for those paths if you send large
+documents through Caddy.
+
 Once any active agent key exists, keyless `/v0/vnext` calls are rejected. The
 browser console requires an unbound `admin_agent` key for the complete review
 surface and holds it only in browser memory for that mounted session. Create

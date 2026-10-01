@@ -616,6 +616,14 @@ def test_the_mtls_stanza_constant_still_matches_the_shipped_example() -> None:
             lambda text: text.replace("frame-ancestors 'none'", "frame-ancestors *"),
             "caddy_clickjacking_defense_missing",
         ),
+        (
+            lambda text: text.replace("request_body {", "request_body_disabled {"),
+            "caddy_request_body_limit_missing",
+        ),
+        (
+            lambda text: text.replace("\t\tmax_size 4MB\n", ""),
+            "caddy_request_body_limit_missing",
+        ),
     ),
 )
 def test_caddy_validation_rejects_missing_auth_xff_spoof_and_public_upstreams(

@@ -59,6 +59,31 @@ browser; the rule holds without it. The legacy `/v0` continuity routes, which ar
 served only in development and test or with `LEGACY_V0_ENABLED_OUTSIDE_DEV`, are
 not behind these two gates and are not covered.
 
+Unreleased (on main, not in v0.19.2): the HTTP API caps a request body before any
+layer reads it, because a request that has not authenticated can still make the
+server read and parse what it sends. A pure ASGI layer, registered last so it is
+the outermost, answers HTTP 413 for a body over `ALICEBOT_MAX_REQUEST_BODY_BYTES`
+(4 MiB by default). It refuses a declared `Content-Length` over the cap before a
+byte is read, and for a chunked or undeclared body it counts the bytes the layers
+below pull and refuses as soon as the total crosses the cap, with
+`Connection: close`. It covers the identity layer, the vNext and `/v1` gates, the
+framework's own parse and callers that hold a valid key. The connector sync
+routes take lists of whole documents that no model bounds, so they have their own
+cap, `ALICEBOT_MAX_CONNECTOR_SYNC_BODY_BYTES` (32 MiB by default). The vNext gate
+refuses a keyless request from another peer, or with a foreign Host or Origin,
+before it reads the body, as the `/v1` gate already did, and the identity layer
+skips its body rewrite for such a request. A JSON body nested more than 256 levels
+deep is refused with HTTP 422 before any layer decodes it, with a validation
+error of type `json_too_deep` and nothing from the body in it. In v0.19.2 the
+identity layer, the two gates and the framework each read a body of any size and
+parsed it before authentication: a 100 MiB chunked body took the server from
+104 MiB to 712 MiB, and a body nested about 975 levels deep or more raised
+`RecursionError` out of a layer and answered HTTP 500. The cap is a bound on one
+request, not a rate limit. A client inside the cap can send many requests, and the
+cost of a request near the cap is real (a 30.9 MiB connector sync body peaked at
+about 330 MiB of server memory), so the reverse proxy should cap the body too:
+`packaging/cloud/Caddyfile.example` sets `request_body { max_size 4MB }`.
+
 ### Assets And Security Objectives
 
 | Asset | Objective |
@@ -163,6 +188,7 @@ active-key or RLS bypass remains in scope.
 | Abuse case | Control/evidence | Residual concern |
 | --- | --- | --- |
 | Missing key treated as remote anonymous access | Documented local-only boundary; active-key rule rejects keyless requests. | Host/proxy misconfiguration can invalidate the assumption. |
+| Oversized or deeply nested request body before authentication | Unreleased (on main, not in v0.19.2): a body over 4 MiB (32 MiB for connector sync) is refused with HTTP 413 before any layer reads it, a keyless request from another peer is refused before its body is read, a body nested more than 256 levels is refused with HTTP 422, and the Caddy example caps the body at the proxy. | A request inside the cap still costs memory and time, and the cap is no rate limit. The cap counts bytes as sent. |
 | DNS rebinding or a cross-origin request to a keyless loopback API | Unreleased (on main, not in v0.19.2): a keyless request must name `localhost`, `127.0.0.1`, `::1` or an operator-listed host in `Host`, and any `Origin` must be a configured origin or its own. A keyed request is not checked. | Not reproduced in a real browser. The legacy `/v0` continuity routes are outside the two gated surfaces. A name the operator lists in `ALICEBOT_ALLOWED_HOSTS` is trusted as this machine. |
 | Payload claims a stronger profile or another project | Key-bound actor/profile/scope, escalation rejection events, policy tests. | Final carrier needs all-route ASGI closure evidence. |
 | Cross-user PostgreSQL read/write | Application-role RLS and user-scoped connections. | Admin credentials or a compromised host bypass the product boundary. |
@@ -236,7 +262,8 @@ active-key or RLS bypass remains in scope.
   The Postgres stack's HTTP API parses a JSON request body of any size before it
   authenticates (a 262,057 byte body was read in full before the 401), and it
   does not check the `Host` header of a keyless loopback request. Unreleased (on
-  main, not in v0.19.2): the `Host` and `Origin` rules above are in (DB-005). The
+  main, not in v0.19.2): the `Host` and `Origin` rules above are in (DB-005), and a
+  request body over 4 MiB is refused with HTTP 413 before it is read (DB-006). The
   local-folder scan reads each matching file whole with no size limit, and a
   file swapped for a link between its containment check and its read is read
   from outside the watched folder. The provider helper, which checks the
