@@ -1568,7 +1568,7 @@ def _item_with_text_cut(item: JsonObject, *, query: str, max_chars: int) -> Json
 
 
 def _fit_item_to_tokens(item: JsonObject, *, query: str, max_tokens: int) -> JsonObject | None:
-    """The longest cut of ``item`` that costs at most ``max_tokens``, or None.
+    """The longest cut of ``item`` that the search finds within ``max_tokens``, or None.
 
     None means the item cannot be made to fit: with every cuttable text reduced
     to the bare cut marker, the ids, scope and metadata it carries alone cost

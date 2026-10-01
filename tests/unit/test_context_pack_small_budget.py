@@ -263,7 +263,7 @@ def test_an_item_one_token_over_the_budget_is_cut_not_admitted() -> None:
 
 
 def test_the_cut_keeps_as_much_text_as_the_budget_allows() -> None:
-    """The cut is the longest one that fits, not the shortest one that does.
+    """The cut keeps nearly all the room the budget leaves, not just a sliver of it.
 
     Mutation: make ``_fit_item_to_tokens`` return its first candidate, the one
     with every text cut to the bare marker, without searching. The pack is then
@@ -332,6 +332,71 @@ def test_only_the_first_item_is_cut_when_nothing_fits_whole() -> None:
     assert pack["budget"]["dropped_item_count"] >= 1, "memory-2 is still dropped, not cut as well"
 
 
+@pytest.mark.parametrize(
+    ("strategy", "query", "expected_id"),
+    [
+        ("balanced", QUERY, "memory-1"),
+        ("facts_first", QUERY, "memory-1"),
+        ("contradictions_first", QUERY, "memory-1"),
+        ("sources_first", QUERY, "source-1"),
+        ("balanced", f"{QUERY} what is still open", "loop-1"),
+    ],
+    ids=["balanced", "facts_first", "contradictions_first", "sources_first", "loops_view"],
+)
+def test_the_item_that_is_cut_is_the_first_in_the_strategys_section_order(
+    strategy: str, query: str, expected_id: str
+) -> None:
+    """Which item is cut follows the offer order the strategy and view set.
+
+    A memory, an open loop and a source each need a cut at this budget, so the
+    only thing that decides which one comes back is the section order. The
+    default order offers memories first, ``sources_first`` offers sources first,
+    and a query that asks what is still open reads as the loops view, which
+    offers open loops first. ``contradictions_first`` has no ranked item to cut
+    in its first section, so it falls through to the memory.
+
+    Mutation: in ``compile_context_pack``, pass the fixed tuple
+    ``(SECTION_RELEVANT_MEMORIES, SECTION_OPEN_LOOPS, SECTION_SOURCES)`` as
+    ``section_order`` to ``_first_item_that_fits_when_cut`` instead of the
+    strategy's ``section_order``. The ``sources_first`` and ``loops_view`` cases
+    then come back with memory-1.
+    """
+
+    memory = _memory_row("memory-1", _words("Alice budget probe", 6_000))
+    loop = {
+        "id": "loop-1",
+        "title": "Alice budget probe loop",
+        "description": _words("Alice budget probe", 6_000),
+        "status": "open",
+        "domain": "project",
+        "sensitivity": "private",
+    }
+    source = {
+        "id": "source-1",
+        "source_type": "manual_text",
+        "title": "Alice budget probe source",
+        "content_hash": "sha256:order",
+        "domain": "project",
+        "sensitivity": "private",
+    }
+    chunk = {"id": "chunk-1", "source_id": "source-1", "chunk_index": 0, "text": _words("Alice budget probe", 6_000)}
+    store = InMemoryVNextRetrievalStore(
+        memories=[memory], sources=[source], open_loops=[loop], source_chunks=[chunk]
+    )
+    whole = _compile(store, max_tokens=None, query=query, strategy=strategy)
+    offered = _packed_items(whole)
+    assert {item["id"] for item in offered} == {"memory-1", "loop-1", "source-1"}, "fixture: three sections"
+    budget = 200
+    assert min(estimate_item_tokens(item) for item in offered) > budget, "fixture: every item needs a cut"
+    assert max(estimate_item_tokens(_floor_item(item)) for item in offered) < budget, "fixture: every item can be cut"
+
+    pack = _compile(store, max_tokens=budget, query=query, strategy=strategy)
+
+    assert [item["id"] for item in _packed_items(pack)] == [expected_id]
+    assert pack["budget"]["cut_item_count"] == 1
+    assert pack["budget"]["token_estimate"] <= budget
+
+
 def test_nothing_is_cut_while_some_item_fits_whole() -> None:
     """The cut is a last resort. A whole smaller item beats a cut larger one.
 
@@ -378,6 +443,152 @@ def test_an_item_that_cannot_be_cut_small_enough_yields_to_the_next_one() -> Non
     assert [item["id"] for item in pack["relevant_memories"]] == ["memory-2"]
     assert pack["relevant_memories"][0]["canonical_text"].endswith(CUT_MARKER)
     assert pack["budget"]["token_estimate"] <= budget
+
+
+# --------------------------------------------------------------------------
+# Every copy of an item's text is cut, so a long one cannot keep the item out.
+# --------------------------------------------------------------------------
+
+SHORT_TEXT = "Alice budget probe row."
+
+
+@pytest.mark.parametrize("long_field", ["canonical_text", "summary", "value.text"])
+def test_a_memory_whose_long_text_sits_in_one_field_is_cut_in_that_field(long_field: str) -> None:
+    """A memory row repeats its text as canonical_text, summary and value.text.
+
+    A row written by ``alice_memory_commit`` carries all three. Whichever one is
+    long must be cut, because an uncut copy keeps the item above the budget
+    however short the other two become, and the item is then dropped instead of
+    cut. Each case makes one field long and leaves the other two short.
+
+    Mutations, one per case, each of which fails its own case:
+    - ``canonical_text`` case: remove ``"canonical_text"`` from
+      ``_CUTTABLE_TEXT_KEYS``;
+    - ``summary`` case: remove ``"summary"`` from ``_CUTTABLE_TEXT_KEYS``
+      (only the ``summary`` case fails);
+    - ``value.text`` case: skip the ``value`` branch in ``_item_with_text_cut``
+      (only the ``value.text`` case fails).
+    In each the long copy is left whole, the item's floor is above the budget,
+    and the pack is empty.
+    """
+
+    long_text = _words("Alice budget probe", 6_000)
+    row = _memory_row(
+        "memory-1",
+        long_text if long_field == "canonical_text" else SHORT_TEXT,
+        summary=long_text if long_field == "summary" else SHORT_TEXT,
+        value={"text": long_text if long_field == "value.text" else SHORT_TEXT},
+    )
+    store = InMemoryVNextRetrievalStore(memories=[row], sources=[])
+    floor = estimate_item_tokens(_floor_item(row))
+    whole = estimate_item_tokens(row)
+    budget = floor + 60
+    assert whole > budget * 2, "fixture: the row must need a cut"
+
+    pack = _compile(store, max_tokens=budget)
+
+    assert [item["id"] for item in pack["relevant_memories"]] == ["memory-1"], (
+        f"the {long_field} copy was not cut, so the memory was dropped"
+    )
+    packed = pack["relevant_memories"][0]
+    cut_texts = {
+        "canonical_text": packed["canonical_text"],
+        "summary": packed["summary"],
+        "value.text": packed["value"]["text"],
+    }
+    assert cut_texts[long_field].endswith(CUT_MARKER)
+    assert 0 < len(cut_texts[long_field]) < len(long_text)
+    for field, text in cut_texts.items():
+        if field != long_field:
+            assert text == SHORT_TEXT, f"{field} was short and must come back as it was"
+    assert estimate_item_tokens(packed) <= budget
+    assert pack["budget"]["token_estimate"] <= budget
+    assert pack["budget"]["cut_item_count"] == 1
+
+
+def test_an_open_loop_with_a_long_description_is_cut_in_the_description() -> None:
+    """An open loop carries its text in ``description``, which the cut must reach.
+
+    Mutation: remove ``"description"`` from ``_CUTTABLE_TEXT_KEYS``. The loop's
+    description is left whole, its floor is above the budget, and the pack is
+    empty.
+    """
+
+    description = _words("Alice budget probe", 6_000)
+    loop = {
+        "id": "loop-1",
+        "title": "Alice budget probe loop",
+        "description": description,
+        "status": "open",
+        "domain": "project",
+        "sensitivity": "private",
+    }
+    store = InMemoryVNextRetrievalStore(memories=[], sources=[], open_loops=[loop])
+    floor = estimate_item_tokens({**loop, "description": CUT_MARKER})
+    budget = floor + 60
+    assert estimate_item_tokens(loop) > budget * 2, "fixture: the loop must need a cut"
+
+    pack = _compile(store, max_tokens=budget)
+
+    assert [item["id"] for item in pack["open_loops"]] == ["loop-1"], "the description was not cut"
+    cut = pack["open_loops"][0]
+    assert cut["description"].endswith(CUT_MARKER)
+    assert 0 < len(cut["description"]) < len(description)
+    assert cut["title"] == loop["title"], "ids and titles are never cut"
+    assert estimate_item_tokens(cut) <= budget
+    assert pack["budget"]["cut_item_count"] == 1
+
+
+def test_a_memory_committed_through_the_tool_comes_back_cut_not_empty(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The row shape agents write: ``alice_memory_commit`` then ``alice_context_pack``.
+
+    A committed memory carries its text in canonical_text, summary and
+    value.text, plus the write provenance the packer prices before it admits
+    anything. At 1000 tokens the whole memory does not fit and nothing else is
+    in the vault, so the memory is the one that must be cut.
+
+    Mutation: skip the ``value`` branch in ``_item_with_text_cut``. The
+    committed memory's value.text is left whole and the tool returns no memory
+    at 800 or 1000 tokens, an empty pack for the most common shape of memory.
+    """
+
+    _clear_env(monkeypatch)
+    database = resolve_db_path(data_dir=str(tmp_path), db=None)
+    bootstrap_database(database, user_id=USER_ID, user_email="local@alice")
+    context = MCPRuntimeContext(database_url=sqlite_url_for_path(database), user_id=USER_ID)
+    committed = call_mcp_tool(
+        context,
+        name="alice_memory_commit",
+        arguments={
+            "title": f"{TOPICS['orion']} decision",
+            "canonical_text": _words(TOPICS["orion"], 6_000),
+            "memory_type": "decision",
+            "domain": "personal",
+            "sensitivity": "private",
+            "confidence": 0.96,
+            "rationale": "User said: remember this",
+        },
+    )
+    assert committed["status"] == "committed", committed
+    unbudgeted = call_mcp_tool(
+        context, name="alice_context_pack", arguments={"query": TOPICS["orion"], "max_tokens": 50_000}
+    )
+    assert unbudgeted["token_report"]["token_estimate"] > 2_000, "fixture: the memory must not fit whole"
+    assert len(unbudgeted["memories"]) == 1
+
+    for budget in (800, 1_000):
+        payload = call_mcp_tool(
+            context, name="alice_context_pack", arguments={"query": TOPICS["orion"], "max_tokens": budget}
+        )
+
+        assert len(payload["memories"]) == 1, f"the committed memory came back empty at {budget} tokens"
+        text = payload["memories"][0]["canonical_text"]
+        assert text.removesuffix('"').endswith(CUT_MARKER), "the tool presents a stored note in quotes"
+        assert len(text) < len(unbudgeted["memories"][0]["canonical_text"])
+        assert payload["token_report"]["token_estimate"] <= budget
+        assert payload["token_report"]["cut_item_count"] == 1
 
 
 # --------------------------------------------------------------------------
@@ -666,8 +877,16 @@ def test_three_of_four_questions_were_empty_at_500_tokens_and_none_are_now(
     budget, which is the situation that emptied the pack. For birch no item is
     large. Before the fix the first three packs were empty at 500 tokens.
 
+    Every question here has a smaller item that fits whole, so the skip alone
+    rescues the pack and the cut fallback has nothing to do. The test asserts
+    both halves of that: the pack is not empty, and nothing in it was cut.
+
     Mutation: restore the latch (``self.truncated or`` in
-    ``_TokenBudget.admit``). Three of the four packs are empty again.
+    ``_TokenBudget.admit``). The pack is then empty after the first pass, the
+    cut fallback rescues it with the large item cut, and ``cut_item_count`` is 1
+    on a question where small items fit whole. The cut fallback alone hides the
+    emptiness, which is why the test also checks that no cut happened and that
+    the large first item is not the one packed.
     """
 
     _clear_env(monkeypatch)
@@ -685,8 +904,12 @@ def test_three_of_four_questions_were_empty_at_500_tokens_and_none_are_now(
         pack = _vault_pack(database, words, budget)
 
         assert pack["budget"]["token_estimate"] <= budget, f"{key}: over budget"
-        if not (pack["relevant_memories"] or pack["sources"]):
+        packed_ids = [item["id"] for item in [*pack["relevant_memories"], *pack["sources"]]]
+        if not packed_ids:
             empty.append(key)
+        assert "cut_item_count" not in pack["budget"], f"{key}: small items fit whole, so nothing is cut"
+        if key != "birch":
+            assert ranked[0]["id"] not in packed_ids, f"{key}: the large first item is skipped, not packed"
     assert empty == [], f"packs still empty at {budget} tokens: {empty}"
 
 
