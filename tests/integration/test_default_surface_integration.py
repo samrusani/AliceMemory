@@ -67,6 +67,7 @@ def _invoke_http(
         "raw_path": path.encode("utf-8"),
         "query_string": urlencode({}).encode("ascii"),
         "headers": [
+            (b"host", b"127.0.0.1:8000"),
             (b"content-type", b"application/json"),
             (b"x-alicebot-user-id", str(user_id).encode("ascii")),
         ],

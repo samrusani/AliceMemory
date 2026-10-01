@@ -48,6 +48,7 @@ def invoke_request(
         "raw_path": path.encode(),
         "query_string": query_string,
         "headers": [
+            (b"host", b"127.0.0.1:8000"),
             (b"content-type", b"application/json"),
             *[
                 (key.lower().encode("latin-1"), value.encode("latin-1"))

@@ -23,6 +23,7 @@ from urllib.parse import parse_qsl, urlencode
 from alicebot_api import __version__
 from alicebot_api.surface_flags import legacy_surfaces_enabled
 from alicebot_api.config import Settings, get_settings
+from alicebot_api.keyless_edge import keyless_request_refusal
 from alicebot_api.lone_surrogates import (
     lone_surrogate_response,
     payload_lone_surrogate_location,
@@ -986,8 +987,12 @@ async def _vnext_protected_http_auth(
             and bool(str(payload["capture_capability"]).strip())
         )
         raw_key = agent_key_from_authorization(request.headers.get("authorization"))
-        if raw_key is None and not capability_capture and _keyless_request_is_off_loopback(request, settings):
-            return _authentication_failed_response("keyless vNext requests are restricted to loopback clients")
+        if raw_key is None and not capability_capture:
+            if _keyless_request_is_off_loopback(request, settings):
+                return _authentication_failed_response("keyless vNext requests are restricted to loopback clients")
+            edge_refusal = keyless_request_refusal(request, settings)
+            if edge_refusal is not None:
+                return _authentication_failed_response(f"keyless vNext request refused: {edge_refusal}")
         if capability_capture:
             # The capability is the narrow credential for this endpoint. Its
             # hash/origin/user/expiry/consumption checks run atomically in the
@@ -1165,8 +1170,12 @@ async def enforce_v1_agent_authentication(
 
     settings = get_settings()
     raw_key = agent_key_from_authorization(request.headers.get("authorization"))
-    if raw_key is None and _keyless_request_is_off_loopback(request, settings):
-        return _authentication_failed_response("keyless /v1 requests are restricted to loopback clients")
+    if raw_key is None:
+        if _keyless_request_is_off_loopback(request, settings):
+            return _authentication_failed_response("keyless /v1 requests are restricted to loopback clients")
+        edge_refusal = keyless_request_refusal(request, settings)
+        if edge_refusal is not None:
+            return _authentication_failed_response(f"keyless /v1 request refused: {edge_refusal}")
 
     try:
         user_id = _resolve_authenticated_v1_user_id(settings, request)

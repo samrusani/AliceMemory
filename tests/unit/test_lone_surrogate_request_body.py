@@ -186,7 +186,7 @@ def _post(
 ) -> tuple[int | None, bytes]:
     """POST to the real app. The status is None when a handler was reached."""
 
-    headers = [(b"x-alicebot-user-id", USER_ID.encode())]
+    headers = [(b"host", b"127.0.0.1:8000"), (b"x-alicebot-user-id", USER_ID.encode())]
     if content_type is not None:
         headers.append((b"content-type", content_type.encode()))
     try:

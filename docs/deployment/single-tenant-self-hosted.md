@@ -36,6 +36,14 @@ owner's trust. That compatibility mode is not internet authentication. Never
 publish Alice while it is keyless, and never expose ports 3000 or 8000 through
 a public address, port-forward, load balancer, or container publish rule.
 
+Unreleased (on main, not in v0.19.2): while keyless, the API also refuses a
+request whose `Host` is not `localhost`, `127.0.0.1` or `::1` (or a name listed
+in `ALICEBOT_ALLOWED_HOSTS`, exact names separated by commas) and a request whose
+`Origin` is neither a `CORS_ALLOWED_ORIGINS` entry nor its own origin. This stops
+a page on another name that resolves to 127.0.0.1 from calling the API. A request
+with an agent key is not checked, and this topology, which requires a key before
+Caddy starts, is unchanged.
+
 Once any active agent key exists, keyless `/v0/vnext` calls are rejected. The
 browser console requires an unbound `admin_agent` key for the complete review
 surface and holds it only in browser memory for that mounted session. Create

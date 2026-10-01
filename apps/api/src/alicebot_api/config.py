@@ -7,6 +7,8 @@ import json
 import os
 from uuid import UUID
 
+from alicebot_api.keyless_edge import parse_allowed_host
+
 DEFAULT_APP_ENV = "development"
 DEFAULT_APP_HOST = "127.0.0.1"
 DEFAULT_APP_PORT = 8000
@@ -65,6 +67,7 @@ DEFAULT_SECURITY_HEADERS_HSTS_MAX_AGE_SECONDS = 31_536_000
 DEFAULT_SECURITY_HEADERS_HSTS_INCLUDE_SUBDOMAINS = True
 DEFAULT_TRUST_PROXY_HEADERS = False
 DEFAULT_TRUSTED_PROXY_IPS: tuple[str, ...] = ()
+DEFAULT_ALLOWED_HOSTS: tuple[str, ...] = ()
 DEFAULT_RETRIEVAL_TRACE_RETENTION_DAYS = 14
 DEFAULT_LEGACY_V0_ENABLED_OUTSIDE_DEV = False
 
@@ -198,6 +201,7 @@ class Settings:
     )
     trust_proxy_headers: bool = DEFAULT_TRUST_PROXY_HEADERS
     trusted_proxy_ips: tuple[str, ...] = DEFAULT_TRUSTED_PROXY_IPS
+    allowed_hosts: tuple[str, ...] = DEFAULT_ALLOWED_HOSTS
     retrieval_trace_retention_days: int = DEFAULT_RETRIEVAL_TRACE_RETENTION_DAYS
     legacy_v0_enabled_outside_dev: bool = DEFAULT_LEGACY_V0_ENABLED_OUTSIDE_DEV
 
@@ -331,6 +335,9 @@ class Settings:
             trusted_proxy_ips=_normalize_csv_tokens(
                 _get_env_csv(current_env, "TRUSTED_PROXY_IPS", cls.trusted_proxy_ips),
             ),
+            allowed_hosts=_parse_allowed_hosts(
+                _get_env_csv(current_env, "ALICEBOT_ALLOWED_HOSTS", cls.allowed_hosts),
+            ),
             retrieval_trace_retention_days=_get_env_int(
                 current_env,
                 "RETRIEVAL_TRACE_RETENTION_DAYS",
@@ -346,6 +353,22 @@ class Settings:
             settings,
             require_production_services=require_production_services,
         )
+
+
+def _parse_allowed_hosts(values: tuple[str, ...]) -> tuple[str, ...]:
+    """Normalize ALICEBOT_ALLOWED_HOSTS: exact host names only, no wildcard, port or scheme."""
+
+    hosts: list[str] = []
+    for value in values:
+        host = parse_allowed_host(value)
+        if host is None:
+            raise ValueError(
+                "ALICEBOT_ALLOWED_HOSTS entries must be exact host names or IP addresses "
+                "(no wildcard, port, scheme or path)"
+            )
+        if host not in hosts:
+            hosts.append(host)
+    return tuple(hosts)
 
 
 def _parse_workspace_provider_configs(raw_value: str) -> tuple[WorkspaceProviderConfig, ...]:
