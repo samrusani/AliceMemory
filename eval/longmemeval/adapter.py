@@ -417,8 +417,12 @@ def recall_surface_blocker() -> str | None:
     which is the default-install behaviour being measured.
     """
     if (os.environ.get(AGENT_API_KEY_ENV) or "").strip():
+        # The variable is named with a literal on purpose: formatting the
+        # imported constant into a message that reaches stderr is read by static
+        # analysis as logging a credential, though only the name is printed.
+        # A test pins the literal to the constant.
         return (
-            f"{AGENT_API_KEY_ENV} is set; the recall surface runs the tool as the local operator "
+            "ALICE_AGENT_API_KEY is set; the recall surface runs the tool as the local operator "
             "(the default install) and would try to authenticate against keys the benchmark store lacks"
         )
     return None

@@ -32,7 +32,7 @@ for _path in (_EVAL_DIR, _API_SRC):
         sys.path.insert(0, str(_path))
 
 from alicebot_api.mcp.types import _RECALL_DEFAULT_LIMIT  # noqa: E402
-from alicebot_api.mcp_tools import MCPRuntimeContext, call_mcp_tool  # noqa: E402
+from alicebot_api.mcp_tools import AGENT_API_KEY_ENV, MCPRuntimeContext, call_mcp_tool  # noqa: E402
 from alicebot_api.recall_framing import serialize_mcp_tool_result  # noqa: E402
 
 from longmemeval import adapter, coverage_probe, pack_formats, runner, session_labels  # noqa: E402
@@ -522,6 +522,15 @@ def test_recall_surface_goes_through_the_shipped_tool_not_the_context_pack(tmp_p
     assert Path(unquote(urlparse(context.database_url).path)) == db_path.resolve()
     assert outcome.pack_format == adapter.RECALL_RESULT_FORMAT
     assert outcome.source_count > 0 and outcome.excerpt_count > 0, "the committed ingest was not visible to the tool"
+
+
+def test_the_blocker_message_names_the_variable_the_tool_reads() -> None:
+    """Fails if the literal name in the blocker message drifts from the variable the tool reads.
+
+    The message spells the name as a literal (see ``recall_surface_blocker``).
+    Mutation: change the literal, or the constant in ``alicebot_api``.
+    """
+    assert AGENT_API_KEY_ENV == "ALICE_AGENT_API_KEY"
 
 
 def test_recall_default_limit_is_the_tools_default() -> None:
