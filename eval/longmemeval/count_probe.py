@@ -19,6 +19,11 @@ often") form explicit safe-non-emission strata: coverage mode may run, but a
 memory-row total must stay absent. The cadence abstention fixtures likewise
 require recognition plus safe non-emission, not a fabricated answer.
 
+Session ids. Like the runner, the probe stores keyed-hash session labels in
+place of the dataset's ids unless ``--raw-session-labels`` is set, and each row
+and the summary record the mode (see :mod:`longmemeval.session_labels`), so a
+row says what its store held. A kept store is reused only within one mode.
+
 Embeddings and the optional reranker are scrubbed by default, so no model or
 paid API call can occur. Run from the repository root:
 
@@ -63,6 +68,7 @@ from longmemeval.dataset import (
     load_dataset,
     resolve_dataset_path,
 )
+from longmemeval.session_labels import DEFAULT_SESSION_LABEL_MODE, SESSION_LABEL_MODE_RAW
 from longmemeval.runner import (
     _FILENAME_SAFE,
     _build_ingest_marker_payload,
@@ -146,6 +152,7 @@ def _marker_matches(
     dataset_path: Path,
     *,
     accept_rollups: bool,
+    session_label_mode: str = DEFAULT_SESSION_LABEL_MODE,
 ) -> bool:
     try:
         marker = json.loads(marker_path.read_text(encoding="utf-8"))
@@ -155,6 +162,7 @@ def _marker_matches(
         question,
         dataset_path=dataset_path,
         accept_rollups=accept_rollups,
+        session_label_mode=session_label_mode,
     )
 
 
@@ -247,6 +255,7 @@ def probe_row(
     accept_rollups: bool,
     ingest_seconds: float | None,
     retrieval_seconds: float,
+    session_label_mode: str = DEFAULT_SESSION_LABEL_MODE,
 ) -> dict[str, object]:
     """Build one auditable row without treating benchmark gold as retrieval input."""
     intent = detect_aggregation_intent(question.question)
@@ -347,6 +356,7 @@ def probe_row(
         "vector_stage": str(trace_mapping.get("vector_stage", "unknown")),
         "reused_store": reused_store,
         "accept_rollups": accept_rollups,
+        "session_label_mode": session_label_mode,
         "ingest_seconds": round(ingest_seconds, 3) if ingest_seconds is not None else None,
         "retrieval_seconds": round(retrieval_seconds, 3),
     }
@@ -359,6 +369,7 @@ def probe_question(
     dataset_path: Path,
     max_items: int,
     accept_rollups: bool,
+    session_label_mode: str = DEFAULT_SESSION_LABEL_MODE,
 ) -> dict[str, object]:
     db_path = _db_path_for(work_dir, question.question_id)
     marker_path = _marker_path_for(db_path)
@@ -367,13 +378,14 @@ def probe_question(
         question,
         dataset_path,
         accept_rollups=accept_rollups,
+        session_label_mode=session_label_mode,
     )
     if not reuse:
         marker_path.unlink(missing_ok=True)
         _cleanup_store(db_path)
     started = time.monotonic()
     ingest_seconds: float | None = None
-    with question_run(question, db_path) as run:
+    with question_run(question, db_path, session_label_mode=session_label_mode) as run:
         if not reuse:
             run.ingest(accept_rollups=accept_rollups)
             ingest_seconds = time.monotonic() - started
@@ -394,6 +406,7 @@ def probe_question(
                     question,
                     dataset_path=dataset_path,
                     accept_rollups=accept_rollups,
+                    session_label_mode=session_label_mode,
                 ),
                 ensure_ascii=True,
                 sort_keys=True,
@@ -408,6 +421,7 @@ def probe_question(
         accept_rollups=accept_rollups,
         ingest_seconds=ingest_seconds,
         retrieval_seconds=retrieval_seconds,
+        session_label_mode=session_label_mode,
     )
 
 
@@ -555,9 +569,17 @@ def _load_question_ids(path: Path) -> list[str] | None:
     ]
 
 
-def default_output_path(dataset_path: Path, *, accept_rollups: bool) -> Path:
+def default_output_path(
+    dataset_path: Path,
+    *,
+    accept_rollups: bool,
+    session_label_mode: str = DEFAULT_SESSION_LABEL_MODE,
+) -> Path:
     mode = "rollups_on" if accept_rollups else "rollups_off"
-    return RESULTS_DIR / f"count_probe_{dataset_path.stem}_{mode}.jsonl"
+    # Raw-label rows get their own default file so they cannot overwrite the
+    # anonymised ones, which carry the default name.
+    labels = "_raw_labels" if session_label_mode == SESSION_LABEL_MODE_RAW else ""
+    return RESULTS_DIR / f"count_probe_{dataset_path.stem}_{mode}{labels}.jsonl"
 
 
 def expected_audit_manifest(question_ids: Path) -> Mapping[str, int] | None:
@@ -590,6 +612,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--accept-rollups",
         action="store_true",
         help="deterministically build/accept roll-up cards during ingest (default: off)",
+    )
+    parser.add_argument(
+        "--raw-session-labels",
+        action="store_true",
+        help="store the dataset's raw session ids instead of keyed-hash labels (default: labels); "
+        "only for reproducing pre-1.1 behaviour. Each row records the mode.",
     )
     parser.add_argument("--with-vectors", action="store_true")
     parser.add_argument("--with-reranker", action="store_true")
@@ -639,16 +667,18 @@ def main(argv: list[str] | None = None) -> int:
         return EXIT_CONFIG_ERROR
 
     max_items = args.max_items if args.max_items is not None else max_items_from_env()
+    session_label_mode = SESSION_LABEL_MODE_RAW if args.raw_session_labels else DEFAULT_SESSION_LABEL_MODE
     args.work_dir.mkdir(parents=True, exist_ok=True)
     out_path = args.out or default_output_path(
         dataset_path,
         accept_rollups=args.accept_rollups,
+        session_label_mode=session_label_mode,
     )
     out_path.parent.mkdir(parents=True, exist_ok=True)
     print(
         f"[count] dataset={dataset_path.name} questions={len(selected)} max_items={max_items} "
         f"vectors={'ambient' if args.with_vectors else 'disabled'} work_dir={args.work_dir} "
-        f"workers={max(1, args.workers)} accept_rollups={args.accept_rollups}"
+        f"workers={max(1, args.workers)} accept_rollups={args.accept_rollups} labels={session_label_mode}"
     )
 
     rows_by_id: dict[str, dict[str, object]] = {}
@@ -663,6 +693,7 @@ def main(argv: list[str] | None = None) -> int:
                 dataset_path=dataset_path,
                 max_items=max_items,
                 accept_rollups=args.accept_rollups,
+                session_label_mode=session_label_mode,
             ): question
             for question in selected
         }
@@ -691,6 +722,7 @@ def main(argv: list[str] | None = None) -> int:
         "max_items": max_items,
         "vectors": "ambient" if args.with_vectors else "disabled",
         "accept_rollups": args.accept_rollups,
+        "session_label_mode": session_label_mode,
         "questions": len(rows),
         "errors": [{"question_id": question_id, "error": error} for question_id, error in errors],
         **summary,

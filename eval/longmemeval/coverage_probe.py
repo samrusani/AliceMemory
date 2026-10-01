@@ -21,6 +21,13 @@ retrieved), then prints an any/all coverage table per question type.
 Questions without evidence ids (e.g. synthetic abstention fixtures) get
 ``null`` coverage and are excluded from the percentages.
 
+Session ids. The store holds session LABELS (a keyed hash of the dataset's
+session id unless ``--raw-session-labels`` is set; see
+:mod:`longmemeval.session_labels`), so the dataset's ``answer_session_ids``
+are mapped through the same function before they are compared with the
+retrieved side. ``missed_session_ids`` in a row therefore lists labels in the
+run's label mode, and each row records that mode.
+
 Embeddings are DISABLED by default (the ``ALICE_EMBEDDINGS_*`` variables are
 scrubbed from the environment) so the probe is deterministic and needs no
 API key; pass ``--with-vectors`` to keep the ambient embedding config. The
@@ -77,6 +84,12 @@ from longmemeval.dataset import (
     load_dataset,
     resolve_dataset_path,
 )
+from longmemeval.session_labels import (
+    DEFAULT_SESSION_LABEL_MODE,
+    SESSION_LABEL_MODE_RAW,
+    session_labeler_for_question,
+    validate_session_label_mode,
+)
 from longmemeval.runner import (
     INGEST_MARKER_SCHEMA,
     _FILENAME_SAFE,
@@ -121,9 +134,22 @@ def disable_reranker_env() -> None:
 # -- coverage math ---------------------------------------------------------
 
 
-def coverage_row(question: LongMemEvalQuestion, retrieved_session_ids: set[str]) -> dict[str, object]:
-    """One JSONL row comparing retrieved sessions against evidence sessions."""
-    evidence = set(question.answer_session_ids)
+def coverage_row(
+    question: LongMemEvalQuestion,
+    retrieved_session_ids: set[str],
+    *,
+    session_label_mode: str,
+) -> dict[str, object]:
+    """One JSONL row comparing retrieved sessions against evidence sessions.
+
+    ``retrieved_session_ids`` are the session labels the store holds, so the
+    dataset side (``answer_session_ids``) goes through the same label function
+    before the comparison. ``session_label_mode`` is required, with no default:
+    comparing labels against raw ids (or the reverse) would report zero
+    coverage that looks like a retrieval failure.
+    """
+    labeler = session_labeler_for_question(question, mode=validate_session_label_mode(session_label_mode))
+    evidence = labeler.labels_for(question.answer_session_ids)
     hits = evidence & retrieved_session_ids
     n_evidence = len(evidence)
     return {
@@ -131,6 +157,7 @@ def coverage_row(question: LongMemEvalQuestion, retrieved_session_ids: set[str])
         "question_id": question.question_id,
         "question_type": question.question_type,
         "is_abstention": question.is_abstention,
+        "session_label_mode": session_label_mode,
         "n_evidence": n_evidence,
         "n_hit": len(hits),
         "any_coverage": (len(hits) > 0) if n_evidence else None,
@@ -231,6 +258,8 @@ def _marker_matches(
     marker_path: Path,
     question: LongMemEvalQuestion,
     dataset_path: Path,
+    *,
+    session_label_mode: str = DEFAULT_SESSION_LABEL_MODE,
 ) -> bool:
     try:
         marker = json.loads(marker_path.read_text(encoding="utf-8"))
@@ -240,6 +269,7 @@ def _marker_matches(
         question,
         dataset_path=dataset_path,
         accept_rollups=False,
+        session_label_mode=session_label_mode,
     )
 
 
@@ -249,16 +279,19 @@ def probe_question(
     work_dir: Path,
     dataset_path: Path,
     max_items: int,
+    session_label_mode: str = DEFAULT_SESSION_LABEL_MODE,
 ) -> dict[str, object]:
     db_path = _db_path_for(work_dir, question.question_id)
     marker_path = _marker_path_for(db_path)
-    reuse = db_path.is_file() and _marker_matches(marker_path, question, dataset_path)
+    reuse = db_path.is_file() and _marker_matches(
+        marker_path, question, dataset_path, session_label_mode=session_label_mode
+    )
     if not reuse:
         marker_path.unlink(missing_ok=True)
         _cleanup_store(db_path)
     started = time.monotonic()
     ingest_seconds: float | None = None
-    with question_run(question, db_path) as run:
+    with question_run(question, db_path, session_label_mode=session_label_mode) as run:
         if not reuse:
             run.ingest()
             ingest_seconds = time.monotonic() - started
@@ -286,6 +319,7 @@ def probe_question(
                     question,
                     dataset_path=dataset_path,
                     accept_rollups=False,
+                    session_label_mode=session_label_mode,
                 ),
                 ensure_ascii=True,
                 sort_keys=True,
@@ -293,7 +327,7 @@ def probe_question(
             + "\n",
             encoding="utf-8",
         )
-    row = coverage_row(question, retrieved)
+    row = coverage_row(question, retrieved, session_label_mode=session_label_mode)
     row["reused_store"] = reuse
     row["vector_stage"] = vector_stage
     row["ingest_seconds"] = round(ingest_seconds, 3) if ingest_seconds is not None else None
@@ -323,6 +357,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="file with one question_id per line; probe only those (dataset order)",
     )
     parser.add_argument("--max-items", type=int, default=None, help="context-pack max_items (default: runner default)")
+    parser.add_argument(
+        "--raw-session-labels",
+        action="store_true",
+        help="store and compare the dataset's raw session ids (default: keyed-hash labels, with the dataset's "
+        "evidence ids mapped through the same function); only for reproducing pre-1.1 behaviour",
+    )
     parser.add_argument(
         "--work-dir",
         type=Path,
@@ -394,6 +434,7 @@ def main(argv: list[str] | None = None) -> int:
         return EXIT_CONFIG_ERROR
 
     max_items = args.max_items if args.max_items is not None else max_items_from_env()
+    session_label_mode = SESSION_LABEL_MODE_RAW if args.raw_session_labels else DEFAULT_SESSION_LABEL_MODE
     dataset_sha256_prefix = _sha256_prefix(dataset_path)
     args.work_dir.mkdir(parents=True, exist_ok=True)
     out_path = args.out or RESULTS_DIR / f"coverage_{dataset_path.stem}.jsonl"
@@ -402,7 +443,7 @@ def main(argv: list[str] | None = None) -> int:
     vectors = "ambient" if args.with_vectors else "disabled"
     print(
         f"[coverage] dataset={dataset_path.name} questions={len(questions)} max_items={max_items} "
-        f"vectors={vectors} work_dir={args.work_dir} workers={max(1, args.workers)}"
+        f"vectors={vectors} labels={session_label_mode} work_dir={args.work_dir} workers={max(1, args.workers)}"
     )
 
     rows_by_id: dict[str, dict[str, object]] = {}
@@ -416,6 +457,7 @@ def main(argv: list[str] | None = None) -> int:
                 work_dir=args.work_dir,
                 dataset_path=dataset_path,
                 max_items=max_items,
+                session_label_mode=session_label_mode,
             ): question
             for question in questions
         }
@@ -444,6 +486,7 @@ def main(argv: list[str] | None = None) -> int:
         "dataset_sha256_prefix": dataset_sha256_prefix,
         "max_items": max_items,
         "vectors": vectors,
+        "session_label_mode": session_label_mode,
         "questions": len(rows),
         "errors": [{"question_id": question_id, "error": error} for question_id, error in errors],
         **summary,
