@@ -171,6 +171,17 @@ def test_the_committed_marketplace_is_valid_and_not_ahead_of_the_package() -> No
     assert pinned <= current, (ref, _version())
 
 
+def test_the_release_check_plugin_id_equals_the_installed_constant() -> None:
+    """``scripts/release_check.py`` owns a copy of the plugin id so it never imports the package.
+
+    The publish workflow runs that script in jobs where ``alicebot_api`` is not
+    installed, so the check cannot read ``host_install.CLAUDE_PLUGIN_ID``. This
+    pins the copy to the original. Mutation: change either value. This test fails.
+    """
+
+    assert release_check.CLAUDE_PLUGIN_ID == CLAUDE_PLUGIN_ID
+
+
 def _tag_commit(ref: str) -> str | None:
     done = subprocess.run(
         ["git", "rev-list", "-n", "1", f"refs/tags/{ref}"],
@@ -1603,9 +1614,9 @@ def test_the_docs_say_what_v0190_ships_and_keep_the_option_rules() -> None:
 
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     sections = changelog.split("\n## ")
-    # v0.19.1 is cut, so Unreleased is empty. The plugin entries stay in the
-    # v0.19.0 section and do not move up into a newer one.
-    assert sections[1].strip() == "Unreleased"
+    # v0.19.1 is cut. The plugin entries stay in the v0.19.0 section and do not
+    # move up into a newer one or into Unreleased, which may hold later entries.
+    assert sections[1].split("\n", 1)[0].strip() == "Unreleased"
     assert sections[2].startswith("v0.19.1 \u2014 2026-10-01\n")
     assert sections[3].startswith("v0.19.0 \u2014 2026-09-30\n")
     flat = " ".join(sections[3].split())
