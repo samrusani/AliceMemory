@@ -172,7 +172,11 @@ def test_mcp_registry_order_definitions_and_alias_identity_are_frozen() -> None:
     # annotation back reproduces the previous core digest. The legacy digest,
     # the counts, and the handler map digest are unchanged, and no tool was
     # added, removed, or renamed.
-    assert _digest(core_definitions) == "919e4fcd68e69d91cd532ad449cc32cf9651e2bea18d5e799001b5d1c1bcb52d"
+    # Re-minted 2026-10-01. The alice_context_pack max_tokens description now
+    # says an item that does not fit is skipped and the first item that can fit
+    # is cut when nothing fits whole. No tool added, removed, or renamed, and no
+    # schema, annotation, or default changed. Legacy definitions are unchanged.
+    assert _digest(core_definitions) == "018cd31f782350ea62d63eb0b2cc9aabea8ef0e203818d6c68d34a7a47768f93"
     assert _digest(legacy_definitions) == "6b302f61e48d4f6196af8a7d2c8882130d565d84134f51bba38648f84c09089e"
     ordered_handler_map = [(name, handler.__name__) for name, handler in handlers.items()]
     assert _digest(ordered_handler_map) == "d864c98bb914bbc6ace464fa8020b3ed264f17f2061a6101aae677d801032ae5"
