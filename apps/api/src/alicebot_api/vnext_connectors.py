@@ -8,6 +8,7 @@ import fnmatch
 from hashlib import sha256
 import hmac
 import io
+import itertools
 import json
 import logging
 import os
@@ -155,6 +156,9 @@ class LocalFolderScan:
     # that is not a regular file, one over the size cap, one that is not UTF-8
     # text, or one that could not be read. Each fails alone.
     refused_count: int = 0
+    # True when a limit (files, total bytes, or directory entries listed) stopped
+    # the scan before it had read everything that matched.
+    truncated: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -292,8 +296,14 @@ DEFAULT_LOCAL_FOLDER_IGNORES = (
     "node_modules",
 )
 DEFAULT_LOCAL_FOLDER_EXTENSIONS = (".md", ".txt")
-# The reader needs a bound, so the per-file cap lands with the contained read.
+# Bounds on one scan. A file over the per-file cap is refused. The scan stops at
+# the file count or the total byte cap, and it lists at most MAX_LOCAL_FOLDER_LISTED
+# directory entries before it sorts them. Measured on v0.19.0: a 1 MiB file cost
+# 1.2 seconds and about 90 MiB, and a 64 MiB file 77 seconds and 1.5 GiB.
 MAX_LOCAL_FOLDER_FILE_BYTES = 2 * 1024 * 1024
+MAX_LOCAL_FOLDER_FILES = 10_000
+MAX_LOCAL_FOLDER_TOTAL_BYTES = 64 * 1024 * 1024
+MAX_LOCAL_FOLDER_LISTED = 100_000
 LOCAL_FOLDER_ROOTS_ENV = "ALICE_VNEXT_LOCAL_FOLDER_ROOTS"
 CORE_SETTINGS_CONNECTORS = ("telegram", "local_folder", "browser_clipper", "agent_output")
 
@@ -966,10 +976,18 @@ def scan_local_folder(
     items: list[JsonObject] = []
     ignored_count = 0
     refused_count = 0
+    total_bytes = 0
+    truncated = False
     for raw_root in paths:
         root = _resolve_local_folder_root(raw_root)
-        iterator = root.rglob("*") if recursive else root.glob("*")
-        for file_path in sorted(iterator):
+        walk = root.rglob("*") if recursive else root.glob("*")
+        # Take one entry past the cap to learn whether the walk had more, and
+        # stop the walk there: sorting an unbounded walk materializes all of it.
+        listed = list(itertools.islice(walk, MAX_LOCAL_FOLDER_LISTED + 1))
+        if len(listed) > MAX_LOCAL_FOLDER_LISTED:
+            truncated = True
+            listed = listed[:MAX_LOCAL_FOLDER_LISTED]
+        for file_path in sorted(listed):
             try:
                 resolved_file = file_path.resolve(strict=True)
             except OSError:
@@ -985,14 +1003,27 @@ def scan_local_folder(
             ):
                 ignored_count += 1
                 continue
+            if len(items) >= MAX_LOCAL_FOLDER_FILES or total_bytes >= MAX_LOCAL_FOLDER_TOTAL_BYTES:
+                truncated = True
+                break
             # The checks above name a file; they do not hold it. The read opens
             # it again beneath the root, link by link, and takes the text, the
-            # size and the time from that one descriptor.
+            # size and the time from that one descriptor. It may take no more
+            # than the per-file cap or what is left of the total.
+            allowance = min(MAX_LOCAL_FOLDER_FILE_BYTES, MAX_LOCAL_FOLDER_TOTAL_BYTES - total_bytes)
             try:
-                text, opened = read_text_beneath(root, relative_path, max_bytes=MAX_LOCAL_FOLDER_FILE_BYTES)
-            except ContainedReadRefused:
+                text, opened = read_text_beneath(root, relative_path, max_bytes=allowance)
+            except ContainedReadRefused as refusal:
+                if refusal.reason == "too_large" and allowance < MAX_LOCAL_FOLDER_FILE_BYTES:
+                    # What is left of the total is smaller than the file. That is the
+                    # total cap, not a file the scan refuses on its own account.
+                    truncated = True
+                    break
                 refused_count += 1
                 continue
+            # Count the bytes that were read, so a size the descriptor misreports cannot
+            # keep the total under its cap.
+            total_bytes += max(opened.st_size, len(text.encode("utf-8")))
             items.append(
                 {
                     "path": str(resolved_file),
@@ -1014,6 +1045,7 @@ def scan_local_folder(
         recursive=recursive,
         extensions=normalized_extensions,
         refused_count=refused_count,
+        truncated=truncated,
     )
 
 
@@ -1347,6 +1379,7 @@ class VNextConnectorService:
             (event for event in events if event.get("event_type") == "connector.item_failed"), None
         )
         latest_import = next((event for event in events if event.get("event_type") == "connector.item_imported"), None)
+        latest_scan = next((event for event in events if event.get("event_type") == "connector.local_folder_scan"), None)
 
         items_seen = 0
         items_captured = 0
@@ -1395,6 +1428,15 @@ class VNextConnectorService:
             state_last_error = _connector_public_error_message(state_error_code)
 
         latest_import_payload = latest_import.get("payload_json") if latest_import is not None else None
+        # What the last local-folder scan skipped, so a refused file or a stop at a limit is not silent.
+        latest_scan_payload = latest_scan.get("payload_json") if latest_scan is not None else None
+        last_scan: JsonObject | None = None
+        if latest_scan is not None and isinstance(latest_scan_payload, dict):
+            last_scan = {
+                "occurred_at": latest_scan.get("occurred_at"),
+                "refused_count": _int_count(latest_scan_payload.get("refused_count")),
+                "truncated": latest_scan_payload.get("truncated") is True,
+            }
         return {
             "connector_name": definition.name,
             "display_name": definition.display_name,
@@ -1424,6 +1466,7 @@ class VNextConnectorService:
             "last_error": state_last_error if state_last_error is not None else last_error,
             "last_error_code": state_error_code or last_error_code,
             "last_captured_item": latest_import_payload if isinstance(latest_import_payload, dict) else None,
+            "last_scan": last_scan,
             "items_seen": int(state.get("items_seen", 0)) if state is not None else items_seen,
             "items_captured": int(state.get("items_captured", 0)) if state is not None else items_captured,
             "items_deduped": int(state.get("items_deduped", 0)) if state is not None else items_deduped,
@@ -1596,6 +1639,8 @@ class VNextConnectorService:
                 "path_count": scan.path_count,
                 "file_count": len(scan.items),
                 "ignored_count": scan.ignored_count,
+                "refused_count": scan.refused_count,
+                "truncated": scan.truncated,
                 "recursive": scan.recursive,
                 "extensions": list(scan.extensions),
             },
@@ -2074,6 +2119,10 @@ __all__ = [
     "DEFAULT_LOCAL_FOLDER_IGNORES",
     "LOCAL_FOLDER_ROOTS_ENV",
     "LocalFolderScan",
+    "MAX_LOCAL_FOLDER_FILES",
+    "MAX_LOCAL_FOLDER_FILE_BYTES",
+    "MAX_LOCAL_FOLDER_LISTED",
+    "MAX_LOCAL_FOLDER_TOTAL_BYTES",
     "NormalizedConnectorItem",
     "SUPPORTED_CONNECTORS",
     "VNextConnectorService",

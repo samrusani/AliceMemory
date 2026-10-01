@@ -49,7 +49,7 @@ def test_the_changelog_entry_for_the_connector_sits_under_unreleased_and_states_
         "an ancestor directory replaced by a symlink between the two steps was read from outside the folder"
     ) in entry
     assert "each relative to the one before and with `O_NOFOLLOW`" in entry
-    assert "A file that fails a check is skipped and counted in `refused_count`" in entry
+    assert "is skipped on its own and counted in `refused_count`, and the rest of the folder still scans" in entry
     assert "A hard link planted inside the watched folder to a file elsewhere is still read, as in the importers." in entry
     assert "The text, size, times and line endings of an ordinary file are what v0.19.2 returned." in entry
 
@@ -77,3 +77,55 @@ def test_the_threat_model_and_limitations_mark_the_connector_fix_unreleased_and_
     assert f"{UNRELEASED} the scan opens the watched folder, each directory below it" in limitations
     assert f"{UNRELEASED} each local folder file is read through a descriptor" in privacy
     assert "constraint to allowed local roots also holds for the read itself" in privacy
+
+
+def test_the_changelog_states_the_bounds_and_what_v0192_did_without_them() -> None:
+    """The four numbers, the v0.19.2 behaviour, and where the skips are shown.
+
+    Mutations, each one alone: change any of 2 MiB, 10,000 files, 64 MiB or
+    100,000 entries; delete the sentence about v0.19.2 having no limit and
+    ending the sync on one bad file; delete the sentence that names the event and
+    the health output; say the limits are settings.
+    """
+
+    entry = _changelog_entry("The local-folder connector (")
+    assert (
+        "In v0.19.2 the scan had no size or count limit: it listed and sorted the whole walk and read every matching "
+        "file whole, and one file that was not UTF-8 text, or that the process could not read, ended the sync with "
+        "an error (a four byte file of invalid text was enough)."
+    ) in entry
+    assert (
+        "The scan now reads at most 2 MiB of one file, stops at 10,000 files or 64 MiB of text in all, and lists at "
+        "most 100,000 directory entries before it sorts them."
+    ) in entry
+    assert "`truncated` is true when a limit stopped the scan before it had read everything that matched." in entry
+    assert (
+        "`refused_count` and `truncated` are written to the `connector.local_folder_scan` event and shown as "
+        "`last_scan` in the health output of the connector."
+    ) in entry
+    assert "The limits are fixed in code and are not settings." in entry
+
+
+def test_the_threat_model_and_limitations_mark_the_bounds_unreleased_and_keep_v0192() -> None:
+    """Each document keeps the v0.19.2 sentence and marks the bounds as main only.
+
+    Mutations, each one alone: drop the DB-011 sentence from the threat model;
+    drop the Unreleased marker before the bounds in the limitations; delete the
+    sentence that says v0.19.2 ended the sync on one such file; drop the
+    resource exhaustion row's marker.
+    """
+
+    threat_model = _read("docs/security/threat-model.md")
+    limitations = _read("docs/alpha/known-limitations.md")
+    assert (
+        "DB-011, the local-folder scan with no size or count bound. The scan now reads at most 2 MiB of a file, stops "
+        "at 10,000 files or 64 MiB of text in all, lists at most 100,000 directory entries"
+    ) in threat_model
+    assert "v0.19.2 ended the whole sync with an error on one such file." in threat_model
+    assert (
+        f"Existing size/shape checks and local deployment limits. {UNRELEASED} the local-folder scan reads at most "
+        "2 MiB of a file and stops at 10,000 files or 64 MiB."
+    ) in threat_model
+    assert "and one file that is not UTF-8 text or cannot be read ends the whole sync with an error." in limitations
+    assert f"{UNRELEASED} the scan opens the watched folder" in limitations
+    assert "It reads at most 2 MiB of a file, stops at 10,000 files or 64 MiB in all" in limitations
