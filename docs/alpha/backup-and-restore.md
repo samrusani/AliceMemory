@@ -92,12 +92,12 @@ value, metadata, key and project. Sources, chunks, revisions, provenance
 quotes, open loops, entities, graph edges, relationship events and event rows
 come across unchanged, and so do the other memory columns (`trust_reason`,
 `created_by_agent_id`, the model name and the ids). Recall, the session brief
-and the session hook can return their text. Unreleased (on main, not in
-v0.19.0): import reads every text and JSON column of those records, and those
-memory columns, with the same credential check and lists each hit on the
-receipt, never the text, then exits 0. The receipt line is
+and the session hook can return their text. From v0.19.1, import reads every text and JSON column of those records, and those
+memory columns, with the credential floor, the check a memory row gets, and lists
+each hit on the receipt, never the text, then exits 0. The receipt line is
 `credential-shaped text in records import does not refuse: N`, printed every
-time, and one `table id column` line follows for each hit. An id that is itself
+time except with `--quarantine`, and one `table id column` line follows for each
+hit. An id that is itself
 credential-shaped, holds a control character or is over 128 characters is
 shown as `(id withheld, line N)`. Import does not refuse these records: a vault from
 before the credential floor can hold a secret in a source, and no SQLite
@@ -108,7 +108,10 @@ warning only. With `--quarantine` the receipt keeps its own report, below,
 which lists every leftover with the command that removes it.
 `alice-memory doctor` reads source chunk text as well as the source row, so a
 token that sits only in a chunk is listed under `flagged sources`; in v0.19.0
-it prints `flagged sources: 0` for that source.
+it prints `flagged sources: 0` for that source. The doctor uses the commit
+door's verdict, which is the floor plus the commit gate, so it is broader than
+the import listing: a low-entropy key shaped like an AWS access key id in a
+chunk is flagged by the doctor, and import restores it and lists none.
 
 `--quarantine` is the owner's recovery path when a backup holds a credential
 and the source vault is gone. It removes the credential from the named
@@ -193,7 +196,7 @@ aborts and writes nothing. The file still carries the credential, so the
 credential refusal fires before the collision check. Existing rows are
 never overwritten. The rejected row and the placeholder stay.
 
-Unreleased (on main, not in v0.19.0): import is for your own backups, and a
+From v0.19.1, import is for your own backups, and a
 backup file is not evidence of who wrote a row. The SHA-256 footer is an
 unkeyed digest: anyone can edit a record and recompute it, so it shows that
 the file is whole and says nothing about authorship. Import therefore rewrites
@@ -212,8 +215,12 @@ which differ in `auth` and `claimed_auth` (and, for events, `integrity_hash`).
 the file gives it or as it is restored, so a vault can import its own export
 and a restored vault can import the same file again. A `metadata_json` or
 `payload_json` nested more than 256 levels is refused with `restore_failed`,
-and so is a JSON text in one of them that is too deep to decode; the product
-writes an identity at most three levels down. In v0.19.0 and
+and so is JSON text under an `agentic_memory` or `agent_identity` key in one of
+them, which is decoded and held to the same 256 levels, or refused when it is
+too deep to decode. A column that is itself a JSON text too deep to
+decode is refused too and nothing is written, but with the generic
+`alice_memory_failed` error, not `restore_failed`. The product writes an
+identity at most three levels down. In v0.19.0 and
 earlier, import restores the claim as the file states it.
 
 This command restores a SQLite database. It is not a PostgreSQL import.

@@ -92,6 +92,62 @@ are immutable and the numbers are retired rather than reused: `v0.13.0`,
 superseded by `v0.13.1`, and `v0.15.0`, whose commit carried a release-gate step
 that could not run on a CI runner.
 
+## What `v0.19.1` Targets
+
+`v0.19.1` is the current release candidate. It is not published.
+
+It takes the fixes on `main` since `v0.19.0`. Most come from an internal
+security review of `v0.19.0`. It adds no tool or command and changes no schema. The
+Hermes provider keeps a turn's user and assistant text apart, the `/v1` memory
+operations commit applies only a user turn with an explicit prefix, backup
+import restores a stored key claim as unverified and lists credential-shaped
+text it does not refuse, and the session-start hook no longer goes blank for a
+note that contains protocol text. Recall and the context pack leave out memory
+ids the caller cannot read, and refuse a query the SQLite source search cannot
+take.
+
+- [v0.19.1 release notes](https://github.com/samrusani/AliceMemory/blob/main/docs/release/v0.19.1-release-notes.md)
+
+`v0.19.1` has these changes. `v0.19.0` does not.
+
+- `alice-memory import` restores a stored claim that an agent API key wrote a
+  row as `auth: imported_claim`, keeps the original as `claimed_auth`, and
+  prints `provenance claims restored as unverified: N`. Recall compares `auth`
+  exactly. Import also lists credential-shaped text in records it does not
+  refuse, and `alice-memory doctor` reads source chunk text. In `v0.19.0` a
+  restored row can read `verified_by_key` with no key behind it, and a token
+  that sits only in a chunk prints `flagged sources: 0`.
+- `POST /v1/memory/operations/commit` applies without review only a user turn
+  that matched an explicit prefix at confidence 0.9 or more, as the
+  `/v0/continuity` capture commit does. The rest is `review_required`. In
+  `v0.19.0` the policy reads no role.
+- Hermes provider 0.5.2 sends the user text and the assistant text of a turn as
+  separate fields. In `v0.19.0` the provider, 0.5.1, splits a joined turn back
+  into roles by line. The provider is not in the wheel.
+- The session-start hook shows the brief when a stored note contains `jsonrpc`
+  or `Content-Length:`, and refuses a relative `ALICE_MEMORY_DATA_DIR`. In
+  `v0.19.0` the first prints `{}` and the second creates a vault under the
+  current directory.
+- `alice_recall` and `alice_context_pack` leave out a memory id the caller
+  cannot read, in the correction label, a pack's `supersedes` and
+  `superseded_by`, `validity`, `recent_changes` and `supersession_context`. In
+  `v0.19.0` they name it. Ids copied into a stored memory's `metadata_json` are
+  not fenced.
+- `alice_recall` and `alice_context_pack` refuse a query of more than 499
+  distinct search terms or over 40,000 UTF-8 bytes with `invalid_request`. In
+  `v0.19.0` a query of about 991 distinct terms or more answers
+  `tool_execution_failed`.
+- `alice_memory_review` is read-only, so six core tools are read-only, two are
+  non-destructive and three are destructive. `alice_memory_commit` with
+  `confirmation_id` updates the one pending row it names, and by the approval
+  rule the code records it does not prompt in Codex's default mode.
+- The eval uses a fixed reference time, so its numbers no longer depend on the
+  day it runs. The commit author check accepts exact addresses only.
+- Not fixed, and listed in the release notes: the Postgres HTTP API reads a body
+  before it checks credentials and does not check the Host header, provider
+  clients follow redirects, and the local-folder scan has no size limit and can
+  read a file swapped for a link.
+
 ## What `v0.19.0` Shipped
 
 `v0.19.0` is the latest published release and remains the install, checksum,
@@ -134,13 +190,14 @@ relative or empty `--data-dir` is refused. There is no schema change.
   bytes with a source in the vault, made the hook print `{}`.
 - Every MCP tool sets `openWorldHint` to false. Five tools are read-only, two
   are non-destructive, and four are destructive. `v0.18.0` tools declare no
-  hints. Unreleased (on main, not in v0.19.0): `alice_memory_review` is
-  read-only, so six tools are read-only and three are destructive.
+  hints. From `v0.19.1`, `alice_memory_review` is
+  read-only, so with the full tool set six tools are read-only and three are
+  destructive.
 - `alice-memory mcp` refuses an empty or relative `--data-dir` with exit 2,
   and the session-start hook prints one line and exits 0 for a relative
   `--data-dir` or plugin `data_dir`. A relative `ALICE_MEMORY_DATA_DIR` is
   not checked. `v0.18.0` creates the vault under the current directory.
-  Unreleased (on main, not in v0.19.0): the hook refuses a relative
+  From `v0.19.1`, the hook refuses a relative
   `ALICE_MEMORY_DATA_DIR` the same way.
 - `alice-memory install --host hermes` keeps a comment in the `alice` block
   when nothing needs to change, and refuses when a change is needed. In
@@ -185,7 +242,7 @@ There is no schema change.
   commit. The `/v1` memory operations commit reads no role in `v0.19.0`:
   assist applies an explicit match of an allowed type at 0.9 or more from
   either role, and auto applies any match of an allowed type at 0.9 or more.
-  Unreleased (on main, not in v0.19.0): it applies only a user turn that
+  From `v0.19.1`, it applies only a user turn that
   matches an explicit prefix, as the capture commit does.
 - A JSON write under `/v0` that names the user only in the
   `X-AliceBot-User-Id` header reaches the route with that user in the body. In

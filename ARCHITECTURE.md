@@ -235,8 +235,9 @@ usage justifies a separately reviewed boundary.
   splits the surviving legacy store and pure contracts, and moves MCP/CLI
   implementations into packages behind stable facades. Phase 3 brought every
   production Python file below 4,000 lines. `vnext_retrieval.py` has grown past
-  that since (4,470 lines in `v0.17.0`, 4,640 in `v0.19.0`). So has
-  `host_install.py` (8,201 lines in `v0.19.0`).
+  that since (4,470 lines in `v0.17.0`, 4,640 in `v0.19.0`, 4,901 in
+  `v0.19.1`). So has `host_install.py` (8,201 lines in `v0.19.0` and
+  `v0.19.1`).
 - HTTP route paths, operation IDs, dependencies, error behavior, store SQL,
   MCP and CLI registries, compatibility imports, and console entrypoints remain
   unchanged. Exact closure, SQL-shape, namespace, and installed-artifact tests
@@ -253,3 +254,5 @@ usage justifies a separately reviewed boundary.
 
 `v0.19.0` is the latest published release and remains the install, checksum,
 and baseline reference.
+
+`v0.19.1` is the current release candidate. It is not published.

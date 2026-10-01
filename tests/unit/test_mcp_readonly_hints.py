@@ -521,48 +521,48 @@ def test_review_refusals_write_nothing_but_the_audit_rows(
 _ROOT = Path(__file__).resolve().parents[2]
 
 
-def test_the_docs_and_the_hint_comment_say_review_is_read_only_on_main() -> None:
-    """Main marks the review tool read-only, and the docs keep v0.19.0's flag as history.
+def test_the_docs_and_the_hint_comment_say_review_is_read_only_from_v0191() -> None:
+    """v0.19.1 marks the review tool read-only, and the docs keep v0.19.0's flag as history.
 
-    The changelog's Unreleased section holds the change and names v0.19.0's
-    flag. The README says it only on its ``On main, not yet released`` line,
-    and its ``From v0.19.0`` paragraph still describes v0.19.0. The comment
-    above the read-only set says event log row, which is what the tools write.
+    The changelog's v0.19.1 section holds the change and names v0.19.0's flag.
+    The README says it in a ``From v0.19.1`` paragraph, and its ``From v0.19.0``
+    paragraph still describes v0.19.0's hints. The comment above the read-only
+    set says event log row, which is what the tools write.
 
-    Mutations, each one alone: move the entry out of the Unreleased section;
-    drop the ``In v0.19.0`` clause; write the main behaviour into a ``From
-    v0.19.0`` README line; put ``A policy audit row`` back into the comment;
-    drop the marked note from the control documents; drop the README's ``no test
-    here runs that prompt`` caveat; change the tables the changelog says review
-    writes with an identity or a key. This test fails.
+    Mutations, each one alone: move the entry out of the v0.19.1 section; drop
+    the ``In v0.19.0`` clause; put ``alice_memory_review`` back among the
+    destructive tools in the README; put ``A policy audit row`` back into the
+    comment; drop the note from the control documents; drop the README's ``no
+    test here runs that prompt`` caveat; change the tables the changelog says
+    review writes with an identity or a key. This test fails.
     """
 
     sections = (_ROOT / "CHANGELOG.md").read_text(encoding="utf-8").split("\n## ")
-    assert sections[1].split("\n", 1)[0].strip() == "Unreleased"
-    unreleased = " ".join(sections[1].split())
-    assert "`alice_memory_review` sets `readOnlyHint` and no longer sets `destructiveHint`." in unreleased
+    assert sections[1].strip() == "Unreleased"
+    assert sections[2].startswith("v0.19.1 \u2014 2026-10-01\n")
+    released_now = " ".join(sections[2].split())
+    assert "`alice_memory_review` sets `readOnlyHint` and no longer sets `destructiveHint`." in released_now
     assert (
         "In v0.19.0 `alice_memory_review` sets `destructiveHint` to true, grouped with the tools "
         "that act on the review queue, and Codex still asks before it runs."
-    ) in unreleased
+    ) in released_now
     assert (
         "With an identity only `event_log` and `agent_identities` rows change, and with a key the "
         "key's last-used time changes too"
-    ) in unreleased
-    assert "No test here runs a Codex approval prompt." in unreleased
+    ) in released_now
+    assert "No test here runs a Codex approval prompt." in released_now
 
     readme = (_ROOT / "README.md").read_text(encoding="utf-8").splitlines()
-    on_main = [
-        line
-        for line in readme
-        if line.startswith("On main, not yet released:") and "`alice_memory_review` is marked read-only" in line
-    ]
-    assert len(on_main) == 1
-    assert "In v0.19.0 `alice_memory_review` is marked destructive" in on_main[0]
-    assert "and no test here runs that prompt" in on_main[0]
     released = [line for line in readme if line.startswith("From v0.19.0, every MCP tool declares hints.")]
     assert len(released) == 1
-    assert "`alice_memory_review`, `alice_memory_correct`, `alice_memory_manage`, and `alice_open_loops` are marked destructive" in released[0]
+    assert (
+        "From v0.19.1, `alice_recall`, `alice_resume`, `alice_context_pack`, `alice_recent_decisions`, "
+        "`alice_explain`, and `alice_memory_review` are marked read-only."
+    ) in released[0]
+    assert "v0.19.0 marked it destructive" in released[0]
+    assert "`alice_memory_correct`, `alice_memory_manage`, and `alice_open_loops` are marked destructive" in released[0]
+    assert "no test here runs that prompt" in released[0]
+    assert not any(line.startswith("On main, not yet released") for line in readme)
 
     source = (_ROOT / "apps" / "api" / "src" / "alicebot_api" / "mcp" / "definitions.py").read_text(encoding="utf-8")
     assert "A policy audit row" not in source
@@ -571,6 +571,6 @@ def test_the_docs_and_the_hint_comment_say_review_is_read_only_on_main() -> None
     for name in ("CURRENT_STATE.md", ".ai/handoff/CURRENT_STATE.md"):
         state = " ".join((_ROOT / name).read_text(encoding="utf-8").split())
         assert (
-            "Unreleased (on main, not in v0.19.0): `alice_memory_review` is read-only, so six "
-            "tools are read-only and three are destructive."
+            "From `v0.19.1`, `alice_memory_review` is read-only, so with the full tool "
+            "set six tools are read-only and three are destructive."
         ) in state, name

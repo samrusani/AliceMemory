@@ -94,12 +94,12 @@ Remember, recall, continue. These are the only tools in a default
   superseded after the capture adds `derived_memory_corrected: true` and
   `current_memory_id`. In v0.18.0 that older row has no validity label
   and the excerpt is unmarked, so the old sentence reads like the fact.
-  Unreleased (on main, not in v0.19.0): `current_memory_id` is left off when
+  From v0.19.1, `current_memory_id` is left off when
   that memory, or any memory on the way to the current one, is outside the
   caller's sensitivity ceiling, domain filter, or project, person and time
   scope, or cannot be found, and for a chain of more than eight corrections.
   `derived_memory_corrected` stays true. In v0.19.0 the id is named whatever
-  the caller may read. Unreleased (on main, not in v0.19.0): a result's
+  the caller may read. From v0.19.1, a result's
   `validity.superseded_by_memory_id` and `validity.supersedes_memory_id` are
   left off under the same fence, and `validity.superseded` stays true. A
   pointer to a row that cannot be found is left off on a scoped call and kept
@@ -169,7 +169,7 @@ Each framed item also has a `writer` object:
   agent, and any edit by a caller that did not present the key.
 - After `correct`, or `confirm` with new text, the writer is that revision's
   actor. The original commit's key does not stay on the new sentence.
-- Unreleased (on main, not in v0.19.0): `verified_by_key` is set only when the
+- From v0.19.1, `verified_by_key` is set only when the
   writing call presented a key. Rows restored by `alice-memory import` never
   carry it. The importer rewrites a stored key claim (`agent_identity` with
   `auth` equal to `agent_api_key`) to an unverified imported claim
@@ -277,7 +277,7 @@ is a CLI verb, not a fourth always-on agent tool.
   `recent_first` | `contradictions_first` | `sources_first`). The
   `include_sources`/`include_contradictions` flags are tri-state: omit them
   to let the `context_depth` tier decide; an explicit true/false always
-  wins. Unreleased (on main, not in v0.19.0): an entry in `recent_changes` is
+  wins. From v0.19.1, an entry in `recent_changes` is
   dropped when the memory it names is outside the caller's sensitivity ceiling,
   domain filter, or project and person scope, and the list is filled from older
   events. The search for older events stops after 2,048 events, so the list can
@@ -535,7 +535,7 @@ echo that internal diagnostic. The response retains `isError: true`, and
 `tool_not_found`, `tool_request_failed`, or `tool_execution_failed` plus a
 static `error.message`. Operator-specific details remain in server logs. This
 also applies to the SQLite `alice-memory mcp` adapter.
-Unreleased (on main, not in v0.19.0): `invalid_request` is a fourth code. It
+From v0.19.1, `invalid_request` is a fourth code. It
 answers a recall or context pack query the SQLite source search cannot take
 (see Size bounds). Its `error.message` is not static: it names the limit and
 the measured size, and never repeats the query, for example `query has 1000
@@ -561,7 +561,7 @@ provenance over 20,000 characters serialized. That covers
 `alice_commit_captures` accepts at most 100 candidates. Each candidate is
 at most 20,000 characters serialized.
 
-Unreleased (on main, not in v0.19.0): on the SQLite vault, `alice_recall` and
+From v0.19.1, on the SQLite vault, `alice_recall` and
 `alice_context_pack` take a `query` of at most 499 distinct search terms and at
 most 40,000 UTF-8 bytes. The bytes are counted as sent and again after case
 folding, because some characters grow when folded (U+0390 goes from 2 bytes to
@@ -582,8 +582,11 @@ size over 40,000 bytes is also taken there when the search reads no source row
 (a vault with no captured source, or filters that exclude every source), and it
 is refused now because the check looks at the query alone. `alice_resume` and
 `alice_recent_decisions` are not covered: a query of about 50,000 bytes or more
-still answers `tool_execution_failed` there once the vault holds a stored
-decision.
+still answers `tool_execution_failed` from `alice_resume` once the vault holds
+an active memory of any type, and from `alice_recent_decisions` once it holds a
+stored decision. A query inside the limit can still take several seconds on a
+vault with thousands of sources: 3.7 seconds at 499 distinct terms, against 0.30
+seconds for two words, on a synthetic vault of 4,000 captured sources.
 
 ## Trust boundary
 

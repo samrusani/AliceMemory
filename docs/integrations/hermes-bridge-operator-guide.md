@@ -1,9 +1,10 @@
 # Hermes Bridge Operator Guide
 
 This is the canonical operator guide for the Hermes bridge bundled with the
-Alice `v0.9.x` line. The embedded Hermes provider plugin keeps its own `0.5.1`
-integration-contract version in `plugin.yaml`; that number is not the Alice
-application release and does not imply `v1.0.0` guarantees.
+Alice `v0.9.x` line. The embedded Hermes provider plugin keeps its own `0.5.2`
+integration-contract version in `plugin.yaml` (`0.5.1` in v0.18.0 and v0.19.0);
+that number is not the Alice application release and does not imply `v1.0.0`
+guarantees.
 
 Recommended deployment shape: **provider plus MCP**.
 

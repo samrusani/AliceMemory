@@ -389,8 +389,8 @@ Stated so nobody reads the table above as "every surface".
     the legacy gate is refused on this route too.
 - **Import beyond memory rows.** The revisions, events and non-memory records
   in an import file are not checked. Correction, dated 2026-09-30.
-  Unreleased (on main, not in v0.19.0): they are still not refused, but import
-  now reads every text and JSON column of each with `credential_verdict`, and
+  From v0.19.1, they are still not refused, but import
+  reads every text and JSON column of each with `credential_verdict`, and
   the memory columns the memory check does not read, and lists the table, id and
   column of each hit on its receipt, never the text. Import exits 0, because a
   vault from before the floor can hold a secret in a source and no SQLite

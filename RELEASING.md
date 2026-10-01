@@ -39,8 +39,11 @@ repository root, or, when the file exists, moves its plugin entry's `ref` and
 `sha` to the new tag. The file has `name` `alicememory`, `owner` with `name`
 `Alice Memory`, a `description`, and one plugin entry. That entry's `name`
 matches `plugin.json`. Its `source` is `git-subdir`, with `url`
-`https://github.com/samrusani/AliceMemory.git` (the `owner/repo` shorthand
-makes Claude Code clone over SSH, which fails without GitHub SSH keys),
+`https://github.com/samrusani/AliceMemory.git` (in this field the `owner/repo`
+shorthand made Claude Code 2.1.281 clone over SSH in CI, which fails without
+GitHub SSH keys; `claude plugin marketplace add` with the shorthand is a
+different path and added the marketplace over HTTPS on a CI runner with no SSH
+key),
 `path` `plugins/alice-memory`, `ref` `vX.Y.Z`,
 and `sha`, the full 40-character lowercase tag commit. Then it dispatches
 the marketplace check in the real-host workflow.
@@ -458,3 +461,5 @@ macOS with `shasum -a 256 -c SHA256SUMS`.
 
 `v0.19.0` is the latest published release and remains the install, checksum,
 and baseline reference.
+
+`v0.19.1` is the current release candidate. It is not published.
