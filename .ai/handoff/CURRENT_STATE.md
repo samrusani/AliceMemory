@@ -16,6 +16,10 @@
   artifact or a published GitHub Release.
 - LongMemEval_s is 81.2%, a mean of three runs on `v0.12.0` `store_chunks`.
   It is not the product path and not a measurement of the current release.
+  Known issue: the harness showed the reader model each session's id, and in
+  this dataset every evidence session id starts with `answer_`. The effect is
+  unmeasured, so the number may be overstated by an unknown amount. See the
+  README Benchmark section.
 - Alice remains public-alpha, pre-1.0, local-first, single-user, and self-hosted.
 
 ## What `v0.11.1` Shipped
@@ -274,7 +278,8 @@ the `v0.14.0` release notes.
 ## What `v0.13.1` Shipped
 
 - The replicated LongMemEval_s baseline (81.2% mean over three runs on the
-  published `v0.12.0` code) committed as per-question evidence.
+  published `v0.12.0` code) committed as per-question evidence. It carries the
+  session id label issue described in the Snapshot section.
 - SQLite vector-scale work: bit-identical vectorized scan, resident vector
   cache with transactional stamp invalidation (vector stage 385-465ms warm
   at 100k inside 754MB peak / 760MB steady, 1024MB default cap,
@@ -369,8 +374,9 @@ does not create a memory.
 
 Import stays a source. Commit stays a fact. Candidates stay
 unsearchable as memories. `count=0` after capture is still the
-design. 81.2% stays a `v0.12.0` `store_chunks` receipt.
-`pack_excerpts` is named and not scored.
+design. 81.2% stays a `v0.12.0` `store_chunks` receipt, with the session id
+label issue described in the Snapshot section. `pack_excerpts` is named and
+not scored.
 
 ## The `v0.15.0` tag was never published
 

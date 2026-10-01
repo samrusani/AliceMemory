@@ -216,6 +216,8 @@ vector list and the retrieval trace says so.
 
 A LongMemEval_s receipt of 81.2% mean over three independent full runs (80.8 / 81.0 / 81.8; 404-409 of 500) was measured 2026-07-18/19 on the published `v0.12.0` tag with the privileged `store_chunks` harness. That path reads chunks straight from the store. No MCP tool offers it, and it is not the product path. `pack_excerpts` is the product-path mode and is not yet a published score. Per-question evidence for all three runs, the reader/judge/embedding configuration, and the reproduction script are committed to this repo. Multi-session is the weakest category at roughly 63%. The 30-question abstention subset is noisy across runs (76.7 / 90.0 / 83.3) and should not be quoted to one decimal. The earlier single run of 79.4% (397/500) from 2026-07-07 is retained as evidence.
 
+Known issue with this number. In the LongMemEval_s data, the id of every session that holds a question's evidence starts with `answer_`, and no other session id does. Our harness put that id in the header above each excerpt and in the first line of each session's text, so the model answering the question could see which sessions held the evidence. In the three runs, a retrieved session carried that label on 495 of 500 questions, and in 29 to 32 answers per run the model named such a session id in its reasoning. We have not measured how much this helped, so 81.2% may overstate the result by an unknown amount. The earlier 64.6% and 79.4% runs used the same harness code. The next LongMemEval result we publish will hide the ids, use the product-path `pack_excerpts` mode, and replace these numbers rather than sit beside them.
+
 ## Status
 
 `v0.19.2` is the latest published release and remains the install, checksum,
