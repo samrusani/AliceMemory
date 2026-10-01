@@ -2,6 +2,13 @@
 
 Sami Rusani and the Alice project · 2026-07-11
 
+> **Note added 2026-10-01.** The 79.4% result below has a known issue. In
+> LongMemEval_s every evidence session id starts with `answer_`, and the
+> harness showed the reader model each session's id, so the model could see
+> which sessions held the evidence. The effect is unmeasured, so the 79.4%
+> and the 64.6% before it may be overstated by an unknown amount. See the
+> Benchmark section of the README. The text below is unchanged.
+
 ## Abstract
 
 Alice is a local-first memory service for AI agents. Its published

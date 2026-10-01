@@ -55,15 +55,17 @@ older checkpoints more complete.
 | Run | Result | Digest | Evidence |
 |---|---|---|---|
 | 2026-07-05 full run (baseline) | 64.6% (323/500) | `798c10822f50a667` | [per-question-results.jsonl](per-question-results.jsonl), [report.json](report.json) |
-| 2026-07-07 full run (published) | 79.4% (397/500) | `954b203d34e9b96d` | [per-question-results-2026-07-07.jsonl](per-question-results-2026-07-07.jsonl), [report-2026-07-07.json](report-2026-07-07.json) |
+| 2026-07-07 full run (earlier headline, superseded) | 79.4% (397/500) | `954b203d34e9b96d` | [per-question-results-2026-07-07.jsonl](per-question-results-2026-07-07.jsonl), [report-2026-07-07.json](report-2026-07-07.json) |
 | Stage-1 slice, retrieval-only change | net +7 on 172 q | `348ad3edf2524b24` | [uplift-evidence/stage1-runA-retrieval-only-checkpoint.jsonl](uplift-evidence/stage1-runA-retrieval-only-checkpoint.jsonl) |
 | Stage-1 slice, full config | net +18 on 172 q (64.5%→75.0%) | `60d226be0161cc45` | [uplift-evidence/stage1-runB-full-config-checkpoint.jsonl](uplift-evidence/stage1-runB-full-config-checkpoint.jsonl) |
+| 2026-07-18/19 replication, three full runs (published headline) | 81.2% mean (80.8% / 81.0% / 81.8%; 404-409 of 500) | `c5a7dbe1416cc43d` | [replication-v0.12.0-2026-07-19/](replication-v0.12.0-2026-07-19/) |
 
 Checkpoint files are append-only evidence: quota-outage retries are retained,
 and aggregation dedupes by `question_id` keeping the last row. v0.9.2 resume
 fails closed when completed rows have a different fingerprint; the older
-harness only warned and could produce mixed reports. The 79.4% headline is a
-**single run**; the prior campaign's
+harness only warned and could produce mixed reports. The 79.4% result is a
+**single run** and is no longer the headline (the three-run replication above
+is); the prior campaign's
 three-run variance band on a fixed config was 63.0–64.6, so treat any
 single-run delta under ~2 points as noise.
 
@@ -71,6 +73,12 @@ single-run delta under ~2 points as noise.
 
 Things we built or measured that did **not** work, with the numbers:
 
+- **Session ids carried the evidence label.** In the dataset, every evidence
+  session id starts with `answer_` and no filler session id does, and the
+  harness showed session ids to the reader model. The effect is unmeasured.
+  All three published numbers (64.6%, 79.4% and 81.2%, over five full runs)
+  carry it. An anonymised rerun is planned and will replace them. See the
+  known-issue note at the top of the [benchmark README](README.md).
 - **Entity-graph retrieval did not move the benchmark.** A graph stage that
   provably lifts entity-name recall from 0.0 to 1.0 in our own
   `graph_hop_retrieval` eval left multi-session flat (45.1% → 42.1%, within

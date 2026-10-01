@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from copy import deepcopy
+import json
 from pathlib import Path
+import sqlite3
+
+import pytest
 
 from longmemeval import count_probe as count_probe_module
 from longmemeval.count_probe import (
@@ -22,7 +26,8 @@ from longmemeval.count_probe import (
     probe_question,
     summarize_rows,
 )
-from longmemeval.dataset import LongMemEvalQuestion
+from longmemeval.dataset import SYNTHETIC_FIXTURE_PATH, LongMemEvalQuestion, load_dataset
+from longmemeval.session_labels import SESSION_LABEL_MODE_ANONYMISED, SESSION_LABEL_MODE_RAW
 
 
 def _question(question_id: str, question: str, answer: str = "3") -> LongMemEvalQuestion:
@@ -301,7 +306,7 @@ def test_probe_request_uses_the_question_date_as_reference_time(
             captured["accept_rollups"] = accept_rollups
 
     @contextmanager
-    def fake_question_run(_question_value, _db_path):
+    def fake_question_run(_question_value, _db_path, **_choices):
         yield FakeRun()
 
     class FakeService:
@@ -328,3 +333,121 @@ def test_probe_request_uses_the_question_date_as_reference_time(
     request = captured["request"]
     assert request.reference_time is not None
     assert request.reference_time.isoformat() == "2025-01-01T00:00:00+00:00"
+
+
+# -- session label mode ---------------------------------------------------------------------------------
+
+
+def _scrub_models(monkeypatch: pytest.MonkeyPatch) -> None:
+    for name in (
+        "ALICE_EMBEDDINGS_BASE_URL",
+        "ALICE_EMBEDDINGS_MODEL",
+        "ALICE_EMBEDDINGS_API_KEY",
+        "ALICE_RERANKER_BASE_URL",
+        "ALICE_RERANKER_MODEL",
+        "ALICE_RERANKER_API_KEY",
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+
+def _store_mentions(db_path: Path, needle: str) -> bool:
+    connection = sqlite3.connect(db_path)
+    try:
+        names = [row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")]
+        for name in names:
+            for row in connection.execute(f'SELECT * FROM "{name}"'):
+                for value in row:
+                    text = value.decode("latin-1") if isinstance(value, bytes) else str(value)
+                    if needle in text:
+                        return True
+    finally:
+        connection.close()
+    return False
+
+
+def test_probe_hides_session_ids_by_default_records_the_mode_and_keeps_stores_apart(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Fails if the probe changes label mode without saying so, or reuses a store across modes.
+
+    Mutations: (1) drop ``session_label_mode=session_label_mode`` from the
+    ``question_run`` call in ``probe_question`` (a raw run would store hashed
+    labels); (2) drop it from ``_marker_matches`` or from the marker write (a raw
+    run would reuse the hashed store, or the reverse); (3) drop the row field in
+    ``probe_row``. Before this the probe took the new default with no flag and no
+    record.
+    """
+    _scrub_models(monkeypatch)
+    question = load_dataset(SYNTHETIC_FIXTURE_PATH)[0]
+    raw_id = question.haystack_session_ids[1]
+    assert raw_id.startswith("answer_")
+    options = {"work_dir": tmp_path, "dataset_path": SYNTHETIC_FIXTURE_PATH, "max_items": 8, "accept_rollups": False}
+    db_path = count_probe_module._db_path_for(tmp_path, question.question_id)
+
+    first = probe_question(question, **options)
+    assert first["session_label_mode"] == SESSION_LABEL_MODE_ANONYMISED and first["reused_store"] is False
+    assert not _store_mentions(db_path, raw_id), "the default probe stored a raw session id"
+    assert probe_question(question, **options)["reused_store"] is True
+
+    raw = probe_question(question, session_label_mode=SESSION_LABEL_MODE_RAW, **options)
+    assert raw["session_label_mode"] == SESSION_LABEL_MODE_RAW
+    assert raw["reused_store"] is False, "a store ingested with hashed labels was reused for a raw-label probe"
+    assert _store_mentions(db_path, raw_id), "the raw probe did not store the raw session id"
+    assert probe_question(question, session_label_mode=SESSION_LABEL_MODE_RAW, **options)["reused_store"] is True
+    back = probe_question(question, **options)
+    assert back["reused_store"] is False
+    assert not _store_mentions(db_path, raw_id)
+
+
+def test_probe_flag_reaches_the_rows_the_summary_and_the_default_file_name(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Fails if ``--raw-session-labels`` is parsed but not applied, or its rows can overwrite the others.
+
+    Mutations: (1) drop ``session_label_mode=session_label_mode`` from the
+    ``pool.submit`` call in ``main``; (2) drop it from the summary payload;
+    (3) ignore the mode in ``default_output_path``.
+    """
+    _scrub_models(monkeypatch)
+    source = load_dataset(SYNTHETIC_FIXTURE_PATH)[0]
+    dataset = tmp_path / "dataset.json"
+    record = json.loads(SYNTHETIC_FIXTURE_PATH.read_text(encoding="utf-8"))[0]
+    record["question_id"] = "count_synth_1"
+    record["question"] = "How many bike services did I record?"
+    dataset.write_text(json.dumps([record]), encoding="utf-8")
+    ids = tmp_path / "ids.txt"
+    ids.write_text("count_synth_1\n", encoding="utf-8")
+    raw_id = source.haystack_session_ids[1]
+
+    def run(*extra: str) -> tuple[list[dict[str, object]], dict[str, object]]:
+        out = tmp_path / f"rows{len(extra)}.jsonl"
+        count_probe_module.main(
+            [
+                "--dataset-file", str(dataset),
+                "--question-ids", str(ids),
+                "--work-dir", str(tmp_path / "stores"),
+                "--out", str(out),
+                "--workers", "1",
+                *extra,
+            ]
+        )
+        rows = [json.loads(line) for line in out.read_text(encoding="utf-8").splitlines()]
+        summary = json.loads(out.with_suffix(".summary.json").read_text(encoding="utf-8"))
+        return rows, summary
+
+    rows, summary = run()
+    assert [row["session_label_mode"] for row in rows] == [SESSION_LABEL_MODE_ANONYMISED]
+    assert summary["session_label_mode"] == SESSION_LABEL_MODE_ANONYMISED
+    assert not _store_mentions(count_probe_module._db_path_for(tmp_path / "stores", "count_synth_1"), raw_id)
+
+    raw_rows, raw_summary = run("--raw-session-labels")
+    assert [row["session_label_mode"] for row in raw_rows] == [SESSION_LABEL_MODE_RAW]
+    assert raw_summary["session_label_mode"] == SESSION_LABEL_MODE_RAW
+    assert raw_rows[0]["reused_store"] is False
+    assert _store_mentions(count_probe_module._db_path_for(tmp_path / "stores", "count_synth_1"), raw_id)
+
+    dataset_name = Path("longmemeval_s_cleaned.json")
+    default_name = default_output_path(dataset_name, accept_rollups=False)
+    raw_name = default_output_path(dataset_name, accept_rollups=False, session_label_mode=SESSION_LABEL_MODE_RAW)
+    assert default_name.name == "count_probe_longmemeval_s_cleaned_rollups_off.jsonl"
+    assert raw_name != default_name and "raw_labels" in raw_name.name
