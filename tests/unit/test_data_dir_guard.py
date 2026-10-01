@@ -410,21 +410,21 @@ def _flat(text: str) -> str:
     return " ".join(text.split())
 
 
-def test_the_docs_say_the_hook_checks_the_variable_from_v0191_and_keep_the_v0190_gap(
+def test_the_docs_say_the_hook_checks_the_variable_from_v0192_and_keep_the_v0190_gap(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """The docs say what v0.19.1 does and what v0.19.0 still does.
+    """The docs say what v0.19.2 does and what v0.19.0 still does.
 
     v0.19.0 creates a vault under the current directory for a relative
     ``ALICE_MEMORY_DATA_DIR``, so the known limitation stays as v0.19.0's gap,
-    followed by what v0.19.1 changed. The changelog's v0.19.1 section holds the
+    followed by what v0.19.2 changed. The changelog's v0.19.2 section holds the
     change and names v0.19.0's behaviour, the README carries it in a ``From
-    v0.19.1`` paragraph, and ``--help`` states the rule.
+    v0.19.2`` paragraph, and ``--help`` states the rule.
 
-    Mutations, each one alone: drop the ``From v0.19.1`` wording from the known
+    Mutations, each one alone: drop the ``From v0.19.2`` wording from the known
     limitation, the example page or the control documents; delete the
     ``In v0.19.0`` clause from the changelog entry; move the entry out of the
-    v0.19.1 section; put the rule into a ``From v0.19.0`` README line; drop
+    v0.19.2 section; put the rule into a ``From v0.19.0`` README line; drop
     the variable from the ``--data-dir`` help; change the changelog's ``exits 0``
     or the example page's ``It exits 0 and creates nothing``; drop the escape and
     cut sentence from either. This test fails.
@@ -439,23 +439,23 @@ def test_the_docs_say_the_hook_checks_the_variable_from_v0191_and_keep_the_v0190
     ]
     assert len(bullets) == 1
     assert bullets[0].startswith("- in v0.19.0 a relative `ALICE_MEMORY_DATA_DIR` is not checked")
-    assert "From v0.19.1, the hook refuses a non-empty value of the variable" in bullets[0]
+    assert "From v0.19.2, the hook refuses a non-empty value of the variable" in bullets[0]
     assert "Unreleased" not in bullets[0]
 
     example = _flat((_ROOT / "docs" / "examples" / "alice-memory-session-start.md").read_text(encoding="utf-8"))
     assert "in v0.19.0 it does not check this variable" in example
-    assert "From v0.19.1, the hook refuses a non-empty value that is not absolute" in example
+    assert "From v0.19.2, the hook refuses a non-empty value that is not absolute" in example
     assert "Unreleased" not in example
     assert "It exits 0 and creates nothing." in example
     assert "cut at 200 characters" in example
 
     for name in ("CURRENT_STATE.md", ".ai/handoff/CURRENT_STATE.md"):
         state = _flat((_ROOT / name).read_text(encoding="utf-8"))
-        assert "From `v0.19.1`, the hook refuses a relative `ALICE_MEMORY_DATA_DIR` the same way." in state, name
+        assert "From `v0.19.2`, the hook refuses a relative `ALICE_MEMORY_DATA_DIR` the same way." in state, name
 
     changelog = (_ROOT / "CHANGELOG.md").read_text(encoding="utf-8").split("\n## ")
     assert changelog[1].strip() == "Unreleased"
-    assert changelog[2].startswith("v0.19.1 \u2014 2026-10-01\n")
+    assert changelog[2].startswith("v0.19.2 \u2014 2026-10-01\n")
     released_now = _flat(changelog[2])
     assert (
         "`alice-memory-session-start` refuses a non-empty `ALICE_MEMORY_DATA_DIR` that is not "
@@ -470,13 +470,13 @@ def test_the_docs_say_the_hook_checks_the_variable_from_v0191_and_keep_the_v0190
     assert "`alice-memory brief` and `alice-memory mcp` do not read the variable" in released_now
 
     readme = (_ROOT / "README.md").read_text(encoding="utf-8").splitlines()
-    from_v0191 = [
+    from_v0192 = [
         line
         for line in readme
-        if line.startswith("From v0.19.1, `alice-memory-session-start` refuses") and "ALICE_MEMORY_DATA_DIR" in line
+        if line.startswith("From v0.19.2, `alice-memory-session-start` refuses") and "ALICE_MEMORY_DATA_DIR" in line
     ]
-    assert len(from_v0191) == 1
-    assert "In v0.19.0" in from_v0191[0]
+    assert len(from_v0192) == 1
+    assert "In v0.19.0" in from_v0192[0]
     released = [line for line in readme if line.startswith("From v0.19.0,")]
     assert released and not any("refuses a relative or unexpanded" in line for line in released)
     assert not any(line.startswith("On main, not yet released") for line in readme)

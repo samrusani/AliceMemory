@@ -48,6 +48,13 @@ _PACKAGE_DESCRIPTION_STATE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
 SEMANTIC_EVAL_ATTESTATION_SCHEMA_VERSION = "alice_semantic_eval_attestation_v1"
 EMBEDDING_SIGNATURE_IDENTITY_SCHEMA_VERSION = "alice_embedding_signature_identity_v1"
 REQUIRED_EMBEDDING_SIGNATURE_VERSION = 2
+# The Claude Code plugin id, "<plugin name>@<marketplace name>". This script owns
+# its copy and must not import it from alicebot_api: the publish workflow runs
+# it in jobs that never install the package (draft readback, finalize, resume
+# and recovery), and v0.19.1 failed there on exactly that import.
+# tests/unit/test_publish_workflow_lean_job_imports.py pins this value equal to
+# alicebot_api.host_install.CLAUDE_PLUGIN_ID so the two cannot drift.
+CLAUDE_PLUGIN_ID = "alice-memory@alicememory"
 RELEASE_DOCUMENT_STATE_SCHEMA_VERSION = "alice_release_document_state_v1"
 _RELEASE_DOCUMENT_STATE_PATTERN = re.compile(
     r"<!-- alice-release-state: (?P<payload>\{.*\}) -->",
@@ -687,7 +694,14 @@ def _semantic_eval_report_digest(report: dict[str, object]) -> str:
 
 @lru_cache(maxsize=1)
 def _generator_release_contract() -> dict[str, object]:
-    """Load canonical query/target linkage from the candidate's generators."""
+    """Load canonical query/target linkage from the candidate's generators.
+
+    This is the one import of the installed package left in this script. It is
+    reachable only through the --semantic-eval-* flags, which the publish
+    workflow passes only in the job that installs the package. The lean jobs
+    never reach it, and tests/unit/test_publish_workflow_lean_job_imports.py
+    checks that by call graph from main().
+    """
     from alicebot_api.vnext_evals import canonical_semantic_eval_release_contract
 
     return canonical_semantic_eval_release_contract()
@@ -2668,8 +2682,6 @@ def _marketplace_issues(root_dir: Path, path: Path) -> list[str]:
             issues.append(".claude-plugin/marketplace.json ref has no dated CHANGELOG heading")
     if not isinstance(sha, str) or not re.fullmatch(r"[0-9a-f]{40}", sha):
         issues.append(".claude-plugin/marketplace.json sha is not 40 lowercase hex characters")
-    from alicebot_api.host_install import CLAUDE_PLUGIN_ID
-
     expected_id = f"{entry.get('name')}@{loaded.get('name')}"
     if expected_id != CLAUDE_PLUGIN_ID:
         issues.append(

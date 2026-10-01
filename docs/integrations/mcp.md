@@ -128,7 +128,7 @@ One-command bridge demo:
   `{"error":{"code":"...","message":"..."}}`
 - tool failure codes are `tool_not_found`, `tool_request_failed`, and
   `tool_execution_failed`; their messages are static, while exception details
-  are written only to server logs. From v0.19.1, `invalid_request` is a fourth code, used when `alice_recall` or
+  are written only to server logs. From v0.19.2, `invalid_request` is a fourth code, used when `alice_recall` or
   `alice_context_pack` gets a query the SQLite source search cannot take. Its
   message names the limit and holds only counts, never the query.
 - JSON-RPC framing errors use the standard static messages `Parse error`,

@@ -177,7 +177,7 @@ active-key or RLS bypass remains in scope.
   did. A keyless call that declares no agent id is recorded as actor type
   `user` with no actor id, which the audit trail cannot tell from the owner.
 - A memory id is itself sensitive metadata (added 2026-09-30, updated
-  2026-10-01). From v0.19.1, every place below follows
+  2026-10-01). From v0.19.2, every place below follows
   the same sensitivity, domain, project, person and time fence as the memory
   reads. The correction label on a recalled or packed source excerpt. The
   `supersedes` and `superseded_by` fields on a context pack's memories.
@@ -205,7 +205,7 @@ active-key or RLS bypass remains in scope.
   `alice_open_loops`. The other tools, such as `alice_recent_changes` and
   `alice_timeline`, were not checked for memory ids.
 - Open items from the internal security review of v0.19.0 (added 2026-10-01).
-  They are not fixed in v0.19.1, and the v0.19.1 release notes give the detail.
+  They are not fixed in v0.19.2, and the v0.19.2 release notes give the detail.
   The Postgres stack's HTTP API parses a JSON request body of any size before it
   authenticates (a 262,057 byte body was read in full before the 401), and it
   does not check the `Host` header of a keyless loopback request. The

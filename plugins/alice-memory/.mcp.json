@@ -4,7 +4,7 @@
       "command": "uvx",
       "args": [
         "--from",
-        "alice-memory==0.19.1",
+        "alice-memory==0.19.2",
         "alice-memory",
         "mcp",
         "--data-dir",

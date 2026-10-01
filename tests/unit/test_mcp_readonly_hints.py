@@ -521,15 +521,15 @@ def test_review_refusals_write_nothing_but_the_audit_rows(
 _ROOT = Path(__file__).resolve().parents[2]
 
 
-def test_the_docs_and_the_hint_comment_say_review_is_read_only_from_v0191() -> None:
-    """v0.19.1 marks the review tool read-only, and the docs keep v0.19.0's flag as history.
+def test_the_docs_and_the_hint_comment_say_review_is_read_only_from_v0192() -> None:
+    """v0.19.2 marks the review tool read-only, and the docs keep v0.19.0's flag as history.
 
-    The changelog's v0.19.1 section holds the change and names v0.19.0's flag.
-    The README says it in a ``From v0.19.1`` paragraph, and its ``From v0.19.0``
+    The changelog's v0.19.2 section holds the change and names v0.19.0's flag.
+    The README says it in a ``From v0.19.2`` paragraph, and its ``From v0.19.0``
     paragraph still describes v0.19.0's hints. The comment above the read-only
     set says event log row, which is what the tools write.
 
-    Mutations, each one alone: move the entry out of the v0.19.1 section; drop
+    Mutations, each one alone: move the entry out of the v0.19.2 section; drop
     the ``In v0.19.0`` clause; put ``alice_memory_review`` back among the
     destructive tools in the README; put ``A policy audit row`` back into the
     comment; drop the note from the control documents; drop the README's ``no
@@ -539,7 +539,7 @@ def test_the_docs_and_the_hint_comment_say_review_is_read_only_from_v0191() -> N
 
     sections = (_ROOT / "CHANGELOG.md").read_text(encoding="utf-8").split("\n## ")
     assert sections[1].strip() == "Unreleased"
-    assert sections[2].startswith("v0.19.1 \u2014 2026-10-01\n")
+    assert sections[2].startswith("v0.19.2 \u2014 2026-10-01\n")
     released_now = " ".join(sections[2].split())
     assert "`alice_memory_review` sets `readOnlyHint` and no longer sets `destructiveHint`." in released_now
     assert (
@@ -556,7 +556,7 @@ def test_the_docs_and_the_hint_comment_say_review_is_read_only_from_v0191() -> N
     released = [line for line in readme if line.startswith("From v0.19.0, every MCP tool declares hints.")]
     assert len(released) == 1
     assert (
-        "From v0.19.1, `alice_recall`, `alice_resume`, `alice_context_pack`, `alice_recent_decisions`, "
+        "From v0.19.2, `alice_recall`, `alice_resume`, `alice_context_pack`, `alice_recent_decisions`, "
         "`alice_explain`, and `alice_memory_review` are marked read-only."
     ) in released[0]
     assert "v0.19.0 marked it destructive" in released[0]
@@ -571,6 +571,6 @@ def test_the_docs_and_the_hint_comment_say_review_is_read_only_from_v0191() -> N
     for name in ("CURRENT_STATE.md", ".ai/handoff/CURRENT_STATE.md"):
         state = " ".join((_ROOT / name).read_text(encoding="utf-8").split())
         assert (
-            "From `v0.19.1`, `alice_memory_review` is read-only, so with the full tool "
+            "From `v0.19.2`, `alice_memory_review` is read-only, so with the full tool "
             "set six tools are read-only and three are destructive."
         ) in state, name
