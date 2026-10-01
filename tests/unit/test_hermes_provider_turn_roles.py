@@ -327,6 +327,10 @@ def test_a_turn_with_a_lone_surrogate_does_not_raise_in_sync_turn(monkeypatch: p
 
     That raises UnicodeEncodeError inside the Hermes turn loop. The default
     json.dumps escapes the surrogate. The old fingerprint raised here too.
+
+    From plugin 0.5.3 ``sync_turn`` replaces the surrogate before it
+    fingerprints, so the fingerprint is also called here with the surrogate
+    still in the turn, which is what the mutation needs to fail.
     """
 
     store, posts = ContinuityCaptureStoreStub(), []
@@ -336,6 +340,8 @@ def test_a_turn_with_a_lone_surrogate_does_not_raise_in_sync_turn(monkeypatch: p
     _flush(provider)
 
     assert len(_posted(posts, _CANDIDATES_PATH)) == 1
+    turn = provider.sync_turn.__func__.__globals__["_TurnCapture"]("bad \ud800", "fine")  # type: ignore[attr-defined]
+    assert provider._capture_fingerprint(kind="sync_turn", raw_content=turn).startswith("sync_turn:")
 
 
 def test_each_side_is_stripped_and_capped_on_its_own(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -585,7 +591,7 @@ def test_the_docs_say_what_v0192_changed_and_what_v0190_still_does() -> None:
     """
 
     changelog = (REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
-    assert changelog[changelog.index("## Unreleased") : changelog.index("## v0.19.2")].strip() == "## Unreleased"
+    assert "Hermes provider 0.5.2 sends" not in changelog[changelog.index("## Unreleased") : changelog.index("## v0.19.2")]
     released_now = changelog[changelog.index("## v0.19.2") : changelog.index("## v0.19.0")]
     entries = [_flat(entry) for entry in released_now.split("\n- ") if entry.lstrip("- ").startswith("Hermes provider 0.5.2 sends")]
     assert len(entries) == 1
