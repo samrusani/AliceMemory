@@ -18,6 +18,7 @@ from typing import Any, Protocol, cast
 from uuid import uuid4
 
 from alicebot_api.connector_payloads import ConnectorPayloadValidationError, normalize_telegram_source_item
+from alicebot_api.importer_paths import ContainedReadRefused, read_text_beneath
 from alicebot_api.vnext_capture import (
     CaptureCredentialRefused,
     SourceCaptureInput,
@@ -150,6 +151,10 @@ class LocalFolderScan:
     ignored_count: int
     recursive: bool
     extensions: tuple[str, ...]
+    # Files the contained reader refused: a link or a moved directory, a file
+    # that is not a regular file, one over the size cap, one that is not UTF-8
+    # text, or one that could not be read. Each fails alone.
+    refused_count: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -287,6 +292,8 @@ DEFAULT_LOCAL_FOLDER_IGNORES = (
     "node_modules",
 )
 DEFAULT_LOCAL_FOLDER_EXTENSIONS = (".md", ".txt")
+# The reader needs a bound, so the per-file cap lands with the contained read.
+MAX_LOCAL_FOLDER_FILE_BYTES = 2 * 1024 * 1024
 LOCAL_FOLDER_ROOTS_ENV = "ALICE_VNEXT_LOCAL_FOLDER_ROOTS"
 CORE_SETTINGS_CONNECTORS = ("telegram", "local_folder", "browser_clipper", "agent_output")
 
@@ -938,6 +945,12 @@ def load_connector_items_from_file(path: str | Path) -> list[JsonObject]:
     return items
 
 
+def _universal_newlines(text: str) -> str:
+    """Translate line endings the way ``Path.read_text`` does, so a note's text and hash do not change."""
+
+    return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
 def scan_local_folder(
     paths: Sequence[str | Path],
     *,
@@ -952,6 +965,7 @@ def scan_local_folder(
         raise VNextConnectorValidationError("local_folder requires at least one file extension")
     items: list[JsonObject] = []
     ignored_count = 0
+    refused_count = 0
     for raw_root in paths:
         root = _resolve_local_folder_root(raw_root)
         iterator = root.rglob("*") if recursive else root.glob("*")
@@ -971,16 +985,23 @@ def scan_local_folder(
             ):
                 ignored_count += 1
                 continue
-            stat = resolved_file.stat()
+            # The checks above name a file; they do not hold it. The read opens
+            # it again beneath the root, link by link, and takes the text, the
+            # size and the time from that one descriptor.
+            try:
+                text, opened = read_text_beneath(root, relative_path, max_bytes=MAX_LOCAL_FOLDER_FILE_BYTES)
+            except ContainedReadRefused:
+                refused_count += 1
+                continue
             items.append(
                 {
                     "path": str(resolved_file),
                     "relative_path": str(relative_path),
                     "filename": resolved_file.name,
-                    "text": resolved_file.read_text(encoding="utf-8"),
-                    "file_size": stat.st_size,
-                    "mtime": datetime.fromtimestamp(stat.st_mtime, UTC).isoformat().replace("+00:00", "Z"),
-                    "mtime_ns": stat.st_mtime_ns,
+                    "text": _universal_newlines(text),
+                    "file_size": opened.st_size,
+                    "mtime": datetime.fromtimestamp(opened.st_mtime, UTC).isoformat().replace("+00:00", "Z"),
+                    "mtime_ns": opened.st_mtime_ns,
                     "extension": resolved_file.suffix.casefold(),
                     "watched_root": str(root),
                     "external_id": str(resolved_file),
@@ -992,6 +1013,7 @@ def scan_local_folder(
         ignored_count=ignored_count,
         recursive=recursive,
         extensions=normalized_extensions,
+        refused_count=refused_count,
     )
 
 

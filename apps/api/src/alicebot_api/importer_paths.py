@@ -151,6 +151,97 @@ def read_contained_source_text(
             ) from exc
 
 
+class ContainedReadRefused(Exception):
+    """One file was refused by ``read_text_beneath``. ``reason`` is a stable code."""
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+        self.reason = reason
+
+
+_DIRECTORY_OPEN_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0)
+_FILE_OPEN_FLAGS = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | getattr(os, "O_CLOEXEC", 0)
+_READ_BLOCK_BYTES = 1 << 20
+
+
+def read_text_beneath(root: Path, relative: Path, *, max_bytes: int) -> tuple[str, os.stat_result]:
+    """Read one regular file at ``root/relative`` without ever leaving ``root``.
+
+    Nothing is opened by its full path. ``root`` is opened as a directory, each
+    ancestor is opened relative to the descriptor of the one before it, and the
+    file is opened relative to the last of them, every one with ``O_NOFOLLOW``.
+    A file or an ancestor swapped for a symlink after the caller listed it
+    therefore fails the open instead of redirecting it, and swapping the
+    ancestor after the walk reaches it cannot move the final open, because that
+    open is anchored to a descriptor and not to a name.
+
+    ``O_NONBLOCK`` keeps the open from parking on a FIFO that has no writer.
+    The opened descriptor is then required to be a regular file of at most
+    ``max_bytes``, so the check is made on the object that is read and not on
+    a name. The read itself takes at most ``max_bytes + 1`` bytes, so a file
+    that grows, or that reports a size it does not have, is never held whole.
+    The size and times in the returned status come from the same descriptor
+    as the text. Any failure raises ``ContainedReadRefused`` with a reason:
+    ``bad_path``, ``symlink_or_moved``, ``unreadable``, ``not_regular``,
+    ``too_large`` or ``not_utf8``.
+
+    Known limitation: a hard link is the file itself, so a hard link planted
+    inside the root to a file elsewhere reads as ordinary content, as it does
+    in ``read_contained_source_text``. Nothing at this layer can tell them
+    apart.
+    """
+
+    parts = relative.parts
+    if not parts or any(not part or part in {".", ".."} or os.sep in part or "\x00" in part for part in parts):
+        raise ContainedReadRefused("bad_path")
+    directory: int | None = None
+    descriptor: int | None = None
+    try:
+        try:
+            directory = os.open(root, _DIRECTORY_OPEN_FLAGS)
+            for part in parts[:-1]:
+                child = os.open(part, _DIRECTORY_OPEN_FLAGS, dir_fd=directory)
+                previous, directory = directory, child
+                os.close(previous)
+            descriptor = os.open(parts[-1], _FILE_OPEN_FLAGS, dir_fd=directory)
+        except OSError as exc:
+            # Linux reports a symlink opened with O_DIRECTORY | O_NOFOLLOW as ENOTDIR.
+            if exc.errno in _SYMLINK_OPEN_ERRNOS or exc.errno == errno.ENOTDIR:
+                raise ContainedReadRefused("symlink_or_moved") from exc
+            raise ContainedReadRefused("unreadable") from exc
+        try:
+            status = os.fstat(descriptor)
+            if not stat.S_ISREG(status.st_mode):
+                raise ContainedReadRefused("not_regular")
+            if status.st_size > max_bytes:
+                raise ContainedReadRefused("too_large")
+            fcntl.fcntl(descriptor, fcntl.F_SETFL, fcntl.fcntl(descriptor, fcntl.F_GETFL) & ~os.O_NONBLOCK)
+            chunks: list[bytes] = []
+            remaining = max_bytes + 1
+            while remaining > 0:
+                block = os.read(descriptor, min(remaining, _READ_BLOCK_BYTES))
+                if not block:
+                    break
+                chunks.append(block)
+                remaining -= len(block)
+        except OSError as exc:
+            raise ContainedReadRefused("unreadable") from exc
+        data = b"".join(chunks)
+        if len(data) > max_bytes:
+            raise ContainedReadRefused("too_large")
+        try:
+            return data.decode("utf-8"), status
+        except UnicodeDecodeError as exc:
+            raise ContainedReadRefused("not_utf8") from exc
+    finally:
+        for opened in (descriptor, directory):
+            if opened is not None:
+                try:
+                    os.close(opened)
+                except OSError:
+                    pass
+
+
 def snapshot_source_files(
     source_root: Path,
     files: Iterable[Path],
@@ -174,8 +265,10 @@ def snapshot_source_files(
 
 
 __all__ = [
+    "ContainedReadRefused",
     "ImportSourceFile",
     "contained_source_files",
     "read_contained_source_text",
+    "read_text_beneath",
     "snapshot_source_files",
 ]
