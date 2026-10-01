@@ -99,7 +99,11 @@ Remember, recall, continue. These are the only tools in a default
   caller's sensitivity ceiling, domain filter, or project, person and time
   scope, or cannot be found, and for a chain of more than eight corrections.
   `derived_memory_corrected` stays true. In v0.19.0 the id is named whatever
-  the caller may read.
+  the caller may read. Unreleased (on main, not in v0.19.0): a result's
+  `validity.superseded_by_memory_id` and `validity.supersedes_memory_id` are
+  left off under the same fence, and `validity.superseded` stays true. A
+  pointer to a row that cannot be found is left off on a scoped call and kept
+  on an unscoped one. In v0.19.0 the ids are named whatever the caller may read.
 - `alice_resume` — a pick-work-back-up brief: last decision, suggested next
   action, open loops, and recent changes. From v0.18.0, this brief,
   `alice_recent_decisions`, and the next-action list read only active
@@ -273,7 +277,13 @@ is a CLI verb, not a fourth always-on agent tool.
   `recent_first` | `contradictions_first` | `sources_first`). The
   `include_sources`/`include_contradictions` flags are tri-state: omit them
   to let the `context_depth` tier decide; an explicit true/false always
-  wins.
+  wins. Unreleased (on main, not in v0.19.0): an entry in `recent_changes` is
+  dropped when the memory it names is outside the caller's sensitivity ceiling,
+  domain filter, or project and person scope, and the list is filled from older
+  events. The search for older events stops after 2,048 events, so the list can
+  be shorter than five, or empty, and the pack is still returned. In a `context_depth: high` pack's `supersession_context` a revision
+  outside that fence is not named or titled, and the walk ends there. In
+  v0.19.0 both name the id whatever the caller may read.
 - `alice_recent_decisions` — recent decisions, newest first.
 - `alice_open_loops` — list open loops, or close/snooze/edit/reopen one.
 - `alice_explain` — where a memory came from and why it can be trusted:

@@ -236,6 +236,15 @@ zero by corpus construction).
   randomness); directly-seeded rows pin explicit `status: "active"` and a
   fixed far-future `valid_to`, so the staleness-demotion work landing in
   the search SQL cannot silently demote eval rows.
+- Results do not depend on the day a suite runs. Every retrieval request
+  the harness builds carries one fixed reference time
+  (`VNEXT_EVAL_REFERENCE_TIME`, the corpus epoch), so a month or day without
+  a year in a query resolves to the same window on every date. The epoch is
+  chosen so those windows fall in 2025, before any eval row exists, which
+  keeps the temporal-anchor stage out of queries whose dates are words in the
+  fact being asked about. A unit test runs every suite under several process
+  clocks and requires identical results, and another checks that no eval
+  query resolves to a window that reaches the epoch.
 - The unit tests prove each suite can genuinely fail by breaking one
   production behavior at a time through a delegating store wrapper
   (dropped status transitions → suppression fails; blind search → decision

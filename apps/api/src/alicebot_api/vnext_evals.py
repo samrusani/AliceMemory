@@ -195,6 +195,36 @@ VNEXT_ACCEPTANCE_TARGETS: JsonObject = {
 VNEXT_EVAL_FIXED_VALID_FROM = "2026-01-01T00:00:00Z"
 VNEXT_EVAL_FIXED_VALID_TO = "2099-12-31T23:59:59Z"
 
+# Fixed "now" for every retrieval request the eval issues. The retrieval
+# service resolves a yearless date in the query text ("in September", "March
+# 14") against the request's reference time and, when none is given, against
+# the wall clock. That made the suites calendar dependent: from 2026-10-01 the
+# correction query "who is the Sable data vendor contract with in September"
+# ranked its replacement second (replacement_mrr 0.9167 instead of 1.0). Until
+# then it had passed by luck of the date: before September 2026 the resolved
+# window came before every eval row, and during September the rows written by
+# the run fell inside it.
+#
+# The reference is the corpus epoch (VNEXT_EVAL_FIXED_VALID_FROM), not a day
+# picked to match one recorded run. Every row in the eval world is dated at or
+# after the epoch: seeded rows are valid from it, and rows written through the
+# commit service carry the wall-clock time they were written at. A yearless
+# month or day resolves to its most recent occurrence at or before the
+# reference, which for the date-bearing queries in the corpus is in 2025,
+# before any eval row exists. The temporal-anchor stage matches nothing for
+# them, so the dates stay what their authors wrote: words in the fact being
+# asked about (the contract renews "in September"), not a request to filter by
+# event time. A unit test pins that no eval query resolves to a window that
+# reaches the epoch.
+#
+# A reference inside 2026, such as the day the numbers were first recorded,
+# does not work. Its window would overlap the seeded rows' validity interval,
+# while the commit-service rows fall inside or outside the window depending on
+# the day the eval runs, which is the same bug again.
+VNEXT_EVAL_REFERENCE_TIME = datetime.fromisoformat(
+    VNEXT_EVAL_FIXED_VALID_FROM.replace("Z", "+00:00")
+)
+
 VNEXT_EVAL_AGENT_ID = "vnext-eval-harness"
 
 # Field the sibling retrieval workstream may add to VNextRetrievalRequest.
@@ -812,20 +842,34 @@ def seed_retrieval_corpus(store: object, corpus: JsonObject) -> JsonObject:
     }
 
 
+def _eval_retrieval_request(
+    query: str,
+    *,
+    max_items: int,
+    memory_types: tuple[str, ...] = (),
+) -> VNextRetrievalRequest:
+    """The one place an eval retrieval request is built.
+
+    Every request carries ``VNEXT_EVAL_REFERENCE_TIME`` so no suite result can
+    depend on the day it runs; see the constant for why that value.
+    """
+    return VNextRetrievalRequest(
+        query=query,
+        max_items=max_items,
+        include_sources=False,
+        include_contradictions=False,
+        actor_type="system",
+        memory_types=memory_types,
+        reference_time=VNEXT_EVAL_REFERENCE_TIME,
+    )
+
+
 def production_retrieval_fn(store: object) -> RetrievalFn:
     """Per-query closure over the real hybrid retrieval pipeline."""
     service = VNextRetrievalService(cast(VNextRetrievalStore, store))
 
     def _retrieve(query: str, *, limit: int) -> JsonObject:
-        pack = service.compile_context_pack(
-            VNextRetrievalRequest(
-                query=query,
-                max_items=limit,
-                include_sources=False,
-                include_contradictions=False,
-                actor_type="system",
-            )
-        )
+        pack = service.compile_context_pack(_eval_retrieval_request(query, max_items=limit))
         relevant = cast(list[JsonObject], pack.get("relevant_memories", []))
         trace = cast(JsonObject, pack.get("trace", {}))
         stages = trace.get("stages")
@@ -1303,15 +1347,9 @@ def filtered_retrieval_fn(store: object, memory_types: tuple[str, ...]) -> Retri
     service = VNextRetrievalService(cast(VNextRetrievalStore, store))
 
     def _retrieve(query: str, *, limit: int) -> JsonObject:
-        request_kwargs: dict[str, object] = {
-            "query": query,
-            "max_items": limit,
-            "include_sources": False,
-            "include_contradictions": False,
-            "actor_type": "system",
-            MEMORY_TYPES_FILTER_FIELD: memory_types,
-        }
-        pack = service.compile_context_pack(VNextRetrievalRequest(**request_kwargs))  # type: ignore[arg-type]
+        pack = service.compile_context_pack(
+            _eval_retrieval_request(query, max_items=limit, memory_types=memory_types)
+        )
         relevant = cast(list[JsonObject], pack.get("relevant_memories", []))
         trace = cast(JsonObject, pack.get("trace", {}))
         return {
@@ -2625,13 +2663,7 @@ def _graph_hop_retrieval_fn(store: object) -> Callable[[str], JsonObject]:
 
     def _retrieve(query: str) -> JsonObject:
         pack = service.compile_context_pack(
-            VNextRetrievalRequest(
-                query=query,
-                max_items=RETRIEVAL_QUALITY_RECALL_LIMIT,
-                include_sources=False,
-                include_contradictions=False,
-                actor_type="system",
-            )
+            _eval_retrieval_request(query, max_items=RETRIEVAL_QUALITY_RECALL_LIMIT)
         )
         relevant = cast(list[JsonObject], pack.get("relevant_memories", []))
         trace = cast(JsonObject, pack.get("trace", {}))
@@ -3143,6 +3175,7 @@ __all__ = [
     "VNEXT_EVAL_FIXED_VALID_TO",
     "VNEXT_EVAL_LIVE_STORE_SKIP_REASON",
     "VNEXT_EVAL_MEMORY_KEY_PREFIX",
+    "VNEXT_EVAL_REFERENCE_TIME",
     "VNEXT_EVAL_REPORT_SCHEMA_VERSION",
     "VNEXT_EVAL_SQLITE_URL_PREFIX",
     "VNEXT_EVAL_SUITE_ORDER",

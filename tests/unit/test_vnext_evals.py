@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import json
 from pathlib import Path
 import re
 import sqlite3
+import sys
 from typing import Iterator
 
 import pytest
@@ -24,12 +25,15 @@ from alicebot_api.vnext_evals import (
     VNEXT_BENCHMARK_EXPECTED_COUNTS,
     VNEXT_EVAL_DATABASE_URL_ENV,
     VNEXT_EVAL_DEFAULT_USER_ID,
+    VNEXT_EVAL_FIXED_VALID_FROM,
     VNEXT_EVAL_FIXED_VALID_TO,
     VNEXT_EVAL_MEMORY_KEY_PREFIX,
+    VNEXT_EVAL_REFERENCE_TIME,
     VNEXT_EVAL_SUITE_ORDER,
     eval_token_overlap,
     generate_correction_suppression_corpus,
     generate_decision_recovery_corpus,
+    generate_graph_hop_corpus,
     generate_provenance_explanation_corpus,
     generate_vnext_benchmark_corpus,
     latency_percentile,
@@ -47,9 +51,11 @@ from alicebot_api.vnext_evals import (
 )
 from alicebot_api.vnext_retrieval import (
     VNextRetrievalRequest,
+    VNextRetrievalService,
     classify_query,
     reciprocal_rank_fusion,
 )
+from alicebot_api.vnext_temporal_query import parse_temporal_anchor
 
 MEMORY_QUALITY_SUITE_KEYS = (
     CORRECTION_SUPPRESSION_SUITE_KEY,
@@ -1303,3 +1309,208 @@ def test_graph_hop_retrieval_fails_without_entity_links(monkeypatch: pytest.Monk
     assert suite["metrics"]["graph_recall_at_5"] < 0.8
     assert suite["metrics"]["target_checks"]["graph_recall_at_5"] == "fail"
     assert suite["status"] == "fail"
+
+
+# --------------------------------------------------------------------------
+# Calendar independence: no suite result may depend on the day it runs.
+#
+# The retrieval service resolves a yearless date in a query ("in September")
+# against the request's reference time, and against the wall clock when the
+# request has none. From 2026-10-01 that moved correction-005's replacement to
+# rank 2 and failed the release-check tests on every branch. These tests run
+# the real suites under a process clock set to several dates.
+# --------------------------------------------------------------------------
+
+_UUID_TEXT = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+
+# Dates picked to straddle the failure: before the corpus epoch, the last day
+# the suite happened to pass, the first day it moved, and a distant month.
+_PROCESS_CLOCK_STARTS = (
+    datetime(2026, 1, 15, 9, 30, tzinfo=timezone.utc),
+    datetime(2026, 9, 30, 23, 0, tzinfo=timezone.utc),
+    datetime(2026, 10, 1, 0, 0, tzinfo=timezone.utc),
+    datetime(2027, 3, 1, 12, 0, tzinfo=timezone.utc),
+)
+
+# Modules on the eval path that read the wall clock. The patch below also
+# covers any other alicebot_api module that binds the datetime class, and the
+# test asserts these are among them so a rename cannot make it vacuous.
+_EVAL_CLOCK_MODULES = (
+    "alicebot_api.vnext_event_log",
+    "alicebot_api.vnext_memory_commit",
+    "alicebot_api.vnext_retrieval",
+    "alicebot_api.vnext_stores.sqlite.primitives",
+)
+
+
+class _FakeDatetimeMeta(type(datetime)):
+    """Keeps ``isinstance(real_datetime, FakeDatetime)`` true for patched modules."""
+
+    def __instancecheck__(cls, instance: object) -> bool:
+        return isinstance(instance, datetime)
+
+
+def _install_process_clock(monkeypatch: pytest.MonkeyPatch, start: datetime) -> list[str]:
+    """Make ``datetime.now()`` in every alicebot_api module start at ``start``.
+
+    The clock advances one millisecond per read, so rows written in sequence
+    keep the strictly increasing timestamps a real run gives them (a frozen
+    clock would turn every recency tiebreak into a coin flip on random ids).
+    """
+    state = {"next": start}
+
+    def read() -> datetime:
+        current = state["next"]
+        state["next"] = current + timedelta(milliseconds=1)
+        return current
+
+    class FakeDatetime(datetime, metaclass=_FakeDatetimeMeta):
+        @classmethod
+        def now(cls, tz: timezone | None = None) -> datetime:
+            current = read()
+            return current.astimezone(tz) if tz is not None else current.replace(tzinfo=None)
+
+        @classmethod
+        def utcnow(cls) -> datetime:
+            return read().replace(tzinfo=None)
+
+    patched = [
+        name
+        for name, module in list(sys.modules.items())
+        if name.startswith("alicebot_api") and getattr(module, "datetime", None) is datetime
+    ]
+    for name in patched:
+        monkeypatch.setattr(sys.modules[name], "datetime", FakeDatetime)
+    return patched
+
+
+def _calendar_stable_view(value: object) -> object:
+    """A report minus what legitimately differs run to run: timing and random ids."""
+    if isinstance(value, dict):
+        return {
+            key: _calendar_stable_view(child)
+            for key, child in value.items()
+            if "latency" not in str(key)
+            and not (isinstance(child, str) and _UUID_TEXT.match(child))
+        }
+    if isinstance(value, list):
+        return [_calendar_stable_view(child) for child in value]
+    return value
+
+
+def _run_all_suites_at(start: datetime) -> dict[str, object]:
+    with pytest.MonkeyPatch.context() as local:
+        local.setenv(VNEXT_EVAL_DATABASE_URL_ENV, "sqlite:///:memory:")
+        patched = _install_process_clock(local, start)
+        assert set(_EVAL_CLOCK_MODULES) <= set(patched)
+        from alicebot_api.vnext_stores.sqlite import primitives
+
+        # The fake clock is really the one the stores stamp rows with.
+        assert primitives._utc_now_iso().startswith(start.date().isoformat())
+        return run_vnext_evals(suite="all")
+
+
+def test_suite_results_do_not_depend_on_the_day_they_run() -> None:
+    views = {}
+    for start in _PROCESS_CLOCK_STARTS:
+        report = _run_all_suites_at(start)
+        assert report["status"] == "pass", start
+        views[start.date().isoformat()] = _calendar_stable_view(report["suites"])
+
+    reference_day, reference_view = next(iter(views.items()))
+    for day, view in views.items():
+        assert view == reference_view, f"suite results on {day} differ from {reference_day}"
+
+    # The numbers the suite produced on 2026-09-30, pinned so that the
+    # clocks agreeing with each other cannot mean they agree on a wrong value.
+    correction = next(
+        suite
+        for suite in reference_view
+        if suite["suite_key"] == CORRECTION_SUPPRESSION_SUITE_KEY
+    )
+    assert {
+        key: correction["metrics"][key]
+        for key in (
+            "pre_correction_visibility",
+            "suppression_rate",
+            "replacement_recall_at_5",
+            "replacement_mrr",
+            "audit_completeness",
+        )
+    } == {
+        "pre_correction_visibility": 1.0,
+        "suppression_rate": 1.0,
+        "replacement_recall_at_5": 1.0,
+        "replacement_mrr": 1.0,
+        "audit_completeness": 1.0,
+    }
+    assert [case["metrics"]["replacement_reciprocal_rank"] for case in correction["cases"]] == [1.0] * 6
+
+
+def test_every_eval_retrieval_request_carries_the_fixed_reference_time(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(VNEXT_EVAL_DATABASE_URL_ENV, "sqlite:///:memory:")
+    seen: list[VNextRetrievalRequest] = []
+    original = VNextRetrievalService.compile_context_pack
+
+    def spy(self: VNextRetrievalService, request: VNextRetrievalRequest) -> dict[str, object]:
+        seen.append(request)
+        return original(self, request)
+
+    monkeypatch.setattr(VNextRetrievalService, "compile_context_pack", spy)
+
+    report = run_vnext_evals(suite="all")
+
+    assert report["status"] == "pass"
+    # Every live suite issued retrieval (queries, probes, filtered variants,
+    # graph control runs), and none of those requests left the clock to chance.
+    assert len(seen) >= 100, (
+        "too few eval retrieval requests were spied; if a suite was removed or "
+        "stopped issuing retrieval, lower this pin on purpose"
+    )
+    assert {request.reference_time for request in seen} == {VNEXT_EVAL_REFERENCE_TIME}
+
+
+def _eval_query_texts() -> list[str]:
+    retrieval = generate_vnext_benchmark_corpus()
+    correction = generate_correction_suppression_corpus()
+    decision = generate_decision_recovery_corpus()
+    graph = generate_graph_hop_corpus()
+    texts = [str(query["query"]) for query in retrieval["queries"]]
+    for case in correction["cases"]:
+        texts.extend(str(case[key]) for key in ("query", "old_probe", "reject_probe"))
+    texts.extend(str(query["query"]) for query in decision["queries"])
+    texts.extend(str(group["query"]) for group in graph["groups"])
+    return texts
+
+
+def test_reference_time_is_the_corpus_epoch_and_no_query_window_reaches_it() -> None:
+    epoch = datetime.fromisoformat(VNEXT_EVAL_FIXED_VALID_FROM.replace("Z", "+00:00"))
+    assert VNEXT_EVAL_REFERENCE_TIME == epoch
+    assert VNEXT_EVAL_REFERENCE_TIME.tzinfo is not None
+
+    anchored = {}
+    for text in _eval_query_texts():
+        anchor = parse_temporal_anchor(text, reference_time=VNEXT_EVAL_REFERENCE_TIME)
+        if anchor is None:
+            continue
+        anchored[text] = anchor
+        # An anchor window that reaches the epoch would overlap the seeded
+        # rows' validity interval, and its hits would then depend on which
+        # day the wall-clock-stamped commit rows were written. Reword the
+        # query or pick a window before the epoch.
+        assert anchor.window_end <= epoch, f"{text!r} resolves to a window that reaches the corpus epoch"
+
+    # Non-vacuous: the two date-bearing queries in the corpus are still parsed
+    # (so this guard sees them) and both land in 2025.
+    assert anchored["who is the Sable data vendor contract with in September"].window_start == datetime(
+        2025, 9, 1, tzinfo=timezone.utc
+    )
+    assert anchored["Meridian launch window March 14"].window_start == datetime(
+        2025, 3, 14, tzinfo=timezone.utc
+    )
+    assert len(anchored) == 2, (
+        "a new eval query now parses a temporal anchor; check that its window "
+        "falls before the corpus epoch, then extend the non-vacuity pins above"
+    )

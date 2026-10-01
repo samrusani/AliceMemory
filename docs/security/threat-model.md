@@ -176,23 +176,31 @@ active-key or RLS bypass remains in scope.
   step relies on the agent asking the user, and Alice cannot tell whether it
   did. A keyless call that declares no agent id is recorded as actor type
   `user` with no actor id, which the audit trail cannot tell from the owner.
-- A memory id is itself sensitive metadata (added 2026-09-30). Unreleased (on
-  main, not in v0.19.0): the correction label on a recalled or packed source
-  excerpt, and the `supersedes` and `superseded_by` fields on a context pack's
-  memories, follow the same sensitivity, domain, project, person and time fence
-  as the memory reads. In v0.19.0 the label names the id whatever the caller
-  may read.
-  Four places still carry a memory id without the sensitivity and domain
-  fence: `validity.superseded_by_memory_id` on an `alice_recall` result whose
-  row still carries a `superseded_by` pointer; the `target_id` of each entry in
-  a context pack's `recent_changes`; ids copied into a stored memory's
-  `metadata_json`, which the full pack returns; and the `supersession_context`
-  section of a `context_depth: high` pack, which walks older and newer
-  revisions through a lookup that applies the project, person and time scope
-  only and names each revision's id and title, so a hidden revision two or more
-  steps from a visible one is named. Each needs a memory the caller cannot
-  read, so each differs from the owner's view only for key-bound agents or an
-  explicit sensitivity ceiling.
+- A memory id is itself sensitive metadata (added 2026-09-30, updated
+  2026-10-01). Unreleased (on main, not in v0.19.0): every place below follows
+  the same sensitivity, domain, project, person and time fence as the memory
+  reads. The correction label on a recalled or packed source excerpt. The
+  `supersedes` and `superseded_by` fields on a context pack's memories.
+  `validity.superseded_by_memory_id` and `validity.supersedes_memory_id` on an
+  `alice_recall` result, where `superseded: true` stays and only the id is left
+  off. The `target_id` of each entry in a context pack's `recent_changes`, where
+  an entry about a memory the caller cannot read is dropped and the search for
+  older events stops after 2,048, so the list can be short. The id and title of
+  each revision in a `context_depth: high` pack's `supersession_context`, where
+  a revision the caller cannot read ends the walk and nothing past it is named.
+  In the pack pointers, the recall `validity` ids, `recent_changes` and
+  `supersession_context`, an id that names no row at all is not a hidden row: a
+  scoped read drops it and an unscoped read keeps it, as before. The correction
+  label names no id for a link it cannot resolve. In v0.19.0 each of these
+  names the id whatever the caller may read, and the `recent_changes` and
+  `supersession_context` cases are older than v0.19.0.
+  One place still carries a memory id without the fence: ids copied into a
+  stored memory's `metadata_json`, which the full pack returns. It needs a
+  memory the caller cannot read, so it differs from the owner's view only for
+  key-bound agents or an explicit sensitivity ceiling. That is the result for
+  `alice_recall`, `alice_context_pack`, `alice_resume`, `alice_recent_decisions`
+  and `alice_open_loops`. The other tools, such as `alice_recent_changes` and
+  `alice_timeline`, were not checked for memory ids.
 - Stage A tests are team-authored. They reduce review cost; they do not replace
   adversarial testing by the owner-appointed Stage B reviewer.
 
