@@ -37,7 +37,11 @@ def test_the_changelog_entry_sits_under_unreleased_and_states_v0192() -> None:
     ``--force`` install note.
     """
 
-    entries = [item for item in _unreleased_changelog().split("\n- ")[1:]]
+    entries = [
+        item
+        for item in _unreleased_changelog().split("\n- ")[1:]
+        if item.startswith("A JSON request body that holds a lone surrogate")
+    ]
     assert len(entries) == 1
     entry = _flat(entries[0])
     assert (
