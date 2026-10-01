@@ -403,16 +403,20 @@ The `Publish to PyPI` workflow then:
 Only the first job installs the project. The jobs that stage the draft,
 finalize, resume and recover a release run scripts on the runner's bare Python,
 without `alicebot_api` (one job installs only `build`), so every script they
-run imports only the standard library and sibling scripts.
+run imports only the standard library, and no sibling script either: a script
+started by path has its own directory on `sys.path` and not the repository
+root, and the tests load these scripts as `scripts.X` and run them under
+`python -I`, where a bare sibling name does not resolve.
 `tests/unit/test_publish_workflow_lean_job_imports.py` reads the jobs from
 `publish-pypi.yml` and enforces that, and runs the scripts under `python -I -S`,
 including the rebuild comparison and the finalize, resume and recovery
-invocations with PyPI answered offline. A script started by path has its own
-directory on `sys.path` and not the repository root, so it may import a sibling
-only by bare name. A step in one of those jobs that runs inline Python
-(`python -c`, a heredoc) fails the test unless the test file allowlists it with
-a reason. `v0.19.1` was never published because a release script imported the
-package in one of those jobs.
+invocations with PyPI answered offline. Each set of flags a lean job passes to
+`release_check.py` has to be one the test runs, so a new flag needs a test. A
+step in one of those jobs that runs inline Python (`python -c`, a heredoc, a
+variable holding the interpreter, a `shell:` of python) fails the test unless
+the test file allowlists it with a reason. A step that names a script in a form
+the test cannot read fails it outright. `v0.19.1` was never published because a
+release script imported the package in one of those jobs.
 
 ### Recovering finalization after PyPI succeeds
 

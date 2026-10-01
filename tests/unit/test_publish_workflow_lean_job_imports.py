@@ -14,13 +14,17 @@ Three layers here, none of which needs editing when a job or step is added:
   every job that does not install the project, collects the scripts it runs
   (by path, with ``./`` and workspace prefixes, and by ``-m scripts.X``), and
   proves by AST that each script's whole import closure is the standard
-  library or a sibling ``scripts/`` module, following function-level and
-  conditional imports. A script run by path has its own directory on
-  ``sys.path`` and not the repository root, so only a bare sibling name
-  resolves for it; ``from scripts import X`` and ``from . import X`` do not.
-  Tripwires fail a lean step that mentions ``scripts/`` or ``.py`` and yields no
-  collected script, and a lean step that runs inline Python (``python -c``, a
-  heredoc, stdin) unless it is allowlisted with a reason;
+  library, following function-level and conditional imports. A script run by
+  path has its own directory on ``sys.path`` and not the repository root, so
+  ``from scripts import X`` and ``from . import X`` do not resolve for it. A
+  bare sibling name does resolve on the runner, but the tests import a lean
+  script as ``scripts.X`` and run it under ``python -I``, where it does not, so
+  the guard rejects it too: a lean script imports no sibling script. Tripwires
+  judge each mention in a lean step: one of ``scripts/`` or ``.py`` that the
+  collector does not read as a script fails, even in a step that also runs a
+  collected script, and so does a lean step that runs inline Python
+  (``python -c``, a heredoc, stdin, through a variable or a ``shell:`` key)
+  unless it is allowlisted with a reason;
 * a proof, by call graph from ``main()``, that the one installed-only import
   that is left cannot be reached by an invocation a lean job makes. A branch
   of ``main()`` is skipped only when its test is a positive presence test of a
@@ -30,7 +34,9 @@ Three layers here, none of which needs editing when a job or step is added:
   site-packages) on every path the lean jobs take: the draft readback, the
   release body helpers, the sdist normalizer, the rebuild comparison of the
   resume job, and the finalize, resume and recovery invocations with
-  ``--tag`` and PyPI answered by an offline stub.
+  ``--tag`` and PyPI answered by an offline stub. Every flag mix a lean job
+  passes to ``release_check.py`` must be one of those the tests run, so a flag
+  added to the workflow without a test fails.
 
 Mutations that must fail this file, each alone:
 
@@ -44,12 +50,13 @@ Mutations that must fail this file, each alone:
   ``"$GITHUB_WORKSPACE/scripts/run_phase5_ops_evidence.py"``): the structural
   guard fails;
 * add ``from scripts import normalize_sdist`` (or ``from . import normalize_sdist``)
-  to a script a lean job runs by path, at module scope or inside a function: the
-  structural guard fails, because that import cannot work when the script is run
-  by path. A bare ``import normalize_sdist`` is the form that works;
-* add a lean job step with ``python -c "import yaml"``, a python heredoc, or a
-  run line that mentions ``scripts/`` or ``.py`` in a form the collector does
-  not read: the tripwires fail;
+  or a bare ``import normalize_sdist`` to a script a lean job runs by path, inside a
+  function: the structural guard fails. At module scope of a script this file itself
+  imports, the file cannot be collected at all, which fails loudly too;
+* add a lean job step with ``python -c "import yaml"``, ``$PYTHON -c ...``, a python
+  heredoc, a ``shell: python {0}``, or a run line that mentions ``scripts/`` or ``.py`` in a
+  form the collector does not read (``cd scripts && python x.py``), also appended to a
+  step that runs a collected script: the tripwires fail;
 * call ``validate_semantic_eval_report`` from ``validate_metadata``, or call it
   under a negated or compound test in ``main``, so a lean invocation reaches
   the installed-only import: the reachability test fails;
@@ -58,6 +65,8 @@ Mutations that must fail this file, each alone:
 * raise ``NameError`` on the ``--compare-dist-dir`` path, or on the PyPI verify
   path, of ``scripts/release_check.py``: the matching bare execution test fails,
   although the structural guard sees no import;
+* add a flag to a ``release_check.py`` call of a lean job: the registry test
+  fails until an execution test runs that flag mix;
 * change the value of ``CLAUDE_PLUGIN_ID`` in ``scripts/release_check.py``:
   ``test_the_release_check_plugin_id_equals_the_installed_constant`` in
   ``tests/unit/test_claude_code_plugin.py`` fails. That test lives there, not
@@ -96,8 +105,8 @@ SCRIPTS = ROOT / "scripts"
 WORKFLOW = ROOT / ".github" / "workflows" / "publish-pypi.yml"
 STDLIB = frozenset(sys.stdlib_module_names)
 
-# The only imports a lean job's script may make that are not standard library or
-# a sibling script. Key: (script, outermost function containing the import).
+# The only imports a lean job's script may make that are not standard library.
+# Key: (script, outermost function containing the import).
 # Value: the exact module imported. An entry is allowed only while the function
 # is unreachable from main() when the --semantic-eval-* branches are skipped,
 # and a stale entry (no such import any more) fails the test.
@@ -198,7 +207,14 @@ def classify_jobs(
 # interpreter. An entry whose line no longer appears fails as stale.
 INLINE_PYTHON_ALLOWLIST: dict[tuple[str, str], str] = {}
 
-_PYTHON_WORD = re.compile(r"(?:^|(?<=[\s;&|(`\"'=]))(?:[\w./$-]*/)?python[\d.]*(?=\s|$|[)`\"'])")
+_PYTHON_WORD = re.compile(r"(?:^|(?<=[\s;&|(`\"'=]))(?:[\w./${}-]*/)?python[\d.]*(?=\s|$|[)`\"'])")
+# A command word that is a variable or a command substitution, where a command starts
+# ("$PY -c ...", "${PYTHON} -", '"$(which python)" -c ...'): the interpreter may be in it,
+# and its name is not a word the scan above can see.
+_COMMAND_START = re.compile(r"[;&|(`]\s*|\$\(\s*")
+_DYNAMIC_WORD = re.compile(
+    r"\"?(?:\$\{?[A-Za-z_]\w*\}?|\$\([^)\n]*\)|`[^`\n]*`)\"?(?=\s|$|[)`])"
+)
 _COMMAND_END = frozenset({";", ";;", "&&", "||", "|", "|&", "&", ")", "`"})
 _REDIRECT = re.compile(r"[0-9]*[<>&]+")
 
@@ -234,43 +250,140 @@ def _python_arguments_are_inline(arguments: list[str], *, stdin_script: bool) ->
     return stdin_script
 
 
+def _runs_inline_code(rest: str, *, stdin_fed: bool) -> bool:
+    """True when the command whose arguments are ``rest`` runs code that is not a repository file.
+
+    A command line that cannot be tokenized counts too, because it cannot be shown safe.
+    """
+
+    lexer = shlex.shlex(rest, posix=True, punctuation_chars=True)
+    lexer.whitespace_split = True
+    arguments: list[str] = []
+    skip_target = False
+    try:
+        for token in lexer:
+            if token in _COMMAND_END:
+                break
+            if skip_target:  # the file or heredoc word after a redirect
+                skip_target = False
+            elif _REDIRECT.fullmatch(token):
+                skip_target = True
+                stdin_fed = stdin_fed or token.startswith("<")
+            else:
+                arguments.append(token)
+    except ValueError:
+        return True
+    return _python_arguments_are_inline(arguments, stdin_script=stdin_fed)
+
+
 def inline_python_lines(run_text: str) -> list[str]:
     """Lines of a run step that start Python on code that is not a repository file.
 
-    That is ``python -c``, ``python -`` and a heredoc or piped program. A line
-    that cannot be tokenized is reported too, because it cannot be shown safe.
+    That is ``python -c``, ``python -`` and a heredoc or piped program, whether the
+    interpreter is named, is a path (``${pythonLocation}/bin/python``), or hides in a
+    variable or a command substitution at the start of a command. A line that cannot
+    be tokenized is reported too, because it cannot be shown safe. The scan is a
+    best effort over shell text, and a step that runs a program from a ``shell:``
+    key is caught by ``python_shell_violations``.
     """
 
     found: list[str] = []
     for line in run_text.replace("\\\n", " ").splitlines():
-        for match in _PYTHON_WORD.finditer(line):
-            lexer = shlex.shlex(line[match.end() :], posix=True, punctuation_chars=True)
-            lexer.whitespace_split = True
-            arguments: list[str] = []
-            stdin_fed = line[: match.start()].rstrip().endswith("|")
-            skip_target = False
-            try:
-                for token in lexer:
-                    if token in _COMMAND_END:
-                        break
-                    if skip_target:  # the file or heredoc word after a redirect
-                        skip_target = False
-                    elif _REDIRECT.fullmatch(token):
-                        skip_target = True
-                        stdin_fed = stdin_fed or token.startswith("<")
-                    else:
-                        arguments.append(token)
-            except ValueError:
-                found.append(" ".join(line.split()))
-                break
-            if _python_arguments_are_inline(arguments, stdin_script=stdin_fed):
+        commands = [
+            (match.end(), line[: match.start()].rstrip().endswith("|"))
+            for match in _PYTHON_WORD.finditer(line)
+        ]
+        starts = {len(line) - len(line.lstrip())} | {m.end() for m in _COMMAND_START.finditer(line)}
+        for start in starts:
+            word = _DYNAMIC_WORD.match(line, start)
+            if word:
+                commands.append((word.end(), False))
+        if any(_runs_inline_code(line[end:], stdin_fed=fed) for end, fed in commands):
+            found.append(" ".join(line.split()))
+    return found
+
+
+_SCRIPT_MENTION = re.compile(r"scripts/|\.py\b")
+
+
+def unread_script_mentions(run_text: str) -> list[str]:
+    """Lines of a run step that mention ``scripts/`` or ``.py`` where the collector reads no script.
+
+    Judged per mention, not per step: a step that runs one collected script and starts
+    another in a form the collector cannot read (``cd scripts && python x.py``) is
+    reported, although the step as a whole yields a script.
+    """
+
+    found: list[str] = []
+    for line in run_text.replace("\\\n", " ").splitlines():
+        read = [
+            match.span()
+            for pattern in (_SCRIPT_PATH, _SCRIPT_MODULE)
+            for match in pattern.finditer(line)
+        ]
+        for mention in _SCRIPT_MENTION.finditer(line):
+            if not any(start <= mention.start() and mention.end() <= end for start, end in read):
                 found.append(" ".join(line.split()))
                 break
     return found
 
 
-def _mentions_a_script(run_text: str) -> bool:
-    return "scripts/" in run_text or re.search(r"\.py\b", run_text) is not None
+def release_check_flag_sets(run_text: str) -> list[frozenset[str]]:
+    """The ``--flags`` of each ``release_check.py`` invocation in a run step, one set per invocation."""
+
+    found: list[frozenset[str]] = []
+    for line in run_text.replace("\\\n", " ").splitlines():
+        for pattern in (_SCRIPT_PATH, _SCRIPT_MODULE):
+            for match in pattern.finditer(line):
+                if match.group("name") != "release_check":
+                    continue
+                lexer = shlex.shlex(line[match.end() :], posix=True, punctuation_chars=True)
+                lexer.whitespace_split = True
+                flags: set[str] = set()
+                try:
+                    for token in lexer:
+                        if token in _COMMAND_END:
+                            break
+                        if token.startswith("--"):
+                            flags.add(token.split("=", 1)[0])
+                except ValueError as exc:
+                    raise AssertionError(f"cannot read the release_check.py call {line!r}: {exc}") from exc
+                found.append(frozenset(flags))
+    return found
+
+
+def _default_shell(container: object) -> str | None:
+    defaults = container.get("defaults") if isinstance(container, dict) else None
+    run = defaults.get("run") if isinstance(defaults, dict) else None
+    shell = run.get("shell") if isinstance(run, dict) else None
+    return shell if isinstance(shell, str) else None
+
+
+def python_shell_violations(workflow_text: str) -> list[str]:
+    """Lean steps that run under a Python shell (``shell: python {0}``).
+
+    The run text of such a step is a Python program, and no scan of shell text reads it.
+    A step's own ``shell:`` wins over its job's ``defaults.run.shell``, which wins over the
+    workflow's.
+    """
+
+    loaded = yaml.safe_load(workflow_text)
+    _installing, lean, _runs = classify_jobs(workflow_text)
+    violations: list[str] = []
+    for job_id in lean:
+        job = loaded["jobs"][job_id]
+        default = _default_shell(job) or _default_shell(loaded)
+        for step in job.get("steps") or []:
+            if not isinstance(step, dict) or not isinstance(step.get("run"), str):
+                continue
+            shell = step.get("shell", default)
+            if isinstance(shell, str) and "python" in shell.lower():
+                first = step["run"].strip().splitlines()[0] if step["run"].strip() else ""
+                violations.append(
+                    f"{job_id}: a lean step runs under the shell {shell!r}, so its run text is "
+                    f"Python that no import check reads: {first!r}"
+                )
+    return violations
 
 
 def lean_step_violations(
@@ -283,10 +396,10 @@ def lean_step_violations(
     used: set[tuple[str, str]] = set()
     for job_id, texts in lean_runs.items():
         for text in texts:
-            if _mentions_a_script(text) and not run_modes([text]):
+            for line in unread_script_mentions(text):
                 violations.append(
-                    f"{job_id}: a step mentions scripts/ or .py but yields no script the guard reads, "
-                    f"so its imports are not checked: {text.strip().splitlines()[0]!r}"
+                    f"{job_id}: a step mentions scripts/ or .py in a form the guard does not read, "
+                    f"so that script's imports are not checked: {line!r}"
                 )
             for line in inline_python_lines(text):
                 key = (job_id, line)
@@ -361,8 +474,9 @@ def resolve(
     * ``python scripts/X.py`` (``PATH_RUN``, how every lean job starts a script)
       puts the ``scripts/`` directory first and not the repository root, and
       the script has no parent package. A bare name that is a file in
-      ``scripts/`` is a sibling. ``scripts``, ``scripts.X`` and relative
-      imports all fail at runtime, so they are foreign.
+      ``scripts/`` is a sibling (``closure_violations`` rejects those for lean
+      scripts, see there). ``scripts``, ``scripts.X`` and relative imports all
+      fail at runtime, so they are foreign.
     * ``python -m scripts.X`` (``MODULE_RUN``) puts the working directory first
       and runs the script inside the ``scripts`` package. ``scripts.X`` and
       one-dot relative imports are siblings. A bare sibling name is foreign.
@@ -510,6 +624,11 @@ def closure_violations(
     ``modes`` says how each entry script is started (``run_modes``); an entry
     not listed is started by path. A sibling is loaded the way the script that
     imports it was started, so it is checked under the same mode.
+
+    A script started by path may not import a sibling at all. A bare sibling name
+    resolves on the runner, but not where the tests load the script, so the first
+    such import would break test collection and the ``python -I -S`` runs instead of
+    failing here with a reason.
     """
 
     violations: list[str] = []
@@ -534,6 +653,14 @@ def closure_violations(
         )
         for site in import_sites(source):
             siblings, foreign = resolve(site, mode=mode, scripts_dir=scripts_dir)
+            if mode == PATH_RUN and siblings:
+                violations.append(
+                    f"scripts/{name}.py:{site.lineno} imports the sibling script "
+                    f"{sorted(siblings)[0]!r} by bare name. That works on the runner, but the tests "
+                    f"import a lean script as scripts.{name}, where a bare sibling name does not "
+                    "resolve, and run it under python -I, which drops the script directory from "
+                    "sys.path. A lean script imports only the standard library."
+                )
             pending.extend((sibling, mode) for sibling in sorted(siblings))
             for module in foreign:
                 allowed = INSTALLED_ONLY_IMPORTS.get((name, site.function or ""), frozenset())
@@ -683,7 +810,7 @@ def test_resolve_classifies_stdlib_siblings_and_foreign_modules() -> None:
         assert classify("..elsewhere", mode=mode) == (set(), ["..elsewhere"])
         assert classify("<dynamic import>", mode=mode) == (set(), ["<dynamic import>"])
 
-    # python scripts/X.py: only a bare sibling name resolves.
+    # python scripts/X.py: only a bare sibling name resolves (closure_violations still rejects it).
     assert classify("release_check") == ({"release_check"}, [])
     assert classify("scripts.release_check") == (set(), ["scripts.release_check"])
     assert classify("scripts", "release_check") == (set(), ["scripts"])
@@ -736,20 +863,38 @@ def test_a_path_run_script_cannot_import_a_sibling_through_the_package(
     assert "by path" in violations[0]
 
 
-def test_a_path_run_script_may_import_a_bare_sibling_and_its_imports_are_checked(tmp_path: Path) -> None:
-    scripts_dir = _scripts_dir(
-        tmp_path,
-        {"entry": "import helper\n", "helper": "import json\nimport yaml\n"},
-    )
+def test_a_path_run_script_may_not_import_a_bare_sibling(tmp_path: Path) -> None:
+    """A bare sibling resolves on the runner and nowhere the tests load the script.
+
+    The tests import lean scripts as ``scripts.X``, and ``python -I`` drops the script
+    directory from ``sys.path``. Mutation: stop reporting bare siblings of a path-run script.
+    This test fails.
+    """
+
+    scripts_dir = _scripts_dir(tmp_path, {"entry": "import helper\n", "helper": "import json\n"})
     violations = closure_violations({"entry"}, scripts_dir=scripts_dir)
     assert len(violations) == 1, violations
-    assert "scripts/helper.py:2" in violations[0] and "'yaml'" in violations[0]
+    assert "scripts/entry.py:1" in violations[0] and "'helper'" in violations[0]
+    assert "bare name" in violations[0]
 
-    scripts_dir = _scripts_dir(tmp_path / "clean", {"entry": "import helper\n", "helper": "import json\n"})
+    # The sibling's own imports are still checked, so one bad import is not hidden behind the other.
+    scripts_dir = _scripts_dir(
+        tmp_path / "foreign", {"entry": "import helper\n", "helper": "import json\nimport yaml\n"}
+    )
+    violations = closure_violations({"entry"}, scripts_dir=scripts_dir)
+    assert len(violations) == 2, violations
+    assert any("scripts/entry.py:1" in violation and "bare name" in violation for violation in violations)
+    assert any("scripts/helper.py:2" in violation and "'yaml'" in violation for violation in violations)
+
+    # A script with no sibling import is clean, and so is a bare name that is no file in scripts/.
+    scripts_dir = _scripts_dir(tmp_path / "clean", {"entry": "import json\nimport helper_lookalike\n"})
+    violations = closure_violations({"entry"}, scripts_dir=scripts_dir)
+    assert len(violations) == 1 and "'helper_lookalike'" in violations[0], violations
+    scripts_dir = _scripts_dir(tmp_path / "clean2", {"entry": "import json\n"})
     assert closure_violations({"entry"}, scripts_dir=scripts_dir) == []
 
 
-def test_a_sibling_is_checked_under_the_mode_of_the_script_that_imports_it(tmp_path: Path) -> None:
+def test_a_sibling_of_a_path_run_script_is_checked_under_path_rules_too(tmp_path: Path) -> None:
     """A path-run entry's helper is loaded as a top-level module, so its own ``scripts.X`` import fails too."""
 
     scripts_dir = _scripts_dir(
@@ -761,8 +906,9 @@ def test_a_sibling_is_checked_under_the_mode_of_the_script_that_imports_it(tmp_p
         },
     )
     violations = closure_violations({"entry"}, scripts_dir=scripts_dir)
-    assert len(violations) == 1, violations
-    assert "scripts/helper.py:1" in violations[0]
+    assert len(violations) == 2, violations
+    assert any("scripts/entry.py:1" in violation and "bare name" in violation for violation in violations)
+    assert any("scripts/helper.py:1" in violation and "by path" in violation for violation in violations)
 
 
 def test_a_module_run_script_may_import_through_the_package_but_not_by_bare_name(tmp_path: Path) -> None:
@@ -792,7 +938,9 @@ def test_a_script_started_both_ways_is_held_to_both(tmp_path: Path) -> None:
     scripts_dir = _scripts_dir(tmp_path, {"entry": "import helper\n", "helper": "value = 1\n"})
     both = {"entry": {PATH_RUN, MODULE_RUN}}
     violations = closure_violations({"entry"}, modes=both, scripts_dir=scripts_dir)
-    assert len(violations) == 1 and "as -m scripts.X" in violations[0], violations
+    assert len(violations) == 2, violations
+    assert any("bare name" in violation for violation in violations), violations  # by path
+    assert any("as -m scripts.X" in violation for violation in violations), violations  # as a module
 
 
 def test_reachability_skips_only_the_semantic_branches_of_main() -> None:
@@ -920,6 +1068,16 @@ _INLINE_PYTHON = (
     'python -c "\nimport yaml\n"',
     "true && python3.12 -c 'x'",
     "/usr/bin/python3 -c 'x'",
+    "${pythonLocation}/bin/python -c 'import yaml'",
+    "$pythonLocation/bin/python -c 'import yaml'",
+    "$PYTHON -c 'import yaml'",
+    "${PYTHON} -c 'import yaml'",
+    '"$PYTHON" -c "import yaml"',
+    "PY=python; $PY -c 'import yaml'",
+    "echo go && $PY - <<EOF\nimport yaml\nEOF",
+    '"$(which python)" -c "import yaml"',
+    "`which python3` -c 'import yaml'",
+    "$($PY -c 'import yaml')",
 )
 
 _NOT_INLINE_PYTHON = (
@@ -936,6 +1094,15 @@ _NOT_INLINE_PYTHON = (
     "pip install python-dateutil",
     "echo $pythonLocation",
     "cmp a b",
+    "${pythonLocation}/bin/python scripts/x.py --flag",
+    "$PYTHON scripts/x.py --flag",
+    "$PYTHON -m build --outdir dist",
+    "${PYTHON} --version",
+    "PY=python; $PY scripts/x.py",
+    "echo \"$PYTHON -c\" >> \"$GITHUB_OUTPUT\"",
+    'cmp "$artifact" "draft-readback/$(basename "$artifact")"',
+    'test "$(git cat-file -t "$RELEASE_TAG")" = "tag"',
+    'run_id="$(gh api repos/x --jq .id)"',
 )
 
 
@@ -956,7 +1123,7 @@ def test_the_tripwires_fail_inline_python_and_unread_script_mentions_in_a_lean_j
     assert lean_step_violations(lean_runs, {}) == []
 
     # Inline Python: not a file under scripts/, so the closure check never sees it.
-    for step in ('python -c "import yaml"', "python - <<'EOF'\nimport yaml\nEOF"):
+    for step in ('python -c "import yaml"', "python - <<'EOF'\nimport yaml\nEOF", "$PY -c 'import yaml'"):
         violations = lean_step_violations({"lean": [step]}, {})
         assert len(violations) == 1 and "inline Python" in violations[0], (step, violations)
 
@@ -969,7 +1136,82 @@ def test_the_tripwires_fail_inline_python_and_unread_script_mentions_in_a_lean_j
         "for f in scripts/*.py; do python \"$f\"; done",
     ):
         violations = lean_step_violations({"lean": [step]}, {})
-        assert len(violations) == 1 and "yields no script the guard reads" in violations[0], (step, violations)
+        assert len(violations) == 1 and "does not read" in violations[0], (step, violations)
+
+
+@pytest.mark.parametrize(
+    "step",
+    (
+        "python scripts/x.py --help && cd scripts && python y.py",
+        "python scripts/x.py --help; python tools/y.py",
+        "python scripts/x.py --help\npython tools/y.py",
+        "python -m scripts.x && python scripts/nested/y.py",
+        "python scripts/x.py \\\n  --flag\ncd scripts && python y.py",
+        "python scripts/x.py --help && python -c 'import yaml'",
+        "python scripts/x.py --help\n$PY -c 'import yaml'",
+    ),
+)
+def test_a_step_that_runs_a_collected_script_cannot_hide_a_second_one(step: str) -> None:
+    """The tripwires judge each mention, not the step as a whole.
+
+    Mutation: judge the step as a whole again (a step that yields one collected script
+    passes). The first five cases fail. The last two are the inline Python tripwire.
+    """
+
+    assert run_modes([step]), "the premise: the step yields a collected script"
+    violations = lean_step_violations({"lean": [step]}, {})
+    assert len(violations) == 1, (step, violations)
+
+
+def test_script_mentions_that_the_collector_reads_are_not_reported() -> None:
+    for step in (
+        "python scripts/x.py --flag",
+        "python -m scripts.x",
+        "python scripts/x.py --help && python ./scripts/y.py",
+        'python "$GITHUB_WORKSPACE/scripts/x.py" && python3 scripts/y.py --output out.md',
+        "python \\\n  scripts/x.py",
+        "cmp a.md b.md",
+    ):
+        assert unread_script_mentions(step) == [], step
+
+
+_PYTHON_SHELL_WORKFLOW = """
+{top}
+jobs:
+  full:
+    steps:
+      - run: python -m pip install -e '.[dev]'
+        shell: python {{0}}
+  lean:
+{job}
+    steps:
+      - run: echo go
+{step}
+"""
+
+
+@pytest.mark.parametrize(
+    ("top", "job", "step", "expected"),
+    (
+        ("", "", "        shell: python {0}", 1),
+        ("", "", "        shell: python3 {0}", 1),
+        ("", "", "        shell: /usr/bin/Python {0}", 1),
+        ("", "    defaults:\n      run:\n        shell: python {0}", "", 1),
+        ("defaults:\n  run:\n    shell: python {0}", "", "", 1),
+        # The step's own shell wins over a default, and a job default over the workflow's.
+        ("defaults:\n  run:\n    shell: python {0}", "", "        shell: bash", 0),
+        ("defaults:\n  run:\n    shell: python {0}", "    defaults:\n      run:\n        shell: bash", "", 0),
+        ("", "", "        shell: bash", 0),
+        ("", "", "", 0),
+    ),
+)
+def test_a_lean_step_under_a_python_shell_is_reported(top: str, job: str, step: str, expected: int) -> None:
+    """Mutation: ignore ``shell:``, or read it on installing jobs too. The first cases fail or the last passes."""
+
+    text = _PYTHON_SHELL_WORKFLOW.format(top=top, job=job, step=step)
+    violations = python_shell_violations(text)
+    assert len(violations) == expected, violations
+    assert all(violation.startswith("lean:") for violation in violations), violations  # never the installing job
 
 
 def test_the_inline_python_allowlist_needs_a_reason_and_goes_stale() -> None:
@@ -1019,12 +1261,12 @@ def test_lean_jobs_never_reference_the_package_in_their_own_commands() -> None:
             assert not re.search(r"-m\s+alicebot", text), (job_id, text)
 
 
-def test_lean_job_scripts_import_only_the_standard_library_and_sibling_scripts() -> None:
-    """Closure of every script a lean job runs is stdlib or ``scripts/`` siblings.
+def test_lean_job_scripts_import_only_the_standard_library() -> None:
+    """Closure of every script a lean job runs is the standard library: no package, no sibling script.
 
     Mutation: put the import of ``CLAUDE_PLUGIN_ID`` from the package
-    back in ``_marketplace_issues``, or add any import outside the standard library anywhere in
-    a script a lean job runs. This test fails.
+    back in ``_marketplace_issues``, or add any import outside the standard library, or a
+    sibling script, anywhere in a script a lean job runs. This test fails.
     """
 
     _installing, lean, _runs = _jobs()
@@ -1035,12 +1277,60 @@ def test_lean_job_scripts_import_only_the_standard_library_and_sibling_scripts()
 def test_lean_job_steps_hide_no_script_and_run_no_unlisted_inline_python() -> None:
     """Every script a lean step mentions is one the closure check read, and no step runs inline Python.
 
-    Mutation: add ``python -c "import yaml"`` or a python heredoc to a lean job, or
-    start a script in a form the collector does not read (``cd scripts && python x.py``).
+    Mutation: add ``python -c "import yaml"``, ``$PYTHON -c ...`` or a python heredoc to a
+    lean job, give one a ``shell: python {0}``, or start a script in a form the collector does
+    not read (``cd scripts && python x.py``), also in a step that runs a collected script.
     """
 
     _installing, _lean, runs = _jobs()
     assert lean_step_violations(runs, INLINE_PYTHON_ALLOWLIST) == []
+    assert python_shell_violations(WORKFLOW.read_text(encoding="utf-8")) == []
+
+
+def test_release_check_flag_sets_are_read_from_every_way_a_step_calls_it() -> None:
+    assert release_check_flag_sets("python scripts/release_check.py") == [frozenset()]
+    assert release_check_flag_sets(
+        'python scripts/release_check.py --tag "$RELEASE_TAG" --dist-dir verified --verify-release-assets\n'
+        "python scripts/render_release_body.py --tag x\n"
+        "python -m scripts.release_check --dist-dir d --compare-dist-dir=r && echo --not-a-flag-of-it\n"
+        'python \\\n  ./scripts/release_check.py \\\n  --expected-sha "$SHA"'
+    ) == [
+        frozenset({"--tag", "--dist-dir", "--verify-release-assets"}),
+        frozenset({"--dist-dir", "--compare-dist-dir"}),
+        frozenset({"--expected-sha"}),
+    ]
+    assert release_check_flag_sets("python scripts/x.py --tag a") == []
+
+
+def test_every_release_check_call_a_lean_job_makes_is_one_the_execution_tests_run() -> None:
+    """The execution tests below pass hand-written flags. Without this, a flag added to the workflow runs nowhere.
+
+    Mutation: add a flag (``--require-clean``) to a ``release_check.py`` call of a lean job, or
+    a call with a new flag mix. This test fails until an execution test runs that mix and
+    registers it in ``EXECUTED_RELEASE_CHECK_FLAGS``.
+    """
+
+    _installing, _lean, runs = _jobs()
+    calls = [
+        (job_id, flags)
+        for job_id, texts in runs.items()
+        for text in texts
+        for flags in release_check_flag_sets(text)
+    ]
+    assert len(calls) >= 5, f"the lean jobs make fewer release_check.py calls than expected: {calls}"
+    for job_id, flags in calls:
+        assert flags in EXECUTED_RELEASE_CHECK_FLAGS, (
+            f"{job_id} runs release_check.py with {sorted(flags)}, which no bare execution test runs. "
+            "Run that flag mix in a test below and register it in EXECUTED_RELEASE_CHECK_FLAGS."
+        )
+
+
+def test_every_registered_flag_mix_names_a_test_that_exists() -> None:
+    """Mutation: delete or rename an execution test and leave its registry entry. This test fails."""
+
+    for flags, name in EXECUTED_RELEASE_CHECK_FLAGS.items():
+        test = globals().get(name)
+        assert callable(test) and name.startswith("test_"), f"{sorted(flags)} names no test: {name}"
 
 
 def test_lean_jobs_pass_no_semantic_eval_option() -> None:
@@ -1098,6 +1388,45 @@ def test_the_marketplace_check_compares_against_the_script_constant(
 # --- tests: execution without site-packages ----------------------------------
 
 
+# The flag mixes of ``release_check.py`` that the execution tests below run on the bare
+# interpreter, each with the test that runs it. ``--root`` is left out: the tests add it
+# to point at their synthetic repository. A mix a test runs and does not list here fails
+# in ``_registered``. A mix a lean job passes and no test runs fails
+# ``test_every_release_check_call_a_lean_job_makes_is_one_the_execution_tests_run``.
+EXECUTED_RELEASE_CHECK_FLAGS: dict[frozenset[str], str] = {
+    frozenset(): "test_release_check_runs_bare_through_validate_metadata_with_the_marketplace_file",
+    frozenset({"--dist-dir", "--verify-release-assets"}): "test_release_check_verifies_release_assets_bare",
+    frozenset(
+        {"--dist-dir", "--compare-dist-dir", "--verify-release-assets"}
+    ): "test_release_check_compares_a_deterministic_rebuild_bare",
+    frozenset(
+        {"--tag", "--dist-dir", "--verify-release-assets", "--verify-pypi-artifacts"}
+    ): "test_release_check_runs_the_finalize_and_recover_invocation_bare",
+    frozenset(
+        {"--tag", "--dist-dir", "--verify-release-assets", "--verify-pypi-artifact-subset"}
+    ): "test_release_check_runs_the_resume_precheck_invocation_bare",
+    frozenset(
+        {
+            "--tag",
+            "--dist-dir",
+            "--compare-dist-dir",
+            "--verify-release-assets",
+            "--verify-pypi-artifact-subset",
+        }
+    ): "test_release_check_runs_the_resume_invocation_bare",
+}
+
+
+def _registered(args: Iterable[str]) -> None:
+    """Fail unless the flags of a ``release_check.py`` run are a mix registered above."""
+
+    flags = frozenset(arg.split("=", 1)[0] for arg in args if arg.startswith("--")) - {"--root"}
+    assert flags in EXECUTED_RELEASE_CHECK_FLAGS, (
+        f"an execution test runs release_check.py with {sorted(flags)}: register it in "
+        "EXECUTED_RELEASE_CHECK_FLAGS, so a workflow call with the same flags is known to run bare"
+    )
+
+
 def _bare(*args: str, cwd: Path = ROOT) -> subprocess.CompletedProcess[str]:
     """Run the current interpreter isolated (-I) and without site-packages (-S)."""
 
@@ -1127,6 +1456,13 @@ def bare_interpreter() -> None:
         pytest.skip("not a git checkout: release_check reads Git state")
 
 
+def _bare_release_check(*args: str) -> subprocess.CompletedProcess[str]:
+    """``python -I -S scripts/release_check.py ARGS`` from the repository root."""
+
+    _registered(args)
+    return _bare("scripts/release_check.py", *args)
+
+
 def _assert_no_import_failure(done: subprocess.CompletedProcess[str]) -> None:
     combined = done.stdout + done.stderr
     assert "ModuleNotFoundError" not in combined, combined
@@ -1144,7 +1480,7 @@ def test_release_check_runs_bare_through_validate_metadata_with_the_marketplace_
     """
 
     assert (ROOT / ".claude-plugin" / "marketplace.json").is_file()
-    done = _bare("scripts/release_check.py")
+    done = _bare_release_check()
     _assert_no_import_failure(done)
     assert done.returncode == 0, done.stdout + done.stderr
     assert "Release check: PASS" in done.stdout
@@ -1177,8 +1513,7 @@ def test_release_check_verifies_release_assets_bare(
     """``--dist-dir D --verify-release-assets``, the exact readback invocation, bare."""
 
     _version, _artifacts = _write_synthetic_release_assets(tmp_path / "draft-readback")
-    done = _bare(
-        "scripts/release_check.py",
+    done = _bare_release_check(
         "--dist-dir",
         str(tmp_path / "draft-readback"),
         "--verify-release-assets",
@@ -1194,8 +1529,7 @@ def test_release_check_still_fails_closed_bare_on_a_tampered_release_asset(
     dist_dir = tmp_path / "draft-readback"
     _version, artifacts = _write_synthetic_release_assets(dist_dir)
     (dist_dir / "extra.txt").write_text("not part of the release", encoding="utf-8")
-    done = _bare(
-        "scripts/release_check.py",
+    done = _bare_release_check(
         "--dist-dir",
         str(dist_dir),
         "--verify-release-assets",
@@ -1451,6 +1785,7 @@ def _bare_with_offline_pypi(
 ) -> tuple[subprocess.CompletedProcess[str], list[str]]:
     """``python -I -S release_check.py ARGS`` with PyPI served from ``recorded``; also the URLs asked."""
 
+    _registered(args)
     wrapper = tmp_path / "offline_pypi_wrapper.py"
     wrapper.write_text(_OFFLINE_PYPI_WRAPPER, encoding="utf-8")
     request_log = tmp_path / "pypi-requests.log"
@@ -1499,7 +1834,6 @@ def test_release_check_compares_a_deterministic_rebuild_bare(
     _version, artifacts = _write_synthetic_release_assets(verified)
     rebuild = _copy_distributions(artifacts, tmp_path / "deterministic-rebuild")
     args = (
-        "scripts/release_check.py",
         "--dist-dir",
         str(verified),
         "--compare-dist-dir",
@@ -1507,7 +1841,7 @@ def test_release_check_compares_a_deterministic_rebuild_bare(
         "--verify-release-assets",
     )
 
-    done = _bare(*args)
+    done = _bare_release_check(*args)
     _assert_no_import_failure(done)
     assert done.returncode == 0, done.stdout + done.stderr
     assert "Release check: PASS" in done.stdout
@@ -1515,7 +1849,7 @@ def test_release_check_compares_a_deterministic_rebuild_bare(
     # Same content, different gzip header time: the comparison fails closed on the bytes.
     sdist = next(rebuild.glob("*.tar.gz"))
     sdist.write_bytes(gzip.compress(gzip.decompress(sdist.read_bytes()), mtime=1))
-    done = _bare(*args)
+    done = _bare_release_check(*args)
     _assert_no_import_failure(done)
     assert done.returncode == 1, done.stdout + done.stderr
     assert "Release check: FAIL" in done.stdout
@@ -1569,31 +1903,27 @@ def test_release_check_runs_the_finalize_and_recover_invocation_bare(
     assert "PyPI file set is not an exact permitted set of verified artifacts" in done.stdout
 
 
-def test_release_check_runs_the_resume_invocation_bare(
-    bare_interpreter: None, tmp_path: Path
-) -> None:
-    """The resume job's last call: ``--tag``, ``--compare-dist-dir`` and ``--verify-pypi-artifact-subset``.
+def _run_resume_scenarios(tmp_path: Path, *, compare: bool) -> None:
+    """The resume job's two ``--verify-pypi-artifact-subset`` calls, bare and offline.
 
-    Mutation: raise ``NameError`` on the subset branch of ``verify_pypi_artifacts`` or on
-    the ``--compare-dist-dir`` branch of ``main``. This test fails.
+    With ``compare`` the call also passes ``--compare-dist-dir`` (the last call of the job,
+    after the deterministic rebuild). Without it, it is the call before the rebuild.
     """
 
     verified = tmp_path / "verified"
     version, artifacts = _write_synthetic_release_assets(verified)
-    rebuild = _copy_distributions(artifacts, tmp_path / "deterministic-rebuild")
     repo = _synthetic_release_repo(tmp_path, version)
-    args = (
+    args = [
         "--root",
         str(repo),
         "--tag",
         f"v{version}",
         "--dist-dir",
         str(verified),
-        "--compare-dist-dir",
-        str(rebuild),
-        "--verify-release-assets",
-        "--verify-pypi-artifact-subset",
-    )
+    ]
+    if compare:
+        args += ["--compare-dist-dir", str(_copy_distributions(artifacts, tmp_path / "deterministic-rebuild"))]
+    args += ["--verify-release-assets", "--verify-pypi-artifact-subset"]
     wheel = next(path for path in artifacts if path.name.endswith(".whl"))
 
     # A partial upload: PyPI holds the wheel and not the sdist.
@@ -1619,3 +1949,26 @@ def test_release_check_runs_the_resume_invocation_bare(
     _assert_no_import_failure(done)
     assert done.returncode == 1, done.stdout + done.stderr
     assert "PyPI sha256 does not match verified artifact" in done.stdout
+
+
+def test_release_check_runs_the_resume_precheck_invocation_bare(
+    bare_interpreter: None, tmp_path: Path
+) -> None:
+    """The resume job's first call: ``--tag``, ``--dist-dir`` and ``--verify-pypi-artifact-subset``, no rebuild.
+
+    Mutation: raise ``NameError`` on the subset branch of ``verify_pypi_artifacts``. This test fails.
+    """
+
+    _run_resume_scenarios(tmp_path, compare=False)
+
+
+def test_release_check_runs_the_resume_invocation_bare(
+    bare_interpreter: None, tmp_path: Path
+) -> None:
+    """The resume job's last call: ``--tag``, ``--compare-dist-dir`` and ``--verify-pypi-artifact-subset``.
+
+    Mutation: raise ``NameError`` on the subset branch of ``verify_pypi_artifacts`` or on
+    the ``--compare-dist-dir`` branch of ``main``. This test fails.
+    """
+
+    _run_resume_scenarios(tmp_path, compare=True)
