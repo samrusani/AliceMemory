@@ -31,7 +31,7 @@ SOURCE_RECEIPTS = {
         "f0ec9c7f13bc7bf93f5a3beaa86916a04e45200ef0296d6f9288eed3912be33d"
     ),
     "apps/api/src/alicebot_api/vnext_stores/postgres/memory_access.py": (
-        "74f6e82af228e6ca87af55d055a7e3048a2939f88167d908363107d2931a1035"
+        "33029103fd78e2887793512ac8791e523f147fb22ecd1be2dcc962670742eafc"
     ),
     "apps/api/src/alicebot_api/vnext_stores/sqlite/query_predicates.py": (
         "aada597da76324ec05a118f95c2b26441b076771a0e53b8d45f08eefb656bbb4"
@@ -46,7 +46,7 @@ SOURCE_RECEIPTS = {
     # through ``literal_match_operand`` and so refuses one past the LIKE operand
     # limit. The Postgres carrier is unchanged on purpose: it has no such limit.
     "apps/api/src/alicebot_api/vnext_stores/sqlite/memory_access.py": (
-        "3288d2642cd473492387d720d428ce7a8322b36473da9c5e37ef3abe5d65e242"
+        "b048578611ccfcb88519fa46ab47d52234fc68128ccceb0cd9bc4998dd9d8a44"
     ),
 }
 
@@ -55,6 +55,7 @@ POSTGRES_METHODS = (
     "get_memory",
     "get_memories_by_ids",
     "list_memories_referencing_source",
+    "list_memories_referencing_sources",
     "list_pending_derived_candidates_for_member",
     "list_memories",
     "list_memories_by_statuses",
@@ -82,6 +83,7 @@ SQLITE_METHODS = (
     "get_memory",
     "get_memories_by_ids",
     "list_memories_referencing_source",
+    "list_memories_referencing_sources",
     "list_pending_derived_candidates_for_member",
     "get_memory_by_commit_digest",
     "latest_agentic_commit_memory",
@@ -159,12 +161,18 @@ SQLITE_QUERY_EXPORTS = (
 )
 
 EXPECTED_CLASS_ORDERS = {
-    # Two paired browser-clip capability methods extend both façades.
-    "PostgresVNextStore": (170, "5f28f1a17670a0c8b7b373acd0c314637c58e6a10ccf52053481a8a028bb3c09"),
-    # Two SQLite-only methods more, ``check_source_search_query`` and
-    # ``check_literal_match_query``: the Postgres reads have no expression-depth
-    # or LIKE-length limit to check.
-    "SQLiteVNextStore": (125, "316e3274fde3adcac77f84a5ae0eb8bb92d40ac1f0e3edf3dce7093b55d32ef4"),
+    # Two paired browser-clip capability methods extend both façades. One more
+    # paired method, ``list_memories_referencing_sources``, is the batched form
+    # of ``list_memories_referencing_source``; both carrier receipts above were
+    # re-minted for it (reviewed change, not drift).
+    "PostgresVNextStore": (171, "526374782104a2a120a40fdb3596893975d4e1528d4c8130802cfc830161eb35"),
+    # One SQLite-only method more, ``check_source_search_query``: the Postgres
+    # source search has no expression-depth or LIKE-length limit to check.
+    # Merge of #500 and #502 (2026-10-01): one more SQLite-only method,
+    # ``check_literal_match_query``, beside the paired
+    # ``list_memories_referencing_sources``. Re-minted for the merged facade
+    # (reviewed change, not drift).
+    "SQLiteVNextStore": (126, "08f33e48b0ada3aee40ab843f826bd0610a31ad495091bf6880bd2b68192084a"),
 }
 
 

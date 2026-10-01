@@ -140,11 +140,13 @@ EXPECTED_PRIMITIVE_METADATA = {
 }
 EXPECTED_CLASS_KEY_SHA256 = {
     # Re-minted for the paired browser-clip capability façade methods.
-    # The sqlite hash is re-minted again for ``check_source_search_query`` and
-    # ``check_literal_match_query``. They are SQLite only on purpose: the
-    # Postgres reads have no expression-depth or LIKE-length limit to check.
-    "postgres": "88174a48507e75d260fa597319e8baec273a663b0036899d70c9550138bc6046",
-    "sqlite": "18daff70fb494e0eaf681931a9357fb50475603573270276b2f1c67dca57e2b5",
+    # The sqlite hash is re-minted again for ``check_source_search_query``. It is
+    # SQLite only on purpose: the Postgres source search has no expression-depth
+    # or LIKE-length limit to check. Both are re-minted again for the paired
+    # ``list_memories_referencing_sources`` method.
+    "postgres": "650e2e0ff088d67c20c5eb57cb3919803310e1e382cb1d37e5e0c40220b810a0",
+    # Re-minted for the merge of #500 and #502: ``check_literal_match_query``.
+    "sqlite": "11d9e5df9e51564b5e4ea00510515e8deca6ca8338a96ccecad6e8db7e188f00",
 }
 EXPECTED_SUPPORT_AST_SHA256 = {
     "postgres_columns": {

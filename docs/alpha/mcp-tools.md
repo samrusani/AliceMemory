@@ -267,7 +267,12 @@ is a CLI verb, not a fourth always-on agent tool.
   `people`, and `time_window` are hard filters across every content section;
   time windows use `all` or a bounded relative form such as `7d` or `30d`.
   Accepts the same `memory_types` filter, and `max_tokens` budgets each
-  unique content-bearing section: lowest-ranked items are dropped to fit.
+  unique content-bearing section: items that do not fit are dropped. In
+  v0.19.2 the first item that does not fit also drops every item after it.
+  Unreleased (on main, not in v0.19.2): an item that does not fit is skipped
+  and the next is tried, and when nothing fits whole the first item that can
+  fit has its text cut to the budget and ending in `…`, with
+  `token_report.cut_item_count` set to 1.
   The `budget` object reports the charged estimate, truncation, dropped
   items, complete serialized-envelope estimate, and the diagnostic or
   duplicate navigation views excluded from the unique-content budget.

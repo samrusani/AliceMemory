@@ -538,8 +538,8 @@ def test_the_docs_and_the_hint_comment_say_review_is_read_only_from_v0192() -> N
     """
 
     sections = (_ROOT / "CHANGELOG.md").read_text(encoding="utf-8").split("\n## ")
-    # Unreleased may hold later entries; the entries this test pins are in v0.19.2.
-    assert sections[1].split("\n", 1)[0].strip() == "Unreleased"
+    # Unreleased may hold entries for changes made after v0.19.2.
+    assert sections[1].startswith("Unreleased")
     assert sections[2].startswith("v0.19.2 \u2014 2026-10-01\n")
     released_now = " ".join(sections[2].split())
     assert "`alice_memory_review` sets `readOnlyHint` and no longer sets `destructiveHint`." in released_now

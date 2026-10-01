@@ -45,7 +45,18 @@ import inspect
 import json
 import logging
 import re
-from typing import Callable, Mapping, MutableMapping, NotRequired, Protocol, Sequence, TypeVar, TypedDict, cast
+from typing import (
+    Callable,
+    Mapping,
+    MutableMapping,
+    NamedTuple,
+    NotRequired,
+    Protocol,
+    Sequence,
+    TypeVar,
+    TypedDict,
+    cast,
+)
 from uuid import uuid4
 
 # Read-only reuse of the contradiction-detection machinery that backs
@@ -1312,6 +1323,8 @@ SOURCE_FALLBACK_CHUNK_SCAN_LIMIT = 24
 # Least fraction of the budget a word-boundary trim may leave before the blunt
 # character cut is preferred instead.
 _WORD_TRIM_FLOOR = 0.6
+# The mark a cut line carries. One character, appended where text was removed.
+_CUT_MARKER = "\u2026"
 
 
 def _tokens(text: str) -> set[str]:
@@ -1437,8 +1450,8 @@ def _trimmed_to_budget(text: str, max_chars: int) -> str:
     sliced = text[:max_chars]
     tidy = sliced.rsplit(" ", 1)[0]
     if len(tidy) >= max_chars * _WORD_TRIM_FLOOR:
-        return tidy + "\u2026"
-    return sliced + "\u2026"
+        return tidy + _CUT_MARKER
+    return sliced + _CUT_MARKER
 
 
 def _query_anchored_window(chunk: str, *, query: str, max_chars: int) -> str:
@@ -1507,16 +1520,126 @@ def estimate_item_tokens(item: JsonObject) -> int:
     return max(1, (chars + TOKEN_ESTIMATE_CHARS_PER_TOKEN - 1) // TOKEN_ESTIMATE_CHARS_PER_TOKEN)
 
 
+# Text a budget cut may shorten: the excerpt a source carries, and the text a
+# memory or open loop carries (a memory row repeats it as canonical_text,
+# summary and value.text). Ids, scope, provenance, metadata and titles are
+# never cut, so a cut item still names what it is and where it came from.
+_CUTTABLE_TEXT_KEYS = ("excerpt", "canonical_text", "summary", "description")
+
+
+def _cuttable_text_lengths(item: JsonObject) -> list[int]:
+    lengths: list[int] = []
+    for key in _CUTTABLE_TEXT_KEYS:
+        text = item.get(key)
+        if isinstance(text, str):
+            lengths.append(len(text))
+    value = item.get("value")
+    if isinstance(value, Mapping) and isinstance(value.get("text"), str):
+        lengths.append(len(value["text"]))
+    return lengths
+
+
+def _cut_text(text: str, *, query: str, max_chars: int) -> str:
+    """Shorten text to about ``max_chars`` and mark the cut.
+
+    The cut is the one a source excerpt already gets: a window around the line
+    that best answers the query, ending in the same one-character marker that
+    ``_trimmed_to_budget`` appends. Text that already fits comes back unchanged.
+    """
+
+    if len(text) <= max_chars:
+        return text
+    window = _query_anchored_window(text, query=query, max_chars=max_chars)
+    if window == text.strip() or window.endswith(_CUT_MARKER):
+        return window
+    return window + _CUT_MARKER
+
+
+def _item_with_text_cut(item: JsonObject, *, query: str, max_chars: int) -> JsonObject:
+    cut = dict(item)
+    for key in _CUTTABLE_TEXT_KEYS:
+        text = cut.get(key)
+        if isinstance(text, str):
+            cut[key] = _cut_text(text, query=query, max_chars=max_chars)
+    value = cut.get("value")
+    if isinstance(value, Mapping) and isinstance(value.get("text"), str):
+        cut["value"] = {**value, "text": _cut_text(value["text"], query=query, max_chars=max_chars)}
+    return cut
+
+
+def _fit_item_to_tokens(item: JsonObject, *, query: str, max_tokens: int) -> JsonObject | None:
+    """The longest cut of ``item`` that the search finds within ``max_tokens``, or None.
+
+    None means the item cannot be made to fit: with every cuttable text reduced
+    to the bare cut marker, the ids, scope and metadata it carries alone cost
+    more than the budget. That irreducible cost is the pack's floor for this
+    item. A returned item was priced with ``estimate_item_tokens`` before it was
+    returned, so it fits whatever the search assumed about how cost grows.
+    """
+
+    best = _item_with_text_cut(item, query=query, max_chars=0)
+    if estimate_item_tokens(best) > max_tokens:
+        return None
+    low, high = 0, max(_cuttable_text_lengths(item), default=0)
+    while low < high:
+        middle = (low + high + 1) // 2
+        candidate = _item_with_text_cut(item, query=query, max_chars=middle)
+        if estimate_item_tokens(candidate) <= max_tokens:
+            best, low = candidate, middle
+        else:
+            high = middle - 1
+    return best
+
+
+class _PackedSections(NamedTuple):
+    """What one pass of the greedy packer admitted, section by section."""
+
+    memories: list[JsonObject]
+    open_loops: list[JsonObject]
+    sources: list[JsonObject]
+    supporting_evidence: list[JsonObject]
+    contradicting_evidence: list[JsonObject]
+    contradictions_stage: str
+
+
+def _first_item_that_fits_when_cut(
+    offers: Mapping[str, Sequence[JsonObject]],
+    *,
+    section_order: Sequence[str],
+    query: str,
+    max_tokens: int,
+) -> tuple[str, int, JsonObject] | None:
+    """The first offered item, in offer order, that a cut can make fit.
+
+    Returns its section, its index in that section, and the cut item. Sections
+    the packer derives rather than ranks (evidence quotes, contradiction
+    records) are not in ``offers`` and are never cut.
+    """
+
+    for section in section_order:
+        for index, offered in enumerate(offers.get(section, ())):
+            fitted = _fit_item_to_tokens(offered, query=query, max_tokens=max_tokens)
+            if fitted is not None:
+                return section, index, fitted
+    return None
+
+
 @dataclass(slots=True)
 class _TokenBudget:
     """Greedy token-budget packer state.
 
-    Items are offered section by section in the strategy's section order.
-    Once one item does not fit, the budget is marked truncated and every
-    later item is dropped too, keeping the packed prefix aligned with the
-    offer order. ``allocation`` records the admitted token estimate per
-    section so agents can see where the budget went; the values always sum
-    to ``token_estimate``.
+    Items are offered section by section in the strategy's section order, and
+    in rank order within a section. An item that does not fit is skipped and
+    the next one is tried, so one large item early in the order cannot take the
+    smaller items behind it down with it. Packed items keep their offer order.
+    ``truncated`` is set when any offered item was dropped or cut.
+    ``allocation`` records the admitted token estimate per section so agents
+    can see where the budget went; the values always sum to ``token_estimate``,
+    which never exceeds ``token_budget``.
+
+    Through v0.19.2 the first item that did not fit latched ``truncated`` and
+    every later item was dropped too, which left a pack empty whenever a large
+    item was ranked first.
     """
 
     token_budget: int | None
@@ -1524,6 +1647,7 @@ class _TokenBudget:
     token_estimate: int = 0
     truncated: bool = False
     dropped_item_count: int = 0
+    cut_item_count: int = 0
     allocation: dict[str, int] = field(default_factory=dict)
 
     def open_section(self, section: str) -> None:
@@ -1533,9 +1657,7 @@ class _TokenBudget:
     def admit(self, item: JsonObject, *, section: str) -> bool:
         self.open_section(section)
         cost = estimate_item_tokens(item)
-        if self.truncated or (
-            self.token_budget is not None and self.token_estimate + cost > self.token_budget
-        ):
+        if self.token_budget is not None and self.token_estimate + cost > self.token_budget:
             self.truncated = True
             self.dropped_item_count += 1
             return False
@@ -1544,7 +1666,7 @@ class _TokenBudget:
         return True
 
     def to_record(self) -> JsonObject:
-        return {
+        record: JsonObject = {
             "token_budget": self.token_budget,
             "token_estimate": self.token_estimate,
             "truncated": self.truncated,
@@ -1552,6 +1674,11 @@ class _TokenBudget:
             "strategy": self.strategy,
             "allocation": dict(self.allocation),
         }
+        if self.cut_item_count:
+            # Absent unless an item was cut to fit, so every pack that was not
+            # cut keeps the report it had.
+            record["cut_item_count"] = self.cut_item_count
+        return record
 
 
 def _parse_timestamp(value: object) -> datetime | None:
@@ -1783,9 +1910,137 @@ def _drop_pointers_outside_fence(
                 holder.pop(pointer_key, None)
 
 
+# Memories asked for per packed source when labelling a corrected excerpt. The
+# label depends on which rows come back, so this stays at the 50 that v0.19.0
+# asked for, not the store's 500 default.
+_CORRECTION_LABEL_MEMORIES_PER_SOURCE = 50
+
+# Memory ids per provenance-link lookup. One statement per packed request is
+# the aim, but a SQLite build from before 3.32 allows only 999 bound
+# variables, so a very large pack splits its ids rather than fails.
+_CORRECTION_LABEL_LINK_BATCH = 500
+
+
+def _memories_referencing_sources(
+    store: object,
+    source_ids: Sequence[str],
+    *,
+    limit_per_source: int,
+) -> dict[str, list[Mapping[str, object]]]:
+    """Memories that reference each source: one batched lookup when the store has one.
+
+    The batched method is what keeps a pack of N sources from asking the store
+    N times. A store without it (a minimal test double, an older store) gets
+    the one-source method once per source, which returns the same rows.
+    """
+
+    batched = getattr(store, "list_memories_referencing_sources", None)
+    if callable(batched):
+        grouped = batched(source_ids, limit_per_source=limit_per_source) or {}
+        return {
+            source_id: [row for row in grouped.get(source_id, ()) if isinstance(row, Mapping)]
+            for source_id in source_ids
+        }
+    single = getattr(store, "list_memories_referencing_source", None)
+    if not callable(single):
+        return {}
+    return {
+        source_id: [
+            row
+            for row in (single(source_id=source_id, limit=limit_per_source) or ())
+            if isinstance(row, Mapping)
+        ]
+        for source_id in source_ids
+    }
+
+
+def _provenance_links_by_memory(
+    store: object,
+    memory_ids: Sequence[str],
+) -> dict[str, list[object]] | None:
+    """Links of every memory in ``memory_ids``, keyed by memory id, or None.
+
+    None means the store has no bulk link lookup, so callers read one memory at
+    a time. An empty dict means the lookup ran and found nothing.
+    """
+
+    list_bulk = getattr(store, "list_provenance_links_for_targets", None)
+    if not callable(list_bulk):
+        return None
+    links_by_memory: dict[str, list[object]] = {}
+    for offset in range(0, len(memory_ids), _CORRECTION_LABEL_LINK_BATCH):
+        batch = list(memory_ids[offset : offset + _CORRECTION_LABEL_LINK_BATCH])
+        for link in list_bulk(target_type="memory", target_ids=batch) or ():
+            if not isinstance(link, Mapping):
+                continue
+            target_id = str(link.get("target_id") or "")
+            links_by_memory.setdefault(target_id, []).append(link)
+    return links_by_memory
+
+
+def annotate_derived_memory_corrections(
+    store: object,
+    sources: Sequence[MutableMapping[str, object]],
+    *,
+    memory_visible: Callable[[Mapping[str, object]], bool],
+) -> None:
+    """Label every packed excerpt whose derived memory was corrected or superseded.
+
+    The batch form of ``annotate_derived_memory_correction``, which is its
+    one-source case. It reads what the labels need from the store once for the
+    whole pack: one lookup of the memories that reference any of the sources,
+    and one lookup of their provenance links. v0.19.0 made both calls once per
+    packed source, and each memory lookup scans the memories table.
+
+    The labels are the ones the one-source function sets. ``memory_visible`` is
+    required and has no default: it is the fence the caller's memory reads run
+    under, applied to every memory the walk to a current fact touches. The
+    stale flag stays set whatever the caller may read; only the pointer id is
+    withheld.
+    """
+
+    sources_by_id: dict[str, list[MutableMapping[str, object]]] = {}
+    for source in sources:
+        source_id = str(source.get("id") or "")
+        if source_id:
+            sources_by_id.setdefault(source_id, []).append(source)
+    if not sources_by_id:
+        return
+    memories_by_source = _memories_referencing_sources(
+        store,
+        list(sources_by_id),
+        limit_per_source=_CORRECTION_LABEL_MEMORIES_PER_SOURCE,
+    )
+    memory_ids_by_source = {
+        source_id: [str(memory.get("id") or "") for memory in rows if str(memory.get("id") or "")]
+        for source_id, rows in memories_by_source.items()
+    }
+    all_memory_ids = list(dict.fromkeys(memory_id for ids in memory_ids_by_source.values() for memory_id in ids))
+    bulk_links = _provenance_links_by_memory(store, all_memory_ids) if all_memory_ids else None
+    for source_id, group in sources_by_id.items():
+        memory_rows = memories_by_source.get(source_id) or []
+        if not memory_rows:
+            continue
+        links_by_memory: dict[str, list[object]] = {}
+        if bulk_links is not None:
+            links_by_memory = {
+                memory_id: bulk_links[memory_id]
+                for memory_id in memory_ids_by_source[source_id]
+                if memory_id in bulk_links
+            }
+        for source in group:
+            _annotate_corrected_source(
+                store,
+                source,
+                memory_rows,
+                links_by_memory=links_by_memory,
+                memory_visible=memory_visible,
+            )
+
+
 def annotate_derived_memory_correction(
     store: object,
-    source: JsonObject,
+    source: MutableMapping[str, object],
     *,
     memory_visible: Callable[[Mapping[str, object]], bool],
 ) -> None:
@@ -1800,27 +2055,23 @@ def annotate_derived_memory_correction(
     fence the caller's memory reads run under. A pointer id is itself
     sensitive metadata, so there is no fallback to an earlier visible hop.
     Ordinary sources gain no keys.
+
+    A pack of several sources calls ``annotate_derived_memory_corrections``
+    instead, so the store is asked once for all of them.
     """
 
+    annotate_derived_memory_corrections(store, [source], memory_visible=memory_visible)
+
+
+def _annotate_corrected_source(
+    store: object,
+    source: MutableMapping[str, object],
+    memory_rows: Sequence[Mapping[str, object]],
+    *,
+    links_by_memory: Mapping[str, Sequence[object]],
+    memory_visible: Callable[[Mapping[str, object]], bool],
+) -> None:
     source_id = str(source.get("id") or "")
-    if source_id == "":
-        return
-    list_refs = getattr(store, "list_memories_referencing_source", None)
-    if not callable(list_refs):
-        return
-    memories = list_refs(source_id=source_id, limit=50) or ()
-    memory_rows = [memory for memory in memories if isinstance(memory, Mapping)]
-    if not memory_rows:
-        return
-    links_by_memory: dict[str, list[object]] = {}
-    list_bulk = getattr(store, "list_provenance_links_for_targets", None)
-    memory_ids = [str(memory.get("id") or "") for memory in memory_rows if str(memory.get("id") or "")]
-    if callable(list_bulk) and memory_ids:
-        for link in list_bulk(target_type="memory", target_ids=memory_ids) or ():
-            if not isinstance(link, Mapping):
-                continue
-            target_id = str(link.get("target_id") or "")
-            links_by_memory.setdefault(target_id, []).append(link)
     captured_at = _parse_timestamp(source.get("captured_at"))
     excerpt = _flat_stored_text(source.get("excerpt"))
     chosen_id: str | None = None
@@ -3110,6 +3361,27 @@ class VNextRetrievalService:
                 best_score, best_text = score, text
         return best_text
 
+    def _packable_sources(
+        self,
+        items: Sequence[JsonObject],
+        *,
+        query: str,
+        memory_visible: Callable[[Mapping[str, object]], bool],
+    ) -> list[JsonObject]:
+        """Compact every ranked source for packing, then label them in one pass.
+
+        The correction label needs the memories that reference each source.
+        Asking the store once per source made recall and the pack scan the
+        memories table once per packed source (v0.19.0 to v0.19.2), so the
+        excerpts are built first and the labels are read for all of them in one
+        lookup. ``memory_visible`` is required and has no default, for the
+        reason ``_packable_source`` gives.
+        """
+
+        compacted = [self._compact_source(item, query=query) for item in items]
+        annotate_derived_memory_corrections(self.store, compacted, memory_visible=memory_visible)
+        return compacted
+
     def _packable_source(
         self,
         item: JsonObject,
@@ -3117,11 +3389,18 @@ class VNextRetrievalService:
         query: str,
         memory_visible: Callable[[Mapping[str, object]], bool],
     ) -> JsonObject:
+        """One source through ``_packable_sources``. Packs call that for the whole list."""
+
+        return self._packable_sources([item], query=query, memory_visible=memory_visible)[0]
+
+    def _compact_source(self, item: JsonObject, *, query: str) -> JsonObject:
         """Compact a ranked source for packing: drop the document, add an excerpt.
 
         The excerpt is the chunk the FTS stage already ranked highest for this
         source, windowed around its best-matching line. Re-deriving a "best"
-        chunk here would discard the ranking that retrieval just did.
+        chunk here would discard the ranking that retrieval just did. The
+        correction label is added afterwards by ``_packable_sources``, once the
+        excerpt exists, because the label is about the passage the agent reads.
         """
 
         compacted = _compact_item(item)
@@ -3153,10 +3432,6 @@ class VNextRetrievalService:
                 winner, query=query, max_chars=SOURCE_EXCERPT_MAX_CHARS
             )
             compacted["excerpt_kind"] = "imported_source_material"
-        # After the excerpt exists, so the label is about the passage the
-        # agent will read. Sources whose derived memory is still current
-        # stay byte-identical.
-        annotate_derived_memory_correction(self.store, compacted, memory_visible=memory_visible)
         return compacted
 
     def memory_visibility(
@@ -3304,11 +3579,11 @@ class VNextRetrievalService:
             sensitivity_allowed=sensitivity_allowed,
             scope=scope,
         )
-        excerpts = [
-            self._packable_source(candidate.item, query=query, memory_visible=memory_visible)
-            for candidate in candidates
-            if candidate.selected
-        ]
+        excerpts = self._packable_sources(
+            [candidate.item for candidate in candidates if candidate.selected],
+            query=query,
+            memory_visible=memory_visible,
+        )
         return excerpts, stage_record
 
     def compile_context_pack(self, request: VNextRetrievalRequest) -> JsonObject:
@@ -3872,11 +4147,11 @@ class VNextRetrievalService:
             scope=scope,
             person_linked_memory_ids=person_linked_memory_ids,
         )
-        ranked_sources = [
-            self._packable_source(candidate.item, query=request.query, memory_visible=pack_memory_visible)
-            for candidate in source_candidates
-            if candidate.selected
-        ]
+        ranked_sources = self._packable_sources(
+            [candidate.item for candidate in source_candidates if candidate.selected],
+            query=request.query,
+            memory_visible=pack_memory_visible,
+        )
         ranked_open_loops = [_compact_item(candidate.item) for candidate in open_loop_candidates if candidate.selected]
 
         # Greedy token-budget packing, section by section. Default
@@ -3895,52 +4170,107 @@ class VNextRetrievalService:
             budget_strategy=strategy,
             pack_view=str(interpretation.get("pack_view") or PACK_VIEW_FACTS),
         )
+        # Wrapped before any item is priced. Admitting the bare row and
+        # emitting the wrapped one made the budget count something smaller
+        # than the pack carries, under-counting every promoted row by the
+        # whole provenance record.
+        memory_offers = [_with_write_provenance(item) for item in ordered_memories]
+
+        def pack_sections(
+            budget: _TokenBudget,
+            *,
+            memories: list[JsonObject],
+            open_loops: list[JsonObject],
+            sources: list[JsonObject],
+        ) -> _PackedSections:
+            selected_memories: list[JsonObject] = []
+            selected_open_loops: list[JsonObject] = []
+            selected_sources: list[JsonObject] = []
+            supporting_evidence: list[JsonObject] = []
+            contradicting_evidence: list[JsonObject] = []
+            contradictions_stage = contradictions_not_requested_status
+            memories_packed = False
+            for section in section_order:
+                budget.open_section(section)
+                if section == SECTION_RELEVANT_MEMORIES:
+                    selected_memories = [item for item in memories if budget.admit(item, section=section)]
+                    memories_packed = True
+                elif section == SECTION_OPEN_LOOPS:
+                    selected_open_loops = [item for item in open_loops if budget.admit(item, section=section)]
+                elif section == SECTION_SOURCES:
+                    selected_sources = [item for item in sources if budget.admit(item, section=section)]
+                elif section == SECTION_SUPPORTING_EVIDENCE:
+                    evidence_base = selected_memories if memories_packed else ordered_memories
+                    supporting_evidence = [
+                        evidence
+                        for evidence in self._supporting_evidence(evidence_base, scope=scope)
+                        if budget.admit(evidence, section=section)
+                    ]
+                elif section == SECTION_CONTRADICTING_EVIDENCE:
+                    contradiction_base = selected_memories if memories_packed else ordered_memories
+                    contradiction_records, contradictions_stage = self._contradicting_evidence(
+                        contradiction_base,
+                        requested=contradictions_requested,
+                        domains=domains,
+                        sensitivity_allowed=sensitivity_allowed,
+                        scope=scope,
+                        person_linked_memory_ids=person_linked_memory_ids,
+                        not_requested_status=contradictions_not_requested_status,
+                    )
+                    contradicting_evidence = [
+                        record for record in contradiction_records if budget.admit(record, section=section)
+                    ]
+            return _PackedSections(
+                selected_memories,
+                selected_open_loops,
+                selected_sources,
+                supporting_evidence,
+                contradicting_evidence,
+                contradictions_stage,
+            )
+
         budget = _TokenBudget(token_budget=request.max_tokens, strategy=strategy)
-        selected_memories: list[JsonObject] = []
-        selected_open_loops: list[JsonObject] = []
-        selected_sources: list[JsonObject] = []
-        supporting_evidence: list[JsonObject] = []
-        contradicting_evidence: list[JsonObject] = []
-        contradictions_stage = contradictions_not_requested_status
-        memories_packed = False
-        for section in section_order:
-            budget.open_section(section)
-            if section == SECTION_RELEVANT_MEMORIES:
-                # Wrap before admitting. Admitting the bare row and emitting
-                # the wrapped one made the budget count something smaller
-                # than the pack carries, under-counting every promoted row by
-                # the whole provenance record.
-                selected_memories = [
-                    wrapped
-                    for wrapped in (_with_write_provenance(item) for item in ordered_memories)
-                    if budget.admit(wrapped, section=section)
-                ]
-                memories_packed = True
-            elif section == SECTION_OPEN_LOOPS:
-                selected_open_loops = [item for item in ranked_open_loops if budget.admit(item, section=section)]
-            elif section == SECTION_SOURCES:
-                selected_sources = [item for item in ranked_sources if budget.admit(item, section=section)]
-            elif section == SECTION_SUPPORTING_EVIDENCE:
-                evidence_base = selected_memories if memories_packed else ordered_memories
-                supporting_evidence = [
-                    evidence
-                    for evidence in self._supporting_evidence(evidence_base, scope=scope)
-                    if budget.admit(evidence, section=section)
-                ]
-            elif section == SECTION_CONTRADICTING_EVIDENCE:
-                contradiction_base = selected_memories if memories_packed else ordered_memories
-                contradiction_records, contradictions_stage = self._contradicting_evidence(
-                    contradiction_base,
-                    requested=contradictions_requested,
-                    domains=domains,
-                    sensitivity_allowed=sensitivity_allowed,
-                    scope=scope,
-                    person_linked_memory_ids=person_linked_memory_ids,
-                    not_requested_status=contradictions_not_requested_status,
+        packed = pack_sections(
+            budget, memories=memory_offers, open_loops=ranked_open_loops, sources=ranked_sources
+        )
+        if budget.token_budget is not None and budget.token_estimate == 0:
+            # Nothing fit whole. Cut the first item that can be made to fit,
+            # taking items in offer order, and pack again with that cut item in
+            # place of its whole self. Everything else is offered exactly as it
+            # was, so the cut item is admitted first and the rest are dropped
+            # as before. An item whose ids and metadata alone cost more than
+            # the budget cannot be cut small enough, so the next one is tried.
+            offers = {
+                SECTION_RELEVANT_MEMORIES: list(memory_offers),
+                SECTION_OPEN_LOOPS: list(ranked_open_loops),
+                SECTION_SOURCES: list(ranked_sources),
+            }
+            first_fit = _first_item_that_fits_when_cut(
+                offers,
+                section_order=section_order,
+                query=request.query,
+                max_tokens=budget.token_budget,
+            )
+            if first_fit is not None:
+                fit_section, fit_index, fitted = first_fit
+                offers[fit_section][fit_index] = fitted
+                budget = _TokenBudget(token_budget=request.max_tokens, strategy=strategy)
+                packed = pack_sections(
+                    budget,
+                    memories=offers[SECTION_RELEVANT_MEMORIES],
+                    open_loops=offers[SECTION_OPEN_LOOPS],
+                    sources=offers[SECTION_SOURCES],
                 )
-                contradicting_evidence = [
-                    record for record in contradiction_records if budget.admit(record, section=section)
-                ]
+                budget.truncated = True
+                budget.cut_item_count = 1
+        (
+            selected_memories,
+            selected_open_loops,
+            selected_sources,
+            supporting_evidence,
+            contradicting_evidence,
+            contradictions_stage,
+        ) = packed
         memory_candidates = _apply_budget_exclusions(memory_candidates, selected_memories)
         open_loop_candidates = _apply_budget_exclusions(open_loop_candidates, selected_open_loops)
         source_candidates = _apply_budget_exclusions(source_candidates, selected_sources)

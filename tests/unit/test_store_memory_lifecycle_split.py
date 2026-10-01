@@ -94,12 +94,16 @@ EXPECTED_METADATA_MANIFESTS = {
     "sqlite": "9a5a4a9f0ae533652250a9e9854cd34a068392d71ffde98b012c9c620134d2c4",
 }
 EXPECTED_CLASS_ORDERS = {
-    # Two paired browser-clip capability methods extend both façades.
-    "PostgresVNextStore": (170, "5f28f1a17670a0c8b7b373acd0c314637c58e6a10ccf52053481a8a028bb3c09"),
-    # Two SQLite-only methods more, ``check_source_search_query`` and
-    # ``check_literal_match_query``: the Postgres reads have no expression-depth
-    # or LIKE-length limit to check.
-    "SQLiteVNextStore": (125, "316e3274fde3adcac77f84a5ae0eb8bb92d40ac1f0e3edf3dce7093b55d32ef4"),
+    # Two paired browser-clip capability methods extend both façades, and one
+    # more paired method, ``list_memories_referencing_sources``.
+    "PostgresVNextStore": (171, "526374782104a2a120a40fdb3596893975d4e1528d4c8130802cfc830161eb35"),
+    # One SQLite-only method more, ``check_source_search_query``: the Postgres
+    # source search has no expression-depth or LIKE-length limit to check.
+    # Merge of #500 and #502 (2026-10-01): one more SQLite-only method,
+    # ``check_literal_match_query``, beside the paired
+    # ``list_memories_referencing_sources``. Re-minted for the merged facade
+    # (reviewed change, not drift).
+    "SQLiteVNextStore": (126, "08f33e48b0ada3aee40ab843f826bd0610a31ad495091bf6880bd2b68192084a"),
 }
 EXPECTED_FACADE_COMMENT_DIGESTS = {
     POSTGRES_FACADE_PATH: "d8599a46ee26dc35a3ae52c1a98a416509add9ae4a42ece780c5c5ed7e132b93",
