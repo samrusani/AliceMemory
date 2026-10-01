@@ -1784,8 +1784,8 @@ def _drop_pointers_outside_fence(
 
 
 # Memories asked for per packed source when labelling a corrected excerpt. The
-# label needs only the newest few references, so this stays well under the
-# store's own 500 default. v0.19.0 used the same value.
+# label depends on which rows come back, so this stays at the 50 that v0.19.0
+# asked for, not the store's 500 default.
 _CORRECTION_LABEL_MEMORIES_PER_SOURCE = 50
 
 # Memory ids per provenance-link lookup. One statement per packed request is
