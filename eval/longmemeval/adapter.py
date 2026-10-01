@@ -29,6 +29,23 @@ history slot filled by Alice's context block instead of the full haystack.
 The context block renders as prose (default, byte-stable) or as a compact
 structured JSON document (``pack_format="json"``; see
 :mod:`longmemeval.pack_formats`) — same selected content either way.
+
+Four run-level choices decide what a score measures, and each is recorded in
+the run fingerprint and on every checkpoint row (harness 1.1):
+
+* **Session labels** (:mod:`longmemeval.session_labels`). The dataset names
+  every evidence session ``answer_...`` and no filler session so, so the raw
+  id must never reach the store or the reader. New runs write a keyed-hash
+  label everywhere a session id used to go; ``raw`` reproduces old runs.
+* **Excerpt source** (``store_chunks`` | ``pack_excerpts``, see below).
+* **Promotion** (``all_candidates`` | ``sources_only``). The default
+  force-accepts every extracted candidate memory, as every earlier run did.
+  ``sources_only`` leaves candidates unpromoted, which is what a real import
+  gives a user: sources, not accepted memories.
+* **Surface** (``context_pack`` | ``recall``). The default compiles a context
+  pack. ``recall`` calls the shipped ``alice_recall`` MCP tool, the question
+  answering tool a default install exposes, and hands the reader the text the
+  tool returns.
 """
 
 from __future__ import annotations
@@ -42,8 +59,12 @@ from pathlib import Path
 import re
 import time
 from typing import Callable, Iterator
+from urllib.parse import quote
 from uuid import UUID
 
+from alicebot_api.mcp.types import _RECALL_MAX_LIMIT
+from alicebot_api.mcp_tools import AGENT_API_KEY_ENV, MCPRuntimeContext, call_mcp_tool
+from alicebot_api.recall_framing import serialize_mcp_tool_result
 from alicebot_api.sqlite_store import SQLiteVNextStore, ensure_sqlite_user, sqlite_user_connection
 from alicebot_api.vnext_capture import SourceCaptureInput, VNextCaptureService
 # Currency chains: renders the pack's per-memory currency annotation
@@ -63,6 +84,12 @@ from alicebot_api.vnext_rollups import RollupOptions, VNextRollupService
 from alicebot_api.vnext_temporal_query import parse_event_datetime
 
 from longmemeval.dataset import LongMemEvalQuestion, SessionTurn
+from longmemeval.session_labels import (
+    DEFAULT_SESSION_LABEL_MODE,
+    SessionLabeler,
+    session_labeler_for_question,
+    validate_session_label_mode,
+)
 from longmemeval.pack_formats import (
     DEFAULT_PACK_FORMAT,
     PACK_FORMATS,
@@ -103,8 +130,47 @@ EXCERPT_SOURCE_ENV = "ALICE_LME_EXCERPT_SOURCE"
 EXCERPT_SOURCE_STORE_CHUNKS = "store_chunks"
 EXCERPT_SOURCE_PACK_EXCERPTS = "pack_excerpts"
 DEFAULT_EXCERPT_SOURCE = EXCERPT_SOURCE_STORE_CHUNKS
+EXCERPT_SOURCES = (EXCERPT_SOURCE_STORE_CHUNKS, EXCERPT_SOURCE_PACK_EXCERPTS)
+
+# What happens to the candidate memories capture extracts. A real import gives a
+# user sources, not accepted memories: capture leaves memories as candidates,
+# and the retrieval memory stages only see active/accepted rows.
+#
+#   "all_candidates"  every candidate is force-accepted straight after capture
+#                     (``_promote_candidate_memories``). What every published
+#                     LongMemEval number did, so it stays the default and old
+#                     runs stay reproducible. It models a store whose owner
+#                     reviewed and accepted every extracted memory.
+#   "sources_only"    nothing is promoted. The store holds sources, chunks and
+#                     unreviewed candidates, exactly as after an import, and
+#                     retrieval can only return source excerpts.
+PROMOTION_MODE_ALL_CANDIDATES = "all_candidates"
+PROMOTION_MODE_SOURCES_ONLY = "sources_only"
+PROMOTION_MODES = (PROMOTION_MODE_ALL_CANDIDATES, PROMOTION_MODE_SOURCES_ONLY)
+DEFAULT_PROMOTION_MODE = PROMOTION_MODE_ALL_CANDIDATES
+
+# Which retrieval call produces the reader's context.
+#
+#   "context_pack"  ``compile_context_pack`` (the ``alice_context_pack`` tool,
+#                   which a default install does not expose), rendered by the
+#                   harness. What every published number used.
+#   "recall"        the shipped ``alice_recall`` MCP tool, called through the
+#                   same ``call_mcp_tool`` entry point the MCP server uses, with
+#                   the tool's own default limit and fences. The reader gets
+#                   the text the server would hand a model, no harness
+#                   rendering, no budget, no reference time (the tool has none).
+SURFACE_CONTEXT_PACK = "context_pack"
+SURFACE_RECALL = "recall"
+SURFACES = (SURFACE_CONTEXT_PACK, SURFACE_RECALL)
+DEFAULT_SURFACE = SURFACE_CONTEXT_PACK
+# Recorded as the pack format of a recall run: the reader sees the tool result.
+RECALL_RESULT_FORMAT = "recall_result"
+
 DEFAULT_CONTEXT_CHAR_BUDGET = 12_000
 DEFAULT_MAX_ITEMS = 8
+# The recall tool refuses a limit above this. The recall surface passes the run's
+# max_items as the limit, so the runner checks it before any store is built.
+RECALL_MAX_LIMIT = _RECALL_MAX_LIMIT
 
 EMPTY_CONTEXT_PLACEHOLDER = "(no relevant chat history was retrieved)"
 
@@ -224,6 +290,7 @@ class RetrievalOutcome:
     # is attributable offline: which sessions the source stage retrieved,
     # which memory rows the pack selected, and a digest of the exact
     # rendered context block (ids + hash only -- never the context text).
+    # (session labels, not raw ids, unless the run used raw labels)
     source_session_ids: tuple[str, ...] = ()
     memory_ids: tuple[str, ...] = ()
     context_sha256: str = ""
@@ -261,7 +328,13 @@ def collapse_intra_turn_blank_lines(content: str) -> str:
 
 
 def render_session_text(session_id: str, date: str, turns: tuple[SessionTurn, ...]) -> str:
-    """Speaker-tagged session text; one paragraph per turn for chunking."""
+    """Speaker-tagged session text; one paragraph per turn for chunking.
+
+    ``session_id`` is whatever label the caller supplies and lands in the first
+    paragraph, which sits inside chunk 0 of the stored source. The adapter
+    passes the session label (a keyed hash unless the raw-label flag is set),
+    never the dataset's raw id; see :mod:`longmemeval.session_labels`.
+    """
     paragraphs = [f"Chat session {session_id} on {date}."]
     for turn in turns:
         content = collapse_intra_turn_blank_lines(turn.content)
@@ -289,7 +362,7 @@ def max_items_from_env() -> int:
 
 def excerpt_source_from_env() -> str:
     raw = os.environ.get(EXCERPT_SOURCE_ENV, "").strip() or DEFAULT_EXCERPT_SOURCE
-    if raw not in (EXCERPT_SOURCE_STORE_CHUNKS, EXCERPT_SOURCE_PACK_EXCERPTS):
+    if raw not in EXCERPT_SOURCES:
         # Fail loudly. A typo silently falling back to the privileged reader
         # would report a product-path number that was never measured.
         raise ValueError(
@@ -297,6 +370,66 @@ def excerpt_source_from_env() -> str:
             f"{EXCERPT_SOURCE_STORE_CHUNKS!r} / {EXCERPT_SOURCE_PACK_EXCERPTS!r}"
         )
     return raw
+
+
+def resolve_excerpt_source(requested: str | None = None, *, surface: str = DEFAULT_SURFACE) -> str:
+    """The excerpt source one run uses, decided once for the whole run.
+
+    ``requested`` (the ``--excerpt-source`` flag) wins over the environment
+    variable, which wins over the default. The recall surface has exactly one
+    coherent value, ``pack_excerpts``: the tool returns its own excerpts and
+    nothing in the harness can read chunks around it. It is chosen when nothing
+    was requested, and asking for ``store_chunks`` with it fails loudly instead
+    of recording a reader that was never used.
+    """
+    validate_surface(surface)
+    explicit = requested if requested is not None else (os.environ.get(EXCERPT_SOURCE_ENV, "").strip() or None)
+    if explicit is None:
+        return EXCERPT_SOURCE_PACK_EXCERPTS if surface == SURFACE_RECALL else DEFAULT_EXCERPT_SOURCE
+    if explicit not in EXCERPT_SOURCES:
+        raise ValueError(
+            f"excerpt source {explicit!r} is not one of "
+            f"{EXCERPT_SOURCE_STORE_CHUNKS!r} / {EXCERPT_SOURCE_PACK_EXCERPTS!r}"
+        )
+    if surface == SURFACE_RECALL and explicit != EXCERPT_SOURCE_PACK_EXCERPTS:
+        raise ValueError(
+            f"the recall surface returns the tool's own excerpts; excerpt source {explicit!r} "
+            "would read chunks the tool never returns"
+        )
+    return explicit
+
+
+def validate_surface(surface: str) -> str:
+    if surface not in SURFACES:
+        raise ValueError(f"surface {surface!r} is not one of {SURFACES}")
+    return surface
+
+
+def validate_promotion_mode(promotion_mode: str) -> str:
+    if promotion_mode not in PROMOTION_MODES:
+        raise ValueError(f"promotion mode {promotion_mode!r} is not one of {PROMOTION_MODES}")
+    return promotion_mode
+
+
+def recall_surface_blocker() -> str | None:
+    """Why the recall surface cannot run in this environment, or ``None``.
+
+    The surface calls the shipped tool through ``call_mcp_tool``. With
+    ``ALICE_AGENT_API_KEY`` set the tool authenticates the caller against the
+    store's issued keys, which a throwaway benchmark store does not have, and
+    every question would fail. Without it the tool runs as the local operator,
+    which is the default-install behaviour being measured.
+    """
+    if (os.environ.get(AGENT_API_KEY_ENV) or "").strip():
+        # The variable is named with a literal on purpose: formatting the
+        # imported constant into a message that reaches stderr is read by static
+        # analysis as logging a credential, though only the name is printed.
+        # A test pins the literal to the constant.
+        return (
+            "ALICE_AGENT_API_KEY is set; the recall surface runs the tool as the local operator "
+            "(the default install) and would try to authenticate against keys the benchmark store lacks"
+        )
+    return None
 
 
 def _chunk_overlap_score(chunk_text: str, terms: frozenset[str]) -> int:
@@ -612,17 +745,49 @@ class QuestionRun:
         store: SQLiteVNextStore,
         *,
         excerpt_source: str | None = None,
+        session_label_mode: str = DEFAULT_SESSION_LABEL_MODE,
+        promotion_mode: str = DEFAULT_PROMOTION_MODE,
+        surface: str = DEFAULT_SURFACE,
+        db_path: str | Path | None = None,
     ) -> None:
         self.question = question
         self.store = store
+        self.surface = validate_surface(surface)
+        self.promotion_mode = validate_promotion_mode(promotion_mode)
         # Resolved once per run, not per call, so a single run cannot mix the
         # two readers and report a number that describes neither.
-        self.excerpt_source = excerpt_source or excerpt_source_from_env()
-        self._source_sessions: dict[str, tuple[str, str]] = {}  # source_id -> (session_id, date)
+        self.excerpt_source = (
+            excerpt_source
+            if excerpt_source is not None
+            else resolve_excerpt_source(surface=self.surface)
+        )
+        if self.excerpt_source not in EXCERPT_SOURCES:
+            raise ValueError(f"excerpt source {self.excerpt_source!r} is not one of {EXCERPT_SOURCES}")
+        if self.surface == SURFACE_RECALL and self.excerpt_source != EXCERPT_SOURCE_PACK_EXCERPTS:
+            raise ValueError("the recall surface returns the tool's own excerpts; use excerpt source pack_excerpts")
+        # The raw ids live here and nowhere else in memory; every write of a
+        # session id into the store and every render of one for the reader goes
+        # through this labeler (see session_labels.py). Built eagerly so a
+        # label collision fails before anything is ingested.
+        self.session_label_mode = validate_session_label_mode(session_label_mode)
+        self._labels: SessionLabeler = session_labeler_for_question(question, mode=session_label_mode)
+        # File the per-question store lives in; only the recall surface needs
+        # it, because the shipped tool opens its own connection to the store.
+        self.db_path = Path(db_path) if db_path is not None else None
+        self._source_sessions: dict[str, tuple[str, str]] = {}  # source_id -> (session label, date)
+
+    @property
+    def session_labeler(self) -> SessionLabeler:
+        """The label mapping, for the sidecar file and offline tools only."""
+        return self._labels
 
     # -- ingest ------------------------------------------------------------
 
     def ingest(self, *, accept_rollups: bool = False, reuse_store: bool = False) -> IngestStats:
+        if accept_rollups and self.promotion_mode == PROMOTION_MODE_SOURCES_ONLY:
+            # Roll-ups group accepted memories; with none promoted the step would
+            # run on nothing and still be recorded as a roll-up run.
+            raise ValueError("accept_rollups needs promoted memories and cannot be combined with sources_only")
         started = time.monotonic()
         if reuse_store:
             # Marker-verified reuse (runner --reuse-stores): the sessions are
@@ -653,20 +818,24 @@ class QuestionRun:
         session_count = 0
         for session_id, date, turns in self.question.sessions_with_metadata():
             session_count += 1
-            text = render_session_text(session_id, date, turns)
+            # The raw dataset id stops here. Each of the four store entry
+            # points below takes the label; the leak-guard test mutates them
+            # one at a time (see test_session_label_leak_guard.py).
+            label = self._labels.label_for(session_id)
+            text = render_session_text(label, date, turns)
             result = capture.capture_source(
                 SourceCaptureInput(
                     source_type=SOURCE_TYPE,
-                    title=f"Chat session {session_id} on {date}",
+                    title=f"Chat session {label} on {date}",
                     raw_text=text,
                     connector_name="longmemeval",
-                    external_id=f"{self.question.question_id}/{session_id}",
+                    external_id=f"{self.question.question_id}/{label}",
                     domain=SOURCE_DOMAIN,
                     sensitivity=SOURCE_SENSITIVITY,
                     metadata_json={
                         "benchmark": "longmemeval",
                         "question_id": self.question.question_id,
-                        "session_id": session_id,
+                        "session_id": label,
                         "session_date": date,
                     },
                 )
@@ -678,8 +847,12 @@ class QuestionRun:
                 chunk_count += result.chunk_count
                 candidate_count += result.candidate_memory_count
             if result.source_id is not None and result.source_id not in self._source_sessions:
-                self._source_sessions[result.source_id] = (session_id, date)
-        promoted = self._promote_candidate_memories(stamp_session_dates=accept_rollups)
+                self._source_sessions[result.source_id] = (label, date)
+        if self.promotion_mode == PROMOTION_MODE_SOURCES_ONLY:
+            # Nothing is accepted: the store keeps what an import leaves behind.
+            promoted = 0
+        else:
+            promoted = self._promote_candidate_memories(stamp_session_dates=accept_rollups)
         rollups = self._consolidate_and_accept_rollups() if accept_rollups else None
         return IngestStats(
             session_count=session_count,
@@ -719,6 +892,11 @@ class QuestionRun:
         provenance the ingest already wrote on the source row's metadata;
         no benchmark label is involved. Off flag, the promotion patch is
         byte-identical to the pre-roll-up harness (``{"status": "active"}``).
+
+        Only called under the ``all_candidates`` promotion mode (the default,
+        which reproduces every published run). Under ``sources_only`` it is not
+        called: a real import leaves candidates unpromoted, so the memory
+        stages see nothing and only source excerpts can be retrieved.
         """
         promoted = 0
         for memory in self.store.list_memories(status="candidate"):
@@ -824,6 +1002,10 @@ class QuestionRun:
         if pack_format not in PACK_FORMATS:
             raise ValueError(f"pack_format must be one of {PACK_FORMATS}, got {pack_format!r}")
         resolved_max_items = max_items if max_items is not None else max_items_from_env()
+        if self.surface == SURFACE_RECALL:
+            if pack_format != DEFAULT_PACK_FORMAT:
+                raise ValueError("pack_format applies to the context pack surface; recall hands the reader the tool result")
+            return self._retrieve_via_recall(max_items=resolved_max_items)
         budget = context_char_budget if context_char_budget is not None else context_char_budget_from_env()
         service = VNextRetrievalService(self.store)
         request = VNextRetrievalRequest(
@@ -877,13 +1059,96 @@ class QuestionRun:
             pack_format=pack_format,
         )
 
+    def _retrieve_via_recall(self, *, max_items: int) -> RetrievalOutcome:
+        """Retrieve through the shipped ``alice_recall`` tool, as a default install does.
+
+        The call goes through ``call_mcp_tool``, the entry point the MCP server
+        uses: argument validation, the policy preflight, then the handler's own
+        sequence (memory FTS, vector and graph stages fused, source excerpt
+        search under the same fence, one provenance hop, the current-version
+        preference). The harness adds nothing to that sequence and takes
+        nothing from it:
+
+        * ``limit`` is the run's ``max_items``. Its default, 8, is the tool's
+          default (a test pins that they stay equal); an operator who sets
+          ``--max-items`` is choosing a non-default call, and the fingerprint
+          records it.
+        * No ``reference_time``, no coverage gate, no instance diversity pass:
+          the tool has none, and a default agent gets none.
+        * No harness budget. The reader is handed
+          ``serialize_mcp_tool_result(result)``, the exact text the MCP server
+          puts in the model's tool message.
+        * ``debug`` is switched on only to read ``vector_stage`` for the run's
+          statistics. The tool adds exactly one key for it (``retrieval``),
+          which is removed again before the text is built, so the reader sees
+          what a call without ``debug`` returns (a test compares the two).
+        """
+        if self.db_path is None:
+            raise ValueError("the recall surface needs the store's file path; open the run with question_run()")
+        blocker = recall_surface_blocker()
+        if blocker is not None:
+            raise ValueError(blocker)
+        # The tool opens its own connection to the store file, so what this run
+        # ingested has to be committed before the call. Nothing writes after it.
+        self.store.conn.commit()
+        context = MCPRuntimeContext(
+            database_url="sqlite://" + quote(str(self.db_path.resolve())),
+            user_id=LME_USER_ID,
+        )
+        started = time.monotonic()
+        payload = call_mcp_tool(
+            context,
+            name="alice_recall",
+            arguments={"query": self.question.question, "limit": max_items, "debug": True},
+        )
+        retrieval_seconds = time.monotonic() - started
+        retrieval = payload.pop("retrieval", None)
+        vector_stage = str(retrieval.get("vector_stage", "unknown")) if isinstance(retrieval, dict) else "unknown"
+        results = payload.get("results") or []
+        sources = payload.get("sources") or []
+        context_block = serialize_mcp_tool_result(payload)
+        return RetrievalOutcome(
+            context_block=context_block,
+            context_chars=len(context_block),
+            approx_context_tokens=len(context_block) // 4,
+            memory_count=len(results),
+            source_count=len(sources),
+            excerpt_count=sum(
+                1 for source in sources if isinstance(source, dict) and str(source.get("excerpt") or "").strip()
+            ),
+            vector_stage=vector_stage,
+            vector_enabled=vector_stage == VECTOR_STAGE_ENABLED,
+            warnings=(),
+            retrieval_seconds=retrieval_seconds,
+            source_session_ids=tuple(
+                self._session_label(str(source["id"]))[0]
+                for source in sources
+                if isinstance(source, dict) and source.get("id")
+            ),
+            memory_ids=tuple(
+                str(result["id"]) for result in results if isinstance(result, dict) and result.get("id")
+            ),
+            context_sha256=hashlib.sha256(context_block.encode("utf-8")).hexdigest(),
+            pack_format=RECALL_RESULT_FORMAT,
+        )
+
     def _session_label(self, source_id: str) -> tuple[str, str]:
+        """``(session label, session date)`` for a stored source.
+
+        The label is what the store holds in ``metadata_json.session_id``: a
+        keyed-hash label for a run that ingested anonymised, the dataset id for
+        a raw-label run. Everything the reader sees about a session (the
+        prose excerpt header, the JSON excerpt record) and everything a
+        checkpoint row records (``source_session_ids``) comes through here.
+        Under anonymised labels a value that is not a label of this question
+        raises instead of being shown (see ``SessionLabeler.require_reader_safe``).
+        """
         if source_id in self._source_sessions:
             return self._source_sessions[source_id]
         source = self.store.get_source(source_id)
         if source is not None and isinstance(source.get("metadata_json"), dict):
             metadata = source["metadata_json"]
-            session_id = str(metadata.get("session_id") or source_id)
+            session_id = self._labels.require_reader_safe(str(metadata.get("session_id") or source_id))
             date = str(metadata.get("session_date") or "undated")
             self._source_sessions[source_id] = (session_id, date)
             return session_id, date
@@ -1201,16 +1466,34 @@ class QuestionRun:
 
 
 @contextmanager
-def question_run(question: LongMemEvalQuestion, db_path: str | Path) -> Iterator[QuestionRun]:
+def question_run(
+    question: LongMemEvalQuestion,
+    db_path: str | Path,
+    *,
+    excerpt_source: str | None = None,
+    session_label_mode: str = DEFAULT_SESSION_LABEL_MODE,
+    promotion_mode: str = DEFAULT_PROMOTION_MODE,
+    surface: str = DEFAULT_SURFACE,
+) -> Iterator[QuestionRun]:
     """Open an isolated per-question store and yield a :class:`QuestionRun`.
 
     Uses ``sqlite_user_connection`` (schema bootstrap + one transaction that
-    commits on clean exit), exactly like the product's SQLite on-ramp.
+    commits on clean exit), exactly like the product's SQLite on-ramp. The
+    run-level choices (see the module docstring) are fixed here for the whole
+    question.
     """
     with sqlite_user_connection(db_path, LME_USER_ID) as conn:
         ensure_sqlite_user(conn, LME_USER_ID, LME_USER_EMAIL, "LongMemEval Harness")
         store = SQLiteVNextStore(conn, LME_USER_ID)
-        yield QuestionRun(question, store)
+        yield QuestionRun(
+            question,
+            store,
+            excerpt_source=excerpt_source,
+            session_label_mode=session_label_mode,
+            promotion_mode=promotion_mode,
+            surface=surface,
+            db_path=db_path,
+        )
 
 
 __all__ = [
@@ -1220,22 +1503,42 @@ __all__ = [
     "ANSWER_PROMPT_TEMPLATE_COT",
     "CONTEXT_CHAR_BUDGET_ENV",
     "DEFAULT_CONTEXT_CHAR_BUDGET",
+    "DEFAULT_EXCERPT_SOURCE",
     "DEFAULT_MAX_ITEMS",
+    "DEFAULT_PROMOTION_MODE",
+    "DEFAULT_SURFACE",
     "DERIVED_SECTION_HEADER",
     "DERIVED_SECTION_MAX_CHARS",
     "EMPTY_CONTEXT_PLACEHOLDER",
+    "EXCERPT_SOURCES",
+    "EXCERPT_SOURCE_ENV",
+    "EXCERPT_SOURCE_PACK_EXCERPTS",
+    "EXCERPT_SOURCE_STORE_CHUNKS",
     "IngestStats",
     "LME_USER_EMAIL",
     "LME_USER_ID",
     "MAX_ITEMS_ENV",
+    "PROMOTION_MODES",
+    "PROMOTION_MODE_ALL_CANDIDATES",
+    "PROMOTION_MODE_SOURCES_ONLY",
     "QuestionRun",
+    "RECALL_MAX_LIMIT",
+    "RECALL_RESULT_FORMAT",
     "ROLLUP_ACCEPTANCE_REASON",
     "RetrievalOutcome",
     "RollupAcceptanceStats",
+    "SURFACES",
+    "SURFACE_CONTEXT_PACK",
+    "SURFACE_RECALL",
     "build_answer_prompt",
     "collapse_intra_turn_blank_lines",
     "context_char_budget_from_env",
+    "excerpt_source_from_env",
     "max_items_from_env",
     "question_run",
+    "recall_surface_blocker",
     "render_session_text",
+    "resolve_excerpt_source",
+    "validate_promotion_mode",
+    "validate_surface",
 ]
