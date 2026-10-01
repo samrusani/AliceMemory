@@ -177,6 +177,109 @@ def list_memories_referencing_source(self, *, source_id: str, limit: int = 500) 
     )
 
 
+def list_memories_referencing_sources(
+    self,
+    source_ids: Sequence[str],
+    *,
+    limit_per_source: int,
+) -> dict[str, list[VNextRow]]:
+    """``list_memories_referencing_source`` for several sources in one statement.
+
+    Returns ``{source_id: rows}`` with one key per distinct source id asked
+    for, in the order asked, and an empty list for a source nothing
+    references. Each list is exactly what the one-source method returns for
+    that source with ``limit=limit_per_source``: the same rows, the same
+    order, the same cap. The controls are the same two the one-source method
+    applies, this user's rows and ``deleted_at IS NULL``. Nothing here reads a
+    memory the one-source method would not have returned.
+
+    The one-source method parses the JSON of every memory row on each call, so
+    asking once per packed source costs one table scan per source. This reads
+    the memories table once: each of the three reference kinds yields
+    ``(source id, memory id)`` pairs filtered to the requested ids, and a
+    window function applies the cap per source. ``limit_per_source`` has no
+    default because the callers disagree about the cap.
+    """
+
+    if limit_per_source < 1:
+        raise ValueError("limit must be positive")
+    ids = list(dict.fromkeys(str(source_id) for source_id in source_ids if source_id))
+    grouped: dict[str, list[VNextRow]] = {source_id: [] for source_id in ids}
+    if not ids:
+        return grouped
+    qualified_columns = ", ".join(f"m.{column}" for column in MEMORY_COLUMNS)
+    rows = self._fetch_all(
+        f"""
+                WITH wanted(source_id) AS (
+                  SELECT CAST(value AS TEXT) FROM json_each(?)
+                ),
+                hits(ref_source_id, memory_id) AS (
+                  SELECT CAST(source_event.value AS TEXT), m.id
+                  FROM memories AS m, json_each(m.source_event_ids) AS source_event
+                  WHERE m.user_id = ?
+                    AND m.deleted_at IS NULL
+                    AND CAST(source_event.value AS TEXT) IN (SELECT source_id FROM wanted)
+                  UNION
+                  SELECT p.source_id, p.target_id
+                  FROM provenance_links AS p
+                  WHERE p.user_id = ?
+                    AND p.target_type = 'memory'
+                    AND p.source_id IN (SELECT source_id FROM wanted)
+                  UNION
+                  SELECT CAST(ref.value AS TEXT), m.id
+                  FROM memories AS m, json_tree(m.metadata_json) AS ref
+                  WHERE m.user_id = ?
+                    AND m.deleted_at IS NULL
+                    AND ref.key IN (
+                      'source_id', 'source_ids', 'source_ref', 'source_refs',
+                      'source_references', 'selected_source_ids'
+                    )
+                    AND CAST(ref.value AS TEXT) IN (SELECT source_id FROM wanted)
+                  UNION
+                  SELECT substr(CAST(ref.value AS TEXT), 8), m.id
+                  FROM memories AS m, json_tree(m.metadata_json) AS ref
+                  WHERE m.user_id = ?
+                    AND m.deleted_at IS NULL
+                    AND ref.key IN (
+                      'source_id', 'source_ids', 'source_ref', 'source_refs',
+                      'source_references', 'selected_source_ids'
+                    )
+                    AND substr(CAST(ref.value AS TEXT), 1, 7) = 'source:'
+                    AND substr(CAST(ref.value AS TEXT), 8) IN (SELECT source_id FROM wanted)
+                ),
+                ranked(ref_source_id, memory_id, rank_in_source) AS (
+                  SELECT h.ref_source_id, m.id,
+                         ROW_NUMBER() OVER (
+                           PARTITION BY h.ref_source_id
+                           ORDER BY m.updated_at DESC, m.created_at DESC, m.id DESC
+                         )
+                  FROM hits AS h
+                  JOIN memories AS m
+                    ON m.id = h.memory_id
+                   AND m.user_id = ?
+                   AND m.deleted_at IS NULL
+                )
+                SELECT r.ref_source_id AS ref_source_id, {qualified_columns}
+                FROM ranked AS r
+                JOIN memories AS m ON m.id = r.memory_id
+                WHERE r.rank_in_source <= ?
+                ORDER BY r.ref_source_id, r.rank_in_source
+                """,
+        (
+            json.dumps(ids),
+            self.user_id,
+            self.user_id,
+            self.user_id,
+            self.user_id,
+            self.user_id,
+            limit_per_source,
+        ),
+    )
+    for row in rows:
+        grouped[str(row.pop("ref_source_id"))].append(row)
+    return grouped
+
+
 def list_pending_derived_candidates_for_member(
     self,
     *,
@@ -1282,6 +1385,7 @@ for _memory_method in (
     get_memory,
     get_memories_by_ids,
     list_memories_referencing_source,
+    list_memories_referencing_sources,
     list_pending_derived_candidates_for_member,
     get_memory_by_commit_digest,
     latest_agentic_commit_memory,
