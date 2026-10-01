@@ -1577,7 +1577,8 @@ def test_the_docs_say_what_v0190_ships_and_keep_the_option_rules() -> None:
     section or back under Unreleased;
     put "once v0.19.0 is published" back into the README, the quickstart, the
     plugin page or the plugin README; drop either marketplace command from one
-    of those four files.
+    of those four files; change the README's tag history sentences (the v0.19.0
+    tag has no marketplace file, the v0.19.2 tag still pins v0.19.0).
     """
 
     relative = (
@@ -1651,8 +1652,10 @@ def test_the_docs_say_what_v0190_ships_and_keep_the_option_rules() -> None:
         "claude plugin marketplace add samrusani/AliceMemory\n"
         "claude plugin install alice-memory@alicememory\n"
         "```\n\n"
-        "The marketplace file is on `main`, not in the v0.19.0 tag, and pins the plugin "
-        "to the v0.19.0 tag commit."
+        "The marketplace file is on `main` and pins the plugin to the v0.19.2 tag commit. "
+        "The v0.19.0 tag has no marketplace file. The v0.19.2 tag has one that still pins "
+        "the v0.19.0 tag commit, so add the marketplace from `main`, not from a checkout "
+        "of that tag."
     ) in readme
 
     quickstart = (ROOT / "docs" / "alpha" / "quickstart.md").read_text(encoding="utf-8")
@@ -1681,6 +1684,52 @@ def test_the_docs_say_what_v0190_ships_and_keep_the_option_rules() -> None:
         assert "claude plugin marketplace add samrusani/AliceMemory" in text, name
         assert "claude plugin marketplace add <path to the clone>" in text, name
         assert "claude plugin install alice-memory@alicememory" in text, name
+
+
+def test_the_marketplace_pins_the_latest_published_release_and_the_docs_name_that_pin() -> None:
+    """``ref`` is the latest published release, and each doc that names the pin names ``ref``.
+
+    The post-publication change moves ``ref`` and ``sha`` together with the
+    control documents. A release PR leaves both at the old release and the
+    post-publication PR moves both, so at every merged state the pin equals the
+    latest published release, which the release records decide. The README, the
+    plugin page, the plugin README and both CURRENT_STATE copies each say which
+    tag commit the file pins, and each must name the file's tag, so a doc that
+    keeps the old tag after the pin moves fails. The sentences about the tag that
+    has no marketplace file and about the tag whose copy still pins an older
+    commit are history, and they do not use the pin wording.
+
+    Mutations, each one alone: set ``ref`` and ``sha`` back to the v0.19.0 tag
+    and its commit; put v0.19.0 back into the pin sentence of any one of the five
+    files; delete the pin sentence from one of them.
+    """
+
+    import re
+
+    from scripts import check_control_doc_truth as control_truth
+
+    ref = _marketplace()["plugins"][0]["source"]["ref"]
+    latest = control_truth._latest_structured_published_version(root_dir=ROOT)
+    assert latest is not None
+    assert ref == f"v{latest}", (ref, latest)
+
+    tag = r"(v\d+\.\d+\.\d+)"
+    sites = {
+        "README.md": (rf"pins the plugin to the {tag} tag commit",),
+        "docs/integrations/claude-code-plugin.md": (
+            rf"pinned to the {tag} tag and to that tag's commit",
+            rf"one plugin entry pinned to the {tag} tag commit",
+        ),
+        "plugins/alice-memory/README.md": (rf"pins this plugin to the {tag} tag commit",),
+        "CURRENT_STATE.md": (rf"pins the plugin to the `{tag}` tag commit",),
+        ".ai/handoff/CURRENT_STATE.md": (rf"pins the plugin to the `{tag}` tag commit",),
+    }
+    for name, patterns in sites.items():
+        text = " ".join((ROOT / name).read_text(encoding="utf-8").split())
+        for pattern in patterns:
+            found = re.findall(pattern, text)
+            assert found, (name, pattern)
+            assert set(found) == {ref}, (name, pattern, found, ref)
 
 
 def test_the_docs_install_from_the_repo_shorthand_with_two_fallbacks() -> None:
