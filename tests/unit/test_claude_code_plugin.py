@@ -1615,9 +1615,8 @@ def test_the_docs_say_what_v0190_ships_and_keep_the_option_rules() -> None:
 
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     sections = changelog.split("\n## ")
-    # The plugin entries stay in the v0.19.0 section and do not move up into a
-    # newer one. Unreleased may hold entries of its own, none of them a plugin
-    # entry of v0.19.0's (checked below).
+    # v0.19.2 is cut. The plugin entries stay in the v0.19.0 section and do not
+    # move up into a newer one. Unreleased may hold entries for later changes.
     assert sections[1].startswith("Unreleased")
     assert sections[2].startswith("v0.19.2 \u2014 2026-10-01\n")
     assert sections[3].startswith("v0.19.0 \u2014 2026-09-30\n")

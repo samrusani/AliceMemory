@@ -87,9 +87,19 @@ report honest statuses such as `disabled: context_depth=minimal`.
 
 ### Budget strategies and the allocation report
 
-When the request sets `max_tokens`, a greedy packer drops lowest-priority
-items to fit. `budget_strategy` (default `balanced`) controls the packing
-order — never what was retrieved or ranked:
+When the request sets `max_tokens`, a greedy packer drops the items that do
+not fit. In v0.19.2 the first item that does not fit also drops every item
+after it, so one large item ranked first leaves the pack empty.
+Unreleased (on main, not in v0.19.2): an item that does not fit is skipped and
+the next one is tried. When nothing fits whole, the first item that can be cut
+to fit has its text cut to the budget and ending in `…`, and the `budget`
+report adds `cut_item_count: 1`. Packed items keep their ranking order, and
+`token_estimate` never exceeds `max_tokens`. An item's ids, scope and
+metadata are priced and never cut, so a budget below the cost of the
+cheapest item with its text removed still returns no item. For rows written
+by `alice_capture` and `alice_memory_commit` that is about 320 tokens for a
+source and about 710 for a memory. `budget_strategy` (default `balanced`)
+controls the packing order, never what was retrieved or ranked:
 
 | `budget_strategy` | Packs first | Reach for it when |
 | --- | --- | --- |

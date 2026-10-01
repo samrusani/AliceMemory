@@ -7,6 +7,7 @@ from collections.abc import Mapping, Sequence
 from datetime import datetime
 from typing import cast
 
+from alicebot_api.source_search_limits import literal_match_operand
 from alicebot_api.store import ContinuityStoreInvariantError
 from alicebot_api.vnext_entity_names import ENTITY_IMMUTABLE_PATCH_FIELDS, normalize_entity_name
 from alicebot_api.vnext_project_scope import normalize_project_scope
@@ -29,7 +30,6 @@ from alicebot_api.vnext_stores.sqlite.primitives import (
     _uuid_text,
 )
 from alicebot_api.vnext_stores.sqlite.query_predicates import (
-    _escape_like_literal,
     _project_scope_value_sqlite,
     _sqlite_ascii_literal_contains_sql,
 )
@@ -756,7 +756,7 @@ def list_open_loops(
             + ")"
             + ")"
         )
-        params.extend((_escape_like_literal(normalized_query),) * 4)
+        params.extend((literal_match_operand(normalized_query),) * 4)
     params.append(limit)
     return self._fetch_all(
         f"""
@@ -826,7 +826,7 @@ def list_open_loop_events(
             f"AND {payload_predicate}"
             "))"
         )
-        params.extend((_escape_like_literal(normalized_query),) * 5)
+        params.extend((literal_match_operand(normalized_query),) * 5)
     window_sql = ""
     if occurred_at_start is not None:
         window_sql += " AND julianday(event.occurred_at) >= julianday(?)"

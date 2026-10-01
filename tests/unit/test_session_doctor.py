@@ -40,6 +40,7 @@ REPORT_LABELS = (
     "sources",
     "searchable chunks",
     "committed facts",
+    "memories without a current vector",
     "last brief",
     "candidates waiting",
     "sleep proposals",

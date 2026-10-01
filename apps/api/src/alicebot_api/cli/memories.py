@@ -17,7 +17,6 @@ from alicebot_api.vnext_embeddings import (
     endpoint_fingerprint,
     get_embedding_provider,
     memory_embedding_text,
-    persist_deferred_memory_embeddings_best_effort,
 )
 from alicebot_api.vnext_event_log import append_event
 from alicebot_api.mcp_tools import redact_memory_flow
@@ -310,6 +309,17 @@ def _run_vnext_memory_audit(ctx: CLIContext, args: argparse.Namespace) -> str:
 
 
 def _run_vnext_memories_backfill_embeddings(ctx: CLIContext, args: argparse.Namespace) -> str:
+    # Imported here, not at module level: tests/unit/test_cli_package_split.py
+    # pins the CLI package's public names.
+    from alicebot_api.vnext_embeddings import (
+        EMBEDDING_PREPARATION_ERROR_CODE,
+        EMBEDDING_PREPARATION_ERROR_MESSAGE,
+        MemoryEmbeddingFailure,
+        embedding_input_cap,
+        persist_deferred_memory_embeddings_outcome,
+        summarize_embedding_failures,
+    )
+
     provider = get_embedding_provider()
     if provider is None:
         raise ValueError(
@@ -321,10 +331,12 @@ def _run_vnext_memories_backfill_embeddings(ctx: CLIContext, args: argparse.Name
     batch_size = args.batch_size
     if batch_size < 1 or batch_size > MAX_EMBEDDINGS_BATCH_SIZE:
         raise ValueError(f"--batch-size must be between 1 and {MAX_EMBEDDINGS_BATCH_SIZE}")
+    input_cap = embedding_input_cap(provider)
     embedded = 0
     reindexed_incompatible = 0
+    truncated_inputs = 0
     skipped = 0
-    failed = 0
+    failures: list[MemoryEmbeddingFailure] = []
     batches = 0
     after_id: str | None = None
     while True:
@@ -338,6 +350,7 @@ def _run_vnext_memories_backfill_embeddings(ctx: CLIContext, args: argparse.Name
                 embedding_model=provider.model,
                 embedding_endpoint=endpoint_fingerprint(getattr(provider, "base_url", "")),
                 embedding_signature_version=EMBEDDING_SIGNATURE_VERSION,
+                embedding_input_cap=input_cap,
             )
         if not rows:
             break
@@ -349,24 +362,38 @@ def _run_vnext_memories_backfill_embeddings(ctx: CLIContext, args: argparse.Name
         if not embeddable:
             continue
         deferred_inputs = tuple(DeferredMemoryEmbedding.from_memory(row) for row, _text in embeddable)
-        attached = persist_deferred_memory_embeddings_best_effort(
+        outcome = persist_deferred_memory_embeddings_outcome(
             deferred_inputs,
             store_context=lambda: _vnext_store_context(ctx),
             provider=provider,
         )
-        embedded += attached
-        batch_failed = len(embeddable) - attached
-        failed += batch_failed
-        if batch_failed:
+        attached_ids = set(outcome.attached_ids)
+        embedded += outcome.attached
+        truncated_inputs += outcome.truncated
+        batch_failures = list(outcome.failed)
+        # Every row that did not get a vector is named, even by a path that
+        # recorded no failure of its own.
+        listed_ids = {failure.memory_id for failure in batch_failures}
+        for item in deferred_inputs:
+            if item.memory_id not in attached_ids and item.memory_id not in listed_ids:
+                batch_failures.append(
+                    MemoryEmbeddingFailure(
+                        item.memory_id,
+                        EMBEDDING_PREPARATION_ERROR_CODE,
+                        EMBEDDING_PREPARATION_ERROR_MESSAGE,
+                    )
+                )
+        failures.extend(batch_failures)
+        if batch_failures:
             _emit_cli_error(
                 code="embedding_batch_failed",
                 message="An embedding batch failed",
             )
-        # Exact for a fully persisted batch. For partial persistence, report a
-        # guaranteed lower bound instead of claiming an incompatible vector
-        # was replaced when only fresh rows may have succeeded.
-        fresh_count = sum(row.get("embedding_present") is not True for row, _text in embeddable)
-        reindexed_incompatible += max(0, attached - fresh_count)
+        reindexed_incompatible += sum(
+            1
+            for row, _text in embeddable
+            if str(row.get("id")) in attached_ids and row.get("embedding_present") is True
+        )
     output = _json_dumps(
         {
             "provider": provider.provider,
@@ -375,10 +402,13 @@ def _run_vnext_memories_backfill_embeddings(ctx: CLIContext, args: argparse.Name
             "embedded": embedded,
             "reindexed_incompatible": reindexed_incompatible,
             "skipped": skipped,
-            "failed": failed,
+            "failed": len(failures),
+            "input_cap_chars": input_cap,
+            "truncated_inputs": truncated_inputs,
+            **summarize_embedding_failures(failures),
         }
     )
-    if failed:
+    if failures:
         raise EmbeddingBackfillFailure(output)
     return output
 
