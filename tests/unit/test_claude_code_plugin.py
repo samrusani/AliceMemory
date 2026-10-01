@@ -678,7 +678,7 @@ def test_marketplace_rules_each_fail_on_their_own(tmp_path: Path) -> None:
         "url is not https://github.com/samrusani/AliceMemory.git" in item
         for item in issues_for(lambda doc: doc["plugins"][0]["source"].__setitem__("url", "other/repo"))
     )
-    # The owner/repo shorthand makes Claude Code 2.1.281 clone over SSH, which fails without keys.
+    # As the plugin source url, the owner/repo shorthand made Claude Code 2.1.281 clone over SSH in CI.
     assert any(
         "url is not https://github.com/samrusani/AliceMemory.git" in item
         for item in issues_for(lambda doc: doc["plugins"][0]["source"].__setitem__("url", "samrusani/AliceMemory"))

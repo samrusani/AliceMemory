@@ -216,7 +216,8 @@ the file gives it or as it is restored, so a vault can import its own export
 and a restored vault can import the same file again. A `metadata_json` or
 `payload_json` nested more than 256 levels is refused with `restore_failed`,
 and so is JSON text under an `agentic_memory` or `agent_identity` key in one of
-them that is too deep to decode. A column that is itself a JSON text too deep to
+them, which is decoded and held to the same 256 levels, or refused when it is
+too deep to decode. A column that is itself a JSON text too deep to
 decode is refused too and nothing is written, but with the generic
 `alice_memory_failed` error, not `restore_failed`. The product writes an
 identity at most three levels down. In v0.19.0 and

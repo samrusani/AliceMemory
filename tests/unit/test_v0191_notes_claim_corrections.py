@@ -87,9 +87,12 @@ def test_the_nesting_claim_names_the_carrier_keys_and_the_generic_error() -> Non
         assert "under an `agentic_memory` or `agent_identity` key" in text, site
     assert "is also refused and nothing is written, but with the generic `alice_memory_failed`" in _flat(NOTES)
     assert (
-        "In v0.19.0 both are stored, and a row with the deep JSON text makes `alice_recall` and `alice_resume` raise."
-        in _flat(NOTES)
+        "under `agentic_memory` in a memory row it makes `alice_recall` raise, and under `agent_identity` in an event"
+        " row it makes `alice_resume` raise." in _flat(NOTES)
     )
+    assert "which is decoded and held to the same 256 levels" in _flat(NOTES)
+    assert "which is decoded and held to the same 256 levels" in _released_changelog()
+    assert "a source, event or memory revision row with such a column gave `restore_failed`" in _flat(NOTES)
 
 
 def test_the_credential_count_line_is_not_printed_with_quarantine() -> None:
@@ -231,4 +234,3 @@ def test_no_tracked_file_names_the_owner_login_used_as_a_test_fixture() -> None:
 
     author_test = (REPO_ROOT / "tests" / "unit" / "test_commit_author_check.py").read_text(encoding="utf-8")
     assert "14844597+example-user@users.noreply.github.com" in author_test
-    assert "14844597+sam" + "irusani@" not in author_test

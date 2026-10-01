@@ -97,7 +97,7 @@ that could not run on a CI runner.
 `v0.19.1` is the current release candidate. It is not published.
 
 It takes the fixes on `main` since `v0.19.0`. Most come from an internal
-security review of `v0.19.0`. It adds no feature and changes no schema. The
+security review of `v0.19.0`. It adds no tool or command and changes no schema. The
 Hermes provider keeps a turn's user and assistant text apart, the `/v1` memory
 operations commit applies only a user turn with an explicit prefix, backup
 import restores a stored key claim as unverified and lists credential-shaped
@@ -191,7 +191,8 @@ relative or empty `--data-dir` is refused. There is no schema change.
 - Every MCP tool sets `openWorldHint` to false. Five tools are read-only, two
   are non-destructive, and four are destructive. `v0.18.0` tools declare no
   hints. From `v0.19.1`, `alice_memory_review` is
-  read-only, so six tools are read-only and three are destructive.
+  read-only, so with the full tool set six tools are read-only and three are
+  destructive.
 - `alice-memory mcp` refuses an empty or relative `--data-dir` with exit 2,
   and the session-start hook prints one line and exits 0 for a relative
   `--data-dir` or plugin `data_dir`. A relative `ALICE_MEMORY_DATA_DIR` is

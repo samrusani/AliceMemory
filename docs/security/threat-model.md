@@ -196,7 +196,8 @@ active-key or RLS bypass remains in scope.
   `supersession_context` cases are older than v0.19.0.
   One place still carries a memory id without the fence: ids copied into a
   stored memory's `metadata_json`, which an `alice_context_pack` call with
-  `debug: true` returns. It needs a memory the caller cannot read and another
+  `debug: true` returns for the memory types the debug pack lists in its own
+  sections (checked: decision, procedure and belief memories). It needs a memory the caller cannot read and another
   memory whose `metadata_json` carries its id. The keyless owner, who runs under
   the default sensitivity ceiling, gets it as well as a key-bound agent, and the
   default pack does not name it. That is the result for `alice_recall`,

@@ -571,6 +571,6 @@ def test_the_docs_and_the_hint_comment_say_review_is_read_only_from_v0191() -> N
     for name in ("CURRENT_STATE.md", ".ai/handoff/CURRENT_STATE.md"):
         state = " ".join((_ROOT / name).read_text(encoding="utf-8").split())
         assert (
-            "From `v0.19.1`, `alice_memory_review` is read-only, so six "
-            "tools are read-only and three are destructive."
+            "From `v0.19.1`, `alice_memory_review` is read-only, so with the full tool "
+            "set six tools are read-only and three are destructive."
         ) in state, name

@@ -53,7 +53,7 @@ Open items from the internal security review of v0.19.0. They are not fixed in v
 - the Postgres stack's HTTP API parses a JSON request body of any size before it authenticates, and it does not check the `Host` header of a keyless loopback request
 - the local-folder scan reads each matching file whole with no size limit, and it can read a file that is swapped for a link between its containment check and its read
 - calls to a configured provider, embeddings, reranker or fact-key endpoint use the standard library opener, which follows redirects; the provider helper and the embeddings client were shown to send the `Authorization` header on to the target, and the embeddings endpoint is also used on SQLite
-- a memory id copied into a stored memory's `metadata_json` is returned without the read fence by an `alice_context_pack` call with `debug: true`, to the keyless owner under the default sensitivity ceiling and to a read-only key
+- a memory id copied into a stored memory's `metadata_json` is returned without the read fence by an `alice_context_pack` call with `debug: true` for the memory types the debug pack lists in its own sections (checked: decision, procedure and belief memories), to the keyless owner under the default sensitivity ceiling and to a read-only key
 - confirming a pending write with `alice_memory_commit` is not a human gate: the confirm step relies on the agent asking the user
 
 Also open in v0.19.1, with the detail in the release notes:
