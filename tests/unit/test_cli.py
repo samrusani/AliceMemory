@@ -3622,11 +3622,16 @@ def test_backfill_embeddings_cli_names_the_refused_memory_and_embeds_its_neighbo
 ) -> None:
     """One text the endpoint refuses is named with the reason; the other two get vectors.
 
-    Mutation: drop ``**summarize_embedding_failures(failures)`` from the output of
+    The list query also gets the provider's input cap, so a cap change finds the
+    rows to embed again on Postgres.
+
+    Mutations: drop ``**summarize_embedding_failures(failures)`` from the output of
     ``_run_vnext_memories_backfill_embeddings`` (the failed id and reason are then
     missing), or embed the whole batch without isolation in
     ``prepare_memory_embeddings`` (the two good memories are then counted as
-    failed). Either way this fails.
+    failed). Or remove ``embedding_input_cap=input_cap`` from the
+    ``list_memories_missing_embeddings`` call there: the recorded call then has
+    no cap and the cap assertion fails. Each makes this test fail.
     """
 
     refused_id = "00000000-0000-4000-8000-000000000002"
@@ -3635,9 +3640,11 @@ def test_backfill_embeddings_cli_names_the_refused_memory_and_embeds_its_neighbo
         def __init__(self) -> None:
             super().__init__()
             self.stored: list[tuple[str, dict[str, object]]] = []
+            self.list_calls: list[dict[str, object]] = []
 
-        def list_memories_missing_embeddings(self, *, limit: int = 100, after_id: str | None = None, **_signature):
+        def list_memories_missing_embeddings(self, *, limit: int = 100, after_id: str | None = None, **signature):
             del limit
+            self.list_calls.append(dict(signature))
             if after_id is not None:
                 return []
             return [
@@ -3654,6 +3661,7 @@ def test_backfill_embeddings_cli_names_the_refused_memory_and_embeds_its_neighbo
         provider = "stub"
         model = "stub-embedding"
         base_url = "http://127.0.0.1:9/v1"
+        max_input_chars = 1234
 
         def embed_batch(self, texts):
             if any("REFUSED" in text for text in texts):
@@ -3689,6 +3697,11 @@ def test_backfill_embeddings_cli_names_the_refused_memory_and_embeds_its_neighbo
         {"count": 1, "reason": "embeddings endpoint returned HTTP 400: input is too long"}
     ]
     assert payload["truncated_inputs"] == 0
+    assert payload["input_cap_chars"] == 1234
+    # the cap reaches the list query, next to the rest of the signature, on every page
+    assert store.list_calls
+    assert all(call.get("embedding_input_cap") == 1234 for call in store.list_calls)
+    assert store.list_calls[0]["embedding_model"] == "stub-embedding"
     assert [memory_id for memory_id, _signature in store.stored] == [
         "00000000-0000-4000-8000-000000000001",
         "00000000-0000-4000-8000-000000000003",

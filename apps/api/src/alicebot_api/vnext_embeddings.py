@@ -318,12 +318,15 @@ def sanitize_provider_message(raw: object, *, secrets: Sequence[str] = ()) -> st
     """A bounded, credential-safe copy of an endpoint's error text, or ``None``.
 
     Order matters. Every string in ``secrets`` (the configured API key) is
-    replaced first, so a key the endpoint echoes back never survives, whatever
-    its shape. The whole text then goes through the credential check before it
-    is cut, so a credential that straddles the cut is still seen. A text the
-    check flags is replaced by a fixed sentence, never printed in part. Last,
-    control characters and runs of whitespace become single spaces, and the
-    result is cut to ``PROVIDER_REASON_MAX_CHARS`` characters.
+    replaced first, so a key the endpoint echoes back as it was sent never
+    survives, whatever its shape. A copy the endpoint alters (a space inserted
+    into it, say) is not matched; only the credential check below can catch
+    that, and only if the altered copy still looks like a credential. The whole
+    text then goes through the credential check before it is cut, so a
+    credential that straddles the cut is still seen. A text the check flags is
+    replaced by a fixed sentence, never printed in part. Last, control
+    characters and runs of whitespace become single spaces, and the result is
+    cut to ``PROVIDER_REASON_MAX_CHARS`` characters.
     """
 
     if not isinstance(raw, str):

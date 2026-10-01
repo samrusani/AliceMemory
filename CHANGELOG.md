@@ -12,15 +12,16 @@
   or a probe the endpoint also refuses) is not split. Each failure carries the
   endpoint's status and at most 300 characters of its error message. The
   message is replaced by a fixed sentence when the credential check flags it,
-  and the configured API key is replaced by `[redacted]` wherever it appears.
-  The reason is printed in reindex output and the process log. It is not
-  written to the event log, which still gets fixed text and now the status
-  number. `alice-memory reindex-embeddings` and `alicebot vnext memories
-  backfill-embeddings` print `failed_ids` (at most 100, with `failed_ids_omitted`
-  for the rest), `failure_reasons` (the most common, with counts),
-  `input_cap_chars` and `truncated_inputs`. An id that is longer than 128
-  characters, holds a control character or is credential-shaped prints as
-  `(id withheld)`. Each memory text, and each recall query, is cut to
+  and the configured API key is replaced by `[redacted]` when the endpoint
+  echoes it back as it was sent (a copy the endpoint alters, with a space
+  inserted for example, is not matched). The reason is printed in reindex
+  output and the process log. It is not written to the event log, which still
+  gets fixed text and now the status number. `alice-memory reindex-embeddings`
+  and `alicebot vnext memories backfill-embeddings` print `failed_ids` (at most
+  100, with `failed_ids_omitted` for the rest), `failure_reasons` (the most
+  common, with counts), `input_cap_chars` and `truncated_inputs`. An id that is
+  longer than 128 characters, holds a control character or is credential-shaped
+  prints as `(id withheld)`. Each memory text, and each recall query, is cut to
   `ALICE_EMBEDDINGS_MAX_INPUT_CHARS` characters before it is sent. The default
   is 8000 and the allowed range is 256 to 1000000. 8000 fits a model that takes
   about 8,000 tokens even at one token per character, and a model with a
@@ -28,26 +29,38 @@
   commit accepts up to 20,000) is embedded from its first 8,000 on a model that
   could take more, and full-text search still reads all of it, so a vault of
   long memories on a large-window model can raise the cap. A value outside the
-  range is ignored with a warning. A vector made from a cut text carries `truncated_to_chars` in its
-  signature, set to the cap, and the digest in the signature is still that of
-  the whole text, so an edit past the cut is still seen. A signature with no
-  `truncated_to_chars` is a vector of the whole text. After a change of the
-  cap, reindex re-embeds exactly the rows whose embedded text changes, and a row
-  longer than the cap whose vector has no label, which an older release stored
-  and an endpoint may have cut without saying so, is embedded again once.
-  Nothing is re-embedded by the upgrade itself, and the signature version stays
-  2. `alice-memory doctor` prints `memories without a current vector`, the count
-  of committed facts that have no vector or a vector that is not today's (the
-  rows reindex works on), with `(no embedding provider configured)` after it
-  when no provider is set. Re-running Hermes or OpenCode `install` keeps
-  `ALICE_EMBEDDINGS_MAX_INPUT_CHARS` in an existing entry. In v0.19.2 there is
-  no cap and no splitting. One memory over the endpoint's limit fails its whole
-  batch of 128 with `HTTP 400` and the provider's reason is dropped, reindex
-  prints `embedding_batch_failed` with no id and no reason, an endpoint that cuts
-  text without saying so gives a vector of the head of the text that nothing
-  marks as cut, a recall query over the endpoint's limit turns the vector stage
-  off with `query_embedding_failed`, and the doctor does not count memories
-  without a vector.
+  range is ignored with a warning. A vector made from a cut text carries
+  `truncated_to_chars` in its signature, set to the cap, and the digest in the
+  signature is still that of the whole text, so an edit past the cut is still
+  seen. A signature with no `truncated_to_chars` is a vector of the whole text.
+  After a change of the cap, reindex re-embeds exactly the rows whose embedded
+  text changes, and a row longer than the cap whose vector has no label, which
+  an older release stored and an endpoint may have cut without saying so, is
+  embedded again once. Nothing is re-embedded by the upgrade itself, and the
+  signature version stays 2. Because of that rule, a vault that holds
+  whole-text vectors for memories longer than the cap will show those memories
+  in the doctor count right after the upgrade. A model with a large window
+  should raise the cap before running reindex, or reindex will make those
+  vectors again from the cut text. `alice-memory doctor` prints `memories
+  without a current vector`, the count of active and accepted memories that
+  have no vector or a vector that is not today's, with `(no embedding provider
+  configured)` after it when no provider is set. Reindex works from the same
+  test but has no status filter, so it also embeds memories in other states (a
+  forgotten, rejected or candidate memory), as it does in v0.19.2, and it can
+  embed more rows than the doctor counts. SQLite reindex now counts a memory
+  whose text changed while its vector was being made as failed, names it and
+  exits 1, and the next run makes its vector. In v0.19.2 it counted that memory
+  as embedded and stored no vector for it. The Postgres backfill already
+  counted it as failed. Re-running Hermes or OpenCode `install` keeps
+  `ALICE_EMBEDDINGS_MAX_INPUT_CHARS` in an existing entry, where v0.19.2
+  refuses an entry that holds it. In v0.19.2 there is no cap and no splitting.
+  One memory over the endpoint's limit fails its whole batch of 128 with `HTTP
+  400` and the provider's reason is dropped, reindex prints
+  `embedding_batch_failed` with no id and no reason, an endpoint that cuts text
+  without saying so gives a vector of the head of the text that nothing marks
+  as cut, a recall query over the endpoint's limit turns the vector stage off
+  with `query_embedding_failed`, and the doctor does not count memories without
+  a vector.
 
 ## v0.19.2 — 2026-10-01
 

@@ -11,16 +11,18 @@ Each test names, in its docstring, the change to the code that must fail it.
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import sqlite3
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.error import HTTPError
 from uuid import UUID
 
 import pytest
 
-from alicebot_api import vnext_embeddings
+from alicebot_api import onramp, vnext_embeddings
 from alicebot_api.onramp import bootstrap_database, main as onramp_main
 from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
 from alicebot_api.vnext_embeddings import (
@@ -31,8 +33,10 @@ from alicebot_api.vnext_embeddings import (
     EMBEDDINGS_MAX_INPUT_CHARS_ENV,
     EMBEDDINGS_MODEL_ENV,
     LISTED_ID_WITHHELD,
+    PROVIDER_ERROR_BODY_READ_BYTES,
     PROVIDER_MESSAGE_WITHHELD,
     PROVIDER_REASON_MAX_CHARS,
+    STALE_REASON,
     DeferredMemoryEmbedding,
     EmbeddingTextFailure,
     MemoryEmbeddingFailure,
@@ -640,6 +644,64 @@ def test_the_configured_api_key_is_redacted_even_when_it_has_no_credential_shape
     assert "check your key" in str(excinfo.value)
 
 
+def test_control_characters_and_escape_sequences_in_an_error_body_are_neutralised() -> None:
+    """A terminal escape or a control character in an endpoint's message is not printed.
+
+    Mutation: drop the ``_CONTROL_CHARACTERS.sub`` step in
+    ``sanitize_provider_message`` and keep only the whitespace collapse. The ESC,
+    BEL and NUL characters, which are not whitespace, then survive in the reason,
+    and both assertions fail.
+    """
+
+    raw = "bad\x1b[31m red \x07 bell\nnext\r\nline\x85nel\u2028sep\x00nul"
+    assert vnext_embeddings.sanitize_provider_message(raw) == "bad [31m red bell next line nel sep nul"
+
+    with _FakeEmbeddingsServer("always", status=400, message="\x1b[2J\x1b[1;1Hboom\x07") as server:
+        with pytest.raises(VNextEmbeddingProviderError) as excinfo:
+            _provider(server).embed_batch(["one text"])
+    printed = str(excinfo.value)
+    assert printed == f"{HTTP_PREFIX}[2J [1;1Hboom"
+    assert not any(ord(character) < 32 or 127 <= ord(character) <= 159 for character in printed)
+
+
+def test_the_credential_check_reads_the_whole_message_before_the_cut() -> None:
+    """A credential that straddles the 300-character cut is withheld, not printed in part.
+
+    The first 8 characters of the credential fall before the cut, which the
+    credential check does not flag on its own (the test asserts that, so the
+    fixture cannot go stale). Mutation: run ``credential_verdict`` on the text
+    after the cut in ``sanitize_provider_message``. The check then sees only that
+    fragment, the reason prints it, and this fails.
+    """
+
+    secret = _fake_credential()
+    visible = 8
+    message = "e" * (PROVIDER_REASON_MAX_CHARS - 3 - 1 - visible) + " " + secret
+    assert vnext_embeddings.credential_verdict(message) is not None
+    assert vnext_embeddings.credential_verdict(message[: PROVIDER_REASON_MAX_CHARS - 3]) is None
+
+    reason = vnext_embeddings.sanitize_provider_message(message)
+
+    assert reason == PROVIDER_MESSAGE_WITHHELD
+    assert secret[:visible] not in (reason or "")
+
+
+def test_only_the_first_4096_bytes_of_an_error_body_are_read_and_the_response_is_closed() -> None:
+    """A 200,000-byte error body is read for 4,096 bytes only.
+
+    Mutation: call ``exc.read()`` with no limit in ``_read_error_body``. The whole
+    body is then read and returned, and the length assertion fails.
+    """
+
+    body = io.BytesIO(b"x" * 200_000)
+    error = HTTPError("http://127.0.0.1:9/v1/embeddings", 400, "Bad Request", {}, body)  # type: ignore[arg-type]
+
+    text = vnext_embeddings._read_error_body(error)
+
+    assert len(text) == PROVIDER_ERROR_BODY_READ_BYTES == 4096
+    assert body.closed
+
+
 def test_error_body_is_read_for_the_shapes_the_compatible_servers_use() -> None:
     """The message is found in ``error.message``, ``error`` as text, ``message`` and ``detail``.
 
@@ -763,6 +825,12 @@ def _seed_vault(db_path: Path, texts: dict[str, str], *, status: str = "active")
     """Create one active memory per entry; returns {key: memory id}."""
 
     bootstrap_database(db_path, user_id=USER_ID, user_email="local@alice")
+    return _add_memories(db_path, texts, status=status)
+
+
+def _add_memories(db_path: Path, texts: dict[str, str], *, status: str) -> dict[str, str]:
+    """Add one memory per entry, with ``status``, to a vault that already exists."""
+
     ids: dict[str, str] = {}
     with sqlite_user_connection(db_path, USER_ID) as conn:
         store = SQLiteVNextStore(conn, USER_ID)
@@ -1147,6 +1215,78 @@ def test_a_vector_made_before_caps_existed_for_a_long_text_is_made_again(
     assert "truncated_to_chars" not in _signature(rows[ids["fits"]])
 
 
+def test_reindex_counts_a_row_whose_text_changed_mid_run_as_failed_and_stores_no_vector(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    """A memory edited after its vector is prepared and before it is written is named, not counted embedded.
+
+    The store refuses a vector whose digest is no longer the row's text, so the
+    old text's vector is discarded; reindex says so, exits 1, and the next run
+    makes it. In v0.19.2 SQLite reindex counted such a row as embedded.
+    Mutation: ignore the ``None`` that ``update_memory_embedding`` returns in
+    ``_run_reindex_embeddings`` (count the row embedded as before). ``embedded``
+    is then 3 and ``failed`` 0, and this fails.
+    """
+
+    db_path = tmp_path / "memory.db"
+    ids = _seed_vault(db_path, {"a": "First fact.", "b": "Second fact.", "c": "Third fact."})
+    real_prepare = onramp.prepare_memory_embeddings
+
+    def prepare_then_edit(inputs, **kwargs):
+        preparation = real_prepare(inputs, **kwargs)
+        with sqlite_user_connection(db_path, USER_ID) as conn:
+            conn.execute(
+                "UPDATE memories SET canonical_text = ? WHERE id = ?",
+                ("Second fact, edited.", ids["b"]),
+            )
+        return preparation
+
+    with _FakeEmbeddingsServer("accept") as server:
+        _configure(monkeypatch, server)
+        monkeypatch.setattr(onramp, "prepare_memory_embeddings", prepare_then_edit)
+        code, payload, stderr = _reindex(db_path, capsys)
+
+        assert code == 1
+        assert (payload["embedded"], payload["failed"]) == (2, 1)
+        assert payload["failed_ids"] == [ids["b"]]
+        assert payload["failure_reasons"] == [{"count": 1, "reason": STALE_REASON}]
+        assert [json.loads(line)["error"]["code"] for line in stderr.splitlines()] == ["embedding_batch_failed"]
+        rows = _rows(db_path)
+        assert rows[ids["b"]]["embedding"] is None
+        assert rows[ids["a"]]["embedding"] is not None and rows[ids["c"]]["embedding"] is not None
+
+        # nothing edits the row this time, so the next run makes its vector
+        monkeypatch.setattr(onramp, "prepare_memory_embeddings", real_prepare)
+        code, payload, _stderr = _reindex(db_path, capsys)
+        assert (code, payload["embedded"], payload["failed"]) == (0, 1, 0)
+        assert _rows(db_path)[ids["b"]]["embedding"] is not None
+
+
+def test_reindex_counts_the_vectors_it_replaced_and_not_the_rows_it_made_new(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    """After a model change, ``reindexed_incompatible`` is the number of old vectors replaced.
+
+    Three rows get vectors, a fourth row is added, the model changes, and reindex
+    embeds four and replaces three. Mutations: never count
+    ``reindexed_incompatible`` in ``_run_reindex_embeddings`` (it stays 0), or
+    count every embedded row (it becomes 4). Either way this fails.
+    """
+
+    db_path = tmp_path / "memory.db"
+    _seed_vault(db_path, {"a": "First fact.", "b": "Second fact.", "c": "Third fact."})
+    with _FakeEmbeddingsServer("accept") as server:
+        _configure(monkeypatch, server)
+        code, payload, _stderr = _reindex(db_path, capsys)
+        assert (code, payload["embedded"], payload["reindexed_incompatible"]) == (0, 3, 0)
+
+        _add_memories(db_path, {"d": "Fourth fact."}, status="active")
+        _configure(monkeypatch, server, model="another-model")
+        code, payload, _stderr = _reindex(db_path, capsys)
+
+    assert (code, payload["embedded"], payload["reindexed_incompatible"]) == (0, 4, 3)
+
+
 def test_reindex_withholds_a_credential_shaped_memory_id_and_lists_a_normal_one(
     tmp_path: Path, monkeypatch, capsys
 ) -> None:
@@ -1206,50 +1346,124 @@ def test_reindex_output_and_event_log_never_hold_a_credential_from_the_endpoint(
 # --- the doctor ---------------------------------------------------------------
 
 
-def test_doctor_counts_active_memories_without_a_current_vector(
+def _clear_embedding_environment(monkeypatch) -> None:
+    for name in (
+        EMBEDDINGS_BASE_URL_ENV,
+        EMBEDDINGS_MODEL_ENV,
+        EMBEDDINGS_API_KEY_ENV,
+        EMBEDDINGS_MAX_INPUT_CHARS_ENV,
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+
+def test_doctor_counts_only_live_active_and_accepted_memories_without_a_current_vector(
     tmp_path: Path, monkeypatch, capsys
 ) -> None:
-    """The line counts active and accepted rows with no vector or a vector that is not today's.
+    """The count is exactly the active and accepted live rows with no current vector.
 
-    Mutation: count every status (a candidate is then counted: the first
-    number is wrong), count only rows with no vector (the model change leaves
-    the count at 0), or print a fixed number.
+    The vault holds four counted rows (two short active, one long active, one
+    accepted) and four that are not: a superseded row (what forget leaves), a
+    rejected row, a candidate, and an active row with ``deleted_at`` set. No
+    code path sets ``deleted_at`` on an active row today, so that last row is
+    built by hand; it keeps the count from reading a deleted row if one ever
+    does. Reindex works on the first three of the uncounted rows too (it has no
+    status filter), so the numbers differ and both are pinned.
+
+    Mutations, each made against ``vault_doctor`` or the SQLite count and each
+    failing a numbered assertion below: add ``superseded`` to the doctor's
+    statuses (5, not 4, at step 1); count every status (7 or 8); drop
+    ``accepted`` (3, not 4); drop ``deleted_at IS NULL`` from the count SQL (5,
+    not 4); print a fixed number; send a fixed model name instead of the
+    configured one, so a model change leaves the count at 0 (step 4).
     """
 
     db_path = tmp_path / "memory.db"
-    _seed_vault(db_path, {"a": "First fact.", "b": "Second fact.", "c": "Third fact."})
+    ids = _seed_vault(db_path, {"a": "First fact.", "b": "Second fact.", "long": _text(3000, "long")})
+    ids.update(_add_memories(db_path, {"acc": "An accepted fact."}, status="accepted"))
+    ids.update(_add_memories(db_path, {"sup": "A forgotten fact."}, status="superseded"))
+    ids.update(_add_memories(db_path, {"rej": "A rejected fact."}, status="rejected"))
+    ids.update(_add_memories(db_path, {"cand": "A candidate."}, status="candidate"))
+    ids.update(_add_memories(db_path, {"gone": "A deleted fact."}, status="active"))
     with sqlite_user_connection(db_path, USER_ID) as conn:
-        SQLiteVNextStore(conn, USER_ID).create_memory(
-            {
-                "memory_key": "limits-candidate",
-                "value": {"text": "A candidate."},
-                "memory_type": "semantic",
-                "title": "Candidate",
-                "canonical_text": "A candidate.",
-                "status": "candidate",
-                "domain": "project",
-                "sensitivity": "private",
-            }
-        )
-    for name in (EMBEDDINGS_BASE_URL_ENV, EMBEDDINGS_MODEL_ENV, EMBEDDINGS_API_KEY_ENV, EMBEDDINGS_MAX_INPUT_CHARS_ENV):
-        monkeypatch.delenv(name, raising=False)
+        conn.execute("UPDATE memories SET deleted_at = '2026-01-01T00:00:00Z' WHERE id = ?", (ids["gone"],))
+    _clear_embedding_environment(monkeypatch)
 
-    # no provider: no vector can be current, and the line says why
-    assert _doctor_line(db_path, capsys) == "3 (no embedding provider configured)"
+    # 1. no provider: no vector can be current, and the line says why
+    assert _doctor_line(db_path, capsys) == "4 (no embedding provider configured)"
 
     with _FakeEmbeddingsServer("accept") as server:
+        # 2. a provider, no vectors yet: the same four rows
         _configure(monkeypatch, server)
-        assert _doctor_line(db_path, capsys) == "3"
-        assert _reindex(db_path, capsys)[1]["embedded"] == 4  # the candidate is reindexed too
+        assert _doctor_line(db_path, capsys) == "4"
+        # 3. reindex has no status filter: it embeds the three uncounted live rows as well
+        code, payload, _stderr = _reindex(db_path, capsys)
+        assert (code, payload["embedded"], payload["failed"]) == (0, 7, 0)
         assert _doctor_line(db_path, capsys) == "0"
-        # a different model makes every vector stale
+        # 4. a different model makes every vector stale: the four counted rows, not seven
         _configure(monkeypatch, server, model="another-model")
-        assert _doctor_line(db_path, capsys) == "3"
-        # so does a different cap, but only for a row whose embedded text would change
+        assert _doctor_line(db_path, capsys) == "4"
+        # 5. back on the first model its vectors are current again
         _configure(monkeypatch, server)
         assert _doctor_line(db_path, capsys) == "0"
-        _configure(monkeypatch, server, cap=256)
+
+
+def test_doctor_count_follows_the_input_cap_and_a_vector_made_before_caps_existed(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    """A cap change, or a vector with no cut label, shows in the count for exactly the rows it affects.
+
+    One row of 100 characters, one of 700, one of 3,000. A text that fits under
+    both caps is never counted. After the upgrade a vector of a text over the cap
+    that carries no label (what an older release stored) is counted once, and
+    the count equals what reindex then embeds.
+
+    Mutations, each made: leave ``embedding_input_cap`` out of the call in
+    ``vault_doctor._missing_vector_line`` (every cap step prints 0 and the first
+    one that expects 1 fails); compare the stored label with the cap itself
+    instead of with the label a vector made now would carry (the rows with no
+    label are counted after the first reindex and the "0" fails); treat a vector
+    with no label as current (the unlabelled long row prints 0 and the "1"
+    after the label is removed fails).
+    """
+
+    db_path = tmp_path / "memory.db"
+    ids = _seed_vault(
+        db_path,
+        {"short": _text(100, "short"), "medium": _text(700, "medium"), "long": _text(3000, "long")},
+    )
+    _clear_embedding_environment(monkeypatch)
+    with _FakeEmbeddingsServer("accept") as server:
+        _configure(monkeypatch, server, cap=1000)
+        assert _doctor_line(db_path, capsys) == "3"
+        assert _reindex(db_path, capsys)[1]["embedded"] == 3
         assert _doctor_line(db_path, capsys) == "0"
+
+        # an older release stored the long row's vector with no label
+        with sqlite_user_connection(db_path, USER_ID) as conn:
+            conn.execute(
+                "UPDATE memories SET metadata_json = json_remove(metadata_json, ?) WHERE id = ?",
+                (f"$._alice_embedding.{vnext_embeddings.EMBEDDING_TRUNCATED_SIGNATURE_KEY}", ids["long"]),
+            )
+        assert _doctor_line(db_path, capsys) == "1"
+        server.requests.clear()
+        assert _reindex(db_path, capsys)[1]["embedded"] == 1
+        assert sorted(length for request in server.requests for length in request["lens"]) == [1000]  # type: ignore[union-attr]
+        assert _doctor_line(db_path, capsys) == "0"
+
+        # cap raised to 2000: only the long row's embedded text changes (it was cut at 1000)
+        _configure(monkeypatch, server, cap=2000)
+        assert _doctor_line(db_path, capsys) == "1"
+        # cap lowered to 500: the 700-character row is cut now too, so two rows change
+        _configure(monkeypatch, server, cap=500)
+        assert _doctor_line(db_path, capsys) == "2"
+        # cap raised to 5000: nothing is cut any more, and the long row's old label is stale
+        _configure(monkeypatch, server, cap=5000)
+        assert _doctor_line(db_path, capsys) == "1"
+        # the count is what reindex works on
+        assert _reindex(db_path, capsys)[1]["embedded"] == 1
+        assert _doctor_line(db_path, capsys) == "0"
+        _configure(monkeypatch, server, cap=1000)
+        assert _doctor_line(db_path, capsys) == "1"
 
 
 def test_doctor_line_is_in_the_report_between_facts_and_the_brief(tmp_path: Path, monkeypatch, capsys) -> None:
