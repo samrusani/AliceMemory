@@ -131,6 +131,77 @@ def list_memories_referencing_source(self, *, source_id: str, limit: int = 500) 
     )
 
 
+def list_memories_referencing_sources(
+    self,
+    source_ids: Sequence[str],
+    *,
+    limit_per_source: int,
+) -> dict[str, list[VNextRow]]:
+    """``list_memories_referencing_source`` for several sources in one statement.
+
+    Returns ``{source_id: rows}`` with one key per distinct source id asked
+    for, in the order asked, and an empty list for a source nothing
+    references. Each list is exactly what the one-source method returns for
+    that source with ``limit=limit_per_source``: the same rows, the same
+    order, the same cap. The controls are the same two the one-source method
+    applies, the row-level security of the user's connection and
+    ``deleted_at IS NULL``.
+
+    The statement runs the one-source query once per requested id inside a
+    ``LATERAL`` subquery, so the predicate, the ordering and the per-source
+    ``LIMIT`` are the one-source query's own text. The saving is the round
+    trip and the per-statement overhead of one query per packed source, not
+    the scan: each id still evaluates the predicate over the memories table.
+    ``limit_per_source`` has no default because the callers disagree about
+    the cap.
+    """
+
+    if limit_per_source < 1:
+        raise ValueError("limit must be positive")
+    ids = list(dict.fromkeys(str(source_id) for source_id in source_ids if source_id))
+    grouped: dict[str, list[VNextRow]] = {source_id: [] for source_id in ids}
+    if not ids:
+        return grouped
+    refs = [f"source:{source_id}" for source_id in ids]
+    qualified_columns = ", ".join(f"m.{column.strip()}" for column in MEMORY_COLUMNS.split(",") if column.strip())
+    rows = self._fetch_all(
+        f"""
+                SELECT w.source_id AS ref_source_id, hit.*
+                FROM unnest(%s::text[], %s::text[]) AS w(source_id, source_ref)
+                CROSS JOIN LATERAL (
+                  SELECT {qualified_columns}
+                  FROM memories AS m
+                  WHERE m.deleted_at IS NULL
+                    AND (
+                      m.source_event_ids ? w.source_id
+                      OR EXISTS (
+                        SELECT 1
+                        FROM provenance_links AS p
+                        WHERE p.target_type = 'memory'
+                          AND p.target_id = m.id::text
+                          AND p.source_id = w.source_id::uuid
+                      )
+                      OR m.metadata_json ->> 'source_id' = w.source_id
+                      OR m.metadata_json ->> 'source_ref' IN (w.source_id, w.source_ref)
+                      OR m.metadata_json -> 'source_ids' ? w.source_id
+                      OR m.metadata_json -> 'source_refs' ? w.source_id
+                      OR m.metadata_json -> 'source_refs' ? w.source_ref
+                      OR m.metadata_json -> 'source_references' ? w.source_id
+                      OR m.metadata_json -> 'source_references' ? w.source_ref
+                      OR m.metadata_json -> 'selected_source_ids' ? w.source_id
+                    )
+                  ORDER BY m.updated_at DESC, m.created_at DESC, m.id DESC
+                  LIMIT %s
+                ) AS hit
+                ORDER BY w.source_id, hit.updated_at DESC, hit.created_at DESC, hit.id DESC
+                """,
+        (ids, refs, limit_per_source),
+    )
+    for row in rows:
+        grouped[str(row.pop("ref_source_id"))].append(row)
+    return grouped
+
+
 def list_pending_derived_candidates_for_member(
     self,
     *,
@@ -1157,6 +1228,7 @@ for _memory_method in (
     get_memory,
     get_memories_by_ids,
     list_memories_referencing_source,
+    list_memories_referencing_sources,
     list_pending_derived_candidates_for_member,
     list_memories,
     list_memories_by_statuses,
