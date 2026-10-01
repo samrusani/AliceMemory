@@ -33,7 +33,11 @@ Agent developers — people building or operating AI agents who need durable, ex
   with per-question evidence for each committed. That harness reads chunks
   straight from the store. It is not the product path. `pack_excerpts` is
   the product-path mode and is not yet a published score. The **79.4%
-  (397/500)** single run from 2026-07-07 is retained as evidence.
+  (397/500)** single run from 2026-07-07 is retained as evidence. Known
+  issue: the harness showed the reader model each session's id, and in this
+  dataset every evidence session id starts with `answer_`. The effect is
+  unmeasured, so both numbers may be overstated by an unknown amount. See the
+  README Benchmark section.
 - The fourth-audit remediation shipped in `v0.10.3` after exact-SHA gates
   and internal review passed.
 - Alice is public-alpha, pre-1.0, single-user, and self-hosted. `alice-memory`

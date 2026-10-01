@@ -4,6 +4,23 @@
 `v0.12.0`, measured 2026-07-18/19. `pack_excerpts` is the product-path
 mode and is not yet scored. The receipt below is unchanged.
 
+> **Known issue: session id label.** In this dataset the id of every evidence
+> session starts with `answer_` (948 of 948), and no filler session id does
+> (0 of 22,919). The harness put that id in each session's title and in the
+> header above each excerpt, so the model answering the question could see
+> which sessions held the evidence. The same label code was in the harness for
+> the 2026-07-05 run (64.6%), the 2026-07-07 run (79.4%) and the v0.12.0 runs
+> (81.2%), so all three published numbers carry it. The 2026-07-07 run file
+> has no session id field, but 27 reader answers in it name an `answer_`
+> session id. The three replication runs record the retrieved session ids in
+> `retrieval.provenance.source_session_ids`, and in 22 to 25 answers per run
+> the model named such a session id in its reasoning. We have not measured the
+> effect, and on abstention questions its direction is not obvious. The next
+> run hides the ids with a keyed hash, scores the product path, and is
+> compared question by question with these three runs. Until then, read these
+> numbers as what the old harness produced, not as what Alice does for a user.
+> The evidence files in this folder are not edited.
+
 **Replicated accuracy: 81.2% mean over three independent full runs
 (80.8% / 81.0% / 81.8%; 404–409 of 500) on LongMemEval_s** — measured
 2026-07-18/19 on the published v0.12.0 code from the immutable release tag,
