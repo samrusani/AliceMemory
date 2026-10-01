@@ -246,6 +246,15 @@ The public families are `authentication_failed`, `forbidden`,
 retain their documented string or array `detail` variants; all variants remain
 under the same top-level `detail` key and are described by the OpenAPI schema.
 
+Unreleased (on main, not in v0.19.2): a JSON request body that holds a lone
+surrogate, for example the escape `"\ud800"`, is refused with HTTP 422 and the
+array `detail` of a validation error, on every route that takes a POST, PUT,
+PATCH or DELETE, when the decoder can parse the body. The error says where the
+text is and does not repeat it. A path with no route still answers 404, a path
+whose route does not take the method still answers 405, and a body nested too
+deep for the decoder still answers HTTP 500. v0.19.2 answers HTTP 500 for a
+surrogate in a string field.
+
 ## Scopes
 
 Memories carry four scopes. `user_id` is the hard tenancy boundary (RLS);

@@ -12,7 +12,6 @@ from fastapi import (
     Request,
     Response,
 )
-from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.openapi.utils import get_openapi
 from pydantic import TypeAdapter
@@ -24,6 +23,12 @@ from urllib.parse import parse_qsl, urlencode
 from alicebot_api import __version__
 from alicebot_api.surface_flags import legacy_surfaces_enabled
 from alicebot_api.config import Settings, get_settings
+from alicebot_api.lone_surrogates import (
+    lone_surrogate_response,
+    payload_lone_surrogate_location,
+    reject_lone_surrogate_json_body,
+    render_validation_error,
+)
 from alicebot_api.public_errors import public_exception_response
 from alicebot_api.routers import (
     continuity,
@@ -578,7 +583,13 @@ async def _alice_request_validation_error(
     request: Request,
     exc: RequestValidationError,
 ) -> Response:
-    """Keep one-time browser credentials out of framework validation bodies."""
+    """Keep one-time browser credentials and lone surrogates out of validation bodies.
+
+    The framework's handler writes each error's ``input`` into the response. A
+    lone surrogate in it cannot be encoded as UTF-8, so that handler answered
+    HTTP 500 for a str field that held one. A surrogate never reaches a
+    response from here.
+    """
 
     if (
         request.method.upper() == "POST"
@@ -596,7 +607,7 @@ async def _alice_request_validation_error(
                 ]
             },
         )
-    return await request_validation_exception_handler(request, exc)
+    return await render_validation_error(request, exc)
 
 
 from alicebot_api.routers import providers  # noqa: E402
@@ -943,6 +954,10 @@ async def _vnext_protected_http_auth(
         if isinstance(candidate, dict):
             payload = candidate
 
+    surrogate_location = await payload_lone_surrogate_location(request, payload)
+    if surrogate_location is not None:
+        return lone_surrogate_response(surrogate_location)
+
     query_user_id = request.query_params.get("user_id")
     body_user_id = payload.get("user_id")
     if query_user_id is not None and body_user_id is not None and str(body_user_id) != query_user_id:
@@ -1004,6 +1019,12 @@ async def _vnext_protected_http_auth(
     return await call_next(request)
 
 
+# The innermost middleware: it reads a body only once the identity, /v1 and vNext
+# layers have let the request through, and only for a path and method a route
+# takes, so it adds no read before authentication and no read for a 404 or 405.
+# The /v1 and vNext layers read the body themselves, before they authenticate,
+# and check what they parsed for a lone surrogate before they use a value from it.
+app.middleware("http")(reject_lone_surrogate_json_body)
 app.middleware("http")(_vnext_protected_http_auth)
 
 
@@ -1155,6 +1176,9 @@ async def enforce_v1_agent_authentication(
         return await call_next(request)
 
     payload = await _v1_request_payload(request)
+    surrogate_location = await payload_lone_surrogate_location(request, payload)
+    if surrogate_location is not None:
+        return lone_surrogate_response(surrogate_location)
     if _v1_request_claims_other_user(request, payload, user_id):
         return _authentication_failed_response("request user_id does not match the authenticated user")
 
