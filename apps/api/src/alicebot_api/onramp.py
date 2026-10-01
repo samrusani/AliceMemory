@@ -21,12 +21,16 @@ Subcommands:
   column of each record column that holds credential-shaped text, including
   the memory columns the check does not read.
 - ``reindex-embeddings``: rebuild missing or provider/model-incompatible
-  vectors in place after an import, upgrade, or embedding-model change.
+  vectors in place after an import, upgrade, embedding-model change, or
+  change of ``ALICE_EMBEDDINGS_MAX_INPUT_CHARS``. A text the endpoint refuses
+  is isolated from its batch: the rest still get vectors, and the output
+  lists the failed memory ids and the endpoint's reason.
 - ``brief``: print a labelled session brief (committed facts and imported
   sources) as markdown on stdout. Host session-start hooks call this.
 - ``doctor``: print a local SQLite vault census on stdout: sources,
-  searchable chunks, committed facts, last brief character count
-  (N / 9500 characters), then candidates waiting. Not
+  searchable chunks, committed facts, memories without a current vector,
+  last brief character count (N / 9500 characters), then candidates
+  waiting. Not
   ``alicebot vnext doctor``. In v0.18.0 this line was a token estimate.
 - ``demo``: import a markdown folder into a SQLite vault, then print
   the import summary, doctor, session brief, and the one source
@@ -135,13 +139,18 @@ from alicebot_api.vnext_agent_keys import AGENT_KEY_AUTH
 from alicebot_api.vnext_json import json_safe
 from alicebot_api.vnext_embeddings import (
     EMBEDDING_SIGNATURE_VERSION,
+    EMBEDDING_STALE_ERROR_CODE,
+    EMBEDDING_STALE_ERROR_MESSAGE,
     MAX_EMBEDDINGS_BATCH_SIZE,
-    VNextEmbeddingConfigurationError,
-    VNextEmbeddingProviderError,
+    STALE_REASON,
+    DeferredMemoryEmbedding,
+    MemoryEmbeddingFailure,
+    embedding_input_cap,
     endpoint_fingerprint,
     get_embedding_provider,
     memory_embedding_text,
-    signed_memory_embedding_update,
+    prepare_memory_embeddings,
+    summarize_embedding_failures,
 )
 
 DEFAULT_DATA_DIR = "~/.alice"
@@ -3590,10 +3599,12 @@ def _run_reindex_embeddings(args: argparse.Namespace) -> int:
         user_email=args.user_email,
         secure_parent=args.db is None,
     )
+    input_cap = embedding_input_cap(provider)
     embedded = 0
     reindexed_incompatible = 0
+    truncated_inputs = 0
     skipped = 0
-    failed = 0
+    failures: list[MemoryEmbeddingFailure] = []
     batches = 0
     after_id: str | None = None
     while True:
@@ -3608,35 +3619,51 @@ def _run_reindex_embeddings(args: argparse.Namespace) -> int:
                     getattr(provider, "base_url", "")
                 ),
                 embedding_signature_version=EMBEDDING_SIGNATURE_VERSION,
+                embedding_input_cap=input_cap,
             )
         if not rows:
             break
         batches += 1
         after_id = str(rows[-1]["id"])
-        pending = [(row, memory_embedding_text(row)) for row in rows]
-        embeddable = [(row, text) for row, text in pending if text]
-        skipped += len(pending) - len(embeddable)
+        embeddable = [row for row in rows if memory_embedding_text(row)]
+        skipped += len(rows) - len(embeddable)
         if not embeddable:
             continue
-        try:
-            vectors = provider.embed_batch([text for _row, text in embeddable])
-        except (VNextEmbeddingConfigurationError, VNextEmbeddingProviderError) as exc:
-            failed += len(embeddable)
-            logger.debug(
-                "SQLite embedding batch failed",
-                exc_info=(type(exc), exc, exc.__traceback__),
-            )
-            _emit_error("embedding_batch_failed")
-            continue
+        # The provider is called with no connection open. A refused text is
+        # isolated from its batch inside prepare_memory_embeddings, so its
+        # neighbours still get vectors and the refused id is named below.
+        preparation = prepare_memory_embeddings(
+            tuple(DeferredMemoryEmbedding.from_memory(row) for row in embeddable),
+            provider=provider,
+            log_failures=False,
+        )
+        batch_failures = list(preparation.failures)
+        incompatible_ids = {
+            str(row["id"]) for row in embeddable if row.get("embedding_present") in (True, 1)
+        }
         with sqlite_user_connection(db_path, args.user_id) as conn:
             store = SQLiteVNextStore(conn, args.user_id)
-            for (row, _text), vector in zip(embeddable, vectors, strict=True):
-                store.update_memory_embedding(
-                    **signed_memory_embedding_update(row, vector, provider=provider)
-                )
-                if row.get("embedding_present") in (True, 1):
-                    reindexed_incompatible += 1
+            for prepared in preparation.prepared:
+                if store.update_memory_embedding(**prepared.to_update()) is None:
+                    # The text changed after the list was read; the vector was
+                    # of the old text and was discarded. A later run makes it.
+                    batch_failures.append(
+                        MemoryEmbeddingFailure(
+                            prepared.memory_id,
+                            EMBEDDING_STALE_ERROR_CODE,
+                            EMBEDDING_STALE_ERROR_MESSAGE,
+                            reason=STALE_REASON,
+                        )
+                    )
+                    continue
                 embedded += 1
+                if prepared.truncated_to_chars is not None:
+                    truncated_inputs += 1
+                if prepared.memory_id in incompatible_ids:
+                    reindexed_incompatible += 1
+        if batch_failures:
+            failures.extend(batch_failures)
+            _emit_error("embedding_batch_failed")
     _secure_sqlite_files(db_path)
     print(
         json.dumps(
@@ -3647,12 +3674,15 @@ def _run_reindex_embeddings(args: argparse.Namespace) -> int:
                 "embedded": embedded,
                 "reindexed_incompatible": reindexed_incompatible,
                 "skipped": skipped,
-                "failed": failed,
+                "failed": len(failures),
+                "input_cap_chars": input_cap,
+                "truncated_inputs": truncated_inputs,
+                **summarize_embedding_failures(failures),
             },
             sort_keys=True,
         )
     )
-    return 1 if failed else 0
+    return 1 if failures else 0
 
 
 def main(argv: list[str] | None = None) -> int:

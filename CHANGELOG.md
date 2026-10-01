@@ -5,6 +5,65 @@
 - A context pack no longer comes back empty at a small `max_tokens` because one large item is ranked first. An item that does not fit is skipped and the next one is tried. When nothing fits whole, the first item that can be cut to fit has its text cut to the budget and ending in `…`, the same mark a trimmed excerpt line already carries. The budget report then adds `cut_item_count: 1`, and the `token_report` that `alice_context_pack` returns forwards it. Packed items keep their ranking order, and `token_estimate` never exceeds `max_tokens`. An item's ids, scope and metadata are priced and never cut, so a budget below the cost of the cheapest item with its text removed still returns no item. For rows written by `alice_capture` and `alice_memory_commit` that is about 320 tokens for a source and about 710 for a memory, so a vault of only committed memories can still return an empty pack at the tool's 500-token minimum. In v0.19.2 the first item that did not fit set the truncation flag and every later item was dropped for that reason alone. On a synthetic SQLite vault of four questions, three had a large item ranked first and their packs were empty at 500 tokens; none are empty now. One of those questions, with a 14,000-character memory ranked first, was also empty at 4,000 tokens. This changes no stored data. The only new field is `cut_item_count`, which appears in the budget report only when an item was cut.
 - `alice_recall` and `alice_context_pack` read the memories that reference their packed sources in one lookup per request. They use the lookup to label a packed excerpt whose derived memory was corrected or superseded. The labels, the `current_memory_id` fence and every other field are unchanged: a test runs both tools on a vault with a visible, a hidden, an other-project, a deleted and an in-place corrected memory, once with the batched lookup and once with the per-source one, and the packed sources match. A new store method, `list_memories_referencing_sources`, does the batched read on SQLite and Postgres and returns the rows the one-source method returns, in the same order and under the same cap. On a synthetic SQLite vault of 4,000 captured sources (one 2 KB chunk each), 1,000 memories and 19,000 events, the median of five calls was 98 ms in v0.19.2 and 76 ms here for `alice_recall` with the default `limit` of 8, 234 ms and 89 ms with `limit` 50, and 98 ms and 80 ms for `alice_context_pack`. v0.18.0 took 73, 84 and 74 ms, before the labels existed. With 5,000 memories, `alice_recall` with `limit` 50 took 938 ms in v0.19.2 and 143 ms here. On Postgres the method saves the round trip per source and not the scan, and that side has not been timed. In v0.19.2 recall and the pack asked the store once for each packed source (51 asks for 50 sources, counting the provenance hop), and each ask parsed the JSON of every stored memory, so the cost grew with the number of sources packed times the number of memories stored. `scripts/measure_recall_source_lookup.py` builds the vault and takes the timings.
 - `alice_resume` and `alice_recent_decisions` refuse a query of more than 40,000 UTF-8 bytes before they read anything, and the tool error names the limit. The bytes are counted as sent and again after each backslash, `%` and `_` in the query is escaped with a backslash, so 20,001 underscores is over the limit and 20,000 is not. The answer is `invalid_request` with a message such as `query is 50399 UTF-8 bytes; the limit is 40000. Use a shorter query.` The query is never cut to fit. It is the limit and the error `alice_recall` and `alice_context_pack` already use. These two tools match the query as one literal substring, so the limit on distinct search terms does not apply to them: a query of 4,000 distinct terms is still taken. The four SQLite reads behind them (memories, open loops, and the events of each) refuse such a query themselves, so no other caller of them reaches SQLite's `LIKE or GLOB pattern too complex` either. In v0.19.2 a query of 49,999 plain bytes or more, or 25,000 underscores or more, answers `tool_execution_failed` with no detail from `alice_resume` once the vault holds an active memory of any type or an open loop, and from `alice_recent_decisions` once it holds a stored decision. A query of 40,001 to 49,998 plain bytes, or 20,001 to 24,999 underscores, is taken there, and so is a query of any size on a vault with no active memory, open loop or decision. Those are refused now, because the check looks at the query alone, not at what the vault holds or what the caller may read. The HTTP API reads the Postgres store, which has no such limit, and no HTTP route reaches the SQLite store, so it is not changed. The Postgres backend is not changed.
+- One memory the embeddings endpoint refuses no longer costs its whole batch
+  its vectors, a refused memory is named, and over-long text is cut before it
+  is sent. When the endpoint answers a batch with HTTP 400, 413 or 422, Alice
+  sends a one-text probe. If the endpoint accepts the probe, Alice splits the
+  batch in half and retries each half, down to single texts, so the texts the
+  endpoint accepts get vectors and the refused ones are named. A failure that
+  is not about the text (a refused connection, a timeout, 401, 404, 429, a 5xx,
+  or a probe the endpoint also refuses) is not split. Each failure carries the
+  endpoint's status and at most 300 characters of its error message. The
+  message is replaced by a fixed sentence when the credential check flags it,
+  and the configured API key is replaced by `[redacted]` when the endpoint
+  echoes it back as it was sent (a copy the endpoint alters, with a space
+  inserted for example, is not matched). The reason is printed in reindex
+  output and the process log. It is not written to the event log, which still
+  gets fixed text and now the status number. `alice-memory reindex-embeddings`
+  and `alicebot vnext memories backfill-embeddings` print `failed_ids` (at most
+  100, with `failed_ids_omitted` for the rest), `failure_reasons` (the most
+  common, with counts), `input_cap_chars` and `truncated_inputs`. An id that is
+  longer than 128 characters, holds a control character or is credential-shaped
+  prints as `(id withheld)`. Each memory text, and each recall query, is cut to
+  `ALICE_EMBEDDINGS_MAX_INPUT_CHARS` characters before it is sent. The default
+  is 8000 and the allowed range is 256 to 1000000. 8000 fits a model that takes
+  about 8,000 tokens even at one token per character, and a model with a
+  512-token window needs about 1500. A memory of 8,001 to 20,000 characters (a
+  commit accepts up to 20,000) is embedded from its first 8,000 on a model that
+  could take more, and full-text search still reads all of it, so a vault of
+  long memories on a large-window model can raise the cap. A value outside the
+  range is ignored with a warning. A vector made from a cut text carries
+  `truncated_to_chars` in its signature, set to the cap, and the digest in the
+  signature is still that of the whole text, so an edit past the cut is still
+  seen. A signature with no `truncated_to_chars` is a vector of the whole text.
+  After a change of the cap, reindex re-embeds exactly the rows whose embedded
+  text changes, and a row longer than the cap whose vector has no label, which
+  an older release stored and an endpoint may have cut without saying so, is
+  embedded again once. Nothing is re-embedded by the upgrade itself, and the
+  signature version stays 2. Because of that rule, a vault that holds
+  whole-text vectors for memories longer than the cap will show those memories
+  in the doctor count right after the upgrade. A model with a large window
+  should raise the cap before running reindex, or reindex will make those
+  vectors again from the cut text. `alice-memory doctor` prints `memories
+  without a current vector`, the count of active and accepted memories that
+  have no vector or a vector that is not today's, with `(no embedding provider
+  configured)` after it when no provider is set. Reindex works from the same
+  test but has no status filter, so it also embeds memories in other states (a
+  forgotten, rejected or candidate memory), as it does in v0.19.2, and it can
+  embed more rows than the doctor counts. SQLite reindex now counts a memory
+  whose text changed while its vector was being made as failed, names it and
+  exits 1, and the next run makes its vector. In v0.19.2 it counted that memory
+  as embedded and stored no vector for it. The Postgres backfill already
+  counted it as failed. Re-running Hermes or OpenCode `install` keeps
+  `ALICE_EMBEDDINGS_MAX_INPUT_CHARS` in an existing entry, where v0.19.2
+  refuses an entry that holds it. In v0.19.2 there is no cap and no splitting.
+  One memory over the endpoint's limit fails its whole batch of 128 with `HTTP
+  400` and the provider's reason is dropped, reindex prints
+  `embedding_batch_failed` with no id and no reason, an endpoint that cuts text
+  without saying so gives a vector of the head of the text that nothing marks
+  as cut, a recall query over the endpoint's limit turns the vector stage off
+  with `query_embedding_failed`, and the doctor does not count memories without
+  a vector.
 - The LongMemEval harness (version 1.1) hides session ids from the reader by default and records what each run measured. LongMemEval names the id of every evidence session `answer_...` and no filler session, and harness 1.0 copied that id into the stored source title, the first paragraph of each session's text, the source metadata and the header above every excerpt, so the reader could see which sessions were the evidence. The effect on any score has not been measured. Harness 1.1 writes a label instead, `S` plus ten hex characters of an HMAC-SHA256 over the question id and the session id (key id `lme-anon-v1`, a constant experiment key), in all of those places, in the JSON excerpt record and in the checkpoint rows. The label-to-id mapping goes in a sidecar file next to the checkpoint and nowhere else, and a label collision inside one question stops the run before it starts. `--raw-session-labels` restores the old behaviour for reproducing earlier runs, and `coverage_probe.py` maps the dataset's evidence ids through the same function. The fingerprint and every checkpoint row now record the session label mode, the excerpt source, the promotion mode, the surface and the harness version, and `--resume` refuses to mix rows that differ in any of them. Until now the excerpt source was not recorded: a pack-excerpts run and a store-chunks run from the same commit had the same fingerprint digest, and a resume with `ALICE_LME_EXCERPT_SOURCE` unset could mix them. Three new options: `--excerpt-source` (the environment variable still works), `--promotion-mode sources_only`, which leaves capture's candidate memories unpromoted as after a real import (the default, `all_candidates`, force-accepts every candidate as every earlier run did), and `--surface recall`, which hands the reader the text the shipped `alice_recall` MCP tool returns, with the tool's own default limit and fences, instead of a rendered context pack. A new test ingests a fixture whose evidence ids start with `answer_` and whose filler ids start with `sharegpt_`, `ultrachat_` and plain hex, and fails if any raw id or prefix reaches a stored table, the reader's context or a checkpoint row. The false sentence in `pack_formats.py` that said no benchmark labels enter the document is corrected. The fingerprint digest of a 1.1 run never equals that of a 1.0 run, so compare per-question rows, not digests; the notes are in `docs/benchmarks/longmemeval/REPRODUCTION-NOTES.md`. No product code changed, no benchmark was run, and no published number changes. In v0.19.2 the harness shows raw session ids to the reader and records neither the excerpt source, the promotion mode nor the surface.
 
 ## v0.19.2 — 2026-10-01

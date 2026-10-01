@@ -1171,6 +1171,27 @@ def test_hermes_rerun_keeps_single_quoted_legacy_flag_bytes(tmp_path: Path, caps
     assert "kept: env.ALICE_MCP_LEGACY_TOOLS" in out
 
 
+def test_hermes_rerun_keeps_the_embeddings_input_cap_key(tmp_path: Path, capsys) -> None:
+    """ALICE_EMBEDDINGS_MAX_INPUT_CHARS is kept byte for byte on a re-run, not refused.
+
+    Mutation: drop ALICE_EMBEDDINGS_MAX_INPUT_CHARS from HERMES_DOCUMENTED_ENV_KEYS.
+    The re-run then refuses the entry as carrying a key install does not carry,
+    and this test fails.
+    """
+
+    home = tmp_path / "home"
+    vault = (tmp_path / "old-vault").resolve()
+    vault.mkdir()
+    cap_line = '      ALICE_EMBEDDINGS_MAX_INPUT_CHARS: "1500"'
+    original = _v016_alice(str(vault), cap_line)
+    config = _seed(home, original)
+
+    code, out, err = _install_without_flag(home, capsys)
+    assert code == 0, (out, err)
+    assert cap_line in config.read_text(encoding="utf-8")
+    assert "kept: env.ALICE_EMBEDDINGS_MAX_INPUT_CHARS" in out
+
+
 def test_hermes_rerun_keeps_embeddings_env_keys(tmp_path: Path, capsys) -> None:
     """The three embeddings env keys are kept byte for byte on a re-run.
 

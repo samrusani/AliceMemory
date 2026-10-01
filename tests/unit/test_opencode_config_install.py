@@ -1049,6 +1049,43 @@ def test_opencode_jsonc_carries_documented_env_byte_for_byte(
     assert str(vault.resolve()) in written
 
 
+def test_opencode_jsonc_keeps_the_embeddings_input_cap_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """ALICE_EMBEDDINGS_MAX_INPUT_CHARS in an existing entry is kept, not refused.
+
+    Mutation: drop ALICE_EMBEDDINGS_MAX_INPUT_CHARS from HERMES_DOCUMENTED_ENV_KEYS.
+    Install then refuses the entry for a key it does not carry and this test fails.
+    """
+
+    scripts = _pin(monkeypatch, tmp_path)
+    home = tmp_path / "home"
+    vault = tmp_path / "vault"
+    path = _files(home)["jsonc"]
+    cap_line = '"ALICE_EMBEDDINGS_MAX_INPUT_CHARS": "1500"'
+    original = (
+        "{\n"
+        '  "mcp": {\n'
+        '    "alice": {\n'
+        '      "type": "local",\n'
+        '      "command": ['
+        + json.dumps(str(scripts / "alice-memory"))
+        + ', "mcp", "--data-dir", "/old"],\n'
+        '      "environment": {\n'
+        f"        {cap_line}\n"
+        "      }\n"
+        "    }\n"
+        "  }\n"
+        "}\n"
+    )
+    _write(path, original)
+    code, out, err = _install(home, vault, capsys)
+    assert code == 0, (out, err)
+    written = path.read_text(encoding="utf-8")
+    assert cap_line in written
+    assert str(vault.resolve()) in written
+
+
 def test_opencode_jsonc_refusals(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
