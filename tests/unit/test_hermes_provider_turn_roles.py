@@ -571,22 +571,22 @@ def test_the_false_v0180_claim_is_corrected_where_it_was_made() -> None:
     assert "false for this plugin before version 0.5.2" in guide
 
 
-def test_the_docs_say_what_v0191_changed_and_what_v0190_still_does() -> None:
-    """The changelog and the provider guide say plugin 0.5.2 is v0.19.1's.
+def test_the_docs_say_what_v0192_changed_and_what_v0190_still_does() -> None:
+    """The changelog and the provider guide say plugin 0.5.2 is v0.19.2's.
 
-    v0.19.0 ships plugin 0.5.1, so the guide's paragraph starts ``From v0.19.1,``
-    and the changelog entry sits under the v0.19.1 heading, above v0.19.0's.
+    v0.19.0 ships plugin 0.5.1, so the guide's paragraph starts ``From v0.19.2,``
+    and the changelog entry sits under the v0.19.2 heading, above v0.19.0's.
 
     Mutations, each one alone: delete the changelog entry, move it below the
     v0.19.0 heading, drop its lone-surrogate or ``--force`` clause; delete the
-    guide's v0.19.1 paragraph or its ``From v0.19.1`` opening; delete the guide's
+    guide's v0.19.2 paragraph or its ``From v0.19.2`` opening; delete the guide's
     install note; delete either v0.18.0 changelog correction; delete either of the
-    two dated v0.19.1 updates under the v0.18.0 corrections.
+    two dated v0.19.2 updates under the v0.18.0 corrections.
     """
 
     changelog = (REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
-    assert changelog[changelog.index("## Unreleased") : changelog.index("## v0.19.1")].startswith("## Unreleased")
-    released_now = changelog[changelog.index("## v0.19.1") : changelog.index("## v0.19.0")]
+    assert changelog[changelog.index("## Unreleased") : changelog.index("## v0.19.2")].strip() == "## Unreleased"
+    released_now = changelog[changelog.index("## v0.19.2") : changelog.index("## v0.19.0")]
     entries = [_flat(entry) for entry in released_now.split("\n- ") if entry.lstrip("- ").startswith("Hermes provider 0.5.2 sends")]
     assert len(entries) == 1
     entry = entries[0]
@@ -609,11 +609,11 @@ def test_the_docs_say_what_v0191_changed_and_what_v0190_still_does() -> None:
     assert "The Hermes plugin does not call that route." in added[1]
     updated = [_flat(part) for part in v0180.split("**Update, added 2026-10-01.**")[1:]]
     assert len(updated) == 2
-    assert updated[0].startswith("Plugin 0.5.2 is in v0.19.1.")
-    assert updated[1].startswith("From v0.19.1 that policy reads the role and applies only a user turn")
+    assert updated[0].startswith("Plugin 0.5.2 is in v0.19.2.")
+    assert updated[1].startswith("From v0.19.2 that policy reads the role and applies only a user turn")
 
     guide = _flat((REPO_ROOT / "docs" / "integrations" / "hermes-memory-provider.md").read_text(encoding="utf-8"))
-    marker = "From v0.19.1, plugin 0.5.2 sends the user text and the assistant text"
+    marker = "From v0.19.2, plugin 0.5.2 sends the user text and the assistant text"
     assert guide.count(marker) == 1
     paragraph = guide[guide.index(marker) :].split(" From v0.19.0,")[0]
     assert "A reply that contains a line starting with `User:` stays assistant text" in paragraph

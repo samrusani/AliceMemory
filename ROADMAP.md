@@ -4,8 +4,8 @@
 
 - `v0.19.0` is the latest published release. Its immutable release record is
   `docs/release/v0.19.0-release-notes.md`, with artifact digests in
-  `docs/release/v0.19.0-checksums.txt`. (The `v0.13.0` and `v0.15.0` tags
-  were never published.)
+  `docs/release/v0.19.0-checksums.txt`. (The `v0.13.0`, `v0.15.0` and
+  `v0.19.1` tags were never published.)
 - `v0.11.0` shipped the Phase 1 periphery cut; `v0.11.1` shipped the Phase 2
   debt sweep. Their records are unchanged.
 - `v0.12.0` shipped the Phase 3 structural refactor with **Structure only.
@@ -96,4 +96,4 @@ restore, recorded security disposition) shipped in Phases 4 and 5.
 `v0.19.0` is the latest published release and remains the install, checksum,
 and baseline reference.
 
-`v0.19.1` is the current release candidate. It is not published.
+`v0.19.2` is the current release candidate. It is not published.

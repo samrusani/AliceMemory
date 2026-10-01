@@ -11,8 +11,9 @@
   reference integrations**, and `v0.12.0` shipped the Phase 3 structural
   refactor as **Structure only. Zero behavior change.** Records for both remain
   under `docs/release/`.
-- Two tags exist that were never published: `v0.13.0`, superseded by `v0.13.1`,
-  and `v0.15.0`. Neither has a GitHub Release or a PyPI artifact.
+- Three tags exist that were never published: `v0.13.0`, superseded by
+  `v0.13.1`; `v0.15.0`; and `v0.19.1`, superseded by `v0.19.2`. None has a PyPI
+  artifact or a published GitHub Release.
 - LongMemEval_s is 81.2%, a mean of three runs on `v0.12.0` `store_chunks`.
   It is not the product path and not a measurement of the current release.
 - Alice remains public-alpha, pre-1.0, local-first, single-user, and self-hosted.
@@ -87,14 +88,16 @@ Every earlier release remains published and immutable, with its own
 `v0.13.1`, `v0.12.0` and `v0.11.1`, which are referenced elsewhere in this
 document.
 
-Two tags exist that were never published and never will be, because stable tags
-are immutable and the numbers are retired rather than reused: `v0.13.0`,
-superseded by `v0.13.1`, and `v0.15.0`, whose commit carried a release-gate step
-that could not run on a CI runner.
+Three tags exist that were never published and never will be, because stable
+tags are immutable and the numbers are retired rather than reused: `v0.13.0`,
+superseded by `v0.13.1`; `v0.15.0`, whose commit carried a release-gate step that
+could not run on a CI runner; and `v0.19.1`, whose publish run failed at the
+draft readback because a release script imported the package in a job that does
+not install it, so it has no PyPI artifact and no published GitHub Release.
 
-## What `v0.19.1` Targets
+## What `v0.19.2` Targets
 
-`v0.19.1` is the current release candidate. It is not published.
+`v0.19.2` is the current release candidate. It is not published.
 
 It takes the fixes on `main` since `v0.19.0`. Most come from an internal
 security review of `v0.19.0`. It adds no tool or command and changes no schema. The
@@ -106,9 +109,13 @@ note that contains protocol text. Recall and the context pack leave out memory
 ids the caller cannot read, and refuse a query the SQLite source search cannot
 take.
 
-- [v0.19.1 release notes](https://github.com/samrusani/AliceMemory/blob/main/docs/release/v0.19.1-release-notes.md)
+It also carries the fix for the release script that failed the publish run of
+the never-published `v0.19.1`: the draft readback, finalize, resume and recovery
+jobs run it without the package installed, and it no longer imports the package.
 
-`v0.19.1` has these changes. `v0.19.0` does not.
+- [v0.19.2 release notes](https://github.com/samrusani/AliceMemory/blob/main/docs/release/v0.19.2-release-notes.md)
+
+`v0.19.2` has these changes. `v0.19.0` does not.
 
 - `alice-memory import` restores a stored claim that an agent API key wrote a
   row as `auth: imported_claim`, keeps the original as `claimed_auth`, and
@@ -190,14 +197,14 @@ relative or empty `--data-dir` is refused. There is no schema change.
   bytes with a source in the vault, made the hook print `{}`.
 - Every MCP tool sets `openWorldHint` to false. Five tools are read-only, two
   are non-destructive, and four are destructive. `v0.18.0` tools declare no
-  hints. From `v0.19.1`, `alice_memory_review` is
+  hints. From `v0.19.2`, `alice_memory_review` is
   read-only, so with the full tool set six tools are read-only and three are
   destructive.
 - `alice-memory mcp` refuses an empty or relative `--data-dir` with exit 2,
   and the session-start hook prints one line and exits 0 for a relative
   `--data-dir` or plugin `data_dir`. A relative `ALICE_MEMORY_DATA_DIR` is
   not checked. `v0.18.0` creates the vault under the current directory.
-  From `v0.19.1`, the hook refuses a relative
+  From `v0.19.2`, the hook refuses a relative
   `ALICE_MEMORY_DATA_DIR` the same way.
 - `alice-memory install --host hermes` keeps a comment in the `alice` block
   when nothing needs to change, and refuses when a change is needed. In
@@ -242,7 +249,7 @@ There is no schema change.
   commit. The `/v1` memory operations commit reads no role in `v0.19.0`:
   assist applies an explicit match of an allowed type at 0.9 or more from
   either role, and auto applies any match of an allowed type at 0.9 or more.
-  From `v0.19.1`, it applies only a user turn that
+  From `v0.19.2`, it applies only a user turn that
   matches an explicit prefix, as the capture commit does.
 - A JSON write under `/v0` that names the user only in the
   `X-AliceBot-User-Id` header reaches the route with that user in the body. In

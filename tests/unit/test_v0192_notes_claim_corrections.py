@@ -1,8 +1,8 @@
-"""The v0.19.1 notes and docs carry the corrections the claim checks asked for.
+"""The v0.19.2 notes and docs carry the corrections the claim checks asked for.
 
 Each test names the sites that state one claim and pins the corrected wording at
 every one of them, so a site that is edited back to the old wording fails. The
-claims were checked by running v0.19.1 and v0.19.0 side by side. The
+claims were checked by running v0.19.2 and v0.19.0 side by side. The
 docstring of each test names the mutation it kills.
 """
 
@@ -18,13 +18,13 @@ def _flat(path: str) -> str:
     return " ".join(text.split())
 
 
-NOTES = "docs/release/v0.19.1-release-notes.md"
+NOTES = "docs/release/v0.19.2-release-notes.md"
 CHANGELOG = "CHANGELOG.md"
 
 
 def _released_changelog() -> str:
     changelog = _flat(CHANGELOG)
-    return changelog[changelog.index("## v0.19.1") : changelog.index("## v0.19.0")]
+    return changelog[changelog.index("## v0.19.2") : changelog.index("## v0.19.0")]
 
 
 def test_resume_fails_on_a_long_query_once_any_active_memory_exists() -> None:
@@ -234,3 +234,39 @@ def test_no_tracked_file_names_the_owner_login_used_as_a_test_fixture() -> None:
 
     author_test = (REPO_ROOT / "tests" / "unit" / "test_commit_author_check.py").read_text(encoding="utf-8")
     assert "14844597+example-user@users.noreply.github.com" in author_test
+
+
+def test_the_retired_v0191_number_is_explained_and_recorded() -> None:
+    """v0.19.1 was tagged, never published, and v0.19.2 carries its content.
+
+    The notes explain why the number moved, the changelog has no v0.19.1 section
+    (v0.15.0 has none either) and still says v0.19.1 was never published, and
+    both copies of the current-state document list the tag next to v0.13.0 and
+    v0.15.0 with the reason.
+
+    Mutations, each one alone: delete the "Why 0.19.2 and not 0.19.1" section or
+    its "no PyPI artifact and no published GitHub Release" sentence from the
+    notes; add a "## v0.19.1" heading to the changelog; drop v0.19.1 from the
+    never-published list or its reason in either current-state copy.
+    """
+
+    notes = _flat(NOTES)
+    assert "## Why 0.19.2 and not 0.19.1 `v0.19.1` was tagged" in notes
+    assert "Nothing was published under it: no PyPI artifact and no published GitHub Release." in notes
+    assert "The tag stays and the number is retired rather than reused." in notes
+    assert "`v0.19.2` carries the same product changes as the `v0.19.1` commit" in notes
+    assert notes.count("## Why 0.19.2 and not 0.19.1") == 1
+
+    changelog = (REPO_ROOT / CHANGELOG).read_text(encoding="utf-8")
+    assert "\n## v0.19.1" not in changelog
+    assert "and v0.19.1 was never published." in _released_changelog()
+
+    for name in ("CURRENT_STATE.md", ".ai/handoff/CURRENT_STATE.md"):
+        state = _flat(name)
+        assert "Three tags exist that were never published: `v0.13.0`, superseded by `v0.13.1`; `v0.15.0`; and `v0.19.1`, superseded by `v0.19.2`." in state, name
+        assert "None has a PyPI artifact or a published GitHub Release." in state, name
+        assert (
+            "and `v0.19.1`, whose publish run failed at the draft readback because a release script "
+            "imported the package in a job that does not install it, so it has no PyPI artifact and "
+            "no published GitHub Release."
+        ) in state, name

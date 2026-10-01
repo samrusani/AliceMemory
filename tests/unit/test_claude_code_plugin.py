@@ -1561,7 +1561,7 @@ def test_the_docs_say_what_v0190_ships_and_keep_the_option_rules() -> None:
     ignores it, and one of them holds the relative-value sentence. The
     changelog's v0.19.0 section, the README and the quickstart each keep the
     plugin line they already have, and the sections above v0.19.0's (the empty
-    Unreleased section and v0.19.1's) do not hold a plugin entry of v0.19.0's. The
+    Unreleased section and v0.19.2's) do not hold a plugin entry of v0.19.0's. The
     README, the quickstart, the plugin page and the plugin README say the plugin
     installs from the `alicememory` marketplace, give the two commands, and no
     longer say it arrives once v0.19.0 is published. The reader must not take
@@ -1573,7 +1573,7 @@ def test_the_docs_say_what_v0190_ships_and_keep_the_option_rules() -> None:
     option paragraph or the default sentence; delete the relative-value
     sentence; drop the unset-option reason; drop the "In v0.18.0 there is no
     Claude Code plugin" clause from the changelog, the README or the quickstart;
-    move a plugin entry from the v0.19.0 changelog section up into the v0.19.1
+    move a plugin entry from the v0.19.0 changelog section up into the v0.19.2
     section or back under Unreleased;
     put "once v0.19.0 is published" back into the README, the quickstart, the
     plugin page or the plugin README; drop either marketplace command from one
@@ -1614,10 +1614,10 @@ def test_the_docs_say_what_v0190_ships_and_keep_the_option_rules() -> None:
 
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     sections = changelog.split("\n## ")
-    # v0.19.1 is cut. The plugin entries stay in the v0.19.0 section and do not
-    # move up into a newer one or into Unreleased, which may hold later entries.
-    assert sections[1].split("\n", 1)[0].strip() == "Unreleased"
-    assert sections[2].startswith("v0.19.1 \u2014 2026-10-01\n")
+    # v0.19.2 is cut, so Unreleased is empty. The plugin entries stay in the
+    # v0.19.0 section and do not move up into a newer one.
+    assert sections[1].strip() == "Unreleased"
+    assert sections[2].startswith("v0.19.2 \u2014 2026-10-01\n")
     assert sections[3].startswith("v0.19.0 \u2014 2026-09-30\n")
     flat = " ".join(sections[3].split())
     unreleased = " ".join(sections[1].split()) + " " + " ".join(sections[2].split())

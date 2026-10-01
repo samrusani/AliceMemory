@@ -400,6 +400,15 @@ The `Publish to PyPI` workflow then:
 - only after the PyPI job succeeds, verifies the staged files against PyPI's
   recorded SHA-256 digests and makes that same draft non-draft and immutable.
 
+Only the first job installs the project. The jobs that stage the draft,
+finalize, resume and recover a release run scripts on the runner's bare Python,
+with no `alicebot_api` and no third-party package, so every script they run
+imports only the standard library and sibling scripts.
+`tests/unit/test_publish_workflow_lean_job_imports.py` reads the jobs from
+`publish-pypi.yml` and enforces that, and runs the scripts under `python -I -S`.
+`v0.19.1` was never published because a release script imported the package in
+one of those jobs.
+
 ### Recovering finalization after PyPI succeeds
 
 The workflow deliberately stages and verifies a draft before crossing the
@@ -462,4 +471,4 @@ macOS with `shasum -a 256 -c SHA256SUMS`.
 `v0.19.0` is the latest published release and remains the install, checksum,
 and baseline reference.
 
-`v0.19.1` is the current release candidate. It is not published.
+`v0.19.2` is the current release candidate. It is not published.

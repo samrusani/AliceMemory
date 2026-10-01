@@ -1,6 +1,6 @@
 # Claude Code plugin
 
-The plugin directory ships in v0.19.0. v0.18.0 has no Claude Code plugin and no marketplace file. The v0.19.0 tag has no marketplace file either. `main` has one, and the plugin installs from it as the `alicememory` marketplace. The v0.19.1 tag carries the file, still pinned to the v0.19.0 tag commit until a later change moves it.
+The plugin directory ships in v0.19.0. v0.18.0 has no Claude Code plugin and no marketplace file. The v0.19.0 tag has no marketplace file either. `main` has one, and the plugin installs from it as the `alicememory` marketplace. The v0.19.2 tag carries the file, still pinned to the v0.19.0 tag commit until a later change moves it.
 
 The plugin is `plugins/alice-memory`. `.claude-plugin/marketplace.json` on `main` lists it with a `git-subdir` source pinned to the v0.19.0 tag and to that tag's commit. A later change to the plugin directory on `main` is not installed until a change moves the pin to a later tag.
 
