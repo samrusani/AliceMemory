@@ -19,7 +19,10 @@
   with per-question evidence for every run committed. That harness is not
   the product path. `pack_excerpts` is the product-path mode and is not
   yet a published score. The earlier **79.4% (397/500)** single run from
-  2026-07-07 is retained as evidence.
+  2026-07-07 is retained as evidence. Known issue: the harness showed the
+  reader model each session's id, and in this dataset every evidence session
+  id starts with `answer_`. The effect is unmeasured, so both numbers may be
+  overstated by an unknown amount. See the README Benchmark section.
 - Detailed v0.10.4 repair-batch chronology is historical evidence under
   `docs/handoff/history/`; it is not current roadmap work.
 
