@@ -61,7 +61,6 @@ Also open in v0.19.2, with the detail in the release notes:
 - the context pack drops `validity.superseded` together with a `superseded_by` pointer to a row the caller cannot read, where recall keeps it; this needs a row whose status is still active
 - a backup column that is itself a JSON text too deep for the decoder fails import with the generic `alice_memory_failed`, not `restore_failed`, and nothing is written
 - the server answers a `POST /v0/continuity/captures/candidates` body that carries a lone surrogate with HTTP 500, so a Hermes turn that carries one is not saved. Unreleased (on main, not in v0.19.2): every route answers a body that carries one with HTTP 422, and Hermes provider 0.5.3 replaces it with U+FFFD, so the turn is saved
-- the Claude Code marketplace file pins the v0.19.0 tag commit until a change after this release moves it, so the marketplace install runs v0.19.0 code until then
 
 See [Backup and restore](backup-and-restore.md) before upgrading or moving a store.
 
