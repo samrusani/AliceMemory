@@ -14,10 +14,13 @@ first 10 hex characters of ``HMAC-SHA256(key, question_id + NUL + session_id)``.
 * The key is a constant experiment key identified by ``ANON_KEY_ID`` and
   recorded in the run fingerprint. It is not a secret. It only has to keep the
   label from being computable by the reader and from carrying the dataset's
-  prefixes; a constant key (not a per-run random one) is what keeps
-  ``context_sha256`` comparable between arms and runs, so paired comparison
-  and ``compare_runs.py`` work unchanged and the mapping can be recomputed
-  offline.
+  prefixes; a constant key (not a per-run random one) gives a session the same
+  label in every arm and run, so retrieved session labels line up between
+  arms and the mapping can be recomputed offline. It also keeps
+  ``context_sha256`` repeatable on the prose context
+  pack. It does not on the JSON pack or the recall surface, whose output
+  carries per-store ids and the ingest clock: compare those rows by answers
+  and retrieved session labels.
 * Labels are scoped by question id, so one session id gets a different label
   under every question.
 * Two different session ids that share a label inside one question raise

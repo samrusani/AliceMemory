@@ -52,6 +52,7 @@ from longmemeval.adapter import (
     EXCERPT_SOURCES,
     PROMOTION_MODES,
     PROMOTION_MODE_SOURCES_ONLY,
+    RECALL_MAX_LIMIT,
     RECALL_RESULT_FORMAT,
     SURFACES,
     SURFACE_RECALL,
@@ -120,6 +121,7 @@ _FILENAME_SAFE = re.compile(r"[^A-Za-z0-9._-]+")
 # optional roll-up path must invalidate an existing ``*.ingested.json`` marker.
 _INGEST_CODE_MANIFEST = (
     Path("eval/longmemeval/adapter.py"),
+    Path("eval/longmemeval/session_labels.py"),
     Path("apps/api/src/alicebot_api/sqlite_store.py"),
     Path("apps/api/src/alicebot_api/vnext_capture.py"),
     Path("apps/api/src/alicebot_api/vnext_embeddings.py"),
@@ -345,6 +347,7 @@ def _build_ingest_marker_payload(
         # different store: raw ids sit in its text and metadata, or its
         # memories were accepted. Reusing it under another mode would mix them.
         "session_label_mode": session_label_mode,
+        "session_label_key_id": key_id_for_mode(session_label_mode),
         "promotion_mode": promotion_mode,
     }
 
@@ -833,6 +836,11 @@ def validate_run_choices(config: RunnerConfig) -> str | None:
             return "--surface recall returns the tool's own excerpts; use --excerpt-source pack_excerpts"
         if config.pack_format != DEFAULT_PACK_FORMAT:
             return "--pack-format applies to the context pack surface; recall hands the reader the tool result"
+        if not 1 <= config.max_items <= RECALL_MAX_LIMIT:
+            return (
+                f"--max-items {config.max_items} is outside 1 to {RECALL_MAX_LIMIT}; "
+                "--surface recall passes it as the recall tool's limit, which refuses anything else"
+            )
         blocker = recall_surface_blocker()
         if blocker is not None:
             return blocker

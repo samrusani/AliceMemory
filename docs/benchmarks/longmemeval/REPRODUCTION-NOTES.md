@@ -40,10 +40,18 @@ The label of a session is `S` followed by the first 10 hex characters of
 `HMAC-SHA256(key, question_id + NUL + session_id)`. The key is a constant
 experiment key with the key id `lme-anon-v1`, recorded in the fingerprint. It is
 not a secret. It keeps the label from being computable by the reader and from
-carrying the dataset's prefixes. It is constant on purpose: labels, and so the
-rendered context, are identical across arms and across runs, which keeps paired
-comparison with `compare_runs.py` meaningful, and the mapping can be recomputed
-offline.
+carrying the dataset's prefixes. It is constant on purpose: a session gets the
+same label in every arm and every run, so retrieved session labels line up
+between arms, and the mapping can be recomputed offline. `compare_runs.py` joins
+on `question_id` and needs nothing from the labels.
+
+The constant key does not make every rendered context repeatable. On the prose
+context pack the same store content gives the same `context_sha256` on every
+run. The JSON pack and the recall tool result carry per-store source and memory
+ids, and the recall result also carries `captured_at`, which is the ingest wall
+clock, so on those two `context_sha256` is different on every run even with the
+same config and the same labels. Compare those rows by answers and by
+`retrieval.provenance.source_session_ids`, not by the hash.
 
 - A label is used everywhere a session id used to go: the first paragraph of the
   session text, the source title, the external id, the source metadata, the
@@ -123,7 +131,9 @@ What differs on the recall surface, all of it as the tool behaves:
 
 - The limit is the run's `--max-items`. Its default, 8, equals the tool's default
   (a test pins that they stay equal). The replication used 16, so
-  `--max-items 16` is a non-default recall call; the fingerprint records it.
+  `--max-items 16` is a non-default recall call; the fingerprint records it. The
+  tool accepts 1 to 50, and the run refuses any other value before the first
+  question is ingested.
 - There is no reference time, no coverage or aggregation gate and no instance
   diversity pass: the tool has none.
 - No context character budget applies. The fingerprint records
@@ -158,8 +168,11 @@ These are configurations, not results. Nothing here has been run.
 | Recall tool | `--surface recall` (add `--promotion-mode sources_only` for a store with no accepted memories) |
 
 Spend is the operator's call: every scored arm calls a chat model, a judge and,
-when embeddings are configured, an embedding model. `--dry-run` ingests and
-retrieves only and calls no model.
+when embeddings are configured, an embedding model. `--dry-run` calls no chat
+model and no judge. It ingests and retrieves with the same `ALICE_EMBEDDINGS_*`
+variables as a scored arm, so with embeddings configured it still calls the
+embedding model, for ingest and for the query embedding of each retrieval.
+Unset those variables for a dry run that calls nothing.
 
 ## Checks
 

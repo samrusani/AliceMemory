@@ -31,7 +31,7 @@ for _path in (_EVAL_DIR, _API_SRC):
     if str(_path) not in sys.path:
         sys.path.insert(0, str(_path))
 
-from alicebot_api.mcp.types import _RECALL_DEFAULT_LIMIT  # noqa: E402
+from alicebot_api.mcp.types import _RECALL_DEFAULT_LIMIT, _RECALL_MAX_LIMIT  # noqa: E402
 from alicebot_api.mcp_tools import AGENT_API_KEY_ENV, MCPRuntimeContext, call_mcp_tool  # noqa: E402
 from alicebot_api.recall_framing import serialize_mcp_tool_result  # noqa: E402
 
@@ -294,6 +294,42 @@ def test_reuse_marker_separates_label_and_promotion_modes(tmp_path: Path) -> Non
     )
 
 
+def test_reuse_marker_records_the_label_key_id(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Fails if a store ingested under one label key can be reused under another.
+
+    Mutation: drop ``"session_label_key_id"`` from ``_build_ingest_marker_payload``.
+    The key decides every label in the store, so a store built with one key must
+    not be reused once the key id changes. The raw mode has no key and records
+    ``None``.
+    """
+    question = load_dataset(SYNTHETIC_FIXTURE_PATH)[0]
+    base = _config(tmp_path)
+    marker = runner._ingest_marker_payload(question, base)
+    assert marker["session_label_key_id"] == session_labels.ANON_KEY_ID
+    raw_marker = runner._ingest_marker_payload(question, replace(base, session_label_mode=SESSION_LABEL_MODE_RAW))
+    assert raw_marker["session_label_key_id"] is None
+
+    marker_path = tmp_path / "q.ingested.json"
+    marker_path.write_text(json.dumps(marker), encoding="utf-8")
+    assert runner._reuse_marker_matches(marker_path, question, config=base)
+    monkeypatch.setattr(runner, "key_id_for_mode", lambda _mode: "lme-anon-v2")
+    assert not runner._reuse_marker_matches(marker_path, question, config=base)
+
+
+def test_reuse_code_digest_covers_the_label_function() -> None:
+    """Fails if a change to the label function would leave kept stores reusable.
+
+    Mutation: remove ``eval/longmemeval/session_labels.py`` from
+    ``_INGEST_CODE_MANIFEST``. A change there changes every label in every store,
+    so it has to change the digest that the marker carries. (The loop in
+    ``test_harness`` proves every manifest entry moves the digest; this proves the
+    label module is one of them.)
+    """
+    assert Path("eval/longmemeval/session_labels.py") in runner._INGEST_CODE_MANIFEST
+    assert (_EVAL_DIR.parent / "eval/longmemeval/session_labels.py").is_file()
+    assert runner._ingest_code_digest()
+
+
 # -- excerpt source resolution -----------------------------------------------------------------
 
 
@@ -345,6 +381,29 @@ def test_incoherent_combinations_are_refused_before_any_question_runs(
     assert runner.main(_main_args(tmp_path, "--surface", "recall")) == runner.EXIT_CONFIG_ERROR
     assert "ALICE_AGENT_API_KEY" in capsys.readouterr().err
     assert not (tmp_path / "ckpt.jsonl").exists()
+
+
+def test_recall_surface_refuses_a_max_items_the_tool_would_refuse(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Fails if ``--surface recall`` accepts a ``--max-items`` outside the tool's range.
+
+    Mutation: remove the ``max_items`` branch from ``validate_run_choices``. The
+    surface passes ``max_items`` as the tool's ``limit`` (1 to 50), so a larger
+    value used to pass preflight, ingest every store and then fail every question
+    at retrieval. The context pack surface has no such bound and is unchanged.
+    """
+    assert adapter.RECALL_MAX_LIMIT == _RECALL_MAX_LIMIT == 50
+    for allowed in (1, 16, adapter.RECALL_MAX_LIMIT):
+        assert runner.validate_run_choices(_recall_config(tmp_path, max_items=allowed)) is None, allowed
+    for refused in (0, -1, adapter.RECALL_MAX_LIMIT + 1, 64):
+        problem = runner.validate_run_choices(_recall_config(tmp_path, max_items=refused))
+        assert problem is not None and "--max-items" in problem and "50" in problem, refused
+    assert runner.validate_run_choices(_config(tmp_path, max_items=64)) is None
+
+    assert runner.main(_main_args(tmp_path, "--surface", "recall", "--max-items", "64")) == runner.EXIT_CONFIG_ERROR
+    assert "--max-items" in capsys.readouterr().err
+    assert not (tmp_path / "ckpt.jsonl").exists() and not (tmp_path / "work").exists()
 
 
 def test_label_collision_stops_the_run_before_any_question(
@@ -452,6 +511,161 @@ def test_sources_only_cannot_accept_rollups(tmp_path: Path) -> None:
     ) as run:
         with pytest.raises(ValueError, match="sources_only"):
             run.ingest(accept_rollups=True)
+
+
+# -- the runner hands each choice to the code that executes it ----------------------------------------
+#
+# The fingerprint, every row and the marker say what the operator asked for. The
+# tests above check that they say it. These check the other half: that the thing
+# that runs is what the rows say. A choice dropped at a call site leaves the
+# record true to the request and false to the run, which is the failure this
+# harness version exists to remove. Each test sets a NON-default value and leaves
+# ALICE_LME_EXCERPT_SOURCE unset (the autouse fixture), so a dropped argument
+# falls back to the default and the observable result changes.
+
+
+def _long_session_question():  # type: ignore[no-untyped-def]
+    """One evidence session long enough that the two excerpt readers differ.
+
+    The synthetic fixture's sessions are a few turns each, so the whole document
+    fits the pack's one windowed excerpt and both readers render the same text.
+    Here the session is 81 turns: ``store_chunks`` reads every chunk the budget
+    allows, ``pack_excerpts`` gets the one window the pack returned.
+    """
+    turns: list[dict[str, object]] = []
+    for index in range(40):
+        turns.append(
+            {
+                "role": "user",
+                "content": f"Filler remark number {index} about gardening, tomatoes and the weather in the valley, "
+                "nothing else of note here at all today.",
+            }
+        )
+        turns.append(
+            {
+                "role": "assistant",
+                "content": f"Noted remark {index}. Tomatoes need steady watering and the weather in the valley is "
+                "mild, so keep the beds mulched and the stakes tied.",
+            }
+        )
+    turns.insert(
+        30,
+        {"role": "user", "content": "My dog Biscuit is a golden retriever and she loves swimming at the lake.", "has_answer": True},
+    )
+    return parse_question(
+        {
+            "question_id": "long_1",
+            "question_type": "single-session-user",
+            "question": "What breed is the user's dog Biscuit?",
+            "answer": "Golden retriever",
+            "question_date": "2023/06/01 (Thu) 10:00",
+            "haystack_dates": ["2023/05/20 (Sat) 14:10"],
+            "haystack_session_ids": ["answer_long_1"],
+            "haystack_sessions": [turns],
+            "answer_session_ids": ["answer_long_1"],
+        }
+    )
+
+
+def _run_question_record(tmp_path: Path, question, name: str, **overrides: object) -> dict[str, object]:  # type: ignore[no-untyped-def]
+    config = _config(tmp_path, work_dir=tmp_path / name, **overrides)
+    config.work_dir.mkdir()
+    record = runner.run_question(question, config, model=None, judge=None, fingerprint_digest="d")
+    assert record["status"] == "ok", record["error"]
+    return record
+
+
+def _section(record: dict[str, object], key: str) -> dict[str, object]:
+    section = record[key]
+    assert isinstance(section, dict)
+    return section
+
+
+def test_run_question_hands_the_promotion_mode_to_the_ingest(tmp_path: Path) -> None:
+    """Fails if ``run_question`` records a promotion mode it did not execute.
+
+    Mutation R2: remove ``promotion_mode=config.promotion_mode`` from the
+    ``question_run`` call in ``run_question``. The row would still say
+    ``sources_only`` while the ingest promoted every candidate and the reader
+    saw the memories. Before this test that change left every eval test green.
+    """
+    question = load_dataset(SYNTHETIC_FIXTURE_PATH)[0]
+    default = _run_question_record(tmp_path, question, "default")
+    assert _section(default, "ingest")["promoted_memory_count"] > 0  # type: ignore[operator]
+    assert _section(default, "retrieval")["memory_count"] > 0  # type: ignore[operator]
+
+    record = _run_question_record(
+        tmp_path, question, "sources_only", promotion_mode=adapter.PROMOTION_MODE_SOURCES_ONLY
+    )
+    assert record["promotion_mode"] == adapter.PROMOTION_MODE_SOURCES_ONLY
+    ingest = _section(record, "ingest")
+    assert ingest["candidate_memory_count"] > 0, "capture extracted no candidates, the test would prove nothing"  # type: ignore[operator]
+    assert ingest["promoted_memory_count"] == 0
+    assert _section(record, "retrieval")["memory_count"] == 0
+    assert _section(record, "retrieval")["source_count"] > 0  # type: ignore[operator]
+
+
+def test_run_question_hands_the_excerpt_source_to_the_reader(tmp_path: Path) -> None:
+    """Fails if ``run_question`` records an excerpt source the reader did not use.
+
+    Mutation R4: remove ``excerpt_source=config.excerpt_source`` from the
+    ``question_run`` call in ``run_question``. The row would say
+    ``pack_excerpts`` while the run read store chunks. The test that sets
+    ``ALICE_LME_EXCERPT_SOURCE`` could not catch this, because the variable
+    supplies the right value even when the argument is dropped.
+    """
+    question = _long_session_question()
+    direct: dict[str, adapter.RetrievalOutcome] = {}
+    for source in adapter.EXCERPT_SOURCES:
+        with adapter.question_run(question, tmp_path / f"direct-{source}.sqlite3", excerpt_source=source) as run:
+            run.ingest()
+            direct[source] = run.retrieve(max_items=8, context_char_budget=12_000)
+    assert (
+        direct[adapter.EXCERPT_SOURCE_STORE_CHUNKS].excerpt_count
+        > direct[adapter.EXCERPT_SOURCE_PACK_EXCERPTS].excerpt_count
+    ), "the fixture no longer separates the two readers, the test would prove nothing"
+
+    for source in adapter.EXCERPT_SOURCES:
+        record = _run_question_record(tmp_path, question, f"run-{source}", excerpt_source=source)
+        assert record["excerpt_source"] == source
+        retrieval = _section(record, "retrieval")
+        assert retrieval["excerpt_count"] == direct[source].excerpt_count, source
+        assert retrieval["context_chars"] == direct[source].context_chars, source
+
+
+def test_question_run_hands_every_choice_to_the_run(tmp_path: Path) -> None:
+    """Fails if ``question_run`` drops a choice on the way to ``QuestionRun``.
+
+    Mutation B16: remove ``excerpt_source=excerpt_source`` from the
+    ``QuestionRun(...)`` call inside ``question_run``. The other three kwargs are
+    also named here (removing ``session_label_mode``, ``promotion_mode`` or
+    ``surface`` from that call fails this test as well; those were already caught
+    elsewhere). Each attribute is checked at a non-default value, and the
+    excerpt source on the context pack surface, where ``pack_excerpts`` is not
+    what the default resolves to.
+    """
+    question = load_dataset(SYNTHETIC_FIXTURE_PATH)[0]
+    with adapter.question_run(
+        question,
+        tmp_path / "a.sqlite3",
+        excerpt_source=adapter.EXCERPT_SOURCE_PACK_EXCERPTS,
+        session_label_mode=SESSION_LABEL_MODE_RAW,
+        promotion_mode=adapter.PROMOTION_MODE_SOURCES_ONLY,
+        surface=adapter.SURFACE_CONTEXT_PACK,
+    ) as run:
+        assert run.excerpt_source == adapter.EXCERPT_SOURCE_PACK_EXCERPTS
+        assert run.session_label_mode == SESSION_LABEL_MODE_RAW
+        assert run.promotion_mode == adapter.PROMOTION_MODE_SOURCES_ONLY
+        assert run.surface == adapter.SURFACE_CONTEXT_PACK
+    with adapter.question_run(
+        question,
+        tmp_path / "b.sqlite3",
+        excerpt_source=adapter.EXCERPT_SOURCE_PACK_EXCERPTS,
+        surface=adapter.SURFACE_RECALL,
+    ) as run:
+        assert run.surface == adapter.SURFACE_RECALL
+        assert run.session_label_mode == SESSION_LABEL_MODE_ANONYMISED
+        assert run.promotion_mode == adapter.PROMOTION_MODE_ALL_CANDIDATES
 
 
 # -- the recall surface --------------------------------------------------------------------------

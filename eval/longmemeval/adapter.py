@@ -62,6 +62,7 @@ from typing import Callable, Iterator
 from urllib.parse import quote
 from uuid import UUID
 
+from alicebot_api.mcp.types import _RECALL_MAX_LIMIT
 from alicebot_api.mcp_tools import AGENT_API_KEY_ENV, MCPRuntimeContext, call_mcp_tool
 from alicebot_api.recall_framing import serialize_mcp_tool_result
 from alicebot_api.sqlite_store import SQLiteVNextStore, ensure_sqlite_user, sqlite_user_connection
@@ -167,6 +168,9 @@ RECALL_RESULT_FORMAT = "recall_result"
 
 DEFAULT_CONTEXT_CHAR_BUDGET = 12_000
 DEFAULT_MAX_ITEMS = 8
+# The recall tool refuses a limit above this. The recall surface passes the run's
+# max_items as the limit, so the runner checks it before any store is built.
+RECALL_MAX_LIMIT = _RECALL_MAX_LIMIT
 
 EMPTY_CONTEXT_PLACEHOLDER = "(no relevant chat history was retrieved)"
 
@@ -1518,6 +1522,7 @@ __all__ = [
     "PROMOTION_MODE_ALL_CANDIDATES",
     "PROMOTION_MODE_SOURCES_ONLY",
     "QuestionRun",
+    "RECALL_MAX_LIMIT",
     "RECALL_RESULT_FORMAT",
     "ROLLUP_ACCEPTANCE_REASON",
     "RetrievalOutcome",
