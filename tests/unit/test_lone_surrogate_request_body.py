@@ -370,7 +370,11 @@ def test_a_request_that_is_refused_before_its_body_is_needed_has_its_body_left_u
     """
 
     body = _escaped({"user_id": USER_ID, "user_content": "x"})
-    json_headers = [(b"content-type", b"application/json"), (b"x-alicebot-user-id", USER_ID.encode())]
+    json_headers = [
+        (b"host", b"127.0.0.1:8000"),
+        (b"content-type", b"application/json"),
+        (b"x-alicebot-user-id", USER_ID.encode()),
+    ]
 
     status, _headers, raw, reads = _asgi_exchange(
         main_module.app, "POST", _V1_GENERATE, body, headers=json_headers, client=("203.0.113.9", 50000)
@@ -397,7 +401,11 @@ def test_a_refused_body_leaves_with_the_security_headers(reached: list[str]) -> 
     """
 
     body = _escaped({"user_id": USER_ID, "raw_content": "\ud800"})
-    headers = [(b"content-type", b"application/json"), (b"x-alicebot-user-id", USER_ID.encode())]
+    headers = [
+        (b"host", b"127.0.0.1:8000"),
+        (b"content-type", b"application/json"),
+        (b"x-alicebot-user-id", USER_ID.encode()),
+    ]
     status, response_headers, _raw, _reads = _asgi_exchange(main_module.app, "POST", _CAPTURES, body, headers=headers)
 
     assert status == 422
@@ -889,7 +897,11 @@ def test_a_request_no_route_takes_keeps_its_404_or_405_and_its_body_is_not_read_
     """
 
     body = _escaped({"user_id": USER_ID, "user_content": f"{SENTINEL} \ud800"})
-    headers = [(b"content-type", b"application/json"), (b"x-alicebot-user-id", USER_ID.encode())]
+    headers = [
+        (b"host", b"127.0.0.1:8000"),
+        (b"content-type", b"application/json"),
+        (b"x-alicebot-user-id", USER_ID.encode()),
+    ]
 
     for client in (("127.0.0.1", 50000), ("203.0.113.9", 50000)):
         got, _headers, raw, reads = _asgi_exchange(main_module.app, method, path, body, headers=headers, client=client)
@@ -913,7 +925,11 @@ def test_a_request_a_route_takes_is_still_refused_after_the_route_check(reached:
             "POST",
             _COMMIT,
             body,
-            headers=[(b"content-type", b"application/json"), (b"x-alicebot-user-id", USER_ID.encode())],
+            headers=[
+                (b"host", b"127.0.0.1:8000"),
+                (b"content-type", b"application/json"),
+                (b"x-alicebot-user-id", USER_ID.encode()),
+            ],
             client=client,
         )
         _assert_refused_without_echo(status, raw, expected=_error("candidates", 0, "[key]"))

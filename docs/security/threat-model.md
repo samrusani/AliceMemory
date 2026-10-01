@@ -55,9 +55,10 @@ credential. A request with an agent key is not checked, so keyed traffic and the
 reverse-proxy topology are unchanged. A refused request gets the gate's usual
 401. In v0.19.2 both gates looked at the peer address only, so a rebound request
 reached the API. The browser leg of the attack has not been reproduced in a real
-browser; the rule holds without it. The legacy `/v0` continuity routes, which are
-served only in development and test or with `LEGACY_V0_ENABLED_OUTSIDE_DEV`, are
-not behind these two gates and are not covered.
+browser; the rule holds without it. The legacy `/v0` routes, which are served
+only in development and test or with `LEGACY_V0_ENABLED_OUTSIDE_DEV`, take no
+agent key, so the identity layer applies the same rule to every request to them,
+whatever `Authorization` header it carries. A CORS preflight is not refused by it.
 
 Unreleased (on main, not in v0.19.2): the HTTP API caps a request body before any
 layer reads it, because a request that has not authenticated can still make the
@@ -190,7 +191,7 @@ active-key or RLS bypass remains in scope.
 | Missing key treated as remote anonymous access | Documented local-only boundary; active-key rule rejects keyless requests. | Host/proxy misconfiguration can invalidate the assumption. |
 | A provider answers with a redirect, or its name resolves to an internal address after the base URL was checked | Unreleased (on main, not in v0.19.2): `open_provider_url` refuses every redirect, so the target is never contacted and no `Authorization` or `api-key` header is sent on, and with `enforce_public_peer` it resolves the name when it connects and dials only an allowed address, over http and https. The provider helpers, response generation, Gmail and Calendar enforce it. The embeddings, reranker, fact-key and brain clients do not, because a local Ollama endpoint is a documented setup. | A request carried by a proxy is not held to the address rule, because the peer is then the proxy. The embeddings, reranker, fact-key and brain clients can reach a loopback or private address the operator configured. A provider call's response body is read whole. Any valid key can register a provider on `/v1`, which authenticates and does not authorize. |
 | Oversized or deeply nested request body before authentication | Unreleased (on main, not in v0.19.2): a body over 4 MiB (32 MiB for connector sync) is refused with HTTP 413 before any layer reads it, a keyless request from another peer is refused before its body is read, a body nested more than 256 levels is refused with HTTP 422, and the Caddy example caps the body at the proxy. | A request inside the cap still costs memory and time, and the cap is no rate limit. The cap counts bytes as sent. |
-| DNS rebinding or a cross-origin request to a keyless loopback API | Unreleased (on main, not in v0.19.2): a keyless request must name `localhost`, `127.0.0.1`, `::1` or an operator-listed host in `Host`, and any `Origin` must be a configured origin or its own. A keyed request is not checked. | Not reproduced in a real browser. The legacy `/v0` continuity routes are outside the two gated surfaces. A name the operator lists in `ALICEBOT_ALLOWED_HOSTS` is trusted as this machine. |
+| DNS rebinding or a cross-origin request to a keyless loopback API | Unreleased (on main, not in v0.19.2): a keyless request must name `localhost`, `127.0.0.1`, `::1` or an operator-listed host in `Host`, and any `Origin` must be a configured origin or its own. A keyed request is not checked. | Not reproduced in a real browser. The legacy `/v0` routes take no key, so every request to them gets the Host and Origin rule. A name the operator lists in `ALICEBOT_ALLOWED_HOSTS` is trusted as this machine. |
 | Payload claims a stronger profile or another project | Key-bound actor/profile/scope, escalation rejection events, policy tests. | Final carrier needs all-route ASGI closure evidence. |
 | Cross-user PostgreSQL read/write | Application-role RLS and user-scoped connections. | Admin credentials or a compromised host bypass the product boundary. |
 | Broad credential exposed to a visited page | One-time origin-bound clipper capability replaces reusable bookmarklet token. | The page can make its one authorized submission; the UI must show the bound origin. |

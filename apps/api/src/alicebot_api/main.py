@@ -1334,10 +1334,9 @@ async def enforce_authenticated_user_identity(
         return await call_next(request)
 
     settings = get_settings()
+    is_vnext_path = request.url.path == "/v0/vnext" or request.url.path.startswith("/v0/vnext/")
 
-    if settings.app_env not in {"development", "test"} and not (
-        request.url.path == "/v0/vnext" or request.url.path.startswith("/v0/vnext/")
-    ):
+    if settings.app_env not in {"development", "test"} and not is_vnext_path:
         if not settings.legacy_v0_enabled_outside_dev:
             return JSONResponse(
                 status_code=404,
@@ -1348,6 +1347,16 @@ async def enforce_authenticated_user_identity(
                 status_code=403,
                 content={"detail": "legacy v0 API is restricted to loopback clients"},
             )
+
+    # The legacy /v0 routes have no agent key to present, so every request to them
+    # is a keyless one: it must name this machine in Host, and any Origin it sends
+    # must be its own or a configured one (DB-005). A key-shaped Authorization
+    # header does not exempt it, because these routes never check one. The vNext
+    # gate runs the same rule for its own keyless requests.
+    if not is_vnext_path and request.method != "OPTIONS":
+        legacy_refusal = keyless_request_refusal(request, settings)
+        if legacy_refusal is not None:
+            return _authentication_failed_response(f"legacy v0 request refused: {legacy_refusal}")
 
     try:
         authenticated_user_id = _resolve_authenticated_user_id(settings, request)

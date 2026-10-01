@@ -79,7 +79,13 @@ CARRIER_NAMES = tuple(
 EXPECTED_ROUTE_AST_SHA256 = "9e5d6c2c79cc1391688b74bb5138ccaa881033546e7b0cfd34ad92e8d98ba614"
 EXPECTED_SUPPORT_AST_SHA256 = "bb694bc545e514bb81e2aa568eba1cb72ba813373015d979bac452d23d4dbd74"
 EXPECTED_CARRIER_NAMES_SHA256 = "2c109fc234a05dd8f44e4c34bee49e797fbb5e49e92413391541a7e504da328b"
-# Re-pinned 2026-10-01 (DB-006). A request body is capped before any layer reads
+# Re-pinned 2026-10-02 (DB-005, legacy /v0 routes). One definition changed,
+# found by a per-definition AST diff against the previous pin:
+# enforce_authenticated_user_identity runs keyless_edge.keyless_request_refusal
+# for every non-vnext /v0 request (the legacy routes have no agent key to
+# present), so a rebound page cannot reach them by Host or Origin. The set of
+# definitions is the same.
+# Earlier re-pin 2026-10-01 (DB-006). A request body is capped before any layer reads
 # it, and a body nested too deeply is a 422. Six definitions changed, found by a
 # per-definition AST diff against origin/main (the two DB-005 ones below are in
 # that list too): _rewrite_user_id_json_body, _v1_request_payload and
@@ -111,7 +117,7 @@ EXPECTED_CARRIER_NAMES_SHA256 = "2c109fc234a05dd8f44e4c34bee49e797fbb5e49e924133
 # lone_surrogates.py and main.py only registers it, so it adds no definition
 # here. Earlier re-pin (2026-09-26): _rewrite_user_id_json_body writes the
 # rewritten JSON into request._body before call_next.
-EXPECTED_CARRIER_AST_SHA256 = "bf8fb46f60eb4cd60f143c8012dace3e1bc8bbf76c5f108312942c8c8325b75c"
+EXPECTED_CARRIER_AST_SHA256 = "ab3fc6d61cb81a1b9c1a6573adc8e1e297cbbcf01e230effd4a0824dee2d8e2b"
 EXPECTED_ROUTE_NAME_MANIFEST_SHA256 = "1a438538e16120361f92d30375cc94679d598fe4b78ba5a58a7d8a4dda6af83c"
 EXPECTED_OPERATION_MANIFEST_SHA256 = "8b79ceaf996b8c51b5bb2f3f38a8c19a4e33796955d8b8f7a66e7ac01ea1732d"
 EXPECTED_IMPORT_MANIFEST_SHA256 = "17484ccdd460e42e2ad5c82a8ca867664694feaf871118c410a134996a532358"

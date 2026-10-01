@@ -60,6 +60,12 @@ HOSTILE_HOSTS = [
     "localhost\n",
     "127.0.0.2:8000",
     "0.0.0.0:8000",
+    # Well-formed names that only end in a loopback name (a suffix match lets them in).
+    "notlocalhost",
+    "notlocalhost:8000",
+    "evil127.0.0.1",
+    "x.localhost",
+    "x.localhost:8000",
     None,
 ]
 LOOPBACK_HOSTS = [
@@ -100,7 +106,9 @@ def test_host_refusal_needs_exactly_one_host_header_and_a_loopback_or_listed_nam
     """A missing or repeated Host is refused, and a name is allowed only by exact match.
 
     Mutations: treat a missing Host as allowed; read only the first of two
-    Host headers; match the allowed list by suffix.
+    Host headers; match the allowed list by suffix; match a loopback name by
+    suffix (``name.endswith`` for each name in ``LOOPBACK_HOSTS``), which lets
+    ``notlocalhost`` and ``x.localhost`` through.
     """
 
     assert host_refusal([], ()) == "host_header_missing_or_repeated"
@@ -111,6 +119,8 @@ def test_host_refusal_needs_exactly_one_host_header_and_a_loopback_or_listed_nam
     assert host_refusal(["evil.alice.lan"], ("alice.lan",)) == "host_not_allowed"
     assert host_refusal(["alice.lan.evil.example"], ("alice.lan",)) == "host_not_allowed"
     assert host_refusal(["Alice.LAN."], ("alice.lan",)) is None
+    for suffix_only in ("notlocalhost", "x.localhost", "evil127.0.0.1"):
+        assert host_refusal([suffix_only], ()) == "host_not_allowed", suffix_only
 
 
 @pytest.mark.parametrize(
@@ -193,11 +203,12 @@ def test_keyless_edge_refusal_checks_host_before_origin() -> None:
 
 
 def test_a_keyless_request_with_a_hostile_host_is_refused_before_the_handler(edge: Edge) -> None:
-    """Twenty Host values that are not this machine get the gate's 401 and no charter text.
+    """Every Host value in the list above that are not this machine get the gate's 401 and no charter text.
 
     Mutations, each one alone: delete the Host check in
-    ``_vnext_protected_http_auth``; match by prefix or suffix in ``parse_host``;
-    treat a missing Host as allowed.
+    ``_vnext_protected_http_auth``; match by prefix in ``parse_host``; match a
+    loopback name by suffix in ``host_refusal`` (``notlocalhost``, ``x.localhost``
+    and ``evil127.0.0.1`` are in the list); treat a missing Host as allowed.
     """
 
     edge.configure()
@@ -350,6 +361,139 @@ def test_the_v1_gate_lets_loopback_hosts_through_to_the_key_check(edge: Edge) ->
         outcome = edge.call("GET", V1_LIST_PATH, host=host)
         assert outcome.resolver_calls == 1, (host, outcome.status)
         assert not outcome.refused, host
+
+
+# The legacy /v0 routes.
+
+LEGACY_GET_PATHS = (
+    "/v0/memories",
+    "/v0/entities",
+    "/v0/continuity/captures",
+    "/v0/continuity/recall",
+)
+LEGACY_POST_PATH = "/v0/continuity/captures"
+
+
+@pytest.mark.parametrize("keys", (0, 1), ids=("no-keys", "one-key"))
+@pytest.mark.parametrize("bound", (True, False), ids=("bound", "unbound"))
+def test_a_legacy_v0_request_with_a_hostile_host_is_refused_before_the_handler(
+    edge: Edge, bound: bool, keys: int
+) -> None:
+    """The legacy ``/v0`` routes have no key to present, so a rebound page needs the Host rule there too.
+
+    In v0.19.2 and in the first draft of this change a hostile Host reached the
+    handler of ``/v0/memories``, ``/v0/entities`` and ``/v0/continuity/*``.
+
+    Mutations, each one alone: delete the Host and Origin check for non-vnext
+    paths in ``enforce_authenticated_user_identity``; apply it to
+    ``/v0/vnext`` paths only.
+    """
+
+    edge.configure(keys=keys, bound=bound)
+    for host in HOSTILE_HOSTS:
+        for path in LEGACY_GET_PATHS:
+            outcome = edge.call("GET", path, host=host, query={"user_id": USER})
+            assert outcome.refused, (host, path, outcome.status)
+            assert not outcome.reached_handler, (host, path)
+        # A write through the page's own origin: only Host can refuse it.
+        write = edge.call(
+            "POST",
+            LEGACY_POST_PATH,
+            host=host,
+            origin=None if host is None else f"http://{host}",
+            body=json.dumps({"user_id": USER, "raw_content": "REWRITTEN"}).encode(),
+            content_type="application/json",
+        )
+        assert write.refused, (host, write.status)
+        assert not write.reached_handler, host
+
+
+@pytest.mark.parametrize("bound", (True, False), ids=("bound", "unbound"))
+def test_legacy_v0_loopback_hosts_still_reach_the_handler(edge: Edge, bound: bool) -> None:
+    """A local client keeps working on every legacy route, with any loopback spelling.
+
+    Mutation: refuse every Host on the non-vnext paths.
+    """
+
+    edge.configure(bound=bound)
+    for host in LOOPBACK_HOSTS:
+        for path in LEGACY_GET_PATHS:
+            outcome = edge.call("GET", path, host=host, query={"user_id": USER})
+            assert outcome.reached_handler, (host, path, outcome.status)
+
+
+def test_a_key_shaped_authorization_header_does_not_exempt_a_legacy_v0_request(edge: Edge) -> None:
+    """The legacy routes never check a key, so a header that looks like one proves nothing.
+
+    A rebound page sets any header it likes on its own origin. Mutation: skip
+    the legacy Host and Origin check when ``agent_key_from_authorization``
+    finds a key-shaped Bearer value.
+    """
+
+    edge.configure(keys=1)
+    for authorization in (f"Bearer {KEY}", "Bearer alice_sk_v1_notarealkey_" + "0" * 20):
+        outcome = edge.call(
+            "GET",
+            "/v0/memories",
+            host="attacker.invalid",
+            query={"user_id": USER},
+            authorization=authorization,
+        )
+        assert outcome.refused, authorization
+        assert not outcome.reached_handler, authorization
+
+
+def test_a_cross_origin_request_to_a_legacy_v0_route_is_refused(edge: Edge) -> None:
+    """A blind cross-origin request from another page, with a loopback Host, is refused; a configured or own origin is not.
+
+    Mutation: check ``Host`` and skip ``Origin`` on the non-vnext paths.
+    """
+
+    edge.configure(bound=True)
+    for origin in ("https://evil.example", "null", "http://localhost:5173"):
+        for path in LEGACY_GET_PATHS:
+            outcome = edge.call("GET", path, origin=origin, query={"user_id": USER})
+            assert outcome.refused, (origin, path, outcome.status)
+            assert not outcome.reached_handler, (origin, path)
+    edge.configure(bound=True, cors_allowed_origins=("http://127.0.0.1:3000",))
+    for origin in ("http://127.0.0.1:3000", "http://127.0.0.1:8000"):
+        outcome = edge.call("GET", "/v0/memories", origin=origin, query={"user_id": USER})
+        assert outcome.reached_handler, origin
+
+
+def test_the_operator_host_list_admits_a_named_host_on_the_legacy_v0_routes(edge: Edge) -> None:
+    """``ALICEBOT_ALLOWED_HOSTS`` applies to the legacy routes as to vNext. Mutation: use only the loopback names there."""
+
+    edge.configure(allowed_hosts=("alice.lan",))
+    assert edge.call("GET", "/v0/memories", host="alice.lan:8000", query={"user_id": USER}).reached_handler
+    assert edge.call("GET", "/v0/memories", host="evil.alice.lan", query={"user_id": USER}).refused
+
+
+def test_a_preflight_to_a_legacy_v0_route_is_answered_by_the_cors_layer(edge: Edge) -> None:
+    """A preflight reads nothing and is not refused by the Host rule, as on vNext: the CORS layer answers it.
+
+    Mutation: remove the ``OPTIONS`` exemption from the legacy check in
+    ``enforce_authenticated_user_identity``. The preflight below then answers 401.
+    """
+
+    edge.configure(cors_allowed_origins=("http://127.0.0.1:3000",))
+    preflight = [("access-control-request-method", "GET")]
+    allowed = edge.call(
+        "OPTIONS",
+        "/v0/memories",
+        host="rebind.evil.example:8000",
+        origin="http://127.0.0.1:3000",
+        extra_headers=preflight,
+    )
+    assert allowed.status == 204
+    refused = edge.call(
+        "OPTIONS",
+        "/v0/memories",
+        host="rebind.evil.example:8000",
+        origin="https://evil.example",
+        extra_headers=preflight,
+    )
+    assert refused.status == 403
 
 
 # Origin on a keyless request, with no rebinding at all.

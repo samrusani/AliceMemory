@@ -41,8 +41,8 @@ def test_the_changelog_entry_sits_under_unreleased_and_states_v0192_for_host_and
     Mutations, each one alone: move the entry under the v0.19.2 heading; delete
     the sentence that says v0.19.2 checked the peer address only; delete the
     sentence that says keyed traffic is unchanged; delete the sentence that
-    names the legacy ``/v0`` continuity routes as not covered; delete the
-    ``ALICEBOT_ALLOWED_HOSTS`` instruction.
+    says the legacy ``/v0`` routes get the rule whatever ``Authorization`` header
+    they carry; delete the ``ALICEBOT_ALLOWED_HOSTS`` instruction.
     """
 
     entry = _entry()
@@ -51,12 +51,18 @@ def test_the_changelog_entry_sits_under_unreleased_and_states_v0192_for_host_and
     assert "an exact name listed in the new `ALICEBOT_ALLOWED_HOSTS` setting (comma separated, no wildcard, port or scheme)" in entry
     assert "`X-Forwarded-Host` and `Forwarded` are not read" in entry
     assert "`null` is refused, and a `*` entry does not count" in entry
-    assert "a request with an agent key is not checked, so keyed traffic and the Caddy topology are unchanged" in entry
-    assert "In v0.19.2 both gates checked the peer address only" in entry
+    assert (
+        "a request with an agent key on `/v0/vnext` or `/v1` is not checked, so keyed traffic and the Caddy topology are unchanged"
+    ) in entry
+    assert "In v0.19.2 both gates checked the peer address only and the legacy routes checked nothing" in entry
     assert "`POST /v1/workspaces/bootstrap` and `POST /v1/evals/runs`" in entry
     assert "A browser attack through that was not reproduced." in entry
     assert "must now list that name in `ALICEBOT_ALLOWED_HOSTS` or use an agent key" in entry
-    assert "The legacy `/v0` continuity routes are not behind either gate and are not covered." in entry
+    assert (
+        "The legacy `/v0` routes, served in development and test, take no key, so every request to them gets this rule "
+        "whatever `Authorization` header it carries, and a CORS preflight is not refused by it."
+    ) in entry
+    assert "not behind either gate and are not covered" not in entry
 
     released = _read("CHANGELOG.md")[_read("CHANGELOG.md").index("## v0.19.2") :]
     assert ENTRY_START not in released
@@ -77,18 +83,21 @@ def test_the_changelog_entry_states_the_size_limit_and_the_nesting_limit_with_v0
     assert "Request size and nesting (DB-006):" in entry
     assert "a request body over 4 MiB (4,194,304 bytes, setting `ALICEBOT_MAX_REQUEST_BODY_BYTES`) is refused with HTTP 413" in entry
     assert '`{"code": "request_too_large", "message": "The request body is too large"}` before any layer reads it' in entry
-    assert "The limit is a pure ASGI layer registered last, so it is the outermost." in entry
     assert "A declared `Content-Length` over the cap is refused before a byte is read." in entry
     assert "the refusal carries `Connection: close`" in entry
     assert "text written with `\\uXXXX` escapes counts six bytes a character" in entry
     assert "they have their own cap of 32 MiB (setting `ALICEBOT_MAX_CONNECTOR_SYNC_BODY_BYTES`)" in entry
     assert "adds `request_body { max_size 4MB }`, the deployment validator requires it" in entry
-    assert "The browser-clip capture route is checked after its body is read, because its capability is in the body." in entry
     assert "A JSON body nested more than 256 levels deep is refused with HTTP 422" in entry
     assert "one error of type `json_too_deep` with `loc` `[\"body\"]`, with nothing from the body in it" in entry
-    assert "The check reads the bytes and never decodes the body" in entry
+    assert (
+        "The check reads the bytes and never decodes the body, so it runs before any layer parses it, and its cost grows "
+        "in step with the size of the body, which the cap bounds."
+    ) in entry
     assert "In v0.19.2 nothing was limited." in entry
-    assert "the server's memory peaked at 712 MiB (104 MiB idle)" in entry
+    assert "the server's memory peaked at about 400 MiB for 100 MiB of bytes that are not JSON" in entry
+    assert "about 1.5 GiB for a valid JSON body with a 100 MiB string, because the 422 echoes the input" in entry
+    assert "712 MiB" not in entry
     assert "A body nested about 975 levels deep or more answered HTTP 500" in entry
     assert "A body nested 257 to about 974 levels deep reached the route" in entry
     assert "The HTTP 422 for a lone surrogate is unchanged." in entry
@@ -112,14 +121,12 @@ def test_the_changelog_entry_states_the_provider_redirect_change_with_v0192_besi
     assert "so an `Authorization` header or an API key is not sent on to it" in entry
     assert "must be configured with its final URL" in entry
     assert "through one function, `open_provider_url` in the new `provider_http` module" in entry
-    assert "http and https handlers only (no ftp, file or data), no redirect handler" in entry
-    assert "its `enforce_public_peer` argument has no default" in entry
+    assert "whose `enforce_public_peer` argument has no default" in entry
     assert "The provider helpers, response generation, Gmail and Calendar pass `True`" in entry
     assert "A name that was public when the base URL was checked and is loopback when the connection is made (DNS rebinding) is refused before a connection is opened" in entry
     assert "A request carried by an HTTP or HTTPS proxy skips that check, because the peer is then the proxy." in entry
     assert "The embeddings, reranker, fact-key and brain clients pass `False`" in entry
     assert "`http://localhost:11434/v1`" in entry
-    assert "A test fails for any other call to `urlopen` or `build_opener` under `apps/api/src`" in entry
     assert "In v0.19.2 these clients called `urlopen`, which followed up to ten redirects" in entry
     assert "a POST answered 307 or 308 was already refused" in entry
     assert "and the embeddings, reranker, fact-key and brain clients did not check it at all" in entry
@@ -198,8 +205,8 @@ def test_the_threat_model_names_dns_rebinding_and_the_host_rule_and_marks_main()
 
     Mutations, each one alone: delete the marker from any of the three; delete
     the DNS rebinding sentence; delete the line that says the browser leg was
-    not reproduced; delete the line that names the legacy ``/v0`` routes as not
-    covered; say v0.19.2 checks the Host.
+    not reproduced; delete the lines that say the identity layer applies the rule to
+    the legacy ``/v0`` routes; say v0.19.2 checks the Host.
     """
 
     model = _flat(_read("docs/security/threat-model.md"))
@@ -211,7 +218,9 @@ def test_the_threat_model_names_dns_rebinding_and_the_host_rule_and_marks_main()
     assert "`null` is refused" in paragraph
     assert "In v0.19.2 both gates looked at the peer address only" in paragraph
     assert "The browser leg of the attack has not been reproduced in a real browser" in paragraph
-    assert "are not behind these two gates and are not covered" in paragraph
+    assert "take no agent key, so the identity layer applies the same rule to every request to them" in paragraph
+    assert "whatever `Authorization` header it carries" in paragraph
+    assert "are not behind these two gates and are not covered" not in paragraph
 
     row = [line for line in _read("docs/security/threat-model.md").splitlines() if line.startswith("| DNS rebinding or a cross-origin request")]
     assert len(row) == 1
@@ -225,7 +234,7 @@ def test_known_limitations_keeps_v0192_and_marks_main_for_host_and_origin() -> N
     """The bullet still says v0.19.2 does not check Host, then says what main does, marked.
 
     Mutations: delete the v0.19.2 half; drop the marker; claim the check without
-    the marker; drop the legacy ``/v0`` exclusion.
+    the marker; drop the sentence that says the legacy ``/v0`` routes get the rule.
     """
 
     bullets = [
@@ -244,7 +253,10 @@ def test_known_limitations_keeps_v0192_and_marks_main_for_host_and_origin() -> N
         "or a name listed in `ALICEBOT_ALLOWED_HOSTS`"
     ) in bullet
     assert "(DB-005)" in bullet
-    assert bullet.endswith("The legacy `/v0` continuity routes are not behind that check")
+    assert bullet.endswith(
+        "A request with an agent key on `/v0/vnext` or `/v1` is not checked, and the legacy `/v0` routes apply the same "
+        "Host and Origin rule to every request, because they check no key"
+    )
 
 
 def test_security_policy_deployment_guide_and_env_example_mark_the_edge_rules_as_main() -> None:
@@ -267,6 +279,27 @@ def test_security_policy_deployment_guide_and_env_example_mark_the_edge_rules_as
     assert "That Caddy cap also applies to connector sync requests" in guide
     caddy = _read("packaging/cloud/Caddyfile.example")
     assert "request_body {\n\t\tmax_size 4MB\n\t}" in caddy
+
+
+def test_the_legacy_v0_rule_and_the_new_error_family_are_in_the_docs() -> None:
+    """SECURITY.md and the example env say the legacy routes get the rule, and the agent guide adds the 413 family.
+
+    Mutations, each one alone: delete the legacy sentence from SECURITY.md or
+    from ``.env.example``; delete the ``request_too_large`` family sentence, or
+    the one that says the OpenAPI schema does not list the 413, from the agent
+    integration guide.
+    """
+
+    security = _flat(_read("SECURITY.md"))
+    assert "The legacy `/v0` routes, served in development and test, take no key, so they apply this rule to every request." in security
+    env = _flat(_read(".env.example").replace("\n# ", "\n"))
+    assert "The legacy /v0 routes take no key, so every request to them is checked." in env
+    guide = _flat(_read("docs/alpha/agent-integration.md"))
+    assert "HTTP 413 with `detail.code` `request_too_large`, a family added to the list above." in guide
+    assert "A layer in front of the routes answers the 413, so the OpenAPI schema does not list it." in guide
+    assert guide.count("The public families are `authentication_failed`") == 1
+    # The list of released families is not edited: the new family is marked as main's.
+    assert "`internal_error`. Deliberate static route errors" in guide
 
 
 def test_the_v0192_release_notes_still_list_the_findings_as_open() -> None:
