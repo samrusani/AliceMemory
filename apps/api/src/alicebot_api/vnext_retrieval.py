@@ -45,7 +45,7 @@ import inspect
 import json
 import logging
 import re
-from typing import Callable, Mapping, NotRequired, Protocol, Sequence, TypeVar, TypedDict, cast
+from typing import Callable, Mapping, MutableMapping, NotRequired, Protocol, Sequence, TypeVar, TypedDict, cast
 from uuid import uuid4
 
 # Read-only reuse of the contradiction-detection machinery that backs
@@ -152,6 +152,16 @@ SCOPED_ROW_OVERFETCH_LIMIT = 200
 # SQL, while an adapter that cannot prove exhaustion before the boundary fails
 # closed instead of doubling forever or silently returning an incomplete pack.
 LEGACY_SCOPED_SCAN_MAX_ROWS = 16_384
+# ``recent_changes`` is an advisory section of a pack, and its events are
+# fenced after the store's own LIMIT, so a run of events about memories the
+# caller may not read has to be scanned past. The scan stops at this many rows
+# and the section keeps what it found, because a short list is safe and a
+# failed pack call is not. It sits well under the ceiling above so a vault
+# that is mostly hidden costs a bounded amount per pack call.
+RECENT_CHANGES_SCAN_MAX_ROWS = 2_048
+# Memory ids go to the store in batches of this size. SQLite builds older than
+# 3.32 take at most 999 bound variables in one statement.
+MEMORY_ID_LOOKUP_BATCH_SIZE = 500
 DEFAULT_SENSITIVITY_ALLOWED = ("public", "internal", "private", "unknown")
 STRATEGIC_QUERY_TYPES = {"strategic_synthesis", "contradiction_check", "project_status", "agent_context"}
 RRF_K = 60
@@ -965,6 +975,7 @@ def _fetch_filtered_prefix(
     target: int,
     predicate_applied_before_limit: bool = False,
     initial_limit: int | None = None,
+    max_rows: int | None = None,
 ) -> tuple[list[JsonObject], StageSourceT]:
     """Fetch/select a ranked prefix with finite legacy compatibility deepening.
 
@@ -976,13 +987,17 @@ def _fetch_filtered_prefix(
     deduplicated, repeated/non-growing prefixes fail closed, and an adapter
     that still returns a full prefix at ``LEGACY_SCOPED_SCAN_MAX_ROWS`` raises
     ``VNextRetrievalCompletenessError`` instead of doubling forever or
-    returning a false-negative pack.
+    returning a false-negative pack. ``max_rows`` lowers that ceiling for a
+    caller that would rather stop early; it never raises it.
     """
     if predicate_applied_before_limit:
         rows, source = fetch(target)
         return _dedupe_retrieval_rows(select_rows(_dedupe_retrieval_rows(rows))), source
+    scan_ceiling = (
+        LEGACY_SCOPED_SCAN_MAX_ROWS if max_rows is None else min(max_rows, LEGACY_SCOPED_SCAN_MAX_ROWS)
+    )
     limit = min(
-        LEGACY_SCOPED_SCAN_MAX_ROWS,
+        scan_ceiling,
         max(target, initial_limit or SCOPED_ROW_OVERFETCH_LIMIT),
     )
     previous_unique_count = -1
@@ -996,13 +1011,13 @@ def _fetch_filtered_prefix(
             raise VNextRetrievalCompletenessError(
                 "legacy scoped retrieval adapter returned a repeated or non-progressing prefix"
             )
-        if limit >= LEGACY_SCOPED_SCAN_MAX_ROWS:
+        if limit >= scan_ceiling:
             raise VNextRetrievalCompletenessError(
                 "legacy scoped retrieval adapter did not prove exhaustion within "
-                f"{LEGACY_SCOPED_SCAN_MAX_ROWS} rows"
+                f"{scan_ceiling} rows"
             )
         previous_unique_count = len(rows)
-        limit = min(limit * 2, LEGACY_SCOPED_SCAN_MAX_ROWS)
+        limit = min(limit * 2, scan_ceiling)
 
 
 def _fetch_scope_filtered(
@@ -1735,6 +1750,39 @@ def _memory_visibility_predicate(
     return visible
 
 
+def _drop_pointers_outside_fence(
+    holders: Sequence[MutableMapping[str, object]],
+    pointer_keys: Sequence[str],
+    *,
+    targets: Mapping[str, Mapping[str, object]],
+    memory_visible: Callable[[Mapping[str, object]], bool],
+    fail_closed_when_unresolved: bool,
+) -> None:
+    """Remove each memory-id pointer whose target the caller may not read.
+
+    A pointer id is itself sensitive metadata, so this is the one place that
+    decides whether a pointer may be shown. ``targets`` holds the rows the
+    pointers resolved to. A pointer to a row that is in ``targets`` goes when
+    ``memory_visible`` says no. A pointer to a row that is not in ``targets``
+    names a row this user does not have, which is not a hidden one, because
+    the lookup applies no fence: it is kept unless
+    ``fail_closed_when_unresolved`` is set, which a scoped read sets.
+    """
+
+    for holder in holders:
+        for pointer_key in pointer_keys:
+            pointer = holder.get(pointer_key)
+            if not pointer:
+                continue
+            target = targets.get(str(pointer))
+            if target is None:
+                if fail_closed_when_unresolved:
+                    holder.pop(pointer_key, None)
+                continue
+            if not memory_visible(target):
+                holder.pop(pointer_key, None)
+
+
 def annotate_derived_memory_correction(
     store: object,
     source: JsonObject,
@@ -2164,7 +2212,11 @@ class VNextRetrievalService:
             return {}
         bulk = getattr(self.store, "get_memories_by_ids", None)
         if callable(bulk):
-            rows = bulk(normalized_ids)
+            rows = [
+                row
+                for start in range(0, len(normalized_ids), MEMORY_ID_LOOKUP_BATCH_SIZE)
+                for row in bulk(normalized_ids[start : start + MEMORY_ID_LOOKUP_BATCH_SIZE])
+            ]
         else:
             get_memory = getattr(self.store, "get_memory", None)
             rows = (
@@ -2280,25 +2332,18 @@ class VNextRetrievalService:
         ]
         if not pointer_ids:
             return
-        targets = self._memories_by_ids(pointer_ids)
-        memory_visible = _memory_visibility_predicate(
-            domains=domains,
-            sensitivity_allowed=sensitivity_allowed,
-            scope=scope,
-            person_linked_memory_ids=person_linked_memory_ids,
+        _drop_pointers_outside_fence(
+            memories,
+            ("supersedes", "superseded_by"),
+            targets=self._memories_by_ids(pointer_ids),
+            memory_visible=_memory_visibility_predicate(
+                domains=domains,
+                sensitivity_allowed=sensitivity_allowed,
+                scope=scope,
+                person_linked_memory_ids=person_linked_memory_ids,
+            ),
+            fail_closed_when_unresolved=scope.active,
         )
-        for memory in memories:
-            for pointer_key in ("supersedes", "superseded_by"):
-                pointer = memory.get(pointer_key)
-                if not pointer:
-                    continue
-                target = targets.get(str(pointer))
-                if target is None:
-                    if scope.active:
-                        memory.pop(pointer_key, None)
-                    continue
-                if not memory_visible(target):
-                    memory.pop(pointer_key, None)
 
     def _sanitize_memory_scope_references(
         self,
@@ -3114,6 +3159,66 @@ class VNextRetrievalService:
         annotate_derived_memory_correction(self.store, compacted, memory_visible=memory_visible)
         return compacted
 
+    def memory_visibility(
+        self,
+        *,
+        domains: list[str],
+        sensitivity_allowed: list[str],
+        scope: _ResolvedRetrievalScope | None,
+    ) -> Callable[[Mapping[str, object]], bool]:
+        """The fence a caller's memory reads run under, as a yes/no for one row.
+
+        Built from the same filters the memory stages were given. All three are
+        required. ``scope=None`` is the honest unscoped query and has to be
+        written down at the call site. A person scope is resolved through the
+        entity graph here, once, like the memory stages do.
+        """
+
+        return _memory_visibility_predicate(
+            domains=domains,
+            sensitivity_allowed=sensitivity_allowed,
+            scope=scope,
+            person_linked_memory_ids=(
+                self._person_linked_memory_ids(scope.people) if scope is not None else frozenset()
+            ),
+        )
+
+    def fence_validity_memory_ids(
+        self,
+        validities: Sequence[JsonObject],
+        *,
+        domains: list[str],
+        sensitivity_allowed: list[str],
+        scope: _ResolvedRetrievalScope | None,
+    ) -> None:
+        """Remove the memory ids a ``validity`` annotation names outside the caller's fence.
+
+        ``_validity_annotation`` copies the ``superseded_by`` and ``supersedes``
+        pointers of a stored row into ``superseded_by_memory_id`` and
+        ``supersedes_memory_id``. A recall result carries the raw row, so its
+        pointers have not been through the pack's pointer fence. An id goes when
+        the row it names is outside the fence the memory stages ran with. The
+        ``superseded`` flag stays, so an agent still does not read the row as
+        current; only the id is withheld. A pointer to a row that cannot be found
+        is dropped on a scoped read and kept on an unscoped one, as on the pack.
+        """
+
+        id_keys = ("superseded_by_memory_id", "supersedes_memory_id")
+        pointer_ids = [str(validity[key]) for validity in validities for key in id_keys if validity.get(key)]
+        if not pointer_ids:
+            return
+        _drop_pointers_outside_fence(
+            validities,
+            id_keys,
+            targets=self._memories_by_ids(pointer_ids),
+            memory_visible=self.memory_visibility(
+                domains=domains,
+                sensitivity_allowed=sensitivity_allowed,
+                scope=scope,
+            ),
+            fail_closed_when_unresolved=scope is not None and scope.active,
+        )
+
     def require_source_query_searchable(self, query: str) -> None:
         """Refuse, before any stage runs, a query the source search cannot take.
 
@@ -3194,13 +3299,10 @@ class VNextRetrievalService:
             sensitivity_allowed=sensitivity_allowed,
             limit=limit,
         )
-        memory_visible = _memory_visibility_predicate(
+        memory_visible = self.memory_visibility(
             domains=domains,
             sensitivity_allowed=sensitivity_allowed,
             scope=scope,
-            person_linked_memory_ids=(
-                self._person_linked_memory_ids(scope.people) if scope is not None else frozenset()
-            ),
         )
         excerpts = [
             self._packable_source(candidate.item, query=query, memory_visible=memory_visible)
@@ -3912,7 +4014,7 @@ class VNextRetrievalService:
             supersession_context = self._supersession_context(
                 selected_memories,
                 scope=scope,
-                person_linked_memory_ids=person_linked_memory_ids,
+                memory_visible=pack_memory_visible,
             )
 
         if depth == CONTEXT_DEPTH_MINIMAL:
@@ -3922,6 +4024,8 @@ class VNextRetrievalService:
             recent_changes = self._recent_changes(
                 scope=scope,
                 person_linked_memory_ids=person_linked_memory_ids,
+                domains=domains,
+                sensitivity_allowed=sensitivity_allowed,
             )
             recent_changes_stage_record = {"candidate_count": len(recent_changes)}
 
@@ -4388,9 +4492,20 @@ class VNextRetrievalService:
         *,
         scope: _ResolvedRetrievalScope,
         person_linked_memory_ids: frozenset[str],
+        domains: list[str],
+        sensitivity_allowed: list[str],
         limit: int = DEFAULT_RECENT_CHANGES_LIMIT,
     ) -> list[JsonObject]:
-        """Most recent ``memory.*`` events from the store event log."""
+        """Most recent ``memory.*`` events from the store event log.
+
+        An entry names the memory it is about in ``target_id``, and a memory id
+        is itself sensitive metadata. An event is kept only when its target
+        passes the fence the pack's memory stages ran with: the domain and
+        sensitivity ceiling, and the project and person scope when one is
+        active. The time window bounds the event, not the row it is about, so
+        the predicate is built without it. An event whose target cannot be
+        found is dropped on a scoped pack and kept on an unscoped one.
+        """
         list_memory_events = getattr(self.store, "list_memory_events", None)
         list_events = getattr(self.store, "list_events", None)
         if not callable(list_memory_events) and not callable(list_events):
@@ -4401,6 +4516,13 @@ class VNextRetrievalService:
             window_start=None,
             window_end=None,
         )
+        memory_visible = _memory_visibility_predicate(
+            domains=domains,
+            sensitivity_allowed=sensitivity_allowed,
+            scope=identity_scope,
+            person_linked_memory_ids=person_linked_memory_ids,
+        )
+
         def _select_events(rows: Sequence[JsonObject]) -> list[JsonObject]:
             eligible = [
                 event
@@ -4415,24 +4537,19 @@ class VNextRetrievalService:
                     )
                 )
             ]
-            if not identity_scope.active:
-                return eligible
             targets = self._memories_by_ids(
                 [str(event.get("target_id") or "") for event in eligible]
             )
-            return [
-                event
-                for event in eligible
-                if (
-                    target := targets.get(str(event.get("target_id") or ""))
-                )
-                is not None
-                and _row_matches_scope(
-                    target,
-                    identity_scope,
-                    person_linked_memory_ids=person_linked_memory_ids,
-                )
-            ]
+
+            def _target_visible(event: JsonObject) -> bool:
+                target = targets.get(str(event.get("target_id") or ""))
+                if target is None:
+                    # No such row is not a hidden row: the lookup applies no
+                    # fence. A scoped pack fails closed on it, as it always has.
+                    return not identity_scope.active
+                return memory_visible(target)
+
+            return [event for event in eligible if _target_visible(event)]
 
         scoped_event_parameters = (
             "event_type_prefix",
@@ -4442,33 +4559,60 @@ class VNextRetrievalService:
             "scope_window_start",
             "scope_window_end",
         )
-        if _supports_explicit_parameters(list_memory_events, scoped_event_parameters):
-            scoped_list_memory_events = cast(
-                Callable[..., list[JsonObject]],
-                list_memory_events,
-            )
-            events = _select_events(
-                scoped_list_memory_events(
-                    event_type_prefix="memory.",
-                    scope_projects=tuple(sorted(scope.projects)),
-                    scope_people=tuple(sorted(scope.people)),
-                    scope_person_memory_ids=tuple(sorted(person_linked_memory_ids)),
-                    scope_window_start=scope.window_start,
-                    scope_window_end=scope.window_end,
-                    limit=limit,
+        use_scoped_events = _supports_explicit_parameters(list_memory_events, scoped_event_parameters)
+
+        def _fetch_events(row_limit: int) -> tuple[list[JsonObject], str]:
+            # The store applies project, person and time scope before its LIMIT.
+            # The domain and sensitivity ceiling is applied after it, so the
+            # prefix is deepened until enough visible events survive.
+            if use_scoped_events:
+                scoped_list_memory_events = cast(
+                    Callable[..., list[JsonObject]],
+                    list_memory_events,
                 )
-            )
-        else:
+                return (
+                    list(
+                        scoped_list_memory_events(
+                            event_type_prefix="memory.",
+                            scope_projects=tuple(sorted(scope.projects)),
+                            scope_people=tuple(sorted(scope.people)),
+                            scope_person_memory_ids=tuple(sorted(person_linked_memory_ids)),
+                            scope_window_start=scope.window_start,
+                            scope_window_end=scope.window_end,
+                            limit=row_limit,
+                        )
+                    ),
+                    "scoped",
+                )
             assert callable(list_events)
+            return list(list_events(target_type="memory", limit=row_limit)), "listing"
+
+        selected_so_far: list[JsonObject] = []
+
+        def _select_and_remember(rows: Sequence[JsonObject]) -> list[JsonObject]:
+            nonlocal selected_so_far
+            selected_so_far = _select_events(rows)
+            return selected_so_far
+
+        try:
             events, _event_source = _fetch_filtered_prefix(
-                lambda n: (
-                    list(list_events(target_type="memory", limit=n)),
-                    "listing",
-                ),
-                select_rows=_select_events,
+                _fetch_events,
+                select_rows=_select_and_remember,
                 target=limit,
                 initial_limit=limit * 4,
+                max_rows=RECENT_CHANGES_SCAN_MAX_ROWS,
             )
+        except VNextRetrievalCompletenessError:
+            # Recent changes only add to a pack, and dropping an entry is the safe
+            # direction, so a vault whose newest events are nearly all hidden from
+            # this caller gets the visible ones found so far (newest first), not a
+            # failed pack. The older visible events past the scan are not listed.
+            logger.warning(
+                "recent_changes scan ended early (ceiling %d rows) with %d visible events found",
+                RECENT_CHANGES_SCAN_MAX_ROWS,
+                len(selected_so_far),
+            )
+            events = _dedupe_retrieval_rows(selected_so_far)
         return [
             {
                 "event_id": str(event.get("id")),
@@ -4564,7 +4708,7 @@ class VNextRetrievalService:
         memories: list[JsonObject],
         *,
         scope: _ResolvedRetrievalScope,
-        person_linked_memory_ids: frozenset[str],
+        memory_visible: Callable[[Mapping[str, object]], bool],
     ) -> list[JsonObject]:
         """Compact supersession chain notes (context_depth=high only).
 
@@ -4573,20 +4717,19 @@ class VNextRetrievalService:
         ``get_memory`` (duck-typed; unresolvable pointers degrade to
         id-only references) up to SUPERSESSION_CHAIN_HOP_LIMIT hops with a
         cycle guard. Deterministic — chain notes quote stored rows only.
+
+        A revision's id and title are named only when the row passes
+        ``memory_visible``, the fence the pack's memory stages ran under. A
+        hidden revision ends the walk and names nothing, itself or anything
+        past it. That is a different outcome from a pointer to no row at all,
+        which an unscoped pack still shows as an id-only reference and a scoped
+        pack drops. ``memory_visible`` is required and has no default, so a
+        caller cannot walk the chain without a fence by leaving it out.
         """
         get_memory = getattr(self.store, "get_memory", None)
 
         def resolver(memory_id: str) -> JsonObject | None:
-            row = get_memory(memory_id) if callable(get_memory) else None
-            if row is None:
-                return None
-            if scope.active and not _row_matches_scope(
-                row,
-                scope,
-                person_linked_memory_ids=person_linked_memory_ids,
-            ):
-                return None
-            return row
+            return get_memory(memory_id) if callable(get_memory) else None
 
         notes: list[JsonObject] = []
         for memory in memories:
@@ -4600,6 +4743,7 @@ class VNextRetrievalService:
                     str(superseded_by_pointer),
                     pointer_key="superseded_by",
                     resolver=resolver,
+                    memory_visible=memory_visible,
                     seen={memory_id},
                     reveal_unresolved=not scope.active,
                 )
@@ -4611,6 +4755,7 @@ class VNextRetrievalService:
                     str(supersedes_pointer),
                     pointer_key="supersedes",
                     resolver=resolver,
+                    memory_visible=memory_visible,
                     seen={memory_id},
                     reveal_unresolved=not scope.active,
                 )
@@ -4637,7 +4782,8 @@ class VNextRetrievalService:
         start_id: str,
         *,
         pointer_key: str,
-        resolver: object,
+        resolver: Callable[[str], JsonObject | None],
+        memory_visible: Callable[[Mapping[str, object]], bool],
         seen: set[str],
         reveal_unresolved: bool = True,
     ) -> list[JsonObject]:
@@ -4645,10 +4791,15 @@ class VNextRetrievalService:
         current: str | None = start_id
         while current and current not in seen and len(chain) < SUPERSESSION_CHAIN_HOP_LIMIT:
             seen.add(current)
-            row = resolver(current) if callable(resolver) else None
+            row = resolver(current)
             if row is None:
+                # No such row. Not a hidden one: the lookup applies no fence.
                 if reveal_unresolved:
                     chain.append({"id": current})
+                break
+            if not memory_visible(row):
+                # A hidden revision is neither named nor titled, and the walk
+                # stops here so nothing past it is named either.
                 break
             chain.append(
                 {

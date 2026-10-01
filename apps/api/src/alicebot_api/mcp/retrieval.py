@@ -257,6 +257,11 @@ def _handle_alice_recall(context: MCPRuntimeContext, arguments: Mapping[str, obj
         # it never changes what was retrieved or ranked.
         scores = {str(item.get("id")): score for item, score in fused}
         ordered_rows = _order_memories_for_strategy([item for item, _score in fused], budget_strategy)
+        # The fence the memories above were retrieved under, resolved once. It
+        # is built from retrieval_filters AFTER the policy decision has
+        # overwritten "projects" with effective_project_scope, for the source
+        # stage below and for the memory ids a result's validity names.
+        recall_scope = _recall_source_scope(retrieval_filters)
         # Source excerpts are fetched before the hop so a query that hits
         # the note, not the decision text, still names a source. The hop
         # writes into results[], not sources[]. include_sources only gates
@@ -273,7 +278,7 @@ def _handle_alice_recall(context: MCPRuntimeContext, arguments: Mapping[str, obj
             # projects. Source scope is an exclusion filter, not a ranking
             # hint: without this the excerpt path is a way around a control
             # the pack enforces.
-            scope=_recall_source_scope(retrieval_filters),
+            scope=recall_scope,
             winning_memories=ordered_rows,
         )
         window_start = retrieval_filters.get("scope_window_start")
@@ -321,15 +326,28 @@ def _handle_alice_recall(context: MCPRuntimeContext, arguments: Mapping[str, obj
             pointer = memory.get("supersedes")
             if pointer:
                 superseded_by_packmate.setdefault(str(pointer), str(memory.get("id") or ""))
+        # A result carries the raw stored row, so the ids its validity names
+        # have not been through the pointer fence the context pack applies.
+        # A pointer id is itself sensitive metadata: one to a memory outside
+        # the caller's fence is withheld, and `superseded` stays true.
+        validities = [
+            _validity_annotation(
+                dict(item),
+                superseded_by_hint=superseded_by_packmate.get(str(item.get("id") or "")),
+            )
+            for item in ordered_rows
+        ]
+        service.fence_validity_memory_ids(
+            [validity for validity in validities if validity is not None],
+            domains=domains,
+            sensitivity_allowed=sensitivity_allowed,
+            scope=recall_scope,
+        )
         results: list[JsonObject] = []
-        for item in ordered_rows:
+        for item, validity in zip(ordered_rows, validities, strict=True):
             provenance_count = len(store.list_provenance_links(target_type="memory", target_id=str(item.get("id"))))
             compact = _compact_recall_result(
                 item, score=scores[str(item.get("id"))], provenance_count=provenance_count
-            )
-            validity = _validity_annotation(
-                dict(item),
-                superseded_by_hint=superseded_by_packmate.get(str(item.get("id") or "")),
             )
             # Only the superseded flag changes the recall shape. Rows that
             # merely have a validity window keep the compact result.
