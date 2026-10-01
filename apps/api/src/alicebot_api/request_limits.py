@@ -56,8 +56,13 @@ Receive = Callable[[], Awaitable[Message]]
 Send = Callable[[Message], Awaitable[None]]
 ASGIApp = Callable[[Scope, Receive, Send], Awaitable[None]]
 
-# A JSON string, escapes included. Possessive quantifiers keep the match linear.
-_JSON_STRING = re.compile(rb'"[^"\\]*+(?:\\.[^"\\]*+)*+"', re.DOTALL)
+# A JSON string, escapes included. Every quantifier is possessive, and a string
+# that is never closed (or ends in a lone backslash) is consumed to the end of the
+# body instead of failing: a pattern that must find a closing quote fails at an
+# unterminated string and starts again at the next quote inside it, which is
+# quadratic in the length of a body that is mostly escaped quotes. Text after an
+# unclosed quote is text to the decoder as well, and the decoder refuses the body.
+_JSON_STRING = re.compile(rb'"(?:[^"\\]++|\\.|\\\Z)*+(?:"|\Z)', re.DOTALL)
 _NOT_A_BRACKET = bytes(value for value in range(256) if value not in b"[]{}")
 _OPENERS = (0x5B, 0x7B)
 

@@ -16,10 +16,15 @@ from __future__ import annotations
 
 import http.client
 import json
+import os
+import random
+import subprocess
+import sys
 import threading
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
+from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
@@ -236,11 +241,14 @@ def test_the_limit_is_read_from_the_settings_on_every_request(edge: Edge) -> Non
 def test_the_settings_read_both_caps_from_the_environment_and_refuse_a_bad_value() -> None:
     """Defaults are 4 MiB and 32 MiB. A value that is not a positive integer is refused.
 
-    Mutations: skip either environment read; drop either positive check.
+    Mutations: skip either environment read; drop either positive check; change
+    ``DEFAULT_MAX_CONNECTOR_SYNC_BODY_BYTES`` to 16 MiB (the documents still say 32).
     """
 
     assert Settings.from_env({}).max_request_body_bytes == CAP == 4 * 1024 * 1024
     assert Settings.from_env({}).max_connector_sync_body_bytes == DEFAULT_MAX_CONNECTOR_SYNC_BODY_BYTES
+    # The documents (CHANGELOG, the deployment guide, .env.example) say 32 MiB.
+    assert DEFAULT_MAX_CONNECTOR_SYNC_BODY_BYTES == 32 * 1024 * 1024 == 33_554_432
     settings = Settings.from_env(
         {"ALICEBOT_MAX_REQUEST_BODY_BYTES": "1000", "ALICEBOT_MAX_CONNECTOR_SYNC_BODY_BYTES": "2000"}
     )
@@ -344,6 +352,30 @@ def test_a_refusal_swallows_what_a_reading_layer_then_raises_and_sends_one_respo
     assert [m["type"] for m in messages] == ["http.response.start", "http.response.body"]
     assert messages[0]["status"] == 413
     assert pulled == 6  # the chunk that crossed the cap, not the rest
+
+
+def test_a_layer_that_reads_again_after_the_refusal_pulls_nothing_more_and_gets_one_response() -> None:
+    """After the 413 the next ``receive`` is a disconnect, whatever the client is still sending.
+
+    A layer that calls ``receive`` again after it saw the disconnect must not
+    pull more of the body and must not trigger a second response.
+
+    Mutation: delete the ``if refused: return {"type": "http.disconnect"}``
+    branch from ``limited_receive``. The layer then pulls the third chunk and
+    the client is sent a second 413.
+    """
+
+    async def rereading_app(scope: Any, receive: Any, send: Any) -> None:
+        disconnects = 0
+        while disconnects < 3:
+            if (await receive())["type"] == "http.disconnect":
+                disconnects += 1
+
+    app = RequestBodyLimitMiddleware(rereading_app, limit_for=lambda scope: 5)
+    messages, pulled = anyio.run(lambda: _drive(app, chunks=[b"abc", b"def", b"ghi", b"jkl"]))
+    assert [m["type"] for m in messages] == ["http.response.start", "http.response.body"]
+    assert messages[0]["status"] == 413
+    assert pulled == 6
 
 
 def test_an_exception_from_the_app_is_not_swallowed_when_the_body_was_within_the_cap() -> None:
@@ -619,6 +651,136 @@ def test_a_non_utf8_body_is_checked_as_the_text_it_decodes_to() -> None:
         assert not json_nesting_exceeds(shallow.encode(encoding)), encoding
     # Bytes that do not decode are the decoder's to report, not a nesting verdict.
     assert not json_nesting_exceeds(b"\xff\xfe" + b"[\x00" * 300 + b"\x00")
+
+
+_SCAN_PROBE = """
+import sys, time
+from alicebot_api.request_limits import json_nesting_exceeds
+body = sys.stdin.buffer.read()
+start = time.perf_counter()
+verdict = json_nesting_exceeds(body)
+print(f"{time.perf_counter() - start:.4f} {verdict}")
+"""
+
+
+def _time_the_scan_in_a_child(body: bytes) -> tuple[float, bool]:
+    """Scan a body in a child process, so a scan that never ends is a timeout and not a hung test run."""
+
+    source_root = str(Path(request_limits.__file__).resolve().parents[1])
+    done = subprocess.run(
+        [sys.executable, "-c", _SCAN_PROBE],
+        input=body,
+        capture_output=True,
+        env={"PYTHONPATH": source_root, "PATH": os.environ.get("PATH", "")},
+        timeout=30,
+        check=True,
+    )
+    seconds, verdict = done.stdout.decode().split()
+    return float(seconds), verdict == "True"
+
+
+@pytest.mark.parametrize(
+    ("unit", "trailer"),
+    [
+        pytest.param(b'\\"', b"", id="escaped-quotes-never-closed"),
+        pytest.param(b'\\"', b"\\", id="escaped-quotes-ending-in-a-lone-backslash"),
+        pytest.param(b'a\\"', b"", id="letters-and-escaped-quotes-never-closed"),
+    ],
+)
+def test_a_body_that_is_mostly_escaped_quotes_is_scanned_in_linear_time(unit: bytes, trailer: bytes) -> None:
+    r"""A body of the cap's size, 300 opening brackets and a string that is never closed, scans in well under a second.
+
+    The first string scan used a pattern that must find a closing quote. On a
+    string that never closes it failed and began again at the next quote inside
+    it, which is quadratic: 40 KiB took two seconds, 1 MiB about twenty minutes,
+    and the scan runs on the event loop before any credential is checked. The
+    scan runs in a child process under a timeout, so the mutation fails the test
+    in 30 seconds instead of hanging it.
+
+    Mutation: restore the original pattern
+    ``rb'"[^"\\]*+(?:\\.[^"\\]*+)*+"'`` as ``request_limits._JSON_STRING``.
+    """
+
+    body = b"[" * 300 + b'"' + unit * (CAP // len(unit)) + trailer
+    assert len(body) >= CAP
+    seconds, exceeds = _time_the_scan_in_a_child(body)
+    assert seconds < 1.0
+    # The 300 brackets come before the string, so the body is too deep either way.
+    assert exceeds
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        pytest.param(b"[]" * (CAP // 2), id="flat-bracket-pairs"),
+        pytest.param(b"[" + b"[]," * (CAP // 3) + b"[]]", id="flat-list-of-lists"),
+        pytest.param(b"[" + b'{"a":1},' * (CAP // 8) + b"{}]", id="flat-list-of-objects"),
+        pytest.param(b'["' + b"[{" * (CAP // 2 - 4) + b'"]', id="brackets-inside-one-string"),
+        pytest.param(b'"' * CAP, id="quotes-only"),
+    ],
+)
+def test_a_body_at_the_cap_is_scanned_in_well_under_a_second_whatever_its_shape(body: bytes) -> None:
+    """Flat and string-heavy bodies of 4 MiB each cost the scan about a tenth of a second.
+
+    The scan runs on the event loop before any credential is checked, so its
+    cost for a body the cap lets through is a cost an anonymous caller sets.
+
+    Mutation: make the walk quadratic, for example read each bracket as
+    ``brackets[index:][0]`` (a copy of the rest of the body per bracket) in
+    ``json_nesting_exceeds``.
+    """
+
+    seconds, _exceeds = _time_the_scan_in_a_child(body)
+    assert seconds < 1.0
+
+
+def _reference_nesting_exceeds(raw: bytes, limit: int) -> bool:
+    """The same verdict from a plain byte-by-byte walk: a quote opens a string, a backslash skips a byte, a string never closed runs to the end."""
+
+    depth = 0
+    in_string = False
+    index = 0
+    while index < len(raw):
+        byte = raw[index]
+        if in_string:
+            if byte == 0x5C:
+                index += 1
+            elif byte == 0x22:
+                in_string = False
+        elif byte == 0x22:
+            in_string = True
+        elif byte in (0x5B, 0x7B):
+            depth += 1
+            if depth > limit:
+                return True
+        elif byte in (0x5D, 0x7D) and depth:
+            depth -= 1
+        index += 1
+    return False
+
+
+def test_the_scan_agrees_with_a_plain_walk_on_random_bodies_even_when_a_string_is_never_closed() -> None:
+    """Random bodies of brackets, quotes, backslashes and letters get the verdict a byte-by-byte walk gives.
+
+    Most of them are not valid JSON, on purpose: a string never closed, a lone
+    trailing backslash and a backslash before a quote are the shapes the pattern
+    has to consume rather than fail on.
+
+    Mutations: restore the original pattern as ``request_limits._JSON_STRING``;
+    drop the alternative that consumes a trailing backslash; require a closing
+    quote by dropping the end-of-body alternative from the end of the pattern;
+    stop a string at an escaped quote.
+    """
+
+    rng = random.Random(20261002)
+    alphabet = b'[]{}"\\a,'
+    checked = 0
+    for _ in range(6000):
+        body = bytes(rng.choice(alphabet) for _ in range(rng.randint(1, 48)))
+        limit = rng.randint(1, 4)
+        assert json_nesting_exceeds(body, limit) == _reference_nesting_exceeds(body, limit), (body, limit)
+        checked += 1
+    assert checked == 6000
 
 
 def _body_routes() -> list[tuple[str, str]]:
