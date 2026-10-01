@@ -2209,9 +2209,11 @@ _ALICE_INSTALL_KEYS = frozenset({"command", "args", "env"})
 #   docs/alpha/mcp-tools.md
 # ALICE_EMBEDDINGS_API_KEY: docs/integrations/mcp.md;
 #   docs/alpha/mcp-tools.md (masked like ALICE_AGENT_API_KEY, never printed)
+# ALICE_EMBEDDINGS_MAX_INPUT_CHARS: docs/integrations/mcp.md (a whole number,
+#   not a secret; the same host env map as the other embeddings keys)
 # Dropping this tuple makes a re-run refuse ALICE_MCP_FULL_TOOLS,
 # ALICE_AGENT_API_KEY, ALICE_EMBEDDINGS_BASE_URL, ALICE_EMBEDDINGS_MODEL,
-# and ALICE_EMBEDDINGS_API_KEY.
+# ALICE_EMBEDDINGS_API_KEY, and ALICE_EMBEDDINGS_MAX_INPUT_CHARS.
 HERMES_DOCUMENTED_ENV_KEYS = (
     "ALICE_MCP_FULL_TOOLS",
     "ALICE_MCP_LEGACY_TOOLS",
@@ -2220,6 +2222,7 @@ HERMES_DOCUMENTED_ENV_KEYS = (
     "ALICE_EMBEDDINGS_BASE_URL",
     "ALICE_EMBEDDINGS_MODEL",
     "ALICE_EMBEDDINGS_API_KEY",
+    "ALICE_EMBEDDINGS_MAX_INPUT_CHARS",
 )
 _DOCUMENTED_ENV_NAMES = frozenset(HERMES_DOCUMENTED_ENV_KEYS)
 

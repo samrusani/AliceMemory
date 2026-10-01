@@ -34,9 +34,9 @@ METHOD_NAMES = (
 )
 EXPECTED_METHOD_AST_SHA256 = {
     "postgres": {
-        "update_memory_embedding": "1913baf9be41677c5a39292a500936d050a6fb9d4e6e429ff2941176c76d4fed",
+        "update_memory_embedding": "0cd0f0ef6f7bcaa6328b6f586a711a10b011c77af3e49d65b96c27b77a657cd9",
         "clear_memory_embedding": "4e9fe6955f3246b51998c6b547f48a659f947f8a8150e6c86d4e61a0cf46df6c",
-        "list_memories_missing_embeddings": "6022cbe4070c9db61833045c3d83ae0216880bcc3327b9998716f6da286183e0",
+        "list_memories_missing_embeddings": "ed175e14c8506a435f522f7791a0cb800413bf7ca12b55d835a6faab21b0d000",
     },
     # SQLite update/clear re-minted for the Phase 4 Stage 2 resident vector
     # cache (reviewed carrier change): both methods point-read whether a
@@ -45,10 +45,19 @@ EXPECTED_METHOD_AST_SHA256 = {
     # (BEGIN IMMEDIATE, unless already in a transaction) BEFORE that read,
     # so the bump decision is atomic with the write (no TOCTOU window
     # against a concurrent embed-on-write).
+    #
+    # Both backends' update and list methods were re-minted again for the
+    # embedding input cap (reviewed carrier change): update takes an optional
+    # ``truncated_to_chars`` and writes it into the signature only when the
+    # text was cut; list takes an optional ``embedding_input_cap`` and then also
+    # lists a row whose stored cut label is not the label a vector made now
+    # would carry. With neither argument given the generated SQL is byte for
+    # byte what it was, which ``test_embedding_cas_generated_sql_is_byte_identical``
+    # still pins.
     "sqlite": {
-        "update_memory_embedding": "42f7ede575246981330ad6e17f91051e198f87fbaed61ef4c2b00045c442c368",
+        "update_memory_embedding": "1f4517352a0f7d6a9147f326bc96a6c1d61effa3f106add89546cd981ddd05fc",
         "clear_memory_embedding": "51b583b250883911f0c5a068fec7ec4565f719c2bffafb1ed1c6b3dc980fa36c",
-        "list_memories_missing_embeddings": "cf3e90cc72c5e388786b66aae1cd1b4da6c3d2e6438919d6a0fd94271f88f2d5",
+        "list_memories_missing_embeddings": "58aa82bc1ecbc4809b40d70befc2841d2692243a5df3f6da9b036e4b91527aa2",
     },
 }
 EXPECTED_SUPPORT_AST_SHA256 = {
@@ -73,6 +82,10 @@ EXPECTED_SUPPORT_AST_SHA256 = {
         "_vector_literal",
         "ae3ceb92a7583015a26695c40f64131cfd3731928b636ebbc97e28ec41bdfb0a",
     ),
+    "postgres_text_chars_sql": (
+        "_MEMORY_EMBEDDING_TEXT_CHARS_SQL",
+        "09dbf72a100f9306eecdd21982fda8ee60a2b5045bde1aef3d0cb195aca1d74f",
+    ),
     "sqlite_columns": ("MEMORY_COLUMNS", "262cceffd732759a4f0b8d0d9809e7387b3d2b99f9ac7fe781f5749894d44679"),
     "sqlite_digest_udf": (
         "_embedding_content_sha256_sqlite",
@@ -82,19 +95,35 @@ EXPECTED_SUPPORT_AST_SHA256 = {
         "_ensure_embedding_content_sha256_sqlite",
         "4c9e94f8ffb659534bb7e1174e19d9a477fb0dd1e493466139a87d21b5866ce7",
     ),
+    "sqlite_input_cut_udf": (
+        "_embedding_input_cut_sqlite",
+        "0c0405578793905bb01daa4e3232e49914e9c56f616f19452cba3cbf750aeb18",
+    ),
+    "sqlite_register_input_cut_udf": (
+        "_ensure_embedding_input_cut_sqlite",
+        "9693ce8e49a924e6d6624fac3e867a31e27e869830e0350b4578e8ff4acae547",
+    ),
+    "sqlite_missing_clause": (
+        "_missing_embeddings_clause",
+        "17f4bb82aa50dd6f9556514f5a7b4107804d384784309b550c0db2cfc24544b8",
+    ),
+    "sqlite_count_missing": (
+        "count_memories_missing_embeddings",
+        "dd490ddf8594606dac77d9944306e5947a09c20cf3f07addcf1314f481fb1a1e",
+    ),
 }
 EXPECTED_SIGNATURES = {
     "update_memory_embedding": (
         "(self, *, memory_id: 'str', vector: 'list[float]', provider: 'str | None' = None, "
         "model: 'str | None' = None, endpoint: 'str | None' = None, content_sha256: 'str | None' = None, "
-        "signature_version: 'int' = 1) -> 'VNextRow | None'"
+        "signature_version: 'int' = 1, truncated_to_chars: 'int | None' = None) -> 'VNextRow | None'"
     ),
     "clear_memory_embedding": "(self, *, memory_id: 'str') -> 'VNextRow | None'",
     "list_memories_missing_embeddings": (
         "(self, *, limit: 'int' = 100, after_id: 'str | None' = None, "
         "embedding_provider: 'str | None' = None, embedding_model: 'str | None' = None, "
-        "embedding_endpoint: 'str | None' = None, embedding_signature_version: 'int | None' = None) "
-        "-> 'list[VNextRow]'"
+        "embedding_endpoint: 'str | None' = None, embedding_signature_version: 'int | None' = None, "
+        "embedding_input_cap: 'int | None' = None) -> 'list[VNextRow]'"
     ),
 }
 EXPECTED_QUERY_SHA256 = {
@@ -284,10 +313,15 @@ def test_embedding_cas_support_nodes_and_old_module_reexports_are_exact() -> Non
         "postgres_strip_sql": _tree(POSTGRES_CARRIER_PATH),
         "postgres_strip_function": _tree(POSTGRES_CARRIER_PATH),
         "postgres_digest_sql": _tree(POSTGRES_CARRIER_PATH),
+        "postgres_text_chars_sql": _tree(POSTGRES_CARRIER_PATH),
         "postgres_vector": _tree(POSTGRES_CARRIER_PATH),
         "sqlite_columns": _tree(SQLITE_COLUMNS_PATH),
         "sqlite_digest_udf": _tree(SQLITE_CARRIER_PATH),
         "sqlite_register_udf": _tree(SQLITE_CARRIER_PATH),
+        "sqlite_input_cut_udf": _tree(SQLITE_CARRIER_PATH),
+        "sqlite_register_input_cut_udf": _tree(SQLITE_CARRIER_PATH),
+        "sqlite_missing_clause": _tree(SQLITE_CARRIER_PATH),
+        "sqlite_count_missing": _tree(SQLITE_CARRIER_PATH),
     }
     for key, (name, expected_digest) in EXPECTED_SUPPORT_AST_SHA256.items():
         nodes = _top_level_named_nodes(trees[key]).get(name, [])
@@ -326,6 +360,9 @@ def test_embedding_cas_support_nodes_and_old_module_reexports_are_exact() -> Non
     )
     assert hashlib.sha256(postgres_store._MEMORY_EMBEDDING_CONTENT_SHA256_SQL.encode()).hexdigest() == (
         "7f5ef7bc3d1c489800a39c9a21b824990a6d92b65cef1de90bab248b11eb03ba"
+    )
+    assert hashlib.sha256(postgres_embedding_cas._MEMORY_EMBEDDING_TEXT_CHARS_SQL.encode()).hexdigest() == (
+        "c2d8e56d80af6485667434446914d6776d3d6da91b4e50f8c1c3212910995f3a"
     )
     assert postgres_store.__all__ == ["PostgresVNextStore", "VNextRow"]
     assert sqlite_store.__all__ == [

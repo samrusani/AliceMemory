@@ -1,7 +1,8 @@
 """Local SQLite vault census for ``alice-memory doctor``.
 
 Reports what is already stored for one ``user_id``. Sources and searchable
-chunks first. Committed facts next. The last brief character count uses
+chunks first. Committed facts next, then how many of them have no current
+vector. The last brief character count uses
 ``compile_local_session_brief`` with ``query=None``. Candidates next.
 Sleep proposals last. That count is sidecar rows for this user, not
 memory rows. When the sidecar cannot be read, that line is
@@ -27,6 +28,13 @@ from alicebot_api.session_briefing import (
 )
 from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
 from alicebot_api.vault_sleep import SleepError, count_sleep_proposals, sleep_proposals_path
+from alicebot_api.vnext_embeddings import (
+    EMBEDDING_SIGNATURE_VERSION,
+    embedding_input_cap,
+    endpoint_fingerprint,
+    get_embedding_provider,
+)
+from alicebot_api.vnext_stores.sqlite.embedding_cas import count_memories_missing_embeddings
 
 CANDIDATE_STATUS = "candidate"
 
@@ -100,6 +108,7 @@ def compile_local_vault_doctor(
             CANDIDATE_COUNT_SQL,
             (uid, CANDIDATE_STATUS),
         )
+        missing_vector_line = _missing_vector_line(store)
         flagged_ids = _flagged_source_ids(store)
         try:
             proposal_count = count_sleep_proposals(sleep_proposals_path(resolved), user_id=uid)
@@ -117,6 +126,7 @@ def compile_local_vault_doctor(
             f"sources: {source_count}",
             f"searchable chunks: {chunk_count}",
             f"committed facts: {fact_count}",
+            missing_vector_line,
             f"last brief: {character_count} / {SESSION_BRIEF_CHAR_CAP} characters",
             f"candidates waiting: {candidate_count}",
             proposal_line,
@@ -124,6 +134,34 @@ def compile_local_vault_doctor(
             "flagged source ids: " + ", ".join(flagged_ids),
         )
     )
+
+
+def _missing_vector_line(store: SQLiteVNextStore) -> str:
+    """The count of committed facts with no current vector, as one report line.
+
+    The test is the one ``alice-memory reindex-embeddings`` works from: no
+    vector, or a vector whose provider, model, endpoint, signature version,
+    text digest or input-cap label is not today's. Full-text and graph search
+    still find these rows; only vector search misses them. With no embedding
+    provider configured no vector can be current, so the count is the rows with
+    none, and the line says why.
+    """
+
+    label = "memories without a current vector"
+    provider = get_embedding_provider()
+    if provider is None:
+        count = count_memories_missing_embeddings(store, statuses=COMMITTED_MEMORY_STATUSES)
+        return f"{label}: {count} (no embedding provider configured)"
+    count = count_memories_missing_embeddings(
+        store,
+        statuses=COMMITTED_MEMORY_STATUSES,
+        embedding_provider=provider.provider,
+        embedding_model=provider.model,
+        embedding_endpoint=endpoint_fingerprint(getattr(provider, "base_url", "")),
+        embedding_signature_version=EMBEDDING_SIGNATURE_VERSION,
+        embedding_input_cap=embedding_input_cap(provider),
+    )
+    return f"{label}: {count}"
 
 
 def _cell(row: object, key: str) -> object:

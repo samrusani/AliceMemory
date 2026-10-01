@@ -3617,6 +3617,102 @@ def test_backfill_embeddings_cli_exits_nonzero_when_any_batch_fails(monkeypatch,
     )
 
 
+def test_backfill_embeddings_cli_names_the_refused_memory_and_embeds_its_neighbours(
+    monkeypatch, capsys
+) -> None:
+    """One text the endpoint refuses is named with the reason; the other two get vectors.
+
+    The list query also gets the provider's input cap, so a cap change finds the
+    rows to embed again on Postgres.
+
+    Mutations: drop ``**summarize_embedding_failures(failures)`` from the output of
+    ``_run_vnext_memories_backfill_embeddings`` (the failed id and reason are then
+    missing), or embed the whole batch without isolation in
+    ``prepare_memory_embeddings`` (the two good memories are then counted as
+    failed). Or remove ``embedding_input_cap=input_cap`` from the
+    ``list_memories_missing_embeddings`` call there: the recorded call then has
+    no cap and the cap assertion fails. Each makes this test fail.
+    """
+
+    refused_id = "00000000-0000-4000-8000-000000000002"
+
+    class BackfillStore(FakeVNextCliStore):
+        def __init__(self) -> None:
+            super().__init__()
+            self.stored: list[tuple[str, dict[str, object]]] = []
+            self.list_calls: list[dict[str, object]] = []
+
+        def list_memories_missing_embeddings(self, *, limit: int = 100, after_id: str | None = None, **signature):
+            del limit
+            self.list_calls.append(dict(signature))
+            if after_id is not None:
+                return []
+            return [
+                {"id": "00000000-0000-4000-8000-000000000001", "canonical_text": "First fact."},
+                {"id": refused_id, "canonical_text": "REFUSED " + "x" * 50},
+                {"id": "00000000-0000-4000-8000-000000000003", "canonical_text": "Third fact."},
+            ]
+
+        def update_memory_embedding(self, *, memory_id: str, vector: list[float], **signature: object):
+            self.stored.append((memory_id, signature))
+            return {"id": memory_id}
+
+    class RefusingProvider:
+        provider = "stub"
+        model = "stub-embedding"
+        base_url = "http://127.0.0.1:9/v1"
+        max_input_chars = 1234
+
+        def embed_batch(self, texts):
+            if any("REFUSED" in text for text in texts):
+                raise VNextEmbeddingProviderError(
+                    "embeddings endpoint returned HTTP 400: input is too long", status=400
+                )
+            return [[0.5] * 4 for _text in texts]
+
+    store = BackfillStore()
+
+    @contextmanager
+    def fake_vnext_store_context(_ctx):
+        yield store
+
+    monkeypatch.setattr(cli_module, "_vnext_store_context", fake_vnext_store_context)
+    monkeypatch.setattr(cli_module, "get_embedding_provider", lambda: RefusingProvider())
+    monkeypatch.setattr(
+        cli_module,
+        "get_settings",
+        lambda: Settings(database_url="postgresql://db", auth_user_id=str(uuid4())),
+    )
+
+    exit_code = cli_module.main(["vnext", "memories", "backfill-embeddings"])
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert exit_code == 1
+    assert payload["embedded"] == 2
+    assert payload["failed"] == 1
+    assert payload["failed_ids"] == [refused_id]
+    assert payload["failed_ids_omitted"] == 0
+    assert payload["failure_reasons"] == [
+        {"count": 1, "reason": "embeddings endpoint returned HTTP 400: input is too long"}
+    ]
+    assert payload["truncated_inputs"] == 0
+    assert payload["input_cap_chars"] == 1234
+    # the cap reaches the list query, next to the rest of the signature, on every page
+    assert store.list_calls
+    assert all(call.get("embedding_input_cap") == 1234 for call in store.list_calls)
+    assert store.list_calls[0]["embedding_model"] == "stub-embedding"
+    assert [memory_id for memory_id, _signature in store.stored] == [
+        "00000000-0000-4000-8000-000000000001",
+        "00000000-0000-4000-8000-000000000003",
+    ]
+    _assert_cli_error(
+        captured.err,
+        code="embedding_batch_failed",
+        message="An embedding batch failed",
+    )
+
+
 def test_main_rejects_sqlite_database_url_with_onramp_pointer(monkeypatch, capsys) -> None:
     monkeypatch.setattr(
         cli_module,
