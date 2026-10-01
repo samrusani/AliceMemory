@@ -255,7 +255,7 @@ class _FakeResponse:
 def test_provider_posts_chat_completions_shape_and_parses_json_array(monkeypatch) -> None:
     captured: dict[str, object] = {}
 
-    def fake_urlopen(request, timeout):
+    def fake_urlopen(request, timeout, enforce_public_peer):
         captured["url"] = request.full_url
         captured["timeout"] = timeout
         captured["headers"] = dict(request.header_items())
@@ -269,7 +269,7 @@ def test_provider_posts_chat_completions_shape_and_parses_json_array(monkeypatch
         ).encode("utf-8")
         return _FakeResponse(body)
 
-    monkeypatch.setattr(vnext_fact_keys, "urlopen", fake_urlopen)
+    monkeypatch.setattr(vnext_fact_keys, "open_provider_url", fake_urlopen)
     provider = OpenAICompatibleFactKeyProvider(
         base_url="http://localhost:11434/v1/", model="qwen2.5:3b", api_key="sk-local"
     )
@@ -297,8 +297,8 @@ def test_provider_tolerates_line_output_and_sanitizes(monkeypatch) -> None:
     )
     monkeypatch.setattr(
         vnext_fact_keys,
-        "urlopen",
-        lambda request, timeout: _FakeResponse(
+        "open_provider_url",
+        lambda request, timeout, enforce_public_peer: _FakeResponse(
             json.dumps({"choices": [{"message": {"content": content}}]}).encode("utf-8")
         ),
     )
@@ -310,8 +310,8 @@ def test_provider_tolerates_line_output_and_sanitizes(monkeypatch) -> None:
 def test_provider_error_shapes(monkeypatch) -> None:
     monkeypatch.setattr(
         vnext_fact_keys,
-        "urlopen",
-        lambda request, timeout: _FakeResponse(json.dumps({"unexpected": True}).encode("utf-8")),
+        "open_provider_url",
+        lambda request, timeout, enforce_public_peer: _FakeResponse(json.dumps({"unexpected": True}).encode("utf-8")),
     )
     provider = OpenAICompatibleFactKeyProvider(base_url="http://localhost:1234/v1", model="m")
     with pytest.raises(VNextFactKeyProviderError, match="chat completion"):
@@ -369,10 +369,10 @@ def test_attach_with_use_env_provider_false_never_dials_out(monkeypatch) -> None
     monkeypatch.setenv("ALICE_FACT_KEYS_BASE_URL", "http://localhost:1")
     monkeypatch.setenv("ALICE_FACT_KEYS_MODEL", "m")
 
-    def _fail_urlopen(request, timeout):  # pragma: no cover - must not run
+    def _fail_urlopen(request, timeout, enforce_public_peer):  # pragma: no cover - must not run
         raise AssertionError("commit-path attach must not call the model endpoint")
 
-    monkeypatch.setattr(vnext_fact_keys, "urlopen", _fail_urlopen)
+    monkeypatch.setattr(vnext_fact_keys, "open_provider_url", _fail_urlopen)
     memory = _memory()
     store = _AttachStore({str(memory["id"]): memory})
 

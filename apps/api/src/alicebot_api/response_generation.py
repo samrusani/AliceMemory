@@ -7,7 +7,7 @@ import logging
 from typing import Any, TypedDict
 from typing import Literal, cast
 from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
+from urllib.request import Request
 from uuid import UUID
 
 from alicebot_api.compiler import compile_and_persist_trace
@@ -29,6 +29,8 @@ from alicebot_api.contracts import (
     TRACE_KIND_RESPONSE_GENERATE,
     TraceEventRecord,
 )
+from alicebot_api.provider_http import open_provider_url
+from alicebot_api.provider_security import REDIRECT_STATUS_CODES, redirect_note
 from alicebot_api.session_briefing import SESSION_BRIEF_FRAME, quote_session_brief_text
 from alicebot_api.store import ContinuityStore, JsonObject, JsonValue
 
@@ -411,13 +413,18 @@ def invoke_openai_compatible_model(
     )
 
     try:
-        with urlopen(http_request, timeout=transport.timeout_seconds) as response:
+        with open_provider_url(
+            http_request,
+            timeout=transport.timeout_seconds,
+            enforce_public_peer=True,
+        ) as response:
             raw_payload = response.read()
     except HTTPError as exc:
-        detail = _extract_http_error_detail(exc)
+        # A redirect's body is the endpoint's to write and says nothing the status does not.
+        detail = None if exc.code in REDIRECT_STATUS_CODES else _extract_http_error_detail(exc)
         if detail is not None:
             raise ModelInvocationError(detail) from exc
-        raise ModelInvocationError(f"model provider returned HTTP {exc.code}") from exc
+        raise ModelInvocationError(f"model provider returned HTTP {exc.code}{redirect_note(exc.code)}") from exc
     except TimeoutError as exc:
         raise ModelProviderUnavailableError("model provider request timed out") from exc
     except URLError as exc:

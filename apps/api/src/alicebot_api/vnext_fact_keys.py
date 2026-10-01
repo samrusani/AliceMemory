@@ -52,8 +52,10 @@ import os
 import re
 from typing import Iterable, Mapping, Protocol, Sequence
 from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
+from urllib.request import Request
 
+from alicebot_api.provider_http import open_provider_url
+from alicebot_api.provider_security import redirect_note
 from alicebot_api.vnext_event_log import append_event
 from alicebot_api.vnext_repositories import JsonObject
 
@@ -520,10 +522,12 @@ class OpenAICompatibleFactKeyProvider:
             method="POST",
         )
         try:
-            with urlopen(request, timeout=self.timeout_seconds) as response:
+            with open_provider_url(request, timeout=self.timeout_seconds, enforce_public_peer=False) as response:
                 response_payload = json.loads(response.read())
         except HTTPError as exc:
-            raise VNextFactKeyProviderError(f"fact-key endpoint returned HTTP {exc.code}") from exc
+            raise VNextFactKeyProviderError(
+                f"fact-key endpoint returned HTTP {exc.code}{redirect_note(exc.code)}"
+            ) from exc
         except (URLError, TimeoutError, json.JSONDecodeError) as exc:
             raise VNextFactKeyProviderError(f"fact-key request failed: {exc}") from exc
         return _parse_provider_keys(_extract_chat_content(response_payload))

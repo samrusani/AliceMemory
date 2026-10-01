@@ -143,7 +143,7 @@ about 330 MiB of server memory), so the reverse proxy should cap the body too:
 | Application/database | Runtime store operation to PostgreSQL | Application role, transaction-scoped `app.current_user_id`, forced RLS, parameterized SQL; admin URL reserved for migration/recovery. |
 | Local process/file | SQLite, secrets, logs, exports, imports | Owner-only paths, alias/symlink checks where implemented, explicit import provenance; SQLite is not a tenant boundary. |
 | MCP client/process | JSON-RPC stdio to core tools | Local process trust when keyless; `ALICE_AGENT_API_KEY` binds a key and suppresses legacy handlers lacking equivalent persisted-target authorization. |
-| Alice/provider | Outbound model or connector request | Validated provider configuration, credential references, sanitized public errors, restrictive network deployment policy. |
+| Alice/provider | Outbound model or connector request | Validated provider configuration, credential references, sanitized public errors, restrictive network deployment policy. Unreleased (on main, not in v0.19.2): every outbound call goes through one door, `open_provider_url`, which follows no redirect and, for the provider helpers, Gmail and Calendar, dials only an address the outbound policy allows. |
 | Content/policy | Source or model text to memory/review action | Content remains data; policy evaluation and review gates are code-controlled. |
 
 ### Principal Data Flows
@@ -188,6 +188,7 @@ active-key or RLS bypass remains in scope.
 | Abuse case | Control/evidence | Residual concern |
 | --- | --- | --- |
 | Missing key treated as remote anonymous access | Documented local-only boundary; active-key rule rejects keyless requests. | Host/proxy misconfiguration can invalidate the assumption. |
+| A provider answers with a redirect, or its name resolves to an internal address after the base URL was checked | Unreleased (on main, not in v0.19.2): `open_provider_url` refuses every redirect, so the target is never contacted and no `Authorization` or `api-key` header is sent on, and with `enforce_public_peer` it resolves the name when it connects and dials only an allowed address, over http and https. The provider helpers, response generation, Gmail and Calendar enforce it. The embeddings, reranker, fact-key and brain clients do not, because a local Ollama endpoint is a documented setup. | A request carried by a proxy is not held to the address rule, because the peer is then the proxy. The embeddings, reranker, fact-key and brain clients can reach a loopback or private address the operator configured. A provider call's response body is read whole. Any valid key can register a provider on `/v1`, which authenticates and does not authorize. |
 | Oversized or deeply nested request body before authentication | Unreleased (on main, not in v0.19.2): a body over 4 MiB (32 MiB for connector sync) is refused with HTTP 413 before any layer reads it, a keyless request from another peer is refused before its body is read, a body nested more than 256 levels is refused with HTTP 422, and the Caddy example caps the body at the proxy. | A request inside the cap still costs memory and time, and the cap is no rate limit. The cap counts bytes as sent. |
 | DNS rebinding or a cross-origin request to a keyless loopback API | Unreleased (on main, not in v0.19.2): a keyless request must name `localhost`, `127.0.0.1`, `::1` or an operator-listed host in `Host`, and any `Origin` must be a configured origin or its own. A keyed request is not checked. | Not reproduced in a real browser. The legacy `/v0` continuity routes are outside the two gated surfaces. A name the operator lists in `ALICEBOT_ALLOWED_HOSTS` is trusted as this machine. |
 | Payload claims a stronger profile or another project | Key-bound actor/profile/scope, escalation rejection events, policy tests. | Final carrier needs all-route ASGI closure evidence. |
@@ -269,7 +270,9 @@ active-key or RLS bypass remains in scope.
   from outside the watched folder. The provider helper, which checks the
   configured base URL once, and the embeddings client, which does not check it,
   follow a redirect and send the `Authorization` header to the target; the
-  reranker and fact-key clients use the same opener and were not run. Two
+  reranker and fact-key clients use the same opener and were not run. Unreleased
+  (on main, not in v0.19.2): no provider client follows a redirect any more, and
+  the provider helpers, Gmail and Calendar dial only an allowed address (DB-009). Two
   scheduled CI jobs, the real-host canary and archive maintenance, hold
   issue-write authority while they install packages that are not pinned to an
   exact version: the canary installs the latest host CLIs, and archive

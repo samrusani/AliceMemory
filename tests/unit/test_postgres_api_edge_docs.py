@@ -13,7 +13,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 MARKER = "Unreleased (on main, not in v0.19.2):"
-ENTRY_START = "The Postgres stack's HTTP API edge is hardened, from the internal security review of v0.19.0."
+ENTRY_START = "The Postgres stack's HTTP API edge and the provider clients are hardened, from the internal security review of v0.19.0."
 
 
 def _flat(text: str) -> str:
@@ -92,6 +92,77 @@ def test_the_changelog_entry_states_the_size_limit_and_the_nesting_limit_with_v0
     assert "A body nested about 975 levels deep or more answered HTTP 500" in entry
     assert "A body nested 257 to about 974 levels deep reached the route" in entry
     assert "The HTTP 422 for a lone surrogate is unchanged." in entry
+
+
+def test_the_changelog_entry_states_the_provider_redirect_change_with_v0192_beside_it() -> None:
+    """The DB-009 half of the entry: no redirect, one door, the peer rule and where it does not apply, and v0.19.2.
+
+    Mutations, each one alone: delete the sentence that tells the operator to
+    configure the final URL; delete the sentence that says the embeddings,
+    reranker, fact-key and brain clients pass False, or the one that gives the
+    proxy exception; delete the v0.19.2 sentence about ``urlopen``; delete the
+    sentence that says a provider response is still read whole; say the
+    provider helpers enforce nothing.
+    """
+
+    entry = _entry()
+    assert "Provider redirects (DB-009):" in entry
+    assert "no longer follow an HTTP redirect" in entry
+    assert "`model provider returned HTTP 302; redirects are not followed; set base_url to the final URL`" in entry
+    assert "so an `Authorization` header or an API key is not sent on to it" in entry
+    assert "must be configured with its final URL" in entry
+    assert "through one function, `open_provider_url` in the new `provider_http` module" in entry
+    assert "http and https handlers only (no ftp, file or data), no redirect handler" in entry
+    assert "its `enforce_public_peer` argument has no default" in entry
+    assert "The provider helpers, response generation, Gmail and Calendar pass `True`" in entry
+    assert "A name that was public when the base URL was checked and is loopback when the connection is made (DNS rebinding) is refused before a connection is opened" in entry
+    assert "A request carried by an HTTP or HTTPS proxy skips that check, because the peer is then the proxy." in entry
+    assert "The embeddings, reranker, fact-key and brain clients pass `False`" in entry
+    assert "`http://localhost:11434/v1`" in entry
+    assert "A test fails for any other call to `urlopen` or `build_opener` under `apps/api/src`" in entry
+    assert "In v0.19.2 these clients called `urlopen`, which followed up to ten redirects" in entry
+    assert "a POST answered 307 or 308 was already refused" in entry
+    assert "and the embeddings, reranker, fact-key and brain clients did not check it at all" in entry
+    assert "The response body of a provider call is still read whole." in entry
+
+
+def test_the_provider_change_is_marked_as_main_in_the_threat_model_limitations_and_review_brief() -> None:
+    """Each document says what main does, marked, and keeps what is still open.
+
+    Mutations, each one alone: delete the marker from the trust-boundary row, the
+    abuse-case row, the open-items sentence, the known-limitations bullet or the
+    review brief; delete the residual that names the proxy and the four clients
+    that do not check the address.
+    """
+
+    raw = _read("docs/security/threat-model.md")
+    rows = [line for line in raw.splitlines() if line.startswith("| Alice/provider |")]
+    assert len(rows) == 1 and MARKER in rows[0]
+    assert "every outbound call goes through one door, `open_provider_url`" in rows[0]
+    rows = [line for line in raw.splitlines() if line.startswith("| A provider answers with a redirect")]
+    assert len(rows) == 1 and MARKER in rows[0]
+    assert "A request carried by a proxy is not held to the address rule" in rows[0]
+    assert "The embeddings, reranker, fact-key and brain clients can reach a loopback or private address" in rows[0]
+    assert "`/v1`, which authenticates and does not authorize" in rows[0]
+    model = _flat(raw)
+    assert (
+        f"the reranker and fact-key clients use the same opener and were not run. {MARKER} no provider client follows a "
+        "redirect any more, and the provider helpers, Gmail and Calendar dial only an allowed address (DB-009)."
+    ) in model
+
+    bullets = [
+        _flat(line)
+        for line in _read("docs/alpha/known-limitations.md").splitlines()
+        if line.startswith("- calls to a configured provider, embeddings, reranker or fact-key endpoint")
+    ]
+    assert len(bullets) == 1
+    assert "use the standard library opener, which follows redirects" in bullets[0]
+    assert f"{MARKER} none of those clients follows a redirect" in bullets[0]
+    assert bullets[0].endswith("and a provider response is read whole")
+
+    brief = _flat(_read("docs/security/external-review-brief.md"))
+    assert f"{MARKER} provider calls go through one function that follows no redirect" in brief
+    assert "and a provider response is still read whole." in brief
 
 
 def test_the_threat_model_names_the_size_limit_and_marks_main() -> None:
@@ -219,6 +290,8 @@ def test_no_added_text_uses_an_em_dash_or_an_en_dash() -> None:
         _read("apps/api/src/alicebot_api/request_limits.py"),
         _read("packaging/cloud/Caddyfile.example"),
         _read("docs/alpha/known-limitations.md").split("Open items from the internal security review")[1],
+        _read("docs/security/external-review-brief.md"),
+        _read("apps/api/src/alicebot_api/provider_http.py"),
     ):
         assert "—" not in text
         assert "–" not in text
