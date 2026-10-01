@@ -11,13 +11,20 @@ failed. A valid pair written as two escapes is decoded into one character and
 is not a lone surrogate; any surrogate that is left in a decoded str is one.
 
 Three places use this module, all wired in ``main.py``. The ``/v1`` and vNext
-agent-key layers read a body themselves, before they authenticate, and call
-``find_lone_surrogate`` on what they parsed. ``reject_lone_surrogate_json_body``
-is the innermost middleware and covers every other route for a request those
-layers let through: a field the route does not validate as a str (a dict or list
-of any kind, a key) would otherwise reach the database driver. And
-``validation_error_response`` is the last line, for a validation error a route
+agent-key layers read a body themselves, before they authenticate, and check
+what they parsed with ``payload_lone_surrogate_location`` before they use any
+value from it. ``reject_lone_surrogate_json_body`` is the innermost middleware
+and covers a request those layers let through, for a route that takes the
+method: a field the route does not validate as a str (a dict or list of any
+kind, a key) would otherwise reach the database driver. A request with no
+matching route, or a path whose route does not take the method, keeps the 404
+or 405 the router gives it and its body is not read. And
+``render_validation_error`` is the last line, for a validation error a route
 still raises, so rendering that error cannot fail.
+
+The check stands on the JSON decoder. A body nested too deep for the decoder is
+not scanned and is answered as it was in v0.19.2: the guard leaves it to the
+framework, and the code that parses it raises.
 """
 
 from __future__ import annotations
@@ -29,7 +36,10 @@ from typing import Any
 
 from fastapi import Request, Response
 from fastapi.encoders import jsonable_encoder
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from starlette.routing import Match
 
 # Same text pydantic uses for a str field that holds one. The guard answers
 # with it so a client sees one message whichever layer caught the body.
@@ -115,6 +125,24 @@ def body_lone_surrogate_location(raw_body: bytes) -> Location | None:
     return find_lone_surrogate(decoded)
 
 
+async def payload_lone_surrogate_location(request: Request, payload: object) -> Location | None:
+    """Return where a payload parsed from the request body holds a surrogate, or None.
+
+    The walk over a parsed body is slower than parsing it, so it runs only when
+    the bytes the payload came from could decode to a lone surrogate: a body
+    with no ``\\uD800`` to ``\\uDFFF`` escape, no UTF-8 surrogate and no NUL byte
+    cannot hold one. An empty payload holds nothing and the body is not asked
+    for. The caller has read the body already, so asking for it again is a
+    cached read.
+    """
+
+    if not payload:
+        return None
+    if _MAY_HOLD_LONE_SURROGATE.search(await request.body()) is None:
+        return None
+    return find_lone_surrogate(payload)
+
+
 def lone_surrogate_error(location: Location) -> dict[str, object]:
     """Build the validation error for a surrogate at a body location."""
 
@@ -181,6 +209,22 @@ def validation_error_response(errors: Sequence[Any]) -> JSONResponse:
     )
 
 
+async def render_validation_error(request: Request, exc: RequestValidationError) -> Response:
+    """Answer a validation error with the framework's own handler.
+
+    The framework's handler writes each error's ``input`` into the response and
+    raises ``UnicodeEncodeError`` for a surrogate in it. Only then does the 422
+    come from ``validation_error_response``, which withholds what holds one, so
+    an error with no surrogate in it is answered by the framework as it is
+    answered in v0.19.2.
+    """
+
+    try:
+        return await request_validation_exception_handler(request, exc)
+    except UnicodeEncodeError:
+        return validation_error_response(exc.errors())
+
+
 def lone_surrogate_response(location: Location) -> JSONResponse:
     """Build the 422 for a surrogate found at a body location."""
 
@@ -206,6 +250,19 @@ def declares_json_body(content_type: str) -> bool:
     )
 
 
+def request_has_matching_route(request: Request) -> bool:
+    """Report whether a route takes this path and this method.
+
+    A request that matches no route answers 404, and one that matches the path
+    but not the method answers 405, whatever its body holds. Both are the
+    router's to answer. A router that was included reports a full match for
+    any route inside it, so the top-level routes are enough.
+    """
+
+    scope = request.scope
+    return any(route.matches(scope)[0] is Match.FULL for route in request.app.router.routes)
+
+
 async def reject_lone_surrogate_json_body(
     request: Request,
     call_next: Callable[[Request], Awaitable[Response]],
@@ -214,10 +271,15 @@ async def reject_lone_surrogate_json_body(
 
     The error has the shape of any other validation error, a ``detail`` list of
     ``type``, ``loc`` and ``msg``, and never repeats the text. It is the error
-    pydantic raises for a str field that holds one, minus its ``input``.
+    pydantic raises for a str field that holds one, minus its ``input``. The
+    body is read only for a request that a route takes, by path and by method.
     """
 
-    if request.method.upper() in _BODY_METHODS and declares_json_body(request.headers.get("content-type", "")):
+    if (
+        request.method.upper() in _BODY_METHODS
+        and declares_json_body(request.headers.get("content-type", ""))
+        and request_has_matching_route(request)
+    ):
         location = body_lone_surrogate_location(await request.body())
         if location is not None:
             return lone_surrogate_response(location)

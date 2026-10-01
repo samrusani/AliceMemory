@@ -30,19 +30,37 @@ def test_the_changelog_entry_sits_under_unreleased_and_states_v0192() -> None:
     """One Unreleased entry, with both halves and the v0.19.2 behaviour beside each.
 
     Mutations, each one alone: move the entry under the v0.19.2 heading; delete
-    the sentence that says v0.19.2 answered HTTP 500; delete the 404 sentence;
-    delete the sentence about plugin 0.5.2; delete the ``--force`` install note.
+    the sentence that says v0.19.2 answered HTTP 500; delete the 404 and 405
+    sentence; delete the sentence about a body nested too deep; say the check
+    runs before any route or before the key checks; say 422 on every route
+    without the scope; delete the sentence about plugin 0.5.2; delete the
+    ``--force`` install note.
     """
 
     entries = [item for item in _unreleased_changelog().split("\n- ")[1:]]
     assert len(entries) == 1
     entry = _flat(entries[0])
-    assert 'A request body that holds a lone surrogate, for example the JSON escape `"\\ud800"`, is refused with HTTP 422 on every route.' in entry
+    assert (
+        'A JSON request body that holds a lone surrogate, for example the escape `"\\ud800"`, is refused with HTTP 422 '
+        "on every route that takes a POST, PUT, PATCH or DELETE, as long as the JSON decoder can parse the body."
+    ) in entry
     assert "a string field, a value inside a dict or list that a route takes as any value, and an object key" in entry
+    assert (
+        "The check is the innermost middleware, so it reads a body only for a request that identity, the `/v1` check "
+        "and the vNext check let through and that a route takes by path and method."
+    ) in entry
+    assert (
+        "The `/v1` and vNext agent-key checks parse the body themselves, and each runs the same check on what it "
+        "parsed before it uses any value from it."
+    ) in entry
+    assert "A path with no route keeps its 404 and a path whose route does not take the method keeps its 405, as in v0.19.2" in entry
+    assert "A body nested too deep for the decoder is not checked and still answers HTTP 500, as in v0.19.2." in entry
+    assert "The handler that renders validation errors still asks the framework's handler first." in entry
+    for claim in ("before any route", "before the `/v1` and vNext agent-key checks read the body", "answered 404 in v0.19.2"):
+        assert claim not in entry
     assert "so the answer was HTTP 500, which is what dropped a Hermes turn" in entry
     assert "In v0.19.2 pydantic refused a surrogate in a string field" in entry
     assert "A surrogate in a dict, a list or a key inside one was not checked and the request reached the route." in entry
-    assert "answers 422 now and answered 404 in v0.19.2" in entry
     assert "Hermes provider 0.5.3 replaces each lone surrogate with U+FFFD" in entry
     assert "The plugin logs and counts nothing about a replacement." in entry
     assert "In plugin 0.5.2, which is in v0.19.2, the surrogate was sent" in entry
@@ -51,7 +69,7 @@ def test_the_changelog_entry_sits_under_unreleased_and_states_v0192() -> None:
 
     released = _read("CHANGELOG.md")[_read("CHANGELOG.md").index("## v0.19.2") :]
     assert "Hermes provider 0.5.3" not in released
-    assert "is refused with HTTP 422 on every route" not in released
+    assert "is refused with HTTP 422 on every route that takes" not in released
 
 
 def test_no_added_line_uses_an_em_dash_or_an_en_dash() -> None:
@@ -68,7 +86,7 @@ def test_the_known_limitation_keeps_v0192_and_marks_main() -> None:
     """The bullet still says what v0.19.2 does and adds what main does, marked.
 
     Mutations: delete the v0.19.2 half of the bullet; drop the marker; claim the
-    turn is saved without saying it is main.
+    turn is saved without saying it is main; say every route without the scope.
     """
 
     bullets = [
@@ -83,8 +101,9 @@ def test_the_known_limitation_keeps_v0192_and_marks_main() -> None:
         "so a Hermes turn that carries one is not saved."
     )
     assert bullet.endswith(
-        "Unreleased (on main, not in v0.19.2): every route answers a body that carries one with HTTP 422, "
-        "and Hermes provider 0.5.3 replaces it with U+FFFD, so the turn is saved"
+        "Unreleased (on main, not in v0.19.2): every route that takes a POST, PUT, PATCH or DELETE answers a JSON "
+        "body that carries one with HTTP 422 when the decoder can parse the body (a body nested too deep for it "
+        "still answers HTTP 500), and Hermes provider 0.5.3 replaces it with U+FFFD, so the turn is saved"
     )
 
 
@@ -103,7 +122,10 @@ def test_the_provider_guide_marks_plugin_053_as_main_and_keeps_052_as_v0192() ->
     assert guide.index(released) < guide.index(marked) < guide.index(later)
     paragraph = guide[guide.index(marked) : guide.index(later)]
     assert "Plugin 0.5.2 sent the surrogate, and the server answered HTTP 500 and dropped the turn." in paragraph
-    assert "On main every route answers a request body that carries a lone surrogate with HTTP 422." in paragraph
+    assert (
+        "On main every route that takes a POST, PUT, PATCH or DELETE answers a JSON request body that carries a lone "
+        "surrogate with HTTP 422, when the decoder can parse the body."
+    ) in paragraph
     assert "`./scripts/install_hermes_alice_memory_provider.py --force`" in paragraph
     assert "in v0.19.2" not in paragraph.replace("not in v0.19.2", "")
 
@@ -112,13 +134,21 @@ def test_the_http_error_docs_mark_the_new_422_and_keep_v0192() -> None:
     """The agent integration guide says what main does and what v0.19.2 does.
 
     Mutations: delete the marker; delete the v0.19.2 sentence; say main's
-    behaviour without the marker.
+    behaviour without the marker; delete the scope (every route that takes a
+    POST, PUT, PATCH or DELETE) or the 404, 405 and too-deep sentence.
     """
 
     doc = _flat(_read("docs/alpha/agent-integration.md"))
     marked = "Unreleased (on main, not in v0.19.2): a JSON request body that holds a lone surrogate"
     assert doc.count(marked) == 1
     paragraph = doc[doc.index(marked) :].split(" ## Scopes")[0]
-    assert "is refused with HTTP 422 and the array `detail` of a validation error." in paragraph
+    assert (
+        "is refused with HTTP 422 and the array `detail` of a validation error, on every route that takes a POST, PUT, "
+        "PATCH or DELETE, when the decoder can parse the body."
+    ) in paragraph
     assert "The error says where the text is and does not repeat it." in paragraph
+    assert (
+        "A path with no route still answers 404, a path whose route does not take the method still answers 405, "
+        "and a body nested too deep for the decoder still answers HTTP 500."
+    ) in paragraph
     assert "v0.19.2 answers HTTP 500 for a surrogate in a string field." in paragraph

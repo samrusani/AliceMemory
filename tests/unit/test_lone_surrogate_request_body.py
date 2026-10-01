@@ -8,7 +8,7 @@ driver, which cannot encode it either.
 
 Three places hold the line. The ``/v1`` and vNext agent-key layers refuse the
 body where they parse it, ``reject_lone_surrogate_json_body`` is the innermost
-middleware and refuses it for every other route, and
+middleware and refuses it for a route that takes the method, and
 ``_alice_request_validation_error`` keeps a surrogate out of the validation
 error a route still raises. The tests drive the real app in process over raw
 ASGI, so the bytes of the body are exactly what the test wrote.
@@ -34,9 +34,10 @@ from starlette.applications import Starlette
 from starlette.middleware import Middleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
-from starlette.responses import Response
+from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
+import alicebot_api.lone_surrogates as lone_surrogates_module
 import alicebot_api.main as main_module
 from alicebot_api.config import Settings
 from alicebot_api.lone_surrogates import (
@@ -44,8 +45,11 @@ from alicebot_api.lone_surrogates import (
     declares_json_body,
     find_lone_surrogate,
     reject_lone_surrogate_json_body,
+    render_validation_error,
+    request_has_matching_route,
     withhold_lone_surrogate_errors,
 )
+from alicebot_api.vnext_agent_keys import AgentKeyAuthenticationError
 from alicebot_api.routers import continuity as continuity_router
 from alicebot_api.routers import vnext_memories as vnext_memories_router
 from tests.unit.test_vnext_main import FakeVNextStore
@@ -309,9 +313,10 @@ def test_no_auth_layer_reads_a_value_from_a_body_that_holds_a_surrogate(
 
     Both read the body before they authenticate and hand fields of it to a
     database lookup. Mutations, each one alone: delete the
-    ``find_lone_surrogate(payload)`` check from ``enforce_v1_agent_authentication``;
-    delete it from ``_vnext_protected_http_auth``. That layer is then handed the
-    body, ``auth_payloads`` is not empty, and the request gets no 422.
+    ``await payload_lone_surrogate_location(request, payload)`` check from
+    ``enforce_v1_agent_authentication``; delete it from
+    ``_vnext_protected_http_auth``. That layer is then handed the body,
+    ``auth_payloads`` is not empty, and the request gets no 422.
     """
 
     v1_status, v1_raw = _post(_V1_GENERATE, _escaped({"agent_id": f"{SENTINEL} \ud800", "user_content": "x"}))
@@ -513,8 +518,9 @@ def test_the_handler_answers_422_for_a_real_error_that_holds_a_surrogate(payload
 
     The errors are the ones pydantic raises for the real candidates request
     model. Mutation: return ``request_validation_exception_handler`` (the
-    framework's) from ``_alice_request_validation_error`` for the non-clipper
-    path. The call raises ``UnicodeEncodeError``.
+    framework's) directly from ``_alice_request_validation_error`` for the
+    non-clipper path, so ``render_validation_error`` is not used. The call
+    raises ``UnicodeEncodeError``.
     """
 
     errors = _validation_errors(continuity_router.ContinuityCaptureCandidatesRequest, payload)
@@ -805,3 +811,243 @@ def test_the_guard_leaves_a_body_it_cannot_decode_to_the_route() -> None:
             status = 500  # the echo route itself cannot parse it
         assert status != 422
         assert seen == [body]
+
+
+# A request no route takes keeps its 404 or 405, and the guard does not read its body.
+
+
+def _request_for(app: Any, method: str, path: str) -> Request:
+    scope = {
+        "type": "http",
+        "method": method,
+        "path": path,
+        "raw_path": path.encode(),
+        "query_string": b"",
+        "headers": [],
+        "client": ("127.0.0.1", 50000),
+        "server": ("testserver", 80),
+        "root_path": "",
+        "app": app,
+    }
+    return Request(scope)
+
+
+@pytest.mark.parametrize(
+    ("method", "path", "expected"),
+    (
+        ("POST", _CANDIDATES, True),
+        ("POST", _V1_GENERATE, True),
+        ("POST", _INGEST, True),
+        ("GET", "/healthz", True),
+        ("PUT", _CANDIDATES, False),
+        ("DELETE", _CANDIDATES, False),
+        ("POST", "/healthz", False),
+        ("POST", "/openapi.json", False),
+        ("POST", "/no/such/route", False),
+        ("POST", "/v0/continuity/captures/candidates/extra", False),
+    ),
+)
+def test_a_route_matches_only_when_it_takes_the_path_and_the_method(method: str, path: str, expected: bool) -> None:
+    """A full match is a route that takes both. A path whose route takes another method is not one.
+
+    The routes are the real app's, through included routers. Mutations, each
+    one alone: count ``Match.PARTIAL`` as a match (a PUT to a POST-only path
+    then matches); return True; test the path alone. The False rows fail.
+    """
+
+    assert request_has_matching_route(_request_for(main_module.app, method, path)) is expected
+
+
+@pytest.mark.parametrize(
+    ("method", "path", "status", "body_is_read"),
+    (
+        ("POST", "/no/such/route", 404, False),
+        ("POST", "/healthz", 405, False),
+        ("POST", "/docs", 405, False),
+        ("POST", "/openapi.json", 405, False),
+        ("PUT", _CANDIDATES, 405, True),
+        ("PATCH", _CANDIDATES, 405, True),
+        ("DELETE", _CANDIDATES, 405, True),
+    ),
+)
+def test_a_request_no_route_takes_keeps_its_404_or_405_and_its_body_is_not_read_for_it(
+    reached: list[str], method: str, path: str, status: int, body_is_read: bool
+) -> None:
+    """The guard leaves the router's 404 and 405 alone, as v0.19.2 does, and reads nothing for them.
+
+    A body is read before routing only by the identity layer, and only for a
+    ``/v0`` path, so a path outside ``/v0`` shows no read at all, from
+    loopback or from outside it. Mutations, each one alone: drop the
+    ``request_has_matching_route(request)`` condition from
+    ``reject_lone_surrogate_json_body`` (the unrouted paths answer 422 and the
+    body is read); count ``Match.PARTIAL`` as a match (the 405 rows answer 422).
+    """
+
+    body = _escaped({"user_id": USER_ID, "user_content": f"{SENTINEL} \ud800"})
+    headers = [(b"content-type", b"application/json"), (b"x-alicebot-user-id", USER_ID.encode())]
+
+    for client in (("127.0.0.1", 50000), ("203.0.113.9", 50000)):
+        got, _headers, raw, reads = _asgi_exchange(main_module.app, method, path, body, headers=headers, client=client)
+        assert got == status, raw
+        assert SENTINEL.encode() not in raw
+        assert (reads > 0) is body_is_read
+    assert reached == []
+
+
+def test_a_request_a_route_takes_is_still_refused_after_the_route_check(reached: list[str]) -> None:
+    """The route check does not let a routed surrogate body through, from loopback or from outside it.
+
+    Mutation: make ``request_has_matching_route`` return False. The body
+    reaches the route, which answers its own validation error and not this one.
+    """
+
+    body = _escaped({"user_id": USER_ID, "candidates": [{f"{SENTINEL}\ud800": 1}]})
+    for client in (("127.0.0.1", 50000), ("203.0.113.9", 50000)):
+        status, _headers, raw, reads = _asgi_exchange(
+            main_module.app,
+            "POST",
+            _COMMIT,
+            body,
+            headers=[(b"content-type", b"application/json"), (b"x-alicebot-user-id", USER_ID.encode())],
+            client=client,
+        )
+        _assert_refused_without_echo(status, raw, expected=_error("candidates", 0, "[key]"))
+        assert reads > 0
+    assert reached == []
+
+
+# The two auth layers walk a parsed body only when its bytes could hold a surrogate.
+
+
+@pytest.fixture()
+def refusing_auth(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Both agent-key layers refuse once they have checked the body, so no route runs."""
+
+    def refuse(**kwargs: Any) -> None:
+        raise AgentKeyAuthenticationError("refused by the test")
+
+    monkeypatch.setattr(main_module, "_resolve_v1_http_auth", refuse)
+    monkeypatch.setattr(main_module, "_resolve_vnext_http_auth", refuse)
+
+
+@pytest.fixture()
+def walks(monkeypatch: pytest.MonkeyPatch) -> list[object]:
+    """Every value handed to the walker that looks for a lone surrogate."""
+
+    seen: list[object] = []
+    real = lone_surrogates_module.find_lone_surrogate
+
+    def counting(value: object) -> Any:
+        seen.append(value)
+        return real(value)
+
+    monkeypatch.setattr(lone_surrogates_module, "find_lone_surrogate", counting)
+    return seen
+
+
+@pytest.mark.parametrize("path", (_V1_GENERATE, _INGEST), ids=("v1", "vnext"))
+def test_the_auth_layers_walk_a_body_only_when_its_bytes_could_hold_a_surrogate(
+    reached: list[str], refusing_auth: None, walks: list[object], path: str
+) -> None:
+    """A body with no ``\\ud8`` to ``\\udf`` escape, UTF-8 surrogate or NUL byte is not walked.
+
+    The walk costs more than the parse, so it runs only for a body that could
+    decode to a lone surrogate. A valid pair is such a body and is walked,
+    found clean, and passed on to the key check. Mutation: delete the byte
+    search from ``payload_lone_surrogate_location`` so every non-empty payload
+    is walked. The clean body is then walked and ``walks`` is not empty.
+    """
+
+    clean = _escaped(
+        {"user_id": USER_ID, "agent_id": "a", "title": "t", "content": "c", "user_content": "caf\u00e9 \u65e5\u672c"}
+    )
+    status, _raw_response = _post(path, clean)
+    assert status in (400, 401)
+    assert walks == []
+
+    pair = _escaped(
+        {"user_id": USER_ID, "agent_id": "a", "title": "t", "content": "c", "user_content": "pair \U0001f600"}
+    )
+    assert b"\\ud83d\\ude00" in pair
+    status, _raw_response = _post(path, pair)
+    assert status in (400, 401)
+    assert len(walks) == 1
+    assert reached == []
+
+
+@pytest.mark.parametrize("path", ("/v1/memory/operations/anything", "/v0/vnext/anything"), ids=("v1", "vnext"))
+def test_the_auth_layers_do_not_ask_for_the_body_of_a_request_with_no_payload(
+    reached: list[str], refusing_auth: None, walks: list[object], path: str
+) -> None:
+    """A GET has no payload, so the surrogate check neither walks nor reads anything.
+
+    Mutation: have ``payload_lone_surrogate_location`` read ``request.body()``
+    before it tests for an empty payload. The GET then reads its body once.
+    """
+
+    status, _headers, _raw_response, reads = _asgi_exchange(
+        main_module.app,
+        "GET",
+        path,
+        b"",
+        headers=[(b"x-alicebot-user-id", USER_ID.encode())],
+    )
+
+    assert status in (400, 401)
+    assert reads == 0
+    assert walks == []
+    assert reached == []
+
+
+# The validation error handler asks the framework first.
+
+
+def _bare_request() -> Request:
+    return _request_for(main_module.app, "POST", _CANDIDATES)
+
+
+def test_a_validation_error_is_answered_by_the_framework_handler_and_only_a_failure_to_encode_falls_back(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The framework answers every error it can encode. Only ``UnicodeEncodeError`` hands over.
+
+    Mutations, each one alone: build the response with
+    ``validation_error_response`` without calling the framework handler (the
+    first assertion fails, and so does a later framework change that this copy
+    would not follow); catch ``Exception`` instead of ``UnicodeEncodeError``
+    (the ``RuntimeError`` is swallowed); remove the fallback (the surrogate
+    error raises).
+    """
+
+    framework_answer = JSONResponse({"from": "framework"}, status_code=422)
+    asked: list[RequestValidationError] = []
+
+    async def framework(request: Request, exc: RequestValidationError) -> Response:
+        asked.append(exc)
+        return framework_answer
+
+    monkeypatch.setattr(lone_surrogates_module, "request_validation_exception_handler", framework)
+    plain = RequestValidationError([{"type": "missing", "loc": ("body", "x"), "msg": "Field required", "input": {}}])
+    assert anyio.run(render_validation_error, _bare_request(), plain) is framework_answer
+    assert asked == [plain]
+
+    async def cannot_encode(request: Request, exc: RequestValidationError) -> Response:
+        "\ud800".encode("utf-8")
+        raise AssertionError("unreachable")
+
+    monkeypatch.setattr(lone_surrogates_module, "request_validation_exception_handler", cannot_encode)
+    carrying = RequestValidationError(
+        [{"type": "string_unicode", "loc": ("body", "x"), "msg": "m", "input": f"{SENTINEL} \ud800"}]
+    )
+    response = anyio.run(render_validation_error, _bare_request(), carrying)
+    assert response.status_code == 422
+    assert json.loads(bytes(response.body)) == {
+        "detail": [{"type": "string_unicode", "loc": ["body", "x"], "msg": "m"}]
+    }
+
+    async def broken(request: Request, exc: RequestValidationError) -> Response:
+        raise RuntimeError("not an encoding failure")
+
+    monkeypatch.setattr(lone_surrogates_module, "request_validation_exception_handler", broken)
+    with pytest.raises(RuntimeError):
+        anyio.run(render_validation_error, _bare_request(), plain)

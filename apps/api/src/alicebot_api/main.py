@@ -24,10 +24,10 @@ from alicebot_api import __version__
 from alicebot_api.surface_flags import legacy_surfaces_enabled
 from alicebot_api.config import Settings, get_settings
 from alicebot_api.lone_surrogates import (
-    find_lone_surrogate,
     lone_surrogate_response,
+    payload_lone_surrogate_location,
     reject_lone_surrogate_json_body,
-    validation_error_response,
+    render_validation_error,
 )
 from alicebot_api.public_errors import public_exception_response
 from alicebot_api.routers import (
@@ -607,7 +607,7 @@ async def _alice_request_validation_error(
                 ]
             },
         )
-    return validation_error_response(exc.errors())
+    return await render_validation_error(request, exc)
 
 
 from alicebot_api.routers import providers  # noqa: E402
@@ -954,7 +954,7 @@ async def _vnext_protected_http_auth(
         if isinstance(candidate, dict):
             payload = candidate
 
-    surrogate_location = find_lone_surrogate(payload)
+    surrogate_location = await payload_lone_surrogate_location(request, payload)
     if surrogate_location is not None:
         return lone_surrogate_response(surrogate_location)
 
@@ -1020,9 +1020,10 @@ async def _vnext_protected_http_auth(
 
 
 # The innermost middleware: it reads a body only once the identity, /v1 and vNext
-# layers have let the request through, so it adds no read before authentication.
+# layers have let the request through, and only for a path and method a route
+# takes, so it adds no read before authentication and no read for a 404 or 405.
 # The /v1 and vNext layers read the body themselves, before they authenticate,
-# and refuse a lone surrogate in it where they read it.
+# and check what they parsed for a lone surrogate before they use a value from it.
 app.middleware("http")(reject_lone_surrogate_json_body)
 app.middleware("http")(_vnext_protected_http_auth)
 
@@ -1175,7 +1176,7 @@ async def enforce_v1_agent_authentication(
         return await call_next(request)
 
     payload = await _v1_request_payload(request)
-    surrogate_location = find_lone_surrogate(payload)
+    surrogate_location = await payload_lone_surrogate_location(request, payload)
     if surrogate_location is not None:
         return lone_surrogate_response(surrogate_location)
     if _v1_request_claims_other_user(request, payload, user_id):

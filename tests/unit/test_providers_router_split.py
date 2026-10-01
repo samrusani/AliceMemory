@@ -82,14 +82,16 @@ EXPECTED_CARRIER_NAMES_SHA256 = "2c109fc234a05dd8f44e4c34bee49e797fbb5e49e924133
 # Re-pinned 2026-10-01. A lone surrogate in a request body is now a 422. Three
 # definitions changed, found by a per-definition AST diff against origin/main
 # (v0.19.2): _alice_request_validation_error answers through
-# lone_surrogates.validation_error_response instead of the framework's handler,
-# and _vnext_protected_http_auth and enforce_v1_agent_authentication each refuse
-# a body that holds a surrogate right where they parse it. The set of
-# definitions is the same. The middleware that covers every other read lives in
+# lone_surrogates.render_validation_error, which calls the framework's handler
+# and withholds a surrogate only when that handler raises, and
+# _vnext_protected_http_auth and enforce_v1_agent_authentication each refuse a
+# body that holds a surrogate right where they parse it, through
+# lone_surrogates.payload_lone_surrogate_location. The set of definitions is
+# the same. The middleware that covers every other read lives in
 # lone_surrogates.py and main.py only registers it, so it adds no definition
 # here. Earlier re-pin (2026-09-26): _rewrite_user_id_json_body writes the
 # rewritten JSON into request._body before call_next.
-EXPECTED_CARRIER_AST_SHA256 = "3cfdc23b38a1e684a0910d971b344891bb7be024751faa74c7ba57c59fb63b9a"
+EXPECTED_CARRIER_AST_SHA256 = "fe854ed180c705b104211d7e9013df9eb398e2ea8a343db9ab88d2524469c619"
 EXPECTED_ROUTE_NAME_MANIFEST_SHA256 = "1a438538e16120361f92d30375cc94679d598fe4b78ba5a58a7d8a4dda6af83c"
 EXPECTED_OPERATION_MANIFEST_SHA256 = "8b79ceaf996b8c51b5bb2f3f38a8c19a4e33796955d8b8f7a66e7ac01ea1732d"
 EXPECTED_IMPORT_MANIFEST_SHA256 = "17484ccdd460e42e2ad5c82a8ca867664694feaf871118c410a134996a532358"
