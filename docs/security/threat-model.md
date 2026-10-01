@@ -184,7 +184,8 @@ active-key or RLS bypass remains in scope.
   `validity.superseded_by_memory_id` and `validity.supersedes_memory_id` on an
   `alice_recall` result, where `superseded: true` stays and only the id is left
   off. The `target_id` of each entry in a context pack's `recent_changes`, where
-  an entry about a memory the caller cannot read is dropped. The id and title of
+  an entry about a memory the caller cannot read is dropped and the search for
+  older events stops after 2,048, so the list can be short. The id and title of
   each revision in a `context_depth: high` pack's `supersession_context`, where
   a revision the caller cannot read ends the walk and nothing past it is named.
   In the pack pointers, the recall `validity` ids, `recent_changes` and
@@ -196,7 +197,10 @@ active-key or RLS bypass remains in scope.
   One place still carries a memory id without the fence: ids copied into a
   stored memory's `metadata_json`, which the full pack returns. It needs a
   memory the caller cannot read, so it differs from the owner's view only for
-  key-bound agents or an explicit sensitivity ceiling.
+  key-bound agents or an explicit sensitivity ceiling. That is the result for
+  `alice_recall`, `alice_context_pack`, `alice_resume`, `alice_recent_decisions`
+  and `alice_open_loops`. The other tools, such as `alice_recent_changes` and
+  `alice_timeline`, were not checked for memory ids.
 - Stage A tests are team-authored. They reduce review cost; they do not replace
   adversarial testing by the owner-appointed Stage B reviewer.
 

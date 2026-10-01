@@ -13,15 +13,32 @@ here as a keyed reader sees it:
 
 Ids copied into a stored memory's ``metadata_json`` are a documented gap and are
 not asserted here.
+
+Each fence input (sensitivity ceiling, domain, project, person, time window) is
+pinned on its own for each place, and a vault the caller mostly cannot read
+still gets a pack.
 """
 
 from __future__ import annotations
 
 import inspect
 import json
+from datetime import datetime, timezone
 from pathlib import Path
+from uuid import uuid4
 
-from alicebot_api.vnext_retrieval import VNextRetrievalService, _drop_pointers_outside_fence
+import pytest
+
+import alicebot_api.vnext_retrieval as vnext_retrieval_module
+from alicebot_api.vnext_retrieval import (
+    MEMORY_ID_LOOKUP_BATCH_SIZE,
+    VNextRetrievalCompletenessError,
+    VNextRetrievalRequest,
+    VNextRetrievalService,
+    _drop_pointers_outside_fence,
+    _fetch_filtered_prefix,
+    _ResolvedRetrievalScope,
+)
 from tests.unit.test_correction_label_respects_the_read_fence import (
     NEW,
     OLD,
@@ -563,6 +580,327 @@ def test_the_walk_keeps_an_id_only_reference_to_no_row_unless_the_pack_is_scoped
     scoped = _note(_pack(context, "kettle second shelf", context_depth="high", projects=("acme",)), second)
     assert _named(scoped, "supersedes") == [first, old][:1]
     assert DEAD not in json.dumps(scoped, default=str)
+
+
+# -- each fence input, pinned on its own where the tests above leave it out ------------
+
+
+def test_recall_validity_withholds_a_predecessor_for_the_keyless_owner(tmp_path: Path, monkeypatch) -> None:
+    """The pointers of a middle row are looked up together, not one key at a time.
+
+    An unscoped read keeps a pointer it never looked up, so only a lookup of both
+    ids can find that the predecessor is above the ceiling. Mutation: build
+    ``pointer_ids`` in ``fence_validity_memory_ids`` from the first id key only.
+    """
+    context = _context(tmp_path, monkeypatch)
+    _source_id, old = _captured(context, monkeypatch)
+    middle = _supersede(context, old)
+    newest = _supersede(context, middle, THIRD)
+    _set(context, old, sensitivity="confidential")
+    _set(context, middle, status="active")
+
+    payload = _recall(context)
+    validity = _result(payload, middle)["validity"]
+    assert validity["superseded_by_memory_id"] == newest
+    assert "supersedes_memory_id" not in validity
+    assert old not in json.dumps(payload, default=str)
+
+
+def test_recall_validity_withholds_a_successor_outside_the_time_window(tmp_path: Path, monkeypatch) -> None:
+    """The time half of the recall fence. The successor became valid in 2020.
+
+    Mutation: build the recall scope for ``fence_validity_memory_ids`` with no
+    window, or with ``None``.
+    """
+    context = _context(tmp_path, monkeypatch)
+    memory_id, replacement = _hide_successor(context, monkeypatch)
+    _set(context, replacement, sensitivity="public", valid_from="2020-01-01T00:00:00Z")
+
+    windowed = _recall(context, since="2026-01-01T00:00:00Z")
+    assert "superseded_by_memory_id" not in _result(windowed, memory_id)["validity"]
+    assert replacement not in json.dumps(windowed, default=str)
+    open_window = _recall(context)
+    assert _result(open_window, memory_id)["validity"]["superseded_by_memory_id"] == replacement, "the control"
+
+
+def test_the_walk_stops_at_a_revision_outside_the_requested_domains(tmp_path: Path, monkeypatch) -> None:
+    """The domain half of the walk's fence. R1 is in another domain, so a pack for ``project`` stops there.
+
+    Mutation: hand the walk a predicate built with ``domains=[]``.
+    """
+    context = _context(tmp_path, monkeypatch)
+    old, first, second = _chain(context, monkeypatch)
+    for memory_id in (old, first, second):
+        _set(context, memory_id, sensitivity="public")
+    _set(context, old, domain="professional", title=MARKER)
+
+    pack = _pack(context, "kettle second shelf", context_depth="high", domains=("project",))
+    assert _named(_note(pack, second), "supersedes") == [first]
+    assert old not in json.dumps(pack, default=str)
+    assert MARKER not in json.dumps(pack, default=str)
+    control = _pack(context, "kettle second shelf", context_depth="high")
+    assert _named(_note(control, second), "supersedes") == [first, old], "the control: no domain filter names it"
+
+
+def test_supersession_context_names_nothing_when_the_first_hop_is_hidden() -> None:
+    """The walk checks the first hop itself, not only the hops after it.
+
+    The pointer sanitizer normally drops a hidden first hop before the walk runs,
+    so this calls the walk directly. Mutation: check ``memory_visible`` only on
+    the hops after the first.
+    """
+    from tests.unit.test_vnext_retrieval import _memory_row
+
+    service = _fake_service([], [_memory_row("m-old", "Old kettle fact.")])
+    packed = _memory_row("m-new", "New kettle fact.", supersedes="m-old")
+    notes = service._supersession_context(
+        [packed],
+        scope=_ResolvedRetrievalScope(projects=frozenset(), people=frozenset(), window_start=None, window_end=None),
+        memory_visible=lambda row: False,
+    )
+    assert notes[0]["supersedes"] == []
+    assert "m-old" not in json.dumps(notes)
+
+
+def _fake_service(events: list[dict], memories: list[dict]) -> VNextRetrievalService:
+    """A store with no scoped event listing, so ``_recent_changes`` takes the legacy path."""
+    from tests.unit.test_vnext_retrieval import InMemoryVNextRetrievalStore
+
+    store = InMemoryVNextRetrievalStore(memories=memories, sources=[], seeded_events=events)
+    return VNextRetrievalService(store)  # type: ignore[arg-type]
+
+
+def _event(event_id: str, target_id: str) -> dict:
+    return {
+        "id": event_id,
+        "event_type": "memory.updated",
+        "actor_type": "system",
+        "target_type": "memory",
+        "target_id": target_id,
+        "occurred_at": "2026-07-01T00:00:00Z",
+    }
+
+
+NO_SCOPE = _ResolvedRetrievalScope(projects=frozenset(), people=frozenset(), window_start=None, window_end=None)
+DEFAULT_CEILING = ["public", "internal", "private", "unknown"]
+
+
+def test_recent_changes_count_a_memory_tied_to_the_person_through_the_entity_graph(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """The person links reach the ``recent_changes`` predicate.
+
+    The memory is tied to Ada only through a graph edge, so only the links the
+    pack resolved can keep its events. Mutation: build the predicate in
+    ``_recent_changes`` with ``person_linked_memory_ids=frozenset()``, or pass an
+    empty set from ``compile_context_pack``.
+    """
+    context = _context(tmp_path, monkeypatch)
+    _source_id, memory_id = _captured(context, monkeypatch)
+    _set(context, memory_id, status="active")
+    person = _store(context, lambda s: s.create_entity({"entity_type": "person", "name": "Ada"}))
+    _store(
+        context,
+        lambda s: s.create_graph_edge(
+            {
+                "from_type": "memory",
+                "from_id": memory_id,
+                "to_type": "entity",
+                "to_id": str(person["id"]),
+                "edge_type": "mentions",
+                "confidence": 1.0,
+                "explanation": "test link",
+                "created_by": "test",
+            }
+        ),
+    )
+    pack = _pack(context, OLD, people=("ada",))
+    assert pack["relevant_memories"], "the people-scoped pack returns the memory; the assertion below is not vacuous"
+    assert memory_id in _change_targets(pack)
+
+
+def test_recent_changes_on_a_store_without_scoped_events_apply_the_person_scope() -> None:
+    """A store that cannot scope its event listing is fenced here, person included.
+
+    Ada's memory keeps its event and Bob's does not. Mutation: build the identity
+    scope in ``_recent_changes`` with ``people=frozenset()``.
+    """
+    from tests.unit.test_vnext_retrieval import _memory_row
+
+    service = _fake_service(
+        [_event("e-ada", "m-ada"), _event("e-bob", "m-bob")],
+        [
+            _memory_row("m-ada", "Kettle note for Ada.", metadata_json={"people": ["ada"]}),
+            _memory_row("m-bob", "Kettle note for Bob.", metadata_json={"people": ["bob"]}),
+        ],
+    )
+    scope = _ResolvedRetrievalScope(projects=frozenset(), people=frozenset({"ada"}), window_start=None, window_end=None)
+    changes = service._recent_changes(
+        scope=scope,
+        person_linked_memory_ids=frozenset(),
+        domains=[],
+        sensitivity_allowed=DEFAULT_CEILING,
+    )
+    assert [change["target_id"] for change in changes] == ["m-ada"]
+
+
+def test_recent_changes_keep_an_event_for_no_row_on_a_window_only_pack() -> None:
+    """A pack scoped only by a time window is not an identity-scoped pack.
+
+    The event for no row stays, as it does with no scope at all. Mutation: decide
+    whether to fail closed on a missing row with ``scope.active`` instead of
+    ``identity_scope.active``.
+    """
+    service = _fake_service([_event("e-ghost", "m-ghost")], [])
+    scope = _ResolvedRetrievalScope(
+        projects=frozenset(),
+        people=frozenset(),
+        window_start=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        window_end=None,
+    )
+    changes = service._recent_changes(
+        scope=scope,
+        person_linked_memory_ids=frozenset(),
+        domains=[],
+        sensitivity_allowed=DEFAULT_CEILING,
+    )
+    assert [change["target_id"] for change in changes] == ["m-ghost"]
+
+
+# -- a vault the caller mostly cannot read still gets a pack ---------------------------
+
+
+def _seed_memories(context, *, count: int, sensitivity: str, label: str) -> list[str]:
+    """Create ``count`` memories straight in the store, oldest first. Each writes memory events."""
+
+    def seed(store) -> list[str]:
+        return [
+            str(
+                store.create_memory(
+                    {
+                        "memory_key": f"memory.{uuid4()}",
+                        "value": {"text": f"{label} {index}"},
+                        "status": "active",
+                        "title": f"{label} {index}",
+                        "canonical_text": f"{label} filler fact {index} stays put.",
+                        "summary": "x",
+                        "domain": "project",
+                        "sensitivity": sensitivity,
+                    }
+                )["id"]
+            )
+            for index in range(count)
+        ]
+
+    return _store(context, seed)
+
+
+def test_a_pack_keeps_the_visible_changes_found_before_the_scan_ceiling(tmp_path: Path, monkeypatch) -> None:
+    """A run of hidden events longer than the scan returns a short list, not a failed pack.
+
+    Two readable memories are newest, then 100 confidential ones, then one readable
+    memory that is older than every hidden event. The scan stops at 64 rows. The two
+    newest readable events are kept, the older readable one is past the ceiling and is
+    not listed, and no hidden id is named. Mutation: do not catch the completeness
+    error in ``_recent_changes``. Mutation: return an empty list when it is caught.
+    Mutation: leave ``max_rows`` out of the ``_fetch_filtered_prefix`` call, which
+    scans to the 16384 row ceiling and lists the older readable event as well.
+    """
+    monkeypatch.setattr(vnext_retrieval_module, "RECENT_CHANGES_SCAN_MAX_ROWS", 64)
+    context = _context(tmp_path, monkeypatch)
+    (old_readable,) = _seed_memories(context, count=1, sensitivity="private", label="Old readable")
+    hidden = _seed_memories(context, count=100, sensitivity="confidential", label="Hidden")
+    new_readable = _seed_memories(context, count=2, sensitivity="private", label="New readable")
+
+    try:
+        pack = _pack(context, "filler fact stays put")
+    except VNextRetrievalCompletenessError as error:
+        raise AssertionError(f"the pack raised instead of listing what it found: {error}") from error
+    targets = _change_targets(pack)
+    assert set(new_readable) <= set(targets), "the visible events found before the ceiling are kept"
+    assert old_readable not in targets, "the older readable event is past the scan ceiling"
+    assert not set(hidden).intersection(targets)
+    assert not set(hidden).intersection(json.dumps(pack, default=str).split('"'))
+
+
+def test_a_pack_on_a_store_without_scoped_events_keeps_the_visible_changes_found(monkeypatch) -> None:
+    """The legacy listing path degrades the same way as the scoped one.
+
+    Mutation: swallow the completeness error only when the store lists events with scope
+    parameters, and let it propagate from the plain listing.
+    """
+    from tests.unit.test_vnext_retrieval import _memory_row
+
+    monkeypatch.setattr(vnext_retrieval_module, "RECENT_CHANGES_SCAN_MAX_ROWS", 64)
+    memories = [_memory_row(f"m-hidden-{index}", "Kettle hidden fact.", sensitivity="confidential") for index in range(100)]
+    memories += [_memory_row("m-new-a", "Kettle visible fact a."), _memory_row("m-new-b", "Kettle visible fact b.")]
+    # The store lists newest first, so the later events are the newer ones.
+    events = [_event(f"e-hidden-{index}", f"m-hidden-{index}") for index in range(100)]
+    events += [_event("e-new-a", "m-new-a"), _event("e-new-b", "m-new-b")]
+    service = _fake_service(events, memories)
+
+    try:
+        pack = service.compile_context_pack(VNextRetrievalRequest(query="kettle fact"))
+    except VNextRetrievalCompletenessError as error:
+        raise AssertionError(f"the pack raised instead of listing what it found: {error}") from error
+    assert _change_targets(pack) == ["m-new-b", "m-new-a"]
+
+
+def test_the_scan_ceiling_can_be_lowered_and_never_raised(monkeypatch) -> None:
+    """``max_rows`` lowers the ceiling a prefix is deepened to, and cannot lift it.
+
+    Mutation: use ``max_rows`` as given, without ``min`` against ``LEGACY_SCOPED_SCAN_MAX_ROWS``.
+    Mutation: ignore ``max_rows``.
+    """
+    asked: list[int] = []
+
+    def endless(limit: int) -> tuple[list[dict], str]:
+        asked.append(limit)
+        return [{"id": f"row-{index}"} for index in range(limit)], "legacy"
+
+    with pytest.raises(VNextRetrievalCompletenessError, match="within 100 rows"):
+        _fetch_filtered_prefix(endless, select_rows=lambda rows: [], target=1, initial_limit=10, max_rows=100)
+    assert asked == [10, 20, 40, 80, 100]
+
+    asked.clear()
+    monkeypatch.setattr(vnext_retrieval_module, "LEGACY_SCOPED_SCAN_MAX_ROWS", 64)
+    with pytest.raises(VNextRetrievalCompletenessError, match="within 64 rows"):
+        _fetch_filtered_prefix(endless, select_rows=lambda rows: [], target=1, initial_limit=10, max_rows=1000)
+    assert asked == [10, 20, 40, 64]
+
+
+def test_the_recent_changes_scan_ceiling_sits_between_the_first_fetch_and_the_legacy_ceiling() -> None:
+    """The scan has to reach past the first fetch and stay well short of the 16384 row legacy ceiling.
+
+    Mutation: set ``RECENT_CHANGES_SCAN_MAX_ROWS`` to the legacy ceiling. Mutation: set it
+    below the first fetch of ``limit * 4`` rows.
+    """
+    first_fetch = vnext_retrieval_module.DEFAULT_RECENT_CHANGES_LIMIT * 4
+    ceiling = vnext_retrieval_module.RECENT_CHANGES_SCAN_MAX_ROWS
+    assert first_fetch < ceiling <= vnext_retrieval_module.LEGACY_SCOPED_SCAN_MAX_ROWS // 4
+
+
+def test_memory_ids_go_to_the_store_in_batches_older_sqlite_builds_take() -> None:
+    """Deepening can look up thousands of event targets, and SQLite 3.31 and older bind at most 999.
+
+    Every id is still looked up. Mutation: send all the ids in one call. Mutation: drop
+    the last, partial batch.
+    """
+
+    class Recording:
+        def __init__(self) -> None:
+            self.batches: list[int] = []
+
+        def get_memories_by_ids(self, memory_ids):
+            self.batches.append(len(memory_ids))
+            return [{"id": memory_id} for memory_id in memory_ids]
+
+    store = Recording()
+    ids = [f"memory-{index}" for index in range(2 * MEMORY_ID_LOOKUP_BATCH_SIZE + 77)]
+    found = VNextRetrievalService(store)._memories_by_ids(ids)  # type: ignore[arg-type]
+    assert sorted(found) == sorted(ids)
+    assert max(store.batches) <= 999
+    assert len(store.batches) == 3
 
 
 # -- the controls cannot be left out ------------------------------------------------

@@ -152,6 +152,16 @@ SCOPED_ROW_OVERFETCH_LIMIT = 200
 # SQL, while an adapter that cannot prove exhaustion before the boundary fails
 # closed instead of doubling forever or silently returning an incomplete pack.
 LEGACY_SCOPED_SCAN_MAX_ROWS = 16_384
+# ``recent_changes`` is an advisory section of a pack, and its events are
+# fenced after the store's own LIMIT, so a run of events about memories the
+# caller may not read has to be scanned past. The scan stops at this many rows
+# and the section keeps what it found, because a short list is safe and a
+# failed pack call is not. It sits well under the ceiling above so a vault
+# that is mostly hidden costs a bounded amount per pack call.
+RECENT_CHANGES_SCAN_MAX_ROWS = 2_048
+# Memory ids go to the store in batches of this size. SQLite builds older than
+# 3.32 take at most 999 bound variables in one statement.
+MEMORY_ID_LOOKUP_BATCH_SIZE = 500
 DEFAULT_SENSITIVITY_ALLOWED = ("public", "internal", "private", "unknown")
 STRATEGIC_QUERY_TYPES = {"strategic_synthesis", "contradiction_check", "project_status", "agent_context"}
 RRF_K = 60
@@ -965,6 +975,7 @@ def _fetch_filtered_prefix(
     target: int,
     predicate_applied_before_limit: bool = False,
     initial_limit: int | None = None,
+    max_rows: int | None = None,
 ) -> tuple[list[JsonObject], StageSourceT]:
     """Fetch/select a ranked prefix with finite legacy compatibility deepening.
 
@@ -976,13 +987,17 @@ def _fetch_filtered_prefix(
     deduplicated, repeated/non-growing prefixes fail closed, and an adapter
     that still returns a full prefix at ``LEGACY_SCOPED_SCAN_MAX_ROWS`` raises
     ``VNextRetrievalCompletenessError`` instead of doubling forever or
-    returning a false-negative pack.
+    returning a false-negative pack. ``max_rows`` lowers that ceiling for a
+    caller that would rather stop early; it never raises it.
     """
     if predicate_applied_before_limit:
         rows, source = fetch(target)
         return _dedupe_retrieval_rows(select_rows(_dedupe_retrieval_rows(rows))), source
+    scan_ceiling = (
+        LEGACY_SCOPED_SCAN_MAX_ROWS if max_rows is None else min(max_rows, LEGACY_SCOPED_SCAN_MAX_ROWS)
+    )
     limit = min(
-        LEGACY_SCOPED_SCAN_MAX_ROWS,
+        scan_ceiling,
         max(target, initial_limit or SCOPED_ROW_OVERFETCH_LIMIT),
     )
     previous_unique_count = -1
@@ -996,13 +1011,13 @@ def _fetch_filtered_prefix(
             raise VNextRetrievalCompletenessError(
                 "legacy scoped retrieval adapter returned a repeated or non-progressing prefix"
             )
-        if limit >= LEGACY_SCOPED_SCAN_MAX_ROWS:
+        if limit >= scan_ceiling:
             raise VNextRetrievalCompletenessError(
                 "legacy scoped retrieval adapter did not prove exhaustion within "
-                f"{LEGACY_SCOPED_SCAN_MAX_ROWS} rows"
+                f"{scan_ceiling} rows"
             )
         previous_unique_count = len(rows)
-        limit = min(limit * 2, LEGACY_SCOPED_SCAN_MAX_ROWS)
+        limit = min(limit * 2, scan_ceiling)
 
 
 def _fetch_scope_filtered(
@@ -2197,7 +2212,11 @@ class VNextRetrievalService:
             return {}
         bulk = getattr(self.store, "get_memories_by_ids", None)
         if callable(bulk):
-            rows = bulk(normalized_ids)
+            rows = [
+                row
+                for start in range(0, len(normalized_ids), MEMORY_ID_LOOKUP_BATCH_SIZE)
+                for row in bulk(normalized_ids[start : start + MEMORY_ID_LOOKUP_BATCH_SIZE])
+            ]
         else:
             get_memory = getattr(self.store, "get_memory", None)
             rows = (
@@ -4540,16 +4559,18 @@ class VNextRetrievalService:
             "scope_window_start",
             "scope_window_end",
         )
-        if _supports_explicit_parameters(list_memory_events, scoped_event_parameters):
-            scoped_list_memory_events = cast(
-                Callable[..., list[JsonObject]],
-                list_memory_events,
-            )
+        use_scoped_events = _supports_explicit_parameters(list_memory_events, scoped_event_parameters)
+
+        def _fetch_events(row_limit: int) -> tuple[list[JsonObject], str]:
             # The store applies project, person and time scope before its LIMIT.
-            # The domain and sensitivity ceiling is applied here, after it, so the
+            # The domain and sensitivity ceiling is applied after it, so the
             # prefix is deepened until enough visible events survive.
-            events, _event_source = _fetch_filtered_prefix(
-                lambda n: (
+            if use_scoped_events:
+                scoped_list_memory_events = cast(
+                    Callable[..., list[JsonObject]],
+                    list_memory_events,
+                )
+                return (
                     list(
                         scoped_list_memory_events(
                             event_type_prefix="memory.",
@@ -4558,26 +4579,40 @@ class VNextRetrievalService:
                             scope_person_memory_ids=tuple(sorted(person_linked_memory_ids)),
                             scope_window_start=scope.window_start,
                             scope_window_end=scope.window_end,
-                            limit=n,
+                            limit=row_limit,
                         )
                     ),
                     "scoped",
-                ),
-                select_rows=_select_events,
-                target=limit,
-                initial_limit=limit * 4,
-            )
-        else:
+                )
             assert callable(list_events)
+            return list(list_events(target_type="memory", limit=row_limit)), "listing"
+
+        selected_so_far: list[JsonObject] = []
+
+        def _select_and_remember(rows: Sequence[JsonObject]) -> list[JsonObject]:
+            nonlocal selected_so_far
+            selected_so_far = _select_events(rows)
+            return selected_so_far
+
+        try:
             events, _event_source = _fetch_filtered_prefix(
-                lambda n: (
-                    list(list_events(target_type="memory", limit=n)),
-                    "listing",
-                ),
-                select_rows=_select_events,
+                _fetch_events,
+                select_rows=_select_and_remember,
                 target=limit,
                 initial_limit=limit * 4,
+                max_rows=RECENT_CHANGES_SCAN_MAX_ROWS,
             )
+        except VNextRetrievalCompletenessError:
+            # Recent changes only add to a pack, and dropping an entry is the safe
+            # direction, so a vault whose newest events are nearly all hidden from
+            # this caller gets the visible ones found so far (newest first), not a
+            # failed pack. The older visible events past the scan are not listed.
+            logger.warning(
+                "recent_changes scan ended early (ceiling %d rows) with %d visible events found",
+                RECENT_CHANGES_SCAN_MAX_ROWS,
+                len(selected_so_far),
+            )
+            events = _dedupe_retrieval_rows(selected_so_far)
         return [
             {
                 "event_id": str(event.get("id")),

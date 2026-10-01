@@ -266,7 +266,8 @@ is a CLI verb, not a fourth always-on agent tool.
   wins. Unreleased (on main, not in v0.19.0): an entry in `recent_changes` is
   dropped when the memory it names is outside the caller's sensitivity ceiling,
   domain filter, or project and person scope, and the list is filled from older
-  events. In a `context_depth: high` pack's `supersession_context` a revision
+  events. The search for older events stops after 2,048 events, so the list can
+  be shorter than five, or empty, and the pack is still returned. In a `context_depth: high` pack's `supersession_context` a revision
   outside that fence is not named or titled, and the walk ends there. In
   v0.19.0 both name the id whatever the caller may read.
 - `alice_recent_decisions` — recent decisions, newest first.
