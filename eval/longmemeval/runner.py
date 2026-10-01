@@ -44,11 +44,25 @@ from longmemeval.adapter import (
     ANSWER_MAX_TOKENS,
     ANSWER_MAX_TOKENS_COT,
     DEFAULT_CONTEXT_CHAR_BUDGET,
+    DEFAULT_EXCERPT_SOURCE,
     DEFAULT_MAX_ITEMS,
+    DEFAULT_PROMOTION_MODE,
+    DEFAULT_SURFACE,
+    EXCERPT_SOURCE_PACK_EXCERPTS,
+    EXCERPT_SOURCES,
+    PROMOTION_MODES,
+    PROMOTION_MODE_SOURCES_ONLY,
+    RECALL_RESULT_FORMAT,
+    SURFACES,
+    SURFACE_RECALL,
     build_answer_prompt,
     context_char_budget_from_env,
     max_items_from_env,
     question_run,
+    recall_surface_blocker,
+    resolve_excerpt_source,
+    validate_promotion_mode,
+    validate_surface,
 )
 from longmemeval.chat import (
     ChatModelConfig,
@@ -68,6 +82,16 @@ from longmemeval.dataset import (
 )
 from longmemeval.judge import judge_hypothesis
 from longmemeval.pack_formats import DEFAULT_PACK_FORMAT, PACK_FORMATS
+from longmemeval.session_labels import (
+    DEFAULT_SESSION_LABEL_MODE,
+    SESSION_LABEL_MODE_RAW,
+    SessionLabelError,
+    SessionLabelSidecar,
+    key_id_for_mode,
+    sidecar_path_for,
+    validate_dataset_labels,
+    validate_session_label_mode,
+)
 from longmemeval.verification import (
     apply_grounding_gate,
     make_chat_client,
@@ -78,7 +102,10 @@ from longmemeval.verification import (
 
 RESULT_SCHEMA = "longmemeval_result_v1"
 REPORT_SCHEMA = "longmemeval_report_v1"
-HARNESS_VERSION = "1.0"
+# 1.1: session labels (keyed hash by default; "raw" reproduces 1.0 runs), and
+# excerpt source, promotion mode and surface recorded in the fingerprint and on
+# every row. A 1.1 run never shares a fingerprint digest with a 1.0 run.
+HARNESS_VERSION = "1.1"
 INGEST_MARKER_SCHEMA = "longmemeval_ingest_marker_v2"
 GENERATION_TEMPERATURE = 0.0
 
@@ -143,10 +170,36 @@ class RunnerConfig:
     # acceptance still run (both idempotent). Always in the fingerprint and
     # per-row ``ingest.reused_store`` so reuse can never be silent.
     reuse_stores: bool = False
+    # ---- the four run-level choices that decide what a score measures -------
+    # Each lands in the fingerprint and on every checkpoint row, and resume
+    # refuses to mix rows that differ in any of them. Defaults: anonymised
+    # session labels (raw is the opt-in for reproducing 1.0 runs), the
+    # privileged chunk reader, force-accepted memories and the context pack,
+    # which is what every published run used apart from the labels.
+    session_label_mode: str = DEFAULT_SESSION_LABEL_MODE
+    excerpt_source: str = DEFAULT_EXCERPT_SOURCE
+    promotion_mode: str = DEFAULT_PROMOTION_MODE
+    surface: str = DEFAULT_SURFACE
 
     @property
     def mode(self) -> str:
         return "dry_run" if self.dry_run else "scored"
+
+    @property
+    def effective_pack_format(self) -> str:
+        """What the reader's context is rendered as; the recall tool's result is its own format."""
+        return RECALL_RESULT_FORMAT if self.surface == SURFACE_RECALL else self.pack_format
+
+    def run_choices(self) -> dict[str, object]:
+        """The per-row copy of the run-level choices (also in the fingerprint)."""
+        return {
+            "harness_version": HARNESS_VERSION,
+            "session_label_mode": self.session_label_mode,
+            "session_label_key_id": key_id_for_mode(self.session_label_mode),
+            "excerpt_source": self.excerpt_source,
+            "promotion_mode": self.promotion_mode,
+            "surface": self.surface,
+        }
 
 
 def _utc_now_iso() -> str:
@@ -271,6 +324,8 @@ def _build_ingest_marker_payload(
     *,
     dataset_path: Path,
     accept_rollups: bool,
+    session_label_mode: str = DEFAULT_SESSION_LABEL_MODE,
+    promotion_mode: str = DEFAULT_PROMOTION_MODE,
 ) -> dict[str, object]:
     embeddings_base_url = os.environ.get(EMBEDDINGS_BASE_URL_ENV, "").strip()
     embeddings_model = os.environ.get(EMBEDDINGS_MODEL_ENV, "").strip()
@@ -286,6 +341,11 @@ def _build_ingest_marker_payload(
         "embeddings_model": embeddings_model or None,
         "embeddings_base_url": redacted_base_url(embeddings_base_url) if embeddings_base_url else None,
         "accept_rollups": accept_rollups,
+        # A store ingested under one label mode or promotion mode is a
+        # different store: raw ids sit in its text and metadata, or its
+        # memories were accepted. Reusing it under another mode would mix them.
+        "session_label_mode": session_label_mode,
+        "promotion_mode": promotion_mode,
     }
 
 
@@ -294,6 +354,8 @@ def _ingest_marker_payload(question: LongMemEvalQuestion, config: RunnerConfig) 
         question,
         dataset_path=config.dataset_path,
         accept_rollups=config.accept_rollups,
+        session_label_mode=config.session_label_mode,
+        promotion_mode=config.promotion_mode,
     )
 
 
@@ -336,14 +398,27 @@ def config_fingerprint(
         # checkpoint row's ingest.rollups block.
         "accept_rollups": config.accept_rollups,
         # Pack format (prose | json) always feeds the digest: a JSON-pack
-        # run can never masquerade as a prose run or vice versa.
-        "pack_format": config.pack_format,
+        # run can never masquerade as a prose run or vice versa. A recall
+        # run records the tool-result format instead (the reader sees the
+        # text the MCP server returns, not a rendered pack).
+        "pack_format": config.effective_pack_format,
+        # The four run-level choices (harness 1.1). Before 1.1 none of these
+        # was recorded: a run that read store chunks and one that read pack
+        # excerpts had the same digest, and the raw dataset session ids were
+        # shown to the reader without saying so.
+        "session_label_mode": config.session_label_mode,
+        "session_label_key_id": key_id_for_mode(config.session_label_mode),
+        "excerpt_source": config.excerpt_source,
+        "promotion_mode": config.promotion_mode,
+        "surface": config.surface,
         # Store reuse always feeds the digest too (and lands per-row as
         # ingest.reused_store), so ingest reuse can never be silent.
         "reuse_stores": config.reuse_stores,
         "generation_temperature": GENERATION_TEMPERATURE,
         "max_items": config.max_items,
-        "context_char_budget": config.context_char_budget,
+        # The recall surface hands the reader the tool's result as returned,
+        # so no character budget applies and none is claimed.
+        "context_char_budget": None if config.surface == SURFACE_RECALL else config.context_char_budget,
         # A slice run must never masquerade as a full run: the subset (file
         # name, count, digest of the sorted ids) feeds the fingerprint digest.
         "question_subset": None
@@ -415,6 +490,43 @@ def completed_question_ids(records: dict[str, dict[str, object]], *, mode: str) 
     }
 
 
+_MISSING = object()
+
+
+def resume_conflicts(
+    records: dict[str, dict[str, object]],
+    done_ids: set[str],
+    *,
+    config: RunnerConfig,
+    fingerprint_digest: str,
+) -> list[str]:
+    """Why completed rows cannot be mixed with this run; empty when they can.
+
+    The fingerprint digest already covers every run-level choice, so any
+    difference trips it. The per-row fields are checked on their own as well,
+    for two reasons: a refusal can then name the field that differs, and a row
+    written by code that predates a field (it has no value at all) still
+    cannot slide in under a matching digest.
+    """
+    expected = config.run_choices()
+    digest_mismatches = sorted(
+        question_id for question_id in done_ids if records[question_id].get("fingerprint_digest") != fingerprint_digest
+    )
+    conflicts: list[str] = []
+    if digest_mismatches:
+        conflicts.append(f"{len(digest_mismatches)} completed rows were produced with a different config fingerprint")
+    for key, wanted in expected.items():
+        differing = sorted(
+            question_id for question_id in done_ids if records[question_id].get(key, _MISSING) != wanted
+        )
+        if differing:
+            found = sorted({repr(records[question_id].get(key, "<missing>")) for question_id in differing})
+            conflicts.append(
+                f"{len(differing)} completed rows differ in {key} (rows: {', '.join(found)}; this run: {wanted!r})"
+            )
+    return conflicts
+
+
 class CheckpointWriter:
     def __init__(self, path: Path) -> None:
         self.path = path
@@ -463,6 +575,7 @@ def run_question(
     judge: ChatModelConfig | None,
     fingerprint_digest: str,
     verifier: ChatModelConfig | None = None,
+    label_sidecar: SessionLabelSidecar | None = None,
 ) -> dict[str, object]:
     record: dict[str, object] = {
         "schema": RESULT_SCHEMA,
@@ -472,6 +585,9 @@ def run_question(
         "is_abstention": question.is_abstention,
         "gold_answer": question.answer,
         "fingerprint_digest": fingerprint_digest,
+        # The run-level choices ride on every row, error rows included, so a
+        # row can be read (and a resume checked) without the report file.
+        **config.run_choices(),
         "status": "ok",
         "error": None,
         "hypothesis": None,
@@ -488,7 +604,17 @@ def run_question(
         )
         if not reuse:
             _cleanup_store(db_path)
-        with question_run(question, db_path) as run:
+        with question_run(
+            question,
+            db_path,
+            excerpt_source=config.excerpt_source,
+            session_label_mode=config.session_label_mode,
+            promotion_mode=config.promotion_mode,
+            surface=config.surface,
+        ) as run:
+            if label_sidecar is not None:
+                # The one on-disk place raw ids go, next to the checkpoint.
+                label_sidecar.append(run.session_labeler)
             ingest_stats = run.ingest(accept_rollups=config.accept_rollups, reuse_store=reuse)
             outcome = run.retrieve(
                 max_items=config.max_items,
@@ -671,6 +797,48 @@ def build_report(
     }
 
 
+def _retrieval_is_empty(retrieval: dict[str, object], *, surface: str) -> bool:
+    """Dry-run emptiness check for one row's retrieval block.
+
+    The context pack surface renders an empty pack as an empty string. The
+    recall tool always returns a framed result object, so an empty recall is
+    one that returned neither memories nor sources.
+    """
+    if surface == SURFACE_RECALL:
+        return int(retrieval.get("memory_count") or 0) == 0 and int(retrieval.get("source_count") or 0) == 0  # type: ignore[call-overload]
+    return int(retrieval.get("context_chars") or 0) == 0  # type: ignore[call-overload]
+
+
+def validate_run_choices(config: RunnerConfig) -> str | None:
+    """Why this combination of run-level choices cannot be run, or ``None``.
+
+    Each refusal is a combination whose fingerprint would describe something
+    other than what ran, so they fail before any question is ingested.
+    """
+    try:
+        validate_session_label_mode(config.session_label_mode)
+        validate_promotion_mode(config.promotion_mode)
+        validate_surface(config.surface)
+    except (SessionLabelError, ValueError) as exc:
+        return str(exc)
+    if config.excerpt_source not in EXCERPT_SOURCES:
+        return f"excerpt source {config.excerpt_source!r} is not one of {EXCERPT_SOURCES}"
+    if config.accept_rollups and config.promotion_mode == PROMOTION_MODE_SOURCES_ONLY:
+        return (
+            "--accept-rollups groups promoted memories and cannot be combined with "
+            "--promotion-mode sources_only, which promotes none"
+        )
+    if config.surface == SURFACE_RECALL:
+        if config.excerpt_source != EXCERPT_SOURCE_PACK_EXCERPTS:
+            return "--surface recall returns the tool's own excerpts; use --excerpt-source pack_excerpts"
+        if config.pack_format != DEFAULT_PACK_FORMAT:
+            return "--pack-format applies to the context pack surface; recall hands the reader the tool result"
+        blocker = recall_surface_blocker()
+        if blocker is not None:
+            return blocker
+    return None
+
+
 # -- CLI -----------------------------------------------------------------------
 
 
@@ -721,6 +889,41 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "(default; byte-identical to published runs) or 'json' (same retrieved "
         "content as a compact structured document); recorded in the fingerprint",
     )
+    parser.add_argument(
+        "--raw-session-labels",
+        action="store_true",
+        help="write the dataset's raw session ids into the store and show them to the reader. "
+        "Only for reproducing runs made before harness 1.1: LongMemEval names every evidence session "
+        "'answer_...', so raw ids tell the reader which sessions hold the evidence. Default: keyed-hash "
+        "labels (key id lme-anon-v1), with the label-to-id mapping in a sidecar file next to the checkpoint; "
+        "recorded in the fingerprint and on every row",
+    )
+    parser.add_argument(
+        "--excerpt-source",
+        choices=EXCERPT_SOURCES,
+        default=None,
+        help="where excerpt text comes from: 'store_chunks' (the harness reads every chunk of every retrieved "
+        "source from the store; no MCP tool offers that) or 'pack_excerpts' (only the excerpt the retrieval "
+        "call returns). Default: $ALICE_LME_EXCERPT_SOURCE, else store_chunks, else pack_excerpts under "
+        "--surface recall; recorded in the fingerprint and on every row",
+    )
+    parser.add_argument(
+        "--promotion-mode",
+        choices=PROMOTION_MODES,
+        default=DEFAULT_PROMOTION_MODE,
+        help="what happens to the candidate memories capture extracts: 'all_candidates' (default; every one is "
+        "force-accepted, as in every published run) or 'sources_only' (none is promoted, which is what a real "
+        "import gives a user: sources, not accepted memories); recorded in the fingerprint and on every row",
+    )
+    parser.add_argument(
+        "--surface",
+        choices=SURFACES,
+        default=DEFAULT_SURFACE,
+        help="which retrieval call feeds the reader: 'context_pack' (default; compile_context_pack rendered by "
+        "the harness) or 'recall' (the shipped alice_recall MCP tool with its own default limit and fences; "
+        "the reader gets the tool's result text, with no harness budget or reference time); recorded in the "
+        "fingerprint and on every row",
+    )
     parser.add_argument("--max-items", type=int, default=None, help=f"context-pack max_items (default: ${'{'}ALICE_LME_MAX_ITEMS{'}'} or {DEFAULT_MAX_ITEMS})")
     parser.add_argument(
         "--context-char-budget",
@@ -754,6 +957,9 @@ def _resolve_config(args: argparse.Namespace, *, question_ids: tuple[str, ...] |
             return None
         dataset_path = resolved
     stem = f"longmemeval_{args.variant}" if args.dataset_file is None else dataset_path.stem
+    # Resolved once, here, so the fingerprint records what every worker uses.
+    # Raises ValueError for a typo or an incoherent combination (main reports it).
+    excerpt_source = resolve_excerpt_source(args.excerpt_source, surface=args.surface)
     return RunnerConfig(
         variant=args.variant,
         dataset_path=dataset_path,
@@ -776,6 +982,10 @@ def _resolve_config(args: argparse.Namespace, *, question_ids: tuple[str, ...] |
         verify_grounding=args.verify_grounding,
         accept_rollups=args.accept_rollups,
         pack_format=args.pack_format,
+        session_label_mode=SESSION_LABEL_MODE_RAW if args.raw_session_labels else DEFAULT_SESSION_LABEL_MODE,
+        excerpt_source=excerpt_source,
+        promotion_mode=args.promotion_mode,
+        surface=args.surface,
     )
 
 
@@ -788,7 +998,16 @@ def main(argv: list[str] | None = None) -> int:
         except ValueError as exc:
             print(f"[runner] {exc}", file=sys.stderr)
             return EXIT_CONFIG_ERROR
-    config = _resolve_config(args, question_ids=question_ids)
+    try:
+        config = _resolve_config(args, question_ids=question_ids)
+    except ValueError as exc:
+        print(f"[runner] {exc}", file=sys.stderr)
+        return EXIT_CONFIG_ERROR
+    if config is not None:
+        problem = validate_run_choices(config)
+        if problem is not None:
+            print(f"[runner] {problem}", file=sys.stderr)
+            return EXIT_CONFIG_ERROR
     if config is None:
         if args.dataset_file is not None:
             return EXIT_CONFIG_ERROR
@@ -848,6 +1067,13 @@ def main(argv: list[str] | None = None) -> int:
     if not questions:
         print("[runner] dataset contained no questions after --limit", file=sys.stderr)
         return EXIT_CONFIG_ERROR
+    try:
+        # A label collision anywhere in the selected questions stops the run
+        # now, before a single question is ingested or paid for.
+        validate_dataset_labels(questions, mode=config.session_label_mode)
+    except SessionLabelError as exc:
+        print(f"[runner] {exc}", file=sys.stderr)
+        return EXIT_CONFIG_ERROR
 
     fingerprint = config_fingerprint(config, model=model, judge=judge, verifier=verifier)
     fingerprint_digest = str(fingerprint["digest"])
@@ -855,15 +1081,13 @@ def main(argv: list[str] | None = None) -> int:
     existing_records = load_checkpoint(config.checkpoint_path) if config.resume else {}
     done_ids = completed_question_ids(existing_records, mode=config.mode)
     if config.resume and existing_records:
-        incompatible = {
-            question_id
-            for question_id in done_ids
-            if existing_records[question_id].get("fingerprint_digest") != fingerprint_digest
-        }
-        if incompatible:
+        conflicts = resume_conflicts(
+            existing_records, done_ids, config=config, fingerprint_digest=fingerprint_digest
+        )
+        if conflicts:
             print(
-                f"[runner] refusing to resume: {len(incompatible)} completed records were produced "
-                "with a different config fingerprint. Use a new checkpoint or delete the old one; "
+                "[runner] refusing to resume: " + "; ".join(conflicts) + ". "
+                "Use a new checkpoint or delete the old one; "
                 "mixed-configuration reports are not valid evidence.",
                 file=sys.stderr,
             )
@@ -872,11 +1096,17 @@ def main(argv: list[str] | None = None) -> int:
 
     config.work_dir.mkdir(parents=True, exist_ok=True)
     writer = CheckpointWriter(config.checkpoint_path)
+    label_sidecar = (
+        None
+        if config.session_label_mode == SESSION_LABEL_MODE_RAW
+        else SessionLabelSidecar(sidecar_path_for(config.checkpoint_path))
+    )
     subset_note = f" subset={config.question_ids_file}({len(config.question_ids)})" if config.question_ids else ""
     print(
         f"[runner] mode={config.mode} variant={config.variant} questions={len(questions)}{subset_note} "
         f"pending={len(pending)} resumed={len(questions) - len(pending)} workers={config.workers} "
-        f"fingerprint={fingerprint_digest}"
+        f"fingerprint={fingerprint_digest} labels={config.session_label_mode} "
+        f"excerpts={config.excerpt_source} promotion={config.promotion_mode} surface={config.surface}"
     )
 
     fresh_records: list[dict[str, object]] = []
@@ -892,6 +1122,7 @@ def main(argv: list[str] | None = None) -> int:
                     judge=judge,
                     fingerprint_digest=fingerprint_digest,
                     verifier=verifier,
+                    label_sidecar=label_sidecar,
                 ): question
                 for question in pending
             }
@@ -927,7 +1158,7 @@ def main(argv: list[str] | None = None) -> int:
             for record in all_records
             if record.get("status") == "ok"
             and isinstance(record.get("retrieval"), dict)
-            and int(record["retrieval"].get("context_chars") or 0) == 0  # type: ignore[index]
+            and _retrieval_is_empty(record["retrieval"], surface=config.surface)  # type: ignore[arg-type]
             and record.get("is_abstention") is not True
         ]
         if empty_context_ids:
@@ -965,5 +1196,7 @@ __all__ = [
     "load_checkpoint",
     "load_question_ids",
     "main",
+    "resume_conflicts",
     "run_question",
+    "validate_run_choices",
 ]

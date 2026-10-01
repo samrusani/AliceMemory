@@ -585,7 +585,9 @@ def test_the_docs_say_what_v0192_changed_and_what_v0190_still_does() -> None:
     """
 
     changelog = (REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
-    assert changelog[changelog.index("## Unreleased") : changelog.index("## v0.19.2")].strip() == "## Unreleased"
+    unreleased = changelog[changelog.index("## Unreleased") : changelog.index("## v0.19.2")]
+    assert unreleased.startswith("## Unreleased\n")  # Unreleased may hold entries of its own
+    assert "Hermes provider 0.5.2 sends" not in unreleased
     released_now = changelog[changelog.index("## v0.19.2") : changelog.index("## v0.19.0")]
     entries = [_flat(entry) for entry in released_now.split("\n- ") if entry.lstrip("- ").startswith("Hermes provider 0.5.2 sends")]
     assert len(entries) == 1

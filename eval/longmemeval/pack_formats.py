@@ -9,8 +9,18 @@ of the prose block.
 Honesty boundary: this module shapes PACK CONTENT/FORMAT only — the history
 slot of the official reading template receives the document; the template's
 instruction text is untouched (sha-pinned in tests). Every field is
-question-agnostic retrieval output (claims, session ids/dates, provenance
-roles, validity annotations); no benchmark labels enter the document.
+question-agnostic retrieval output (claims, session labels/dates, provenance
+roles, validity annotations).
+
+Correction (2026-10-01). An earlier version of this docstring denied that
+any benchmark label reaches the document. That was false. LongMemEval names every
+evidence session ``answer_...`` and no filler session so, and the harness
+before 1.1 put that raw session id in each excerpt record (and in the prose
+excerpt header), so the reader could see which sessions held the evidence.
+The adapter now hands this module a session LABEL, a keyed hash from
+:mod:`longmemeval.session_labels`, unless the run asks for raw labels to
+reproduce an old run. This module formats whatever label it is given; the
+``session_id`` key in the excerpt record holds that label.
 
 Format contract (``PACK_FORMAT_JSON``)::
 
@@ -112,7 +122,11 @@ def memory_record(memory: Mapping[str, object], *, claim: str, date: str) -> dic
 
 
 def excerpt_record(*, session_id: str, date: str, excerpt_index: int, excerpt: str) -> dict[str, object]:
-    """One ``session_excerpts[]`` record (``excerpt_index`` is 1-based, like prose)."""
+    """One ``session_excerpts[]`` record (``excerpt_index`` is 1-based, like prose).
+
+    ``session_id`` is the session label the adapter supplies (a keyed hash
+    unless the run uses raw labels), never the dataset's id.
+    """
     record: dict[str, object] = {"session_id": session_id, "date": date}
     date_iso = iso_date_prefix(date)
     if date_iso is not None:
