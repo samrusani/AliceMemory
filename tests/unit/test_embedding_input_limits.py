@@ -667,7 +667,7 @@ def test_reason_for_other_exceptions_is_none_so_driver_text_is_not_printed() -> 
 
     from alicebot_api.vnext_embeddings import embedding_failure_reason
 
-    assert embedding_failure_reason(RuntimeError("secret path /home/someone/x")) is None
+    assert embedding_failure_reason(RuntimeError("driver detail with a private value")) is None
     assert embedding_failure_reason(VNextEmbeddingProviderError("connection refused")) == "connection refused"
 
 
