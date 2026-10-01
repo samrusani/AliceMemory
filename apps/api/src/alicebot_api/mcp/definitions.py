@@ -662,7 +662,7 @@ _CORE_TOOL_DEFINITIONS: list[dict[str, object]] = [
                     "type": "integer",
                     "minimum": 500,
                     "maximum": MAX_CONTEXT_PACK_TOKENS,
-                    "description": "Content-section token budget for the pack. Lowest-ranked content is dropped to fit; diagnostic/navigation envelope fields are excluded. token_report.serialized_token_estimate measures this compact MCP result, while full_pack_serialized_token_estimate preserves the compiler's complete-pack estimate. Defaults to 8000.",
+                    "description": "Content-section token budget for the pack. An item that does not fit is skipped and the next one is tried, so a large item cannot empty the pack. When nothing fits whole, the first item that can fit has its text cut to the budget and ends in the mark \u2026, and token_report.cut_item_count is 1. Below the size of one item's ids and metadata the pack can still be empty. Diagnostic/navigation envelope fields are excluded. token_report.serialized_token_estimate measures this compact MCP result, while full_pack_serialized_token_estimate preserves the compiler's complete-pack estimate. Defaults to 8000.",
                 },
                 "debug": {
                     "type": "boolean",
