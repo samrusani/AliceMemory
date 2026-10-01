@@ -374,8 +374,9 @@ does not create a memory.
 
 Import stays a source. Commit stays a fact. Candidates stay
 unsearchable as memories. `count=0` after capture is still the
-design. 81.2% stays a `v0.12.0` `store_chunks` receipt.
-`pack_excerpts` is named and not scored.
+design. 81.2% stays a `v0.12.0` `store_chunks` receipt, with the session id
+label issue described in the Snapshot section. `pack_excerpts` is named and
+not scored.
 
 ## The `v0.15.0` tag was never published
 
