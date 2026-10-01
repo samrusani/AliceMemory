@@ -2481,6 +2481,7 @@ def test_vector_search_rejects_embeddings_from_a_different_model_signature() -> 
     assert mismatched_endpoint == []
     assert (
         store.list_memories_missing_embeddings(
+            statuses=("active", "accepted"),
             embedding_provider="openai_compatible",
             embedding_model="embed-v1",
             embedding_signature_version=2,
@@ -2488,6 +2489,7 @@ def test_vector_search_rejects_embeddings_from_a_different_model_signature() -> 
         == []
     )
     incompatible = store.list_memories_missing_embeddings(
+        statuses=("active", "accepted"),
         embedding_provider="openai_compatible",
         embedding_model="embed-v2",
         embedding_signature_version=2,
@@ -2526,6 +2528,7 @@ def test_vector_search_rejects_embeddings_from_a_different_model_signature() -> 
         == []
     )
     stale_backfill = store.list_memories_missing_embeddings(
+        statuses=("active", "accepted"),
         embedding_provider="openai_compatible",
         embedding_model="embed-v1",
         embedding_endpoint="host-a",
