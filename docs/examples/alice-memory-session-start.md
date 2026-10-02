@@ -29,6 +29,18 @@ superseded after the capture. In v0.18.0 SessionStart and
 a `**source**` line. Recall and the context pack keep the passage and
 label it; this hook does not.
 
+Unreleased (on main, not in v0.20.0): with per-project scoping on, which is
+off by default, the hook reads the `cwd` string in the payload (Claude Code and
+Codex send the folder the session started in), walks up from it to the git
+root, and prints a project brief: a line naming the project, the project's
+notes first, then notes that belong to no project, and no global family,
+health, spiritual, legal or financial notes. `--project-dir PATH` and
+`ALICE_PROJECT_DIR` override the folder. With scoping off the hook detects
+nothing and prints what v0.20.0 printed. A folder with no
+repository, or a repository the hook cannot read, gets one plain line saying so
+and the whole vault; the hook still exits 0. See
+[Projects](../alpha/projects.md).
+
 On any error the JSON wrapper prints `{}` and exits 0. After
 `--format markdown` is known, fail-open is a single blank line and
 exit 0. If argparse fails before format is known, `{}` is still

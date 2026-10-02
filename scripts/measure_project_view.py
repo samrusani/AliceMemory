@@ -209,6 +209,29 @@ def _time(fn: Callable[[], object], *, runs: int) -> tuple[float, float, float]:
     return _median(samples), round(min(samples), 1), round(max(samples), 1)
 
 
+def _time_interleaved(
+    cases: dict[str, Callable[[], object]], *, runs: int
+) -> dict[str, tuple[float, float, float]]:
+    """Time several cases round-robin, so a drift in the machine's load hits them all alike.
+
+    Each case runs once to warm up, then ``runs`` rounds of every case in turn. A comparison of two cases
+    timed one after the other can differ by a third between two runs of the same script on a busy machine,
+    because the load changes between the two blocks. Interleaved, it does not.
+    """
+
+    for fn in cases.values():
+        fn()
+    samples: dict[str, list[float]] = {name: [] for name in cases}
+    for _ in range(runs):
+        for name, fn in cases.items():
+            started = time.process_time()
+            fn()
+            samples[name].append((time.process_time() - started) * 1000.0)
+    return {
+        name: (_median(values), round(min(values), 1), round(max(values), 1)) for name, values in samples.items()
+    }
+
+
 def measure(data_dir: Path, *, runs: int, label: str) -> dict[str, object]:
     from alicebot_api.mcp.registry import call_mcp_tool
     from alicebot_api.mcp_tools import MCPRuntimeContext
@@ -271,11 +294,6 @@ def measure(data_dir: Path, *, runs: int, label: str) -> dict[str, object]:
                     query=None,
                 )
 
-        brief_cases: dict[str, tuple[float, float, float]] = {}
-        brief_cases["unscoped"] = _time(lambda: brief(ProjectView.unscoped()), runs=runs)
-        brief_cases["explicit"] = _time(explicit, runs=runs)
-        brief_cases["single_scan"] = _time(lambda: brief(view), runs=runs)
-
         # The two-query shape: the partition readers replaced by two ordinary reads.
         memory_partition = SQLiteVNextStore.list_memories_view_partitions
         loop_partition = SQLiteVNextStore.list_open_loops_view_partitions
@@ -300,13 +318,24 @@ def measure(data_dir: Path, *, runs: int, label: str) -> dict[str, object]:
             )
             return mine, theirs
 
-        SQLiteVNextStore.list_memories_view_partitions = two_query_memories  # type: ignore[method-assign,assignment]
-        SQLiteVNextStore.list_open_loops_view_partitions = two_query_loops  # type: ignore[method-assign,assignment]
-        try:
-            brief_cases["two_query"] = _time(lambda: brief(view), runs=runs)
-        finally:
-            SQLiteVNextStore.list_memories_view_partitions = memory_partition  # type: ignore[method-assign]
-            SQLiteVNextStore.list_open_loops_view_partitions = loop_partition  # type: ignore[method-assign]
+        def two_query_brief() -> str:
+            SQLiteVNextStore.list_memories_view_partitions = two_query_memories  # type: ignore[method-assign,assignment]
+            SQLiteVNextStore.list_open_loops_view_partitions = two_query_loops  # type: ignore[method-assign,assignment]
+            try:
+                return brief(view)
+            finally:
+                SQLiteVNextStore.list_memories_view_partitions = memory_partition  # type: ignore[method-assign]
+                SQLiteVNextStore.list_open_loops_view_partitions = loop_partition  # type: ignore[method-assign]
+
+        brief_cases = _time_interleaved(
+            {
+                "unscoped": lambda: brief(ProjectView.unscoped()),
+                "explicit": explicit,
+                "single_scan": lambda: brief(view),
+                "two_query": two_query_brief,
+            },
+            runs=runs,
+        )
         results["brief_ms"] = {name: {"median": m, "min": lo, "max": hi} for name, (m, lo, hi) in brief_cases.items()}
         results["brief_added_ms"] = {
             "single_scan": round(brief_cases["single_scan"][0] - brief_cases["unscoped"][0], 1),
@@ -329,12 +358,23 @@ def measure(data_dir: Path, *, runs: int, label: str) -> dict[str, object]:
         context = MCPRuntimeContext(
             database_url=sqlite_url_for_path(database), user_id=USER_ID, project_dir=repo
         )
-        resume_off = _time(lambda: call_mcp_tool(context, name="alice_resume", arguments={}), runs=runs)
-        os.environ["ALICE_PROJECT_SCOPING"] = "on"
-        try:
-            resume_on = _time(lambda: call_mcp_tool(context, name="alice_resume", arguments={}), runs=runs)
-        finally:
-            os.environ.pop("ALICE_PROJECT_SCOPING", None)
+        def resume_with_scoping(value: str | None) -> Callable[[], object]:
+            def call() -> object:
+                if value is None:
+                    os.environ.pop("ALICE_PROJECT_SCOPING", None)
+                else:
+                    os.environ["ALICE_PROJECT_SCOPING"] = value
+                try:
+                    return call_mcp_tool(context, name="alice_resume", arguments={})
+                finally:
+                    os.environ.pop("ALICE_PROJECT_SCOPING", None)
+
+            return call
+
+        resume_timed = _time_interleaved(
+            {"unscoped": resume_with_scoping(None), "project_view": resume_with_scoping("on")}, runs=runs
+        )
+        resume_off, resume_on = resume_timed["unscoped"], resume_timed["project_view"]
         results["resume_ms"] = {
             "unscoped": {"median": resume_off[0], "min": resume_off[1], "max": resume_off[2]},
             "project_view": {"median": resume_on[0], "min": resume_on[1], "max": resume_on[2]},
@@ -365,14 +405,21 @@ def measure(data_dir: Path, *, runs: int, label: str) -> dict[str, object]:
         )
         retrieval_results: dict[str, object] = {}
         for case, tool, arguments in retrieval_cases:
-            base = _time(lambda tool=tool, arguments=arguments: call_mcp_tool(context, name=tool, arguments=dict(arguments)), runs=runs)
-            mcp_retrieval._mcp_agent_policy_preflight = injected_preflight  # type: ignore[assignment]
-            mcp_context._policy_checked = injected_checked  # type: ignore[assignment]
-            try:
-                scoped = _time(lambda tool=tool, arguments=arguments: call_mcp_tool(context, name=tool, arguments=dict(arguments)), runs=runs)
-            finally:
-                mcp_retrieval._mcp_agent_policy_preflight = original_preflight  # type: ignore[assignment]
-                mcp_context._policy_checked = original_checked  # type: ignore[assignment]
+
+            def plain(tool: str = tool, arguments: dict = arguments) -> object:
+                return call_mcp_tool(context, name=tool, arguments=dict(arguments))
+
+            def with_view(tool: str = tool, arguments: dict = arguments) -> object:
+                mcp_retrieval._mcp_agent_policy_preflight = injected_preflight  # type: ignore[assignment]
+                mcp_context._policy_checked = injected_checked  # type: ignore[assignment]
+                try:
+                    return call_mcp_tool(context, name=tool, arguments=dict(arguments))
+                finally:
+                    mcp_retrieval._mcp_agent_policy_preflight = original_preflight  # type: ignore[assignment]
+                    mcp_context._policy_checked = original_checked  # type: ignore[assignment]
+
+            timed = _time_interleaved({"unscoped": plain, "project_view": with_view}, runs=runs)
+            base, scoped = timed["unscoped"], timed["project_view"]
             retrieval_results[case] = {
                 "unscoped_median_ms": base[0],
                 "project_view_median_ms": scoped[0],
