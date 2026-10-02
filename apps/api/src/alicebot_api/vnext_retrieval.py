@@ -113,6 +113,7 @@ from alicebot_api.vnext_ranking import (
     content_stable_event_time as _tiebreak_event_time,
     content_stable_tiebreak,
 )
+from alicebot_api.vnext_recall_visibility import MEMORY_SEARCHABLE_STATUSES
 from alicebot_api.vnext_repositories import JsonObject
 from alicebot_api.vnext_store import fts_fallback_tokens
 from alicebot_api.vnext_temporal_query import (
@@ -380,8 +381,9 @@ GRAPH_ENTITY_MATCH_LIMIT = 5
 MEMORY_ENTITY_EDGE_TYPES = ("mentions", "about")
 # Mirror of the stores' _MEMORY_SEARCHABLE_STATUSES_SQL ('active',
 # 'accepted'): get_memory does not enforce the searchable-status discipline
-# the search_* SQL bakes in, so the graph stage re-applies it in Python.
-MEMORY_SEARCHABLE_STATUSES = ("active", "accepted")
+# the search_* SQL bakes in, so the graph stage re-applies it in Python. The
+# tuple is defined in vnext_recall_visibility, which the embedding door reads
+# too, and is re-exported here under its old name.
 # Temporal-anchor stage: when parse_temporal_anchor finds a date-bearing
 # phrase in the query ("in March 2023", "two months ago"), memories whose
 # event window intersects the parsed [start, end) window join RRF as one

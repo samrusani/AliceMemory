@@ -1115,6 +1115,14 @@ class VNextMemoryCommitService:
         actor_id: str | None,
         trace_id: str | None,
     ) -> None:
+        """Embed a row that recall can return, now or after the commit.
+
+        Called for a row that is active (a direct commit, a correction, a
+        confirmation, an approval). Never for a candidate or a row waiting for
+        confirmation: those are embedded when they become active.
+        ``prepare_memory_embeddings`` refuses any row recall cannot return, so a
+        row offered here by mistake is withheld and not sent.
+        """
         if self._defer_embeddings:
             self._deferred_embedding_inputs.append(DeferredMemoryEmbedding.from_memory(memory))
             return
@@ -3118,12 +3126,10 @@ class VNextMemoryCommitService:
             actor_type=actor_type,
             request=request,
         )
-        self._attach_or_defer_memory_embedding(
-            memory,
-            actor_type=actor_type,
-            actor_id=actor_id,
-            trace_id=request.trace_id or decision.policy_decision.trace_id,
-        )
+        # No embedding here. The row is ``needs_review``, which recall cannot
+        # return, so its text is not sent to the embeddings endpoint. ``confirm``
+        # embeds it when it becomes active, through
+        # ``_refresh_memory_derived_state``; a rejected row is never embedded.
         self._append_revision(
             memory=memory,
             action="agentic_memory_confirmation_required",
@@ -3205,12 +3211,11 @@ class VNextMemoryCommitService:
             actor_type=actor_type,
             request=request,
         )
-        self._attach_or_defer_memory_embedding(
-            memory,
-            actor_type=actor_type,
-            actor_id=actor_id,
-            trace_id=request.trace_id or decision.policy_decision.trace_id,
-        )
+        # No embedding here. The row is a ``candidate``, which recall cannot
+        # return, so its text is not sent to the embeddings endpoint. Review
+        # approval embeds it when it becomes active (the HTTP and MCP review
+        # paths call ``refresh_memory_derived_state``); a rejected candidate is
+        # never embedded.
         self._append_revision(
             memory=memory,
             action="agentic_memory_review_required",

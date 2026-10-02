@@ -33,7 +33,11 @@ from alicebot_api.memory_provenance import (
     provenance_promotion_rank,
 )
 from alicebot_api.store import ContinuityStoreInvariantError
-from alicebot_api.vnext_embeddings import DeferredMemoryEmbedding, attach_memory_embeddings
+from alicebot_api.vnext_embeddings import (
+    DeferredMemoryEmbedding,
+    attach_memory_embeddings,
+    embeddable_deferred_inputs,
+)
 from alicebot_api.vnext_entities import (
     ENTITY_EXTRACTION_SKIP_SENSITIVITIES,
     EntityLinkingService,
@@ -1538,7 +1542,14 @@ class VNextCaptureService:
                     },
                 )
 
-            deferred_embedding_inputs = tuple(DeferredMemoryEmbedding.from_memory(memory) for memory in memory_rows)
+            # Capture writes candidate memories only, and recall cannot return a
+            # candidate, so no text is sent to the embeddings endpoint here: the
+            # deferred list keeps only rows recall can return, and
+            # ``attach_memory_embeddings`` withholds the rest, which for a
+            # candidate is all of them. A candidate is embedded when a reviewer
+            # accepts it (the review paths call ``refresh_memory_derived_state``),
+            # and a rejected one is never embedded.
+            deferred_embedding_inputs = embeddable_deferred_inputs(memory_rows)
             if not self.defer_embeddings:
                 attach_memory_embeddings(
                     self.store,

@@ -23,9 +23,10 @@ Subcommands:
 - ``reindex-embeddings``: rebuild missing or provider/model-incompatible
   vectors in place after an import, upgrade, embedding-model change, or
   change of ``ALICE_EMBEDDINGS_MAX_INPUT_CHARS``. It sends only the text of
-  active and accepted memories (the statuses recall can return) to the
-  embeddings endpoint: a forgotten, rejected or candidate memory is not sent,
-  and is embedded when it becomes active. A text the endpoint refuses
+  active and accepted memories (the statuses recall can return) whose validity
+  window has not closed to the embeddings endpoint: a forgotten, rejected,
+  candidate or expired memory is not sent, and is embedded when it becomes
+  active or its ``valid_to`` is cleared. A text the endpoint refuses
   is isolated from its batch: the rest still get vectors, and the output
   lists the failed memory ids and the endpoint's reason.
 - ``brief``: print a labelled session brief (committed facts and imported
@@ -1053,8 +1054,8 @@ def build_parser() -> argparse.ArgumentParser:
         "reindex-embeddings",
         help=(
             "Rebuild missing, unsigned, or provider/model-incompatible memory "
-            "embeddings of active and accepted memories in the local SQLite "
-            "database."
+            "embeddings of active and accepted, unexpired memories in the local "
+            "SQLite database."
         ),
     )
     _add_database_arguments(reindex_parser)
@@ -4034,8 +4035,10 @@ def _run_reindex_embeddings(args: argparse.Namespace) -> int:
     while True:
         with sqlite_user_connection(db_path, args.user_id) as conn:
             store = SQLiteVNextStore(conn, args.user_id)
-            # Only the statuses recall can return: this listing never hands the
-            # text of a forgotten, rejected or candidate memory to the endpoint.
+            # Only the statuses recall can return, and only a memory whose
+            # validity window is still open: this listing never hands the text
+            # of a forgotten, rejected, candidate or expired memory to the
+            # endpoint.
             rows = store.list_memories_missing_embeddings(
                 statuses=MEMORY_SEARCHABLE_STATUSES,
                 limit=batch_size,
@@ -4064,6 +4067,9 @@ def _run_reindex_embeddings(args: argparse.Namespace) -> int:
             provider=provider,
             log_failures=False,
         )
+        # A row that stopped being recall-visible between the list and the send
+        # (its validity window closed in that moment) is withheld, not failed.
+        skipped += len(preparation.withheld)
         batch_failures = list(preparation.failures)
         incompatible_ids = {
             str(row["id"]) for row in embeddable if row.get("embedding_present") in (True, 1)

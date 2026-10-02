@@ -141,10 +141,12 @@ def _missing_vector_line(store: SQLiteVNextStore) -> str:
 
     The test is the one ``alice-memory reindex-embeddings`` works from: no
     vector, or a vector whose provider, model, endpoint, signature version,
-    text digest or input-cap label is not today's. Full-text and graph search
-    still find these rows; only vector search misses them. With no embedding
-    provider configured no vector can be current, so the count is the rows with
-    none, and the line says why.
+    text digest or input-cap label is not today's. A fact whose ``valid_to``
+    has passed is not counted, because reindex does not embed it and vector
+    search would not return it. Full-text and graph search still find the rows
+    counted; only vector search misses them. With no embedding provider
+    configured no vector can be current, so the count is the rows with none,
+    and the line says why.
     """
 
     label = "memories without a current vector"

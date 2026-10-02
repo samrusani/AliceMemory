@@ -188,8 +188,9 @@ def main() -> int:
     run_started = time.monotonic()
 
     with stub_embeddings_server() as stub_base_url:
-        # Ambient embed-on-write (capture/commit) goes through the real
-        # OpenAI-compatible HTTP client against this deterministic stub.
+        # Ambient embed-on-write (memory commit, and acceptance of a candidate)
+        # goes through the real OpenAI-compatible HTTP client against this
+        # deterministic stub.
         os.environ["ALICE_EMBEDDINGS_BASE_URL"] = stub_base_url
         os.environ["ALICE_EMBEDDINGS_MODEL"] = MODEL_NAME
         os.environ.pop("ALICE_EMBEDDINGS_API_KEY", None)

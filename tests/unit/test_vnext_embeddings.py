@@ -380,7 +380,7 @@ def test_attach_memory_embedding_writes_vector_with_provider() -> None:
 
     attached = attach_memory_embedding(
         store,
-        {"id": "memory-1", "title": "Fact", "canonical_text": "Fact text."},
+        {"status": "active", "id": "memory-1", "title": "Fact", "canonical_text": "Fact text."},
         provider=_StubProvider(),
     )
 
@@ -403,7 +403,7 @@ def test_attach_memory_embedding_logs_event_but_never_blocks_on_failure() -> Non
 
     attached = attach_memory_embedding(
         store,
-        {"id": "memory-1", "canonical_text": "Fact text."},
+        {"status": "active", "id": "memory-1", "canonical_text": "Fact text."},
         provider=_StubProvider(fail=True),
         actor_type="agent",
         actor_id="hermes",
@@ -427,7 +427,7 @@ def test_attach_memory_embedding_never_blocks_on_store_write_failure() -> None:
 
     attached = attach_memory_embedding(
         store,
-        {"id": "memory-1", "canonical_text": "Fact text."},
+        {"status": "active", "id": "memory-1", "canonical_text": "Fact text."},
         provider=_StubProvider(),
     )
 
@@ -451,9 +451,9 @@ def test_attach_memory_embeddings_batches_provider_call_and_isolates_store_failu
     attached = attach_memory_embeddings(
         store,
         [
-            {"id": "memory-1", "canonical_text": "First fact."},
-            {"id": "memory-2", "canonical_text": "Second fact."},
-            {"id": "memory-3", "canonical_text": "Third fact."},
+            {"status": "active", "id": "memory-1", "canonical_text": "First fact."},
+            {"status": "active", "id": "memory-2", "canonical_text": "Second fact."},
+            {"status": "active", "id": "memory-3", "canonical_text": "Third fact."},
         ],
         provider=provider,
     )
@@ -474,7 +474,7 @@ def test_two_phase_embedding_prepares_without_store_then_persists_best_effort() 
 
     inputs = tuple(
         DeferredMemoryEmbedding.from_memory(
-            {"id": f"memory-{index}", "canonical_text": f"Fact {index}."}
+            {"status": "active", "id": f"memory-{index}", "canonical_text": f"Fact {index}."}
         )
         for index in range(1, 4)
     )
@@ -503,7 +503,7 @@ def test_two_phase_embedding_does_not_count_stale_compare_and_set_miss() -> None
 
     inputs = (
         DeferredMemoryEmbedding.from_memory(
-            {"id": "memory-1", "canonical_text": "Text before an edit."}
+            {"status": "active", "id": "memory-1", "canonical_text": "Text before an edit."}
         ),
     )
     preparation = prepare_memory_embeddings(inputs, provider=_StubProvider())
@@ -514,7 +514,7 @@ def test_two_phase_embedding_does_not_count_stale_compare_and_set_miss() -> None
 def test_two_phase_embedding_carries_provider_failures_to_persistence_log() -> None:
     inputs = (
         DeferredMemoryEmbedding.from_memory(
-            {"id": "memory-1", "canonical_text": "Fact text."}
+            {"status": "active", "id": "memory-1", "canonical_text": "Fact text."}
         ),
     )
 
@@ -545,7 +545,7 @@ def test_best_effort_deferred_embedding_swallows_connection_acquire_failure(
 
     deferred = (
         DeferredMemoryEmbedding.from_memory(
-            {"id": "memory-1", "canonical_text": "Fact text."}
+            {"status": "active", "id": "memory-1", "canonical_text": "Fact text."}
         ),
     )
 
@@ -579,7 +579,7 @@ def test_best_effort_deferred_embedding_isolates_store_write_failure() -> None:
     store = WriteFailureStore()
     deferred = (
         DeferredMemoryEmbedding.from_memory(
-            {"id": "memory-1", "canonical_text": "Fact text."}
+            {"status": "active", "id": "memory-1", "canonical_text": "Fact text."}
         ),
     )
 
@@ -612,7 +612,7 @@ def test_best_effort_deferred_embedding_swallows_followup_commit_failure(
     store = _AttachStore()
     deferred = (
         DeferredMemoryEmbedding.from_memory(
-            {"id": "memory-1", "canonical_text": "Fact text."}
+            {"status": "active", "id": "memory-1", "canonical_text": "Fact text."}
         ),
     )
 

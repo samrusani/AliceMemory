@@ -154,9 +154,21 @@ def test_capture_text_preserves_raw_source_before_normalization_and_links_candid
     ]
 
 
-def test_capture_can_defer_embedding_with_internal_handoff_and_unchanged_public_record(
+def test_capture_defers_no_embedding_for_candidates_and_the_public_record_is_unchanged(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Capture writes candidates, which recall cannot return, so its deferred queue is empty.
+
+    In v0.19.2 the queue held one snapshot per candidate and the candidates were
+    embedded after the commit, whether or not anyone ever accepted them. A
+    candidate is embedded when it is accepted. The public record still omits the
+    internal handoff.
+
+    Mutation: build ``deferred_embedding_inputs`` in ``vnext_capture.py`` from
+    ``DeferredMemoryEmbedding.from_memory`` over every row again (the queue then
+    holds two items).
+    """
+
     store = InMemoryVNextCaptureStore()
     attach_calls: list[object] = []
     monkeypatch.setattr(
@@ -170,12 +182,9 @@ def test_capture_can_defer_embedding_with_internal_handoff_and_unchanged_public_
     )
 
     assert attach_calls == []
-    assert len(result.deferred_embedding_inputs) == 2
-    assert [item.memory_id for item in result.deferred_embedding_inputs] == [
-        "memory-1",
-        "memory-2",
-    ]
-    assert all(item.canonical_text for item in result.deferred_embedding_inputs)
+    assert result.candidate_memory_count == 2
+    assert {memory["status"] for memory in store.memories} == {"candidate"}
+    assert result.deferred_embedding_inputs == ()
     assert "deferred_embedding_inputs" not in result.to_record()
 
 

@@ -6,11 +6,14 @@ services), then:
 1. **Ingest** — every haystack session is rendered as speaker-tagged turns
    (one paragraph per turn, so ``vnext_capture.chunk_text`` chunks on turn
    boundaries) and captured through the real ``VNextCaptureService`` write
-   path: sources, chunks, provenance, event log, candidate memories, and —
-   when ``ALICE_EMBEDDINGS_BASE_URL``/``ALICE_EMBEDDINGS_MODEL`` are set —
-   embed-on-write via the real provider. Candidate memories are then
-   promoted to ``active`` with ``update_memory`` (the store's review-accept
-   patch), because Alice's search stages only see active/accepted memories.
+   path: sources, chunks, provenance, event log and candidate memories.
+   Candidate memories are then promoted to ``active`` with ``update_memory``
+   (the store's review-accept patch), because Alice's search stages only see
+   active/accepted memories. When ``ALICE_EMBEDDINGS_BASE_URL`` and
+   ``ALICE_EMBEDDINGS_MODEL`` are set, each promoted memory is embedded via
+   the real provider at that moment, as a reviewer's acceptance does in the
+   product. Capture itself embeds nothing, because recall cannot return a
+   candidate and its text is not sent to the endpoint.
 2. **Retrieve** — ``VNextRetrievalService.compile_context_pack`` runs with
    the benchmark question as the query (hybrid FTS5 + vector KNN + RRF, or
    FTS-only when no embedding provider is configured), and the pack is
@@ -72,6 +75,7 @@ from alicebot_api.vnext_capture import SourceCaptureInput, VNextCaptureService
 # empty suffix for memories without the annotation (see the marked block
 # in _render_context_block).
 from alicebot_api.vnext_currency import currency_label_suffix
+from alicebot_api.vnext_embeddings import attach_memory_embeddings
 from alicebot_api.vnext_memory_commit import VNextMemoryCommitService
 from alicebot_api.vnext_retrieval import (
     VECTOR_STAGE_ENABLED,
@@ -899,6 +903,7 @@ class QuestionRun:
         stages see nothing and only source excerpts can be retrieved.
         """
         promoted = 0
+        promoted_rows: list[dict[str, object]] = []
         for memory in self.store.list_memories(status="candidate"):
             patch: dict[str, object] = {"status": "active"}
             if stamp_session_dates:
@@ -915,7 +920,13 @@ class QuestionRun:
             # the product review-accept path); deterministic tier only so
             # keyless ingest never makes a model call.
             attach_memory_fact_keys(self.store, updated, use_env_provider=False)
+            promoted_rows.append(updated)
             promoted += 1
+        # And the embedding moment: capture no longer embeds a candidate, so the
+        # vectors the memory stages search are made here, for the now active
+        # rows, in batches as capture made them. A no-op when no embedding
+        # provider is configured.
+        attach_memory_embeddings(self.store, promoted_rows, actor_type="system")
         return promoted
 
     def _consolidate_and_accept_rollups(self) -> RollupAcceptanceStats:
