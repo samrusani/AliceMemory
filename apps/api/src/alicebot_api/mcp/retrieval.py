@@ -1081,8 +1081,9 @@ def _vnext_resume(
                 # One list of max_recent_changes rows, so one fill (spec 6.2): the
                 # project's events first and limit // 4 places held for global
                 # ones, across both event kinds. A fill per kind, merged and cut
-                # by time afterwards, would let global events take up to twice the
-                # reserve and push a project event out of the list.
+                # by time afterwards, would let global events take far more than
+                # the reserve (every place when the project has events of one kind
+                # only) and push a project event out of the list.
                 def read_events(scope: tuple[str, ...], excluded: frozenset[str], count: int) -> list[JsonObject]:
                     """One side of the fill: both event kinds, newest first, at most ``count`` rows."""
 

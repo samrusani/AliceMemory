@@ -151,8 +151,10 @@ Remember, recall, continue. These are the only tools in a default
   identity that declares a scope and every call with scoping off, which is the
   default, read what they read in v0.20.0, except that `~global` is now a
   reserved name that every call refuses as a project. The `recent_changes` list
-  is filled once across memory events and open loop events: a quarter of its
-  places, rounded down, is kept for global events, whichever kind they are. See
+  is filled once across memory events and open loop events: at most a quarter
+  of its places, rounded down, are held for global events (whichever kind they
+  are) when the project has more than enough events of its own, and global
+  events also fill any place the project leaves empty. See
   [Projects](projects.md).
 
 ## Reading recalled text

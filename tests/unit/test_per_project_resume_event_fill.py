@@ -4,8 +4,8 @@ Spec 6.2 gives one number to every list read without a query: the project's rows
 ``limit // 4`` places held for global rows when the project has more than enough and global has any.
 ``alice_resume`` reads two kinds of event (memory events and open loop events) and returns one list of
 ``max_recent_changes`` rows, so the places belong to that list. Filling each kind to the limit, merging, and
-cutting by time lets global events take up to twice the reserve, and lets newer global events of one kind push
-out a project event of the other kind.
+cutting by time lets global events take far more than the reserve (every place, when the project has events of
+one kind only), and lets newer global events of one kind push out a project event of the other kind.
 
 The vaults below create the project's events first and the global ones after, so every global event is newer
 than every project event: the sort by time cannot help the project, and only the fill keeps its places.
@@ -190,6 +190,52 @@ def test_a_project_with_events_of_one_kind_only_still_gets_its_place(
     changes = _recent_changes(data_dir, repo, max_recent_changes=limit)
     assert changes == expected
     assert _sides(changes) == fill_counts(limit=limit, project_available=1, global_available=3)
+
+
+@pytest.mark.parametrize(
+    ("limit", "expected"),
+    [
+        pytest.param(
+            4,
+            [("loop", "G loop 3"), ("memory", "P mem 3"), ("memory", "P mem 2"), ("memory", "P mem 1")],
+            id="limit-4",
+        ),
+        pytest.param(
+            8,
+            [
+                ("loop", "G loop 7"),
+                ("loop", "G loop 6"),
+                ("memory", "P mem 7"),
+                ("memory", "P mem 6"),
+                ("memory", "P mem 5"),
+                ("memory", "P mem 4"),
+                ("memory", "P mem 3"),
+                ("memory", "P mem 2"),
+            ],
+            id="limit-8",
+        ),
+    ],
+)
+def test_a_project_with_events_of_one_kind_only_keeps_most_places_at_larger_limits(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, limit: int, expected: list[Change]
+) -> None:
+    """Mutation: the same edit as above (a fill per event kind).
+
+    This pins the far side of the old defect. The project has ``limit`` memory events and no loop events, and
+    global has ``limit`` newer loop events and no memory events. Spec 6.2 gives ``fill_counts``, three project
+    rows and one global row at four places, six and two at eight. A fill per kind reads the project's whole
+    memory side (``limit`` rows) and, because the project has no loop events, back-fills the loop side with
+    ``limit`` global loop events. All of those are newer, so they fill every place and the project gets none:
+    zero and four at four places, zero and eight at eight.
+    """
+
+    repo = repo_with_remote(tmp_path / "repo")
+    data_dir = _vault(tmp_path, repo, project_memories=limit, project_loops=0, global_memories=0, global_loops=limit)
+    monkeypatch.setenv("ALICE_PROJECT_SCOPING", "on")
+    changes = _recent_changes(data_dir, repo, max_recent_changes=limit)
+    assert _sides(changes) == fill_counts(limit=limit, project_available=limit, global_available=limit), changes
+    assert _sides(changes) == {4: (3, 1), 8: (6, 2)}[limit], changes
+    assert changes == expected
 
 
 def test_the_merged_read_of_one_side_returns_its_newest_events_across_both_kinds(
