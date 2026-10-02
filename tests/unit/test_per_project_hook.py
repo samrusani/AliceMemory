@@ -58,6 +58,7 @@ def _vault(tmp_path: Path, *repos: Path) -> Path:
     with sqlite_user_connection(db_path_for(data_dir), USER_ID) as connection:
         store = SQLiteVNextStore(connection, USER_ID)
         add_memory(store, key="fact.global", text="Plain global fact shared by all")
+        add_memory(store, key="fact.health", text="Global health fact qzhealthnote", domain="health", sensitivity="private")
         for repo in repos:
             add_memory(store, key=f"fact.{repo.name}", text=f"Fact of project {repo.name} only", scope=(_ids(repo)[0],))
             add_loop(store, title=f"Loop of project {repo.name} only", scope=(_ids(repo)[0],))
@@ -109,6 +110,7 @@ def test_the_hook_finds_the_repository_from_a_subfolder_the_host_started_in(
     assert lines[2] == '**fact**: "Fact of project payments only"'
     assert '**fact** (global): "Plain global fact shared by all"' in out
     assert "project search" not in out
+    assert "qzhealthnote" not in out, "a project brief holds back global health notes"
     json_out = _hook(monkeypatch, capsys, data_dir, {"cwd": str(subfolder)}, fmt="json")
     assert "Alice project:" in json.loads(json_out)["additional_context"]
 
@@ -238,6 +240,7 @@ def test_a_folder_outside_any_repository_gets_the_none_line_and_the_whole_vault(
     lines = out.splitlines()
     assert lines[1] == STATUS_LINE_NONE
     assert "Fact of project payments only" in out
+    assert "qzhealthnote" in out, "with no project found nothing is held back"
     assert "(global)" not in out
 
 
@@ -269,6 +272,7 @@ def test_a_git_directory_that_cannot_be_read_fails_the_detection_and_not_the_hoo
     assert out.splitlines()[1] == STATUS_LINE_FAILED
     assert STATUS_LINE_NONE not in out
     assert "Fact of project good only" in out, "a failed detection reads the whole vault"
+    assert "qzhealthnote" in out, "a failed detection does not hold global health notes back (ruling Q25b)"
 
 
 def test_a_gitdir_file_that_is_too_big_or_malformed_fails_the_detection(
@@ -368,12 +372,13 @@ def test_the_home_folder_is_never_a_project_for_the_hook(
     assert out.splitlines()[1] == STATUS_LINE_NONE
 
 
+@pytest.mark.parametrize("size", [900, 1000, 1100, 1200])
 def test_the_hook_output_stays_inside_the_character_cap_with_the_project_line(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], size: int
 ) -> None:
-    """Mutation: add the line after the cap is applied.
+    """Mutation: add the line after the cap is applied, or let the budget grow.
 
-    Long notes fill the brief. With the project line the hook output is still at most 9,500 characters.
+    Long project notes fill the brief. With the project line the hook output is still at most 9,500 characters.
     """
 
     repo = _repo(tmp_path / "payments", "payments")
@@ -381,7 +386,13 @@ def test_the_hook_output_stays_inside_the_character_cap_with_the_project_line(
     with sqlite_user_connection(db_path_for(data_dir), USER_ID) as connection:
         store = SQLiteVNextStore(connection, USER_ID)
         for index in range(8):
-            add_memory(store, key=f"fact.long.{index}", text=f"Long number {index} " + "filler words " * 120, scope=(_ids(repo)[0],))
+            add_memory(
+                store,
+                key=f"fact.long.{index}",
+                text=(f"Long number {index} " + "filler words " * 120)[:size],
+                scope=(_ids(repo)[0],),
+            )
+            add_loop(store, title=(f"Long loop number {index} " + "filler words " * 120)[:min(size, 270)], scope=(_ids(repo)[0],))
     monkeypatch.chdir(repo)
     _on(monkeypatch)
     out = _hook(monkeypatch, capsys, data_dir, {"cwd": str(repo)})

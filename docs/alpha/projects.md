@@ -1,8 +1,70 @@
 # Projects
 
-Unreleased (on main, not in v0.20.0): Alice can work out which git repository a folder belongs to, and `alice-memory project` shows what it found. This is the first slice of per-project memory. Nothing reads or writes notes by project yet, so every note is still saved and read the same way in every folder, as in v0.20.0. In v0.20.0 `alice-memory project` is not a command: `alice-memory project show` is read as arguments to `alice-memory mcp` and fails with `invalid_request`.
+Unreleased (on main, not in v0.20.0): Alice can work out which git repository a folder belongs to, `alice-memory project` shows what it found, and, with per-project scoping switched on, the session brief and `alice_resume` follow the project. Scoping is **off by default**, so with nothing set every output is what v0.20.0 printed, byte for byte. This is the first part of per-project memory. Writes do not change yet: a note is saved the same way in every folder, as in v0.20.0, and `alice_recall` and `alice_context_pack` read the whole vault as before. In v0.20.0 `alice-memory project` is not a command: `alice-memory project show` is read as arguments to `alice-memory mcp` and fails with `invalid_request`.
 
-Every statement below about the project commands is Unreleased (on main, not in v0.20.0).
+Every statement below about the project commands, the switch and the project brief is Unreleased (on main, not in v0.20.0).
+
+## Try it
+
+Scoping is off until you turn it on. Either of these turns it on:
+
+```bash
+export ALICE_PROJECT_SCOPING=on           # for one shell, or in a host entry's env map
+alice-memory project scoping on           # once, saved in the vault
+```
+
+Then start a session in a git repository, or run `alice-memory brief` inside one. `alice-memory project show` tells you what Alice found for a folder, and `alice-memory project scoping status` says whether scoping is on and why. To turn it off again, `alice-memory project scoping off` (or `ALICE_PROJECT_SCOPING=off`). The environment variable beats the vault's setting.
+
+## The project brief
+
+With scoping on and a project found, the brief that the SessionStart hook injects and that `alice-memory brief` prints changes in four ways.
+
+1. After the frame line it opens with one line that Alice writes (not a stored note): the project's label in quotes, its id, where it was found (`the git remote` or `the repository folder`) and the id to pass as `project_scope` if your Alice tools cannot see the folder.
+2. This project's notes come first. A note is in the project when its project scope holds one of the project's ids. The newest eight facts and eight open loops are filled with the project's notes first and notes that belong to no project after them, and a quarter of the places, rounded down (two of eight), are kept for the global ones whenever the project has more than enough and global has any. At a limit of three or fewer nothing is kept back, so a caller who asks for one item gets the project's.
+3. A note that belongs to no project is marked: `**fact** (global): "..."`. A note belongs to no project when its project scope holds no Alice project id: it is empty, or it holds only free-form names such as `Alice`. Every note saved before the upgrade is global, and so is every note an agent filed under a name it chose, so none of them disappears from any project.
+4. Notes of another project never show.
+
+Project briefs no longer automatically include global family, health, spiritual, legal or financial material. This applies when Alice finds a project for the folder. When no project is found, when detection fails, or when project scoping is off, the brief searches all memory and still includes them.
+
+The rule applies to every section of the brief: facts, open loops, the recent-change merges, the source excerpts, and the notes and sources the excerpt query is built from. It applies to global notes only: a note of this project in one of those five domains still shows, because the rule is about material that follows a person into every project. It reads the stored domain label (`SENSITIVE_DOMAINS`, the same set that makes a commit ask for confirmation) and does not catch a note filed under another label, such as a health note filed as `personal`. The same rule holds for `alice_resume` when it names no project, because on a host with no SessionStart hook (Hermes, OpenCode) it is the agent's first call. It does not hold for `alice_recall`, `alice_context_pack`, `alice_recent_decisions` or the open loop list, which return these notes under the permissions and sensitivity limits they already apply, and it does not hold for `alice-memory brief --scope global` or `--scope all`, which are you asking. The brief says nothing about how many notes it held back, because a count would be metadata about the material the rule keeps out.
+
+### Where the folder comes from
+
+The hook takes the start folder from the first of these that is an absolute folder that exists: `--project-dir`, `ALICE_PROJECT_DIR`, the `cwd` string in the JSON the host sends on stdin, then the hook's working folder. Claude Code 2.1.281 and Codex 0.158.0 send the folder the session started in as `cwd`, which the host-evidence run recorded, and the resolver walks up from it to the git root, so a session started in a subfolder finds its repository. The hook reads at most 64 KiB of stdin, reads and discards the rest so the host's write never blocks, and ignores a `cwd` that is not an absolute path. `alice-memory brief` and `alice-memory sleep-proposals` take `--project-dir PATH`, and `alice-memory mcp --project-dir PATH` gives the MCP server its folder for `alice_resume`. A server that serves many projects (one global entry) cannot know the current one and falls back to the whole vault.
+
+### Flags
+
+`alice-memory brief` and `alice-memory sleep-proposals` take `--scope`.
+
+- `project` (the default): the project view above. With no project found it is the whole vault plus a status line.
+- `project_only`: this project's notes and nothing else. With no project found the command exits with an error and names `--scope all`, because answering a question about one project with every note is the failure this feature exists to prevent.
+- `global`: notes that belong to no project, held-back ones included.
+- `all`: every note, as before per-project memory, held-back ones included.
+
+With scoping off the two flags are accepted and ignored, so a script that passes them works either way. `alice-memory sleep` always writes the same sidecar of proposals from the oldest sources of the whole vault, whichever folder it runs in. `sleep-proposals` is framed like a brief and takes the same view: in a project it lists this project's and global sources, leaves out global sources in the five domains, and its `rows not shown` line counts neither those nor another project's sources.
+
+### When there is no project
+
+The brief says why nothing is filtered, in one plain line after the frame, so a miss never looks like a successful filter.
+
+| Line | When |
+| --- | --- |
+| `No project detected; searching all memory.` | scoping is on and the folder is not in a git work tree |
+| `Project detection failed; searching all memory.` | a git directory was found and could not be read within the limits (a `.git` file over 4 KiB or malformed, a config over 256 KiB, missing, unreadable or using `include`), or the resolver raised. The hook still exits 0 |
+| `Project scoping is off; searching all memory.` | someone turned scoping off on purpose, with `ALICE_PROJECT_SCOPING=off` or `alice-memory project scoping off` |
+
+The release default prints no line, so with nothing set the brief is what v0.20.0 printed. In all three cases every note is read, held-back ones included, as before.
+
+### What does not change
+
+- Nothing is written differently. A commit or capture without a project scope stores no project, in every folder.
+- `alice_recall`, `alice_context_pack`, `alice_recent_decisions` and `alice_open_loops` have no `scope` argument yet and read what they read before. A caller that names `projects`, `project` or `project_scope` keeps that meaning everywhere, `alice_resume` included.
+- `~global` is a reserved name Alice uses inside a request. It is refused on every tool when a caller sends it as a project, a project scope or an identity's project scope. It is never stored.
+- No table, column or index is added, so a v0.20.0 binary opens a vault this release has read, and a backup from one restores in the other. The project is derived from the folder on every call and stored nowhere.
+
+### What it costs
+
+The brief reads the project's facts and the global facts, and the project's open loops and the global ones, in one pass over the vault each, with no index. Measured on a synthetic vault of 5,000 and of 50,000 notes (`scripts/measure_project_view.py`, CPU time of one Python process on one Mac, median of five runs): MEASUREMENTS_PLACEHOLDER
 
 ## What a project is
 
@@ -66,9 +128,9 @@ The effective switch is, strongest first:
 
 1. `ALICE_PROJECT_SCOPING`, `on` or `off`, in the environment. Any other value is ignored.
 2. The vault's `project_scoping` setting, written by `project scoping on|off`.
-3. The release default. On main it is off, until the release that turns per-project memory on.
+3. The release default. On main it is off, until the release that turns per-project memory on. The default prints no status line anywhere; only an owner's choice to switch it off does.
 
-Most hosts cannot be given an environment variable per entry, so the setting is saved in the vault. Nothing reads the switch yet.
+Most hosts cannot be given an environment variable per entry, so the setting is saved in the vault. The brief, the SessionStart hook, `alice-memory sleep-proposals` and `alice_resume` read the switch when they start; see [the project brief](#the-project-brief). Nothing else reads it yet.
 
 Changing the setting appends one `scoping.changed` event (the setting name, the new value and the previous value, with no path, URL or project id), and setting the value the vault already holds writes nothing. The setting lives in a table that an export does not carry, and the event does, so a restore keeps your choice. See [Backup and restore](backup-and-restore.md).
 

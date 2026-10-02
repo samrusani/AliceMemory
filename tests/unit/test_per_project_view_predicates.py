@@ -33,9 +33,11 @@ from tests.unit.per_project_view_support import USER_ID
 
 GLOBAL = GLOBAL_PROJECT_MARKER
 UPPER_A = PROJECT_A.upper()
-#: ``prj_a1a1a1a1a1a1a1a1`` spelled with JSON ``\u`` escapes in the id and in the prefix.
-ESCAPED_ID = r'"prj_a1a1a1a1a1a1a1a1"'
-ESCAPED_PREFIX = r'"prj_a1a1a1a1a1a1a1a1"'
+#: ``prj_a1a1a1a1a1a1a1a1`` spelled with JSON unicode escapes, in the last two characters of the id and in the first
+#: character of the prefix. Built from a backslash so no tool that decodes escapes can turn them back into letters.
+BACKSLASH = chr(92)
+ESCAPED_ID = '"prj_a1a1a1a1a1a1a1' + BACKSLASH + 'u0061' + BACKSLASH + 'u0031"'
+ESCAPED_PREFIX = '"' + BACKSLASH + 'u0070rj_a1a1a1a1a1a1a1a1"'
 
 #: Metadata text and the ``project_id`` column of one row, by name. Each shape is raw text so a
 #: test can plant spellings the store's writers never produce.
@@ -485,6 +487,11 @@ def test_the_marker_is_never_stored_on_a_note_a_source_or_an_open_loop(tmp_path:
     context = context_for(data_dir)
     capture(context, "# t\n\nbody text\n", title="plain")
     capture(context, "# t\n\nbody text two\n", title="scoped", project_scope=(PROJECT_A,))
+    with sqlite_user_connection(db_path_for(data_dir), USER_ID) as connection:
+        store = SQLiteVNextStore(connection, USER_ID)
+        add_memory(store, key="never.stored.memory", text="A note in the project", scope=(PROJECT_A,))
+        add_memory(store, key="never.stored.global", text="A note in no project")
+        add_loop(store, title="A loop in the project", scope=(PROJECT_A,))
     for choice in ("project", "project_only", "global", "all"):
         compile_view_brief(data_dir, project_view(choice=choice))
     assert project_view().write_project == PROJECT_A

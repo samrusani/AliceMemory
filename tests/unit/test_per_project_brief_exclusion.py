@@ -11,6 +11,7 @@ note reached the brief. Each test names the edit that makes it fail.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -297,11 +298,11 @@ def test_the_exclusion_does_not_hide_a_global_note_in_a_plain_domain(vault) -> N
 
 
 def test_held_back_notes_do_not_use_up_places(tmp_path: Path) -> None:
-    """Mutation: filter after the limit.
+    """Mutation: filter after the limit, in the facts query or in the open loop query.
 
-    The vault holds eight global notes, the five newest in held-back domains. The brief still
-    shows all three plain global facts and no hole where the held-back ones would sit: the
-    exclusion is part of the query, so the fill is full.
+    Ten plain global facts and ten plain global loops sit under the five newest of each, which are in held-back
+    domains. The exclusion is part of the query, so the held-back ones spend no place: all eight places of each
+    list hold plain notes. Filtered only afterwards, the eight newest would be five held-back and three plain.
     """
 
     data_dir = tmp_path / "vault"
@@ -309,19 +310,22 @@ def test_held_back_notes_do_not_use_up_places(tmp_path: Path) -> None:
     context_for(data_dir)
     with sqlite_user_connection(db_path_for(data_dir), USER_ID) as connection:
         store = SQLiteVNextStore(connection, USER_ID)
-        for index in range(3):
-            add_memory(store, key=f"fact.plain.{index}", text=f"Plain global fact number {index} plain")
+        for index in range(10):
+            add_memory(store, key=f"fact.plain.{index}", text=f"Plain global fact number {index} qzplainfact")
+            add_loop(store, title=f"Plain global loop number {index} qzplainloop")
         for index, domain in enumerate(SENSITIVE_DOMAIN_LABELS):
             add_memory(
                 store,
                 key=f"fact.held.{index}",
-                text=f"Held back fact number {index} {domain}",
+                text=f"Held back fact number {index} {domain} qzheld",
                 domain=domain,
                 sensitivity="private",
             )
+            add_loop(store, title=f"Held back loop number {index} {domain} qzheld", domain=domain, sensitivity="private")
     brief = compile_view_brief(data_dir, project_view())
-    assert brief.count("**fact** (global)") == 3
-    assert "Held back fact" not in brief
+    assert "qzheld" not in brief
+    assert brief.count("**fact** (global): \"Plain global fact") == 8
+    assert brief.count("**open loop** (global): \"Plain global loop") == 8
 
 
 def test_with_no_project_scoping_off_or_a_failed_detection_nothing_is_held_back(vault) -> None:
@@ -391,12 +395,14 @@ def test_recall_and_the_pack_still_return_held_back_notes(vault) -> None:
     context = built["context"]  # type: ignore[index]
     fact_word = _word(canaries, "f", "health", "g")
     source_word = _word(canaries, "s", "health", "g")
+    # The query is echoed in a pack, so the checks look for words of the source's own text.
+    phrase = "global health runbook"
     recall = call_mcp_tool(context, name="alice_recall", arguments={"query": fact_word})
     assert fact_word in str(recall["results"])
     recall_sources = call_mcp_tool(context, name="alice_recall", arguments={"query": source_word})
-    assert source_word in str(recall_sources["sources"])
+    assert phrase in json.dumps(recall_sources["sources"]).lower()
     pack = call_mcp_tool(context, name="alice_context_pack", arguments={"query": source_word})
-    assert source_word in str(pack)
+    assert phrase in json.dumps(pack).lower()
 
 
 def test_the_brief_holds_back_by_the_stored_domain_label_only(tmp_path: Path) -> None:

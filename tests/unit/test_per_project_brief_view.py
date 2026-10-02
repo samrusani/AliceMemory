@@ -193,11 +193,13 @@ def test_the_project_line_is_about_five_hundred_characters_at_the_label_cap() ->
     assert brief_char_len(longest) < 500
 
 
-def test_the_project_line_counts_against_the_brief_cap(tmp_path: Path) -> None:
-    """Mutation: add the line after the budget is spent.
+@pytest.mark.parametrize("size", [900, 1000, 1100, 1200])
+def test_the_project_line_counts_against_the_brief_cap(tmp_path: Path, size: int) -> None:
+    """Mutation: add the line after the budget is spent, or let the budget grow.
 
-    A vault of long notes fills the brief to the cap in the unscoped read. With the line the brief is still within
-    the cap, still starts with the frame and the line, and the notes give way, not the line.
+    Eight facts of ``size`` characters and eight open loops of at most 270 (the title limit) overfill the brief. With the line the brief is still
+    within the cap, still starts with the frame and the line, and the notes give way, not the line. The sizes put the
+    last admitted line at different distances from the cap, so a budget that is too big shows on at least one of them.
     """
 
     data_dir = tmp_path / "vault"
@@ -206,10 +208,13 @@ def test_the_project_line_counts_against_the_brief_cap(tmp_path: Path) -> None:
     with sqlite_user_connection(db_path_for(data_dir), USER_ID) as connection:
         store = SQLiteVNextStore(connection, USER_ID)
         for index in range(8):
-            add_memory(store, key=f"fact.long.{index}", text=("Long fact number %d " % index) + ("filler words " * 120))
+            add_memory(store, key=f"fact.long.{index}", text=(f"Long fact number {index} " + "filler words " * 120)[:size])
+            add_loop(store, title=(f"Long open loop number {index} " + "filler words " * 120)[:min(size, 270)])
     in_project = compile_view_brief(data_dir, project_view())
     assert brief_char_len(in_project) <= SESSION_BRIEF_CHAR_CAP
     assert in_project.splitlines()[1].startswith("Alice project:")
+    unscoped = compile_view_brief(data_dir, ProjectView.unscoped())
+    assert brief_char_len(unscoped) <= SESSION_BRIEF_CHAR_CAP
     # With a prefix reserved by the caller, the line still counts and the whole fits.
     reserved = compile_view_brief(data_dir, project_view(), reserve=1000)
     assert brief_char_len(reserved) <= SESSION_BRIEF_CHAR_CAP - 1000
