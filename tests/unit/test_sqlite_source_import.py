@@ -18,6 +18,7 @@ from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
 from alicebot_api.vault_doctor import compile_local_vault_doctor
 from alicebot_api.vnext_capture import VNextCaptureService
 from alicebot_api.vnext_connectors import VNextConnectorService
+from alicebot_api.project_view import ProjectView
 import alicebot_api.cli as cli_module
 
 from tests.unit.test_vnext_connectors import InMemoryVNextConnectorStore, _telegram_payload
@@ -141,7 +142,11 @@ def test_markdown_import_withholds_a_key_line_and_a_key_block(tmp_path: Path) ->
     assert any(CLEAN in json.dumps(item) for item in recall.get("sources") or [])
     resume = call_mcp_tool(_context(database), name="alice_resume", arguments={})
     assert token not in json.dumps(resume)
-    brief = compile_local_session_brief(database, user_id=USER_ID, query=None)
+    brief = compile_local_session_brief(
+        database, user_id=USER_ID, query=None,
+        project_view=ProjectView.unscoped(),
+        exclude_global_domains=frozenset(),
+    )
     assert token not in brief
     assert CLEAN in brief or "indigo lighthouse" in brief
 

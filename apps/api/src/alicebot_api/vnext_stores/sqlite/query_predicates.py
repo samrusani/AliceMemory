@@ -5,11 +5,13 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime
 from typing import cast
 
 from alicebot_api.vnext_project_scope import (
+    GLOBAL_PROJECT_MARKER,
+    is_alice_project_id,
     project_scope_identity,
     resolve_project_scope,
     resolve_source_metadata_project_scope,
@@ -105,6 +107,271 @@ def _ensure_project_scope_identity_sqlite(conn: sqlite3.Connection) -> None:
         _source_project_scope_identity_json_sqlite,
         deterministic=True,
     )
+
+
+#: ``AS MATERIALIZED`` for the labelled common table expression of the single-scan
+#: partition reads (``list_memories_view_partitions``, ``list_open_loops_view_partitions``).
+#: The expression is read twice, once per label. SQLite does not share a common table
+#: expression between two references on its own: measured on 3.49.1, a partition read over
+#: 30 memories called the identity function 68 times (twice per row, and eight more), and
+#: with the hint exactly 30 times (once per row). The hint needs SQLite 3.35 (2021). An
+#: older SQLite reads the same rows through the same SQL without it, twice as slowly.
+CTE_MATERIALIZED_HINT = " MATERIALIZED" if sqlite3.sqlite_version_info >= (3, 35, 0) else ""
+
+
+# ---------------------------------------------------------------------------
+# The project view in SQL (spec 6.1)
+#
+# A request tuple may hold the reserved marker ``~global``. A row is in the view
+# when its identity set (the JSON array the identity functions return) contains a
+# requested id, or, when the marker is requested, contains no Alice project id.
+# The test is one aggregate over ``json_each`` of one identity-function call, so
+# a row costs one Python call, not two. In front of it sits a native prefilter
+# made of ``LIKE`` and ``instr`` over the raw text, which decides most rows
+# without calling Python and never rules out a row the exact test would admit.
+# ---------------------------------------------------------------------------
+
+#: ``GLOB`` pattern of an Alice project id. Identity values are already folded to
+#: lowercase, so a case-sensitive ``GLOB`` is exact.
+_ALICE_ID_GLOB = "prj_" + "[0-9a-f]" * 16
+
+
+def _sql_has_alice_id(value_expression: str) -> str:
+    return f"(length({value_expression}) = 20 AND {value_expression} GLOB '{_ALICE_ID_GLOB}')"
+
+
+def _split_view_request(projects: tuple[str, ...]) -> tuple[tuple[str, ...], bool]:
+    """The requested identifiers without the marker, and whether the marker was asked for."""
+
+    identity = project_scope_identity(projects)
+    wants_global = GLOBAL_PROJECT_MARKER in identity
+    return tuple(value for value in identity if value != GLOBAL_PROJECT_MARKER), wants_global
+
+
+def _no_alice_id_in_text(text_expressions: tuple[str, ...]) -> str:
+    """Native proof that a row holds no Alice project id.
+
+    No ``prj_`` anywhere in the raw text of any column the identity reads (``LIKE``
+    folds ASCII case, as the identity does) and no ``\\u`` escape that could spell
+    one. A row that passes holds no Alice id, whatever the exact test would say.
+    """
+
+    parts: list[str] = []
+    for expression in text_expressions:
+        parts.append(f"COALESCE({expression}, '') NOT LIKE '%prj\\_%' ESCAPE '\\'")
+        parts.append(f"instr(COALESCE({expression}, ''), '\\u') = 0")
+    return "(" + " AND ".join(parts) + ")"
+
+
+def _maybe_holds_requested_id(text_expressions: tuple[str, ...], ids: tuple[str, ...]) -> str:
+    """Native necessary condition for a row to hold one of ``ids`` (all Alice ids).
+
+    The id appears in the raw text of some column the identity reads, in any ASCII
+    case, or a ``\\u`` escape could spell it. Placeholders for ``ids`` are
+    repeated for each text expression, in order.
+    """
+
+    alternatives: list[str] = []
+    for expression in text_expressions:
+        for _identifier in ids:
+            alternatives.append(f"COALESCE({expression}, '') LIKE '%' || ? || '%' ESCAPE '\\'")
+        alternatives.append(f"instr(COALESCE({expression}, ''), '\\u') > 0")
+    return "(" + " OR ".join(alternatives) + ")"
+
+
+def _ids_are_alice_ids(ids: tuple[str, ...]) -> bool:
+    return bool(ids) and all(is_alice_project_id(identifier) for identifier in ids)
+
+
+def _view_membership_sql(
+    *,
+    placeholders: Callable[[list[str]], str],
+    scope_expression: str,
+    ids: tuple[str, ...],
+    wants_global: bool,
+    domain_expression: str | None,
+    global_excluded_domains: tuple[str, ...],
+    text_expressions: tuple[str, ...],
+    partition: bool,
+) -> tuple[str, list[object]]:
+    """The exact view test as one aggregate over one identity-function call.
+
+    With ``partition=False`` the SQL is a predicate (true when the row is in the
+    view). With ``partition=True`` it is a value: 1 for a row of a requested
+    project, 0 for a global row, NULL for a row outside the view. A row of a
+    requested project is never global, so the value is unambiguous.
+    """
+
+    params: list[object] = []
+    excluded = tuple(global_excluded_domains) if wants_global else ()
+    if excluded and domain_expression is None:
+        raise ValueError("a view that leaves out global domains needs the domain expression of the table")
+
+    def excluded_sql() -> str:
+        params.extend(excluded)
+        return f"{domain_expression} IN ({placeholders(list(excluded))})"
+
+    when_hit = ""
+    hit_value = "1"
+    if ids:
+        params.extend(ids)
+        when_hit = (
+            f"WHEN COALESCE(MAX(CAST(scoped_project.value AS TEXT) IN ({placeholders(list(ids))})), 0) = 1 "
+            f"THEN {hit_value} "
+        )
+    when_global = ""
+    if wants_global:
+        if partition:
+            if excluded:
+                inner = f"CASE WHEN {excluded_sql()} THEN NULL ELSE 0 END"
+            else:
+                inner = "0"
+        elif excluded:
+            inner = f"CASE WHEN {excluded_sql()} THEN 0 ELSE 1 END"
+        else:
+            inner = "1"
+        when_global = (
+            f"WHEN COALESCE(MAX({_sql_has_alice_id('CAST(scoped_project.value AS TEXT)')}), 0) = 0 "
+            f"THEN {inner} "
+        )
+    fallback = "NULL" if partition else "0"
+    sql = (
+        "(SELECT CASE "
+        + when_hit
+        + when_global
+        + f"ELSE {fallback} END "
+        + f"FROM json_each({scope_expression}) AS scoped_project)"
+    )
+    return sql, params
+
+
+_EXCLUSION_NOT_STATED_MESSAGE = (
+    "a read that asks for global rows must state which global domains it leaves out "
+    "(pass an empty tuple to leave none out)"
+)
+
+
+def _stated_exclusion(exclude_global_domains: Sequence[str] | None) -> tuple[str, ...] | None:
+    """The exclusion a reader was given, in a stable order, or ``None`` when it was not stated.
+
+    The readers that can take a request tuple holding the marker default the
+    exclusion to ``None``, not to an empty tuple, so that "leave nothing out" has to be
+    written at the call site. A reader that is handed the marker and no statement
+    raises (``_project_view_sql``) instead of quietly holding nothing back.
+    """
+
+    return None if exclude_global_domains is None else tuple(sorted(exclude_global_domains))
+
+
+def _project_view_sql(
+    *,
+    placeholders: Callable[[list[str]], str],
+    projects: tuple[str, ...],
+    scope_expression: str,
+    text_expressions: tuple[str, ...],
+    domain_expression: str | None,
+    global_excluded_domains: tuple[str, ...] | None,
+) -> tuple[str, list[object]]:
+    """The ``AND ...`` clause for a request tuple, or ``("", [])`` when it fences nothing.
+
+    A tuple with no marker and any name that is not an Alice id keeps the clause
+    v0.20.0 built, character for character, so a caller that never meets a view
+    runs the SQL it always ran. A tuple of Alice ids alone gets the native
+    prefilter in front of the same test. A tuple with the marker gets the view
+    test, with a native fast path for a row that provably holds no Alice id.
+    """
+
+    ids, wants_global = _split_view_request(projects)
+    if not ids and not wants_global:
+        return "", []
+    if wants_global and global_excluded_domains is None:
+        raise ValueError(_EXCLUSION_NOT_STATED_MESSAGE)
+    if not wants_global and not _ids_are_alice_ids(ids):
+        values: list[object] = list(ids)
+        return (
+            " AND EXISTS (SELECT 1 FROM json_each("
+            f"{scope_expression}"
+            ") AS scoped_project WHERE CAST(scoped_project.value AS TEXT) "
+            f"IN ({placeholders(list(ids))}))"
+        ), values
+    params: list[object] = []
+    excluded = tuple(global_excluded_domains or ()) if wants_global else ()
+    if wants_global:
+        # Native fast path: a row that holds no Alice id is global, and is in the
+        # view unless its domain is held back.
+        fast = _no_alice_id_in_text(text_expressions)
+        if excluded:
+            if domain_expression is None:
+                raise ValueError("a view that leaves out global domains needs the domain expression of the table")
+            params.extend(excluded)
+            fast = f"({fast} AND {domain_expression} NOT IN ({placeholders(list(excluded))}))"
+        exact, exact_params = _view_membership_sql(
+            placeholders=placeholders,
+            scope_expression=scope_expression,
+            ids=ids,
+            wants_global=True,
+            domain_expression=domain_expression,
+            global_excluded_domains=excluded,
+            text_expressions=text_expressions,
+            partition=False,
+        )
+        params.extend(exact_params)
+        return f" AND ({fast} OR {exact} = 1)", params
+    # Alice ids only: prefilter, then the exact test.
+    for _expression in text_expressions:
+        params.extend(_escape_like_literal(identifier) for identifier in ids)
+    prefilter = _maybe_holds_requested_id(text_expressions, ids)
+    exact, exact_params = _view_membership_sql(
+        placeholders=placeholders,
+        scope_expression=scope_expression,
+        ids=ids,
+        wants_global=False,
+        domain_expression=None,
+        global_excluded_domains=(),
+        text_expressions=text_expressions,
+        partition=False,
+    )
+    params.extend(exact_params)
+    return f" AND ({prefilter} AND {exact} = 1)", params
+
+
+def _project_view_partition_sql(
+    *,
+    placeholders: Callable[[list[str]], str],
+    projects: tuple[str, ...],
+    scope_expression: str,
+    text_expressions: tuple[str, ...],
+    domain_expression: str,
+    global_excluded_domains: tuple[str, ...],
+) -> tuple[str, list[object]]:
+    """A value per row for the single-scan fill: 1 project, 0 global, NULL outside the view.
+
+    ``projects`` is the request tuple of the project view: Alice ids and the
+    marker. The native fast path labels a row that provably holds no Alice id as
+    global without calling Python. Every other row goes through the exact test.
+    """
+
+    ids, wants_global = _split_view_request(projects)
+    if not wants_global or not _ids_are_alice_ids(ids):
+        raise ValueError("a partition needs Alice project ids and the global marker")
+    excluded = tuple(global_excluded_domains)
+    params: list[object] = []
+    fast = _no_alice_id_in_text(text_expressions)
+    if excluded:
+        params.extend(excluded)
+        fast = f"({fast} AND {domain_expression} NOT IN ({placeholders(list(excluded))}))"
+    exact, exact_params = _view_membership_sql(
+        placeholders=placeholders,
+        scope_expression=scope_expression,
+        ids=ids,
+        wants_global=True,
+        domain_expression=domain_expression,
+        global_excluded_domains=excluded,
+        text_expressions=text_expressions,
+        partition=True,
+    )
+    params.extend(exact_params)
+    return f"CASE WHEN {fast} THEN 0 ELSE {exact} END", params
 
 
 def _escape_like_literal(value: str) -> str:
@@ -211,18 +478,25 @@ def _project_clause(
     projects: tuple[str, ...],
     *,
     prefix: str = "",
+    global_excluded_domains: tuple[str, ...] | None = None,
 ) -> tuple[str, list[object]]:
-    values: list[object] = list(project_scope_identity(projects))
-    if not values:
-        return "", []
-    placeholders = self._placeholders(cast(list[str], values))
-    clause = (
-        " AND EXISTS (SELECT 1 FROM json_each("
-        f"alice_project_scope_identity({prefix}metadata_json, {prefix}project_id)"
-        ") AS scoped_project "
-        f"WHERE CAST(scoped_project.value AS TEXT) IN ({placeholders}))"
+    """The project fence of a memory read, for explicit names and for a project view.
+
+    ``projects`` may hold the reserved marker (spec 6.1), which asks for memories
+    whose scope holds no Alice project id. ``global_excluded_domains`` leaves out
+    global memories in those domains and has no effect without the marker. With the
+    marker it must be stated, an empty tuple when nothing is left out: ``None``
+    raises, so a reader that forgot the choice cannot hold nothing back by default.
+    """
+
+    return _project_view_sql(
+        placeholders=self._placeholders,
+        projects=projects,
+        scope_expression=f"alice_project_scope_identity({prefix}metadata_json, {prefix}project_id)",
+        text_expressions=(f"{prefix}metadata_json", f"{prefix}project_id"),
+        domain_expression=f"{prefix}domain",
+        global_excluded_domains=global_excluded_domains,
     )
-    return clause, values
 
 
 def _created_by_clause(
@@ -321,8 +595,16 @@ def _metadata_scope_clause(
     event_time_expression: str,
     scope_window_start: datetime | None = None,
     scope_window_end: datetime | None = None,
+    domain_expression: str | None = None,
+    global_excluded_domains: tuple[str, ...] | None = None,
 ) -> tuple[str, list[object]]:
-    """Project/people/time predicate for source and open-loop reads."""
+    """Project/people/time predicate for source and open-loop reads.
+
+    ``scope_projects`` may hold the reserved marker (spec 6.1). With the marker,
+    ``global_excluded_domains`` leaves out global rows whose ``domain_expression``
+    is in the set, and it must be stated (an empty tuple leaves none out): ``None``
+    raises.
+    """
 
     clauses: list[str] = []
     params: list[object] = []
@@ -338,20 +620,28 @@ def _metadata_scope_clause(
             + f"IN ({self._placeholders(list(values))}))"
         )
 
-    project_identity = project_scope_identity(scope_projects)
-    if project_identity:
+    if project_scope_identity(scope_projects):
         if persisted_source_envelope:
             project_scope_expression = f"alice_source_project_scope_identity({metadata_expression})"
+            text_expressions: tuple[str, ...] = (metadata_expression,)
         else:
             direct_project = direct_project_expression or "NULL"
             project_scope_expression = f"alice_project_scope_identity({metadata_expression}, {direct_project})"
-        clauses.append(
-            " AND EXISTS (SELECT 1 FROM json_each("
-            f"{project_scope_expression}"
-            ") AS scoped_project WHERE CAST(scoped_project.value AS TEXT) "
-            f"IN ({self._placeholders(list(project_identity))}))"
+            text_expressions = (
+                (metadata_expression, direct_project_expression)
+                if direct_project_expression
+                else (metadata_expression,)
+            )
+        project_sql, project_params = _project_view_sql(
+            placeholders=self._placeholders,
+            projects=scope_projects,
+            scope_expression=project_scope_expression,
+            text_expressions=text_expressions,
+            domain_expression=domain_expression,
+            global_excluded_domains=global_excluded_domains,
         )
-        params.extend(project_identity)
+        clauses.append(project_sql)
+        params.extend(project_params)
     if scope_people:
         alternatives = [
             _metadata_values(

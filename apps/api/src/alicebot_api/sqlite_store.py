@@ -128,6 +128,7 @@ from alicebot_api.vnext_stores.sqlite.graph_open_loops import (
     find_open_loop_by_automation_digest as _graph_find_open_loop_by_automation_digest,
     list_open_loops_referencing_source as _graph_list_open_loops_referencing_source,
     list_open_loops as _graph_list_open_loops,
+    list_open_loops_view_partitions as _graph_list_open_loops_view_partitions,
     list_open_loop_events as _graph_list_open_loop_events,
     update_open_loop as _graph_update_open_loop,
     update_open_loop_status as _graph_update_open_loop_status,
@@ -168,6 +169,7 @@ from alicebot_api.vnext_stores.sqlite.memory_access import (
     list_accepted_rollup_cards as _memory_list_accepted_rollup_cards,
     list_memories as _memory_list_memories,
     list_memories_by_statuses as _memory_list_memories_by_statuses,
+    list_memories_view_partitions as _memory_list_memories_view_partitions,
     list_memories_for_staleness_sweep as _memory_list_memories_for_staleness_sweep,
     list_memories_referencing_source as _memory_list_memories_referencing_source,
     list_memories_referencing_sources as _memory_list_memories_referencing_sources,
@@ -211,6 +213,7 @@ from alicebot_api.vnext_stores.sqlite.query_predicates import (
     _sensitivity_clause as _query_sensitivity_clause,
     _source_project_scope_identity_json_sqlite as _source_project_scope_identity_json_sqlite,
     _sqlite_ascii_literal_contains_sql as _sqlite_ascii_literal_contains_sql,
+    _stated_exclusion as _query_stated_exclusion,
 )
 
 VNextRow = dict[str, object]
@@ -487,12 +490,18 @@ class SQLiteVNextStore:
         occurred_at_start: datetime | None = None,
         occurred_at_end: datetime | None = None,
         limit: int = 20,
+        exclude_global_domains: Sequence[str] | None = None,
     ) -> list[VNextRow]:
         """Return events joined to resume-admitted memories before LIMIT.
 
         A memory is admitted when its status is in ``statuses`` and its
         ``valid_to`` has not passed (recall's ``_expiry_clause``), so the event of
         an expired memory is not listed and does not use up the ``LIMIT``.
+
+        ``projects`` may hold the reserved global marker (spec 6.1). With it,
+        ``exclude_global_domains`` leaves out events of global memories in those
+        domains before ``LIMIT``, and it must be stated (an empty tuple leaves none
+        out): ``None`` raises.
         """
 
         if limit < 1:
@@ -503,6 +512,7 @@ class SQLiteVNextStore:
         project_sql, project_params = self._project_clause(
             tuple(normalize_project_scope(projects or ())),
             prefix="memory.",
+            global_excluded_domains=_query_stated_exclusion(exclude_global_domains),
         )
         expiry_sql, expiry_params = self._expiry_clause(False, prefix="memory.")
         clauses = [
@@ -1027,6 +1037,9 @@ class SQLiteVNextStore:
             ),
             scope_window_start=scope_window_start,
             scope_window_end=scope_window_end,
+            # Stated, an empty tuple: a source is held back in Python (the brief's
+            # ``_source_honours_fence``), not in this read, so it leaves nothing out itself.
+            global_excluded_domains=(),
         )
         prefixed_columns = ", ".join(f"c.{column}" for column in SOURCE_CHUNK_COLUMNS)
         params: list[object] = [match_expression, self.user_id]
@@ -1114,6 +1127,8 @@ class SQLiteVNextStore:
             ),
             scope_window_start=scope_window_start,
             scope_window_end=scope_window_end,
+            # Stated, an empty tuple: see ``search_source_chunks``.
+            global_excluded_domains=(),
         )
         count = len(patterns)
         match_columns = ("title", "author", "uri", "raw_path", "content_hash", "metadata_json")
@@ -1180,6 +1195,8 @@ class SQLiteVNextStore:
     get_memory_by_confirmation_id = _memory_get_memory_by_confirmation_id
 
     list_memories = _memory_list_memories
+
+    list_memories_view_partitions = _memory_list_memories_view_partitions
 
     list_memories_by_statuses = _memory_list_memories_by_statuses
 
@@ -1318,6 +1335,8 @@ class SQLiteVNextStore:
     list_open_loops_referencing_source = _graph_list_open_loops_referencing_source
 
     list_open_loops = _graph_list_open_loops
+
+    list_open_loops_view_partitions = _graph_list_open_loops_view_partitions
 
     list_open_loop_events = _graph_list_open_loop_events
 

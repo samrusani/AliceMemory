@@ -175,7 +175,7 @@ from alicebot_api.vnext_memory_version import (
     memory_matches_snapshot,
     memory_version_snapshot,
 )
-from alicebot_api.vnext_project_scope import project_scope_identity
+from alicebot_api.vnext_project_scope import project_scope_identity, refuse_global_marker
 from alicebot_api.vnext_recall_visibility import (
     drop_expired_memories,
     memory_window_is_open,
@@ -1487,6 +1487,8 @@ def _scoped_rows(
     projects: tuple[str, ...] = (),
 ) -> list[JsonObject]:
     """Domain/sensitivity scoping, mirroring the consolidation service."""
+    # Explicit project names only (see the consolidation service).
+    refuse_global_marker(projects, where="rollups")
     allowed = set(sensitivity_allowed)
     scoped: list[JsonObject] = []
     for row in rows:

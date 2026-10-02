@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from alicebot_api.project_view import ProjectView
 from alicebot_api.store import JsonObject
 from alicebot_api.vnext_agent_control import PolicyDecision
 from alicebot_api.vnext_repositories import JsonObject as VNextJsonObject
@@ -71,6 +72,7 @@ def _handle_alice_vnext_scheduler_run_now(context: MCPRuntimeContext, arguments:
             sensitivity_allowed=sensitivity_allowed,
             project_scope=_parse_string_list(arguments, "project_scope") or _parse_string_list(arguments, "projects"),
             workflow_type=workflow_type,
+            project_view=ProjectView.unscoped(),
         )
         if decision.decision == "blocked":
             blocked_decision = decision
@@ -110,7 +112,10 @@ def _handle_alice_vnext_scheduler_run_due(context: MCPRuntimeContext, arguments:
     actor_type = "scheduler"
     decision: PolicyDecision | None = None
     with _vnext_store_context(context) as store:
-        actor_type, _actor_id, decision = _policy_checked(store, identity=identity, action="scheduler.run_due")
+        actor_type, _actor_id, decision = _policy_checked(
+            store, identity=identity, action="scheduler.run_due",
+            project_view=ProjectView.unscoped(),
+        )
         if decision.decision == "blocked":
             blocked_decision = decision
     if blocked_decision is not None:
@@ -136,7 +141,10 @@ def _handle_alice_vnext_scheduler_pause(context: MCPRuntimeContext, arguments: M
     blocked_decision: PolicyDecision | None = None
     payload: VNextJsonObject | None = None
     with _vnext_store_context(context) as store:
-        actor_type, _actor_id, decision = _policy_checked(store, identity=identity, action="scheduler.pause")
+        actor_type, _actor_id, decision = _policy_checked(
+            store, identity=identity, action="scheduler.pause",
+            project_view=ProjectView.unscoped(),
+        )
         if decision.decision == "blocked":
             blocked_decision = decision
         else:
@@ -155,7 +163,10 @@ def _handle_alice_vnext_scheduler_resume(context: MCPRuntimeContext, arguments: 
     blocked_decision: PolicyDecision | None = None
     payload: VNextJsonObject | None = None
     with _vnext_store_context(context) as store:
-        actor_type, _actor_id, decision = _policy_checked(store, identity=identity, action="scheduler.resume")
+        actor_type, _actor_id, decision = _policy_checked(
+            store, identity=identity, action="scheduler.resume",
+            project_view=ProjectView.unscoped(),
+        )
         if decision.decision == "blocked":
             blocked_decision = decision
         else:

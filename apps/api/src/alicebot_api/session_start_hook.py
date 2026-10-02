@@ -24,6 +24,16 @@ when the text held either string. That check dates from v0.16.0, when the
 hook parsed the output of a child ``alice-memory brief`` process, and it
 had no purpose once brief compilation moved in-process.
 
+Per-project memory (spec 4.2, 6.4). With scoping on, the project comes from the
+folder the host started the session in: ``--project-dir``, ``$ALICE_PROJECT_DIR``,
+the ``cwd`` string in the JSON the host sends on stdin (Claude Code and Codex send
+the launch folder, which the host-evidence run recorded), then the working
+folder. The hook parses at most 64 KiB of stdin and reads and discards the rest.
+The resolver walks up to the git root, so a subfolder finds its repository. A
+failed detection is not a failed hook: the brief carries a plain status line.
+While scoping is off, which is the release default until the flip, the hook
+detects nothing and prints exactly what v0.20.0 printed.
+
 A data directory that is not absolute after ``~`` expansion is not
 fail-open. That covers a non-empty ``--data-dir``, a non-empty
 ``$ALICE_MEMORY_DATA_DIR`` when it is the value in use, and the plugin
@@ -68,10 +78,18 @@ from alicebot_api.onramp import (
     data_dir_absolute_after_tilde,
     resolve_db_path,
 )
+from alicebot_api.project_identity import (
+    MAX_HOOK_PAYLOAD_BYTES,
+    hook_payload_cwd,
+    host_platform,
+    read_hook_payload,
+)
+from alicebot_api.project_view import ProjectView, resolve_view_at_edge, working_folder
 from alicebot_api.session_briefing import (
     brief_char_len,
     compile_local_session_brief,
     fit_emitted_session_brief,
+    sensitive_global_exclusion,
 )
 
 ALICE_MEMORY_DATA_DIR_ENV = "ALICE_MEMORY_DATA_DIR"
@@ -163,6 +181,16 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         default="json",
         help="json for Cursor/Claude Code; markdown for hosts that want the brief text.",
     )
+    parser.add_argument(
+        "--project-dir",
+        default=None,
+        help=(
+            "Folder that decides which project the brief is for, when per-project scoping "
+            "is on. Without it: $ALICE_PROJECT_DIR, then the folder the host sends on stdin "
+            "as cwd, then the working folder. It must be absolute and exist, or the next "
+            "source is used. Ignored while scoping is off."
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -209,11 +237,55 @@ def _emit_data_dir_refusal(value: str, output_format: str) -> None:
     _emit_context(line, output_format="json")
 
 
-def _run(args: argparse.Namespace) -> int:
+def _read_stdin_payload() -> bytes | None:
+    """The host's stdin payload, at most 64 KiB of it, or ``None``.
+
+    The rest of a larger payload is read and thrown away, so the host's write never
+    blocks. Hosts close stdin after the payload, as they did when this hook read it
+    whole and threw it away.
+    """
+
+    stream = sys.stdin
     try:
-        sys.stdin.read()
-    except OSError as exc:
+        buffer = getattr(stream, "buffer", None)
+        if buffer is not None:
+            return read_hook_payload(buffer)
+        data = stream.read(MAX_HOOK_PAYLOAD_BYTES + 1)
+        if len(data) <= MAX_HOOK_PAYLOAD_BYTES:
+            return data.encode("utf-8", "replace") if isinstance(data, str) else bytes(data)
+        while stream.read(MAX_HOOK_PAYLOAD_BYTES):
+            pass
+        return None
+    except (OSError, ValueError) as exc:
         logger.debug("session-start stdin was not readable: %s", exc)
+        return None
+
+
+def _project_view_for_hook(
+    args: argparse.Namespace, db_path: Path, payload: bytes | None
+) -> ProjectView:
+    """The view for this session: the project of the folder the host started in.
+
+    The folder is ``--project-dir``, ``$ALICE_PROJECT_DIR``, the ``cwd`` the host
+    sent on stdin, then the working folder. While scoping is off, nothing is
+    detected and nothing is printed that v0.20.0 did not print.
+    """
+
+    environ = os.environ
+    platform = host_platform(environ)
+    hook_cwd = hook_payload_cwd(payload, platform=platform)
+    return resolve_view_at_edge(
+        db_path=db_path,
+        environ=environ,
+        argument_dir=args.project_dir,
+        hook_cwd=hook_cwd,
+        process_cwd=working_folder(),
+        platform=platform,
+    ).view
+
+
+def _run(args: argparse.Namespace) -> int:
+    payload = _read_stdin_payload()
 
     requested = args.data_dir
     if not requested and _plugin_mode():
@@ -237,10 +309,13 @@ def _run(args: argparse.Namespace) -> int:
     )
     duplicate = _claude_duplicate_setup_line()
     prefix = f"{duplicate}\n" if duplicate else ""
+    view = _project_view_for_hook(args, db_path, payload)
     markdown = compile_local_session_brief(
         db_path,
         user_id=args.user_id,
         query=None,
+        project_view=view,
+        exclude_global_domains=sensitive_global_exclusion(view),
         reserve=brief_char_len(prefix),
     )
     markdown = fit_emitted_session_brief(prefix + markdown)

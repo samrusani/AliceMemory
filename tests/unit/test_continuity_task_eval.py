@@ -29,6 +29,7 @@ from alicebot_api.vnext_embeddings import (
     EMBEDDINGS_BASE_URL_ENV,
     EMBEDDINGS_MODEL_ENV,
 )
+from alicebot_api.project_view import ProjectView
 
 USER_ID = "00000000-0000-0000-0000-000000000001"
 
@@ -269,6 +270,8 @@ def test_scoped_read_of_project_a_does_not_see_project_b(tmp_path: Path, monkeyp
             store,
             **UNSCOPED_FENCES,
             query=SHARED_SOURCE_QUERY,
+            project_view=ProjectView.unscoped(),
+            exclude_global_domains=frozenset(),
         )
         scoped_shared = compile_session_brief(
             store,
@@ -276,6 +279,8 @@ def test_scoped_read_of_project_a_does_not_see_project_b(tmp_path: Path, monkeyp
             effective_sensitivity_allowed=UNSCOPED_FENCES["effective_sensitivity_allowed"],
             effective_project_scope=(PROJECT_A,),
             query=SHARED_SOURCE_QUERY,
+            project_view=ProjectView.unscoped(),
+            exclude_global_domains=frozenset(),
         )
     assert QUOTE_B in unscoped_shared, "unscoped brief lost B's source; scoped asserts are vacuous"
     assert QUOTE_B not in scoped_shared

@@ -68,6 +68,9 @@ on:
       - tests/unit/test_install_uv_warning.py
       - tests/unit/test_install_without_uvx.py
       - tests/unit/test_opencode_config_install.py
+      - tests/unit/test_per_project_hook.py
+      - tests/unit/test_per_project_no_schema_change.py
+      - tests/unit/test_per_project_s2_off_parity.py
       - tests/unit/test_session_brief.py
       - tests/unit/test_sleep_time_proposals.py
       - tests/unit/test_session_hook_wire_text_notes.py

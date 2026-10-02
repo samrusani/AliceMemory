@@ -47,6 +47,7 @@ import logging
 import re
 from typing import (
     Callable,
+    Collection,
     Mapping,
     MutableMapping,
     NamedTuple,
@@ -103,7 +104,9 @@ from alicebot_api.vnext_json import json_safe
 from alicebot_api.vnext_lifecycle import RETIRED_STATUSES
 from alicebot_api.vnext_promotion_policy import memory_write_provenance
 from alicebot_api.vnext_project_scope import (
+    is_global_scope,
     project_scope_identity,
+    project_scopes_overlap,
     resolve_project_scope,
     source_project_scope,
 )
@@ -792,6 +795,12 @@ class _ResolvedRetrievalScope:
     people: frozenset[str]
     window_start: datetime | None
     window_end: datetime | None
+    #: Domains whose GLOBAL rows (a scope that holds no Alice project id) this
+    #: read leaves out, before fusion, so a held-back row never spends a rank
+    #: (spec 6.4 item 5). Required, with no default: a site that builds a scope
+    #: states the choice, and the empty set is written where it is meant. The
+    #: brief passes ``SENSITIVE_DOMAINS`` for the project view.
+    exclude_global_domains: frozenset[str]
 
     @property
     def active(self) -> bool:
@@ -800,6 +809,7 @@ class _ResolvedRetrievalScope:
             or self.people
             or self.window_start is not None
             or self.window_end is not None
+            or self.exclude_global_domains
         )
 
 
@@ -830,6 +840,8 @@ def _resolve_retrieval_scope(request: VNextRetrievalRequest) -> _ResolvedRetriev
             people=people,
             window_start=None,
             window_end=None,
+            # An explicit search: every global row the caller may read is returned.
+            exclude_global_domains=frozenset(),
         )
     match = _TIME_WINDOW_PATTERN.fullmatch(raw_window)
     if match is None:
@@ -851,6 +863,7 @@ def _resolve_retrieval_scope(request: VNextRetrievalRequest) -> _ResolvedRetriev
         people=people,
         window_start=window_end - timedelta(days=days),
         window_end=window_end,
+        exclude_global_domains=frozenset(),
     )
 
 
@@ -913,6 +926,32 @@ def _row_scope_event_time(row: Mapping[str, object]) -> datetime | None:
     return parse_event_datetime(row.get("captured_at"))
 
 
+def _project_scope_meets(row_scope: set[str], requested: Collection[str]) -> bool:
+    """Does a row's resolved project scope meet the requested tuple?
+
+    The tuple may hold the reserved global marker (spec 6.1): it asks for a row
+    whose scope holds no Alice project id. The one predicate in
+    ``vnext_project_scope`` decides, so a request without the marker keeps the
+    plain intersection it always had.
+    """
+
+    return project_scopes_overlap(tuple(sorted(row_scope)), tuple(sorted(requested)))
+
+
+def _is_held_back_global(
+    row: Mapping[str, object],
+    row_scope: set[str],
+    excluded_domains: Collection[str],
+) -> bool:
+    """A global row (no Alice project id in its scope) whose stored domain is held back.
+
+    The test is on the row: a project's own row in the same domain is not held back,
+    and a global row in any other domain is not either.
+    """
+
+    return row.get("domain") in excluded_domains and is_global_scope(tuple(sorted(row_scope)))
+
+
 def _row_matches_scope(
     row: Mapping[str, object],
     scope: _ResolvedRetrievalScope,
@@ -925,7 +964,11 @@ def _row_matches_scope(
         if source_scope_envelope
         else _row_project_scope_values(row)
     )
-    if scope.projects and not (project_scope & scope.projects):
+    if scope.projects and not _project_scope_meets(project_scope, scope.projects):
+        return False
+    if scope.exclude_global_domains and _is_held_back_global(
+        row, project_scope, scope.exclude_global_domains
+    ):
         return False
     if scope.people:
         direct_people = _row_scope_values(row, _PEOPLE_SCOPE_KEYS)
@@ -1164,8 +1207,7 @@ def _graph_memory_admissible(
     if memory_types and row.get("memory_type") not in memory_types:
         return False
     if projects:
-        requested_projects = set(project_scope_identity(projects))
-        if not (_row_project_scope_values(row) & requested_projects):
+        if not _project_scope_meets(_row_project_scope_values(row), projects):
             return False
     if created_by_agent_ids and row.get("created_by_agent_id") not in created_by_agent_ids:
         return False
@@ -3320,7 +3362,11 @@ class VNextRetrievalService:
         # excerpt. Reset per run so a previous query's winner is never reused.
         self._winning_chunk_text = {}
         scope = scope or _ResolvedRetrievalScope(
-            projects=frozenset(), people=frozenset(), window_start=None, window_end=None
+            projects=frozenset(),
+            people=frozenset(),
+            window_start=None,
+            window_end=None,
+            exclude_global_domains=frozenset(),
         )
         has_source_resolver = callable(getattr(self.store, "get_sources_by_ids", None)) or callable(
             getattr(self.store, "get_source", None)
@@ -5055,6 +5101,7 @@ class VNextRetrievalService:
             people=scope.people,
             window_start=None,
             window_end=None,
+            exclude_global_domains=scope.exclude_global_domains,
         )
         memory_visible = _memory_visibility_predicate(
             domains=domains,

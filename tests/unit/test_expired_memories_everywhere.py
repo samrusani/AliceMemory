@@ -79,6 +79,7 @@ from alicebot_api.vnext_recall_visibility import (
 from alicebot_api.vnext_rollups import ROLLUP_CANDIDATE_KIND, VNextRollupService
 from alicebot_api.vnext_scheduler import SchedulerRunRequest, VNextSchedulerService
 from alicebot_api.vnext_store import PostgresVNextStore
+from alicebot_api.project_view import ProjectView
 from tests.unit.test_reindex_live_memories_only import (
     _configure,
     _marker,
@@ -191,7 +192,11 @@ class _Vault:
         return call_mcp_tool(self.context, name=name, arguments=arguments)
 
     def brief(self) -> str:
-        return compile_local_session_brief(self.db_path, user_id=USER, query=None)
+        return compile_local_session_brief(
+            self.db_path, user_id=USER, query=None,
+            project_view=ProjectView.unscoped(),
+            exclude_global_domains=frozenset(),
+        )
 
 
 def _titles(rows: object) -> list[str]:
@@ -644,6 +649,8 @@ def _brief_from(store: SQLiteVNextStore) -> str:
         effective_sensitivity_allowed=ALL_SENSITIVITY,
         effective_project_scope=(),
         query=None,
+        project_view=ProjectView.unscoped(),
+        exclude_global_domains=frozenset(),
     )
 
 
@@ -728,6 +735,7 @@ def test_a_resume_event_for_an_expired_memory_fails_the_fence_when_read_by_id() 
             {**event, "target_type": target_type},
             effective_domains=(),
             effective_sensitivity_allowed=ALL_SENSITIVITY,
+            exclude_global_domains=frozenset(),
         )
 
     assert honoured({**base, "valid_to": None}) is True

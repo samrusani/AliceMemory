@@ -35,8 +35,13 @@ SOURCE_RECEIPTS = {
     "apps/api/src/alicebot_api/vnext_stores/postgres/memory_access.py": (
         "f642880f44eaaa7d8fa6ed10dbb1e609b791eb0fa8902c934ec9fa41f4e6cdd3"
     ),
+    # Re-minted for per-project memory S2 (2026-10-02): the project fence builders read the reserved global
+    # marker and take the domains to leave out, and the single-scan partition SQL and the materialized-CTE hint
+    # are new. The Postgres carrier is unchanged on purpose: the Postgres runtime resolves no project view.
+    # Re-minted once more in the S2 review round (2026-10-02): a request that holds the marker and does not state which
+    # global domains it leaves out raises (reviewed change, not drift).
     "apps/api/src/alicebot_api/vnext_stores/sqlite/query_predicates.py": (
-        "aada597da76324ec05a118f95c2b26441b076771a0e53b8d45f08eefb656bbb4"
+        "eab46f165564c212db21b6b6b621ecb447aaa86d48aba6512bd5f2e88f20bd82"
     ),
     # Re-minted for the Phase 4 Stage 2 resident vector cache (reviewed
     # carrier change; the receipt guards unreviewed drift): the vector scan
@@ -56,8 +61,15 @@ SOURCE_RECEIPTS = {
     # the unique index, and the roll-up pass reads the key with ``include_deleted=True`` so a card archived
     # through ``update_memory`` is seen instead of raising on create (reviewed change, not drift). Previous
     # SQLite receipt 3bb85f64...
+    # Re-minted again for per-project memory S2 (2026-10-02): ``list_memories`` builds its filters in
+    # ``_memory_list_clauses`` and takes ``exclude_global_domains``, and ``list_memories_view_partitions`` is new
+    # (reviewed change, not drift).
+    # Re-minted once more in the S2 review round (2026-10-02): ``exclude_global_domains`` defaults to ``None`` and the
+    # single-scan reader takes ``domains`` and ``sensitivity_allowed`` as required arguments (reviewed change, not drift).
+    # Re-minted for the merge of main into the S2 branch (2026-10-02): the file now holds both reviewed changes above.
+    # Previous receipts: 8a0bcba8... on the S2 branch and 3d2f1732... on main.
     "apps/api/src/alicebot_api/vnext_stores/sqlite/memory_access.py": (
-        "3d2f1732f9f227aebe4353f93a28b8fd98489b7b861d617415b82138ebc7191c"
+        "91636de97634c2c7496b4f783d9a267a308c720b87e16433061b192226fd3ca7"
     ),
 }
 
@@ -100,6 +112,7 @@ SQLITE_METHODS = (
     "latest_agentic_commit_memory",
     "get_memory_by_confirmation_id",
     "list_memories",
+    "list_memories_view_partitions",
     "list_memories_by_statuses",
     "count_memories_by_status",
     "list_recent_agentic_commits",
@@ -183,8 +196,24 @@ EXPECTED_CLASS_ORDERS = {
     # ``check_literal_match_query``, beside the paired
     # ``list_memories_referencing_sources``. Re-minted for the merged facade
     # (reviewed change, not drift).
-    "SQLiteVNextStore": (126, "08f33e48b0ada3aee40ab843f826bd0610a31ad495091bf6880bd2b68192084a"),
+    # Per-project memory S2 (2026-10-02): two SQLite-only methods more, the single-scan partition reads
+    # ``list_memories_view_partitions`` and ``list_open_loops_view_partitions``. The Postgres runtime resolves no
+    # project view, so it has no pair. Re-minted for the facade (reviewed change, not drift).
+    "SQLiteVNextStore": (128, "fae6bee37a2b06541ee94f76edd545492b2443b6d3118e0e6e131b774cff651f"),
 }
+
+
+#: Keyword arguments the SQLite readers take and the Postgres readers do not (per-project memory S2, 2026-10-02).
+#: ``exclude_global_domains`` leaves out global rows in those domains before ``LIMIT`` when the request tuple holds
+#: the reserved global marker. The Postgres runtime resolves no project view, so its readers have no such argument,
+#: and every other parameter must still match.
+SQLITE_ONLY_PARAMETERS = frozenset({"exclude_global_domains"})
+
+
+def _without_sqlite_only_parameters(signature: inspect.Signature) -> inspect.Signature:
+    return signature.replace(
+        parameters=[value for key, value in signature.parameters.items() if key not in SQLITE_ONLY_PARAMETERS]
+    )
 
 
 def _source_texts() -> dict[str, str]:
@@ -301,9 +330,9 @@ def test_memory_access_methods_are_direct_grafts_in_native_backend_order() -> No
             assert method.__qualname__ == f"{class_name}.{name}"
 
     for name in set(POSTGRES_METHODS) & set(SQLITE_METHODS):
-        assert inspect.signature(getattr(postgres_store.PostgresVNextStore, name)) == inspect.signature(
-            getattr(sqlite_store.SQLiteVNextStore, name)
-        )
+        assert _without_sqlite_only_parameters(
+            inspect.signature(getattr(sqlite_store.SQLiteVNextStore, name))
+        ) == inspect.signature(getattr(postgres_store.PostgresVNextStore, name))
 
 
 def test_sqlite_predicate_helpers_preserve_descriptor_identity_and_metadata() -> None:

@@ -31,6 +31,7 @@ from alicebot_api.credential_floor import (
     string_values,
     withhold_credential_text,
 )
+from alicebot_api.project_view import ProjectView
 from alicebot_api.write_bounds import MAX_CORRECTION_FIELD_CHARS, first_oversized
 from alicebot_api.contracts import (
     CONTINUITY_REVIEW_QUEUE_ORDER,
@@ -141,6 +142,7 @@ def _vnext_memory_review(context: MCPRuntimeContext, arguments: Mapping[str, obj
                 sensitivity_allowed=(target_sensitivity,),
                 project_scope=target_projects,
                 require_explicit_project_scope=True,
+                project_view=ProjectView.unscoped(),
             )
             if decision.decision == "blocked":
                 blocked_decision = decision
@@ -216,6 +218,7 @@ def _vnext_memory_review(context: MCPRuntimeContext, arguments: Mapping[str, obj
         domains=requested_domains or tuple(VNEXT_DOMAINS),
         sensitivity_allowed=requested_sensitivity or ("public", "internal", "private", "highly_sensitive", "unknown"),
         project_scope=requested_projects,
+        project_view=ProjectView.unscoped(),
     )
     with _vnext_store_context(context) as store:
         rows = [
@@ -468,6 +471,7 @@ def _vnext_memory_correct(context: MCPRuntimeContext, arguments: Mapping[str, ob
             sensitivity_allowed=(str(target.get("sensitivity") or "unknown"),),
             project_scope=resource_project_scope(target),
             require_explicit_project_scope=True,
+            project_view=ProjectView.unscoped(),
         )
         if decision.decision == "blocked":
             blocked_decision = decision
@@ -534,6 +538,7 @@ def _vnext_memory_correct(context: MCPRuntimeContext, arguments: Mapping[str, ob
             sensitivity_allowed=(str(memory.get("sensitivity") or "unknown"),),
             project_scope=resource_project_scope(memory),
             require_explicit_project_scope=True,
+            project_view=ProjectView.unscoped(),
         )
         if locked_decision.decision == "blocked":
             _raise_mcp_policy_blocked(locked_decision)

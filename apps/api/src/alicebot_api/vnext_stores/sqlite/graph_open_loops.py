@@ -10,7 +10,7 @@ from typing import cast
 from alicebot_api.source_search_limits import literal_match_operand
 from alicebot_api.store import ContinuityStoreInvariantError
 from alicebot_api.vnext_entity_names import ENTITY_IMMUTABLE_PATCH_FIELDS, normalize_entity_name
-from alicebot_api.vnext_project_scope import normalize_project_scope
+from alicebot_api.vnext_project_scope import GLOBAL_PROJECT_MARKER, normalize_project_scope
 from alicebot_api.vnext_repositories import JsonObject
 from alicebot_api.vnext_stores.sqlite.columns import (
     ENTITY_COLUMNS,
@@ -31,7 +31,10 @@ from alicebot_api.vnext_stores.sqlite.primitives import (
 )
 from alicebot_api.vnext_stores.sqlite.query_predicates import (
     _project_scope_value_sqlite,
+    CTE_MATERIALIZED_HINT,
+    _project_view_partition_sql,
     _sqlite_ascii_literal_contains_sql,
+    _stated_exclusion,
 )
 
 VNextRow = dict[str, object]
@@ -701,7 +704,16 @@ def list_open_loops(
     scope_people: tuple[str, ...] = (),
     scope_window_start: datetime | None = None,
     scope_window_end: datetime | None = None,
+    exclude_global_domains: Sequence[str] | None = None,
 ) -> list[VNextRow]:
+    """List open loops.
+
+    ``scope_projects`` may hold the reserved global marker (spec 6.1). With it,
+    ``exclude_global_domains`` leaves out global loops in those domains before
+    ``LIMIT``. It has no effect on a request that does not hold the marker. With the
+    marker it must be stated, an empty tuple when nothing is left out: ``None`` raises.
+    """
+
     domain_sql, domain_params = self._domain_clause(domains)
     sensitivity_sql, sensitivity_params = self._sensitivity_clause(sensitivity_allowed)
     scope_sql, scope_params = self._metadata_scope_clause(
@@ -713,6 +725,8 @@ def list_open_loops(
         event_time_expression="COALESCE(julianday(opened_at), julianday(updated_at), julianday(created_at))",
         scope_window_start=scope_window_start,
         scope_window_end=scope_window_end,
+        domain_expression="domain",
+        global_excluded_domains=_stated_exclusion(exclude_global_domains),
     )
     clauses = ["user_id = ?"]
     params: list[object] = [self.user_id]
@@ -769,6 +783,90 @@ def list_open_loops(
         tuple(params),
     )
 
+def list_open_loops_view_partitions(
+    self,
+    *,
+    project_ids: Sequence[str],
+    exclude_global_domains: Sequence[str],
+    per_partition_limit: int,
+    # No defaults for the domain filter and the sensitivity ceiling, as in
+    # ``list_memories_view_partitions``.
+    domains: list[str] | None,
+    sensitivity_allowed: list[str] | None,
+    status: str | None = "open",
+    statuses: Sequence[str] | None = None,
+) -> tuple[list[VNextRow], list[VNextRow]]:
+    """The project's open loops and the global open loops in one scan (spec 6.2, 12).
+
+    Returns ``(project_rows, global_rows)``, newest first and at most
+    ``per_partition_limit`` long each, under the filters ``list_open_loops`` applies.
+    A loop is global when its scope holds no Alice project id, and global loops in
+    ``exclude_global_domains`` are left out before the limit. One pass labels every
+    row into a narrow common table expression, which is read once per label as a
+    top-N and joined back for the full rows (see ``list_memories_view_partitions``).
+    """
+
+    if per_partition_limit < 1:
+        raise ValueError("limit must be positive")
+    domain_sql, domain_params = self._domain_clause(domains)
+    sensitivity_sql, sensitivity_params = self._sensitivity_clause(sensitivity_allowed)
+    clauses = ["user_id = ?"]
+    params: list[object] = [self.user_id]
+    if status is not None:
+        clauses.append("status = ?")
+        params.append(status)
+    if statuses is not None:
+        normalized_statuses = list(dict.fromkeys(str(value) for value in statuses if str(value)))
+        if not normalized_statuses:
+            return [], []
+        clauses.append(f"status IN ({self._placeholders(normalized_statuses)})")
+        params.extend(normalized_statuses)
+    params.extend(domain_params)
+    params.extend(sensitivity_params)
+    partition_sql, partition_params = _project_view_partition_sql(
+        placeholders=self._placeholders,
+        projects=(*project_ids, GLOBAL_PROJECT_MARKER),
+        scope_expression="alice_project_scope_identity(metadata_json, project_id)",
+        text_expressions=("metadata_json", "project_id"),
+        domain_expression="domain",
+        global_excluded_domains=tuple(sorted(exclude_global_domains)),
+    )
+    columns = ", ".join(f"l.{column}" for column in OPEN_LOOP_COLUMNS)
+    rows = self._fetch_all(
+        f"""
+                WITH alice_labelled AS{CTE_MATERIALIZED_HINT} (
+                  SELECT id, opened_at, created_at, {partition_sql} AS alice_partition
+                  FROM open_loops
+                  WHERE {" AND ".join(clauses)}{domain_sql}{sensitivity_sql}
+                )
+                SELECT {columns}, picked.alice_partition AS alice_partition
+                FROM (
+                  SELECT id, alice_partition FROM (
+                    SELECT id, alice_partition FROM alice_labelled
+                    WHERE alice_partition = 1
+                    ORDER BY opened_at DESC, created_at DESC, id DESC
+                    LIMIT ?
+                  )
+                  UNION ALL
+                  SELECT id, alice_partition FROM (
+                    SELECT id, alice_partition FROM alice_labelled
+                    WHERE alice_partition = 0
+                    ORDER BY opened_at DESC, created_at DESC, id DESC
+                    LIMIT ?
+                  )
+                ) AS picked
+                JOIN open_loops AS l ON l.id = picked.id
+                ORDER BY picked.alice_partition DESC, l.opened_at DESC, l.created_at DESC, l.id DESC
+                """,
+        (*partition_params, *params, per_partition_limit, per_partition_limit),
+    )
+    project_rows: list[VNextRow] = []
+    global_rows: list[VNextRow] = []
+    for row in rows:
+        partition = row.pop("alice_partition")
+        (project_rows if partition == 1 else global_rows).append(row)
+    return project_rows, global_rows
+
 def list_open_loop_events(
     self,
     *,
@@ -778,8 +876,15 @@ def list_open_loop_events(
     occurred_at_start: datetime | None = None,
     occurred_at_end: datetime | None = None,
     limit: int = 20,
+    exclude_global_domains: Sequence[str] | None = None,
 ) -> list[VNextRow]:
-    """Return scoped events for active loops without bounding loop age."""
+    """Return scoped events for active loops without bounding loop age.
+
+    ``scope_projects`` may hold the reserved global marker (spec 6.1). With it,
+    ``exclude_global_domains`` leaves out events of global loops in those domains
+    before ``LIMIT``, and it must be stated (an empty tuple leaves none out):
+    ``None`` raises.
+    """
 
     if limit < 1:
         raise ValueError("limit must be positive")
@@ -791,6 +896,8 @@ def list_open_loop_events(
         scope_projects=tuple(normalize_project_scope(scope_projects or ())),
         direct_project_expression="loop.project_id",
         event_time_expression="julianday(event.occurred_at)",
+        domain_expression="loop.domain",
+        global_excluded_domains=_stated_exclusion(exclude_global_domains),
     )
     clauses = [
         "event.user_id = ?",
@@ -972,6 +1079,7 @@ for _method in (
     find_open_loop_by_automation_digest,
     list_open_loops_referencing_source,
     list_open_loops,
+    list_open_loops_view_partitions,
     list_open_loop_events,
     update_open_loop,
     update_open_loop_status,

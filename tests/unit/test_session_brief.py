@@ -34,6 +34,7 @@ from alicebot_api.vnext_embeddings import (
     EMBEDDINGS_BASE_URL_ENV,
     EMBEDDINGS_MODEL_ENV,
 )
+from alicebot_api.project_view import ProjectView
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 USER_ID = "00000000-0000-0000-0000-000000000001"
@@ -57,6 +58,9 @@ UNSCOPED_FENCES = {
     "effective_domains": (),
     "effective_sensitivity_allowed": ("public", "internal", "private", "unknown"),
     "effective_project_scope": (),
+    # No project view on purpose: the library prints no project line or status line.
+    "project_view": ProjectView.unscoped(),
+    "exclude_global_domains": frozenset(),
 }
 
 
@@ -223,7 +227,11 @@ def test_a_very_long_newest_fact_keeps_loops_and_sources(
         project="acme",
         domain="project",
     )
-    brief = compile_local_session_brief(database, user_id=USER_ID, query=None)
+    brief = compile_local_session_brief(
+        database, user_id=USER_ID, query=None,
+        project_view=ProjectView.unscoped(),
+        exclude_global_domains=frozenset(),
+    )
     assert brief.count("**open loop**:") == 3
     assert "Nothing stored yet." not in brief
     if expects_source:
@@ -434,8 +442,8 @@ def test_the_fence_parameters_have_no_default() -> None:
 def test_source_scope_helper_is_none_only_when_unscoped() -> None:
     """The helper must not invent an empty scope object for an owner query."""
 
-    assert source_scope_from_project_scope(()) is None
-    scope = source_scope_from_project_scope(("acme",))
+    assert source_scope_from_project_scope((), exclude_global_domains=frozenset()) is None
+    scope = source_scope_from_project_scope(("acme",), exclude_global_domains=frozenset())
     assert scope is not None
     assert scope.projects == frozenset({"acme"})
 
@@ -1381,9 +1389,17 @@ def test_a_very_long_query_or_source_title_does_not_wipe_the_brief(
     context = _context(tmp_path, monkeypatch)
     _capture(context, SOURCE_NOTE, title="canary " + ("t" * 60000))
     database = resolve_db_path(data_dir=str(tmp_path), db=None)
-    hinted = compile_local_session_brief(database, user_id=USER_ID, query=None)
+    hinted = compile_local_session_brief(
+        database, user_id=USER_ID, query=None,
+        project_view=ProjectView.unscoped(),
+        exclude_global_domains=frozenset(),
+    )
     assert "Nothing stored yet." not in hinted
-    queried = compile_local_session_brief(database, user_id=USER_ID, query="x" * 60000)
+    queried = compile_local_session_brief(
+        database, user_id=USER_ID, query="x" * 60000,
+        project_view=ProjectView.unscoped(),
+        exclude_global_domains=frozenset(),
+    )
     assert isinstance(queried, str)
 
 
@@ -1488,7 +1504,11 @@ def _queries_sent_to_the_search(monkeypatch, database: Path, *, query: str | Non
 
     with monkeypatch.context() as patch:
         patch.setattr(VNextRetrievalService, "search_source_excerpts", stub)
-        compile_local_session_brief(database, user_id=USER_ID, query=query)
+        compile_local_session_brief(
+            database, user_id=USER_ID, query=query,
+            project_view=ProjectView.unscoped(),
+            exclude_global_domains=frozenset(),
+        )
     return seen
 
 
@@ -1589,7 +1609,11 @@ def test_a_newest_fact_the_search_would_refuse_keeps_the_brief(
     assert len(sent[0]) <= 300
     assert sent[0].startswith(opening.strip())
 
-    brief = compile_local_session_brief(database, user_id=USER_ID, query=None)
+    brief = compile_local_session_brief(
+        database, user_id=USER_ID, query=None,
+        project_view=ProjectView.unscoped(),
+        exclude_global_domains=frozenset(),
+    )
 
     assert "Nothing stored yet." not in brief
     assert brief.count("**open loop**:") == 3
@@ -1627,10 +1651,18 @@ def test_an_explicit_query_or_source_title_with_too_many_distinct_terms_keeps_th
     assert explicit_sent[0] != explicit
     assert len(explicit_sent[0]) <= 300
 
-    hinted = compile_local_session_brief(database, user_id=USER_ID, query=None)
+    hinted = compile_local_session_brief(
+        database, user_id=USER_ID, query=None,
+        project_view=ProjectView.unscoped(),
+        exclude_global_domains=frozenset(),
+    )
     assert "Nothing stored yet." not in hinted
     assert "**source**:" in hinted
-    queried = compile_local_session_brief(database, user_id=USER_ID, query=explicit)
+    queried = compile_local_session_brief(
+        database, user_id=USER_ID, query=explicit,
+        project_view=ProjectView.unscoped(),
+        exclude_global_domains=frozenset(),
+    )
     assert "indigo-lighthouse-42" in queried
 
 
@@ -1662,7 +1694,11 @@ def test_a_long_open_loop_description_with_too_many_distinct_terms_keeps_the_bri
     assert sent[0] != description
     assert len(sent[0]) <= 300
 
-    brief = compile_local_session_brief(database, user_id=USER_ID, query=None)
+    brief = compile_local_session_brief(
+        database, user_id=USER_ID, query=None,
+        project_view=ProjectView.unscoped(),
+        exclude_global_domains=frozenset(),
+    )
     assert "indigo-lighthouse-42" in brief
 
 
@@ -1728,7 +1764,11 @@ def test_repeated_words_are_not_counted_as_distinct_terms(tmp_path: Path, monkey
     _capture(context, SOURCE_NOTE)
     database = resolve_db_path(data_dir=str(tmp_path), db=None)
     assert _queries_sent_to_the_search(monkeypatch, database, query=repeated) == [repeated]
-    brief = compile_local_session_brief(database, user_id=USER_ID, query=repeated)
+    brief = compile_local_session_brief(
+        database, user_id=USER_ID, query=repeated,
+        project_view=ProjectView.unscoped(),
+        exclude_global_domains=frozenset(),
+    )
     assert "indigo-lighthouse-42" in brief
 
 

@@ -124,3 +124,8 @@ class MCPRuntimeContext:
     # than opening a second key-verification transaction.
     agent_identity: AgentIdentity | None = None
     agent_identity_resolved: bool = False
+    # The ``--project-dir`` of ``alice-memory mcp``, the first source of the start
+    # folder (spec 4.2). A test sets it without touching the process working
+    # folder. ``None`` falls through to ``ALICE_PROJECT_DIR`` and the working
+    # folder, read again on each call.
+    project_dir: str | None = None

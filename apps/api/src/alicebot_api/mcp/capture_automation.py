@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from alicebot_api.project_view import ProjectView
 from alicebot_api.store import JsonObject
 from alicebot_api.vnext_agent_control import (
     PolicyDecision,
@@ -62,6 +63,7 @@ def _handle_alice_vnext_capture(context: MCPRuntimeContext, arguments: Mapping[s
             domains=(domain,),
             sensitivity_allowed=(sensitivity,),
             project_scope=_parse_string_list(arguments, "project_scope"),
+            project_view=ProjectView.unscoped(),
         )
         if decision.decision == "blocked":
             blocked_decision = decision
@@ -120,6 +122,7 @@ def _handle_alice_vnext_ingest_agent_output(context: MCPRuntimeContext, argument
             sensitivity_allowed=(sensitivity,),
             project_scope=_parse_string_list(arguments, "project_scope"),
             write_policy="proposal_only" if _parse_bool(arguments, key="propose_memory", default=False) else None,
+            project_view=ProjectView.unscoped(),
         )
         if decision.decision == "blocked":
             blocked_decision = decision
@@ -175,6 +178,7 @@ def _handle_alice_vnext_queue_task(context: MCPRuntimeContext, arguments: Mappin
             sensitivity_allowed=(sensitivity,),
             project_scope=_parse_string_list(arguments, "project_scope"),
             write_policy=write_policy,
+            project_view=ProjectView.unscoped(),
         )
         if decision.decision == "blocked":
             blocked_decision = decision
@@ -237,6 +241,7 @@ def _handle_alice_vnext_generate_artifact(context: MCPRuntimeContext, arguments:
             domains=_parse_string_list(arguments, "domains"),
             sensitivity_allowed=sensitivity_allowed,
             project_scope=_parse_string_list(arguments, "project_scope") or _parse_string_list(arguments, "projects"),
+            project_view=ProjectView.unscoped(),
         )
         if decision.decision == "blocked":
             blocked_decision = decision

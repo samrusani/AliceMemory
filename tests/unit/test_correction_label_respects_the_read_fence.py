@@ -419,7 +419,11 @@ def test_the_predicate_applies_people_and_time_scope_like_the_memory_stages() ->
     from alicebot_api.vnext_retrieval import _memory_visibility_predicate, _ResolvedRetrievalScope
 
     people = _ResolvedRetrievalScope(
-        projects=frozenset(), people=frozenset({"ada"}), window_start=None, window_end=None
+        projects=frozenset(),
+        people=frozenset({"ada"}),
+        window_start=None,
+        window_end=None,
+        exclude_global_domains=frozenset(),
     )
     visible = _memory_visibility_predicate(
         domains=[],
@@ -436,6 +440,7 @@ def test_the_predicate_applies_people_and_time_scope_like_the_memory_stages() ->
         people=frozenset(),
         window_start=datetime(2026, 1, 1, tzinfo=UTC),
         window_end=datetime(2026, 2, 1, tzinfo=UTC),
+        exclude_global_domains=frozenset(),
     )
     in_window = _memory_visibility_predicate(
         domains=[], sensitivity_allowed=["private"], scope=window, person_linked_memory_ids=frozenset()

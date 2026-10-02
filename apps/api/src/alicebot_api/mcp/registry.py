@@ -141,6 +141,7 @@ from .shared import (
     _agent_identity_from_arguments,
     _canonicalize_json,
     _normalize_arguments,
+    _refuse_reserved_project_marker,
 )
 from .synthesis import (
     _handle_alice_belief_review,
@@ -522,6 +523,8 @@ def call_mcp_tool(
 
     parsed_arguments = _normalize_arguments(arguments)
     _validate_mcp_arguments_against_advertised_schema(name, parsed_arguments)
+    # The reserved global marker of per-project memory is never caller input.
+    _refuse_reserved_project_marker(parsed_arguments)
     try:
         if name in _CORE_TOOL_NAMES:
             # Authentication is a property of the MCP boundary, not an

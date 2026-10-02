@@ -63,7 +63,7 @@ from alicebot_api.vnext_model_intelligence import (
     generate_consolidation_merge,
     resolve_model_route,
 )
-from alicebot_api.vnext_project_scope import project_scope_identity
+from alicebot_api.vnext_project_scope import project_scope_identity, refuse_global_marker
 from alicebot_api.vnext_recall_visibility import drop_expired_memories
 from alicebot_api.vnext_repositories import JsonObject
 from alicebot_api.vnext_rollups import (
@@ -433,6 +433,9 @@ def _scoped_rows(
     sensitivity_allowed: list[str],
     projects: tuple[str, ...] = (),
 ) -> list[JsonObject]:
+    # Explicit project names only: the reserved global marker of a project view
+    # would be read as a name no row holds and hide every global memory.
+    refuse_global_marker(projects, where="consolidation")
     allowed_sensitivity = set(sensitivity_allowed)
     scoped: list[JsonObject] = []
     for row in rows:

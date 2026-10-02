@@ -41,6 +41,7 @@ from alicebot_api.vnext_embeddings import (
     EMBEDDINGS_BASE_URL_ENV,
     EMBEDDINGS_MODEL_ENV,
 )
+from alicebot_api.project_view import ProjectView
 
 USER_ID = "00000000-0000-0000-0000-000000000001"
 PROJECT = "harbour"
@@ -394,7 +395,11 @@ def _parsed_sidecar_rows(tmp_path: Path) -> list[dict[str, object]]:
 
 def _brief_bytes(tmp_path: Path) -> bytes:
     database = resolve_db_path(data_dir=str(tmp_path), db=None)
-    text = compile_local_session_brief(database, user_id=USER_ID, query=None)
+    text = compile_local_session_brief(
+        database, user_id=USER_ID, query=None,
+        project_view=ProjectView.unscoped(),
+        exclude_global_domains=frozenset(),
+    )
     return text.encode("utf-8")
 
 

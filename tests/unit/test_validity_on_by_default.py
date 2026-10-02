@@ -22,6 +22,7 @@ from alicebot_api.vnext_embeddings import (
     EMBEDDINGS_BASE_URL_ENV,
     EMBEDDINGS_MODEL_ENV,
 )
+from alicebot_api.project_view import ProjectView
 
 USER_ID = "00000000-0000-0000-0000-000000000001"
 PRESENT_TENSE_QUERY = "where do I live?"
@@ -36,6 +37,9 @@ UNSCOPED_FENCES = {
     "effective_domains": (),
     "effective_sensitivity_allowed": ("public", "internal", "private", "unknown"),
     "effective_project_scope": (),
+    # No project view on purpose: the library prints no project line or status line.
+    "project_view": ProjectView.unscoped(),
+    "exclude_global_domains": frozenset(),
 }
 
 
@@ -427,6 +431,8 @@ def _brief_surfaces(tmp_path: Path, monkeypatch, capsys, *, query: str | None) -
         resolve_db_path(data_dir=str(tmp_path), db=None),
         user_id=USER_ID,
         query=query,
+        project_view=ProjectView.unscoped(),
+        exclude_global_domains=frozenset(),
     )
     argv = ["brief", "--data-dir", str(tmp_path), "--user-id", USER_ID]
     if query is not None:

@@ -10,6 +10,7 @@ from alicebot_api.continuity_evidence import (
 )
 from alicebot_api.contracts import TemporalExplainQueryInput
 from alicebot_api.config import get_settings
+from alicebot_api.project_view import ProjectView
 from alicebot_api.recall_framing import frame_disclosed_tree, memory_writer, with_result_framing
 from alicebot_api.store import JsonObject
 from alicebot_api.temporal_state import get_temporal_explain
@@ -267,6 +268,7 @@ def _authorize_explain_resource(
         require_explicit_project_scope=True,
         target_type=target_type,
         target_id=target_id,
+        project_view=ProjectView.unscoped(),
     )
     # ``allowed_with_filtering`` is not sufficient for an explain response:
     # the downstream services expand related rows and do not accept filters.
@@ -678,6 +680,7 @@ def _authorize_vnext_artifact_target(
         require_unfiltered_target=True,
         target_type="artifact",
         target_id=artifact_id,
+        project_view=ProjectView.unscoped(),
     )
     return artifact, actor_type, actor_id, raw_decision
 

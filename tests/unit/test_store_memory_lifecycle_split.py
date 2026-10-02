@@ -110,7 +110,10 @@ EXPECTED_CLASS_ORDERS = {
     # ``check_literal_match_query``, beside the paired
     # ``list_memories_referencing_sources``. Re-minted for the merged facade
     # (reviewed change, not drift).
-    "SQLiteVNextStore": (126, "08f33e48b0ada3aee40ab843f826bd0610a31ad495091bf6880bd2b68192084a"),
+    # Per-project memory S2 (2026-10-02): two SQLite-only methods more, the single-scan partition reads
+    # ``list_memories_view_partitions`` and ``list_open_loops_view_partitions``. The Postgres runtime resolves no
+    # project view, so it has no pair. Re-minted for the facade (reviewed change, not drift).
+    "SQLiteVNextStore": (128, "fae6bee37a2b06541ee94f76edd545492b2443b6d3118e0e6e131b774cff651f"),
 }
 EXPECTED_FACADE_COMMENT_DIGESTS = {
     POSTGRES_FACADE_PATH: "d8599a46ee26dc35a3ae52c1a98a416509add9ae4a42ece780c5c5ed7e132b93",
