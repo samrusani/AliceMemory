@@ -15,6 +15,11 @@ from datetime import (
 )
 from uuid import UUID
 from psycopg.errors import CheckViolation
+from alicebot_api.commit_result import (
+    COMMIT_RESULT_TOOL,
+    commit_result_mode,
+    compact_commit_result,
+)
 from alicebot_api.continuity_capture import ContinuityCaptureValidationError
 from alicebot_api.continuity_brief import ContinuityBriefValidationError
 from alicebot_api.continuity_evidence import ContinuityEvidenceNotFoundError
@@ -627,4 +632,9 @@ def call_mcp_tool(
         # kinds apart would mean reading the text.
         raise MCPToolError(str(exc)) from exc
 
+    # The compact commit result is chosen here, by tool name, after the handler
+    # and outside it. The legacy alias alice_vnext_commit_memory shares the
+    # handler and is not on this name, so it keeps the full result.
+    if name == COMMIT_RESULT_TOOL and commit_result_mode(os.environ) == "compact":
+        payload = compact_commit_result(payload)
     return _canonicalize_json(payload)  # type: ignore[return-value]

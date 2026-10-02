@@ -27,6 +27,7 @@ from alicebot_api.mcp.types import MCPInvalidRequestError, MCPToolError
 from alicebot_api.mcp_server import MCPServer
 from alicebot_api.mcp_tools import AGENT_API_KEY_ENV, MCPRuntimeContext
 from alicebot_api.onramp import bootstrap_database, resolve_db_path, sqlite_url_for_path
+from alicebot_api.source_ranking import SourceRanking
 from alicebot_api.source_search_limits import (
     SourceSearchQueryBreach,
     SourceSearchQueryTooLarge,
@@ -561,6 +562,7 @@ def test_the_finders_the_retrieval_service_and_the_context_tree_get_the_typed_er
                 sensitivity_allowed=list(sensitivity),
                 limit=8,
                 scope=None,
+                ranking=SourceRanking.document(),
             )
         with pytest.raises(SourceSearchQueryTooLarge):
             VNextRetrievalService(store).compile_context_pack(  # type: ignore[arg-type]

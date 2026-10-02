@@ -5138,10 +5138,12 @@ def test_alice_memory_commit_outcome_vocabulary(monkeypatch, core_surface, no_em
     store = FakeVNextMCPStore()
     _patch_vnext_store(monkeypatch, store)
 
-    direct = call_mcp_tool(
+    # The decision record is dropped by the compact result, so this one outcome is read at the
+    # handler, whose result is full in both modes. The three below read keys the compact result
+    # keeps and go through the tool name.
+    direct = mcp_tools_module._handle_alice_vnext_commit_memory(
         _mcp_context(),
-        name="alice_memory_commit",
-        arguments={"title": "No identity", "canonical_text": "Direct human commits need no agent identity."},
+        {"title": "No identity", "canonical_text": "Direct human commits need no agent identity."},
     )
     assert direct["status"] == "committed"
     assert direct["write_mode"] == "commit"
