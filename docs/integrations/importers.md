@@ -133,7 +133,7 @@ URL on the `alicebot` imports is `invalid_request`.
 
 ## File Size Limit and Long Conversations
 
-Unreleased (on main, not in v0.19.2): `alice-memory import-markdown`,
+From v0.20.0, `alice-memory import-markdown`,
 `alice-memory import-chatgpt`, `alicebot vnext sources import-markdown` and
 `alicebot vnext sources import-chatgpt` refuse a file over a size limit
 before they read any of it. The error is `import_file_too_large` on both
@@ -199,7 +199,7 @@ to 4.6 GB of memory and 11 to 16 minutes. A Markdown file of 16 MiB peaked at 33
 survey of real exports, which was not possible here. An export over 512 MiB
 needs `--max-file-mib` and that much memory.
 
-Unreleased (on main, not in v0.19.2): one ChatGPT conversation that cannot be
+From v0.20.0, one ChatGPT conversation that cannot be
 turned into a transcript no longer fails the whole import. The receipt counts
 it in `failed_count`, names it by its position in `errors`, as
 `conversation 2 refused: conversation_unreadable`, and imports the others. The
@@ -215,7 +215,7 @@ the position, and none of the conversation. The process log gets the traceback.
 A ChatGPT file nested too deeply for the JSON decoder is refused as a whole
 with `ChatGPT export is nested too deeply to read`.
 
-Unreleased (on main, not in v0.19.2): a conversation of any length imports. The
+From v0.20.0, a conversation of any length imports. The
 walk over a conversation's `mapping` is a loop and not a recursive call for
 each message, and returns the same order as before. In v0.19.2 a conversation
 whose messages form one chain of about 1,000 replies (990 imported and 995 did

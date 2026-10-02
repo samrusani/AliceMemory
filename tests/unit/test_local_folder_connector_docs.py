@@ -1,8 +1,8 @@
-"""The docs say what main does in the local-folder connector and keep v0.19.2's behaviour as the comparison.
+"""The docs say what v0.20.0 does in the local-folder connector and keep v0.19.2's behaviour as the comparison.
 
 v0.19.2 is released, so its notes and the sentences that describe it stay as they
-are. What main changed is marked ``Unreleased (on main, not in v0.19.2):`` where a
-document describes the latest release, and sits under the changelog's Unreleased
+are. What v0.20.0 changed is marked ``From v0.20.0,`` where a
+document describes the latest release, and sits under the changelog's v0.20.0
 heading. The hard link a planted file can use to reach content elsewhere is a
 documented residual in every place the fix is described.
 """
@@ -12,7 +12,7 @@ from __future__ import annotations
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-UNRELEASED = "Unreleased (on main, not in v0.19.2):"
+FROM_V0200 = "From v0.20.0,"
 
 
 def _flat(text: str) -> str:
@@ -23,19 +23,19 @@ def _read(name: str) -> str:
     return _flat((ROOT / name).read_text(encoding="utf-8"))
 
 
-def _unreleased_changelog() -> str:
+def _v0200_changelog() -> str:
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
-    return changelog[changelog.index("## Unreleased") : changelog.index("## v0.19.2")]
+    return changelog[changelog.index("## v0.20.0 \u2014 2026-10-02") + len("## v0.20.0 \u2014 2026-10-02") : changelog.index("## v0.19.2")]
 
 
 def _changelog_entry(start: str) -> str:
-    entries = [item for item in _unreleased_changelog().split("\n- ")[1:] if item.startswith(start)]
+    entries = [item for item in _v0200_changelog().split("\n- ")[1:] if item.startswith(start)]
     assert len(entries) == 1, start
     return _flat(entries[0])
 
 
-def test_the_changelog_entry_for_the_connector_sits_under_unreleased_and_states_v0192() -> None:
-    """One Unreleased entry for the connector, with the v0.19.2 behaviour beside the change.
+def test_the_changelog_entry_for_the_connector_sits_under_v0200_and_states_v0192() -> None:
+    """One v0.20.0 entry for the connector, with the v0.19.2 behaviour beside the change.
 
     Mutations, each one alone: move the entry under the v0.19.2 heading; delete
     the sentence that says what v0.19.2 did; delete the hard link sentence; delete
@@ -54,10 +54,10 @@ def test_the_changelog_entry_for_the_connector_sits_under_unreleased_and_states_
     assert "The text, size, times and line endings of an ordinary file are what v0.19.2 returned." in entry
 
 
-def test_the_threat_model_and_limitations_mark_the_connector_fix_unreleased_and_keep_the_hard_link() -> None:
+def test_the_threat_model_and_limitations_mark_the_connector_fix_from_v0200_and_keep_the_hard_link() -> None:
     """Each place that describes the latest release marks the fix and keeps the residual.
 
-    Mutations, each one alone: drop the Unreleased marker from one document; delete
+    Mutations, each one alone: drop the ``From v0.20.0,`` marker from one document; delete
     the hard link sentence from one document; say the fix is in v0.19.2.
     """
 
@@ -66,16 +66,16 @@ def test_the_threat_model_and_limitations_mark_the_connector_fix_unreleased_and_
     privacy = _read("docs/vnext/security-privacy.md")
     for site, text in (("threat-model", threat_model), ("known-limitations", limitations), ("security-privacy", privacy)):
         assert "hard link planted inside the watched folder to a file elsewhere" in text, site
-    assert f"{UNRELEASED} DB-010, the local-folder scan reading a file swapped for a link" in threat_model
-    assert f"{UNRELEASED} the local-folder connector opens the watched folder" in threat_model
+    assert "Fixed in v0.20.0 (added 2026-10-01). DB-010, the local-folder scan reading a file swapped for a link" in threat_model
+    assert f"{FROM_V0200} the local-folder connector opens the watched folder" in threat_model
     assert "v0.19.2 checked containment and then read by path" in threat_model
     assert (
         "The local-folder connector reads a hard link planted in the watched folder too, because a hard link is the "
         "file itself."
     ) in threat_model
     assert "the local-folder scan reads each matching file whole with no size limit" in limitations
-    assert f"{UNRELEASED} the scan opens the watched folder, each directory below it" in limitations
-    assert f"{UNRELEASED} each local folder file is read through a descriptor" in privacy
+    assert f"{FROM_V0200} the scan opens the watched folder, each directory below it" in limitations
+    assert f"{FROM_V0200} each local folder file is read through a descriptor" in privacy
     assert "constraint to allowed local roots also holds for the read itself" in privacy
 
 
@@ -106,11 +106,11 @@ def test_the_changelog_states_the_bounds_and_what_v0192_did_without_them() -> No
     assert "The limits are fixed in code and are not settings." in entry
 
 
-def test_the_threat_model_and_limitations_mark_the_bounds_unreleased_and_keep_v0192() -> None:
-    """Each document keeps the v0.19.2 sentence and marks the bounds as main only.
+def test_the_threat_model_and_limitations_mark_the_bounds_from_v0200_and_keep_v0192() -> None:
+    """Each document keeps the v0.19.2 sentence and marks the bounds from v0.20.0.
 
     Mutations, each one alone: drop the DB-011 sentence from the threat model;
-    drop the Unreleased marker before the bounds in the limitations; delete the
+    drop the ``From v0.20.0,`` marker before the bounds in the limitations; delete the
     sentence that says v0.19.2 ended the sync on one such file; drop the
     resource exhaustion row's marker.
     """
@@ -123,9 +123,9 @@ def test_the_threat_model_and_limitations_mark_the_bounds_unreleased_and_keep_v0
     ) in threat_model
     assert "v0.19.2 ended the whole sync with an error on one such file." in threat_model
     assert (
-        f"Existing size/shape checks and local deployment limits. {UNRELEASED} the local-folder scan reads at most "
+        f"Existing size/shape checks and local deployment limits. {FROM_V0200} the local-folder scan reads at most "
         "2 MiB of a file and stops at 10,000 files or 64 MiB."
     ) in threat_model
     assert "and one file that is not UTF-8 text or cannot be read ends the whole sync with an error." in limitations
-    assert f"{UNRELEASED} the scan opens the watched folder" in limitations
+    assert f"{FROM_V0200} the scan opens the watched folder" in limitations
     assert "It reads at most 2 MiB of a file, stops at 10,000 files or 64 MiB in all" in limitations

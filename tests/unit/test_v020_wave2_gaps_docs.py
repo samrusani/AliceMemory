@@ -1,8 +1,8 @@
-"""The docs say what main does about the gaps the v0.20 wave-2 reviews found, with v0.19.2 as the comparison.
+"""The docs say what v0.20.0 does about the gaps the reviews of the v0.20.0 changes found, with v0.19.2 as the comparison.
 
 v0.19.2 is released, so its notes stay as they are. The documents that describe the
-latest release mark what main changed with ``Unreleased (on main, not in v0.19.2):``,
-and the changelog has one entry under the Unreleased heading that states the
+latest release mark what v0.20.0 changed with ``From v0.20.0,``,
+and the changelog has one entry under the v0.20.0 heading that states the
 v0.19.2 behaviour beside each change.
 
 Every test names the edit that must fail it.
@@ -13,8 +13,8 @@ from __future__ import annotations
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-MARK = "Unreleased (on main, not in v0.19.2):"
-ENTRY_START = "Gaps that the reviews of the v0.20 wave-2 changes found are closed"
+MARK = "From v0.20.0,"
+ENTRY_START = "Gaps that the reviews of the other changes in this release found are closed"
 
 
 def _flat(text: str) -> str:
@@ -31,14 +31,14 @@ def _changelog() -> str:
 
 def _entry() -> str:
     changelog = _changelog()
-    unreleased = changelog[changelog.index("## Unreleased") : changelog.index("## v0.19.2")]
-    entries = [item for item in unreleased.split("\n- ")[1:] if item.startswith(ENTRY_START)]
+    released = changelog[changelog.index("## v0.20.0 \u2014 2026-10-02") + len("## v0.20.0 \u2014 2026-10-02") : changelog.index("## v0.19.2")]
+    entries = [item for item in released.split("\n- ")[1:] if item.startswith(ENTRY_START)]
     assert len(entries) == 1
     return _flat(entries[0])
 
 
-def test_the_changelog_has_one_entry_under_unreleased_and_none_above_v0192() -> None:
-    """One entry, in the Unreleased section.
+def test_the_changelog_has_one_entry_under_v0200_and_none_in_v0192() -> None:
+    """One entry, in the v0.20.0 section.
 
     Mutations, each one alone: move the entry under the v0.19.2 heading, or add a second
     entry that starts the same way.
@@ -119,7 +119,7 @@ def test_the_entry_states_the_v0192_backup_behaviour() -> None:
 
 
 def test_the_backup_doc_marks_the_revision_cap_the_header_and_the_export() -> None:
-    """The backup guide says what main does and what v0.19.2 did for each of the three.
+    """The backup guide says what v0.20.0 does and what v0.19.2 did for each of the three.
 
     Mutations: delete the marker, the v0.19.2 comparison, the sentence that adds the memory
     and entity columns, or the example line for the export.
@@ -237,7 +237,7 @@ def test_the_known_limitation_and_the_threat_model_say_ignored_folders_are_not_e
     Mutations: delete either sentence, or the marker the limitation's paragraph sits under.
     """
     raw = (ROOT / "docs/alpha/known-limitations.md").read_text(encoding="utf-8")
-    (bullet,) = [item for item in raw.split("\n- ") if item.startswith("the local-folder scan reads each matching file whole")]
+    (bullet,) = [item for item in raw.split("\n- ") if item.startswith("in v0.19.2 the local-folder scan reads each matching file whole")]
     assert bullet.index(MARK) < bullet.index("It does not enter a folder named like a default ignore")
     limits = _flat(bullet)
     assert (

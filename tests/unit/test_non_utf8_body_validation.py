@@ -393,17 +393,17 @@ def _read(name: str) -> str:
     return (ROOT / name).read_text(encoding="utf-8")
 
 
-def _unreleased_changelog() -> str:
+def _v0200_changelog() -> str:
     changelog = _read("CHANGELOG.md")
-    return changelog[changelog.index("## Unreleased") : changelog.index("## v0.19.2")]
+    return changelog[changelog.index("## v0.20.0 \u2014 2026-10-02") + len("## v0.20.0 \u2014 2026-10-02") : changelog.index("## v0.19.2")]
 
 
 _CHANGELOG_START = "A request body that is not valid UTF-8"
-_GUIDE_MARKER = "Unreleased (on main, not in v0.19.2): a request body that is not valid UTF-8"
+_GUIDE_MARKER = "From v0.20.0, a request body that is not valid UTF-8"
 
 
-def test_the_changelog_entry_sits_under_unreleased_and_states_v0192() -> None:
-    """One Unreleased entry says what main answers and what v0.19.2 answered.
+def test_the_changelog_entry_sits_under_v0200_and_states_v0192() -> None:
+    """One v0.20.0 entry says what v0.20.0 answers and what v0.19.2 answered.
 
     Mutations, each one alone: move the entry under the v0.19.2 heading; delete
     the sentence that says v0.19.2 answered HTTP 500; delete the sentence that
@@ -412,7 +412,7 @@ def test_the_changelog_entry_sits_under_unreleased_and_states_v0192() -> None:
     content type; write an em dash or an en dash into the entry.
     """
 
-    entries = [item for item in _unreleased_changelog().split("\n- ")[1:] if item.startswith(_CHANGELOG_START)]
+    entries = [item for item in _v0200_changelog().split("\n- ")[1:] if item.startswith(_CHANGELOG_START)]
     assert len(entries) == 1
     entry = _flat(entries[0])
     assert (
@@ -436,8 +436,8 @@ def test_the_changelog_entry_sits_under_unreleased_and_states_v0192() -> None:
     assert "is not valid UTF-8 and has no JSON content type" not in released
 
 
-def test_the_agent_guide_marks_the_new_422_as_main_and_keeps_v0192() -> None:
-    """The HTTP error section says what main answers and what v0.19.2 answers, marked.
+def test_the_agent_guide_marks_the_new_422_from_v0200_and_keeps_v0192() -> None:
+    """The HTTP error section says what v0.20.0 answers and what v0.19.2 answers, marked.
 
     Mutations: delete the marker; delete the v0.19.2 sentence; state main's
     answer without the marker; put the paragraph after the Scopes heading;

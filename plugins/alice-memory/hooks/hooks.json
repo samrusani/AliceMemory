@@ -8,7 +8,7 @@
             "command": "uvx",
             "args": [
               "--from",
-              "alice-memory==0.19.2",
+              "alice-memory==0.20.0",
               "alice-memory-session-start"
             ]
           }

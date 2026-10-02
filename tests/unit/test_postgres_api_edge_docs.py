@@ -1,9 +1,9 @@
-"""The docs say what main changed at the Postgres API edge and keep v0.19.2 as the comparison.
+"""The docs say what v0.20.0 changed at the Postgres API edge and keep v0.19.2 as the comparison.
 
-v0.19.2 is released, so its notes stay as published. What main changed (DB-005,
+v0.19.2 is released, so its notes stay as published. What v0.20.0 changed (DB-005,
 DB-006, DB-009 of the internal security review of v0.19.0) is marked
-``Unreleased (on main, not in v0.19.2):`` where a document describes the latest
-release, and the changelog entry sits under the Unreleased heading with the
+``From v0.20.0,`` where a document describes the latest
+release, and the changelog entry sits under the v0.20.0 heading with the
 v0.19.2 behaviour stated beside each change.
 """
 
@@ -12,7 +12,7 @@ from __future__ import annotations
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-MARKER = "Unreleased (on main, not in v0.19.2):"
+MARKER = "From v0.20.0,"
 ENTRY_START = "The Postgres stack's HTTP API edge and the provider clients are hardened, from the internal security review of v0.19.0."
 
 
@@ -24,19 +24,19 @@ def _read(name: str) -> str:
     return (ROOT / name).read_text(encoding="utf-8")
 
 
-def _unreleased_changelog() -> str:
+def _v0200_changelog() -> str:
     changelog = _read("CHANGELOG.md")
-    return changelog[changelog.index("## Unreleased") : changelog.index("## v0.19.2")]
+    return changelog[changelog.index("## v0.20.0 \u2014 2026-10-02") + len("## v0.20.0 \u2014 2026-10-02") : changelog.index("## v0.19.2")]
 
 
 def _entry() -> str:
-    entries = [item for item in _unreleased_changelog().split("\n- ")[1:] if item.startswith(ENTRY_START)]
+    entries = [item for item in _v0200_changelog().split("\n- ")[1:] if item.startswith(ENTRY_START)]
     assert len(entries) == 1
     return _flat(entries[0])
 
 
-def test_the_changelog_entry_sits_under_unreleased_and_states_v0192_for_host_and_origin() -> None:
-    """One Unreleased entry, with the v0.19.2 behaviour stated beside the Host and Origin rule.
+def test_the_changelog_entry_sits_under_v0200_and_states_v0192_for_host_and_origin() -> None:
+    """One v0.20.0 entry, with the v0.19.2 behaviour stated beside the Host and Origin rule.
 
     Mutations, each one alone: move the entry under the v0.19.2 heading; delete
     the sentence that says v0.19.2 checked the peer address only; delete the
@@ -133,8 +133,8 @@ def test_the_changelog_entry_states_the_provider_redirect_change_with_v0192_besi
     assert "The response body of a provider call is still read whole." in entry
 
 
-def test_the_provider_change_is_marked_as_main_in_the_threat_model_limitations_and_review_brief() -> None:
-    """Each document says what main does, marked, and keeps what is still open.
+def test_the_provider_change_is_marked_from_v0200_in_the_threat_model_limitations_and_review_brief() -> None:
+    """Each document says what v0.20.0 does, marked, and keeps what is still open.
 
     Mutations, each one alone: delete the marker from the trust-boundary row, the
     abuse-case row, the open-items sentence, the known-limitations bullet or the
@@ -160,7 +160,7 @@ def test_the_provider_change_is_marked_as_main_in_the_threat_model_limitations_a
     bullets = [
         _flat(line)
         for line in _read("docs/alpha/known-limitations.md").splitlines()
-        if line.startswith("- calls to a configured provider, embeddings, reranker or fact-key endpoint")
+        if line.startswith("- in v0.19.2 calls to a configured provider, embeddings, reranker or fact-key endpoint")
     ]
     assert len(bullets) == 1
     assert "use the standard library opener, which follows redirects" in bullets[0]
@@ -172,7 +172,7 @@ def test_the_provider_change_is_marked_as_main_in_the_threat_model_limitations_a
     assert "and a provider response is still read whole." in brief
 
 
-def test_the_threat_model_names_the_size_limit_and_marks_main() -> None:
+def test_the_threat_model_names_the_size_limit_and_marks_v0200() -> None:
     """The size paragraph, the abuse-case row and the open-items bullet say it, marked.
 
     Mutations, each one alone: delete the marker from the paragraph, the row or
@@ -200,8 +200,8 @@ def test_the_threat_model_names_the_size_limit_and_marks_main() -> None:
     ) in model
 
 
-def test_the_threat_model_names_dns_rebinding_and_the_host_rule_and_marks_main() -> None:
-    """The deployment paragraph, the abuse-case row and the open-items bullet all say what main does, marked.
+def test_the_threat_model_names_dns_rebinding_and_the_host_rule_and_marks_v0200() -> None:
+    """The deployment paragraph, the abuse-case row and the open-items bullet all say what v0.20.0 does, marked.
 
     Mutations, each one alone: delete the marker from any of the three; delete
     the DNS rebinding sentence; delete the line that says the browser leg was
@@ -227,11 +227,11 @@ def test_the_threat_model_names_dns_rebinding_and_the_host_rule_and_marks_main()
     assert MARKER in row[0]
     assert "Not reproduced in a real browser" in row[0]
 
-    assert "does not check the `Host` header of a keyless loopback request. Unreleased (on main, not in v0.19.2): the `Host` and `Origin` rules above are in (DB-005)" in model
+    assert "does not check the `Host` header of a keyless loopback request. From v0.20.0, the `Host` and `Origin` rules above are in (DB-005)" in model
 
 
-def test_known_limitations_keeps_v0192_and_marks_main_for_host_and_origin() -> None:
-    """The bullet still says v0.19.2 does not check Host, then says what main does, marked.
+def test_known_limitations_keeps_v0192_and_marks_v0200_for_host_and_origin() -> None:
+    """The bullet still says v0.19.2 does not check Host, then says what v0.20.0 does, marked.
 
     Mutations: delete the v0.19.2 half; drop the marker; claim the check without
     the marker; drop the sentence that says the legacy ``/v0`` routes get the rule.
@@ -244,7 +244,9 @@ def test_known_limitations_keeps_v0192_and_marks_main_for_host_and_origin() -> N
     ]
     assert len(bullets) == 1
     bullet = bullets[0]
-    assert bullet.startswith("- the Postgres stack's HTTP API parses a JSON request body of any size before it authenticates")
+    assert bullet.startswith(
+        "- in v0.19.2 the Postgres stack's HTTP API parses a JSON request body of any size before it authenticates"
+    )
     assert (
         f"it does not check the `Host` header of a keyless loopback request. {MARKER} a request body over 4 MiB "
         "(32 MiB for the connector sync routes) is refused with HTTP 413 before any layer reads it, a keyless request "
@@ -253,13 +255,18 @@ def test_known_limitations_keeps_v0192_and_marks_main_for_host_and_origin() -> N
         "or a name listed in `ALICEBOT_ALLOWED_HOSTS`"
     ) in bullet
     assert "(DB-005)" in bullet
-    assert bullet.endswith(
+    assert (
         "A request with an agent key on `/v0/vnext` or `/v1` is not checked, and the legacy `/v0` routes apply the same "
-        "Host and Origin rule to every request, because they check no key"
+        "Host and Origin rule to every request, because they check no key. A request inside the cap still costs memory "
+        "and time, and the cap is no rate limit."
+    ) in bullet
+    assert bullet.endswith(
+        "The Host and Origin rule was checked with raw requests and in process, not from a real browser, and a name "
+        "listed in `ALICEBOT_ALLOWED_HOSTS` is trusted as this machine"
     )
 
 
-def test_security_policy_deployment_guide_and_env_example_mark_the_edge_rules_as_main() -> None:
+def test_security_policy_deployment_guide_and_env_example_mark_the_edge_rules_from_v0200() -> None:
     """SECURITY.md and the deployment guide say it, marked, and the example env documents the settings.
 
     Mutations: delete the marker from either document; delete the commented
@@ -298,7 +305,7 @@ def test_the_legacy_v0_rule_and_the_new_error_family_are_in_the_docs() -> None:
     assert "HTTP 413 with `detail.code` `request_too_large`, a family added to the list above." in guide
     assert "A layer in front of the routes answers the 413, so the OpenAPI schema does not list it." in guide
     assert guide.count("The public families are `authentication_failed`") == 1
-    # The list of released families is not edited: the new family is marked as main's.
+    # The list of released families is not edited: the new family is marked as v0.20.0's.
     assert "`internal_error`. Deliberate static route errors" in guide
 
 
@@ -314,7 +321,7 @@ def test_no_added_text_uses_an_em_dash_or_an_en_dash() -> None:
     """Mutation: write a dash into the changelog entry or any added paragraph."""
 
     for text in (
-        _unreleased_changelog(),
+        _v0200_changelog(),
         _read("SECURITY.md"),
         _read("docs/security/threat-model.md"),
         _read("docs/deployment/single-tenant-self-hosted.md"),
@@ -322,7 +329,7 @@ def test_no_added_text_uses_an_em_dash_or_an_en_dash() -> None:
         _read("apps/api/src/alicebot_api/keyless_edge.py"),
         _read("apps/api/src/alicebot_api/request_limits.py"),
         _read("packaging/cloud/Caddyfile.example"),
-        _read("docs/alpha/known-limitations.md").split("Open items from the internal security review")[1],
+        _read("docs/alpha/known-limitations.md").split("Items from the internal security review")[1],
         _read("docs/security/external-review-brief.md"),
         _read("apps/api/src/alicebot_api/provider_http.py"),
     ):

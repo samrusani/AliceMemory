@@ -31,7 +31,7 @@ Connector invariants:
 - all connector text is marked as untrusted source material
 - sync cursors prevent duplicate ingestion
 - local folder scanning is constrained to allowed local roots; by default those are the user home, repo working directory, and system temp directory, with `ALICE_VNEXT_LOCAL_FOLDER_ROOTS` available for operator override
-- Unreleased (on main, not in v0.19.2): each local folder file is read through a descriptor opened beneath the watched root without following a link, so the constraint to allowed local roots also holds for the read itself and not only for the check made before it; a file or directory swapped for a link during a sync is skipped, and a hard link planted inside the watched folder to a file elsewhere is still read; the scan also reads at most 2 MiB of a file, stops at 10,000 files or 64 MiB in all, and reports the files it skipped and whether a limit stopped it
+- From v0.20.0, each local folder file is read through a descriptor opened beneath the watched root without following a link, so the constraint to allowed local roots also holds for the read itself and not only for the check made before it; a file or directory swapped for a link during a sync is skipped, and a hard link planted inside the watched folder to a file elsewhere is still read; the scan also reads at most 2 MiB of a file, stops at 10,000 files or 64 MiB in all, and reports the files it skipped and whether a limit stopped it
 - cursor advancement stops when a failed item could otherwise be skipped
 - failed items are logged and not imported as broken memories
 - connector payload text cannot trigger tool writes

@@ -1,9 +1,9 @@
-"""The docs say what main does about the three memory id pointer defects, with v0.19.2 as the comparison.
+"""The docs say what v0.20.0 does about the three memory id pointer defects, with v0.19.2 as the comparison.
 
 v0.19.2 is released, so its notes stay as they are and the documents that
-describe the latest release mark what main changed with
-``Unreleased (on main, not in v0.19.2):``. The changelog entry sits under the
-Unreleased heading and states the v0.19.2 behaviour beside each fix.
+describe the latest release mark what v0.20.0 changed with
+``From v0.20.0,``. The changelog entry sits under the
+v0.20.0 heading and states the v0.19.2 behaviour beside each fix.
 """
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ from __future__ import annotations
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-MARK = "Unreleased (on main, not in v0.19.2):"
+MARK = "From v0.20.0,"
 
 
 def _flat(text: str) -> str:
@@ -24,13 +24,13 @@ def _read(name: str) -> str:
 
 def _entry() -> str:
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
-    unreleased = changelog[changelog.index("## Unreleased") : changelog.index("## v0.19.2")]
-    entries = [item for item in unreleased.split("\n- ")[1:] if item.startswith("Three memory id defects")]
+    released = changelog[changelog.index("## v0.20.0 \u2014 2026-10-02") + len("## v0.20.0 \u2014 2026-10-02") : changelog.index("## v0.19.2")]
+    entries = [item for item in released.split("\n- ")[1:] if item.startswith("Three memory id defects")]
     assert len(entries) == 1
     return _flat(entries[0])
 
 
-def test_the_changelog_entry_sits_under_unreleased_and_states_v0192() -> None:
+def test_the_changelog_entry_sits_under_v0200_and_states_v0192() -> None:
     """One entry, three fixes, and the v0.19.2 behaviour beside each.
 
     Mutations, each one alone: move the entry under the v0.19.2 heading; delete the
@@ -64,21 +64,21 @@ def test_the_known_limitations_keep_v0192_and_mark_the_fix() -> None:
     """
     text = _read("docs/alpha/known-limitations.md")
     assert (
-        "a memory id copied into a stored memory's `metadata_json` is returned without the read fence by an "
+        "in v0.19.2 a memory id copied into a stored memory's `metadata_json` is returned without the read fence by an "
         "`alice_context_pack` call with `debug: true`"
     ) in text
     assert (
-        "to the keyless owner under the default sensitivity ceiling and to a read-only key. " + MARK + " fixed."
+        "to the keyless owner under the default sensitivity ceiling and to a read-only key. From v0.20.0 it is fixed."
     ) in text
     assert (
-        "where recall keeps it; this needs a row whose status is still active. " + MARK + " fixed. The pack keeps "
-        "`validity.superseded: true` and names no id, as recall does"
+        "where recall keeps it; this needs a row whose status is still active. From v0.20.0 it is fixed. The pack "
+        "keeps `validity.superseded: true` and names no id, as recall does"
     ) in text
     assert "Only a 36-character UUID in `metadata_json` is looked for" in text
 
 
-def test_the_threat_model_and_the_tools_doc_mark_what_main_changed() -> None:
-    """The threat model and the tool descriptions say what v0.19.2 does and what main does.
+def test_the_threat_model_and_the_tools_doc_mark_what_v0200_changed() -> None:
+    """The threat model and the tool descriptions say what v0.19.2 does and what v0.20.0 does.
 
     Mutations: delete a marker; delete the v0.19.2 comparison that follows it.
     """
@@ -95,7 +95,7 @@ def test_the_threat_model_and_the_tools_doc_mark_what_main_changed() -> None:
         MARK + " a memory whose `superseded_by` pointer names a memory outside that fence keeps `validity.superseded: true` in the pack"
     ) in tools
     assert "In v0.19.2 the pack has no `validity` for it." in tools
-    assert "Unreleased (on main, not in v0.19.2): the id of a memory the caller cannot read is removed from it." in tools
+    assert "From v0.20.0, the id of a memory the caller cannot read is removed from it." in tools
 
 
 def test_the_published_v0192_notes_are_not_changed() -> None:

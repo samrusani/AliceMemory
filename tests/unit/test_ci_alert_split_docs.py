@@ -1,9 +1,9 @@
 """The docs say how main splits the alert job from the job that installs packages (DB-008).
 
 v0.19.2 is released, so its notes keep saying the canary and archive maintenance hold
-issue-write authority in the job that installs. What main changed is marked
-``Unreleased (on main, not in v0.19.2):`` where a document describes the latest
-release, and sits under the changelog's Unreleased heading.
+issue-write authority in the job that installs. What v0.20.0 changed is marked
+``From v0.20.0,`` where a document describes the latest
+release, and sits under the changelog's v0.20.0 heading.
 """
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ from __future__ import annotations
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-UNRELEASED = "Unreleased (on main, not in v0.19.2):"
+FROM_V0200 = "From v0.20.0,"
 
 
 def _flat(text: str) -> str:
@@ -22,19 +22,19 @@ def _read(name: str) -> str:
     return _flat((ROOT / name).read_text(encoding="utf-8"))
 
 
-def _unreleased_changelog() -> str:
+def _v0200_changelog() -> str:
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
-    return changelog[changelog.index("## Unreleased") : changelog.index("## v0.19.2")]
+    return changelog[changelog.index("## v0.20.0 \u2014 2026-10-02") + len("## v0.20.0 \u2014 2026-10-02") : changelog.index("## v0.19.2")]
 
 
 def _changelog_entry_containing(text: str) -> str:
-    entries = [item for item in _unreleased_changelog().split("\n- ")[1:] if text in _flat(item)]
+    entries = [item for item in _v0200_changelog().split("\n- ")[1:] if text in _flat(item)]
     assert len(entries) == 1, text
     return _flat(entries[0])
 
 
 def test_the_changelog_states_the_canary_and_archive_split_and_what_v0192_did() -> None:
-    """One Unreleased entry carries both splits, with the v0.19.2 behaviour stated.
+    """One v0.20.0 entry carries both splits, with the v0.19.2 behaviour stated.
 
     Mutations, each one alone: move the sentences under the v0.19.2 heading; delete
     the sentence that says what v0.19.2 did to the canary; delete the sentence that
@@ -71,12 +71,12 @@ def test_the_changelog_states_the_canary_and_archive_split_and_what_v0192_did() 
     assert "What the canary and archive maintenance run, and when they alert, are unchanged." in entry
 
 
-def test_the_threat_model_and_dependency_posture_mark_the_split_unreleased() -> None:
-    """The threat model keeps the v0.19.2 open item and adds the fix marked as main only.
+def test_the_threat_model_and_dependency_posture_mark_the_split_from_v0200() -> None:
+    """The threat model keeps the v0.19.2 open item and adds the fix marked from v0.20.0.
 
     The dependency posture no longer says every job selects its tool versions.
     Mutations, each one alone: delete the DB-008 sentences from the threat model;
-    delete the archive sentence from the threat model; drop the Unreleased marker
+    delete the archive sentence from the threat model; drop the ``From v0.20.0,`` marker
     from the dependency posture; put back the sentence that says tool versions
     installed inside jobs are explicitly selected without the word most; delete the
     sentence that names the canary as unpinned on purpose.
@@ -98,5 +98,5 @@ def test_the_threat_model_and_dependency_posture_mark_the_split_unreleased() -> 
     assert "Tool versions installed inside most jobs, such as Gitleaks, are explicitly selected" in posture
     assert "Two scheduled jobs do not pin on purpose." in posture
     assert "The weekly real-host canary installs the current Claude Code, Hermes, OpenCode and Codex CLIs" in posture
-    assert f"{UNRELEASED} neither holds a write permission in the job that installs." in posture
+    assert f"{FROM_V0200} neither holds a write permission in the job that installs." in posture
     assert "Archive maintenance still holds" not in posture

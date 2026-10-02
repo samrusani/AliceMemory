@@ -99,6 +99,59 @@ could not run on a CI runner; and `v0.19.1`, whose publish run failed at the
 draft readback because a release script imported the package in a job that does
 not install it, so it has no PyPI artifact and no published GitHub Release.
 
+## What `v0.20.0` Targets
+
+`v0.20.0` is the current release candidate. It is not published.
+
+It takes the fixes on `main` since `v0.19.2`. Most come from the internal
+security review of `v0.19.0`, whose findings DB-005, DB-006, DB-008, DB-009,
+DB-010 and DB-011 `v0.19.2` left open. It adds no tool or command and changes
+no schema. It adds the `--max-file-mib` option and four settings:
+`ALICEBOT_ALLOWED_HOSTS`, `ALICEBOT_MAX_REQUEST_BODY_BYTES`,
+`ALICEBOT_MAX_CONNECTOR_SYNC_BODY_BYTES` and `ALICE_EMBEDDINGS_MAX_INPUT_CHARS`.
+
+- [v0.20.0 release notes](https://github.com/samrusani/AliceMemory/blob/main/docs/release/v0.20.0-release-notes.md)
+
+`v0.20.0` has these changes. `v0.19.2` does not.
+
+- The Postgres HTTP API refuses a request body over 4 MiB with HTTP 413 and a
+  body nested more than 256 levels with HTTP 422, and a keyless request whose
+  `Host` or `Origin` does not name this machine gets HTTP 401. No provider,
+  embeddings, reranker, fact-key, brain, Gmail or Calendar client follows a
+  redirect. In `v0.19.2` none of these is limited or checked.
+- A request body with a lone surrogate, or one that is not UTF-8 and has no
+  JSON content type, gets HTTP 422 where `v0.19.2` answers HTTP 500. Hermes
+  provider 0.5.3 replaces a lone surrogate with U+FFFD, so the turn is saved.
+  The provider is not in the wheel.
+- The local-folder connector reads each file through an open descriptor beneath
+  the watched folder, stops at fixed limits and lets one bad file fail alone.
+  The canary and archive maintenance workflows hold no write permission in the
+  job that installs packages.
+- Alice sends the text of a memory to the embeddings endpoint only when recall
+  can return it, cuts it to `ALICE_EMBEDDINGS_MAX_INPUT_CHARS` (default 8000),
+  and isolates one memory the endpoint refuses. `alice-memory doctor` prints
+  `memories without a current vector`. In `v0.19.2` every memory with no current
+  vector is sent, whatever its status.
+- A context pack skips an item that does not fit and cuts the first item when
+  none fits. `alice_resume` and `alice_recent_decisions` refuse a query over
+  40,000 UTF-8 bytes with `invalid_request`. Recall and the pack read the
+  memories that reference packed sources in one lookup.
+- The Markdown and ChatGPT imports, `capture-file`, and the browser clipper and
+  agent output file options refuse a file over 16 MiB (512 MiB for a ChatGPT
+  export) with `import_file_too_large`. A ChatGPT conversation of any length
+  imports, and one that cannot be read is named while the others import.
+- `alice-memory import` refuses deeply nested JSON with `restore_failed` and a
+  line that names the file line, the table and the column, and `--mode skip`
+  accepts a legacy row. In `v0.19.2` the refusal is generic and skip stops.
+- Recall and the pack name no id for a retired, expired or looped successor, and
+  the pack removes the id of a memory the caller cannot read from `metadata_json`.
+- LongMemEval harness 1.1 hides session ids from the reader. The published
+  numbers carry a known issue and no number changed.
+- Still open, listed in the release notes: the session brief, `alice_resume`
+  and `alice_recent_decisions` show an expired active memory, consolidation and
+  roll-ups can embed one, artifact promotion leaves a memory without a vector
+  until reindex, and the `max_tokens` budget prices the full stored row.
+
 ## What `v0.19.2` Shipped
 
 `v0.19.2` is the latest published release and remains the install, checksum,

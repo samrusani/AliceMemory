@@ -133,7 +133,7 @@ key that install did not write, install refuses and changes nothing. Edit the
 alice entry by hand in that case. A documented key whose value is an anchor,
 an alias, a tag, or a block scalar is refused the same way.
 
-Unreleased (on main, not in v0.19.2): install also keeps
+From v0.20.0, install also keeps
 `ALICE_EMBEDDINGS_MAX_INPUT_CHARS`, the most characters of one memory's text
 sent to the embeddings endpoint, on the same terms as the seven keys above. In
 v0.19.2 that key does not exist, and an entry that carries it is refused like

@@ -223,7 +223,7 @@ decode is refused too and nothing is written, but with the generic
 identity at most three levels down. In v0.19.0 and
 earlier, import restores the claim as the file states it.
 
-Unreleased (on main, not in v0.19.2): a JSON column that holds text too deep for the
+From v0.20.0, a JSON column that holds text too deep for the
 decoder (about 10,000 levels on Python 3.12), a record whose JSON is a mapping or
 list nested about 1,000 levels or more, and a line nested too deep to decode are
 refused with `restore_failed`, and nothing is written. Before the error record
@@ -236,7 +236,7 @@ text or a memory title, is restored as the text it is even when it looks like
 deeply nested JSON. In v0.19.2 these ended with `alice_memory_failed` and no
 reason, and a source chunk's text made of nested brackets did too.
 
-Unreleased (on main, not in v0.19.2): JSON text nested more than 256 levels in the
+From v0.20.0, JSON text nested more than 256 levels in the
 `previous_value`, `new_value`, `source_event_ids` or `candidate` column of a memory
 revision is refused with `restore_failed` and the same kind of reason line, and so is
 such text in the `value` or `source_event_ids` column of a memory and the `aliases`
@@ -259,7 +259,7 @@ nested too deeply for export to write`, leaves no output file, and ends with
 `export_failed`. In v0.19.2 it ended with `alice_memory_failed`. Text nested less
 than that exports as before.
 
-Unreleased (on main, not in v0.19.2): `--mode skip` also accepts a legacy row. The
+From v0.20.0, `--mode skip` also accepts a legacy row. The
 schema bootstrap fills a few columns of a row from the rest of the row each time
 the vault is opened: a source's `dedupe_key`, a memory's `created_by_agent_id` and
 `run_id`, and, for a memory that keeps its project scope only under
