@@ -14,6 +14,7 @@ Mutation notes live on each test. A miss raises AssertionError.
 from __future__ import annotations
 
 import importlib.util
+import io
 import json
 import os
 import re
@@ -21,6 +22,7 @@ import select
 import shutil
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -611,6 +613,7 @@ def test_mcp_stub_records_initialize_and_the_roots_answer(tmp_path: Path) -> Non
         {"uri_type": "str", "uri_scheme": "file", "uri_shape": "file://<launch>", "relation": "launch_dir", "name_kind": "basename"}
     ]
     assert record["complete"] is True and record["stdin_closed"] is True
+    assert record["probe_finished"] is True
     assert record["client_requests"] == ["initialize", "notifications/initialized", "tools/list"]
     assert record["cwd"] == {"available": True, "shape": "<launch>", "relation": "launch_dir", "git_levels_up": None}
     assert record["probes"]["entry_env_forwarded"] is True and record["probes"]["launch_env_forwarded"] is False
@@ -710,7 +713,7 @@ def test_mcp_stub_asks_for_roots_even_when_none_are_declared_and_records_silence
     assert server.read()["method"] == "roots/list"
     time.sleep(1.2)
     mid = server.record()
-    assert mid["complete"] is True
+    assert mid["complete"] is True and mid["probe_finished"] is True
     record = server.finish()
     assert record["initialize"]["declares"]["roots"] is False
     assert record["roots_list"]["sent"] is True and record["roots_list"]["outcome"] == "no_reply"
@@ -745,7 +748,8 @@ def test_mcp_stub_records_an_error_answer_without_the_paths_in_its_message(tmp_p
 def test_mcp_stub_notes_a_client_that_closes_before_the_probe_resolves(tmp_path: Path) -> None:
     """If the client leaves first, the record is complete and says why, so a waiting API stub is released.
 
-    Mutation: leave ``complete`` false when stdin closes. This test fails.
+    Complete is not the same as finished: the probe did not end, and the record says so. Mutation:
+    leave ``complete`` false when stdin closes, or set ``probe_finished`` there. This test fails.
     """
 
     root = tmp_path / "work"
@@ -753,8 +757,168 @@ def test_mcp_stub_notes_a_client_that_closes_before_the_probe_resolves(tmp_path:
     server.initialize({})
     server.read()
     record = server.finish()
-    assert record["complete"] is True
+    assert record["complete"] is True and record["probe_finished"] is False
+    assert record["roots_list"]["sent"] is True and record["roots_list"]["outcome"] == "no_reply"
     assert record["roots_list"]["reason"] == "the client closed the connection first"
+
+
+def _wait_for_record(path: Path, field: str, timeout: float = 10.0) -> dict[str, Any]:
+    """The record at ``path`` once ``field`` is true in it, or a failed assertion."""
+
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            record = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            record = {}
+        if record.get(field) is True:
+            return record
+        time.sleep(0.05)
+    raise AssertionError(f"{path.name} never had {field} true")
+
+
+_INITIALIZE_LINE = (
+    json.dumps(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2025-06-18",
+                "capabilities": {"roots": {}},
+                "clientInfo": {"name": "test-client", "version": "1"},
+            },
+        }
+    )
+    + "\n"
+).encode()
+
+
+class _BrokenOutput:
+    """A stdout whose reader has gone, so the first reply raises the way a closed pipe does."""
+
+    def write(self, _data: bytes) -> int:
+        raise BrokenPipeError
+
+    def flush(self) -> None:
+        raise BrokenPipeError
+
+
+def test_a_server_that_stops_before_its_probe_ends_has_an_unfinished_probe(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Each way the stub ends without its probe ending is a problem, from a record the stub itself wrote.
+
+    The client that never sends ``notifications/initialized`` (the 10 second timer, shortened here),
+    the server that stops on an error (a closed output pipe), the client that leaves right after
+    initialize, and the client that reads the probe and leaves. Every record is complete, so a
+    waiting API stub is released, and none is a finished probe. Mutation: judge by ``complete``
+    instead of ``probe_finished``, or set ``probe_finished`` in the EOF, timer or error path of the
+    stub. This test fails.
+    """
+
+    monkeypatch.setattr(evidence, "_INITIALIZED_WAIT_SECONDS", 0.3)
+    root = tmp_path / "work"
+    context = _write_context(root, ["HOME", "PATH"])
+    art = root / "art"
+
+    # 1. The client initializes, stays connected, and never sends notifications/initialized.
+    read_end, write_end = os.pipe()
+    stdin = os.fdopen(read_end, "rb")
+    writer = os.fdopen(write_end, "wb")
+    thread = threading.Thread(
+        target=evidence.mcp_main,
+        args=("claude-code", art, context, 5.0),
+        kwargs={"stdin": stdin, "stdout": io.BytesIO()},
+        daemon=True,
+    )
+    thread.start()
+    writer.write(_INITIALIZE_LINE)
+    writer.flush()
+    silent = _wait_for_record(art / "claude-code-mcp-1.json", "complete")
+    writer.close()
+    thread.join(timeout=10)
+    assert not thread.is_alive()
+    stdin.close()
+    assert silent["probe_finished"] is False and silent["initialize"]["received"] is True
+    assert silent["roots_list"]["sent"] is False
+    assert evidence._server_problems(silent, "") == [
+        "the roots/list probe did not finish: the client never sent notifications/initialized"
+    ]
+
+    # 2. The server's own output fails after the initialize reply.
+    assert evidence.mcp_main("claude-code", art, context, 5.0, stdin=io.BytesIO(_INITIALIZE_LINE), stdout=_BrokenOutput()) == 0
+    broken = json.loads((art / "claude-code-mcp-2.json").read_text(encoding="utf-8"))
+    assert broken["complete"] is True and broken["probe_finished"] is False
+    assert broken["error"] == "BrokenPipeError" and broken["initialize"]["received"] is True
+    assert evidence._server_problems(broken, " (start 2 of 4)") == [
+        "the roots/list probe did not finish: the MCP server stopped on BrokenPipeError (start 2 of 4)"
+    ]
+
+    # 3. The client leaves right after initialize. 4. It reads the probe and leaves without answering.
+    early = _Mcp(tmp_path / "early", wait=30)
+    early.send(json.loads(_INITIALIZE_LINE))
+    early.read()
+    left = early.finish()
+    assert left["complete"] is True and left["probe_finished"] is False
+    assert left["roots_list"]["sent"] is False and left["roots_list"]["outcome"] == "not_sent"
+    gone = _Mcp(tmp_path / "gone", wait=30)
+    gone.initialize({"roots": {}})
+    gone.read()
+    after_probe = gone.finish()
+    assert after_probe["roots_list"]["sent"] is True and after_probe["probe_finished"] is False
+    for record in (left, after_probe):
+        assert evidence._server_problems(record, "") == [
+            "the roots/list probe did not finish: the client closed the connection first"
+        ]
+
+
+def test_each_end_the_probe_can_reach_is_judged_from_a_real_record(tmp_path: Path) -> None:
+    """A probe that ended is not a problem unless the client declared roots and answered with an error.
+
+    Answered, silent for the whole wait, and an error from a client that declared nothing are all
+    findings. An error from a client that declared roots is a problem. A start that never received
+    initialize is named by that and by nothing else. Mutation: judge a silent client as unfinished,
+    flag an error whatever the client declared, ignore the declaration, or report an unfinished
+    probe beside the missing initialize. This test fails.
+    """
+
+    answered = _Mcp(tmp_path / "answered")
+    answered.initialize({"roots": {}})
+    probe = answered.read()
+    answered.send({"jsonrpc": "2.0", "id": probe["id"], "result": {"roots": []}})
+    answered_record = answered.finish()
+    assert answered_record["roots_list"]["outcome"] == "answered" and answered_record["probe_finished"] is True
+
+    silent = _Mcp(tmp_path / "silent", wait=0.3)
+    silent.initialize({"roots": {}})
+    silent.read()
+    _wait_for_record(tmp_path / "silent" / "art" / "claude-code-mcp-1.json", "probe_finished")
+    silent_record = silent.finish()
+    assert silent_record["roots_list"]["outcome"] == "no_reply"
+    assert "reason" not in silent_record["roots_list"]
+
+    def errored(name: str, capabilities: dict[str, Any]) -> dict[str, Any]:
+        client = _Mcp(tmp_path / name)
+        client.initialize(capabilities)
+        client.send({"jsonrpc": "2.0", "id": client.read()["id"], "error": {"code": -32601, "message": "no"}})
+        record = client.finish()
+        assert record["roots_list"]["outcome"] == "error" and record["probe_finished"] is True
+        return record
+
+    undeclared_error = errored("undeclared-error", {})
+    declared_error = errored("declared-error", {"roots": {}})
+    assert undeclared_error["initialize"]["declares"]["roots"] is False
+    assert declared_error["initialize"]["declares"]["roots"] is True
+
+    assert evidence._server_problems(answered_record, "") == []
+    assert evidence._server_problems(silent_record, "") == []
+    assert evidence._server_problems(undeclared_error, "") == []
+    assert evidence._server_problems(declared_error, " (start 1 of 2)") == [
+        "the client declared roots and answered roots/list with an error (start 1 of 2)"
+    ]
+    never = {"initialize": {"received": False}, "complete": True, "probe_finished": False}
+    assert evidence._server_problems(never, "") == ["the MCP server never received initialize"]
 
 
 # --- a whole run against stand-ins for the hosts ---------------------------------------------
@@ -853,7 +1017,7 @@ def test_run_records_both_hosts_and_keeps_none_of_the_planted_values(
         assert server["roots_list"]["outcome"] == "answered"
         assert server["roots_list"]["roots"][0]["relation"] == "launch_dir"
         assert server["probes"]["entry_env_forwarded"] is True
-        assert server["complete"] is True
+        assert server["complete"] is True and server["probe_finished"] is True
     assert "CLAUDE_PROJECT_DIR" in claude["hook"]["records"][0]["env"]["added_by_host"]
     assert claude["hook"]["records"][0]["env"]["path_variables"]["CLAUDE_PROJECT_DIR"]["relation"] == "launch_dir"
     assert claude["hook"]["records"][0]["stdin"]["keys"] == [
@@ -950,7 +1114,58 @@ def test_run_records_a_client_that_never_answers_roots(
     for host in ("claude-code", "codex"):
         server = report["hosts"][host]["mcp"]["records"][0]
         assert server["roots_list"]["outcome"] == "no_reply"
-        assert server["complete"] is True
+        assert server["complete"] is True and server["probe_finished"] is True
+        assert report["hosts"][host]["problems"] == []
+    _assert_nothing_raw(tmp_path, artifacts)
+
+
+@pytest.mark.parametrize("hangup", ["after_initialize", "after_initialized", "after_probe"])
+def test_run_fails_when_the_client_leaves_before_the_roots_probe_finishes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stand_ins: dict[str, Path], hangup: str
+) -> None:
+    """A host that closes the server's input before the probe ends is a failed run, not a green one.
+
+    The stand-ins leave right after initialize, right after ``notifications/initialized``, or after
+    reading ``roots/list`` and before answering. Each record is still complete, so the stub API lets
+    the host go and the run ends quickly, and each says why in its problem. Mutation: judge the
+    probe by ``complete`` instead of ``probe_finished`` in ``_finish_host``, or set
+    ``probe_finished`` when stdin closes. This test fails.
+    """
+
+    monkeypatch.setenv("FAKE_HANGUP", hangup)
+    code, artifacts, report = _run(tmp_path, monkeypatch)
+    assert code == 1
+    for host in ("claude-code", "codex"):
+        info = report["hosts"][host]
+        server = info["mcp"]["records"][0]
+        assert server["complete"] is True and server["probe_finished"] is False
+        assert server["initialize"]["received"] is True
+        assert server["roots_list"]["sent"] is (hangup == "after_probe")
+        assert server["roots_list"]["outcome"] == ("no_reply" if hangup == "after_probe" else "not_sent")
+        assert info["problems"] == ["the roots/list probe did not finish: the client closed the connection first"]
+        assert info["run"]["wall_ms"] < 20_000
+    summary = (artifacts / "host-evidence.md").read_text(encoding="utf-8")
+    assert "the roots/list probe did not finish" in summary
+    _assert_nothing_raw(tmp_path, artifacts)
+
+
+def test_run_fails_when_a_client_that_declared_roots_answers_with_an_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stand_ins: dict[str, Path]
+) -> None:
+    """A host that declares roots and cannot answer ``roots/list`` is a problem, unlike one that declares nothing.
+
+    Mutation: drop the declared-roots check, or flag every error answer (then the run that declares
+    nothing and answers with an error fails too). This test fails.
+    """
+
+    code, artifacts, report = _run(tmp_path, monkeypatch, mode="declared_error")
+    assert code == 1
+    for host in ("claude-code", "codex"):
+        info = report["hosts"][host]
+        server = info["mcp"]["records"][0]
+        assert server["initialize"]["declares"]["roots"] is True
+        assert server["roots_list"]["outcome"] == "error" and server["probe_finished"] is True
+        assert info["problems"] == ["the client declared roots and answered roots/list with an error"]
     _assert_nothing_raw(tmp_path, artifacts)
 
 
