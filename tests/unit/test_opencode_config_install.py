@@ -13,7 +13,6 @@ import random
 import shutil
 import subprocess
 import sys
-import time
 
 import pytest
 
@@ -1729,36 +1728,129 @@ def test_strict_json_duplicate_refusals_use_the_placeholder_when_jsonc_is_presen
             path.unlink()
 
 
-def _jsonc_object_of_keys(count: int):
-    """Parse an object of ``count`` keys and return the node and the seconds."""
+class _ScanBudgetExceeded(AssertionError):
+    """The scanner read more characters of a file than a linear scan can."""
+
+
+class _ReadCountingText(str):
+    """The text of a JSONC file that counts the characters the scanner reads through it.
+
+    Every way the scanner looks at the text is charged what it reads: ``text[i]`` is one character, a slice is its
+    length, ``find`` is the distance it searched, ``startswith`` is the length of the prefix, and any other ``str``
+    method is the whole text. A scan that goes back to the start of the file at each token, in any form
+    (``_jsonc_breaks(text, 0, index)``, ``text[:index].count("\\n")``, ``text.count("\\n", 0, index)``), is charged
+    for every character it covers again, so the count grows with the square of the file and passes ``budget``
+    within the first few thousand characters. The charge stops the parse by raising, so a quadratic scan fails
+    the test at once and does not run for minutes.
+
+    The count is a number of operations, not a time, so a busy machine cannot change it.
+    """
+
+    read: int
+    budget: int
+
+    def _charge(self, characters: int) -> None:
+        self.read += characters
+        if self.read > self.budget:
+            raise _ScanBudgetExceeded(
+                f"the scanner read {self.read} characters of a {len(self)}-character file, "
+                f"more than the {self.budget} that a linear scan reads"
+            )
+
+    def __getitem__(self, key):  # type: ignore[no-untyped-def]
+        result = str.__getitem__(self, key)
+        self._charge(len(result) if isinstance(key, slice) else 1)
+        return result
+
+    def find(self, sub, start=0, end=None):  # type: ignore[no-untyped-def]
+        found = str.find(self, sub, start, end)
+        stop = found if found >= 0 else (len(self) if end is None else end)
+        self._charge(max(stop - start, 0) + len(sub))
+        return found
+
+    def startswith(self, prefix, start=0, end=None):  # type: ignore[no-untyped-def]
+        self._charge(len(prefix) if isinstance(prefix, str) else sum(len(item) for item in prefix))
+        return str.startswith(self, prefix, start, end)
+
+
+def _charge_whole_text(name: str):  # type: ignore[no-untyped-def]
+    original = getattr(str, name)
+
+    def method(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+        self._charge(len(self))
+        return original(self, *args, **kwargs)
+
+    method.__name__ = name
+    return method
+
+
+for _name in (
+    "count",
+    "rfind",
+    "index",
+    "rindex",
+    "split",
+    "rsplit",
+    "splitlines",
+    "partition",
+    "rpartition",
+    "replace",
+    "encode",
+    "endswith",
+    "strip",
+    "lstrip",
+    "rstrip",
+    "__contains__",
+    "__iter__",
+):
+    setattr(_ReadCountingText, _name, _charge_whole_text(_name))
+
+
+#: A linear scan reads each character of the file about 6.5 times (``text[i]``, the two ``startswith`` tests at each
+#: token and the string decoder). Twelve per character leaves room for a change in how the scanner is written, and
+#: a scan that restarts from the top at each token passes it within the first 2% of the file.
+JSONC_READS_PER_CHARACTER_BUDGET = 12
+
+
+def _jsonc_characters_read_for_keys(count: int) -> tuple[int, int]:
+    """Parse an object of ``count`` keys and return the characters the scanner read and the length of the text."""
 
     lines = ["{"]
     for index in range(count):
         comma = "," if index + 1 < count else ""
         lines.append(f'  "k{index}": {index}{comma}')
     lines.append("}")
-    started = time.perf_counter()
-    node = host_install._parse_jsonc_text("\n".join(lines))
-    elapsed = time.perf_counter() - started
+    text = _ReadCountingText("\n".join(lines))
+    text.read = 0
+    text.budget = JSONC_READS_PER_CHARACTER_BUDGET * len(text)
+    node = host_install._parse_jsonc_text(text)
     assert node.kind == "object"
     assert len(node.pairs or []) == count
-    return elapsed
+    return text.read, len(text)
 
 
 def test_jsonc_scan_of_a_large_file_stays_linear() -> None:
     """Line numbers are counted while reading, so a large file stays linear.
 
-    Time N keys and 4N keys. A linear scan stays under 8 times. A scan that
-    restarts from the beginning of the file at each token does not.
-    Mutation: call _jsonc_line from the start of the file at each token.
-    This test fails.
+    The test counts the characters the scanner reads, not the seconds it takes. It parses N keys and 4N keys. A
+    linear scan reads about 4 times as many characters for the larger file (4.05 measured), and a scan that
+    restarts from the beginning of the file at each token reads about 17 times as many. A scan may read each
+    character 12 times at most (``JSONC_READS_PER_CHARACTER_BUDGET``). A count does not change when the machine is
+    busy, which the earlier version, a ratio of two wall-clock timings, did: it failed 2 runs of 40 when other
+    processes loaded the CPU in bursts, and it also failed once in a full run.
+
+    Mutations, each one alone, in ``_jsonc_tokens``: give the whitespace token the line from the start of the file
+    (``_JsoncTok("ws", start, index, _jsonc_line(text, start))``), or count the breaks by slicing
+    (``line = text[:index].count("\\n") + 1`` at the top of the loop). Each fails this test within the first few
+    thousand characters. Making the count blind to the scan (the parser converts the text with ``str(text)``
+    before it reads) fails the ``characters >= length`` assertion, so a count of nothing cannot pass.
     """
 
-    count = 5_000
-    small = min(_jsonc_object_of_keys(count) for _ in range(3))
-    large = min(_jsonc_object_of_keys(count * 4) for _ in range(3))
-    assert small > 0
-    assert large / small < 8
+    count = 2_000
+    small, small_length = _jsonc_characters_read_for_keys(count)
+    large, large_length = _jsonc_characters_read_for_keys(count * 4)
+    assert small >= small_length and large >= large_length
+    assert large / small < 6
 
 
 def test_opencode_json_is_the_target_when_jsonc_also_exists(
