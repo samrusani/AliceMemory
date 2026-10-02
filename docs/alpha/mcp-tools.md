@@ -519,6 +519,68 @@ Alice decides the outcome, never the caller:
   for human review in the console.
 - `rejected`: out-of-scope, unsafe, or policy-bypass attempts are blocked.
 
+### The commit result
+
+Unreleased (on main, not in v0.20.0): with `ALICE_MCP_COMMIT_RESULT=compact` in the
+server's environment, `alice_memory_commit` answers in about a sixth of the bytes.
+In v0.20.0 the answer is the whole stored row and the policy decision three times,
+about 3.7 KB for a one-sentence fact. On main that is still what an unset variable
+returns, until the release that turns the compact result on.
+`ALICE_MCP_COMMIT_RESULT=full` returns the v0.20.0 result, byte for byte, in every
+build. A value that is neither `compact` nor `full` is ignored. The server reads the
+variable on every call.
+
+The compact result keeps:
+
+- `status`, `write_mode` and `receipt`, and every other top-level key the full result
+  has, such as `confirmation`, `confirmation_id`, `proposal_id` and `idempotent_replay`.
+- `reason`, `reasons`, `requires_confirmation` and `requires_dashboard_review`, lifted
+  out of `policy_decision` to the top level.
+- `memory`, with `id`, `status`, `title`, `canonical_text`, `memory_type`, `domain`,
+  `sensitivity`, `confidence`, `created_at`, `created_by_agent_id`, `project_scope`,
+  `project_id`, `supersedes` and `superseded_by`.
+
+It leaves out `policy_decision`, `memory.metadata_json` and the other columns of the
+row. A client that reads one of those sets `ALICE_MCP_COMMIT_RESULT=full`. The compact
+result is cut from the full one by choosing keys and never reads the store, so it holds
+no value the full result did not.
+
+Sizes of the text an MCP host hands the model, measured on a scratch vault:
+
+| Write | Full (v0.20.0) | Compact |
+| --- | --- | --- |
+| one-sentence fact, no identity | 3,696 bytes | 595 bytes |
+| one-sentence fact, declared identity | 4,134 bytes | 570 bytes |
+| held for confirmation | 4,633 bytes | 1,066 bytes |
+| 2,000-character memory | 7,810 bytes | 2,530 bytes |
+
+Only the tool name `alice_memory_commit` is compacted. The legacy alias
+`alice_vnext_commit_memory`, the HTTP routes and the CLI return the full result with
+the variable at either value. `alice_memory_manage`, `alice_memory_correct` and the
+other full-surface tools still return full rows.
+
+Where to set the variable. `alice-memory install` never writes it, and it writes an
+`env` map only for Hermes, with the data dir alone. The server answers with the build
+default until you add the variable to the host's entry for the `alice` server:
+
+| Host | Where it goes | A re-run of install |
+| --- | --- | --- |
+| Claude Desktop, Claude Code, Cursor, OpenClaw | the `env` map of the `alice` entry in the host's JSON file | keeps it, as it keeps every key it did not write |
+| Hermes | `env:` under `mcp_servers.alice` in `~/.hermes/config.yaml` | keeps it, and says so in the receipt; v0.20.0 refuses the entry and changes nothing |
+| Codex | the `[mcp_servers.alice.env]` table, or an inline `env`, in `config.toml` | keeps it; v0.20.0 refuses the entry and changes nothing |
+| OpenCode | `environment` under `mcp.alice` | strict `opencode.json` keeps it; `opencode.jsonc` keeps it, and v0.20.0 refuses that file |
+| Claude Code plugin | no setting: the plugin's server entry has no `env` map and its only setting is the data dir | not applicable, install does not write the plugin |
+
+The table says where each entry holds the variable and what install does with it. It
+does not say that a host passes the entry's map on to the server. Nothing in this
+repository measures that for Claude Desktop, Cursor, OpenClaw, Hermes or OpenCode.
+For Claude Code and Codex, the `host-evidence` job in `real-host-ci.yml` plants a probe
+in the server's own entry and records whether it arrived. Codex passes a stdio server
+only `HOME`, `PATH`, `LANG` and a few other names, so a variable exported in the shell
+that starts Codex does not reach the server; the entry's `env` table is the route. To
+check any host, save one fact: a result that still carries `policy_decision` means the
+variable did not reach the server.
+
 Use canonical schema values for persisted labels: `memory_type=semantic`
 for quote saves, `memory_type=procedure` for repeatable playbooks. Avoid
 invented values like `memory_type=quote` or `sensitivity=sensitive` (the

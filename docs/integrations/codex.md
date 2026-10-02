@@ -77,6 +77,8 @@ A re-run keeps these keys when they already sit on Alice's table and Codex would
 
 Unreleased (on main, not in v0.20.0): `ALICE_PROJECT_DIR` and `ALICE_PROJECT_SCOPING` (see [Projects](../alpha/projects.md)) are documented env names too, so a re-run keeps them. In v0.20.0 an alice table that holds either one is refused.
 
+Unreleased (on main, not in v0.20.0): `ALICE_MCP_COMMIT_RESULT` (`compact` or `full`, see [The commit result](../alpha/mcp-tools.md#the-commit-result)) is a documented env name too, so a re-run keeps it. Codex passes a stdio server only a few names from the shell, so set it in the alice table's `env`, not in your shell. In v0.20.0 an alice table that holds it is refused.
+
 A `tools...` key you wrote inside the alice table is kept too, when there is no `[mcp_servers.alice.tools...]` table. If both are present, in either order, install refuses and asks you to move each `tools.<name>` key into its own `[mcp_servers.alice.tools.<name>]` table. Install does not edit, move, or remove a `tools` table, including a bare `[mcp_servers.alice.tools]` table.
 
 A comment inside `command`, `args`, or an inline `env` is refused. The comment stays in the file. Comments inside a carried value such as `env_vars` stay.
