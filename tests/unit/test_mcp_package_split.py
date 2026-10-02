@@ -176,7 +176,12 @@ def test_mcp_registry_order_definitions_and_alias_identity_are_frozen() -> None:
     # says an item that does not fit is skipped and the first item that can fit
     # is cut when nothing fits whole. No tool added, removed, or renamed, and no
     # schema, annotation, or default changed. Legacy definitions are unchanged.
-    assert _digest(core_definitions) == "018cd31f782350ea62d63eb0b2cc9aabea8ef0e203818d6c68d34a7a47768f93"
+    # Re-minted 2026-10-02. The alice_memory_commit canonical_text description
+    # now states the 20,000 character limit. Restoring the previous description
+    # reproduces the previous core digest. No tool added, removed, or renamed,
+    # and no schema, annotation, or default changed. Legacy definitions are
+    # unchanged.
+    assert _digest(core_definitions) == "4979dd00c126ed7e06dfeba6237af9404d1a4d9699b63e95e36bdfcdf434fc3c"
     assert _digest(legacy_definitions) == "6b302f61e48d4f6196af8a7d2c8882130d565d84134f51bba38648f84c09089e"
     ordered_handler_map = [(name, handler.__name__) for name, handler in handlers.items()]
     assert _digest(ordered_handler_map) == "d864c98bb914bbc6ace464fa8020b3ed264f17f2061a6101aae677d801032ae5"

@@ -31,6 +31,16 @@ from alicebot_api.vnext_json import json_safe
 MAX_COMMIT_SOURCE_REFS = 64
 MAX_COMMIT_SOURCE_REF_CHARS = 4_000
 
+# The text of one memory commit, ``canonical_text``: at most 20,000 characters.
+# The Postgres HTTP models (``VNextMemoryCommitRequest``) have always capped it
+# there with ``max_length=20_000``. The request builder every other door uses,
+# ``memory_commit_request_from_payload``, now refuses a longer one with
+# ``MemoryCommitTextTooLarge``, so ``alice_memory_commit`` on SQLite and the CLI
+# take the same number. It is counted after runs of whitespace are collapsed to
+# one space, which is how the text is stored (the MCP handler and the builder
+# collapse it before they store it), so it is the length of what a memory holds.
+MAX_COMMIT_CANONICAL_TEXT_CHARS = 20_000
+
 MAX_CORRECTION_FIELD_CHARS = 20_000
 # A title on a correction. Continuity objects already refuse longer titles.
 MAX_CORRECTION_TITLE_CHARS = 280
@@ -57,6 +67,7 @@ def first_oversized(fields: dict[str, object], limit: int) -> str | None:
 __all__ = [
     "MAX_CAPTURE_CANDIDATE_CHARS",
     "MAX_CAPTURE_COMMIT_CANDIDATES",
+    "MAX_COMMIT_CANONICAL_TEXT_CHARS",
     "MAX_CORRECTION_FIELD_CHARS",
     "MAX_CORRECTION_TITLE_CHARS",
     "first_oversized",
