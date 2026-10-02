@@ -1578,7 +1578,8 @@ def test_the_docs_say_what_v0190_ships_and_keep_the_option_rules() -> None:
     put "once v0.19.0 is published" back into the README, the quickstart, the
     plugin page or the plugin README; drop either marketplace command from one
     of those four files; change the README's tag history sentences (the v0.19.0
-    tag has no marketplace file, the v0.19.2 tag still pins v0.19.0).
+    tag has no marketplace file, the v0.19.2 tag still pins v0.19.0, the v0.20.0
+    tag still pins v0.19.2).
     """
 
     relative = (
@@ -1653,10 +1654,10 @@ def test_the_docs_say_what_v0190_ships_and_keep_the_option_rules() -> None:
         "claude plugin marketplace add samrusani/AliceMemory\n"
         "claude plugin install alice-memory@alicememory\n"
         "```\n\n"
-        "The marketplace file is on `main` and pins the plugin to the v0.19.2 tag commit. "
+        "The marketplace file is on `main` and pins the plugin to the v0.20.0 tag commit. "
         "The v0.19.0 tag has no marketplace file. The v0.19.2 tag has one that still pins "
-        "the v0.19.0 tag commit, so add the marketplace from `main`, not from a checkout "
-        "of that tag."
+        "the v0.19.0 tag commit, and the v0.20.0 tag has one that still pins the v0.19.2 tag "
+        "commit, so add the marketplace from `main`, not from a checkout of a tag."
     ) in readme
 
     quickstart = (ROOT / "docs" / "alpha" / "quickstart.md").read_text(encoding="utf-8")

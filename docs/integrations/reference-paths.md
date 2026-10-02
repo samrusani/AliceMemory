@@ -1,7 +1,7 @@
 # Reference Integration Paths
 
 This page is the path-selection guide for external builders adopting Alice on
-top of the latest published `v0.19.2` baseline. Later changes on `main` are
+top of the latest published `v0.20.0` baseline. Later changes on `main` are
 unreleased until they receive a release
 identity and publication evidence.
 
