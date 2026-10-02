@@ -401,7 +401,7 @@ class GitConfigFacts:
 
 
 _KEY_START = re.compile(r"[A-Za-z]")
-_KEY_CHARS = re.compile(r"[A-Za-z0-9-]*")
+_KEY_CHARS = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-")
 _SECTION_NAME = re.compile(r"[A-Za-z0-9.-]+")
 _INTEGER = re.compile(r"[+-]?[0-9]+")
 _TRUE_WORDS = frozenset({"true", "yes", "on"})
@@ -564,10 +564,11 @@ def parse_git_config(data: bytes) -> GitConfigFacts:
             continue
         if section is None or _KEY_START.match(text, index) is None:
             raise _ConfigError
-        key_match = _KEY_CHARS.match(text, index)
-        assert key_match is not None
-        key = key_match.group(0).lower()
-        index = key_match.end()
+        key_end = index + 1
+        while key_end < length and text[key_end] in _KEY_CHARS:
+            key_end += 1
+        key = text[index:key_end].lower()
+        index = key_end
         while index < length and text[index] in " \t":
             index += 1
         value: str | None

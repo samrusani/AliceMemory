@@ -312,6 +312,19 @@ class _KindCounts:
             self.empty_scope += 1
 
 
+@dataclass(frozen=True)
+class _ProjectRow:
+    id: str
+    label: str | None
+    rows: dict[str, int]
+
+
+@dataclass(frozen=True)
+class _NameRow:
+    name: str
+    rows: dict[str, int]
+
+
 def _detected_label(metadata: Mapping[str, object]) -> str | None:
     detected = metadata.get("project_detected")
     if not isinstance(detected, Mapping):
@@ -390,8 +403,7 @@ def _read_kinds(db_path: Path, user_id: str) -> dict[str, _KindCounts] | None:
 
     from alicebot_api.onramp import _BackupError, _read_only_sqlite_connection
 
-    statuses = tuple(sorted(MEMORY_SEARCHABLE_STATUSES))
-    marks = ", ".join("?" for _ in statuses)
+    statuses = json.dumps(sorted(MEMORY_SEARCHABLE_STATUSES))
     try:
         connection = _read_only_sqlite_connection(db_path)
     except (_BackupError, sqlite3.Error, OSError):
@@ -401,8 +413,9 @@ def _read_kinds(db_path: Path, user_id: str) -> dict[str, _KindCounts] | None:
             "memories": _count_kind(
                 connection,
                 "SELECT metadata_json, project_id FROM memories "
-                f"WHERE user_id = ? AND deleted_at IS NULL AND status IN ({marks})",
-                (user_id, *statuses),
+                "WHERE user_id = ? AND deleted_at IS NULL "
+                "AND status IN (SELECT value FROM json_each(?))",
+                (user_id, statuses),
                 _memory_or_loop_scope,
             ),
             "sources": _count_kind(
@@ -455,15 +468,15 @@ def _run_report(args: argparse.Namespace) -> int:
         key=lambda pid: (-project_total(pid), pid),
     )
     projects = [
-        {
-            "id": project_id,
-            "label": project_label(project_id),
-            "rows": {name: counts.project_rows[project_id] for name, counts in kinds.items()},
-        }
+        _ProjectRow(
+            id=project_id,
+            label=project_label(project_id),
+            rows={name: counts.project_rows[project_id] for name, counts in kinds.items()},
+        )
         for project_id in project_ids[:_LIST_LIMIT]
     ]
 
-    names: list[dict[str, object]] = []
+    names: list[_NameRow] = []
     withheld = 0
     more_names = 0
     for key in sorted(
@@ -475,7 +488,7 @@ def _run_report(args: argparse.Namespace) -> int:
             withheld += 1
         elif len(names) < _LIST_LIMIT:
             names.append(
-                {"name": display, "rows": {name: counts.names[key] for name, counts in kinds.items()}}
+                _NameRow(name=display, rows={name: counts.names[key] for name, counts in kinds.items()})
             )
         else:
             more_names += 1
@@ -484,11 +497,13 @@ def _run_report(args: argparse.Namespace) -> int:
     if args.as_json:
         _print_json(
             {
-                "free_form_names": names,
+                "free_form_names": [{"name": entry.name, "rows": entry.rows} for entry in names],
                 "free_form_names_more": more_names,
                 "free_form_names_withheld": withheld,
                 "kinds": {name: _kind_record(counts) for name, counts in kinds.items()},
-                "projects": projects,
+                "projects": [
+                    {"id": project.id, "label": project.label, "rows": project.rows} for project in projects
+                ],
                 "projects_more": more_projects,
                 "vault_found": vault_found,
             }
@@ -515,12 +530,10 @@ def _run_report(args: argparse.Namespace) -> int:
     if not projects:
         print("  none")
     for project in projects:
-        rows = project["rows"]
-        assert isinstance(rows, dict)
-        label = json.dumps(project["label"]) if project["label"] else "(no label recorded)"
+        label = json.dumps(project.label) if project.label else "(no label recorded)"
         print(
-            f"  {project['id']} {label}: memories {rows['memories']}, "
-            f"sources {rows['sources']}, open loops {rows['open_loops']}"
+            f"  {project.id} {label}: memories {project.rows['memories']}, "
+            f"sources {project.rows['sources']}, open loops {project.rows['open_loops']}"
         )
     if more_projects:
         print(f"  and {more_projects} more")
@@ -532,11 +545,9 @@ def _run_report(args: argparse.Namespace) -> int:
     if not names and not withheld and not more_names:
         print("  none")
     for entry in names:
-        name_rows = entry["rows"]
-        assert isinstance(name_rows, dict)
         print(
-            f"  {json.dumps(entry['name'])}: memories {name_rows['memories']}, "
-            f"sources {name_rows['sources']}, open loops {name_rows['open_loops']}"
+            f"  {json.dumps(entry.name)}: memories {entry.rows['memories']}, "
+            f"sources {entry.rows['sources']}, open loops {entry.rows['open_loops']}"
         )
     if withheld:
         print(f"  {withheld} name(s) not shown: they look like a path, a URL or a credential")
