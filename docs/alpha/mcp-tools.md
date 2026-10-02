@@ -507,7 +507,11 @@ Alice decides the outcome, never the caller:
   author refusal and a ceiling refusal record the reason on the policy
   events (`policy.decision` and `agent.policy_blocked`). A credential
   refusal on confirm leaves the row pending and does not keep a policy
-  event for that refusal.
+  event for that refusal. Unreleased (on main, not in v0.20.0): an author
+  refusal and a ceiling refusal come back as `not_permitted`, a
+  confirmation id that does not exist as `not_found`, and a confirmation
+  that is not pending as `precondition_failed`, each with the same
+  message. A credential refusal stays `tool_request_failed`.
   A pending write stays out of recall until it is answered, and nothing
   expires it in the background. Only `VNextMemoryCommitService.confirm`
   reads its 24 hour `expires_at`. After that time, a confirm or reject
@@ -665,11 +669,59 @@ the measured size, and never repeats the query, for example `query has 1000
 distinct search terms; the limit is 499. Use a shorter query.`
 From v0.20.0, it also answers an `alice_resume` or
 `alice_recent_decisions` query over 40,000 UTF-8 bytes (see Size bounds).
+Unreleased (on main, not in v0.20.0): three more codes, `not_permitted`,
+`not_found` and `precondition_failed`, tell a refusal from a failure, and
+`invalid_request` also answers a rejected argument. The table under
+[Error codes](#error-codes) lists all seven.
 The task-brief tools name both flags when either one is missing. Permanently
 deleted hosted, channel, chat, chief-of-staff, and model-pack tools never list.
 New integrations should stay on the default three tools; the legacy surface
 is frozen and will not gain new capabilities. Set `ALICE_MCP_FULL_TOOLS=1`
 only when capture, the pack, or review must be in the handshake.
+
+## Error codes
+
+Unreleased (on main, not in v0.20.0): a failed `tools/call` answers one of
+seven codes. `not_permitted`, `not_found` and `precondition_failed` are new,
+and `invalid_request` now also answers a rejected argument. v0.20.0 answered
+`tool_request_failed` for every case these four cover, apart from the query
+size limits that v0.19.2 and v0.20.0 already answered with `invalid_request`.
+
+| Code | It means | What an agent should do |
+| --- | --- | --- |
+| `invalid_request` | The arguments were rejected: a property the tool does not take, a missing or mistyped value, a value out of range, an action the tool does not know, or text over a size limit. | Fix the call and retry. |
+| `not_permitted` | A policy, the agent's permission profile, its key or its project scope refused the call, or the call asked for something the server forbids, such as raw content outside development. | Do not retry. Ask the owner. |
+| `not_found` | An id the call names does not exist for this caller: a memory, a pending confirmation, an open loop, an artifact, a review item or a provenance source. A review item outside the caller's own filters answers the same. | Check the id, or stop. |
+| `precondition_failed` | The call is well formed and allowed, but the state forbids it: a confirmation that was already answered, a memory or review item whose status does not allow the action, a tool the SQLite backend does not serve, or a write that refers to a row the vault does not hold. | Change the state first, or use another route. The same call will not work until the state changes. |
+| `tool_request_failed` | Any other refusal. | Treat it as opaque. |
+| `tool_execution_failed` | The tool failed in a way the server did not expect. | Treat it as opaque. Look at the server log. |
+| `tool_not_found` | The tool name is not on the surface this server serves. | Stop calling it. |
+
+The message is the same fixed sentence for every code, `The tool request
+could not be processed` (`The tool could not be executed` for
+`tool_execution_failed`, `The requested tool is not available` for
+`tool_not_found`). The one exception is `invalid_request` for a size limit,
+which names the limit and the measured size and never repeats the text. The
+reason for a refusal stays in the server log and, for a policy refusal, in the
+policy events. A code comes from the class of the error that was raised, never
+from its message text.
+
+What an id tells a caller. A caller that authenticates with an agent key gets
+`tool_request_failed` from `alice_explain` whether the target is missing or
+unreadable, because explain expands related rows and a different code would
+tell it which. Every other tool that takes an id answers the difference, to a
+key-bound caller too: an id that the key's project scope refuses answers
+`not_permitted` from `alice_memory_review` by id, `alice_memory_correct` and
+`alice_memory_manage`, and an id that does not exist answers `not_found`. So a
+key bound to one project can learn that an id it already holds exists in
+another project. That is what the codes are for, the HTTP memory routes answer
+403 and 404 the same way, and an id is a random UUID, so the answer only tells
+a caller about an id it already has. A review item the caller's own filters
+hide answers `not_found`, the same as a missing one.
+
+These stay `tool_request_failed`: an idempotency key already bound to a
+different request, a credential refusal, a malformed database URL, and an
+internal step that did not complete.
 
 ## Size bounds
 
@@ -741,4 +793,5 @@ changed.
 - Over stdio, a blocked read or confirm returns `tool_request_failed`
   with the message `The tool request could not be processed` and no
   reason. The reason is on the policy events (`policy.decision` and
-  `agent.policy_blocked`).
+  `agent.policy_blocked`). Unreleased (on main, not in v0.20.0): it
+  returns `not_permitted` with the same message and still no reason.

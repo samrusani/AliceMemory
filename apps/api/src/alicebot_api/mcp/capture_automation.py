@@ -44,6 +44,7 @@ from .synthesis import (
     _handle_alice_generate_connections,
     _handle_alice_generate_contradictions,
 )
+from .types import MCPArgumentError
 
 
 def _handle_alice_vnext_capture(context: MCPRuntimeContext, arguments: Mapping[str, object]) -> JsonObject:
@@ -107,7 +108,7 @@ def _handle_alice_vnext_capture(context: MCPRuntimeContext, arguments: Mapping[s
 def _handle_alice_vnext_ingest_agent_output(context: MCPRuntimeContext, arguments: Mapping[str, object]) -> JsonObject:
     identity = _agent_identity_from_arguments(context, arguments)
     if identity is None:
-        raise MCPToolError("agent_id is required for alice_vnext_ingest_agent_output")
+        raise MCPArgumentError("agent_id is required for alice_vnext_ingest_agent_output")
     domain = _parse_optional_text(arguments, "domain") or "project"
     sensitivity = _parse_optional_text(arguments, "sensitivity") or "private"
     blocked_decision: PolicyDecision | None = None
@@ -219,7 +220,7 @@ def _handle_alice_vnext_generate_artifact(context: MCPRuntimeContext, arguments:
         scheduler_arguments["workflow_type"] = workflow_type
         return _handle_alice_vnext_scheduler_run_now(context, scheduler_arguments)
     if workflow_type not in {"daily_brief", "weekly_synthesis"}:
-        raise MCPToolError(
+        raise MCPArgumentError(
             "workflow_type must be daily_brief, weekly_synthesis, connection_report, "
             "contradiction_report, open_loop_review, project_update_scan, or memory_consolidation"
         )
