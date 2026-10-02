@@ -1086,6 +1086,49 @@ def test_opencode_jsonc_keeps_the_embeddings_input_cap_key(
     assert str(vault.resolve()) in written
 
 
+def test_opencode_jsonc_keeps_the_project_env_keys(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """ALICE_PROJECT_DIR and ALICE_PROJECT_SCOPING in an existing entry are kept, not refused.
+
+    Both literals are copied byte for byte.
+    Mutation: drop ALICE_PROJECT_DIR from HERMES_DOCUMENTED_ENV_KEYS, or drop
+    ALICE_PROJECT_SCOPING from it (each alone). Install then refuses the entry
+    for a key it does not carry and this test fails.
+    """
+
+    scripts = _pin(monkeypatch, tmp_path)
+    home = tmp_path / "home"
+    vault = tmp_path / "vault"
+    path = _files(home)["jsonc"]
+    dir_line = '"ALICE_PROJECT_DIR": "/work/repo"'
+    scoping_line = '"ALICE_PROJECT_SCOPING": "on"'
+    original = (
+        "{\n"
+        '  "mcp": {\n'
+        '    "alice": {\n'
+        '      "type": "local",\n'
+        '      "command": ['
+        + json.dumps(str(scripts / "alice-memory"))
+        + ', "mcp", "--data-dir", "/old"],\n'
+        '      "environment": {\n'
+        f"        {dir_line},\n"
+        f"        {scoping_line}\n"
+        "      }\n"
+        "    }\n"
+        "  }\n"
+        "}\n"
+    )
+    _write(path, original)
+    code, out, err = _install(home, vault, capsys)
+    assert code == 0, (out, err)
+    written = path.read_text(encoding="utf-8")
+    assert dir_line in written
+    assert scoping_line in written
+    assert str(vault.resolve()) in written
+    assert "/work/repo" not in out + err
+
+
 def test_opencode_jsonc_refusals(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
