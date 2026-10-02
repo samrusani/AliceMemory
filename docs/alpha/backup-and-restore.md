@@ -217,11 +217,40 @@ and a restored vault can import the same file again. A `metadata_json` or
 `payload_json` nested more than 256 levels is refused with `restore_failed`,
 and so is JSON text under an `agentic_memory` or `agent_identity` key in one of
 them, which is decoded and held to the same 256 levels, or refused when it is
-too deep to decode. A column that is itself a JSON text too deep to
+too deep to decode. In v0.19.2 a column that is itself a JSON text too deep to
 decode is refused too and nothing is written, but with the generic
 `alice_memory_failed` error, not `restore_failed`. The product writes an
 identity at most three levels down. In v0.19.0 and
 earlier, import restores the claim as the file states it.
+
+Unreleased (on main, not in v0.19.2): a JSON column that holds text too deep for the
+decoder (about 10,000 levels on Python 3.12), a record whose JSON is a mapping or
+list nested about 1,000 levels or more, and a line nested too deep to decode are
+refused with `restore_failed`, and nothing is written. Before the error record
+import prints one line that names the file line, the table and the column, for
+example `alice-memory: line 12: event_log column payload_json is nested too
+deeply for import to read`. It never prints a value. The 256-level refusal and
+the one for JSON text under `agentic_memory` or `agent_identity` print the same
+kind of line. A text column that is not a JSON column, such as a source chunk's
+text or a memory title, is restored as the text it is even when it looks like
+deeply nested JSON. In v0.19.2 these ended with `alice_memory_failed` and no
+reason, and a source chunk's text made of nested brackets did too.
+
+Unreleased (on main, not in v0.19.2): `--mode skip` also accepts a legacy row. The
+schema bootstrap fills a few columns of a row from the rest of the row each time
+the vault is opened: a source's `dedupe_key`, a memory's `created_by_agent_id` and
+`run_id`, and, for a memory that keeps its project scope only under
+`agentic_memory`, the canonical `project_scope` in `metadata_json` and
+`project_id`. A file from an older vault, or a hand-made one, can leave such a
+column empty, and a headerless file from before a column existed does not carry
+it. Import stores the row as the file gives it and the next open fills the column
+in. Skip does not compare a column the file row does not carry, and it compares a
+memory or a source whose derived column the file gave empty as the bootstrap will
+fill it, on a scratch in-memory database that never touches the vault. A column
+the file gives with a value is compared as before, so a row that really differs is
+still refused, and `--mode fail` still stops on any existing id. In v0.19.2 the
+second `--mode skip` import of such a file stopped with `restore_failed` and
+the reason `has the same id but different content`.
 
 This command restores a SQLite database. It is not a PostgreSQL import.
 

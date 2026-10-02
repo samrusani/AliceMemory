@@ -120,7 +120,7 @@ from alicebot_api.credential_floor import (
 )
 from alicebot_api.mcp_server import _DEFAULT_MCP_USER_ID, MCPServer
 from alicebot_api.mcp_tools import MCPRuntimeContext
-from alicebot_api.sqlite_schema import bootstrap_sqlite_schema
+from alicebot_api.sqlite_schema import ROW_BACKFILL_TABLES, apply_row_backfills, bootstrap_sqlite_schema
 from alicebot_api.store import ContinuityStoreInvariantError
 from alicebot_api.sqlite_store import (
     ENTITY_COLUMNS,
@@ -1992,6 +1992,45 @@ class _ImportError(Exception):
     """A user-facing import failure; the message names the offending line."""
 
 
+class _ImportDepthError(_ImportError):
+    """JSON in the backup, or in a row it would meet, is nested too deeply to read.
+
+    ``json.loads`` raises RecursionError on text nested about ten thousand
+    levels, and the importer's own walkers fail from about a thousand. Import
+    refuses with ``restore_failed`` and prints this message first. It names the
+    line, the table and the column, and never a value. A caller that knows more
+    than the raiser sets ``table``, ``column`` or ``line_no`` before it raises
+    the error on.
+    """
+
+    def __init__(
+        self,
+        *,
+        table: str | None = None,
+        column: str | None = None,
+        line_no: int | None = None,
+        existing_row: bool = False,
+    ) -> None:
+        super().__init__()
+        self.table = table
+        self.column = column
+        self.line_no = line_no
+        self.existing_row = existing_row
+
+    def __str__(self) -> str:
+        where = f"line {self.line_no}: " if self.line_no is not None else ""
+        if self.existing_row:
+            return (
+                f"{where}the {self.table} row already in the vault has {self.column} nested too "
+                "deeply to compare with the file"
+            )
+        if self.table is None:
+            return f"{where}a record is nested too deeply for import to read"
+        if self.column is None:
+            return f"{where}a {self.table} record is nested too deeply for import to read"
+        return f"{where}{self.table} column {self.column} is nested too deeply for import to read"
+
+
 class _ImportCredentialError(_ImportError):
     """Memory records carry credential material. Reported under its own code,
     naming every offender's line and memory id, never the matched text."""
@@ -2093,6 +2132,8 @@ def _decode_import_envelope(
         payload = json.loads(text)
     except json.JSONDecodeError as exc:
         raise _ImportError(f"line {line_no}: invalid JSON: {exc}") from exc
+    except RecursionError as exc:
+        raise _ImportDepthError(line_no=line_no) from exc
     if not isinstance(payload, dict):
         raise _ImportError(
             f"line {line_no}: expected a JSON object, got {type(payload).__name__}"
@@ -2106,15 +2147,78 @@ def _decode_import_envelope(
     return record_type, record
 
 
-def _json_column(value: object) -> object:
-    """A JSON column as the mapping or list it holds; text that is not JSON as text."""
+def _json_column(value: object, *, column: str) -> object:
+    """A memory's JSON column as the mapping or list it holds; text that is not JSON as text.
+
+    Text too deep for the decoder is refused, naming ``column``. Validation has
+    already refused it in every JSON column of every record, so this is the
+    second check on the way to the same refusal.
+    """
 
     if isinstance(value, str):
         try:
             return json.loads(value)
         except json.JSONDecodeError:
             return value
+        except RecursionError as exc:
+            raise _ImportDepthError(table="memories", column=column) from exc
     return value
+
+
+def _json_depth(value: object) -> int:
+    """How many levels of mapping and list ``value`` nests, counted without recursion."""
+
+    deepest = 0
+    pending: list[tuple[object, int]] = [(value, 1)]
+    while pending:
+        item, depth = pending.pop()
+        deepest = max(deepest, depth)
+        if isinstance(item, Mapping):
+            pending.extend((child, depth + 1) for child in item.values())
+        elif isinstance(item, list):
+            pending.extend((child, depth + 1) for child in item)
+    return deepest
+
+
+def _deepest_column(record: Mapping[str, object]) -> str | None:
+    """The column of ``record`` that nests deepest, or None when none nests at all."""
+
+    named: str | None = None
+    named_depth = 1
+    for column, value in record.items():
+        depth = _json_depth(value)
+        if depth > named_depth:
+            named, named_depth = column, depth
+    return named
+
+
+def _nesting_error(record_type: str, record: Mapping[str, object], line_no: int) -> _ImportDepthError:
+    """The refusal for a record whose nesting a reader could not take, naming its deepest column."""
+
+    return _ImportDepthError(
+        table=_RECORD_SPECS[record_type][0], column=_deepest_column(record), line_no=line_no
+    )
+
+
+def _refuse_undecodable_json_columns(record_type: str, record: Mapping[str, object], *, line_no: int) -> None:
+    """Refuse a JSON column that holds text too deep for the decoder.
+
+    A string in a JSON column is stored as the text it is, and every read of the
+    row decodes it, so a row with such text in one cannot be read back. Only the
+    JSON columns are checked. A text column (a memory title, a chunk's text)
+    that happens to look like deeply nested JSON is only text.
+    """
+
+    table = _RECORD_SPECS[record_type][0]
+    for column, value in record.items():
+        if column not in _JSON_COLUMNS or not isinstance(value, str):
+            continue
+        try:
+            json.loads(value)
+        except json.JSONDecodeError:
+            continue
+        except RecursionError as exc:
+            raise _ImportDepthError(table=table, column=column, line_no=line_no) from exc
 
 
 @dataclass(frozen=True)
@@ -2212,8 +2316,11 @@ def _memory_record_credential_fields(record: Mapping[str, object]) -> tuple[tupl
         fields.append(("summary", summary))
     fields.extend(
         [
-            ("value", _without_product_value_rollup_key(_json_column(record.get("value")))),
-            ("metadata_json", _without_system_keys(_json_column(record.get("metadata_json")))),
+            ("value", _without_product_value_rollup_key(_json_column(record.get("value"), column="value"))),
+            (
+                "metadata_json",
+                _without_system_keys(_json_column(record.get("metadata_json"), column="metadata_json")),
+            ),
             ("memory_key", record.get("memory_key")),
             ("project_id", record.get("project_id")),
         ]
@@ -2486,13 +2593,24 @@ def _validate_import_file(
                             f"line {line_no}: legacy {record_type} has unknown fields that "
                             f"this Alice version cannot restore: {unknown_columns}"
                         )
-                if record_type == "memory":
-                    finding = _memory_record_credential_finding(record, line_no=line_no)
-                    if finding is not None:
-                        credential_findings.append(finding)
-                # Reported, never refused. See _RecordCredentialHit. A memory row the
-                # check refuses aborts the import before the receipt prints.
-                record_hits.extend(_record_credential_hits(record_type, record, line_no=line_no))
+                # Before any reader decodes the record: a JSON column that holds text
+                # too deep for the decoder is refused here, naming the column.
+                _refuse_undecodable_json_columns(record_type, record, line_no=line_no)
+                try:
+                    if record_type == "memory":
+                        finding = _memory_record_credential_finding(record, line_no=line_no)
+                        if finding is not None:
+                            credential_findings.append(finding)
+                    # Reported, never refused. See _RecordCredentialHit. A memory row the
+                    # check refuses aborts the import before the receipt prints.
+                    record_hits.extend(_record_credential_hits(record_type, record, line_no=line_no))
+                    line_digest = (_export_line(record_type, record) + "\n").encode("utf-8")
+                except RecursionError as exc:
+                    # A mapping nested past what the recursive readers take, from about a
+                    # thousand levels (json_safe, which the digest line uses, is one). The
+                    # decoder takes ten thousand, so the line got this far. marshal, which
+                    # the spool uses, stops at two thousand, so it is never reached.
+                    raise _nesting_error(record_type, record, line_no) from exc
                 if progress is not None and (record_count + 1) % _IMPORT_PROGRESS_EVERY == 0:
                     progress(f"alice-memory: validated {record_count + 1} records")
                 counts[record_type] += 1
@@ -2501,15 +2619,10 @@ def _validate_import_file(
                     INSERT INTO validated_records (record_type, ordinal, line_no, payload)
                     VALUES (?, ?, ?, ?)
                     """,
-                    (
-                        record_type,
-                        counts[record_type],
-                        line_no,
-                        sqlite3.Binary(marshal.dumps(record)),
-                    ),
+                    (record_type, counts[record_type], line_no, sqlite3.Binary(marshal.dumps(record))),
                 )
                 record_count += 1
-                digest.update((_export_line(record_type, record) + "\n").encode("utf-8"))
+                digest.update(line_digest)
         if not saw_nonblank:
             raise _ImportError("file is empty")
         if versioned:
@@ -2923,6 +3036,11 @@ def _column_replaced_by_quarantine(value: object) -> bool:
             decoded = json.loads(value)
         except json.JSONDecodeError:
             return False
+        except RecursionError:
+            # Text too deep for the decoder is not the fixed object. A JSON column
+            # that holds such text was refused in validation, so this is a text
+            # column, and that is stored as the text it is.
+            return False
     return isinstance(decoded, Mapping) and dict(decoded) == _QUARANTINE_JSON_OBJECT
 
 
@@ -3029,7 +3147,7 @@ def _mapping_or_json_text(value: object) -> Mapping[str, object] | None:
         except json.JSONDecodeError:
             return None
         except RecursionError as exc:
-            raise _ImportError("a record nests its provenance too deeply to check for key claims") from exc
+            raise _ImportDepthError() from exc
         return decoded if isinstance(decoded, Mapping) else None
     return None
 
@@ -3043,7 +3161,7 @@ def _downgrade_key_claims(value: object, depth: int = 0) -> tuple[object, bool]:
     a padded value are left as they are, and the readers do not verify them.
     """
     if depth > _KEY_CLAIM_MAX_DEPTH:
-        raise _ImportError("a record nests its provenance too deeply to check for key claims")
+        raise _ImportDepthError()
     if isinstance(value, Mapping):
         changed = False
         rewritten: dict[str, object] = {}
@@ -3090,10 +3208,14 @@ def _downgrade_record_key_claims(record: dict[str, object]) -> tuple[dict[str, o
         if column not in record:
             continue
         raw = record[column]
-        decoded: object = _mapping_or_json_text(raw) if isinstance(raw, str) else raw
-        if decoded is None:
-            continue
-        value, column_changed = _downgrade_key_claims(decoded)
+        try:
+            decoded: object = _mapping_or_json_text(raw) if isinstance(raw, str) else raw
+            if decoded is None:
+                continue
+            value, column_changed = _downgrade_key_claims(decoded)
+        except _ImportDepthError as exc:
+            exc.column = column
+            raise
         if column_changed:
             rewritten[column] = value
             changed = True
@@ -3121,8 +3243,22 @@ def _collision_is_identical(
     existing: dict[str, object],
     columns: tuple[str, ...],
     expected: tuple[object, ...],
+    *,
+    table: str,
+    line_no: int,
+    compared: frozenset[str] | None = None,
 ) -> bool:
+    """True when the stored row holds ``expected`` in every compared column.
+
+    A JSON column is compared as decoded JSON. ``compared`` names the columns the
+    file row carries; the rest are not compared (see ``_import_records``). A stored
+    JSON column too deep for the decoder, which a release before v0.19.2 could have
+    stored, is refused naming the column: it cannot be compared.
+    """
+
     for column, expected_value in zip(columns, expected):
+        if compared is not None and column not in compared:
+            continue
         existing_value = existing.get(column)
         if column in _JSON_COLUMNS:
             try:
@@ -3131,6 +3267,13 @@ def _collision_is_identical(
                     if isinstance(existing_value, str)
                     else existing_value
                 )
+            except json.JSONDecodeError:
+                return False
+            except RecursionError as exc:
+                raise _ImportDepthError(
+                    table=table, column=column, line_no=line_no, existing_row=True
+                ) from exc
+            try:
                 expected_json = (
                     json.loads(expected_value)
                     if isinstance(expected_value, str)
@@ -3143,6 +3286,103 @@ def _collision_is_identical(
         elif existing_value != expected_value:
             return False
     return True
+
+
+class _BackfillProbe:
+    """What the schema bootstrap leaves in a memory or source row after the next open.
+
+    ``bootstrap_sqlite_schema`` fills a column of an existing row from the row
+    itself on every open (``apply_row_backfills``). A file from an older vault, or
+    a hand-made one, can give such a column empty: a source without a
+    ``dedupe_key``, a memory with the agent in its metadata and no
+    ``created_by_agent_id``, a project scope held only under ``agentic_memory``.
+    Import stores the row as the file gives it, and the next open of the vault
+    fills the column in. This asks a scratch database, built once and used one
+    row at a time, what that open would store, by running the bootstrap's own
+    steps on the row. Nothing from the probe reaches the vault.
+    """
+
+    def __init__(self) -> None:
+        self._scratch: sqlite3.Connection | None = None
+
+    def close(self) -> None:
+        if self._scratch is not None:
+            self._scratch.close()
+            self._scratch = None
+
+    def _connection(self) -> sqlite3.Connection:
+        if self._scratch is None:
+            scratch = sqlite3.connect(":memory:", isolation_level=None)
+            try:
+                bootstrap_sqlite_schema(scratch)
+                scratch.execute("PRAGMA foreign_keys=OFF")
+            except BaseException:
+                scratch.close()
+                raise
+            self._scratch = scratch
+        return self._scratch
+
+    def settled_values(
+        self,
+        table: str,
+        columns: tuple[str, ...],
+        values: tuple[object, ...],
+    ) -> tuple[object, ...] | None:
+        """``values`` as the row would read after the next open, or None when it cannot say."""
+
+        if table not in ROW_BACKFILL_TABLES:
+            return None
+        scratch = self._connection()
+        row_id = values[columns.index("id")]
+        try:
+            scratch.execute("BEGIN")
+            scratch.execute(
+                f"INSERT INTO {table} ({', '.join(columns)}) VALUES ({', '.join('?' for _ in columns)})",
+                values,
+            )
+            apply_row_backfills(scratch)
+            row = scratch.execute(
+                f"SELECT {', '.join(columns)} FROM {table} WHERE id = ?", (row_id,)
+            ).fetchone()
+        except (sqlite3.Error, TypeError, ValueError):
+            return None
+        finally:
+            if scratch.in_transaction:
+                scratch.execute("ROLLBACK")
+        return tuple(row) if row is not None else None
+
+
+def _stored_row_matches(
+    existing: dict[str, object],
+    columns: tuple[str, ...],
+    candidates: Sequence[tuple[object, ...]],
+    *,
+    table: str,
+    line_no: int,
+    compared: frozenset[str],
+    probe: _BackfillProbe,
+) -> bool:
+    """True when the stored row equals one of the candidate rows in meaning.
+
+    Each candidate is first compared as it is. A memory or a source that does not
+    match is then compared as the schema bootstrap will leave it, which only fills
+    a column the candidate gave empty (see ``_BackfillProbe``). A column the
+    candidate gives with a value is never replaced, so a row that really differs
+    stays different.
+    """
+
+    for values in candidates:
+        if _collision_is_identical(
+            existing, columns, values, table=table, line_no=line_no, compared=compared
+        ):
+            return True
+    for values in candidates:
+        settled = probe.settled_values(table, columns, values)
+        if settled is not None and _collision_is_identical(
+            existing, columns, settled, table=table, line_no=line_no, compared=compared
+        ):
+            return True
+    return False
 
 
 def _import_records(
@@ -3179,62 +3419,82 @@ def _import_records(
     the rewritten row, and also accepts an existing row that equals the row
     as the file gave it: that is a vault re-importing its own export, where
     nothing new is restored and the existing row stays as it is.
+
+    ``skip`` also accepts a legacy row: a column the file row does not carry (a
+    file from before the column existed) is not compared, and a memory or source
+    whose derived column the file gave empty is compared as the schema bootstrap
+    will fill it (see ``_BackfillProbe``). Both let a vault import the same
+    old file again after the bootstrap has changed the rows from the first import.
     """
     quarantine_plan = plan if plan is not None else _EMPTY_QUARANTINE_PLAN
     counts: dict[str, dict[str, int]] = {}
-    for record_type, (table, columns) in _RECORD_SPECS.items():
-        for line_no, record in _iter_spooled_records(validated_import, record_type):
-            tally = counts.setdefault(record_type, {"imported": 0, "skipped": 0})
-            record, added = _apply_import_quarantine(record_type, record, quarantine_plan)
-            if quarantine_tally is not None:
-                for key, amount in added.items():
-                    quarantine_tally[key] = quarantine_tally.get(key, 0) + amount
-            row_id = str(record["id"])
-            stored, claim_rewritten = _downgrade_record_key_claims(record)
-            existing = conn.execute(
-                f"SELECT {', '.join(columns)} FROM {table} WHERE id = ?", (row_id,)
-            ).fetchone()
-            values = _normalized_import_values(store, columns, stored)
-            if existing is not None:
-                if mode == "fail":
+    probe = _BackfillProbe()
+    try:
+        for record_type, (table, columns) in _RECORD_SPECS.items():
+            for line_no, record in _iter_spooled_records(validated_import, record_type):
+                tally = counts.setdefault(record_type, {"imported": 0, "skipped": 0})
+                record, added = _apply_import_quarantine(record_type, record, quarantine_plan)
+                if quarantine_tally is not None:
+                    for key, amount in added.items():
+                        quarantine_tally[key] = quarantine_tally.get(key, 0) + amount
+                row_id = str(record["id"])
+                try:
+                    stored, claim_rewritten = _downgrade_record_key_claims(record)
+                except _ImportDepthError as exc:
+                    exc.table, exc.line_no = table, line_no
+                    raise
+                existing = conn.execute(
+                    f"SELECT {', '.join(columns)} FROM {table} WHERE id = ?", (row_id,)
+                ).fetchone()
+                values = _normalized_import_values(store, columns, stored)
+                if existing is not None:
+                    if mode == "fail":
+                        raise _ImportError(
+                            f"line {line_no}: {record_type} id {row_id} already exists; "
+                            "aborting (--mode fail). Rerun with --mode skip to keep "
+                            "existing rows and import only new records."
+                        )
+                    candidates = [values]
+                    if claim_rewritten:
+                        candidates.append(_normalized_import_values(store, columns, record))
+                    if not _stored_row_matches(
+                        dict(existing),
+                        columns,
+                        candidates,
+                        table=table,
+                        line_no=line_no,
+                        compared=frozenset(column for column in columns if column in record),
+                        probe=probe,
+                    ):
+                        raise _ImportError(
+                            f"line {line_no}: {record_type} id {row_id} has the same id "
+                            "but different content; refusing to combine incompatible backups"
+                        )
+                    tally["skipped"] += 1
+                    continue
+                try:
+                    conn.execute(
+                        f"""
+                        INSERT INTO {table} ({", ".join(columns)})
+                        VALUES ({", ".join("?" for _ in columns)})
+                        """,
+                        values,
+                    )
+                except (
+                    sqlite3.Error,
+                    ContinuityStoreInvariantError,
+                    KeyError,
+                    TypeError,
+                    ValueError,
+                ) as exc:
                     raise _ImportError(
-                        f"line {line_no}: {record_type} id {row_id} already exists; "
-                        "aborting (--mode fail). Rerun with --mode skip to keep "
-                        "existing rows and import only new records."
-                    )
-                if not _collision_is_identical(dict(existing), columns, values) and not (
-                    claim_rewritten
-                    and _collision_is_identical(
-                        dict(existing), columns, _normalized_import_values(store, columns, record)
-                    )
-                ):
-                    raise _ImportError(
-                        f"line {line_no}: {record_type} id {row_id} has the same id "
-                        "but different content; refusing to combine incompatible backups"
-                    )
-                tally["skipped"] += 1
-                continue
-            try:
-                conn.execute(
-                    f"""
-                    INSERT INTO {table} ({", ".join(columns)})
-                    VALUES ({", ".join("?" for _ in columns)})
-                    """,
-                    values,
-                )
-            except (
-                sqlite3.Error,
-                ContinuityStoreInvariantError,
-                KeyError,
-                TypeError,
-                ValueError,
-            ) as exc:
-                raise _ImportError(
-                    f"line {line_no}: {record_type} {row_id} could not be imported: {exc}"
-                ) from exc
-            tally["imported"] += 1
-            if claim_rewritten and claim_tally is not None:
-                claim_tally[record_type] = claim_tally.get(record_type, 0) + 1
+                        f"line {line_no}: {record_type} {row_id} could not be imported: {exc}"
+                    ) from exc
+                tally["imported"] += 1
+                if claim_rewritten and claim_tally is not None:
+                    claim_tally[record_type] = claim_tally.get(record_type, 0) + 1
+    finally:
+        probe.close()
     return counts
 
 
@@ -3371,6 +3631,22 @@ def _run_import(args: argparse.Namespace) -> int:
         return 1
 
 
+def _report_nesting_refusal(exc: BaseException) -> None:
+    """Print why import refused for nesting, then the ``restore_failed`` record.
+
+    The reason names a line, a table and a column and never a value. A
+    RecursionError that no check caught names nothing, and says so.
+    """
+
+    logger.debug(
+        "SQLite import refused a record nested too deeply",
+        exc_info=(type(exc), exc, exc.__traceback__),
+    )
+    reason = str(exc) if isinstance(exc, _ImportDepthError) else "a record is nested too deeply for import to read"
+    _stderr_line(f"alice-memory: {reason}")
+    _emit_error("restore_failed")
+
+
 def _run_import_snapshot(
     args: argparse.Namespace,
     *,
@@ -3396,6 +3672,9 @@ def _run_import_snapshot(
         for line in _credential_finding_lines(exc.findings):
             _stderr_line(line)
         _emit_error("import_credential_material")
+        return 1
+    except _ImportDepthError as exc:
+        _report_nesting_refusal(exc)
         return 1
     except _ImportError as exc:
         logger.debug(
@@ -3439,6 +3718,10 @@ def _run_import_snapshot(
         leftover_memory_findings = (
             _credential_findings_after_quarantine(validated_import, quarantine_plan) if quarantine_ids else ()
         )
+    except (_ImportDepthError, RecursionError) as exc:
+        _remove_sqlite_files(validated_import.spool_path)
+        _report_nesting_refusal(exc)
+        return 1
     except _ImportError as exc:
         logger.debug(
             "SQLite import quarantine plan failed",
@@ -3529,6 +3812,10 @@ def _run_import_snapshot(
             # can never be misreported as a rolled-back restore.
             working_path = db_path
             _remove_sqlite_files(staged_path)
+    except (_ImportDepthError, RecursionError) as exc:
+        # Nothing was published. The finally clause below removes the staged copy.
+        _report_nesting_refusal(exc)
+        return 1
     except (_BackupError, _ImportError, OSError, sqlite3.Error) as exc:
         logger.debug(
             "SQLite restore failed before publication",
