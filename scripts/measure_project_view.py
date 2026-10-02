@@ -15,7 +15,9 @@ the spec names (5,000 and 50,000 notes), and which fill shape fits the budget:
 
 It also times the resolver, ``alice_resume`` in the project view, and recall and
 the context pack with a project view tuple injected (those two tools are not
-view-bearing yet, so the tuple is put in where the policy decision would put it).
+view-bearing yet, so the tuple is put in where the policy decision would put it,
+and the two clause builders state that no global domain is left out, because a
+store read that is handed the marker must state it).
 
 Two steps, both offline, no network, no model, no embeddings, no host binary:
 
@@ -26,10 +28,18 @@ Two steps, both offline, no network, no model, no embeddings, no host binary:
 
 ``build`` makes a scratch git repository beside the vault (``<data-dir>-repo``,
 hand-written ``.git``, no ``git`` process) and stamps three project ids on 15
-percent of the notes, the rest carry no project (a tenth of those under the
-free-form name ``acme``). Five percent of the global notes are in the sensitive
-domains. ``measure`` copies the vault first, so every run starts from the same
-bytes. Nothing here writes to a home folder or reads one.
+percent of the notes by default (``--scoped-share 0.85`` stamps 85 percent), the
+rest carry no project (a tenth of those under the free-form name ``acme``). Five
+percent of the global notes are in the sensitive domains.
+
+The share matters. A note that carries a project id costs one Python call in the
+single-scan read, and a note with none takes a native fast path, so the project
+view costs more on a vault where most notes carry an id. 15 percent is the shape
+the spec priced. 85 percent is the shape of a vault that has run with scoping on
+for a while, because every new note then carries an id. Measure both.
+
+``measure`` copies the vault first, so every run starts from the same bytes.
+Nothing here writes to a home folder or reads one.
 """
 
 from __future__ import annotations
@@ -75,7 +85,7 @@ def _make_repo(root: Path) -> None:
     )
 
 
-def build_vault(data_dir: Path, *, notes: int) -> dict[str, object]:
+def build_vault(data_dir: Path, *, notes: int, scoped_share: float = 0.15) -> dict[str, object]:
     from alicebot_api.onramp import bootstrap_database, resolve_db_path
     from alicebot_api.project_identity import detect_project
     from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
@@ -107,9 +117,9 @@ def build_vault(data_dir: Path, *, notes: int) -> dict[str, object]:
 
     def scope_for(index: int) -> tuple[str, ...] | None:
         roll = rng.random()
-        if roll < 0.15:
+        if roll < scoped_share:
             return (scoped_ids[index % 3],)
-        if roll < 0.15 + 0.85 * 0.10:
+        if roll < scoped_share + (1.0 - scoped_share) * 0.10:
             return ("acme",)
         return None
 
@@ -181,7 +191,14 @@ def build_vault(data_dir: Path, *, notes: int) -> dict[str, object]:
             counts["sources"] += 1
         event_total = connection.execute("SELECT COUNT(*) AS n FROM event_log").fetchone()
     total = int(event_total["n"] if isinstance(event_total, dict) else event_total[0])
-    meta = {"notes": notes, "project_a": project_a, "repo": str(repo), **counts, "events": total}
+    meta = {
+        "notes": notes,
+        "scoped_share": scoped_share,
+        "project_a": project_a,
+        "repo": str(repo),
+        **counts,
+        "events": total,
+    }
     (database.parent / META_FILE).write_text(json.dumps(meta), encoding="utf-8")
     return meta
 
@@ -391,6 +408,22 @@ def measure(data_dir: Path, *, runs: int, label: str) -> dict[str, object]:
         original_checked = mcp_context._policy_checked
         from dataclasses import replace
 
+        # A store read that is handed the marker must state which global domains it leaves out, and
+        # recall and the pack state none yet (the slice that gives them a view will). Until then the
+        # injected tuple would be refused, so these two clause builders state "nothing" for the timed call.
+        original_project_clause = SQLiteVNextStore._project_clause
+        original_metadata_scope_clause = SQLiteVNextStore._metadata_scope_clause
+
+        def stating_project_clause(self, projects, **kwargs):  # type: ignore[no-untyped-def]
+            if kwargs.get("global_excluded_domains") is None:
+                kwargs["global_excluded_domains"] = ()
+            return original_project_clause(self, projects, **kwargs)
+
+        def stating_metadata_scope_clause(self, **kwargs):  # type: ignore[no-untyped-def]
+            if kwargs.get("global_excluded_domains") is None:
+                kwargs["global_excluded_domains"] = ()
+            return original_metadata_scope_clause(self, **kwargs)
+
         def injected_preflight(*args, **kwargs):  # type: ignore[no-untyped-def]
             decision = original_preflight(*args, **kwargs)
             return replace(decision, effective_project_scope=tuple_scope)
@@ -412,11 +445,15 @@ def measure(data_dir: Path, *, runs: int, label: str) -> dict[str, object]:
             def with_view(tool: str = tool, arguments: dict = arguments) -> object:
                 mcp_retrieval._mcp_agent_policy_preflight = injected_preflight  # type: ignore[assignment]
                 mcp_context._policy_checked = injected_checked  # type: ignore[assignment]
+                SQLiteVNextStore._project_clause = stating_project_clause  # type: ignore[method-assign,assignment]
+                SQLiteVNextStore._metadata_scope_clause = stating_metadata_scope_clause  # type: ignore[method-assign,assignment]
                 try:
                     return call_mcp_tool(context, name=tool, arguments=dict(arguments))
                 finally:
                     mcp_retrieval._mcp_agent_policy_preflight = original_preflight  # type: ignore[assignment]
                     mcp_context._policy_checked = original_checked  # type: ignore[assignment]
+                    SQLiteVNextStore._project_clause = original_project_clause  # type: ignore[method-assign]
+                    SQLiteVNextStore._metadata_scope_clause = original_metadata_scope_clause  # type: ignore[method-assign]
 
             timed = _time_interleaved({"unscoped": plain, "project_view": with_view}, runs=runs)
             base, scoped = timed["unscoped"], timed["project_view"]
@@ -431,7 +468,10 @@ def measure(data_dir: Path, *, runs: int, label: str) -> dict[str, object]:
         "runs": runs,
         "python": sys.version.split()[0],
         "sqlite": __import__("sqlite3").sqlite_version,
-        "vault": {key: meta[key] for key in ("notes", "memories", "open_loops", "sources", "events")},
+        "vault": {
+            key: meta.get(key, 0.15 if key == "scoped_share" else None)
+            for key in ("notes", "scoped_share", "memories", "open_loops", "sources", "events")
+        },
         "held_back_domains": sorted(held_back),
         **results,
     }
@@ -443,6 +483,12 @@ def main(argv: list[str] | None = None) -> int:
     build = sub.add_parser("build", help="seed the synthetic vault and its scratch repository")
     build.add_argument("--data-dir", required=True)
     build.add_argument("--notes", type=int, default=5000)
+    build.add_argument(
+        "--scoped-share",
+        type=float,
+        default=0.15,
+        help="share of notes that carry a project id (0.15 is the spec's shape, 0.85 a vault that has run scoped)",
+    )
     run = sub.add_parser("measure", help="time the reads on a vault")
     run.add_argument("--data-dir", required=True)
     run.add_argument("--runs", type=int, default=5)
@@ -451,7 +497,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "build":
         data_dir = Path(args.data_dir)
         data_dir.mkdir(parents=True, exist_ok=True)
-        print(json.dumps(build_vault(data_dir, notes=args.notes)))
+        if not 0.0 <= args.scoped_share <= 1.0:
+            raise SystemExit("--scoped-share must be between 0 and 1")
+        print(json.dumps(build_vault(data_dir, notes=args.notes, scoped_share=args.scoped_share)))
         return 0
     print(json.dumps(measure(Path(args.data_dir), runs=args.runs, label=args.label), indent=2))
     return 0
