@@ -93,7 +93,7 @@ def test_get_embedding_provider_returns_none_when_unconfigured(monkeypatch) -> N
 def test_embed_batch_posts_openai_shape_and_pads_vectors(monkeypatch) -> None:
     captured: dict[str, object] = {}
 
-    def fake_urlopen(request, timeout):
+    def fake_urlopen(request, timeout, enforce_public_peer):
         captured["url"] = request.full_url
         captured["timeout"] = timeout
         captured["headers"] = dict(request.header_items())
@@ -108,7 +108,7 @@ def test_embed_batch_posts_openai_shape_and_pads_vectors(monkeypatch) -> None:
         ).encode("utf-8")
         return _FakeResponse(body)
 
-    monkeypatch.setattr(vnext_embeddings, "urlopen", fake_urlopen)
+    monkeypatch.setattr(vnext_embeddings, "open_provider_url", fake_urlopen)
     provider = OpenAICompatibleEmbeddingProvider(
         base_url="http://localhost:11434/v1/",
         model="nomic-embed-text",
@@ -131,8 +131,8 @@ def test_embed_batch_normalizes_non_utf8_response_to_typed_provider_error(
 ) -> None:
     monkeypatch.setattr(
         vnext_embeddings,
-        "urlopen",
-        lambda request, timeout: _FakeResponse(b"\xff\xfe\xfa"),
+        "open_provider_url",
+        lambda request, timeout, enforce_public_peer: _FakeResponse(b"\xff\xfe\xfa"),
     )
     provider = OpenAICompatibleEmbeddingProvider(
         base_url="http://localhost:1234/v1",
@@ -168,8 +168,8 @@ def test_embed_batch_normalizes_non_utf8_response_to_typed_provider_error(
 def test_embed_batch_rejects_non_permutation_indices(monkeypatch, data) -> None:
     monkeypatch.setattr(
         vnext_embeddings,
-        "urlopen",
-        lambda request, timeout: _FakeResponse(json.dumps({"data": data}).encode("utf-8")),
+        "open_provider_url",
+        lambda request, timeout, enforce_public_peer: _FakeResponse(json.dumps({"data": data}).encode("utf-8")),
     )
     provider = OpenAICompatibleEmbeddingProvider(
         base_url="http://localhost:1234/v1", model="local-embed"
@@ -182,8 +182,8 @@ def test_embed_batch_rejects_non_permutation_indices(monkeypatch, data) -> None:
 def test_embed_batch_without_indices_preserves_response_order(monkeypatch) -> None:
     monkeypatch.setattr(
         vnext_embeddings,
-        "urlopen",
-        lambda request, timeout: _FakeResponse(
+        "open_provider_url",
+        lambda request, timeout, enforce_public_peer: _FakeResponse(
             json.dumps(
                 {"data": [{"embedding": [0.1]}, {"embedding": [0.2]}]}
             ).encode("utf-8")
@@ -202,12 +202,12 @@ def test_embed_batch_without_indices_preserves_response_order(monkeypatch) -> No
 def test_embed_batch_omits_authorization_header_without_api_key(monkeypatch) -> None:
     captured: dict[str, object] = {}
 
-    def fake_urlopen(request, timeout):
+    def fake_urlopen(request, timeout, enforce_public_peer):
         del timeout
         captured["headers"] = {key.casefold(): value for key, value in request.header_items()}
         return _FakeResponse(json.dumps({"data": [{"index": 0, "embedding": [0.1]}]}).encode("utf-8"))
 
-    monkeypatch.setattr(vnext_embeddings, "urlopen", fake_urlopen)
+    monkeypatch.setattr(vnext_embeddings, "open_provider_url", fake_urlopen)
     provider = OpenAICompatibleEmbeddingProvider(base_url="http://localhost:1234/v1", model="local-embed")
 
     provider.embed_text("local server text")
@@ -218,8 +218,8 @@ def test_embed_batch_omits_authorization_header_without_api_key(monkeypatch) -> 
 def test_embed_batch_raises_provider_error_on_bad_payload(monkeypatch) -> None:
     monkeypatch.setattr(
         vnext_embeddings,
-        "urlopen",
-        lambda request, timeout: _FakeResponse(json.dumps({"unexpected": True}).encode("utf-8")),
+        "open_provider_url",
+        lambda request, timeout, enforce_public_peer: _FakeResponse(json.dumps({"unexpected": True}).encode("utf-8")),
     )
     provider = OpenAICompatibleEmbeddingProvider(base_url="http://localhost:1234/v1", model="local-embed")
 

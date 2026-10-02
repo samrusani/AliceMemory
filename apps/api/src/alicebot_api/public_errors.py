@@ -26,6 +26,10 @@ INVALID_REQUEST = PublicErrorSpec(400, "invalid_request", "The request is invali
 UNPROCESSABLE_REQUEST = PublicErrorSpec(422, "invalid_request", "The request could not be processed")
 NOT_FOUND = PublicErrorSpec(404, "not_found", "The requested resource was not found")
 CONFLICT = PublicErrorSpec(409, "conflict", "The request conflicts with the current resource state")
+# Answered by the request size limit before any route or handler runs. It is not
+# in the status table below: no handler raises it, and nothing is logged with an
+# exception for it.
+REQUEST_TOO_LARGE = PublicErrorSpec(413, "request_too_large", "The request body is too large")
 UPSTREAM_FAILURE = PublicErrorSpec(502, "upstream_failure", "An upstream service failed")
 INTERNAL_ERROR = PublicErrorSpec(500, "internal_error", "An internal error occurred")
 

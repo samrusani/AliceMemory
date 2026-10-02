@@ -47,7 +47,7 @@ def test_refresh_gmail_access_token_posts_expected_payload_and_returns_expiry(mo
     gmail_account_id = uuid4()
     seen: dict[str, object] = {}
 
-    def fake_urlopen(request, timeout: int):
+    def fake_urlopen(request, timeout: int, enforce_public_peer):
         seen["url"] = request.full_url
         seen["timeout"] = timeout
         seen["content_type"] = request.headers["Content-type"]
@@ -57,7 +57,7 @@ def test_refresh_gmail_access_token_posts_expected_payload_and_returns_expiry(mo
             json.dumps({"access_token": "token-refreshed", "expires_in": 3600}).encode("utf-8")
         )
 
-    monkeypatch.setattr("alicebot_api.gmail.urlopen", fake_urlopen)
+    monkeypatch.setattr("alicebot_api.gmail.open_provider_url", fake_urlopen)
 
     started_at = datetime.now(UTC)
     refreshed_credential = refresh_gmail_access_token(
@@ -95,7 +95,7 @@ def test_refresh_gmail_access_token_returns_rotated_refresh_token_when_provider_
 ) -> None:
     gmail_account_id = uuid4()
 
-    def fake_urlopen(_request, timeout: int):
+    def fake_urlopen(_request, timeout: int, enforce_public_peer):
         assert timeout == GMAIL_TOKEN_REFRESH_TIMEOUT_SECONDS
         return _FakeHTTPResponse(
             json.dumps(
@@ -107,7 +107,7 @@ def test_refresh_gmail_access_token_returns_rotated_refresh_token_when_provider_
             ).encode("utf-8")
         )
 
-    monkeypatch.setattr("alicebot_api.gmail.urlopen", fake_urlopen)
+    monkeypatch.setattr("alicebot_api.gmail.open_provider_url", fake_urlopen)
 
     refreshed_credential = refresh_gmail_access_token(
         gmail_account_id=gmail_account_id,
@@ -126,11 +126,11 @@ def test_refresh_gmail_access_token_maps_invalid_refresh_rejections_to_invalid_e
 ) -> None:
     gmail_account_id = uuid4()
 
-    def fake_urlopen(_request, timeout: int):
+    def fake_urlopen(_request, timeout: int, enforce_public_peer):
         assert timeout == GMAIL_TOKEN_REFRESH_TIMEOUT_SECONDS
         raise _make_http_error(status_code)
 
-    monkeypatch.setattr("alicebot_api.gmail.urlopen", fake_urlopen)
+    monkeypatch.setattr("alicebot_api.gmail.open_provider_url", fake_urlopen)
 
     with pytest.raises(
         GmailCredentialInvalidError,
@@ -149,11 +149,11 @@ def test_refresh_gmail_access_token_maps_non_deterministic_http_failure_to_refre
 ) -> None:
     gmail_account_id = uuid4()
 
-    def fake_urlopen(_request, timeout: int):
+    def fake_urlopen(_request, timeout: int, enforce_public_peer):
         assert timeout == GMAIL_TOKEN_REFRESH_TIMEOUT_SECONDS
         raise _make_http_error(500)
 
-    monkeypatch.setattr("alicebot_api.gmail.urlopen", fake_urlopen)
+    monkeypatch.setattr("alicebot_api.gmail.open_provider_url", fake_urlopen)
 
     with pytest.raises(
         GmailCredentialRefreshError,
@@ -182,14 +182,14 @@ def test_refresh_gmail_access_token_maps_malformed_or_transport_failures_to_refr
 ) -> None:
     gmail_account_id = uuid4()
 
-    def fake_urlopen(_request, timeout: int):
+    def fake_urlopen(_request, timeout: int, enforce_public_peer):
         assert timeout == GMAIL_TOKEN_REFRESH_TIMEOUT_SECONDS
         if error is not None:
             raise error
         assert response_payload is not None
         return _FakeHTTPResponse(response_payload)
 
-    monkeypatch.setattr("alicebot_api.gmail.urlopen", fake_urlopen)
+    monkeypatch.setattr("alicebot_api.gmail.open_provider_url", fake_urlopen)
 
     with pytest.raises(
         GmailCredentialRefreshError,

@@ -54,6 +54,11 @@ configuration they actually assessed.
    archives, or package artifacts?
 7. Are provider URL/redirect/DNS and response-size controls adequate for the
    documented deployment, and what residual availability risks are acceptable?
+   Unreleased (on main, not in v0.19.2): provider calls go through one function
+   that follows no redirect, and the provider helpers, Gmail and Calendar dial
+   only an address the outbound policy allows. The embeddings, reranker, fact-key
+   and brain clients do not check the address, a request carried by a proxy is not
+   checked, and a provider response is still read whole.
 8. Do PostgreSQL RLS, SQLite filesystem isolation, true redaction, backup/export,
    and legacy gating match the documentation under adversarial use?
 

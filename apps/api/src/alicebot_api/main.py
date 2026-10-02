@@ -23,6 +23,7 @@ from urllib.parse import parse_qsl, urlencode
 from alicebot_api import __version__
 from alicebot_api.surface_flags import legacy_surfaces_enabled
 from alicebot_api.config import Settings, get_settings
+from alicebot_api.keyless_edge import keyless_request_refusal
 from alicebot_api.lone_surrogates import (
     lone_surrogate_response,
     payload_lone_surrogate_location,
@@ -30,6 +31,13 @@ from alicebot_api.lone_surrogates import (
     render_validation_error,
 )
 from alicebot_api.public_errors import public_exception_response
+from alicebot_api.request_limits import (
+    JsonBody,
+    RequestBodyLimitMiddleware,
+    body_limit_for,
+    json_too_deep_response,
+    read_json_body,
+)
 from alicebot_api.routers import (
     continuity,
     legacy_gated,
@@ -663,16 +671,10 @@ async def _rewrite_user_id_json_body(request: Request, authenticated_user_id: UU
     if "application/json" not in content_type:
         return request
 
-    raw_body = await request.body()
-    if raw_body == b"":
-        return request
-
-    try:
-        parsed_body = json.loads(raw_body)
-    except json.JSONDecodeError:
-        return request
-
-    if not isinstance(parsed_body, dict):
+    # A body that is empty, is not an object, cannot be decoded or nests too
+    # deeply has no user_id to add. The layers below answer for it.
+    parsed_body = (await read_json_body(request)).payload
+    if parsed_body is None:
         return request
 
     expected_user_id = str(authenticated_user_id)
@@ -825,7 +827,7 @@ async def _prepare_browser_clip_simple_request(
     request._body = raw_body  # type: ignore[attr-defined]
     try:
         parsed_body = json.loads(raw_body)
-    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+    except (ValueError, RecursionError) as exc:
         raise ValueError("browser clip request body is invalid") from exc
     if not isinstance(parsed_body, dict):
         raise ValueError("browser clip request body must be an object")
@@ -935,6 +937,21 @@ async def _vnext_protected_http_auth(
     if request.method == "OPTIONS":
         return await call_next(request)
 
+    # A keyless request that is not from this machine is refused before its body
+    # is read, as /v1 does. The browser-clip capture route is the exception: its
+    # one-time capability is in the body, so it is checked once the body is read.
+    settings = get_settings()
+    raw_key = agent_key_from_authorization(request.headers.get("authorization"))
+    if (
+        raw_key is None
+        and not (request.method.upper() == "POST" and request.url.path == _BROWSER_CLIP_SIMPLE_CAPTURE_PATH)
+    ):
+        if _keyless_request_is_off_loopback(request, settings):
+            return _authentication_failed_response("keyless vNext requests are restricted to loopback clients")
+        early_refusal = keyless_request_refusal(request, settings)
+        if early_refusal is not None:
+            return _authentication_failed_response(f"keyless vNext request refused: {early_refusal}")
+
     try:
         request, simple_capture_payload = await _prepare_browser_clip_simple_request(request)
     except ValueError:
@@ -947,12 +964,11 @@ async def _vnext_protected_http_auth(
     if simple_capture_payload is not None:
         payload = simple_capture_payload
     elif request.method not in {"GET", "HEAD", "OPTIONS"}:
-        try:
-            candidate = await request.json()
-        except (json.JSONDecodeError, UnicodeDecodeError):
-            candidate = None
-        if isinstance(candidate, dict):
-            payload = candidate
+        body = await read_json_body(request)
+        if body.too_deep:
+            return json_too_deep_response()
+        if body.payload is not None:
+            payload = body.payload
 
     surrogate_location = await payload_lone_surrogate_location(request, payload)
     if surrogate_location is not None:
@@ -977,7 +993,6 @@ async def _vnext_protected_http_auth(
         return _vnext_public_error_response(status_code=400, detail="vNext user_id is invalid")
 
     try:
-        settings = get_settings()
         route_path = _matched_vnext_route_path(request)
         capability_capture = (
             request.method.upper() == "POST"
@@ -985,9 +1000,12 @@ async def _vnext_protected_http_auth(
             and isinstance(payload.get("capture_capability"), str)
             and bool(str(payload["capture_capability"]).strip())
         )
-        raw_key = agent_key_from_authorization(request.headers.get("authorization"))
-        if raw_key is None and not capability_capture and _keyless_request_is_off_loopback(request, settings):
-            return _authentication_failed_response("keyless vNext requests are restricted to loopback clients")
+        if raw_key is None and not capability_capture:
+            if _keyless_request_is_off_loopback(request, settings):
+                return _authentication_failed_response("keyless vNext requests are restricted to loopback clients")
+            edge_refusal = keyless_request_refusal(request, settings)
+            if edge_refusal is not None:
+                return _authentication_failed_response(f"keyless vNext request refused: {edge_refusal}")
         if capability_capture:
             # The capability is the narrow credential for this endpoint. Its
             # hash/origin/user/expiry/consumption checks run atomically in the
@@ -1086,18 +1104,14 @@ def _is_v1_path(path: str) -> bool:
     return path == "/v1" or path.startswith("/v1/")
 
 
-async def _v1_request_payload(request: Request) -> dict[str, object]:
+async def _v1_request_payload(request: Request) -> JsonBody:
     """Read the JSON body an agent-key claim could be hiding in."""
 
     if request.method.upper() in {"GET", "HEAD", "OPTIONS"}:
-        return {}
+        return JsonBody(None, False)
     if "application/json" not in request.headers.get("content-type", "").casefold():
-        return {}
-    try:
-        candidate = await request.json()
-    except (json.JSONDecodeError, UnicodeDecodeError):
-        return {}
-    return candidate if isinstance(candidate, dict) else {}
+        return JsonBody(None, False)
+    return await read_json_body(request)
 
 
 def _v1_request_claims_other_user(
@@ -1165,8 +1179,12 @@ async def enforce_v1_agent_authentication(
 
     settings = get_settings()
     raw_key = agent_key_from_authorization(request.headers.get("authorization"))
-    if raw_key is None and _keyless_request_is_off_loopback(request, settings):
-        return _authentication_failed_response("keyless /v1 requests are restricted to loopback clients")
+    if raw_key is None:
+        if _keyless_request_is_off_loopback(request, settings):
+            return _authentication_failed_response("keyless /v1 requests are restricted to loopback clients")
+        edge_refusal = keyless_request_refusal(request, settings)
+        if edge_refusal is not None:
+            return _authentication_failed_response(f"keyless /v1 request refused: {edge_refusal}")
 
     try:
         user_id = _resolve_authenticated_v1_user_id(settings, request)
@@ -1175,7 +1193,10 @@ async def enforce_v1_agent_authentication(
         # stable "local identity is required" contract for that case.
         return await call_next(request)
 
-    payload = await _v1_request_payload(request)
+    body = await _v1_request_payload(request)
+    if body.too_deep:
+        return json_too_deep_response()
+    payload = body.payload or {}
     surrogate_location = await payload_lone_surrogate_location(request, payload)
     if surrogate_location is not None:
         return lone_surrogate_response(surrogate_location)
@@ -1313,10 +1334,9 @@ async def enforce_authenticated_user_identity(
         return await call_next(request)
 
     settings = get_settings()
+    is_vnext_path = request.url.path == "/v0/vnext" or request.url.path.startswith("/v0/vnext/")
 
-    if settings.app_env not in {"development", "test"} and not (
-        request.url.path == "/v0/vnext" or request.url.path.startswith("/v0/vnext/")
-    ):
+    if settings.app_env not in {"development", "test"} and not is_vnext_path:
         if not settings.legacy_v0_enabled_outside_dev:
             return JSONResponse(
                 status_code=404,
@@ -1328,16 +1348,50 @@ async def enforce_authenticated_user_identity(
                 content={"detail": "legacy v0 API is restricted to loopback clients"},
             )
 
+    # The legacy /v0 routes have no agent key to present, so every request to them
+    # is a keyless one: it must name this machine in Host, and any Origin it sends
+    # must be its own or a configured one (DB-005). A key-shaped Authorization
+    # header does not exempt it, because these routes never check one. The vNext
+    # gate runs the same rule for its own keyless requests.
+    if not is_vnext_path and request.method != "OPTIONS":
+        legacy_refusal = keyless_request_refusal(request, settings)
+        if legacy_refusal is not None:
+            return _authentication_failed_response(f"legacy v0 request refused: {legacy_refusal}")
+
     try:
         authenticated_user_id = _resolve_authenticated_user_id(settings, request)
         if authenticated_user_id is not None:
             request.scope.setdefault("state", {})["authenticated_user_id"] = str(authenticated_user_id)
             _rewrite_user_id_query_param(request, authenticated_user_id)
-            request = await _rewrite_user_id_json_body(request, authenticated_user_id)
+            # A keyless /v0/vnext request that the vNext gate refuses for its
+            # peer, Host or Origin gets that refusal before its body is read.
+            refused_by_gate = (
+                request.url.path.startswith("/v0/vnext")
+                and request.url.path != _BROWSER_CLIP_SIMPLE_CAPTURE_PATH
+                and agent_key_from_authorization(request.headers.get("authorization")) is None
+                and (
+                    _keyless_request_is_off_loopback(request, settings)
+                    or keyless_request_refusal(request, settings) is not None
+                )
+            )
+            if not refused_by_gate:
+                request = await _rewrite_user_id_json_body(request, authenticated_user_id)
     except ValueError as exc:
         return public_exception_response(exc, status_code=401)
 
     return await call_next(request)
+
+
+# Registered last, so it is the outermost layer: every read of a request body, in
+# the identity layer, the /v1 and vNext gates and the framework, comes after it.
+app.add_middleware(
+    RequestBodyLimitMiddleware,
+    limit_for=lambda scope: body_limit_for(
+        scope,
+        request_limit=get_settings().max_request_body_bytes,
+        connector_sync_limit=get_settings().max_connector_sync_body_bytes,
+    ),
+)
 
 
 @app.get("/healthz")

@@ -104,6 +104,8 @@ def _post_candidates(
         status, payload = _invoke(
             body,
             {
+                # A legacy /v0 request must name this machine in Host (DB-005).
+                "host": "127.0.0.1:8000",
                 "content-type": "application/json",
                 "X-AliceBot-User-Id": header_user_id,
             },
