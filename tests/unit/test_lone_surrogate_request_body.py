@@ -1030,12 +1030,12 @@ def _bare_request() -> Request:
 def test_a_validation_error_is_answered_by_the_framework_handler_and_only_a_failure_to_encode_falls_back(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The framework answers every error it can encode. Only ``UnicodeEncodeError`` hands over.
+    """The framework answers every error it can encode. Only a ``UnicodeError`` hands over.
 
     Mutations, each one alone: build the response with
     ``validation_error_response`` without calling the framework handler (the
     first assertion fails, and so does a later framework change that this copy
-    would not follow); catch ``Exception`` instead of ``UnicodeEncodeError``
+    would not follow); catch ``Exception`` instead of ``UnicodeError``
     (the ``RuntimeError`` is swallowed); remove the fallback (the surrogate
     error raises).
     """
