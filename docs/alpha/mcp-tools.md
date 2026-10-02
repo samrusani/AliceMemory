@@ -522,6 +522,85 @@ Alice decides the outcome, never the caller:
   for human review in the console.
 - `rejected`: out-of-scope, unsafe, or policy-bypass attempts are blocked.
 
+### The commit result
+
+Unreleased (on main, not in v0.20.0): with `ALICE_MCP_COMMIT_RESULT=compact` in the
+server's environment, `alice_memory_commit` answers in a fraction of the bytes: under
+a sixth of them for a one-sentence fact, under a quarter for a write held for
+confirmation, and under a third for a 2,000-character memory, which carries its text
+once. In v0.20.0 the answer is the whole stored row and the policy decision three times,
+about 3.7 KB for a one-sentence fact. On main that is still what an unset variable
+returns, until the release that turns the compact result on.
+`ALICE_MCP_COMMIT_RESULT=full` returns the v0.20.0 result, byte for byte, in every
+build. A value that is neither `compact` nor `full` is ignored. The server reads the
+variable on every call.
+
+The compact result keeps:
+
+- `status`, `write_mode` and `receipt`, and every other top-level key the full result
+  has, such as `confirmation`, `confirmation_id`, `proposal_id` and `idempotent_replay`.
+- `reason`, `reasons`, `requires_confirmation` and `requires_dashboard_review`, lifted
+  out of `policy_decision` to the top level.
+- `memory`, with `id`, `status`, `title`, `canonical_text`, `memory_type`, `domain`,
+  `sensitivity`, `confidence`, `created_at`, `created_by_agent_id`, `project_scope`,
+  `project_id`, `supersedes` and `superseded_by`.
+
+It leaves out `policy_decision`, `memory.metadata_json` and the other columns of the
+row. A client that reads one of those sets `ALICE_MCP_COMMIT_RESULT=full`. The compact
+result is cut from the full one by choosing keys and never reads the store, so it holds
+no value the full result did not.
+
+Sizes of the text an MCP host hands the model, measured on a fresh SQLite vault with
+the fixtures of `tests/unit/test_compact_commit_result.py` (the short fact and the held
+write are in `tests/unit/fixtures_commit_result_golden.py`). A test recomputes every
+number in the table. The bytes move with the text and the agent identity a call
+sends:
+
+| Write | Full (v0.20.0) | Compact |
+| --- | --- | --- |
+| one-sentence fact, no identity | 3,696 bytes | 595 bytes |
+| one-sentence fact, declared identity | 4,186 bytes | 583 bytes |
+| held for confirmation | 4,633 bytes | 1,066 bytes |
+| 2,000-character memory | 7,817 bytes | 2,536 bytes |
+
+Only the tool name `alice_memory_commit` is compacted. The legacy alias
+`alice_vnext_commit_memory`, the HTTP routes and the CLI return the full result with
+the variable at either value. `alice_memory_manage`, `alice_memory_correct` and the
+other full-surface tools still return full rows.
+
+Where to set the variable. `alice-memory install` never writes it, and it writes an
+`env` map only for Hermes, with the data dir alone. The server answers with the build
+default until you add the variable to the host's entry for the `alice` server:
+
+| Host | Where it goes | A re-run of install | Host passes the map to the server |
+| --- | --- | --- | --- |
+| Claude Desktop, Claude Code, Cursor, OpenClaw | the `env` map of the `alice` entry in the host's JSON file | keeps it, as it keeps every key it did not write | not verified |
+| Hermes | `env:` under `mcp_servers.alice` in `~/.hermes/config.yaml` | keeps it, and says so in the receipt; v0.20.0 refuses the entry and changes nothing | not verified |
+| Codex | the `[mcp_servers.alice.env]` table, or an inline `env`, in `config.toml` | keeps it; v0.20.0 refuses the entry and changes nothing | not verified |
+| OpenCode | `environment` under `mcp.alice` | strict `opencode.json` keeps it; `opencode.jsonc` keeps it, and v0.20.0 refuses that file | not verified |
+| Claude Code plugin | no setting: the plugin's server entry has no `env` map, so a plugin user cannot set the variable (its only setting is the data dir) | not applicable, install does not write the plugin | no setting |
+
+What the table rests on. Verified in this repository: install writes each entry and keeps
+the variable on a re-run, as the third column says, and a real `alice-memory mcp` process
+started with the variable in its environment answers with the value it names. Not
+verified for any host, Claude Code and Codex included: that the host passes the entry's
+map on to the server. This repository never runs a host, so the last column says "not
+verified" in every row that has a setting.
+
+Codex passes a stdio server only `HOME`, `PATH`, `LANG` and a few other names, so a
+variable exported in the shell that starts Codex does not reach the server by itself.
+The entry's `env` table is one route. The same entry's `env_vars` list, which names the
+shell variables Codex forwards (see [the Codex page](../integrations/codex.md)), is the
+other: `env_vars = ["ALICE_MCP_COMMIT_RESULT"]` forwards the shell's value. Neither has
+been run against Codex here.
+
+To check that a host's server received the variable, set it to `compact` and save one
+fact, then set it to `full` and save another. The compact result has no
+`policy_decision`; the full result has one. A server that received the variable gives
+one shape each time. A server that did not gives the same shape both times, the one the
+build default produces. That holds before and after the release that turns the compact
+result on.
+
 Use canonical schema values for persisted labels: `memory_type=semantic`
 for quote saves, `memory_type=procedure` for repeatable playbooks. Avoid
 invented values like `memory_type=quote` or `sensitivity=sensitive` (the
