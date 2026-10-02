@@ -1057,3 +1057,18 @@ def test_the_constant_is_defined_once_and_the_modules_that_name_it_hold_the_same
     assert vnext_retrieval.MEMORY_SEARCHABLE_STATUSES is vnext_recall_visibility.MEMORY_SEARCHABLE_STATUSES
     assert COMMITTED_MEMORY_STATUSES is vnext_recall_visibility.MEMORY_SEARCHABLE_STATUSES
     assert MEMORY_SEARCHABLE_STATUSES == ("active", "accepted")
+
+
+def test_an_extreme_valid_to_does_not_stop_the_embedding_door() -> None:
+    """A stored valid_to whose offset leaves the datetime range is read, not raised.
+
+    Mutation: let ``parse_valid_to`` raise the ``OverflowError`` from
+    ``astimezone`` (the whole reindex run then stops on one row).
+    """
+
+    from alicebot_api.vnext_recall_visibility import parse_valid_to, valid_to_has_passed
+
+    assert parse_valid_to("9999-12-31T23:59:59-05:00") is None
+    assert valid_to_has_passed("9999-12-31T23:59:59-05:00") is False
+    assert valid_to_has_passed("0001-01-01T00:00:00+05:00") is True
+

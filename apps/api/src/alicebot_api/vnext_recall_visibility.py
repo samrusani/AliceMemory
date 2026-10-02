@@ -50,7 +50,12 @@ def parse_valid_to(value: object) -> datetime | None:
         return None
     if moment.tzinfo is None:
         moment = moment.replace(tzinfo=UTC)
-    return moment.astimezone(UTC)
+    try:
+        return moment.astimezone(UTC)
+    except OverflowError:
+        # An offset that moves the moment past year 9999 is the far future, so
+        # the row has not ended; one that moves it before year 1 has ended.
+        return None if moment.year > 1 else datetime.min.replace(tzinfo=UTC)
 
 
 def valid_to_has_passed(value: object, *, now: datetime | None = None) -> bool:
