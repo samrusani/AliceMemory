@@ -173,21 +173,24 @@ def test_the_upgrade_steps_name_every_action_an_existing_user_takes_in_order() -
 def test_the_embeddings_upgrade_check_keeps_its_numbers_and_the_cost_statement() -> None:
     """Mutations, each one alone: change a character count, the doctor count, the batch size or a cap value.
 
-    The vault held five memories embedded under v0.19.2 with embedded text of 208, 689,
-    8,293, 9,289 and 15,290 characters. The doctor showed 3 after the upgrade and made no
-    request, the first reindex sent one batch of 3 texts of 8,000 characters each, and the
-    second sent nothing. A cap of 20000 showed 0, and a cap of 12000 sent one text.
+    The vault held five memories committed under v0.19.2 with a recording endpoint: texts
+    of 100, 600, 7,900, 8,800 and 15,000 characters, so embedded texts (title, text and a
+    summary of the first 280 characters of the text) of 117, 899, 8,199, 9,099 and 15,299
+    characters. The doctor showed 3 after the upgrade and made no request, the first
+    reindex sent one batch of 3 texts of 8,000 characters each, and the second sent
+    nothing. A cap of 20000 showed 0, and a cap of 12000 sent one text.
     """
 
     steps = _section(_text(NOTES_PATH), "What to do after upgrading")
     assert "nothing is re-embedded by the upgrade itself" in steps
-    assert "208, 689, 8,293, 9,289 and 15,290 characters" in steps
+    assert "texts of 100, 600, 7,900, 8,800 and 15,000 characters, so embedded texts of 117, 899, 8,199, 9,099 and 15,299 characters" in steps
+    assert "208, 689" not in steps
     assert "the doctor showed 3 right after the upgrade and made no request" in steps
     assert "one batch of 3 texts of 8,000 characters each, and the second reindex sent nothing" in steps
     assert "`ALICE_EMBEDDINGS_MAX_INPUT_CHARS=20000` the same vault showed 0 and sent nothing" in steps
-    assert "with 12000 only the memory over 12,000 characters was sent, cut to 12,000" in steps
+    assert "with 12000 only the memory whose embedded text was over 12,000 characters was sent, cut to 12,000" in steps
     assert "the cost is at most the cap in characters for each such memory" in steps
-    assert "A vault with no memory over 8,000 characters pays nothing." in steps
+    assert "A vault in which no memory's embedded text is over 8,000 characters pays nothing." in steps
     assert "whose vector carries no cut label, which is every vector that v0.19.2 made for such a memory" in steps
 
 
@@ -267,3 +270,185 @@ def test_the_notes_describe_the_behaviour_changes_an_integrator_will_notice() ->
     schema = _section(_text(NOTES_PATH), "Schema and migration")
     assert schema.startswith("There is no schema change: no new Alembic revision")
     assert "No dependency pin in `pyproject.toml` moves." in schema
+
+
+def _changelog_section() -> str:
+    changelog = _text("CHANGELOG.md")
+    return changelog.split(HEADING)[1].split("\n## v0.19.2")[0]
+
+
+def test_the_embedded_text_is_described_with_its_summary_and_no_twenty_thousand_limit() -> None:
+    """Mutations, each one alone: write "8,001 to 20,000 characters" or "a commit accepts up to 20,000" back
+    into the notes, the changelog, the README or the MCP guide; drop the sentence that gives the summary's size
+    or the one that says SQLite has no length limit.
+
+    The embedded text of a memory is its title, its text and its summary, and the summary of a committed
+    memory is the first 280 characters of its text, so a text of about 7,700 characters can cross the cap. The
+    20,000 limit belongs to the Postgres HTTP commit models only: `alice_memory_commit` on SQLite stored a
+    2,000,000 character memory whole, in v0.19.2 and in this release.
+    """
+
+    notes = _flat(NOTES_PATH)
+    changelog = " ".join(_changelog_section().split())
+    readme = _flat("README.md")
+    mcp = _flat("docs/integrations/mcp.md")
+    for name, text in (("notes", notes), ("changelog", changelog), ("readme", readme), ("mcp guide", mcp)):
+        assert "8,001 to 20,000" not in text, name
+        assert "a commit accepts up to 20,000" not in text, name
+    assert "The summary of a committed memory is the first 280 characters of its text" in notes
+    assert "a memory with text of about 7,700 characters or more can be over the default cap" in notes
+    assert "the first 280 characters of its text), so a memory whose text is about 7,700 characters or more" in changelog
+    assert "a memory whose embedded text (its title, text and summary) is over 8,000 characters is embedded from its first 8,000" in readme
+    assert "A memory whose embedded text (its title, text and summary) is over 8,000 characters is embedded from its first 8,000" in mcp
+    limitations = _section(_text(NOTES_PATH), "Known limitations")
+    assert "`alice_memory_commit` on SQLite has no length limit" in limitations
+    assert "The Postgres HTTP commit routes take up to 20,000 characters of text" in limitations
+    assert "has no length limit" in _flat("docs/alpha/known-limitations.md")
+
+
+def test_the_pack_lead_admits_an_empty_pack_and_the_notes_name_the_tool_set() -> None:
+    """Mutations, each one alone: drop the 710-token clause from the lead; drop either sentence about
+    `ALICE_MCP_FULL_TOOLS=1` from the pack section or from the recall section.
+    """
+
+    text = _text(NOTES_PATH)
+    lead = " ".join(text.split("## What to do after upgrading")[0].split())
+    assert "A committed memory costs about 710 tokens before any of its text" in lead
+    assert "the pack can still be empty at the tool's 500-token minimum" in lead
+    pack = _section(text, "Context pack at a small budget")
+    assert "`alice_context_pack` and `alice_recent_decisions` are listed and callable only with `ALICE_MCP_FULL_TOOLS=1`" in pack
+    recall = _section(text, "Recall, the context pack and `alice_resume`")
+    assert "`alice_recent_decisions` is listed and callable only with `ALICE_MCP_FULL_TOOLS=1`" in recall
+
+
+def test_the_changelog_and_the_notes_claim_nothing_that_v0192_never_had_or_did() -> None:
+    """Mutations, each one alone, put the old sentence back: "the doctor counted 3"; "capture-file still has no
+    limit"; "the reason `has the same id but different content`"; "no longer return such a memory"; "v0.19.2
+    answered HTTP 500 and HTTP 422"; "Every outbound call goes through one function"; "9.0 seconds"; "to a file and
+    to standard output, and leaves no output file"; "Re-running Hermes or OpenCode `install` keeps".
+
+    Each was found false by running v0.19.2 and this branch side by side. v0.19.2 had no doctor count, so
+    "counted" is wrong for it. Every vnext file command takes `--max-file-mib`. Nothing prints the skip reason.
+    Expired memories were already absent from recall and the pack. The 500 on the commit route in v0.19.2 was
+    not about the body size. The headless alpha check opens URLs with `urlopen`. A strict `opencode.json` kept
+    every key install did not write in v0.19.2.
+    """
+
+    notes = _flat(NOTES_PATH)
+    changelog = " ".join(_changelog_section().split())
+    backup = _flat("docs/alpha/backup-and-restore.md")
+    limits = _flat("docs/alpha/known-limitations.md")
+    opencode = _flat("docs/integrations/opencode.md")
+    importers = _flat("docs/integrations/importers.md")
+
+    assert "the doctor counted 3" not in changelog
+    assert "reindex sent 3 texts in v0.19.2, which had no doctor count, and the doctor counts 2 and reindex sends 2 now" in changelog
+    assert "still has no limit" not in changelog
+    assert (
+        "`alicebot vnext sources capture-file`, `alicebot vnext connectors browser-clipper capture --file` and "
+        "`alicebot vnext agents ingest-output --file` take the same 16 MiB limit and the same option"
+    ) in changelog
+    for name, text in (("changelog", changelog), ("notes", notes), ("backup guide", backup)):
+        assert "same id but different content" not in text, name
+    assert "of every packed row together, cuts a branch nested past" in changelog
+
+    assert "no longer return such a memory" not in notes
+    assert "Recall and the context pack do not return such a memory, as in v0.19.2" in notes
+    assert "no longer return it" not in limits
+    assert "while recall and the context pack do not return it, as in v0.19.2" in limits
+
+    assert "where v0.19.2 answered HTTP 500 and HTTP 422" not in notes
+    assert "where v0.19.2 has no cap and reads the whole body" in notes
+
+    assert "Every outbound call goes through" not in notes
+    assert (
+        "Every provider, embeddings, reranker, fact-key, brain, Gmail and Calendar call goes through one function"
+    ) in notes
+    assert "the reachability probe of `alicebot vnext alpha check --headless`" in notes
+
+    assert "Re-running Hermes or OpenCode `install` keeps" not in notes
+    assert "Re-running Hermes or OpenCode `install` keeps" not in changelog
+    for text in (notes, changelog):
+        assert "or OpenCode `install` on an `opencode.jsonc` or an `opencode.json` that is not strict JSON" in text
+        assert "A strict `opencode.json` kept every key that install did not write in both versions" in text
+    assert "is refused on this path. A strict `opencode.json` kept every key that install did not write" in opencode
+
+    assert "The process log gets the traceback." not in importers
+    assert "the traceback only at debug level" in importers
+
+
+def test_a_failed_export_to_standard_output_is_not_said_to_leave_nothing() -> None:
+    """Mutations, each one alone: write "to a file and to standard output, and leaves no output file" back;
+    drop the sentence about standard output from the notes, the changelog, the backup guide or the limits.
+
+    `--out` leaves no file. A redirect of standard output holds the records written before the failure and
+    no footer, in v0.19.2 and in this release, and `alice-memory import` refuses that file.
+    """
+
+    notes = _flat(NOTES_PATH)
+    changelog = " ".join(_changelog_section().split())
+    backup = _flat("docs/alpha/backup-and-restore.md")
+    limits = _flat("docs/alpha/known-limitations.md")
+    for name, text in (("notes", notes), ("changelog", changelog), ("backup guide", backup)):
+        assert "to a file and to standard output, and leaves no output file" not in text, name
+        assert "to a file or to standard output, then prints" not in text, name
+        assert "To standard output it has already written records by then and stops with no footer" in text, name
+        assert "a shell redirect keeps a partial file that import refuses" in text, name
+        assert "With `--out` it leaves no output file" in text, name
+    assert "and its standard output was partial in the same way" in notes
+    assert "Its standard output was partial in the same way." in changelog
+    assert "The standard output of v0.19.2 was partial in the same way." in backup
+    assert "which `alice-memory import` refused with `import_validation_failed`" in notes
+    assert "and writes no file" not in notes
+    assert "With `--out` it writes no file, and to standard output it leaves a partial stream that import refuses" in notes
+    assert "and with `--out` it writes no file; an export to standard output that fails has already written part" in limits
+    limitations = _section(_text(NOTES_PATH), "Known limitations")
+    assert "An export to standard output that fails has already written part of the stream, with no footer" in limitations
+
+
+def test_the_recall_timings_are_one_set_and_the_long_query_figure_is_not_a_slowdown() -> None:
+    """Mutations, each one alone: change one timing in the notes or in the changelog; put "9.0 seconds" back;
+    drop the sentence that says v0.19.2 took the same time.
+
+    The changelog and the notes carry the same measurement, and a long query took the same time in v0.19.2.
+    Measured with `scripts/measure_recall_source_lookup.py` (median of seven) and a timing of `alice_recall` at
+    499 distinct terms (median of three): 3.9 seconds for terms taken from the vault's words, 8.9 seconds for terms
+    that occur nowhere in it, on v0.19.2 and on this branch alike.
+    """
+
+    notes = _flat(NOTES_PATH)
+    changelog = " ".join(_changelog_section().split())
+    for needle in (
+        "took 93 ms in v0.19.2 and 76 ms now",
+        "`limit` 50 took 226 ms and 86 ms",
+        "took 97 ms and 76 ms",
+        "`limit` 50 took 893 ms and 143 ms",
+        "(median of seven",
+    ):
+        assert needle in notes, needle
+    for needle in (
+        "was 93 ms in v0.19.2 and 76 ms here",
+        "226 ms and 86 ms with `limit` 50",
+        "97 ms and 76 ms for `alice_context_pack`",
+        "took 893 ms in v0.19.2 and 143 ms here",
+        "v0.18.0 took 69, 79 and 71 ms",
+        "the median of seven calls",
+    ):
+        assert needle in changelog, needle
+    assert "9.0 seconds" not in notes
+    assert "3.9 seconds at 499 distinct terms taken from the vault's own words, 8.9 seconds at 499 terms that occur nowhere in the vault" in notes
+    assert "v0.19.2 took the same 3.9 and 8.9 seconds, and 0.09 seconds for two words, so this release did not change it" in notes
+
+
+def test_the_known_limitations_page_lists_the_marketplace_install() -> None:
+    """Mutation: delete the marketplace bullet from the "Open in v0.20.0" list.
+
+    The notes list it, README and the plugin README state the pin, and the page that holds the open
+    items must not leave a reader of it alone believing the plugin install carries these fixes.
+    """
+
+    limits = _text("docs/alpha/known-limitations.md")
+    open_list = limits.split("Open in v0.20.0, with the detail in the")[1].split("See [Backup and restore]")[0]
+    flat = " ".join(open_list.split())
+    assert "the Claude Code marketplace file pins the v0.19.2 tag commit until a change after this release moves it" in flat
+    assert "carries none of the fixes in v0.20.0" in flat

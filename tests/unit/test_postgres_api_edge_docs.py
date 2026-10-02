@@ -145,7 +145,11 @@ def test_the_provider_change_is_marked_from_v0200_in_the_threat_model_limitation
     raw = _read("docs/security/threat-model.md")
     rows = [line for line in raw.splitlines() if line.startswith("| Alice/provider |")]
     assert len(rows) == 1 and MARKER in rows[0]
-    assert "every outbound call goes through one door, `open_provider_url`" in rows[0]
+    assert (
+        "every provider, embeddings, reranker, fact-key, brain, Gmail and Calendar call goes through one door, "
+        "`open_provider_url`"
+    ) in rows[0]
+    assert "every outbound call" not in rows[0]
     rows = [line for line in raw.splitlines() if line.startswith("| A provider answers with a redirect")]
     assert len(rows) == 1 and MARKER in rows[0]
     assert "A request carried by a proxy is not held to the address rule" in rows[0]

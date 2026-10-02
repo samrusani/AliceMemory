@@ -144,7 +144,7 @@ about 330 MiB of server memory), so the reverse proxy should cap the body too:
 | Application/database | Runtime store operation to PostgreSQL | Application role, transaction-scoped `app.current_user_id`, forced RLS, parameterized SQL; admin URL reserved for migration/recovery. |
 | Local process/file | SQLite, secrets, logs, exports, imports | Owner-only paths, alias/symlink checks where implemented, explicit import provenance; SQLite is not a tenant boundary. |
 | MCP client/process | JSON-RPC stdio to core tools | Local process trust when keyless; `ALICE_AGENT_API_KEY` binds a key and suppresses legacy handlers lacking equivalent persisted-target authorization. |
-| Alice/provider | Outbound model or connector request | Validated provider configuration, credential references, sanitized public errors, restrictive network deployment policy. From v0.20.0, every outbound call goes through one door, `open_provider_url`, which follows no redirect and, for the provider helpers, Gmail and Calendar, dials only an address the outbound policy allows. |
+| Alice/provider | Outbound model or connector request | Validated provider configuration, credential references, sanitized public errors, restrictive network deployment policy. From v0.20.0, every provider, embeddings, reranker, fact-key, brain, Gmail and Calendar call goes through one door, `open_provider_url`, which follows no redirect and, for the provider helpers, Gmail and Calendar, dials only an address the outbound policy allows. |
 | Content/policy | Source or model text to memory/review action | Content remains data; policy evaluation and review gates are code-controlled. |
 
 ### Principal Data Flows

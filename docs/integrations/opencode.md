@@ -71,7 +71,9 @@ The receipt names the line and does not print the file.
 From v0.20.0, `ALICE_EMBEDDINGS_MAX_INPUT_CHARS`, the
 most characters of one memory's text sent to the embeddings endpoint, is also
 a documented host env key and is carried on the same terms as the seven above.
-In v0.19.2 that name is not carried, so an entry that holds it is refused.
+In v0.19.2 that name is not carried, so an entry that holds it is refused on
+this path. A strict `opencode.json` kept every key that install did not write in
+both versions.
 
 ## What is refused
 

@@ -211,7 +211,8 @@ refused conversation keeps its position, so the third conversation in the file
 is still `conversation_index` 3 when the second is refused. A credential skip
 in a conversation that is then refused is not reported. The event log gets a
 `source.import_failed` event with `error_code` `conversation_unreadable` and
-the position, and none of the conversation. The process log gets the traceback.
+the position, and none of the conversation. The process log gets the one line described above,
+and the traceback only at debug level.
 A ChatGPT file nested too deeply for the JSON decoder is refused as a whole
 with `ChatGPT export is nested too deeply to read`.
 

@@ -252,12 +252,15 @@ v0.19.2 text in the four revision columns that the decoder could read was stored
 whatever its depth, text in the other three was stored up to about 1,000 levels, and
 the deep header ended with `alice_memory_failed`. A vault that already
 holds such text, for example one written by a v0.19.0 import, cannot be exported
-while the text is nested about 1,000 levels or more. `alice-memory export`, to a
-file or to standard output, then prints one line that names the table and the
-column, for example `alice-memory: memory_revisions column previous_value is
-nested too deeply for export to write`, leaves no output file, and ends with
-`export_failed`. In v0.19.2 it ended with `alice_memory_failed`. Text nested less
-than that exports as before.
+while the text is nested about 1,000 levels or more. `alice-memory export` then
+prints one line that names the table and the column, for example `alice-memory:
+memory_revisions column previous_value is nested too deeply for export to
+write`, and ends with `export_failed`. In v0.19.2 it ended with
+`alice_memory_failed`. With `--out` it leaves no output file. To
+standard output it has already written records by then and stops with no footer,
+so a shell redirect keeps a partial file that import refuses; do not keep it. The
+standard output of v0.19.2 was partial in the same way. Text nested less than
+that exports as before.
 
 From v0.20.0, `--mode skip` also accepts a legacy row. The
 schema bootstrap fills a few columns of a row from the rest of the row each time
@@ -272,8 +275,7 @@ memory or a source whose derived column the file gave empty as the bootstrap wil
 fill it, on a scratch in-memory database that never touches the vault. A column
 the file gives with a value is compared as before, so a row that really differs is
 still refused, and `--mode fail` still stops on any existing id. In v0.19.2 the
-second `--mode skip` import of such a file stopped with `restore_failed` and
-the reason `has the same id but different content`.
+second `--mode skip` import of such a file stopped with `restore_failed`.
 
 This command restores a SQLite database. It is not a PostgreSQL import.
 

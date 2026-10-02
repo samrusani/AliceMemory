@@ -65,11 +65,13 @@ Also open in v0.19.2, and fixed in v0.20.0:
 
 Open in v0.20.0, with the detail in the [v0.20.0 release notes](../release/v0.20.0-release-notes.md):
 
-- the session brief, `alice_resume` and `alice_recent_decisions` list memories by status and do not check `valid_to`, so they still show an active memory that `alice_memory_manage` with `action: expire` closed, while recall and the context pack no longer return it
+- the session brief, `alice_resume` and `alice_recent_decisions` list memories by status and do not check `valid_to`, so they still show an active memory that `alice_memory_manage` with `action: expire` closed, while recall and the context pack do not return it, as in v0.19.2
 - consolidation and the roll-up semantic tier embed, for clustering, memories that already hold a vector and do not check `valid_to`, so they can send the text of an expired memory to the embeddings endpoint; the roll-up pass also reads accepted roll-up cards (`list_accepted_rollup_cards`) without checking `valid_to`
 - promoting a reviewed artifact into a memory does not embed the new memory; it has no vector until the next `alice-memory reindex-embeddings` or `alicebot vnext memories backfill-embeddings`
 - the `max_tokens` budget of the context pack prices the full stored row, and the agent receives a compact row, so a budget leaves room unused and can return nothing for a memory that would fit in compact form
-- a vault that already holds JSON text nested about 1,000 levels or more (a v0.19.0 or v0.19.2 import could store it) cannot be exported: `alice-memory export` ends with `export_failed` and writes no file
+- a vault that already holds JSON text nested about 1,000 levels or more (a v0.19.0 or v0.19.2 import could store it) cannot be exported: `alice-memory export` ends with `export_failed`, and with `--out` it writes no file; an export to standard output that fails has already written part of the stream, with no footer, so a redirect leaves a partial file that import refuses
+- the Claude Code marketplace file pins the v0.19.2 tag commit until a change after this release moves it, so `claude plugin install alice-memory@alicememory` installs plugin 0.19.2, which pins `alice-memory==0.19.2` and carries none of the fixes in v0.20.0
+- the Postgres HTTP commit routes take up to 20,000 characters of memory text, and `alice_memory_commit` on SQLite has no length limit (a 2,000,000-character memory was stored whole, in v0.19.2 as well); a memory whose embedded text is over `ALICE_EMBEDDINGS_MAX_INPUT_CHARS` is embedded from its head only
 
 See [Backup and restore](backup-and-restore.md) before upgrading or moving a store.
 
