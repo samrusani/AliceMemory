@@ -20,7 +20,11 @@ from alicebot_api.vnext_agent_control import (
     evaluate_agent_policy,
     summarize_agent_policy_telemetry,
 )
-from alicebot_api.vnext_capture import VNextCaptureService, VNextCaptureValidationError
+from alicebot_api.vnext_capture import (
+    VNextCaptureService,
+    VNextCaptureValidationError,
+    read_named_text_file as _read_named_text_file,
+)
 from alicebot_api.vnext_brain import BrainArtifactRequest, VNextBrainService
 from alicebot_api.vnext_connectors import (
     VNextConnectorService,
@@ -69,6 +73,7 @@ def _run_vnext_sources_capture_file(ctx: CLIContext, args: argparse.Namespace) -
             args.path,
             domain=args.domain,
             sensitivity=args.sensitivity,
+            max_file_bytes=_file_limit_bytes(args, _DEFAULT_MAX_TEXT_FILE_BYTES),
         )
     _persist_deferred_capture_embeddings(ctx, result)
     return _json_dumps(result.to_record())
@@ -256,7 +261,10 @@ def _run_vnext_browser_clip(ctx: CLIContext, args: argparse.Namespace) -> str:
     page_text = args.page_text
     user_note = args.user_note
     if args.file:
-        page_text = Path(args.file).read_text(encoding="utf-8")
+        page_text = _read_named_text_file(
+            Path(args.file).expanduser().resolve(),
+            max_file_bytes=_file_limit_bytes(args, _DEFAULT_MAX_TEXT_FILE_BYTES),
+        )
     with _vnext_store_context(ctx) as store:
         result = VNextConnectorService(store, defer_embeddings=True).capture_browser_clip(
             {
@@ -276,7 +284,14 @@ def _run_vnext_browser_clip(ctx: CLIContext, args: argparse.Namespace) -> str:
 
 
 def _run_vnext_agents_ingest_output(ctx: CLIContext, args: argparse.Namespace) -> str:
-    content = Path(args.file).read_text(encoding="utf-8") if args.file else " ".join(args.content or ()).strip()
+    content = (
+        _read_named_text_file(
+            Path(args.file).expanduser().resolve(),
+            max_file_bytes=_file_limit_bytes(args, _DEFAULT_MAX_TEXT_FILE_BYTES),
+        )
+        if args.file
+        else " ".join(args.content or ()).strip()
+    )
     if not content:
         raise VNextConnectorValidationError("agent output content is required")
     identity = AgentIdentity.from_payload(

@@ -168,8 +168,24 @@ an empty database file if there was none.
   and `import_openclaw_source` take `max_file_bytes` with the same defaults. A
   file over it raises `ImportFileTooLargeError`, which is a `ValueError` and
   not the importer's own validation error
-- `alicebot vnext sources capture-file` is not covered. It reads its file whole
-  and has no limit
+- `alicebot vnext sources capture-file`, `alicebot vnext connectors
+  browser-clipper capture --file` and `alicebot vnext agents ingest-output
+  --file` read their file with the same read: once, up to 16 MiB, with the
+  same `import_file_too_large` refusal and the same `--max-file-mib N`. The
+  path is resolved first, so a link the caller types is followed, as it is for
+  the importers. What the open refuses is a file that is a link by then, and
+  anything that is not a regular file, such as a FIFO. A file that is not UTF-8
+  is refused by its name. `VNextCaptureService.capture_file` takes
+  `max_file_bytes`. In v0.19.2 these three read the whole file with no limit,
+  followed a link put in place of the file after the path was resolved, and
+  waited on a FIFO
+- a ChatGPT conversation that cannot be read is refused by its position, and
+  the process log gets one line for it, with the position, the code and the
+  name of the error type. It holds no traceback and none of the error's text,
+  which can quote the export. The traceback is at debug level. A
+  `MemoryError` while a conversation is read is not a fact about that
+  conversation, so it ends the import and is not counted as an unreadable
+  conversation
 
 Why these numbers. Measured on the `alice-memory import-chatgpt` command with
 synthetic exports of 219 to 1,092 conversations of 60 messages each, peak

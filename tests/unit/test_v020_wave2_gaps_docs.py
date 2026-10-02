@@ -134,3 +134,56 @@ def test_the_known_limitation_for_deep_backup_json_names_the_export_line() -> No
     ) in text
     assert "`alice-memory: memory_revisions column previous_value is nested too deeply for export to write`" in text
     assert "text nested more than 256 levels in `previous_value`, `new_value`, `source_event_ids` or `candidate` is refused with `restore_failed`" in text
+
+
+def test_the_entry_states_the_v0192_behaviour_of_the_three_file_commands() -> None:
+    """``capture-file`` and the two ``--file`` options, with what v0.19.2 did.
+
+    Mutations, each one alone: delete the sentence that says v0.19.2 read the whole file, or
+    the one about the log line, or the one about ``MemoryError``.
+    """
+    entry = _entry()
+    assert (
+        "`alicebot vnext sources capture-file`, `alicebot vnext connectors browser-clipper capture --file` and "
+        "`alicebot vnext agents ingest-output --file` read their file with the read the importers use"
+    ) in entry
+    assert "`--max-file-mib N` on each of the three commands changes the limit" in entry
+    assert (
+        "In v0.19.2 the three read the whole file with `Path.read_text`, with no limit, followed a link put in place "
+        "of the file after the path was resolved, and waited on a FIFO."
+    ) in entry
+    assert "logged as one line with its position, the code and the name of the error type, with no traceback" in entry
+    assert "A `MemoryError` while a conversation is read ends the import" in entry
+    assert "the OpenClaw default of 16 MiB is enforced" in entry
+
+
+def test_the_importers_doc_covers_the_file_commands_and_the_log_line() -> None:
+    """The importers guide no longer says ``capture-file`` is not covered, and says what v0.19.2 did.
+
+    Mutations: put the old bullet back, delete the v0.19.2 comparison, or delete the log line bullet.
+    """
+    text = _read("docs/integrations/importers.md")
+    assert "`alicebot vnext sources capture-file` is not covered" not in text
+    assert (
+        "read their file with the same read: once, up to 16 MiB, with the same `import_file_too_large` refusal and the "
+        "same `--max-file-mib N`."
+    ) in text
+    assert "In v0.19.2 these three read the whole file with no limit, followed a link put in place of the file after the path was resolved, and waited on a FIFO" in text
+    assert "the process log gets one line for it, with the position, the code and the name of the error type" in text
+    assert "so it ends the import and is not counted as an unreadable conversation" in text
+
+
+def test_the_known_limitation_and_the_readme_name_the_three_commands() -> None:
+    """Both say the three commands take the limit now, and the limitation keeps the v0.19.2 sentence.
+
+    Mutations: put ``capture-file has no limit`` back, or delete the v0.19.2 half.
+    """
+    limits = _read("docs/alpha/known-limitations.md")
+    assert "`alicebot vnext sources capture-file` has no limit" not in limits
+    assert "take the same 16 MiB limit and `--max-file-mib N`" in limits
+    assert "in v0.19.2 they read the whole file with no limit." in limits
+    readme = _read("README.md")
+    assert (
+        "`alicebot vnext sources capture-file` and the `--file` options of `alicebot vnext connectors browser-clipper "
+        "capture` and `alicebot vnext agents ingest-output` take the same limit (16 MiB) and `--max-file-mib N`."
+    ) in readme
