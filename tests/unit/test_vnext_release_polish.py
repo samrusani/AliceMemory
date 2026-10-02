@@ -478,17 +478,18 @@ def test_ci_action_dependency_carrier_uses_exact_atomic_pins() -> None:
         workflows,
     )
 
-    # 25 since real-host-ci.yml checks out once for the pinned job, once
+    # 26 since real-host-ci.yml checks out once for the pinned job, once
     # for the weekly canary, once for the dispatch-only hook trial, once
-    # for the dispatch-only plugin hook trial, and once for the
-    # dispatch-only marketplace check, and
+    # for the dispatch-only plugin hook trial, once for the
+    # dispatch-only marketplace check, and once for the dispatch-only
+    # host evidence job, and
     # commit-author-check.yml checks out once.
     # Each uses the checkout SHA already reviewed on the other workflows.
     # The count is the point: it forces a new action usage to be reviewed
     # rather than absorbed.
     assert checkout_refs == [
         "3d3c42e5aac5ba805825da76410c181273ba90b1"
-    ] * 25
+    ] * 26
     assert codeql_refs == [
         "ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd"
     ] * 3
