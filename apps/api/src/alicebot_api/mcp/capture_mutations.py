@@ -27,7 +27,6 @@ from alicebot_api.store import JsonObject
 
 from .shared import (
     MCPRuntimeContext,
-    MCPToolError,
     _json_object,
     _parse_bool,
     _parse_int,
@@ -35,6 +34,7 @@ from .shared import (
     _parse_optional_uuid,
     _store_context,
 )
+from .types import MCPArgumentError
 
 
 def _handle_alice_capture_candidates(
@@ -66,14 +66,14 @@ def _handle_alice_commit_captures(
     mode = raw_mode.lower()
     if mode not in CONTINUITY_CAPTURE_COMMIT_MODES:
         allowed = ", ".join(CONTINUITY_CAPTURE_COMMIT_MODES)
-        raise MCPToolError(f"mode must be one of: {allowed}")
+        raise MCPArgumentError(f"mode must be one of: {allowed}")
 
     raw_candidates = arguments.get("candidates", [])
     if not isinstance(raw_candidates, list):
-        raise MCPToolError("candidates must be a JSON array")
+        raise MCPArgumentError("candidates must be a JSON array")
     for item in raw_candidates:
         if not isinstance(item, dict):
-            raise MCPToolError("each candidate must be a JSON object")
+            raise MCPArgumentError("each candidate must be a JSON object")
 
     with _store_context(context) as store:
         return _json_object(
@@ -98,7 +98,7 @@ def _handle_alice_memory_mutations_generate(
     mode = raw_mode.lower()
     if mode not in CONTINUITY_CAPTURE_COMMIT_MODES:
         allowed = ", ".join(CONTINUITY_CAPTURE_COMMIT_MODES)
-        raise MCPToolError(f"mode must be one of: {allowed}")
+        raise MCPArgumentError(f"mode must be one of: {allowed}")
 
     with _store_context(context) as store:
         return _json_object(
@@ -148,15 +148,15 @@ def _handle_alice_memory_mutations_commit(
 ) -> JsonObject:
     raw_candidate_ids = arguments.get("candidate_ids", [])
     if not isinstance(raw_candidate_ids, list):
-        raise MCPToolError("candidate_ids must be a JSON array")
+        raise MCPArgumentError("candidate_ids must be a JSON array")
     candidate_ids: list[UUID] = []
     for item in raw_candidate_ids:
         if not isinstance(item, str):
-            raise MCPToolError("candidate_ids must contain UUID strings")
+            raise MCPArgumentError("candidate_ids must contain UUID strings")
         try:
             candidate_ids.append(UUID(item))
         except ValueError as exc:
-            raise MCPToolError("candidate_ids must contain UUID strings") from exc
+            raise MCPArgumentError("candidate_ids must contain UUID strings") from exc
 
     with _store_context(context) as store:
         return _json_object(

@@ -416,8 +416,14 @@ def test_mcp_review_provenance_is_validated_atomically_on_postgres(
 
     client = start_mcp_client(database_url=migrated_database_urls["app"], user_id=user_id)
     try:
+        # Unreleased (on main, not in v0.20.0): a rejected argument answers invalid_request and a source or chunk
+        # that is not there answers not_found. v0.20.0 answered tool_request_failed for all of them. The message
+        # is the same fixed sentence in every case, so no case shows which value was wrong.
         expected_tool_error = (
-            '{"error":{"code":"tool_request_failed","message":"The tool request could not be processed"}}'
+            '{"error":{"code":"invalid_request","message":"The tool request could not be processed"}}'
+        )
+        expected_not_found = (
+            '{"error":{"code":"not_found","message":"The tool request could not be processed"}}'
         )
         for invalid_confidence in (-0.1, 1.5):
             confidence_error = _call_tool_error(
@@ -492,7 +498,7 @@ def test_mcp_review_provenance_is_validated_atomically_on_postgres(
                 },
             },
         )
-        assert error == expected_tool_error
+        assert error == expected_not_found
 
         mismatched_chunk_error = _call_tool_error(
             client,
@@ -507,7 +513,7 @@ def test_mcp_review_provenance_is_validated_atomically_on_postgres(
                 },
             },
         )
-        assert mismatched_chunk_error == expected_tool_error
+        assert mismatched_chunk_error == expected_not_found
 
         with user_connection(migrated_database_urls["app"], user_id) as conn:
             store = PostgresVNextStore(conn)

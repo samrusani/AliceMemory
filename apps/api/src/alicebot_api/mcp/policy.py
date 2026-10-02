@@ -26,7 +26,13 @@ from alicebot_api.vnext_promotion_policy import PromotionCandidate, PromotionSet
 from alicebot_api.vnext_store import PostgresVNextStore
 
 from .runtime import _is_sqlite_backend, _sqlite_path_from_url, _vnext_store_context
-from .types import MCPInvalidRequestError, MCPRuntimeContext, MCPToolError
+from .types import (
+    MCPArgumentError,
+    MCPInvalidRequestError,
+    MCPNotPermittedError,
+    MCPRuntimeContext,
+    MCPToolError,
+)
 
 
 AGENT_API_KEY_ENV = "ALICE_AGENT_API_KEY"
@@ -50,7 +56,7 @@ def _agent_identity_from_arguments(context: MCPRuntimeContext, arguments: Mappin
         try:
             return AgentIdentity.from_payload(arguments)
         except AgentIdentityValidationError as exc:
-            raise MCPToolError(str(exc)) from exc
+            raise MCPArgumentError(str(exc)) from exc
     try:
         with _vnext_store_context(context) as store:
             return resolve_agent_identity(
@@ -59,8 +65,13 @@ def _agent_identity_from_arguments(context: MCPRuntimeContext, arguments: Mappin
                 raw_key=raw_key,
                 payload=arguments,
             )
-    except (AgentKeyAuthenticationError, AgentIdentityValidationError) as exc:
-        raise MCPToolError(str(exc)) from exc
+    except AgentKeyAuthenticationError as exc:
+        # An invalid or revoked key, a key of another user, or a claim of
+        # another agent, a higher profile or a wider project scope than the key
+        # grants. The agent cannot fix any of these by retrying.
+        raise MCPNotPermittedError(str(exc)) from exc
+    except AgentIdentityValidationError as exc:
+        raise MCPArgumentError(str(exc)) from exc
 
 
 RESERVED_PROJECT_NAME_MESSAGE = (
@@ -190,7 +201,10 @@ def _policy_checked(
 
 
 def _raise_mcp_policy_blocked(decision: PolicyDecision) -> None:
-    raise MCPToolError(f"agent policy blocked: {', '.join(decision.reasons) or decision.action}")
+    # The one place a blocked policy decision becomes an MCP error. The reasons
+    # stay in this text for the log and the policy events; the server answers
+    # not_permitted with fixed words and never sends them.
+    raise MCPNotPermittedError(f"agent policy blocked: {', '.join(decision.reasons) or decision.action}")
 
 
 def _mcp_agent_policy_preflight(
