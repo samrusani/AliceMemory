@@ -38,7 +38,13 @@ PINNED_IF = (
     "&& (inputs.job == 'all' || inputs.job == 'pinned')) }}"
 )
 CANARY_IF = "${{ github.event_name == 'schedule' }}"
-DISPATCH_JOBS = ("pinned", "hook-trial", "plugin-hook-trial", "marketplace-check")
+DISPATCH_JOBS = ("pinned", "hook-trial", "plugin-hook-trial", "marketplace-check", "host-evidence")
+CODEX_NPM = "@openai/codex@0.158.0"
+CODEX_VERSION = "codex-cli 0.158.0"
+EVIDENCE_SCRIPT = REPO_ROOT / "scripts" / "real_host_evidence.py"
+EVIDENCE_RUN = (
+    'python scripts/real_host_evidence.py run "$RUNNER_TEMP/host-evidence" "$RUNNER_TEMP/host-evidence-work"'
+)
 
 
 def _dispatch_if(name: str) -> str:
@@ -669,6 +675,82 @@ def test_plugin_hook_trial_is_dispatch_only_pinned_and_uploads_its_own_artifact(
     _assert_failure_fails_the_job(job)
     for name in ("pinned", "canary", "hook-trial", "marketplace-check"):
         assert "real_host_plugin_hook_trial.py" not in _run_text(_job(name))
+
+
+def test_host_evidence_job_records_what_the_hosts_send_and_prints_no_raw_value() -> None:
+    """The dispatch-only evidence job runs the script on the pinned hosts and uploads only its redacted record.
+
+    Per-project memory slice S0 needs the hook's stdin, the variable names and working folder of the
+    hook and the MCP server, and the roots answer, from the real pinned hosts. The job installs both
+    hosts at their pins, runs one script step, and uploads the artifact folder, never the work folder
+    that holds the scratch home, the context file and the config the hosts read. No step prints the
+    environment or a file, because the only thing that may reach the log is the script's own redacted
+    summary. The checkout keeps no credentials, since the hosts are third-party code.
+
+    Mutation: remove the evidence step or the upload, drop ``always()`` from the upload, upload the
+    work folder, install ``@latest``, drop ``persist-credentials: false``, add ``printenv``, ``env``,
+    ``set -x``, ``cat``, ``echo`` or ``tee`` to any step, add ``secrets.``, run the job on pull
+    requests, or move the version pin out of step with the script's. This test fails.
+    """
+
+    job = _job("host-evidence")
+    assert job.get("if") == _dispatch_if("host-evidence")
+    assert job.get("runs-on") == "ubuntu-latest"
+    assert job.get("timeout-minutes") == 30
+    assert job.get("env") == {"DISABLE_AUTOUPDATER": "1", "DISABLE_UPDATES": "1"}
+    assert job.get("permissions") == {"contents": "read"}
+    assert [step["name"] for step in _steps(job)] == [
+        "Checkout",
+        "Set up Python",
+        "Set up Node",
+        "Install Alice",
+        "Install pinned Claude Code",
+        "Install pinned Codex",
+        "Record what each host sends a hook and an MCP server",
+        "Upload host evidence",
+    ]
+    checkout = _steps(job)[0]
+    assert set(checkout.get("with", {})) == {"persist-credentials"}
+    assert str(checkout["with"]["persist-credentials"]).lower() == "false"
+    setup = {
+        step["name"]: step.get("with", {})
+        for step in _steps(job)
+        if isinstance(step.get("uses"), str) and "setup-" in step["uses"]
+    }
+    assert setup == {
+        "Set up Python": {"python-version": "3.12"},
+        "Set up Node": {"node-version": "22.14.0"},
+    }
+    script = _run_text(job)
+    assert CLAUDE_NPM in script and CODEX_NPM in script and "@latest" not in script
+    runs = [step["run"] for step in _steps(job) if "real_host_evidence.py" in step.get("run", "")]
+    assert runs == [EVIDENCE_RUN]
+    # Nothing in the job prints a variable, a file or a trace. The script's summary is the only output.
+    for step in _steps(job):
+        text = step.get("run", "")
+        for word in ("printenv", "set -x", "cat ", "echo ", "printf ", "tee ", "curl ", "GITHUB_ENV", "secrets."):
+            assert word not in text, (step["name"], word)
+        assert not re.search(r"(^|[;&|(\s])env(\s|$)", text), step["name"]
+    assert "secrets." not in WORKFLOW_PATH.read_text(encoding="utf-8")
+    uploads = [step for step in _steps(job) if isinstance(step.get("uses"), str) and "upload-artifact@" in step["uses"]]
+    assert len(uploads) == 1
+    assert "always()" in str(uploads[0].get("if"))
+    assert uploads[0].get("with") == {
+        "name": "host-evidence",
+        "path": "${{ runner.temp }}/host-evidence/",
+        "if-no-files-found": "error",
+    }
+    assert "host-evidence-work" not in str(uploads[0].get("with"))
+    _assert_actions_are_sha_pinned(job)
+    _assert_failure_fails_the_job(job)
+    for name in ("pinned", "canary", "hook-trial", "plugin-hook-trial", "marketplace-check"):
+        assert "real_host_evidence.py" not in _run_text(_job(name))
+    # The script the job runs is the one this test file's neighbour exercises, and its pins agree with the job.
+    source = EVIDENCE_SCRIPT.read_text(encoding="utf-8")
+    assert f'"claude-code": "{CLAUDE_VERSION}"' in source and f'"codex": "{CODEX_VERSION}"' in source
+    assert 'os.environ.get("GITHUB_ACTIONS") != "true"' in source
+    assert "GITHUB_STEP_SUMMARY" in source
+    assert 'for host in HOSTS' in source and 'HOSTS = ("claude-code", "codex")' in source
 
 
 MARKETPLACE_URL = "https://github.com/samrusani/AliceMemory.git"

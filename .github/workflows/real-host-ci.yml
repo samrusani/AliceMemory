@@ -17,6 +17,16 @@ name: Real host CI
 # A manual dispatch takes a `job` input. `all` runs every dispatch job. A job
 # name runs that job alone, so the plugin hook trial can run on a branch that
 # has no committed marketplace file.
+# The dispatch-only host-evidence job runs the pinned Claude Code and the pinned
+# Codex once each, from a folder two levels below the root of a scratch git
+# repository, against a loopback stub API and a made-up key. It records what a
+# SessionStart hook and an MCP server receive from each host: the hook's stdin
+# keys and values, the variable names and working folder of each process, and
+# whether the client declares the roots capability and answers roots/list.
+# Paths are recorded as placeholders that keep their shape. Variable values and
+# free text are not recorded, so the artifact holds no raw value. Its job has no
+# credentials: the checkout keeps none and the script drops every
+# credential-like variable before it starts a host.
 # Pytest uses the setup-python interpreter recorded during the Alice
 # install. The Hermes virtualenv bin stays on PATH so hermes resolves,
 # and that package install does not include pytest.
@@ -72,6 +82,7 @@ on:
           - hook-trial
           - plugin-hook-trial
           - marketplace-check
+          - host-evidence
         default: all
 
 permissions:
@@ -523,3 +534,54 @@ jobs:
             echo "$reason"
           } >> "$GITHUB_STEP_SUMMARY"
           exit 0
+
+  # Records what the pinned hosts hand a SessionStart hook and an MCP server, for
+  # per-project memory slice S0. The script refuses to start a host outside GitHub
+  # Actions, never reads a real key, and writes the host-evidence artifact with
+  # placeholders for every path and no variable value. The checkout keeps no
+  # credentials because the hosts it installs are third-party code.
+  host-evidence:
+    name: Host evidence for per-project memory
+    if: "${{ github.event_name == 'workflow_dispatch' && (inputs.job == 'all' || inputs.job == 'host-evidence') }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      DISABLE_AUTOUPDATER: "1"
+      DISABLE_UPDATES: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22.14.0"
+
+      - name: Install Alice
+        run: python -m pip install -e .
+
+      - name: Install pinned Claude Code
+        run: npm install -g @anthropic-ai/claude-code@2.1.281
+
+      - name: Install pinned Codex
+        run: npm install -g @openai/codex@0.158.0
+
+      - name: Record what each host sends a hook and an MCP server
+        run: python scripts/real_host_evidence.py run "$RUNNER_TEMP/host-evidence" "$RUNNER_TEMP/host-evidence-work"
+
+      - name: Upload host evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: host-evidence
+          path: ${{ runner.temp }}/host-evidence/
+          if-no-files-found: error
