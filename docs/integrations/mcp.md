@@ -44,6 +44,17 @@ Optional:
   model. Changing it makes `alice-memory
   reindex-embeddings` re-embed only the memories whose embedded text changes.
   In v0.19.2 there is no cap.
+- `ALICE_MCP_COMMIT_RESULT`, Unreleased (on main, not in v0.20.0): `compact`
+  or `full`. With `compact`, `alice_memory_commit` answers with the memory `id`,
+  the outcome, the `receipt`, the reasons a write was held, and for a held write
+  the `confirmation_id` and the proposed text. It leaves out `policy_decision` and
+  the stored row's `metadata_json`. `full` returns the v0.20.0 result, byte for
+  byte. Any other value, an empty one and no variable all mean the build default,
+  which the linked page names. Only the tool `alice_memory_commit` changes; the
+  legacy alias, the HTTP routes and the CLI always return the full result. The
+  server reads it on every call. Set it in the `env` map of the host's `alice`
+  entry; the Claude Code plugin's entry has no `env` map, so a plugin user cannot
+  set it. See [The commit result](../alpha/mcp-tools.md#the-commit-result)
 - `ALICE_MCP_FULL_TOOLS=1` — advertise all eleven core tools and accept
   calls to the eight that are hidden by default
 - `ALICE_MCP_LEGACY_TOOLS=1` — append 62 retained long-tail memory tools to
@@ -144,7 +155,12 @@ One-command bridge demo:
   `alice_context_pack` gets a query the SQLite source search cannot take. Its
   message names the limit and holds only counts, never the query. From v0.20.0,
   `alice_resume` and `alice_recent_decisions` use it for
-  a query over 40,000 UTF-8 bytes.
+  a query over 40,000 UTF-8 bytes. Unreleased (on main, not in v0.20.0): three
+  more codes, `not_permitted`, `not_found` and `precondition_failed`, tell a
+  refusal from a failure, and `invalid_request` also answers a rejected
+  argument with the same fixed message. The table in
+  [`docs/alpha/mcp-tools.md`](../alpha/mcp-tools.md#error-codes) says what each
+  code means.
 - JSON-RPC framing errors use the standard static messages `Parse error`,
   `Invalid Request`, `Invalid params`, and `Method not found`; request data and
   parser exception text are never copied into the wire response

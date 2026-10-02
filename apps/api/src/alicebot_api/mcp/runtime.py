@@ -15,7 +15,7 @@ from alicebot_api.vnext_embeddings import (
 )
 from alicebot_api.vnext_store import PostgresVNextStore
 
-from .types import MCPRuntimeContext, MCPToolError
+from .types import MCPPreconditionFailedError, MCPRuntimeContext, MCPToolError
 
 
 _SQLITE_POSTGRES_ONLY_MESSAGE = "this tool requires the Postgres backend; the SQLite on-ramp serves the core tools only"
@@ -53,7 +53,7 @@ def _sqlite_path_from_url(database_url: str) -> str:
 @contextmanager
 def _store_context(context: MCPRuntimeContext):
     if _is_sqlite_backend(context):
-        raise MCPToolError(_SQLITE_POSTGRES_ONLY_MESSAGE)
+        raise MCPPreconditionFailedError(_SQLITE_POSTGRES_ONLY_MESSAGE)
     with user_connection(context.database_url, context.user_id) as conn:
         yield ContinuityStore(conn)
 

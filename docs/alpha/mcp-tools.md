@@ -504,7 +504,11 @@ Alice decides the outcome, never the caller:
   author refusal and a ceiling refusal record the reason on the policy
   events (`policy.decision` and `agent.policy_blocked`). A credential
   refusal on confirm leaves the row pending and does not keep a policy
-  event for that refusal.
+  event for that refusal. Unreleased (on main, not in v0.20.0): an author
+  refusal and a ceiling refusal come back as `not_permitted`, a
+  confirmation id that does not exist as `not_found`, and a confirmation
+  that is not pending as `precondition_failed`, each with the same
+  message. A credential refusal stays `tool_request_failed`.
   A pending write stays out of recall until it is answered, and nothing
   expires it in the background. Only `VNextMemoryCommitService.confirm`
   reads its 24 hour `expires_at`. After that time, a confirm or reject
@@ -518,6 +522,85 @@ Alice decides the outcome, never the caller:
 - `review_required`: external, generated, or low-confidence memory waits
   for human review in the console.
 - `rejected`: out-of-scope, unsafe, or policy-bypass attempts are blocked.
+
+### The commit result
+
+Unreleased (on main, not in v0.20.0): with `ALICE_MCP_COMMIT_RESULT=compact` in the
+server's environment, `alice_memory_commit` answers in a fraction of the bytes: under
+a sixth of them for a one-sentence fact, under a quarter for a write held for
+confirmation, and under a third for a 2,000-character memory, which carries its text
+once. In v0.20.0 the answer is the whole stored row and the policy decision three times,
+about 3.7 KB for a one-sentence fact. On main that is still what an unset variable
+returns, until the release that turns the compact result on.
+`ALICE_MCP_COMMIT_RESULT=full` returns the v0.20.0 result, byte for byte, in every
+build. A value that is neither `compact` nor `full` is ignored. The server reads the
+variable on every call.
+
+The compact result keeps:
+
+- `status`, `write_mode` and `receipt`, and every other top-level key the full result
+  has, such as `confirmation`, `confirmation_id`, `proposal_id` and `idempotent_replay`.
+- `reason`, `reasons`, `requires_confirmation` and `requires_dashboard_review`, lifted
+  out of `policy_decision` to the top level.
+- `memory`, with `id`, `status`, `title`, `canonical_text`, `memory_type`, `domain`,
+  `sensitivity`, `confidence`, `created_at`, `created_by_agent_id`, `project_scope`,
+  `project_id`, `supersedes` and `superseded_by`.
+
+It leaves out `policy_decision`, `memory.metadata_json` and the other columns of the
+row. A client that reads one of those sets `ALICE_MCP_COMMIT_RESULT=full`. The compact
+result is cut from the full one by choosing keys and never reads the store, so it holds
+no value the full result did not.
+
+Sizes of the text an MCP host hands the model, measured on a fresh SQLite vault with
+the fixtures of `tests/unit/test_compact_commit_result.py` (the short fact and the held
+write are in `tests/unit/fixtures_commit_result_golden.py`). A test recomputes every
+number in the table. The bytes move with the text and the agent identity a call
+sends:
+
+| Write | Full (v0.20.0) | Compact |
+| --- | --- | --- |
+| one-sentence fact, no identity | 3,696 bytes | 595 bytes |
+| one-sentence fact, declared identity | 4,186 bytes | 583 bytes |
+| held for confirmation | 4,633 bytes | 1,066 bytes |
+| 2,000-character memory | 7,817 bytes | 2,536 bytes |
+
+Only the tool name `alice_memory_commit` is compacted. The legacy alias
+`alice_vnext_commit_memory`, the HTTP routes and the CLI return the full result with
+the variable at either value. `alice_memory_manage`, `alice_memory_correct` and the
+other full-surface tools still return full rows.
+
+Where to set the variable. `alice-memory install` never writes it, and it writes an
+`env` map only for Hermes, with the data dir alone. The server answers with the build
+default until you add the variable to the host's entry for the `alice` server:
+
+| Host | Where it goes | A re-run of install | Host passes the map to the server |
+| --- | --- | --- | --- |
+| Claude Desktop, Claude Code, Cursor, OpenClaw | the `env` map of the `alice` entry in the host's JSON file | keeps it, as it keeps every key it did not write | not verified |
+| Hermes | `env:` under `mcp_servers.alice` in `~/.hermes/config.yaml` | keeps it, and says so in the receipt; v0.20.0 refuses the entry and changes nothing | not verified |
+| Codex | the `[mcp_servers.alice.env]` table, or an inline `env`, in `config.toml` | keeps it; v0.20.0 refuses the entry and changes nothing | not verified |
+| OpenCode | `environment` under `mcp.alice` | strict `opencode.json` keeps it; `opencode.jsonc` keeps it, and v0.20.0 refuses that file | not verified |
+| Claude Code plugin | no setting: the plugin's server entry has no `env` map, so a plugin user cannot set the variable (its only setting is the data dir) | not applicable, install does not write the plugin | no setting |
+
+What the table rests on. Verified in this repository: install writes each entry and keeps
+the variable on a re-run, as the third column says, and a real `alice-memory mcp` process
+started with the variable in its environment answers with the value it names. Not
+verified for any host, Claude Code and Codex included: that the host passes the entry's
+map on to the server. This repository never runs a host, so the last column says "not
+verified" in every row that has a setting.
+
+Codex passes a stdio server only `HOME`, `PATH`, `LANG` and a few other names, so a
+variable exported in the shell that starts Codex does not reach the server by itself.
+The entry's `env` table is one route. The same entry's `env_vars` list, which names the
+shell variables Codex forwards (see [the Codex page](../integrations/codex.md)), is the
+other: `env_vars = ["ALICE_MCP_COMMIT_RESULT"]` forwards the shell's value. Neither has
+been run against Codex here.
+
+To check that a host's server received the variable, set it to `compact` and save one
+fact, then set it to `full` and save another. The compact result has no
+`policy_decision`; the full result has one. A server that received the variable gives
+one shape each time. A server that did not gives the same shape both times, the one the
+build default produces. That holds before and after the release that turns the compact
+result on.
 
 Use canonical schema values for persisted labels: `memory_type=semantic`
 for quote saves, `memory_type=procedure` for repeatable playbooks. Avoid
@@ -583,11 +666,59 @@ the measured size, and never repeats the query, for example `query has 1000
 distinct search terms; the limit is 499. Use a shorter query.`
 From v0.20.0, it also answers an `alice_resume` or
 `alice_recent_decisions` query over 40,000 UTF-8 bytes (see Size bounds).
+Unreleased (on main, not in v0.20.0): three more codes, `not_permitted`,
+`not_found` and `precondition_failed`, tell a refusal from a failure, and
+`invalid_request` also answers a rejected argument. The table under
+[Error codes](#error-codes) lists all seven.
 The task-brief tools name both flags when either one is missing. Permanently
 deleted hosted, channel, chat, chief-of-staff, and model-pack tools never list.
 New integrations should stay on the default three tools; the legacy surface
 is frozen and will not gain new capabilities. Set `ALICE_MCP_FULL_TOOLS=1`
 only when capture, the pack, or review must be in the handshake.
+
+## Error codes
+
+Unreleased (on main, not in v0.20.0): a failed `tools/call` answers one of
+seven codes. `not_permitted`, `not_found` and `precondition_failed` are new,
+and `invalid_request` now also answers a rejected argument. v0.20.0 answered
+`tool_request_failed` for every case these four cover, apart from the query
+size limits that v0.19.2 and v0.20.0 already answered with `invalid_request`.
+
+| Code | It means | What an agent should do |
+| --- | --- | --- |
+| `invalid_request` | The arguments were rejected: a property the tool does not take, a missing or mistyped value, a value out of range, an action the tool does not know, or text over a size limit. | Fix the call and retry. |
+| `not_permitted` | A policy, the agent's permission profile, its key or its project scope refused the call, or the call asked for something the server forbids, such as raw content outside development. | Do not retry. Ask the owner. |
+| `not_found` | An id the call names does not exist for this caller: a memory, a pending confirmation, an open loop, an artifact, a review item or a provenance source. A review item outside the caller's own filters answers the same. | Check the id, or stop. |
+| `precondition_failed` | The call is well formed and allowed, but the state forbids it: a confirmation that was already answered, a memory or review item whose status does not allow the action, a tool the SQLite backend does not serve, or a write that refers to a row the vault does not hold. | Change the state first, or use another route. The same call will not work until the state changes. |
+| `tool_request_failed` | Any other refusal. | Treat it as opaque. |
+| `tool_execution_failed` | The tool failed in a way the server did not expect. | Treat it as opaque. Look at the server log. |
+| `tool_not_found` | The tool name is not on the surface this server serves. | Stop calling it. |
+
+The message is the same fixed sentence for every code, `The tool request
+could not be processed` (`The tool could not be executed` for
+`tool_execution_failed`, `The requested tool is not available` for
+`tool_not_found`). The one exception is `invalid_request` for a size limit,
+which names the limit and the measured size and never repeats the text. The
+reason for a refusal stays in the server log and, for a policy refusal, in the
+policy events. A code comes from the class of the error that was raised, never
+from its message text.
+
+What an id tells a caller. A caller that authenticates with an agent key gets
+`tool_request_failed` from `alice_explain` whether the target is missing or
+unreadable, because explain expands related rows and a different code would
+tell it which. Every other tool that takes an id answers the difference, to a
+key-bound caller too: an id that the key's project scope refuses answers
+`not_permitted` from `alice_memory_review` by id, `alice_memory_correct` and
+`alice_memory_manage`, and an id that does not exist answers `not_found`. So a
+key bound to one project can learn that an id it already holds exists in
+another project. That is what the codes are for, the HTTP memory routes answer
+403 and 404 the same way, and an id is a random UUID, so the answer only tells
+a caller about an id it already has. A review item the caller's own filters
+hide answers `not_found`, the same as a missing one.
+
+These stay `tool_request_failed`: an idempotency key already bound to a
+different request, a credential refusal, a malformed database URL, and an
+internal step that did not complete.
 
 ## Size bounds
 
@@ -659,4 +790,5 @@ changed.
 - Over stdio, a blocked read or confirm returns `tool_request_failed`
   with the message `The tool request could not be processed` and no
   reason. The reason is on the policy events (`policy.decision` and
-  `agent.policy_blocked`).
+  `agent.policy_blocked`). Unreleased (on main, not in v0.20.0): it
+  returns `not_permitted` with the same message and still no reason.

@@ -53,6 +53,12 @@ from .shared import (
     _store_context,
     _vnext_store_context,
 )
+from .types import (
+    MCPArgumentError,
+    MCPNotPermittedError,
+    MCPPreconditionFailedError,
+    MCPReferenceNotFoundError,
+)
 
 
 def _authorize_continuity_explain_target(
@@ -134,11 +140,13 @@ def _handle_alice_explain(context: MCPRuntimeContext, arguments: Mapping[str, ob
     entity_id = _parse_optional_uuid(arguments, "entity_id")
     provided = [value for value in (memory_id, continuity_object_id, entity_id) if value is not None]
     if len(provided) > 1:
-        raise MCPToolError("alice_explain accepts exactly one of memory_id, continuity_object_id, or entity_id")
+        raise MCPArgumentError("alice_explain accepts exactly one of memory_id, continuity_object_id, or entity_id")
     if memory_id is not None:
         return _handle_alice_vnext_memory_audit(context, arguments)
     if _is_sqlite_backend(context):
-        raise MCPToolError(
+        if not provided:
+            raise MCPArgumentError("alice_explain requires memory_id, continuity_object_id, or entity_id")
+        raise MCPPreconditionFailedError(
             "alice_explain with entity_id or continuity_object_id is available on the Postgres "
             "backend; pass memory_id on the SQLite on-ramp"
         )
@@ -167,11 +175,11 @@ def _handle_alice_explain(context: MCPRuntimeContext, arguments: Mapping[str, ob
                 raise MCPToolError(_EXPLAIN_UNAVAILABLE_MESSAGE) from None
             raise
     if continuity_object_id is None:
-        raise MCPToolError("alice_explain requires memory_id, continuity_object_id, or entity_id")
+        raise MCPArgumentError("alice_explain requires memory_id, continuity_object_id, or entity_id")
 
     include_raw_content = _parse_bool(arguments, key="include_raw_content", default=False)
     if include_raw_content and get_settings().app_env not in {"development", "test"}:
-        raise MCPToolError("include_raw_content is restricted to development/test environments")
+        raise MCPNotPermittedError("include_raw_content is restricted to development/test environments")
 
     if _is_key_bound_explain(identity):
         assert identity is not None
@@ -205,7 +213,7 @@ def _handle_alice_artifact_inspect(
 ) -> JsonObject:
     include_raw_content = _parse_bool(arguments, key="include_raw_content", default=False)
     if include_raw_content and get_settings().app_env not in {"development", "test"}:
-        raise MCPToolError("include_raw_content is restricted to development/test environments")
+        raise MCPNotPermittedError("include_raw_content is restricted to development/test environments")
 
     with _store_context(context) as store:
         return _json_object(
@@ -667,7 +675,7 @@ def _authorize_vnext_artifact_target(
 
     artifact = store.get_artifact_for_update(artifact_id) if for_update else store.get_artifact(artifact_id)
     if artifact is None:
-        raise MCPToolError(f"artifact {artifact_id} was not found")
+        raise MCPReferenceNotFoundError(f"artifact {artifact_id} was not found")
 
     actor_type, actor_id, raw_decision = _policy_checked(
         store,
