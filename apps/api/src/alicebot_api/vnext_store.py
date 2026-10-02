@@ -3632,9 +3632,12 @@ class PostgresVNextStore:
         leaves in the transaction, so the caller can log the failure and carry
         on with the next unit.
 
-        This is a plain ``SAVEPOINT`` and never a transaction of its own: on a
-        connection that is not inside a transaction block it fails loudly
-        instead of committing at the end of the block.
+        This is a plain ``SAVEPOINT`` and never a transaction of its own. On a
+        pooled product connection the transaction is already open. On any other
+        connection that is not in autocommit mode, the first statement begins
+        the transaction and its owner commits it. On an autocommit connection
+        Postgres refuses a savepoint outside a transaction block, so it fails
+        loudly instead of committing at the end of the block.
         """
 
         name = f"alice_savepoint_{next(_SAVEPOINT_NAMES)}"
