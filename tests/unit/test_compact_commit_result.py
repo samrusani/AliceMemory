@@ -582,6 +582,51 @@ def test_a_top_level_key_the_view_does_not_know_survives(
 
 _TWO_THOUSAND = ("lorem ipsum dolor sit amet " * 80)[:2000]
 
+#: The four rows of the sizes table in ``docs/alpha/mcp-tools.md``, keyed as ``_measured_sizes`` returns them.
+SIZE_LABELS = {
+    "fact": "one-sentence fact, no identity",
+    "fact_identity": "one-sentence fact, declared identity",
+    "held": "held for confirmation",
+    "long": "2,000-character memory",
+}
+
+
+def _wire_size(payload: Mapping[str, object]) -> int:
+    """Bytes of the text a host hands the model, with every timestamp counted at six fractional digits.
+
+    ``datetime.isoformat`` prints no fraction when the microsecond is zero, which is 7 bytes less per
+    timestamp once in a million times. Counting that case as the usual one keeps a documented size exact.
+    """
+
+    text = _TIME.sub("2026-01-01T00:00:00.000000Z", _wire(payload))
+    return len(text.encode("utf-8"))
+
+
+def _measured_sizes(monkeypatch: pytest.MonkeyPatch, mode: str, base: Path) -> dict[str, int]:
+    """The four documented writes on a fresh SQLite vault, as wire bytes in one mode.
+
+    The fixtures are the short fact and the held write of ``fixtures_commit_result_golden.py``, the same
+    fact with a declared identity, and a 2,000-character memory. The order of the writes is part of the
+    measurement, and the docs quote what this function returns.
+    """
+
+    from alicebot_api.commit_result import COMMIT_RESULT_ENV
+
+    monkeypatch.setenv(COMMIT_RESULT_ENV, mode)
+    context = _context(base)
+    results = {
+        "fact": _commit(context, **COMMITTED_FACT),
+        "fact_identity": _commit(
+            context, title="Cache TTL", canonical_text="The cache TTL is sixty seconds.", **TRUSTED_AGENT
+        ),
+        "held": _commit(context, **HELD_FACT),
+        "long": _commit(context, title="Long note", canonical_text=_TWO_THOUSAND),
+    }
+    if mode == "compact":
+        assert _wire(results["long"]).count(_TWO_THOUSAND) == 1
+        assert len(_TWO_THOUSAND) == 2000
+    return {label: _wire_size(result) for label, result in results.items()}
+
 
 def test_the_compact_result_is_a_fraction_of_the_full_result(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Wire sizes, in bytes, of the text an MCP host hands the model.
@@ -589,32 +634,14 @@ def test_the_compact_result_is_a_fraction_of_the_full_result(tmp_path: Path, mon
     A one-sentence fact is at most 650 bytes without an identity and with one, a held write at most
     1.2 KB, and a 2,000-character memory at most 2.7 KB with the text once. The full result of the same
     calls is checked too, so a test that passes because the full result also shrank fails. Measured
-    on a scratch vault: 3,696, 4,134, 4,633 and 7,810 bytes full; 595, 570, 1,066 and 2,530 compact.
+    on a fresh SQLite vault: 3,696, 4,186, 4,633 and 7,817 bytes full; 595, 583, 1,066 and 2,536 compact
+    (``test_every_documented_size_is_what_the_fixtures_produce`` pins those exact numbers).
     Mutation: echo the text three times (add ``summary`` and ``value.text`` to the view), or keep
     ``policy_decision`` or ``metadata_json``.
     """
 
-    from alicebot_api.commit_result import COMMIT_RESULT_ENV
-
-    def sizes(mode: str, base: Path) -> dict[str, int]:
-        monkeypatch.setenv(COMMIT_RESULT_ENV, mode)
-        context = _context(base)
-        results = {
-            "fact": _commit(context, **COMMITTED_FACT),
-            "fact_identity": _commit(
-                context, title="Cache TTL", canonical_text="The cache TTL is sixty seconds.", **TRUSTED_AGENT
-            ),
-            "held": _commit(context, **HELD_FACT),
-            "long": _commit(context, title="Long note", canonical_text=_TWO_THOUSAND),
-        }
-        found = {label: len(_wire(result).encode("utf-8")) for label, result in results.items()}
-        if mode == "compact":
-            assert _wire(results["long"]).count(_TWO_THOUSAND) == 1
-            assert len(_TWO_THOUSAND) == 2000
-        return found
-
-    full = sizes("full", tmp_path / "full")
-    compact = sizes("compact", tmp_path / "compact")
+    full = _measured_sizes(monkeypatch, "full", tmp_path / "full")
+    compact = _measured_sizes(monkeypatch, "compact", tmp_path / "compact")
     assert full["fact"] > 3_500 and full["fact_identity"] > 3_900 and full["held"] > 4_400 and full["long"] > 7_500
     assert compact["fact"] <= 650
     assert compact["fact_identity"] <= 650
@@ -622,6 +649,76 @@ def test_the_compact_result_is_a_fraction_of_the_full_result(tmp_path: Path, mon
     assert compact["long"] <= 2_700
     assert compact["fact"] < full["fact"] // 5
     assert compact["long"] < full["long"] // 2
+
+
+def _flat(text: str) -> str:
+    return " ".join(text.split())
+
+
+def _doc(name: str) -> str:
+    return (REPO_ROOT / name).read_text(encoding="utf-8")
+
+
+def _changelog_bullet() -> str:
+    """The one Unreleased bullet about the compact commit result, on one line."""
+
+    changelog = _doc("CHANGELOG.md")
+    section = changelog[changelog.index("## Unreleased") : changelog.index("\n## v0.20.0")]
+    bullets = [item for item in section.split("\n- ")[1:] if item.startswith("`alice_memory_commit` can answer")]
+    assert len(bullets) == 1
+    return _flat(bullets[0])
+
+
+def _number(text: str) -> int:
+    return int(text.replace(",", ""))
+
+
+def test_every_documented_size_is_what_the_fixtures_produce(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The sizes table of ``docs/alpha/mcp-tools.md``, the changelog bullet and the rounded sizes in
+    prose are the bytes the test fixtures produce today, and the ratio words are true for every row.
+
+    Two of the four numbers of the first draft (4,134 and 570, then 7,810 and 2,530) did not reproduce.
+    The ratio claims are ``under a sixth`` (both one-sentence facts), ``under a quarter`` (the held write)
+    and ``under a third`` (the 2,000-character memory, which carries its text once).
+    Mutation, each one alone: change one number of the docs table, or of the changelog bullet, by one
+    byte; change the rounded ``about 3.7 KB`` or ``about 0.6 KB`` in ``first-memory.md``; write ``about a
+    sixth of the bytes`` back into the docs; add ``summary`` to the memory view (every compact number then
+    moves); change ``_TWO_THOUSAND``.
+    """
+
+    full = _measured_sizes(monkeypatch, "full", tmp_path / "full")
+    compact = _measured_sizes(monkeypatch, "compact", tmp_path / "compact")
+    assert set(full) == set(compact) == set(SIZE_LABELS)
+
+    guide = _doc("docs/alpha/mcp-tools.md")
+    rows = {
+        label: (_number(full_bytes), _number(compact_bytes))
+        for label, full_bytes, compact_bytes in re.findall(
+            r"^\| ([^|]+?) \| ([\d,]+) bytes \| ([\d,]+) bytes \|$", guide, re.MULTILINE
+        )
+    }
+    assert rows == {SIZE_LABELS[key]: (full[key], compact[key]) for key in SIZE_LABELS}
+
+    bullet = _changelog_bullet()
+    pairs = [(_number(compact_bytes), _number(full_bytes)) for compact_bytes, full_bytes in re.findall(r"([\d,]+) against ([\d,]+)", bullet)]
+    assert pairs == [(compact[key], full[key]) for key in SIZE_LABELS]
+
+    def kilobytes(size: int) -> str:
+        return f"about {size / 1000:.1f} KB"
+
+    first_memory = _flat(_doc("docs/alpha/first-memory.md"))
+    for text in (first_memory, _flat(guide), bullet):
+        assert kilobytes(full["fact"]) in text
+    assert kilobytes(compact["fact"]) in first_memory
+
+    assert compact["fact"] * 6 < full["fact"]
+    assert compact["fact_identity"] * 6 < full["fact_identity"]
+    assert compact["held"] * 4 < full["held"]
+    assert compact["long"] * 3 < full["long"]
+    for text in (_flat(guide), bullet):
+        for words in ("under a sixth", "under a quarter", "under a third"):
+            assert words in text, words
+        assert "about a sixth" not in text
 
 
 # --- TC6: the legacy alias -------------------------------------------------------------------------
@@ -854,3 +951,136 @@ def test_install_never_writes_the_variable_into_a_host_config(tmp_path: Path, ca
     for path in written:
         assert "ALICE_MCP_COMMIT_RESULT" not in path.read_text(encoding="utf-8"), path
     assert "ALICE_MCP_COMMIT_RESULT" not in capsys.readouterr().out
+
+
+# --- TC9: what the docs say about the variable ---------------------------------------------------------
+
+
+def test_the_mcp_guide_lists_the_variable_with_its_values_and_the_marker() -> None:
+    """The Runtime Scope list of ``docs/integrations/mcp.md`` names the variable, both values and the marker.
+
+    Mutation, each one alone: delete the bullet; delete ``Unreleased (on main, not in v0.20.0):`` from it;
+    delete the word ``full`` or the word ``compact`` from it; move it out of the Runtime Scope section.
+    """
+
+    from alicebot_api.commit_result import COMMIT_RESULT_ENV
+
+    guide = _doc("docs/integrations/mcp.md")
+    scope = guide[guide.index("## Runtime Scope") : guide.index("## Default Tool Surface")]
+    items = [_flat(item) for item in scope.split("\n- ")[1:] if item.startswith(f"`{COMMIT_RESULT_ENV}`")]
+    assert len(items) == 1
+    item = items[0]
+    assert "Unreleased (on main, not in v0.20.0):" in item
+    assert "`compact`" in item and "`full`" in item
+    assert "mcp-tools.md#the-commit-result" in item
+    assert "cannot set it" in item
+
+
+@pytest.mark.parametrize("build_default", ["full", "compact"])
+def test_the_one_call_check_tells_arrival_from_the_default_under_either_build_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, build_default: str
+) -> None:
+    """The check in the docs (save one fact with ``compact``, one with ``full``, compare the shapes) works
+    before and after the release that turns the compact result on.
+
+    A server that received the variable gives a result without ``policy_decision`` for ``compact`` and one
+    with it for ``full``. A server that did not gives the same shape twice, whichever default the build has.
+    The first draft said a result that still carries ``policy_decision`` means the variable did not arrive,
+    which is false once the default is ``compact``.
+    Mutation, each one alone: make the server ignore the variable (read the build default whatever is set);
+    put the first draft's sentence back into the docs.
+    """
+
+    import alicebot_api.commit_result as commit_result
+    from alicebot_api.commit_result import COMMIT_RESULT_ENV
+
+    monkeypatch.setattr(commit_result, "BUILD_DEFAULT_COMMIT_RESULT", build_default)
+    serial = iter(range(100))
+
+    def shape(value: str | None) -> bool:
+        """Whether the result carries ``policy_decision``, with the variable set to ``value`` or unset."""
+
+        if value is None:
+            monkeypatch.delenv(COMMIT_RESULT_ENV, raising=False)
+        else:
+            monkeypatch.setenv(COMMIT_RESULT_ENV, value)
+        return "policy_decision" in _commit(_context(tmp_path / str(next(serial))), **COMMITTED_FACT)
+
+    arrived = (shape("compact"), shape("full"))
+    missing = (shape(None), shape(None))
+    assert arrived == (False, True)
+    assert missing[0] == missing[1] == (build_default == "full")
+
+    check = _flat(_doc("docs/alpha/mcp-tools.md"))
+    assert "set it to `compact` and save one fact, then set it to `full` and save another" in check
+    assert "A server that did not gives the same shape both times" in check
+    assert "means the variable did not reach the server" not in check
+    assert "a result that still carries `policy_decision`" not in check
+
+
+def test_the_docs_name_the_build_default_the_code_has() -> None:
+    """The one sentence that says an unset variable still returns the v0.20.0 result is there exactly while
+    ``BUILD_DEFAULT_COMMIT_RESULT`` is ``full``.
+
+    The release that turns the compact result on changes the constant, this test, and that sentence.
+    Mutation: set ``BUILD_DEFAULT_COMMIT_RESULT`` to ``compact`` without editing the docs, or delete the
+    sentence from ``docs/alpha/mcp-tools.md`` while the constant is ``full``.
+    """
+
+    from alicebot_api.commit_result import BUILD_DEFAULT_COMMIT_RESULT
+
+    guide = _flat(_doc("docs/alpha/mcp-tools.md"))
+    says_full = "On main that is still what an unset variable returns, until the release that turns the compact result on." in guide
+    assert says_full == (BUILD_DEFAULT_COMMIT_RESULT == "full")
+    bullet = _changelog_bullet()
+    assert ("an unset variable and `ALICE_MCP_COMMIT_RESULT=full` return the v0.20.0 result byte for byte" in bullet) == (
+        BUILD_DEFAULT_COMMIT_RESULT == "full"
+    )
+
+
+def test_the_host_table_claims_only_what_this_repository_checked() -> None:
+    """Every host row says the host's forwarding of the entry's map is not verified, the plugin row says it has
+    no setting, no row or paragraph leans on a CI artifact, and the Codex sentence names ``env_vars``.
+
+    The Claude Code plugin's server entry is read from the repository, so the sentence that says a plugin
+    user cannot set the variable stays true or fails.
+    Mutation, each one alone: put ``host-evidence`` or ``entry_env_forwarded`` back into the section; write
+    ``yes`` in the last cell of a row; delete the Codex ``env_vars`` sentence from ``mcp-tools.md`` or from
+    ``codex.md``; add an ``env`` map to ``plugins/alice-memory/.mcp.json``; add a second setting to the
+    plugin manifest.
+    """
+
+    guide = _doc("docs/alpha/mcp-tools.md")
+    section = guide[guide.index("Where to set the variable.") : guide.index("Use canonical schema values")]
+    rows = [
+        [cell.strip() for cell in line.strip().strip("|").split("|")]
+        for line in section.splitlines()
+        if line.startswith("| ") and not line.startswith(("| Host", "| ---"))
+    ]
+    assert [row[0] for row in rows] == [
+        "Claude Desktop, Claude Code, Cursor, OpenClaw",
+        "Hermes",
+        "Codex",
+        "OpenCode",
+        "Claude Code plugin",
+    ]
+    assert all(len(row) == 4 for row in rows)
+    assert [row[3] for row in rows[:4]] == ["not verified"] * 4
+    plugin = rows[4]
+    assert plugin[3] == "no setting"
+    assert "has no `env` map" in plugin[1] and "a plugin user cannot set the variable" in plugin[1]
+
+    prose = _flat(section)
+    for cited in ("host-evidence", "real-host-ci", "entry_env_forwarded", "launch_env_forwarded", "artifact"):
+        assert cited not in prose, cited
+    assert "Not verified for any host, Claude Code and Codex included" in prose
+    assert 'env_vars = ["ALICE_MCP_COMMIT_RESULT"]' in prose
+    assert "a variable exported in the shell that starts Codex does not reach the server by itself" in prose
+    codex = _flat(_doc("docs/integrations/codex.md"))
+    assert "or name it in the same table's `env_vars` to forward the shell's value" in codex
+
+    root = REPO_ROOT / "plugins" / "alice-memory"
+    entry = json.loads((root / ".mcp.json").read_text(encoding="utf-8"))["mcpServers"]["alice"]
+    manifest = json.loads((root / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
+    assert "env" not in entry
+    assert set(manifest["userConfig"]) == {"data_dir"}
