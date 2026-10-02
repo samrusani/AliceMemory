@@ -25,6 +25,7 @@ This alpha is intentionally limited.
   write durable memory, and `alicebot vnext memories quarantine` is the
   command-line-only sweep for that case
 - passive memory capture is structured and English-biased; general conversation is not guaranteed to become memory
+- the Markdown and ChatGPT imports read each file whole into memory, and a ChatGPT export takes about 6 to 9 times its size. In v0.19.2 there is no size limit, and a conversation of about 1,000 replies in one chain fails the whole `import-chatgpt` with `alice_memory_failed`, so nothing is imported. Unreleased (on main, not in v0.19.2): a file over 16 MiB (Markdown) or 512 MiB (ChatGPT export) is refused before it is read, with `import_file_too_large`, and `--max-file-mib N` raises the limit. A folder is not limited as a whole, and `alicebot vnext sources capture-file` has no limit. A conversation of any length imports, and one that cannot be read is refused by its position while the others import. See [docs/integrations/importers.md](../integrations/importers.md)
 - `/vnext` is the operator console, not the main agent interface
 - after any active agent key exists, the full `/vnext` console requires a dedicated unbound `admin_agent` key entered again for each mounted browser session; `trusted_local_agent` is not full admin-review parity
 - generic thread, approval, task, and trace histories are client-bounded, but their list endpoints do not yet provide cursor pagination
