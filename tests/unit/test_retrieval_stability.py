@@ -28,6 +28,7 @@ from pathlib import Path
 
 import pytest
 
+from alicebot_api.source_ranking import SourceRanking
 from alicebot_api.sqlite_store import SQLiteVNextStore, ensure_sqlite_user, sqlite_user_connection
 from alicebot_api.vnext_capture import SourceCaptureInput, VNextCaptureService
 from alicebot_api.vnext_retrieval import (
@@ -255,6 +256,7 @@ def test_temporal_source_boost_distance_ties_resolve_by_content() -> None:
         sensitivity_allowed=["public", "internal", "private", "unknown"],
         limit=8,
         winning_memories=[],
+        ranking=SourceRanking.document(),
         anchor=anchor,
     )
     temporal = ranked_lists[SOURCE_STAGE_TEMPORAL]
