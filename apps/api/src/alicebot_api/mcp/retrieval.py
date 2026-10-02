@@ -32,6 +32,7 @@ from alicebot_api.project_view import (
     project_first_fill,
 )
 from alicebot_api.session_briefing import sensitive_global_exclusion
+from alicebot_api.source_ranking import SourceRanking
 from alicebot_api.store import JsonObject
 from alicebot_api.temporal_state import (
     get_temporal_state_at,
@@ -292,6 +293,9 @@ def _handle_alice_recall(context: MCPRuntimeContext, arguments: Mapping[str, obj
             # hint: without this the excerpt path is a way around a control
             # the pack enforces.
             scope=recall_scope,
+            # Written here on purpose. Recall ranks sources by document, the
+            # ranking v0.20.0 has, until the passage stage exists.
+            ranking=SourceRanking.document(),
             winning_memories=ordered_rows,
         )
         window_start = retrieval_filters.get("scope_window_start")
