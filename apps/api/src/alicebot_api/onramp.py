@@ -22,7 +22,10 @@ Subcommands:
   the memory columns the check does not read.
 - ``reindex-embeddings``: rebuild missing or provider/model-incompatible
   vectors in place after an import, upgrade, embedding-model change, or
-  change of ``ALICE_EMBEDDINGS_MAX_INPUT_CHARS``. A text the endpoint refuses
+  change of ``ALICE_EMBEDDINGS_MAX_INPUT_CHARS``. It sends only the text of
+  active and accepted memories (the statuses recall can return) to the
+  embeddings endpoint: a forgotten, rejected or candidate memory is not sent,
+  and is embedded when it becomes active. A text the endpoint refuses
   is isolated from its batch: the rest still get vectors, and the output
   lists the failed memory ids and the endpoint's reason.
 - ``brief``: print a labelled session brief (committed facts and imported
@@ -152,6 +155,7 @@ from alicebot_api.vnext_embeddings import (
     prepare_memory_embeddings,
     summarize_embedding_failures,
 )
+from alicebot_api.vnext_retrieval import MEMORY_SEARCHABLE_STATUSES
 
 DEFAULT_DATA_DIR = "~/.alice"
 DEFAULT_DEMO_DATA_DIR = "~/.alice-demo"
@@ -1022,7 +1026,8 @@ def build_parser() -> argparse.ArgumentParser:
         "reindex-embeddings",
         help=(
             "Rebuild missing, unsigned, or provider/model-incompatible memory "
-            "embeddings in the local SQLite database."
+            "embeddings of active and accepted memories in the local SQLite "
+            "database."
         ),
     )
     _add_database_arguments(reindex_parser)
@@ -3897,7 +3902,10 @@ def _run_reindex_embeddings(args: argparse.Namespace) -> int:
     while True:
         with sqlite_user_connection(db_path, args.user_id) as conn:
             store = SQLiteVNextStore(conn, args.user_id)
+            # Only the statuses recall can return: this listing never hands the
+            # text of a forgotten, rejected or candidate memory to the endpoint.
             rows = store.list_memories_missing_embeddings(
+                statuses=MEMORY_SEARCHABLE_STATUSES,
                 limit=batch_size,
                 after_id=after_id,
                 embedding_provider=provider.provider,

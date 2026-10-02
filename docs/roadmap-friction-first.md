@@ -175,6 +175,11 @@ not better extraction.
 artifact than a bigger number without a receipt. A higher score does not fix
 2 stars.
 
+> Note added 2026-10-01: the harness behind that number showed the reader model
+> each session's id, and in that dataset every evidence session id starts with
+> `answer_`. The effect is unmeasured, so the number may be overstated by an
+> unknown amount. See the README Benchmark section.
+
 ---
 
 ## The writing, which is not optional
