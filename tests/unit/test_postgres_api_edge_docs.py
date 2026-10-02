@@ -59,7 +59,7 @@ def test_the_changelog_entry_sits_under_unreleased_and_states_v0192_for_host_and
     assert "A browser attack through that was not reproduced." in entry
     assert "must now list that name in `ALICEBOT_ALLOWED_HOSTS` or use an agent key" in entry
     assert (
-        "The legacy `/v0` routes, served in development and test, take no key, so every request to them gets this rule "
+        "The legacy `/v0` routes, served in development and test or with `LEGACY_V0_ENABLED_OUTSIDE_DEV`, take no key, so every request to them gets this rule "
         "whatever `Authorization` header it carries, and a CORS preflight is not refused by it."
     ) in entry
     assert "not behind either gate and are not covered" not in entry
@@ -91,7 +91,7 @@ def test_the_changelog_entry_states_the_size_limit_and_the_nesting_limit_with_v0
     assert "A JSON body nested more than 256 levels deep is refused with HTTP 422" in entry
     assert "one error of type `json_too_deep` with `loc` `[\"body\"]`, with nothing from the body in it" in entry
     assert (
-        "The check reads the bytes and never decodes the body, so it runs before any layer parses it, and its cost grows "
+        "The check reads the bytes and never parses the body, so it runs before any layer parses it, and its cost grows "
         "in step with the size of the body, which the cap bounds."
     ) in entry
     assert "In v0.19.2 nothing was limited." in entry
