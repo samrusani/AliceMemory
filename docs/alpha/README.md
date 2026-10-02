@@ -17,6 +17,7 @@ Start here:
 - [First-run checklist](first-run.md)
 - [First memory guide](first-memory.md)
 - [Local runtime](local-runtime.md)
+- [Projects](projects.md)
 - [Doctor](doctor.md)
 - [Demo mode](demo-mode.md)
 - [Review dashboard demo](review-dashboard-demo.md)

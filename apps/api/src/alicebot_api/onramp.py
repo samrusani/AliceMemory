@@ -46,6 +46,9 @@ Subcommands:
   ``~/.alice``, like doctor.
 - ``install``: write host MCP config (and optional SessionStart hooks)
   under ``--home``. Does not import a vault. Hermes, OpenCode and Codex are opt-in.
+- ``project``: ``show`` prints the project a folder resolves to, ``report``
+  counts notes by project (neither writes), and ``scoping on|off|status`` reads
+  or sets the per-project scoping switch. Nothing reads the switch yet.
 - ``--version``: print the package version.
 
 Export/import round-trip contract ("you own the memory"):
@@ -127,6 +130,13 @@ from alicebot_api.importer_paths import (
 )
 from alicebot_api.mcp_server import _DEFAULT_MCP_USER_ID, MCPServer
 from alicebot_api.mcp_tools import MCPRuntimeContext
+from alicebot_api.project_cli import add_project_parser, run_project
+from alicebot_api.project_scoping import (
+    SCOPING_EVENT_TYPE,
+    ImportedScoping,
+    apply_imported_scoping,
+    import_receipt_line,
+)
 from alicebot_api.sqlite_schema import ROW_BACKFILL_TABLES, apply_row_backfills, bootstrap_sqlite_schema
 from alicebot_api.store import ContinuityStoreInvariantError
 from alicebot_api.sqlite_store import (
@@ -181,6 +191,7 @@ _KNOWN_COMMANDS = (
     "sleep",
     "sleep-proposals",
     "install",
+    "project",
 )
 
 _EXPORT_FORMAT = "alice-memory-jsonl"
@@ -260,6 +271,8 @@ _ERROR_CONTRACTS: dict[str, str] = {
     "data_dir_invalid": (
         "The data directory is empty or not an absolute path after ~ expansion"
     ),
+    "project_failed": "The project command could not be completed",
+    "project_report_failed": "The project report could not be read from the vault",
 }
 
 
@@ -1229,6 +1242,8 @@ def build_parser() -> argparse.ArgumentParser:
             "held in memory, at about 6 to 9 times its size."
         ),
     )
+
+    add_project_parser(subparsers, add_database_arguments=_add_database_arguments)
     return parser
 
 
@@ -3527,6 +3542,7 @@ def _import_records(
     plan: _QuarantinePlan | None = None,
     quarantine_tally: dict[str, int] | None = None,
     claim_tally: dict[str, int] | None = None,
+    scoping_events: list[dict[str, object]] | None = None,
 ) -> dict[str, dict[str, int]]:
     """Insert parsed records in FK-safe order; returns per-type counts.
 
@@ -3558,6 +3574,11 @@ def _import_records(
     whose derived column the file gave empty is compared as the schema bootstrap
     will fill it (see ``_BackfillProbe``). Both let a vault import the same
     old file again after the bootstrap has changed the rows from the first import.
+
+    ``scoping_events``, when given, collects every ``scoping.changed`` event
+    record in the file, whether it is inserted or skipped, so the import can
+    apply the newest one to the project scoping switch (see
+    ``project_scoping.apply_imported_scoping``).
     """
     quarantine_plan = plan if plan is not None else _EMPTY_QUARANTINE_PLAN
     counts: dict[str, dict[str, int]] = {}
@@ -3566,6 +3587,12 @@ def _import_records(
         for record_type, (table, columns) in _RECORD_SPECS.items():
             for line_no, record in _iter_spooled_records(validated_import, record_type):
                 tally = counts.setdefault(record_type, {"imported": 0, "skipped": 0})
+                if (
+                    scoping_events is not None
+                    and record_type == "event"
+                    and record.get("event_type") == SCOPING_EVENT_TYPE
+                ):
+                    scoping_events.append(record)
                 record, added = _apply_import_quarantine(record_type, record, quarantine_plan)
                 if quarantine_tally is not None:
                     for key, amount in added.items():
@@ -3657,6 +3684,7 @@ def _print_import_summary(
     quarantine_reports: tuple[tuple[str, str, str], ...] = (),
     restored_claims: int = 0,
     record_hits: tuple[_RecordCredentialHit, ...] | None = None,
+    scoping: ImportedScoping | None = None,
 ) -> None:
     imported_total = sum(tally["imported"] for tally in counts.values())
     skipped_total = sum(tally["skipped"] for tally in counts.values())
@@ -3669,6 +3697,9 @@ def _print_import_summary(
         if tally is None:
             continue
         print(f"  {record_type}: {tally['imported']} imported, {tally['skipped']} skipped")
+    if scoping is not None:
+        # Only a file that carries a scoping.changed event gets this line.
+        print(import_receipt_line(scoping))
     # Always printed, so a zero shows the check ran. Rows, not claims: a row
     # that carried two claims counts once.
     print(f"provenance claims restored as unverified: {restored_claims}")
@@ -3876,6 +3907,8 @@ def _run_import_snapshot(
     working_path: Path | None = None
     credential_reports: tuple[tuple[str, str, str], ...] = ()
     claim_tally: dict[str, int] = {}
+    scoping_events: list[dict[str, object]] = []
+    imported_scoping: ImportedScoping | None = None
     try:
         _ensure_private_directory(db_path.parent)
         fd, raw_working_path = tempfile.mkstemp(
@@ -3909,7 +3942,9 @@ def _run_import_snapshot(
                 plan=quarantine_plan,
                 quarantine_tally=quarantine_counts,
                 claim_tally=claim_tally,
+                scoping_events=scoping_events,
             )
+            imported_scoping = apply_imported_scoping(conn, scoping_events)
         if quarantine_ids:
             # The spool still holds the file. Scan the rewritten rows before
             # publication deletes that spool. Never include the matched text.
@@ -3987,6 +4022,7 @@ def _run_import_snapshot(
             quarantine_reports=tuple(sorted({*quarantine_plan.reports, *credential_reports})),
             restored_claims=sum(claim_tally.values()),
             record_hits=None if quarantine_ids else validated_import.record_credential_hits,
+            scoping=imported_scoping,
         )
         sys.stdout.flush()
     except (OSError, ValueError) as exc:
@@ -4158,6 +4194,8 @@ def main(argv: list[str] | None = None) -> int:
             return _run_sleep_proposals(args)
         if args.command == "install":
             return _run_install(args)
+        if args.command == "project":
+            return run_project(args)
         return _run_mcp(args)
     except Exception as exc:  # pragma: no cover - boundary fail-closed backstop
         logger.debug(

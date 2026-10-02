@@ -78,6 +78,17 @@ publication committed but a post-commit condition or reporting step failed.
 The records are present: inspect stderr and the target path, and do not
 blindly retry.
 
+Unreleased (on main, not in v0.20.0): the per-project scoping switch that
+`alice-memory project scoping on|off` sets is saved in the vault's
+`alice_schema_state` table, which an export does not carry. Each change also
+appends a `scoping.changed` event, and the event is exported. When
+`alice-memory import` restores a file that holds such events into a vault that
+has no scoping setting, it sets the setting from the newest event (by time,
+then id) and prints one receipt line that says which value it set. A vault
+that already has a setting keeps it, and the line says so. A file with no such
+event prints nothing about scoping. In v0.20.0 there is no switch and no event.
+See [Projects](projects.md).
+
 A plain import, without `--quarantine`, refuses a backup that holds
 credential material. The error code is `import_credential_material`, the
 exit code is 1, and nothing is written. stderr lists the line and memory
