@@ -75,6 +75,12 @@ In v0.19.2 that name is not carried, so an entry that holds it is refused on
 this path. A strict `opencode.json` kept every key that install did not write in
 both versions.
 
+Unreleased (on main, not in v0.20.0): `ALICE_PROJECT_DIR` and
+`ALICE_PROJECT_SCOPING` (see [Projects](../alpha/projects.md)) are also
+documented host env keys, carried on the same terms. Only `alice-memory project`
+reads them so far. In v0.20.0 an entry that holds either one is refused on this
+path.
+
 ## What is refused
 
 - `alice` more than once, under `mcp` or `mcp.servers`, including

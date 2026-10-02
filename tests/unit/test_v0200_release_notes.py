@@ -74,16 +74,19 @@ def test_every_version_site_names_0200_and_the_marketplace_pins_the_published_re
 
 
 def test_the_changelog_has_the_dated_heading_below_the_unreleased_section() -> None:
-    """Mutations, each one alone: drop the Unreleased heading; drop the v0.20.0 heading; change its date form.
+    """Mutations, each one alone: drop the Unreleased heading; drop the v0.20.0 heading; change its date form;
+    remove the blank line between the last Unreleased entry and the v0.20.0 heading.
 
     The release PR required Unreleased to be empty. Once v0.20.0 is out, entries for later
-    work belong there, so this test pins only that the section is first and that the dated
-    headings follow it in order.
+    work belong there, so this test pins that the section is first, that the dated headings
+    follow it in order, and that a blank line ends the section, so an entry never touches
+    the next heading and the release conversion keeps one shape.
     """
 
     changelog = _text("CHANGELOG.md")
     sections = changelog.split("\n## ")
     assert sections[1].startswith("Unreleased\n")
+    assert sections[1].endswith("\n")
     assert sections[2].startswith("v0.20.0 \u2014 2026-10-02\n")
     assert sections[3].startswith("v0.19.2 \u2014 2026-10-01\n")
     assert changelog.count(HEADING) == 1

@@ -252,6 +252,30 @@ REMOTE_CASES: list[tuple[str, str, str | None]] = [
         + '[remote "upstream"]\n\turl = https://git.example.com/org/real.git\n',
         None,
     ),
+    (
+        "origin is a file URL and another remote has a real URL",
+        config_text("file:///srv/git/foo.git")
+        + '[remote "upstream"]\n\turl = https://git.example.com/org/real.git\n',
+        None,
+    ),
+    (
+        "origin is a local path and the real remotes are listed before it",
+        '[remote "upstream"]\n\turl = https://git.example.com/org/one.git\n'
+        '[remote "mirror"]\n\turl = https://git.example.com/org/two.git\n'
+        '[remote "origin"]\n\turl = ../elsewhere\n',
+        None,
+    ),
+    (
+        "origin is a Windows drive path and the one other remote is listed first",
+        '[remote "upstream"]\n\turl = https://git.example.com/org/real.git\n'
+        '[remote "origin"]\n\turl = C:\\\\work\\\\foo\n',
+        None,
+    ),
+    (
+        "a host that is not case folded keeps the case of the path in the id",
+        config_text("https://Git.Example.COM/Org/Payments.git"),
+        "git.example.com/Org/Payments",
+    ),
     ("a local path", config_text("/srv/git/foo.git"), None),
     ("a file URL", config_text("file:///srv/git/foo.git"), None),
     ("a Windows drive path (git writes the backslashes doubled)", config_text("C:\\\\work\\\\foo"), None),
@@ -268,6 +292,12 @@ def test_remote_choice(tmp_path: Path, label: str, config: str, normalized: str 
 
     Mutation: take the first remote in the file (the first case), or accept a
     local path as a remote (the local path cases).
+
+    Two more, each alone. Fall through to another remote when origin is chosen
+    and its URL has no host (the three origin cases), which would give a
+    repository that fetches from a local path the id of its upstream. Lowercase
+    the normalized URL before it is hashed (the case-kept host), which would
+    merge ``Org/Payments`` with ``org/payments`` on a host where they differ.
     """
 
     root = tmp_path.resolve()

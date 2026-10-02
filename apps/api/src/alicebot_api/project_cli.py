@@ -252,7 +252,7 @@ def _run_show(args: argparse.Namespace) -> int:
 
     if context is not None:
         print(f"Project: {json.dumps(context.label)}")
-        print("Ids: " + ", ".join(context.ids) + " (the first is where a new note would be saved)")
+        print("Ids: " + ", ".join(context.ids) + " (the first is the primary id; a later version will save new notes under it, this one saves nothing by project)")
         print(f"Found from: {_FOUND_FROM_TEXT[context.source]}")
     elif detection.outcome == "failed":
         print("Project: detection failed")

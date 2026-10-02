@@ -159,6 +159,31 @@ def test_show_names_the_project_and_how_it_was_found(cli: Cli, tmp_path: Path, m
     assert record["scoping"] == {"enabled": False, "origin": "default", "value": "off", "vault_readable": True}
 
 
+def test_show_does_not_claim_a_note_is_saved_by_project(
+    cli: Cli, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """On this build nothing is saved by project, so the ``Ids`` line names the primary
+    id and says so, with a remote (two ids) and without one (one id).
+
+    Mutation: put back the words "where a new note would be saved", or drop the
+    sentence that this version saves nothing by project.
+    """
+
+    remote_repo = make_repo(tmp_path / "work" / "payments", config=config_text("git@github.com:acme/payments.git"))
+    path_repo = make_repo(tmp_path / "work" / "scratch", config=config_text())
+    remote_ids = [project_id_for("remote", "github.com/acme/payments"), project_id_for("path", str((remote_repo / ".git").resolve()))]
+    path_ids = [project_id_for("path", str((path_repo / ".git").resolve()))]
+    tail = " (the first is the primary id; a later version will save new notes under it, this one saves nothing by project)"
+
+    for repo, ids in ((remote_repo, remote_ids), (path_repo, path_ids)):
+        monkeypatch.chdir(repo)
+        code, out, err = cli.run("project", "show")
+        assert (code, err) == (0, "")
+        ids_lines = [line for line in out.splitlines() if line.startswith("Ids: ")]
+        assert ids_lines == ["Ids: " + ", ".join(ids) + tail]
+        assert "would be saved" not in out and "is where" not in out
+
+
 def test_show_with_no_remote_says_it_used_the_repository_path(
     cli: Cli, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -698,6 +723,98 @@ def test_report_lists_at_most_fifty_and_counts_the_rest(cli: Cli) -> None:
     assert report["kinds"]["memories"]["total"] == 110
 
 
+OTHER_USER_ID = UUID("00000000-0000-4000-8000-0000000000aa")
+ID_C = "prj_cccccccccccccccc"
+
+
+def test_report_counts_only_the_current_users_rows(cli: Cli) -> None:
+    """Rows of another user in the same vault change nothing in the report: not a
+    count, not a project, not a name.
+
+    Mutation: drop the ``user_id`` condition from the memories query, from the
+    sources query or from the open loops query (each alone). The other user's
+    row then adds to that kind and this test fails.
+    """
+
+    _day_one_vault(cli.vault)
+    code, before_out, err = cli.run("project", "report", "--json")
+    assert (code, err) == (0, "")
+    db = cli.db
+    bootstrap_database(db, user_id=OTHER_USER_ID, user_email="other@alice")
+    with sqlite_user_connection(db, OTHER_USER_ID) as conn:
+        store = SQLiteVNextStore(conn, OTHER_USER_ID)
+        _memory(
+            store,
+            "other-memory",
+            metadata={"project_scope": [ID_C, "Other Name"], "project_detected": {"label": "elsewhere"}},
+        )
+        store.create_source(
+            {
+                "source_type": "note",
+                "title": "other source",
+                "content_hash": "hash-other-source",
+                "captured_at": "2026-06-01T08:00:00Z",
+                "domain": "project",
+                "sensitivity": "internal",
+                "metadata_json": {"project_scope": [ID_C, "Other Name"]},
+            }
+        )
+        store.create_open_loop(
+            {"title": "other loop", "metadata_json": {"project_scope": [ID_C, "Other Name"]}}
+        )
+    code, after_out, err = cli.run("project", "report", "--json")
+    assert (code, err) == (0, "")
+    assert json.loads(after_out) == json.loads(before_out)
+    assert ID_C not in after_out and "Other Name" not in after_out and "elsewhere" not in after_out
+
+
+def test_report_label_is_the_most_common_one_across_the_three_kinds(cli: Cli) -> None:
+    """A project whose rows were saved under different labels is shown with the label
+    that most rows carry, counting memories, sources and open loops together.
+
+    ``alpha`` is the first label seen and alphabetically first, ``charlie`` is the
+    last seen and alphabetically last, and ``bravo`` wins only when the three kinds
+    are added up (one memory, one source, one open loop each hold one vote).
+
+    Mutation: take the first label seen, the last, the alphabetically first, or
+    count one kind only.
+    """
+
+    db = cli.vault / "memory.db"
+    bootstrap_database(db, user_id=USER_ID, user_email="local@alice")
+    with sqlite_user_connection(db, USER_ID) as conn:
+        store = SQLiteVNextStore(conn, USER_ID)
+        for key, label in (("one", "alpha"), ("two", "bravo"), ("three", "charlie")):
+            _memory(
+                store,
+                key,
+                metadata={"project_scope": [ID_A], "project_detected": {"label": label}},
+                project_id=ID_A,
+            )
+        store.create_source(
+            {
+                "source_type": "note",
+                "title": "bravo source",
+                "content_hash": "hash-bravo-source",
+                "captured_at": "2026-06-01T08:00:00Z",
+                "domain": "project",
+                "sensitivity": "internal",
+                "metadata_json": {"project_scope": [ID_A], "project_detected": {"label": "bravo"}},
+            }
+        )
+        store.create_open_loop(
+            {
+                "title": "bravo loop",
+                "metadata_json": {"project_scope": [ID_A], "project_detected": {"label": "bravo"}},
+            }
+        )
+    code, out, err = cli.run("project", "report", "--json")
+    assert (code, err) == (0, "")
+    projects = json.loads(out)["projects"]
+    assert [(project["id"], project["label"]) for project in projects] == [(ID_A, "bravo")]
+    assert projects[0]["rows"] == {"memories": 3, "open_loops": 1, "sources": 1}
+
+
 def test_reads_leave_the_vault_byte_identical(cli: Cli, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """``show``, ``report`` and ``scoping status`` leave every file of the vault folder
     as it was: the same bytes, the same modification times and no new file (no
@@ -888,3 +1005,25 @@ def test_newest_scoping_event_value_reads_a_payload_that_is_text_or_an_object() 
     assert newest_scoping_event_value(records[2:4]) is None
     assert newest_scoping_event_value(records[:1]) == "on"
     assert newest_scoping_event_value(records[1:2]) == "off"
+
+
+def test_events_with_the_same_time_are_ordered_by_id() -> None:
+    """Two ``scoping.changed`` events at one instant: the greater id is the newest,
+    whatever order the file lists them in, and an earlier event never wins by its id.
+
+    Mutation: leave the id out of the comparison (the first event listed at that
+    time wins, so listing the low id first gives ``on``), or prefer the smaller id.
+    """
+
+    when = "2026-05-05T05:05:05.000000Z"
+
+    def event(identifier: str, value: str, at: str = when) -> dict[str, object]:
+        return {"event_type": SCOPING_EVENT_TYPE, "occurred_at": at, "id": identifier, "payload_json": {"value": value}}
+
+    low = event("0001", "on")
+    high = event("0002", "off")
+    earlier = event("9999", "on", "2026-05-05T05:05:04.000000Z")
+    assert newest_scoping_event_value([low, high]) == "off"
+    assert newest_scoping_event_value([high, low]) == "off"
+    assert newest_scoping_event_value([earlier, low, high]) == "off"
+    assert newest_scoping_event_value([high, earlier, low]) == "off"

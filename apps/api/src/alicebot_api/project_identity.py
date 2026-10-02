@@ -25,11 +25,13 @@ What the resolver does, in order (spec 4.3):
    notes written before the remote existed stay readable. With no remote the
    path hash is the only id.
 
-It starts no process, opens no network connection and reads no environment
-variable (the caller passes the home folder in ``Platform``). Every read is
-bounded, and any failure means no project, never a path id and never an
-exception. The raw remote URL and every path are hashed or dropped. They are
-never stored, logged or printed, because an https URL can carry a token.
+It starts no process and opens no network connection. It reads one
+environment variable, the home folder (``HOME``, or ``USERPROFILE`` on
+Windows), and only when the caller passes no ``Platform``. The caller reads
+``ALICE_PROJECT_DIR`` and the working folder. Every read is bounded, and any
+failure means no project, never a path id and never an exception. The raw
+remote URL and every path are hashed or dropped. They are never stored, logged
+or printed, because an https URL can carry a token.
 
 The platform and filesystem facts are parameters (``Platform`` and
 ``ProjectFileSystem``), so one test runner covers the Windows and the

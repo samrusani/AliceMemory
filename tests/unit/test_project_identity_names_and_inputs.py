@@ -83,6 +83,16 @@ NORMALIZATION = [
     ("https://h:22/o/r", "h:22/o/r"),
     ("http://h:443/o/r", "h:443/o/r"),
     ("git://h:22/o/r", "h:22/o/r"),
+    # The scheme is folded before its default port is looked up.
+    ("HTTPS://h:443/o/r", "h/o/r"),
+    ("SSH://h:22/o/r", "h/o/r"),
+    ("Git://h:9418/o/r", "h/o/r"),
+    ("HTTPS://h:8443/o/r", "h:8443/o/r"),
+    ("SSH://h:443/o/r", "h:443/o/r"),
+    # The userinfo ends at the last @ of the authority, so a password may hold one.
+    ("https://user:p@ss@h/o/r", "h/o/r"),
+    ("https://user:p@ss@h:8443/o/r", "h:8443/o/r"),
+    ("ssh://user@host@h:2222/o/r", "h:2222/o/r"),
     # A scheme with no default listed keeps any port.
     ("ftp://h:21/o/r", "h:21/o/r"),
     ("git+https://h:443/o/r", "h:443/o/r"),
@@ -99,6 +109,8 @@ NORMALIZATION = [
     ("https://[2001:db8::1]:443/o/r", "[2001:db8::1]/o/r"),
     ("https://[2001:db8::1]/o/r", "[2001:db8::1]/o/r"),
     ("git@[2001:db8::1]:o/r.git", "[2001:db8::1]/o/r"),
+    ("git@[2001:DB8::A]:o/r.git", "[2001:db8::a]/o/r"),
+    ("ssh://git@[2001:DB8::A]:2222/o/r", "[2001:db8::a]:2222/o/r"),
     ("https://[::1]:8443/o/r", "[::1]:8443/o/r"),
     ("https://[::1]/o/r", "[::1]/o/r"),
     ("https://[2001:DB8::A]/o/r", "[2001:db8::a]/o/r"),
@@ -155,6 +167,13 @@ def test_remote_normalization(raw: str, expected: str | None) -> None:
     port, keep a default port, compare a port with another scheme's default,
     split a bracketed host on its first colon, or join the port to a host that
     has lost its brackets.
+
+    Four more, each alone, each failing a case above: look up a default port by
+    the scheme as written (``HTTPS://h:443/o/r`` keeps ``:443``), split the
+    userinfo at the first ``@`` of the authority instead of the last (a password
+    that holds an ``@`` leaks into the host), leave the bracketed host of the
+    scp-like form un-lowercased, or leave the bracketed host of the URL form
+    un-lowercased.
     """
 
     assert normalize_remote_url(raw) == expected
@@ -573,6 +592,58 @@ def test_a_one_mebibyte_payload_neither_blocks_nor_crashes() -> None:
     finally:
         thread.join(timeout=5)
     assert hook_payload_cwd(data, platform=Platform(windows=False, home=None)) is None
+
+
+class _BoundedOnlyStream(io.BytesIO):
+    """A stream that records the size of every read and refuses any other way to read."""
+
+    def __init__(self, data: bytes) -> None:
+        super().__init__(data)
+        self.sizes: list[int] = []
+
+    def read(self, size: int | None = -1) -> bytes:
+        assert size is not None and size > 0, "an unbounded read"
+        self.sizes.append(size)
+        return super().read(size)
+
+    def readall(self) -> bytes:
+        raise AssertionError("an unbounded read")
+
+    def readline(self, size: int | None = -1) -> bytes:
+        raise AssertionError("a line read has no bound")
+
+    def readlines(self, hint: int = -1) -> list[bytes]:
+        raise AssertionError("an unbounded read")
+
+    def __iter__(self):  # type: ignore[no-untyped-def]
+        raise AssertionError("an unbounded read")
+
+
+@pytest.mark.parametrize("size", [0, 10, 64 * 1024, 64 * 1024 + 1, 3 * 64 * 1024 + 5])
+def test_the_hook_payload_reader_only_makes_bounded_reads(size: int) -> None:
+    """Every read of the host's stdin asks for a positive number of bytes, none more
+    than the limit plus one, whether the payload fits, is one byte over or is
+    several times too large.
+
+    The result is the payload when it fits and ``None`` when it does not, so a
+    reader that read everything and dropped the oversize payload would pass the
+    other tests and fail this one.
+
+    Mutation: read the whole stream with ``stream.read()`` before the size check,
+    drain the rest with ``stream.read()``, or drain with one very large read.
+    """
+
+    payload = b"x" * size
+    stream = _BoundedOnlyStream(payload)
+    result = read_hook_payload(stream)
+    assert result == (payload if size <= MAX_HOOK_PAYLOAD_BYTES else None)
+    assert stream.sizes and max(stream.sizes) <= MAX_HOOK_PAYLOAD_BYTES + 1
+    assert stream.read(1) == b""  # the stream was read to its end
+
+    small = _BoundedOnlyStream(b"y" * 5000)
+    assert read_hook_payload(small, limit=10) is None
+    assert small.sizes[0] == 11
+    assert max(small.sizes) <= MAX_HOOK_PAYLOAD_BYTES + 1
 
 
 def test_the_existing_hook_survives_a_one_mebibyte_payload(tmp_path: Path) -> None:
