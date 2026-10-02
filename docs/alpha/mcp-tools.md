@@ -150,7 +150,10 @@ Remember, recall, continue. These are the only tools in a default
   PATH` or `ALICE_PROJECT_DIR` set it). A call that names a project, an
   identity that declares a scope and every call with scoping off, which is the
   default, read what they read in v0.20.0, except that `~global` is now a
-  reserved name that every call refuses as a project. See [Projects](projects.md).
+  reserved name that every call refuses as a project. The `recent_changes` list
+  is filled once across memory events and open loop events: a quarter of its
+  places, rounded down, is kept for global events, whichever kind they are. See
+  [Projects](projects.md).
 
 ## Reading recalled text
 

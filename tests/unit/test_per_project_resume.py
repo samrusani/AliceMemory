@@ -265,8 +265,8 @@ def _pointed_at(data_dir: Path, brief: dict) -> list[tuple[str, str]]:
 def test_recent_changes_never_point_at_a_held_back_global_note(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Mutation: drop the held-back rule from both layers at once, so that held-back ids reach the result.
 
-    The two layers are the event queries (``exclude_global_domains=()`` in the two event lambdas of
-    ``_vnext_resume``, or ``global_excluded_domains=()`` in the two store event readers) and the by-id check (the
+    The two layers are the event queries (``exclude_global_domains=()`` in the two event reads of ``read_events``
+    in ``_vnext_resume``, or ``global_excluded_domains=()`` in the two store event readers) and the by-id check (the
     ``_resource_is_held_back_global`` line of ``_resume_event_honours_policy_fence``). Each layer alone is caught by
     the two tests below, because the other layer hides the leak. With both gone the ids get through, and this test
     sees them.
@@ -298,8 +298,9 @@ def test_recent_changes_never_point_at_a_held_back_global_note(tmp_path: Path, m
 def test_a_held_back_event_does_not_use_up_a_place_in_the_recent_changes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Mutation: pass ``exclude_global_domains=()`` in the memory event lambda, or in the loop event lambda of
-    ``_vnext_resume``, or ``global_excluded_domains=()`` in ``list_resume_memory_events`` or in ``list_open_loop_events``.
+    """Mutation: pass ``exclude_global_domains=()`` in the memory event read, or in the loop event read, of
+    ``read_events`` in ``_vnext_resume``, or ``global_excluded_domains=()`` in ``list_resume_memory_events`` or in
+    ``list_open_loop_events``.
 
     With two places, the two newest global events of each kind are held-back notes. The queries leave them out
     before the limit, so the plain global fact and the plain global loop, which are older, fill the two places. If
