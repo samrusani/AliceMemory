@@ -27,7 +27,7 @@ Tier 1 is necessary and not sufficient. In the audit that started this work, a c
 
 ## Running it
 
-The harness is `scripts/alice_bench.py`. It uses the Markdown importer of the checkout it is pointed at (`--checkout REPO`), runs the MCP server in process the way a host calls it, and removes every `ALICE*` environment variable from a run, so an agent key or an embeddings endpoint in the parent cannot reach it. It refuses a `--data-dir` outside its own run directory, so it can never open a real vault. It needs a POSIX system.
+The harness is `scripts/alice_bench.py`. It uses the Markdown importer of the checkout it is pointed at (`--checkout REPO`), runs the MCP server in process the way a host calls it, and removes every `ALICE*` environment variable from a run, so an agent key or an embeddings endpoint in the parent cannot reach it. It refuses a `--data-dir` outside its own run directory, so it can never open a real vault. It needs a POSIX system, and git, because a run reads the commit of its checkout.
 
 ```
 python scripts/alice_bench.py build --run-dir RUN --corpus CORPUS --order sorted --questions QUESTIONS.json
@@ -39,6 +39,8 @@ python scripts/alice_bench.py fingerprint --run-dir RUN
 ```
 
 `score` takes one outputs file per import order and prints the minimum over them. `--search-quality off|passage|on` sets `ALICE_SEARCH_QUALITY` for a run; a checkout that does not read it ignores it, and the fingerprint records the value either way.
+
+A vault belongs to the checkout that built it. The manifest records that checkout's commit, whether it differs from the commit and the real path `alicebot_api` was imported from, and every command that reads the vault refuses to run from another checkout, another commit or another dirty state; build again with `--rebuild`. `--data-dir` has to be a folder of its own inside the run directory, never the run directory or a name the harness keeps. `build` refuses a `--sensitivity` or `--domain` that recall would hide by default, because grep would still read those files and the two arms would see different text. `score` refuses outputs files that came from different commits, switches, corpora or question sets, or from one import order twice, and `score --json` leaves the per-question results out unless `--per-question` is given.
 
 The outputs file carries a fingerprint of what the numbers measured: the git commit of the checkout and whether it is dirty, the real path `alicebot_api` was imported from, the digest of `tools/list`, the switch, the import order, the corpus, snapshot and question-set hashes, the model ids, the prompt hashes, the hash of `gates.json` and the hash of the harness. It does not hold the package version string, because that reads installed metadata and can name a different build than the tree on the path.
 
@@ -68,7 +70,7 @@ python scripts/alice_bench_gates.py
 python scripts/alice_bench_gates.py --improve 0.12 --regress 0.04
 ```
 
-The same file records the budget for the CI time of this work: the unit-test job has a 20 minute limit and ran a median of 12.6 and at most 15.1 minutes on main on 2026-10-02, the new tests may add 90 seconds, and the unit tests are split by directory before another test lands if the job passes 17 minutes.
+The same file records the budget for the CI time of this work: the unit-test job has a 20 minute limit and ran a median of 11.6 and at most 15.1 minutes across the 30 successful runs on main on 2026-10-01 and 2026-10-02, the new tests may add 90 seconds, and the unit tests are split by directory before another test lands if the job passes 17 minutes.
 
 ## What the numbers can and cannot say
 

@@ -108,16 +108,16 @@
   "ci_time": {
     "job": "python-unit (Unit tests + live eval battery, SQLite)",
     "measured_on": "2026-10-02",
-    "measured_runs": 19,
-    "measured_scope": "successful push runs of tests.yml on main, 2026-10-01 to 2026-10-02",
-    "measured_seconds": {"min": 444, "median": 755, "max": 904},
+    "measured_runs": 30,
+    "measured_scope": "every successful push run of tests.yml on main created on 2026-10-01 and 2026-10-02 (UTC), job start to job finish",
+    "measured_seconds": {"min": 444, "median": 693.5, "max": 904},
     "timeout_minutes": 20,
     "split_threshold_minutes": 17,
     "new_test_budget_seconds": 90,
     "p0a_tests": {
-      "files": 5,
-      "count": 59,
-      "seconds_measured_locally": 8,
+      "files": 6,
+      "count": 109,
+      "seconds_measured_locally": 19,
       "note": "The tests of the harness pull request, run alone on a laptop. The CI cost is read from the python-unit job of that pull request against the measured range above."
     },
     "rule": "The tests of the search-quality release add at most new_test_budget_seconds to this job. The on-mode job is a separate job and runs in parallel. If the job passes split_threshold_minutes, the first pull request to cross the line splits the unit tests by directory before another test lands."

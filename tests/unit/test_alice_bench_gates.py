@@ -132,8 +132,7 @@ def test_the_thresholds_are_the_ones_the_spec_locks() -> None:
     assert data["passage_cap_rule"]["caps"] == [2, 3, 4]
     assert data["p1b_arm_rule"]["beats_plain_by_questions"] == 3
     assert data["sample"]["per_corpus"] == [60, 60] and sum(data["sample"]["per_corpus"]) == data["sample"]["heldout_questions"]
-    orders = data["import_orders"]
-    assert orders[:2] == ["sorted", "reverse"] and orders[2].startswith("shuffle:") and len(orders) == 3
+    assert data["import_orders"] == ["sorted", "reverse", "shuffle:20261002"]
     counts = data["run_counts"]
     assert counts["baseline"]["answering_runs"] == sum(counts["baseline"]["arms"].values()) == 720
     assert counts["candidate"]["answering_runs"] == sum(counts["candidate"]["arms"].values()) == 840
@@ -170,12 +169,14 @@ def test_the_hash_fields_are_empty_on_purpose_and_say_who_fills_them() -> None:
 def test_the_ci_time_budget_matches_the_workflow_it_describes() -> None:
     """13.2. The budget for the new tests, measured against the job that runs them.
 
-    The python-unit job has a 20 minute limit, and a measurement on main put it at a median of 12.6
-    and a maximum of 15.1 minutes. The tests of this release may add 90 seconds, and the job is split
-    by directory before another test lands if it passes 17 minutes.
+    The python-unit job has a 20 minute limit, and a measurement of every successful push run on main
+    on 2026-10-01 and 2026-10-02 (30 runs) put it at a median of 11.6 and a maximum of 15.1 minutes. The
+    tests of this release may add 90 seconds, and the job is split by directory before another test
+    lands if it passes 17 minutes.
 
     Mutation: change ``timeout-minutes`` of the python-unit job in the workflow (the budget then
-    describes a different job), or record a split threshold at or above the timeout.
+    describes a different job), record a split threshold at or above the timeout, or write the sample
+    as fewer runs than it was taken over.
     """
 
     budget = _thresholds()["ci_time"]
@@ -188,5 +189,29 @@ def test_the_ci_time_budget_matches_the_workflow_it_describes() -> None:
     assert budget["new_test_budget_seconds"] == 90
     measured = budget["measured_seconds"]
     assert measured["min"] <= measured["median"] <= measured["max"] < budget["split_threshold_minutes"] * 60
-    assert budget["measured_runs"] >= 10
+    assert budget["measured_runs"] == 30
+    assert (measured["min"], measured["median"], measured["max"]) == (444, 693.5, 904)
+    assert "every successful push run" in budget["measured_scope"] and "2026-10-01 and 2026-10-02" in budget["measured_scope"]
     assert budget["p0a_tests"]["seconds_measured_locally"] < budget["new_test_budget_seconds"]
+
+
+def test_a_file_that_is_not_a_gates_file_is_refused_and_the_properties_read_the_locked_numbers(tmp_path: Path) -> None:
+    """The harness reads its numbers through ``Gates`` and refuses a file of another kind.
+
+    Mutation: drop the schema check in ``load_gates``, or read a property from the wrong key (the
+    budgets from the grep cap, the searches per run from the budgets).
+    """
+
+    import scripts.alice_bench as bench
+
+    wrong = tmp_path / "gates.json"
+    wrong.write_text(json.dumps({"schema": "something-else/1"}), encoding="utf-8")
+    with pytest.raises(bench.BenchError, match="not an alice-bench-gates/1 file"):
+        bench.load_gates(wrong)
+    gates = bench.load_gates(GATES)
+    assert gates.path == GATES and len(gates.sha256) == 64
+    assert gates.budgets == (4096, 8192) and gates.gate_budget == 8192
+    assert (gates.searches_per_run, gates.grep_cap) == (3, 16384)
+    assert (gates.anchor_min_length, gates.anchor_max_files) == (12, 3)
+    assert gates.import_orders == ("sorted", "reverse", "shuffle:20261002")
+    assert gates.prompt_hashes == {"alice_arm": None, "grep_arm": None, "no_search": None, "judge": None}

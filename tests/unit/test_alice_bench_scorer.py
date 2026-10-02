@@ -422,6 +422,15 @@ def test_an_anchor_planted_in_a_questions_own_text_scores_zero(tmp_path: Path) -
     assert (result["hits"], result["floor_hits"]) == (0, 0)
 
 
+def _fingerprint(order: str, **changes: object) -> dict[str, object]:
+    """A complete fingerprint for one import order. Every field but the order is shared."""
+
+    fp: dict[str, object] = {key: f"same-{key}" for key in bench.SAME_ACROSS_ORDERS}
+    fp["import_order"] = order
+    fp.update(changes)
+    return fp
+
+
 def test_the_report_prints_the_floor_beside_every_table_and_the_minimum_over_orders(tmp_path: Path) -> None:
     """TH6 and TH14. The dev report names each import order and the lowest hit count over the orders.
 
@@ -438,7 +447,7 @@ def test_the_report_prints_the_floor_beside_every_table_and_the_minimum_over_ord
     for label, body in (("sorted", outputs), ("reverse", rotated), ("shuffle:3", half)):
         path = tmp_path / f"{label.replace(':', '-')}.json"
         path.write_text(
-            json.dumps({"schema": bench.OUTPUTS_SCHEMA, "fingerprint": {"import_order": label}, "outputs": body}),
+            json.dumps({"schema": bench.OUTPUTS_SCHEMA, "fingerprint": _fingerprint(label), "outputs": body}),
             encoding="utf-8",
         )
         paths.append(str(path))
@@ -554,3 +563,456 @@ def test_the_repo_scorer_and_an_independent_scorer_agree_on_committed_outputs(tm
     assert hits_seen == {True, False}, "the comparison must include both hits and misses"
     leaves = bench.locate_leaves(edge)
     assert [(leaf.value, leaf.end_byte) for leaf in leaves if leaf.path in bench.SCORED_LEAVES] == _reference_scored_strings(edge)
+
+
+# The hit rule, the columns and the byte boundary --------------------------
+#
+# G1 and G2 count hits, and the PR table quotes facts found and bytes per call. These tests
+# pin each of those by a case where the wrong rule gives another number, because the committed
+# fixture questions are all-or-nothing and would not tell ``all`` from ``any``.
+
+
+def _two_fact_question_set(tmp_path: Path) -> bench.QuestionSet:
+    def question(qid: str, facts: list[tuple[str, str]]) -> dict[str, Any]:
+        return {
+            "id": qid,
+            "question": f"question {qid}?",
+            "keyword_query": f"kw {qid}",
+            "facts": [{"fact": f"f{index}", "anchors": [{"text": text, "file": "x.md"}]} for index, (text, _) in enumerate(facts)],
+        }
+
+    path = _write_questions(
+        tmp_path / "facts.json",
+        [
+            question("both_facts", [(ANCHOR, "x.md"), ("the ladder is in the shed", "x.md")]),
+            question("one_of_two", [(ANCHOR, "x.md"), ("a sentence the output never holds", "x.md")]),
+            question("single", [("the ladder is in the shed", "x.md")]),
+        ],
+    )
+    return bench.load_questions(path)
+
+
+def test_a_question_is_a_hit_only_when_every_fact_is_present(tmp_path: Path) -> None:
+    """G1 and G2 count hits, and a hit needs every required fact (``hit_rule`` is ``all_facts``).
+
+    Mutation: change ``OutputScore.hit`` from ``all(self.found)`` to ``any(self.found)``. The
+    question with one fact of two would then count as a hit, and the committed fixture questions
+    would not notice, because each of them is all or nothing.
+    """
+
+    text = _output(sources=[_source(excerpt=f"the {ANCHOR} sits on the sill")])
+    two = bench.score_output(text, [_fact(ANCHOR), _fact("a sentence the output never holds")], budget=8192)
+    assert two.found == (True, False)
+    assert two.hit is False
+    both = bench.score_output(text, [_fact(ANCHOR), _fact("on the sill")], budget=8192)
+    assert both.found == (True, True) and both.hit is True
+    neither = bench.score_output(text, [_fact("not here"), _fact("nor here")], budget=8192)
+    assert neither.found == (False, False) and neither.hit is False
+    assert _gates().data["tier1"]["hit_rule"] == "all_facts"
+
+    qset = _two_fact_question_set(tmp_path)
+    holds_first = _output(sources=[_source(excerpt=f"the {ANCHOR} sits on the sill")])
+    holds_second = _output(sources=[_source(excerpt="the ladder is in the shed")])
+    holds_both = _output(sources=[_source(excerpt=f"the {ANCHOR} sits here and the ladder is in the shed")])
+    outputs = {
+        "both_facts": {"verbatim": holds_both},
+        "one_of_two": {"verbatim": holds_first},
+        "single": {"verbatim": holds_second},
+    }
+    cell = bench.score_set(outputs, qset, variant="verbatim", budget=8192)
+    assert cell["per_question"] == {"both_facts": True, "one_of_two": False, "single": True}
+    assert cell["hits"] == 2
+    assert (cell["facts_found"], cell["facts_total"]) == (4, 5)
+
+
+def test_a_scored_string_counts_when_it_ends_exactly_at_the_budget_and_not_one_byte_later() -> None:
+    """The budget is a byte count over the whole serialized output, and the boundary byte is inside.
+
+    The server's JSON is ASCII (non-ASCII letters arrive as escapes), so the end of a string in bytes
+    is its end in characters, found here with ``str.index`` and no help from the scorer.
+
+    Mutation: ``leaf.end_byte < budget`` (the boundary byte falls outside), or ``<= budget + 1`` (one
+    byte too generous), in ``score_output``.
+    """
+
+    body = f"the {ANCHOR} is in the shed and the caf\u00e9 is shut"
+    text = _output(sources=[_source(excerpt=body, title="the caf\u00e9 note")])
+    assert text.isascii()
+    leaf = next(item for item in bench.locate_leaves(text) if item.path == "sources[].excerpt")
+    literal = json.dumps(leaf.value)
+    expected_end = text.index(literal) + len(literal)
+    assert leaf.end_byte == expected_end == len(text[:expected_end].encode("utf-8"))
+    facts = [_fact(ANCHOR)]
+    assert bench.score_output(text, facts, budget=expected_end).found == (True,)
+    assert bench.score_output(text, facts, budget=expected_end - 1).found == (False,)
+    assert bench.score_output(text, facts, budget=expected_end + 1).found == (True,)
+    assert bench.score_output(text, facts, budget=expected_end - 1).bytes_total == len(text.encode("utf-8"))
+
+
+def test_empty_anchors_never_score_even_when_a_loader_was_not_asked() -> None:
+    """An anchor that is empty after whitespace is collapsed matches every string, so it is skipped.
+
+    Mutation: drop the ``if (needle := ...)`` guard in ``score_output``. An empty anchor would then
+    be found in any scored string.
+    """
+
+    text = _output(sources=[_source(excerpt="something is here")])
+    assert bench.score_output(text, [_fact("")], budget=8192).found == (False,)
+    assert bench.score_output(text, [_fact("   ", "\n")], budget=8192).found == (False,)
+    assert bench.score_output(text, [_fact("", "something is here")], budget=8192).found == (True,)
+
+
+def _reference_cell(outputs: dict[str, dict[str, str]], qset: bench.QuestionSet, variant: str, budget: int) -> dict[str, Any]:
+    """Tier 1 for one cell by the independent reader of TH12 and plain counting."""
+
+    questions = qset.questions
+    hits = facts_found = facts_total = floor_hits = 0
+    bytes_sum = 0
+    documents = passages = 0
+    for index, question in enumerate(questions):
+        text = outputs[question.id][variant]
+        flags = _reference_hit_flags(text, list(question.facts), budget)
+        hits += 1 if all(flags) else 0
+        facts_found += sum(flags)
+        facts_total += len(question.facts)
+        bytes_sum += len(text.encode("utf-8"))
+        sources = json.loads(text).get("sources", [])
+        documents += len({entry["id"] for entry in sources})
+        passages += len(sources)
+        neighbour = outputs[questions[(index + 1) % len(questions)].id][variant]
+        floor_hits += 1 if all(_reference_hit_flags(neighbour, list(question.facts), budget)) else 0
+    count = len(questions)
+    return {
+        "hits": hits,
+        "facts_found": facts_found,
+        "facts_total": facts_total,
+        "floor_hits": floor_hits,
+        "bytes_per_call": bytes_sum / count,
+        "documents_per_call": documents / count,
+        "passages_per_call": passages / count,
+    }
+
+
+def test_the_reported_columns_equal_an_independent_count_on_the_committed_outputs() -> None:
+    """Hits, facts found, floor, bytes, documents and passages per call, at every budget, by two counts.
+
+    The reference counts with the second reader of TH12 and with ``len`` and ``set``, and the budgets
+    run from tight (where only some facts fit) to the gate budget, so hits and facts found differ.
+
+    Mutation: ``bytes_sum += budget`` or ``facts_found += 0`` in ``score_set``, ``hit`` as
+    ``any``, a floor taken against the question's own output, or documents counted as passages.
+    """
+
+    qset = bench.load_questions(QUESTIONS)
+    outputs = json.loads(OUTPUTS.read_text())["outputs"]
+    seen_partial = False
+    for variant in bench.VARIANTS:
+        for budget in (300, 700, 1200, 1800, 2500, 4096, 8192):
+            expected = _reference_cell(outputs, qset, variant, budget)
+            cell = bench.score_set(outputs, qset, variant=variant, budget=budget)
+            for key, value in expected.items():
+                assert cell[key] == pytest.approx(value), (variant, budget, key)
+            assert cell["n"] == 12
+            assert list(cell["per_question"]) == [question.id for question in qset.questions]
+            assert sum(cell["per_question"].values()) == cell["hits"]
+            seen_partial = seen_partial or (0 < cell["hits"] < 12 and cell["facts_found"] > cell["hits"])
+    assert seen_partial, "some budget must leave questions partly answered, or hit and fact counts cannot differ"
+    # The numbers of the committed outputs at the two gate budgets, written out.
+    for variant, bytes_per_call, documents_per_call in (("verbatim", 2274.0, 4.0), ("keyword", 2097.0, 47 / 12)):
+        for budget in (4096, 8192):
+            cell = bench.score_set(outputs, qset, variant=variant, budget=budget)
+            assert (cell["hits"], cell["facts_found"], cell["facts_total"], cell["floor_hits"]) == (12, 18, 18, 0)
+            assert cell["bytes_per_call"] == pytest.approx(bytes_per_call, abs=1.0)
+            assert cell["documents_per_call"] == pytest.approx(documents_per_call)
+    report = bench.score_outputs_document(json.loads(OUTPUTS.read_text()), qset, _gates())
+    printed = bench.format_report("order sorted", report, _gates(), per_question=False)
+    assert "12/12" in printed and "18/18" in printed and "0/12" in printed
+
+
+def test_the_flag_thresholds_sit_exactly_at_12_characters_and_3_files() -> None:
+    """An anchor is flagged below 12 characters and in more than 3 files, and not at the limit.
+
+    Mutation: ``len(text) <= min`` or ``len(text) < min - 1`` (a limit off by one), or
+    ``files_holding >= max`` or ``> max + 1``, in ``verify_anchors``.
+    """
+
+    gates = _gates()
+    assert (gates.anchor_min_length, gates.anchor_max_files) == (12, 3)
+    twelve, eleven = "twelve chars", "eleven char"
+    assert (len(twelve), len(eleven)) == (12, 11)
+    snapshot = {
+        "a.md": f"{twelve} and {eleven} in one file. Shared across three files. Shared across four files.",
+        "b.md": "Shared across three files. Shared across four files.",
+        "c.md": "Shared across three files. Shared across four files.",
+        "d.md": "Shared across four files.",
+    }
+    questions = bench.QuestionSet(
+        set_id="t",
+        sha256="0" * 64,
+        questions=tuple(
+            bench.Question(
+                id=qid,
+                question="unrelated?",
+                keyword_query=None,
+                kind=None,
+                facts=(bench.Fact(label="f", anchors=(bench.Anchor(text=text, file="a.md"),)),),
+            )
+            for qid, text in (
+                ("twelve", twelve),
+                ("eleven", eleven),
+                ("three_files", "Shared across three files"),
+                ("four_files", "Shared across four files"),
+            )
+        ),
+    )
+    report = bench.verify_anchors(questions, snapshot, gates)
+    flags = {row["question"]: row["flags"] for row in report["rows"]}
+    files = {row["question"]: row["files"] for row in report["rows"]}
+    assert flags == {"twelve": [], "eleven": ["short"], "three_files": [], "four_files": ["many_files"]}
+    assert files["three_files"] == 3 and files["four_files"] == 4
+
+
+def test_the_loader_refuses_duplicate_ids_empty_anchors_and_questions_with_no_facts(tmp_path: Path) -> None:
+    """A question set that could score by accident is refused when it is read.
+
+    Mutation: remove the duplicate-id check, the ``not anchor.text.strip()`` check, the no-anchor
+    check or the no-facts check from ``load_questions``. An empty anchor would hit every time and a
+    repeated id would overwrite another question's output.
+    """
+
+    def facts(*anchors: str) -> list[dict[str, Any]]:
+        return [{"fact": "f", "anchors": [{"text": text, "file": "a.md"} for text in anchors]}]
+
+    def entry(qid: str, fact_list: list[dict[str, Any]]) -> dict[str, Any]:
+        return {"id": qid, "question": "q?", "keyword_query": "kw", "facts": fact_list}
+
+    cases: dict[str, tuple[list[dict[str, Any]], str]] = {
+        "duplicate": ([entry("q1", facts("x")), entry("q1", facts("y"))], "duplicate question id q1"),
+        "empty anchor": ([entry("q1", facts(""))], "no usable anchor"),
+        "blank anchor": ([entry("q1", facts("   \n"))], "no usable anchor"),
+        "one blank of two": ([entry("q1", facts("real anchor", " "))], "no usable anchor"),
+        "no anchors": ([entry("q1", [{"fact": "f", "anchors": []}])], "no usable anchor"),
+        "no facts": ([entry("q1", [])], "has no facts"),
+        "empty set": ([], "empty"),
+    }
+    for name, (questions, message) in cases.items():
+        path = _write_questions(tmp_path / f"{name.replace(' ', '_')}.json", questions)
+        with pytest.raises(bench.BenchError, match=message):
+            bench.load_questions(path)
+    wrong = tmp_path / "wrong.json"
+    wrong.write_text(json.dumps({"schema": "something-else", "questions": []}), encoding="utf-8")
+    with pytest.raises(bench.BenchError, match="not an alice-bench-questions/1 file"):
+        bench.load_questions(wrong)
+    ok = bench.load_questions(_write_questions(tmp_path / "ok.json", [entry("q1", facts("x")), entry("q2", facts("y"))]))
+    assert [question.id for question in ok.questions] == ["q1", "q2"]
+    with pytest.raises(bench.BenchError, match="no keyword query"):
+        bench.Question(id="q", question="q", keyword_query=None, kind=None, facts=()).query_for("keyword")
+
+
+def test_outputs_for_another_question_set_or_with_a_question_missing_are_refused() -> None:
+    """Scoring never reads outputs that were made for other questions.
+
+    Mutation: remove the question-set hash comparison, the missing-question check or the schema
+    check in ``score_outputs_document``. Outputs of an older question set would then score quietly.
+    """
+
+    qset = bench.load_questions(QUESTIONS)
+    document = json.loads(OUTPUTS.read_text())
+    assert "question_set_sha256" not in document, "the committed outputs predate any hash and are accepted"
+    assert bench.score_outputs_document(document, qset, _gates())["variants"]
+    stamped = {**document, "question_set_sha256": qset.sha256}
+    assert bench.score_outputs_document(stamped, qset, _gates())["variants"]
+    with pytest.raises(bench.BenchError, match="different question set"):
+        bench.score_outputs_document({**document, "question_set_sha256": "0" * 64}, qset, _gates())
+    missing = {**document, "outputs": {key: value for key, value in document["outputs"].items() if key != "f03"}}
+    with pytest.raises(bench.BenchError, match="nothing for question f03"):
+        bench.score_outputs_document(missing, qset, _gates())
+    with pytest.raises(bench.BenchError, match="not an alice-bench-outputs/1 file"):
+        bench.score_outputs_document({**document, "schema": "other/1"}, qset, _gates())
+    only_verbatim = {
+        **document,
+        "outputs": {key: {"verbatim": value["verbatim"]} for key, value in document["outputs"].items()},
+    }
+    assert list(bench.score_outputs_document(only_verbatim, qset, _gates())["variants"]) == ["verbatim"]
+
+
+# Which outputs may be compared, and what ``score --json`` shows ---------------
+
+
+def _write_outputs(path: Path, order: str, **fp_changes: object) -> str:
+    outputs = json.loads(OUTPUTS.read_text())["outputs"]
+    path.write_text(
+        json.dumps({"schema": bench.OUTPUTS_SCHEMA, "fingerprint": _fingerprint(order, **fp_changes), "outputs": outputs}),
+        encoding="utf-8",
+    )
+    return str(path)
+
+
+def test_outputs_are_compared_only_when_one_checkout_switch_and_corpus_made_them(tmp_path: Path) -> None:
+    """The minimum over import orders is read across outputs that measured the same thing, in distinct orders.
+
+    Mutation: drop one key from ``SAME_ACROSS_ORDERS`` (the commit, the dirty flag, the switch, the
+    corpus or the question set), skip the distinct-order check, or let a missing fingerprint pass.
+    Outputs from two commits would then give a minimum that names neither.
+    """
+
+    document = {"fingerprint": _fingerprint("sorted")}
+    bench.require_comparable_outputs([("a.json", document), ("b.json", {"fingerprint": _fingerprint("reverse")})])
+    bench.require_comparable_outputs([("only.json", {"outputs": {}})])
+    for key in bench.SAME_ACROSS_ORDERS:
+        other = {"fingerprint": _fingerprint("reverse", **{key: "something else"})}
+        with pytest.raises(bench.BenchError, match=rf"did not measure the same thing \({key} differ\)"):
+            bench.require_comparable_outputs([("a.json", document), ("b.json", other)])
+    with pytest.raises(bench.BenchError, match="same import order"):
+        bench.require_comparable_outputs([("a.json", document), ("b.json", {"fingerprint": _fingerprint("sorted")})])
+    with pytest.raises(bench.BenchError, match="b.json has no fingerprint"):
+        bench.require_comparable_outputs([("a.json", document), ("b.json", {"outputs": {}})])
+    partial = {"fingerprint": {"import_order": "reverse"}}
+    with pytest.raises(bench.BenchError, match="lacks git_sha"):
+        bench.require_comparable_outputs([("a.json", document), ("b.json", partial)])
+
+    first = _write_outputs(tmp_path / "first.json", "sorted")
+    second = _write_outputs(tmp_path / "second.json", "reverse", git_sha="another commit")
+    stdout = io.StringIO()
+    with contextlib.redirect_stdout(stdout):
+        assert bench.main(["score", "--questions", str(QUESTIONS), "--outputs", first, second]) == bench.EXIT_REFUSED
+    assert stdout.getvalue() == "", "a refused comparison prints no table"
+    assert bench.main(["score", "--questions", str(QUESTIONS), "--outputs", first, first]) == bench.EXIT_REFUSED
+
+
+def test_score_json_leaves_out_per_question_results_unless_they_are_asked_for(tmp_path: Path) -> None:
+    """``--per-question`` is the dev only opt in, so the JSON never carries a hit or miss per question without it.
+
+    Mutation: ``score --json`` includes ``per_question`` whatever the flag says (drop
+    ``without_per_question`` in ``_cmd_score``), or drops it even when asked.
+    """
+
+    first = _write_outputs(tmp_path / "first.json", "sorted")
+    second = _write_outputs(tmp_path / "second.json", "reverse")
+
+    def run(*extra: str) -> dict[str, Any]:
+        stdout = io.StringIO()
+        with contextlib.redirect_stdout(stdout):
+            assert bench.main(["score", "--questions", str(QUESTIONS), "--outputs", first, second, "--json", *extra]) == 0
+        return dict(json.loads(stdout.getvalue()))
+
+    plain = run()
+    asked = run("--per-question")
+    assert plain["minimum_hits"] == asked["minimum_hits"] == {"verbatim": {"4096": 12, "8192": 12}, "keyword": {"4096": 12, "8192": 12}}
+    for order in ("sorted", "reverse"):
+        for variant in bench.VARIANTS:
+            for cell in plain["orders"][order]["variants"][variant].values():
+                assert "per_question" not in cell and cell["hits"] == 12
+            for cell in asked["orders"][order]["variants"][variant].values():
+                assert set(cell["per_question"]) == {f"f{number:02d}" for number in range(1, 13)}
+    assert "per_question" not in json.dumps(plain)
+
+
+# Documents and passages, the printed table, the per question view -------------
+
+
+def test_documents_and_passages_per_call_are_averaged_separately_over_the_set(tmp_path: Path) -> None:
+    """The set level columns count distinct documents and passage entries apart.
+
+    One question's output holds three passages of two documents, so the two columns differ. The
+    committed outputs hold one passage for each document and cannot tell them apart.
+
+    Mutation: add ``result.passages`` to the documents total of ``score_set`` or ``result.documents``
+    to the passages total.
+    """
+
+    qset = _two_fact_question_set(tmp_path)
+    repeated = _output(
+        sources=[
+            _source(excerpt="first part", source_id="same"),
+            _source(excerpt="second part", source_id="same"),
+            _source(excerpt="other", source_id="other"),
+        ]
+    )
+    single = _output(sources=[_source(excerpt="alone", source_id="only")])
+    empty = _output()
+    outputs = {
+        "both_facts": {"verbatim": repeated},
+        "one_of_two": {"verbatim": single},
+        "single": {"verbatim": empty},
+    }
+    cell = bench.score_set(outputs, qset, variant="verbatim", budget=8192)
+    assert cell["documents_per_call"] == pytest.approx((2 + 1 + 0) / 3)
+    assert cell["passages_per_call"] == pytest.approx((3 + 1 + 0) / 3)
+    assert cell["bytes_per_call"] == pytest.approx(sum(len(text.encode()) for text in (repeated, single, empty)) / 3)
+
+
+def test_the_printed_table_has_its_columns_in_order_and_names_the_dev_only_view(tmp_path: Path) -> None:
+    """One row of the table, written out, and the per question lines at the gate budget only.
+
+    The first question's excerpt sits between 4 KB and 8 KB (a long entities list comes first), so it
+    is a miss at 4096 and a hit at 8192, and the per question view has to read the gate budget.
+
+    Mutation: swap two columns of ``format_report``, print the per question lines for the first budget
+    instead of ``gate_budget_bytes``, or print them without ``--per-question``.
+    """
+
+    entities = [
+        {"entity_type": "other", "id": f"e{number}", "mention_count": 1, "name": f"Invented Person {number:03d}"}
+        for number in range(70)
+    ]
+    late = _output(sources=[_source(excerpt=f"the {ANCHOR} is in the shed")], entities=entities)
+    assert 4096 < late.index("violet lantern") < 8192
+    never = _output(sources=[_source(excerpt="nothing relevant")])
+    qset = _two_question_set(tmp_path)
+    outputs_path = tmp_path / "outputs.json"
+    outputs_path.write_text(
+        json.dumps(
+            {
+                "schema": bench.OUTPUTS_SCHEMA,
+                "outputs": {"q1": {"verbatim": late}, "q2": {"verbatim": never}},
+            }
+        ),
+        encoding="utf-8",
+    )
+    report = bench.score_outputs_document(json.loads(outputs_path.read_text()), qset, _gates())
+    plain = bench.format_report("order sorted", report, _gates(), per_question=False)
+    row_4096 = next(line for line in plain.splitlines() if line.startswith("verbatim") and " 4096 " in line)
+    row_8192 = next(line for line in plain.splitlines() if line.startswith("verbatim") and " 8192 " in line)
+    mean_bytes = f"{(len(late.encode()) + len(never.encode())) / 2:.0f}"
+    assert row_4096.split() == ["verbatim", "4096", "0/2", "0/2", "0/2", mean_bytes, "1.00"]
+    assert row_8192.split() == ["verbatim", "8192", "1/2", "1/2", "0/2", mean_bytes, "1.00"]
+    assert "per question" not in plain and "  q1 hit" not in plain
+    shown = bench.format_report("order sorted", report, _gates(), per_question=True)
+    assert "per question, verbatim, 8192 bytes (dev only)" in shown
+    assert "  q1 hit" in shown and "  q2 miss" in shown
+    stdout = io.StringIO()
+    with contextlib.redirect_stdout(stdout):
+        assert bench.main(["score", "--questions", str(tmp_path / "two.json"), "--outputs", str(outputs_path)]) == 0
+    assert "per question" not in stdout.getvalue()
+    stdout = io.StringIO()
+    with contextlib.redirect_stdout(stdout):
+        code = bench.main(["score", "--questions", str(tmp_path / "two.json"), "--outputs", str(outputs_path), "--per-question"])
+    assert code == 0 and "  q1 hit" in stdout.getvalue()
+
+
+def test_a_build_with_strict_flags_fails_on_an_unapproved_flag_and_a_single_question_has_no_floor(tmp_path: Path) -> None:
+    """TH5 and TH6. ``build --strict-flags`` refuses like ``anchors --strict-flags``, and one question has no rotation.
+
+    Mutation: ignore ``args.strict_flags`` in ``_cmd_build``, print a floor for a single question, or
+    take the minimum over orders that lack one of the variants as if they had it.
+    """
+
+    flagged = _write_questions(tmp_path / "f.json", [_q("q", "what?", [("tide-keeping.md", "ledger")])])
+    for number, (extra, expected) in enumerate(((["--strict-flags"], bench.EXIT_REFUSED), ([], 0))):
+        run = tmp_path / f"run-{number}"
+        args = ["build", "--run-dir", str(run), "--corpus", str(CORPUS), "--questions", str(flagged), *extra]
+        assert bench.main(args) == expected
+
+    single = bench.load_questions(_write_questions(tmp_path / "one.json", [_q("q1", "x?", [("x.md", ANCHOR)])]))
+    document = {
+        "schema": bench.OUTPUTS_SCHEMA,
+        "outputs": {"q1": {"verbatim": _output(sources=[_source(excerpt=f"the {ANCHOR} is here")])}},
+    }
+    printed = bench.format_report("order sorted", bench.score_outputs_document(document, single, _gates()), _gates(), per_question=False)
+    assert all(line.split()[4] == "n/a" for line in printed.splitlines() if line.startswith("verbatim"))
+
+    both = {"variants": {"verbatim": {"4096": {"hits": 3}, "8192": {"hits": 5}}, "keyword": {"4096": {"hits": 4}, "8192": {"hits": 6}}}}
+    only_verbatim = {"variants": {"verbatim": {"4096": {"hits": 1}, "8192": {"hits": 2}}}}
+    minimums = bench.minimum_across_orders([("a", both), ("b", only_verbatim)], _gates())
+    assert minimums == {"verbatim": {"4096": 1, "8192": 2}, "keyword": {"4096": 4, "8192": 6}}

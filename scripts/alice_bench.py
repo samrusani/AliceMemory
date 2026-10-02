@@ -335,7 +335,7 @@ def activate_checkout(repo: Path) -> Path:
 def _git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
     env = {name: value for name, value in os.environ.items() if not name.startswith("GIT_")}
     return subprocess.run(
-        ["git", "-C", str(repo), *args],
+        ["git", "--no-optional-locks", "-C", str(repo), *args],
         capture_output=True,
         text=True,
         check=False,
@@ -358,6 +358,48 @@ def git_state(repo: Path) -> dict[str, object]:
     untracked = _git(repo, "ls-files", "--others", "--exclude-standard", "--", "apps", "workers")
     dirty = tracked.returncode != 0 or bool(untracked.stdout.strip())
     return {"git_sha": head.stdout.strip(), "dirty": dirty}
+
+
+# What says that two processes ran the same checkout: its commit, whether it differs from
+# that commit, and the real path ``alicebot_api`` was imported from.
+CHECKOUT_IDENTITY_KEYS = ("git_sha", "dirty", "alicebot_api_file")
+
+
+def checkout_identity(repo: Path) -> dict[str, object]:
+    """The identity of the checkout this process runs, in the keys of ``CHECKOUT_IDENTITY_KEYS``."""
+
+    import alicebot_api
+
+    state = git_state(repo)
+    return {
+        "git_sha": state["git_sha"],
+        "dirty": state["dirty"],
+        "alicebot_api_file": str(Path(os.path.realpath(alicebot_api.__file__))),
+    }
+
+
+def require_matching_build(manifest: Mapping[str, Any] | None, repo: Path) -> None:
+    """Refuse to read a vault that another checkout built.
+
+    A vault is rebuilt for every checkout and never cached, because the chunker is one of
+    the things a release can change. The manifest records which checkout built the vault,
+    and a command that reads it has to be running the same one: the same commit, the same
+    dirty state and the same ``alicebot_api`` on disk.
+    """
+
+    if manifest is None:
+        raise RunDirError("the run directory holds no build; run build first")
+    recorded = manifest.get("build")
+    if not isinstance(recorded, dict) or any(key not in recorded for key in CHECKOUT_IDENTITY_KEYS):
+        raise CheckoutError("the manifest does not say which checkout built this vault; build it again with --rebuild")
+    current = checkout_identity(repo)
+    differing = [key for key in CHECKOUT_IDENTITY_KEYS if recorded[key] != current[key]]
+    if differing:
+        raise CheckoutError(
+            "this vault was built by a different checkout ("
+            + ", ".join(differing)
+            + " differ); a vault is rebuilt for every checkout, so build it again with --rebuild"
+        )
 
 
 # --------------------------------------------------------------------------
@@ -405,6 +447,30 @@ def resolve_inside(run_dir: Path, requested: str | None, *, default: Path, what:
     return resolved
 
 
+# What the harness keeps in a run directory for itself. A vault may not sit on any of
+# these, because a rebuild deletes the vault folder and must never take the marker, the
+# manifest, the snapshot or an answering run's counter with it.
+_RESERVED_RUN_ENTRIES = frozenset({SNAPSHOT_DIRNAME, STATE_DIRNAME, MANIFEST_FILENAME, RUN_MARKER})
+
+
+def check_vault_location(run_dir: Path, data_dir: Path) -> Path:
+    """``data_dir`` when it is a folder of its own inside ``run_dir``, else a refusal.
+
+    It cannot be the run directory itself (a rebuild would delete the directory and its
+    marker) and it cannot be, or sit under, a name the harness keeps for itself.
+    """
+
+    resolved = data_dir.resolve()
+    if not _is_inside(resolved, run_dir):
+        raise RunDirError("--data-dir is outside the run directory")
+    if resolved == run_dir:
+        raise RunDirError("--data-dir cannot be the run directory itself; name a folder inside it")
+    reserved = resolved.relative_to(run_dir).parts[0]
+    if reserved in _RESERVED_RUN_ENTRIES:
+        raise RunDirError(f"--data-dir cannot be {reserved}, which the harness keeps for itself")
+    return resolved
+
+
 def vault_path(data_dir: Path) -> Path:
     return data_dir / VAULT_FILENAME
 
@@ -427,7 +493,10 @@ def read_corpus(corpus_dir: Path) -> tuple[Path, list[CorpusFile]]:
     from alicebot_api.importer_paths import DEFAULT_MAX_TEXT_FILE_BYTES
     from alicebot_api.markdown_import import _snapshot_markdown_source
 
-    folder, snapshot = _snapshot_markdown_source(corpus_dir, max_file_bytes=DEFAULT_MAX_TEXT_FILE_BYTES)
+    try:
+        folder, snapshot = _snapshot_markdown_source(corpus_dir, max_file_bytes=DEFAULT_MAX_TEXT_FILE_BYTES)
+    except (OSError, ValueError) as exc:  # the importer's own refusal: no Markdown, a file too large, unreadable
+        raise BenchError(f"the corpus folder cannot be read: {exc}") from exc
     files = [
         CorpusFile(
             relative_path=item.relative_path,
@@ -536,6 +605,34 @@ def vault_row_counts(db_path: Path) -> dict[str, int]:
     return counts
 
 
+def require_visible_labels(*, domain: str, sensitivity: str) -> None:
+    """Refuse labels that would hide the corpus from recall while grep still reads it.
+
+    Both arms must read the same text. Recall answers a keyless caller up to the default
+    sensitivity ceiling, so a file imported above it would be in the grep snapshot and
+    absent from every recall. The sensitive domains are held back from a project brief,
+    so they are refused the same way rather than left to chance. Both lists are read from
+    the checkout under test, which keeps the harness from keeping a copy of its own.
+    """
+
+    from alicebot_api import vnext_agent_control, vnext_memory_commit
+
+    ceiling = tuple(getattr(vnext_agent_control, "DEFAULT_AGENT_SENSITIVITY", ()))
+    held_back = frozenset(getattr(vnext_memory_commit, "SENSITIVE_DOMAINS", ()))
+    if not ceiling:
+        raise CheckoutError("this checkout does not say what sensitivity recall answers by default")
+    if sensitivity not in ceiling:
+        raise BenchError(
+            f"--sensitivity {sensitivity} is above what recall answers by default ({', '.join(ceiling)}), "
+            "so grep would read files that recall cannot return"
+        )
+    if domain in held_back:
+        raise BenchError(
+            f"--domain {domain} is one of the sensitive domains a project view holds back, "
+            "so the two arms might not read the same text"
+        )
+
+
 def build_vault(
     *,
     corpus_dir: Path,
@@ -545,14 +642,20 @@ def build_vault(
     domain: str,
     sensitivity: str,
     rebuild: bool,
+    repo: Path,
+    search_quality: str | None = None,
 ) -> dict[str, Any]:
     """Build a fresh vault and the grep snapshot under ``run_dir``. Returns the manifest.
 
     The vault is never cached: the chunker is one of the things a release can
     change. Files are imported one at a time in the requested order, each by the
-    same ``alice-memory import-markdown`` code a person would run.
+    same ``alice-memory import-markdown`` code a person would run. The manifest
+    records which checkout built the vault, and every later command refuses to read
+    it from another one (``require_matching_build``).
     """
 
+    data_dir = check_vault_location(run_dir, data_dir)
+    require_visible_labels(domain=domain, sensitivity=sensitivity)
     folder, files = read_corpus(corpus_dir)
     ordered = order_files(files, order)
     snapshot_dir = run_dir / SNAPSHOT_DIRNAME
@@ -582,6 +685,7 @@ def build_vault(
     manifest: dict[str, Any] = {
         "schema": MANIFEST_SCHEMA,
         "built_at": utc_now(),
+        "build": {**checkout_identity(repo), "search_quality": search_quality if search_quality is not None else "unset"},
         "order": order,
         "capture_order": [entry["relative_path"] for entry in snapshot_files],
         "domain": domain,
@@ -871,7 +975,13 @@ def score_output(text: str, facts: Sequence[Fact], *, budget: int) -> OutputScor
         if leaf.path in SCORED_LEAVES and leaf.end_byte <= budget
     ]
     found = tuple(
-        any(normalize_ws(anchor.text) in body for anchor in fact.anchors for body in readable) for fact in facts
+        any(
+            needle in body
+            for anchor in fact.anchors
+            if (needle := normalize_ws(anchor.text))
+            for body in readable
+        )
+        for fact in facts
     )
     parsed = json.loads(text)
     sources = parsed.get("sources", []) if isinstance(parsed, dict) else []
@@ -995,6 +1105,70 @@ def minimum_across_orders(reports: Sequence[tuple[str, Mapping[str, Any]]], gate
     return minimums
 
 
+# Fingerprint keys that must be equal in every outputs file of one comparison: the same
+# checkout, switch, corpus, snapshot, question set, gates and harness. Only the import
+# order may differ, and it has to.
+SAME_ACROSS_ORDERS = (
+    "git_sha",
+    "dirty",
+    "alicebot_api_file",
+    "tools_list_digest",
+    "search_quality",
+    "recall_limit",
+    "corpus_hash",
+    "snapshot_hash",
+    "question_set_sha256",
+    "gates_sha256",
+    "harness_sha256",
+)
+
+
+def require_comparable_outputs(documents: Sequence[tuple[str, Mapping[str, Any]]]) -> None:
+    """Refuse to take a minimum over outputs that did not measure the same thing.
+
+    The minimum over import orders is only meaningful across one checkout, one switch,
+    one corpus and one question set. Two outputs files from different commits, or from
+    one order twice, would give a number that names neither. A single file has nothing
+    to be compared with.
+    """
+
+    if len(documents) < 2:
+        return
+    fingerprints: list[tuple[str, Mapping[str, Any]]] = []
+    for name, document in documents:
+        fp = document.get("fingerprint")
+        if not isinstance(fp, dict):
+            raise BenchError(f"{name} has no fingerprint, so it cannot be compared with the other outputs")
+        missing = [key for key in (*SAME_ACROSS_ORDERS, "import_order") if key not in fp]
+        if missing:
+            raise BenchError(f"the fingerprint of {name} lacks {', '.join(missing)}")
+        fingerprints.append((name, fp))
+    first_name, first = fingerprints[0]
+    for name, fp in fingerprints[1:]:
+        differing = [key for key in SAME_ACROSS_ORDERS if fp[key] != first[key]]
+        if differing:
+            raise BenchError(
+                f"{name} and {first_name} did not measure the same thing ({', '.join(differing)} differ); "
+                "the minimum over import orders is read across one checkout, switch, corpus and question set"
+            )
+    orders = [str(fp["import_order"]) for _, fp in fingerprints]
+    if len(set(orders)) != len(orders):
+        raise BenchError("two outputs files come from the same import order; each one must come from its own")
+
+
+def without_per_question(report: Mapping[str, Any]) -> dict[str, Any]:
+    """A copy of ``report`` with the per-question hits and misses left out.
+
+    They are a dev-only view that a person asks for with ``--per-question``.
+    """
+
+    copy = json.loads(json.dumps(report))
+    for by_budget in copy["variants"].values():
+        for cell in by_budget.values():
+            cell.pop("per_question", None)
+    return dict(copy)
+
+
 # --------------------------------------------------------------------------
 # The MCP session
 
@@ -1106,6 +1280,7 @@ def fingerprint(
         "dirty": state["dirty"],
         "alicebot_api_file": str(real_file),
         "alicebot_api_inside_checkout": real_file.is_relative_to(src_dir(repo.resolve()).resolve()),
+        "vault_build": None if manifest is None else manifest.get("build"),
         "tools_list_digest": None if tools is None else tools_list_digest(tools),
         "search_quality": search_quality if search_quality is not None else "unset",
         "recall_limit": PINNED_RECALL_DEFAULTS["limit"],
@@ -1164,8 +1339,9 @@ def run_budgeted_search(
     """Admit one search, run it and log it, all under one file lock.
 
     The attempt is counted before it runs, so a search that fails (a bad grep
-    pattern, a tool error) still spends one of the searches. A refused search
-    writes no log line. The counter and the log live in ``state_dir``, which
+    pattern, a tool error, any exception) still spends one of the searches and
+    still writes its log line, so the count and the log never disagree. A refused
+    search writes no log line. The counter and the log live in ``state_dir``, which
     belongs to one answering run, so two processes of one run share one counter.
     """
 
@@ -1182,6 +1358,10 @@ def run_budgeted_search(
             result = runner()
         except BenchError as exc:
             result = SearchResult(text=f"error: {exc}", status="error", truncated=False, raw_bytes=0)
+        except Exception as exc:  # any failure of a search is logged and counted, never a traceback
+            result = SearchResult(
+                text=f"error: the search failed ({type(exc).__name__})", status="error", truncated=False, raw_bytes=0
+            )
         entry = {
             "n": used + 1,
             "at": utc_now(),
@@ -1347,10 +1527,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 def _context(args: argparse.Namespace, *, create: bool = False) -> tuple[Path, Path, Path, Gates]:
     run_dir = prepare_run_dir(Path(args.run_dir), create=True) if create else require_run_dir(Path(args.run_dir))
-    data_dir = resolve_inside(run_dir, args.data_dir, default=run_dir / VAULT_DIRNAME, what="--data-dir")
+    data_dir = check_vault_location(run_dir, run_dir / VAULT_DIRNAME if args.data_dir is None else Path(args.data_dir))
     repo = Path(args.checkout) if args.checkout else REPO_ROOT
     gates = load_gates(Path(args.gates) if args.gates else None)
     activate_checkout(repo)
+    if not create:
+        require_matching_build(_read_manifest(run_dir), repo)
     return run_dir, data_dir, repo, gates
 
 
@@ -1378,7 +1560,7 @@ def _print_anchor_report(report: Mapping[str, Any], *, strict: bool) -> int:
 
 
 def _cmd_build(args: argparse.Namespace) -> int:
-    run_dir, data_dir, _repo, gates = _context(args, create=True)
+    run_dir, data_dir, repo, gates = _context(args, create=True)
     manifest = build_vault(
         corpus_dir=Path(args.corpus),
         run_dir=run_dir,
@@ -1387,6 +1569,8 @@ def _cmd_build(args: argparse.Namespace) -> int:
         domain=args.domain,
         sensitivity=args.sensitivity,
         rebuild=args.rebuild,
+        repo=repo,
+        search_quality=args.search_quality,
     )
     print(
         f"built {manifest['sources']} sources, {manifest['chunks']} chunks, order {manifest['order']}, "
@@ -1519,19 +1703,25 @@ def _cmd_search(args: argparse.Namespace) -> int:
 def _cmd_score(args: argparse.Namespace) -> int:
     gates = load_gates(Path(args.gates) if args.gates else None)
     qset = load_questions(Path(args.questions))
-    reports: list[tuple[str, dict[str, Any]]] = []
+    documents: list[tuple[str, dict[str, Any]]] = []
     for path_text in args.outputs:
         path = Path(path_text)
-        document = json.loads(path.read_text(encoding="utf-8"))
+        documents.append((path.name, json.loads(path.read_text(encoding="utf-8"))))
+    require_comparable_outputs(documents)
+    reports: list[tuple[str, dict[str, Any]]] = []
+    for name, document in documents:
         fp = document.get("fingerprint") or {}
-        label = str(fp.get("import_order") or path.stem)
+        label = str(fp.get("import_order") or Path(name).stem)
         reports.append((label, score_outputs_document(document, qset, gates)))
     minimums = minimum_across_orders(reports, gates)
     if args.json:
         print(
             json.dumps(
                 {
-                    "orders": {label: report for label, report in reports},
+                    "orders": {
+                        label: (report if args.per_question else without_per_question(report))
+                        for label, report in reports
+                    },
                     "minimum_hits": minimums,
                     "gates_sha256": gates.sha256,
                 },
