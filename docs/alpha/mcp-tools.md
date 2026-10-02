@@ -142,6 +142,14 @@ Remember, recall, continue. These are the only tools in a default
   its separate FTS/websearch retrieval semantics. Legacy person/
   thread inputs are accepted for compatibility and reported in
   `filters_ignored`; they do not narrow the brief.
+  Unreleased (on main, not in v0.20.0): with per-project scoping on, on the
+  SQLite server, a call that names no project reads this project's items
+  first and then items that belong to no project, and leaves out global items
+  in the family, health, spiritual, legal and financial domains. The project is
+  that of the folder the server started in (`alice-memory mcp --project-dir
+  PATH` or `ALICE_PROJECT_DIR` set it). A call that names a project, an
+  identity that declares a scope and every call with scoping off, which is the
+  default, read what they read in v0.20.0. See [Projects](projects.md).
 
 ## Reading recalled text
 
