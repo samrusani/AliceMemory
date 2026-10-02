@@ -255,9 +255,10 @@ def test_the_sqlite_list_and_count_leave_out_an_expired_memory_before_the_limit(
     The default still lists and counts it: review, confirm, unexpire and export need to see
     an expired memory.
 
-    Mutations, each one alone: drop ``{expiry_sql}`` from the ``list_memories`` statement
-    (the limited list returns the expired row); drop it from ``count_memories`` (the count is
-    3); change the default of ``include_expired`` to ``False`` (the default list loses the row).
+    Mutations, each one alone: make the ``_expiry_clause`` call of ``list_memories`` take ``True``,
+    which takes the clause and its parameter out of the statement (the limited list returns the
+    expired row); do the same in ``count_memories`` (the count is 3); change the default of
+    ``include_expired`` to ``False`` (the default list loses the row).
     """
 
     with _memory_store() as store:
@@ -279,9 +280,8 @@ def test_the_sqlite_list_and_count_leave_out_an_expired_memory_before_the_limit(
 def test_the_sqlite_resume_events_leave_out_an_expired_memory_before_the_limit() -> None:
     """The newest event is the creation of an expired memory; ``LIMIT 1`` returns the event before it.
 
-    Mutation: drop ``+ expiry_sql`` (or the ``*expiry_params``) from the join in
-    ``list_resume_memory_events`` in ``sqlite_store.py``. The limited list returns the event of
-    the expired memory.
+    Mutation: make the ``_expiry_clause`` call in ``list_resume_memory_events`` in ``sqlite_store.py``
+    take ``True``. The limited list returns the event of the expired memory.
     """
 
     with _memory_store() as store:
@@ -297,9 +297,9 @@ def test_the_sqlite_resume_events_leave_out_an_expired_memory_before_the_limit()
 def test_the_sqlite_rollup_input_list_and_count_leave_out_an_expired_memory() -> None:
     """The roll-up groups what recall can return: the list and the count skip the newest, expired memory.
 
-    Mutations, each one alone: drop ``{expiry_sql}`` from ``list_rollup_input_memories`` (the
-    limited list returns the expired row); drop it from ``count_rollup_input_memories`` (the
-    count is 3).
+    Mutations, each one alone: make the ``_expiry_clause`` call of ``list_rollup_input_memories``
+    take ``True`` (the limited list returns the expired row); do the same in
+    ``count_rollup_input_memories`` (the count is 3).
     """
 
     with _memory_store() as store:
@@ -341,9 +341,8 @@ def test_the_sqlite_accepted_card_lookup_skips_an_expired_card_and_picks_the_ope
     The test sits inside the ranking query, so it runs before the one card per key is picked.
     With every card expired there is no accepted card.
 
-    Mutation: drop ``{expiry_sql}`` from the ``ranked_rollups`` query in
-    ``list_accepted_rollup_cards`` (the lookup returns the expired card, or nothing, as v0.20.0
-    did).
+    Mutation: make the ``_expiry_clause`` call of ``list_accepted_rollup_cards`` take ``True`` (the
+    lookup returns the expired card, as v0.20.0 did).
     """
 
     with _memory_store() as store:
@@ -936,9 +935,9 @@ def test_the_rollup_pass_does_not_count_an_expired_card_as_the_accepted_card() -
     With the card open the pass sees it; once the card is expired it does not, so the topic can get a
     new card. An adapter that returns the expired card is filtered by the same test.
 
-    Mutations, each one alone: drop ``{expiry_sql}`` from ``list_accepted_rollup_cards`` (the bundled
-    store returns the card); delete the ``memory_window_is_open`` test from the card loop in
-    ``_existing_rollup_state`` (the adapter's card is kept).
+    Mutation: delete the ``memory_window_is_open`` test from the card loop in ``_existing_rollup_state`` (the
+    adapter's expired card is kept). Dropping ``{expiry_sql}`` from the bundled store's query is not caught here,
+    because that loop still drops the card; the store test above catches it.
     """
 
     class ReturnsEveryCard(_ArtifactShim):

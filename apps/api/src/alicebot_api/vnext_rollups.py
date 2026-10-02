@@ -2387,7 +2387,6 @@ class VNextRollupService:
                 )
         return pending, accepted
 
-
     def _expired_card_for_digest(self, rollup_digest: str) -> JsonObject | None:
         """The card an earlier pass made for exactly these members, if its validity window has closed.
 

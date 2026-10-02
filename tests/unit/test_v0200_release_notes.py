@@ -72,12 +72,18 @@ def test_every_version_site_names_0200_and_the_marketplace_still_pins_the_publis
     assert "uvx alice-memory@0.20.0 --version" in notes
 
 
-def test_the_changelog_has_the_dated_heading_and_an_empty_unreleased_section() -> None:
-    """Mutations, each one alone: put an entry under Unreleased; drop the heading; change its date form."""
+def test_the_changelog_has_the_dated_heading_below_an_unreleased_section() -> None:
+    """Mutations, each one alone: drop the Unreleased heading; move it below the v0.20.0 heading; drop the
+    v0.20.0 heading; change its date form.
+
+    The Unreleased section held no entry when v0.20.0 was prepared, and this test said so. Changes merged
+    after the release put their entries there, so it now checks that the heading is first and that the
+    released section below it is the dated v0.20.0 one.
+    """
 
     changelog = _text("CHANGELOG.md")
     sections = changelog.split("\n## ")
-    assert sections[1] == "Unreleased\n"
+    assert sections[1].startswith("Unreleased\n")
     assert sections[2].startswith("v0.20.0 \u2014 2026-10-02\n")
     assert sections[3].startswith("v0.19.2 \u2014 2026-10-01\n")
     assert changelog.count(HEADING) == 1
