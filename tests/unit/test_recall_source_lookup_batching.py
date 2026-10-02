@@ -21,6 +21,7 @@ import pytest
 
 from alicebot_api.mcp_tools import AGENT_API_KEY_ENV, MCPRuntimeContext
 from alicebot_api.onramp import bootstrap_database, resolve_db_path, sqlite_url_for_path
+from alicebot_api.source_ranking import SourceRanking
 from alicebot_api.sqlite_store import SQLiteVNextStore, ensure_sqlite_user, sqlite_user_connection
 from alicebot_api.surface_flags import MCP_FULL_TOOLS_ENV
 from alicebot_api.vnext_agent_keys import create_agent_key
@@ -838,6 +839,7 @@ def test_recall_and_pack_run_one_memory_lookup_for_all_packed_sources(tmp_path: 
             sensitivity_allowed=["public", "internal", "private", "confidential", "unknown"],
             limit=10,
             scope=None,
+            ranking=SourceRanking.document(),
         )
         assert len(excerpts) >= 8, "too few sources packed for the count to mean anything"
         assert _lookups(statements) == 1, _lookups(statements)
@@ -874,6 +876,7 @@ def test_the_lookup_count_does_not_grow_with_the_sources_packed(tmp_path: Path, 
                 sensitivity_allowed=["public", "internal", "private", "confidential", "unknown"],
                 limit=limit,
                 scope=None,
+                ranking=SourceRanking.document(),
             )
             assert len(excerpts) == limit
             counts.append(_lookups(statements))

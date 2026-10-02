@@ -49,6 +49,7 @@ from alicebot_api.project_view import (
     status_line,
 )
 from alicebot_api import vnext_memory_commit as _memory_commit
+from alicebot_api.source_ranking import SourceRanking
 from alicebot_api.source_search_limits import source_search_query_breach
 from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
 from alicebot_api.vnext_agent_control import (
@@ -413,6 +414,9 @@ def compile_session_brief(
             scope=source_scope_from_project_scope(
                 effective_project_scope, exclude_global_domains=held_back
             ),
+            # Written here on purpose. The brief is one line per document by
+            # design, so it ranks sources by document whatever recall does.
+            ranking=SourceRanking.document(),
             winning_memories=facts,
         )
         sources = [row for row in sources if row.get("derived_memory_corrected") is not True]

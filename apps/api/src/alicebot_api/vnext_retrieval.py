@@ -89,6 +89,7 @@ from alicebot_api import vnext_currency
 # "reranker" blocks in VNextRetrievalService.
 from alicebot_api import vnext_reranker
 from alicebot_api.vnext_reranker import RerankProvider, get_reranker_provider
+from alicebot_api.source_ranking import SourceRanking
 from alicebot_api.vnext_entity_names import normalize_entity_name
 from alicebot_api.vnext_embeddings import (
     EMBEDDING_SIGNATURE_VERSION,
@@ -427,6 +428,24 @@ class VNextRetrievalValidationError(ValueError):
 
 class VNextRetrievalCompletenessError(RuntimeError):
     """Raised when a legacy adapter cannot prove scoped recall completeness."""
+
+
+def _require_document_ranking(ranking: object) -> None:
+    """Refuse every source ranking the source stage cannot honour yet.
+
+    Only ``SourceRanking.document()`` has a code path, so any other value is
+    refused here and never accepted and ignored. A caller that writes a passage
+    ranking before the passage stage exists learns it at the call, not from a
+    result that looks like the ranking it asked for. The passage slice replaces
+    this refusal with the stage.
+    """
+
+    if not isinstance(ranking, SourceRanking):
+        raise VNextRetrievalValidationError("ranking must be a SourceRanking value")
+    if ranking != SourceRanking.document():
+        raise VNextRetrievalValidationError(
+            "this build ranks sources by document only; pass SourceRanking.document()"
+        )
 
 
 class VNextRetrievalStore(Protocol):
@@ -3330,10 +3349,17 @@ class VNextRetrievalService:
         sensitivity_allowed: list[str],
         limit: int,
         winning_memories: Sequence[JsonObject],
+        ranking: SourceRanking,
         scope: _ResolvedRetrievalScope | None = None,
         anchor: TemporalAnchor | None = None,
     ) -> tuple[dict[str, Sequence[JsonObject]], JsonObject]:
         """Ranked source lists for RRF fusion plus the honest stage record.
+
+        ``ranking`` is REQUIRED and has no default, as ``scope`` is on
+        ``search_source_excerpts``: a defaulted ranking is a silent choice for
+        the caller that forgets it. Only ``SourceRanking.document()`` has a code
+        path today, which is the stage as written below, and any other value is
+        refused before a store is touched.
 
         Up to three lists (see SOURCE_STAGE_* constants):
 
@@ -3358,6 +3384,7 @@ class VNextRetrievalService:
         failing, so minimal stores and test fakes keep working. The stage
         record reports each list's candidate count under its stage key.
         """
+        _require_document_ranking(ranking)
         # source id -> the chunk this stage ranked best, for the packed
         # excerpt. Reset per run so a previous query's winner is never reused.
         self._winning_chunk_text = {}
@@ -3771,6 +3798,7 @@ class VNextRetrievalService:
         sensitivity_allowed: list[str],
         limit: int,
         scope: _ResolvedRetrievalScope | None,
+        ranking: SourceRanking,
         winning_memories: Sequence[JsonObject] = (),
     ) -> tuple[list[JsonObject], JsonObject]:
         """Ranked imported source material for a query, with readable excerpts.
@@ -3793,6 +3821,11 @@ class VNextRetrievalService:
         moment someone adds a caller and forgets. ``None`` is still accepted,
         because an unscoped owner query is legitimate, but it has to be written
         down at the call site.
+
+        ``ranking`` is required for the same reason and is passed on to
+        ``_source_stage_lists``. A caller writes ``SourceRanking.document()``
+        where it means the one-entry-per-document ranking v0.20.0 has; any other
+        value is refused until a stage exists that honours it.
 
         NOT the only source reader. ``compile_context_pack`` runs its own
         ``_source_stage_lists`` -> ``_fused_candidates`` -> ``_packable_source``
@@ -3817,6 +3850,7 @@ class VNextRetrievalService:
             sensitivity_allowed=sensitivity_allowed,
             limit=limit,
             winning_memories=winning_memories,
+            ranking=ranking,
             scope=scope,
         )
         candidates = _fused_candidates(
@@ -4230,6 +4264,10 @@ class VNextRetrievalService:
                 sensitivity_allowed=sensitivity_allowed,
                 limit=max(DEFAULT_SOURCE_LIMIT, max_items),
                 winning_memories=provenance_memories,
+                # Written here on purpose. The pack ranks sources by document
+                # whatever recall does, so a change to recall's ranking never
+                # moves a pack.
+                ranking=SourceRanking.document(),
                 scope=scope,
                 anchor=anchor,
             )
