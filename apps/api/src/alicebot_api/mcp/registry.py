@@ -47,6 +47,7 @@ from alicebot_api.task_briefing import (
     TaskBriefValidationError,
 )
 from alicebot_api.source_search_limits import SourceSearchQueryTooLarge
+from alicebot_api.vnext_memory_commit import MemoryCommitTextTooLarge
 
 from .capture_automation import (
     _handle_alice_vnext_capture,
@@ -577,6 +578,10 @@ def call_mcp_tool(
         # Before the ValueError clause below, which it is a subclass of and
         # which would hide the limit behind the static message. The text is
         # counts and limits only, never the query.
+        raise MCPInvalidRequestError(exc.public_message) from exc
+    except MemoryCommitTextTooLarge as exc:
+        # Also before the ValueError clause below, for the same reason. The text is the count
+        # and the limit only, never the memory text.
         raise MCPInvalidRequestError(exc.public_message) from exc
     except (TypeError, ValueError) as exc:
         raise MCPToolError(str(exc)) from exc

@@ -30,8 +30,10 @@ SOURCE_RECEIPTS = {
     "apps/api/src/alicebot_api/vnext_stores/postgres/query_predicates.py": (
         "f0ec9c7f13bc7bf93f5a3beaa86916a04e45200ef0296d6f9288eed3912be33d"
     ),
+    # Re-minted for ``get_memory_by_key(include_deleted=...)`` (reviewed change, not drift; see the SQLite
+    # entry below). Previous Postgres receipt 49748ecd...
     "apps/api/src/alicebot_api/vnext_stores/postgres/memory_access.py": (
-        "49748ecd931bd0d1e28e28cc77534c700e8b9362c3f015970a73bb75733e1719"
+        "f642880f44eaaa7d8fa6ed10dbb1e609b791eb0fa8902c934ec9fa41f4e6cdd3"
     ),
     # Re-minted for per-project memory S2 (2026-10-02): the project fence builders read the reserved global
     # marker and take the domains to leave out, and the single-scan partition SQL and the materialized-CTE hint
@@ -54,13 +56,20 @@ SOURCE_RECEIPTS = {
     # drift): ``list_memories`` and ``count_memories`` take ``include_expired``,
     # and the roll-up input list and count and the accepted-card lookup leave out a
     # memory whose ``valid_to`` has passed, with recall's own test.
+    # Both carriers were re-minted once more for ``get_memory_by_key``, which takes ``include_deleted`` (false
+    # by default, so every caller reads what it read before): a soft-deleted row still holds its memory key in
+    # the unique index, and the roll-up pass reads the key with ``include_deleted=True`` so a card archived
+    # through ``update_memory`` is seen instead of raising on create (reviewed change, not drift). Previous
+    # SQLite receipt 3bb85f64...
     # Re-minted again for per-project memory S2 (2026-10-02): ``list_memories`` builds its filters in
     # ``_memory_list_clauses`` and takes ``exclude_global_domains``, and ``list_memories_view_partitions`` is new
     # (reviewed change, not drift).
     # Re-minted once more in the S2 review round (2026-10-02): ``exclude_global_domains`` defaults to ``None`` and the
     # single-scan reader takes ``domains`` and ``sensitivity_allowed`` as required arguments (reviewed change, not drift).
+    # Re-minted for the merge of main into the S2 branch (2026-10-02): the file now holds both reviewed changes above.
+    # Previous receipts: 8a0bcba8... on the S2 branch and 3d2f1732... on main.
     "apps/api/src/alicebot_api/vnext_stores/sqlite/memory_access.py": (
-        "8a0bcba8a6ea7c37139447a86379ba93e371ce486fab090293f2dd2f2034f508"
+        "91636de97634c2c7496b4f783d9a267a308c720b87e16433061b192226fd3ca7"
     ),
 }
 

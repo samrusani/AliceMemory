@@ -88,12 +88,14 @@ def test_the_known_limitations_keep_the_v0200_text_and_mark_what_main_changes() 
 
     limitations = _read("docs/alpha/known-limitations.md")
     section = limitations[limitations.index("Open in v0.20.0, with the detail") :]
-    assert section.count(MARK) == 3
     brief, consolidation, promotion = (
         section[section.index("- the session brief, `alice_resume`") : section.index("- consolidation and the roll-up")],
         section[section.index("- consolidation and the roll-up") : section.index("- promoting a reviewed artifact")],
         section[section.index("- promoting a reviewed artifact") : section.index("- the `max_tokens` budget")],
     )
+    # One marker in each of the three bullets the expiry change marked. The count is of these three bullets and not
+    # of the whole section, so a later change that marks another bullet of the section does not break this test.
+    assert (brief.count(MARK), consolidation.count(MARK), promotion.count(MARK)) == (1, 1, 1)
     assert "list memories by status and do not check `valid_to`" in brief.split(MARK)[0]
     assert "as in v0.19.2." in brief.split(MARK)[0]
     assert "`alice_context_pack` is not changed" in brief.split(MARK)[1]

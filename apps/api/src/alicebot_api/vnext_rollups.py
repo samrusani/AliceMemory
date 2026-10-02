@@ -1529,6 +1529,36 @@ def _is_rollup_card(row: JsonObject) -> bool:
     return isinstance(metadata, dict) and metadata.get("candidate_kind") == ROLLUP_CANDIDATE_KIND
 
 
+def _may_name_card(
+    row: JsonObject,
+    *,
+    rollup_key: str,
+    domains: list[str] | None,
+    sensitivity_allowed: list[str],
+    projects: tuple[str, ...],
+) -> bool:
+    """Whether a row read by key is a roll-up card of this group's key inside the fence of the pass.
+
+    The accepted-card read asks for the roll-up candidate kind, the requested roll-up keys, the domains, the
+    sensitivity ceiling and the projects; the reads by digest key apply the same five controls here. Every
+    control is a required keyword-only argument, so a caller cannot leave one out.
+    """
+
+    if not _is_rollup_card(row):
+        return False
+    metadata = row.get("metadata_json")
+    if not isinstance(metadata, dict) or metadata.get("rollup_key") != rollup_key:
+        return False
+    return bool(
+        _scoped_rows(
+            [row],
+            domains=domains,
+            sensitivity_allowed=sensitivity_allowed,
+            projects=projects,
+        )
+    )
+
+
 def _highest_sensitivity(rows: tuple[JsonObject, ...]) -> str:
     rank = {
         "public": 1,
@@ -2412,33 +2442,82 @@ class VNextRollupService:
         ``valid_to``, so a test for a searchable status would let the pass raise on the key as soon
         as the sweep had run.
 
+        The read asks the store for soft-deleted rows too (``include_deleted=True``). A card archived
+        through ``update_memory`` has ``deleted_at`` set and keeps its ``memory_key``, and the unique
+        index counts it, so a read that skipped soft-deleted rows would not see the row that makes the
+        create raise.
+
         This read applies every other control the accepted-card read applies, and the fence is a
         required keyword-only argument so a caller cannot leave one out: the row must be a roll-up
         card, for this group's key, inside the domains, the sensitivity ceiling and the projects of
-        the pass. A card outside any of them is not named.
+        the pass. A card outside any of them is not named. The controls are ``_may_name_card``, which
+        ``_row_at_digest_key`` applies too.
         """
 
         getter = getattr(self.store, "get_memory_by_key", None)
         if not callable(getter):
             return None
-        row = getter(memory_key=f"vnext.rollup.{rollup_digest}")
+        row = getter(memory_key=f"vnext.rollup.{rollup_digest}", include_deleted=True)
         if row is None:
             return None
         if memory_window_is_open(row):
             return None
-        if not _is_rollup_card(row):
-            return None
-        metadata = row.get("metadata_json")
-        if not isinstance(metadata, dict) or metadata.get("rollup_key") != rollup_key:
-            return None
-        if not _scoped_rows(
-            [row],
+        if not _may_name_card(
+            row,
+            rollup_key=rollup_key,
             domains=domains,
             sensitivity_allowed=sensitivity_allowed,
             projects=projects,
         ):
             return None
         return row
+
+    def _row_at_digest_key(
+        self,
+        rollup_digest: str,
+        *,
+        rollup_key: str,
+        domains: list[str] | None,
+        sensitivity_allowed: list[str],
+        projects: tuple[str, ...],
+    ) -> tuple[bool, JsonObject | None]:
+        """(held, card): whether any row holds the memory key of this digest, and the card to name for it.
+
+        ``_expired_card_for_digest`` names the card whose validity window has closed. A card can hold the
+        key in other ways: a reviewer rejected it, a later revision superseded it, it was archived, the
+        staleness sweep marked it stale because nobody confirmed it (that arm leaves ``valid_to`` open), or
+        it is a candidate or an accepted card the pass did not pick for this key. The unique index on
+        ``(user, profile, memory_key)`` holds the key in every one of those, so a proposal for members that
+        have not changed since would raise ``IntegrityError`` on it. The pass calls this after the expired
+        card read and reports the group as held back instead of proposing it, until its members change and
+        the digest, and with it the key, changes.
+
+        The read asks the store for soft-deleted rows too (``include_deleted=True``): a card archived through
+        ``update_memory`` has ``deleted_at`` set and keeps its ``memory_key``, and the unique index counts it,
+        so a read that skipped soft-deleted rows would not see the row that makes the create raise.
+
+        ``held`` is true for any row at the key. ``card`` is that row only when the pass may name it, by the
+        same controls the expired-card read applies (a roll-up card, for this group's key, inside the
+        domains, the sensitivity ceiling and the projects of the pass); a row outside them makes the group
+        held back with no id, so the pass does not name a row it is not allowed to show. As in the
+        expired-card read, the fence is a required keyword-only argument. A store with no
+        ``get_memory_by_key`` holds nothing, as before.
+        """
+
+        getter = getattr(self.store, "get_memory_by_key", None)
+        if not callable(getter):
+            return False, None
+        row = getter(memory_key=f"vnext.rollup.{rollup_digest}", include_deleted=True)
+        if row is None:
+            return False, None
+        named = _may_name_card(
+            row,
+            rollup_key=rollup_key,
+            domains=domains,
+            sensitivity_allowed=sensitivity_allowed,
+            projects=projects,
+        )
+        return True, (row if named else None)
 
     # -- card assembly --------------------------------------------------------------
 
@@ -2829,6 +2908,23 @@ class VNextRollupService:
             if expired_card is not None:
                 group_record["state"] = "expired_card_members_unchanged"
                 group_record["expired_memory_id"] = str(expired_card.get("id"))
+                outcome.groups.append(group_record)
+                continue
+
+            held, held_card = self._row_at_digest_key(
+                rollup_digest,
+                rollup_key=group.rollup_key,
+                domains=domains,
+                sensitivity_allowed=sensitivity,
+                projects=projects,
+            )
+            if held:
+                if held_card is not None:
+                    group_record["state"] = "existing_card_members_unchanged"
+                    group_record["existing_memory_id"] = str(held_card.get("id"))
+                    group_record["existing_status"] = str(held_card.get("status"))
+                else:
+                    group_record["state"] = "digest_key_held_by_another_row"
                 outcome.groups.append(group_record)
                 continue
 
