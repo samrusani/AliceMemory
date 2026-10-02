@@ -32,18 +32,19 @@ from .shared import (
     _raise_mcp_policy_blocked,
     _vnext_store_context,
 )
+from .types import MCPArgumentError, MCPPreconditionFailedError
 
 
 def _handle_alice_vnext_scheduler_status(context: MCPRuntimeContext, _arguments: Mapping[str, object]) -> JsonObject:
     if _is_sqlite_backend(context):
-        raise MCPToolError("vNext scheduler tools require the Postgres backend")
+        raise MCPPreconditionFailedError("vNext scheduler tools require the Postgres backend")
     with _vnext_store_context(context) as store:
         return _json_object(VNextSchedulerService(store).status())
 
 
 def _handle_alice_vnext_scheduler_run_now(context: MCPRuntimeContext, arguments: Mapping[str, object]) -> JsonObject:
     if _is_sqlite_backend(context):
-        raise MCPToolError("vNext scheduler tools require the Postgres backend")
+        raise MCPPreconditionFailedError("vNext scheduler tools require the Postgres backend")
     identity = _agent_identity_from_arguments(context, arguments)
     workflow_type = _parse_required_text(arguments, "workflow_type")
     sensitivity_allowed = _parse_string_list(arguments, "sensitivity_allowed") or (
@@ -102,11 +103,11 @@ def _handle_alice_vnext_scheduler_run_now(context: MCPRuntimeContext, arguments:
 
 def _handle_alice_vnext_scheduler_run_due(context: MCPRuntimeContext, arguments: Mapping[str, object]) -> JsonObject:
     if _is_sqlite_backend(context):
-        raise MCPToolError("vNext scheduler tools require the Postgres backend")
+        raise MCPPreconditionFailedError("vNext scheduler tools require the Postgres backend")
     identity = _agent_identity_from_arguments(context, arguments)
     limit_value = arguments.get("limit", 10)
     if not isinstance(limit_value, int):
-        raise MCPToolError("limit must be an integer")
+        raise MCPArgumentError("limit must be an integer")
     blocked_decision: PolicyDecision | None = None
     payload: VNextJsonObject | None = None
     actor_type = "scheduler"
@@ -136,7 +137,7 @@ def _handle_alice_vnext_scheduler_run_due(context: MCPRuntimeContext, arguments:
 
 def _handle_alice_vnext_scheduler_pause(context: MCPRuntimeContext, arguments: Mapping[str, object]) -> JsonObject:
     if _is_sqlite_backend(context):
-        raise MCPToolError("vNext scheduler tools require the Postgres backend")
+        raise MCPPreconditionFailedError("vNext scheduler tools require the Postgres backend")
     identity = _agent_identity_from_arguments(context, arguments)
     blocked_decision: PolicyDecision | None = None
     payload: VNextJsonObject | None = None
@@ -158,7 +159,7 @@ def _handle_alice_vnext_scheduler_pause(context: MCPRuntimeContext, arguments: M
 
 def _handle_alice_vnext_scheduler_resume(context: MCPRuntimeContext, arguments: Mapping[str, object]) -> JsonObject:
     if _is_sqlite_backend(context):
-        raise MCPToolError("vNext scheduler tools require the Postgres backend")
+        raise MCPPreconditionFailedError("vNext scheduler tools require the Postgres backend")
     identity = _agent_identity_from_arguments(context, arguments)
     blocked_decision: PolicyDecision | None = None
     payload: VNextJsonObject | None = None

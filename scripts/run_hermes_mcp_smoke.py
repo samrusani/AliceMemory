@@ -11,6 +11,7 @@ from uuid import UUID, uuid4
 
 from alicebot_api.config import DEFAULT_DATABASE_URL
 from alicebot_api.db import user_connection
+from alicebot_api.mcp.types import MCP_CODED_ERROR_CODES, MCPCodedToolError
 from alicebot_api.mcp_tools import (
     MCPRuntimeContext,
     MCPToolError,
@@ -107,6 +108,14 @@ def _build_local_mcp_compat_runtime():
                 return _stable_error_json(
                     code=_TOOL_NOT_FOUND_CODE,
                     message=_TOOL_NOT_FOUND_MESSAGE,
+                )
+            except MCPCodedToolError as exc:
+                # The same closed set the stdio server sends: the code says what
+                # kind of refusal it was, the message stays the fixed sentence.
+                logger.warning("Hermes compatibility tool request was refused code=%s", exc.code, exc_info=True)
+                return _stable_error_json(
+                    code=exc.code if exc.code in MCP_CODED_ERROR_CODES else _TOOL_REQUEST_FAILED_CODE,
+                    message=_TOOL_REQUEST_FAILED_MESSAGE,
                 )
             except (MCPToolError, ValueError, TypeError):
                 logger.warning("Hermes compatibility tool request failed", exc_info=True)

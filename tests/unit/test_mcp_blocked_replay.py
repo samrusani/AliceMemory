@@ -1,4 +1,8 @@
-"""A blocked MCP replay keeps its policy rows and answers tool_request_failed."""
+"""A blocked MCP replay keeps its policy rows. Unreleased (on main, not in v0.20.0): it answers not_permitted.
+
+v0.20.0 answered tool_request_failed for a replay the read-only agent may not make. A replay whose key is bound to a
+different request is a conflict, not a refusal, and still answers tool_request_failed.
+"""
 
 from __future__ import annotations
 
@@ -6,6 +10,7 @@ import json
 from io import BytesIO
 from uuid import uuid4
 
+from alicebot_api.mcp.types import MCPNotPermittedError
 from alicebot_api.mcp_server import MCPServer
 from alicebot_api.mcp_tools import MCPRuntimeContext, MCPToolError, call_mcp_tool
 from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
@@ -27,13 +32,13 @@ def _arguments(agent_id: str, profile: str, text: str, key: str) -> dict[str, ob
     }
 
 
-def _call(context: MCPRuntimeContext, arguments: dict[str, object]) -> MCPToolError:
+def _call(context: MCPRuntimeContext, arguments: dict[str, object], *, expected: type[MCPToolError]) -> MCPToolError:
     try:
         call_mcp_tool(context, name="alice_memory_commit", arguments=arguments)
     except Exception as exc:
-        assert type(exc) is MCPToolError
+        assert type(exc) is expected
         return exc
-    raise AssertionError("expected MCPToolError")
+    raise AssertionError("expected " + expected.__name__)
 
 
 def _wire_code(context: MCPRuntimeContext, arguments: dict[str, object]) -> str:
@@ -53,10 +58,11 @@ def _wire_code(context: MCPRuntimeContext, arguments: dict[str, object]) -> str:
 
 
 def test_read_only_mcp_replays_keep_policy_rows(tmp_path, monkeypatch) -> None:
-    """Same-content and different-content replays both stay MCPToolError.
+    """Same-content and different-content replays both raise an MCPToolError, of two kinds.
 
-    pytest.raises would let AgentPolicyBlockedError escape without an
-    assertion failure. The policy rows are counted after both replays.
+    The same-content replay is a policy refusal (MCPNotPermittedError). The different-content replay is a conflict,
+    a plain MCPToolError. pytest.raises would let AgentPolicyBlockedError escape without an assertion failure. The
+    policy rows are counted after both replays.
     """
 
     monkeypatch.delenv("ALICE_AGENT_API_KEY", raising=False)
@@ -71,10 +77,11 @@ def test_read_only_mcp_replays_keep_policy_rows(tmp_path, monkeypatch) -> None:
         arguments=_arguments("writer", "trusted_local_agent", original, key),
     )
     assert committed["status"] == "committed"
-    same = _call(context, _arguments("readonly", "read_only_agent", original, key))
+    same = _call(context, _arguments("readonly", "read_only_agent", original, key), expected=MCPNotPermittedError)
     different = _call(
         context,
         _arguments("readonly", "read_only_agent", "This replay asks for a different note.", key),
+        expected=MCPToolError,
     )
     assert CONFLICT in str(different)
     assert CONFLICT not in str(same)
@@ -86,7 +93,7 @@ def test_read_only_mcp_replays_keep_policy_rows(tmp_path, monkeypatch) -> None:
     assert sum(event.get("event_type") == "policy.decision" for event in readonly_events) == 2
     assert sum(event.get("event_type") == "agent.policy_blocked" for event in readonly_events) == 2
     assert sum(row.get("agent_id") == "readonly" for row in identities) == 1
-    assert _wire_code(context, _arguments("readonly", "read_only_agent", original, key)) == "tool_request_failed"
+    assert _wire_code(context, _arguments("readonly", "read_only_agent", original, key)) == "not_permitted"
     assert (
         _wire_code(context, _arguments("readonly", "read_only_agent", "Another different note.", key))
         == "tool_request_failed"

@@ -115,6 +115,7 @@ from .shared import (
     _store_context,
     _vnext_store_context,
 )
+from .types import MCPArgumentError, MCPPreconditionFailedError, MCPReferenceNotFoundError
 
 
 def _vnext_memory_review(context: MCPRuntimeContext, arguments: Mapping[str, object]) -> JsonObject:
@@ -130,7 +131,7 @@ def _vnext_memory_review(context: MCPRuntimeContext, arguments: Mapping[str, obj
         with _vnext_store_context(context) as store:
             memory = store.get_memory(memory_id)
             if memory is None:
-                raise MCPToolError(f"memory {memory_id} was not found")
+                raise MCPReferenceNotFoundError(f"memory {memory_id} was not found")
             target_domain = str(memory.get("domain") or "unknown")
             target_sensitivity = str(memory.get("sensitivity") or "unknown")
             target_projects = resource_project_scope(memory)
@@ -153,7 +154,7 @@ def _vnext_memory_review(context: MCPRuntimeContext, arguments: Mapping[str, obj
                 or (requested_sensitivity and target_sensitivity not in requested_sensitivity)
                 or (requested_projects and not _resource_matches_project_scope(memory, requested_projects))
             ):
-                raise MCPToolError("memory review item is outside the effective review filters")
+                raise MCPReferenceNotFoundError("memory review item is outside the effective review filters")
             else:
                 framed_memory = frame_disclosed_tree(memory)
                 if isinstance(framed_memory, dict):
@@ -176,12 +177,12 @@ def _vnext_memory_review(context: MCPRuntimeContext, arguments: Mapping[str, obj
 
     raw_status = arguments.get("status", "correction_ready")
     if not isinstance(raw_status, str):
-        raise MCPToolError("status must be a string")
+        raise MCPArgumentError("status must be a string")
     normalized_status = raw_status.strip()
     normalized_status = _REVIEW_STATUS_ALIASES.get(normalized_status, normalized_status)
     if normalized_status not in _REVIEW_STATUS_CHOICES:
         allowed = ", ".join(_REVIEW_STATUS_CHOICES)
-        raise MCPToolError(f"status must be one of: {allowed}")
+        raise MCPArgumentError(f"status must be one of: {allowed}")
     limit = _parse_int(
         arguments,
         key="limit",
@@ -269,51 +270,51 @@ def _validated_review_provenance(
     """
     raw_source_id = provenance.get("source_id")
     if not isinstance(raw_source_id, str) or raw_source_id.strip() == "":
-        raise MCPToolError("provenance.source_id is required and must be a UUID string")
+        raise MCPArgumentError("provenance.source_id is required and must be a UUID string")
     source_id = raw_source_id.strip()
     try:
         UUID(source_id)
     except ValueError as exc:
-        raise MCPToolError("provenance.source_id must be a valid UUID") from exc
+        raise MCPArgumentError("provenance.source_id must be a valid UUID") from exc
 
     get_source = getattr(store, "get_source", None)
     if not callable(get_source) or get_source(source_id) is None:
-        raise MCPToolError(f"provenance source {source_id} was not found in the current user scope")
+        raise MCPReferenceNotFoundError(f"provenance source {source_id} was not found in the current user scope")
 
     raw_chunk_id = provenance.get("source_chunk_id")
     source_chunk_id: str | None = None
     if raw_chunk_id is not None:
         if not isinstance(raw_chunk_id, str) or raw_chunk_id.strip() == "":
-            raise MCPToolError("provenance.source_chunk_id must be a UUID string")
+            raise MCPArgumentError("provenance.source_chunk_id must be a UUID string")
         source_chunk_id = raw_chunk_id.strip()
         try:
             UUID(source_chunk_id)
         except ValueError as exc:
-            raise MCPToolError("provenance.source_chunk_id must be a valid UUID") from exc
+            raise MCPArgumentError("provenance.source_chunk_id must be a valid UUID") from exc
         list_source_chunks = getattr(store, "list_source_chunks", None)
         if not callable(list_source_chunks):
-            raise MCPToolError("the current store cannot validate provenance source chunks")
+            raise MCPPreconditionFailedError("the current store cannot validate provenance source chunks")
         owned_chunk_ids = {str(row.get("id")) for row in list_source_chunks(source_id) if isinstance(row, Mapping)}
         if source_chunk_id not in owned_chunk_ids:
-            raise MCPToolError(
+            raise MCPReferenceNotFoundError(
                 f"provenance source chunk {source_chunk_id} does not belong to source "
                 f"{source_id} in the current user scope"
             )
 
     raw_role = provenance.get("evidence_role", "supports")
     if not isinstance(raw_role, str) or raw_role not in _PROVENANCE_EVIDENCE_ROLES:
-        raise MCPToolError("provenance.evidence_role must be one of: " + ", ".join(_PROVENANCE_EVIDENCE_ROLES))
+        raise MCPArgumentError("provenance.evidence_role must be one of: " + ", ".join(_PROVENANCE_EVIDENCE_ROLES))
 
     raw_confidence = provenance.get("confidence", fallback_confidence if fallback_confidence is not None else 0.5)
     if isinstance(raw_confidence, bool) or not isinstance(raw_confidence, (int, float)):
-        raise MCPToolError("provenance.confidence must be a number between 0 and 1")
+        raise MCPArgumentError("provenance.confidence must be a number between 0 and 1")
     confidence = float(raw_confidence)
     if confidence < 0.0 or confidence > 1.0:
-        raise MCPToolError("provenance.confidence must be between 0 and 1")
+        raise MCPArgumentError("provenance.confidence must be between 0 and 1")
 
     raw_quote = provenance.get("quote")
     if raw_quote is not None and not isinstance(raw_quote, str):
-        raise MCPToolError("provenance.quote must be a string")
+        raise MCPArgumentError("provenance.quote must be a string")
 
     return {
         "source_id": source_id,
@@ -435,7 +436,7 @@ def _refuse_oversized_correction(**fields: object) -> None:
 
     oversized = first_oversized(fields, MAX_CORRECTION_FIELD_CHARS)
     if oversized is not None:
-        raise MCPToolError(f"{oversized} must serialize to {MAX_CORRECTION_FIELD_CHARS} characters or fewer")
+        raise MCPArgumentError(f"{oversized} must serialize to {MAX_CORRECTION_FIELD_CHARS} characters or fewer")
 
 
 def _vnext_memory_correct(context: MCPRuntimeContext, arguments: Mapping[str, object]) -> JsonObject:
@@ -443,7 +444,7 @@ def _vnext_memory_correct(context: MCPRuntimeContext, arguments: Mapping[str, ob
     requested_action = _parse_required_text(arguments, "action")
     resolved_action = _resolve_review_apply_action(requested_action, allow_legacy=True)
     if resolved_action not in {"confirm", "edit", "delete", "supersede"}:
-        raise MCPToolError(
+        raise MCPArgumentError(
             f"action '{requested_action}' is not supported by canonical vNext review; "
             "use approve, edit-and-approve, reject, or supersede-existing"
         )
@@ -462,7 +463,7 @@ def _vnext_memory_correct(context: MCPRuntimeContext, arguments: Mapping[str, ob
         # would invert graph -> row ordering for consolidation acceptance.
         target = store.get_memory(memory_id)
         if target is None:
-            raise MCPToolError(f"memory {memory_id} was not found")
+            raise MCPReferenceNotFoundError(f"memory {memory_id} was not found")
         _checked_actor_type, _checked_actor_id, decision = _policy_checked(
             store,
             identity=identity,
@@ -477,7 +478,7 @@ def _vnext_memory_correct(context: MCPRuntimeContext, arguments: Mapping[str, ob
             blocked_decision = decision
         elif is_pending_consolidation_candidate(target):
             if resolved_action == "edit":
-                raise MCPToolError(
+                raise MCPPreconditionFailedError(
                     "pending consolidation candidates cannot be edit-and-approved; "
                     "regenerate the candidate or approve it unchanged"
                 )
@@ -525,7 +526,7 @@ def _vnext_memory_correct(context: MCPRuntimeContext, arguments: Mapping[str, ob
         get_memory_for_update = getattr(store, "get_memory_for_update", None)
         memory = get_memory_for_update(memory_id) if callable(get_memory_for_update) else store.get_memory(memory_id)
         if memory is None:
-            raise MCPToolError(f"memory {memory_id} was not found")
+            raise MCPReferenceNotFoundError(f"memory {memory_id} was not found")
         # Re-authorize the row after acquiring its mutation lock. The earlier
         # check commits a durable policy audit event; this second check closes
         # the gap where a target could be reassigned between authorization and
@@ -553,11 +554,15 @@ def _vnext_memory_correct(context: MCPRuntimeContext, arguments: Mapping[str, ob
         try:
             resolve_transition(_review_operation, str(memory.get("status") or ""))
         except LifecycleTransitionError as exc:
-            raise MCPToolError(f"memory {memory_id} cannot be reviewed from status '{memory.get('status')}'") from exc
+            raise MCPPreconditionFailedError(
+                f"memory {memory_id} cannot be reviewed from status '{memory.get('status')}'"
+            ) from exc
         if is_pending_consolidation_candidate(memory):
-            raise MCPToolError("memory became a pending consolidation candidate during review; retry the approval")
+            raise MCPPreconditionFailedError(
+                "memory became a pending consolidation candidate during review; retry the approval"
+            )
         if is_pending_project_update_memory(memory):
-            raise MCPToolError(PENDING_PROJECT_UPDATE_MEMORY_MUTATION_MESSAGE)
+            raise MCPPreconditionFailedError(PENDING_PROJECT_UPDATE_MEMORY_MUTATION_MESSAGE)
         event_payload: VNextJsonObject = {
             "requested_action": requested_action,
             "resolved_action": resolved_action,
@@ -630,7 +635,9 @@ def _vnext_memory_correct(context: MCPRuntimeContext, arguments: Mapping[str, ob
             provenance = _parse_optional_json_object(arguments, "provenance")
             confidence = _parse_optional_float(arguments, "confidence")
             if title is None and body is None and provenance is None and confidence is None:
-                raise MCPToolError("edit-and-approve requires at least one of title, body, provenance, or confidence")
+                raise MCPArgumentError(
+                    "edit-and-approve requires at least one of title, body, provenance, or confidence"
+                )
             validated_provenance = (
                 _validated_review_provenance(
                     store,
@@ -716,7 +723,7 @@ def _vnext_memory_correct(context: MCPRuntimeContext, arguments: Mapping[str, ob
             replacement_provenance = _parse_optional_json_object(arguments, "replacement_provenance")
             replacement_confidence = _parse_optional_float(arguments, "replacement_confidence")
             if replacement_title is None and replacement_body is None:
-                raise MCPToolError("supersede-existing requires replacement_title or replacement_body")
+                raise MCPArgumentError("supersede-existing requires replacement_title or replacement_body")
             canonical_text = (
                 _canonical_text_from_body(replacement_body)
                 if replacement_body is not None

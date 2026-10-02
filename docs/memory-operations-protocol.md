@@ -261,7 +261,10 @@ refusal and a ceiling refusal record the reason on the policy events
 (`policy.decision` and `agent.policy_blocked`). HTTP returns 403 with
 that policy decision for those two refusals. A credential refusal on
 confirm leaves the row pending and does not keep a policy event for that
-refusal.
+refusal. Unreleased (on main, not in v0.20.0): over stdio an author refusal
+and a ceiling refusal come back as `not_permitted`, an unknown confirmation
+id as `not_found` and a confirmation that is not pending as
+`precondition_failed`; a credential refusal stays `tool_request_failed`.
 
 ## undo
 
