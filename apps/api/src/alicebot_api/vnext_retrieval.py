@@ -100,6 +100,7 @@ from alicebot_api.vnext_embeddings import (
 from alicebot_api.vnext_event_log import append_event
 from alicebot_api.vnext_grounding import compute_query_grounding
 from alicebot_api.vnext_json import json_safe
+from alicebot_api.vnext_lifecycle import RETIRED_STATUSES
 from alicebot_api.vnext_promotion_policy import memory_write_provenance
 from alicebot_api.vnext_project_scope import (
     project_scope_identity,
@@ -1776,6 +1777,20 @@ def _quoted_from_links(
     return chosen
 
 
+def _memory_was_retired(memory: Mapping[str, object]) -> bool:
+    """True when the row is retired, whether or not a replacement was named.
+
+    A row whose status is ``superseded`` with no ``superseded_by`` pointer was
+    retired without a replacement: ``alice_memory_manage`` forget and undo both
+    leave a row like that. A ``rejected`` or ``archived`` row was withdrawn as
+    well. A retired row at the end of a supersession chain is not a fact an
+    agent should read now. A row that is deleted never gets here: ``get_memory``
+    does not return it, so the walk ends there unresolved.
+    """
+
+    return str(memory.get("status") or "") in RETIRED_STATUSES
+
+
 def _current_memory_id(
     store: object,
     memory: Mapping[str, object],
@@ -1790,6 +1805,11 @@ def _current_memory_id(
     the same fence the caller's memory reads run under. A pointer id is
     itself sensitive metadata, so a hop that is hidden, unresolved, or past
     the depth cap yields "" rather than the last id seen.
+
+    The row the chain ends on must also still be live. When it was forgotten,
+    undone, rejected or archived, or deleted, there is no current fact to
+    name, so the answer is "" and not the id of the last row read. The caller
+    still labels the passage as corrected.
     """
 
     seen: set[str] = set()
@@ -1802,10 +1822,12 @@ def _current_memory_id(
             return ""
         seen.add(memory_id)
         if not _memory_is_superseded(current):
-            return memory_id
+            return "" if _memory_was_retired(current) else memory_id
         successor_id = str(current.get("superseded_by") or "").strip()
         if successor_id == "":
-            return memory_id
+            # Retired with no replacement (forgotten or undone), so nothing
+            # is current.
+            return ""
         getter = getattr(store, "get_memory", None)
         if not callable(getter):
             return ""
@@ -1814,11 +1836,11 @@ def _current_memory_id(
             return ""
         current = successor
     # The eight-hop walk ended on a row it has not checked yet. It names that
-    # row only when the row is visible and ends the chain. A row that is still
-    # superseded means the chain is longer than the walk, so the current fact
-    # is not known.
+    # row only when the row is visible and ends the chain with a live fact. A
+    # row that is still superseded means the chain is longer than the walk, so
+    # the current fact is not known.
     last_id = str(current.get("id") or "")
-    if last_id == "" or _memory_is_superseded(current) or not memory_visible(current):
+    if last_id == "" or _memory_is_superseded(current) or _memory_was_retired(current) or not memory_visible(current):
         return ""
     return last_id
 
@@ -1879,6 +1901,84 @@ def _memory_visibility_predicate(
     return visible
 
 
+# A memory id is a UUID in Postgres and in every id the store makes. The scan
+# for ids inside ``metadata_json`` only looks for that shape, because a
+# Postgres lookup of any other text as a uuid raises.
+_MEMORY_ID_TEXT = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
+_WHOLE_MEMORY_ID_TEXT = re.compile(r"(?:memory:)?" + _MEMORY_ID_TEXT.pattern)
+_MEMORY_ID_WITHHELD = "(id withheld)"
+# Metadata the product writes is a few levels deep, and a restore refuses more
+# than 256. Recursing that far on text a v0.19.0 store let through would raise
+# before it finished, so the scan stops here and drops what is below.
+_METADATA_ID_SCAN_MAX_DEPTH = 64
+_SCRUB_DROPPED = object()
+
+
+def _collect_memory_id_texts(value: object, found: set[str], *, depth: int) -> bool:
+    """Add every UUID-shaped substring of the strings and keys in ``value``, lowercased.
+
+    Returns True when ``value`` nests deeper than ``_METADATA_ID_SCAN_MAX_DEPTH``,
+    so some of it was not read.
+    """
+
+    if depth > _METADATA_ID_SCAN_MAX_DEPTH:
+        return True
+    too_deep = False
+    if isinstance(value, str):
+        found.update(match.lower() for match in _MEMORY_ID_TEXT.findall(value))
+    elif isinstance(value, Mapping):
+        for key, nested in value.items():
+            if isinstance(key, str):
+                found.update(match.lower() for match in _MEMORY_ID_TEXT.findall(key))
+            too_deep = _collect_memory_id_texts(nested, found, depth=depth + 1) or too_deep
+    elif isinstance(value, Sequence) and not isinstance(value, (bytes, bytearray)):
+        for nested in value:
+            too_deep = _collect_memory_id_texts(nested, found, depth=depth + 1) or too_deep
+    return too_deep
+
+
+def _scrub_memory_id_text(text: str, hidden: frozenset[str]) -> object:
+    """``text`` without a hidden id, or ``_SCRUB_DROPPED`` when the text is only that id."""
+
+    if not any(match.lower() in hidden for match in _MEMORY_ID_TEXT.findall(text)):
+        return text
+    if _WHOLE_MEMORY_ID_TEXT.fullmatch(text.strip()):
+        return _SCRUB_DROPPED
+    return _MEMORY_ID_TEXT.sub(
+        lambda match: _MEMORY_ID_WITHHELD if match.group(0).lower() in hidden else match.group(0),
+        text,
+    )
+
+
+def _scrub_memory_ids(value: object, hidden: frozenset[str], *, depth: int) -> object:
+    """A copy of ``value`` with every id in ``hidden`` removed, or ``_SCRUB_DROPPED``.
+
+    A string that is only a hidden id is dropped, so its key or list slot goes
+    with it. A hidden id inside a longer string is replaced. Below
+    ``_METADATA_ID_SCAN_MAX_DEPTH`` nothing is scanned, so the value is dropped.
+    """
+
+    if depth > _METADATA_ID_SCAN_MAX_DEPTH:
+        return _SCRUB_DROPPED
+    if isinstance(value, str):
+        return _scrub_memory_id_text(value, hidden)
+    if isinstance(value, Mapping):
+        output: dict[object, object] = {}
+        for key, nested in value.items():
+            new_key = _scrub_memory_id_text(key, hidden) if isinstance(key, str) else key
+            if new_key is _SCRUB_DROPPED:
+                continue
+            new_value = _scrub_memory_ids(nested, hidden, depth=depth + 1)
+            if new_value is _SCRUB_DROPPED:
+                continue
+            output[new_key] = new_value
+        return output
+    if isinstance(value, Sequence) and not isinstance(value, (bytes, bytearray)):
+        items = (_scrub_memory_ids(nested, hidden, depth=depth + 1) for nested in value)
+        return [item for item in items if item is not _SCRUB_DROPPED]
+    return value
+
+
 def _drop_pointers_outside_fence(
     holders: Sequence[MutableMapping[str, object]],
     pointer_keys: Sequence[str],
@@ -1886,7 +1986,7 @@ def _drop_pointers_outside_fence(
     targets: Mapping[str, Mapping[str, object]],
     memory_visible: Callable[[Mapping[str, object]], bool],
     fail_closed_when_unresolved: bool,
-) -> None:
+) -> list[tuple[MutableMapping[str, object], str]]:
     """Remove each memory-id pointer whose target the caller may not read.
 
     A pointer id is itself sensitive metadata, so this is the one place that
@@ -1896,8 +1996,13 @@ def _drop_pointers_outside_fence(
     names a row this user does not have, which is not a hidden one, because
     the lookup applies no fence: it is kept unless
     ``fail_closed_when_unresolved`` is set, which a scoped read sets.
+
+    Returns each ``(holder, pointer_key)`` it removed, so a caller that derives
+    something from the pointer, such as a validity flag, can keep the part that
+    is not an id.
     """
 
+    dropped: list[tuple[MutableMapping[str, object], str]] = []
     for holder in holders:
         for pointer_key in pointer_keys:
             pointer = holder.get(pointer_key)
@@ -1907,9 +2012,12 @@ def _drop_pointers_outside_fence(
             if target is None:
                 if fail_closed_when_unresolved:
                     holder.pop(pointer_key, None)
+                    dropped.append((holder, pointer_key))
                 continue
             if not memory_visible(target):
                 holder.pop(pointer_key, None)
+                dropped.append((holder, pointer_key))
+    return dropped
 
 
 # Memories asked for per packed source when labelling a corrected excerpt. The
@@ -2110,7 +2218,12 @@ def _annotate_corrected_source(
         source["current_memory_id"] = chosen_id
 
 
-def _validity_annotation(memory: JsonObject, *, superseded_by_hint: str | None = None) -> JsonObject | None:
+def _validity_annotation(
+    memory: JsonObject,
+    *,
+    superseded_by_hint: str | None = None,
+    superseded_pointer_withheld: bool = False,
+) -> JsonObject | None:
     """Compact validity summary for rows carrying temporal/supersession signal.
 
     Derived purely from values the row already carries -- the
@@ -2121,6 +2234,10 @@ def _validity_annotation(memory: JsonObject, *, superseded_by_hint: str | None =
     ``superseded_by_hint`` is a pack-local back-pointer: when a pack-mate's
     ``supersedes`` names this row, the row is annotated as superseded even
     if it never received the ``superseded_by`` column (one-sided patches).
+    ``superseded_pointer_withheld`` says the row's ``superseded_by`` pointer was
+    removed from this copy of the row because it names a memory the caller may
+    not read. The row is still superseded, so ``superseded`` stays true, and
+    with no id to show it carries no ``superseded_by_memory_id``.
     Rows without any signal return ``None`` so plain memories keep their
     exact shape, and the far-future unbounded ``valid_to`` sentinel (see
     ``VALID_TO_UNBOUNDED_YEAR``) is treated as no signal.
@@ -2133,7 +2250,7 @@ def _validity_annotation(memory: JsonObject, *, superseded_by_hint: str | None =
     if valid_to is not None and valid_to.year < VALID_TO_UNBOUNDED_YEAR:
         validity["valid_to"] = valid_to.isoformat()
     superseded_by = memory.get("superseded_by") or superseded_by_hint
-    if superseded_by or str(memory.get("status")) == "superseded":
+    if superseded_by or superseded_pointer_withheld or str(memory.get("status")) == "superseded":
         validity["superseded"] = True
     if superseded_by:
         validity["superseded_by_memory_id"] = str(superseded_by)
@@ -2559,7 +2676,7 @@ class VNextRetrievalService:
         person_linked_memory_ids: frozenset[str],
         domains: list[str],
         sensitivity_allowed: list[str],
-    ) -> None:
+    ) -> frozenset[str]:
         """Remove supersession pointers that would cross the caller's read fence.
 
         A pointer id is itself sensitive metadata. A pointer goes when its
@@ -2574,8 +2691,13 @@ class VNextRetrievalService:
         closed on it. An unscoped pack keeps the pointer, and the high-depth
         ``supersession_context`` shows it as an id-only reference on purpose.
 
-        Only the two pointer columns are cleaned here. Other fields of a stored
-        row that copy an id are not.
+        Only the two pointer columns are cleaned here. The ids copied into a
+        row's ``metadata_json`` are cleaned by ``_drop_hidden_memory_ids_from_metadata``.
+
+        Returns the id of every memory whose ``superseded_by`` pointer was
+        removed. The caller derives ``validity`` after this runs, and that
+        memory is still superseded, so it passes the set on to keep
+        ``validity.superseded`` true without the id.
         """
         pointer_ids = [
             str(pointer)
@@ -2584,8 +2706,8 @@ class VNextRetrievalService:
             if (pointer := memory.get(pointer_key))
         ]
         if not pointer_ids:
-            return
-        _drop_pointers_outside_fence(
+            return frozenset()
+        dropped = _drop_pointers_outside_fence(
             memories,
             ("supersedes", "superseded_by"),
             targets=self._memories_by_ids(pointer_ids),
@@ -2597,6 +2719,60 @@ class VNextRetrievalService:
             ),
             fail_closed_when_unresolved=scope.active,
         )
+        return frozenset(
+            str(holder["id"]) for holder, pointer_key in dropped if pointer_key == "superseded_by" and holder.get("id")
+        )
+
+    def _drop_hidden_memory_ids_from_metadata(
+        self,
+        memories: Sequence[MutableMapping[str, object]],
+        *,
+        memory_visible: Callable[[Mapping[str, object]], bool],
+    ) -> None:
+        """Remove from each row's ``metadata_json`` the id of a memory the caller may not read.
+
+        A memory id is itself sensitive metadata. A stored row can carry the id
+        of another memory inside its ``metadata_json``, as the copy of a
+        supersession pointer or as a reference one of the write paths left
+        there, and the rows of a pack are returned whole in the typed sections
+        of ``alice_context_pack`` with ``debug`` set. The pointer columns are
+        fenced by ``_sanitize_memory_scope_pointers``. This is the same fence
+        for the ids in the JSON.
+
+        Every UUID-shaped string in the metadata, as a value, a list element or
+        a key, is looked up once for the whole pack. One that names a memory
+        ``memory_visible`` rejects goes. A string that is only that id, with or
+        without a ``memory:`` prefix, is removed with its key or list slot.
+        An id inside a longer string is replaced by ``(id withheld)``. One that
+        names no row at all is left as it is, because it is not a hidden row;
+        the same rule the pointer columns follow on an unscoped read.
+
+        ``memory_visible`` is required and has no default, for the same reason
+        as on every other reader of the fence: a default would be "no fence"
+        for the next caller that forgot it. Metadata nested deeper than
+        ``_METADATA_ID_SCAN_MAX_DEPTH`` cannot be scanned, so the part below
+        that depth is dropped.
+        """
+
+        found_in: list[tuple[MutableMapping[str, object], set[str], bool]] = []
+        for memory in memories:
+            metadata = memory.get("metadata_json")
+            if metadata is None:
+                continue
+            texts: set[str] = set()
+            too_deep = _collect_memory_id_texts(metadata, texts, depth=0)
+            if texts or too_deep:
+                found_in.append((memory, texts, too_deep))
+        if not found_in:
+            return
+        candidates = sorted(set().union(*(texts for _memory, texts, _too_deep in found_in)))
+        targets = self._memories_by_ids(candidates) if candidates else {}
+        hidden = frozenset(memory_id.lower() for memory_id, target in targets.items() if not memory_visible(target))
+        for memory, texts, too_deep in found_in:
+            if texts.isdisjoint(hidden) and not too_deep:
+                continue
+            scrubbed = _scrub_memory_ids(memory["metadata_json"], hidden, depth=0)
+            memory["metadata_json"] = {} if scrubbed is _SCRUB_DROPPED else scrubbed
 
     def _sanitize_memory_scope_references(
         self,
@@ -4125,14 +4301,23 @@ class VNextRetrievalService:
             limit=DEFAULT_OPEN_LOOP_LIMIT,
         )
 
+        # The fence the memory stages ran under, built once for everything the
+        # pack names that is derived from a memory row.
+        pack_memory_visible = _memory_visibility_predicate(
+            domains=domains,
+            sensitivity_allowed=sensitivity_allowed,
+            scope=scope,
+            person_linked_memory_ids=person_linked_memory_ids,
+        )
         ranked_memories = [_compact_item(candidate.item) for candidate in memory_candidates if candidate.selected]
-        self._sanitize_memory_scope_pointers(
+        superseded_pointer_withheld_ids = self._sanitize_memory_scope_pointers(
             ranked_memories,
             scope=scope,
             person_linked_memory_ids=person_linked_memory_ids,
             domains=domains,
             sensitivity_allowed=sensitivity_allowed,
         )
+        self._drop_hidden_memory_ids_from_metadata(ranked_memories, memory_visible=pack_memory_visible)
         self._sanitize_memory_scope_references(
             ranked_memories,
             scope=scope,
@@ -4143,12 +4328,6 @@ class VNextRetrievalService:
         # pair leaks into the same pack, the replacement packs directly
         # above its superseded ancestor; every other item keeps its order.
         ordered_memories, supersession_reorders = _prefer_current_versions(ordered_memories)
-        pack_memory_visible = _memory_visibility_predicate(
-            domains=domains,
-            sensitivity_allowed=sensitivity_allowed,
-            scope=scope,
-            person_linked_memory_ids=person_linked_memory_ids,
-        )
         ranked_sources = self._packable_sources(
             [candidate.item for candidate in source_candidates if candidate.selected],
             query=request.query,
@@ -4294,6 +4473,7 @@ class VNextRetrievalService:
             validity = _validity_annotation(
                 memory,
                 superseded_by_hint=superseded_by_packmate.get(str(memory.get("id"))),
+                superseded_pointer_withheld=str(memory.get("id") or "") in superseded_pointer_withheld_ids,
             )
             if validity is not None:
                 memory["validity"] = validity

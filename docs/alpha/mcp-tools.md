@@ -104,6 +104,12 @@ Remember, recall, continue. These are the only tools in a default
   left off under the same fence, and `validity.superseded` stays true. A
   pointer to a row that cannot be found is left off on a scoped call and kept
   on an unscoped one. In v0.19.0 the ids are named whatever the caller may read.
+  Unreleased (on main, not in v0.19.2): `current_memory_id` is also left off when
+  the memory it would name was forgotten, undone or rejected, or when the
+  passage's own memory was forgotten or undone, and `derived_memory_corrected`
+  stays true. A chain whose last memory was forgotten names nothing, and does not
+  fall back to the memory before it. In v0.19.2 the id of the forgotten, undone
+  or rejected memory is named.
 - `alice_resume` — a pick-work-back-up brief: last decision, suggested next
   action, open loops, and recent changes. From v0.18.0, this brief,
   `alice_recent_decisions`, and the next-action list read only active
@@ -216,7 +222,7 @@ the answer verifier (`render_pack_context_block`) does the same.
 | `alice_vnext_memory_audit` memory text, chain titles, revision text, provenance quotes | yes | A model reads those fields to decide trust. The sentence is once, on that result. Timeline summaries and event payloads stay the audit record. |
 | `alice_belief_state`, `alice_graph_neighborhood`, `alice_project_dashboard`, `alice_capture_candidates` | no | Operator or legacy reads of stored text. Not the default tool result a model is told to paste. |
 | `alice_vnext_recent_memory_commits` | no | An audit list of commits, not the note text a model is told to follow. |
-| Context pack `debug: true` trace | no | Stage counts. Compact text fields stay quoted. The sentence is once on the result. `metadata_json` on a debug memory section is returned with the row. |
+| Context pack `debug: true` trace | no | Stage counts. Compact text fields stay quoted. The sentence is once on the result. `metadata_json` on a debug memory section is returned with the row. Unreleased (on main, not in v0.19.2): the id of a memory the caller cannot read is removed from it. |
 
 ## The full core surface
 
@@ -289,6 +295,12 @@ is a CLI verb, not a fourth always-on agent tool.
   be shorter than five, or empty, and the pack is still returned. In a `context_depth: high` pack's `supersession_context` a revision
   outside that fence is not named or titled, and the walk ends there. In
   v0.19.0 both name the id whatever the caller may read.
+  Unreleased (on main, not in v0.19.2): a memory whose `superseded_by` pointer
+  names a memory outside that fence keeps `validity.superseded: true` in the
+  pack and names no id, the same as in `alice_recall`. In v0.19.2 the pack has no
+  `validity` for it. The same fence removes the id of a memory the caller cannot
+  read from `metadata_json` on the rows a `debug: true` call returns, and from
+  every memory the compiled pack returns. In v0.19.2 those ids are returned.
 - `alice_recent_decisions` — recent decisions, newest first.
 - `alice_open_loops` — list open loops, or close/snooze/edit/reopen one.
 - `alice_explain` — where a memory came from and why it can be trusted:
