@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import AbstractContextManager
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from hashlib import md5, sha256
@@ -110,6 +111,15 @@ class VNextCaptureStore(Protocol):
     def create_memory(self, memory: JsonObject, *, actor_type: str = "system") -> JsonObject: ...
 
     def create_provenance_link(self, link: JsonObject, *, actor_type: str = "system") -> JsonObject: ...
+
+    def savepoint(self) -> AbstractContextManager[None]:
+        """One unit of writes that lands whole or leaves no row.
+
+        Required, with no fallback: a store without it would turn a failed
+        file back into a half-built source without anyone being told. The
+        importers wrap each file's capture in it.
+        """
+        ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -1807,23 +1817,27 @@ class VNextCaptureService:
                     continue
                 run_hashes.add(content_hash)
 
-                result = self.capture_source(
-                    SourceCaptureInput(
-                        source_type="markdown",
-                        title=file_path.stem,
-                        raw_text=raw_text,
-                        raw_path=str(file_path),
-                        connector_name="markdown_folder",
-                        external_id=source_file.relative_path,
-                        domain=domain,
-                        sensitivity=sensitivity,
-                        extract_candidates=False,
-                        metadata_json={
-                            "folder": str(folder_path),
-                            "relative_path": source_file.relative_path,
-                        },
+                # One file is one unit. A failure part way rolls the file back
+                # to nothing, the failure is logged after that rollback, and
+                # the next file imports in the same transaction.
+                with self.store.savepoint():
+                    result = self.capture_source(
+                        SourceCaptureInput(
+                            source_type="markdown",
+                            title=file_path.stem,
+                            raw_text=raw_text,
+                            raw_path=str(file_path),
+                            connector_name="markdown_folder",
+                            external_id=source_file.relative_path,
+                            domain=domain,
+                            sensitivity=sensitivity,
+                            extract_candidates=False,
+                            metadata_json={
+                                "folder": str(folder_path),
+                                "relative_path": source_file.relative_path,
+                            },
+                        )
                     )
-                )
                 deferred_embedding_inputs.extend(result.deferred_embedding_inputs)
                 if result.duplicate:
                     duplicate_count += 1
@@ -2002,32 +2016,36 @@ class VNextCaptureService:
                     )
                     continue
                 try:
-                    result = self.capture_source(
-                        SourceCaptureInput(
-                            source_type="chatgpt_export",
-                            title=transcript.title,
-                            raw_text=transcript.raw_text,
-                            raw_path=str(file_path),
-                            connector_name="chatgpt_export",
-                            external_id=transcript.external_id,
-                            domain=domain,
-                            sensitivity=sensitivity,
-                            captured_at=captured_at,
-                            source_created_at=transcript.created_at,
-                            source_modified_at=transcript.modified_at,
-                            extract_candidates=False,
-                            metadata_json={
-                                "filename": file_path.name,
-                                "export_sha256": export_sha256,
-                                "transcript_format": "chatgpt_conversation_v1",
-                                "export_conversation_count": len(transcripts),
-                                "conversation_index": transcript.index,
-                                "conversation_id": transcript.external_id,
-                                "conversation_title": transcript.title,
-                                "message_count": transcript.message_count,
-                            },
+                    # One conversation is one unit, as one file is in the
+                    # Markdown importer: a failure part way rolls it back to
+                    # nothing and is logged after that rollback.
+                    with self.store.savepoint():
+                        result = self.capture_source(
+                            SourceCaptureInput(
+                                source_type="chatgpt_export",
+                                title=transcript.title,
+                                raw_text=transcript.raw_text,
+                                raw_path=str(file_path),
+                                connector_name="chatgpt_export",
+                                external_id=transcript.external_id,
+                                domain=domain,
+                                sensitivity=sensitivity,
+                                captured_at=captured_at,
+                                source_created_at=transcript.created_at,
+                                source_modified_at=transcript.modified_at,
+                                extract_candidates=False,
+                                metadata_json={
+                                    "filename": file_path.name,
+                                    "export_sha256": export_sha256,
+                                    "transcript_format": "chatgpt_conversation_v1",
+                                    "export_conversation_count": len(transcripts),
+                                    "conversation_index": transcript.index,
+                                    "conversation_id": transcript.external_id,
+                                    "conversation_title": transcript.title,
+                                    "message_count": transcript.message_count,
+                                },
+                            )
                         )
-                    )
                 except CaptureCredentialRefused:
                     # A refused conversation is skipped, not failed.
                     skipped_count += 1

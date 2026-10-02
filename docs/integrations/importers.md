@@ -131,6 +131,19 @@ exits 2 with `sqlite_import_use_alice_memory` and names these two commands.
 In v0.17.0, those commands do not exist, and a SQLite
 URL on the `alicebot` imports is `invalid_request`.
 
+Unreleased (on main, not in v0.20.0): each file of a Markdown import, and each
+conversation of a ChatGPT import, is written as one unit, on SQLite and on
+Postgres. When a write fails part way (a chunk write, for example), the file's
+source, chunks, entity links and events are all rolled back. The receipt counts
+the file in `failed_count`, one `source.import_failed` event is written after
+the rollback, and the next file imports in the same transaction, so the batch
+still commits once. A second import of the fixed file then imports it in full.
+In v0.20.0 the failed file stayed live with the chunks written before the
+failure, a second import of it reported `duplicate` and never completed it, and
+two `source.import_failed` events were written for it. A source that
+v0.20.0 left half built stays as it is. Nothing repairs it, and a re-import of
+the same file still reports it as a duplicate.
+
 ## File Size Limit and Long Conversations
 
 From v0.20.0, `alice-memory import-markdown`,
