@@ -1015,11 +1015,21 @@ def test_memory_commit_review_required_lands_in_review_queue(sqlite_context) -> 
     assert approved["memory"]["status"] == "active"
 
 
+def _full_commit_result(context: MCPRuntimeContext, arguments: dict[str, object]) -> dict[str, object]:
+    """The full ``alice_memory_commit`` result, whatever ``ALICE_MCP_COMMIT_RESULT`` says.
+
+    The compact result drops ``memory.metadata_json`` and ``policy_decision``. A test that reads
+    them calls the handler, whose result is the full row in both modes, because the compact view
+    is chosen by tool name in ``call_mcp_tool``, after the handler.
+    """
+
+    return mcp_tools_module._handle_alice_vnext_commit_memory(context, arguments)
+
+
 def test_memory_commit_without_identity_commits_as_direct_user(sqlite_context) -> None:
-    committed = call_mcp_tool(
+    committed = _full_commit_result(
         sqlite_context,
-        name="alice_memory_commit",
-        arguments={"title": "No identity", "canonical_text": "Direct human writes need no agent identity."},
+        {"title": "No identity", "canonical_text": "Direct human writes need no agent identity."},
     )
     assert committed["status"] == "committed"
     assert committed["write_mode"] == "commit"
@@ -1042,10 +1052,9 @@ def test_memory_commit_resolves_agent_identity_from_api_key(sqlite_context, monk
     monkeypatch.setenv(mcp_tools_module.AGENT_API_KEY_ENV, raw_key)
 
     # No identity fields in the payload: agent_id and profile come from the key.
-    committed = call_mcp_tool(
+    committed = _full_commit_result(
         sqlite_context,
-        name="alice_memory_commit",
-        arguments={
+        {
             "title": "Key-authenticated commit",
             "canonical_text": "Agent API keys also govern MCP commits in SQLite mode.",
             "domain": "professional",
@@ -1184,10 +1193,9 @@ def test_project_scope_bound_key_is_enforced_in_sqlite_mode(sqlite_context, monk
 
     # No payload scope claim: the binding is inherited and the commit lands
     # with the bound project as the row's project_id.
-    committed = call_mcp_tool(
+    committed = _full_commit_result(
         sqlite_context,
-        name="alice_memory_commit",
-        arguments={
+        {
             "title": "Bound project fact",
             "canonical_text": "Shared scope sentinel belongs to alicebot.",
             "memory_type": "decision",
@@ -1269,10 +1277,9 @@ def test_project_scope_bound_key_is_enforced_in_sqlite_mode(sqlite_context, monk
 
     # A request that targets another project without widening the identity
     # claim is blocked by policy (project_scope_binding_violation).
-    rejected = call_mcp_tool(
+    rejected = _full_commit_result(
         sqlite_context,
-        name="alice_memory_commit",
-        arguments={
+        {
             "agent_identity": {"agent_id": "openclaw"},
             "project_scope": ["other-project"],
             "title": "Out-of-scope project write",
