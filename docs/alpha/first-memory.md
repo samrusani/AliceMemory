@@ -36,6 +36,8 @@ Alice returns one of:
 - `review_required`
 - `rejected`
 
+Unreleased (on main, not in v0.20.0): with `ALICE_MCP_COMMIT_RESULT=compact` in the server's environment the answer is about 0.6 KB for a one-sentence fact and carries the memory `id`, the outcome, the `receipt`, the reasons a write was held, and for a held write the `confirmation_id` and the proposed text. In v0.20.0 it is about 3.7 KB with the whole stored row. See [The commit result](mcp-tools.md#the-commit-result).
+
 Now prove it round-trips:
 
 1. Call `alice_recall` with `{"query": "planning summaries"}`. The memory comes back with its fused-rank score.
