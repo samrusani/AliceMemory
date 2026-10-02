@@ -6,6 +6,9 @@ allows is the state comment on line 2, which moves from ``pending`` to
 correction or update paragraph, added and never edited in. On 2026-10-01 the notes of
 v0.17.0, v0.18.0 and v0.19.0 and the v0.18.0 section of ``CHANGELOG.md`` gained
 "is in v0.19.2" update lines under corrections that said a fix was still on main.
+On 2026-10-02 the notes and the changelog sections of v0.19.2 and v0.20.0 joined the
+list once both were published. Their dated 2026-10-02 updates are pinned in
+``test_v0200_release_notes.py``.
 
 Three things are pinned here, by reading the tag with ``git show`` and not by
 trusting the working file:
@@ -30,8 +33,8 @@ Mutations that must fail this file, each alone:
 * reword, move or delete any line that a published note had at its tag: the
   added-lines test for that file fails;
 * insert a sentence that does not open with a dated ``Correction`` or ``Update``
-  (alone on a line, after a paragraph, or in the v0.17.0, v0.18.0 or v0.19.0
-  changelog section): the same test fails;
+  (alone on a line, after a paragraph, or in the changelog section of a
+  published release): the same test fails;
 * change the state comment of a published note to anything but
   ``published`` / ``recorded``, or edit its other fields: the same test fails;
 * write v0.19.1 in place of v0.19.2 in an update line, or delete an update
@@ -51,12 +54,14 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CHANGELOG = "CHANGELOG.md"
 # Changelog sections of published releases, unchanged since their tags except for dated lines.
-PUBLISHED_CHANGELOG_SECTIONS = ("v0.17.0", "v0.18.0", "v0.19.0")
+PUBLISHED_CHANGELOG_SECTIONS = ("v0.17.0", "v0.18.0", "v0.19.0", "v0.19.2", "v0.20.0")
 
 PUBLISHED_NOTES = (
     ("v0.17.0", "docs/release/v0.17.0-release-notes.md"),
     ("v0.18.0", "docs/release/v0.18.0-release-notes.md"),
     ("v0.19.0", "docs/release/v0.19.0-release-notes.md"),
+    ("v0.19.2", "docs/release/v0.19.2-release-notes.md"),
+    ("v0.20.0", "docs/release/v0.20.0-release-notes.md"),
 )
 
 # The dated 2026-10-01 update paragraphs, in file order, as read after quote
