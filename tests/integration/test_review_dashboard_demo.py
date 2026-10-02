@@ -45,7 +45,7 @@ def _invoke_request(
     async def send(message: dict[str, object]) -> None:
         messages.append(message)
 
-    headers = [(b"content-type", b"application/json")]
+    headers = [(b"host", b"127.0.0.1:8000"), (b"content-type", b"application/json")]
     if authorization is not None:
         headers.append((b"authorization", authorization.encode()))
 

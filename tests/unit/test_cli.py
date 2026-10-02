@@ -2106,9 +2106,14 @@ def test_deferred_embedding_provider_call_happens_between_transactions(monkeypat
 
 
 def test_local_folder_scan_happens_before_cli_transaction(monkeypatch) -> None:
+    from alicebot_api.vnext_connectors import LocalFolderScan
+
     transaction_depth = 0
     calls: list[str] = []
-    scan_result = object()
+    # A real scan: the command prints its refused_count and truncated after the sync.
+    scan_result = LocalFolderScan(
+        items=(), path_count=1, ignored_count=0, recursive=True, extensions=(".md",), refused_count=2, truncated=True
+    )
 
     @contextmanager
     def fake_vnext_store_context(_ctx):
@@ -2156,6 +2161,8 @@ def test_local_folder_scan_happens_before_cli_transaction(monkeypatch) -> None:
     payload = json.loads(args.handler(context, args))
 
     assert payload["status"] == "ok"
+    assert payload["refused_count"] == 2
+    assert payload["truncated"] is True
     assert calls == ["scan", "transaction_open", "persist", "transaction_closed"]
 
 

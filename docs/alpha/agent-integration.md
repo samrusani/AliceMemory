@@ -250,10 +250,14 @@ Unreleased (on main, not in v0.19.2): a JSON request body that holds a lone
 surrogate, for example the escape `"\ud800"`, is refused with HTTP 422 and the
 array `detail` of a validation error, on every route that takes a POST, PUT,
 PATCH or DELETE, when the decoder can parse the body. The error says where the
-text is and does not repeat it. A path with no route still answers 404, a path
-whose route does not take the method still answers 405, and a body nested too
-deep for the decoder still answers HTTP 500. v0.19.2 answers HTTP 500 for a
-surrogate in a string field.
+text is and does not repeat it. A path with no route still answers 404 and a path
+whose route does not take the method still answers 405. A body nested more
+than 256 levels deep answers HTTP 422 with an error of type `json_too_deep`, and
+a body over 4 MiB (32 MiB for `POST /v0/vnext/connectors/{name}/sync`) answers
+HTTP 413 with `detail.code` `request_too_large`, a family added to the list above.
+A layer in front of the routes answers the 413, so the OpenAPI schema does not list
+it. v0.19.2 answers HTTP 500 for a surrogate in a string field and for a body
+nested about 975 levels deep or more, and it limits no body size.
 
 ## Scopes
 

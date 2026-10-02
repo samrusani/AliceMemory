@@ -125,7 +125,11 @@ def _scope(
     forwarded_for: str | None = None,
     content_type: str = "application/json",
 ) -> dict[str, object]:
-    headers: list[tuple[bytes, bytes]] = [(b"content-type", content_type.encode("utf-8"))]
+    # A keyless request must name this machine in Host (DB-005), as every real client does.
+    headers: list[tuple[bytes, bytes]] = [
+        (b"host", b"127.0.0.1:8000"),
+        (b"content-type", content_type.encode("utf-8")),
+    ]
     if authorization is not None:
         headers.append((b"authorization", authorization.encode("utf-8")))
     if forwarded_for is not None:

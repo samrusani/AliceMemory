@@ -22,9 +22,12 @@ or 405 the router gives it and its body is not read. And
 ``render_validation_error`` is the last line, for a validation error a route
 still raises, so rendering that error cannot fail.
 
-The check stands on the JSON decoder. A body nested too deep for the decoder is
-not scanned and is answered as it was in v0.19.2: the guard leaves it to the
-framework, and the code that parses it raises.
+The check stands on the JSON decoder. A body nested more than
+``request_limits.MAX_JSON_NESTING`` levels deep is not decoded at all: the guard
+answers it with the 422 ``request_limits.json_too_deep_response`` builds, as the
+layers that parse a body themselves do. In v0.19.2 such a body, when it was too
+deep for the decoder or nested about 975 levels, raised ``RecursionError`` and
+answered HTTP 500.
 """
 
 from __future__ import annotations
@@ -40,6 +43,8 @@ from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.routing import Match
+
+from alicebot_api.request_limits import json_nesting_exceeds, json_too_deep_response
 
 # Same text pydantic uses for a str field that holds one. The guard answers
 # with it so a client sees one message whichever layer caught the body.
@@ -273,6 +278,9 @@ async def reject_lone_surrogate_json_body(
     ``type``, ``loc`` and ``msg``, and never repeats the text. It is the error
     pydantic raises for a str field that holds one, minus its ``input``. The
     body is read only for a request that a route takes, by path and by method.
+    A body nested more than ``MAX_JSON_NESTING`` levels deep gets the same shape
+    of 422, with type ``json_too_deep``, before any route or the framework
+    decodes it.
     """
 
     if (
@@ -280,7 +288,10 @@ async def reject_lone_surrogate_json_body(
         and declares_json_body(request.headers.get("content-type", ""))
         and request_has_matching_route(request)
     ):
-        location = body_lone_surrogate_location(await request.body())
+        raw_body = await request.body()
+        if json_nesting_exceeds(raw_body):
+            return json_too_deep_response()
+        location = body_lone_surrogate_location(raw_body)
         if location is not None:
             return lone_surrogate_response(location)
     return await call_next(request)

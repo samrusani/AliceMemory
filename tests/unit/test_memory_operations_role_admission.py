@@ -335,6 +335,7 @@ def _invoke(
         "raw_path": path.encode(),
         "query_string": query.encode(),
         "headers": [
+            (b"host", b"127.0.0.1:8000"),
             (b"content-type", b"application/json"),
             (b"x-alicebot-user-id", str(USER_ID).encode()),
         ],

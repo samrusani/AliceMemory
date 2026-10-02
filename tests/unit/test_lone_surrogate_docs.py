@@ -31,7 +31,7 @@ def test_the_changelog_entry_sits_under_unreleased_and_states_v0192() -> None:
 
     Mutations, each one alone: move the entry under the v0.19.2 heading; delete
     the sentence that says v0.19.2 answered HTTP 500; delete the 404 and 405
-    sentence; delete the sentence about a body nested too deep; say the check
+    sentence; delete the sentence about a body nested more than 256 levels; say the check
     runs before any route or before the key checks; say 422 on every route
     without the scope; delete the sentence about plugin 0.5.2; delete the
     ``--force`` install note.
@@ -58,7 +58,11 @@ def test_the_changelog_entry_sits_under_unreleased_and_states_v0192() -> None:
         "parsed before it uses any value from it."
     ) in entry
     assert "A path with no route keeps its 404 and a path whose route does not take the method keeps its 405, as in v0.19.2" in entry
-    assert "A body nested too deep for the decoder is not checked and still answers HTTP 500, as in v0.19.2." in entry
+    assert (
+        "A body nested more than 256 levels deep is not checked for a surrogate: it is refused first with HTTP 422 "
+        "and an error of type `json_too_deep`"
+    ) in entry
+    assert "In v0.19.2 a body nested about 975 levels deep or more answered HTTP 500." in entry
     assert "The handler that renders validation errors still asks the framework's handler first." in entry
     for claim in ("before any route", "before the `/v1` and vNext agent-key checks read the body", "answered 404 in v0.19.2"):
         assert claim not in entry
@@ -106,8 +110,9 @@ def test_the_known_limitation_keeps_v0192_and_marks_main() -> None:
     )
     assert bullet.endswith(
         "Unreleased (on main, not in v0.19.2): every route that takes a POST, PUT, PATCH or DELETE answers a JSON "
-        "body that carries one with HTTP 422 when the decoder can parse the body (a body nested too deep for it "
-        "still answers HTTP 500), and Hermes provider 0.5.3 replaces it with U+FFFD, so the turn is saved"
+        "body that carries one with HTTP 422 when the decoder can parse the body (a body nested more than 256 "
+        "levels deep answers HTTP 422 with the error type `json_too_deep`), and Hermes provider 0.5.3 replaces it "
+        "with U+FFFD, so the turn is saved"
     )
 
 
@@ -152,7 +157,7 @@ def test_the_http_error_docs_mark_the_new_422_and_keep_v0192() -> None:
     ) in paragraph
     assert "The error says where the text is and does not repeat it." in paragraph
     assert (
-        "A path with no route still answers 404, a path whose route does not take the method still answers 405, "
-        "and a body nested too deep for the decoder still answers HTTP 500."
+        "A path with no route still answers 404 and a path whose route does not take the method still answers 405. "
+        "A body nested more than 256 levels deep answers HTTP 422 with an error of type `json_too_deep`"
     ) in paragraph
-    assert "v0.19.2 answers HTTP 500 for a surrogate in a string field." in paragraph
+    assert "v0.19.2 answers HTTP 500 for a surrogate in a string field and for a body nested about 975 levels deep or more" in paragraph

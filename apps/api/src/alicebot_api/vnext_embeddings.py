@@ -14,9 +14,11 @@ from hashlib import sha256
 from typing import Iterator, Mapping, NotRequired, Protocol, Sequence, TypedDict
 from urllib.error import HTTPError, URLError
 from urllib.parse import SplitResult, urlsplit, urlunsplit
-from urllib.request import Request, urlopen
+from urllib.request import Request
 
 from alicebot_api.credential_floor import credential_verdict
+from alicebot_api.provider_http import open_provider_url
+from alicebot_api.provider_security import REDIRECT_STATUS_CODES, redirect_note
 from alicebot_api.vnext_event_log import append_event
 from alicebot_api.vnext_recall_visibility import memory_is_recall_visible
 from alicebot_api.vnext_repositories import JsonObject
@@ -541,12 +543,18 @@ class OpenAICompatibleEmbeddingProvider:
             method="POST",
         )
         try:
-            with urlopen(request, timeout=self.timeout_seconds) as response:
+            with open_provider_url(request, timeout=self.timeout_seconds, enforce_public_peer=False) as response:
                 response_payload = json.loads(response.read())
         except HTTPError as exc:
-            reason = self._safe_reason(_provider_error_text(_read_error_body(exc)))
+            # A redirect's body is the endpoint's to write and says nothing the status does not.
+            reason = (
+                ""
+                if exc.code in REDIRECT_STATUS_CODES
+                else self._safe_reason(_provider_error_text(_read_error_body(exc)))
+            )
             raise VNextEmbeddingProviderError(
-                f"embeddings endpoint returned HTTP {exc.code}" + (f": {reason}" if reason else ""),
+                f"embeddings endpoint returned HTTP {exc.code}{redirect_note(exc.code)}"
+                + (f": {reason}" if reason else ""),
                 status=exc.code,
             ) from exc
         except (URLError, TimeoutError, UnicodeDecodeError, json.JSONDecodeError) as exc:

@@ -215,7 +215,7 @@ def test_invoke_openai_compatible_model_sends_tools_disabled_request_and_parses_
 ) -> None:
     captured: dict[str, object] = {}
 
-    def fake_urlopen(request, timeout):
+    def fake_urlopen(request, timeout, enforce_public_peer):
         captured["url"] = request.full_url
         captured["timeout"] = timeout
         captured["headers"] = dict(request.header_items())
@@ -240,7 +240,7 @@ def test_invoke_openai_compatible_model_sends_tools_disabled_request_and_parses_
             ).encode("utf-8")
         )
 
-    monkeypatch.setattr("alicebot_api.response_generation.urlopen", fake_urlopen)
+    monkeypatch.setattr("alicebot_api.response_generation.open_provider_url", fake_urlopen)
 
     prompt = assemble_prompt(
         request=PromptAssemblyInput(
@@ -288,7 +288,7 @@ def test_invoke_openai_compatible_model_sends_tools_disabled_request_and_parses_
 def test_invoke_openai_compatible_model_parses_optional_cached_input_token_telemetry(
     monkeypatch,
 ) -> None:
-    def fake_urlopen(_request, timeout):
+    def fake_urlopen(_request, timeout, enforce_public_peer):
         del timeout
         return FakeHTTPResponse(
             json.dumps(
@@ -311,7 +311,7 @@ def test_invoke_openai_compatible_model_parses_optional_cached_input_token_telem
             ).encode("utf-8")
         )
 
-    monkeypatch.setattr("alicebot_api.response_generation.urlopen", fake_urlopen)
+    monkeypatch.setattr("alicebot_api.response_generation.open_provider_url", fake_urlopen)
 
     prompt = assemble_prompt(
         request=PromptAssemblyInput(
@@ -345,7 +345,7 @@ def test_invoke_openai_compatible_model_parses_optional_cached_input_token_telem
 
 def test_invoke_openai_compatible_model_normalizes_non_utf8_provider_payload(monkeypatch) -> None:
     monkeypatch.setattr(
-        "alicebot_api.response_generation.urlopen",
+        "alicebot_api.response_generation.open_provider_url",
         lambda *_args, **_kwargs: FakeHTTPResponse(b"\xff\xfe"),
     )
     prompt = assemble_prompt(
@@ -376,7 +376,7 @@ def test_invoke_openai_compatible_model_rejects_blank_bearer_key_before_transpor
     monkeypatch,
 ) -> None:
     monkeypatch.setattr(
-        "alicebot_api.response_generation.urlopen",
+        "alicebot_api.response_generation.open_provider_url",
         lambda *_args, **_kwargs: pytest.fail("blank bearer credentials must fail before transport"),
     )
     prompt = assemble_prompt(

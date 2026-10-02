@@ -1389,7 +1389,7 @@ def test_vnext_capability_auth_exception_is_confined_to_capture_route(monkeypatc
                 "capture_capability": capability,
             }
         ).encode("utf-8"),
-        headers={"content-type": "application/json"},
+        headers={"content-type": "application/json", "host": "127.0.0.1:8000"},
     )
 
     assert asyncio.run(main_module._vnext_protected_http_auth(capture, call_next)).status_code == 204

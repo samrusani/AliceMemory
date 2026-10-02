@@ -164,7 +164,7 @@ class _FakeResponse(io.BytesIO):
 def test_complete_posts_openai_chat_shape_and_reads_usage(monkeypatch) -> None:
     captured: dict[str, object] = {}
 
-    def fake_urlopen(request, timeout):
+    def fake_urlopen(request, timeout, enforce_public_peer):
         captured["url"] = request.full_url
         captured["timeout"] = timeout
         captured["headers"] = dict(request.header_items())
@@ -177,7 +177,7 @@ def test_complete_posts_openai_chat_shape_and_reads_usage(monkeypatch) -> None:
         ).encode("utf-8")
         return _FakeResponse(body)
 
-    monkeypatch.setattr(vnext_reranker, "urlopen", fake_urlopen)
+    monkeypatch.setattr(vnext_reranker, "open_provider_url", fake_urlopen)
     provider = OpenAICompatibleRerankProvider(
         base_url="http://localhost:11434/v1/", model="qwen3:8b", api_key="sk-local"
     )
@@ -197,14 +197,14 @@ def test_complete_posts_openai_chat_shape_and_reads_usage(monkeypatch) -> None:
 def test_complete_omits_authorization_header_without_api_key(monkeypatch) -> None:
     captured: dict[str, object] = {}
 
-    def fake_urlopen(request, timeout):
+    def fake_urlopen(request, timeout, enforce_public_peer):
         del timeout
         captured["headers"] = {key.casefold(): value for key, value in request.header_items()}
         return _FakeResponse(
             json.dumps({"choices": [{"message": {"content": "[1]"}}]}).encode("utf-8")
         )
 
-    monkeypatch.setattr(vnext_reranker, "urlopen", fake_urlopen)
+    monkeypatch.setattr(vnext_reranker, "open_provider_url", fake_urlopen)
     provider = OpenAICompatibleRerankProvider(base_url="http://localhost:1234/v1", model="local")
 
     completion = provider.complete("score this")
@@ -218,16 +218,16 @@ def test_complete_raises_provider_error_on_malformed_payloads(monkeypatch) -> No
 
     monkeypatch.setattr(
         vnext_reranker,
-        "urlopen",
-        lambda request, timeout: _FakeResponse(json.dumps({"unexpected": True}).encode("utf-8")),
+        "open_provider_url",
+        lambda request, timeout, enforce_public_peer: _FakeResponse(json.dumps({"unexpected": True}).encode("utf-8")),
     )
     with pytest.raises(VNextRerankerProviderError, match="choices"):
         provider.complete("score this")
 
     monkeypatch.setattr(
         vnext_reranker,
-        "urlopen",
-        lambda request, timeout: _FakeResponse(
+        "open_provider_url",
+        lambda request, timeout, enforce_public_peer: _FakeResponse(
             json.dumps({"choices": [{"message": {"content": 17}}]}).encode("utf-8")
         ),
     )

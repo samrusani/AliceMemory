@@ -50,7 +50,7 @@ def invoke_request(
         messages.append(message)
 
     query_string = urlencode(query_params or {}).encode()
-    request_headers = [(b"content-type", b"application/json")]
+    request_headers = [(b"host", b"127.0.0.1:8000"), (b"content-type", b"application/json")]
     for key, value in (headers or {}).items():
         request_headers.append((key.lower().encode(), value.encode()))
     if path == "/v1/runtime/invoke" and not any(key == b"idempotency-key" for key, _value in request_headers):
@@ -196,7 +196,7 @@ def install_openai_compatible_success(
     resolved_models = ["gpt-5-mini"] if models is None else models
     resolved_usage = {"input_tokens": 12, "output_tokens": 5, "total_tokens": 17} if usage is None else usage
 
-    def fake_discovery_urlopen(request, timeout):
+    def fake_discovery_urlopen(request, timeout, enforce_public_peer):
         captured_requests.append(
             {
                 "url": request.full_url,
@@ -211,7 +211,7 @@ def install_openai_compatible_success(
             )
         raise AssertionError(f"unexpected openai-compatible discovery URL: {request.full_url}")
 
-    def fake_invoke_urlopen(request, timeout):
+    def fake_invoke_urlopen(request, timeout, enforce_public_peer):
         captured_requests.append(
             {
                 "url": request.full_url,
@@ -236,8 +236,8 @@ def install_openai_compatible_success(
             ).encode("utf-8")
         )
 
-    monkeypatch.setattr("alicebot_api.local_provider_helpers.urlopen", fake_discovery_urlopen)
-    monkeypatch.setattr("alicebot_api.response_generation.urlopen", fake_invoke_urlopen)
+    monkeypatch.setattr("alicebot_api.local_provider_helpers.open_provider_url", fake_discovery_urlopen)
+    monkeypatch.setattr("alicebot_api.response_generation.open_provider_url", fake_invoke_urlopen)
     return captured_requests
 
 
@@ -246,7 +246,7 @@ def test_local_provider_registration_list_and_detail(migrated_database_urls, mon
     user_id, _, _ = _bootstrap_local_workspace("provider-local-reg@example.com")
     captured_requests: list[dict[str, object]] = []
 
-    def fake_urlopen(request, timeout):
+    def fake_urlopen(request, timeout, enforce_public_peer):
         captured_requests.append(
             {
                 "url": request.full_url,
@@ -272,7 +272,7 @@ def test_local_provider_registration_list_and_detail(migrated_database_urls, mon
             return FakeHTTPResponse(json.dumps({"data": [{"id": "Meta-Llama-3.1-8B-Instruct"}]}).encode("utf-8"))
         raise AssertionError(f"unexpected local provider URL: {url}")
 
-    monkeypatch.setattr("alicebot_api.local_provider_helpers.urlopen", fake_urlopen)
+    monkeypatch.setattr("alicebot_api.local_provider_helpers.open_provider_url", fake_urlopen)
 
     ollama_status, ollama_payload = invoke_request(
         "POST",
@@ -402,7 +402,7 @@ def test_local_provider_test_runtime_invoke_and_workspace_isolation(
 
     captured_requests: list[dict[str, object]] = []
 
-    def fake_urlopen(request, timeout):
+    def fake_urlopen(request, timeout, enforce_public_peer):
         body = None if request.data is None else json.loads(request.data.decode("utf-8"))
         captured_requests.append(
             {
@@ -479,7 +479,7 @@ def test_local_provider_test_runtime_invoke_and_workspace_isolation(
             )
         raise AssertionError(f"unexpected local provider URL: {url}")
 
-    monkeypatch.setattr("alicebot_api.local_provider_helpers.urlopen", fake_urlopen)
+    monkeypatch.setattr("alicebot_api.local_provider_helpers.open_provider_url", fake_urlopen)
 
     create_ollama_status, create_ollama_payload = invoke_request(
         "POST",
@@ -1114,7 +1114,7 @@ def test_workspace_bootstrap_config_seed_and_provider_update_refresh_capabilitie
         ),
     )
 
-    def fake_discovery_urlopen(request, timeout):
+    def fake_discovery_urlopen(request, timeout, enforce_public_peer):
         captured_requests.append(
             {
                 "url": request.full_url,
@@ -1131,7 +1131,7 @@ def test_workspace_bootstrap_config_seed_and_provider_update_refresh_capabilitie
             )
         raise AssertionError(f"unexpected openai-compatible discovery URL: {request.full_url}")
 
-    monkeypatch.setattr("alicebot_api.local_provider_helpers.urlopen", fake_discovery_urlopen)
+    monkeypatch.setattr("alicebot_api.local_provider_helpers.open_provider_url", fake_discovery_urlopen)
 
     user_id, _, _ = _bootstrap_local_workspace("provider-bootstrap-config@example.com")
 
@@ -1338,7 +1338,7 @@ def test_workspace_bootstrap_config_seeds_vllm_provider(
         ),
     )
 
-    def fake_discovery_urlopen(request, timeout):
+    def fake_discovery_urlopen(request, timeout, enforce_public_peer):
         captured_requests.append(
             {
                 "url": request.full_url,
@@ -1353,7 +1353,7 @@ def test_workspace_bootstrap_config_seeds_vllm_provider(
             return FakeHTTPResponse(json.dumps({"data": [{"id": "mistral-small-instruct"}]}).encode("utf-8"))
         raise AssertionError(f"unexpected vllm discovery URL: {request.full_url}")
 
-    monkeypatch.setattr("alicebot_api.local_provider_helpers.urlopen", fake_discovery_urlopen)
+    monkeypatch.setattr("alicebot_api.local_provider_helpers.open_provider_url", fake_discovery_urlopen)
 
     user_id, _, _ = _bootstrap_local_workspace("provider-bootstrap-vllm@example.com")
 
@@ -1588,7 +1588,7 @@ def test_azure_provider_registration_test_and_no_plaintext_storage(
     user_id, workspace_id, _ = _bootstrap_local_workspace("provider-azure-reg@example.com")
     captured_requests: list[dict[str, object]] = []
 
-    def fake_urlopen(request, timeout):
+    def fake_urlopen(request, timeout, enforce_public_peer):
         captured_requests.append(
             {
                 "url": request.full_url,
@@ -1622,7 +1622,7 @@ def test_azure_provider_registration_test_and_no_plaintext_storage(
             )
         raise AssertionError(f"unexpected azure URL: {url}")
 
-    monkeypatch.setattr("alicebot_api.azure_provider_helpers.urlopen", fake_urlopen)
+    monkeypatch.setattr("alicebot_api.azure_provider_helpers.open_provider_url", fake_urlopen)
 
     register_status, register_payload = invoke_request(
         "POST",
@@ -1715,13 +1715,13 @@ def test_azure_auth_mode_rotation_requires_new_compatible_secret(
     _configure_settings(migrated_database_urls, monkeypatch)
     user_id, workspace_id, _ = _bootstrap_local_workspace("provider-azure-auth-rotation@example.com")
 
-    def fake_urlopen(request, timeout):
+    def fake_urlopen(request, timeout, enforce_public_peer):
         del timeout
         if request.full_url.startswith("https://azure-rotation.example/openai/models"):
             return FakeHTTPResponse(json.dumps({"data": [{"id": "gpt-4.1-mini"}]}).encode("utf-8"))
         raise AssertionError(f"unexpected Azure rotation URL: {request.full_url}")
 
-    monkeypatch.setattr("alicebot_api.azure_provider_helpers.urlopen", fake_urlopen)
+    monkeypatch.setattr("alicebot_api.azure_provider_helpers.open_provider_url", fake_urlopen)
     register_status, register_payload = invoke_request(
         "POST",
         "/v1/providers/azure/register",
@@ -1808,7 +1808,7 @@ def test_azure_runtime_invoke_workspace_isolation_and_ad_token_auth(
     user_id_b, _, _ = _bootstrap_local_workspace("provider-azure-b@example.com")
     captured_requests: list[dict[str, object]] = []
 
-    def fake_urlopen(request, timeout):
+    def fake_urlopen(request, timeout, enforce_public_peer):
         captured_requests.append(
             {
                 "url": request.full_url,
@@ -1842,7 +1842,7 @@ def test_azure_runtime_invoke_workspace_isolation_and_ad_token_auth(
             )
         raise AssertionError(f"unexpected azure URL: {url}")
 
-    monkeypatch.setattr("alicebot_api.azure_provider_helpers.urlopen", fake_urlopen)
+    monkeypatch.setattr("alicebot_api.azure_provider_helpers.open_provider_url", fake_urlopen)
 
     register_status, register_payload = invoke_request(
         "POST",
@@ -2024,7 +2024,7 @@ def test_provider_test_and_runtime_reject_disallowed_target_without_outbound(
         urlopen_call_count += 1
         raise AssertionError("outbound request should not be attempted for blocked targets")
 
-    monkeypatch.setattr("alicebot_api.response_generation.urlopen", fake_urlopen)
+    monkeypatch.setattr("alicebot_api.response_generation.open_provider_url", fake_urlopen)
 
     register_status, register_payload = invoke_request(
         "POST",
@@ -2191,7 +2191,7 @@ def test_provider_error_reflection_and_persistence_are_sanitized(
     provider_secret = f"UPSTREAM_PROVIDER_SECRET_{uuid4().hex}"
     sensitive_detail = provider_secret
 
-    def fake_urlopen(request, timeout):
+    def fake_urlopen(request, timeout, enforce_public_peer):
         del timeout
         raise HTTPError(
             url=request.full_url,
@@ -2201,7 +2201,7 @@ def test_provider_error_reflection_and_persistence_are_sanitized(
             fp=BytesIO(json.dumps({"error": {"message": f"provider failed with {sensitive_detail}"}}).encode("utf-8")),
         )
 
-    monkeypatch.setattr("alicebot_api.response_generation.urlopen", fake_urlopen)
+    monkeypatch.setattr("alicebot_api.response_generation.open_provider_url", fake_urlopen)
 
     register_status, register_payload = invoke_request(
         "POST",

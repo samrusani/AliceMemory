@@ -32,6 +32,14 @@ alice.example.com {
 		X-Frame-Options "DENY"
 	}
 
+	# Refuse a request body over 4 MB here, before it reaches Alice. Alice applies
+	# its own limit as well (ALICEBOT_MAX_REQUEST_BODY_BYTES, 4 MiB, and a higher
+	# one for connector sync). This cap also applies to connector sync requests;
+	# raise it for those paths if you send large documents through Caddy.
+	request_body {
+		max_size 4MB
+	}
+
 	@alice_api path /healthz /openapi.json /docs /docs/* /redoc /redoc/* /v0/vnext /v0/vnext/*
 	handle @alice_api {
 		reverse_proxy 127.0.0.1:8000

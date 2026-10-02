@@ -39,7 +39,13 @@ the code. From v0.15.1 on, each version's release notes list its known gaps.
 - **Keyless means local-machine-owner trust.** A keyless vNext deployment is
   safe only when the API remains on loopback and every local process and OS user
   that can reach it is trusted as the Alice owner. In this mode a caller-supplied
-  `user_id` is routing context, not proof of identity.
+  `user_id` is routing context, not proof of identity. Unreleased (on main, not
+  in v0.19.2): a keyless request must also name this machine in `Host`
+  (`localhost`, `127.0.0.1`, `::1` or a name in `ALICEBOT_ALLOWED_HOSTS`), and
+  any `Origin` it sends must be a configured CORS origin or its own, so a page
+  served from another name cannot reach a loopback API by DNS rebinding. The
+  legacy `/v0` routes, served in development and test, take no key, so they apply
+  this rule to every request.
 - Once a user has any active agent API key, protected `/v0/vnext` requests for
   that user reject keyless access and require `Authorization: Bearer
   alice_sk_...`. A browser-clipper one-time capability is a deliberately narrow
