@@ -132,8 +132,8 @@ def test_the_marketplace_pin_is_a_known_limitation_and_an_upgrade_note() -> None
     """Mutation: delete the limitation or the upgrade note from the notes or the changelog.
 
     Those are the text as tagged and stay. The alpha limitations page is live and the
-    marketplace pin moved to v0.19.2 after publication, so putting the limitation
-    back there also fails this test.
+    marketplace pin moved to v0.19.2 and then to v0.20.0 after publication, so putting a
+    marketplace-pin limitation back on that page also fails this test.
     """
 
     notes = _flat(NOTES)
@@ -142,11 +142,10 @@ def test_the_marketplace_pin_is_a_known_limitation_and_an_upgrade_note() -> None
     assert "carries none of the fixes in this release, including the hook fix" in limitations
     steps = notes[notes.index("## What to do after upgrading") : notes.index("## Hermes provider")]
     assert "so the marketplace install runs v0.19.0 code and carries none of these fixes" in steps
-    # The pin moved to v0.19.2 after publication, so the live limitations page no longer lists the
-    # v0.19.0 limitation. From v0.20.0 the page lists the v0.19.2 pin instead, until the
-    # post-publication change of v0.20.0 moves it (see test_v0200_release_notes.py).
+    # The pin moved after each publication, so the live limitations page lists no marketplace pin.
+    # The v0.20.0 notes keep their own "The marketplace install runs v0.19.2" limitation as tagged.
     limits_page = _flat("docs/alpha/known-limitations.md")
-    assert "marketplace file pins the v0.19.0" not in limits_page
+    assert "marketplace file pins" not in limits_page
     assert "marketplace install runs" not in limits_page
     assert "so the marketplace install runs v0.19.0 code until then" in _released_changelog()
 

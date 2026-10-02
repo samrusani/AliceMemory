@@ -36,24 +36,24 @@ def _section(text: str, heading: str) -> str:
     return " ".join(match.group("body").split())
 
 
-def test_the_notes_are_a_pending_candidate_with_the_exact_title_and_state() -> None:
-    """Mutations, each one alone: change the title, move the state comment, set either status to published or recorded."""
+def test_the_notes_are_published_with_the_exact_title_state_and_a_checksums_record() -> None:
+    """Mutations, each one alone: change the title, move the state comment, set either status back to pending, delete the checksums file."""
 
     lines = _text(NOTES_PATH).splitlines()
     assert lines[0] == "# Alice v0.20.0 Release Notes"
     assert lines[1] == (
         '<!-- alice-release-state: {"schema_version":"alice_release_document_state_v1","version":"0.20.0",'
-        '"publication_status":"pending","checksums_status":"pending"} -->'
+        '"publication_status":"published","checksums_status":"recorded"} -->'
     )
     assert sum("alice-release-state" in line for line in lines) == 1
-    assert not (REPO_ROOT / "docs/release/v0.20.0-checksums.txt").exists()
+    assert (REPO_ROOT / "docs/release/v0.20.0-checksums.txt").is_file()
 
 
-def test_every_version_site_names_0200_and_the_marketplace_still_pins_the_published_release() -> None:
+def test_every_version_site_names_0200_and_the_marketplace_pins_the_published_release() -> None:
     """Mutations, each one alone: set one version site or one plugin pin back to 0.19.2; move the marketplace pin.
 
-    The marketplace file is the post-publication change's to move, so it still names the
-    latest published release and its tag commit.
+    The post-publication change moved the marketplace file to the v0.20.0 tag and the commit
+    that tag points at.
     """
 
     pyproject = tomllib.loads(_text("pyproject.toml"))["project"]["version"]
@@ -65,7 +65,8 @@ def test_every_version_site_names_0200_and_the_marketplace_still_pins_the_publis
         assert f"alice-memory=={pyproject}" in _text(name), name
         assert "alice-memory==0.19.2" not in _text(name), name
     marketplace = json.loads(_text(".claude-plugin/marketplace.json"))["plugins"][0]["source"]
-    assert marketplace["ref"] == "v0.19.2"
+    assert marketplace["ref"] == "v0.20.0"
+    assert marketplace["sha"] == "10034879439f583514cf23f373e998656ff80cac"
     notes = _flat(NOTES_PATH)
     assert "pip install alice-memory==0.20.0 && alice-memory install" in notes
     assert "pip install -U alice-memory==0.20.0" in notes
@@ -445,15 +446,143 @@ def test_the_recall_timings_are_one_set_and_the_long_query_figure_is_not_a_slowd
     assert "v0.19.2 took the same 3.9 and 8.9 seconds, and 0.09 seconds for two words, so this release did not change it" in notes
 
 
-def test_the_known_limitations_page_lists_the_marketplace_install() -> None:
-    """Mutation: delete the marketplace bullet from the "Open in v0.20.0" list.
+V0192_NOTES_PATH = "docs/release/v0.19.2-release-notes.md"
+_UPDATE_2026_10_02 = re.compile(r"^\*\*Update \(2026-10-02\):\*\* ")
 
-    The notes list it, README and the plugin README state the pin, and the page that holds the open
-    items must not leave a reader of it alone believing the plugin install carries these fixes.
+# Each v0.19.2 statement that a review finding is not fixed or is open, with text its
+# 2026-10-02 update must carry. The update is the next paragraph after the one named.
+V0192_ITEMS_FIXED_IN_V0200: tuple[tuple[str, tuple[str, ...]], ...] = (
+    (
+        "The internal review of v0.19.0 recorded twelve findings",
+        (
+            "DB-005, DB-006, DB-008, DB-009, DB-010 and DB-011 are fixed in v0.20.0",
+            "`contents: read` only",
+            "closes DB-012",
+        ),
+    ),
+    (
+        "- **The HTTP API reads a request body before it checks credentials (DB-006).**",
+        ("Fixed in v0.20.0 (DB-006)", "HTTP 413", "HTTP 422", "the cap is no rate limit"),
+    ),
+    (
+        "- **A keyless API does not check the Host header (DB-005).**",
+        ("Fixed in v0.20.0 (DB-005)", "`ALICEBOT_ALLOWED_HOSTS`", "HTTP 401", "not from a real browser"),
+    ),
+    (
+        "- **Provider calls follow redirects (DB-009).**",
+        ("Fixed in v0.20.0 (DB-009)", "follows a redirect", "loopback or private address"),
+    ),
+    (
+        "- **The local-folder scan reads each matching file whole, with no size limit",
+        ("Fixed in v0.20.0 (DB-011)", "at most 2 MiB", "`refused_count`"),
+    ),
+    (
+        "- **The local-folder scan can read a file swapped for a link (DB-010).**",
+        ("Fixed in v0.20.0 (DB-010)", "without following a link", "still read"),
+    ),
+    (
+        "- **Memory ids in `metadata_json` are not fenced.**",
+        ("Fixed in v0.20.0.", "`metadata_json`", "36-character UUID"),
+    ),
+    (
+        "- **The pack can lose `validity.superseded` for a hidden pointer.**",
+        ("Fixed in v0.20.0.", "`validity.superseded: true`"),
+    ),
+    (
+        "- **`alice_resume` and `alice_recent_decisions` return `tool_execution_failed`",
+        ("Fixed in v0.20.0.", "40,000 UTF-8 bytes", "`invalid_request`"),
+    ),
+    (
+        "- **A column that is itself JSON text too deep for the decoder fails import with a generic error.**",
+        ("Fixed in v0.20.0.", "`restore_failed`", "`export_failed`"),
+    ),
+    (
+        "- **A turn that carries a lone surrogate is not saved.**",
+        ("Fixed in v0.20.0.", "HTTP 422", "Hermes provider 0.5.3", "`--force`"),
+    ),
+)
+
+
+def _blocks(path: str) -> list[str]:
+    """Paragraphs of a file with quote markers and indentation removed, each joined onto one line."""
+
+    blocks: list[list[str]] = [[]]
+    for line in _text(path).splitlines():
+        stripped = re.sub(r"^[\s>]+", "", line)
+        if stripped:
+            blocks[-1].append(stripped)
+        else:
+            blocks.append([])
+    return [" ".join(block) for block in blocks if block]
+
+
+def test_the_v0192_notes_say_beside_each_open_item_that_v0200_fixed_it() -> None:
+    """Mutations, each one alone: delete one of the eleven updates; change its version; move it away from
+    its item; put an update beside the long-query limitation, which v0.20.0 did not change.
+
+    The v0.19.2 notes are published, so each statement that a review finding is not fixed stays as it
+    was tagged and a dated update follows it. Every update names v0.20.0 and the limit of the fix.
     """
 
-    limits = _text("docs/alpha/known-limitations.md")
-    open_list = limits.split("Open in v0.20.0, with the detail in the")[1].split("See [Backup and restore]")[0]
-    flat = " ".join(open_list.split())
-    assert "the Claude Code marketplace file pins the v0.19.2 tag commit until a change after this release moves it" in flat
-    assert "carries none of the fixes in v0.20.0" in flat
+    blocks = _blocks(V0192_NOTES_PATH)
+    for opening, needles in V0192_ITEMS_FIXED_IN_V0200:
+        # Bullets with no blank line between them are one block, so the item must be the last
+        # bullet of the block it opens or sits in, and the update is the next block.
+        positions = [index for index, block in enumerate(blocks) if opening in block]
+        assert len(positions) == 1, (opening, positions)
+        block = blocks[positions[0]]
+        assert " - **" not in block[block.index(opening) + len(opening) :], opening
+        update = blocks[positions[0] + 1]
+        assert _UPDATE_2026_10_02.match(update), (opening, update[:80])
+        for needle in needles:
+            assert needle in update, (opening, needle)
+        assert "v0.20.0" in update
+    long_query = [
+        index for index, block in enumerate(blocks) if "- **A long query is slower than a short one.**" in block
+    ]
+    assert len(long_query) == 1
+    # Its bullet runs straight into the next bullet of the same block, so no update sits beside it.
+    tail = blocks[long_query[0]].split("- **A long query is slower than a short one.**")[1]
+    assert " - **A column that is itself JSON text" in tail
+    assert "Update (2026-10-02)" not in tail
+    updates = [block for block in blocks if _UPDATE_2026_10_02.match(block)]
+    assert len(updates) == len(V0192_ITEMS_FIXED_IN_V0200) + 4, len(updates)
+
+
+def test_both_notes_say_main_now_pins_v0200_beside_each_marketplace_statement() -> None:
+    """Mutations, each one alone: delete one of the seven marketplace updates; name v0.19.2 in one of them.
+
+    The marketplace statements in the two published notes stay as they were tagged. Each one is
+    followed by a dated update that says `main` pins the v0.20.0 tag commit and that the copy
+    inside the tag does not, so a reader of the notes does not take the tagged sentence for current.
+    """
+
+    pin = "v0.20.0 is published, and the marketplace file on `main` now pins the v0.20.0 tag commit, so the marketplace install runs v0.20.0."
+    for path, copy_sentence, count in (
+        (
+            V0192_NOTES_PATH,
+            "The copy inside the v0.19.2 tag still pins v0.19.0, so add the marketplace from the repository, not from a checkout of the tag.",
+            4,
+        ),
+        (
+            NOTES_PATH,
+            "The copy inside the v0.20.0 tag still pins v0.19.2, so add the marketplace from the repository, not from a checkout of the tag.",
+            3,
+        ),
+    ):
+        found = [block for block in _blocks(path) if block.startswith(f"**Update (2026-10-02):** {pin}")]
+        assert len(found) == count, (path, len(found))
+        for block in found:
+            assert block == f"**Update (2026-10-02):** {pin} {copy_sentence}", (path, block)
+    # In the v0.19.2 notes each one follows either the dated 2026-10-01 update about the v0.19.2
+    # pin, or one of the two tagged statements that the marketplace install runs v0.19.0
+    # (upgrade step 7 and the plugin packaging limitation).
+    blocks = _blocks(V0192_NOTES_PATH)
+    for index, block in enumerate(blocks):
+        if block.startswith(f"**Update (2026-10-02):** {pin}"):
+            before = blocks[index - 1]
+            assert (
+                "**Update (2026-10-01):** v0.19.2 is published" in before
+                or "so the marketplace install runs v0.19.0 code" in before
+                or "installs plugin 0.19.0" in before
+            ), index

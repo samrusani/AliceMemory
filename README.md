@@ -66,7 +66,7 @@ claude plugin marketplace add samrusani/AliceMemory
 claude plugin install alice-memory@alicememory
 ```
 
-The marketplace file is on `main` and pins the plugin to the v0.19.2 tag commit. The v0.19.0 tag has no marketplace file. The v0.19.2 tag has one that still pins the v0.19.0 tag commit, so add the marketplace from `main`, not from a checkout of that tag. If git on your machine is set to use SSH for GitHub and you have no key there, add `https://github.com/samrusani/AliceMemory.git` instead. If you already have a clone, `claude plugin marketplace add <path to the clone>` works too. Use the plugin or `--host claude-code`, not both. See [Claude Code plugin](https://github.com/samrusani/AliceMemory/blob/main/docs/integrations/claude-code-plugin.md).
+The marketplace file is on `main` and pins the plugin to the v0.20.0 tag commit. The v0.19.0 tag has no marketplace file. The v0.19.2 tag has one that still pins the v0.19.0 tag commit, and the v0.20.0 tag has one that still pins the v0.19.2 tag commit, so add the marketplace from `main`, not from a checkout of a tag. If git on your machine is set to use SSH for GitHub and you have no key there, add `https://github.com/samrusani/AliceMemory.git` instead. If you already have a clone, `claude plugin marketplace add <path to the clone>` works too. Use the plugin or `--host claude-code`, not both. See [Claude Code plugin](https://github.com/samrusani/AliceMemory/blob/main/docs/integrations/claude-code-plugin.md).
 
 OpenClaw can also add the server in one line, which probes before saving:
 
@@ -127,7 +127,7 @@ For Postgres with pgvector, the web review console, and the core memory
 scheduler workflows, run from a repo checkout. Requirements: Python 3.12+,
 Node 20+, pnpm, Docker, Git.
 
-The clone checks out `main`, which can be ahead of the latest release. To run v0.19.2, run `git checkout v0.19.2` before `make setup`.
+The clone checks out `main`, which can be ahead of the latest release. To run v0.20.0, run `git checkout v0.20.0` before `make setup`.
 
 ```bash
 git clone https://github.com/samrusani/AliceMemory.git
@@ -189,7 +189,7 @@ From v0.19.2, `alice_recall` and `alice_context_pack` on the SQLite vault refuse
 
 From v0.19.2, `alice-memory-session-start` refuses a relative or unexpanded `ALICE_MEMORY_DATA_DIR`, such as the literal `${HOME}/.alice`, with one line that names the value, and exits 0. In v0.19.0 the hook creates a vault under the current directory for that value. Also from v0.19.2, a stored note that contains `jsonrpc` or `Content-Length:` no longer empties the session brief, which it did from v0.16.0 through v0.19.0.
 
-From v0.19.2, `alice-memory import` restores a stored claim that an agent API key wrote a row as an unverified claim (`auth: imported_claim`), lists credential-shaped text in records it does not refuse, and `alice-memory doctor` reads source chunk text. `POST /v1/memory/operations/commit` applies without review only a user turn that matched an explicit prefix, and queues the rest as `review_required`. `alice_recall` and `alice_context_pack` leave out a memory id the caller cannot read. Hermes provider 0.5.2 keeps a turn's user text and assistant text apart. In v0.19.0 a row restored from an edited backup can read `verified_by_key` with no key behind it, a token that sits only in a chunk prints `flagged sources: 0`, the `/v1` route applies an assistant line such as `decision: ship X`, recall names those ids, and provider 0.5.1 can take an assistant line for the user's own decision. The [v0.19.2 release notes](https://github.com/samrusani/AliceMemory/blob/main/docs/release/v0.19.2-release-notes.md) list what is not fixed.
+From v0.19.2, `alice-memory import` restores a stored claim that an agent API key wrote a row as an unverified claim (`auth: imported_claim`), lists credential-shaped text in records it does not refuse, and `alice-memory doctor` reads source chunk text. `POST /v1/memory/operations/commit` applies without review only a user turn that matched an explicit prefix, and queues the rest as `review_required`. `alice_recall` and `alice_context_pack` leave out a memory id the caller cannot read. Hermes provider 0.5.2 keeps a turn's user text and assistant text apart. In v0.19.0 a row restored from an edited backup can read `verified_by_key` with no key behind it, a token that sits only in a chunk prints `flagged sources: 0`, the `/v1` route applies an assistant line such as `decision: ship X`, recall names those ids, and provider 0.5.1 can take an assistant line for the user's own decision. The [v0.19.2 release notes](https://github.com/samrusani/AliceMemory/blob/main/docs/release/v0.19.2-release-notes.md) list what it left open, and a dated update beside each item that v0.20.0 fixed says so.
 
 Calling directly from a human client (Claude Desktop, an IDE)? `alice_memory_commit` needs only `title` and `canonical_text`, with no identity fields. Agent integrations declare `agent_id` and `agent_type`; see [agent integration](https://github.com/samrusani/AliceMemory/blob/main/docs/alpha/agent-integration.md).
 
@@ -224,11 +224,10 @@ Known issue with this number. In the LongMemEval_s data, the id of every session
 
 ## Status
 
-`v0.19.2` is the latest published release and remains the install, checksum,
+`v0.20.0` is the latest published release and remains the install, checksum,
 and release-note baseline (the `v0.13.0` tag was never published;
 superseded). Its tag, release record, and published artifacts
-are immutable.
-`v0.20.0` is the current release candidate. It is not published.
+are immutable. `v0.19.2` is the immediately prior published release.
 `v0.12.0` was the structural refactor release. Structure only. Zero behavior change.
 Alice is a public-alpha, pre-1.0 project.
 What that means in practice:
@@ -259,7 +258,7 @@ What that means in practice:
 - [Health and monitoring](https://github.com/samrusani/AliceMemory/blob/main/docs/runbooks/health-and-monitoring.md)
 - [Upgrade v0.12.0 to current](https://github.com/samrusani/AliceMemory/blob/main/docs/runbooks/upgrade-v0.12-to-current.md)
 - [Security and privacy](https://github.com/samrusani/AliceMemory/blob/main/docs/alpha/security-and-privacy.md)
-- [v0.19.2 release notes](https://github.com/samrusani/AliceMemory/blob/main/docs/release/v0.19.2-release-notes.md)
+- [v0.20.0 release notes](https://github.com/samrusani/AliceMemory/blob/main/docs/release/v0.20.0-release-notes.md)
 - [All release notes](https://github.com/samrusani/AliceMemory/releases)
 - [Release procedure](https://github.com/samrusani/AliceMemory/blob/main/RELEASING.md)
 - [Architecture](https://github.com/samrusani/AliceMemory/blob/main/ARCHITECTURE.md)
