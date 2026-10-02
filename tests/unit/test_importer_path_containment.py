@@ -14,7 +14,7 @@ import pytest
 from alicebot_api.chatgpt_import import ChatGPTImportValidationError, load_chatgpt_payload
 from alicebot_api.vnext_capture import VNextCaptureService, VNextCaptureValidationError
 from tests.unit.test_vnext_capture import InMemoryVNextCaptureStore
-from alicebot_api.importer_paths import read_contained_source_text
+from alicebot_api.importer_paths import DEFAULT_MAX_TEXT_FILE_BYTES, read_contained_source_text
 from alicebot_api.markdown_import import MarkdownImportValidationError, load_markdown_payload
 from alicebot_api.openclaw_adapter import (
     OpenClawAdapterValidationError,
@@ -190,7 +190,11 @@ def test_read_contained_source_text_refuses_a_symlink_swapped_in_after_listing(t
     listed.symlink_to(secret)
 
     with pytest.raises(MarkdownImportValidationError, match="symlinked files"):
-        read_contained_source_text(listed, error_factory=MarkdownImportValidationError)
+        read_contained_source_text(
+            listed,
+            max_bytes=DEFAULT_MAX_TEXT_FILE_BYTES,
+            error_factory=MarkdownImportValidationError,
+        )
 
 
 def test_read_contained_source_text_returns_the_text_it_opened(tmp_path: Path) -> None:
@@ -198,6 +202,7 @@ def test_read_contained_source_text_returns_the_text_it_opened(tmp_path: Path) -
 
     assert read_contained_source_text(
         root / "notes.md",
+        max_bytes=DEFAULT_MAX_TEXT_FILE_BYTES,
         error_factory=MarkdownImportValidationError,
     ) == _MARKDOWN_BODY
 
@@ -209,6 +214,7 @@ def test_read_contained_source_text_refuses_upward_traversal(tmp_path: Path) -> 
     with pytest.raises(MarkdownImportValidationError, match="traverse upward"):
         read_contained_source_text(
             root / ".." / "outside" / "secret.md",
+            max_bytes=DEFAULT_MAX_TEXT_FILE_BYTES,
             error_factory=MarkdownImportValidationError,
         )
 
@@ -223,6 +229,7 @@ def test_read_contained_source_text_refuses_a_path_outside_the_declared_root(tmp
         read_contained_source_text(
             secret,
             source_root=root,
+            max_bytes=DEFAULT_MAX_TEXT_FILE_BYTES,
             error_factory=MarkdownImportValidationError,
         )
 
@@ -252,6 +259,7 @@ def test_a_character_device_is_refused_as_a_source_file() -> None:
     with pytest.raises(MarkdownImportValidationError, match="not a regular file"):
         read_contained_source_text(
             Path("/dev/zero"),
+            max_bytes=DEFAULT_MAX_TEXT_FILE_BYTES,
             error_factory=MarkdownImportValidationError,
         )
 
@@ -387,7 +395,11 @@ def test_read_contained_source_text_names_the_file_that_is_not_utf8(tmp_path: Pa
     broken.write_bytes(b"- Note: \xff\xfe not utf-8\n")
 
     with pytest.raises(MarkdownImportValidationError, match="not valid UTF-8 text") as caught:
-        read_contained_source_text(broken, error_factory=MarkdownImportValidationError)
+        read_contained_source_text(
+            broken,
+            max_bytes=DEFAULT_MAX_TEXT_FILE_BYTES,
+            error_factory=MarkdownImportValidationError,
+        )
 
     assert broken.name in str(caught.value)
     # The offset is still recoverable for anyone debugging the source file.

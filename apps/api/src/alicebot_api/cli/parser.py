@@ -25,6 +25,14 @@ from alicebot_api.contracts import (
     MAX_TEMPORAL_TIMELINE_LIMIT,
     MAX_TRUSTED_FACT_PROMOTION_LIMIT,
 )
+# Underscore aliases: the CLI facade copies every name in these modules onto
+# ``alicebot_api.cli``, and its public names are pinned.
+from alicebot_api.importer_paths import (
+    DEFAULT_MAX_CHATGPT_EXPORT_BYTES as _DEFAULT_MAX_CHATGPT_EXPORT_BYTES,
+    DEFAULT_MAX_TEXT_FILE_BYTES as _DEFAULT_MAX_TEXT_FILE_BYTES,
+    MIB as _MIB,
+    parse_max_file_mib as _parse_max_file_mib,
+)
 from alicebot_api.surface_flags import legacy_surfaces_enabled
 from alicebot_api.vnext_agent_control import PERMISSION_PROFILES
 from alicebot_api.vnext_evals import VNEXT_EVAL_SUITE_ORDER
@@ -667,6 +675,15 @@ def build_parser() -> argparse.ArgumentParser:
     vnext_import_markdown_parser.add_argument("folder", help="Folder containing Markdown files.")
     vnext_import_markdown_parser.add_argument("--domain", default="unknown", help="Source domain.")
     vnext_import_markdown_parser.add_argument("--sensitivity", default="unknown", help="Source sensitivity.")
+    vnext_import_markdown_parser.add_argument(
+        "--max-file-mib",
+        type=_parse_max_file_mib,
+        default=None,
+        help=(
+            "Refuse the import, before reading, when any one Markdown file is larger than "
+            f"this many MiB. Defaults to {_DEFAULT_MAX_TEXT_FILE_BYTES // _MIB}."
+        ),
+    )
     vnext_import_markdown_parser.set_defaults(handler=_run_vnext_sources_import_markdown)
 
     vnext_import_chatgpt_parser = vnext_sources_subparsers.add_parser(
@@ -676,6 +693,16 @@ def build_parser() -> argparse.ArgumentParser:
     vnext_import_chatgpt_parser.add_argument("path", help="Path to a ChatGPT export JSON file.")
     vnext_import_chatgpt_parser.add_argument("--domain", default="personal", help="Source domain.")
     vnext_import_chatgpt_parser.add_argument("--sensitivity", default="private", help="Source sensitivity.")
+    vnext_import_chatgpt_parser.add_argument(
+        "--max-file-mib",
+        type=_parse_max_file_mib,
+        default=None,
+        help=(
+            "Refuse the import, before reading, when the export file is larger than this many "
+            f"MiB. Defaults to {_DEFAULT_MAX_CHATGPT_EXPORT_BYTES // _MIB}. The whole export is "
+            "held in memory, at about 6 to 9 times its size."
+        ),
+    )
     vnext_import_chatgpt_parser.set_defaults(handler=_run_vnext_sources_import_chatgpt)
 
     vnext_queue_parser = vnext_subparsers.add_parser("queue", help="Manage the vNext task queue.")

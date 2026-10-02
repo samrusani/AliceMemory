@@ -22,6 +22,7 @@ from alicebot_api.importer_models import (
     parse_optional_status,
 )
 from alicebot_api.importer_paths import (
+    DEFAULT_MAX_TEXT_FILE_BYTES,
     ImportSourceFile,
     contained_source_files,
     read_contained_source_text,
@@ -220,8 +221,16 @@ def _read_markdown_source(source: str | Path) -> tuple[Path, list[Path]]:
     return source_path, files
 
 
-def _snapshot_markdown_source(source: str | Path) -> tuple[Path, list[ImportSourceFile]]:
-    """Select the markdown files and read each of them exactly once."""
+def _snapshot_markdown_source(
+    source: str | Path,
+    *,
+    max_file_bytes: int,
+) -> tuple[Path, list[ImportSourceFile]]:
+    """Select the markdown files and read each of them exactly once.
+
+    ``max_file_bytes`` is required: it is the size a file may be before it is
+    refused unread, and every caller has to say what it is.
+    """
 
     source_path, markdown_files = _read_markdown_source(source)
     if source_path.is_file():
@@ -231,6 +240,7 @@ def _snapshot_markdown_source(source: str | Path) -> tuple[Path, list[ImportSour
                 relative_path=source_path.name,
                 text=read_contained_source_text(
                     source_path,
+                    max_bytes=max_file_bytes,
                     error_factory=MarkdownImportValidationError,
                 ),
             )
@@ -238,6 +248,7 @@ def _snapshot_markdown_source(source: str | Path) -> tuple[Path, list[ImportSour
     return source_path, snapshot_source_files(
         source_path,
         markdown_files,
+        max_bytes=max_file_bytes,
         error_factory=MarkdownImportValidationError,
     )
 
@@ -293,8 +304,12 @@ def _merge_source_event_ids(*, existing: list[str], maybe_csv: str | None, singl
     return output
 
 
-def load_markdown_payload(source: str | Path) -> ImporterNormalizedBatch:
-    source_path, snapshot = _snapshot_markdown_source(source)
+def load_markdown_payload(
+    source: str | Path,
+    *,
+    max_file_bytes: int = DEFAULT_MAX_TEXT_FILE_BYTES,
+) -> ImporterNormalizedBatch:
+    source_path, snapshot = _snapshot_markdown_source(source, max_file_bytes=max_file_bytes)
     return _load_markdown_batch(source_path, snapshot)
 
 
@@ -503,12 +518,13 @@ def import_markdown_source(
     *,
     user_id: UUID,
     source: str | Path,
+    max_file_bytes: int = DEFAULT_MAX_TEXT_FILE_BYTES,
 ) -> JsonObject:
     # One snapshot feeds both the evidence archive and the parse, so the
     # archived text is the text that was imported. It is decoded text and not
     # the disk bytes: the read is text mode, so CRLF arrives as LF and the
     # archive will not checksum against the original file.
-    source_path, snapshot = _snapshot_markdown_source(source)
+    source_path, snapshot = _snapshot_markdown_source(source, max_file_bytes=max_file_bytes)
     archived_artifacts = archive_import_source_files(
         store,
         user_id=user_id,

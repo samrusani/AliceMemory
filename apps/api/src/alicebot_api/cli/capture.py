@@ -6,6 +6,13 @@ import json
 from pathlib import Path
 import time
 from uuid import uuid4
+# Underscore aliases: the CLI facade copies every name in these modules onto
+# ``alicebot_api.cli``, and its public names are pinned.
+from alicebot_api.importer_paths import (
+    DEFAULT_MAX_CHATGPT_EXPORT_BYTES as _DEFAULT_MAX_CHATGPT_EXPORT_BYTES,
+    DEFAULT_MAX_TEXT_FILE_BYTES as _DEFAULT_MAX_TEXT_FILE_BYTES,
+    MIB as _MIB,
+)
 from alicebot_api.vnext_agent_control import (
     AgentIdentity,
     append_policy_events,
@@ -67,12 +74,20 @@ def _run_vnext_sources_capture_file(ctx: CLIContext, args: argparse.Namespace) -
     return _json_dumps(result.to_record())
 
 
+def _file_limit_bytes(args: argparse.Namespace, default_bytes: int) -> int:
+    """The per-file import limit in bytes: ``--max-file-mib`` if given, else the default."""
+
+    mib = getattr(args, "max_file_mib", None)
+    return default_bytes if mib is None else mib * _MIB
+
+
 def _run_vnext_sources_import_markdown(ctx: CLIContext, args: argparse.Namespace) -> str:
     with _vnext_store_context(ctx) as store:
         result = VNextCaptureService(store, defer_embeddings=True).import_markdown_folder(
             args.folder,
             domain=args.domain,
             sensitivity=args.sensitivity,
+            max_file_bytes=_file_limit_bytes(args, _DEFAULT_MAX_TEXT_FILE_BYTES),
         )
     _persist_deferred_capture_embeddings(ctx, result)
     return _checked_batch_output(result.to_record())
@@ -84,6 +99,7 @@ def _run_vnext_sources_import_chatgpt(ctx: CLIContext, args: argparse.Namespace)
             args.path,
             domain=args.domain,
             sensitivity=args.sensitivity,
+            max_file_bytes=_file_limit_bytes(args, _DEFAULT_MAX_CHATGPT_EXPORT_BYTES),
         )
     _persist_deferred_capture_embeddings(ctx, result)
     return _checked_batch_output(result.to_record())

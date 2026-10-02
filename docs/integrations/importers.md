@@ -131,6 +131,85 @@ exits 2 with `sqlite_import_use_alice_memory` and names these two commands.
 In v0.17.0, those commands do not exist, and a SQLite
 URL on the `alicebot` imports is `invalid_request`.
 
+## File Size Limit and Long Conversations
+
+Unreleased (on main, not in v0.19.2): `alice-memory import-markdown`,
+`alice-memory import-chatgpt`, `alicebot vnext sources import-markdown` and
+`alicebot vnext sources import-chatgpt` refuse a file over a size limit
+before they read any of it. The error is `import_file_too_large` on both
+commands, with exit code 1:
+
+```json
+{"error":{"code":"import_file_too_large","message":"import source file is too large: conversations.json is 603979776 bytes (576.00 MiB), the limit is 536870912 bytes (512.00 MiB). Raise the limit with --max-file-mib, or import a smaller file."}}
+```
+
+The message names the file by its name, never its path, and withholds a name
+the credential check flags. No source is written. `alice-memory` still creates
+an empty database file if there was none.
+
+- the limit is per file: 16 MiB for a Markdown file, 512 MiB for a ChatGPT
+  export
+- `--max-file-mib N` sets it, as a whole number of MiB of at least 1. There is
+  no value that means no limit: give a number larger than the file
+- a folder is not limited as a whole. The import still holds every selected
+  file in memory at once, so a folder of many files just under the limit uses
+  the sum of them
+- the size is read from the open file, before the first byte is read, and the
+  read stops one byte past the limit. A file that is growing, or that reports a
+  size of zero and holds more, is refused too
+- the text that is read is the same as before: the same UTF-8 check and the
+  same newline handling
+- a ChatGPT export is one JSON file (`conversations.json`), an array of every
+  conversation. The importer parses it whole, because it cannot tell where one
+  conversation ends without parsing the array, so the limit has to cover the
+  whole export and not a conversation
+- the loaders `load_markdown_payload`, `load_chatgpt_payload`,
+  `load_openclaw_payload`, `import_markdown_source`, `import_chatgpt_source`
+  and `import_openclaw_source` take `max_file_bytes` with the same defaults. A
+  file over it raises `ImportFileTooLargeError`, which is a `ValueError` and
+  not the importer's own validation error
+- `alicebot vnext sources capture-file` is not covered. It reads its file whole
+  and has no limit
+
+Why these numbers. Measured on the `alice-memory import-chatgpt` command with
+synthetic exports of 219 to 1,092 conversations of 60 messages each, peak
+memory was about 80 MB for the process plus 5.7 MB for every MB of export (377
+MB at 52 MB), and 8.7 MB for every MB when one character outside the Basic
+Multilingual Plane, such as an emoji, is in the file, because Python then
+stores the whole text at four bytes a character (535 MB at 52 MB). The import
+took 1.3 seconds for every MB (1.9 with the emoji). At 512 MiB that is about 3
+to 4.6 GB of memory and 11 to 16 minutes. A Markdown file of 16 MiB peaked at 335 MB and took
+23 seconds. The defaults come from those measurements. They do not come from a
+survey of real exports, which was not possible here. An export over 512 MiB
+needs `--max-file-mib` and that much memory.
+
+Unreleased (on main, not in v0.19.2): one ChatGPT conversation that cannot be
+turned into a transcript no longer fails the whole import. The receipt counts
+it in `failed_count`, names it by its position in `errors`, as
+`conversation 2 refused: conversation_unreadable`, and imports the others. The
+position is the number `conversation_index` carries, and an item of the file's
+array that is not an object is not counted. The status is `partial`, as it is
+for a conversation whose capture fails. If every conversation is refused the
+status is `failed` and the exit code is 1. A
+refused conversation keeps its position, so the third conversation in the file
+is still `conversation_index` 3 when the second is refused. A credential skip
+in a conversation that is then refused is not reported. The event log gets a
+`source.import_failed` event with `error_code` `conversation_unreadable` and
+the position, and none of the conversation. The process log gets the traceback.
+A ChatGPT file nested too deeply for the JSON decoder is refused as a whole
+with `ChatGPT export is nested too deeply to read`.
+
+Unreleased (on main, not in v0.19.2): a conversation of any length imports. The
+walk over a conversation's `mapping` is a loop and not a recursive call for
+each message, and returns the same order as before. In v0.19.2 a conversation
+whose messages form one chain of about 1,000 replies (990 imported and 995 did
+not) overran the interpreter's recursion limit, and the command failed with
+`alice_memory_failed` (`command_failed` on `alicebot`) and imported nothing,
+from that conversation or from any other. The loaders for the continuity store
+(`load_chatgpt_payload`, `import_chatgpt_source`) are not changed: they still
+recurse over the nesting of a message's content and fail at about 480 levels,
+which no export has and which neither command above reaches.
+
 ## Evaluation Harness
 
 ```bash

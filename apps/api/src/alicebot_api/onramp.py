@@ -119,6 +119,12 @@ from alicebot_api.credential_floor import (
     is_derived_copy,
     is_product_rollup_key,
 )
+from alicebot_api.importer_paths import (
+    DEFAULT_MAX_CHATGPT_EXPORT_BYTES,
+    DEFAULT_MAX_TEXT_FILE_BYTES,
+    MIB,
+    parse_max_file_mib,
+)
 from alicebot_api.mcp_server import _DEFAULT_MCP_USER_ID, MCPServer
 from alicebot_api.mcp_tools import MCPRuntimeContext
 from alicebot_api.sqlite_schema import ROW_BACKFILL_TABLES, apply_row_backfills, bootstrap_sqlite_schema
@@ -1169,6 +1175,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     import_markdown_parser.add_argument("--domain", default="unknown", help="Source domain.")
     import_markdown_parser.add_argument("--sensitivity", default="unknown", help="Source sensitivity.")
+    import_markdown_parser.add_argument(
+        "--max-file-mib",
+        type=parse_max_file_mib,
+        default=None,
+        help=(
+            "Refuse the import, before reading, when any one Markdown file is larger than "
+            f"this many MiB. Defaults to {DEFAULT_MAX_TEXT_FILE_BYTES // MIB}."
+        ),
+    )
 
     import_chatgpt_parser = subparsers.add_parser(
         "import-chatgpt",
@@ -1183,6 +1198,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     import_chatgpt_parser.add_argument("--domain", default="personal", help="Source domain.")
     import_chatgpt_parser.add_argument("--sensitivity", default="private", help="Source sensitivity.")
+    import_chatgpt_parser.add_argument(
+        "--max-file-mib",
+        type=parse_max_file_mib,
+        default=None,
+        help=(
+            "Refuse the import, before reading, when the export file is larger than this many "
+            f"MiB. Defaults to {DEFAULT_MAX_CHATGPT_EXPORT_BYTES // MIB}. The whole export is "
+            "held in memory, at about 6 to 9 times its size."
+        ),
+    )
     return parser
 
 
@@ -1242,8 +1267,12 @@ def _print_batch_record(record: object) -> None:
     print(json.dumps(record, ensure_ascii=True, sort_keys=True))
 
 
-def _emit_import_path_error(message: str) -> None:
-    """Path and encoding failures. Exit 1. A flagged path is not printed."""
+def _emit_import_path_error(message: str, *, code: str = "import_path") -> None:
+    """Path and encoding failures. Exit 1. A flagged path is not printed.
+
+    ``code`` is ``import_path`` unless the refusal has a type of its own, which
+    today is only ``import_file_too_large``.
+    """
 
     from alicebot_api.credential_floor import credential_verdict
 
@@ -1251,7 +1280,7 @@ def _emit_import_path_error(message: str) -> None:
         message = "The import path is withheld"
     print(
         json.dumps(
-            {"error": {"code": "import_path", "message": message}},
+            {"error": {"code": code, "message": message}},
             ensure_ascii=True,
             separators=(",", ":"),
             sort_keys=True,
@@ -1261,8 +1290,23 @@ def _emit_import_path_error(message: str) -> None:
     )
 
 
+def _file_limit_bytes(args: argparse.Namespace, default_bytes: int) -> int:
+    """The per-file limit in bytes: ``--max-file-mib`` if given, else the default."""
+
+    mib = getattr(args, "max_file_mib", None)
+    return default_bytes if mib is None else mib * MIB
+
+
+def _too_large_message(message: str) -> str:
+    return f"{message}. Raise the limit with --max-file-mib, or import a smaller file."
+
+
 def _run_import_markdown(args: argparse.Namespace) -> int:
-    from alicebot_api.vnext_capture import VNextCaptureService, VNextCaptureValidationError
+    from alicebot_api.vnext_capture import (
+        ImportFileTooLargeRefused,
+        VNextCaptureService,
+        VNextCaptureValidationError,
+    )
 
     db_path = resolve_db_path(data_dir=args.data_dir, db=args.db)
     bootstrap_database(
@@ -1278,7 +1322,11 @@ def _run_import_markdown(args: argparse.Namespace) -> int:
                 args.from_path,
                 domain=args.domain,
                 sensitivity=args.sensitivity,
+                max_file_bytes=_file_limit_bytes(args, DEFAULT_MAX_TEXT_FILE_BYTES),
             )
+    except ImportFileTooLargeRefused as exc:
+        _emit_import_path_error(_too_large_message(str(exc)), code=exc.reason_code)
+        return 1
     except VNextCaptureValidationError as exc:
         _emit_import_path_error(str(exc))
         return 1
@@ -1287,7 +1335,11 @@ def _run_import_markdown(args: argparse.Namespace) -> int:
 
 
 def _run_import_chatgpt(args: argparse.Namespace) -> int:
-    from alicebot_api.vnext_capture import VNextCaptureService, VNextCaptureValidationError
+    from alicebot_api.vnext_capture import (
+        ImportFileTooLargeRefused,
+        VNextCaptureService,
+        VNextCaptureValidationError,
+    )
 
     db_path = resolve_db_path(data_dir=args.data_dir, db=args.db)
     bootstrap_database(
@@ -1303,7 +1355,11 @@ def _run_import_chatgpt(args: argparse.Namespace) -> int:
                 args.from_path,
                 domain=args.domain,
                 sensitivity=args.sensitivity,
+                max_file_bytes=_file_limit_bytes(args, DEFAULT_MAX_CHATGPT_EXPORT_BYTES),
             )
+    except ImportFileTooLargeRefused as exc:
+        _emit_import_path_error(_too_large_message(str(exc)), code=exc.reason_code)
+        return 1
     except VNextCaptureValidationError as exc:
         _emit_import_path_error(str(exc))
         return 1

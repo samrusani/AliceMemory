@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import cast
 
 from alicebot_api.importer_paths import (
+    DEFAULT_MAX_TEXT_FILE_BYTES,
     ImportSourceFile,
     contained_source_files,
     read_contained_source_text,
@@ -378,7 +379,11 @@ def _select_openclaw_source_paths(candidates: list[Path]) -> list[Path]:
     return list(candidates)
 
 
-def snapshot_openclaw_source(source: str | Path) -> tuple[Path, list[ImportSourceFile]]:
+def snapshot_openclaw_source(
+    source: str | Path,
+    *,
+    max_file_bytes: int = DEFAULT_MAX_TEXT_FILE_BYTES,
+) -> tuple[Path, list[ImportSourceFile]]:
     """Read every JSON file the adapter will consult, exactly once.
 
     A directory source is read one level deep, which is the only level the
@@ -398,6 +403,7 @@ def snapshot_openclaw_source(source: str | Path) -> tuple[Path, list[ImportSourc
                 relative_path=source_path.name,
                 text=read_contained_source_text(
                     source_path,
+                    max_bytes=max_file_bytes,
                     error_factory=OpenClawAdapterValidationError,
                 ),
             )
@@ -412,6 +418,7 @@ def snapshot_openclaw_source(source: str | Path) -> tuple[Path, list[ImportSourc
     return source_path, snapshot_source_files(
         source_path,
         _select_openclaw_source_paths(json_files),
+        max_bytes=max_file_bytes,
         error_factory=OpenClawAdapterValidationError,
     )
 
@@ -438,15 +445,23 @@ def select_openclaw_source_files(
     return list(snapshot)
 
 
-def list_openclaw_source_files(source: str | Path) -> tuple[Path, list[Path]]:
-    source_path, snapshot = snapshot_openclaw_source(source)
+def list_openclaw_source_files(
+    source: str | Path,
+    *,
+    max_file_bytes: int = DEFAULT_MAX_TEXT_FILE_BYTES,
+) -> tuple[Path, list[Path]]:
+    source_path, snapshot = snapshot_openclaw_source(source, max_file_bytes=max_file_bytes)
     return source_path, [
         source_file.path for source_file in select_openclaw_source_files(source_path, snapshot)
     ]
 
 
-def load_openclaw_payload(source: str | Path) -> OpenClawNormalizedBatch:
-    source_path, snapshot = snapshot_openclaw_source(source)
+def load_openclaw_payload(
+    source: str | Path,
+    *,
+    max_file_bytes: int = DEFAULT_MAX_TEXT_FILE_BYTES,
+) -> OpenClawNormalizedBatch:
+    source_path, snapshot = snapshot_openclaw_source(source, max_file_bytes=max_file_bytes)
     return load_openclaw_batch_from_snapshot(source_path, snapshot)
 
 
