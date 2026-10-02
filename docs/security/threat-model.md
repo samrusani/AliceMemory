@@ -33,7 +33,7 @@ exposure of a deliberately keyless port therefore violates the supported
 deployment assumption; a code path that bypasses an active-key boundary does
 not.
 
-Unreleased (on main, not in v0.19.2): keyless operation also checks the name a
+From v0.20.0, keyless operation also checks the name a
 request uses, because a browser on the owner's machine can reach a loopback API
 without being a trusted process. DNS rebinding points a name the attacker owns
 at 127.0.0.1, so a page the attacker serves can call the API with the attacker's
@@ -60,7 +60,7 @@ only in development and test or with `LEGACY_V0_ENABLED_OUTSIDE_DEV`, take no
 agent key, so the identity layer applies the same rule to every request to them,
 whatever `Authorization` header it carries. A CORS preflight is not refused by it.
 
-Unreleased (on main, not in v0.19.2): the HTTP API caps a request body before any
+From v0.20.0, the HTTP API caps a request body before any
 layer reads it, because a request that has not authenticated can still make the
 server read and parse what it sends. A pure ASGI layer, registered last so it is
 the outermost, answers HTTP 413 for a body over `ALICEBOT_MAX_REQUEST_BODY_BYTES`
@@ -77,8 +77,10 @@ skips its body rewrite for such a request. A JSON body nested more than 256 leve
 deep is refused with HTTP 422 before any layer decodes it, with a validation
 error of type `json_too_deep` and nothing from the body in it. In v0.19.2 the
 identity layer, the two gates and the framework each read a body of any size and
-parsed it before authentication: a 100 MiB chunked body took the server from
-104 MiB to 712 MiB, and a body nested about 975 levels deep or more raised
+parsed it before authentication: a 100 MiB chunked body to `/v0/vnext` raised the server's memory by several
+hundred MiB or more, depending on the body (about 400 MiB at peak for bytes that
+are not JSON and about 1.5 GiB for a valid JSON body with a 100 MiB string,
+measured once on one Mac), and a body nested about 975 levels deep or more raised
 `RecursionError` out of a layer and answered HTTP 500. The cap is a bound on one
 request, not a rate limit. A client inside the cap can send many requests, and the
 cost of a request near the cap is real (a 30.9 MiB connector sync body peaked at
@@ -144,7 +146,7 @@ about 330 MiB of server memory), so the reverse proxy should cap the body too:
 | Application/database | Runtime store operation to PostgreSQL | Application role, transaction-scoped `app.current_user_id`, forced RLS, parameterized SQL; admin URL reserved for migration/recovery. |
 | Local process/file | SQLite, secrets, logs, exports, imports | Owner-only paths, alias/symlink checks where implemented, explicit import provenance; SQLite is not a tenant boundary. |
 | MCP client/process | JSON-RPC stdio to core tools | Local process trust when keyless; `ALICE_AGENT_API_KEY` binds a key and suppresses legacy handlers lacking equivalent persisted-target authorization. |
-| Alice/provider | Outbound model or connector request | Validated provider configuration, credential references, sanitized public errors, restrictive network deployment policy. Unreleased (on main, not in v0.19.2): every outbound call goes through one door, `open_provider_url`, which follows no redirect and, for the provider helpers, Gmail and Calendar, dials only an address the outbound policy allows. |
+| Alice/provider | Outbound model or connector request | Validated provider configuration, credential references, sanitized public errors, restrictive network deployment policy. From v0.20.0, every provider, embeddings, reranker, fact-key, brain, Gmail and Calendar call goes through one door, `open_provider_url`, which follows no redirect and, for the provider helpers, Gmail and Calendar, dials only an address the outbound policy allows. |
 | Content/policy | Source or model text to memory/review action | Content remains data; policy evaluation and review gates are code-controlled. |
 
 ### Principal Data Flows
@@ -189,17 +191,17 @@ active-key or RLS bypass remains in scope.
 | Abuse case | Control/evidence | Residual concern |
 | --- | --- | --- |
 | Missing key treated as remote anonymous access | Documented local-only boundary; active-key rule rejects keyless requests. | Host/proxy misconfiguration can invalidate the assumption. |
-| A provider answers with a redirect, or its name resolves to an internal address after the base URL was checked | Unreleased (on main, not in v0.19.2): `open_provider_url` refuses every redirect, so the target is never contacted and no `Authorization` or `api-key` header is sent on, and with `enforce_public_peer` it resolves the name when it connects and dials only an allowed address, over http and https. The provider helpers, response generation, Gmail and Calendar enforce it. The embeddings, reranker, fact-key and brain clients do not, because a local Ollama endpoint is a documented setup. | A request carried by a proxy is not held to the address rule, because the peer is then the proxy. The embeddings, reranker, fact-key and brain clients can reach a loopback or private address the operator configured. A provider call's response body is read whole. Any valid key can register a provider on `/v1`, which authenticates and does not authorize. |
-| Oversized or deeply nested request body before authentication | Unreleased (on main, not in v0.19.2): a body over 4 MiB (32 MiB for connector sync) is refused with HTTP 413 before any layer reads it, a keyless request from another peer is refused before its body is read, a body nested more than 256 levels is refused with HTTP 422, and the Caddy example caps the body at the proxy. | A request inside the cap still costs memory and time, and the cap is no rate limit. The cap counts bytes as sent. |
-| DNS rebinding or a cross-origin request to a keyless loopback API | Unreleased (on main, not in v0.19.2): a keyless request must name `localhost`, `127.0.0.1`, `::1` or an operator-listed host in `Host`, and any `Origin` must be a configured origin or its own. A keyed request is not checked. | Not reproduced in a real browser. The legacy `/v0` routes take no key, so every request to them gets the Host and Origin rule. A name the operator lists in `ALICEBOT_ALLOWED_HOSTS` is trusted as this machine. |
+| A provider answers with a redirect, or its name resolves to an internal address after the base URL was checked | From v0.20.0, `open_provider_url` refuses every redirect, so the target is never contacted and no `Authorization` or `api-key` header is sent on, and with `enforce_public_peer` it resolves the name when it connects and dials only an allowed address, over http and https. The provider helpers, response generation, Gmail and Calendar enforce it. The embeddings, reranker, fact-key and brain clients do not, because a local Ollama endpoint is a documented setup. | A request carried by a proxy is not held to the address rule, because the peer is then the proxy. The embeddings, reranker, fact-key and brain clients can reach a loopback or private address the operator configured. A provider call's response body is read whole. Any valid key can register a provider on `/v1`, which authenticates and does not authorize. |
+| Oversized or deeply nested request body before authentication | From v0.20.0, a body over 4 MiB (32 MiB for connector sync) is refused with HTTP 413 before any layer reads it, a keyless request from another peer is refused before its body is read, a body nested more than 256 levels is refused with HTTP 422, and the Caddy example caps the body at the proxy. | A request inside the cap still costs memory and time, and the cap is no rate limit. The cap counts bytes as sent. |
+| DNS rebinding or a cross-origin request to a keyless loopback API | From v0.20.0, a keyless request must name `localhost`, `127.0.0.1`, `::1` or an operator-listed host in `Host`, and any `Origin` must be a configured origin or its own. A keyed request is not checked. | Not reproduced in a real browser. The legacy `/v0` routes take no key, so every request to them gets the Host and Origin rule. A name the operator lists in `ALICEBOT_ALLOWED_HOSTS` is trusted as this machine. |
 | Payload claims a stronger profile or another project | Key-bound actor/profile/scope, escalation rejection events, policy tests. | Final carrier needs all-route ASGI closure evidence. |
 | Cross-user PostgreSQL read/write | Application-role RLS and user-scoped connections. | Admin credentials or a compromised host bypass the product boundary. |
 | Broad credential exposed to a visited page | One-time origin-bound clipper capability replaces reusable bookmarklet token. | The page can make its one authorized submission; the UI must show the bound origin. |
 | SQL, JSON-path, or FTS injection | Parameter binding, fixed/allowlisted SQL fragments, fail-closed request models, adversarial FTS tests. | Every new dynamic fragment needs review; PostgreSQL hostile-query coverage is narrower than SQLite coverage. |
-| File traversal, symlink escape, or source substitution | SQLite portable-import alias/snapshot controls and import provenance. Unreleased (on main, not in v0.19.2): the local-folder connector opens the watched folder, each directory below it and the file one at a time, each relative to the one before and without following a link, and checks the open descriptor. | The Markdown, ChatGPT, and OpenClaw directory importers read a hard link planted in the selected root and can be redirected by an ancestor directory swapped for a symlink between listing and read. The local-folder connector reads a hard link planted in the watched folder too, because a hard link is the file itself. Unreleased (on main, not in v0.19.2): the connector no longer follows a file or directory swapped for a link. |
+| File traversal, symlink escape, or source substitution | SQLite portable-import alias/snapshot controls and import provenance. From v0.20.0, the local-folder connector opens the watched folder, each directory below it and the file one at a time, each relative to the one before and without following a link, and checks the open descriptor. | The Markdown, ChatGPT, and OpenClaw directory importers read a hard link planted in the selected root and can be redirected by an ancestor directory swapped for a symlink between listing and read. The local-folder connector reads a hard link planted in the watched folder too, because a hard link is the file itself. From v0.20.0, the connector no longer follows a file or directory swapped for a link. |
 | Secret or exception disclosure | Hash/reference storage, recursive secret-field redaction, provider error sanitization, stable public error vocabulary. | Final carrier must close raw-key logging and exact provider-key non-echo proof. |
 | Dependency compromise or known advisory | Exact web versions/lockfile, fail-closed npm bulk audit, Dependabot, SHA-pinned Actions, CodeQL, Gitleaks. | No fail-closed Python advisory audit is currently in CI. |
-| Resource exhaustion from hostile files/provider responses | Existing size/shape checks and local deployment limits. Unreleased (on main, not in v0.19.2): the local-folder scan reads at most 2 MiB of a file and stops at 10,000 files or 64 MiB. | Historical partial scan retained multiple low-confidence availability hypotheses for Stage B. |
+| Resource exhaustion from hostile files/provider responses | Existing size/shape checks and local deployment limits. From v0.20.0, the local-folder scan reads at most 2 MiB of a file and stops at 10,000 files or 64 MiB. | Historical partial scan retained multiple low-confidence availability hypotheses for Stage B. |
 | Agent resolves its own pending write without asking the user | `alice_memory_commit` with `confirmation_id` resolves only a pending write its caller may resolve (its author, an `admin_agent` key, or the owner), after the same policy and ceiling checks as a write. | The confirm step asks the agent to ask the user. It is not a gate, and Alice cannot tell whether the user was asked. See the 2026-09-30 limitation below. |
 
 ### Known Internal Limitations
@@ -265,7 +267,7 @@ active-key or RLS bypass remains in scope.
   `alice_context_pack`, `alice_resume`, `alice_recent_decisions` and
   `alice_open_loops`. The other tools, such as `alice_recent_changes` and
   `alice_timeline`, were not checked for memory ids.
-  Unreleased (on main, not in v0.19.2): the `metadata_json` place is fenced too
+  From v0.20.0, the `metadata_json` place is fenced too
   (updated 2026-10-01). The pack removes the id of a memory the caller cannot
   read, under the same fence as the memory reads, from the `metadata_json` of
   every memory it returns. An id that is the whole string goes with its key or
@@ -273,25 +275,26 @@ active-key or RLS bypass remains in scope.
   id that names no memory stays. Only a 36-character UUID is looked for, and
   only in `metadata_json`: an id in another column of a stored row, or in
   another spelling, is not. Two further pointer defects are also fixed
-  on main. The correction label names no id when the memory it would name was
+  from v0.20.0. The correction label names no id when the memory it would name was
   forgotten, undone or rejected, where v0.19.2 named it. The context pack keeps
   `validity.superseded: true`, with no id, for a memory whose `superseded_by`
   pointer names a memory the caller cannot read, where v0.19.2 gave that memory
   no `validity` in the pack and recall kept `superseded: true`.
 - Open items from the internal security review of v0.19.0 (added 2026-10-01).
-  They are not fixed in v0.19.2, and the v0.19.2 release notes give the detail.
-  The Postgres stack's HTTP API parses a JSON request body of any size before it
+  They were not fixed in v0.19.2, and the v0.19.2 release notes give the detail.
+  v0.20.0 fixes or narrows each one, as the sentences below and the next item
+  say. The Postgres stack's HTTP API parses a JSON request body of any size before it
   authenticates (a 262,057 byte body was read in full before the 401), and it
-  does not check the `Host` header of a keyless loopback request. Unreleased (on
-  main, not in v0.19.2): the `Host` and `Origin` rules above are in (DB-005), and a
+  does not check the `Host` header of a keyless loopback request. From v0.20.0,
+  the `Host` and `Origin` rules above are in (DB-005), and a
   request body over 4 MiB is refused with HTTP 413 before it is read (DB-006). The
   local-folder scan reads each matching file whole with no size limit, and a
   file swapped for a link between its containment check and its read is read
   from outside the watched folder. The provider helper, which checks the
   configured base URL once, and the embeddings client, which does not check it,
   follow a redirect and send the `Authorization` header to the target; the
-  reranker and fact-key clients use the same opener and were not run. Unreleased
-  (on main, not in v0.19.2): no provider client follows a redirect any more, and
+  reranker and fact-key clients use the same opener and were not run. From v0.20.0,
+  no provider client follows a redirect any more, and
   the provider helpers, Gmail and Calendar dial only an allowed address (DB-009). Two
   scheduled CI jobs, the real-host canary and archive maintenance, hold
   issue-write authority while they install packages that are not pinned to an
@@ -300,7 +303,7 @@ active-key or RLS bypass remains in scope.
   these needs a precondition: a reachable API, a writable watched folder, a
   provider endpoint an attacker influences, or a compromised package in one of
   those CI installs.
-- Fixed on main since v0.19.2 (added 2026-10-01). Unreleased (on main, not in v0.19.2): DB-010, the local-folder scan reading a file swapped for a link. The scan now opens the watched folder, each directory below it and the file one at a time, each relative to the one before and with `O_NOFOLLOW`, checks on the open descriptor that it is a regular file, and takes the text, size and time from that descriptor. A file or directory swapped for a link, a FIFO or a device is skipped and counted in `refused_count`, and the rest of the folder still scans. A hard link planted inside the watched folder to a file elsewhere is still read, as in the importers. This needs someone who can write to the watched folder during a sync, and the connector is part of the Postgres stack only. v0.19.2 checked containment and then read by path, as the open item above says. DB-011, the local-folder scan with no size or count bound. The scan now reads at most 2 MiB of a file, stops at 10,000 files or 64 MiB of text in all, lists at most 100,000 directory entries without entering a folder named like a default ignore such as `node_modules` or `.git`, and sets `truncated` when a limit stopped it. A file that is over 2 MiB, is not UTF-8 text or cannot be read is skipped on its own and counted in `refused_count`; v0.19.2 ended the whole sync with an error on one such file. Both counts are in the `connector.local_folder_scan` event and in the health output of the connector. DB-008, the weekly real-host canary holding `issues: write` in the job that installs the current host CLIs. The canary job now holds `contents: read` only and its checkout keeps no credentials. A separate job, `canary-alert`, holds `issues: write`, checks out nothing, runs no shell and installs nothing, and starts only when the canary job's result is `failure`. v0.19.2 installed unpinned packages in a job that could open and comment on issues, as the open item above says. Archive maintenance, which had the same arrangement, is split the same way: its job holds `contents: read` only, and a separate `archive-alert` job holds `issues: write` and reads the schedule it names from the event that started the run, not from the job that installs. A test fails when a job that holds a write scope names a package in a pip or npm install command without an exact version.
+- Fixed in v0.20.0 (added 2026-10-01). DB-010, the local-folder scan reading a file swapped for a link. The scan now opens the watched folder, each directory below it and the file one at a time, each relative to the one before and with `O_NOFOLLOW`, checks on the open descriptor that it is a regular file, and takes the text, size and time from that descriptor. A file or directory swapped for a link, a FIFO or a device is skipped and counted in `refused_count`, and the rest of the folder still scans. A hard link planted inside the watched folder to a file elsewhere is still read, as in the importers. This needs someone who can write to the watched folder during a sync, and the connector is part of the Postgres stack only. v0.19.2 checked containment and then read by path, as the open item above says. DB-011, the local-folder scan with no size or count bound. The scan now reads at most 2 MiB of a file, stops at 10,000 files or 64 MiB of text in all, lists at most 100,000 directory entries without entering a folder named like a default ignore such as `node_modules` or `.git`, and sets `truncated` when a limit stopped it. A file that is over 2 MiB, is not UTF-8 text or cannot be read is skipped on its own and counted in `refused_count`; v0.19.2 ended the whole sync with an error on one such file. Both counts are in the `connector.local_folder_scan` event and in the health output of the connector. DB-008, the weekly real-host canary holding `issues: write` in the job that installs the current host CLIs. The canary job now holds `contents: read` only and its checkout keeps no credentials. A separate job, `canary-alert`, holds `issues: write`, checks out nothing, runs no shell and installs nothing, and starts only when the canary job's result is `failure`. v0.19.2 installed unpinned packages in a job that could open and comment on issues, as the open item above says. Archive maintenance, which had the same arrangement, is split the same way: its job holds `contents: read` only, and a separate `archive-alert` job holds `issues: write` and reads the schedule it names from the event that started the run, not from the job that installs. A test fails when a job that holds a write scope names a package in a pip or npm install command without an exact version.
 - Stage A tests are team-authored. They reduce review cost; they do not replace
   adversarial testing by the owner-appointed Stage B reviewer.
 

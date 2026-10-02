@@ -15,7 +15,7 @@
   real-host canary installs the current Claude Code, Hermes, OpenCode and Codex
   CLIs, to catch a host release that breaks Alice. Archive maintenance, which
   runs nightly, installs the project's dev extras by version range and upgrades
-  pip. Unreleased (on main, not in v0.19.2): neither holds a write permission in
+  pip. From v0.20.0, neither holds a write permission in
   the job that installs. Each of those two jobs holds `contents: read` only and
   its checkout keeps no credentials, and a separate job in the same workflow that
   holds only `issues: write`, checks out nothing and installs nothing opens the

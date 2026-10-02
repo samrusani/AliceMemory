@@ -90,7 +90,7 @@ report honest statuses such as `disabled: context_depth=minimal`.
 When the request sets `max_tokens`, a greedy packer drops the items that do
 not fit. In v0.19.2 the first item that does not fit also drops every item
 after it, so one large item ranked first leaves the pack empty.
-Unreleased (on main, not in v0.19.2): an item that does not fit is skipped and
+From v0.20.0, an item that does not fit is skipped and
 the next one is tried. When nothing fits whole, the first item that can be cut
 to fit has its text cut to the budget and ending in `…`, and the `budget`
 report adds `cut_item_count: 1`. Packed items keep their ranking order, and
@@ -246,7 +246,7 @@ The public families are `authentication_failed`, `forbidden`,
 retain their documented string or array `detail` variants; all variants remain
 under the same top-level `detail` key and are described by the OpenAPI schema.
 
-Unreleased (on main, not in v0.19.2): a JSON request body that holds a lone
+From v0.20.0, a JSON request body that holds a lone
 surrogate, for example the escape `"\ud800"`, is refused with HTTP 422 and the
 array `detail` of a validation error, on every route that takes a POST, PUT,
 PATCH or DELETE, when the decoder can parse the body. The error says where the
@@ -259,7 +259,7 @@ A layer in front of the routes answers the 413, so the OpenAPI schema does not l
 it. v0.19.2 answers HTTP 500 for a surrogate in a string field and for a body
 nested about 975 levels deep or more, and it limits no body size.
 
-Unreleased (on main, not in v0.19.2): a request body that is not valid UTF-8, for
+From v0.20.0, a request body that is not valid UTF-8, for
 example UTF-16 or UTF-32 JSON or arbitrary bytes, is answered with HTTP 422 and the
 array `detail` of a validation error when the request has no JSON content type,
 that is, no `Content-Type` header or one such as `text/plain`. The error gives its

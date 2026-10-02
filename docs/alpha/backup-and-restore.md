@@ -223,7 +223,7 @@ decode is refused too and nothing is written, but with the generic
 identity at most three levels down. In v0.19.0 and
 earlier, import restores the claim as the file states it.
 
-Unreleased (on main, not in v0.19.2): a JSON column that holds text too deep for the
+From v0.20.0, a JSON column that holds text too deep for the
 decoder (about 10,000 levels on Python 3.12), a record whose JSON is a mapping or
 list nested about 1,000 levels or more, and a line nested too deep to decode are
 refused with `restore_failed`, and nothing is written. Before the error record
@@ -236,7 +236,7 @@ text or a memory title, is restored as the text it is even when it looks like
 deeply nested JSON. In v0.19.2 these ended with `alice_memory_failed` and no
 reason, and a source chunk's text made of nested brackets did too.
 
-Unreleased (on main, not in v0.19.2): JSON text nested more than 256 levels in the
+From v0.20.0, JSON text nested more than 256 levels in the
 `previous_value`, `new_value`, `source_event_ids` or `candidate` column of a memory
 revision is refused with `restore_failed` and the same kind of reason line, and so is
 such text in the `value` or `source_event_ids` column of a memory and the `aliases`
@@ -252,14 +252,17 @@ v0.19.2 text in the four revision columns that the decoder could read was stored
 whatever its depth, text in the other three was stored up to about 1,000 levels, and
 the deep header ended with `alice_memory_failed`. A vault that already
 holds such text, for example one written by a v0.19.0 import, cannot be exported
-while the text is nested about 1,000 levels or more. `alice-memory export`, to a
-file or to standard output, then prints one line that names the table and the
-column, for example `alice-memory: memory_revisions column previous_value is
-nested too deeply for export to write`, leaves no output file, and ends with
-`export_failed`. In v0.19.2 it ended with `alice_memory_failed`. Text nested less
-than that exports as before.
+while the text is nested about 1,000 levels or more. `alice-memory export` then
+prints one line that names the table and the column, for example `alice-memory:
+memory_revisions column previous_value is nested too deeply for export to
+write`, and ends with `export_failed`. In v0.19.2 it ended with
+`alice_memory_failed`. With `--out` it leaves no output file. To
+standard output it has already written records by then and stops with no footer,
+so a shell redirect keeps a partial file that import refuses; do not keep it. The
+standard output of v0.19.2 was partial in the same way. Text nested less than
+that exports as before.
 
-Unreleased (on main, not in v0.19.2): `--mode skip` also accepts a legacy row. The
+From v0.20.0, `--mode skip` also accepts a legacy row. The
 schema bootstrap fills a few columns of a row from the rest of the row each time
 the vault is opened: a source's `dedupe_key`, a memory's `created_by_agent_id` and
 `run_id`, and, for a memory that keeps its project scope only under
@@ -272,8 +275,7 @@ memory or a source whose derived column the file gave empty as the bootstrap wil
 fill it, on a scratch in-memory database that never touches the vault. A column
 the file gives with a value is compared as before, so a row that really differs is
 still refused, and `--mode fail` still stops on any existing id. In v0.19.2 the
-second `--mode skip` import of such a file stopped with `restore_failed` and
-the reason `has the same id but different content`.
+second `--mode skip` import of such a file stopped with `restore_failed`.
 
 This command restores a SQLite database. It is not a PostgreSQL import.
 

@@ -104,13 +104,13 @@ Remember, recall, continue. These are the only tools in a default
   left off under the same fence, and `validity.superseded` stays true. A
   pointer to a row that cannot be found is left off on a scoped call and kept
   on an unscoped one. In v0.19.0 the ids are named whatever the caller may read.
-  Unreleased (on main, not in v0.19.2): `current_memory_id` is also left off when
+  From v0.20.0, `current_memory_id` is also left off when
   the memory it would name was forgotten, undone or rejected, or when the
   passage's own memory was forgotten or undone, and `derived_memory_corrected`
   stays true. A chain whose last memory was forgotten names nothing, and does not
   fall back to the memory before it. In v0.19.2 the id of the forgotten, undone
   or rejected memory is named.
-  Unreleased (on main, not in v0.19.2): `current_memory_id` is also left off
+  From v0.20.0, `current_memory_id` is also left off
   when the memory it would name has a validity window that has closed, which
   `alice_memory_manage` with `action: expire` sets while the status stays
   `active`, because recall and the pack do not return such a memory. A chain
@@ -229,7 +229,7 @@ the answer verifier (`render_pack_context_block`) does the same.
 | `alice_vnext_memory_audit` memory text, chain titles, revision text, provenance quotes | yes | A model reads those fields to decide trust. The sentence is once, on that result. Timeline summaries and event payloads stay the audit record. |
 | `alice_belief_state`, `alice_graph_neighborhood`, `alice_project_dashboard`, `alice_capture_candidates` | no | Operator or legacy reads of stored text. Not the default tool result a model is told to paste. |
 | `alice_vnext_recent_memory_commits` | no | An audit list of commits, not the note text a model is told to follow. |
-| Context pack `debug: true` trace | no | Stage counts. Compact text fields stay quoted. The sentence is once on the result. `metadata_json` on a debug memory section is returned with the row. Unreleased (on main, not in v0.19.2): the id of a memory the caller cannot read is removed from it. |
+| Context pack `debug: true` trace | no | Stage counts. Compact text fields stay quoted. The sentence is once on the result. `metadata_json` on a debug memory section is returned with the row. From v0.20.0, the id of a memory the caller cannot read is removed from it. |
 
 ## The full core surface
 
@@ -282,7 +282,7 @@ is a CLI verb, not a fourth always-on agent tool.
   Accepts the same `memory_types` filter, and `max_tokens` budgets each
   unique content-bearing section: items that do not fit are dropped. In
   v0.19.2 the first item that does not fit also drops every item after it.
-  Unreleased (on main, not in v0.19.2): an item that does not fit is skipped
+  From v0.20.0, an item that does not fit is skipped
   and the next is tried, and when nothing fits whole the first item that can
   fit has its text cut to the budget and ending in `…`, with
   `token_report.cut_item_count` set to 1.
@@ -302,7 +302,7 @@ is a CLI verb, not a fourth always-on agent tool.
   be shorter than five, or empty, and the pack is still returned. In a `context_depth: high` pack's `supersession_context` a revision
   outside that fence is not named or titled, and the walk ends there. In
   v0.19.0 both name the id whatever the caller may read.
-  Unreleased (on main, not in v0.19.2): a memory whose `superseded_by` pointer
+  From v0.20.0, a memory whose `superseded_by` pointer
   names a memory outside that fence keeps `validity.superseded: true` in the
   pack and names no id, the same as in `alice_recall`. In v0.19.2 the pack has no
   `validity` for it. The same fence removes the id of a memory the caller cannot
@@ -564,7 +564,7 @@ answers a recall or context pack query the SQLite source search cannot take
 (see Size bounds). Its `error.message` is not static: it names the limit and
 the measured size, and never repeats the query, for example `query has 1000
 distinct search terms; the limit is 499. Use a shorter query.`
-Unreleased (on main, not in v0.19.2): it also answers an `alice_resume` or
+From v0.20.0, it also answers an `alice_resume` or
 `alice_recent_decisions` query over 40,000 UTF-8 bytes (see Size bounds).
 The task-brief tools name both flags when either one is missing. Permanently
 deleted hosted, channel, chat, chief-of-staff, and model-pack tools never list.
@@ -615,7 +615,7 @@ stored decision. A query inside the limit can still take several seconds on a va
 with thousands of sources: 3.7 seconds at 499 distinct terms, against 0.30
 seconds for two words, on a synthetic vault of 4,000 captured sources.
 
-Unreleased (on main, not in v0.19.2): on the SQLite vault, `alice_resume` and
+From v0.20.0, on the SQLite vault, `alice_resume` and
 `alice_recent_decisions` take a `query` of at most 40,000 UTF-8 bytes, the limit
 above. The bytes are counted as sent and again after each backslash, `%` and `_`
 in the query is escaped with a backslash, because that is the text SQLite

@@ -787,8 +787,8 @@ def test_reindex_and_the_doctor_leave_out_an_expired_memory_and_follow_valid_to(
     counts two and reindex sends two texts, never the expired one. ``unexpire``
     makes the expired one count and reindex sends it. Expiring a memory that
     already has a vector keeps the vector, and a model change does not send its
-    text again until it is unexpired. In v0.19.2 reindex sent the expired text
-    and the doctor counted it.
+    text again until it is unexpired. In v0.19.2 reindex sent the expired text,
+    and there was no doctor count.
 
     Mutations: drop ``{expiry_sql}`` from the SQLite list (the first reindex sends
     the expired text); drop it from the count (the doctor says 3 while reindex

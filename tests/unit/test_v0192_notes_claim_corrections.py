@@ -142,9 +142,11 @@ def test_the_marketplace_pin_is_a_known_limitation_and_an_upgrade_note() -> None
     assert "carries none of the fixes in this release, including the hook fix" in limitations
     steps = notes[notes.index("## What to do after upgrading") : notes.index("## Hermes provider")]
     assert "so the marketplace install runs v0.19.0 code and carries none of these fixes" in steps
-    # The pin moved to v0.19.2 after publication, so the live limitations page no longer lists it.
+    # The pin moved to v0.19.2 after publication, so the live limitations page no longer lists the
+    # v0.19.0 limitation. From v0.20.0 the page lists the v0.19.2 pin instead, until the
+    # post-publication change of v0.20.0 moves it (see test_v0200_release_notes.py).
     limits_page = _flat("docs/alpha/known-limitations.md")
-    assert "marketplace file pins" not in limits_page
+    assert "marketplace file pins the v0.19.0" not in limits_page
     assert "marketplace install runs" not in limits_page
     assert "so the marketplace install runs v0.19.0 code until then" in _released_changelog()
 
@@ -227,17 +229,17 @@ def test_a_long_query_inside_the_limit_can_still_take_seconds() -> None:
     )
 
 
-def test_the_hermes_operator_guide_names_the_released_and_the_unreleased_plugin_version() -> None:
-    """The guide names 0.5.2 as v0.19.2's version and 0.5.3 as main's.
+def test_the_hermes_operator_guide_names_the_current_and_the_earlier_plugin_versions() -> None:
+    """The guide names 0.5.3 as the current version and keeps 0.5.2 as v0.19.2's.
 
-    Mutations: put 0.5.1 back as the released plugin version in the guide; drop
-    the ``Unreleased (on main, not in v0.19.2): `0.5.3``` marker; leave
-    ``plugin.yaml`` at 0.5.2 once main's plugin is 0.5.3.
+    Mutations: put 0.5.2 back as the current plugin version in the guide; drop
+    the version history parenthesis; leave ``plugin.yaml`` at 0.5.2 once the
+    plugin is 0.5.3.
     """
 
     guide = _flat("docs/integrations/hermes-bridge-operator-guide.md")
-    assert "keeps its own `0.5.2` integration-contract version in `plugin.yaml`" in guide
-    assert "Unreleased (on main, not in v0.19.2): `0.5.3`." in guide
+    assert "keeps its own `0.5.3` integration-contract version in `plugin.yaml`" in guide
+    assert "(`0.5.1` in v0.18.0 and v0.19.0, `0.5.2` in v0.19.2)" in guide
     plugin = (
         REPO_ROOT / "docs" / "integrations" / "hermes-memory-provider" / "plugins" / "memory" / "alice" / "plugin.yaml"
     ).read_text(encoding="utf-8")

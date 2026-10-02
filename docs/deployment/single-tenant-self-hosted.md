@@ -36,7 +36,7 @@ owner's trust. That compatibility mode is not internet authentication. Never
 publish Alice while it is keyless, and never expose ports 3000 or 8000 through
 a public address, port-forward, load balancer, or container publish rule.
 
-Unreleased (on main, not in v0.19.2): while keyless, the API also refuses a
+From v0.20.0, while keyless, the API also refuses a
 request whose `Host` is not `localhost`, `127.0.0.1` or `::1` (or a name listed
 in `ALICEBOT_ALLOWED_HOSTS`, exact names separated by commas) and a request whose
 `Origin` is neither a `CORS_ALLOWED_ORIGINS` entry nor its own origin. This stops
@@ -44,7 +44,7 @@ a page on another name that resolves to 127.0.0.1 from calling the API. A reques
 with an agent key is not checked, and this topology, which requires a key before
 Caddy starts, is unchanged.
 
-Unreleased (on main, not in v0.19.2): Alice refuses a request body over 4 MiB with
+From v0.20.0, Alice refuses a request body over 4 MiB with
 HTTP 413 before it reads it (`ALICEBOT_MAX_REQUEST_BODY_BYTES`, in bytes), and
 the connector sync routes, which take lists of whole documents, have a separate
 cap of 32 MiB (`ALICEBOT_MAX_CONNECTOR_SYNC_BODY_BYTES`). The Caddy example caps

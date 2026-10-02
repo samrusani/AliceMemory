@@ -133,7 +133,7 @@ URL on the `alicebot` imports is `invalid_request`.
 
 ## File Size Limit and Long Conversations
 
-Unreleased (on main, not in v0.19.2): `alice-memory import-markdown`,
+From v0.20.0, `alice-memory import-markdown`,
 `alice-memory import-chatgpt`, `alicebot vnext sources import-markdown` and
 `alicebot vnext sources import-chatgpt` refuse a file over a size limit
 before they read any of it. The error is `import_file_too_large` on both
@@ -194,12 +194,11 @@ MB at 52 MB), and 8.7 MB for every MB when one character outside the Basic
 Multilingual Plane, such as an emoji, is in the file, because Python then
 stores the whole text at four bytes a character (535 MB at 52 MB). The import
 took 1.3 seconds for every MB (1.9 with the emoji). At 512 MiB that is about 3
-to 4.6 GB of memory and 11 to 16 minutes. A Markdown file of 16 MiB peaked at 335 MB and took
-23 seconds. The defaults come from those measurements. They do not come from a
+to 4.6 GB of memory and 11 to 16 minutes. A Markdown file of 16 MiB peaked at 335 MB and took about 15 to 23 seconds. The defaults come from those measurements. They do not come from a
 survey of real exports, which was not possible here. An export over 512 MiB
 needs `--max-file-mib` and that much memory.
 
-Unreleased (on main, not in v0.19.2): one ChatGPT conversation that cannot be
+From v0.20.0, one ChatGPT conversation that cannot be
 turned into a transcript no longer fails the whole import. The receipt counts
 it in `failed_count`, names it by its position in `errors`, as
 `conversation 2 refused: conversation_unreadable`, and imports the others. The
@@ -211,11 +210,12 @@ refused conversation keeps its position, so the third conversation in the file
 is still `conversation_index` 3 when the second is refused. A credential skip
 in a conversation that is then refused is not reported. The event log gets a
 `source.import_failed` event with `error_code` `conversation_unreadable` and
-the position, and none of the conversation. The process log gets the traceback.
+the position, and none of the conversation. The process log gets the one line described above,
+and the traceback only at debug level.
 A ChatGPT file nested too deeply for the JSON decoder is refused as a whole
 with `ChatGPT export is nested too deeply to read`.
 
-Unreleased (on main, not in v0.19.2): a conversation of any length imports. The
+From v0.20.0, a conversation of any length imports. The
 walk over a conversation's `mapping` is a loop and not a recursive call for
 each message, and returns the same order as before. In v0.19.2 a conversation
 whose messages form one chain of about 1,000 replies (990 imported and 995 did

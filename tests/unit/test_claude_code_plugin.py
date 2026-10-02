@@ -1615,13 +1615,14 @@ def test_the_docs_say_what_v0190_ships_and_keep_the_option_rules() -> None:
 
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     sections = changelog.split("\n## ")
-    # v0.19.2 is cut. The plugin entries stay in the v0.19.0 section and do not
+    # v0.20.0 is cut. The plugin entries stay in the v0.19.0 section and do not
     # move up into a newer one. Unreleased may hold entries for later changes.
     assert sections[1].startswith("Unreleased")
-    assert sections[2].startswith("v0.19.2 \u2014 2026-10-01\n")
-    assert sections[3].startswith("v0.19.0 \u2014 2026-09-30\n")
-    flat = " ".join(sections[3].split())
-    unreleased = " ".join(sections[1].split()) + " " + " ".join(sections[2].split())
+    assert sections[2].startswith("v0.20.0 \u2014 2026-10-02\n")
+    assert sections[3].startswith("v0.19.2 \u2014 2026-10-01\n")
+    assert sections[4].startswith("v0.19.0 \u2014 2026-09-30\n")
+    flat = " ".join(sections[4].split())
+    unreleased = " ".join(sections[1].split()) + " " + " ".join(sections[2].split()) + " " + " ".join(sections[3].split())
     for sentence in (
         "A Claude Code plugin directory is in the repo.",
         "In v0.18.0 there is no Claude Code plugin.",

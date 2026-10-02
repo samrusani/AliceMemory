@@ -149,7 +149,7 @@ default `eval/longmemeval/results/`).
   model latency well but not this CPU-bound phase (GIL).
 - **With embeddings on**: the harness embeds the promoted memories in
   batches at promotion, because capture no longer embeds a candidate
-  (Unreleased, on main, not in v0.19.2). Expect a few hundred memories per question, i.e. ~10⁵ calls
+  (from v0.20.0). Expect a few hundred memories per question, i.e. ~10⁵ calls
   for the full run — use a local embedding server (Ollama/LM Studio) or
   budget hours against a hosted one.
 - **Generation + judging** with hosted models: 500 × (one ~3–4k-token

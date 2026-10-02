@@ -32,15 +32,16 @@ Optional:
 - `ALICE_EMBEDDINGS_BASE_URL`, `ALICE_EMBEDDINGS_MODEL`,
   `ALICE_EMBEDDINGS_API_KEY` — enable semantic vector search in
   `alice_recall` and `alice_context_pack` (full-text-only without them)
-- `ALICE_EMBEDDINGS_MAX_INPUT_CHARS`: Unreleased (on main, not in v0.19.2):
-  the most characters of one memory's text, or of one recall query, sent to
+- `ALICE_EMBEDDINGS_MAX_INPUT_CHARS` (from v0.20.0): the most characters of
+  one memory's text, or of one recall query, sent to
   the embeddings endpoint. Longer text is cut to this many characters, and the
   vector of a cut memory is labelled as made from a cut text. A whole number
   from 256 to 1000000; the default is 8000, which fits models that take about
   8,000 tokens. A model with a smaller window needs a lower value, for example
-  1500 for one that takes 512 tokens. A memory of 8,001 to 20,000 characters
-  is embedded from its first 8,000 on a model that could take more, so raise it
-  for long memories on a large-window model. Changing it makes `alice-memory
+  1500 for one that takes 512 tokens. A memory whose embedded text (its title,
+  text and summary) is over 8,000 characters is embedded from its first 8,000 on
+  a model that could take more, so raise it for long memories on a large-window
+  model. Changing it makes `alice-memory
   reindex-embeddings` re-embed only the memories whose embedded text changes.
   In v0.19.2 there is no cap.
 - `ALICE_MCP_FULL_TOOLS=1` — advertise all eleven core tools and accept
@@ -141,8 +142,8 @@ One-command bridge demo:
   `tool_execution_failed`; their messages are static, while exception details
   are written only to server logs. From v0.19.2, `invalid_request` is a fourth code, used when `alice_recall` or
   `alice_context_pack` gets a query the SQLite source search cannot take. Its
-  message names the limit and holds only counts, never the query. Unreleased (on
-  main, not in v0.19.2): `alice_resume` and `alice_recent_decisions` use it for
+  message names the limit and holds only counts, never the query. From v0.20.0,
+  `alice_resume` and `alice_recent_decisions` use it for
   a query over 40,000 UTF-8 bytes.
 - JSON-RPC framing errors use the standard static messages `Parse error`,
   `Invalid Request`, `Invalid params`, and `Method not found`; request data and
