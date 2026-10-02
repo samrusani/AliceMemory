@@ -103,7 +103,7 @@ EXPECTED_METADATA_MANIFESTS = {
 EXPECTED_CLASS_ORDERS = {
     # Two paired browser-clip capability methods extend both façades, and one
     # more paired method, ``list_memories_referencing_sources``.
-        # Per-file importer savepoint (2026-10-02): one paired method more, ``savepoint``, appended last.
+    # Per-file importer savepoint (2026-10-02): one paired method more, ``savepoint``, appended last.
     # Previous receipt: (171, 526374782104a2a1...). Proof: the member list equals the list at origin/main
     # 040a2a10 with ``savepoint`` added at the end and nothing else moved (reviewed change, not drift).
     "PostgresVNextStore": (172, "6f1a459fcf4319cf4281f6cc0d4e81679c3e05d851fd0a874a2d90298d7c2569"),
@@ -116,7 +116,7 @@ EXPECTED_CLASS_ORDERS = {
     # Per-project memory S2 (2026-10-02): two SQLite-only methods more, the single-scan partition reads
     # ``list_memories_view_partitions`` and ``list_open_loops_view_partitions``. The Postgres runtime resolves no
     # project view, so it has no pair. Re-minted for the facade (reviewed change, not drift).
-        # Per-file importer savepoint (2026-10-02): the same paired method, ``savepoint``, appended last.
+    # Per-file importer savepoint (2026-10-02): the same paired method, ``savepoint``, appended last.
     # Previous receipt: (128, fae6bee37a2b06541...). Proof: the member list equals the list at origin/main
     # 040a2a10 with ``savepoint`` added at the end and nothing else moved (reviewed change, not drift).
     "SQLiteVNextStore": (129, "562de07a40ecd996d8b22c4e114cf229561a0d0b778b23ba3291f7e693c1f1ec"),

@@ -1852,11 +1852,19 @@ class VNextCaptureService:
             except Exception as exc:
                 failed_count += 1
                 errors.append(SOURCE_IMPORT_ERROR_MESSAGE)
+                # The failure event the capture wrote was rolled back with the
+                # file, so this one is the only record. It names the file by
+                # its path under the folder, as the rolled-back one did, since
+                # two files in different subfolders can share a name.
                 self._log_failure(
                     source_type="markdown",
                     title=file_path.name,
                     error=exc,
-                    metadata={"folder": str(folder_path), "title": file_path.name},
+                    metadata={
+                        "folder": str(folder_path),
+                        "relative_path": source_file.relative_path,
+                        "title": file_path.name,
+                    },
                 )
 
         imported_count = len(source_ids)
@@ -2068,11 +2076,20 @@ class VNextCaptureService:
                         transcript.index,
                         SOURCE_IMPORT_ERROR_CODE,
                     )
+                    # The event the capture wrote was rolled back with the
+                    # conversation, so this one is the only record. It carries
+                    # the index and id the rolled-back one carried, because two
+                    # conversations can share a title.
                     self._log_failure(
                         source_type="chatgpt_export",
                         title=transcript.title,
                         error=exc,
-                        metadata={"filename": file_path.name, "title": transcript.title},
+                        metadata={
+                            "filename": file_path.name,
+                            "title": transcript.title,
+                            "conversation_index": transcript.index,
+                            "conversation_id": transcript.external_id,
+                        },
                     )
                     continue
                 deferred_embedding_inputs.extend(result.deferred_embedding_inputs)

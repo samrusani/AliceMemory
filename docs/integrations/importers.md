@@ -137,12 +137,17 @@ Postgres. When a write fails part way (a chunk write, for example), the file's
 source, chunks, entity links and events are all rolled back. The receipt counts
 the file in `failed_count`, one `source.import_failed` event is written after
 the rollback, and the next file imports in the same transaction, so the batch
-still commits once. A second import of the fixed file then imports it in full.
-In v0.20.0 the failed file stayed live with the chunks written before the
-failure, a second import of it reported `duplicate` and never completed it, and
-two `source.import_failed` events were written for it. A source that
-v0.20.0 left half built stays as it is. Nothing repairs it, and a re-import of
-the same file still reports it as a duplicate.
+still commits once. That event names a Markdown file by its path under the
+folder (`relative_path`) and a ChatGPT conversation by its index and id. A
+second import of the fixed file then imports it in full. In v0.20.0 on SQLite
+the failed file stayed live with the chunks written before the failure, a
+second import of it reported `duplicate` and never completed it, and two
+`source.import_failed` events were written for it. On Postgres, a failure at
+the SQL level went differently in v0.20.0 (read from the code, not run against
+a live server): the failed statement aborted the open transaction, the failure
+logging that followed raised on it, and the batch stopped with an error. A
+source that v0.20.0 left half built stays as it is. Nothing repairs it, and a
+re-import of the same file still reports it as a duplicate.
 
 ## File Size Limit and Long Conversations
 

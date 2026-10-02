@@ -101,6 +101,14 @@ def _chunks_by_title(database: Path) -> dict[str, int]:
     }
 
 
+def _failure_metadata(database: Path) -> list[dict[str, object]]:
+    """The ``metadata_json`` of every stored ``source.import_failed`` event."""
+    return [
+        json.loads(str(payload))["metadata_json"]
+        for (payload,) in _read(database, "SELECT payload_json FROM event_log WHERE event_type = 'source.import_failed'")
+    ]
+
+
 def _fail_chunk_write(monkeypatch: pytest.MonkeyPatch, marker: str, *, chunk_index: int = 1):
     """Make the chunk write of one file fail on its second chunk. Returns the undo."""
     real = SQLiteVNextStore.create_source_chunk
@@ -270,6 +278,36 @@ def test_the_command_line_commits_the_good_files_and_none_of_the_failed_one(
     assert _chunks_by_title(database) == {"alpha": 4, "gamma": 4}
 
 
+def test_the_failure_event_names_a_file_by_its_path_when_two_files_share_a_name(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The one surviving failure event says which README failed.
+
+    The capture's own event carried the path and is rolled back with the file,
+    so the importer's event is the only record. Two files called README.md sit
+    in different subfolders and the first fails. Fails if ``relative_path`` is
+    dropped from the metadata the Markdown importer passes to ``_log_failure``:
+    the event then holds only the folder and the bare name, which both files
+    share.
+    """
+
+    database = _vault(tmp_path)
+    folder = tmp_path / "notes"
+    (folder / "a").mkdir(parents=True)
+    (folder / "b").mkdir()
+    (folder / "a" / "README.md").write_text(_note("zeta"), encoding="utf-8")
+    (folder / "b" / "README.md").write_text(_note("alpha"), encoding="utf-8")
+    _fail_chunk_write(monkeypatch, "zeta")
+    result = _import(database, folder)
+
+    assert (result.status, result.imported_count, result.failed_count) == ("partial", 1, 1)
+    metadata = _failure_metadata(database)
+    assert len(metadata) == 1
+    assert metadata[0]["relative_path"] == "a/README.md"
+    assert metadata[0]["title"] == "README.md"
+    assert metadata[0]["folder"] == str(folder)
+
+
 def _conversation(identifier: str, word: str) -> dict[str, object]:
     return {
         "id": identifier,
@@ -288,7 +326,10 @@ def test_a_chatgpt_conversation_that_fails_part_way_leaves_nothing_and_imports_i
 
     Fails if the savepoint is removed from ``import_chatgpt_export_file``: the
     failed conversation then stays live with one chunk and the retry reports a
-    duplicate.
+    duplicate. It also pins the one failure event that survives the rollback:
+    it fails if the importer's own ``_log_failure`` call is removed (no event is
+    left, since the capture's is rolled back) or if it stops passing the
+    conversation index and id (two chats can share a title).
     """
 
     database = _vault(tmp_path)
@@ -303,12 +344,17 @@ def test_a_chatgpt_conversation_that_fails_part_way_leaves_nothing_and_imports_i
     undo = _fail_chunk_write(monkeypatch, "zeta")
     first = run()
     after_failure = _chunks_by_title(database)
+    failure_metadata = _failure_metadata(database)
     undo()
     second = run()
     after_retry = _chunks_by_title(database)
 
     assert (first.status, first.imported_count, first.failed_count) == ("partial", 1, 1)
     assert list(after_failure) == ["Chat about alpha"]
+    assert len(failure_metadata) == 1
+    assert failure_metadata[0]["conversation_index"] == 2
+    assert failure_metadata[0]["conversation_id"] == "c-2"
+    assert failure_metadata[0]["title"] == "Chat about zeta"
     assert (second.status, second.imported_count, second.duplicate_count) == ("ok", 1, 1)
     assert set(after_retry) == {"Chat about alpha", "Chat about zeta"}
     assert after_retry["Chat about zeta"] == after_retry["Chat about alpha"] > 2
@@ -340,6 +386,9 @@ def test_the_in_memory_store_leaves_no_row_for_a_failed_file(tmp_path: Path) -> 
 
     Fails if its ``savepoint`` stops truncating on an exception, which would let
     every importer test that uses it pass against a store that cannot roll back.
+    It also fails if the double keeps its source hash index across a rollback:
+    the retry of the fixed file then reports a duplicate of a source that no
+    longer exists, which no real store does.
     """
 
     folder = _folder(tmp_path, alpha=_note("alpha"), beta=_note("zeta"))
@@ -358,6 +407,12 @@ def test_the_in_memory_store_leaves_no_row_for_a_failed_file(tmp_path: Path) -> 
     assert [source["title"] for source in store.sources] == ["alpha"]
     assert all("zeta" not in str(chunk["text"]) for chunk in store.chunks)
     assert [event["event_type"] for event in store.events].count("source.import_failed") == 1
+
+    store.create_source_chunk = real  # type: ignore[method-assign]
+    retry = VNextCaptureService(store).import_markdown_folder(folder)
+
+    assert (retry.status, retry.imported_count, retry.duplicate_count, retry.failed_count) == ("ok", 1, 1, 0)
+    assert sorted(str(source["title"]) for source in store.sources) == ["alpha", "beta"]
 
 
 def test_a_clean_import_and_its_replay_write_the_events_they_always_wrote(tmp_path: Path) -> None:
@@ -691,12 +746,17 @@ def test_the_importers_page_marks_the_new_failure_rule_and_says_what_v0200_did()
 
     Fails if the marker is deleted from the paragraph (the lead no longer
     matches), if the paragraph stops saying what v0.20.0 did with a failed file,
-    or if it stops naming the receipt field and the event a person will look for.
+    if the v0.20.0 sentences lose their scope to SQLite or the Postgres sentence
+    stops saying it was read from the code and not run, or if it stops naming
+    the receipt field and the event a person will look for.
     """
 
     paragraph = _docs_paragraph()
     assert paragraph.count("Unreleased (on main, not in v0.20.0)") == 1
-    assert "In v0.20.0 the failed file stayed live with the chunks written before the failure" in paragraph
+    assert "In v0.20.0 on SQLite the failed file stayed live with the chunks written before the failure" in paragraph
+    assert "On Postgres, a failure at the SQL level went differently in v0.20.0" in paragraph
+    assert "read from the code, not run against a live server" in paragraph
+    assert "names a Markdown file by its path under the folder (`relative_path`)" in paragraph
     assert "reported `duplicate` and never completed it" in paragraph
     assert "two `source.import_failed` events were written for it" in paragraph
     assert "`failed_count`" in paragraph and "`source.import_failed`" in paragraph
@@ -707,15 +767,25 @@ def test_the_changelog_entry_states_the_v0200_behaviour_and_what_stays() -> None
     """The entry sits in Unreleased and compares the new rule with v0.20.0.
 
     Fails if the entry stops saying what v0.20.0 did (stayed live, reported a
-    duplicate, wrote two failure events), that nothing switches the change off,
-    or that an old half-built source is not repaired.
+    duplicate, wrote two failure events), if those sentences lose their scope to
+    SQLite or the Postgres sentence stops saying it was read from the code and
+    not run, if the nothing-to-switch-off sentence loses its scope to the search
+    quality work (the sibling Unreleased entries, such as the expiry fix, also
+    change behaviour with no switch, so an unscoped "one change in this release"
+    is false), or if an old half-built source is not said to stay as it is.
     """
 
     entry = _changelog_entry()
-    assert "In v0.20.0 a failed chunk write left the file live with the chunks written before the failure" in entry
+    assert "In v0.20.0 on SQLite a failed chunk write left the file live with the chunks written before the failure" in entry
     assert "reported `duplicate` and never completed it" in entry
     assert "two `source.import_failed` events" in entry
-    assert "nothing to switch it off" in entry
+    assert (
+        "This is the one change in the search quality work that alters behaviour with nothing to switch it off." in entry
+    )
+    assert "the one change in this release" not in entry
+    assert "On Postgres, a failure at the SQL level went differently in v0.20.0" in entry
+    assert "read from the code and was not run against a live server" in entry
+    assert "names a Markdown file by its path under the folder (`relative_path`)" in entry
     assert "stays as it is: nothing repairs it" in entry
 
 
