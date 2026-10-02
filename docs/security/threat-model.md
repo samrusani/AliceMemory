@@ -77,8 +77,10 @@ skips its body rewrite for such a request. A JSON body nested more than 256 leve
 deep is refused with HTTP 422 before any layer decodes it, with a validation
 error of type `json_too_deep` and nothing from the body in it. In v0.19.2 the
 identity layer, the two gates and the framework each read a body of any size and
-parsed it before authentication: a 100 MiB chunked body took the server from
-104 MiB to 712 MiB, and a body nested about 975 levels deep or more raised
+parsed it before authentication: a 100 MiB chunked body to `/v0/vnext` raised the server's memory by several
+hundred MiB or more, depending on the body (about 400 MiB at peak for bytes that
+are not JSON and about 1.5 GiB for a valid JSON body with a 100 MiB string,
+measured once on one Mac), and a body nested about 975 levels deep or more raised
 `RecursionError` out of a layer and answered HTTP 500. The cap is a bound on one
 request, not a rate limit. A client inside the cap can send many requests, and the
 cost of a request near the cap is real (a 30.9 MiB connector sync body peaked at

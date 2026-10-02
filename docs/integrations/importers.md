@@ -194,8 +194,7 @@ MB at 52 MB), and 8.7 MB for every MB when one character outside the Basic
 Multilingual Plane, such as an emoji, is in the file, because Python then
 stores the whole text at four bytes a character (535 MB at 52 MB). The import
 took 1.3 seconds for every MB (1.9 with the emoji). At 512 MiB that is about 3
-to 4.6 GB of memory and 11 to 16 minutes. A Markdown file of 16 MiB peaked at 335 MB and took
-23 seconds. The defaults come from those measurements. They do not come from a
+to 4.6 GB of memory and 11 to 16 minutes. A Markdown file of 16 MiB peaked at 335 MB and took about 15 to 23 seconds. The defaults come from those measurements. They do not come from a
 survey of real exports, which was not possible here. An export over 512 MiB
 needs `--max-file-mib` and that much memory.
 
