@@ -259,6 +259,15 @@ A layer in front of the routes answers the 413, so the OpenAPI schema does not l
 it. v0.19.2 answers HTTP 500 for a surrogate in a string field and for a body
 nested about 975 levels deep or more, and it limits no body size.
 
+Unreleased (on main, not in v0.19.2): a request body that is not valid UTF-8, for
+example UTF-16 or UTF-32 JSON or arbitrary bytes, is answered with HTTP 422 and the
+array `detail` of a validation error when the request has no JSON content type,
+that is, no `Content-Type` header or one such as `text/plain`. The error gives its
+type, its location and its message, and none of the body. A body that is valid
+UTF-8 is answered as before, with its text in `input`, and a request with
+`Content-Type: application/json` is answered as before. v0.19.2 answers HTTP 500
+for such a body.
+
 ## Scopes
 
 Memories carry four scopes. `user_id` is the hard tenancy boundary (RLS);

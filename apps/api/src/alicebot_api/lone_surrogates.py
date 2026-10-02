@@ -22,6 +22,16 @@ or 405 the router gives it and its body is not read. And
 ``render_validation_error`` is the last line, for a validation error a route
 still raises, so rendering that error cannot fail.
 
+A body the framework hands to a route as raw bytes is the other input that
+rendering used to fail on. It does so for a request with no content type or a
+non-JSON one (``text/plain``, ``application/octet-stream``), whatever route
+takes it, and the error pydantic raises for it carries those bytes as its
+``input``. Bytes that are not UTF-8 (a UTF-16 or UTF-32 JSON body, a body that
+is not text) cannot be decoded for the response, which is ``UnicodeDecodeError``
+in the framework's encoder. The renderer cuts such an error to ``type``, ``loc``
+and ``msg``, so nothing from the body is echoed and the answer is the 422 of
+any other validation error. In v0.19.2 it answered HTTP 500.
+
 The check stands on the JSON decoder. A body nested more than
 ``request_limits.MAX_JSON_NESTING`` levels deep is not decoded at all: the guard
 answers it with the 422 ``request_limits.json_too_deep_response`` builds, as the
@@ -174,6 +184,21 @@ def _clean_location(location: object) -> list[str | int]:
     ]
 
 
+def _cut_error(error: object) -> dict[str, object]:
+    """Cut an error to ``type``, ``loc`` and ``msg``, which hold no part of the body.
+
+    ``input`` and ``ctx`` are dropped. A part that holds a surrogate is replaced
+    by the text pydantic itself uses for a str that cannot be decoded.
+    """
+
+    fields = error if isinstance(error, dict) else {}
+    return {
+        "type": _clean_text(fields.get("type"), SURROGATE_ERROR_TYPE),
+        "loc": _clean_location(fields.get("loc")),
+        "msg": _clean_text(fields.get("msg"), SURROGATE_MESSAGE),
+    }
+
+
 def withhold_lone_surrogate_errors(errors: list[Any]) -> list[Any]:
     """Rewrite the encoded validation errors that carry a surrogate.
 
@@ -184,49 +209,51 @@ def withhold_lone_surrogate_errors(errors: list[Any]) -> list[Any]:
     holds one is replaced. Nothing that holds a surrogate reaches the response.
     """
 
-    cleaned: list[Any] = []
-    for error in errors:
-        if find_lone_surrogate(error) is None:
-            cleaned.append(error)
-            continue
-        fields = error if isinstance(error, dict) else {}
-        cleaned.append(
-            {
-                "type": _clean_text(fields.get("type"), SURROGATE_ERROR_TYPE),
-                "loc": _clean_location(fields.get("loc")),
-                "msg": _clean_text(fields.get("msg"), SURROGATE_MESSAGE),
-            }
-        )
-    return cleaned
+    return [_cut_error(error) if find_lone_surrogate(error) is not None else error for error in errors]
+
+
+def _encode_error(error: Any) -> Any:
+    """Encode one validation error the way the framework does, or cut it.
+
+    An ``input`` that is bytes the framework cannot decode as UTF-8 makes its
+    encoder raise ``UnicodeDecodeError``. That error is cut to ``type``, ``loc``
+    and ``msg``, so none of the bytes are echoed.
+    """
+
+    try:
+        return jsonable_encoder(error)
+    except UnicodeDecodeError:
+        return _cut_error(error)
 
 
 def validation_error_response(errors: Sequence[Any]) -> JSONResponse:
-    """Build the 422 the framework's handler builds, with every surrogate withheld.
+    """Build the 422 the framework's handler builds, with the unencodable parts withheld.
 
     The framework sends ``jsonable_encoder`` of the errors under ``detail``. An
-    error that carries a surrogate is cut by ``withhold_lone_surrogate_errors``
-    first, so encoding the response cannot raise.
+    error whose input is bytes that are not UTF-8 is cut by ``_encode_error``,
+    and one that carries a surrogate is cut by ``withhold_lone_surrogate_errors``,
+    so encoding the response cannot raise. An error with neither is sent as the
+    framework sends it.
     """
 
-    return JSONResponse(
-        status_code=422,
-        content={"detail": withhold_lone_surrogate_errors(jsonable_encoder(errors))},
-    )
+    encoded = [_encode_error(error) for error in errors]
+    return JSONResponse(status_code=422, content={"detail": withhold_lone_surrogate_errors(encoded)})
 
 
 async def render_validation_error(request: Request, exc: RequestValidationError) -> Response:
     """Answer a validation error with the framework's own handler.
 
-    The framework's handler writes each error's ``input`` into the response and
-    raises ``UnicodeEncodeError`` for a surrogate in it. Only then does the 422
-    come from ``validation_error_response``, which withholds what holds one, so
-    an error with no surrogate in it is answered by the framework as it is
-    answered in v0.19.2.
+    The framework's handler writes each error's ``input`` into the response. It
+    raises ``UnicodeEncodeError`` for a surrogate in it and ``UnicodeDecodeError``
+    for bytes that are not UTF-8. Only then does the 422 come from
+    ``validation_error_response``, which withholds what it cannot encode, so an
+    error with neither in it is answered by the framework as it is answered in
+    v0.19.2.
     """
 
     try:
         return await request_validation_exception_handler(request, exc)
-    except UnicodeEncodeError:
+    except UnicodeError:
         return validation_error_response(exc.errors())
 
 
