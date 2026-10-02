@@ -649,6 +649,13 @@ def test_a_non_utf8_body_is_checked_as_the_text_it_decodes_to() -> None:
     shallow = json.dumps({"t": "\\\"" + "[" * 300})
     for encoding in ("utf-16", "utf-32"):
         assert not json_nesting_exceeds(shallow.encode(encoding)), encoding
+    # A lone surrogate is text json.loads accepts in UTF-16 and UTF-32, so the scan
+    # must read it too. Mutation: decode strictly (the deep body is then let through).
+    lone = ("[" * 300 + '"\ud800"' + "]" * 300)
+    for encoding in ("utf-16-le", "utf-32-le"):
+        body = lone.encode(encoding, "surrogatepass")
+        json.loads(body)
+        assert json_nesting_exceeds(body), encoding
     # Bytes that do not decode are the decoder's to report, not a nesting verdict.
     assert not json_nesting_exceeds(b"\xff\xfe" + b"[\x00" * 300 + b"\x00")
 

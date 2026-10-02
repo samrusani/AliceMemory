@@ -88,7 +88,7 @@ def json_nesting_exceeds(raw: bytes, limit: int = MAX_JSON_NESTING) -> bool:
         return False
     if encoding not in ("utf-8", "utf-8-sig"):
         try:
-            raw = raw.decode(encoding).encode("utf-8", "surrogatepass")
+            raw = raw.decode(encoding, "surrogatepass").encode("utf-8", "surrogatepass")
         except (UnicodeError, ValueError):
             return False
     depth = 0
