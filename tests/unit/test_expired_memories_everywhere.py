@@ -1223,7 +1223,8 @@ def test_a_closed_card_outside_the_fence_of_the_pass_is_not_named(
     digest key. Outside the fence nothing is named, and a pass whose fence takes the card in names it. A card whose
     domain is ``unknown`` is inside any domain list, as in the accepted-card read.
 
-    Mutations, each one alone, in the ``_scoped_rows`` call of ``_expired_card_for_digest``: pass ``domains=None``
+    Mutations, each one alone, in the ``_scoped_rows`` call of ``_may_name_card`` (the controls
+    ``_expired_card_for_digest`` applies): pass ``domains=None``
     (the ``domain`` case fails), pass ``sensitivity_allowed=list(ALL_SENSITIVITY)`` (the ``sensitivity`` case
     fails), pass ``projects=()`` (the ``project`` case fails). Deleting the ``_scoped_rows`` call fails all three.
     """
@@ -1245,8 +1246,9 @@ def test_a_row_at_the_digest_key_that_is_not_this_groups_rollup_card_is_not_name
 
     The accepted-card read asks for the roll-up candidate kind and the requested roll-up keys, so this read does too.
 
-    Mutations, each one alone: delete the ``_is_rollup_card`` test (the row of another kind is named); delete the
-    ``rollup_key`` comparison (the card of another key is named).
+    Mutations, each one alone, in ``_may_name_card`` (the controls ``_expired_card_for_digest`` applies): delete the
+    ``_is_rollup_card`` test (the row of another kind is named); delete the ``rollup_key`` comparison (the card of
+    another key is named).
     """
 
     with _memory_store() as store:
