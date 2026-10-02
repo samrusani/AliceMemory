@@ -38,6 +38,7 @@ from alicebot_api.vnext_project_scope import (
     project_scopes_overlap,
     source_project_scope,
 )
+from alicebot_api.vnext_recall_visibility import memory_window_is_open
 from alicebot_api.vnext_repositories import JsonObject
 from alicebot_api.vnext_retrieval import (
     MEMORY_SEARCHABLE_STATUSES,
@@ -97,6 +98,9 @@ class SessionBriefStore(Protocol):
         query: str | None = None,
         order_by_created_at: bool = False,
         limit: int | None = None,
+        # Required, with no default: a brief that forgets to say whether it
+        # shows an expired memory fails the type check, not a reader.
+        include_expired: bool,
     ) -> list[JsonObject]: ...
 
     def list_open_loops(
@@ -191,6 +195,10 @@ def compile_session_brief(
             projects=project_filter,
             order_by_created_at=True,
             limit=FACT_LIMIT,
+            # An expired memory is not a current fact. This is recall's own
+            # test, applied before the limit so an expired row cannot use up
+            # one of the eight places.
+            include_expired=False,
         )
         facts = [
             row
@@ -378,9 +386,16 @@ def _event_target_honours_fence(
 
 
 def _brief_omits_memory(row: Mapping[str, object]) -> bool:
-    """Current brief only. Superseded rows stay in recall."""
+    """Current brief only. Superseded rows stay in recall.
+
+    A memory whose ``valid_to`` has passed is not current either, and recall
+    does not return it. The list and the event join already leave it out in SQL;
+    this is the last stage every row passes, whatever door it came through.
+    """
 
     if str(row.get("status") or "") == "superseded":
+        return True
+    if not memory_window_is_open(row):
         return True
     pointer = row.get("superseded_by")
     return pointer is not None and str(pointer).strip() != ""

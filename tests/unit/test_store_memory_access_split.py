@@ -31,7 +31,7 @@ SOURCE_RECEIPTS = {
         "f0ec9c7f13bc7bf93f5a3beaa86916a04e45200ef0296d6f9288eed3912be33d"
     ),
     "apps/api/src/alicebot_api/vnext_stores/postgres/memory_access.py": (
-        "33029103fd78e2887793512ac8791e523f147fb22ecd1be2dcc962670742eafc"
+        "49748ecd931bd0d1e28e28cc77534c700e8b9362c3f015970a73bb75733e1719"
     ),
     "apps/api/src/alicebot_api/vnext_stores/sqlite/query_predicates.py": (
         "aada597da76324ec05a118f95c2b26441b076771a0e53b8d45f08eefb656bbb4"
@@ -45,8 +45,12 @@ SOURCE_RECEIPTS = {
     # stale the cache). Re-minted again for ``list_memories``, which binds a query
     # through ``literal_match_operand`` and so refuses one past the LIKE operand
     # limit. The Postgres carrier is unchanged on purpose: it has no such limit.
+    # Both carriers were re-minted again for the expiry test (reviewed change, not
+    # drift): ``list_memories`` and ``count_memories`` take ``include_expired``,
+    # and the roll-up input list and count and the accepted-card lookup leave out a
+    # memory whose ``valid_to`` has passed, with recall's own test.
     "apps/api/src/alicebot_api/vnext_stores/sqlite/memory_access.py": (
-        "b048578611ccfcb88519fa46ab47d52234fc68128ccceb0cd9bc4998dd9d8a44"
+        "3bb85f649be41c4f8759068bf5e5a49f113b9dd7435cb241b5a24e26c65e73d0"
     ),
 }
 

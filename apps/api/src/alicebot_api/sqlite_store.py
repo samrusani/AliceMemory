@@ -488,7 +488,12 @@ class SQLiteVNextStore:
         occurred_at_end: datetime | None = None,
         limit: int = 20,
     ) -> list[VNextRow]:
-        """Return events joined to resume-admitted memories before LIMIT."""
+        """Return events joined to resume-admitted memories before LIMIT.
+
+        A memory is admitted when its status is in ``statuses`` and its
+        ``valid_to`` has not passed (recall's ``_expiry_clause``), so the event of
+        an expired memory is not listed and does not use up the ``LIMIT``.
+        """
 
         if limit < 1:
             raise ValueError("limit must be positive")
@@ -499,14 +504,15 @@ class SQLiteVNextStore:
             tuple(normalize_project_scope(projects or ())),
             prefix="memory.",
         )
+        expiry_sql, expiry_params = self._expiry_clause(False, prefix="memory.")
         clauses = [
             "event.user_id = ?",
             "event.target_type = 'memory'",
             "memory.deleted_at IS NULL",
             f"memory.status IN ({self._placeholders(normalized_statuses)})",
         ]
-        params: list[object] = [self.user_id, *normalized_statuses, *project_params]
-        scoped_where_sql = " AND ".join(clauses) + project_sql
+        params: list[object] = [self.user_id, *normalized_statuses, *project_params, *expiry_params]
+        scoped_where_sql = " AND ".join(clauses) + project_sql + expiry_sql
         filters: list[str] = []
         normalized_query = str(query).strip() if query is not None else ""
         if normalized_query:

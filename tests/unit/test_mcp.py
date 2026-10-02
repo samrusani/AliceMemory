@@ -46,6 +46,7 @@ from alicebot_api.vnext_event_log import build_event_log_record
 from alicebot_api.vnext_project_update_guard import PENDING_PROJECT_UPDATE_MEMORY_MUTATION_MESSAGE
 from alicebot_api.vnext_projects import PROJECT_UPDATE_TERMINAL_CONSISTENCY_MESSAGE
 from alicebot_api.vnext_project_scope import memory_project_scope, project_identifier_identity
+from alicebot_api.vnext_recall_visibility import memory_window_is_open
 from alicebot_api.vnext_retrieval import VECTOR_STAGE_DISABLED_NO_PROVIDER, VECTOR_STAGE_ENABLED
 from alicebot_api.vnext_store import PostgresVNextStore
 
@@ -1628,6 +1629,7 @@ class FakeVNextMCPStore:
         query: str | None = None,
         order_by_created_at: bool = False,
         limit: int | None = None,
+        include_expired: bool = True,
     ) -> list[dict[str, object]]:
         if limit is not None and limit < 1:
             raise ValueError("limit must be positive")
@@ -1662,6 +1664,7 @@ class FakeVNextMCPStore:
                 until=created_at_end,
             )
             and mcp_tools_module._memory_matches_query(memory, normalized_query)
+            and (include_expired or memory_window_is_open(memory))
         ]
         if order_by_created_at:
             rows.sort(key=mcp_tools_module._created_at_sort_key, reverse=True)
@@ -1699,6 +1702,7 @@ class FakeVNextMCPStore:
             and self._matches_sensitivity(memory, sensitivity_allowed)
             and self._metadata_text(memory, "candidate_kind") != excluded_candidate_kind
             and (not project_scope or mcp_tools_module._resource_matches_project_scope(memory, project_scope))
+            and memory_window_is_open(memory)
         ]
         rows.sort(key=lambda row: (str(row.get("created_at") or ""), str(row.get("id"))), reverse=True)
         return [dict(row) for row in rows[:limit]]
@@ -1773,6 +1777,7 @@ class FakeVNextMCPStore:
             and self._matches_domains(memory, domains, empty_is_unrestricted=True)
             and self._matches_sensitivity(memory, sensitivity_allowed)
             and (not project_scope or mcp_tools_module._resource_matches_project_scope(memory, project_scope))
+            and memory_window_is_open(memory)
         ]
         matches.sort(
             key=lambda row: (
@@ -2027,6 +2032,7 @@ class FakeVNextMCPStore:
             and row.get("status") in normalized_statuses
             and (not project_scope or mcp_tools_module._resource_matches_project_scope(row, project_scope))
             and mcp_tools_module._memory_matches_query(row, normalized_query)
+            and memory_window_is_open(row)
         }
         rows = [
             event

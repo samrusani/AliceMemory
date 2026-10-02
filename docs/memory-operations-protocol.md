@@ -335,6 +335,11 @@ temporal exclusion, not a lifecycle judgment: the row's status stays
 `valid_to` passes (the staleness sweep later marks long-expired rows
 `stale`). Unexpire reopens the window. Both require a `reason`.
 
+In v0.20.0, `alice_resume`, `alice_recent_decisions` and the session brief still
+listed an expired memory, and consolidation and the roll-up semantic tier could send
+its text to the embeddings endpoint. Unreleased (on main, not in v0.20.0): all of
+them leave it out, with the test recall uses.
+
 - MCP: `alice_memory_manage` with `action: "expire"` (optional `valid_to`
   ISO-8601 timestamp, default now) or `action: "unexpire"`
 - HTTP: `POST /v0/vnext/memories/expire`, `POST /v0/vnext/memories/unexpire`

@@ -151,6 +151,11 @@ no schema. It adds the `--max-file-mib` option and four settings:
   and `alice_recent_decisions` show an expired active memory, consolidation and
   roll-ups can embed one, artifact promotion leaves a memory without a vector
   until reindex, and the `max_tokens` budget prices the full stored row.
+- Unreleased (on main, not in v0.20.0): the brief, `alice_resume` and
+  `alice_recent_decisions` leave out an expired memory, consolidation and
+  roll-ups neither send its text nor group it, an expired roll-up card is not the
+  accepted card for its topic, and artifact promotion embeds the memory it makes.
+  The `max_tokens` budget still prices the full stored row.
 
 ## What `v0.19.2` Shipped
 
