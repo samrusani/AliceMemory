@@ -1123,19 +1123,24 @@ def _digest_card(
     project: str | None = None,
     candidate_kind: str = ROLLUP_CANDIDATE_KIND,
 ) -> dict[str, object]:
-    """One roll-up card holding the memory key a pass derives from ``digest``."""
+    """One roll-up card holding the memory key a pass derives from ``digest``.
+
+    A card with status ``archived`` is archived the way the store archives one, through ``update_memory``,
+    which sets ``deleted_at`` and keeps ``memory_key``. Creating the row with ``status="archived"`` leaves
+    ``deleted_at`` empty, which is not a soft-deleted row and does not reach the read that skips them.
+    """
 
     metadata: dict[str, object] = {"candidate_kind": candidate_kind, "rollup_key": rollup_key, "rollup_digest": digest}
     if project is not None:
         metadata["project_scope"] = [project]
-    return store.create_memory(
+    card = store.create_memory(
         {
             "memory_key": f"vnext.rollup.{digest}",
             "value": {"text": digest},
             "memory_type": "semantic",
             "title": digest,
             "canonical_text": digest,
-            "status": status,
+            "status": "active" if status == "archived" else status,
             "domain": domain,
             "sensitivity": sensitivity,
             "project_id": project,
@@ -1143,6 +1148,14 @@ def _digest_card(
             "metadata_json": metadata,
         }
     )
+    if status == "archived":
+        store.update_memory(memory_id=str(card["id"]), patch={"status": "archived"})
+        row = store.conn.execute(
+            "SELECT status, deleted_at FROM memories WHERE id = ?", (str(card["id"]),)
+        ).fetchone()
+        assert row[0] == "archived" and row[1] is not None
+        assert store.get_memory(str(card["id"])) is None
+    return card
 
 
 def _expired_card(service: VNextRollupService, digest: str, **fence: object) -> dict[str, object] | None:
@@ -1223,7 +1236,8 @@ def test_a_closed_card_outside_the_fence_of_the_pass_is_not_named(
     digest key. Outside the fence nothing is named, and a pass whose fence takes the card in names it. A card whose
     domain is ``unknown`` is inside any domain list, as in the accepted-card read.
 
-    Mutations, each one alone, in the ``_scoped_rows`` call of ``_expired_card_for_digest``: pass ``domains=None``
+    Mutations, each one alone, in the ``_scoped_rows`` call of ``_may_name_card`` (the controls
+    ``_expired_card_for_digest`` applies): pass ``domains=None``
     (the ``domain`` case fails), pass ``sensitivity_allowed=list(ALL_SENSITIVITY)`` (the ``sensitivity`` case
     fails), pass ``projects=()`` (the ``project`` case fails). Deleting the ``_scoped_rows`` call fails all three.
     """
@@ -1245,8 +1259,9 @@ def test_a_row_at_the_digest_key_that_is_not_this_groups_rollup_card_is_not_name
 
     The accepted-card read asks for the roll-up candidate kind and the requested roll-up keys, so this read does too.
 
-    Mutations, each one alone: delete the ``_is_rollup_card`` test (the row of another kind is named); delete the
-    ``rollup_key`` comparison (the card of another key is named).
+    Mutations, each one alone, in ``_may_name_card`` (the controls ``_expired_card_for_digest`` applies): delete the
+    ``_is_rollup_card`` test (the row of another kind is named); delete the ``rollup_key`` comparison (the card of
+    another key is named).
     """
 
     with _memory_store() as store:

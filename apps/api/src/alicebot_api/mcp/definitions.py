@@ -27,6 +27,7 @@ from alicebot_api.vnext_memory_commit import (
 from alicebot_api.write_bounds import (
     MAX_CAPTURE_CANDIDATE_CHARS,
     MAX_CAPTURE_COMMIT_CANDIDATES,
+    MAX_COMMIT_CANONICAL_TEXT_CHARS,
     MAX_COMMIT_SOURCE_REF_CHARS,
     MAX_COMMIT_SOURCE_REFS,
     MAX_CORRECTION_FIELD_CHARS,
@@ -319,7 +320,12 @@ _CORE_TOOL_DEFINITIONS: list[dict[str, object]] = [
                 },
                 "canonical_text": {
                     "type": "string",
-                    "description": "The memory content, phrased as a standalone statement. Required for a new write; leave it out when sending confirmation_id.",
+                    "description": (
+                        "The memory content, phrased as a standalone statement. At most "
+                        f"{MAX_COMMIT_CANONICAL_TEXT_CHARS:,} characters, counted after runs of whitespace "
+                        "are collapsed to one space; a longer one is refused and nothing is saved. Required "
+                        "for a new write; leave it out when sending confirmation_id."
+                    ),
                 },
                 "memory_type": {
                     "type": "string",

@@ -96,8 +96,21 @@ def _capture(context, raw_text: str, **arguments) -> dict:
 
 
 def _commit(context, *, title: str, text: str, sensitivity: str, project: str, domain: str) -> str:
-    from alicebot_api.mcp.registry import call_mcp_tool
+    """Commit a fact through ``alice_memory_commit`` and return its id.
 
+    ``alice_memory_commit`` refuses text over 20,000 characters, but a vault from before that limit can hold a
+    longer fact (v0.20.0 and earlier stored one whole), and the brief must still handle it. A ``text`` over the
+    limit is therefore committed as a short stand-in and then lengthened in the store, which leaves the row such a
+    vault holds.
+    """
+
+    from alicebot_api.mcp.registry import call_mcp_tool
+    from alicebot_api.mcp.runtime import _vnext_store_context
+    from alicebot_api.write_bounds import MAX_COMMIT_CANONICAL_TEXT_CHARS
+
+    stored_text = text
+    if len(" ".join(text.split())) > MAX_COMMIT_CANONICAL_TEXT_CHARS:
+        text = "a fact stored before the commit limit existed"
     payload = call_mcp_tool(
         context,
         name="alice_memory_commit",
@@ -113,7 +126,11 @@ def _commit(context, *, title: str, text: str, sensitivity: str, project: str, d
         },
     )
     assert payload["status"] == "committed", payload
-    return str(payload["memory"]["id"])
+    memory_id = str(payload["memory"]["id"])
+    if stored_text != text:
+        with _vnext_store_context(context) as store:
+            store.update_memory(memory_id=memory_id, patch={"canonical_text": stored_text})
+    return memory_id
 
 
 def _compile(tmp_path: Path, **kwargs) -> str:

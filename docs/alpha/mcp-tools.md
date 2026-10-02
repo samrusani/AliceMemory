@@ -421,6 +421,14 @@ Who is calling decides what to pass:
   `project` domain, and `read_only_agent` callers cannot write. Full
   profile semantics: [agent-integration.md](agent-integration.md).
 
+The text of a new write, `canonical_text`, is at most 20,000 characters, the
+number the Postgres HTTP commit routes already used. Unreleased (on main, not
+in v0.20.0): a longer text is refused with the tool error `invalid_request` and
+a message that gives the count and the limit, and nothing is saved. In v0.20.0
+the MCP tool had no limit on SQLite, and a 2,000,000-character memory was
+stored whole. Runs of whitespace are collapsed to one space before the text is
+counted, which is how it is stored.
+
 Alice decides the outcome, never the caller:
 
 - `committed`: direct active memory with provenance, event log, revision.

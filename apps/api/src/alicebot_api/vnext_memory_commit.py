@@ -52,6 +52,7 @@ from alicebot_api.vnext_lifecycle import (
 )
 from alicebot_api.vnext_memory_version import memory_matches_snapshot
 from alicebot_api.write_bounds import (
+    MAX_COMMIT_CANONICAL_TEXT_CHARS as _MAX_COMMIT_CANONICAL_TEXT_CHARS,
     MAX_COMMIT_SOURCE_REF_CHARS as _MAX_COMMIT_SOURCE_REF_CHARS,
     MAX_COMMIT_SOURCE_REFS as _MAX_COMMIT_SOURCE_REFS,
 )
@@ -265,10 +266,32 @@ VALID_TO_UNBOUNDED_SENTINEL = "9999-12-31T23:59:59Z"
 # the same numbers; re-exported here, where the one enforcer lives.
 MAX_COMMIT_SOURCE_REFS = _MAX_COMMIT_SOURCE_REFS
 MAX_COMMIT_SOURCE_REF_CHARS = _MAX_COMMIT_SOURCE_REF_CHARS
+MAX_COMMIT_CANONICAL_TEXT_CHARS = _MAX_COMMIT_CANONICAL_TEXT_CHARS
 
 
 class VNextMemoryCommitValidationError(ValueError):
     """Raised when an agentic memory commit request is invalid."""
+
+
+class MemoryCommitTextTooLarge(VNextMemoryCommitValidationError):
+    """``canonical_text`` is longer than a memory commit takes.
+
+    The limit is ``MAX_COMMIT_CANONICAL_TEXT_CHARS``, the number the Postgres HTTP
+    models have always used. ``public_message`` holds the count and the limit and
+    fixed words, never the text, so a caller can return it to an agent as it is.
+    """
+
+    def __init__(self, *, measured: int, limit: int) -> None:
+        self.measured = measured
+        self.limit = limit
+        super().__init__(
+            f"canonical_text is {measured} characters; the limit is {limit}. "
+            "Shorten it, or commit it as separate memories."
+        )
+
+    @property
+    def public_message(self) -> str:
+        return str(self)
 
 
 class IdempotencyKeyConflictError(VNextMemoryCommitValidationError):
@@ -441,6 +464,20 @@ def _normalized_text(value: object, *, field_name: str) -> str:
     if normalized == "":
         raise VNextMemoryCommitValidationError(f"{field_name} must not be empty")
     return normalized
+
+
+def _commit_canonical_text(value: object) -> str:
+    """The text of a new memory, collapsed the way it is stored, refused when it is too long.
+
+    The length is of the collapsed text, which is what the memory holds. Collapsing never
+    makes a text longer, so a text the Postgres HTTP model takes (at most the same number of
+    characters as sent) is always taken here.
+    """
+
+    text = _normalized_text(value, field_name="canonical_text")
+    if len(text) > MAX_COMMIT_CANONICAL_TEXT_CHARS:
+        raise MemoryCommitTextTooLarge(measured=len(text), limit=MAX_COMMIT_CANONICAL_TEXT_CHARS)
+    return text
 
 
 def _enum_token(value: str) -> str:
@@ -3744,7 +3781,7 @@ def memory_commit_request_from_payload(payload: Mapping[str, object], *, user_id
     return MemoryCommitRequest(
         user_id=str(user_id),
         title=_normalized_text(payload.get("title"), field_name="title"),
-        canonical_text=_normalized_text(payload.get("canonical_text"), field_name="canonical_text"),
+        canonical_text=_commit_canonical_text(payload.get("canonical_text")),
         memory_type=_enum_value(
             payload.get("memory_type", "semantic"),
             field_name="memory_type",
@@ -3785,6 +3822,7 @@ __all__ = [
     "VALID_TO_UNBOUNDED_SENTINEL",
     "MemoryCommitPolicyDecision",
     "MemoryCommitRequest",
+    "MemoryCommitTextTooLarge",
     "VNextMemoryCommitService",
     "VNextMemoryCommitValidationError",
     "VNEXT_DOMAINS",

@@ -30,8 +30,10 @@ SOURCE_RECEIPTS = {
     "apps/api/src/alicebot_api/vnext_stores/postgres/query_predicates.py": (
         "f0ec9c7f13bc7bf93f5a3beaa86916a04e45200ef0296d6f9288eed3912be33d"
     ),
+    # Re-minted for ``get_memory_by_key(include_deleted=...)`` (reviewed change, not drift; see the SQLite
+    # entry below). Previous Postgres receipt 49748ecd...
     "apps/api/src/alicebot_api/vnext_stores/postgres/memory_access.py": (
-        "49748ecd931bd0d1e28e28cc77534c700e8b9362c3f015970a73bb75733e1719"
+        "f642880f44eaaa7d8fa6ed10dbb1e609b791eb0fa8902c934ec9fa41f4e6cdd3"
     ),
     "apps/api/src/alicebot_api/vnext_stores/sqlite/query_predicates.py": (
         "aada597da76324ec05a118f95c2b26441b076771a0e53b8d45f08eefb656bbb4"
@@ -49,8 +51,13 @@ SOURCE_RECEIPTS = {
     # drift): ``list_memories`` and ``count_memories`` take ``include_expired``,
     # and the roll-up input list and count and the accepted-card lookup leave out a
     # memory whose ``valid_to`` has passed, with recall's own test.
+    # Both carriers were re-minted once more for ``get_memory_by_key``, which takes ``include_deleted`` (false
+    # by default, so every caller reads what it read before): a soft-deleted row still holds its memory key in
+    # the unique index, and the roll-up pass reads the key with ``include_deleted=True`` so a card archived
+    # through ``update_memory`` is seen instead of raising on create (reviewed change, not drift). Previous
+    # SQLite receipt 3bb85f64...
     "apps/api/src/alicebot_api/vnext_stores/sqlite/memory_access.py": (
-        "3bb85f649be41c4f8759068bf5e5a49f113b9dd7435cb241b5a24e26c65e73d0"
+        "3d2f1732f9f227aebe4353f93a28b8fd98489b7b861d617415b82138ebc7191c"
     ),
 }
 
