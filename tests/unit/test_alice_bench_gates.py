@@ -189,3 +189,4 @@ def test_the_ci_time_budget_matches_the_workflow_it_describes() -> None:
     measured = budget["measured_seconds"]
     assert measured["min"] <= measured["median"] <= measured["max"] < budget["split_threshold_minutes"] * 60
     assert budget["measured_runs"] >= 10
+    assert budget["p0a_tests"]["seconds_measured_locally"] < budget["new_test_budget_seconds"]

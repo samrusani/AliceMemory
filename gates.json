@@ -114,6 +114,12 @@
     "timeout_minutes": 20,
     "split_threshold_minutes": 17,
     "new_test_budget_seconds": 90,
+    "p0a_tests": {
+      "files": 5,
+      "count": 59,
+      "seconds_measured_locally": 8,
+      "note": "The tests of the harness pull request, run alone on a laptop. The CI cost is read from the python-unit job of that pull request against the measured range above."
+    },
     "rule": "The tests of the search-quality release add at most new_test_budget_seconds to this job. The on-mode job is a separate job and runs in parallel. If the job passes split_threshold_minutes, the first pull request to cross the line splits the unit tests by directory before another test lands."
   },
   "hashes": {
