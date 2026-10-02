@@ -39,20 +39,25 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 
 import alicebot_api.cli as cli_module
 from alicebot_api import session_briefing, vnext_queue
 from alicebot_api.config import Settings
+from alicebot_api.mcp import evidence_artifacts as mcp_evidence_artifacts
 from alicebot_api.mcp import retrieval as mcp_retrieval
+from alicebot_api.mcp import runtime as mcp_runtime
 from alicebot_api.mcp.registry import call_mcp_tool
 from alicebot_api.mcp_tools import AGENT_API_KEY_ENV, MCPRuntimeContext
 from alicebot_api.onramp import bootstrap_database, resolve_db_path, sqlite_url_for_path
+from alicebot_api.routers import _vnext_embeddings as route_embeddings
+from alicebot_api.routers import vnext_review as vnext_review_router
 from alicebot_api.session_briefing import FACT_LIMIT, compile_local_session_brief, compile_session_brief
 from alicebot_api.sqlite_schema import bootstrap_sqlite_schema
 from alicebot_api.sqlite_store import SQLiteVNextStore, ensure_sqlite_user, sqlite_user_connection
+from alicebot_api.vnext_agent_control import PolicyDecision
 from alicebot_api.vnext_artifact_review import dispatch_vnext_artifact_review
 from alicebot_api.vnext_consolidation import MemoryConsolidationRequest, VNextConsolidationService
 from alicebot_api.vnext_embeddings import (
@@ -72,6 +77,7 @@ from alicebot_api.vnext_recall_visibility import (
     postgres_unexpired_sql,
 )
 from alicebot_api.vnext_rollups import ROLLUP_CANDIDATE_KIND, VNextRollupService
+from alicebot_api.vnext_scheduler import SchedulerRunRequest, VNextSchedulerService
 from alicebot_api.vnext_store import PostgresVNextStore
 from tests.unit.test_reindex_live_memories_only import (
     _configure,
@@ -1008,15 +1014,175 @@ def test_an_expired_card_is_not_the_accepted_card_and_does_not_make_the_pass_rai
         assert len(fourth.proposals) == 1 and fourth.proposals[0]["revises_memory_id"] is None
 
 
-def test_a_closed_card_is_only_held_back_when_it_is_active_or_accepted_and_expired() -> None:
-    """``_expired_card_for_digest`` names a card whose status recall reads and whose window has closed, and nothing else.
+def test_a_card_the_staleness_sweep_marked_stale_still_holds_its_unchanged_group_back() -> None:
+    """After the sweep marks the expired card stale, the pass still reports its unchanged group and does not raise.
 
-    A card with an open window, a card that is not in a searchable status (a rejected one that also carries a
-    ``valid_to``, which is another state with its own handling) and a key no row holds are all passed over, and so is
-    a store with no ``get_memory_by_key``.
+    The first pass proposes a card for four game memories, the card is made active as an accepted one would be, and
+    ``expire`` closes it. The staleness sweep then runs for real over the store: it marks the card ``stale`` and keeps
+    its ``valid_to``. The card is now in a status no accepted-card read returns, but it still holds the memory key of
+    its digest, so a pass that proposed the unchanged group again would raise on that key, as it did in v0.20.0. The
+    pass reports ``expired_card_members_unchanged`` and names the stale card. A fifth memory changes the members, so
+    the next pass proposes a new card, and it is not a revision of the stale one.
 
-    Mutations, each one alone: drop the status test (the rejected card is named); drop the window test (the open card
-    is named); read the key from anything but ``vnext.rollup.{digest}``.
+    Mutations, each one alone: put the status test back into ``_expired_card_for_digest``
+    (``str(row.get("status")) not in MEMORY_SEARCHABLE_STATUSES``), which makes the pass after the sweep raise
+    ``IntegrityError`` on the card's key; delete the ``_expired_card_for_digest`` check from ``propose_rollups`` (same).
+    """
+
+    from tests.unit.test_vnext_rollups import _rollup_candidates, _seed_game_memories
+
+    with _memory_store() as store:
+        _seed_game_memories(store, order=(0, 1, 2, 3))
+        service = VNextRollupService(store, embedding_provider=None)
+        assert len(service.propose_rollups().proposals) == 1
+        card = _rollup_candidates(store)[0]
+        card_id = str(card["id"])
+        store.conn.execute("UPDATE memories SET status = 'active' WHERE id = ?", (card_id,))
+        VNextMemoryCommitService(store).expire(card_id, valid_to=PAST, reason="no longer true")
+
+        report = VNextSchedulerService(_ArtifactShim(store))._run_staleness_sweep(  # type: ignore[arg-type]
+            SchedulerRunRequest(workflow_type="staleness_sweep"), metadata={}
+        )
+        assert report["metadata_json"]["stale_marked_memory_ids"] == [card_id]
+        swept = store.get_memory(card_id)
+        assert swept is not None and swept["status"] == "stale" and swept["valid_to"] is not None
+
+        after_sweep = service.propose_rollups()
+        assert after_sweep.proposals == []
+        assert [group["state"] for group in after_sweep.groups] == ["expired_card_members_unchanged"]
+        assert after_sweep.groups[0]["expired_memory_id"] == card_id
+
+        _seed_game_memories(store, order=(4,))
+        changed = service.propose_rollups()
+        assert [group["state"] for group in changed.groups] == ["created"]
+        assert len(changed.proposals) == 1 and changed.proposals[0]["revises_memory_id"] is None
+
+
+def test_the_pass_hands_its_own_fence_to_the_expired_card_read(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``propose_rollups`` gives ``_expired_card_for_digest`` the domains, sensitivity ceiling and projects it was called with.
+
+    Four game memories sit in project ``alpha``, domain ``project`` and sensitivity ``internal``, and the pass runs
+    under a fence that takes them in and is not the default. The first pass makes the card, ``expire`` closes it,
+    and the next pass reaches the read. The read gets the pass's own fence and the group's roll-up key, and the real
+    read names the card, so the fence does not shut out the very card the pass made.
+
+    Mutations, each one alone, at the ``_expired_card_for_digest`` call in ``propose_rollups``: pass ``domains=None``,
+    pass ``sensitivity_allowed=list(ALL_SENSITIVITY)``, pass ``projects=()``, pass a fixed ``rollup_key``.
+    """
+
+    from tests.unit.test_vnext_rollups import GAME_SPECS, _rollup_candidates
+
+    fence = {"domains": ["project"], "sensitivity_allowed": ["internal", "private"], "projects": ("alpha",)}
+    calls: list[dict[str, object]] = []
+    original = VNextRollupService._expired_card_for_digest
+
+    def spy(self: VNextRollupService, rollup_digest: str, **kwargs: object) -> dict[str, object] | None:
+        calls.append(kwargs)
+        return original(self, rollup_digest, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(VNextRollupService, "_expired_card_for_digest", spy)
+    with _memory_store() as store:
+        for index, (_key, text, session_date, _speaker) in enumerate(GAME_SPECS[:4]):
+            store.create_memory(
+                {
+                    "memory_key": f"memory.alpha.{index}",
+                    "value": {"text": text},
+                    "status": "active",
+                    "memory_type": "episode",
+                    "title": text,
+                    "canonical_text": text,
+                    "summary": text,
+                    "domain": "project",
+                    "sensitivity": "internal",
+                    "project_id": "alpha",
+                    "metadata_json": {"session_date": session_date, "project_scope": ["alpha"]},
+                }
+            )
+        service = VNextRollupService(store, embedding_provider=None)
+        assert len(service.propose_rollups(**fence).proposals) == 1  # type: ignore[arg-type]
+        card = _rollup_candidates(store)[0]
+        store.conn.execute("UPDATE memories SET status = 'active' WHERE id = ?", (card["id"],))
+        _expire(store, str(card["id"]))
+        calls.clear()
+
+        held = service.propose_rollups(**fence)  # type: ignore[arg-type]
+        assert [group["state"] for group in held.groups] == ["expired_card_members_unchanged"]
+        assert held.groups[0]["expired_memory_id"] == str(card["id"])
+        assert calls == [{"rollup_key": held.groups[0]["rollup_key"], **fence}]
+
+
+def _digest_card(
+    store: SQLiteVNextStore,
+    digest: str,
+    *,
+    rollup_key: str = "topic:games",
+    status: str = "active",
+    valid_to: str | None = PAST,
+    domain: str = "project",
+    sensitivity: str = "private",
+    project: str | None = None,
+    candidate_kind: str = ROLLUP_CANDIDATE_KIND,
+) -> dict[str, object]:
+    """One roll-up card holding the memory key a pass derives from ``digest``."""
+
+    metadata: dict[str, object] = {"candidate_kind": candidate_kind, "rollup_key": rollup_key, "rollup_digest": digest}
+    if project is not None:
+        metadata["project_scope"] = [project]
+    return store.create_memory(
+        {
+            "memory_key": f"vnext.rollup.{digest}",
+            "value": {"text": digest},
+            "memory_type": "semantic",
+            "title": digest,
+            "canonical_text": digest,
+            "status": status,
+            "domain": domain,
+            "sensitivity": sensitivity,
+            "project_id": project,
+            "valid_to": valid_to,
+            "metadata_json": metadata,
+        }
+    )
+
+
+def _expired_card(service: VNextRollupService, digest: str, **fence: object) -> dict[str, object] | None:
+    """What ``_expired_card_for_digest`` names for ``digest`` under a fence that lets everything through, with overrides."""
+
+    arguments: dict[str, object] = {
+        "rollup_key": "topic:games",
+        "domains": None,
+        "sensitivity_allowed": list(ALL_SENSITIVITY),
+        "projects": (),
+    }
+    arguments.update(fence)
+    return service._expired_card_for_digest(digest, **arguments)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("status", ["candidate", "active", "accepted", "stale", "rejected", "superseded", "archived"])
+def test_a_card_whose_window_has_closed_is_held_back_in_every_status(status: str) -> None:
+    """``_expired_card_for_digest`` names the card at the digest key once its window has closed, whatever its status.
+
+    The row holds the memory key in every status, so a new card for the same members collides with it. The case
+    that matters most is ``stale``: the staleness sweep marks an expired ``active`` card stale and leaves its
+    ``valid_to``, and the next pass must still hold the group back.
+
+    Mutation: put the status test back (``str(row.get("status")) not in MEMORY_SEARCHABLE_STATUSES``, returning
+    nothing for a status other than ``active`` and ``accepted``), which fails the ``candidate``, ``stale``,
+    ``rejected``, ``superseded`` and ``archived`` cases.
+    """
+
+    with _memory_store() as store:
+        card = _digest_card(store, "digest-closed", status=status)
+        named = _expired_card(VNextRollupService(store, embedding_provider=None), "digest-closed")
+        assert named is not None and named["id"] == card["id"]
+
+
+def test_a_card_that_is_open_or_absent_is_not_held_back() -> None:
+    """``_expired_card_for_digest`` names nothing for a card with an open window, a key no row holds, or a store with no key lookup.
+
+    Mutations, each one alone: drop the ``memory_window_is_open`` test (the open card is named); delete the
+    ``callable(getter)`` test (the store with no key lookup raises); read the key from anything but
+    ``vnext.rollup.{digest}`` (``vnext.rollup.{rollup_key}``: the closed card is not found).
     """
 
     class WithoutKeyLookup:
@@ -1024,28 +1190,88 @@ def test_a_closed_card_is_only_held_back_when_it_is_active_or_accepted_and_expir
 
     with _memory_store() as store:
         service = VNextRollupService(store, embedding_provider=None)
-        digests = {name: f"digest-{name}" for name in ("expired", "open", "rejected")}
-        for name, digest in digests.items():
-            row = store.create_memory(
-                {
-                    "memory_key": f"vnext.rollup.{digest}",
-                    "value": {"text": name},
-                    "memory_type": "semantic",
-                    "title": name,
-                    "canonical_text": name,
-                    "status": "rejected" if name == "rejected" else "active",
-                    "domain": "project",
-                    "sensitivity": "private",
-                    "valid_to": FAR_FUTURE if name == "open" else PAST,
-                }
-            )
-            digests[name] = digest
-            assert row["id"]
-        named = {name: service._expired_card_for_digest(digest) for name, digest in digests.items()}
-        assert named["expired"] is not None and named["expired"]["memory_key"] == "vnext.rollup.digest-expired"
-        assert named["open"] is None and named["rejected"] is None
-        assert service._expired_card_for_digest("digest-no-row") is None
-        assert VNextRollupService(WithoutKeyLookup(), embedding_provider=None)._expired_card_for_digest("x") is None  # type: ignore[arg-type]
+        _digest_card(store, "digest-open", valid_to=FAR_FUTURE)
+        _digest_card(store, "digest-closed")
+        assert _expired_card(service, "digest-open") is None
+        assert _expired_card(service, "digest-no-row") is None
+        assert _expired_card(service, "digest-closed") is not None
+        assert (
+            _expired_card(VNextRollupService(WithoutKeyLookup(), embedding_provider=None), "digest-closed")  # type: ignore[arg-type]
+            is None
+        )
+
+
+@pytest.mark.parametrize(
+    ("card", "outside", "inside"),
+    [
+        pytest.param({"domain": "personal"}, {"domains": ["project"]}, {"domains": ["personal"]}, id="domain"),
+        pytest.param(
+            {"sensitivity": "private"},
+            {"sensitivity_allowed": ["public", "internal"]},
+            {"sensitivity_allowed": ["public", "internal", "private"]},
+            id="sensitivity",
+        ),
+        pytest.param({"project": "alpha"}, {"projects": ("beta",)}, {"projects": ("alpha",)}, id="project"),
+    ],
+)
+def test_a_closed_card_outside_the_fence_of_the_pass_is_not_named(
+    card: dict[str, object], outside: dict[str, object], inside: dict[str, object]
+) -> None:
+    """The domain, the sensitivity ceiling and the projects of the pass each keep a closed card from being named.
+
+    The accepted-card read takes all three, so this read does too. The card is a real closed roll-up card at the
+    digest key. Outside the fence nothing is named, and a pass whose fence takes the card in names it. A card whose
+    domain is ``unknown`` is inside any domain list, as in the accepted-card read.
+
+    Mutations, each one alone, in the ``_scoped_rows`` call of ``_expired_card_for_digest``: pass ``domains=None``
+    (the ``domain`` case fails), pass ``sensitivity_allowed=list(ALL_SENSITIVITY)`` (the ``sensitivity`` case
+    fails), pass ``projects=()`` (the ``project`` case fails). Deleting the ``_scoped_rows`` call fails all three.
+    """
+
+    with _memory_store() as store:
+        service = VNextRollupService(store, embedding_provider=None)
+        row = _digest_card(store, "digest-fenced", **card)  # type: ignore[arg-type]
+        assert _expired_card(service, "digest-fenced", **outside) is None
+        named = _expired_card(service, "digest-fenced", **inside)
+        assert named is not None and named["id"] == row["id"]
+        assert _expired_card(service, "digest-fenced") is not None
+        unknown = _digest_card(store, "digest-unknown-domain", domain="unknown")
+        named_unknown = _expired_card(service, "digest-unknown-domain", domains=["project"])
+        assert named_unknown is not None and named_unknown["id"] == unknown["id"]
+
+
+def test_a_row_at_the_digest_key_that_is_not_this_groups_rollup_card_is_not_named() -> None:
+    """A closed row that is not a roll-up card, or is the card of another roll-up key, is not named.
+
+    The accepted-card read asks for the roll-up candidate kind and the requested roll-up keys, so this read does too.
+
+    Mutations, each one alone: delete the ``_is_rollup_card`` test (the row of another kind is named); delete the
+    ``rollup_key`` comparison (the card of another key is named).
+    """
+
+    with _memory_store() as store:
+        service = VNextRollupService(store, embedding_provider=None)
+        _digest_card(store, "digest-other-kind", candidate_kind="consolidation_candidate")
+        _digest_card(store, "digest-other-key", rollup_key="topic:cooking")
+        _digest_card(store, "digest-this-key")
+        assert _expired_card(service, "digest-other-kind") is None
+        assert _expired_card(service, "digest-other-key") is None
+        assert _expired_card(service, "digest-this-key") is not None
+
+
+def test_every_control_of_the_expired_card_read_is_a_required_keyword_argument() -> None:
+    """``_expired_card_for_digest`` takes the roll-up key, the domains, the sensitivity ceiling and the projects as required keywords.
+
+    A caller cannot leave one out (and mypy rejects it), the way the brief's store protocol requires
+    ``include_expired``.
+
+    Mutation: give any of the four a default (``projects: tuple[str, ...] = ()``), or make one positional-or-keyword.
+    """
+
+    parameters = inspect.signature(VNextRollupService._expired_card_for_digest).parameters
+    for name in ("rollup_key", "domains", "sensitivity_allowed", "projects"):
+        assert parameters[name].kind is inspect.Parameter.KEYWORD_ONLY, name
+        assert parameters[name].default is inspect.Parameter.empty, name
 
 
 # ---------------------------------------------------------------------------
@@ -1186,6 +1412,90 @@ def test_the_review_command_embeds_the_promoted_memory_after_the_commit(
         assert code == 0 and payload["status"] == "promoted_to_memory"
         assert sum(_marker("promoted") in text for text in server.texts) == 1 and len(server.texts) == 1
         assert _vectors_present(db_path)[payload["promoted_memory_id"]] is True
+
+
+def test_the_mcp_review_tool_embeds_the_promoted_memory_after_the_commit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``alice_vnext_artifact_review`` with ``promote`` sends the promoted text once and stores its vector.
+
+    The tool runs against the SQLite store with in-memory artifacts, through the store context of the MCP
+    handler and the one the persist helper reopens after the commit. The dispatcher sends nothing while it holds
+    the review transaction, so the text the endpoint receives comes from the handler's persist call.
+
+    Mutations, each one alone: delete the ``_persist_vnext_deferred_embedding_inputs`` call from
+    ``_handle_alice_vnext_artifact_review`` (nothing is sent, no vector); delete the
+    ``deferred_embedding_inputs = result.deferred_embedding_inputs`` line there (the persist call gets nothing).
+    """
+
+    db_path, artifact_id = _artifact_vault(tmp_path)
+
+    @contextmanager
+    def store_context(_context: object) -> Iterator[SQLiteVNextStore]:
+        with sqlite_user_connection(db_path, USER) as connection:
+            yield _ArtifactStore(connection, USER)
+
+    monkeypatch.setattr(mcp_evidence_artifacts, "_vnext_store_context", store_context)
+    monkeypatch.setattr(mcp_runtime, "_vnext_store_context", store_context)
+    monkeypatch.setenv("ALICE_MCP_LEGACY_TOOLS", "1")
+    context = MCPRuntimeContext(database_url=sqlite_url_for_path(db_path), user_id=USER)
+    with _RecordingEmbeddingsServer() as server:
+        _configure(monkeypatch, server)
+        payload = call_mcp_tool(
+            context,
+            name="alice_vnext_artifact_review",
+            arguments={"artifact_id": artifact_id, "action": "promote"},
+        )
+        assert payload["status"] == "promoted_to_memory"
+        assert sum(_marker("promoted") in text for text in server.texts) == 1 and len(server.texts) == 1
+        assert _vectors_present(db_path)[str(payload["promoted_memory_id"])] is True
+
+
+def test_the_review_route_embeds_the_promoted_memory_after_the_commit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``POST /v0/vnext/artifacts/{id}/review`` with ``promote`` sends the promoted text once and stores its vector.
+
+    The route handler runs against the SQLite store with in-memory artifacts, standing in for the Postgres
+    connection, and the persist helper reopens the same store after the commit. The text reaches the endpoint
+    only through the route's persist call.
+
+    Mutations, each one alone: delete the ``_persist_vnext_deferred_embeddings`` call from ``review_vnext_artifact``;
+    turn its ``if review_result is not None and review_result.deferred_embedding_inputs:`` guard into ``if False:``
+    (nothing is sent in either case, and no vector is stored).
+    """
+
+    db_path, artifact_id = _artifact_vault(tmp_path)
+    decision = PolicyDecision(decision="allowed", action="artifact.review", permission_profile="admin_agent", trace_id="t")
+
+    @contextmanager
+    def user_connection(_database_url: str, _user_id: object) -> Iterator[sqlite3.Connection]:
+        with sqlite_user_connection(db_path, USER) as connection:
+            yield connection
+
+    @contextmanager
+    def embedding_store_context(_database_url: str, _user_id: object) -> Iterator[SQLiteVNextStore]:
+        with sqlite_user_connection(db_path, USER) as connection:
+            yield _ArtifactStore(connection, USER)
+
+    monkeypatch.setattr(vnext_review_router, "get_settings", lambda: Settings(database_url="postgresql://db"))
+    monkeypatch.setattr(vnext_review_router, "user_connection", user_connection)
+    monkeypatch.setattr(vnext_review_router, "PostgresVNextStore", lambda conn: _ArtifactStore(conn, USER))
+    monkeypatch.setattr(vnext_review_router, "_vnext_authenticated_agent_identity", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        vnext_review_router, "_vnext_authorized_artifact", lambda **_kwargs: ({"id": artifact_id}, decision)
+    )
+    monkeypatch.setattr(route_embeddings, "_vnext_embedding_store_context", embedding_store_context)
+    with _RecordingEmbeddingsServer() as server:
+        _configure(monkeypatch, server)
+        response = vnext_review_router.review_vnext_artifact(
+            artifact_id,  # type: ignore[arg-type]
+            vnext_review_router.VNextArtifactReviewRequest(user_id=UUID(USER), action="promote"),
+        )
+        payload = json.loads(response.body)
+        assert response.status_code == 200 and payload["status"] == "promoted_to_memory"
+        assert sum(_marker("promoted") in text for text in server.texts) == 1 and len(server.texts) == 1
+        assert _vectors_present(db_path)[str(payload["promoted_memory_id"])] is True
 
 
 def test_the_queue_service_embeds_in_place_when_nothing_defers_it(

@@ -177,7 +177,6 @@ from alicebot_api.vnext_memory_version import (
 )
 from alicebot_api.vnext_project_scope import project_scope_identity
 from alicebot_api.vnext_recall_visibility import (
-    MEMORY_SEARCHABLE_STATUSES,
     drop_expired_memories,
     memory_window_is_open,
 )
@@ -2387,7 +2386,15 @@ class VNextRollupService:
                 )
         return pending, accepted
 
-    def _expired_card_for_digest(self, rollup_digest: str) -> JsonObject | None:
+    def _expired_card_for_digest(
+        self,
+        rollup_digest: str,
+        *,
+        rollup_key: str,
+        domains: list[str] | None,
+        sensitivity_allowed: list[str],
+        projects: tuple[str, ...],
+    ) -> JsonObject | None:
         """The card an earlier pass made for exactly these members, if its validity window has closed.
 
         A card's ``memory_key`` is derived from its digest, so a proposal for members that have not
@@ -2397,6 +2404,16 @@ class VNextRollupService:
         card, this keeps an unchanged group from being proposed again under the same key: it is
         reported, and left alone, until its members change. A store with no ``get_memory_by_key``
         reports nothing, as before.
+
+        The status of the card is not tested. Its row holds the key whatever the status, and the
+        staleness sweep moves an expired card from ``active`` to ``stale`` while it keeps its
+        ``valid_to``, so a test for a searchable status would let the pass raise on the key as soon
+        as the sweep had run.
+
+        This read applies every other control the accepted-card read applies, and the fence is a
+        required keyword-only argument so a caller cannot leave one out: the row must be a roll-up
+        card, for this group's key, inside the domains, the sensitivity ceiling and the projects of
+        the pass. A card outside any of them is not named.
         """
 
         getter = getattr(self.store, "get_memory_by_key", None)
@@ -2405,7 +2422,19 @@ class VNextRollupService:
         row = getter(memory_key=f"vnext.rollup.{rollup_digest}")
         if row is None:
             return None
-        if str(row.get("status") or "") not in MEMORY_SEARCHABLE_STATUSES or memory_window_is_open(row):
+        if memory_window_is_open(row):
+            return None
+        if not _is_rollup_card(row):
+            return None
+        metadata = row.get("metadata_json")
+        if not isinstance(metadata, dict) or metadata.get("rollup_key") != rollup_key:
+            return None
+        if not _scoped_rows(
+            [row],
+            domains=domains,
+            sensitivity_allowed=sensitivity_allowed,
+            projects=projects,
+        ):
             return None
         return row
 
@@ -2788,7 +2817,13 @@ class VNextRollupService:
                 outcome.candidate_ids.append(pending[rollup_digest])
                 continue
 
-            expired_card = self._expired_card_for_digest(rollup_digest)
+            expired_card = self._expired_card_for_digest(
+                rollup_digest,
+                rollup_key=group.rollup_key,
+                domains=domains,
+                sensitivity_allowed=sensitivity,
+                projects=projects,
+            )
             if expired_card is not None:
                 group_record["state"] = "expired_card_members_unchanged"
                 group_record["expired_memory_id"] = str(expired_card.get("id"))

@@ -53,6 +53,21 @@ def _memory(
 
 
 def test_the_postgres_reads_leave_out_an_expired_memory_before_the_limit(migrated_database_urls) -> None:
+    """The list, the count, the resume events and the roll-up input list and count skip an expired memory, before ``LIMIT``.
+
+    Three active memories are made and the newest is expired. Asked for one row, each read must return the
+    newest open memory, and each count must be 2 (the management default, which keeps ``include_expired=True``,
+    still sees all 3).
+
+    Mutations, each one alone: drop ``{expiry_sql}`` from ``list_memories`` (the one-row list returns the expired
+    memory); drop ``{expiry_sql}`` from ``count_memories`` (the count is 3); drop ``AND {POSTGRES_UNEXPIRED_SQL}``
+    from ``list_rollup_input_memories`` (the one-row list returns the expired memory) or from
+    ``count_rollup_input_memories`` (the count is 3); drop the ``m.`` alias test from ``list_resume_memory_events``
+    in ``vnext_store.py`` (the one-row event list names the expired memory); flip the comparison in
+    ``postgres_unexpired_sql`` to ``<`` (the memory with a future ``valid_to`` is left out and the expired one is
+    kept).
+    """
+
     app_url = migrated_database_urls["app"]
     user_id = uuid4()
     gone_at = datetime.now(UTC) - timedelta(seconds=1)
@@ -89,6 +104,16 @@ def test_the_postgres_reads_leave_out_an_expired_memory_before_the_limit(migrate
 def test_the_postgres_accepted_card_lookup_picks_the_open_card_when_the_newest_has_expired(
     migrated_database_urls,
 ) -> None:
+    """``list_accepted_rollup_cards`` ranks only unexpired cards, so an older open card is returned when the newest has expired.
+
+    Two cards share a roll-up key and the newer one is expired, so the older one is the accepted card. When the
+    older card is expired too, there is no accepted card.
+
+    Mutations, each one alone: drop ``AND {POSTGRES_UNEXPIRED_SQL}`` from the ``DISTINCT ON`` query of
+    ``list_accepted_rollup_cards`` (the lookup returns the expired newer card, then the expired older one);
+    flip the comparison in ``postgres_unexpired_sql`` to ``<`` (the expired newer card is returned).
+    """
+
     app_url = migrated_database_urls["app"]
     user_id = uuid4()
     key = f"topic:games:{uuid4()}"
