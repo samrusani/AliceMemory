@@ -144,12 +144,17 @@ EXPECTED_CLASS_KEY_SHA256 = {
     # SQLite only on purpose: the Postgres source search has no expression-depth
     # or LIKE-length limit to check. Both are re-minted again for the paired
     # ``list_memories_referencing_sources`` method.
-    "postgres": "650e2e0ff088d67c20c5eb57cb3919803310e1e382cb1d37e5e0c40220b810a0",
+    # Re-minted for the per-file importer savepoint (2026-10-02): ``savepoint`` is appended last on both façades.
+    # Previous receipt: 650e2e0ff088d67c... Proof: the class key list equals the list at origin/main 040a2a10
+    # plus ``savepoint`` before ``__dict__``, with every other key in the same order.
+    "postgres": "3d2cd1d2fbb766ea4b5f9bf700fe6c0ccdc5fea9705092f82ead06c3ab635e50",
     # Re-minted for the merge of #500 and #502: ``check_literal_match_query``.
     # Re-minted again for per-project memory S2 (2026-10-02): the two single-scan partition reads
     # ``list_memories_view_partitions`` and ``list_open_loops_view_partitions``, SQLite only on purpose
     # (the Postgres runtime resolves no project view).
-    "sqlite": "365b7a01acf7a8b5dba5b18450fc522288a51756b43cab98b62bff5c86ba5f22",
+    # Re-minted again for the per-file importer savepoint (2026-10-02), the same appended method.
+    # Previous receipt: 365b7a01acf7a8b5... Proof: as for postgres, one added key and no other change.
+    "sqlite": "e837e40125b4aeb2a135d93cc510b8dbe4c9be397500c971bcbec951ffb561b0",
 }
 EXPECTED_SUPPORT_AST_SHA256 = {
     "postgres_columns": {
