@@ -2106,9 +2106,14 @@ def test_deferred_embedding_provider_call_happens_between_transactions(monkeypat
 
 
 def test_local_folder_scan_happens_before_cli_transaction(monkeypatch) -> None:
+    from alicebot_api.vnext_connectors import LocalFolderScan
+
     transaction_depth = 0
     calls: list[str] = []
-    scan_result = object()
+    # A real scan: the command prints its refused_count and truncated after the sync.
+    scan_result = LocalFolderScan(
+        items=(), path_count=1, ignored_count=0, recursive=True, extensions=(".md",), refused_count=2, truncated=True
+    )
 
     @contextmanager
     def fake_vnext_store_context(_ctx):
@@ -2156,6 +2161,8 @@ def test_local_folder_scan_happens_before_cli_transaction(monkeypatch) -> None:
     payload = json.loads(args.handler(context, args))
 
     assert payload["status"] == "ok"
+    assert payload["refused_count"] == 2
+    assert payload["truncated"] is True
     assert calls == ["scan", "transaction_open", "persist", "transaction_closed"]
 
 
@@ -3488,9 +3495,9 @@ def test_backfill_embeddings_cli_embeds_missing_memories_in_batches(monkeypatch)
             self.embedding_updates: list[tuple[str, list[float]]] = []
             self.embedding_signatures: list[dict[str, object]] = []
             self.missing = [
-                {"id": "00000000-0000-4000-8000-000000000001", "title": "One", "canonical_text": "First fact."},
-                {"id": "00000000-0000-4000-8000-000000000002", "title": "Two", "canonical_text": "Second fact."},
-                {"id": "00000000-0000-4000-8000-000000000003", "title": "", "canonical_text": "  "},
+                {"status": "active", "id": "00000000-0000-4000-8000-000000000001", "title": "One", "canonical_text": "First fact."},
+                {"status": "active", "id": "00000000-0000-4000-8000-000000000002", "title": "Two", "canonical_text": "Second fact."},
+                {"status": "active", "id": "00000000-0000-4000-8000-000000000003", "title": "", "canonical_text": "  "},
             ]
 
         def list_memories_missing_embeddings(
@@ -3580,6 +3587,7 @@ def test_backfill_embeddings_cli_exits_nonzero_when_any_batch_fails(monkeypatch,
             return [
                 {
                     "id": "00000000-0000-4000-8000-000000000001",
+                    "status": "active",
                     "canonical_text": "Embedding request will fail.",
                 }
             ]
@@ -3648,9 +3656,9 @@ def test_backfill_embeddings_cli_names_the_refused_memory_and_embeds_its_neighbo
             if after_id is not None:
                 return []
             return [
-                {"id": "00000000-0000-4000-8000-000000000001", "canonical_text": "First fact."},
-                {"id": refused_id, "canonical_text": "REFUSED " + "x" * 50},
-                {"id": "00000000-0000-4000-8000-000000000003", "canonical_text": "Third fact."},
+                {"status": "active", "id": "00000000-0000-4000-8000-000000000001", "canonical_text": "First fact."},
+                {"status": "active", "id": refused_id, "canonical_text": "REFUSED " + "x" * 50},
+                {"status": "active", "id": "00000000-0000-4000-8000-000000000003", "canonical_text": "Third fact."},
             ]
 
         def update_memory_embedding(self, *, memory_id: str, vector: list[float], **signature: object):

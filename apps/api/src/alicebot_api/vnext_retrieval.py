@@ -113,6 +113,7 @@ from alicebot_api.vnext_ranking import (
     content_stable_event_time as _tiebreak_event_time,
     content_stable_tiebreak,
 )
+from alicebot_api.vnext_recall_visibility import MEMORY_SEARCHABLE_STATUSES
 from alicebot_api.vnext_repositories import JsonObject
 from alicebot_api.vnext_store import fts_fallback_tokens
 from alicebot_api.vnext_temporal_query import (
@@ -380,8 +381,9 @@ GRAPH_ENTITY_MATCH_LIMIT = 5
 MEMORY_ENTITY_EDGE_TYPES = ("mentions", "about")
 # Mirror of the stores' _MEMORY_SEARCHABLE_STATUSES_SQL ('active',
 # 'accepted'): get_memory does not enforce the searchable-status discipline
-# the search_* SQL bakes in, so the graph stage re-applies it in Python.
-MEMORY_SEARCHABLE_STATUSES = ("active", "accepted")
+# the search_* SQL bakes in, so the graph stage re-applies it in Python. The
+# tuple is defined in vnext_recall_visibility, which the embedding door reads
+# too, and is re-exported here under its old name.
 # Temporal-anchor stage: when parse_temporal_anchor finds a date-bearing
 # phrase in the query ("in March 2023", "two months ago"), memories whose
 # event window intersects the parsed [start, end) window join RRF as one
@@ -1775,6 +1777,21 @@ def _quoted_from_links(
     return chosen
 
 
+def _memory_validity_has_closed(memory: Mapping[str, object], *, now: datetime) -> bool:
+    """True when the row's validity window closed before ``now``.
+
+    ``alice_memory_manage`` expire sets ``valid_to`` and leaves the status
+    alone, so a row closed that way is still ``active``. Recall and the pack
+    both leave such a row out (their searches keep only rows with no
+    ``valid_to`` or one that has not passed), so a label that named it would
+    point at a fact neither of them returns. The far-future unbounded
+    ``valid_to`` stand-in is never in the past.
+    """
+
+    valid_to = _parse_timestamp(memory.get("valid_to"))
+    return valid_to is not None and valid_to < now
+
+
 def _memory_was_retired(memory: Mapping[str, object]) -> bool:
     """True when the row is retired, whether or not a replacement was named.
 
@@ -1794,6 +1811,7 @@ def _current_memory_id(
     memory: Mapping[str, object],
     *,
     memory_visible: Callable[[Mapping[str, object]], bool],
+    now: datetime | None = None,
 ) -> str:
     """Id of the fact an agent should read now, or "" when it cannot be shown.
 
@@ -1805,22 +1823,28 @@ def _current_memory_id(
     the depth cap yields "" rather than the last id seen.
 
     The row the chain ends on must also still be live. When it was forgotten,
-    undone, rejected or archived, or deleted, there is no current fact to
-    name, so the answer is "" and not the id of the last row read. The caller
-    still labels the passage as corrected.
+    undone, rejected or archived, or deleted, or its validity window has closed
+    (``alice_memory_manage`` expire leaves the status ``active``), there is no
+    current fact to name, so the answer is "" and not the id of the last row
+    read. The caller still labels the passage as corrected. A chain that loops
+    back to a row it has already read names nothing: every row on the loop is
+    superseded. ``now`` is the clock the validity window is read against.
     """
 
+    clock = now if now is not None else datetime.now(UTC)
     seen: set[str] = set()
     current: Mapping[str, object] = memory
     for _step in range(8):
         memory_id = str(current.get("id") or "")
         if memory_id == "" or memory_id in seen:
-            return memory_id
+            return ""
         if not memory_visible(current):
             return ""
         seen.add(memory_id)
         if not _memory_is_superseded(current):
-            return "" if _memory_was_retired(current) else memory_id
+            if _memory_was_retired(current) or _memory_validity_has_closed(current, now=clock):
+                return ""
+            return memory_id
         successor_id = str(current.get("superseded_by") or "").strip()
         if successor_id == "":
             # Retired with no replacement (forgotten or undone), so nothing
@@ -1838,7 +1862,13 @@ def _current_memory_id(
     # row that is still superseded means the chain is longer than the walk, so
     # the current fact is not known.
     last_id = str(current.get("id") or "")
-    if last_id == "" or _memory_is_superseded(current) or _memory_was_retired(current) or not memory_visible(current):
+    if (
+        last_id == ""
+        or _memory_is_superseded(current)
+        or _memory_was_retired(current)
+        or _memory_validity_has_closed(current, now=clock)
+        or not memory_visible(current)
+    ):
         return ""
     return last_id
 

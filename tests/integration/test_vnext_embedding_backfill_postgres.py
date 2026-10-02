@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import pytest
@@ -236,3 +237,91 @@ def test_backfill_lists_only_the_statuses_it_is_asked_for(migrated_database_urls
         forgotten = store.list_memories_missing_embeddings(statuses=("superseded",), **signature)
         assert [str(row["id"]) for row in forgotten] == [ids["superseded"]]
         assert forgotten[0]["embedding_present"] is True
+
+
+def test_backfill_leaves_out_a_memory_whose_valid_to_has_passed(migrated_database_urls) -> None:
+    """The list leaves out an expired memory, and agrees with what vector recall returns.
+
+    Four active memories with no vector: no ``valid_to``, one far in the future,
+    one a day in the past, and one whose window closed a second ago. The list holds
+    the first two. Once all four have a vector, vector search returns the same two
+    and not the expired ones, so the listing's expiry test and recall's are one
+    test, and a stale vector under a new model is listed for the same two rows
+    only. In v0.19.2 the list held all four.
+
+    Mutations: drop ``AND {POSTGRES_UNEXPIRED_SQL}`` from
+    ``list_memories_missing_embeddings`` in ``vnext_stores/postgres/embedding_cas.py``
+    (the first assertion lists four rows), or flip the comparison in
+    ``POSTGRES_UNEXPIRED_SQL`` to ``<`` (the open-window rows drop out and the
+    expired ones are listed).
+    """
+
+    app_url = migrated_database_urls["app"]
+    user_id = uuid4()
+    now = datetime.now(UTC)
+    windows = {
+        "no_window": None,
+        "far_future": now + timedelta(days=3650),
+        "a_day_ago": now - timedelta(days=1),
+        "a_second_ago": now - timedelta(seconds=1),
+    }
+    with user_connection(app_url, user_id) as conn:
+        ContinuityStore(conn).create_user(
+            user_id,
+            f"embedding-expiry-{user_id}@example.invalid",
+            "Embedding expiry",
+        )
+        store = PostgresVNextStore(conn)
+        created = {}
+        for label, valid_to in windows.items():
+            created[label] = store.create_memory(
+                {
+                    "memory_key": f"embedding.expiry.{label}.{uuid4()}",
+                    "value": {"text": f"A {label} fact"},
+                    "status": "active",
+                    "title": f"{label} memory",
+                    "canonical_text": f"A {label} fact",
+                    "summary": f"A {label} summary",
+                    "domain": "project",
+                    "sensitivity": "private",
+                    "valid_to": valid_to,
+                }
+            )
+        ids = {label: str(memory["id"]) for label, memory in created.items()}
+        open_ids = sorted([ids["no_window"], ids["far_future"]])
+
+        listed = store.list_memories_missing_embeddings(statuses=("active", "accepted"))
+        assert sorted(str(row["id"]) for row in listed) == open_ids
+
+        for label, memory in created.items():
+            assert (
+                store.update_memory_embedding(
+                    memory_id=ids[label],
+                    vector=pad_embedding_vector([1.0, 0.0]),
+                    provider="openai_compatible",
+                    model="embed-v1",
+                    endpoint="host-a",
+                    content_sha256=memory_embedding_content_sha256(memory),
+                    signature_version=2,
+                )
+                is not None
+            )
+        recalled = store.search_memories_vector(
+            query_vector=pad_embedding_vector([1.0, 0.0]),
+            embedding_provider="openai_compatible",
+            embedding_model="embed-v1",
+            embedding_endpoint="host-a",
+            embedding_signature_version=2,
+            limit=10,
+        )
+        assert sorted(str(row["id"]) for row in recalled) == open_ids
+
+        # under a new model every row holds a stale vector: only the open-window rows are listed
+        signature = {
+            "embedding_provider": "openai_compatible",
+            "embedding_model": "embed-v2",
+            "embedding_endpoint": "host-a",
+            "embedding_signature_version": 2,
+        }
+        under_new_model = store.list_memories_missing_embeddings(statuses=("active", "accepted"), **signature)
+        assert sorted(str(row["id"]) for row in under_new_model) == open_ids

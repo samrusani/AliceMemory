@@ -40,11 +40,18 @@ METHOD_NAMES = (
 # count shares the SQLite ``_embedding_status_values`` check with the list.
 # ``update_memory_embedding``, ``clear_memory_embedding`` and
 # ``_missing_embeddings_clause`` are untouched, and their digests did not move.
+#
+# Both ``list_memories_missing_embeddings`` digests and the SQLite
+# ``count_memories_missing_embeddings`` digest were re-minted again for the
+# expiry test (reviewed carrier change): each query also leaves out a memory
+# whose ``valid_to`` has passed, with the test recall's own SQL uses
+# (``_expiry_clause`` on SQLite, ``POSTGRES_UNEXPIRED_SQL`` on Postgres), so the
+# text of an expired memory is never listed for embedding.
 EXPECTED_METHOD_AST_SHA256 = {
     "postgres": {
         "update_memory_embedding": "0cd0f0ef6f7bcaa6328b6f586a711a10b011c77af3e49d65b96c27b77a657cd9",
         "clear_memory_embedding": "4e9fe6955f3246b51998c6b547f48a659f947f8a8150e6c86d4e61a0cf46df6c",
-        "list_memories_missing_embeddings": "2c803e7e5191e93ec6505bb113617892dbdb2370eb1bf29b2a1f46fc5c202294",
+        "list_memories_missing_embeddings": "cfdbde2bb409a2a6761fe31f116a9ebb73ba12d4e7994ae691f87e335a095a2d",
     },
     # SQLite update/clear re-minted for the Phase 4 Stage 2 resident vector
     # cache (reviewed carrier change): both methods point-read whether a
@@ -65,7 +72,7 @@ EXPECTED_METHOD_AST_SHA256 = {
     "sqlite": {
         "update_memory_embedding": "1f4517352a0f7d6a9147f326bc96a6c1d61effa3f106add89546cd981ddd05fc",
         "clear_memory_embedding": "51b583b250883911f0c5a068fec7ec4565f719c2bffafb1ed1c6b3dc980fa36c",
-        "list_memories_missing_embeddings": "660e22efa833897b2f9051e8393e84f4537be528504bd121a3318e94429c94c9",
+        "list_memories_missing_embeddings": "bea1d517cd3ad4d0af12c96d93a5b21671b84a4712d5172e718f5af5b43c4b05",
     },
 }
 EXPECTED_SUPPORT_AST_SHA256 = {
@@ -117,7 +124,7 @@ EXPECTED_SUPPORT_AST_SHA256 = {
     ),
     "sqlite_count_missing": (
         "count_memories_missing_embeddings",
-        "471d2b208a7d9f82a3e121c8708603c2293d77531dafa19eaef2f86ccce5e983",
+        "42498ff284e084c4d5b39685a53722a84967abe98535e3015b0b2db3aafff987",
     ),
     "sqlite_status_values": (
         "_embedding_status_values",
@@ -146,12 +153,14 @@ EXPECTED_SIGNATURES = {
 # now holds ``AND status IN (...)`` after ``deleted_at IS NULL``, with the
 # statuses bound first. The test below builds each query with
 # ``statuses=("active", "accepted")``. The update and clear hashes did not move.
+# They were re-minted again for the expiry test: each query holds the unexpired
+# test right after the status test (SQLite binds the time after the statuses).
 EXPECTED_QUERY_SHA256 = {
     "postgres_unsigned_update": ("dcbf4bc29a7702e9c17d864f65e1c1f36d641927d3f31aa4ec80825646c030ef",),
     "postgres_signed_update": ("1351db18168f7e23454736129e26a7c01039ca1bfdfcac235e3c666cf60d91db",),
     "postgres_clear": ("a5a6952a93bd77b3bdf311fe2682b411263d18a2822a9617c6fb7524555123ca",),
-    "postgres_unsigned_missing": ("64439ac5c2f7ecca952f63d47585fb1fec1ea8a47d8441bfb27ca57b20391c45",),
-    "postgres_signed_missing": ("f551a22791773ce089acb556735d978e546eca5d032a346a225f4ad49a24dc4a",),
+    "postgres_unsigned_missing": ("866920a62d5650df8e229d0dffa43ac0a8ce18116e3cbb98376928f19b239534",),
+    "postgres_signed_missing": ("8593736f07c1853635e8d3868e6a8b54a034ccd3de1a3519abf885a0ff23fa3e",),
     # SQLite update/clear sequences start with BEGIN IMMEDIATE (the capture
     # connection is autocommit-shaped) followed by the Stage 2
     # embedding-presence point-read (the vector-cache invalidation gate),
@@ -175,8 +184,8 @@ EXPECTED_QUERY_SHA256 = {
         "7049f5693c64baa495f701ff8492f8c3dac4f6eb2cce1fcb7ae745141c04951a",
         "4c02258b8fe75dc0cf54d352a81badde39d952bc69eae56cd12edb1505165ff4",
     ),
-    "sqlite_unsigned_missing": ("8d761cd6943d61643e321f1c9b1aeadb8c0f79f77693ae5a923a052f405a0474",),
-    "sqlite_signed_missing": ("1cdbf9e52938a9e50fd351937f9c54174ac2d9a87978f641104fbc651fbc20da",),
+    "sqlite_unsigned_missing": ("ba95f6ee2890bb17631c3db9a68929aa6bc89cb00f8abbad748046b657863179",),
+    "sqlite_signed_missing": ("3bfc8136be3abee82cb86c8827c65e6d7092ae4cbda2435361c17cee9327c35a",),
 }
 
 

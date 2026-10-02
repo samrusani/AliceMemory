@@ -12,6 +12,7 @@ from alicebot_api.vnext_embeddings import (
     EMBEDDING_SIGNATURE_METADATA_KEY,
     EMBEDDING_TRUNCATED_SIGNATURE_KEY,
 )
+from alicebot_api.vnext_recall_visibility import POSTGRES_UNEXPIRED_SQL
 from alicebot_api.vnext_repositories import JsonObject
 from alicebot_api.vnext_stores.postgres.columns import MEMORY_COLUMNS
 
@@ -256,6 +257,11 @@ def list_memories_missing_embeddings(
     return (``MEMORY_SEARCHABLE_STATUSES``) and a forgotten, rejected or
     candidate memory is never listed. A memory that later becomes active is
     listed from then on.
+
+    A memory whose ``valid_to`` has passed is not listed either: recall's
+    vector search skips it (the same ``POSTGRES_UNEXPIRED_SQL`` test), so a
+    vector for it could never be returned. It is listed again once ``valid_to``
+    is cleared or moved past now.
     """
     status_values = _embedding_status_values(statuses, caller="list_memories_missing_embeddings")
     status_placeholders = ", ".join("%s" for _status in status_values)
@@ -310,6 +316,7 @@ def list_memories_missing_embeddings(
                 FROM memories
                 WHERE deleted_at IS NULL
                   AND status IN ({status_placeholders})
+                  AND {POSTGRES_UNEXPIRED_SQL}
                   AND (
                     embedding_vector IS NULL
                     {signature_sql}

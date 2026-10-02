@@ -364,8 +364,9 @@ def run_operations(
     session.commit()
     results["recall_context_pack"] = recall.to_record()
 
-    # 2. capture_text single (chunking, candidate extraction, embed-on-write
-    #    via the ambient stub endpoint, entity linking, provenance, commit).
+    # 2. capture_text single (chunking, candidate extraction, entity linking,
+    #    provenance, commit). Capture embeds nothing: it writes candidates, and
+    #    a candidate is not embedded until it is accepted.
     capture_service = VNextCaptureService(store, actor_type="user")
     capture_counter = itertools.count()
 

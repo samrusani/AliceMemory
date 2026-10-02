@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 import csv
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -955,6 +955,28 @@ def load_connector_items_from_file(path: str | Path) -> list[JsonObject]:
     return items
 
 
+def _walk_local_folder(root: Path, *, recursive: bool) -> Iterator[Path]:
+    """Every entry under ``root`` the scan could consider, without entering an ignored folder.
+
+    A folder whose name is one of ``DEFAULT_LOCAL_FOLDER_IGNORES`` (``node_modules``,
+    ``.git`` and the rest, compared without regard to case) is not entered. Nothing in it
+    could be imported, so it costs no time and its entries do not count toward
+    ``MAX_LOCAL_FOLDER_LISTED``: a watched folder with a large ``node_modules`` is not cut
+    short before its notes are reached. A link to a folder is listed and not followed.
+    Entries come in the order the file system gives them, and the caller sorts them.
+    """
+
+    for directory, directory_names, file_names in os.walk(root, followlinks=False):
+        directory_names[:] = [
+            name for name in directory_names if name.casefold() not in DEFAULT_LOCAL_FOLDER_IGNORES
+        ]
+        base = Path(directory)
+        for name in (*directory_names, *file_names):
+            yield base / name
+        if not recursive:
+            return
+
+
 def _universal_newlines(text: str) -> str:
     """Translate line endings the way ``Path.read_text`` does, so a note's text and hash do not change."""
 
@@ -980,7 +1002,7 @@ def scan_local_folder(
     truncated = False
     for raw_root in paths:
         root = _resolve_local_folder_root(raw_root)
-        walk = root.rglob("*") if recursive else root.glob("*")
+        walk = _walk_local_folder(root, recursive=recursive)
         # Take one entry past the cap to learn whether the walk had more, and
         # stop the walk there: sorting an unbounded walk materializes all of it.
         listed = list(itertools.islice(walk, MAX_LOCAL_FOLDER_LISTED + 1))

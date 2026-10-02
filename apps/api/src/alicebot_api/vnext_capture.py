@@ -21,6 +21,7 @@ from alicebot_api.importer_paths import (
     DEFAULT_MAX_TEXT_FILE_BYTES,
     MIB,
     ImportFileTooLargeError,
+    read_contained_source_text,
 )
 from alicebot_api.legacy_credential_check import commit_door_fields_verdict
 from alicebot_api.memory_provenance import (
@@ -32,7 +33,11 @@ from alicebot_api.memory_provenance import (
     provenance_promotion_rank,
 )
 from alicebot_api.store import ContinuityStoreInvariantError
-from alicebot_api.vnext_embeddings import DeferredMemoryEmbedding, attach_memory_embeddings
+from alicebot_api.vnext_embeddings import (
+    DeferredMemoryEmbedding,
+    attach_memory_embeddings,
+    embeddable_deferred_inputs,
+)
 from alicebot_api.vnext_entities import (
     ENTITY_EXTRACTION_SKIP_SENSITIVITIES,
     EntityLinkingService,
@@ -983,6 +988,31 @@ def _public_too_large_error(exc: ImportFileTooLargeError) -> ImportFileTooLargeR
     )
 
 
+def read_named_text_file(file_path: Path, *, max_file_bytes: int = DEFAULT_MAX_TEXT_FILE_BYTES) -> str:
+    """Read the one text file an operator named, bounded, and without following a link at the open.
+
+    ``capture_file`` and the ``--file`` options of the CLI read a file the caller
+    named, not a folder. They read it the way the importers read theirs: one open
+    with ``O_NOFOLLOW`` and ``O_NONBLOCK``, the size taken from that descriptor
+    before any byte is read, a read that stops one byte past ``max_file_bytes``,
+    and strict UTF-8 with universal newlines. A path the caller gave may itself be
+    a link, and the caller resolves it first, as the importers resolve their
+    source. What the open refuses is a final component that is a link by the time
+    it is opened, a file that is not a regular file (a FIFO, a device), and a file
+    over the limit.
+
+    A file over the limit raises ``ImportFileTooLargeRefused``. Every other refusal
+    is a ``VNextCaptureValidationError`` that names the file and never its text.
+    """
+
+    try:
+        return read_contained_source_text(file_path, max_bytes=max_file_bytes, error_factory=ValueError)
+    except ImportFileTooLargeError as exc:
+        raise _public_too_large_error(exc) from exc
+    except ValueError as exc:
+        raise _public_markdown_import_error(exc) from exc
+
+
 def _filter_markdown_units(raw_text: str, *, file_index: int, file_name: str) -> tuple[str, list[str]]:
     """Replace each flagged line, or one private-key block, before capture.
 
@@ -1219,11 +1249,15 @@ class VNextCaptureService:
         domain: str = "unknown",
         sensitivity: str = "unknown",
         metadata_json: JsonObject | None = None,
+        max_file_bytes: int = DEFAULT_MAX_TEXT_FILE_BYTES,
     ) -> CaptureResult:
+        # The path is resolved once, as the importers resolve their source, and
+        # the file is then opened once without following a link and read up to
+        # ``max_file_bytes``. A file over the limit is refused before it is read.
         file_path = Path(path).expanduser().resolve()
         if file_path.suffix.casefold() not in SUPPORTED_TEXT_SUFFIXES:
             raise VNextCaptureValidationError(f"unsupported vNext text source type: {file_path.suffix}")
-        raw_text = file_path.read_text(encoding="utf-8")
+        raw_text = read_named_text_file(file_path, max_file_bytes=max_file_bytes)
         return self.capture_source(
             SourceCaptureInput(
                 source_type="file",
@@ -1508,7 +1542,14 @@ class VNextCaptureService:
                     },
                 )
 
-            deferred_embedding_inputs = tuple(DeferredMemoryEmbedding.from_memory(memory) for memory in memory_rows)
+            # Capture writes candidate memories only, and recall cannot return a
+            # candidate, so no text is sent to the embeddings endpoint here: the
+            # deferred list keeps only rows recall can return, and
+            # ``attach_memory_embeddings`` withholds the rest, which for a
+            # candidate is all of them. A candidate is embedded when a reviewer
+            # accepts it (the review paths call ``refresh_memory_derived_state``),
+            # and a rejected one is never embedded.
+            deferred_embedding_inputs = embeddable_deferred_inputs(memory_rows)
             if not self.defer_embeddings:
                 attach_memory_embeddings(
                     self.store,
@@ -1892,14 +1933,28 @@ class VNextCaptureService:
                         index=index,
                         credential_skips=conversation_skips,
                     )
-                except Exception:
+                except MemoryError:
+                    # Not a fact about this conversation. The process is out of
+                    # memory, so the next conversation would fail the same way, and
+                    # calling this one unreadable would hide that and import a
+                    # partial export as if it were complete.
+                    raise
+                except Exception as exc:
                     # Nothing is written in this pass, so the refusal is only
-                    # recorded here and counted with the writes below. The
-                    # traceback goes to the process log and not to the receipt.
-                    logger.exception(
-                        "ChatGPT conversation could not be read conversation_index=%d error_code=%s",
+                    # recorded here and counted with the writes below. The log gets
+                    # one line with the position and the kind of error, and never a
+                    # traceback or the error's own text, which can quote the export.
+                    # The traceback is there at debug level for whoever asks for it.
+                    logger.warning(
+                        "ChatGPT conversation could not be read conversation_index=%d error_code=%s error_type=%s",
                         index,
                         CHATGPT_CONVERSATION_UNREADABLE_CODE,
+                        type(exc).__name__,
+                    )
+                    logger.debug(
+                        "ChatGPT conversation traceback conversation_index=%d",
+                        index,
+                        exc_info=(type(exc), exc, exc.__traceback__),
                     )
                     transcripts.append(_ChatGPTConversationRefused(index=index))
                     continue

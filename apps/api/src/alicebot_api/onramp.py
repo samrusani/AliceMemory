@@ -23,9 +23,10 @@ Subcommands:
 - ``reindex-embeddings``: rebuild missing or provider/model-incompatible
   vectors in place after an import, upgrade, embedding-model change, or
   change of ``ALICE_EMBEDDINGS_MAX_INPUT_CHARS``. It sends only the text of
-  active and accepted memories (the statuses recall can return) to the
-  embeddings endpoint: a forgotten, rejected or candidate memory is not sent,
-  and is embedded when it becomes active. A text the endpoint refuses
+  active and accepted memories (the statuses recall can return) whose validity
+  window has not closed to the embeddings endpoint: a forgotten, rejected,
+  candidate or expired memory is not sent, and is embedded when it becomes
+  active or its ``valid_to`` is cleared. A text the endpoint refuses
   is isolated from its batch: the rest still get vectors, and the output
   lists the failed memory ids and the endpoint's reason.
 - ``brief``: print a labelled session brief (committed facts and imported
@@ -523,6 +524,27 @@ def _remove_sqlite_files(path: Path) -> None:
 
 class _BackupError(Exception):
     """A safe, user-facing SQLite snapshot or restore error."""
+
+
+class _ExportDepthError(_BackupError):
+    """A row in the vault holds JSON nested too deeply for export to write.
+
+    Older releases stored JSON text in a column without limiting how deeply it
+    nests, so a vault can hold a row that cannot be exported: the decoder takes
+    text nested about ten thousand levels, and the recursive writer fails from
+    about a thousand. The message names the table and the column, and never a
+    value. The command prints it, then ends with ``export_failed``.
+    """
+
+    def __init__(self, *, table: str, column: str | None = None) -> None:
+        super().__init__()
+        self.table = table
+        self.column = column
+
+    def __str__(self) -> str:
+        if self.column is None:
+            return f"a {self.table} row is nested too deeply for export to write"
+        return f"{self.table} column {self.column} is nested too deeply for export to write"
 
 
 _BASE_ALICE_TABLES = frozenset({"users", "memories", "sources", "event_log"})
@@ -1032,8 +1054,8 @@ def build_parser() -> argparse.ArgumentParser:
         "reindex-embeddings",
         help=(
             "Rebuild missing, unsigned, or provider/model-incompatible memory "
-            "embeddings of active and accepted memories in the local SQLite "
-            "database."
+            "embeddings of active and accepted, unexpired memories in the local "
+            "SQLite database."
         ),
     )
     _add_database_arguments(reindex_parser)
@@ -1519,9 +1541,13 @@ def _export_line(record_type: str, row: object) -> str:
 
 
 def _decoded_rows(
-    conn: sqlite3.Connection, query: str, params: tuple[object, ...]
+    conn: sqlite3.Connection, query: str, params: tuple[object, ...], *, record_type: str
 ) -> Iterator[dict[str, object]]:
-    """Stream dict rows with JSON TEXT decoded, bounded by a fetch batch."""
+    """Stream dict rows with JSON TEXT decoded, bounded by a fetch batch.
+
+    JSON text too deep for the decoder raises ``_ExportDepthError`` naming the
+    table of ``record_type`` and the column.
+    """
     cursor = conn.execute(query, params)
     columns = [description[0] for description in cursor.description]
     while True:
@@ -1532,7 +1558,10 @@ def _decoded_rows(
             row = dict(raw) if isinstance(raw, dict) else dict(zip(columns, raw))
             for key, value in row.items():
                 if key in _JSON_COLUMNS and isinstance(value, str):
-                    row[key] = json.loads(value)
+                    try:
+                        row[key] = json.loads(value)
+                    except RecursionError as exc:
+                        raise _ExportDepthError(table=_RECORD_SPECS[record_type][0], column=key) from exc
             yield row
 
 
@@ -1619,6 +1648,7 @@ def _export_rows(
             ORDER BY captured_at DESC, id DESC
             """,
             (uid,),
+            record_type="source",
         )
     )
     yield from (
@@ -1633,6 +1663,7 @@ def _export_rows(
             ORDER BY c.source_id ASC, c.chunk_index ASC, c.id ASC
             """,
             (uid,),
+            record_type="source_chunk",
         )
     )
     yield from (
@@ -1646,6 +1677,7 @@ def _export_rows(
             ORDER BY m.created_at ASC, m.id ASC
             """,
             (uid,),
+            record_type="memory",
         )
     )
     yield from (
@@ -1659,6 +1691,7 @@ def _export_rows(
             ORDER BY created_at ASC, id ASC
             """,
             (uid,),
+            record_type="entity",
         )
     )
     yield from (
@@ -1673,6 +1706,7 @@ def _export_rows(
             ORDER BY r.changed_at ASC, r.id ASC
             """,
             (uid,),
+            record_type="entity_relationship_event",
         )
     )
     # All edges, including closed ones (valid_to set): the temporal
@@ -1738,6 +1772,7 @@ def _export_rows(
             ORDER BY g.created_at ASC, g.id ASC
             """,
             (uid,),
+            record_type="graph_edge",
         )
     )
     yield from (
@@ -1752,6 +1787,7 @@ def _export_rows(
             ORDER BY r.memory_id ASC, r.sequence_no ASC, r.id ASC
             """,
             (uid,),
+            record_type="memory_revision",
         )
     )
     yield from (
@@ -1800,6 +1836,7 @@ def _export_rows(
             ORDER BY p.created_at ASC, p.id ASC
             """,
             (uid,),
+            record_type="provenance_link",
         )
     )
     yield from (
@@ -1813,6 +1850,7 @@ def _export_rows(
             ORDER BY l.created_at ASC, l.id ASC
             """,
             (uid,),
+            record_type="open_loop",
         )
     )
     yield from (
@@ -1826,6 +1864,7 @@ def _export_rows(
             ORDER BY occurred_at ASC, id ASC
             """,
             (uid,),
+            record_type="event",
         )
     )
 
@@ -1885,16 +1924,24 @@ def _write_export(
         counts = {record_type: 0 for record_type in _RECORD_SPECS}
         written = 0
         for record_type, row in _export_rows(conn, user_id):
-            line = _export_line(record_type, row) + "\n"
-            finding = None
-            if record_type == "memory" and isinstance(row, Mapping):
-                # The header is line 1, so this record lands on line written + 2.
-                finding = _memory_record_credential_finding(row, line_no=written + 2)
-            if finding is not None and credential_findings is not None:
-                credential_findings.append(finding)
-            if record_hits is not None and finding is None and isinstance(row, Mapping):
-                # A memory row import refuses is listed above and not here.
-                record_hits.extend(_record_credential_hits(record_type, row, line_no=written + 2))
+            try:
+                line = _export_line(record_type, row) + "\n"
+                finding = None
+                if record_type == "memory" and isinstance(row, Mapping):
+                    # The header is line 1, so this record lands on line written + 2.
+                    finding = _memory_record_credential_finding(row, line_no=written + 2)
+                if finding is not None and credential_findings is not None:
+                    credential_findings.append(finding)
+                if record_hits is not None and finding is None and isinstance(row, Mapping):
+                    # A memory row import refuses is listed above and not here.
+                    record_hits.extend(_record_credential_hits(record_type, row, line_no=written + 2))
+            except RecursionError as exc:
+                # JSON nested past what the recursive writers take (from about a thousand
+                # levels). The decoder took it, so the row got this far.
+                raise _ExportDepthError(
+                    table=_RECORD_SPECS[record_type][0],
+                    column=_deepest_column(row) if isinstance(row, Mapping) else None,
+                ) from exc
             stream.write(line)
             digest.update(line.encode("utf-8"))
             counts[record_type] += 1
@@ -1977,6 +2024,8 @@ def _run_export(args: argparse.Namespace) -> int:
                 "SQLite export failed",
                 exc_info=(type(exc), exc, exc.__traceback__),
             )
+            if isinstance(exc, _ExportDepthError):
+                _stderr_line(f"alice-memory: {exc}")
             _emit_error("export_failed")
             return 1
         finally:
@@ -2036,6 +2085,8 @@ def _run_export(args: argparse.Namespace) -> int:
                 "SQLite stdout export failed",
                 exc_info=(type(exc), exc, exc.__traceback__),
             )
+            if isinstance(exc, _ExportDepthError):
+                _stderr_line(f"alice-memory: {exc}")
             _emit_error("export_failed")
             return 1
     return 0
@@ -2256,6 +2307,21 @@ def _nesting_error(record_type: str, record: Mapping[str, object], line_no: int)
     )
 
 
+# JSON columns whose text nothing else holds to the 256 level cap while a file is validated.
+# ``metadata_json`` and ``payload_json`` are walked by the key claim walk, which stops at
+# ``_KEY_CLAIM_MAX_DEPTH`` levels. The columns below are stored as the text they are, or are
+# read only by the credential scan, which takes text up to about a thousand levels, a little
+# more than export can write, or by a shape check that a list of nested lists passes. A vault
+# must not hold what export cannot write, so text nested past the same cap is refused in
+# these. A test imports and exports every JSON column of every record type to keep the list
+# complete.
+_TEXT_DEPTH_CAPPED_COLUMNS: dict[str, frozenset[str]] = {
+    "memory_revisions": frozenset({"previous_value", "new_value", "source_event_ids", "candidate"}),
+    "memories": frozenset({"value", "source_event_ids"}),
+    "vnext_entities": frozenset({"aliases"}),
+}
+
+
 def _refuse_undecodable_json_columns(record_type: str, record: Mapping[str, object], *, line_no: int) -> None:
     """Refuse a JSON column that holds text too deep for the decoder.
 
@@ -2266,15 +2332,21 @@ def _refuse_undecodable_json_columns(record_type: str, record: Mapping[str, obje
     """
 
     table = _RECORD_SPECS[record_type][0]
+    capped = _TEXT_DEPTH_CAPPED_COLUMNS.get(table, frozenset())
     for column, value in record.items():
         if column not in _JSON_COLUMNS or not isinstance(value, str):
             continue
         try:
-            json.loads(value)
+            decoded = json.loads(value)
         except json.JSONDecodeError:
             continue
         except RecursionError as exc:
             raise _ImportDepthError(table=table, column=column, line_no=line_no) from exc
+        # The decoder takes about ten thousand levels, and export fails from about a
+        # thousand, so text between the two would be stored and could not be exported.
+        # ``_json_depth`` counts the scalar at the bottom as a level, hence the one more.
+        if column in capped and _json_depth(decoded) > _KEY_CLAIM_MAX_DEPTH + 1:
+            raise _ImportDepthError(table=table, column=column, line_no=line_no)
 
 
 @dataclass(frozen=True)
@@ -2596,15 +2668,20 @@ def _validate_import_file(
                             raise _ImportError(
                                 f"line {line_no}: unsupported export integrity declaration"
                             )
-                        if integrity["scope"] == _LEGACY_V2_INTEGRITY_SCOPE:
-                            digest.update(
-                                (_export_line(_EXPORT_HEADER_TYPE, record) + "\n").encode(
-                                    "utf-8"
+                        try:
+                            if integrity["scope"] == _LEGACY_V2_INTEGRITY_SCOPE:
+                                digest.update(
+                                    (_export_line(_EXPORT_HEADER_TYPE, record) + "\n").encode(
+                                        "utf-8"
+                                    )
                                 )
-                            )
-                        manifest_sha256 = hashlib.sha256(
-                            _export_line(_EXPORT_HEADER_TYPE, record).encode("utf-8")
-                        ).hexdigest()
+                            manifest_sha256 = hashlib.sha256(
+                                _export_line(_EXPORT_HEADER_TYPE, record).encode("utf-8")
+                            ).hexdigest()
+                        except RecursionError as exc:
+                            # A header nested past what the digest line takes: an extra key
+                            # can hold any depth the decoder accepts.
+                            raise _ImportDepthError(line_no=line_no) from exc
                         continue
                 if record_type == _EXPORT_HEADER_TYPE:
                     raise _ImportError(f"line {line_no}: export header must be the first record")
@@ -3958,8 +4035,10 @@ def _run_reindex_embeddings(args: argparse.Namespace) -> int:
     while True:
         with sqlite_user_connection(db_path, args.user_id) as conn:
             store = SQLiteVNextStore(conn, args.user_id)
-            # Only the statuses recall can return: this listing never hands the
-            # text of a forgotten, rejected or candidate memory to the endpoint.
+            # Only the statuses recall can return, and only a memory whose
+            # validity window is still open: this listing never hands the text
+            # of a forgotten, rejected, candidate or expired memory to the
+            # endpoint.
             rows = store.list_memories_missing_embeddings(
                 statuses=MEMORY_SEARCHABLE_STATUSES,
                 limit=batch_size,
@@ -3988,6 +4067,9 @@ def _run_reindex_embeddings(args: argparse.Namespace) -> int:
             provider=provider,
             log_failures=False,
         )
+        # A row that stopped being recall-visible between the list and the send
+        # (its validity window closed in that moment) is withheld, not failed.
+        skipped += len(preparation.withheld)
         batch_failures = list(preparation.failures)
         incompatible_ids = {
             str(row["id"]) for row in embeddable if row.get("embedding_present") in (True, 1)

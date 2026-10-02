@@ -577,6 +577,15 @@ def build_parser() -> argparse.ArgumentParser:
         "--capture-token", default=None, help="Optional local browser clipper capture token."
     )
     vnext_browser_capture_parser.add_argument("--file", default=None, help="Optional file containing page text.")
+    vnext_browser_capture_parser.add_argument(
+        "--max-file-mib",
+        type=_parse_max_file_mib,
+        default=None,
+        help=(
+            "Refuse the file, before reading it, when it is larger than this many MiB. "
+            f"Defaults to {_DEFAULT_MAX_TEXT_FILE_BYTES // _MIB}. Applies to --file."
+        ),
+    )
     vnext_browser_capture_parser.add_argument("--domain", default="professional", help="Default domain.")
     vnext_browser_capture_parser.add_argument("--sensitivity", default="private", help="Default sensitivity.")
     vnext_browser_capture_parser.set_defaults(handler=_run_vnext_browser_clip)
@@ -666,6 +675,15 @@ def build_parser() -> argparse.ArgumentParser:
     vnext_capture_file_parser.add_argument("path", help="Path to a text or Markdown file.")
     vnext_capture_file_parser.add_argument("--domain", default="unknown", help="Source domain.")
     vnext_capture_file_parser.add_argument("--sensitivity", default="unknown", help="Source sensitivity.")
+    vnext_capture_file_parser.add_argument(
+        "--max-file-mib",
+        type=_parse_max_file_mib,
+        default=None,
+        help=(
+            "Refuse the file, before reading it, when it is larger than this many MiB. "
+            f"Defaults to {_DEFAULT_MAX_TEXT_FILE_BYTES // _MIB}."
+        ),
+    )
     vnext_capture_file_parser.set_defaults(handler=_run_vnext_sources_capture_file)
 
     vnext_import_markdown_parser = vnext_sources_subparsers.add_parser(
@@ -1119,8 +1137,8 @@ def build_parser() -> argparse.ArgumentParser:
     vnext_memory_backfill_parser = vnext_memories_subparsers.add_parser(
         "backfill-embeddings",
         help=(
-            "Embed active and accepted memories with missing, unsigned, or "
-            "provider/model-incompatible vectors."
+            "Embed active and accepted, unexpired memories with missing, unsigned, "
+            "or provider/model-incompatible vectors."
         ),
     )
     vnext_memory_backfill_parser.add_argument(
@@ -1169,6 +1187,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     vnext_agent_ingest_parser.add_argument("--title", required=True, help="Output title.")
     vnext_agent_ingest_parser.add_argument("--file", default=None, help="File containing output content.")
+    vnext_agent_ingest_parser.add_argument(
+        "--max-file-mib",
+        type=_parse_max_file_mib,
+        default=None,
+        help=(
+            "Refuse the file, before reading it, when it is larger than this many MiB. "
+            f"Defaults to {_DEFAULT_MAX_TEXT_FILE_BYTES // _MIB}. Applies to --file."
+        ),
+    )
     vnext_agent_ingest_parser.add_argument("content", nargs="*", help="Inline output content.")
     vnext_agent_ingest_parser.add_argument(
         "--output-type",
