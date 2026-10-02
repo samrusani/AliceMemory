@@ -403,6 +403,7 @@ def test_release_gates_run_normal_cross_module_mypy() -> None:
     tests_workflow = " ".join(_read(".github/workflows/tests.yml").split())
     expected = (
         "python -m mypy --ignore-missing-imports apps/api/src/alicebot_api "
+        "scripts/alice_bench.py scripts/alice_bench_gates.py scripts/alice_bench_audit.py "
         "scripts/release_check.py scripts/test_distribution_artifact.py "
         "scripts/normalize_sdist.py scripts/render_release_body.py "
         "scripts/decode_github_release_body.py "

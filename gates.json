@@ -1,0 +1,133 @@
+{
+  "schema": "alice-bench-gates/1",
+  "_comment": "Every number that decides a search-quality gate. It holds no question. It is locked at the merge of the harness pull request (P0a), before any held-out number exists. A change after the lock is a new commit that says why, and numbers from before and after a change are never mixed in one claim. The thresholds come from scripts/alice_bench_gates.py, which prints each gate's pass rate for an assumed flip rate, so a reviewer can rerun them.",
+  "lock": {
+    "point": "the merge of the harness pull request (P0a)",
+    "note": "The baseline run compares a checkout with itself, so it cannot move a threshold. The verdict script prints the sha256 of this file it applied."
+  },
+  "tier1": {
+    "variants": ["verbatim", "keyword"],
+    "byte_budgets": [4096, 8192],
+    "gate_budget_bytes": 8192,
+    "hit_rule": "all_facts",
+    "hit_rule_note": "A question is a Tier 1 hit when every one of its required facts has an anchor in a scored string that ends inside the first gate_budget_bytes of the serialized output. A question flips when its hit changes between two states.",
+    "scored_leaves": ["sources[].excerpt", "results[].text"],
+    "anchor_min_length": 12,
+    "anchor_max_files": 3
+  },
+  "gates": {
+    "G1": {
+      "slice": "P1, passage ranking",
+      "compares": "Tier 1 at gate_budget_bytes, ALICE_SEARCH_QUALITY=passage against off, same commit, both variants",
+      "verbatim": {
+        "kind": "gain",
+        "net_min": 8,
+        "p_max": 0.05,
+        "neither_corpus_net_negative": true
+      },
+      "keyword": {
+        "kind": "tripwire",
+        "fails_when": "regressions exceed improvements with a one-sided exact sign test p below p_max",
+        "p_max": 0.05
+      }
+    },
+    "G2": {
+      "slice": "P4, long questions",
+      "compares": "Tier 1 at gate_budget_bytes, on against passage, same commit, both variants",
+      "keyword": {
+        "kind": "gain",
+        "net_min": 4,
+        "p_max": 0.05
+      },
+      "verbatim": {
+        "kind": "tripwire",
+        "fails_when": "regressions exceed improvements with a one-sided exact sign test p below p_max",
+        "p_max": 0.05
+      }
+    },
+    "G3": {
+      "slice": "next release, chunk vectors",
+      "compares": "lexical against lexical plus vectors, the recorded local model, after a spike go",
+      "kind": "gain",
+      "net_min": 6,
+      "p_max": 0.05
+    },
+    "G4": {
+      "slice": "P8, the flip",
+      "compares": "Tier 2, the candidate at its flip values against v0.20.0, same session, same questions",
+      "kind": "tripwire",
+      "fails_when": "the mean correct fraction (candidate minus v0.20.0) plus z standard errors of the paired per-question difference is below zero",
+      "z": 1.645
+    }
+  },
+  "gate_rules": {
+    "net": "improved minus regressed, over the pooled questions",
+    "sign_test": "one-sided and exact, on the discordant pairs",
+    "failed_gate": "keeps its switch off; a G4 failure keeps every switch off"
+  },
+  "passage_cap_rule": {
+    "caps": [2, 3, 4],
+    "budget_bytes": 8192,
+    "pick": "the cap with the highest hit count at budget_bytes, taking each cap's lowest count across the import orders",
+    "ties": ["fewer bytes per call", "prefer 3"],
+    "nothing_else_is_tuned": true
+  },
+  "p1b_arm_rule": {
+    "beats_plain_by_questions": 3,
+    "budget_bytes": 8192,
+    "in_each_import_order": true
+  },
+  "import_orders": ["sorted", "reverse", "shuffle:20261002"],
+  "search": {
+    "searches_per_run": 3,
+    "grep_cap_bytes": 16384,
+    "recall_defaults": {
+      "limit": 8,
+      "context_depth": "low",
+      "include_sources": true
+    }
+  },
+  "sample": {
+    "heldout_questions": 120,
+    "per_corpus": [60, 60],
+    "writer_groups": 6,
+    "runs_per_arm_per_question": 2
+  },
+  "run_counts": {
+    "baseline": {
+      "arms": {"A": 240, "G": 240, "Gu": 120, "Z": 120},
+      "answering_runs": 720,
+      "judge_calls": 184
+    },
+    "candidate": {
+      "arms": {"A_candidate": 240, "A_previous_release": 240, "G": 240, "Gu": 120},
+      "answering_runs": 840,
+      "judge_calls": 184
+    }
+  },
+  "ci_time": {
+    "job": "python-unit (Unit tests + live eval battery, SQLite)",
+    "measured_on": "2026-10-02",
+    "measured_runs": 19,
+    "measured_scope": "successful push runs of tests.yml on main, 2026-10-01 to 2026-10-02",
+    "measured_seconds": {"min": 444, "median": 755, "max": 904},
+    "timeout_minutes": 20,
+    "split_threshold_minutes": 17,
+    "new_test_budget_seconds": 90,
+    "rule": "The tests of the search-quality release add at most new_test_budget_seconds to this job. The on-mode job is a separate job and runs in parallel. If the job passes split_threshold_minutes, the first pull request to cross the line splits the unit tests by directory before another test lands."
+  },
+  "hashes": {
+    "_comment": "Left empty on purpose. The tower fills each field before the first held-out run: the sha256 of the tower's own stdlib scorer, of each prompt text, and of each held-out question set. Builders never see the questions or the prompt texts, only these hashes.",
+    "scorer_sha256": null,
+    "prompts": {
+      "alice_arm": null,
+      "grep_arm": null,
+      "no_search": null,
+      "judge": null
+    },
+    "question_sets": {
+      "heldout_wiki": null,
+      "heldout_docs": null
+    }
+  }
+}
