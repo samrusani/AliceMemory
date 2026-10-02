@@ -303,6 +303,25 @@ class IdempotencyKeyConflictError(VNextMemoryCommitValidationError):
     """
 
 
+class MemoryNotFoundError(VNextMemoryCommitValidationError):
+    """A memory or a pending confirmation the call names does not exist.
+
+    The text is what the plain error said before this class existed, and every
+    caller that catches ``VNextMemoryCommitValidationError`` still catches it.
+    The MCP server answers ``not_found`` for it by class, never by its text.
+    """
+
+
+class MemoryStateError(VNextMemoryCommitValidationError):
+    """The row exists and the caller may act on it, but its state forbids the call.
+
+    A confirmation already answered, or a coupled project update that has its
+    own review path. The text is unchanged and every caller that catches
+    ``VNextMemoryCommitValidationError`` still catches it. The MCP server
+    answers ``precondition_failed`` for it by class, never by its text.
+    """
+
+
 def _stored_labels_are_the_requests(
     memory: Mapping[str, object],
     request: MemoryCommitRequest,
@@ -675,7 +694,7 @@ def _require_project_update_decision_path(memory: Mapping[str, object]) -> None:
     """Keep pending coupled candidates on their atomic project-review path."""
 
     if is_pending_project_update_memory(memory):
-        raise VNextMemoryCommitValidationError(PENDING_PROJECT_UPDATE_MEMORY_MUTATION_MESSAGE)
+        raise MemoryStateError(PENDING_PROJECT_UPDATE_MEMORY_MUTATION_MESSAGE)
 
 
 def _agentic_metadata(row: Mapping[str, object] | None) -> dict[str, object]:
@@ -1181,7 +1200,7 @@ class VNextMemoryCommitService:
         try:
             return resolve_transition(operation, current_status)
         except LifecycleTransitionError as exc:
-            raise VNextMemoryCommitValidationError(str(exc)) from exc
+            raise MemoryStateError(str(exc)) from exc
 
     def lock_supersession_graph(self) -> None:
         """Acquire the transaction-scoped lifecycle lock before any row lock.
@@ -1356,12 +1375,12 @@ class VNextMemoryCommitService:
             raise VNextMemoryCommitValidationError("confirmation action must be confirm, reject, or edit")
         memory = self._memory_by_confirmation_id(confirmation_id)
         if memory is None:
-            raise VNextMemoryCommitValidationError("confirmation was not found")
+            raise MemoryNotFoundError("confirmation was not found")
         get_memory_for_update = getattr(self.store, "get_memory_for_update", None)
         if callable(get_memory_for_update):
             locked = get_memory_for_update(str(memory["id"]))
             if locked is None:
-                raise VNextMemoryCommitValidationError("confirmation was not found")
+                raise MemoryNotFoundError("confirmation was not found")
             memory = locked
         # Authorization first, then the pending check, then the ceiling,
         # then S4.4's credential check on the accept or reject write.
@@ -1373,7 +1392,7 @@ class VNextMemoryCommitService:
         confirmation_now = _agentic_metadata(memory).get("confirmation")
         confirmation_status = confirmation_now.get("status") if isinstance(confirmation_now, Mapping) else None
         if normalized_action in {"confirm", "edit"} and confirmation_status != "pending":
-            raise VNextMemoryCommitValidationError("confirmation is not pending")
+            raise MemoryStateError("confirmation is not pending")
         # Reject of the caller's own pending write stays allowed above the
         # ceiling: it stores nothing. Every other mutation is blocked.
         self._policy_checked_write(
@@ -1396,7 +1415,7 @@ class VNextMemoryCommitService:
             )
             if replay is not None:
                 return replay
-            raise VNextMemoryCommitValidationError("confirmation is not pending")
+            raise MemoryStateError("confirmation is not pending")
 
         actor_type = "agent" if identity is not None else "user"
         actor_id = identity.agent_id if identity is not None else None
@@ -1699,11 +1718,11 @@ class VNextMemoryCommitService:
         get_memory_for_update = getattr(self.store, "get_memory_for_update", None)
         memory = self.store.get_memory(memory_id) if memory_id else self._latest_agentic_commit(identity)
         if memory is None:
-            raise VNextMemoryCommitValidationError("memory was not found")
+            raise MemoryNotFoundError("memory was not found")
         if callable(get_memory_for_update):
             locked = get_memory_for_update(str(memory["id"]))
             if locked is None:
-                raise VNextMemoryCommitValidationError("memory was not found")
+                raise MemoryNotFoundError("memory was not found")
             memory = locked
         _require_project_update_decision_path(memory)
         self._policy_checked_write(identity=identity, action="memory.undo", memory=memory)
@@ -1715,7 +1734,7 @@ class VNextMemoryCommitService:
                 else self.store.get_memory(superseded_by_memory_id)
             )
             if successor is None:
-                raise VNextMemoryCommitValidationError("superseding memory was not found")
+                raise MemoryNotFoundError("superseding memory was not found")
             if str(successor["id"]) == str(memory["id"]):
                 raise VNextMemoryCommitValidationError("a memory cannot supersede itself")
             _require_project_update_decision_path(successor)
@@ -1752,7 +1771,7 @@ class VNextMemoryCommitService:
             get_memory_for_update(memory_id) if callable(get_memory_for_update) else self.store.get_memory(memory_id)
         )
         if memory is None:
-            raise VNextMemoryCommitValidationError("memory was not found")
+            raise MemoryNotFoundError("memory was not found")
         _require_project_update_decision_path(memory)
         self._policy_checked_write(identity=identity, action="memory.correct", memory=memory)
         # Retirement is terminal: correcting a superseded/rejected/archived row
@@ -1863,7 +1882,7 @@ class VNextMemoryCommitService:
             get_memory_for_update(memory_id) if callable(get_memory_for_update) else self.store.get_memory(memory_id)
         )
         if memory is None:
-            raise VNextMemoryCommitValidationError("memory was not found")
+            raise MemoryNotFoundError("memory was not found")
         _require_project_update_decision_path(memory)
         self._policy_checked_write(identity=identity, action="memory.forget", memory=memory)
         # A retirement always completes (owner ruling R2).
@@ -1923,7 +1942,7 @@ class VNextMemoryCommitService:
             get_memory_for_update(memory_id) if callable(get_memory_for_update) else self.store.get_memory(memory_id)
         )
         if memory is None:
-            raise VNextMemoryCommitValidationError("memory was not found")
+            raise MemoryNotFoundError("memory was not found")
         decision = self._policy_checked_write(
             identity=identity,
             action="memory.accept_consolidation",
@@ -2200,7 +2219,7 @@ class VNextMemoryCommitService:
             get_memory_for_update(memory_id) if callable(get_memory_for_update) else self.store.get_memory(memory_id)
         )
         if memory is None:
-            raise VNextMemoryCommitValidationError("memory was not found")
+            raise MemoryNotFoundError("memory was not found")
         decision = self._policy_checked_write(identity=identity, action="memory.expire", memory=memory)
         self._require_transition(EXPIRE, str(memory.get("status") or ""))
         # A retirement always completes (owner ruling R2): the reason is
@@ -2296,7 +2315,7 @@ class VNextMemoryCommitService:
             get_memory_for_update(memory_id) if callable(get_memory_for_update) else self.store.get_memory(memory_id)
         )
         if memory is None:
-            raise VNextMemoryCommitValidationError("memory was not found")
+            raise MemoryNotFoundError("memory was not found")
         decision = self._policy_checked_write(
             identity=identity,
             action="memory.unexpire",
@@ -2741,7 +2760,7 @@ class VNextMemoryCommitService:
         """
         memory = self.store.get_memory(memory_id)
         if memory is None:
-            raise VNextMemoryCommitValidationError("memory was not found")
+            raise MemoryNotFoundError("memory was not found")
         if authorize_memory is not None:
             authorize_memory(memory)
         return {

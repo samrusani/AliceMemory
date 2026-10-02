@@ -6,7 +6,8 @@ from typing import Any
 import alicebot_api.main as main_module
 from alicebot_api.config import Settings
 from alicebot_api.db import user_connection
-from alicebot_api.mcp_tools import MCPRuntimeContext, MCPToolError, call_mcp_tool
+from alicebot_api.mcp.types import MCPNotPermittedError
+from alicebot_api.mcp_tools import MCPRuntimeContext, call_mcp_tool
 from alicebot_api.routers import vnext_memories as vnext_memories_router
 from alicebot_api.routers import vnext_retrieval as vnext_retrieval_router
 from alicebot_api.vnext_agent_keys import create_agent_key
@@ -367,9 +368,11 @@ def test_blocked_mcp_replay_on_postgres_keeps_policy_rows(migrated_database_urls
             },
         )
     except Exception as exc:
-        assert type(exc) is MCPToolError
+        # Unreleased (on main, not in v0.20.0): a policy refusal is MCPNotPermittedError, which the server sends as
+        # not_permitted. v0.20.0 raised a plain MCPToolError and answered tool_request_failed.
+        assert type(exc) is MCPNotPermittedError
     else:
-        raise AssertionError("expected MCPToolError")
+        raise AssertionError("expected MCPNotPermittedError")
     with user_connection(app_url, user_id) as conn:
         events = PostgresVNextStore(conn).list_events(target_type="memory", target_id=memory_id)
     rows = sorted(str(event.get("event_type")) for event in events if event.get("actor_id") == "readonly")

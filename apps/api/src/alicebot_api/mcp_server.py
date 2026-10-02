@@ -10,7 +10,7 @@ from uuid import UUID
 
 from alicebot_api import __version__
 from alicebot_api.config import Settings, get_runtime_settings, get_settings
-from alicebot_api.mcp.types import MCPInvalidRequestError
+from alicebot_api.mcp.types import MCP_CODED_ERROR_CODES, MCPCodedToolError, MCPInvalidRequestError
 from alicebot_api.mcp_tools import (
     MCPRuntimeContext,
     MCPToolError,
@@ -304,6 +304,22 @@ class MCPServer:
                     result=_tool_error_result(
                         code=_TOOL_INVALID_REQUEST_CODE,
                         message=exc.public_message,
+                    ),
+                )
+            except MCPCodedToolError as exc:
+                # A refusal whose kind is known: a fixed code from a closed set
+                # (not_permitted, not_found, precondition_failed, or
+                # invalid_request for a rejected argument) and the same fixed
+                # words as tool_request_failed. The exception text goes to the
+                # log and never to the client. A subclass whose code is not in
+                # the closed set answers the generic code. Caught before
+                # MCPToolError, its base class.
+                logger.warning("MCP tool request was refused name=%s code=%s", name, exc.code, exc_info=True)
+                return _response_success(
+                    request_id,
+                    result=_tool_error_result(
+                        code=exc.code if exc.code in MCP_CODED_ERROR_CODES else _TOOL_REQUEST_FAILED_CODE,
+                        message=_TOOL_REQUEST_FAILED_MESSAGE,
                     ),
                 )
             except MCPToolError:
