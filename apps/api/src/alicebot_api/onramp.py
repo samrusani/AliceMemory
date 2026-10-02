@@ -2306,13 +2306,18 @@ def _nesting_error(record_type: str, record: Mapping[str, object], line_no: int)
     )
 
 
-# JSON columns whose text nothing else reads while a file is validated. Every other JSON
-# column is decoded and walked by the credential scan or the key claim walk, which refuse
-# nesting past what they take (the walk stops at ``_KEY_CLAIM_MAX_DEPTH`` levels). These four
-# hold the history of a memory, and a string in one is stored as the text it is. A vault must
-# not hold what export cannot write, so text nested past the same cap is refused here.
+# JSON columns whose text nothing else holds to the 256 level cap while a file is validated.
+# ``metadata_json`` and ``payload_json`` are walked by the key claim walk, which stops at
+# ``_KEY_CLAIM_MAX_DEPTH`` levels. The columns below are stored as the text they are, or are
+# read only by the credential scan, which takes text up to about a thousand levels, a little
+# more than export can write, or by a shape check that a list of nested lists passes. A vault
+# must not hold what export cannot write, so text nested past the same cap is refused in
+# these. A test imports and exports every JSON column of every record type to keep the list
+# complete.
 _TEXT_DEPTH_CAPPED_COLUMNS: dict[str, frozenset[str]] = {
     "memory_revisions": frozenset({"previous_value", "new_value", "source_event_ids", "candidate"}),
+    "memories": frozenset({"value", "source_event_ids"}),
+    "vnext_entities": frozenset({"aliases"}),
 }
 
 

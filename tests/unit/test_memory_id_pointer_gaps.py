@@ -13,6 +13,13 @@ module pins each of them. It also pins two behaviours the sweep did not cover:
   ``active`` and ``valid_to`` is set) is not named as ``current_memory_id``,
   because recall and the pack leave such a row out.
 
+The pack's scan of ``metadata_json`` runs under the pack's fence, and the last three
+tests pin that the person link, the people scope and the time window of that fence are
+the ones the pack was asked for. A mutation that changed only the scan's predicate
+(M1 no person links, M2 no time window, M4 no people) passed the whole unit suite
+before they were added, because the pack's other readers share the predicate and fail
+on the changes that reach them.
+
 Every test names the mutation that must fail it. The mutations were made by hand
 in ``vnext_retrieval.py`` and the file was restored from a saved copy each time.
 """
@@ -41,6 +48,7 @@ from tests.unit.test_memory_id_pointer_residue import (
     _row,
     _Rows,
     _set,
+    _store,
     _supersede,
 )
 
@@ -478,3 +486,145 @@ def test_a_deep_value_is_cut_even_when_a_later_sibling_is_shallow(shape: str) ->
         assert holder["plain"] == "text"
     else:
         assert "text" in holder
+
+
+# -- the pack's metadata scan carries the person link, the people scope and the time window -----
+
+
+def _commit_memory(context, key: str, title: str, text: str) -> str:
+    done = _call(
+        context,
+        "alice_memory_commit",
+        {"title": title, "canonical_text": text, "memory_type": "decision", "domain": "project", "sensitivity": "public"},
+        key=key,
+        full=True,
+    )
+    return str(done["memory"]["id"])
+
+
+def _link_to_person(context, memory_id: str, entity_id: str) -> None:
+    """Tie a memory to a person through the entity graph only, with nothing in its metadata."""
+    _store(
+        context,
+        lambda s: s.create_graph_edge(
+            {
+                "from_type": "memory",
+                "from_id": memory_id,
+                "to_type": "entity",
+                "to_id": entity_id,
+                "edge_type": "mentions",
+                "confidence": 1.0,
+                "explanation": "test link",
+                "created_by": "test",
+            }
+        ),
+    )
+
+
+def _holder_with_three_neighbours(context) -> tuple[str, str, str, str]:
+    """A packed decision that names three other memories in its ``metadata_json``.
+
+    The holder names Ada in its own metadata, so a people-scoped pack returns it.
+    ``linked`` is tied to Ada only through a graph edge. ``stranger`` is not tied to
+    her at all. ``old`` is tied to her through a graph edge and is dated 400 days ago.
+    All three are public, so only the person and the time half of the fence can
+    tell them apart.
+    """
+    writer = _mint(context, profile="project_scoped_agent", project="acme")
+    holder = _commit_memory(context, writer, "Holder note", "The holder note says the deploy window is Tuesday.")
+    linked = _commit_memory(context, writer, "Linked note", "The linked note covers the staging cluster.")
+    stranger = _commit_memory(context, writer, "Stranger note", "The stranger note covers the billing export.")
+    old = _commit_memory(context, writer, "Old note", "The old note covers last year's rollout.")
+    person = _store(context, lambda s: s.create_entity({"entity_type": "person", "name": "Ada"}))
+    _link_to_person(context, linked, str(person["id"]))
+    _link_to_person(context, old, str(person["id"]))
+    _set(context, old, valid_from=(datetime.now(UTC) - timedelta(days=400)).isoformat())
+    _set(
+        context,
+        holder,
+        metadata_json={
+            **_store(context, lambda s: s.get_memory(holder))["metadata_json"],
+            "people": ["ada"],
+            "related_linked": linked,
+            "related_stranger": stranger,
+            "related_old": old,
+        },
+    )
+    return holder, linked, stranger, old
+
+
+def _holder_metadata(pack: dict, holder: str) -> dict:
+    return _pack_memory(pack, holder)["metadata_json"]
+
+
+def test_the_metadata_scan_keeps_an_id_tied_to_the_person_through_the_graph_and_drops_a_stranger(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """The people scope reaches the id scan in both directions, through the entity graph.
+
+    ``linked`` is readable under a people scope only because the graph ties it to Ada,
+    and ``stranger`` is public but not tied to her. The id of the first stays in the
+    holder's metadata and the id of the second goes. With no people scope both stay.
+
+    Mutation M1: build the predicate for the ``_drop_hidden_memory_ids_from_metadata``
+    call in ``compile_context_pack`` with ``person_linked_memory_ids=frozenset()``.
+    The id of ``linked`` is then dropped, because no direct people value names Ada.
+    Mutation M4: build that predicate with the scope replaced by one that has
+    ``people=frozenset()``. The id of ``stranger`` then stays.
+    """
+    context = _context(tmp_path, monkeypatch)
+    holder, linked, stranger, _old = _holder_with_three_neighbours(context)
+
+    scoped = _pack(context, "holder note deploy window Tuesday", people=("ada",))
+    metadata = _holder_metadata(scoped, holder)
+    assert metadata.get("related_linked") == linked, "a person link made through the entity graph keeps the id"
+    assert "related_stranger" not in metadata, "a memory that is not tied to the person loses its id"
+
+    open_fence = _holder_metadata(_pack(context, "holder note deploy window Tuesday"), holder)
+    assert open_fence["related_linked"] == linked
+    assert open_fence["related_stranger"] == stranger, "the control: with no people scope the id is kept"
+
+
+def test_the_metadata_scan_follows_the_time_window(tmp_path: Path, monkeypatch) -> None:
+    """An id that names a memory dated outside the window goes, and one inside it stays.
+
+    ``old`` is public and dated 400 days ago. A 30 day window does not reach it, so its
+    id is dropped from the holder's metadata and the ids of the memories made today
+    stay. With no window all of them stay.
+
+    Mutation M2: build the predicate for the ``_drop_hidden_memory_ids_from_metadata``
+    call in ``compile_context_pack`` with the scope replaced by one that has
+    ``window_start=None`` and ``window_end=None``. The id of ``old`` then stays.
+    """
+    context = _context(tmp_path, monkeypatch)
+    holder, linked, stranger, old = _holder_with_three_neighbours(context)
+
+    windowed = _pack(context, "holder note deploy window Tuesday", time_window="30d")
+    metadata = _holder_metadata(windowed, holder)
+    assert "related_old" not in metadata, "an id outside the window is dropped"
+    assert old not in json.dumps(metadata), "and nowhere else in the holder's metadata"
+    assert metadata["related_linked"] == linked and metadata["related_stranger"] == stranger
+
+    open_window = _holder_metadata(_pack(context, "holder note deploy window Tuesday"), holder)
+    assert open_window["related_old"] == old, "the control: with no window the id is kept"
+
+
+def test_the_metadata_scan_applies_the_person_link_and_the_window_together(tmp_path: Path, monkeypatch) -> None:
+    """Both halves at once: the person link keeps ``linked`` and the window drops ``old``.
+
+    ``old`` is tied to Ada through the graph, so the people scope alone keeps it, and
+    only the window removes it. ``linked`` is inside the window and tied to her.
+    ``stranger`` is inside the window and not tied to her.
+
+    Mutation M1, M2 and M4 together: build the predicate for the metadata scan with no
+    person links, no window and no people. Each one alone is also killed by the two
+    tests above; this one fails if the combined scope is not what the scan runs under.
+    """
+    context = _context(tmp_path, monkeypatch)
+    holder, linked, _stranger, _old = _holder_with_three_neighbours(context)
+
+    pack = _pack(context, "holder note deploy window Tuesday", people=("ada",), time_window="30d")
+    metadata = _holder_metadata(pack, holder)
+    assert metadata["related_linked"] == linked
+    assert "related_stranger" not in metadata
+    assert "related_old" not in metadata

@@ -238,15 +238,19 @@ reason, and a source chunk's text made of nested brackets did too.
 
 Unreleased (on main, not in v0.19.2): JSON text nested more than 256 levels in the
 `previous_value`, `new_value`, `source_event_ids` or `candidate` column of a memory
-revision is refused with `restore_failed` and the same kind of reason line. 256 is
-the limit the key claim walk applies to `metadata_json` and `payload_json`. Nothing
-else reads those four columns while a file is checked, the decoder takes text up to
-about 10,000 levels, and the export writer takes about 1,000, so a vault made by
-import never holds a row that export cannot write. A header whose extra key is
-nested too deeply for the digest line is refused with `restore_failed` and
+revision is refused with `restore_failed` and the same kind of reason line, and so is
+such text in the `value` or `source_event_ids` column of a memory and the `aliases`
+column of an entity. 256 is the limit the key claim walk applies to `metadata_json`
+and `payload_json`. Nothing else held those seven columns to it while a file is
+checked: the decoder takes text up to about 10,000 levels, the credential scan takes
+a memory's `value` up to about 1,000, and the export writer takes a little under
+1,000, so a vault made by import never holds a row that export cannot write. A
+header whose extra key is nested too deeply for the digest line is refused with
+`restore_failed` and
 `alice-memory: line 1: a record is nested too deeply for import to read`. In
-v0.19.2 text in those columns that the decoder could read was stored whatever its
-depth, and the deep header ended with `alice_memory_failed`. A vault that already
+v0.19.2 text in the four revision columns that the decoder could read was stored
+whatever its depth, text in the other three was stored up to about 1,000 levels, and
+the deep header ended with `alice_memory_failed`. A vault that already
 holds such text, for example one written by a v0.19.0 import, cannot be exported
 while the text is nested about 1,000 levels or more. `alice-memory export`, to a
 file or to standard output, then prints one line that names the table and the

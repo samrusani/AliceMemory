@@ -10,7 +10,10 @@
    cap that the key claim walk uses (256 levels) and the decoder was stored, and
    ``alice-memory export`` then failed on it with the generic ``alice_memory_failed``.
    Import now refuses it with ``restore_failed``, so a vault made by import never holds
-   what export cannot write.
+   what export cannot write. The same cap applies to ``memories.value`` (the credential
+   scan takes text up to about a thousand levels, a little more than export can write),
+   to ``memories.source_event_ids`` and to ``vnext_entities.aliases`` (a list of nested
+   lists passes their shape check). A sweep of every JSON column pins the property.
 3. A header whose extra key is nested past what the digest line takes ended with
    ``alice_memory_failed``. It is ``restore_failed`` with a reason line.
 4. A vault that already holds such text (a v0.19.0 import could store it) answers
@@ -31,6 +34,7 @@ import pytest
 
 from alicebot_api import onramp as onramp_module
 from tests.unit.fixtures_backup_import import origin_export, write_legacy
+from tests.unit.test_import_deep_json_columns import JSON_COLUMNS_BY_TYPE
 from tests.unit.test_import_key_claim import USER_ID, _canonical_line, _import, _vault
 
 REVISION_COLUMNS = ("previous_value", "new_value", "source_event_ids", "candidate")
@@ -54,11 +58,15 @@ def _reasons(err: str) -> list[str]:
     return [line for line in err.splitlines() if line.endswith("is nested too deeply for import to read")]
 
 
-def _revision_line(export: Any) -> int:
+def _record_line(export: Any, record_type: str) -> int:
     for index, item in enumerate(export.body):
-        if item["record_type"] == "memory_revision":
+        if item["record_type"] == record_type:
             return index + 2
-    raise AssertionError("no memory_revision record")
+    raise AssertionError(f"no {record_type} record")
+
+
+def _revision_line(export: Any) -> int:
+    return _record_line(export, "memory_revision")
 
 
 def _export_of(database: Path, out: Path, *extra: str) -> int:
@@ -275,22 +283,18 @@ def test_revision_text_between_the_cap_and_the_decoder_is_refused(
     assert _reasons(err)[0].endswith("memory_revisions column previous_value is nested too deeply for import to read")
 
 
-def test_the_cap_reads_only_text_in_the_revision_columns(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    """The same depth elsewhere is not refused by this rule.
+def test_the_cap_reads_only_text_in_a_json_column(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """The same depth in a text column is not refused by this rule.
 
-    ``memories.value`` is a JSON column of another table: the credential scan reads it, and
-    refuses it by its own rule when it nests past what that scan takes (about a thousand
-    levels), so this rule leaves it alone. ``memory_revisions.text_after`` is a text column of
-    the same table, and a text column that only looks like JSON is only text, like a memory
-    title.
+    ``memories.title`` and ``memory_revisions.text_after`` are text columns, and a text
+    column that only looks like JSON is only text, like a source chunk's text.
 
-    Mutation: apply the cap to every JSON column (``capped = _JSON_COLUMNS``), or to every
-    column of ``memory_revisions`` (drop the ``_JSON_COLUMNS`` test and read each column of
-    the table). The value, or the text, is then refused.
+    Mutation: apply the cap to every column of ``memories`` or of ``memory_revisions`` (drop
+    the ``_JSON_COLUMNS`` test and read each column of the table). The title, or the text,
+    is then refused.
     """
 
     export = origin_export(tmp_path)
-    export.records("memory")[0]["value"] = _nested_text(CAP + 44)
     export.records("memory")[0]["title"] = _nested_text(CAP + 44)
     export.records("memory_revision")[0]["text_after"] = _nested_text(CAP + 44)
     forged = export.write(tmp_path / "forged.jsonl")
@@ -298,6 +302,112 @@ def test_the_cap_reads_only_text_in_the_revision_columns(tmp_path: Path, capsys:
     capsys.readouterr()
 
     assert _import(database, forged) == 0, capsys.readouterr().err
+
+
+@pytest.mark.parametrize("levels", [CAP + 1, CAP + 44, 990, 1_000])
+@pytest.mark.parametrize("kind", ["object", "array"])
+def test_memory_value_text_nested_past_the_cap_is_refused_naming_the_column(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], levels: int, kind: str
+) -> None:
+    """``memories.value`` text past 256 levels is refused, including the 984 to 1,000 range.
+
+    The credential scan takes that text and the export writer does not. In v0.19.2, and in
+    this change before this test, text between about 984 and 1,000 levels (about 993 to
+    1,001 outside a test run, the writer's limit depends on how deep the stack is) was
+    stored, and the export of the vault ended with ``export_failed``.
+
+    Mutation: delete ``"memories": frozenset({"value"})`` from ``_TEXT_DEPTH_CAPPED_COLUMNS``.
+    The value is then stored and import exits 0.
+    """
+
+    export = origin_export(tmp_path)
+    export.records("memory")[0]["value"] = _nested_text(levels, kind)
+    forged = export.write(tmp_path / "forged.jsonl")
+    database, _context = _vault(tmp_path, "target")
+    capsys.readouterr()
+
+    assert _import(database, forged) == 1
+
+    err = capsys.readouterr().err
+    assert _codes(err) == ["restore_failed"], err
+    assert _reasons(err) == [
+        f"alice-memory: line {_record_line(export, 'memory')}: memories column value is nested too deeply "
+        "for import to read"
+    ]
+    connection = sqlite3.connect(database)
+    try:
+        assert connection.execute("SELECT count(*) FROM memories").fetchone()[0] == 0
+    finally:
+        connection.close()
+
+
+@pytest.mark.parametrize("kind", ["object", "array"])
+def test_memory_value_text_at_the_cap_is_restored_and_exports_again(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], kind: str
+) -> None:
+    """256 levels is the most the cap takes in ``memories.value``. It imports, and the vault exports.
+
+    Mutation: compare ``> CAP`` in place of ``> CAP + 1`` in ``_refuse_undecodable_json_columns``
+    (the text at the cap is refused).
+    """
+
+    export = origin_export(tmp_path)
+    text = _nested_text(CAP, kind)
+    export.records("memory")[0]["value"] = text
+    forged = export.write(tmp_path / "forged.jsonl")
+    database, _context = _vault(tmp_path, "target")
+    capsys.readouterr()
+
+    assert _import(database, forged) == 0, capsys.readouterr().err
+
+    connection = sqlite3.connect(database)
+    try:
+        assert connection.execute("SELECT value FROM memories").fetchone()[0] == text
+    finally:
+        connection.close()
+    capsys.readouterr()
+    assert _export_of(database, tmp_path / "again.jsonl") == 0, capsys.readouterr().err
+
+
+@pytest.mark.parametrize(("record_type", "column"), JSON_COLUMNS_BY_TYPE)
+def test_a_vault_made_by_import_exports_for_text_in_every_json_column(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], record_type: str, column: str
+) -> None:
+    """For each JSON column of each record type, nested text is either refused or the vault exports.
+
+    The depths run from well below the cap to the 1,000 levels where the credential scan stops
+    taking text. The test asserts the property the docs state, that a vault made by import
+    never holds a row that export cannot write, and not the reason a column is refused. For a
+    column the cap covers, the cases at 200 levels are accepted, so the check is not vacuous.
+
+    Mutation: delete one column from ``_TEXT_DEPTH_CAPPED_COLUMNS``: ``previous_value``,
+    ``new_value``, ``source_event_ids`` or ``candidate`` of ``memory_revisions``, ``value`` or
+    ``source_event_ids`` of ``memories``, or ``aliases`` of ``vnext_entities``. Each has a depth
+    between 984 and 1,000 where import then accepts the text and export ends with
+    ``export_failed``, and the case for that column fails.
+    """
+
+    violations: list[str] = []
+    accepted_at_all = False
+    for levels in (200, 300, 990, 1_000):
+        for kind in ("object", "array"):
+            case = tmp_path / f"{levels}-{kind}"
+            case.mkdir()
+            export = origin_export(case)
+            export.records(record_type)[0][column] = _nested_text(levels, kind)
+            forged = export.write(case / "forged.jsonl")
+            database, _context = _vault(case, "target")
+            capsys.readouterr()
+            if _import(database, forged) != 0:
+                continue
+            accepted_at_all = accepted_at_all or levels <= CAP
+            capsys.readouterr()
+            if _export_of(database, case / "again.jsonl") != 0:
+                violations.append(f"{levels} levels as {kind}: {_codes(capsys.readouterr().err)}")
+    assert violations == []
+    table = onramp_module._RECORD_SPECS[record_type][0]
+    if column in onramp_module._TEXT_DEPTH_CAPPED_COLUMNS.get(table, frozenset()):
+        assert accepted_at_all, "a column the cap covers still takes text below the cap"
 
 
 def test_no_value_from_the_file_reaches_the_revision_refusal_line(
