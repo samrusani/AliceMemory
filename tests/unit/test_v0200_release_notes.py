@@ -541,11 +541,11 @@ def test_the_v0192_notes_say_beside_each_open_item_that_v0200_fixed_it() -> None
     assert " - **A column that is itself JSON text" in tail
     assert "Update (2026-10-02)" not in tail
     updates = [block for block in blocks if _UPDATE_2026_10_02.match(block)]
-    assert len(updates) == len(V0192_ITEMS_FIXED_IN_V0200) + 2, len(updates)
+    assert len(updates) == len(V0192_ITEMS_FIXED_IN_V0200) + 4, len(updates)
 
 
 def test_both_notes_say_main_now_pins_v0200_beside_each_marketplace_statement() -> None:
-    """Mutations, each one alone: delete one of the five marketplace updates; name v0.19.2 in one of them.
+    """Mutations, each one alone: delete one of the seven marketplace updates; name v0.19.2 in one of them.
 
     The marketplace statements in the two published notes stay as they were tagged. Each one is
     followed by a dated update that says `main` pins the v0.20.0 tag commit and that the copy
@@ -557,7 +557,7 @@ def test_both_notes_say_main_now_pins_v0200_beside_each_marketplace_statement() 
         (
             V0192_NOTES_PATH,
             "The copy inside the v0.19.2 tag still pins v0.19.0, so add the marketplace from the repository, not from a checkout of the tag.",
-            2,
+            4,
         ),
         (
             NOTES_PATH,
@@ -569,9 +569,15 @@ def test_both_notes_say_main_now_pins_v0200_beside_each_marketplace_statement() 
         assert len(found) == count, (path, len(found))
         for block in found:
             assert block == f"**Update (2026-10-02):** {pin} {copy_sentence}", (path, block)
-    # In the v0.19.2 notes each one follows the dated 2026-10-01 update about the v0.19.2 pin,
-    # which is its own paragraph the first time and the end of a bullet the second.
+    # In the v0.19.2 notes each one follows either the dated 2026-10-01 update about the v0.19.2
+    # pin, or one of the two tagged statements that the marketplace install runs v0.19.0
+    # (upgrade step 7 and the plugin packaging limitation).
     blocks = _blocks(V0192_NOTES_PATH)
     for index, block in enumerate(blocks):
         if block.startswith(f"**Update (2026-10-02):** {pin}"):
-            assert "**Update (2026-10-01):** v0.19.2 is published" in blocks[index - 1], index
+            before = blocks[index - 1]
+            assert (
+                "**Update (2026-10-01):** v0.19.2 is published" in before
+                or "so the marketplace install runs v0.19.0 code" in before
+                or "installs plugin 0.19.0" in before
+            ), index
