@@ -22,6 +22,7 @@ from alicebot_api.importer_models import (
     parse_optional_status,
 )
 from alicebot_api.importer_paths import (
+    DEFAULT_MAX_CHATGPT_EXPORT_BYTES,
     ImportSourceFile,
     contained_source_files,
     read_contained_source_text,
@@ -98,8 +99,16 @@ def _read_chatgpt_source_files(source: str | Path) -> tuple[Path, list[Path]]:
     return source_path, source_files
 
 
-def _snapshot_chatgpt_source(source: str | Path) -> tuple[Path, list[ImportSourceFile]]:
-    """Select the ChatGPT export files and read each of them exactly once."""
+def _snapshot_chatgpt_source(
+    source: str | Path,
+    *,
+    max_file_bytes: int,
+) -> tuple[Path, list[ImportSourceFile]]:
+    """Select the ChatGPT export files and read each of them exactly once.
+
+    ``max_file_bytes`` is required: it is the size a file may be before it is
+    refused unread, and every caller has to say what it is.
+    """
 
     source_path, source_files = _read_chatgpt_source_files(source)
     if source_path.is_file():
@@ -109,6 +118,7 @@ def _snapshot_chatgpt_source(source: str | Path) -> tuple[Path, list[ImportSourc
                 relative_path=source_path.name,
                 text=read_contained_source_text(
                     source_path,
+                    max_bytes=max_file_bytes,
                     error_factory=ChatGPTImportValidationError,
                 ),
             )
@@ -116,6 +126,7 @@ def _snapshot_chatgpt_source(source: str | Path) -> tuple[Path, list[ImportSourc
     return source_path, snapshot_source_files(
         source_path,
         source_files,
+        max_bytes=max_file_bytes,
         error_factory=ChatGPTImportValidationError,
     )
 
@@ -291,8 +302,12 @@ def _message_text(message: JsonObject) -> str | None:
     return None
 
 
-def load_chatgpt_payload(source: str | Path) -> ImporterNormalizedBatch:
-    source_path, snapshot = _snapshot_chatgpt_source(source)
+def load_chatgpt_payload(
+    source: str | Path,
+    *,
+    max_file_bytes: int = DEFAULT_MAX_CHATGPT_EXPORT_BYTES,
+) -> ImporterNormalizedBatch:
+    source_path, snapshot = _snapshot_chatgpt_source(source, max_file_bytes=max_file_bytes)
     return _load_chatgpt_batch(source_path, snapshot)
 
 
@@ -439,12 +454,13 @@ def import_chatgpt_source(
     *,
     user_id: UUID,
     source: str | Path,
+    max_file_bytes: int = DEFAULT_MAX_CHATGPT_EXPORT_BYTES,
 ) -> JsonObject:
     # One snapshot feeds both the evidence archive and the parse, so the
     # archived text is the text that was imported. It is decoded text and not
     # the disk bytes: the read is text mode, so CRLF arrives as LF and the
     # archive will not checksum against the original file.
-    source_path, snapshot = _snapshot_chatgpt_source(source)
+    source_path, snapshot = _snapshot_chatgpt_source(source, max_file_bytes=max_file_bytes)
     archived_artifacts = archive_import_source_files(
         store,
         user_id=user_id,

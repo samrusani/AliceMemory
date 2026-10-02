@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from collections.abc import Sequence
 from typing import Any
 
 import numpy as np
@@ -324,9 +325,26 @@ def _missing_embeddings_clause(
     return signature_sql, signature_params
 
 
+def _embedding_status_values(statuses: Sequence[str], *, caller: str) -> list[str]:
+    """The statuses a vector is made for, checked before a query is built.
+
+    Required by the listing and the count alike, with no default, so a caller
+    that forgets it fails here and cannot send every row's text to the
+    embeddings endpoint. A bare string is refused (it would be read as one
+    status per character), and so is an empty list.
+    """
+    if isinstance(statuses, str) or not statuses:
+        raise ContinuityStoreInvariantError(f"{caller} requires a non-empty list of statuses")
+    values = [str(status) for status in statuses]
+    if not all(values):
+        raise ContinuityStoreInvariantError(f"{caller} statuses must not be empty strings")
+    return values
+
+
 def list_memories_missing_embeddings(
     self,
     *,
+    statuses: Sequence[str],
     limit: int = 100,
     after_id: str | None = None,
     embedding_provider: str | None = None,
@@ -335,9 +353,17 @@ def list_memories_missing_embeddings(
     embedding_signature_version: int | None = None,
     embedding_input_cap: int | None = None,
 ) -> list[VNextRow]:
-    """Rows missing a vector or carrying an incompatible signature."""
+    """Rows in ``statuses`` missing a vector or carrying an incompatible signature.
+
+    ``statuses`` is required. The rows listed here are the ones whose text
+    goes to the embeddings endpoint, so a caller names the statuses recall can
+    return (``MEMORY_SEARCHABLE_STATUSES``) and a forgotten, rejected or
+    candidate memory is never listed. A memory that later becomes active is
+    listed from then on.
+    """
     if limit < 1:
         raise ContinuityStoreInvariantError("embedding backfill limit must be positive")
+    status_values = _embedding_status_values(statuses, caller="list_memories_missing_embeddings")
     signature_sql, signature_params = _missing_embeddings_clause(
         embedding_provider=embedding_provider,
         embedding_model=embedding_model,
@@ -347,7 +373,8 @@ def list_memories_missing_embeddings(
     )
     if embedding_input_cap is not None:
         _ensure_embedding_input_cut_sqlite(self.conn)
-    params: list[object] = [self.user_id, *signature_params, after_id, after_id, limit]
+    status_placeholders = ", ".join("?" for _status in status_values)
+    params: list[object] = [self.user_id, *status_values, *signature_params, after_id, after_id, limit]
     return self._fetch_all(
         f"""
                 SELECT {", ".join(MEMORY_COLUMNS)},
@@ -355,6 +382,7 @@ def list_memories_missing_embeddings(
                 FROM memories
                 WHERE user_id = ?
                   AND deleted_at IS NULL
+                  AND status IN ({status_placeholders})
                   AND (
                     embedding IS NULL
                     {signature_sql}
@@ -383,8 +411,7 @@ def count_memories_missing_embeddings(
     signature that is not today's), counted over the statuses given. With no
     provider named, a row counts when it has no vector at all.
     """
-    if not statuses:
-        raise ContinuityStoreInvariantError("count_memories_missing_embeddings requires statuses")
+    status_values = _embedding_status_values(statuses, caller="count_memories_missing_embeddings")
     signature_sql, signature_params = _missing_embeddings_clause(
         embedding_provider=embedding_provider,
         embedding_model=embedding_model,
@@ -394,8 +421,8 @@ def count_memories_missing_embeddings(
     )
     if embedding_input_cap is not None:
         _ensure_embedding_input_cut_sqlite(store.conn)
-    status_placeholders = ", ".join("?" for _status in statuses)
-    params: list[object] = [store.user_id, *statuses, *signature_params]
+    status_placeholders = ", ".join("?" for _status in status_values)
+    params: list[object] = [store.user_id, *status_values, *signature_params]
     row = store._fetch_optional_one(
         f"""
                 SELECT COUNT(*) AS n

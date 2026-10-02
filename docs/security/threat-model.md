@@ -196,10 +196,10 @@ active-key or RLS bypass remains in scope.
 | Cross-user PostgreSQL read/write | Application-role RLS and user-scoped connections. | Admin credentials or a compromised host bypass the product boundary. |
 | Broad credential exposed to a visited page | One-time origin-bound clipper capability replaces reusable bookmarklet token. | The page can make its one authorized submission; the UI must show the bound origin. |
 | SQL, JSON-path, or FTS injection | Parameter binding, fixed/allowlisted SQL fragments, fail-closed request models, adversarial FTS tests. | Every new dynamic fragment needs review; PostgreSQL hostile-query coverage is narrower than SQLite coverage. |
-| File traversal, symlink escape, or source substitution | SQLite portable-import alias/snapshot controls and import provenance. | Markdown, ChatGPT, and OpenClaw directory importers still have the documented symlink/TOCTOU gap. |
+| File traversal, symlink escape, or source substitution | SQLite portable-import alias/snapshot controls and import provenance. Unreleased (on main, not in v0.19.2): the local-folder connector opens the watched folder, each directory below it and the file one at a time, each relative to the one before and without following a link, and checks the open descriptor. | The Markdown, ChatGPT, and OpenClaw directory importers read a hard link planted in the selected root and can be redirected by an ancestor directory swapped for a symlink between listing and read. The local-folder connector reads a hard link planted in the watched folder too, because a hard link is the file itself. Unreleased (on main, not in v0.19.2): the connector no longer follows a file or directory swapped for a link. |
 | Secret or exception disclosure | Hash/reference storage, recursive secret-field redaction, provider error sanitization, stable public error vocabulary. | Final carrier must close raw-key logging and exact provider-key non-echo proof. |
 | Dependency compromise or known advisory | Exact web versions/lockfile, fail-closed npm bulk audit, Dependabot, SHA-pinned Actions, CodeQL, Gitleaks. | No fail-closed Python advisory audit is currently in CI. |
-| Resource exhaustion from hostile files/provider responses | Existing size/shape checks and local deployment limits. | Historical partial scan retained multiple low-confidence availability hypotheses for Stage B. |
+| Resource exhaustion from hostile files/provider responses | Existing size/shape checks and local deployment limits. Unreleased (on main, not in v0.19.2): the local-folder scan reads at most 2 MiB of a file and stops at 10,000 files or 64 MiB. | Historical partial scan retained multiple low-confidence availability hypotheses for Stage B. |
 | Agent resolves its own pending write without asking the user | `alice_memory_commit` with `confirmation_id` resolves only a pending write its caller may resolve (its author, an `admin_agent` key, or the owner), after the same policy and ceiling checks as a write. | The confirm step asks the agent to ask the user. It is not a gate, and Alice cannot tell whether the user was asked. See the 2026-09-30 limitation below. |
 
 ### Known Internal Limitations
@@ -259,6 +259,19 @@ active-key or RLS bypass remains in scope.
   `alice_context_pack`, `alice_resume`, `alice_recent_decisions` and
   `alice_open_loops`. The other tools, such as `alice_recent_changes` and
   `alice_timeline`, were not checked for memory ids.
+  Unreleased (on main, not in v0.19.2): the `metadata_json` place is fenced too
+  (updated 2026-10-01). The pack removes the id of a memory the caller cannot
+  read, under the same fence as the memory reads, from the `metadata_json` of
+  every memory it returns. An id that is the whole string goes with its key or
+  list slot, an id inside a longer string is replaced by `(id withheld)`, and an
+  id that names no memory stays. Only a 36-character UUID is looked for, and
+  only in `metadata_json`: an id in another column of a stored row, or in
+  another spelling, is not. Two further pointer defects are also fixed
+  on main. The correction label names no id when the memory it would name was
+  forgotten, undone or rejected, where v0.19.2 named it. The context pack keeps
+  `validity.superseded: true`, with no id, for a memory whose `superseded_by`
+  pointer names a memory the caller cannot read, where v0.19.2 gave that memory
+  no `validity` in the pack and recall kept `superseded: true`.
 - Open items from the internal security review of v0.19.0 (added 2026-10-01).
   They are not fixed in v0.19.2, and the v0.19.2 release notes give the detail.
   The Postgres stack's HTTP API parses a JSON request body of any size before it
@@ -281,6 +294,7 @@ active-key or RLS bypass remains in scope.
   these needs a precondition: a reachable API, a writable watched folder, a
   provider endpoint an attacker influences, or a compromised package in one of
   those CI installs.
+- Fixed on main since v0.19.2 (added 2026-10-01). Unreleased (on main, not in v0.19.2): DB-010, the local-folder scan reading a file swapped for a link. The scan now opens the watched folder, each directory below it and the file one at a time, each relative to the one before and with `O_NOFOLLOW`, checks on the open descriptor that it is a regular file, and takes the text, size and time from that descriptor. A file or directory swapped for a link, a FIFO or a device is skipped and counted in `refused_count`, and the rest of the folder still scans. A hard link planted inside the watched folder to a file elsewhere is still read, as in the importers. This needs someone who can write to the watched folder during a sync, and the connector is part of the Postgres stack only. v0.19.2 checked containment and then read by path, as the open item above says. DB-011, the local-folder scan with no size or count bound. The scan now reads at most 2 MiB of a file, stops at 10,000 files or 64 MiB of text in all, lists at most 100,000 directory entries, and sets `truncated` when a limit stopped it. A file that is over 2 MiB, is not UTF-8 text or cannot be read is skipped on its own and counted in `refused_count`; v0.19.2 ended the whole sync with an error on one such file. Both counts are in the `connector.local_folder_scan` event and in the health output of the connector. DB-008, the weekly real-host canary holding `issues: write` in the job that installs the current host CLIs. The canary job now holds `contents: read` only and its checkout keeps no credentials. A separate job, `canary-alert`, holds `issues: write`, checks out nothing, runs no shell and installs nothing, and starts only when the canary job's result is `failure`. v0.19.2 installed unpinned packages in a job that could open and comment on issues, as the open item above says. Archive maintenance, which had the same arrangement, is split the same way: its job holds `contents: read` only, and a separate `archive-alert` job holds `issues: write` and reads the schedule it names from the event that started the run, not from the job that installs. A test fails when a job that holds a write scope names a package in a pip or npm install command without an exact version.
 - Stage A tests are team-authored. They reduce review cost; they do not replace
   adversarial testing by the owner-appointed Stage B reviewer.
 

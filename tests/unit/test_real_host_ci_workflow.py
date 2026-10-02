@@ -292,11 +292,12 @@ def test_weekly_canary_does_not_pin_claude_or_hermes() -> None:
 def test_weekly_canary_opens_an_ops_issue_on_failure() -> None:
     """A failed canary opens one [ops] issue, or comments if it is already open.
 
-    Mutation: remove ``[ops]`` from the issue title. This test fails.
+    The issue is written by ``canary-alert``, a separate job. Mutation: remove
+    ``[ops]`` from the issue title. This test fails.
     """
 
-    job = _job("canary")
-    steps = [step for step in job["steps"] if step.get("if") == "failure()"]
+    job = _job("canary-alert")
+    steps = _steps(job)
     assert len(steps) == 1
     step = steps[0]
     uses = step.get("uses", "")
@@ -311,8 +312,82 @@ def test_weekly_canary_opens_an_ops_issue_on_failure() -> None:
     assert "github.rest.issues.createComment" in script
     assert "await github.rest.issues.create({" in script
     assert "!issue.pull_request" in script
-    assert job.get("permissions") == {"contents": "read", "issues": "write"}
     _assert_failure_fails_the_job(job)
+
+
+ALERT_IF = "${{ always() && needs.canary.result == 'failure' }}"
+
+
+def _alert_runs(condition: str, canary_result: str) -> bool:
+    match = re.fullmatch(r"\$\{\{ (.*) \}\}", condition)
+    assert match, condition
+    text = match.group(1).replace("&&", " and ").replace("||", " or ")
+    text = text.replace("needs.canary.result", "canary_result")
+    return bool(_evaluate(ast.parse(text, mode="eval"), {"canary_result": canary_result}))
+
+
+def test_canary_job_installs_mutable_packages_with_no_write_scope_and_no_token() -> None:
+    """The job that installs @latest holds contents: read and no usable token path.
+
+    Mutation: add ``issues: write`` (or any other write scope, or
+    ``id-token: write``) to the canary job; put a ``github-script`` step, a
+    ``GITHUB_TOKEN``/``github.token`` reference, or a ``secrets.`` reference
+    back in it; remove ``persist-credentials: false`` from its checkout or
+    set it to true. This test fails.
+    """
+
+    job = _job("canary")
+    assert job.get("permissions") == {"contents": "read"}
+    text = yaml.dump(job)
+    for needle in ("github-script", "GITHUB_TOKEN", "GH_TOKEN", "github.token", "secrets."):
+        assert needle not in text, needle
+    checkouts = [
+        step for step in _steps(job) if str(step.get("uses", "")).startswith("actions/checkout@")
+    ]
+    assert len(checkouts) == 1
+    # the loader keeps YAML booleans as strings, so compare the spelling
+    assert str(checkouts[0].get("with", {}).get("persist-credentials")).lower() == "false"
+
+
+def test_canary_alert_is_the_only_issue_writer_and_installs_nothing() -> None:
+    """The alert job holds issues: write and never installs, checks out, or runs a shell.
+
+    It runs only when the canary job itself failed. A skipped canary (every
+    pull request and dispatch) must not raise an alert. Mutation: drop
+    ``needs``; change the condition to ``!= 'success'`` or ``always()`` alone;
+    add a ``run`` step, a checkout, or a second action; put ``if: failure()``
+    back on the step; add any scope beside ``issues: write``; add a job-level
+    ``env``, ``container``, ``services`` or ``outputs`` key; change the timeout.
+    This test fails.
+    """
+
+    job = _job("canary-alert")
+    assert set(job) == {"name", "needs", "if", "runs-on", "timeout-minutes", "permissions", "steps"}
+    assert job.get("runs-on") == "ubuntu-latest"
+    assert job.get("timeout-minutes") == 5
+    assert job.get("needs") == "canary"
+    assert job.get("if") == ALERT_IF
+    assert job.get("permissions") == {"issues": "write"}
+    steps = _steps(job)
+    assert [str(step.get("uses", "")).split("@")[0] for step in steps] == ["actions/github-script"]
+    assert not any("run" in step for step in steps)
+    assert not any("env" in step for step in steps)
+    # the job condition is the gate; a step-level failure() reads this job's own steps, which never fail
+    assert not any("if" in step for step in steps)
+    _assert_actions_are_sha_pinned(job)
+    for result, expected in (
+        ("failure", True),
+        ("success", False),
+        ("skipped", False),
+        ("cancelled", False),
+    ):
+        assert _alert_runs(job["if"], result) is expected, result
+    writers = [
+        name
+        for name, other in _load_workflow()["jobs"].items()
+        if "write" in (other.get("permissions") or {}).values()
+    ]
+    assert writers == ["canary-alert"], writers
 
 
 def _steps(job: dict) -> list[dict]:
@@ -468,12 +543,24 @@ def _evaluate(node: ast.AST, names: dict[str, str]) -> bool | str:
     if isinstance(node, ast.BoolOp):
         values = [_evaluate(item, names) for item in node.values]
         return all(values) if isinstance(node.op, ast.And) else any(values)
-    if isinstance(node, ast.Compare) and len(node.ops) == 1 and isinstance(node.ops[0], ast.Eq):
-        return _evaluate(node.left, names) == _evaluate(node.comparators[0], names)
+    if (
+        isinstance(node, ast.Compare)
+        and len(node.ops) == 1
+        and isinstance(node.ops[0], (ast.Eq, ast.NotEq))
+    ):
+        equal = _evaluate(node.left, names) == _evaluate(node.comparators[0], names)
+        return equal if isinstance(node.ops[0], ast.Eq) else not equal
     if isinstance(node, ast.Name):
         return names[node.id]
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
         return node.value
+    if (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "always"
+        and not node.args
+    ):
+        return True
     raise AssertionError(f"unsupported expression node: {ast.dump(node)}")
 
 
@@ -487,7 +574,12 @@ def _job_runs(condition: str, event: str, job_input: str) -> bool:
 
 def _jobs_that_run(event: str, job_input: str) -> list[str]:
     jobs = _load_workflow()["jobs"]
-    return [name for name, job in jobs.items() if _job_runs(job["if"], event, job_input)]
+    # a job with ``needs`` runs after another job, so the trigger test is for that job
+    return [
+        name
+        for name, job in jobs.items()
+        if "needs" not in job and _job_runs(job["if"], event, job_input)
+    ]
 
 
 def test_dispatch_input_selects_which_dispatch_job_runs() -> None:
@@ -1079,7 +1171,7 @@ def test_shorthand_step_reports_each_outcome_and_never_fails(case: str, tmp_path
 def test_real_host_workflow_grants_contents_read_and_no_secrets() -> None:
     """The pinned job cannot open issues or read a secret.
 
-    The canary's ``issues: write`` is the archive-maintenance pattern.
+    Only the separate ``canary-alert`` job holds ``issues: write``.
     Mutation: add ``pull-requests: write`` to the workflow permissions.
     This test fails.
     """

@@ -21,9 +21,11 @@ on:
     - cron: "17 2 * * *"
     - cron: "23 4 * * 1"
 
+# The job that installs packages holds no write permission. A failed run opens its
+# [ops] issue from a separate job, archive-alert, which holds issues: write, checks
+# out nothing, runs no shell and installs nothing.
 permissions:
   contents: read
-  issues: write
 
 concurrency:
   group: archive-maintenance
@@ -56,6 +58,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -138,13 +142,30 @@ jobs:
             artifacts/ops/history/*.json
             eval/reports/phase9_eval_latest.json
 
+  archive-alert:
+    name: Open the archive maintenance failure issue
+    needs: archive-maintenance
+    if: "${{ always() && needs.archive-maintenance.result == 'failure' }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
       - name: Create failure alert issue
-        if: failure()
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
             const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
-            const schedule = `${{ steps.schedule.outputs.schedule }}`;
+            // The schedule is read from the event that started this run. A value the job
+            // that installed packages wrote would be text from a job that is not trusted.
+            const allowedSchedules = ['nightly', 'weekly', 'manual'];
+            let schedule = 'nightly';
+            if (context.eventName === 'workflow_dispatch') {
+              const requested = (context.payload.inputs || {}).schedule;
+              schedule = allowedSchedules.includes(requested) ? requested : 'unknown';
+            } else if (context.payload.schedule === '23 4 * * 1') {
+              schedule = 'weekly';
+            }
             const title = `[ops] archive maintenance failure (${schedule})`;
             const bodyLines = [
               'Archive maintenance job failed.',

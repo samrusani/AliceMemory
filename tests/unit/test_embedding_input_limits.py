@@ -912,7 +912,7 @@ def test_store_rejects_a_cap_without_a_provider(tmp_path: Path) -> None:
     with sqlite_user_connection(db_path, USER_ID) as conn:
         store = SQLiteVNextStore(conn, USER_ID)
         with pytest.raises(ContinuityStoreInvariantError, match="embedding_input_cap"):
-            store.list_memories_missing_embeddings(embedding_input_cap=1000)
+            store.list_memories_missing_embeddings(statuses=("active", "accepted"), embedding_input_cap=1000)
 
 
 class _PostgresCursor:
@@ -988,6 +988,7 @@ def test_postgres_store_signs_the_cut_label_and_lists_rows_whose_label_differs()
 
     connection.cursor_instance.queries.clear()
     store.list_memories_missing_embeddings(
+        statuses=("active", "accepted"),
         embedding_provider="provider",
         embedding_model="model",
         embedding_endpoint="endpoint",
@@ -995,6 +996,7 @@ def test_postgres_store_signs_the_cut_label_and_lists_rows_whose_label_differs()
         embedding_input_cap=1000,
     )
     store.list_memories_missing_embeddings(
+        statuses=("active", "accepted"),
         embedding_provider="provider",
         embedding_model="model",
         embedding_endpoint="endpoint",
@@ -1010,7 +1012,7 @@ def test_postgres_store_signs_the_cut_label_and_lists_rows_whose_label_differs()
     assert capped_query.count("%s") == len(capped_params)
     assert uncapped_query.count("%s") == len(uncapped_params)
     with pytest.raises(ContinuityStoreInvariantError, match="embedding_input_cap"):
-        store.list_memories_missing_embeddings(embedding_input_cap=1000)
+        store.list_memories_missing_embeddings(statuses=("active", "accepted"), embedding_input_cap=1000)
 
 
 # --- reindex ------------------------------------------------------------------
@@ -1366,15 +1368,18 @@ def test_doctor_counts_only_live_active_and_accepted_memories_without_a_current_
     rejected row, a candidate, and an active row with ``deleted_at`` set. No
     code path sets ``deleted_at`` on an active row today, so that last row is
     built by hand; it keeps the count from reading a deleted row if one ever
-    does. Reindex works on the first three of the uncounted rows too (it has no
-    status filter), so the numbers differ and both are pinned.
+    does. Reindex works on the same four rows and no others: it lists only the
+    statuses recall can return, so what the doctor counts is what reindex embeds
+    (in v0.19.2 reindex had no status filter and embedded seven here).
 
     Mutations, each made against ``vault_doctor`` or the SQLite count and each
     failing a numbered assertion below: add ``superseded`` to the doctor's
     statuses (5, not 4, at step 1); count every status (7 or 8); drop
     ``accepted`` (3, not 4); drop ``deleted_at IS NULL`` from the count SQL (5,
     not 4); print a fixed number; send a fixed model name instead of the
-    configured one, so a model change leaves the count at 0 (step 4).
+    configured one, so a model change leaves the count at 0 (step 4). Pass every
+    status to ``list_memories_missing_embeddings`` in ``_run_reindex_embeddings``
+    and step 3 embeds seven, not four.
     """
 
     db_path = tmp_path / "memory.db"
@@ -1395,11 +1400,11 @@ def test_doctor_counts_only_live_active_and_accepted_memories_without_a_current_
         # 2. a provider, no vectors yet: the same four rows
         _configure(monkeypatch, server)
         assert _doctor_line(db_path, capsys) == "4"
-        # 3. reindex has no status filter: it embeds the three uncounted live rows as well
+        # 3. reindex embeds the four counted rows and leaves the superseded, rejected and candidate ones
         code, payload, _stderr = _reindex(db_path, capsys)
-        assert (code, payload["embedded"], payload["failed"]) == (0, 7, 0)
+        assert (code, payload["embedded"], payload["failed"]) == (0, 4, 0)
         assert _doctor_line(db_path, capsys) == "0"
-        # 4. a different model makes every vector stale: the four counted rows, not seven
+        # 4. a different model makes every vector stale: the four counted rows
         _configure(monkeypatch, server, model="another-model")
         assert _doctor_line(db_path, capsys) == "4"
         # 5. back on the first model its vectors are current again

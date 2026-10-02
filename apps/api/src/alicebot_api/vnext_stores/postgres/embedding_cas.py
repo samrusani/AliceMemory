@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Sequence
 
 from psycopg.types.json import Jsonb
 
@@ -220,9 +221,26 @@ def clear_memory_embedding(self, *, memory_id: str) -> VNextRow | None:
     )
 
 
+def _embedding_status_values(statuses: Sequence[str], *, caller: str) -> list[str]:
+    """The statuses a vector is made for, checked before a query is built.
+
+    Required by the listing, with no default, so a caller that forgets it
+    fails here and cannot send every row's text to the embeddings endpoint. A
+    bare string is refused (it would be read as one status per character), and
+    so is an empty list.
+    """
+    if isinstance(statuses, str) or not statuses:
+        raise ContinuityStoreInvariantError(f"{caller} requires a non-empty list of statuses")
+    values = [str(status) for status in statuses]
+    if not all(values):
+        raise ContinuityStoreInvariantError(f"{caller} statuses must not be empty strings")
+    return values
+
+
 def list_memories_missing_embeddings(
     self,
     *,
+    statuses: Sequence[str],
     limit: int = 100,
     after_id: str | None = None,
     embedding_provider: str | None = None,
@@ -231,6 +249,16 @@ def list_memories_missing_embeddings(
     embedding_signature_version: int | None = None,
     embedding_input_cap: int | None = None,
 ) -> list[VNextRow]:
+    """Rows in ``statuses`` missing a vector or carrying an incompatible signature.
+
+    ``statuses`` is required. The rows listed here are the ones whose text
+    goes to the embeddings endpoint, so a caller names the statuses recall can
+    return (``MEMORY_SEARCHABLE_STATUSES``) and a forgotten, rejected or
+    candidate memory is never listed. A memory that later becomes active is
+    listed from then on.
+    """
+    status_values = _embedding_status_values(statuses, caller="list_memories_missing_embeddings")
+    status_placeholders = ", ".join("%s" for _status in status_values)
     signature_sql = ""
     signature_params: list[object] = []
     if embedding_input_cap is not None and embedding_provider is None and embedding_model is None:
@@ -274,13 +302,14 @@ def list_memories_missing_embeddings(
                        )
                 """
             signature_params.extend((embedding_input_cap, str(embedding_input_cap)))
-    params: list[object] = [*signature_params, after_id, after_id, limit]
+    params: list[object] = [*status_values, *signature_params, after_id, after_id, limit]
     return self._fetch_all(
         f"""
                 SELECT {MEMORY_COLUMNS},
                   (embedding_vector IS NOT NULL) AS embedding_present
                 FROM memories
                 WHERE deleted_at IS NULL
+                  AND status IN ({status_placeholders})
                   AND (
                     embedding_vector IS NULL
                     {signature_sql}
