@@ -243,7 +243,12 @@ def _run_vnext_local_folder_sync(ctx: CLIContext, args: argparse.Namespace) -> s
             default_sensitivity=args.sensitivity,
         )
     _persist_deferred_capture_embeddings(ctx, result)
-    return _checked_batch_output(result.to_record())
+    record = result.to_record()
+    # What the scan left out is not in the sync result, which is the connector API's
+    # contract. Say it here, so a refused file or a scan stopped at a limit is not silent.
+    record["refused_count"] = scan.refused_count
+    record["truncated"] = scan.truncated
+    return _checked_batch_output(record)
 
 
 def _run_vnext_local_folder_watch(ctx: CLIContext, args: argparse.Namespace) -> str:

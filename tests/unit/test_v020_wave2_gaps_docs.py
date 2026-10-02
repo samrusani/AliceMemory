@@ -187,3 +187,41 @@ def test_the_known_limitation_and_the_readme_name_the_three_commands() -> None:
         "`alicebot vnext sources capture-file` and the `--file` options of `alicebot vnext connectors browser-clipper "
         "capture` and `alicebot vnext agents ingest-output` take the same limit (16 MiB) and `--max-file-mib N`."
     ) in readme
+
+
+def test_the_entry_states_the_v0192_local_folder_behaviour() -> None:
+    """The listing cap, ``ignored_count`` and the two printed numbers, with what v0.19.2 did.
+
+    Mutations, each one alone: delete the sentence about ``.github``, the one about
+    ``ignored_count``, or the one that says neither number existed in v0.19.2.
+    """
+    entry = _entry()
+    assert "the scan does not enter a folder whose name is on the default ignore list" in entry
+    assert "A folder that only starts like an ignored name, such as `.github`, is entered." in entry
+    assert "Files inside an ignored folder are no longer counted in `ignored_count`" in entry
+    assert "In v0.19.2 the scan listed and sorted every entry of the walk, ignored folders included" in entry
+    assert "`alicebot vnext connectors local-folder sync` and `watch` print `refused_count` and `truncated`" in entry
+    assert "In v0.19.2 neither number existed." in entry
+    assert "come from the descriptor that was read, whether the file changes before the read or after it." in entry
+
+
+def test_the_known_limitation_and_the_threat_model_say_ignored_folders_are_not_entered() -> None:
+    """Both keep the 100,000 figure and say what it counts, and the limitation names the printed numbers.
+
+    Mutations: delete either sentence, or the marker the limitation's paragraph sits under.
+    """
+    raw = (ROOT / "docs/alpha/known-limitations.md").read_text(encoding="utf-8")
+    (bullet,) = [item for item in raw.split("\n- ") if item.startswith("the local-folder scan reads each matching file whole")]
+    assert bullet.index(MARK) < bullet.index("It does not enter a folder named like a default ignore")
+    limits = _flat(bullet)
+    assert (
+        "It does not enter a folder named like a default ignore (`node_modules`, `.git`, `.venv` and the rest of the "
+        "list, compared without regard to case), so the inside of one neither costs time nor counts toward the "
+        "100,000, and its files are not in `ignored_count`."
+    ) in limits
+    assert "`alicebot vnext connectors local-folder sync` and `watch` print `refused_count` and `truncated`." in limits
+    threat = _read("docs/security/threat-model.md")
+    assert (
+        "lists at most 100,000 directory entries without entering a folder named like a default ignore such as "
+        "`node_modules` or `.git`"
+    ) in threat
