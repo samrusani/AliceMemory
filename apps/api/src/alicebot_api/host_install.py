@@ -2216,10 +2216,13 @@ _ALICE_INSTALL_KEYS = frozenset({"command", "args", "env"})
 #   host entry is static)
 # ALICE_PROJECT_SCOPING: docs/alpha/projects.md (on or off, not a secret; the
 #   same host env map)
+# ALICE_MCP_COMMIT_RESULT: docs/alpha/mcp-tools.md (compact or full, not a
+#   secret; the same host env map, because a host entry is static and Codex and
+#   Hermes do not pass the shell environment on)
 # Dropping this tuple makes a re-run refuse ALICE_MCP_FULL_TOOLS,
 # ALICE_AGENT_API_KEY, ALICE_EMBEDDINGS_BASE_URL, ALICE_EMBEDDINGS_MODEL,
 # ALICE_EMBEDDINGS_API_KEY, ALICE_EMBEDDINGS_MAX_INPUT_CHARS,
-# ALICE_PROJECT_DIR, and ALICE_PROJECT_SCOPING.
+# ALICE_PROJECT_DIR, ALICE_PROJECT_SCOPING, and ALICE_MCP_COMMIT_RESULT.
 HERMES_DOCUMENTED_ENV_KEYS = (
     "ALICE_MCP_FULL_TOOLS",
     "ALICE_MCP_LEGACY_TOOLS",
@@ -2231,6 +2234,7 @@ HERMES_DOCUMENTED_ENV_KEYS = (
     "ALICE_EMBEDDINGS_MAX_INPUT_CHARS",
     "ALICE_PROJECT_DIR",
     "ALICE_PROJECT_SCOPING",
+    "ALICE_MCP_COMMIT_RESULT",
 )
 _DOCUMENTED_ENV_NAMES = frozenset(HERMES_DOCUMENTED_ENV_KEYS)
 

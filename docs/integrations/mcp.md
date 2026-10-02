@@ -44,6 +44,17 @@ Optional:
   model. Changing it makes `alice-memory
   reindex-embeddings` re-embed only the memories whose embedded text changes.
   In v0.19.2 there is no cap.
+- `ALICE_MCP_COMMIT_RESULT`, Unreleased (on main, not in v0.20.0): `compact`
+  or `full`. With `compact`, `alice_memory_commit` answers with the memory `id`,
+  the outcome, the `receipt`, the reasons a write was held, and for a held write
+  the `confirmation_id` and the proposed text. It leaves out `policy_decision` and
+  the stored row's `metadata_json`. `full` returns the v0.20.0 result, byte for
+  byte. Any other value, an empty one and no variable all mean the build default,
+  which the linked page names. Only the tool `alice_memory_commit` changes; the
+  legacy alias, the HTTP routes and the CLI always return the full result. The
+  server reads it on every call. Set it in the `env` map of the host's `alice`
+  entry; the Claude Code plugin's entry has no `env` map, so a plugin user cannot
+  set it. See [The commit result](../alpha/mcp-tools.md#the-commit-result)
 - `ALICE_MCP_FULL_TOOLS=1` — advertise all eleven core tools and accept
   calls to the eight that are hidden by default
 - `ALICE_MCP_LEGACY_TOOLS=1` — append 62 retained long-tail memory tools to
