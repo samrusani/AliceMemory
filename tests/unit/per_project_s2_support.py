@@ -51,8 +51,12 @@ def add_memory(
     scope: tuple[str, ...] | None = None,
     memory_type: str = "semantic",
     status: str = "active",
+    valid_to: str | None = None,
 ) -> dict[str, object]:
-    """One committed memory. ``scope=None`` is a note with no project scope at all."""
+    """One committed memory. ``scope=None`` is a note with no project scope at all.
+
+    ``valid_to`` closes the note's window (a past timestamp makes it expired); ``None`` leaves it open.
+    """
 
     payload: dict[str, object] = {
         "memory_key": key,
@@ -65,6 +69,8 @@ def add_memory(
         "sensitivity": sensitivity,
         "value": {"text": text},
     }
+    if valid_to is not None:
+        payload["valid_to"] = valid_to
     if scope is not None:
         payload["project_scope"] = list(scope)
         payload["metadata_json"] = {"project_scope": list(scope)}
