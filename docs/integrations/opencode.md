@@ -81,6 +81,11 @@ documented host env keys, carried on the same terms. Only `alice-memory project`
 reads them so far. In v0.20.0 an entry that holds either one is refused on this
 path.
 
+Unreleased (on main, not in v0.20.0): `ALICE_MCP_COMMIT_RESULT` (`compact` or
+`full`, see [The commit result](../alpha/mcp-tools.md#the-commit-result)) is also
+a documented host env key, carried on the same terms. In v0.20.0 an entry that
+holds it is refused on this path.
+
 ## What is refused
 
 - `alice` more than once, under `mcp` or `mcp.servers`, including

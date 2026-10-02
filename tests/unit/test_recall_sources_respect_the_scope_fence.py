@@ -210,6 +210,7 @@ def test_search_source_excerpts_exposes_no_untested_surface() -> None:
         "sensitivity_allowed",
         "limit",
         "scope",
+        "ranking",
         "winning_memories",
     }, f"unexpected surface on search_source_excerpts: {sorted(parameters)}"
 
@@ -230,6 +231,7 @@ def test_a_reused_service_does_not_leak_one_querys_excerpt_into_the_next(
     _seed(context)
 
     from alicebot_api.onramp import resolve_db_path
+    from alicebot_api.source_ranking import SourceRanking
     from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
     from alicebot_api.vnext_retrieval import VNextRetrievalService
 
@@ -246,6 +248,7 @@ def test_a_reused_service_does_not_leak_one_querys_excerpt_into_the_next(
             sensitivity_allowed=["public", "private", "internal", "unknown"],
             limit=10,
             scope=None,
+            ranking=SourceRanking.document(),
         )
         assert baseline, "the fixture retrieved nothing, so nothing below is tested"
         for source in baseline:
@@ -257,6 +260,7 @@ def test_a_reused_service_does_not_leak_one_querys_excerpt_into_the_next(
             sensitivity_allowed=["public", "private", "internal", "unknown"],
             limit=10,
             scope=None,
+            ranking=SourceRanking.document(),
         )
 
     leaked = [source for source in after if planted in (source.get("excerpt") or "")]

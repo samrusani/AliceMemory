@@ -36,6 +36,9 @@ def build_runtime_env(*, database_url: str, user_id: UUID) -> dict[str, str]:
     env.pop("ALICE_MCP_LEGACY_TOOLS", None)
     env.pop("ALICE_MCP_FULL_TOOLS", None)
     env.pop("ALICE_LEGACY_SURFACES", None)
+    # The test reads memory.metadata_json.agentic_memory.source_refs from the commit result, a field
+    # the compact result leaves out, so it asks the server for the full result.
+    env["ALICE_MCP_COMMIT_RESULT"] = "full"
     pythonpath_entries = [str(REPO_ROOT / "apps" / "api" / "src"), str(REPO_ROOT / "workers")]
     existing_pythonpath = env.get("PYTHONPATH")
     if existing_pythonpath:

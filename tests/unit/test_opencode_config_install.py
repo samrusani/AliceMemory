@@ -1128,6 +1128,47 @@ def test_opencode_jsonc_keeps_the_project_env_keys(
     assert "/work/repo" not in out + err
 
 
+def test_opencode_jsonc_keeps_the_commit_result_env_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """ALICE_MCP_COMMIT_RESULT in an existing JSONC entry is kept, not refused.
+
+    The literal is copied byte for byte and the comment above the entry stays. A strict opencode.json
+    keeps every key and does not read the documented list, so only the JSONC path needs the name.
+    Mutation: drop ALICE_MCP_COMMIT_RESULT from HERMES_DOCUMENTED_ENV_KEYS. Install then refuses the
+    entry for a key it does not carry and this test fails.
+    """
+
+    scripts = _pin(monkeypatch, tmp_path)
+    home = tmp_path / "home"
+    vault = tmp_path / "vault"
+    path = _files(home)["jsonc"]
+    line = '"ALICE_MCP_COMMIT_RESULT": "compact"'
+    original = (
+        "{\n"
+        "  // my opencode config\n"
+        '  "mcp": {\n'
+        '    "alice": {\n'
+        '      "type": "local",\n'
+        '      "command": ['
+        + json.dumps(str(scripts / "alice-memory"))
+        + ', "mcp", "--data-dir", "/old"],\n'
+        '      "environment": {\n'
+        f"        {line}\n"
+        "      }\n"
+        "    }\n"
+        "  }\n"
+        "}\n"
+    )
+    _write(path, original)
+    code, out, err = _install(home, vault, capsys)
+    assert code == 0, (out, err)
+    written = path.read_text(encoding="utf-8")
+    assert line in written
+    assert "// my opencode config" in written
+    assert str(vault.resolve()) in written
+
+
 def test_opencode_jsonc_refusals(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

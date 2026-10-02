@@ -438,6 +438,42 @@ def test_codex_carries_the_project_env_keys(
         assert env["ALICE_PROJECT_SCOPING"] == "on", label
 
 
+def test_codex_carries_the_commit_result_env_key(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """ALICE_MCP_COMMIT_RESULT on the alice table is kept, not refused.
+
+    Codex passes a stdio server only HOME, PATH, LANG and a few other names, so the entry's env
+    table is the one place a user can set it. The inline form and the sub-table form are separate
+    files. The value is copied and the receipt does not refuse the file.
+    Mutation: drop ALICE_MCP_COMMIT_RESULT from HERMES_DOCUMENTED_ENV_KEYS. Install then refuses the
+    entry as holding an env key it will not edit and this test fails.
+    """
+
+    inline = (
+        "[mcp_servers.alice]\n"
+        'command = "uvx"\n'
+        'args = ["alice-memory", "mcp", "--data-dir", "/old"]\n'
+        'env = { ALICE_MCP_COMMIT_RESULT = "compact" }\n'
+    )
+    table = (
+        "[mcp_servers.alice]\n"
+        'command = "uvx"\n'
+        'args = ["alice-memory", "mcp", "--data-dir", "/old"]\n'
+        "\n"
+        "[mcp_servers.alice.env]\n"
+        "ALICE_MCP_COMMIT_RESULT = 'full'\n"
+    )
+    for label, source, expected in (("inline", inline, "compact"), ("table", table, "full")):
+        home = tmp_path / label
+        path = _seed(home, source)
+        code, out, err = _install(home, tmp_path / f"vault-{label}", capsys)
+        assert code == 0, (label, out, err)
+        written = path.read_text(encoding="utf-8")
+        env = tomllib.loads(written)["mcp_servers"]["alice"]["env"]
+        assert env == {"ALICE_MCP_COMMIT_RESULT": expected}, label
+
+
 def test_codex_carries_scalar_keys(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     original = (
         "[mcp_servers.alice]\n"

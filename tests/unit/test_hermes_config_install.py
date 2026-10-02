@@ -1289,6 +1289,46 @@ def test_hermes_rerun_keeps_the_project_env_keys(tmp_path: Path, capsys) -> None
     assert config.read_text(encoding="utf-8") == written
 
 
+def test_hermes_rerun_keeps_the_commit_result_env_key(tmp_path: Path, capsys) -> None:
+    """ALICE_MCP_COMMIT_RESULT added by hand survives a re-run instead of being refused.
+
+    Hermes passes the server only the entry's env map and a safe baseline, so the entry is the one
+    place a user can set it. A dry run changes nothing and names the key, and the real run keeps the
+    line byte for byte, with a backup of the original.
+    Mutation: drop ALICE_MCP_COMMIT_RESULT from HERMES_DOCUMENTED_ENV_KEYS. The re-run then refuses
+    the entry as holding a key install did not write, and this test fails.
+    """
+
+    home = tmp_path / "home"
+    vault = (tmp_path / "old-vault").resolve()
+    vault.mkdir()
+    env_line = '      ALICE_MCP_COMMIT_RESULT: "compact"'
+    original = _v016_alice(str(vault), env_line)
+    config = _seed(home, original)
+    kept = "kept: env.ALICE_MCP_COMMIT_RESULT"
+
+    code, out, err = _install_without_flag(home, capsys, "--dry-run")
+    assert code == 0, (out, err)
+    assert config.read_text(encoding="utf-8") == original
+    assert kept in out
+
+    code, out, err = _install_without_flag(home, capsys)
+    assert code == 0, (out, err)
+    assert kept in out
+    written = config.read_text(encoding="utf-8")
+    assert env_line in written
+    env = yaml.safe_load(written)["mcp_servers"]["alice"]["env"]
+    assert env["ALICE_MCP_COMMIT_RESULT"] == "compact"
+    backups = _backups(config, vault)
+    assert len(backups) == 1
+    assert backups[0].read_text(encoding="utf-8") == original
+
+    # A second run finds nothing to change.
+    code, out, err = _install_without_flag(home, capsys)
+    assert code == 0, (out, err)
+    assert config.read_text(encoding="utf-8") == written
+
+
 def test_hermes_unknown_env_key_still_refuses(tmp_path: Path, capsys) -> None:
     """env.FOO is not a documented key, so install refuses and does not write.
 
