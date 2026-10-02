@@ -10,10 +10,16 @@ need not be the bytes that were parsed.
 
 Everything here refuses to follow a link out of the selected root, and hands
 back the exact text it read so callers parse and archive one snapshot.
+
+A file is also read only up to a size limit the caller states. The size is
+taken from the descriptor the file was opened as, before any byte is read, and
+the read itself stops one byte past the limit, so a file that grows after the
+check or reports a size of zero while holding more cannot get past it.
 """
 
 from __future__ import annotations
 
+import argparse
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 import errno
@@ -24,6 +30,68 @@ import stat
 
 
 ErrorFactory = Callable[[str], Exception]
+
+MIB = 1024 * 1024
+_READ_CHUNK_BYTES = MIB
+
+# One Markdown note or one OpenClaw JSON file. Measured on a synthetic vault,
+# a single 16 MiB note peaked at about 335 MB of resident memory and took about
+# 23 seconds to import, so the limit sits well above any note a person writes
+# and well below a file that is not one.
+DEFAULT_MAX_TEXT_FILE_BYTES = 16 * MIB
+
+# A ChatGPT export is one JSON file, ``conversations.json``: an array holding
+# every conversation, each with a ``mapping`` of its messages. It cannot be read
+# a conversation at a time, because the importer has to parse the whole array
+# to find where one conversation ends. Peak memory was measured at 6 to 9 times
+# the file (377 MB for a 52 MB export, 535 MB when one character outside the
+# Basic Multilingual Plane makes Python store the whole text at four bytes a
+# character), so 512 MiB is about 3 to 4.6 GB. That is a file a long-time user
+# can have and a laptop can import, and it refuses a disk image or database
+# dump that was named by mistake before any of it is read.
+DEFAULT_MAX_CHATGPT_EXPORT_BYTES = 512 * MIB
+
+
+def parse_max_file_mib(value: str) -> int:
+    """The ``--max-file-mib`` argument: a whole number of MiB, at least 1.
+
+    Both CLIs take it, so the units and the floor are stated once. There is no
+    value that means no limit. A number larger than the file is how a person who
+    has the memory for it says so.
+    """
+
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"invalid whole number of MiB: {value}") from exc
+    if parsed < 1:
+        raise argparse.ArgumentTypeError("--max-file-mib must be at least 1")
+    return parsed
+
+
+class ImportFileTooLargeError(ValueError):
+    """A selected import file is over the per-file size limit.
+
+    Raised directly and not through the importer's ``error_factory``, so a
+    caller can tell this refusal from every other one by its type and its
+    ``reason_code``. It is raised before the file is read when the size on the
+    open descriptor is already over the limit.
+    """
+
+    reason_code = "import_file_too_large"
+
+    def __init__(self, *, file_path: Path, size_bytes: int, limit_bytes: int, exact: bool) -> None:
+        self.file_path = file_path
+        self.size_bytes = size_bytes
+        self.limit_bytes = limit_bytes
+        # False when the size is only known to be over the limit: the file
+        # passed the size check and then held more than the limit when read.
+        self.exact = exact
+        size_phrase = f"is {size_bytes} bytes" if exact else f"is more than {limit_bytes} bytes"
+        super().__init__(
+            f"import source file is too large: {file_path} {size_phrase}, "
+            f"the limit is {limit_bytes} bytes"
+        )
 
 # BSD kernels report O_NOFOLLOW on a symlink as EMLINK rather than ELOOP.
 _SYMLINK_OPEN_ERRNOS = frozenset({errno.ELOOP, errno.EMLINK})
@@ -86,6 +154,7 @@ def read_contained_source_text(
     file_path: Path,
     *,
     source_root: Path | None = None,
+    max_bytes: int,
     error_factory: ErrorFactory,
 ) -> str:
     """Open one import file once and return the exact text that was read.
@@ -101,12 +170,22 @@ def read_contained_source_text(
     ``source_root``, when given, is enforced: a candidate carrying ``..`` or
     otherwise resolving outside the selected root is refused rather than read.
 
+    ``max_bytes`` is required, so no caller can read a file without saying how
+    large a file it will take. A file over it is refused with
+    ``ImportFileTooLargeError`` before any of it is read: the size comes from
+    ``fstat`` on the descriptor that was just opened. The read then asks for
+    one byte more than the limit and refuses if it gets it, because a size on
+    the descriptor is not a promise about what the file holds (a file being
+    appended to, or a file under ``/proc`` that reports a size of zero).
+
     Known limitation: a hard link is not a reference to a file, it is the
     file, so a hard link planted inside the root to content elsewhere is
     indistinguishable from ordinary content and is read. Nothing at this layer
     can separate the two.
     """
 
+    if max_bytes < 1:
+        raise ValueError("max_bytes must be at least 1")
     if ".." in file_path.parts:
         raise error_factory(f"import source path must not traverse upward: {file_path}")
     if source_root is not None and not file_path.is_relative_to(source_root):
@@ -132,23 +211,63 @@ def read_contained_source_text(
             raise error_factory(
                 f"import source file is not a regular file: {file_path}"
             )
+        # Before a byte is read. A file over the limit never reaches memory.
+        if opened_status.st_size > max_bytes:
+            raise ImportFileTooLargeError(
+                file_path=file_path,
+                size_bytes=opened_status.st_size,
+                limit_bytes=max_bytes,
+                exact=True,
+            )
         descriptor_flags = fcntl.fcntl(descriptor, fcntl.F_GETFL)
         fcntl.fcntl(descriptor, fcntl.F_SETFL, descriptor_flags & ~os.O_NONBLOCK)
+        # One buffer, sized from the descriptor, with one spare byte so a file
+        # that is longer than it reported shows up as a full buffer. It is made
+        # here so a failure to allocate it still closes the descriptor. Reading
+        # in chunks and joining them would hold the chunks and their join at
+        # once, which for a 500 MiB export is another 500 MiB in the peak.
+        buffer = bytearray(min(opened_status.st_size, max_bytes) + 1)
     except BaseException:
         os.close(descriptor)
         raise
 
-    with os.fdopen(descriptor, "r", encoding="utf-8") as stream:
-        try:
-            return stream.read()
-        except UnicodeDecodeError as exc:
-            # Decoding is part of reading the file, so a bad byte has to leave
-            # as the caller's own validation error naming the file. Raised bare
-            # it surfaces as a byte offset with no path attached, which tells an
-            # operator nothing about which file to go and look at.
-            raise error_factory(
-                f"import source file is not valid UTF-8 text: {file_path}"
-            ) from exc
+    filled = 0
+    with os.fdopen(descriptor, "rb", buffering=0) as raw:
+        while True:
+            if filled == len(buffer):
+                if filled > max_bytes:
+                    # The spare byte was filled, or the file kept growing past
+                    # the limit while it was being read.
+                    raise ImportFileTooLargeError(
+                        file_path=file_path,
+                        size_bytes=filled,
+                        limit_bytes=max_bytes,
+                        exact=False,
+                    )
+                # ``fstat`` reported less than the file holds. Take the rest a
+                # chunk at a time, and never more than one byte past the limit.
+                buffer.extend(bytes(min(_READ_CHUNK_BYTES, max_bytes + 1 - filled)))
+            count = raw.readinto(memoryview(buffer)[filled:])
+            if not count:
+                break
+            filled += count
+    # Decoded as the text-mode open it replaces decoded: strict UTF-8, no byte
+    # order mark handling, and the universal newline translation, so ``\r\n``
+    # and a lone ``\r`` arrive as ``\n``. The text is the same as before the
+    # limit existed.
+    try:
+        text = str(memoryview(buffer)[:filled], "utf-8")
+    except UnicodeDecodeError as exc:
+        # Decoding is part of reading the file, so a bad byte has to leave
+        # as the caller's own validation error naming the file. Raised bare
+        # it surfaces as a byte offset with no path attached, which tells an
+        # operator nothing about which file to go and look at.
+        raise error_factory(
+            f"import source file is not valid UTF-8 text: {file_path}"
+        ) from exc
+    if "\r" in text:
+        text = text.replace("\r\n", "\n").replace("\r", "\n")
+    return text
 
 
 class ContainedReadRefused(Exception):
@@ -246,9 +365,14 @@ def snapshot_source_files(
     source_root: Path,
     files: Iterable[Path],
     *,
+    max_bytes: int,
     error_factory: ErrorFactory,
 ) -> list[ImportSourceFile]:
-    """Read every selected file once, in listing order."""
+    """Read every selected file once, in listing order.
+
+    ``max_bytes`` is the limit for each file. It is not a limit on the folder:
+    the snapshot holds every selected file in memory at once.
+    """
 
     return [
         ImportSourceFile(
@@ -257,6 +381,7 @@ def snapshot_source_files(
             text=read_contained_source_text(
                 file_path,
                 source_root=source_root,
+                max_bytes=max_bytes,
                 error_factory=error_factory,
             ),
         )
@@ -266,7 +391,12 @@ def snapshot_source_files(
 
 __all__ = [
     "ContainedReadRefused",
+    "DEFAULT_MAX_CHATGPT_EXPORT_BYTES",
+    "DEFAULT_MAX_TEXT_FILE_BYTES",
+    "ImportFileTooLargeError",
     "ImportSourceFile",
+    "MIB",
+    "parse_max_file_mib",
     "contained_source_files",
     "read_contained_source_text",
     "read_text_beneath",

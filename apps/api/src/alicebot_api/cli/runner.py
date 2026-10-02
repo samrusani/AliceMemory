@@ -19,6 +19,7 @@ from alicebot_api.continuity_review import ContinuityReviewNotFoundError, Contin
 from alicebot_api.task_briefing import TaskBriefNotFoundError, TaskBriefValidationError
 from alicebot_api.temporal_state import TemporalStateValidationError
 from alicebot_api.trusted_fact_promotions import TrustedFactPromotionNotFoundError
+from alicebot_api.vnext_capture import ImportFileTooLargeRefused as _ImportFileTooLargeRefused
 from alicebot_api.vnext_capture import VNextCaptureValidationError
 from alicebot_api.vnext_brain import VNextBrainValidationError
 from alicebot_api.vnext_connections import VNextConnectionValidationError
@@ -130,6 +131,12 @@ def main(argv: list[str] | None = None) -> int:
             # invalid_request from argument parsing exits 2. This refusal is
             # the same class of bad request.
             exit_code = 2
+        elif isinstance(exc, _ImportFileTooLargeRefused):
+            # The one capture refusal that has a type and a message of its own.
+            # The text holds a file name that was checked against the credential
+            # floor, two sizes and nothing from the file.
+            code = exc.reason_code
+            message = f"{exc}. Raise the limit with --max-file-mib, or import a smaller file."
         elif isinstance(exc, not_found_errors):
             code, message = _CLI_NOT_FOUND
         elif isinstance(exc, invalid_request_errors):

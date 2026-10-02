@@ -50,6 +50,7 @@ def test_backfill_selects_vector_whose_content_signature_is_stale(
         )
         assert (
             store.list_memories_missing_embeddings(
+                statuses=("active", "accepted"),
                 embedding_provider="openai_compatible",
                 embedding_model="embed-v1",
                 embedding_endpoint="host-a",
@@ -66,6 +67,7 @@ def test_backfill_selects_vector_whose_content_signature_is_stale(
             )
 
         stale = store.list_memories_missing_embeddings(
+            statuses=("active", "accepted"),
             embedding_provider="openai_compatible",
             embedding_model="embed-v1",
             embedding_endpoint="host-a",
@@ -130,6 +132,7 @@ def test_embedding_cas_matches_python_strip_for_unicode_boundaries(
         assert updated is not None
         assert (
             store.list_memories_missing_embeddings(
+                statuses=("active", "accepted"),
                 embedding_provider="openai_compatible",
                 embedding_model="embed-v1",
                 embedding_endpoint="host-a",
@@ -146,3 +149,90 @@ def test_embedding_cas_matches_python_strip_for_unicode_boundaries(
             limit=5,
         )
         assert str(memory["id"]) in {str(row["id"]) for row in vector_rows}
+
+
+def test_backfill_lists_only_the_statuses_it_is_asked_for(migrated_database_urls) -> None:
+    """The list names rows by status: a forgotten, rejected or candidate memory is not listed for embedding.
+
+    One memory in each of nine statuses, none with a vector. Asked for the two
+    statuses recall can return, the list holds the active and the accepted
+    memory and no other. A superseded memory that holds a vector the signature
+    calls stale (another model) is left out of that list as well, and is
+    listed when the superseded status is asked for. In v0.19.2 the list had no
+    status argument and held every row of the user.
+
+    Mutation: drop ``AND status IN (...)`` from ``list_memories_missing_embeddings``
+    in ``vnext_stores/postgres/embedding_cas.py``. The first assertion then
+    lists nine rows. Or move the status test inside the ``embedding_vector IS
+    NULL`` branch of the condition, and the stale superseded row is listed.
+    """
+
+    app_url = migrated_database_urls["app"]
+    user_id = uuid4()
+    statuses = (
+        "candidate",
+        "active",
+        "accepted",
+        "rejected",
+        "superseded",
+        "archived",
+        "needs_review",
+        "private_only",
+        "stale",
+    )
+    with user_connection(app_url, user_id) as conn:
+        ContinuityStore(conn).create_user(
+            user_id,
+            f"embedding-statuses-{user_id}@example.invalid",
+            "Embedding statuses",
+        )
+        store = PostgresVNextStore(conn)
+        created = {}
+        for status in statuses:
+            created[status] = store.create_memory(
+                {
+                    "memory_key": f"embedding.status.{status}.{uuid4()}",
+                    "value": {"text": f"A {status} fact"},
+                    "status": status,
+                    "title": f"{status} memory",
+                    "canonical_text": f"A {status} fact",
+                    "summary": f"A {status} summary",
+                    "domain": "project",
+                    "sensitivity": "private",
+                }
+            )
+        ids = {status: str(memory["id"]) for status, memory in created.items()}
+
+        live = store.list_memories_missing_embeddings(statuses=("active", "accepted"))
+        assert sorted(str(row["id"]) for row in live) == sorted([ids["active"], ids["accepted"]])
+        assert all(row["embedding_present"] is False for row in live)
+
+        only_candidate = store.list_memories_missing_embeddings(statuses=("candidate",))
+        assert [str(row["id"]) for row in only_candidate] == [ids["candidate"]]
+
+        # a forgotten memory whose vector was made under another model is not listed for the new one
+        updated = store.update_memory_embedding(
+            memory_id=ids["superseded"],
+            vector=pad_embedding_vector([1.0, 0.0]),
+            provider="openai_compatible",
+            model="embed-v1",
+            endpoint="host-a",
+            content_sha256=memory_embedding_content_sha256(created["superseded"]),
+            signature_version=2,
+        )
+        assert updated is not None
+        signature = {
+            "embedding_provider": "openai_compatible",
+            "embedding_model": "embed-v2",
+            "embedding_endpoint": "host-a",
+            "embedding_signature_version": 2,
+        }
+        live_under_new_model = store.list_memories_missing_embeddings(
+            statuses=("active", "accepted"), **signature
+        )
+        assert sorted(str(row["id"]) for row in live_under_new_model) == sorted(
+            [ids["active"], ids["accepted"]]
+        )
+        forgotten = store.list_memories_missing_embeddings(statuses=("superseded",), **signature)
+        assert [str(row["id"]) for row in forgotten] == [ids["superseded"]]
+        assert forgotten[0]["embedding_present"] is True
