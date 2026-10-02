@@ -735,6 +735,7 @@ def test_a_resume_event_for_an_expired_memory_fails_the_fence_when_read_by_id() 
             {**event, "target_type": target_type},
             effective_domains=(),
             effective_sensitivity_allowed=ALL_SENSITIVITY,
+            exclude_global_domains=frozenset(),
         )
 
     assert honoured({**base, "valid_to": None}) is True

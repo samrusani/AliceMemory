@@ -36,8 +36,10 @@ SOURCE_RECEIPTS = {
     # Re-minted for per-project memory S2 (2026-10-02): the project fence builders read the reserved global
     # marker and take the domains to leave out, and the single-scan partition SQL and the materialized-CTE hint
     # are new. The Postgres carrier is unchanged on purpose: the Postgres runtime resolves no project view.
+    # Re-minted once more in the S2 review round (2026-10-02): a request that holds the marker and does not state which
+    # global domains it leaves out raises (reviewed change, not drift).
     "apps/api/src/alicebot_api/vnext_stores/sqlite/query_predicates.py": (
-        "3344702b269aad05a412b5157efe1960073f8b498d0f94aaaaff554468be99be"
+        "eab46f165564c212db21b6b6b621ecb447aaa86d48aba6512bd5f2e88f20bd82"
     ),
     # Re-minted for the Phase 4 Stage 2 resident vector cache (reviewed
     # carrier change; the receipt guards unreviewed drift): the vector scan
@@ -55,8 +57,10 @@ SOURCE_RECEIPTS = {
     # Re-minted again for per-project memory S2 (2026-10-02): ``list_memories`` builds its filters in
     # ``_memory_list_clauses`` and takes ``exclude_global_domains``, and ``list_memories_view_partitions`` is new
     # (reviewed change, not drift).
+    # Re-minted once more in the S2 review round (2026-10-02): ``exclude_global_domains`` defaults to ``None`` and the
+    # single-scan reader takes ``domains`` and ``sensitivity_allowed`` as required arguments (reviewed change, not drift).
     "apps/api/src/alicebot_api/vnext_stores/sqlite/memory_access.py": (
-        "c29e0e444eb3ddb87e86c3fbc6d39c576141cbc70efb1fd42839a492a0e7a541"
+        "8a0bcba8a6ea7c37139447a86379ba93e371ce486fab090293f2dd2f2034f508"
     ),
 }
 

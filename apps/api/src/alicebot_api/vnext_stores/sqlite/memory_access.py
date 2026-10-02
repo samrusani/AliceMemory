@@ -31,6 +31,7 @@ from alicebot_api.vnext_stores.sqlite.query_predicates import (
     _fts_match_expression,
     CTE_MATERIALIZED_HINT,
     _project_view_partition_sql,
+    _stated_exclusion,
     _sqlite_ascii_literal_contains_sql,
 )
 from alicebot_api.vnext_stores.sqlite.vector_scan import cached_vector_ranked
@@ -479,7 +480,7 @@ def list_memories(
     order_by_created_at: bool = False,
     limit: int | None = None,
     include_expired: bool = True,
-    exclude_global_domains: Sequence[str] = (),
+    exclude_global_domains: Sequence[str] | None = None,
 ) -> list[VNextRow]:
     """List memories. ``include_expired=False`` leaves out a memory whose ``valid_to`` has passed.
 
@@ -490,7 +491,8 @@ def list_memories(
     ``projects`` may hold the reserved global marker (spec 6.1). With it,
     ``exclude_global_domains`` leaves out global memories in those domains before
     ``LIMIT``, so a held-back row never uses up a place. It has no effect on a
-    request that does not hold the marker.
+    request that does not hold the marker. With the marker it must be stated, an
+    empty tuple when nothing is left out: ``None`` raises.
     """
     if limit is not None and limit < 1:
         raise ValueError("limit must be positive")
@@ -511,7 +513,7 @@ def list_memories(
     head_sql, head_params, tail_sql, tail_params = clauses
     project_sql, project_params = self._project_clause(
         tuple(normalize_project_scope(projects or ())),
-        global_excluded_domains=tuple(sorted(exclude_global_domains)),
+        global_excluded_domains=_stated_exclusion(exclude_global_domains),
     )
     params = [*head_params, *project_params, *tail_params]
     order_sql = (
@@ -543,11 +545,14 @@ def list_memories_view_partitions(
     project_ids: Sequence[str],
     exclude_global_domains: Sequence[str],
     per_partition_limit: int,
+    # The domain filter and the sensitivity ceiling have no defaults: a caller that
+    # forgets one would read every domain or every sensitivity. ``None`` is written
+    # at the call site when a filter is meant to be absent.
+    domains: list[str] | None,
+    sensitivity_allowed: list[str] | None,
     status: str | None = None,
     statuses: Sequence[str] | None = None,
     memory_types: Sequence[str] | None = None,
-    domains: list[str] | None = None,
-    sensitivity_allowed: list[str] | None = None,
     created_at_start: datetime | None = None,
     created_at_end: datetime | None = None,
     query: str | None = None,

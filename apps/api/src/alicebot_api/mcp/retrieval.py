@@ -88,6 +88,7 @@ from .retrieval_shared import (
     _memory_matches_project,
     _memory_matches_query,
     _provenance_count,
+    _resource_is_held_back_global,
     _resource_matches_domains,
     _resource_matches_project_scope,
     _resource_matches_sensitivity,
@@ -786,6 +787,11 @@ def _resume_event_honours_policy_fence(
     *,
     effective_domains: tuple[str, ...],
     effective_sensitivity_allowed: tuple[str, ...],
+    # Required, with no default, like the fence arguments next to it: the project view
+    # holds back global notes in some domains, and an event row holds only ids, so the
+    # row it points at is the thing to test (the event queries leave them out in SQL
+    # too, which keeps a held-back event from using up a place).
+    exclude_global_domains: frozenset[str],
 ) -> bool:
     target_type = event.get("target_type")
     target_id = event.get("target_id")
@@ -801,6 +807,8 @@ def _resume_event_honours_policy_fence(
     # The event was listed through a join that leaves out an expired memory.
     # The row is read again by id, so the same test applies to what is shown.
     if target_type == "memory" and not memory_window_is_open(row):
+        return False
+    if _resource_is_held_back_global(row, exclude_global_domains):
         return False
     return _resource_matches_domains(row, effective_domains) and _resource_matches_sensitivity(
         row, effective_sensitivity_allowed
@@ -1131,6 +1139,7 @@ def _vnext_resume(
                     event,
                     effective_domains=effective_domains,
                     effective_sensitivity_allowed=effective_sensitivity_allowed,
+                    exclude_global_domains=held_back,
                 )
             ]
             event_rows.sort(

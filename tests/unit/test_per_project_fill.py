@@ -282,6 +282,7 @@ def test_the_single_scan_reader_returns_what_two_ordinary_queries_return(tmp_pat
                 common = dict(
                     status=None,
                     statuses=("active", "accepted"),
+                    domains=None,
                     sensitivity_allowed=ceiling,
                     order_by_created_at=by_creation,
                     include_expired=False,
@@ -300,6 +301,7 @@ def test_the_single_scan_reader_returns_what_two_ordinary_queries_return(tmp_pat
                 project_ids=(PROJECT_A,),
                 exclude_global_domains=excluded,
                 per_partition_limit=5,
+                domains=None,
                 status=None,
                 statuses=("open",),
                 sensitivity_allowed=ceiling,
@@ -324,6 +326,41 @@ def test_the_single_scan_reader_returns_what_two_ordinary_queries_return(tmp_pat
         by_update = [row["id"] for row in store.list_memories(limit=5, order_by_created_at=False)]
         by_creation = [row["id"] for row in store.list_memories(limit=5, order_by_created_at=True)]
         assert by_update != by_creation
+
+
+def test_pre_upgrade_rows_that_name_a_project_only_in_the_column_fill_the_brief_correctly(tmp_path: Path) -> None:
+    """Mutation: drop ``project_id`` from ``text_expressions`` in ``list_open_loops_view_partitions``, or in
+    ``list_memories_view_partitions``.
+
+    A note or loop written before per-project memory can name its project only in the ``project_id`` column, with
+    empty metadata. Ten plain global facts and loops are the oldest, then three column-only rows of another project
+    (the newest globals, if they were read as global), then three column-only rows of this project. The brief shows
+    this project's three and the five newest plain global ones, and nothing of the other project. Without the column
+    in the native fast path every column-only row is read as global: another project's loops appear in this
+    brief marked ``(global)``, and, because the facts are checked again afterwards, its facts take global places
+    and only two plain global facts are left.
+    """
+
+    data_dir = tmp_path / "vault"
+    data_dir.mkdir()
+    context_for(data_dir)
+    with sqlite_user_connection(db_path_for(data_dir), USER_ID) as connection:
+        store = SQLiteVNextStore(connection, USER_ID)
+        for index in range(10):
+            add_memory(store, key=f"fact.g.{index}", text=f"Plain global fact number {index} gamma")
+            add_loop(store, title=f"Plain global loop number {index} gamma")
+        for project, word in ((PROJECT_B, "omega"), (PROJECT_A, "alpha")):
+            for index in range(3):
+                memory = add_memory(store, key=f"fact.{word}.{index}", text=f"Column only fact {index} {word}")
+                loop = add_loop(store, title=f"Column only loop {index} {word}")
+                store.conn.execute("UPDATE memories SET metadata_json = '{}', project_id = ? WHERE id = ?", (project, memory["id"]))
+                store.conn.execute("UPDATE open_loops SET metadata_json = '{}', project_id = ? WHERE id = ?", (project, loop["id"]))
+    brief = compile_view_brief(data_dir, project_view())
+    assert "omega" not in brief
+    for label in ("fact", "open loop"):
+        assert len(_lines(brief, label, global_rows=False)) == 3, (label, brief)
+        assert len(_lines(brief, label, global_rows=True)) == 5, (label, brief)
+    assert brief.count("alpha") == 6
 
 
 @pytest.mark.skipif(
@@ -365,6 +402,8 @@ def test_the_single_scan_labels_each_row_once(tmp_path: Path, monkeypatch: pytes
             project_ids=(PROJECT_A,),
             exclude_global_domains=(),
             per_partition_limit=8,
+            domains=None,
+            sensitivity_allowed=None,
             status=None,
             statuses=("active", "accepted"),
             order_by_created_at=True,

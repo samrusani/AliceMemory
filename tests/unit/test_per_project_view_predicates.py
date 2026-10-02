@@ -129,7 +129,10 @@ def test_the_sql_predicate_for_memories_equals_the_python_predicate(fuzz_store: 
         expected = {
             str(row["id"]) for row in rows if _python_admits(memory_project_scope(row), request)
         }
-        got = {str(row["id"]) for row in fuzz_store.list_memories(projects=request, limit=None)}
+        got = {
+            str(row["id"])
+            for row in fuzz_store.list_memories(projects=request, limit=None, exclude_global_domains=())
+        }
         assert got == expected, (view_name, sorted(ids[i] for i in got ^ expected))
         results[view_name] = got
     assert all(results.values()), "every view must admit some shape, or the comparison is vacuous"
@@ -153,7 +156,12 @@ def test_the_sql_predicate_for_open_loops_equals_the_python_predicate(fuzz_store
     assert len(rows) == len(SHAPES)
     for view_name, request in VIEWS.items():
         expected = {str(row["id"]) for row in rows if _python_admits(resource_project_scope(row), request)}
-        got = {str(row["id"]) for row in fuzz_store.list_open_loops(status=None, limit=1000, scope_projects=request)}
+        got = {
+            str(row["id"])
+            for row in fuzz_store.list_open_loops(
+                status=None, limit=1000, scope_projects=request, exclude_global_domains=()
+            )
+        }
         assert got == expected, (view_name, sorted(ids[i] for i in got ^ expected))
 
 
@@ -288,6 +296,85 @@ def test_the_view_holds_back_global_notes_in_the_excluded_domains_in_sql_and_in_
     assert got_memories != {
         str(row["id"]) for row in rows if _python_admits(memory_project_scope(row), request)
     }, "the exclusion must change the result, or this test is vacuous"
+
+
+def test_the_single_scan_partitions_label_every_stored_shape_as_the_python_judge_does(
+    fuzz_store: SQLiteVNextStore,
+) -> None:
+    """Mutation: drop ``project_id`` from ``text_expressions`` in ``list_memories_view_partitions``, or in
+    ``list_open_loops_view_partitions``, or drop the ``\\u`` guard from ``_no_alice_id_in_text``.
+
+    The single-scan reads label a row global through a native fast path that looks only at the raw text of the
+    columns it is given. A pre-upgrade note whose only project marker is the ``project_id`` column (the metadata
+    is empty), an uppercase or padded id, an escaped id and a note that mentions an id without being scoped to it
+    all have to land where ``project_scopes_overlap`` puts them. Every shape of the predicate fuzz is planted in
+    a plain and a held-back domain, as a memory and as a loop, and each partition is compared with the Python
+    judge, with nothing held back and with a domain held back. Without ``project_id`` in the list a
+    column-only note of this project is read as global and one of another project too.
+    """
+
+    ceiling = ["public", "internal", "private", "unknown"]
+    labels: dict[str, tuple[str, str]] = {}
+    for name, (metadata, project_id) in SHAPES.items():
+        for domain in ("project", "health"):
+            memory = add_memory(fuzz_store, key=f"part.{name}.{domain}", text=f"Part row {name} {domain}", domain=domain)
+            _plant(fuzz_store, "memories", str(memory["id"]), metadata, project_id)
+            labels[str(memory["id"])] = (name, domain)
+            loop = add_loop(fuzz_store, title=f"Part loop {name} {domain}", domain=domain)
+            _plant(fuzz_store, "open_loops", str(loop["id"]), metadata, project_id)
+            labels[str(loop["id"])] = (name, domain)
+    project_ids = (PROJECT_A, SECONDARY_A)
+    memories = fuzz_store.list_memories(limit=None)
+    loops = fuzz_store.list_open_loops(status=None, limit=1000)
+    assert len(memories) == len(loops) == 2 * len(SHAPES)
+    for excluded in ((), ("health",)):
+        for kind, rows, scope_of in (
+            ("memory", memories, memory_project_scope),
+            ("loop", loops, resource_project_scope),
+        ):
+            expected_project = {
+                str(row["id"]) for row in rows if project_scopes_overlap(scope_of(row), project_ids)
+            }
+            expected_global = {
+                str(row["id"])
+                for row in rows
+                if project_scopes_overlap(scope_of(row), (GLOBAL,))
+                and not _held_back(row, scope_of(row), excluded)
+            }
+            if kind == "memory":
+                project_rows, global_rows = fuzz_store.list_memories_view_partitions(
+                    project_ids=project_ids,
+                    exclude_global_domains=excluded,
+                    per_partition_limit=1000,
+                    domains=None,
+                    sensitivity_allowed=ceiling,
+                    status=None,
+                    statuses=("active",),
+                )
+            else:
+                project_rows, global_rows = fuzz_store.list_open_loops_view_partitions(
+                    project_ids=project_ids,
+                    exclude_global_domains=excluded,
+                    per_partition_limit=1000,
+                    domains=None,
+                    sensitivity_allowed=ceiling,
+                    status=None,
+                    statuses=("open",),
+                )
+            got_project = {str(row["id"]) for row in project_rows}
+            got_global = {str(row["id"]) for row in global_rows}
+            assert got_project == expected_project, (
+                kind, excluded, sorted(labels[i] for i in got_project ^ expected_project)
+            )
+            assert got_global == expected_global, (
+                kind, excluded, sorted(labels[i] for i in got_global ^ expected_global)
+            )
+            names_in_project = {labels[i][0] for i in got_project}
+            names_in_global = {labels[i][0] for i in got_global}
+            # The comparison above is not vacuous: each hard shape lands on the side the judge puts it.
+            assert {"column_only", "uppercase", "padded", "escaped_id", "escaped_prefix", "root"} <= names_in_project
+            assert {"no_scope", "free_form", "free_form_column"} <= names_in_global
+            assert "column_other" not in names_in_project | names_in_global
 
 
 def test_a_stored_string_that_reads_like_the_marker_is_a_free_form_name() -> None:

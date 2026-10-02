@@ -213,6 +213,7 @@ from alicebot_api.vnext_stores.sqlite.query_predicates import (
     _sensitivity_clause as _query_sensitivity_clause,
     _source_project_scope_identity_json_sqlite as _source_project_scope_identity_json_sqlite,
     _sqlite_ascii_literal_contains_sql as _sqlite_ascii_literal_contains_sql,
+    _stated_exclusion as _query_stated_exclusion,
 )
 
 VNextRow = dict[str, object]
@@ -489,7 +490,7 @@ class SQLiteVNextStore:
         occurred_at_start: datetime | None = None,
         occurred_at_end: datetime | None = None,
         limit: int = 20,
-        exclude_global_domains: Sequence[str] = (),
+        exclude_global_domains: Sequence[str] | None = None,
     ) -> list[VNextRow]:
         """Return events joined to resume-admitted memories before LIMIT.
 
@@ -499,7 +500,8 @@ class SQLiteVNextStore:
 
         ``projects`` may hold the reserved global marker (spec 6.1). With it,
         ``exclude_global_domains`` leaves out events of global memories in those
-        domains before ``LIMIT``.
+        domains before ``LIMIT``, and it must be stated (an empty tuple leaves none
+        out): ``None`` raises.
         """
 
         if limit < 1:
@@ -510,7 +512,7 @@ class SQLiteVNextStore:
         project_sql, project_params = self._project_clause(
             tuple(normalize_project_scope(projects or ())),
             prefix="memory.",
-            global_excluded_domains=tuple(sorted(exclude_global_domains)),
+            global_excluded_domains=_query_stated_exclusion(exclude_global_domains),
         )
         expiry_sql, expiry_params = self._expiry_clause(False, prefix="memory.")
         clauses = [
@@ -1035,6 +1037,9 @@ class SQLiteVNextStore:
             ),
             scope_window_start=scope_window_start,
             scope_window_end=scope_window_end,
+            # Stated, an empty tuple: a source is held back in Python (the brief's
+            # ``_source_honours_fence``), not in this read, so it leaves nothing out itself.
+            global_excluded_domains=(),
         )
         prefixed_columns = ", ".join(f"c.{column}" for column in SOURCE_CHUNK_COLUMNS)
         params: list[object] = [match_expression, self.user_id]
@@ -1122,6 +1127,8 @@ class SQLiteVNextStore:
             ),
             scope_window_start=scope_window_start,
             scope_window_end=scope_window_end,
+            # Stated, an empty tuple: see ``search_source_chunks``.
+            global_excluded_domains=(),
         )
         count = len(patterns)
         match_columns = ("title", "author", "uri", "raw_path", "content_hash", "metadata_json")

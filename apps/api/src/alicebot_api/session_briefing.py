@@ -125,6 +125,9 @@ class SessionBriefStore(Protocol):
         # Required, with no default: a brief that forgets to say whether it
         # shows an expired memory fails the type check, not a reader.
         include_expired: bool,
+        # ``None`` is "not stated" and the store refuses it when ``projects`` holds
+        # the global marker. The brief always states it.
+        exclude_global_domains: Sequence[str] | None = None,
     ) -> list[JsonObject]: ...
 
     def list_memories_view_partitions(
@@ -133,10 +136,10 @@ class SessionBriefStore(Protocol):
         project_ids: Sequence[str],
         exclude_global_domains: Sequence[str],
         per_partition_limit: int,
+        domains: list[str] | None,
+        sensitivity_allowed: list[str] | None,
         status: str | None = None,
         statuses: Sequence[str] | None = None,
-        domains: list[str] | None = None,
-        sensitivity_allowed: list[str] | None = None,
         order_by_created_at: bool = False,
         include_expired: bool = True,
     ) -> tuple[list[JsonObject], list[JsonObject]]: ...
@@ -147,10 +150,10 @@ class SessionBriefStore(Protocol):
         project_ids: Sequence[str],
         exclude_global_domains: Sequence[str],
         per_partition_limit: int,
+        domains: list[str] | None,
+        sensitivity_allowed: list[str] | None,
         status: str | None = "open",
         statuses: Sequence[str] | None = None,
-        domains: list[str] | None = None,
-        sensitivity_allowed: list[str] | None = None,
     ) -> tuple[list[JsonObject], list[JsonObject]]: ...
 
     def list_open_loops(
@@ -163,6 +166,7 @@ class SessionBriefStore(Protocol):
         sensitivity_allowed: list[str] | None = None,
         limit: int = 8,
         scope_projects: Sequence[str] | None = None,
+        exclude_global_domains: Sequence[str] | None = None,
     ) -> list[JsonObject]: ...
 
     def list_resume_memory_events(
@@ -172,7 +176,7 @@ class SessionBriefStore(Protocol):
         projects: Sequence[str] | None = None,
         query: str | None = None,
         limit: int = 20,
-        exclude_global_domains: Sequence[str] = (),
+        exclude_global_domains: Sequence[str] | None = None,
     ) -> list[JsonObject]: ...
 
     def list_open_loop_events(
@@ -182,7 +186,7 @@ class SessionBriefStore(Protocol):
         scope_projects: Sequence[str] | None = None,
         query: str | None = None,
         limit: int = 20,
-        exclude_global_domains: Sequence[str] = (),
+        exclude_global_domains: Sequence[str] | None = None,
     ) -> list[JsonObject]: ...
 
     def list_events(
@@ -331,6 +335,9 @@ def compile_session_brief(
                 # test, applied before the limit so an expired row cannot use up
                 # one of the eight places.
                 include_expired=False,
+                # Stated even when empty: a view that asks for the global marker
+                # (the global view) must say what it holds back.
+                exclude_global_domains=tuple(sorted(held_back)),
             )
         facts = [
             row
@@ -366,6 +373,7 @@ def compile_session_brief(
                 sensitivity_allowed=sensitivity_filter,
                 limit=OPEN_LOOP_LIMIT,
                 scope_projects=effective_project_scope,
+                exclude_global_domains=tuple(sorted(held_back)),
             )
         _merge_recent_change_targets(
             store,
@@ -477,18 +485,16 @@ def _merge_recent_change_targets(
     effective_project_scope: tuple[str, ...],
     exclude_global_domains: frozenset[str],
 ) -> None:
-    # The exclusion goes into the event queries only when there is one, so a read
-    # that holds nothing back runs the calls it always ran.
-    held_back_kwargs: dict[str, object] = (
-        {"exclude_global_domains": tuple(sorted(exclude_global_domains))} if exclude_global_domains else {}
-    )
+    # Stated on every call, an empty tuple when the view holds nothing back: a read
+    # whose tuple holds the global marker must say what it leaves out.
+    held_back = tuple(sorted(exclude_global_domains))
     seen_fact_ids = {str(row.get("id") or "") for row in facts}
     seen_loop_ids = {str(row.get("id") or "") for row in open_loops}
     for event in store.list_resume_memory_events(
         statuses=COMMITTED_MEMORY_STATUSES,
         projects=effective_project_scope,
         limit=RECENT_CHANGE_LIMIT,
-        **held_back_kwargs,  # type: ignore[arg-type]
+        exclude_global_domains=held_back,
     ):
         if not _event_target_honours_fence(
             store,
@@ -515,7 +521,7 @@ def _merge_recent_change_targets(
         statuses=OPEN_LOOP_ACTIVE_STATUSES,
         scope_projects=effective_project_scope,
         limit=RECENT_CHANGE_LIMIT,
-        **held_back_kwargs,  # type: ignore[arg-type]
+        exclude_global_domains=held_back,
     ):
         if not _event_target_honours_fence(
             store,

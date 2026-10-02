@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime
 from typing import cast
 
@@ -245,6 +245,24 @@ def _view_membership_sql(
     return sql, params
 
 
+_EXCLUSION_NOT_STATED_MESSAGE = (
+    "a read that asks for global rows must state which global domains it leaves out "
+    "(pass an empty tuple to leave none out)"
+)
+
+
+def _stated_exclusion(exclude_global_domains: Sequence[str] | None) -> tuple[str, ...] | None:
+    """The exclusion a reader was given, in a stable order, or ``None`` when it was not stated.
+
+    The readers that can take a request tuple holding the marker default the
+    exclusion to ``None``, not to an empty tuple, so that "leave nothing out" has to be
+    written at the call site. A reader that is handed the marker and no statement
+    raises (``_project_view_sql``) instead of quietly holding nothing back.
+    """
+
+    return None if exclude_global_domains is None else tuple(sorted(exclude_global_domains))
+
+
 def _project_view_sql(
     *,
     placeholders: Callable[[list[str]], str],
@@ -252,7 +270,7 @@ def _project_view_sql(
     scope_expression: str,
     text_expressions: tuple[str, ...],
     domain_expression: str | None,
-    global_excluded_domains: tuple[str, ...],
+    global_excluded_domains: tuple[str, ...] | None,
 ) -> tuple[str, list[object]]:
     """The ``AND ...`` clause for a request tuple, or ``("", [])`` when it fences nothing.
 
@@ -266,6 +284,8 @@ def _project_view_sql(
     ids, wants_global = _split_view_request(projects)
     if not ids and not wants_global:
         return "", []
+    if wants_global and global_excluded_domains is None:
+        raise ValueError(_EXCLUSION_NOT_STATED_MESSAGE)
     if not wants_global and not _ids_are_alice_ids(ids):
         values: list[object] = list(ids)
         return (
@@ -275,7 +295,7 @@ def _project_view_sql(
             f"IN ({placeholders(list(ids))}))"
         ), values
     params: list[object] = []
-    excluded = tuple(global_excluded_domains) if wants_global else ()
+    excluded = tuple(global_excluded_domains or ()) if wants_global else ()
     if wants_global:
         # Native fast path: a row that holds no Alice id is global, and is in the
         # view unless its domain is held back.
@@ -458,13 +478,15 @@ def _project_clause(
     projects: tuple[str, ...],
     *,
     prefix: str = "",
-    global_excluded_domains: tuple[str, ...] = (),
+    global_excluded_domains: tuple[str, ...] | None = None,
 ) -> tuple[str, list[object]]:
     """The project fence of a memory read, for explicit names and for a project view.
 
     ``projects`` may hold the reserved marker (spec 6.1), which asks for memories
     whose scope holds no Alice project id. ``global_excluded_domains`` leaves out
-    global memories in those domains and has no effect without the marker.
+    global memories in those domains and has no effect without the marker. With the
+    marker it must be stated, an empty tuple when nothing is left out: ``None``
+    raises, so a reader that forgot the choice cannot hold nothing back by default.
     """
 
     return _project_view_sql(
@@ -574,13 +596,14 @@ def _metadata_scope_clause(
     scope_window_start: datetime | None = None,
     scope_window_end: datetime | None = None,
     domain_expression: str | None = None,
-    global_excluded_domains: tuple[str, ...] = (),
+    global_excluded_domains: tuple[str, ...] | None = None,
 ) -> tuple[str, list[object]]:
     """Project/people/time predicate for source and open-loop reads.
 
     ``scope_projects`` may hold the reserved marker (spec 6.1). With the marker,
     ``global_excluded_domains`` leaves out global rows whose ``domain_expression``
-    is in the set.
+    is in the set, and it must be stated (an empty tuple leaves none out): ``None``
+    raises.
     """
 
     clauses: list[str] = []

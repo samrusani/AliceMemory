@@ -34,6 +34,7 @@ from alicebot_api.vnext_stores.sqlite.query_predicates import (
     CTE_MATERIALIZED_HINT,
     _project_view_partition_sql,
     _sqlite_ascii_literal_contains_sql,
+    _stated_exclusion,
 )
 
 VNextRow = dict[str, object]
@@ -703,13 +704,14 @@ def list_open_loops(
     scope_people: tuple[str, ...] = (),
     scope_window_start: datetime | None = None,
     scope_window_end: datetime | None = None,
-    exclude_global_domains: Sequence[str] = (),
+    exclude_global_domains: Sequence[str] | None = None,
 ) -> list[VNextRow]:
     """List open loops.
 
     ``scope_projects`` may hold the reserved global marker (spec 6.1). With it,
     ``exclude_global_domains`` leaves out global loops in those domains before
-    ``LIMIT``. It has no effect on a request that does not hold the marker.
+    ``LIMIT``. It has no effect on a request that does not hold the marker. With the
+    marker it must be stated, an empty tuple when nothing is left out: ``None`` raises.
     """
 
     domain_sql, domain_params = self._domain_clause(domains)
@@ -724,7 +726,7 @@ def list_open_loops(
         scope_window_start=scope_window_start,
         scope_window_end=scope_window_end,
         domain_expression="domain",
-        global_excluded_domains=tuple(sorted(exclude_global_domains)),
+        global_excluded_domains=_stated_exclusion(exclude_global_domains),
     )
     clauses = ["user_id = ?"]
     params: list[object] = [self.user_id]
@@ -787,10 +789,12 @@ def list_open_loops_view_partitions(
     project_ids: Sequence[str],
     exclude_global_domains: Sequence[str],
     per_partition_limit: int,
+    # No defaults for the domain filter and the sensitivity ceiling, as in
+    # ``list_memories_view_partitions``.
+    domains: list[str] | None,
+    sensitivity_allowed: list[str] | None,
     status: str | None = "open",
     statuses: Sequence[str] | None = None,
-    domains: list[str] | None = None,
-    sensitivity_allowed: list[str] | None = None,
 ) -> tuple[list[VNextRow], list[VNextRow]]:
     """The project's open loops and the global open loops in one scan (spec 6.2, 12).
 
@@ -872,13 +876,14 @@ def list_open_loop_events(
     occurred_at_start: datetime | None = None,
     occurred_at_end: datetime | None = None,
     limit: int = 20,
-    exclude_global_domains: Sequence[str] = (),
+    exclude_global_domains: Sequence[str] | None = None,
 ) -> list[VNextRow]:
     """Return scoped events for active loops without bounding loop age.
 
     ``scope_projects`` may hold the reserved global marker (spec 6.1). With it,
     ``exclude_global_domains`` leaves out events of global loops in those domains
-    before ``LIMIT``.
+    before ``LIMIT``, and it must be stated (an empty tuple leaves none out):
+    ``None`` raises.
     """
 
     if limit < 1:
@@ -892,7 +897,7 @@ def list_open_loop_events(
         direct_project_expression="loop.project_id",
         event_time_expression="julianday(event.occurred_at)",
         domain_expression="loop.domain",
-        global_excluded_domains=tuple(sorted(exclude_global_domains)),
+        global_excluded_domains=_stated_exclusion(exclude_global_domains),
     )
     clauses = [
         "event.user_id = ?",

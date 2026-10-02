@@ -115,21 +115,24 @@ SOURCE_RECEIPTS = {
     # ``_metadata_scope_clause``, and ``list_open_loops_view_partitions`` is new, the single-scan read that
     # returns this project's loops and the global loops together. The Postgres carrier is unchanged on purpose:
     # the Postgres runtime resolves no project view (reviewed change, not drift).
-    SQLITE_CARRIER_PATH: "d5db5e684749e6a727982298420ec38aa3a80a412f2cf1a6ae825b6f0ebe9cb2",
+    # Re-minted once more in the S2 review round (2026-10-02): the exclusion argument of the three readers defaults
+    # to ``None`` ("not stated", which raises when the request holds the marker) and the single-scan reader takes the
+    # domain filter and the sensitivity ceiling as required arguments (reviewed change, not drift).
+    SQLITE_CARRIER_PATH: "ea341a22729b39999952652aea98b8be0ad47a2f6b00562d274784ec37c7bab8",
     POSTGRES_COLUMNS_PATH: "5b0d972a55abf8590ce14394a37fd71b9b88ba7ab3de82d61efc1bddfc022b71",
     SQLITE_COLUMNS_PATH: "be81b8628d0831d3d02b280b5455fb02333db5740ebef8d85d58024384ae6556",
 }
 EXPECTED_METHOD_AST_MANIFESTS = {
     POSTGRES_CARRIER_PATH: "9a354d1cfb9f134ec7fadb74dd1647b1502ecb2a5b83edb3b65c7123091111ca",
-    SQLITE_CARRIER_PATH: "3a60ad21c13822e68d9f3a48a5b603baaa7fb7ee5b0066aa179064c0acef5d6a",
+    SQLITE_CARRIER_PATH: "4f156371e0a648337fa8eedd1309f7ad8c0ca2645897e7b163e1b279596f12ca",
 }
 EXPECTED_METADATA_MANIFESTS = {
     POSTGRES_CARRIER_PATH: "801a455053962b25972ab783d36b03d0389df5c151cba545b05ee8d150f172b9",
-    SQLITE_CARRIER_PATH: "2389d487b34a98ccb0da5f174b5b4c38110c54cc7dadb3d400908887c8b43d53",
+    SQLITE_CARRIER_PATH: "7c26d636538ae73d8a4478d81ae709af8d5b5d9cf11ec360c51321e289669910",
 }
 EXPECTED_COMMENT_MANIFESTS = {
     POSTGRES_CARRIER_PATH: (9, "bb34d175e716f5a929fa1ee5e7e30ba0e0b25be285cda3556a0c709719316c4e"),
-    SQLITE_CARRIER_PATH: (1, "8f448801a348111594f3d0f33c9e82756981958985c270d45a8716914892d71b"),
+    SQLITE_CARRIER_PATH: (3, "69d8e6d6f01975b24325e6d2d4f1281163c96ddcf83ad3e045b1cddf7391c16e"),
 }
 EXPECTED_CLASS_ORDERS = {
     # Two paired browser-clip capability methods extend both façades, and one
