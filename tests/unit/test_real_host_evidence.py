@@ -1,10 +1,12 @@
-"""The host-evidence script records what a host sends a hook and an MCP server, and keeps no raw value.
+"""The host-evidence script records what a host sends a hook and an MCP server, redacted.
 
 Slice S0 of per-project memory asks one thing of the pinned real hosts: what do they hand a
 SessionStart hook and an MCP server? ``scripts/real_host_evidence.py`` records it from a
 dispatch-only job. These tests run the script's pieces and its whole ``run`` against stand-ins
 for the two hosts (``tests/unit/host_evidence_fakes.py``), so no real host starts. A planted
 client folder, key-shaped token, private sentence and environment value must reach no file.
+Redaction is not "no raw value": a number, a flag and an unspaced string of up to 64 characters
+are kept as they are, and ``test_redact_value_keeps_what_the_docs_say_it_keeps`` pins that.
 
 Mutation notes live on each test. A miss raises AssertionError.
 """
@@ -43,6 +45,9 @@ def _load() -> Any:
 evidence = _load()
 
 PLANTED_ENV_VALUE = "hunter2-planted-env-value"
+RUNNER_FILE_COMMANDS = ("GITHUB_ENV", "GITHUB_PATH", "GITHUB_OUTPUT", "GITHUB_STATE", "GITHUB_STEP_SUMMARY")
+# Names with a host or Alice prefix and no credential-like word in them, so only the prefix strip can drop them.
+PLANTED_PREFIXED = ("OPENAI_BASE_URL", "CLAUDE_CONFIG_DIR", "ALICE_MEMORY_DATA_DIR")
 FORBIDDEN = (
     fakes.PLANTED_FOLDER,
     fakes.PLANTED_SENTENCE,
@@ -175,6 +180,26 @@ def test_redact_value_keeps_words_and_numbers_and_hides_text_tokens_and_paths(tm
         assert word not in text
 
 
+def test_redact_value_keeps_what_the_docs_say_it_keeps(tmp_path: Path) -> None:
+    """Redaction keeps a short unspaced string as it is. The docs say so, so this pins the edges.
+
+    Kept as written: a word, an email address, 42 letters, 64 letters, and a 31-character mix of
+    letters and digits. Replaced: 65 letters (size), a spaced string (size), a 32-character mix
+    (token) and a uuid. Mutation: lower the text limit, raise the token minimum, or drop the
+    token or size step. This test fails.
+    """
+
+    ctx = _context(tmp_path / "work")
+    kept = ["startup", "person@example.com", "a" * 42, "b" * 64, "x1" * 15 + "y"]
+    for text in kept:
+        assert evidence.redact_string(text, ctx) == text, text
+    assert evidence.redact_string("c" * 65, ctx) == "<text:65 chars>"
+    assert evidence.redact_string("two words", ctx) == "<text:9 chars>"
+    assert evidence.redact_string("x1" * 16, ctx) == "<token:32 chars>"
+    assert evidence.redact_string("0b6c1d52-3a8f-4f43-9a54-5c7a9c7e8d11", ctx) == "<uuid>"
+    assert evidence.redact_value({"n": 3, "flag": False, "none": None}, ctx) == {"n": 3, "flag": False, "none": None}
+
+
 def test_env_record_names_every_variable_and_records_no_value(tmp_path: Path) -> None:
     """Names only, with path shapes for two kinds of variable: a known path variable, and one the host added.
 
@@ -232,6 +257,94 @@ def test_scrub_text_shapes_paths_and_hides_urls_tokens_and_known_secrets(tmp_pat
     assert len(evidence.scrub_text("x" * 500, ctx)) == 203
 
 
+def test_scrub_text_finds_a_token_inside_a_json_line_with_no_spaces(tmp_path: Path) -> None:
+    """A token is found wherever it sits, so the first line of a Claude Code stream cannot keep one.
+
+    The old check looked at space-separated words only, and a JSON line with no spaces is one word.
+    Here the token is a JSON value, a value after ``=``, in brackets, in quotes with a comma, and
+    after a colon, and none survives. Short words in the same line do. Mutation: go back to
+    splitting on spaces before the token check, or skip the token step. This test fails.
+    """
+
+    ctx = _context(tmp_path / "work")
+    event = {
+        "type": "system",
+        "subtype": "init",
+        "apiKeySource": fakes.PLANTED_KEY,
+        "cwd": str(_launch(tmp_path / "work")),
+        "note": f"token={fakes.PLANTED_TOKEN};[{fakes.PLANTED_KEY}],'{fakes.PLANTED_TOKEN}',x:{fakes.PLANTED_KEY}",
+    }
+    line = json.dumps(event, separators=(",", ":"))
+    assert " " not in line
+    scrubbed = evidence.scrub_text(line, ctx)
+    for raw in (fakes.PLANTED_TOKEN, fakes.PLANTED_KEY, "ghp_", "sk-live"):
+        assert raw not in scrubbed, raw
+    assert scrubbed.count("<token>") >= 5
+    assert '"type":"system"' in scrubbed and '"subtype":"init"' in scrubbed
+    assert '"cwd":"<launch>"' in scrubbed
+    # A long run of letters only is not a token by this rule, and a short run of letters and digits is not either.
+    assert evidence.scrub_text("a" * 40 + " b1" * 5, ctx) == "a" * 40 + " b1" * 5
+    # An unpinned host's version line is host output too, and a spaced token in it is caught as well.
+    assert fakes.PLANTED_TOKEN not in evidence.scrub_text(f"9.9.9 (Claude Code) {fakes.PLANTED_TOKEN}", ctx)
+
+
+# --- the host's environment ------------------------------------------------------------------
+
+
+def test_host_environment_drops_every_runner_file_command_variable() -> None:
+    """A third-party host gets none of the five files the runner reads between steps.
+
+    ``GITHUB_ENV``, ``GITHUB_PATH``, ``GITHUB_OUTPUT``, ``GITHUB_STATE`` and ``GITHUB_STEP_SUMMARY``
+    name no credential, so the name filter lets them through. A host that could write one could
+    change a later step or the job summary. Each is planted alone and must go, and the other
+    runner variables, ``PATH`` among them, stay. Mutation: take any one name out of the set (keep
+    one), or compare names without upper-casing and plant a lower-case twin. This test fails.
+    """
+
+    others = {"GITHUB_ACTIONS": "true", "GITHUB_WORKSPACE": "/w", "PATH": "/usr/bin", "RUNNER_TEMP": "/t"}
+    for name in ("GITHUB_ENV", "GITHUB_PATH", "GITHUB_OUTPUT", "GITHUB_STATE", "GITHUB_STEP_SUMMARY"):
+        assert not evidence._SECRET_NAME.search(name), "the name filter must not be what drops it"
+        assert evidence.host_environment({**others, name: "/runner/file"}) == others, name
+        assert evidence.host_environment({**others, name.lower(): "/runner/file"}) == others, name.lower()
+
+
+def test_host_environment_drops_each_host_and_alice_prefix_on_its_own() -> None:
+    """Each of the five prefixes drops a name that does not look like a credential.
+
+    The whole run plants credential-like names, which the name filter drops anyway, so it could not
+    tell the prefix strip from no strip. Here every planted name is checked against the name filter
+    first, so only the prefix can remove it. ``CLAUDE`` has no underscore, so ``CLAUDECODE`` goes
+    too, and a name that only contains a prefix, or lacks its underscore, stays. Mutation: remove
+    the prefix filter, or remove any one of the five prefixes. This test fails.
+    """
+
+    dropped = {
+        "ANTHROPIC_BASE_URL": "http://x.invalid",
+        "CLAUDE_CONFIG_DIR": "/c",
+        "CLAUDECODE": "1",
+        "CODEX_HOME": "/h",
+        "OPENAI_BASE_URL": "http://y.invalid",
+        "ALICE_MEMORY_DATA_DIR": "/d",
+    }
+    kept = {"PATH": "/usr/bin", "LANG": "C", "NOT_CLAUDE_VAR": "1", "MY_ALICE_DIR": "/a", "ALICEX": "1", "CODEXHOME": "/c"}
+    for name in dropped:
+        assert not evidence._SECRET_NAME.search(name), f"{name} looks like a credential, so it proves nothing"
+    assert evidence.host_environment({**kept, **dropped}) == kept
+    for name, value in dropped.items():
+        assert evidence.host_environment({**kept, name: value}) == kept, name
+
+
+def test_host_environment_drops_credential_like_names_and_keeps_the_rest() -> None:
+    """Any name with TOKEN, SECRET, PASSW, AUTH, KEY and the like in it goes, whatever its prefix.
+
+    Mutation: drop the name filter. This test fails.
+    """
+
+    secrets = ["MY_SERVICE_TOKEN", "DB_PASSWORD", "GH_AUTH", "client_secret", "SSH_PRIVATE_FILE", "API_KEY", "STRIPE_KEY_LIVE"]
+    kept = {"PATH": "/usr/bin", "KEYBOARD": "us", "MONKEYS": "1"}
+    assert evidence.host_environment({**kept, **{name: "x" for name in secrets}}) == kept
+
+
 # --- the hook command ------------------------------------------------------------------------
 
 
@@ -266,11 +379,13 @@ def _payload(root: Path) -> bytes:
     ).encode()
 
 
-def test_hook_command_records_keys_values_cwd_and_env_names_without_raw_values(tmp_path: Path) -> None:
+def test_hook_command_records_keys_values_cwd_and_env_names_without_the_planted_values(tmp_path: Path) -> None:
     """The hook saves every stdin key, a redacted value for each, its working folder and its variable names.
 
     It prints nothing, exits 0, and the record holds no raw path, token, sentence or variable value.
-    Mutation: save the raw stdin or the raw environment, or print to stdout. This test fails.
+    The probe record carries the launch probe and not the server-entry one, which a hook cannot have.
+    Mutation: save the raw stdin or the raw environment, print to stdout, or add the entry probe to
+    the hook record. This test fails.
     """
 
     root = tmp_path / "secret-client-checkout"
@@ -291,7 +406,8 @@ def test_hook_command_records_keys_values_cwd_and_env_names_without_raw_values(t
     assert record["cwd"] == {"available": True, "shape": "<launch>", "relation": "launch_dir", "git_levels_up": None}
     assert "CLAUDE_PROJECT_DIR" in record["env"]["added_by_host"]
     assert record["env"]["path_variables"]["CLAUDE_PROJECT_DIR"]["relation"] == "launch_dir"
-    assert record["probes"] == {"launch_env_forwarded": False, "entry_env_forwarded": False}
+    # A hook has no entry of its own, so only the launch probe is recorded for it.
+    assert record["probes"] == {"launch_env_forwarded": False}
     for raw in FORBIDDEN + (str(tmp_path),):
         assert raw not in text
 
@@ -367,8 +483,11 @@ def test_each_hook_firing_is_its_own_numbered_record(tmp_path: Path) -> None:
 class _Mcp:
     """Drives ``real_host_evidence.py mcp`` over stdio the way a client does."""
 
-    def __init__(self, root: Path, *, wait: float = 5.0, env_extra: dict[str, str] | None = None) -> None:
+    def __init__(
+        self, root: Path, *, wait: float = 5.0, env_extra: dict[str, str] | None = None, number: int = 1
+    ) -> None:
         self.root = root
+        self.number = number
         context = _write_context(root, ["HOME", "PATH"])
         env = {"PATH": os.environ.get("PATH", ""), "HOME": str(root / "home")}
         env.update(env_extra or {})
@@ -421,7 +540,7 @@ class _Mcp:
         return reply
 
     def record(self) -> dict[str, Any]:
-        return json.loads((self.root / "art" / "claude-code-mcp.json").read_text(encoding="utf-8"))
+        return json.loads((self.root / "art" / f"claude-code-mcp-{self.number}.json").read_text(encoding="utf-8"))
 
     def finish(self) -> dict[str, Any]:
         assert self.proc.stdin is not None
@@ -498,6 +617,84 @@ def test_mcp_stub_records_initialize_and_the_roots_answer(tmp_path: Path) -> Non
     assert all(isinstance(message, dict) and message["jsonrpc"] == "2.0" for message in server.seen)
     assert "secret-client" not in text and str(tmp_path) not in text
     assert fakes.PLANTED_SENTENCE not in text and fakes.PLANTED_TOKEN not in text
+
+
+def test_each_server_start_is_its_own_numbered_record_and_a_later_start_leaves_the_first_alone(
+    tmp_path: Path,
+) -> None:
+    """A second server process, started while the first is alive or after it ended, gets its own record.
+
+    The first answers its roots probe and finishes complete. A second starts before that, is opened,
+    and is closed unanswered. A third starts after both ended. All three records stay, in start
+    order, and the first one still says ``answered``: a retry or a reconnect cannot overwrite it.
+    Mutation: write every start to one file name, or reuse a number. This test fails.
+    """
+
+    root = tmp_path / "work"
+    first = _Mcp(root, number=1)
+    first.initialize({"roots": {"listChanged": True}})
+    probe = first.read()
+    second = _Mcp(root, number=2)
+    second.initialize({})
+    second.read()
+    first.send(
+        {
+            "jsonrpc": "2.0",
+            "id": probe["id"],
+            "result": {"roots": [{"uri": "file://" + str(_launch(root)), "name": "app"}]},
+        }
+    )
+    complete = first.finish()
+    closed = second.finish()
+    third = _Mcp(root, number=3)
+    third.initialize({})
+    third.read()
+    last = third.finish()
+    assert sorted(path.name for path in (root / "art").iterdir()) == [
+        "claude-code-mcp-1.json",
+        "claude-code-mcp-2.json",
+        "claude-code-mcp-3.json",
+    ]
+    assert complete["roots_list"]["outcome"] == "answered" and complete["roots_list"]["root_count"] == 1
+    assert complete["initialize"]["declares"]["roots"] is True and complete["complete"] is True
+    assert closed["initialize"]["declares"]["roots"] is False
+    assert closed["roots_list"]["reason"] == "the client closed the connection first"
+    assert last["roots_list"]["reason"] == "the client closed the connection first"
+    # Reading the folder back gives all three, in start order, and none of them replaced another.
+    hooks, servers = evidence._collect("claude-code", root / "art")
+    assert hooks == [] and [s["roots_list"].get("outcome") for s in servers] == ["answered", "no_reply", "no_reply"]
+
+
+def test_the_server_gate_is_open_only_when_every_started_server_has_finished(tmp_path: Path) -> None:
+    """The stub API holds the host until no started server is still probing.
+
+    No record is not open. One finished and one not is not open, whichever order they are in. An
+    empty record, one a server has claimed and not yet written, is not open. Another host's record
+    does not count. Mutation: look at only the first record, only the last, or any one of them. This
+    test fails.
+    """
+
+    art = tmp_path / "art"
+    art.mkdir()
+    assert evidence._mcp_complete(art, "codex") is False
+
+    def write(name: str, text: str) -> None:
+        (art / name).write_text(text, encoding="utf-8")
+
+    write("codex-mcp-1.json", json.dumps({"complete": True}))
+    assert evidence._mcp_complete(art, "codex") is True
+    write("codex-mcp-2.json", json.dumps({"complete": False}))
+    assert evidence._mcp_complete(art, "codex") is False
+    write("codex-mcp-1.json", json.dumps({"complete": False}))
+    write("codex-mcp-2.json", json.dumps({"complete": True}))
+    assert evidence._mcp_complete(art, "codex") is False
+    write("codex-mcp-1.json", json.dumps({"complete": True}))
+    write("codex-mcp-2.json", "")
+    assert evidence._mcp_complete(art, "codex") is False
+    write("codex-mcp-2.json", json.dumps({"complete": True}))
+    write("claude-code-mcp-1.json", json.dumps({"complete": False}))
+    assert evidence._mcp_complete(art, "codex") is True
+    assert evidence._mcp_complete(art, "claude-code") is False
 
 
 def test_mcp_stub_asks_for_roots_even_when_none_are_declared_and_records_silence(tmp_path: Path) -> None:
@@ -578,6 +775,13 @@ def stand_ins(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Path
     monkeypatch.setenv("CODEX_API_KEY", "real-looking-key-must-not-reach-a-host")
     monkeypatch.setenv("PLANTED", PLANTED_ENV_VALUE)
     monkeypatch.setenv("PLANTED_SERVICE_TOKEN", "service-token-must-not-reach-a-host")
+    # The runner's file-command variables, and three names only the prefix strip can drop. The stand-in
+    # hosts write ``saw-env`` if any of these reaches them. ``_run`` plants GITHUB_STEP_SUMMARY itself.
+    for name in RUNNER_FILE_COMMANDS[:-1]:
+        monkeypatch.setenv(name, str(tmp_path / "runner" / name.lower()))
+    for name in PLANTED_PREFIXED:
+        monkeypatch.setenv(name, str(tmp_path / "planted" / name.lower()))
+    monkeypatch.setenv("FAKE_WATCH", ",".join(RUNNER_FILE_COMMANDS + PLANTED_PREFIXED))
     for name in ("claude", "codex"):
         assert shutil.which(name) == str(written[name]), f"{name} does not resolve to the stand-in"
     return written
@@ -609,7 +813,7 @@ def _assert_nothing_raw(tmp_path: Path, artifacts: Path, *extra: Path) -> None:
             assert raw not in text, (path.name, raw)
 
 
-def test_run_records_both_hosts_and_keeps_no_raw_value(
+def test_run_records_both_hosts_and_keeps_none_of_the_planted_values(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stand_ins: dict[str, Path]
 ) -> None:
     """One run against both stand-in hosts records the hook and the server for each, as shapes only.
@@ -619,10 +823,12 @@ def test_run_records_both_hosts_and_keeps_no_raw_value(
     launch and one set in the server's entry arrive, the initialize capabilities, and what
     ``roots/list`` returns. It then scans every artifact, the step summary and the exit code for a
     planted client folder, token, sentence, key, variable value and path. A made-up key replaces
-    any real one, and no credential-like variable of the runner reaches a host. The stub API lets
+    any real one, and no credential-like variable of the runner reaches a host. Neither do the
+    runner's file-command variables or a name with a host or Alice prefix. The stub API lets
     the host go as soon as the roots probe is done. Mutation: let any record, the summary or the
-    report carry a raw value, pass the runner's credential-like variables on, leave a real key in
-    the host's environment, or hold the host for the stub's full wait. This test fails.
+    report carry a planted value, pass the runner's credential-like variables, its file-command
+    variables or a prefixed name on, leave a real key in the host's environment, or hold the host
+    for the stub's full wait. This test fails.
     """
 
     code, artifacts, report = _run(tmp_path, monkeypatch)
@@ -638,8 +844,9 @@ def test_run_records_both_hosts_and_keeps_no_raw_value(
         assert hook["cwd"]["relation"] == "launch_dir" and hook["cwd"]["git_levels_up"] == 2
         assert hook["stdin"]["cwd_key"]["relation"] == "launch_dir"
         assert "cwd" in hook["stdin"]["path_valued_keys"]
-        assert hook["probes"]["launch_env_forwarded"] is True
-        server = info["mcp"]["record"]
+        assert hook["probes"] == {"launch_env_forwarded": True}
+        assert info["mcp"]["starts"] == 1 and len(info["mcp"]["records"]) == 1
+        server = info["mcp"]["records"][0]
         assert server["cwd"]["relation"] == "launch_dir"
         assert server["initialize"]["declares"]["roots"] is True
         assert server["initialize"]["declares"]["elicitation"] is True
@@ -654,9 +861,9 @@ def test_run_records_both_hosts_and_keeps_no_raw_value(
     ]
     assert claude["hook"]["records"][0]["stdin"]["values"]["nested"] == {"key": f"<token:{len(fakes.PLANTED_KEY)} chars>", "count": 3, "flag": True}
     assert codex["hook"]["records"][0]["stdin"]["values"]["transcript_path"] is None
-    assert claude["mcp"]["record"]["probes"]["launch_env_forwarded"] is True
-    assert codex["mcp"]["record"]["probes"]["launch_env_forwarded"] is False
-    assert codex["mcp"]["record"]["env"]["dropped_from_launch"], "the stand-in codex drops launch names"
+    assert claude["mcp"]["records"][0]["probes"]["launch_env_forwarded"] is True
+    assert codex["mcp"]["records"][0]["probes"]["launch_env_forwarded"] is False
+    assert codex["mcp"]["records"][0]["env"]["dropped_from_launch"], "the stand-in codex drops launch names"
     assert claude["run"]["init_event"]["cwd"]["relation"] == "launch_dir"
     assert claude["run"]["init_event"]["mcp_servers"] == [{"name": "alice-evidence", "status": "connected"}]
     assert claude["run"]["hook_events"] == [{"type": "system", "subtype": "hook_response", "outcome": "success", "exit_code": 0}]
@@ -664,6 +871,11 @@ def test_run_records_both_hosts_and_keeps_no_raw_value(
     assert ("POST", "/v1/responses") in [tuple(item) for item in codex["run"]["stub_requests"]]
     assert not (tmp_path / "markers" / "saw-real-key").exists()
     assert not (tmp_path / "markers" / "saw-token").exists()
+    saw = tmp_path / "markers" / "saw-env"
+    assert not saw.exists(), f"a host was handed {saw.read_text() if saw.exists() else ''}"
+    for info in (claude, codex):
+        for name in RUNNER_FILE_COMMANDS + PLANTED_PREFIXED:
+            assert name not in info["hook"]["records"][0]["env"]["names"], name
     # The stub API releases the host as soon as the server's roots probe is done. A hold that ran
     # to its 30 second limit would show here, long before the host's own timeout.
     for info in (claude, codex):
@@ -672,9 +884,9 @@ def test_run_records_both_hosts_and_keeps_no_raw_value(
     assert summary.read_text(encoding="utf-8") == (artifacts / "host-evidence.md").read_text(encoding="utf-8")
     assert sorted(path.name for path in artifacts.iterdir()) == [
         "claude-code-hook-1.json",
-        "claude-code-mcp.json",
+        "claude-code-mcp-1.json",
         "codex-hook-1.json",
-        "codex-mcp.json",
+        "codex-mcp-1.json",
         "host-evidence.json",
         "host-evidence.md",
     ]
@@ -693,6 +905,8 @@ def test_summary_shows_the_answers_in_words_and_hides_no_placeholder_from_markdo
     _code, artifacts, _report = _run(tmp_path, monkeypatch)
     summary = (artifacts / "host-evidence.md").read_text(encoding="utf-8")
     assert "### Headline" in summary and "#### SessionStart hook, fired 1 time(s)" in summary
+    assert "#### MCP server, started 1 time(s)" in summary and "MCP server started 1x" in summary
+    assert "Start 1 of" not in summary
     assert "roots capability declared: yes. elicitation declared: yes." in summary
     assert "roots/list sent after initialize, declared or not: outcome `answered`" in summary
     assert "`cwd` key: present, absolute: yes, `<launch>`, launch_dir" in summary
@@ -714,7 +928,7 @@ def test_run_records_a_client_that_declares_nothing_and_answers_with_an_error(
     code, artifacts, report = _run(tmp_path, monkeypatch, mode="error")
     assert code == 0
     for host in ("claude-code", "codex"):
-        server = report["hosts"][host]["mcp"]["record"]
+        server = report["hosts"][host]["mcp"]["records"][0]
         assert server["initialize"]["declares"]["roots"] is False
         assert server["roots_list"]["outcome"] == "error" and server["roots_list"]["error"]["code"] == -32601
         assert server["roots_list"]["sent"] is True
@@ -734,9 +948,65 @@ def test_run_records_a_client_that_never_answers_roots(
     code, artifacts, report = _run(tmp_path, monkeypatch, mode="silent")
     assert code == 0
     for host in ("claude-code", "codex"):
-        server = report["hosts"][host]["mcp"]["record"]
+        server = report["hosts"][host]["mcp"]["records"][0]
         assert server["roots_list"]["outcome"] == "no_reply"
         assert server["complete"] is True
+    _assert_nothing_raw(tmp_path, artifacts)
+
+
+def test_run_keeps_every_server_start_as_its_own_record_and_shows_each_in_the_summary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stand_ins: dict[str, Path]
+) -> None:
+    """A host that starts its server twice leaves two records, and the report and summary show both.
+
+    The stand-ins start each server twice and keep both open, as a reconnect would. The stub API
+    waits for both to finish their roots probe. Mutation: write every start to one file, read back
+    only one record, count one start, or show one start in the summary. This test fails.
+    """
+
+    monkeypatch.setenv("FAKE_MCP_STARTS", "2")
+    code, artifacts, report = _run(tmp_path, monkeypatch)
+    assert code == 0, report.get("headline")
+    for host in ("claude-code", "codex"):
+        info = report["hosts"][host]
+        assert info["problems"] == []
+        assert info["mcp"]["starts"] == 2 and len(info["mcp"]["records"]) == 2
+        for record in info["mcp"]["records"]:
+            assert record["roots_list"]["outcome"] == "answered" and record["complete"] is True
+        assert "MCP server started 2x" in report["headline"][host]
+        assert [path.name for path in sorted(artifacts.glob(f"{host}-mcp-*.json"))] == [
+            f"{host}-mcp-1.json",
+            f"{host}-mcp-2.json",
+        ]
+    summary = (artifacts / "host-evidence.md").read_text(encoding="utf-8")
+    assert summary.count("#### MCP server, started 2 time(s)") == 2
+    assert summary.count("**Start 1 of 2**") == 2 and summary.count("**Start 2 of 2**") == 2
+    assert "<" not in re.sub(r"`[^`]*`", "", summary)
+    _assert_nothing_raw(tmp_path, artifacts)
+
+
+def test_run_names_the_server_start_that_never_finished_and_keeps_the_first_start_intact(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stand_ins: dict[str, Path]
+) -> None:
+    """A second server start that is opened and never spoken to is a problem, labelled with its number.
+
+    The first start's record is complete and says ``answered``, and stays so. The stub API is not
+    held for its full wait by an idle start: it waits for the short limit given here, and the
+    run still ends. Mutation: report the problem without the start number, report it for the first
+    start, or let the idle start replace the first record. This test fails.
+    """
+
+    monkeypatch.setenv("FAKE_MCP_STARTS", "2")
+    monkeypatch.setenv("FAKE_MCP_EXTRA", "idle")
+    code, artifacts, report = _run(tmp_path, monkeypatch, api_wait=3.0)
+    assert code == 1
+    for host in ("claude-code", "codex"):
+        info = report["hosts"][host]
+        assert info["mcp"]["starts"] == 2
+        first, second = info["mcp"]["records"]
+        assert first["roots_list"]["outcome"] == "answered" and first["complete"] is True
+        assert second["initialize"]["received"] is False
+        assert info["problems"] == ["the MCP server never received initialize (start 2 of 2)"]
     _assert_nothing_raw(tmp_path, artifacts)
 
 
@@ -755,7 +1025,7 @@ def test_run_fails_loudly_when_the_hook_never_fires_and_keeps_the_rest(
         info = report["hosts"][host]
         assert "the SessionStart hook did not fire" in info["problems"]
         assert info["hook"]["fired"] == 0
-        assert info["mcp"]["record"]["roots_list"]["outcome"] == "answered"
+        assert info["mcp"]["records"][0]["roots_list"]["outcome"] == "answered"
     summary = (artifacts / "host-evidence.md").read_text(encoding="utf-8")
     assert "### Problems" in summary and "hook did not fire" in summary
 
@@ -765,17 +1035,21 @@ def test_run_does_not_start_a_host_that_is_not_the_pinned_version(
 ) -> None:
     """An unpinned host is reported and never launched, so the evidence is always for the pinned version.
 
-    Mutation: launch whatever version is installed. This test fails.
+    The version line is scrubbed like any other host output.
+    Mutation: launch whatever version is installed, or keep the version line raw. This test fails.
     """
 
-    monkeypatch.setenv("FAKE_CLAUDE_VERSION", "9.9.9 (Claude Code)")
+    # The version line of an unpinned host is host output: a token in it must not reach the report.
+    monkeypatch.setenv("FAKE_CLAUDE_VERSION", f"9.9.9 (Claude Code) {fakes.PLANTED_TOKEN} {fakes.PLANTED_STDERR_PATH}")
     code, artifacts, report = _run(tmp_path, monkeypatch)
     assert code == 1
     claude = report["hosts"]["claude-code"]
     assert claude["pinned"] is False and claude["run"] is None and claude["hook"]["fired"] == 0
     assert claude["problems"] == ["claude is not the pinned version 2.1.281 (Claude Code)"]
+    assert claude["version"].startswith("9.9.9 (Claude Code) <token> <abs>/")
     assert report["hosts"]["codex"]["problems"] == []
-    assert not (artifacts / "claude-code-mcp.json").exists()
+    assert list(artifacts.glob("claude-code-mcp-*.json")) == []
+    _assert_nothing_raw(tmp_path, artifacts)
 
 
 def test_run_refuses_to_start_a_host_outside_github_actions(

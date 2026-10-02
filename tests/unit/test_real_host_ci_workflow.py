@@ -45,6 +45,23 @@ EVIDENCE_SCRIPT = REPO_ROOT / "scripts" / "real_host_evidence.py"
 EVIDENCE_RUN = (
     'python scripts/real_host_evidence.py run "$RUNNER_TEMP/host-evidence" "$RUNNER_TEMP/host-evidence-work"'
 )
+EVIDENCE_RECORD_STEP = "Record what each host sends a hook and an MCP server"
+# Every command the host-evidence job runs, word for word. A step may not grow a second command.
+EVIDENCE_RUNS = {
+    "Install Alice": "python -m pip install -e .",
+    "Install pinned Claude Code": f"npm install -g {CLAUDE_NPM}",
+    "Install pinned Codex": f"npm install -g {CODEX_NPM}",
+    EVIDENCE_RECORD_STEP: EVIDENCE_RUN,
+}
+# A step key outside this set can change how a step runs or what it sees: ``env``, ``shell``,
+# ``working-directory``, ``continue-on-error``, ``timeout-minutes``.
+EVIDENCE_STEP_KEYS = frozenset({"name", "run", "uses", "with", "if"})
+# Anything that can print an environment value or a file, in a run string or a ``with`` value.
+PRINTS_ENVIRONMENT = re.compile(
+    r"printenv|\benv\b|\bexport\b|\bset\s+-\S*x|xtrace|\becho\b|\bprintf\b|\bprint\s*\(|\bcat\b|\btee\b"
+    r"|\bhead\b|\btail\b|\bless\b|\bmore\b|\bcurl\b|\bwget\b|\bnc\b|os\.environ|\benviron\b|\bsecrets\b"
+    r"|\$\{?GITHUB_|\$\{\{\s*(?:env|secrets|github\.token)|GITHUB_(?:ENV|PATH|OUTPUT|STATE|STEP_SUMMARY)"
+)
 
 
 def _dispatch_if(name: str) -> str:
@@ -677,7 +694,7 @@ def test_plugin_hook_trial_is_dispatch_only_pinned_and_uploads_its_own_artifact(
         assert "real_host_plugin_hook_trial.py" not in _run_text(_job(name))
 
 
-def test_host_evidence_job_records_what_the_hosts_send_and_prints_no_raw_value() -> None:
+def test_host_evidence_job_records_what_the_hosts_send_and_prints_no_environment_value() -> None:
     """The dispatch-only evidence job runs the script on the pinned hosts and uploads only its redacted record.
 
     Per-project memory slice S0 needs the hook's stdin, the variable names and working folder of the
@@ -685,13 +702,46 @@ def test_host_evidence_job_records_what_the_hosts_send_and_prints_no_raw_value()
     hosts at their pins, runs one script step, and uploads the artifact folder, never the work folder
     that holds the scratch home, the context file and the config the hosts read. No step prints the
     environment or a file, because the only thing that may reach the log is the script's own redacted
-    summary. The checkout keeps no credentials, since the hosts are third-party code.
+    summary. That holds for every step, the installs included: each ``run`` is pinned word for word,
+    and no step has a key that could change its environment or shell. The checkout keeps no
+    credentials, since the hosts are third-party code.
 
     Mutation: remove the evidence step or the upload, drop ``always()`` from the upload, upload the
-    work folder, install ``@latest``, drop ``persist-credentials: false``, add ``printenv``, ``env``,
-    ``set -x``, ``cat``, ``echo`` or ``tee`` to any step, add ``secrets.``, run the job on pull
-    requests, or move the version pin out of step with the script's. This test fails.
+    work folder, install ``@latest``, drop ``persist-credentials: false``, run the job on pull
+    requests, or move the version pin out of step with the script's. Append
+    ``python -c "import os; print(dict(os.environ))"`` to the Alice install, ``head ~/.npmrc`` to the
+    Codex install, ``printenv`` or ``echo`` to any step, add a step-level ``env``, ``shell`` or
+    ``working-directory``, add ``secrets.``, or weaken the pattern that finds a printing command.
+    This test fails.
     """
+
+    # The pattern is the guard against a step that prints, so it must catch what it is meant to catch.
+    for bad in (
+        'echo "$X"',
+        "printenv",
+        "env",
+        "env | sort",
+        "export X=1",
+        "set -x",
+        "set -ex",
+        "set -o xtrace",
+        'python -c "import os; print(dict(os.environ))"',
+        "python - <<EOF\nprint (1)\nEOF",
+        "head ~/.npmrc",
+        "tail -n 5 file",
+        "cat file",
+        "printf x",
+        "ls | tee out",
+        "curl http://example.invalid",
+        "echo y >> $GITHUB_ENV",
+        "cp a $GITHUB_STEP_SUMMARY",
+        "x=${{ secrets.TOKEN }}",
+        "x=${{ env.PATH }}",
+        "x=${{ github.token }}",
+    ):
+        assert PRINTS_ENVIRONMENT.search(bad), bad
+    for fine in tuple(EVIDENCE_RUNS.values()):
+        assert not PRINTS_ENVIRONMENT.search(fine), fine
 
     job = _job("host-evidence")
     assert job.get("if") == _dispatch_if("host-evidence")
@@ -706,7 +756,7 @@ def test_host_evidence_job_records_what_the_hosts_send_and_prints_no_raw_value()
         "Install Alice",
         "Install pinned Claude Code",
         "Install pinned Codex",
-        "Record what each host sends a hook and an MCP server",
+        EVIDENCE_RECORD_STEP,
         "Upload host evidence",
     ]
     checkout = _steps(job)[0]
@@ -723,14 +773,14 @@ def test_host_evidence_job_records_what_the_hosts_send_and_prints_no_raw_value()
     }
     script = _run_text(job)
     assert CLAUDE_NPM in script and CODEX_NPM in script and "@latest" not in script
-    runs = [step["run"] for step in _steps(job) if "real_host_evidence.py" in step.get("run", "")]
-    assert runs == [EVIDENCE_RUN]
-    # Nothing in the job prints a variable, a file or a trace. The script's summary is the only output.
+    # Every command the job runs, word for word, and no key on a step that changes how it runs.
+    assert {step["name"]: step["run"] for step in _steps(job) if "run" in step} == EVIDENCE_RUNS
     for step in _steps(job):
-        text = step.get("run", "")
-        for word in ("printenv", "set -x", "cat ", "echo ", "printf ", "tee ", "curl ", "GITHUB_ENV", "secrets."):
-            assert word not in text, (step["name"], word)
-        assert not re.search(r"(^|[;&|(\s])env(\s|$)", text), step["name"]
+        assert set(step) <= EVIDENCE_STEP_KEYS, (step["name"], sorted(set(step) - EVIDENCE_STEP_KEYS))
+        assert "env" not in step, step["name"]
+        # Nothing in any step prints a variable, a file or a trace. The script's summary is the only output.
+        found = PRINTS_ENVIRONMENT.search(f"{step.get('run', '')}\n{step.get('with', '')}\n{step.get('if', '')}")
+        assert found is None, (step["name"], found and found.group(0))
     assert "secrets." not in WORKFLOW_PATH.read_text(encoding="utf-8")
     uploads = [step for step in _steps(job) if isinstance(step.get("uses"), str) and "upload-artifact@" in step["uses"]]
     assert len(uploads) == 1

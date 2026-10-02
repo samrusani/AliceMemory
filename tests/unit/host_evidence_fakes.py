@@ -11,6 +11,12 @@ none of them reaches an artifact.
 ``FAKE_MODE`` picks the client: ``answer`` declares roots and elicitation and answers
 ``roots/list``; ``error`` declares nothing and answers with method not found; ``silent``
 declares nothing and never answers; ``no_hook`` is ``answer`` with no hook run.
+
+``FAKE_WATCH`` is a comma-separated list of variable names. A stand-in that finds any of them in
+its own environment writes ``saw-env`` into ``FAKE_MARKERS``, so a test can plant a variable and
+learn whether the evidence script let it through. ``FAKE_MCP_STARTS`` is how many times each MCP
+server is started (default 1); the servers stay open together, as a reconnect would leave them.
+``FAKE_MCP_EXTRA=idle`` makes every start after the first a server that is opened and never spoken to.
 """
 
 from __future__ import annotations
@@ -37,6 +43,12 @@ import time
 import urllib.error
 import urllib.request
 import uuid
+
+
+def note_watched():
+    seen = [name for name in os.environ.get("FAKE_WATCH", "").split(",") if name and name in os.environ]
+    if seen:
+        open(os.path.join(os.environ["FAKE_MARKERS"], "saw-env"), "w").write(",".join(seen))
 
 
 def run_hooks(commands, payload, env, cwd):
@@ -145,6 +157,7 @@ def main():
         open(os.path.join(os.environ["FAKE_MARKERS"], "saw-real-key"), "w").write("x")
     if "PLANTED_SERVICE_TOKEN" in os.environ:
         open(os.path.join(os.environ["FAKE_MARKERS"], "saw-token"), "w").write("x")
+    note_watched()
     settings = json.loads(open(home + "/.claude/settings.json").read())
     commands = [h["command"] for g in settings["hooks"]["SessionStart"] for h in g["hooks"]]
     env = dict(os.environ)
@@ -164,11 +177,13 @@ def main():
     config = json.loads(open(home + "/.claude.json").read())
     servers = []
     for name, entry in config["mcpServers"].items():
-        server_env = dict(env)
-        server_env.update(entry.get("env", {}))
-        server = Server(entry["command"], entry["args"], server_env, cwd)
-        handshake(server, capabilities, roots_mode, cwd, "claude-code", "2.1.281")
-        servers.append((name, server))
+        for start in range(int(os.environ.get("FAKE_MCP_STARTS", "1"))):
+            server_env = dict(env)
+            server_env.update(entry.get("env", {}))
+            server = Server(entry["command"], entry["args"], server_env, cwd)
+            if not (start and os.environ.get("FAKE_MCP_EXTRA") == "idle"):
+                handshake(server, capabilities, roots_mode, cwd, "claude-code", "2.1.281")
+            servers.append((name, server))
     call_api(os.environ["ANTHROPIC_BASE_URL"] + "/v1/messages?beta=true")
     init = {
         "type": "system",
@@ -177,8 +192,11 @@ def main():
         "session_id": str(uuid.uuid4()),
         "tools": ["Bash", "mcp__alice-evidence__probe"],
         "mcp_servers": [{"name": name, "status": "connected"} for name, _ in servers],
+        "planted": "PLANTED_TOKEN",
     }
-    print(json.dumps(init))
+    # The real stream is one JSON object per line with no spaces, so a token sits inside a line that
+    # has no space in it.
+    print(json.dumps(init, separators=(",", ":")))
     print(json.dumps({"type": "system", "subtype": "hook_response", "outcome": "success", "exit_code": 0}))
     for _name, server in servers:
         server.close()
@@ -207,6 +225,7 @@ def main():
         open(os.path.join(os.environ["FAKE_MARKERS"], "saw-real-key"), "w").write("x")
     if "PLANTED_SERVICE_TOKEN" in os.environ:
         open(os.path.join(os.environ["FAKE_MARKERS"], "saw-token"), "w").write("x")
+    note_watched()
     with open(codex_home + "/config.toml", "rb") as handle:
         config = tomllib.load(handle)
     hooks = json.loads(open(codex_home + "/hooks.json").read())
@@ -238,12 +257,14 @@ def main():
         run_hooks(commands, payload, dict(os.environ), cwd)
     servers = []
     for name, entry in config["mcp_servers"].items():
-        # Codex passes a stdio server a short list of names and the entry's own env, nothing else.
-        server_env = {k: os.environ[k] for k in ("HOME", "PATH", "LANG") if k in os.environ}
-        server_env.update(entry.get("env", {}))
-        server = Server(entry["command"], entry["args"], server_env, cwd)
-        handshake(server, capabilities, roots_mode, cwd, "codex-mcp-client", "0.158.0")
-        servers.append(server)
+        for start in range(int(os.environ.get("FAKE_MCP_STARTS", "1"))):
+            # Codex passes a stdio server a short list of names and the entry's own env, nothing else.
+            server_env = {k: os.environ[k] for k in ("HOME", "PATH", "LANG") if k in os.environ}
+            server_env.update(entry.get("env", {}))
+            server = Server(entry["command"], entry["args"], server_env, cwd)
+            if not (start and os.environ.get("FAKE_MCP_EXTRA") == "idle"):
+                handshake(server, capabilities, roots_mode, cwd, "codex-mcp-client", "0.158.0")
+            servers.append(server)
     call_api(base + "/responses")
     for server in servers:
         server.close()

@@ -27,11 +27,28 @@ What is kept and what is not, in one place:
   ``KNOWN_PATH_VARIABLES``) or a variable the host added whose value is a path.
   Those two kinds are reported as a path shape and a relation to the launch
   folder, never as the value.
-* A JSON value is kept when it is a number, a boolean or null, or a short word
-  such as ``startup``. A uuid becomes ``<uuid>``, a long token becomes
-  ``<token:N chars>``, free text becomes ``<text:N chars>``.
+* A JSON value is kept as it is when it is a number, a boolean or null, or a
+  string with no space and at most 64 characters: a word such as ``startup``, an
+  email address, or an unspaced run of letters. Three kinds of string are the
+  exception. A path becomes a shape, a uuid becomes ``<uuid>``, and a string of
+  32 or more characters that mixes letters and digits becomes
+  ``<token:N chars>``. A string with a space, or longer than 64 characters,
+  becomes ``<text:N chars>``. A string with a slash in it is scrubbed like a line
+  of host output (see below). A dictionary key is treated as a string.
+* A line of host output (the first stdout and stderr line, an error message, a
+  version line) goes through ``scrub_text``: a literal the run knows is secret
+  is removed, a URL keeps only its scheme, a path becomes a shape, and any run
+  of 32 or more letters, digits and ``_-+/=.`` that mixes letters and digits
+  becomes ``<token>``, wherever it sits in the line, JSON with no spaces
+  included. The line is cut at 200 characters.
 * The shims write only the redacted record. The raw stdin and the raw
   environment are never saved, so the artifact cannot hold them.
+* A host process gets the runner's environment minus every name that looks like
+  a credential, every ``ANTHROPIC_``, ``CLAUDE``, ``CODEX_``, ``OPENAI_`` and
+  ``ALICE_`` name, and the five runner file-command variables (``GITHUB_ENV``,
+  ``GITHUB_PATH``, ``GITHUB_OUTPUT``, ``GITHUB_STATE`` and
+  ``GITHUB_STEP_SUMMARY``), so a host cannot write to the job summary or reach a
+  later step through them.
 
 The script uses the standard library only, except that ``run`` takes the hook
 shapes from ``alicebot_api.host_install``, as the other trials do. Nothing here
@@ -100,6 +117,13 @@ _STRUCTURAL_SEGMENTS = frozenset({".claude", ".codex", ".git", "projects", "sess
 _STRIPPED_PREFIXES = ("ANTHROPIC_", "CLAUDE", "CODEX_", "OPENAI_", "ALICE_")
 # A host is third-party code. It gets no variable that looks like a credential, whatever the runner holds.
 _SECRET_NAME = re.compile(r"TOKEN|SECRET|PASSW|CREDENTIAL|AUTH|APIKEY|API_KEY|PRIVATE|(^|_)KEY($|_)", re.IGNORECASE)
+# The runner reads these files between steps: environment, PATH, step outputs, saved state and the job
+# summary. A host that could write one could change a later step or the summary. None of them is a
+# credential by name, so the name filter above does not catch them.
+_RUNNER_FILE_COMMANDS = frozenset(
+    {"GITHUB_ENV", "GITHUB_PATH", "GITHUB_OUTPUT", "GITHUB_STATE", "GITHUB_STEP_SUMMARY"}
+)
+_NUMBER_LIMIT = 99
 
 _STDIN_LIMIT = 1024 * 1024
 _ROOTS_WAIT_SECONDS = 8.0
@@ -120,6 +144,7 @@ _PATH_START = re.compile(r"^(?:/|~(?:/|$)|\.{1,2}(?:/|$)|[A-Za-z]:[\\/]|\\\\|fil
 _PATH_TOKEN = re.compile(r"(?<![\w.:/-])/[^\s\"'<>`)\]},;:/]+(?:/[^\s\"'<>`)\]},;:/]+)*")
 _URL = re.compile(r"\b[A-Za-z][A-Za-z0-9+.-]*://[^\s\"'<>`)\]},;]+")
 _TOKENISH = re.compile(r"^[A-Za-z0-9_\-+/=.]+$")
+_TOKEN_RUN = re.compile(r"[A-Za-z0-9_\-+/=.]{%d,}" % _TOKEN_MIN)
 _NAMEISH = re.compile(r"^[A-Za-z0-9_.-]{1,80}$")
 
 
@@ -284,8 +309,18 @@ def _url_shape(url: str, ctx: Context) -> str:
     return f"<url:{url.partition(':')[0].lower()}>"
 
 
+def _token_run(match: re.Match[str]) -> str:
+    run = match.group(0)
+    mixed = re.search(r"\d", run) and re.search(r"[A-Za-z]", run)
+    return "<token>" if mixed else run
+
+
 def scrub_text(text: str, ctx: Context, literals: Sequence[str] = ()) -> str:
-    """One line of host output with every path as a shape, no known secret, and a length cap."""
+    """One line of host output with every path as a shape, no known secret, and a length cap.
+
+    A token is found as a run of token characters wherever it sits, not as a space-separated word,
+    so one inside a JSON line with no spaces (the first line of a Claude Code stream) is caught too.
+    """
 
     scrubbed = text
     for literal in literals:
@@ -293,13 +328,7 @@ def scrub_text(text: str, ctx: Context, literals: Sequence[str] = ()) -> str:
             scrubbed = scrubbed.replace(literal, "<redacted>")
     scrubbed = _URL.sub(lambda match: _url_shape(match.group(0), ctx), scrubbed)
     scrubbed = _PATH_TOKEN.sub(lambda match: path_shape(match.group(0), ctx), scrubbed)
-    words = []
-    for word in scrubbed.split(" "):
-        mixed = re.search(r"\d", word) and re.search(r"[A-Za-z]", word)
-        if len(word) >= _TOKEN_MIN and mixed and _TOKENISH.match(word):
-            word = "<token>"
-        words.append(word)
-    scrubbed = " ".join(words)
+    scrubbed = _TOKEN_RUN.sub(_token_run, scrubbed)
     if len(scrubbed) > _LINE_LIMIT:
         scrubbed = scrubbed[:_LINE_LIMIT] + "..."
     return scrubbed
@@ -396,13 +425,17 @@ def env_record(environ: Mapping[str, str], ctx: Context) -> dict[str, object]:
     }
 
 
-def probe_record(environ: Mapping[str, str]) -> dict[str, bool]:
-    """Whether a variable planted in the launch environment, and one planted in the server entry, arrived."""
+def probe_record(environ: Mapping[str, str], *, server: bool) -> dict[str, bool]:
+    """Whether a variable planted in the launch environment arrived and, for a server, whether one
+    planted in the server's own entry did.
 
-    return {
-        "launch_env_forwarded": environ.get(LAUNCH_PROBE[0]) == LAUNCH_PROBE[1],
-        "entry_env_forwarded": environ.get(ENTRY_PROBE[0]) == ENTRY_PROBE[1],
-    }
+    A hook has no entry of its own, so its record carries the launch probe only.
+    """
+
+    record = {"launch_env_forwarded": environ.get(LAUNCH_PROBE[0]) == LAUNCH_PROBE[1]}
+    if server:
+        record["entry_env_forwarded"] = environ.get(ENTRY_PROBE[0]) == ENTRY_PROBE[1]
+    return record
 
 
 def cwd_record(path_text: str | None, ctx: Context) -> dict[str, object]:
@@ -451,17 +484,34 @@ def _stdin_record(raw: bytes, ctx: Context, truncated: bool) -> dict[str, object
     return record
 
 
-def _write_numbered(artifacts: Path, stem: str, record: object) -> None:
-    artifacts.mkdir(parents=True, exist_ok=True)
-    for number in range(1, 100):
+def _open_numbered(artifacts: Path, stem: str) -> tuple[Path, int] | None:
+    """Create the next free ``<stem>-N.json`` and return it open, or None when none can be made.
+
+    The create is exclusive, so two processes that start together get two numbers and neither
+    record replaces the other.
+    """
+
+    try:
+        artifacts.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        return None
+    for number in range(1, _NUMBER_LIMIT + 1):
         path = artifacts / f"{stem}-{number}.json"
         try:
-            descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+            return path, os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
         except FileExistsError:
             continue
-        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-            handle.write(json.dumps(record, indent=2) + "\n")
+        except OSError:
+            return None
+    return None
+
+
+def _write_numbered(artifacts: Path, stem: str, record: object) -> None:
+    claimed = _open_numbered(artifacts, stem)
+    if claimed is None:
         return
+    with os.fdopen(claimed[1], "w", encoding="utf-8") as handle:
+        handle.write(json.dumps(record, indent=2) + "\n")
 
 
 def hook_main(host: str, artifacts: Path, context_path: Path) -> int:
@@ -478,7 +528,7 @@ def hook_main(host: str, artifacts: Path, context_path: Path) -> int:
         record["stdin"] = _stdin_record(raw[:_STDIN_LIMIT], ctx, truncated)
         record["cwd"] = cwd_record(_current_directory(), ctx)
         record["env"] = env_record(os.environ, ctx)
-        record["probes"] = probe_record(os.environ)
+        record["probes"] = probe_record(os.environ, server=False)
     except Exception as problem:  # noqa: BLE001 - a hook must never break the host
         record["error"] = type(problem).__name__
     try:
@@ -583,14 +633,20 @@ class _McpStub:
         self.ctx = ctx
         self.roots_wait = roots_wait
         self.out = out
-        self.path = artifacts / f"{host}-mcp.json"
+        # One numbered record per server start, like the hook records, so a second start (a retry or a
+        # reconnect) never replaces the first. With no number free the server still serves and records nothing.
+        claimed = _open_numbered(artifacts, f"{host}-mcp")
+        self.path: Path | None = None
+        if claimed is not None:
+            self.path = claimed[0]
+            os.close(claimed[1])
         self.record: dict[str, Any] = {
             "host": host,
             "started": True,
             "complete": False,
             "cwd": cwd_record(_current_directory(), ctx),
             "env": env_record(os.environ, ctx),
-            "probes": probe_record(os.environ),
+            "probes": probe_record(os.environ, server=True),
             "initialize": {"received": False},
             "client_requests": [],
             "roots_list": {"sent": False, "outcome": "not_sent"},
@@ -604,6 +660,8 @@ class _McpStub:
     # --- output ---
 
     def save(self) -> None:
+        if self.path is None:
+            return
         temporary = self.path.with_name(self.path.name + ".tmp")
         temporary.write_text(json.dumps(self.record, indent=2) + "\n", encoding="utf-8")
         os.replace(temporary, self.path)
@@ -909,12 +967,32 @@ class _LoopbackApi:
 # --- running a host -------------------------------------------------------------------------
 
 
+def _numbered_paths(artifacts: Path, host: str, kind: str) -> list[Path]:
+    """The ``<host>-<kind>-N.json`` records, in the order the processes started."""
+
+    def number(path: Path) -> int:
+        found = re.search(r"-(\d+)\.json$", path.name)
+        return int(found.group(1)) if found else 0
+
+    return sorted(artifacts.glob(f"{host}-{kind}-*.json"), key=number)
+
+
 def _mcp_complete(artifacts: Path, host: str) -> bool:
-    path = artifacts / f"{host}-mcp.json"
-    try:
-        return json.loads(path.read_text(encoding="utf-8")).get("complete") is True
-    except (OSError, ValueError, AttributeError):
+    """True once a server has started and every server start has finished its roots probe.
+
+    A record that cannot be read yet counts as unfinished, so the host is not released early.
+    """
+
+    paths = _numbered_paths(artifacts, host, "mcp")
+    if not paths:
         return False
+    for path in paths:
+        try:
+            if json.loads(path.read_text(encoding="utf-8")).get("complete") is not True:
+                return False
+        except (OSError, ValueError, AttributeError):
+            return False
+    return True
 
 
 def _make_repo(repo: Path) -> None:
@@ -935,6 +1013,22 @@ def _make_repo(repo: Path) -> None:
     (repo / "packages" / "app").mkdir(parents=True, exist_ok=True)
 
 
+def host_environment(environ: Mapping[str, str]) -> dict[str, str]:
+    """The runner's environment as a third-party host may see it.
+
+    Dropped: every name that looks like a credential, every name that starts with a host or Alice
+    prefix (the run sets the few it needs itself), and the runner's file-command variables.
+    """
+
+    return {
+        name: value
+        for name, value in environ.items()
+        if not name.startswith(_STRIPPED_PREFIXES)
+        and name.upper() not in _RUNNER_FILE_COMMANDS
+        and not _SECRET_NAME.search(name)
+    }
+
+
 class _Sandbox:
     """One host's home, scratch repository, launch folder and context file."""
 
@@ -950,21 +1044,16 @@ class _Sandbox:
         _make_repo(self.repo)
 
     def base_env(self) -> dict[str, str]:
-        """The runner's environment minus every host and Alice variable and every credential-like
-        name, plus the home and the probes."""
+        """The runner's environment as ``host_environment`` leaves it, plus the home and the probe."""
 
-        env = {
-            k: v
-            for k, v in os.environ.items()
-            if not k.startswith(_STRIPPED_PREFIXES) and not _SECRET_NAME.search(k)
-        }
+        env = host_environment(os.environ)
         env["HOME"] = str(self.home)
         env["PWD"] = str(self.launch)
         env[LAUNCH_PROBE[0]] = LAUNCH_PROBE[1]
         return env
 
-    def write_context(self, env: Mapping[str, str]) -> Context:
-        ctx = Context(
+    def context(self, env: Mapping[str, str] | None = None) -> Context:
+        return Context(
             {
                 "launch": str(self.launch),
                 "repo": str(self.repo),
@@ -972,8 +1061,11 @@ class _Sandbox:
                 "artifacts": str(self.artifacts),
                 "scratch": str(self.root),
             },
-            sorted(env),
+            sorted(env or {}),
         )
+
+    def write_context(self, env: Mapping[str, str]) -> Context:
+        ctx = self.context(env)
         self.context_path.write_text(json.dumps(ctx.to_json()), encoding="utf-8")
         return ctx
 
@@ -1075,35 +1167,29 @@ def _stream_events(stdout: str, ctx: Context) -> tuple[dict[str, object] | None,
     return init, hooks
 
 
-def _collect(host: str, artifacts: Path) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
-    def number(path: Path) -> int:
-        found = re.search(r"-(\d+)\.json$", path.name)
-        return int(found.group(1)) if found else 0
-
-    hooks: list[dict[str, Any]] = []
-    for path in sorted(artifacts.glob(f"{host}-hook-*.json"), key=number):
+def _load_numbered(artifacts: Path, host: str, kind: str) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    for path in _numbered_paths(artifacts, host, kind):
         try:
             loaded = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             continue
         if isinstance(loaded, dict):
-            hooks.append(loaded)
-    mcp: dict[str, Any] | None = None
-    path = artifacts / f"{host}-mcp.json"
-    if path.is_file():
-        try:
-            loaded = json.loads(path.read_text(encoding="utf-8"))
-            mcp = loaded if isinstance(loaded, dict) else None
-        except (OSError, ValueError):
-            mcp = None
-    return hooks, mcp
+            records.append(loaded)
+    return records
+
+
+def _collect(host: str, artifacts: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Every hook record and every MCP server record the host's processes left, in start order."""
+
+    return _load_numbered(artifacts, host, "hook"), _load_numbered(artifacts, host, "mcp")
 
 
 def _settle(artifacts: Path, host: str, seconds: float = 5.0) -> None:
     """After the host exits, give the stub server a moment to write its last record."""
 
     deadline = time.monotonic() + seconds
-    while time.monotonic() < deadline and (artifacts / f"{host}-mcp.json").is_file():
+    while time.monotonic() < deadline and _numbered_paths(artifacts, host, "mcp"):
         if _mcp_complete(artifacts, host):
             return
         time.sleep(0.1)
@@ -1112,7 +1198,8 @@ def _settle(artifacts: Path, host: str, seconds: float = 5.0) -> None:
 def _result_shell(host: str, version: str, sandbox: _Sandbox) -> dict[str, Any]:
     return {
         "host": host,
-        "version": version,
+        # The line a host prints for --version is host output like any other: scrubbed before it is kept.
+        "version": scrub_text(version, sandbox.context()),
         "pinned": version == PINNED_VERSIONS[host],
         "launched_in": {
             "placeholder": "<launch>",
@@ -1120,7 +1207,7 @@ def _result_shell(host: str, version: str, sandbox: _Sandbox) -> dict[str, Any]:
         },
         "run": None,
         "hook": {"fired": 0, "records": []},
-        "mcp": {"started": False, "record": None},
+        "mcp": {"starts": 0, "records": []},
         "problems": [],
     }
 
@@ -1137,7 +1224,7 @@ def _finish_host(
 ) -> None:
     exit_code, stdout, stderr, wall_ms = outcome
     _settle(sandbox.artifacts, sandbox.host)
-    hooks, mcp = _collect(sandbox.host, sandbox.artifacts)
+    hooks, servers = _collect(sandbox.host, sandbox.artifacts)
     result["run"] = {
         "exit_code": exit_code,
         "wall_ms": int(wall_ms),
@@ -1148,17 +1235,19 @@ def _finish_host(
         "hook_events": hook_events,
     }
     result["hook"] = {"fired": len(hooks), "records": hooks}
-    result["mcp"] = {"started": mcp is not None, "record": mcp}
+    result["mcp"] = {"starts": len(servers), "records": servers}
     problems: list[str] = result["problems"]
     if not hooks:
         problems.append("the SessionStart hook did not fire")
-    if mcp is None:
+    if not servers:
         problems.append("the MCP server was never started")
-    else:
-        if not mcp.get("initialize", {}).get("received"):
-            problems.append("the MCP server never received initialize")
-        if mcp.get("complete") is not True:
-            problems.append("the roots/list probe did not finish")
+    for number, server in enumerate(servers, start=1):
+        # Every start is held to the same bar, and says which one missed it when there is more than one.
+        which = f" (start {number} of {len(servers)})" if len(servers) > 1 else ""
+        if not server.get("initialize", {}).get("received"):
+            problems.append("the MCP server never received initialize" + which)
+        if server.get("complete") is not True:
+            problems.append("the roots/list probe did not finish" + which)
 
 
 def _which(name: str, env: Mapping[str, str]) -> str | None:
@@ -1410,10 +1499,19 @@ def _hook_lines(info: dict[str, Any]) -> list[str]:
 
 
 def _mcp_lines(info: dict[str, Any]) -> list[str]:
-    record = info["mcp"]["record"]
-    lines = ["#### MCP server", ""]
-    if not isinstance(record, dict):
+    records = [record for record in info["mcp"]["records"] if isinstance(record, dict)]
+    lines = [f"#### MCP server, started {info['mcp']['starts']} time(s)", ""]
+    if not records:
         return [*lines, "The server was never started, so there is nothing to record.", ""]
+    for number, record in enumerate(records, start=1):
+        if len(records) > 1:
+            lines += [f"**Start {number} of {len(records)}**", ""]
+        lines += _mcp_record_lines(record)
+    return lines
+
+
+def _mcp_record_lines(record: dict[str, Any]) -> list[str]:
+    lines: list[str] = []
     init = record.get("initialize") if isinstance(record.get("initialize"), dict) else {}
     declares = init.get("declares") if isinstance(init.get("declares"), dict) else {}
     client = init.get("client_info") if isinstance(init.get("client_info"), dict) else {}
@@ -1474,13 +1572,17 @@ def host_headline(info: dict[str, Any]) -> str:
             parts.append("host-added path variables " + ", ".join(host_added))
     else:
         parts.append("hook did not fire")
-    record = info["mcp"]["record"]
+    servers = info["mcp"]["records"]
+    record = servers[0] if servers else None
     if isinstance(record, dict):
         init = record.get("initialize") if isinstance(record.get("initialize"), dict) else {}
         declares = init.get("declares") if isinstance(init.get("declares"), dict) else {}
         cwd = record.get("cwd") if isinstance(record.get("cwd"), dict) else {}
         roots = record.get("roots_list") if isinstance(record.get("roots_list"), dict) else {}
-        parts.append(f"server working folder {cwd.get('relation', 'unknown')}")
+        starts = info["mcp"]["starts"]
+        parts.append(f"MCP server started {starts}x")
+        which = "server working folder" if starts == 1 else "first start's server working folder"
+        parts.append(f"{which} {cwd.get('relation', 'unknown')}")
         parts.append(
             f"roots declared {_yes(declares.get('roots'))}, elicitation declared {_yes(declares.get('elicitation'))}, "
             f"roots/list {roots.get('outcome')}"
@@ -1496,7 +1598,8 @@ def render_summary(report: dict[str, Any]) -> str:
         "",
         "Pinned hosts, a loopback stub API, a made-up key, nothing paid. Each host starts in "
         f"{_code('<launch>')}, two folders below the root of a scratch git repository. Paths show as "
-        "placeholders that keep their shape. Environment values and free text are never recorded.",
+        "placeholders that keep their shape. Environment values are never recorded, and text with a space, "
+        "or longer than 64 characters, is recorded as its size.",
         "",
         "### Headline",
         "",
@@ -1590,7 +1693,7 @@ def run(
                 executable=(executables or {}).get(host),
             )
         except Exception as problem:  # noqa: BLE001 - one host failing must not hide the other
-            hooks, mcp = _collect(host, artifacts)
+            hooks, servers = _collect(host, artifacts)
             results[host] = {
                 "host": host,
                 "version": "",
@@ -1598,7 +1701,7 @@ def run(
                 "launched_in": {"placeholder": "<launch>", "git_levels_up": None},
                 "run": None,
                 "hook": {"fired": len(hooks), "records": hooks},
-                "mcp": {"started": mcp is not None, "record": mcp},
+                "mcp": {"starts": len(servers), "records": servers},
                 "problems": [f"the run failed with {type(problem).__name__}"],
             }
     report = build_report(results)

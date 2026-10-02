@@ -23,10 +23,15 @@ name: Real host CI
 # SessionStart hook and an MCP server receive from each host: the hook's stdin
 # keys and values, the variable names and working folder of each process, and
 # whether the client declares the roots capability and answers roots/list.
-# Paths are recorded as placeholders that keep their shape. Variable values and
-# free text are not recorded, so the artifact holds no raw value. Its job has no
-# credentials: the checkout keeps none and the script drops every
-# credential-like variable before it starts a host.
+# Paths are recorded as placeholders that keep their shape, and the value of an
+# environment variable is never recorded. A value in the hook's stdin is kept as
+# it is when it is a number, a flag, or a string with no space and at most 64
+# characters (a short word, an email address, an unspaced run of letters), unless
+# that string is a path, a uuid or 32 or more letters and digits mixed. Text with
+# a space, or longer than 64 characters, is recorded as its size. The job has no
+# credentials: the checkout keeps none, and the script gives a host neither a
+# credential-like variable nor the runner's file-command variables (GITHUB_ENV,
+# GITHUB_PATH, GITHUB_OUTPUT, GITHUB_STATE, GITHUB_STEP_SUMMARY).
 # Pytest uses the setup-python interpreter recorded during the Alice
 # install. The Hermes virtualenv bin stays on PATH so hermes resolves,
 # and that package install does not include pytest.
@@ -538,8 +543,8 @@ jobs:
   # Records what the pinned hosts hand a SessionStart hook and an MCP server, for
   # per-project memory slice S0. The script refuses to start a host outside GitHub
   # Actions, never reads a real key, and writes the host-evidence artifact with
-  # placeholders for every path and no variable value. The checkout keeps no
-  # credentials because the hosts it installs are third-party code.
+  # placeholders for every path and no environment variable value. The checkout
+  # keeps no credentials because the hosts it installs are third-party code.
   host-evidence:
     name: Host evidence for per-project memory
     if: "${{ github.event_name == 'workflow_dispatch' && (inputs.job == 'all' || inputs.job == 'host-evidence') }}"
