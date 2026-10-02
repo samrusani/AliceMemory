@@ -41,24 +41,27 @@ including empty/stop-word-only inputs and Unicode boundary cases.
 
 The SQLite portable export/import path has extensive alias, inode, symlink,
 sidecar-name, immutable-snapshot, integrity-digest, unknown-schema, and atomic
-publication tests. Those controls do **not** close a separate gap in the
-content-directory importers:
+publication tests. The content-directory importers have their own controls:
 
 - Markdown recursively discovers `*.md` files;
 - ChatGPT recursively discovers `*.json` files;
 - OpenClaw reads named JSON files or direct-directory JSON fallbacks.
 
-Those importers can currently include a symlinked member outside the selected
-root, and the archive step and parser can read the source at different times.
-The recorded archive checksum can therefore describe different bytes than the
-parsed memory, or a local attacker can substitute content between reads. This
-finding is deferred from the Phase 5.1 carrier.
+Since v0.15.2 those importers refuse a symlinked file or folder under the
+selected root and a path that leaves it, open each file once without following
+a link at the last component, require a regular file, and give the same text to
+the archive step and to the parser. Two residuals remain, and both need local
+write access inside a folder you chose. A hard link planted in the folder to a
+file elsewhere is read as ordinary content, because a hard link is the file
+itself. A folder on the path swapped for a symlink between the listing and the
+read can redirect the read, because only the last component is opened without
+following a link. Import only from a folder you control.
 
-Until remediation, import only from a private staging directory owned by the
-Alice operator, reject/remove symlinks before import, and ensure no other
-process can mutate the directory during the run. A later fix should open files
-once without following symlinks, enforce root containment on the opened object,
-and feed the same immutable bytes to both archiving and parsing.
+Corrected 2026-10-02: this section said the importers could include a symlinked
+member outside the selected root and that the archive step and the parser could
+read the source at different times, as a finding deferred from the Phase 5.1
+carrier. v0.15.2 fixed both, and the release notes of v0.15.2 and v0.15.3 say
+so. The Phase 5.1 evidence file keeps the finding as it was recorded then.
 
 ## Focused Evidence
 

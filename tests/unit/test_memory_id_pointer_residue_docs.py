@@ -41,7 +41,7 @@ def test_the_changelog_entry_sits_under_unreleased_and_states_v0192() -> None:
     """
     entry = _entry()
     assert "In v0.19.2 the label named the forgotten, undone or rejected memory, to every caller that could read it." in entry
-    assert "A deleted successor already named no id, and a successor closed with `expire` is still named" in entry
+    assert "A deleted successor already named no id. Second," in entry
     assert (
         "In v0.19.2 the pack dropped the pointer first and worked out `validity` afterwards, so a memory that was still "
         "active and carried such a pointer had no `validity` in the pack, while recall returned `superseded: true`."

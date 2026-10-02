@@ -110,6 +110,13 @@ Remember, recall, continue. These are the only tools in a default
   stays true. A chain whose last memory was forgotten names nothing, and does not
   fall back to the memory before it. In v0.19.2 the id of the forgotten, undone
   or rejected memory is named.
+  Unreleased (on main, not in v0.19.2): `current_memory_id` is also left off
+  when the memory it would name has a validity window that has closed, which
+  `alice_memory_manage` with `action: expire` sets while the status stays
+  `active`, because recall and the pack do not return such a memory. A chain
+  that loops back to a memory it already passed names no id. In v0.19.2 the
+  id of the expired memory is named, and so is the id of the memory the loop
+  came back to.
 - `alice_resume` — a pick-work-back-up brief: last decision, suggested next
   action, open loops, and recent changes. From v0.18.0, this brief,
   `alice_recent_decisions`, and the next-action list read only active

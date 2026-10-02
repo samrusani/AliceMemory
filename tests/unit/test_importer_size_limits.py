@@ -38,6 +38,7 @@ from alicebot_api.importer_paths import (
     DEFAULT_MAX_TEXT_FILE_BYTES,
     MIB,
     ImportFileTooLargeError,
+    contained_source_files,
     read_contained_source_text,
     snapshot_source_files,
 )
@@ -384,11 +385,12 @@ def test_the_open_once_and_no_follow_properties_are_unchanged(
 ) -> None:
     """One ``os.open`` with ``O_NOFOLLOW``, no ``builtins.open``, a symlink refused.
 
-    The same descriptor is measured and read, so a file swapped for a link after
-    the listing is still refused rather than read.
+    The file is opened once and by one call, and that call carries ``O_NOFOLLOW``.
+    A path that is a symlink when it is read is refused. The swap after a listing,
+    which is the case that matters, has its own test below.
 
     Mutation that must fail it: read the file with ``open(file_path, "rb")``
-    in place of the descriptor that was measured.
+    in place of the descriptor that was measured, or open without ``O_NOFOLLOW``.
     """
 
     source = tmp_path / "notes.md"
@@ -423,6 +425,51 @@ def test_the_open_once_and_no_follow_properties_are_unchanged(
     with pytest.raises(ValueError, match="symlinked files") as caught:
         read_contained_source_text(link, max_bytes=1000, error_factory=ValueError)
     assert not isinstance(caught.value, ImportFileTooLargeError)
+
+
+def test_a_file_swapped_after_the_listing_is_refused_by_what_it_is_when_it_is_opened(tmp_path: Path) -> None:
+    """List a folder, change a listed file, then read the listing.
+
+    A listed file is replaced by a link to a file outside the folder: it is refused
+    and the outside text is not read. Another is replaced by a file over the limit:
+    it is refused by the size of the file that is opened, and not by the size it
+    had when it was listed. A file that is still what it was listed as is read.
+
+    Mutation that must fail it: open the file without ``O_NOFOLLOW`` (the link is
+    then read and the outside text comes back), or delete the ``st_size`` check
+    after ``fstat`` (the read cap still refuses the large file, but at the limit and
+    not at its size, so ``size_bytes`` is 1001 and ``exact`` is False).
+    """
+
+    root = tmp_path / "root"
+    root.mkdir()
+    (root / "a-linked.md").write_text("- Note: listed as a note\n", encoding="utf-8")
+    (root / "b-grown.md").write_text("- Note: small when listed\n", encoding="utf-8")
+    (root / "c-same.md").write_text("- Note: unchanged\n", encoding="utf-8")
+    outside = tmp_path / "outside.md"
+    outside.write_text("- Note: text from outside the folder\n", encoding="utf-8")
+
+    listed = contained_source_files(root, suffixes=(".md",), recursive=True, error_factory=ValueError)
+    assert [path.name for path in listed] == ["a-linked.md", "b-grown.md", "c-same.md"]
+
+    (root / "a-linked.md").unlink()
+    (root / "a-linked.md").symlink_to(outside)
+    with pytest.raises(ValueError, match="symlinked files") as linked:
+        snapshot_source_files(root, listed, max_bytes=1000, error_factory=ValueError)
+    assert "outside the folder" not in str(linked.value)
+
+    (root / "a-linked.md").unlink()
+    (root / "a-linked.md").write_text("- Note: listed as a note\n", encoding="utf-8")
+    (root / "b-grown.md").write_bytes(b"x" * 2000)
+    with pytest.raises(ImportFileTooLargeError) as grown:
+        snapshot_source_files(root, listed, max_bytes=1000, error_factory=ValueError)
+    assert grown.value.file_path.name == "b-grown.md"
+    assert grown.value.size_bytes == 2000
+    assert grown.value.exact is True
+
+    (root / "b-grown.md").write_text("- Note: small when listed\n", encoding="utf-8")
+    snapshot = snapshot_source_files(root, listed, max_bytes=1000, error_factory=ValueError)
+    assert [source_file.relative_path for source_file in snapshot] == ["a-linked.md", "b-grown.md", "c-same.md"]
 
 
 # ---------------------------------------------------------------------------

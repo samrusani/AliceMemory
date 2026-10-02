@@ -45,12 +45,15 @@ EXPECTED_MODULES = {
 # Re-measured under each flag state after adding `alicebot vnext memories
 # quarantine`, the operator surface for the memory promotion incident
 # control, and again after adding `--max-file-mib` to `alicebot vnext sources
-# import-markdown` and `import-chatgpt` (two more actions, no new command).
+# import-markdown` and `import-chatgpt` (two more actions, no new command),
+# and again after adding it to `vnext sources capture-file`, `vnext connectors
+# browser-clipper capture` and `vnext agents ingest-output` (three more
+# actions, no new command).
 # Both keys are updated together: leaving one at its old value is how the
 # other half silently rots.
 EXPECTED_PARSER_RECEIPTS = {
-    False: (159, 732, 122, 118),
-    True: (163, 765, 125, 121),
+    False: (159, 735, 122, 118),
+    True: (163, 768, 125, 121),
 }
 EXPECTED_PUBLIC_NAME_COUNT = 270
 EXPECTED_PUBLIC_NAMES_SHA256 = "8d97ffb088d5d8dea239c81589e9c109b81f7dc50b916d7bfb593ce13acae5fa"

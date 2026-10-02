@@ -282,15 +282,14 @@ def test_the_listing_stops_consuming_the_walk_at_the_cap(
     for index in range(40):
         (root / f"n{index}.md").write_text("n", encoding="utf-8")
     produced = {"count": 0}
-    method = "rglob" if recursive else "glob"
-    real_walk = getattr(Path, method)
+    real_walk = vc._walk_local_folder
 
-    def counting_walk(self: Path, pattern: str, *args: Any, **kwargs: Any) -> Any:
-        for entry in real_walk(self, pattern, *args, **kwargs):
+    def counting_walk(folder: Path, *, recursive: bool) -> Any:
+        for entry in real_walk(folder, recursive=recursive):
             produced["count"] += 1
             yield entry
 
-    monkeypatch.setattr(Path, method, counting_walk)
+    monkeypatch.setattr(vc, "_walk_local_folder", counting_walk)
     scan = vc.scan_local_folder([root], recursive=recursive)
 
     assert produced["count"] == 6, "the walk must stop one entry past the listing cap, not be materialized first"
