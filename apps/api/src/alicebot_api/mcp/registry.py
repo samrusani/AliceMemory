@@ -31,7 +31,6 @@ from alicebot_api.continuity_review import (
     ContinuityReviewNotFoundError,
     ContinuityReviewValidationError,
 )
-from alicebot_api.memory_mutations import MemoryMutationValidationError
 from alicebot_api.store import JsonObject
 from alicebot_api.surface_flags import (
     LEGACY_SURFACES_ENV,
@@ -47,7 +46,14 @@ from alicebot_api.task_briefing import (
     TaskBriefValidationError,
 )
 from alicebot_api.source_search_limits import SourceSearchQueryTooLarge
-from alicebot_api.vnext_memory_commit import MemoryCommitTextTooLarge
+from alicebot_api.vnext_agent_control import AgentPolicyBlockedError
+from alicebot_api.vnext_agent_keys import AgentKeyAuthenticationError
+from alicebot_api.vnext_lifecycle import LifecycleTransitionError
+from alicebot_api.vnext_memory_commit import (
+    MemoryCommitTextTooLarge,
+    MemoryNotFoundError,
+    MemoryStateError,
+)
 
 from .capture_automation import (
     _handle_alice_vnext_capture,
@@ -152,6 +158,12 @@ from .synthesis import (
     _handle_alice_generate_weekly_synthesis,
     _handle_alice_graph_edge_review,
     _handle_alice_graph_neighborhood,
+)
+from .types import (
+    MCPArgumentError,
+    MCPNotPermittedError,
+    MCPPreconditionFailedError,
+    MCPReferenceNotFoundError,
 )
 
 _TOOL_HANDLERS = {
@@ -276,7 +288,7 @@ def _validate_mcp_arguments_against_advertised_schema(
         return
 
     def fail(path: str, detail: str) -> None:
-        raise MCPToolError(f"tool '{name}' has invalid value at {path}: {detail}")
+        raise MCPArgumentError(f"tool '{name}' has invalid value at {path}: {detail}")
 
     def matches_type(value: object, schema_type: str) -> bool:
         if schema_type == "null":
@@ -318,7 +330,7 @@ def _validate_mcp_arguments_against_advertised_schema(
             try:
                 parsed_uuid = UUID(value)
             except (AttributeError, ValueError) as exc:
-                raise MCPToolError(f"tool '{name}' has invalid value at {path}: must be a UUID string") from exc
+                raise MCPArgumentError(f"tool '{name}' has invalid value at {path}: must be a UUID string") from exc
             if str(parsed_uuid) != value.casefold():
                 fail(path, "must be a canonical UUID string")
             return
@@ -334,7 +346,7 @@ def _validate_mcp_arguments_against_advertised_schema(
             try:
                 parsed_datetime = datetime.fromisoformat(value.replace("Z", "+00:00").replace("z", "+00:00"))
             except ValueError as exc:
-                raise MCPToolError(
+                raise MCPArgumentError(
                     f"tool '{name}' has invalid value at {path}: must be a valid RFC 3339 date-time"
                 ) from exc
             if parsed_datetime.tzinfo is None:
@@ -346,7 +358,7 @@ def _validate_mcp_arguments_against_advertised_schema(
             try:
                 date.fromisoformat(value)
             except ValueError as exc:
-                raise MCPToolError(
+                raise MCPArgumentError(
                     f"tool '{name}' has invalid value at {path}: must be a valid RFC 3339 full-date"
                 ) from exc
             return
@@ -424,11 +436,11 @@ def _validate_mcp_arguments_against_advertised_schema(
             missing = sorted(str(key) for key in required if isinstance(key, str) and key not in value)
             if missing:
                 location = "" if path == "arguments" else f" at {path}"
-                raise MCPToolError(f"tool '{name}' is missing required properties{location}: " + ", ".join(missing))
+                raise MCPArgumentError(f"tool '{name}' is missing required properties{location}: " + ", ".join(missing))
         minimum_properties = candidate_schema.get("minProperties")
         if isinstance(value, Mapping) and isinstance(minimum_properties, int) and len(value) < minimum_properties:
             location = "" if path == "arguments" else f" at {path}"
-            raise MCPToolError(f"tool '{name}' requires at least {minimum_properties} properties{location}")
+            raise MCPArgumentError(f"tool '{name}' requires at least {minimum_properties} properties{location}")
         maximum_properties = candidate_schema.get("maxProperties")
         if isinstance(value, Mapping) and isinstance(maximum_properties, int) and len(value) > maximum_properties:
             fail(path, f"must contain at most {maximum_properties} properties")
@@ -437,7 +449,7 @@ def _validate_mcp_arguments_against_advertised_schema(
             unknown = sorted(str(key) for key in value if key not in allowed)
             if unknown:
                 location = "" if path == "arguments" else f" at {path}"
-                raise MCPToolError(
+                raise MCPArgumentError(
                     f"tool '{name}' does not accept additional properties{location}: " + ", ".join(unknown)
                 )
         if isinstance(value, Mapping) and isinstance(properties, Mapping):
@@ -539,41 +551,59 @@ def call_mcp_tool(
                 agent_identity_resolved=True,
             )
         payload = handler(context, parsed_arguments)
+    except MCPToolError:
+        # A handler already classified this refusal: a coded error, or the
+        # public invalid_request. It is a ValueError, so without this clause
+        # the generic ValueError clause at the end of the chain would flatten
+        # it to tool_request_failed before the server could read its class.
+        raise
+    except (AgentPolicyBlockedError, AgentKeyAuthenticationError) as exc:
+        # A policy or key refusal that no handler turned into an MCP error.
+        # Only these two classes: a plain PermissionError is a file or socket
+        # failure and stays tool_execution_failed.
+        raise MCPNotPermittedError(str(exc)) from exc
     except (
         ContinuityCaptureValidationError,
         ContinuityRecallValidationError,
         ContinuityBriefValidationError,
         ContinuityResumptionValidationError,
         ContinuityReviewValidationError,
-        ContinuityReviewNotFoundError,
         ContinuityContradictionValidationError,
-        ContinuityContradictionNotFoundError,
-        RetrievalTraceNotFoundError,
-        ContinuityEvidenceNotFoundError,
-        MemoryMutationValidationError,
-        TaskBriefNotFoundError,
         TaskBriefValidationError,
         TemporalStateValidationError,
     ) as exc:
-        raise MCPToolError(str(exc)) from exc
+        raise MCPArgumentError(str(exc)) from exc
+    except (
+        ContinuityReviewNotFoundError,
+        ContinuityContradictionNotFoundError,
+        RetrievalTraceNotFoundError,
+        ContinuityEvidenceNotFoundError,
+        TaskBriefNotFoundError,
+        MemoryNotFoundError,
+    ) as exc:
+        raise MCPReferenceNotFoundError(str(exc)) from exc
+    except (MemoryStateError, LifecycleTransitionError) as exc:
+        raise MCPPreconditionFailedError(str(exc)) from exc
     except CheckViolation as exc:
-        raise MCPToolError(
+        raise MCPArgumentError(
             "vNext request violates a persisted schema constraint; use schema-backed enum values "
             "for memory_type, domain, sensitivity, status, and action fields."
         ) from exc
     except sqlite3.IntegrityError as exc:
-        message = str(exc)
-        if "CHECK constraint" in message:
-            raise MCPToolError(
+        # Read the constraint from the error code SQLite attaches (Python 3.11
+        # and later), never from the message text.
+        error_code = getattr(exc, "sqlite_errorcode", None)
+        if error_code == sqlite3.SQLITE_CONSTRAINT_CHECK:
+            raise MCPArgumentError(
                 "vNext request violates a persisted schema constraint; use schema-backed enum values "
                 "for memory_type, domain, sensitivity, status, and action fields."
             ) from exc
-        if "FOREIGN KEY constraint failed" in message:
-            raise MCPToolError(
+        if error_code == sqlite3.SQLITE_CONSTRAINT_FOREIGNKEY:
+            raise MCPPreconditionFailedError(
                 "a row this write references does not exist in the SQLite database (most often the "
                 "acting user row); bootstrap it with 'alice-memory init' or verify the referenced ids."
             ) from exc
-        raise MCPToolError(message) from exc
+        raise MCPToolError(str(exc)) from exc
     except SourceSearchQueryTooLarge as exc:
         # Before the ValueError clause below, which it is a subclass of and
         # which would hide the limit behind the static message. The text is
@@ -584,6 +614,13 @@ def call_mcp_tool(
         # and the limit only, never the memory text.
         raise MCPInvalidRequestError(exc.public_message) from exc
     except (TypeError, ValueError) as exc:
+        # Every other class answers the generic code, on purpose. Two that look
+        # typed are not: MemoryMutationValidationError is one class for a
+        # rejected argument and for a missing candidate, and
+        # VNextMemoryCommitValidationError is the base class of the commit
+        # service's errors (an idempotency conflict is one of them). The
+        # credential refusals are plain ValueError subclasses. Telling their
+        # kinds apart would mean reading the text.
         raise MCPToolError(str(exc)) from exc
 
     return _canonicalize_json(payload)  # type: ignore[return-value]

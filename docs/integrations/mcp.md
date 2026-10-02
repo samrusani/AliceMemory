@@ -144,7 +144,12 @@ One-command bridge demo:
   `alice_context_pack` gets a query the SQLite source search cannot take. Its
   message names the limit and holds only counts, never the query. From v0.20.0,
   `alice_resume` and `alice_recent_decisions` use it for
-  a query over 40,000 UTF-8 bytes.
+  a query over 40,000 UTF-8 bytes. Unreleased (on main, not in v0.20.0): three
+  more codes, `not_permitted`, `not_found` and `precondition_failed`, tell a
+  refusal from a failure, and `invalid_request` also answers a rejected
+  argument with the same fixed message. The table in
+  [`docs/alpha/mcp-tools.md`](../alpha/mcp-tools.md#error-codes) says what each
+  code means.
 - JSON-RPC framing errors use the standard static messages `Parse error`,
   `Invalid Request`, `Invalid params`, and `Method not found`; request data and
   parser exception text are never copied into the wire response

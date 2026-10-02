@@ -123,6 +123,7 @@ from .shared import (
     _store_context,
     _vnext_store_context,
 )
+from .types import MCPArgumentError, MCPReferenceNotFoundError
 
 
 def _compact_recall_result(item: Mapping[str, object], *, score: float, provenance_count: int) -> JsonObject:
@@ -602,7 +603,7 @@ def _handle_alice_task_brief_compare(
 ) -> JsonObject:
     compare_to_mode = arguments.get("compare_to_mode")
     if not isinstance(compare_to_mode, str) or compare_to_mode.strip() == "":
-        raise MCPToolError("compare_to_mode is required and must be a string")
+        raise MCPArgumentError("compare_to_mode is required and must be a string")
 
     primary_request = _parse_task_brief_request(arguments)
     secondary_arguments = dict(arguments)
@@ -735,7 +736,7 @@ def _handle_alice_open_loops(context: MCPRuntimeContext, arguments: Mapping[str,
     action = (_parse_optional_text(arguments, "action") or "list").lower()
     if action not in _OPEN_LOOP_TOOL_ACTIONS:
         allowed = ", ".join(_OPEN_LOOP_TOOL_ACTIONS)
-        raise MCPToolError(f"action must be one of: {allowed}")
+        raise MCPArgumentError(f"action must be one of: {allowed}")
     if action == "list":
         return _handle_alice_vnext_open_loops(context, arguments)
 
@@ -746,7 +747,7 @@ def _handle_alice_open_loops(context: MCPRuntimeContext, arguments: Mapping[str,
     with _vnext_store_context(context) as store:
         target = store.get_open_loop(loop_id)
         if target is None:
-            raise MCPToolError(f"open loop {loop_id} was not found")
+            raise MCPReferenceNotFoundError(f"open loop {loop_id} was not found")
         # Same ceiling block as memory mutations. The policy event names
         # this loop; the previous check logged the decision with no target.
         try:

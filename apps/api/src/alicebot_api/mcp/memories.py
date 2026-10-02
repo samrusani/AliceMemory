@@ -50,12 +50,13 @@ from .shared import (
     _raise_mcp_policy_blocked,
     _vnext_store_context,
 )
+from .types import MCPArgumentError
 
 
 def _handle_alice_vnext_propose_memory(context: MCPRuntimeContext, arguments: Mapping[str, object]) -> JsonObject:
     identity = _agent_identity_from_arguments(context, arguments)
     if identity is None:
-        raise MCPToolError("agent_id is required for alice_vnext_propose_memory")
+        raise MCPArgumentError("agent_id is required for alice_vnext_propose_memory")
     proposal_type = _parse_optional_text(arguments, "proposal_type") or "candidate_memory"
     canonical_text = _parse_required_text(arguments, "canonical_text")
     domain = _parse_optional_text(arguments, "domain") or "unknown"
@@ -230,19 +231,19 @@ def _finish_pending_commit(context: MCPRuntimeContext, arguments: Mapping[str, o
 
     mixed = [key for key in _COMMIT_WRITE_FIELDS if key in arguments]
     if mixed:
-        raise MCPToolError(
+        raise MCPArgumentError(
             "a confirmation takes only confirmation_id and confirmation_action (plus identity, "
             f"rationale and trace_id); it does not accept {', '.join(mixed)}. To change a pending "
             "write, reject it and commit the corrected text as a new write."
         )
     confirmation_id = _parse_optional_text(arguments, "confirmation_id")
     if confirmation_id is None:
-        raise MCPToolError(
+        raise MCPArgumentError(
             "confirmation_action needs the confirmation_id from the earlier confirmation_required result"
         )
     action = _parse_optional_text(arguments, "confirmation_action")
     if action not in _COMMIT_CONFIRMATION_ACTIONS:
-        raise MCPToolError(
+        raise MCPArgumentError(
             "confirmation_action is required with confirmation_id: 'confirm' when the user agreed "
             "to store the pending text, 'reject' when they did not"
         )
@@ -590,7 +591,7 @@ def _handle_alice_memory_manage(context: MCPRuntimeContext, arguments: Mapping[s
     action = (_parse_optional_text(arguments, "action") or "").casefold()
     if action not in _MEMORY_MANAGE_ACTIONS:
         allowed = ", ".join(_MEMORY_MANAGE_ACTIONS)
-        raise MCPToolError(f"action must be one of: {allowed}")
+        raise MCPArgumentError(f"action must be one of: {allowed}")
 
     delegate_arguments = {key: value for key, value in arguments.items() if key != "action"}
     if action == "confirm":

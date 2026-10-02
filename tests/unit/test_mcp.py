@@ -1208,32 +1208,61 @@ def test_call_mcp_tool_converts_postgres_check_violation(monkeypatch) -> None:
         call_mcp_tool(context, name="alice_recall", arguments={})
 
 
+def _real_sqlite_integrity_error(kind: str) -> sqlite3.IntegrityError:
+    """An error SQLite itself raised, so it carries ``sqlite_errorcode`` as a vault's errors do.
+
+    The dispatcher reads the constraint kind from that code and never from the message.
+    """
+
+    conn = sqlite3.connect(":memory:")
+    try:
+        conn.execute("PRAGMA foreign_keys = ON")
+        conn.execute("CREATE TABLE parent (id INTEGER PRIMARY KEY)")
+        conn.execute(
+            "CREATE TABLE child (id INTEGER PRIMARY KEY, parent_id INTEGER REFERENCES parent(id), "
+            "kind TEXT CHECK (kind IN ('a')), label TEXT UNIQUE)"
+        )
+        conn.execute("INSERT INTO child (id, kind, label) VALUES (1, 'a', 'x')")
+        statements = {
+            "check": "INSERT INTO child (id, kind) VALUES (2, 'zzz')",
+            "foreign_key": "INSERT INTO child (id, parent_id) VALUES (3, 999)",
+            "unique": "INSERT INTO child (id, label) VALUES (4, 'x')",
+        }
+        with pytest.raises(sqlite3.IntegrityError) as caught:
+            conn.execute(statements[kind])
+        return caught.value
+    finally:
+        conn.close()
+
+
 def test_call_mcp_tool_maps_sqlite_integrity_errors_by_constraint_kind(monkeypatch) -> None:
     context = MCPRuntimeContext(
         database_url="postgresql://localhost/alicebot",
         user_id=UUID("11111111-1111-4111-8111-111111111111"),
     )
 
-    def _install_raiser(message: str) -> None:
+    def _install_raiser(kind: str) -> None:
+        error = _real_sqlite_integrity_error(kind)
+
         def raise_integrity_error(_context, _arguments):
-            raise sqlite3.IntegrityError(message)
+            raise error
 
         monkeypatch.setitem(mcp_tools_module._TOOL_HANDLERS, "alice_recall", raise_integrity_error)
 
     # CHECK violations keep the enum-vocabulary guidance.
-    _install_raiser("CHECK constraint failed: memories.memory_type")
+    _install_raiser("check")
     with pytest.raises(MCPToolError, match="schema-backed enum values"):
         call_mcp_tool(context, name="alice_recall", arguments={})
 
     # FOREIGN KEY violations point at the missing referenced row, not enum vocabulary.
-    _install_raiser("FOREIGN KEY constraint failed")
+    _install_raiser("foreign_key")
     with pytest.raises(MCPToolError, match="alice-memory init") as excinfo:
         call_mcp_tool(context, name="alice_recall", arguments={})
     assert "enum values" not in str(excinfo.value)
 
     # Anything else surfaces the SQLite message verbatim.
-    _install_raiser("UNIQUE constraint failed: users.email")
-    with pytest.raises(MCPToolError, match="UNIQUE constraint failed: users.email"):
+    _install_raiser("unique")
+    with pytest.raises(MCPToolError, match="UNIQUE constraint failed: child.label"):
         call_mcp_tool(context, name="alice_recall", arguments={})
 
 
