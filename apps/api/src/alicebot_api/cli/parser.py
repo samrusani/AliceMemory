@@ -1092,8 +1092,8 @@ def build_parser() -> argparse.ArgumentParser:
     vnext_memory_backfill_parser = vnext_memories_subparsers.add_parser(
         "backfill-embeddings",
         help=(
-            "Embed active and accepted memories with missing, unsigned, or "
-            "provider/model-incompatible vectors."
+            "Embed active and accepted, unexpired memories with missing, unsigned, "
+            "or provider/model-incompatible vectors."
         ),
     )
     vnext_memory_backfill_parser.add_argument(

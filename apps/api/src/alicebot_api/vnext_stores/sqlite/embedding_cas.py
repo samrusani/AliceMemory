@@ -19,6 +19,7 @@ from alicebot_api.vnext_embeddings import (
     pad_embedding_vector,
 )
 from alicebot_api.vnext_stores.sqlite.columns import MEMORY_COLUMNS
+from alicebot_api.vnext_stores.sqlite.query_predicates import _expiry_clause
 from alicebot_api.vnext_stores.sqlite.vector_scan import bump_embedding_stamp
 
 VNextRow = dict[str, object]
@@ -360,10 +361,16 @@ def list_memories_missing_embeddings(
     return (``MEMORY_SEARCHABLE_STATUSES``) and a forgotten, rejected or
     candidate memory is never listed. A memory that later becomes active is
     listed from then on.
+
+    A memory whose ``valid_to`` has passed is not listed either: recall's
+    vector search skips it (``_expiry_clause``, the function called here too), so a
+    vector for it could never be returned. It is listed again once ``valid_to``
+    is cleared or moved past now.
     """
     if limit < 1:
         raise ContinuityStoreInvariantError("embedding backfill limit must be positive")
     status_values = _embedding_status_values(statuses, caller="list_memories_missing_embeddings")
+    expiry_sql, expiry_params = _expiry_clause(False)
     signature_sql, signature_params = _missing_embeddings_clause(
         embedding_provider=embedding_provider,
         embedding_model=embedding_model,
@@ -374,7 +381,15 @@ def list_memories_missing_embeddings(
     if embedding_input_cap is not None:
         _ensure_embedding_input_cut_sqlite(self.conn)
     status_placeholders = ", ".join("?" for _status in status_values)
-    params: list[object] = [self.user_id, *status_values, *signature_params, after_id, after_id, limit]
+    params: list[object] = [
+        self.user_id,
+        *status_values,
+        *expiry_params,
+        *signature_params,
+        after_id,
+        after_id,
+        limit,
+    ]
     return self._fetch_all(
         f"""
                 SELECT {", ".join(MEMORY_COLUMNS)},
@@ -382,7 +397,7 @@ def list_memories_missing_embeddings(
                 FROM memories
                 WHERE user_id = ?
                   AND deleted_at IS NULL
-                  AND status IN ({status_placeholders})
+                  AND status IN ({status_placeholders}){expiry_sql}
                   AND (
                     embedding IS NULL
                     {signature_sql}
@@ -408,10 +423,13 @@ def count_memories_missing_embeddings(
     """How many memories in ``statuses`` have no current vector.
 
     The same test as ``list_memories_missing_embeddings`` (no vector, or a
-    signature that is not today's), counted over the statuses given. With no
-    provider named, a row counts when it has no vector at all.
+    signature that is not today's), counted over the statuses given, and over
+    the memories whose ``valid_to`` has not passed, so the count is the number
+    of memories reindex embeds. With no provider named, a row counts when it has
+    no vector at all.
     """
     status_values = _embedding_status_values(statuses, caller="count_memories_missing_embeddings")
+    expiry_sql, expiry_params = _expiry_clause(False)
     signature_sql, signature_params = _missing_embeddings_clause(
         embedding_provider=embedding_provider,
         embedding_model=embedding_model,
@@ -422,14 +440,14 @@ def count_memories_missing_embeddings(
     if embedding_input_cap is not None:
         _ensure_embedding_input_cut_sqlite(store.conn)
     status_placeholders = ", ".join("?" for _status in status_values)
-    params: list[object] = [store.user_id, *status_values, *signature_params]
+    params: list[object] = [store.user_id, *status_values, *expiry_params, *signature_params]
     row = store._fetch_optional_one(
         f"""
                 SELECT COUNT(*) AS n
                 FROM memories
                 WHERE user_id = ?
                   AND deleted_at IS NULL
-                  AND status IN ({status_placeholders})
+                  AND status IN ({status_placeholders}){expiry_sql}
                   AND (
                     embedding IS NULL
                     {signature_sql}

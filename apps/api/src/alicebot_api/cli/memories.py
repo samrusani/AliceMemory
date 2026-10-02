@@ -344,8 +344,10 @@ def _run_vnext_memories_backfill_embeddings(ctx: CLIContext, args: argparse.Name
         # Snapshot one page in a short transaction. Provider I/O and vector
         # persistence both happen only after this read transaction closes.
         with _vnext_store_context(ctx) as store:
-            # Only the statuses recall can return: this listing never hands the
-            # text of a forgotten, rejected or candidate memory to the endpoint.
+            # Only the statuses recall can return, and only a memory whose
+            # validity window is still open: this listing never hands the text
+            # of a forgotten, rejected, candidate or expired memory to the
+            # endpoint.
             rows = store.list_memories_missing_embeddings(
                 statuses=MEMORY_SEARCHABLE_STATUSES,
                 limit=batch_size,
@@ -372,12 +374,15 @@ def _run_vnext_memories_backfill_embeddings(ctx: CLIContext, args: argparse.Name
             provider=provider,
         )
         attached_ids = set(outcome.attached_ids)
+        # A row that stopped being recall-visible between the list and the send
+        # (its validity window closed in that moment) is withheld, not failed.
+        skipped += len(outcome.withheld_ids)
         embedded += outcome.attached
         truncated_inputs += outcome.truncated
         batch_failures = list(outcome.failed)
         # Every row that did not get a vector is named, even by a path that
         # recorded no failure of its own.
-        listed_ids = {failure.memory_id for failure in batch_failures}
+        listed_ids = {failure.memory_id for failure in batch_failures} | set(outcome.withheld_ids)
         for item in deferred_inputs:
             if item.memory_id not in attached_ids and item.memory_id not in listed_ids:
                 batch_failures.append(

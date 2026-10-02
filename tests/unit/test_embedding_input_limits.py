@@ -384,7 +384,7 @@ def test_silently_cutting_endpoint_gives_the_vector_of_the_head_alice_chose() ->
     """
 
     provider_text = _text(5000)
-    memory = {"id": "m-1", "canonical_text": provider_text}
+    memory = {"id": "m-1", "canonical_text": provider_text, "status": "active"}
     with _FakeEmbeddingsServer("truncate", limit=1500) as server:
         provider = _provider(server, max_input_chars=1000)
         preparation = prepare_memory_embeddings(
@@ -753,7 +753,7 @@ def test_event_log_record_holds_the_status_and_never_the_message() -> None:
 
     texts = {"m-1": _text(40, "ok"), "m-2": _text(3000, "big")}
     inputs = tuple(
-        DeferredMemoryEmbedding.from_memory({"id": memory_id, "canonical_text": text})
+        DeferredMemoryEmbedding.from_memory({"id": memory_id, "canonical_text": text, "status": "active"})
         for memory_id, text in texts.items()
     )
     with _FakeEmbeddingsServer("reject", limit=2000) as server:

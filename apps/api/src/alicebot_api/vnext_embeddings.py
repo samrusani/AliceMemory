@@ -4,6 +4,7 @@ from collections import Counter
 from collections.abc import Callable
 from contextlib import AbstractContextManager, contextmanager, suppress
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 import json
 import logging
 import math
@@ -17,6 +18,7 @@ from urllib.request import Request, urlopen
 
 from alicebot_api.credential_floor import credential_verdict
 from alicebot_api.vnext_event_log import append_event
+from alicebot_api.vnext_recall_visibility import memory_is_recall_visible
 from alicebot_api.vnext_repositories import JsonObject
 
 
@@ -137,12 +139,20 @@ class SignedMemoryEmbeddingUpdate(TypedDict):
 
 @dataclass(frozen=True, slots=True)
 class DeferredMemoryEmbedding:
-    """Immutable id/text snapshot safe to carry across a commit boundary."""
+    """Immutable id/text snapshot safe to carry across a commit boundary.
+
+    ``status`` and ``valid_to`` are what the row held when it was snapshotted.
+    They have no default, so a caller cannot build a snapshot without saying
+    them: ``prepare_memory_embeddings`` sends the text only of a row recall can
+    return (see ``is_embeddable``), and a status of ``None`` is never sent.
+    """
 
     memory_id: str
     title: str | None
     canonical_text: str | None
     summary: str | None
+    status: str | None
+    valid_to: str | None
 
     @classmethod
     def from_memory(cls, memory: Mapping[str, object]) -> "DeferredMemoryEmbedding":
@@ -156,12 +166,24 @@ class DeferredMemoryEmbedding:
             value = memory.get(name)
             return value if isinstance(value, str) else None
 
+        valid_to = memory.get("valid_to")
         return cls(
             memory_id=memory_id,
             title=text_field("title"),
             canonical_text=text_field("canonical_text"),
             summary=text_field("summary"),
+            status=text_field("status"),
+            valid_to=valid_to.isoformat() if isinstance(valid_to, datetime) else text_field("valid_to"),
         )
+
+    def is_embeddable(self, *, now: datetime | None = None) -> bool:
+        """True when recall can return this memory, so its text may be sent.
+
+        A status other than ``active`` or ``accepted`` (a candidate, a memory
+        waiting for review, a forgotten or rejected one) is not recallable, and
+        neither is a memory whose ``valid_to`` has passed.
+        """
+        return memory_is_recall_visible({"status": self.status, "valid_to": self.valid_to}, now=now)
 
     def to_memory_record(self) -> Mapping[str, object]:
         return {
@@ -226,6 +248,9 @@ class MemoryEmbeddingPreparation:
     failures: tuple[MemoryEmbeddingFailure, ...]
     provider: str | None
     model: str | None
+    # Ids of the inputs whose text was not sent because recall cannot return
+    # the memory (``DeferredMemoryEmbedding.is_embeddable``). Not failures.
+    withheld: tuple[str, ...] = ()
 
 
 def _canonical_endpoint(base_url: str) -> str:
@@ -714,6 +739,10 @@ def attach_memory_embedding(
 ) -> bool:
     """Best-effort embed-on-write for a memory row.
 
+    Only a row recall can return is sent (``prepare_memory_embeddings`` is the
+    gate): a candidate or a memory waiting for review gets no vector here and is
+    embedded when it becomes active or accepted.
+
     Embedding failure never blocks the memory write: failures are logged to
     the event log and the ``embedding_vector`` column stays NULL for the
     ``alicebot vnext memories backfill-embeddings`` pass.
@@ -918,6 +947,14 @@ def prepare_memory_embeddings(
 ) -> MemoryEmbeddingPreparation:
     """Call the provider in batches without touching a database connection.
 
+    This is the one door a memory's text takes to the embeddings endpoint, for
+    embed-on-write, reindex and the backfill alike. It sends the text only of a
+    memory recall can return (``DeferredMemoryEmbedding.is_embeddable``: status
+    ``active`` or ``accepted``, validity window not closed). Any other input is
+    withheld, named in ``withheld`` and never sent, whichever caller offered it:
+    a candidate, a memory waiting for review, a forgotten or rejected one. It is
+    embedded when it becomes recall-visible, by the path that changes its status.
+
     A refused text is isolated from its batch (``embed_batch_isolating``), so
     its failure record names that memory and its neighbours still get vectors.
     Failures are written to the process log unless ``log_failures`` is false,
@@ -927,10 +964,13 @@ def prepare_memory_embeddings(
     resolved_provider = provider if provider is not None else get_embedding_provider()
     if resolved_provider is None:
         return MemoryEmbeddingPreparation((), (), None, None)
+    now = datetime.now(UTC)
+    withheld = tuple(item.memory_id for item in inputs if not item.is_embeddable(now=now))
     embeddable = [
         (item, text)
         for item in inputs
-        if (text := memory_embedding_text(item.to_memory_record())) != ""
+        if item.is_embeddable(now=now)
+        and (text := memory_embedding_text(item.to_memory_record())) != ""
     ]
     prepared: list[PreparedMemoryEmbedding] = []
     failures: list[MemoryEmbeddingFailure] = []
@@ -997,6 +1037,7 @@ def prepare_memory_embeddings(
         tuple(failures),
         resolved_provider.provider,
         resolved_provider.model,
+        withheld,
     )
 
 
@@ -1008,12 +1049,14 @@ class EmbeddingPersistOutcome:
     endpoint refused, one whose vector could not be stored, and one that was
     edited while its vector was being prepared (the stale vector is discarded
     and a later pass makes it again). ``truncated`` counts stored vectors made
-    from a text the input cap cut.
+    from a text the input cap cut. ``withheld_ids`` names the memories whose text
+    was not sent because recall cannot return them; they are not failures.
     """
 
     attached_ids: tuple[str, ...]
     failed: tuple[MemoryEmbeddingFailure, ...]
     truncated: int = 0
+    withheld_ids: tuple[str, ...] = ()
 
     @property
     def attached(self) -> int:
@@ -1045,6 +1088,7 @@ def persist_prepared_memory_embeddings_outcome(
                     for prepared in preparation.prepared
                 ),
             ),
+            withheld_ids=preparation.withheld,
         )
     for failure in preparation.failures:
         _log_embedding_failure(
@@ -1107,7 +1151,9 @@ def persist_prepared_memory_embeddings_outcome(
                     reason=NOT_STORED_REASON,
                 )
             )
-    return EmbeddingPersistOutcome(tuple(attached_ids), tuple(failed), truncated)
+    return EmbeddingPersistOutcome(
+        tuple(attached_ids), tuple(failed), truncated, preparation.withheld
+    )
 
 
 def persist_prepared_memory_embeddings(
@@ -1158,6 +1204,7 @@ def persist_deferred_memory_embeddings_outcome(
             type(exc).__name__,
             exc,
         )
+        now = datetime.now(UTC)
         return EmbeddingPersistOutcome(
             (),
             tuple(
@@ -1168,10 +1215,12 @@ def persist_deferred_memory_embeddings_outcome(
                     reason=embedding_failure_reason(exc),
                 )
                 for item in inputs
+                if item.is_embeddable(now=now)
             ),
+            withheld_ids=tuple(item.memory_id for item in inputs if not item.is_embeddable(now=now)),
         )
     if not preparation.prepared and not preparation.failures:
-        return EmbeddingPersistOutcome((), ())
+        return EmbeddingPersistOutcome((), (), withheld_ids=preparation.withheld)
     try:
         with store_context() as store:
             return persist_prepared_memory_embeddings_outcome(
@@ -1201,6 +1250,7 @@ def persist_deferred_memory_embeddings_outcome(
                     for prepared in preparation.prepared
                 ),
             ),
+            withheld_ids=preparation.withheld,
         )
 
 
@@ -1267,6 +1317,20 @@ def summarize_embedding_failures(
     }
 
 
+def embeddable_deferred_inputs(
+    memories: Sequence[Mapping[str, object]],
+) -> tuple[DeferredMemoryEmbedding, ...]:
+    """Snapshots of the rows recall can return, for work done after a commit.
+
+    A service that collects embedding work to run once its transaction has
+    committed uses this, so a candidate or a memory waiting for review is not
+    queued. ``prepare_memory_embeddings`` checks again when the text is about to
+    be sent, so a caller that queues every row still sends nothing it should not.
+    """
+    snapshots = (DeferredMemoryEmbedding.from_memory(memory) for memory in memories)
+    return tuple(snapshot for snapshot in snapshots if snapshot.is_embeddable())
+
+
 def attach_memory_embeddings(
     store: object,
     memories: Sequence[Mapping[str, object]],
@@ -1278,7 +1342,8 @@ def attach_memory_embeddings(
 ) -> int:
     """Best-effort batched embed-on-write for memory rows.
 
-    Provider calls are bounded to ``MAX_EMBEDDINGS_BATCH_SIZE``. A failed
+    Only rows recall can return are sent (``prepare_memory_embeddings`` is the
+    gate). Provider calls are bounded to ``MAX_EMBEDDINGS_BATCH_SIZE``. A failed
     provider batch or individual store write is logged for the affected rows
     and never blocks the already-completed memory writes.
     """
@@ -1348,6 +1413,7 @@ __all__ = [
     "VNextEmbeddingProviderError",
     "attach_memory_embedding",
     "attach_memory_embeddings",
+    "embeddable_deferred_inputs",
     "get_embedding_provider",
     "memory_embedding_content_sha256",
     "memory_embedding_signature_is_current",
