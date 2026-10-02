@@ -137,6 +137,7 @@ from alicebot_api.project_scoping import (
     apply_imported_scoping,
     import_receipt_line,
 )
+from alicebot_api.project_view import VIEW_CHOICES, ProjectView
 from alicebot_api.sqlite_schema import ROW_BACKFILL_TABLES, apply_row_backfills, bootstrap_sqlite_schema
 from alicebot_api.store import ContinuityStoreInvariantError
 from alicebot_api.sqlite_store import (
@@ -253,6 +254,10 @@ _ERROR_CONTRACTS: dict[str, str] = {
     "demo_failed": "The demo could not complete after import",
     "sleep_failed": "The sleep pass could not complete",
     "proposals_failed": "The sleep proposal list could not be read",
+    "project_not_found": (
+        "No project was found for this folder, so --scope project_only has nothing to show; "
+        "use --scope all or --scope global, or pass --project-dir"
+    ),
     "doctor_failed": "The vault census could not be completed",
     "install_failed": "The host install could not complete",
     "install_refused": (
@@ -951,6 +956,31 @@ def _add_database_arguments(
     )
 
 
+def _add_project_view_arguments(parser: argparse.ArgumentParser) -> None:
+    """``--project-dir`` and ``--scope`` for the commands that print a brief (spec 13)."""
+
+    parser.add_argument(
+        "--project-dir",
+        default=None,
+        help=(
+            "Folder that decides which project to show, when per-project scoping is on. "
+            "Without it: $ALICE_PROJECT_DIR, then the working folder. It must be absolute "
+            "and exist, or the next source is used. Ignored while scoping is off."
+        ),
+    )
+    parser.add_argument(
+        "--scope",
+        choices=VIEW_CHOICES,
+        default=None,
+        help=(
+            "Which notes to show when a project is found. project (the default): this "
+            "project's notes first, then notes that belong to no project. project_only: "
+            "this project's notes only. global: notes that belong to no project. all: "
+            "every note, as before per-project memory. Ignored while scoping is off."
+        ),
+    )
+
+
 def _add_demo_database_arguments(parser: argparse.ArgumentParser) -> None:
     """Database flags for ``demo``. Default data dir is the demo vault, not live."""
 
@@ -997,6 +1027,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="Serve the Alice MCP tools over stdio against a local SQLite file.",
     )
     _add_database_arguments(mcp_parser)
+    mcp_parser.add_argument(
+        "--project-dir",
+        default=None,
+        help=(
+            "Folder that decides which project a call is for, when per-project scoping is on. "
+            "Without it: $ALICE_PROJECT_DIR, then the working folder the host started the "
+            "server in. It must be absolute and exist, or the next source is used."
+        ),
+    )
 
     export_parser = subparsers.add_parser(
         "export",
@@ -1095,6 +1134,7 @@ def build_parser() -> argparse.ArgumentParser:
             "a recent committed fact, open loop, or imported source."
         ),
     )
+    _add_project_view_arguments(brief_parser)
 
     doctor_parser = subparsers.add_parser(
         "doctor",
@@ -1143,6 +1183,7 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     _add_database_arguments(proposals_parser)
+    _add_project_view_arguments(proposals_parser)
 
     install_parser = subparsers.add_parser(
         "install",
@@ -1271,7 +1312,11 @@ def _run_mcp(args: argparse.Namespace) -> int:
         file=sys.stderr,
         flush=True,
     )
-    context = MCPRuntimeContext(database_url=database_url, user_id=args.user_id)
+    context = MCPRuntimeContext(
+        database_url=database_url,
+        user_id=args.user_id,
+        project_dir=args.project_dir,
+    )
     server = MCPServer(
         context=context,
         input_stream=sys.stdin.buffer,
@@ -1280,8 +1325,35 @@ def _run_mcp(args: argparse.Namespace) -> int:
     return server.run()
 
 
+def _project_view_for_command(args: argparse.Namespace, db_path: Path) -> ProjectView | None:
+    """The view for ``brief`` and ``sleep-proposals``, or ``None`` when it is refused.
+
+    ``--project-dir`` and ``--scope`` apply while per-project scoping is on, and
+    are accepted and ignored while it is off, so a script that passes them works
+    either way. ``--scope project_only`` with no project found is refused: a
+    quiet answer over every note to a question about one project's notes is the
+    failure this feature exists to prevent.
+    """
+
+    from alicebot_api.project_view import resolve_view_at_edge, working_folder
+
+    resolution = resolve_view_at_edge(
+        db_path=db_path,
+        environ=os.environ,
+        argument_dir=args.project_dir,
+        hook_cwd=None,
+        process_cwd=working_folder(),
+        choice=args.scope,
+    )
+    view = resolution.view
+    if args.scope == "project_only" and resolution.scoping.enabled and view.project is None:
+        _emit_error("project_not_found")
+        return None
+    return view
+
+
 def _run_brief(args: argparse.Namespace) -> int:
-    from alicebot_api.session_briefing import compile_local_session_brief
+    from alicebot_api.session_briefing import compile_local_session_brief, sensitive_global_exclusion
 
     db_path = resolve_db_path(data_dir=args.data_dir, db=args.db)
     bootstrap_database(
@@ -1290,10 +1362,15 @@ def _run_brief(args: argparse.Namespace) -> int:
         user_email=args.user_email,
         secure_parent=args.db is None,
     )
+    view = _project_view_for_command(args, db_path)
+    if view is None:
+        return 2
     markdown = compile_local_session_brief(
         db_path,
         user_id=args.user_id,
         query=args.query,
+        project_view=view,
+        exclude_global_domains=sensitive_global_exclusion(view),
     )
     print(markdown)
     return 0
@@ -1469,6 +1546,12 @@ def _run_sleep_proposals(args: argparse.Namespace) -> int:
         user_email=args.user_email,
         secure_parent=args.db is None,
     )
+    from alicebot_api.project_view import effective_scope_for_view
+    from alicebot_api.session_briefing import sensitive_global_exclusion
+
+    view = _project_view_for_command(args, db_path)
+    if view is None:
+        return 2
     decision = evaluate_agent_policy(
         identity=None,
         action="context_pack.request",
@@ -1483,7 +1566,15 @@ def _run_sleep_proposals(args: argparse.Namespace) -> int:
                 user_id=args.user_id,
                 effective_domains=decision.effective_domains,
                 effective_sensitivity_allowed=decision.effective_sensitivity_allowed,
-                effective_project_scope=decision.effective_project_scope,
+                effective_project_scope=effective_scope_for_view(
+                    view=view,
+                    decision_scope=decision.effective_project_scope,
+                    requested_scope=(),
+                    identity_scope=(),
+                    identity_locked=False,
+                ),
+                project_view=view,
+                exclude_global_domains=sensitive_global_exclusion(view),
             )
         )
     except SleepError:

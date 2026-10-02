@@ -10,6 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 from uuid import UUID
 
+from alicebot_api.project_view import ProjectView
 from alicebot_api.session_briefing import compile_local_session_brief
 from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
 from alicebot_api.vault_doctor import compile_local_vault_doctor
@@ -119,7 +120,14 @@ def run_local_vault_demo(
         raise DemoVaultError("import produced no sources")
 
     doctor = compile_local_vault_doctor(db_path, user_id=user_id)
-    brief = compile_local_session_brief(db_path, user_id=user_id, query=None)
+    # The demo vault is its own vault: no project view, no extra line.
+    brief = compile_local_session_brief(
+        db_path,
+        user_id=user_id,
+        query=None,
+        project_view=ProjectView.unscoped(),
+        exclude_global_domains=frozenset(),
+    )
     excerpt = first_source_excerpt(brief)
     if excerpt is None:
         raise DemoVaultError("session brief has no source line after import")

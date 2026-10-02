@@ -9,6 +9,20 @@ A policy decision is advice. Every read applies ``effective_domains``,
 ``effective_sensitivity_allowed``, and ``effective_project_scope`` by hand.
 Those three kwargs have no defaults.
 
+Per-project memory (spec 6.1, 6.2, 6.4). ``compile_session_brief`` takes a
+``ProjectView`` that the edge resolved, and never detects a project itself. In the
+``project`` view the facts and the open loops are filled by ``project_first_fill``
+(this project's rows first, global rows after, a quarter of the places held for
+global rows), global rows carry ``(global)``, and the brief opens with one
+Alice-authored line naming the project. With no project found, a failed detection
+or scoping switched off on purpose, the same slot holds one plain status line. In
+every other view the reads, and the text, are exactly what they were before.
+
+Global notes in the sensitive domains (``exclude_global_domains``, which has no
+default) are left out of every section when the caller passes the set: the facts,
+the open loops, the recent-change merges, the excerpt query, and every leg of the
+excerpt search.
+
 The brief is context an agent reads as current. A memory whose
 ``superseded_by`` is set, or whose status is ``superseded``, is omitted.
 A ``**source**`` line is omitted when the packed excerpt is marked
@@ -26,6 +40,15 @@ from pathlib import Path
 from typing import Protocol, cast
 from uuid import UUID
 
+from alicebot_api.project_identity import ProjectContext
+from alicebot_api.project_view import (
+    FOUND_FROM_WORDS,
+    ProjectView,
+    effective_scope_for_view,
+    project_first_fill,
+    status_line,
+)
+from alicebot_api import vnext_memory_commit as _memory_commit
 from alicebot_api.source_search_limits import source_search_query_breach
 from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
 from alicebot_api.vnext_agent_control import (
@@ -34,6 +57,7 @@ from alicebot_api.vnext_agent_control import (
     resource_project_scope,
 )
 from alicebot_api.vnext_project_scope import (
+    is_global_scope,
     project_scope_identity,
     project_scopes_overlap,
     source_project_scope,
@@ -103,6 +127,32 @@ class SessionBriefStore(Protocol):
         include_expired: bool,
     ) -> list[JsonObject]: ...
 
+    def list_memories_view_partitions(
+        self,
+        *,
+        project_ids: Sequence[str],
+        exclude_global_domains: Sequence[str],
+        per_partition_limit: int,
+        status: str | None = None,
+        statuses: Sequence[str] | None = None,
+        domains: list[str] | None = None,
+        sensitivity_allowed: list[str] | None = None,
+        order_by_created_at: bool = False,
+        include_expired: bool = True,
+    ) -> tuple[list[JsonObject], list[JsonObject]]: ...
+
+    def list_open_loops_view_partitions(
+        self,
+        *,
+        project_ids: Sequence[str],
+        exclude_global_domains: Sequence[str],
+        per_partition_limit: int,
+        status: str | None = "open",
+        statuses: Sequence[str] | None = None,
+        domains: list[str] | None = None,
+        sensitivity_allowed: list[str] | None = None,
+    ) -> tuple[list[JsonObject], list[JsonObject]]: ...
+
     def list_open_loops(
         self,
         *,
@@ -122,6 +172,7 @@ class SessionBriefStore(Protocol):
         projects: Sequence[str] | None = None,
         query: str | None = None,
         limit: int = 20,
+        exclude_global_domains: Sequence[str] = (),
     ) -> list[JsonObject]: ...
 
     def list_open_loop_events(
@@ -131,6 +182,7 @@ class SessionBriefStore(Protocol):
         scope_projects: Sequence[str] | None = None,
         query: str | None = None,
         limit: int = 20,
+        exclude_global_domains: Sequence[str] = (),
     ) -> list[JsonObject]: ...
 
     def list_events(
@@ -151,22 +203,69 @@ class SessionBriefStore(Protocol):
 
 def source_scope_from_project_scope(
     effective_project_scope: tuple[str, ...],
+    *,
+    exclude_global_domains: frozenset[str],
 ) -> _ResolvedRetrievalScope | None:
     """The excerpt fence, written at the call site.
 
     ``None`` is the unscoped owner query. A defaulted scope would mean
-    "no fence" for anyone who forgets it.
+    "no fence" for anyone who forgets it, so ``exclude_global_domains`` has no
+    default either: the brief passes ``SENSITIVE_DOMAINS`` for the project view,
+    and every other caller writes the empty set where it can be seen.
     """
 
     projects = frozenset(project_scope_identity(effective_project_scope))
-    if not projects:
+    if not projects and not exclude_global_domains:
         return None
     return _ResolvedRetrievalScope(
         projects=projects,
         people=frozenset(),
         window_start=None,
         window_end=None,
+        exclude_global_domains=exclude_global_domains,
     )
+
+
+def sensitive_global_exclusion(view: ProjectView) -> frozenset[str]:
+    """The domains whose global notes a brief for ``view`` holds back (spec 6.4, ruling Q8).
+
+    In the project view, the sensitive domains: ``family``, ``health``,
+    ``spiritual``, ``legal`` and ``financial``. For every other view, the empty set.
+    The set is read from ``vnext_memory_commit.SENSITIVE_DOMAINS`` on each call,
+    the one constant that commit confirmation and the widening gate also read, so
+    the brief keeps no list of its own.
+    """
+
+    if view.mode != "project":
+        return frozenset()
+    return frozenset(_memory_commit.SENSITIVE_DOMAINS)
+
+
+def project_brief_line(project: ProjectContext) -> str:
+    """The one Alice-authored line a brief in a project opens with (spec 6.4).
+
+    It is not a stored note. The label is quoted like every stored string,
+    because a folder or repository name is text from outside, and the id is
+    printed so an agent whose tools cannot see the folder can pass it. The
+    sentences that name a ``scope`` argument are added when the tools accept one.
+    """
+
+    primary = project.ids[0]
+    found_from = FOUND_FROM_WORDS.get(project.source, "the repository")
+    return (
+        f"Alice project: {quote_session_brief_text(project.label)} "
+        f"(id {primary}, found from {found_from}). "
+        "This project's notes come first, then notes that belong to no project. "
+        f'If your Alice tools cannot see this folder, pass project_scope ["{primary}"] to save here.'
+    )
+
+
+def brief_head_line(view: ProjectView) -> str | None:
+    """The line that opens a brief for this view: the project line, a status line, or none."""
+
+    if view.mode == "project" and view.project is not None:
+        return project_brief_line(view.project)
+    return status_line(view)
 
 
 def compile_session_brief(
@@ -175,11 +274,25 @@ def compile_session_brief(
     effective_domains: tuple[str, ...],
     effective_sensitivity_allowed: tuple[str, ...],
     effective_project_scope: tuple[str, ...],
+    project_view: ProjectView,
+    exclude_global_domains: frozenset[str],
     query: str | None,
     reserve: int = 0,
 ) -> str:
-    """Render a labelled markdown brief under the caller's effective fence."""
+    """Render a labelled markdown brief under the caller's effective fence.
 
+    ``project_view`` and ``exclude_global_domains`` have no defaults. The view is
+    what the edge resolved (``ProjectView.unscoped()`` when the caller has none on
+    purpose, which prints nothing extra), and the set holds the domains whose
+    global notes the brief leaves out. The hook and ``alice-memory brief`` pass the
+    sensitive domains for the project view and the empty set for every other view.
+    Library code never detects a project.
+    """
+
+    in_project_view = project_view.mode == "project"
+    if in_project_view and tuple(effective_project_scope) != project_view.scope:
+        raise ValueError("the project view and the effective project scope disagree")
+    held_back = frozenset(exclude_global_domains)
     domain_filter = list(effective_domains) if effective_domains else None
     sensitivity_filter = list(effective_sensitivity_allowed)
     project_filter = effective_project_scope or None
@@ -187,19 +300,38 @@ def compile_session_brief(
     facts: list[JsonObject] = []
     open_loops: list[JsonObject] = []
     if effective_sensitivity_allowed:
-        facts = store.list_memories(
-            status=None,
-            statuses=COMMITTED_MEMORY_STATUSES,
-            domains=domain_filter,
-            sensitivity_allowed=sensitivity_filter,
-            projects=project_filter,
-            order_by_created_at=True,
-            limit=FACT_LIMIT,
-            # An expired memory is not a current fact. This is recall's own
-            # test, applied before the limit so an expired row cannot use up
-            # one of the eight places.
-            include_expired=False,
-        )
+        if in_project_view:
+            # One scan returns the project's rows and the global rows (spec 12).
+            facts = project_first_fill(
+                limit=FACT_LIMIT,
+                view=project_view,
+                exclude_global_domains=held_back,
+                fetch=lambda ids, excluded, limit: store.list_memories_view_partitions(
+                    project_ids=ids,
+                    exclude_global_domains=tuple(sorted(excluded)),
+                    per_partition_limit=limit,
+                    status=None,
+                    statuses=COMMITTED_MEMORY_STATUSES,
+                    domains=domain_filter,
+                    sensitivity_allowed=sensitivity_filter,
+                    order_by_created_at=True,
+                    include_expired=False,
+                ),
+            )
+        else:
+            facts = store.list_memories(
+                status=None,
+                statuses=COMMITTED_MEMORY_STATUSES,
+                domains=domain_filter,
+                sensitivity_allowed=sensitivity_filter,
+                projects=project_filter,
+                order_by_created_at=True,
+                limit=FACT_LIMIT,
+                # An expired memory is not a current fact. This is recall's own
+                # test, applied before the limit so an expired row cannot use up
+                # one of the eight places.
+                include_expired=False,
+            )
         facts = [
             row
             for row in facts
@@ -208,16 +340,33 @@ def compile_session_brief(
                 effective_domains=effective_domains,
                 effective_sensitivity_allowed=effective_sensitivity_allowed,
                 effective_project_scope=effective_project_scope,
+                exclude_global_domains=held_back,
             )
         ]
-        open_loops = store.list_open_loops(
-            status=None,
-            statuses=OPEN_LOOP_ACTIVE_STATUSES,
-            domains=domain_filter,
-            sensitivity_allowed=sensitivity_filter,
-            limit=OPEN_LOOP_LIMIT,
-            scope_projects=effective_project_scope,
-        )
+        if in_project_view:
+            open_loops = project_first_fill(
+                limit=OPEN_LOOP_LIMIT,
+                view=project_view,
+                exclude_global_domains=held_back,
+                fetch=lambda ids, excluded, limit: store.list_open_loops_view_partitions(
+                    project_ids=ids,
+                    exclude_global_domains=tuple(sorted(excluded)),
+                    per_partition_limit=limit,
+                    status=None,
+                    statuses=OPEN_LOOP_ACTIVE_STATUSES,
+                    domains=domain_filter,
+                    sensitivity_allowed=sensitivity_filter,
+                ),
+            )
+        else:
+            open_loops = store.list_open_loops(
+                status=None,
+                statuses=OPEN_LOOP_ACTIVE_STATUSES,
+                domains=domain_filter,
+                sensitivity_allowed=sensitivity_filter,
+                limit=OPEN_LOOP_LIMIT,
+                scope_projects=effective_project_scope,
+            )
         _merge_recent_change_targets(
             store,
             facts=facts,
@@ -225,6 +374,7 @@ def compile_session_brief(
             effective_domains=effective_domains,
             effective_sensitivity_allowed=effective_sensitivity_allowed,
             effective_project_scope=effective_project_scope,
+            exclude_global_domains=held_back,
         )
         # list_memories is created_at DESC, so a later-written ancestor can
         # lead. Same demote-not-drop helper the pack and recall already use.
@@ -241,6 +391,7 @@ def compile_session_brief(
         effective_domains=effective_domains,
         effective_sensitivity_allowed=effective_sensitivity_allowed,
         effective_project_scope=effective_project_scope,
+        exclude_global_domains=held_back,
     )
     sources: list[JsonObject] = []
     if excerpt_query is not None:
@@ -251,7 +402,9 @@ def compile_session_brief(
             sensitivity_allowed=sensitivity_filter,
             limit=SOURCE_LIMIT,
             # Written here on purpose. A defaulted scope is "no fence".
-            scope=source_scope_from_project_scope(effective_project_scope),
+            scope=source_scope_from_project_scope(
+                effective_project_scope, exclude_global_domains=held_back
+            ),
             winning_memories=facts,
         )
         sources = [row for row in sources if row.get("derived_memory_corrected") is not True]
@@ -266,6 +419,8 @@ def compile_session_brief(
         sources=sources,
         pack_view=pack_view,
         reserve=reserve,
+        head_line=brief_head_line(project_view),
+        mark_global=in_project_view,
     )
 
 
@@ -274,9 +429,16 @@ def compile_local_session_brief(
     *,
     user_id: UUID | str,
     query: str | None,
+    project_view: ProjectView,
+    exclude_global_domains: frozenset[str],
     reserve: int = 0,
 ) -> str:
-    """Operator CLI path: evaluate policy, then compile against that fence."""
+    """Operator CLI path: evaluate policy, then compile against that fence.
+
+    The caller is the owner (no agent identity), so the view's tuple is the
+    project fence. A caller with no view on purpose, the doctor and the demo,
+    passes ``ProjectView.unscoped()`` and the empty set.
+    """
 
     decision = evaluate_agent_policy(
         identity=None,
@@ -291,7 +453,15 @@ def compile_local_session_brief(
             store,
             effective_domains=decision.effective_domains,
             effective_sensitivity_allowed=decision.effective_sensitivity_allowed,
-            effective_project_scope=decision.effective_project_scope,
+            effective_project_scope=effective_scope_for_view(
+                view=project_view,
+                decision_scope=decision.effective_project_scope,
+                requested_scope=(),
+                identity_scope=(),
+                identity_locked=False,
+            ),
+            project_view=project_view,
+            exclude_global_domains=exclude_global_domains,
             query=query,
             reserve=reserve,
         )
@@ -305,13 +475,20 @@ def _merge_recent_change_targets(
     effective_domains: tuple[str, ...],
     effective_sensitivity_allowed: tuple[str, ...],
     effective_project_scope: tuple[str, ...],
+    exclude_global_domains: frozenset[str],
 ) -> None:
+    # The exclusion goes into the event queries only when there is one, so a read
+    # that holds nothing back runs the calls it always ran.
+    held_back_kwargs: dict[str, object] = (
+        {"exclude_global_domains": tuple(sorted(exclude_global_domains))} if exclude_global_domains else {}
+    )
     seen_fact_ids = {str(row.get("id") or "") for row in facts}
     seen_loop_ids = {str(row.get("id") or "") for row in open_loops}
     for event in store.list_resume_memory_events(
         statuses=COMMITTED_MEMORY_STATUSES,
         projects=effective_project_scope,
         limit=RECENT_CHANGE_LIMIT,
+        **held_back_kwargs,  # type: ignore[arg-type]
     ):
         if not _event_target_honours_fence(
             store,
@@ -319,6 +496,7 @@ def _merge_recent_change_targets(
             effective_domains=effective_domains,
             effective_sensitivity_allowed=effective_sensitivity_allowed,
             effective_project_scope=effective_project_scope,
+            exclude_global_domains=exclude_global_domains,
         ):
             continue
         target_id = str(event.get("target_id") or "")
@@ -337,6 +515,7 @@ def _merge_recent_change_targets(
         statuses=OPEN_LOOP_ACTIVE_STATUSES,
         scope_projects=effective_project_scope,
         limit=RECENT_CHANGE_LIMIT,
+        **held_back_kwargs,  # type: ignore[arg-type]
     ):
         if not _event_target_honours_fence(
             store,
@@ -344,6 +523,7 @@ def _merge_recent_change_targets(
             effective_domains=effective_domains,
             effective_sensitivity_allowed=effective_sensitivity_allowed,
             effective_project_scope=effective_project_scope,
+            exclude_global_domains=exclude_global_domains,
         ):
             continue
         target_id = str(event.get("target_id") or "")
@@ -365,6 +545,7 @@ def _event_target_honours_fence(
     effective_domains: tuple[str, ...],
     effective_sensitivity_allowed: tuple[str, ...],
     effective_project_scope: tuple[str, ...],
+    exclude_global_domains: frozenset[str],
 ) -> bool:
     target_id = event.get("target_id")
     if not isinstance(target_id, str) or target_id == "":
@@ -382,6 +563,7 @@ def _event_target_honours_fence(
         effective_domains=effective_domains,
         effective_sensitivity_allowed=effective_sensitivity_allowed,
         effective_project_scope=effective_project_scope,
+        exclude_global_domains=exclude_global_domains,
     )
 
 
@@ -407,11 +589,14 @@ def _memory_honours_fence(
     effective_domains: tuple[str, ...],
     effective_sensitivity_allowed: tuple[str, ...],
     effective_project_scope: tuple[str, ...],
+    exclude_global_domains: frozenset[str],
 ) -> bool:
+    resource_scope = resource_project_scope(row)
     return (
         _matches_domains(row, effective_domains)
         and _matches_sensitivity(row, effective_sensitivity_allowed)
-        and _matches_project_scope(resource_project_scope(row), effective_project_scope)
+        and _matches_project_scope(resource_scope, effective_project_scope)
+        and not _is_held_back(row, resource_scope, exclude_global_domains)
     )
 
 
@@ -421,11 +606,31 @@ def _source_honours_fence(
     effective_domains: tuple[str, ...],
     effective_sensitivity_allowed: tuple[str, ...],
     effective_project_scope: tuple[str, ...],
+    exclude_global_domains: frozenset[str],
 ) -> bool:
+    resource_scope = source_project_scope(row)
     return (
         _matches_domains(row, effective_domains)
         and _matches_sensitivity(row, effective_sensitivity_allowed)
-        and _matches_project_scope(source_project_scope(row), effective_project_scope)
+        and _matches_project_scope(resource_scope, effective_project_scope)
+        and not _is_held_back(row, resource_scope, exclude_global_domains)
+    )
+
+
+def _is_held_back(
+    row: Mapping[str, object],
+    resource_scope: tuple[str, ...],
+    exclude_global_domains: frozenset[str],
+) -> bool:
+    """A global row (its scope holds no Alice project id) in a domain the brief holds back.
+
+    The test is on the row. A note of this project in the same domain is not held
+    back, because the rule is about material that follows a person into every
+    project, and a global note in any other domain is not held back either.
+    """
+
+    return bool(exclude_global_domains) and row.get("domain") in exclude_global_domains and is_global_scope(
+        resource_scope
     )
 
 
@@ -496,6 +701,7 @@ def _resolve_excerpt_query(
     effective_domains: tuple[str, ...],
     effective_sensitivity_allowed: tuple[str, ...],
     effective_project_scope: tuple[str, ...],
+    exclude_global_domains: frozenset[str],
 ) -> str | None:
     if query is not None:
         stripped = query.strip()
@@ -523,6 +729,7 @@ def _resolve_excerpt_query(
             effective_domains=effective_domains,
             effective_sensitivity_allowed=effective_sensitivity_allowed,
             effective_project_scope=effective_project_scope,
+            exclude_global_domains=exclude_global_domains,
         ):
             continue
         hint = _source_query_hint(store, source)
@@ -678,13 +885,18 @@ def _grapheme_clusters(text: str) -> list[str]:
     return clusters
 
 
-def _uncut_brief_line(label: str, text: str) -> str:
-    return f"**{label}**: {quote_session_brief_text(text)}"
+#: Appended to the label of a global item when the brief is in the project view,
+#: so an agent can tell a note of this project from a note that belongs to none.
+_GLOBAL_MARK = " (global)"
 
 
-def _cut_brief_line(label: str, prefix: str, stored_units: int) -> str:
+def _uncut_brief_line(label: str, text: str, mark: str = "") -> str:
+    return f"**{label}**{mark}: {quote_session_brief_text(text)}"
+
+
+def _cut_brief_line(label: str, prefix: str, stored_units: int, mark: str = "") -> str:
     return (
-        f"**{label}** (cut; {stored_units} characters stored): "
+        f"**{label}**{mark} (cut; {stored_units} characters stored): "
         f"{quote_session_brief_text(prefix)}"
     )
 
@@ -715,7 +927,7 @@ def _shorten_to_word_boundary(source: str, prefix: str) -> str:
     return bounded
 
 
-def _brief_line_for(label: str, text: str) -> str | None:
+def _brief_line_for(label: str, text: str, mark: str = "") -> str | None:
     """One brief line, cut at 1,500 units when the note is longer.
 
     The cut is the longest prefix that fits. It ends on a word boundary
@@ -727,7 +939,7 @@ def _brief_line_for(label: str, text: str) -> str | None:
     flattened = _flatten_excerpt(text)
     if not flattened:
         return None
-    full = _uncut_brief_line(label, flattened)
+    full = _uncut_brief_line(label, flattened, mark)
     if brief_char_len(full) <= SESSION_BRIEF_LINE_CAP:
         return full
     stored = brief_char_len(text)
@@ -738,7 +950,7 @@ def _brief_line_for(label: str, text: str) -> str | None:
     while lo <= hi:
         mid = (lo + hi) // 2
         prefix = "".join(graphemes[:mid])
-        if brief_char_len(_cut_brief_line(label, prefix, stored)) <= SESSION_BRIEF_LINE_CAP:
+        if brief_char_len(_cut_brief_line(label, prefix, stored, mark)) <= SESSION_BRIEF_LINE_CAP:
             best = mid
             lo = mid + 1
         else:
@@ -748,7 +960,7 @@ def _brief_line_for(label: str, text: str) -> str | None:
     prefix = _shorten_to_word_boundary(flattened, "".join(graphemes[:best]))
     if not prefix:
         return None
-    return _cut_brief_line(label, prefix, stored)
+    return _cut_brief_line(label, prefix, stored, mark)
 
 
 def fit_emitted_session_brief(text: str) -> str:
@@ -777,16 +989,30 @@ def _render_brief(
     sources: Sequence[Mapping[str, object]],
     pack_view: str | None,
     reserve: int = 0,
+    head_line: str | None = None,
+    mark_global: bool = False,
 ) -> str:
+    """Lay out the brief.
+
+    ``head_line`` is the project line or a status line (spec 6.4). It follows the
+    frame, is Alice-authored and not a stored note, and counts against the budget.
+    ``mark_global`` appends ``(global)`` to the label of an item whose project
+    scope holds no Alice project id. With both left out the text is what it was
+    before per-project memory.
+    """
+
     lines: list[str] = []
     seen: set[str] = set()
     budget = _brief_body_limit(reserve)
+    if head_line:
+        lines.append(head_line)
+    head_lines = len(lines)
 
-    def admit(label: str, text: str) -> None:
+    def admit(label: str, text: str, mark: str = "") -> None:
         flattened = _flatten_excerpt(text)
         if not flattened or flattened in seen:
             return
-        line = _brief_line_for(label, text)
+        line = _brief_line_for(label, text, mark)
         if line is None:
             return
         rendered = _brief_rendered((*lines, line))
@@ -795,21 +1021,27 @@ def _render_brief(
         lines.append(line)
         seen.add(flattened)
 
-    fact_items: list[tuple[str, str]] = []
+    def mark_for(row: Mapping[str, object], *, source: bool = False) -> str:
+        if not mark_global:
+            return ""
+        scope = source_project_scope(row) if source else resource_project_scope(row)
+        return _GLOBAL_MARK if is_global_scope(scope) else ""
+
+    fact_items: list[tuple[str, str, str]] = []
     for row in facts:
         text = _memory_text(row)
         if text:
-            fact_items.append((_LABEL_FACT, text))
-    loop_items: list[tuple[str, str]] = []
+            fact_items.append((_LABEL_FACT, text, mark_for(row)))
+    loop_items: list[tuple[str, str, str]] = []
     for row in open_loops:
         text = _loop_text(row)
         if text:
-            loop_items.append((_LABEL_OPEN_LOOP, text))
-    source_items: list[tuple[str, str]] = []
+            loop_items.append((_LABEL_OPEN_LOOP, text, mark_for(row)))
+    source_items: list[tuple[str, str, str]] = []
     for source in sources:
         excerpt = source.get("excerpt")
         if isinstance(excerpt, str) and excerpt.strip():
-            source_items.append((_LABEL_SOURCE, excerpt))
+            source_items.append((_LABEL_SOURCE, excerpt, mark_for(source, source=True)))
 
     # query=None keeps today's dump: facts, then loops, then sources.
     # A labelled view admits that section first so a tight budget shrinks
@@ -821,10 +1053,16 @@ def _render_brief(
     else:
         ordered_items = (*fact_items, *loop_items, *source_items)
 
-    for label, text in ordered_items:
-        admit(label, text)
+    for label, text, mark in ordered_items:
+        admit(label, text, mark)
 
-    if not lines:
+    if len(lines) == head_lines:
+        # Nothing but the head line, if that. The empty line is true of the
+        # brief and says nothing about the vault, and it never carries a count.
+        if head_line:
+            with_head = "\n".join((head_line, EMPTY_SESSION_BRIEF))
+            if brief_char_len(with_head) <= budget:
+                return with_head
         if brief_char_len(EMPTY_SESSION_BRIEF) <= budget:
             return EMPTY_SESSION_BRIEF
         return ""
@@ -837,9 +1075,12 @@ __all__ = [
     "SESSION_BRIEF_CHAR_CAP",
     "SESSION_BRIEF_FRAME",
     "brief_char_len",
+    "brief_head_line",
     "compile_local_session_brief",
     "compile_session_brief",
     "fit_emitted_session_brief",
+    "project_brief_line",
     "quote_session_brief_text",
+    "sensitive_global_exclusion",
     "source_scope_from_project_scope",
 ]

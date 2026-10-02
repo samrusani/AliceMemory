@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from datetime import datetime
 from typing import Protocol, cast
 from alicebot_api.continuity_brief import compile_continuity_brief
@@ -26,6 +26,12 @@ from alicebot_api.contracts import (
     TemporalStateAtQueryInput,
     TemporalTimelineQueryInput,
 )
+from alicebot_api.project_view import (
+    ProjectView,
+    fetch_in_two_queries,
+    project_first_fill,
+)
+from alicebot_api.session_briefing import sensitive_global_exclusion
 from alicebot_api.store import JsonObject
 from alicebot_api.temporal_state import (
     get_temporal_state_at,
@@ -69,6 +75,7 @@ from alicebot_api.vnext_retrieval import (
 )
 
 from .context import _COMPACT_SOURCE_FIELDS, _compact_fields
+from .policy import _default_project_view
 from .projects import _handle_alice_vnext_open_loops
 from .retrieval_shared import (
     _CONTEXT_MEMORY_STATUSES,
@@ -164,6 +171,9 @@ def _recall_source_scope(retrieval_filters: Mapping[str, object]) -> _ResolvedRe
         people=people,
         window_start=window_start if isinstance(window_start, datetime) else None,
         window_end=window_end if isinstance(window_end, datetime) else None,
+        # Recall is an explicit search (spec 6.5): it returns global notes in the
+        # sensitive domains under the permissions and limits it already applies.
+        exclude_global_domains=frozenset(),
     )
 
 
@@ -198,6 +208,7 @@ def _handle_alice_recall(context: MCPRuntimeContext, arguments: Mapping[str, obj
         domains=tuple(domains),
         sensitivity_allowed=tuple(sensitivity_allowed),
         project_scope=requested_projects,
+        project_view=ProjectView.unscoped(),
     )
     domains = list(decision.effective_domains)
     sensitivity_allowed = list(decision.effective_sensitivity_allowed)
@@ -470,15 +481,29 @@ def _handle_alice_state_at(context: MCPRuntimeContext, arguments: Mapping[str, o
 
 def _handle_alice_resume(context: MCPRuntimeContext, arguments: Mapping[str, object]) -> JsonObject:
     requested_project = _parse_optional_text(arguments, "project")
+    explicit_scope = _parse_string_list(arguments, "project_scope") or (
+        (requested_project,) if requested_project else ()
+    )
+    # A call that names no project reads the project view when scoping is on and a
+    # project is found: this project's items first, then global ones, with global
+    # items in the sensitive domains left out (spec 6.6, ruling Q25a). A call that
+    # names a project keeps today's rule and no global is added.
+    project_view = _default_project_view(context) if not explicit_scope else ProjectView.unscoped()
     decision = _mcp_agent_policy_preflight(
         context,
         arguments,
         action="context_pack.request",
+        project_view=project_view,
         domains=_parse_string_list(arguments, "domains"),
         sensitivity_allowed=_parse_string_list(arguments, "sensitivity_allowed")
         or ("public", "internal", "private", "unknown"),
-        project_scope=_parse_string_list(arguments, "project_scope")
-        or ((requested_project,) if requested_project else ()),
+        project_scope=explicit_scope,
+    )
+    # The view applies only where the policy left the scope to it. An identity that
+    # declares a scope, or a key locked to a project, keeps its own and gets no
+    # global notes added.
+    applied_view = (
+        project_view if decision.effective_project_scope == project_view.scope else ProjectView.unscoped()
     )
     return _vnext_resume(
         context,
@@ -486,6 +511,7 @@ def _handle_alice_resume(context: MCPRuntimeContext, arguments: Mapping[str, obj
         effective_project_scope=decision.effective_project_scope,
         effective_domains=decision.effective_domains,
         effective_sensitivity_allowed=decision.effective_sensitivity_allowed,
+        project_view=applied_view,
     )
 
 
@@ -869,6 +895,7 @@ def _vnext_resume(
     effective_project_scope: tuple[str, ...],
     effective_domains: tuple[str, ...],
     effective_sensitivity_allowed: tuple[str, ...],
+    project_view: ProjectView,
 ) -> JsonObject:
     max_recent_changes = _parse_int(
         arguments,
@@ -896,22 +923,55 @@ def _vnext_resume(
     domain_filter = list(effective_domains) if effective_domains else None
     sensitivity_filter = list(effective_sensitivity_allowed)
 
+    # In the project view, global items in the sensitive domains are left out of
+    # every part of the result, the way a brief leaves them out (ruling Q25a).
+    held_back = sensitive_global_exclusion(project_view)
+
     with _vnext_store_context(context) as store:
         _require_literal_match_query(store, query)
-        decisions = store.list_memories(
-            status=None,
-            statuses=tuple(_CONTEXT_MEMORY_STATUSES),
-            memory_types=("decision",),
-            domains=domain_filter,
-            sensitivity_allowed=sensitivity_filter,
-            projects=effective_project_scope or None,
-            created_at_start=since,
-            created_at_end=until,
-            query=query,
-            order_by_created_at=True,
-            limit=1,
-            include_expired=False,
-        )
+
+        def read_memories(memory_types: tuple[str, ...]) -> list[JsonObject]:
+            """One memory, newest first: this project's, else a global one, in the project view."""
+
+            if project_view.mode == "project":
+                return project_first_fill(
+                    limit=1,
+                    view=project_view,
+                    exclude_global_domains=held_back,
+                    fetch=fetch_in_two_queries(
+                        lambda scope, excluded, count: store.list_memories(
+                            status=None,
+                            statuses=tuple(_CONTEXT_MEMORY_STATUSES),
+                            memory_types=memory_types,
+                            domains=domain_filter,
+                            sensitivity_allowed=sensitivity_filter,
+                            projects=scope,
+                            created_at_start=since,
+                            created_at_end=until,
+                            query=query,
+                            order_by_created_at=True,
+                            limit=count,
+                            include_expired=False,
+                            exclude_global_domains=tuple(sorted(excluded)),
+                        )
+                    ),
+                )
+            return store.list_memories(
+                status=None,
+                statuses=tuple(_CONTEXT_MEMORY_STATUSES),
+                memory_types=memory_types,
+                domains=domain_filter,
+                sensitivity_allowed=sensitivity_filter,
+                projects=effective_project_scope or None,
+                created_at_start=since,
+                created_at_end=until,
+                query=query,
+                order_by_created_at=True,
+                limit=1,
+                include_expired=False,
+            )
+
+        decisions = read_memories(("decision",))
         last_decision: JsonObject | None = None
         if decisions:
             last_decision = {
@@ -932,6 +992,26 @@ def _vnext_resume(
             # passing it through would build `sensitivity IN ()` on SQLite.
             if not effective_sensitivity_allowed:
                 loop_rows = []
+            elif project_view.mode == "project":
+                loop_rows = project_first_fill(
+                    limit=max_open_loops,
+                    view=project_view,
+                    exclude_global_domains=held_back,
+                    fetch=fetch_in_two_queries(
+                        lambda scope, excluded, count: store.list_open_loops(
+                            status=None,
+                            statuses=tuple(_SQLITE_OPEN_LOOP_ACTIVE_STATUSES),
+                            query=query,
+                            domains=domain_filter,
+                            sensitivity_allowed=sensitivity_filter,
+                            limit=count,
+                            scope_projects=scope,
+                            scope_window_start=since,
+                            scope_window_end=until,
+                            exclude_global_domains=tuple(sorted(excluded)),
+                        )
+                    ),
+                )
             else:
                 loop_rows = store.list_open_loops(
                     status=None,
@@ -950,20 +1030,7 @@ def _vnext_resume(
 
         next_action: JsonObject | None = open_loops[0] if open_loops else None
         if next_action is None:
-            todo_memories = store.list_memories(
-                status=None,
-                statuses=tuple(_CONTEXT_MEMORY_STATUSES),
-                memory_types=tuple(_SQLITE_NEXT_ACTION_MEMORY_TYPES),
-                domains=domain_filter,
-                sensitivity_allowed=sensitivity_filter,
-                projects=effective_project_scope or None,
-                created_at_start=since,
-                created_at_end=until,
-                query=query,
-                order_by_created_at=True,
-                limit=1,
-                include_expired=False,
-            )
+            todo_memories = read_memories(tuple(_SQLITE_NEXT_ACTION_MEMORY_TYPES))
             if todo_memories:
                 next_action = {
                     "kind": "memory",
@@ -992,26 +1059,64 @@ def _vnext_resume(
             # open_loop target are dropped; they are not claimed as fenced.
             event_rows = []
             seen_event_ids: set[str] = set()
-            for event in store.list_resume_memory_events(
-                statuses=tuple(_CONTEXT_MEMORY_STATUSES),
-                projects=effective_project_scope,
-                query=query,
-                occurred_at_start=since,
-                occurred_at_end=until,
-                limit=max_recent_changes,
-            ):
+            if project_view.mode == "project":
+                memory_events: Sequence[JsonObject] = project_first_fill(
+                    limit=max_recent_changes,
+                    view=project_view,
+                    exclude_global_domains=held_back,
+                    fetch=fetch_in_two_queries(
+                        lambda scope, excluded, count: store.list_resume_memory_events(
+                            statuses=tuple(_CONTEXT_MEMORY_STATUSES),
+                            projects=scope,
+                            query=query,
+                            occurred_at_start=since,
+                            occurred_at_end=until,
+                            limit=count,
+                            exclude_global_domains=tuple(sorted(excluded)),
+                        )
+                    ),
+                )
+            else:
+                memory_events = store.list_resume_memory_events(
+                    statuses=tuple(_CONTEXT_MEMORY_STATUSES),
+                    projects=effective_project_scope,
+                    query=query,
+                    occurred_at_start=since,
+                    occurred_at_end=until,
+                    limit=max_recent_changes,
+                )
+            for event in memory_events:
                 event_id = str(event.get("id") or "")
                 if event_id:
                     seen_event_ids.add(event_id)
                 event_rows.append(event)
-            for event in store.list_open_loop_events(
-                statuses=tuple(_SQLITE_OPEN_LOOP_ACTIVE_STATUSES),
-                scope_projects=effective_project_scope,
-                query=query,
-                occurred_at_start=since,
-                occurred_at_end=until,
-                limit=max_recent_changes,
-            ):
+            if project_view.mode == "project":
+                loop_events: Sequence[JsonObject] = project_first_fill(
+                    limit=max_recent_changes,
+                    view=project_view,
+                    exclude_global_domains=held_back,
+                    fetch=fetch_in_two_queries(
+                        lambda scope, excluded, count: store.list_open_loop_events(
+                            statuses=tuple(_SQLITE_OPEN_LOOP_ACTIVE_STATUSES),
+                            scope_projects=scope,
+                            query=query,
+                            occurred_at_start=since,
+                            occurred_at_end=until,
+                            limit=count,
+                            exclude_global_domains=tuple(sorted(excluded)),
+                        )
+                    ),
+                )
+            else:
+                loop_events = store.list_open_loop_events(
+                    statuses=tuple(_SQLITE_OPEN_LOOP_ACTIVE_STATUSES),
+                    scope_projects=effective_project_scope,
+                    query=query,
+                    occurred_at_start=since,
+                    occurred_at_end=until,
+                    limit=max_recent_changes,
+                )
+            for event in loop_events:
                 event_id = str(event.get("id") or "")
                 if event_id and event_id in seen_event_ids:
                     continue
@@ -1077,6 +1182,7 @@ def _handle_alice_recent_decisions(context: MCPRuntimeContext, arguments: Mappin
         # match domain). Policy project scope is the explicit project_scope
         # argument plus whatever the identity already carries.
         project_scope=_parse_string_list(arguments, "project_scope"),
+        project_view=ProjectView.unscoped(),
     )
     return _vnext_recent_decisions(
         context,
@@ -1104,6 +1210,7 @@ def _handle_alice_recent_changes(context: MCPRuntimeContext, arguments: Mapping[
         sensitivity_allowed=_parse_string_list(arguments, "sensitivity_allowed")
         or ("public", "internal", "private", "unknown"),
         project_scope=_parse_string_list(arguments, "project_scope"),
+        project_view=ProjectView.unscoped(),
     )
 
     with _store_context(context) as store:

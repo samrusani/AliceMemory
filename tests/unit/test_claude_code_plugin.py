@@ -22,6 +22,7 @@ import pytest
 from alicebot_api.host_install import CLAUDE_MARKETPLACE_NAME, CLAUDE_PLUGIN_ID
 from alicebot_api.onramp import main as onramp_main
 from alicebot_api.session_start_hook import main as hook_main
+from alicebot_api.project_view import ProjectView
 import scripts.release_check as release_check
 from tests.unit.launcher_helpers import pin_launcher_search
 
@@ -1091,7 +1092,11 @@ def test_duplicate_prefix_is_reserved_and_the_final_fit_cuts_nothing(
     prefix, _sep, _rest = additional.partition("\n")
     prefix = prefix + "\n"
     database = resolve_db_path(data_dir=str(vault), db=None)
-    unreserved = compile_local_session_brief(database, user_id=USER_ID, query=None, reserve=0)
+    unreserved = compile_local_session_brief(
+        database, user_id=USER_ID, query=None, reserve=0,
+        project_view=ProjectView.unscoped(),
+        exclude_global_domains=frozenset(),
+    )
     assert brief_char_len(prefix + unreserved) >= 9_500
     assert brief_char_len(additional) < 9_500
     expected = compile_local_session_brief(
@@ -1099,6 +1104,8 @@ def test_duplicate_prefix_is_reserved_and_the_final_fit_cuts_nothing(
         user_id=USER_ID,
         query=None,
         reserve=brief_char_len(prefix),
+        project_view=ProjectView.unscoped(),
+        exclude_global_domains=frozenset(),
     )
     assert additional[len(prefix) :] == expected
 

@@ -42,6 +42,7 @@ from alicebot_api.vnext_embeddings import (
     EMBEDDINGS_BASE_URL_ENV,
     EMBEDDINGS_MODEL_ENV,
 )
+from alicebot_api.project_view import ProjectView
 
 USER_ID = "00000000-0000-0000-0000-000000000001"
 OTHER_USER_ID = "00000000-0000-0000-0000-000000000002"
@@ -49,6 +50,9 @@ OPEN_FENCE = {
     "effective_domains": (),
     "effective_sensitivity_allowed": ("public", "internal", "private", "unknown"),
     "effective_project_scope": (),
+    # No project view on purpose: the library prints no project line or status line.
+    "project_view": ProjectView.unscoped(),
+    "exclude_global_domains": frozenset(),
 }
 
 
@@ -333,6 +337,8 @@ def test_listing_applies_each_brief_control_and_writes_nothing(tmp_path: Path, m
         effective_domains=(),
         effective_sensitivity_allowed=("public",),
         effective_project_scope=(),
+        project_view=ProjectView.unscoped(),
+        exclude_global_domains=frozenset(),
     )
     assert private not in public_only
     assert public in public_only
@@ -344,6 +350,8 @@ def test_listing_applies_each_brief_control_and_writes_nothing(tmp_path: Path, m
         effective_domains=("project",),
         effective_sensitivity_allowed=("public", "internal", "private", "unknown"),
         effective_project_scope=(),
+        project_view=ProjectView.unscoped(),
+        exclude_global_domains=frozenset(),
     )
     assert personal not in project_domain
     assert personal_id not in project_domain
@@ -355,6 +363,8 @@ def test_listing_applies_each_brief_control_and_writes_nothing(tmp_path: Path, m
         effective_domains=(),
         effective_sensitivity_allowed=("public", "internal", "private", "unknown"),
         effective_project_scope=("harbour",),
+        project_view=ProjectView.unscoped(),
+        exclude_global_domains=frozenset(),
     )
     assert other_project not in harbour_only
     assert other_id not in harbour_only
@@ -527,6 +537,8 @@ def test_private_commit_arguments_stay_out_of_the_public_unknown_brief(
             effective_sensitivity_allowed=("public", "unknown"),
             effective_project_scope=(),
             query=None,
+            project_view=ProjectView.unscoped(),
+            exclude_global_domains=frozenset(),
         )
         wide = compile_session_brief(
             store,
@@ -534,6 +546,8 @@ def test_private_commit_arguments_stay_out_of_the_public_unknown_brief(
             effective_sensitivity_allowed=("public", "unknown", "private"),
             effective_project_scope=(),
             query=None,
+            project_view=ProjectView.unscoped(),
+            exclude_global_domains=frozenset(),
         )
     fact_line = f"**fact**: {json.dumps(private)}"
     assert fact_line not in narrow
@@ -614,6 +628,8 @@ def test_hidden_rows_are_counted_when_nothing_is_listed(tmp_path: Path) -> None:
         effective_domains=(),
         effective_sensitivity_allowed=("public", "unknown"),
         effective_project_scope=(),
+        project_view=ProjectView.unscoped(),
+        exclude_global_domains=frozenset(),
     )
     assert listing.splitlines()[0] == NO_SLEEP_PROPOSALS
     assert _line_value(listing, "rows not shown") == str(SLEEP_PROPOSAL_CAP)

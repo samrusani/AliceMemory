@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from alicebot_api.project_view import ProjectView
 from alicebot_api.store import JsonObject
 from alicebot_api.vnext_agent_control import (
     AgentIdentity,
@@ -99,6 +100,7 @@ def _handle_alice_vnext_propose_memory(context: MCPRuntimeContext, arguments: Ma
                 # it honours payload identity outright, so an absent agent_id
                 # is nobody in particular rather than the owner.
                 owner_verified=False,
+                project_view=ProjectView.unscoped(),
             )
             return identity, decision
 
@@ -622,7 +624,10 @@ def _handle_alice_vnext_recent_memory_commits(
     blocked_decision: PolicyDecision | None = None
     payload: VNextJsonObject | None = None
     with _vnext_store_context(context) as store:
-        _actor_type, _actor_id, decision = _policy_checked(store, identity=identity, action="memory.recent_commits")
+        _actor_type, _actor_id, decision = _policy_checked(
+            store, identity=identity, action="memory.recent_commits",
+            project_view=ProjectView.unscoped(),
+        )
         if decision.decision == "blocked":
             blocked_decision = decision
         else:

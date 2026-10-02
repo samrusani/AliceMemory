@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from typing import TypedDict
+from alicebot_api.project_view import ProjectView
 from alicebot_api.recall_framing import (
     present_model_item,
     present_model_items,
@@ -373,6 +374,7 @@ def _vnext_context_pack_payload(context: MCPRuntimeContext, arguments: Mapping[s
             domains=_parse_string_list(arguments, "domains"),
             sensitivity_allowed=sensitivity_allowed,
             project_scope=_parse_string_list(arguments, "project_scope") or _parse_string_list(arguments, "projects"),
+            project_view=ProjectView.unscoped(),
         )
         if decision.decision == "blocked":
             blocked_decision = decision
@@ -444,6 +446,7 @@ def _handle_alice_vnext_context_tree(context: MCPRuntimeContext, arguments: Mapp
             domains=_parse_string_list(arguments, "domains"),
             sensitivity_allowed=sensitivity_allowed,
             project_scope=_parse_string_list(arguments, "project_scope") or _parse_string_list(arguments, "projects"),
+            project_view=ProjectView.unscoped(),
         )
         if decision.decision == "blocked":
             blocked_decision = decision

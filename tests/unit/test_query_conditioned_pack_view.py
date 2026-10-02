@@ -30,6 +30,7 @@ from alicebot_api.vnext_retrieval import (
     classify_pack_view,
     estimate_item_tokens,
 )
+from alicebot_api.project_view import ProjectView
 
 from tests.unit.test_vnext_retrieval import InMemoryVNextRetrievalStore, _memory_row
 
@@ -46,6 +47,9 @@ UNSCOPED_FENCES = {
     "effective_domains": (),
     "effective_sensitivity_allowed": ("public", "internal", "private", "unknown"),
     "effective_project_scope": (),
+    # No project view on purpose: the library prints no project line or status line.
+    "project_view": ProjectView.unscoped(),
+    "exclude_global_domains": frozenset(),
 }
 
 

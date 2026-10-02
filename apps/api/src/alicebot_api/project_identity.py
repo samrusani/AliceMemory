@@ -54,7 +54,7 @@ from dataclasses import dataclass, field, replace
 from types import ModuleType
 from typing import BinaryIO, Literal, Protocol
 
-from alicebot_api.vnext_project_scope import project_identifier_identity
+from alicebot_api.vnext_project_scope import is_alice_project_id
 
 logger = logging.getLogger(__name__)
 
@@ -80,7 +80,6 @@ MAX_LABEL_CHARS = 40
 HOME_ENV_POSIX = "HOME"
 HOME_ENV_WINDOWS = "USERPROFILE"
 
-_PROJECT_ID_PATTERN = re.compile(r"^prj_[0-9a-f]{16}$")
 _ASCII_LOWER = str.maketrans("ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz")
 _LABEL_ALPHABET = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._+-")
 _FALLBACK_LABEL = "project"
@@ -755,14 +754,6 @@ def project_id_for(kind: Literal["remote", "path"], text: str) -> str:
         ID_DOMAIN + b"\0" + kind.encode("ascii") + b"\0" + text.encode("utf-8", "surrogateescape")
     ).hexdigest()
     return ID_PREFIX + digest[:ID_HEX_CHARS]
-
-
-def is_alice_project_id(value: object) -> bool:
-    """True for ``prj_`` and 16 lowercase hex characters, after ASCII folding."""
-
-    if not isinstance(value, str):
-        return False
-    return bool(_PROJECT_ID_PATTERN.match(project_identifier_identity(value)))
 
 
 def sanitize_label(text: str) -> str:

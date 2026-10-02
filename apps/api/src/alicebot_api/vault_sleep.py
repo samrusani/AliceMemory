@@ -28,6 +28,7 @@ from pathlib import Path
 from uuid import UUID
 
 from alicebot_api.legacy_credential_check import commit_door_secret_verdict
+from alicebot_api.project_view import ProjectView
 from alicebot_api.session_briefing import (
     COMMITTED_MEMORY_STATUSES,
     SESSION_BRIEF_FRAME,
@@ -314,6 +315,8 @@ def compile_sleep_proposal_listing(
     effective_domains: tuple[str, ...],
     effective_sensitivity_allowed: tuple[str, ...],
     effective_project_scope: tuple[str, ...],
+    project_view: ProjectView,
+    exclude_global_domains: frozenset[str],
 ) -> str:
     """List the caller's proposals. Writes nothing.
 
@@ -326,6 +329,15 @@ def compile_sleep_proposal_listing(
     has an active or accepted memory is omitted too. The commit arguments
     include that source's domain, sensitivity, and project scope. The
     commit line is ASCII-escaped. Rows left out are counted.
+
+    The listing is framed like a brief and takes the same view (spec 6.8). In the
+    ``project`` view it lists this project's sources and global sources, leaves out
+    global sources in ``exclude_global_domains``, and counts neither a source that
+    the project fence leaves out nor a held-back source in ``rows not shown``,
+    because the number of another project's rows is metadata a session is not
+    given. It still counts a source that already has a committed memory and a
+    source the credential floor refuses. In every other view the listing is what it
+    was, and ``rows not shown`` counts every source it leaves out.
     """
 
     resolved = Path(db_path).expanduser().resolve()
@@ -343,16 +355,23 @@ def compile_sleep_proposal_listing(
             excerpt = row.get("excerpt")
             if not isinstance(source_id, str) or source_id == "" or not isinstance(excerpt, str):
                 continue
-            if _has_committed_fact(store, source_id):
-                not_shown += 1
-                continue
             source = store.get_source(source_id)
-            if source is None or not _source_honours_fence(
+            outside = source is None or not _source_honours_fence(
                 source,
                 effective_domains=effective_domains,
                 effective_sensitivity_allowed=effective_sensitivity_allowed,
                 effective_project_scope=effective_project_scope,
-            ):
+                exclude_global_domains=exclude_global_domains,
+            )
+            if project_view.mode == "project" and outside:
+                # Silent: a source of another project, or one the brief holds back,
+                # is not counted, so the line cannot tell a session how many rows
+                # another project has.
+                continue
+            if _has_committed_fact(store, source_id):
+                not_shown += 1
+                continue
+            if source is None or outside:
                 not_shown += 1
                 continue
             window = _credential_window(_first_chunk_text(store, source_id))

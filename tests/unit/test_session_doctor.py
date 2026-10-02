@@ -29,6 +29,7 @@ from alicebot_api.vnext_embeddings import (
     EMBEDDINGS_BASE_URL_ENV,
     EMBEDDINGS_MODEL_ENV,
 )
+from alicebot_api.project_view import ProjectView
 USER_ID = "00000000-0000-0000-0000-000000000001"
 OTHER_USER_ID = "00000000-0000-0000-0000-000000000002"
 
@@ -303,10 +304,13 @@ def test_token_line_uses_compile_local_session_brief(
 
     seen: dict[str, object] = {}
 
-    def fake_brief(db_path, *, user_id, query):
+    def fake_brief(db_path, *, user_id, query, project_view, exclude_global_domains):
         seen["db_path"] = db_path
         seen["user_id"] = str(user_id)
         seen["query"] = query
+        # The doctor has no project view on purpose, and holds nothing back.
+        assert project_view.mode == "unscoped" and project_view.outcome is None
+        assert exclude_global_domains == frozenset()
         return "labelled brief stand-in"
 
     monkeypatch.setattr(doctor_module, "compile_local_session_brief", fake_brief)
@@ -358,6 +362,8 @@ def test_doctor_counts_a_long_note_in_characters_under_the_cap(
         resolve_db_path(data_dir=str(tmp_path), db=None),
         user_id=USER_ID,
         query=None,
+        project_view=ProjectView.unscoped(),
+        exclude_global_domains=frozenset(),
     )
     assert counted == brief_char_len(brief)
     assert "(cut; 8000 characters stored)" in brief
@@ -396,6 +402,8 @@ def test_doctor_counts_an_emoji_note_in_utf16(
         resolve_db_path(data_dir=str(tmp_path), db=None),
         user_id=USER_ID,
         query=None,
+        project_view=ProjectView.unscoped(),
+        exclude_global_domains=frozenset(),
     )
     counted = _int_value(report, "last brief")
     assert counted == brief_char_len(brief)

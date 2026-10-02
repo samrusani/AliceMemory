@@ -2209,6 +2209,7 @@ def test_legacy_scope_deepening_fails_closed_at_finite_boundary() -> None:
         people=frozenset({"sam"}),
         window_start=None,
         window_end=None,
+        exclude_global_domains=frozenset(),
     )
     limits: list[int] = []
 
@@ -2239,6 +2240,7 @@ def test_legacy_scope_deepening_detects_repeated_prefix_and_deduplicates() -> No
         people=frozenset({"sam"}),
         window_start=None,
         window_end=None,
+        exclude_global_domains=frozenset(),
     )
     repeated_limits: list[int] = []
     decoy = {"id": "same-decoy", "metadata_json": {"people": ["alex"]}}

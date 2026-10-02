@@ -16,6 +16,7 @@ from uuid import UUID
 from alicebot_api.mcp.registry import call_mcp_tool
 from alicebot_api.mcp_tools import MCPRuntimeContext
 from alicebot_api.onramp import bootstrap_database, resolve_db_path, sqlite_url_for_path
+from alicebot_api.project_view import ProjectView
 from alicebot_api.session_briefing import compile_session_brief
 from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
 from alicebot_api.vnext_retrieval import MEMORY_SEARCHABLE_STATUSES
@@ -246,6 +247,10 @@ def _compile_brief(
             effective_domains=effective_domains,
             effective_sensitivity_allowed=effective_sensitivity_allowed,
             effective_project_scope=effective_project_scope,
+            # The eval carries explicit fences and no project view on purpose, so
+            # it is not changed by a git checkout as the working folder.
+            project_view=ProjectView.unscoped(),
+            exclude_global_domains=frozenset(),
             query=query,
         )
 

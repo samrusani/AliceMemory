@@ -655,7 +655,13 @@ def test_supersession_context_names_nothing_when_the_first_hop_is_hidden() -> No
     packed = _memory_row("m-new", "New kettle fact.", supersedes="m-old")
     notes = service._supersession_context(
         [packed],
-        scope=_ResolvedRetrievalScope(projects=frozenset(), people=frozenset(), window_start=None, window_end=None),
+        scope=_ResolvedRetrievalScope(
+        projects=frozenset(),
+        people=frozenset(),
+        window_start=None,
+        window_end=None,
+        exclude_global_domains=frozenset(),
+    ),
         memory_visible=lambda row: False,
     )
     assert notes[0]["supersedes"] == []
@@ -681,7 +687,13 @@ def _event(event_id: str, target_id: str) -> dict:
     }
 
 
-NO_SCOPE = _ResolvedRetrievalScope(projects=frozenset(), people=frozenset(), window_start=None, window_end=None)
+NO_SCOPE = _ResolvedRetrievalScope(
+        projects=frozenset(),
+        people=frozenset(),
+        window_start=None,
+        window_end=None,
+        exclude_global_domains=frozenset(),
+    )
 DEFAULT_CEILING = ["public", "internal", "private", "unknown"]
 
 
@@ -734,7 +746,13 @@ def test_recent_changes_on_a_store_without_scoped_events_apply_the_person_scope(
             _memory_row("m-bob", "Kettle note for Bob.", metadata_json={"people": ["bob"]}),
         ],
     )
-    scope = _ResolvedRetrievalScope(projects=frozenset(), people=frozenset({"ada"}), window_start=None, window_end=None)
+    scope = _ResolvedRetrievalScope(
+        projects=frozenset(),
+        people=frozenset({"ada"}),
+        window_start=None,
+        window_end=None,
+        exclude_global_domains=frozenset(),
+    )
     changes = service._recent_changes(
         scope=scope,
         person_linked_memory_ids=frozenset(),
@@ -757,6 +775,7 @@ def test_recent_changes_keep_an_event_for_no_row_on_a_window_only_pack() -> None
         people=frozenset(),
         window_start=datetime(2026, 1, 1, tzinfo=timezone.utc),
         window_end=None,
+        exclude_global_domains=frozenset(),
     )
     changes = service._recent_changes(
         scope=scope,

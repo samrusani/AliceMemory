@@ -38,6 +38,7 @@ from alicebot_api.mcp.retrieval import (
 from alicebot_api.mcp_server import MCPServer
 from alicebot_api.mcp_tools import AGENT_API_KEY_ENV, MCPRuntimeContext
 from alicebot_api.onramp import bootstrap_database, resolve_db_path, sqlite_url_for_path
+from alicebot_api.project_view import ProjectView
 from alicebot_api.source_search_limits import (
     SourceSearchQueryBreach,
     SourceSearchQueryTooLarge,
@@ -505,7 +506,10 @@ EMPTY_FENCE = {
 # changes, which bind the query without looking at the fence.
 HANDLER_CALLS = {
     "resume": lambda context, query: _vnext_resume(
-        context, {"query": query, "max_open_loops": 0, "max_recent_changes": 0}, **EMPTY_FENCE
+        context,
+        {"query": query, "max_open_loops": 0, "max_recent_changes": 0},
+        project_view=ProjectView.unscoped(),
+        **EMPTY_FENCE,
     ),
     "recent_decisions": lambda context, query: _vnext_recent_decisions(
         context, arguments={"query": query}, limit=5, **EMPTY_FENCE
@@ -693,8 +697,12 @@ def test_no_sqlite_read_builds_the_literal_predicate_without_the_check() -> None
             else:
                 assert "_escape_like_literal" not in called, f"{path.name}:{node.name} escapes a query by itself"
 
+    # Per-project memory S2 (2026-10-02): the memory filters of ``list_memories`` moved into
+    # ``_memory_list_clauses``, which ``list_memories`` and the single-scan partition read both call, so
+    # the function that builds the literal predicate is ``_memory_list_clauses`` and ``list_memories``
+    # no longer builds it itself. The check above still holds for every function that builds it.
     assert checked == {
-        "list_memories",
+        "_memory_list_clauses",
         "list_open_loops",
         "list_open_loop_events",
         "list_resume_memory_events",

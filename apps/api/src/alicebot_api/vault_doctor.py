@@ -20,6 +20,7 @@ from pathlib import Path
 from uuid import UUID
 
 from alicebot_api.legacy_credential_check import commit_door_fields_verdict
+from alicebot_api.project_view import ProjectView
 from alicebot_api.session_briefing import (
     COMMITTED_MEMORY_STATUSES,
     SESSION_BRIEF_CHAR_CAP,
@@ -118,7 +119,15 @@ def compile_local_vault_doctor(
                 raise
             proposal_line = "sleep proposals: unreadable"
 
-    markdown = compile_local_session_brief(resolved, user_id=user_id, query=None)
+    # The doctor reports on the vault, so it has no project view on purpose: it
+    # reads every note and prints no project line or status line.
+    markdown = compile_local_session_brief(
+        resolved,
+        user_id=user_id,
+        query=None,
+        project_view=ProjectView.unscoped(),
+        exclude_global_domains=frozenset(),
+    )
     character_count = brief_char_len(markdown)
     return "\n".join(
         (

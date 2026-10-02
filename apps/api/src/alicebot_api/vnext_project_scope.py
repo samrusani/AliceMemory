@@ -5,10 +5,19 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 import math
+import re
 from typing import Mapping, Sequence
 
 from alicebot_api.vnext_repositories import JsonObject
 
+
+#: The reserved marker of per-project memory (spec 6.1). It exists only inside a
+#: request tuple, where it asks for rows whose project scope holds no Alice
+#: project id. It is never stored on a note, a source or an open loop, it is never
+#: compared against a stored value, and it is refused as caller input. A stored
+#: string that happens to read ``~global`` is an ordinary free-form name.
+GLOBAL_PROJECT_MARKER = "~global"
+_ALICE_PROJECT_ID_PATTERN = re.compile(r"prj_[0-9a-f]{16}")
 
 _ASCII_PROJECT_WHITESPACE = frozenset(" \t\n\r\f\v")
 _ASCII_PROJECT_CASE_TRANSLATION = str.maketrans(
@@ -315,14 +324,69 @@ def expose_memory_project_scope(row: JsonObject) -> JsonObject:
     return row
 
 
+def is_alice_project_id(value: object) -> bool:
+    """True for ``prj_`` and exactly 16 lowercase hex characters, after ASCII folding.
+
+    That is an id the resolver in ``project_identity`` derives (spec 4.1). Every
+    other stored string is a free-form name.
+    """
+
+    if not isinstance(value, str):
+        return False
+    return _ALICE_PROJECT_ID_PATTERN.fullmatch(project_identifier_identity(value)) is not None
+
+
+def is_global_scope(scope: object) -> bool:
+    """True when a scope holds no Alice project id: empty, or free-form names only (spec 4.1)."""
+
+    return not any(is_alice_project_id(item) for item in project_scope_identity(scope))
+
+
+def holds_global_marker(scope: object) -> bool:
+    """True when a request tuple holds the reserved marker, however it is spelled."""
+
+    return GLOBAL_PROJECT_MARKER in project_scope_identity(scope)
+
+
+def refuse_global_marker(scope: object, *, where: str) -> None:
+    """Raise ``ValueError`` when ``scope`` holds the reserved marker.
+
+    For the helpers that take explicit project names only. A helper that did not
+    know the marker would read it as a name no row holds and hide every global
+    note without saying so, so it refuses. The message is fixed words and the name
+    of the caller, never the request.
+    """
+
+    if holds_global_marker(scope):
+        raise ValueError(f"{where} takes explicit project names only and does not accept the global marker")
+
+
 def project_scopes_overlap(resource_scope: object, requested_scope: object) -> bool:
+    """Does the resource's scope meet the requested tuple?
+
+    The tuple may hold the reserved marker. The marker asks for a resource whose
+    scope holds no Alice project id, and is never compared with a stored value.
+    Every other entry is an identifier compared by identity.
+    """
+
     requested = set(project_scope_identity(requested_scope))
-    return bool(requested and requested.intersection(project_scope_identity(resource_scope)))
+    if not requested:
+        return False
+    resource = project_scope_identity(resource_scope)
+    if GLOBAL_PROJECT_MARKER in requested:
+        requested.discard(GLOBAL_PROJECT_MARKER)
+        if not any(is_alice_project_id(item) for item in resource):
+            return True
+    return bool(requested.intersection(resource))
 
 
 __all__ = [
+    "GLOBAL_PROJECT_MARKER",
     "canonical_memory_metadata",
     "expose_memory_project_scope",
+    "holds_global_marker",
+    "is_alice_project_id",
+    "is_global_scope",
     "memory_project_scope",
     "normalize_project_identifier",
     "normalize_project_scope",
@@ -330,6 +394,7 @@ __all__ = [
     "project_identifier_identity",
     "project_scope_identity",
     "project_scopes_overlap",
+    "refuse_global_marker",
     "resolve_project_scope",
     "resolve_source_metadata_project_scope",
     "source_capture_identity_matches",
