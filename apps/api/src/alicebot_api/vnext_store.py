@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import itertools
 import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from typing import Any, cast
 from uuid import uuid4
@@ -204,6 +206,9 @@ from alicebot_api.vnext_stores.retrieval_common import (
 JsonList = list[object]
 VNextRow = dict[str, object]
 MAX_SOURCE_CHUNKS_PER_READ = 501
+# Names for nested savepoints. One counter for the process, so a nested block
+# never reuses its parent's name.
+_SAVEPOINT_NAMES = itertools.count(1)
 
 
 
@@ -3615,6 +3620,42 @@ class PostgresVNextStore:
             (workflow_type,),
         )
         return bool(row.get("acquired"))
+
+    @contextmanager
+    def savepoint(self) -> Iterator[None]:
+        """Run one unit of writes that lands whole or leaves no row.
+
+        An exception rolls back everything written inside the block, including
+        the events it appended, and is re-raised for the caller to report. The
+        enclosing transaction stays open and commits once, when its owner
+        commits. The rollback also clears the aborted state a failed statement
+        leaves in the transaction, so the caller can log the failure and carry
+        on with the next unit.
+
+        This is a plain ``SAVEPOINT`` and never a transaction of its own. On a
+        pooled product connection the transaction is already open. On any other
+        connection that is not in autocommit mode, the first statement begins
+        the transaction and its owner commits it. On an autocommit connection
+        Postgres refuses a savepoint outside a transaction block, so it fails
+        loudly instead of committing at the end of the block.
+        """
+
+        name = f"alice_savepoint_{next(_SAVEPOINT_NAMES)}"
+        self.conn.execute(f"SAVEPOINT {name}")
+        try:
+            yield
+        except BaseException:
+            try:
+                self.conn.execute(f"ROLLBACK TO SAVEPOINT {name}")
+                self.conn.execute(f"RELEASE SAVEPOINT {name}")
+            except psycopg.Error:
+                # The connection is gone or the transaction already ended, so
+                # there is no savepoint left to roll back to. The caller's
+                # error is the one to report, not this one.
+                pass
+            raise
+        else:
+            self.conn.execute(f"RELEASE SAVEPOINT {name}")
 
 
 __all__ = [
