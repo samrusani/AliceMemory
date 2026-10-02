@@ -475,6 +475,8 @@ def test_a_batch_saves_each_variants_recall_and_a_fingerprint_that_can_be_read_b
     assert fingerprint["vault_build"] == manifest["build"]
     assert fingerprint["gates_sha256"] == bench.load_gates().sha256
     assert (fingerprint["recall_limit"], fingerprint["grep_cap_bytes"], fingerprint["byte_budgets"]) == (8, 16384, [4096, 8192])
+    assert fingerprint["recall_arguments"] == [{}], "every recall of the batch sent the query alone"
+    assert (fingerprint["recall_context_depth"], fingerprint["recall_include_sources"]) == ("low", True)
     assert (fingerprint["answerer_model"], fingerprint["judge_model"]) == ("answerer-x", "judge-y")
     with bench.scoped_environment():
         session = bench.McpSession(run / bench.VAULT_DIRNAME / bench.VAULT_FILENAME)
@@ -1130,3 +1132,416 @@ def test_a_source_the_vault_has_deleted_is_not_in_the_grep_snapshot(tmp_path: Pa
     snapshot = tmp_path / "snapshot"
     assert len(bench.export_snapshot(db, snapshot, corpus_root=CORPUS)) == 7
     assert len(list(snapshot.rglob("*.md"))) == 7
+
+
+# Part 2: the request the harness sends, the failures of the search command, two guards ---------------
+
+
+def _record_wire(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
+    """Record the params of every ``tools/call`` that reaches the server, as the server receives them.
+
+    This reads the request on the server's side of the call, so it does not depend on what the harness
+    believes it sent.
+    """
+
+    from alicebot_api.mcp_server import MCPServer
+
+    seen: list[dict[str, Any]] = []
+    real = MCPServer._handle_request
+
+    def recording(self: Any, request: dict[str, Any]) -> Any:
+        if request.get("method") == "tools/call":
+            seen.append(json.loads(json.dumps(request["params"])))
+        return real(self, request)
+
+    monkeypatch.setattr(MCPServer, "_handle_request", recording)
+    return seen
+
+
+def _db_of(run: Path) -> Path:
+    return run / bench.VAULT_DIRNAME / bench.VAULT_FILENAME
+
+
+def test_the_tier_one_recall_sends_the_query_and_nothing_else_from_every_command_that_recalls(
+    run: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """TH3. ``limit``, ``context_depth``, ``include_sources`` and every other argument are left at the tool's defaults.
+
+    The fixture corpus cannot tell a limit of 8 from 20 or a depth of low from high (it returns at most
+    five sources and holds no entities), so the output proves nothing about the request. This reads the
+    request itself, at the server: exactly the tool name and the query, from ``McpSession.recall``, from
+    the ``recall`` command and from every recall of ``batch``.
+
+    Mutation: send ``limit`` 20 (or any ``limit``), ``context_depth`` ``high``, ``include_sources`` false,
+    ``debug``, a project scope or an agent identity from ``McpSession.recall``, or make
+    ``alice_arm_arguments`` return the three defaults written out. Each changes the request, and the
+    fingerprint would still read the tool's default.
+    """
+
+    wire = _record_wire(monkeypatch)
+    with bench.scoped_environment():
+        assert bench.McpSession(_db_of(run)).recall(QUERY)
+    assert wire == [{"name": "alice_recall", "arguments": {"query": QUERY}}]
+
+    wire.clear()
+    assert bench.main(["recall", "--run-dir", str(run), "--query", QUERY]) == 0
+    capsys.readouterr()
+    assert wire == [{"name": "alice_recall", "arguments": {"query": QUERY}}]
+
+    wire.clear()
+    out = tmp_path / "outputs.json"
+    assert bench.main(["batch", "--run-dir", str(run), "--questions", str(QUESTIONS), "--out", str(out)]) == 0
+    capsys.readouterr()
+    qset = bench.load_questions(QUESTIONS)
+    expected = [
+        {"name": "alice_recall", "arguments": {"query": question.query_for(variant)}}
+        for question in qset.questions
+        for variant in bench.VARIANTS
+    ]
+    assert wire == expected and len(wire) == 2 * len(qset.questions)
+
+
+def test_the_alice_arm_of_search_sends_the_query_and_nothing_else_and_a_refused_setting_sends_nothing(
+    run: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """TH3. The ``search --arm alice`` runner sends the query alone, also when the pinned flags name the defaults.
+
+    A flag that names another value is refused before anything reaches the server.
+
+    Mutation: add ``limit`` 20 or ``context_depth`` ``high`` (or any other argument) to the call in the runner
+    of ``_cmd_search``, send the flags the agent typed instead of the pinned arguments, or make
+    ``alice_arm_arguments`` return the defaults written out.
+    """
+
+    wire = _record_wire(monkeypatch)
+    common = ["search", "--arm", "alice", "--run-dir", str(run), "--query", QUERY]
+    state = _state(run, tmp_path.name, "wire")
+    assert bench.main([*common, "--state-dir", str(state)]) == 0
+    assert wire == [{"name": "alice_recall", "arguments": {"query": QUERY}}]
+
+    wire.clear()
+    named = _state(run, tmp_path.name, "wire-named")
+    defaults = ["--limit", "8", "--context-depth", "low", "--include-sources", "true"]
+    assert bench.main([*common, "--state-dir", str(named), *defaults]) == 0
+    assert wire == [{"name": "alice_recall", "arguments": {"query": QUERY}}]
+    capsys.readouterr()
+
+    wire.clear()
+    for flags in (["--limit", "20"], ["--context-depth", "high"], ["--include-sources", "false"]):
+        refused = _state(run, tmp_path.name, "wire-refused" + flags[0])
+        assert bench.main([*common, "--state-dir", str(refused), *flags]) == bench.EXIT_REFUSED
+        assert not (refused / "search.count").exists()
+    assert wire == []
+    capsys.readouterr()
+
+
+def _fingerprint_after(run: Path, monkeypatch: pytest.MonkeyPatch, *calls: dict[str, Any]) -> tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, Any]]]:
+    """The fingerprint of a session that sent ``calls`` straight to the tool, with what was recorded and what arrived."""
+
+    wire = _record_wire(monkeypatch)
+    with bench.scoped_environment():
+        session = bench.McpSession(_db_of(run))
+        for arguments in calls:
+            is_error, _text = session.call("alice_recall", arguments)
+            assert is_error is False
+        print_ = bench.fingerprint(
+            repo=REPO_ROOT,
+            gates=bench.load_gates(),
+            session=session,
+            manifest=_manifest(run),
+            search_quality=None,
+            question_set_sha256=None,
+        )
+        recorded = [dict(item) for item in session.recall_calls]
+    arrived = [dict(item["arguments"]) for item in wire if item["name"] == "alice_recall"]
+    return print_, recorded, arrived
+
+
+def test_the_fingerprint_reads_the_recall_settings_off_the_calls_that_were_sent(
+    run: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """TH9. ``recall_limit`` and its neighbours come from the arguments a session sent, not from a constant.
+
+    The calls go straight to the tool here, past the pinned wrapper, so the test can send a limit of 20 or
+    a depth of high and see the fingerprint say so. A call that leaves a setting out is read as the
+    tool's default. Calls that disagree are all listed. The session's record equals what reached the server.
+
+    Mutation: write ``PINNED_RECALL_DEFAULTS`` back into the fingerprint fields (the old constant), read
+    only the first call, keep the record from the pinned wrapper instead of the wire, or drop
+    ``recall_arguments``, ``recall_context_depth`` or ``recall_include_sources`` from the fingerprint.
+    """
+
+    def fields(print_: dict[str, Any]) -> tuple[Any, ...]:
+        return (
+            print_["recall_arguments"],
+            print_["recall_limit"],
+            print_["recall_context_depth"],
+            print_["recall_include_sources"],
+        )
+
+    plain, recorded, arrived = _fingerprint_after(run, monkeypatch, {"query": QUERY})
+    assert fields(plain) == ([{}], 8, "low", True)
+    assert recorded == arrived == [{"query": QUERY}]
+
+    wide, recorded, arrived = _fingerprint_after(run, monkeypatch, {"query": QUERY, "limit": 20})
+    assert fields(wide) == ([{"limit": 20}], 20, "low", True)
+    assert recorded == arrived == [{"query": QUERY, "limit": 20}]
+
+    deep, _recorded, _arrived = _fingerprint_after(run, monkeypatch, {"query": QUERY, "context_depth": "high"})
+    assert fields(deep) == ([{"context_depth": "high"}], 8, "high", True)
+
+    bare, _recorded, _arrived = _fingerprint_after(run, monkeypatch, {"query": QUERY, "include_sources": False})
+    assert fields(bare) == ([{"include_sources": False}], 8, "low", False)
+
+    scoped, _recorded, _arrived = _fingerprint_after(run, monkeypatch, {"query": QUERY, "domains": ["project"]})
+    assert scoped["recall_arguments"] == [{"domains": ["project"]}] and scoped["recall_limit"] == 8
+
+    mixed, recorded, arrived = _fingerprint_after(
+        run, monkeypatch, {"query": QUERY}, {"query": QUERY, "limit": 20}, {"query": QUERY, "limit": 20}
+    )
+    assert sorted(json.dumps(item, sort_keys=True) for item in mixed["recall_arguments"]) == ['{"limit": 20}', "{}"]
+    assert sorted(mixed["recall_limit"]) == [8, 20]
+    assert mixed["recall_context_depth"] == "low"
+    assert recorded == arrived and len(recorded) == 3
+
+    for key in ("recall_arguments", "recall_limit", "recall_context_depth", "recall_include_sources"):
+        assert key in bench.SAME_ACROSS_ORDERS, "outputs that differ in a recall setting are never compared"
+
+
+def test_a_fingerprint_with_no_recall_behind_it_sends_one_probe_through_the_recall_path_and_only_one(
+    run: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """TH9. The ``fingerprint`` command opens a fresh session, so its recall settings come from one real call.
+
+    Mutation: drop the probe from ``fingerprint`` (the settings would then have no call to read), send the
+    probe on every fingerprint, or send it with an argument beyond the query.
+    """
+
+    wire = _record_wire(monkeypatch)
+    with bench.scoped_environment():
+        session = bench.McpSession(_db_of(run))
+        kwargs: dict[str, Any] = {
+            "repo": REPO_ROOT,
+            "gates": bench.load_gates(),
+            "session": session,
+            "manifest": _manifest(run),
+            "search_quality": None,
+            "question_set_sha256": None,
+        }
+        first = bench.fingerprint(**kwargs)
+        second = bench.fingerprint(**kwargs)
+    probes = [item for item in wire if item["name"] == "alice_recall"]
+    assert probes == [{"name": "alice_recall", "arguments": {"query": bench.FINGERPRINT_PROBE_QUERY}}]
+    assert session.recall_calls == [{"query": bench.FINGERPRINT_PROBE_QUERY}]
+    assert first["recall_limit"] == second["recall_limit"] == 8
+
+
+def test_the_defaults_a_call_is_read_as_are_the_products_own_for_all_three_settings(run: Path) -> None:
+    """TH3. What the fingerprint fills in for a setting a call left out is what the tool really does.
+
+    The limit and the depth are the product's own constants. Sources come back by default and
+    ``include_sources`` false removes them, so the default is true by behaviour, not by description.
+
+    Mutation: change a value of ``PINNED_RECALL_DEFAULTS`` (limit 20, depth ``high``, sources false).
+    """
+
+    from alicebot_api.mcp.types import _RECALL_DEFAULT_LIMIT
+    from alicebot_api.vnext_retrieval import CONTEXT_DEPTH_LOW
+
+    assert bench.PINNED_RECALL_DEFAULTS["limit"] == _RECALL_DEFAULT_LIMIT
+    assert bench.PINNED_RECALL_DEFAULTS["context_depth"] == CONTEXT_DEPTH_LOW
+    with bench.scoped_environment():
+        session = bench.McpSession(_db_of(run))
+        default = session.call("alice_recall", {"query": QUERY})
+        named = session.call("alice_recall", {"query": QUERY, "include_sources": bench.PINNED_RECALL_DEFAULTS["include_sources"]})
+        off = session.call("alice_recall", {"query": QUERY, "include_sources": False})
+    assert default == named and json.loads(default[1])["sources"]
+    assert not json.loads(off[1]).get("sources")
+    assert bench.recall_settings([{"query": QUERY}]) == {"arguments": [{}], **dict(bench.PINNED_RECALL_DEFAULTS)}
+
+
+# The failures of the search command ----------------------------------------------------------------
+
+
+def _search_files(state: Path) -> tuple[bool, bool]:
+    return (state / "search.count").exists(), (state / "search_log.jsonl").exists()
+
+
+def test_an_alice_tool_error_exits_non_zero_is_logged_as_an_error_and_spends_the_search(
+    run: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """TH2. A recall the product refuses is an error of the search: exit status 1, a log line that says error, one search spent.
+
+    The query below has more distinct terms than the product's source search takes.
+
+    Mutation: report every tool result as ``ok`` in the runner of ``_cmd_search``, return ``EXIT_OK`` whatever
+    the status, or skip the log line of an error. An agent would read the refusal as an answer, or the
+    count and the log would disagree.
+    """
+
+    state = _state(run, tmp_path.name, "tool-error")
+    too_many_terms = " ".join(f"term{number}" for number in range(600))
+    code = bench.main(["search", "--arm", "alice", "--run-dir", str(run), "--state-dir", str(state), "--query", too_many_terms])
+    shown = capsys.readouterr()
+    assert code == bench.EXIT_SEARCH_ERROR and code != 0
+    assert "distinct search terms" in shown.out and shown.err == ""
+    entry = _log(state)[0]
+    assert (entry["n"], entry["arm"], entry["status"]) == (1, "alice", "error")
+    assert entry["input"] == too_many_terms and entry["bytes"] == len(shown.out.strip().encode())
+    assert (state / "search.count").read_text() == "1"
+    assert bench.main(["search", "--arm", "alice", "--run-dir", str(run), "--state-dir", str(state), "--query", QUERY]) == 0
+    capsys.readouterr()
+    assert [line["status"] for line in _log(state)] == ["error", "ok"]
+
+
+def test_a_grep_search_that_fails_never_exits_zero_in_this_process_or_in_its_own(
+    big_run: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """TH2. A bad pattern and a grep that raises something nobody planned for each exit non-zero, are logged as errors and are counted.
+
+    The exit status is also read from a process of its own, because the line at the bottom of the script
+    is what turns the status of ``main`` into the status of the process.
+
+    Mutation: return ``EXIT_OK`` whatever the status of the result, give a failed search the status
+    ``ok`` in ``run_budgeted_search`` (either branch), or end the script with ``raise SystemExit(0)``.
+    """
+
+    bad = _state(big_run, tmp_path.name, "bad-pattern")
+    args = ["search", "--arm", "grep", "--run-dir", str(big_run), "--state-dir", str(bad)]
+    code = bench.main([*args, "--pattern", "(", "--grep-options=-E"])
+    shown = capsys.readouterr()
+    assert code == bench.EXIT_SEARCH_ERROR
+    assert shown.out.startswith("error: grep failed") and shown.err == ""
+    assert [(line["n"], line["status"], line["arm"]) for line in _log(bad)] == [(1, "error", "grep")]
+    assert (bad / "search.count").read_text() == "1"
+
+    unplanned = _state(big_run, tmp_path.name, "unplanned")
+
+    def exploding(*_args: Any, **_kwargs: Any) -> Any:
+        raise OSError("the disk is gone at /secret/place")
+
+    monkeypatch.setattr(bench, "grep_search", exploding)
+    code = bench.main(["search", "--arm", "grep", "--run-dir", str(big_run), "--state-dir", str(unplanned), "--pattern", "lamp"])
+    shown = capsys.readouterr()
+    assert code == bench.EXIT_SEARCH_ERROR
+    assert shown.out == "error: the search failed (OSError)\n" and "secret" not in shown.out + shown.err
+    assert [(line["n"], line["status"]) for line in _log(unplanned)] == [(1, "error")]
+    monkeypatch.undo()
+
+    own_process = _state(big_run, tmp_path.name, "own-process")
+    result = _cli("search", "--arm", "grep", "--run-dir", str(big_run), "--state-dir", str(own_process), "--pattern", "(", "--grep-options=-E")
+    assert result.returncode == bench.EXIT_SEARCH_ERROR and result.stdout.startswith("error: grep failed")
+    assert "Traceback" not in result.stderr
+    good = _cli("search", "--arm", "grep", "--run-dir", str(big_run), "--state-dir", str(own_process), "--pattern", "paraffin")
+    assert good.returncode == 0 and "lamps.md:" in good.stdout
+
+
+@pytest.mark.parametrize(
+    ("arm", "missing", "flags"),
+    [
+        ("alice", "the alice arm needs --query", ["--pattern", "key"]),
+        ("alice", "the alice arm needs --query", []),
+        ("grep", "the grep arms need --pattern", ["--query", "key"]),
+        ("grep-uncapped", "the grep arms need --pattern", []),
+    ],
+)
+def test_a_search_with_no_query_or_no_pattern_is_refused_and_spends_nothing(
+    run: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str], arm: str, missing: str, flags: list[str]
+) -> None:
+    """TH2. The alice arm needs ``--query`` and the grep arms need ``--pattern``. Without it nothing is spent.
+
+    The other arm's input does not stand in for the missing one. No counter file and no log line exist after
+    the refusal, and a search that follows still has all its searches.
+
+    Mutation: drop the check of ``--query`` or of ``--pattern`` in ``_cmd_search`` (the search would then run
+    with nothing and be counted and logged as an error), or move the check into the runner, where the
+    count is already spent.
+    """
+
+    state = _state(run, tmp_path.name, "missing-" + arm + str(len(flags)))
+    code = bench.main(["search", "--arm", arm, "--run-dir", str(run), "--state-dir", str(state), *flags])
+    shown = capsys.readouterr()
+    assert code == bench.EXIT_REFUSED
+    assert shown.out == "" and shown.err == f"refused: {missing}\n"
+    assert _search_files(state) == (False, False)
+    follow = ["--query", QUERY] if arm == "alice" else ["--pattern", "key"]
+    assert bench.main(["search", "--arm", arm, "--run-dir", str(run), "--state-dir", str(state), *follow]) == 0
+    capsys.readouterr()
+    assert (state / "search.count").read_text() == "1"
+
+
+# Two guards of the harness: the git environment and file names behind two dashes ------------------------
+
+
+def test_git_runs_without_any_git_variable_of_the_parent_and_reads_the_checkout_it_was_given(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """TH9. A hook or a wrapper that exports ``GIT_DIR`` must not point the harness's git calls at another repository.
+
+    The commit and the dirty flag name the checkout under test. The test sets five ``GIT_`` variables, one of
+    them aimed at a second repository, and reads the environment that every git call of ``git_state`` got.
+
+    Mutation: pass the whole parent environment to git, strip only ``GIT_DIR``, or strip every variable
+    (``PATH`` goes too). The commit would be the other repository's, or git would not run.
+    """
+
+    checkout = _small_repo(tmp_path / "checkout")
+    other = _small_repo(tmp_path / "other")
+    (other / "docs" / "page.md").write_text("another page\n", encoding="utf-8")
+    _git(other, "add", "-A")
+    _git(other, "commit", "-q", "-m", "second")
+    assert _head(checkout) != _head(other)
+    (checkout / "apps" / "tool.py").write_text("VALUE = 2\n", encoding="utf-8")
+    checkout_head = _head(checkout)
+
+    monkeypatch.setenv("GIT_DIR", str(other / ".git"))
+    monkeypatch.setenv("GIT_WORK_TREE", str(other))
+    monkeypatch.setenv("GIT_INDEX_FILE", str(other / ".git" / "index"))
+    monkeypatch.setenv("GIT_OBJECT_DIRECTORY", str(other / ".git" / "objects"))
+    monkeypatch.setenv("GIT_CEILING_DIRECTORIES", str(tmp_path))
+    seen: list[dict[str, str]] = []
+    real_run = subprocess.run
+
+    def recording(*args: Any, **kwargs: Any) -> Any:
+        seen.append(dict(kwargs["env"]))
+        return real_run(*args, **kwargs)
+
+    monkeypatch.setattr(subprocess, "run", recording)
+    state = bench.git_state(checkout)
+    assert state == {"git_sha": checkout_head, "dirty": True}
+    assert len(seen) == 3, "rev-parse, diff and ls-files"
+    for env in seen:
+        assert not [name for name in env if name.startswith("GIT_")]
+        assert env["PATH"] == os.environ["PATH"]
+
+
+def test_a_snapshot_file_whose_name_starts_with_a_dash_is_read_as_a_file_in_grep_and_through_the_commands(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """TH10. The file names go to grep behind ``--``, so a name such as ``-lamp.md`` is a file and never a flag.
+
+    The corpus below holds a file and a folder whose names start with a dash. The harness builds them, copies
+    them into the snapshot under those names, and a grep over the snapshot prints their lines.
+
+    Mutation: drop ``--`` from the grep call in ``grep_search``. Grep would read ``-lamp.md`` as the flags
+    ``-l -a -m`` and stop with an error, or print the wrong thing.
+    """
+
+    corpus = tmp_path / "corpus"
+    (corpus / "-folder").mkdir(parents=True)
+    (corpus / "-lamp.md").write_text("# Lamp\n\nThe lamp burns paraffin.\n", encoding="utf-8")
+    (corpus / "-folder" / "-n.md").write_text("# Nested\n\nThe nested lamp burns paraffin too.\n", encoding="utf-8")
+    (corpus / "plain.md").write_text("# Plain\n\nThe plain lamp burns paraffin as well.\n", encoding="utf-8")
+    run_dir = tmp_path / "run"
+    assert bench.main(["build", "--run-dir", str(run_dir), "--corpus", str(corpus)]) == 0
+    capsys.readouterr()
+    snapshot = run_dir / bench.SNAPSHOT_DIRNAME
+    assert (snapshot / "-lamp.md").is_file() and (snapshot / "-folder" / "-n.md").is_file()
+
+    found = bench.grep_search(snapshot, pattern="paraffin", options="", cap=None)
+    assert found.status == "ok"
+    names = sorted(line.split(":", 1)[0] for line in found.text.splitlines())
+    assert names == ["-folder/-n.md", "-lamp.md", "plain.md"]
+    state = _state(run_dir, tmp_path.name, "dash")
+    assert bench.main(["search", "--arm", "grep", "--run-dir", str(run_dir), "--state-dir", str(state), "--pattern", "nested"]) == 0
+    assert capsys.readouterr().out == "-folder/-n.md:The nested lamp burns paraffin too.\n"

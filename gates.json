@@ -115,10 +115,8 @@
     "split_threshold_minutes": 17,
     "new_test_budget_seconds": 90,
     "p0a_tests": {
-      "files": 6,
-      "count": 109,
-      "seconds_measured_locally": 19,
-      "note": "The tests of the harness pull request, run alone on a laptop. The CI cost is read from the python-unit job of that pull request against the measured range above."
+      "seconds_measured_locally": 24,
+      "note": "The measured duration of the tests of the harness pull request, run alone on a laptop. It holds no count of tests or files, because a count goes stale with the next test. The budget is new_test_budget_seconds, and the CI cost is read from the python-unit job of that pull request against the measured range above."
     },
     "rule": "The tests of the search-quality release add at most new_test_budget_seconds to this job. The on-mode job is a separate job and runs in parallel. If the job passes split_threshold_minutes, the first pull request to cross the line splits the unit tests by directory before another test lands."
   },

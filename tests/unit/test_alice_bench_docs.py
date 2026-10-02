@@ -55,8 +55,6 @@ VENDOR_NAMES = (
     "Codex",
     "Gemini",
     "Copilot",
-    "CodeRabbit",
-    "Greptile",
     "Cursor",
     "Sonnet",
     "Opus",

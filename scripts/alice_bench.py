@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import copy
 import fcntl
 import hashlib
 import io
@@ -74,13 +75,22 @@ SEARCH_QUALITY_ENV = "ALICE_SEARCH_QUALITY"
 DEFAULT_USER_ID = "00000000-0000-0000-0000-000000000001"
 VARIANTS = ("verbatim", "keyword")
 
+RECALL_TOOL = "alice_recall"
+
 # The Alice arm keeps these three at the tool's own defaults. The wrapper sends
 # only the query and refuses any other value, so the claim can name the setting.
+# A call that leaves one out gets the tool's default, which is what the
+# fingerprint records for it; what a call really carried is recorded as sent.
 PINNED_RECALL_DEFAULTS: Mapping[str, object] = {
     "limit": 8,
     "context_depth": "low",
     "include_sources": True,
 }
+
+# A fingerprint reads its recall settings off the calls a session sent. A session that
+# has sent none yet (the ``fingerprint`` command opens a fresh one) sends this one, an
+# ordinary word, through the same path every recall takes.
+FINGERPRINT_PROBE_QUERY = "notes"
 
 # Tier 1 scores text that came out of the vault and nothing else. Leaves are
 # named by a path in which each list index is written "[]".
@@ -1114,7 +1124,10 @@ SAME_ACROSS_ORDERS = (
     "alicebot_api_file",
     "tools_list_digest",
     "search_quality",
+    "recall_arguments",
     "recall_limit",
+    "recall_context_depth",
+    "recall_include_sources",
     "corpus_hash",
     "snapshot_hash",
     "question_set_sha256",
@@ -1190,11 +1203,16 @@ class McpSession:
         context = MCPRuntimeContext(database_url=onramp.sqlite_url_for_path(db_path), user_id=UUID(user_id))
         self._server = MCPServer(context=context, input_stream=io.BytesIO(), output_stream=io.BytesIO())
         self._next_id = 1
+        # The arguments of every alice_recall call this session sent, as they reached the
+        # server. The fingerprint reads the recall settings from here and from nothing else.
+        self.recall_calls: list[dict[str, Any]] = []
 
     def _request(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         request: dict[str, Any] = {"jsonrpc": "2.0", "id": self._next_id, "method": method}
         if params is not None:
             request["params"] = params
+            if method == "tools/call" and params.get("name") == RECALL_TOOL:
+                self.recall_calls.append(copy.deepcopy(dict(params.get("arguments") or {})))
         self._next_id += 1
         response = self._server._handle_request(request)
         if response is None:
@@ -1217,7 +1235,7 @@ class McpSession:
         return bool(result.get("isError")), text
 
     def recall(self, query: str) -> str:
-        is_error, text = self.call("alice_recall", alice_arm_arguments(query))
+        is_error, text = self.call(RECALL_TOOL, alice_arm_arguments(query))
         if is_error:
             raise BenchError("alice_recall returned an error: " + text[:200])
         return text
@@ -1247,6 +1265,27 @@ def alice_arm_arguments(
     return {"query": query}
 
 
+def recall_settings(calls: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    """What a set of ``alice_recall`` calls carried, read off the calls themselves.
+
+    ``arguments`` lists each distinct set of arguments sent, without the query (``[{}]``
+    when every call sent the query alone). Each of the three pinned settings is the value
+    the calls sent, or the tool's own default for a call that left it out: one value when
+    every call agrees, the sorted distinct values when they do not.
+    """
+
+    if not calls:
+        raise BenchError("no alice_recall call was sent, so there are no recall settings to record")
+    arguments = sorted(
+        {canonical_json({name: value for name, value in call.items() if name != "query"}) for call in calls}
+    )
+    settings: dict[str, Any] = {"arguments": [json.loads(item) for item in arguments]}
+    for name, default in PINNED_RECALL_DEFAULTS.items():
+        distinct = sorted({canonical_json(call.get(name, default)) for call in calls})
+        settings[name] = json.loads(distinct[0]) if len(distinct) == 1 else [json.loads(item) for item in distinct]
+    return settings
+
+
 def tools_list_digest(tools: Sequence[Mapping[str, Any]]) -> str:
     return sha256_bytes(canonical_json(list(tools)).encode("utf-8"))
 
@@ -1268,6 +1307,9 @@ def fingerprint(
 ) -> dict[str, Any]:
     """What a number measured. Not ``alicebot_api.__version__``: that reads installed
     distribution metadata and can name a different build than the tree on the path.
+
+    The recall settings are read off the ``alice_recall`` calls the session sent. A session
+    that has sent none yet sends one probe call first, so the fields always describe a real call.
     """
 
     import alicebot_api
@@ -1275,6 +1317,11 @@ def fingerprint(
     real_file = Path(os.path.realpath(alicebot_api.__file__))
     state = git_state(repo)
     tools = session.tools_list() if session is not None else None
+    recall: dict[str, Any] | None = None
+    if session is not None:
+        if not session.recall_calls:
+            session.recall(FINGERPRINT_PROBE_QUERY)
+        recall = recall_settings(session.recall_calls)
     return {
         "git_sha": state["git_sha"],
         "dirty": state["dirty"],
@@ -1283,7 +1330,10 @@ def fingerprint(
         "vault_build": None if manifest is None else manifest.get("build"),
         "tools_list_digest": None if tools is None else tools_list_digest(tools),
         "search_quality": search_quality if search_quality is not None else "unset",
-        "recall_limit": PINNED_RECALL_DEFAULTS["limit"],
+        "recall_arguments": None if recall is None else recall["arguments"],
+        "recall_limit": None if recall is None else recall["limit"],
+        "recall_context_depth": None if recall is None else recall["context_depth"],
+        "recall_include_sources": None if recall is None else recall["include_sources"],
         "byte_budgets": list(gates.budgets),
         "grep_cap_bytes": gates.grep_cap,
         "corpus_hash": None if manifest is None else manifest.get("corpus_hash"),
@@ -1677,7 +1727,7 @@ def _cmd_search(args: argparse.Namespace) -> int:
         session = McpSession(vault_path(data_dir))
 
         def runner() -> SearchResult:
-            is_error, text = session.call("alice_recall", arguments)
+            is_error, text = session.call(RECALL_TOOL, arguments)
             return SearchResult(text=text, status="error" if is_error else "ok", truncated=False, raw_bytes=len(text.encode("utf-8")))
 
         search_input = args.query

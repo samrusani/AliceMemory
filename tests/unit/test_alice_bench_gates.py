@@ -175,8 +175,9 @@ def test_the_ci_time_budget_matches_the_workflow_it_describes() -> None:
     lands if it passes 17 minutes.
 
     Mutation: change ``timeout-minutes`` of the python-unit job in the workflow (the budget then
-    describes a different job), record a split threshold at or above the timeout, or write the sample
-    as fewer runs than it was taken over.
+    describes a different job), record a split threshold at or above the timeout, write the sample
+    as fewer runs than it was taken over, or record a count of tests or files of the harness (it
+    would go stale with the next test: the entry holds the measured duration and its note only).
     """
 
     budget = _thresholds()["ci_time"]
@@ -193,6 +194,8 @@ def test_the_ci_time_budget_matches_the_workflow_it_describes() -> None:
     assert (measured["min"], measured["median"], measured["max"]) == (444, 693.5, 904)
     assert "every successful push run" in budget["measured_scope"] and "2026-10-01 and 2026-10-02" in budget["measured_scope"]
     assert budget["p0a_tests"]["seconds_measured_locally"] < budget["new_test_budget_seconds"]
+    assert set(budget["p0a_tests"]) == {"seconds_measured_locally", "note"}, "no count of tests or files that can go stale"
+    assert "new_test_budget_seconds" in budget["p0a_tests"]["note"] and "count" in budget["p0a_tests"]["note"]
 
 
 def test_a_file_that_is_not_a_gates_file_is_refused_and_the_properties_read_the_locked_numbers(tmp_path: Path) -> None:
