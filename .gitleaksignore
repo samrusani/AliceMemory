@@ -92,3 +92,7 @@ bf0f7a9fd2fe0d1a13c49fa11f5314015b0740a4:tests/unit/test_vnext_memory_commit.py:
 # the first test commit. The follow-up builds that token from parts at run
 # time. History is not rewritten, so the old commit stays in the scan range.
 ff4d411a6bdb85aab5c50b43dab0e6a0be544fad:tests/unit/test_import_quarantine.py:generic-api-key:31
+# Planted key-shaped value in the host-evidence test stand-ins: a made-up string the tests check
+# no artifact keeps. The file now builds it at run time; this entry covers the historical blob in
+# the PR range. Not a credential.
+617a94f9a54c2ec587713eeae9665cef82e9913c:tests/unit/host_evidence_fakes.py:generic-api-key:25
