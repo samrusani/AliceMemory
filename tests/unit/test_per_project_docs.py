@@ -55,17 +55,19 @@ def test_the_projects_page_marks_its_opening_paragraph_and_the_sentence_that_cov
 
 
 def test_the_resume_bullet_of_the_tools_page_marks_the_per_project_paragraph() -> None:
-    """Mutation: delete the marker from the ``alice_resume`` bullet of ``docs/alpha/mcp-tools.md``.
+    """Mutation: delete the marker from the ``alice_resume`` bullet of ``docs/alpha/mcp-tools.md``, or add a second one
+    to that bullet.
 
-    The bullet describes v0.20.0 first, then, after the marker, what main does with scoping on. The marker sits in
-    that bullet and nowhere else on the page, ahead of the sentence about the project the server started in.
+    The bullet describes v0.20.0 first, then, after the marker, what main does with scoping on. The marker sits once
+    in that bullet. Other bullets of the page carry their own markers (the commit limit does) and their own tests, so
+    the count is the bullet's, not the page's.
     """
 
     text = _read("docs/alpha/mcp-tools.md")
     start = text.index("- `alice_resume`")
     bullet = _flat(text[start : text.index("\n\n", start)])
     assert MARK + ": with per-project scoping on, on the SQLite server, a call that names no project reads" in bullet
-    assert _flat(text).count(MARK) == 1
+    assert bullet.count(MARK) == 1
 
 
 def test_the_docs_and_the_changelog_name_the_one_input_that_differs_with_scoping_off() -> None:
