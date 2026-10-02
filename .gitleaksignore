@@ -98,3 +98,7 @@ ff4d411a6bdb85aab5c50b43dab0e6a0be544fad:tests/unit/test_import_quarantine.py:ge
 # builds the word from parts and renames the variable. History is not rewritten,
 # so the old commit stays in the scan range.
 c9199e2d48c89d052de3152de5a4c2f834ae7aee:tests/unit/test_project_cli.py:generic-api-key:42
+# Planted key-shaped value in the host-evidence test stand-ins: a made-up string the tests check
+# no artifact keeps. The file now builds it at run time; this entry covers the historical blob in
+# the PR range. Not a credential.
+617a94f9a54c2ec587713eeae9665cef82e9913c:tests/unit/host_evidence_fakes.py:generic-api-key:25
