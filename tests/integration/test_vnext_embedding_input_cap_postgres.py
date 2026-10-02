@@ -93,12 +93,19 @@ def test_cap_label_comparison_matches_python_text_length(
         for cap in (length - 1, length, length + 1):
             cut = length > cap
             sign(cap if cut else None)
-            assert store.list_memories_missing_embeddings(**SIGNATURE, embedding_input_cap=cap) == []
+            assert (
+                store.list_memories_missing_embeddings(
+                    statuses=("active", "accepted"), **SIGNATURE, embedding_input_cap=cap
+                )
+                == []
+            )
 
             sign(None if cut else cap)
-            listed = store.list_memories_missing_embeddings(**SIGNATURE, embedding_input_cap=cap)
+            listed = store.list_memories_missing_embeddings(
+                statuses=("active", "accepted"), **SIGNATURE, embedding_input_cap=cap
+            )
             assert [str(row["id"]) for row in listed] == [memory_id]
             assert listed[0]["embedding_present"] is True
 
         # without a cap the label is not compared, as before
-        assert store.list_memories_missing_embeddings(**SIGNATURE) == []
+        assert store.list_memories_missing_embeddings(statuses=("active", "accepted"), **SIGNATURE) == []

@@ -451,7 +451,7 @@ def test_pnpm10_dependency_audit_decision_is_fail_closed_and_documented() -> Non
     releasing = _read("RELEASING.md")
 
     assert package["packageManager"] == "pnpm@10.23.0"
-    assert package["devDependencies"]["semver"] == "7.8.0"
+    assert package["devDependencies"]["semver"] == "7.8.5"
     assert workflow.count('node-version: "22.22.2"') == 1
     assert smoke.count('node-version: "22.22.2"') == 1
     assert 'node-version: "20"' not in workflow
