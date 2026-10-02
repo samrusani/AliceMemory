@@ -225,3 +225,87 @@ def test_the_known_limitation_and_the_threat_model_say_ignored_folders_are_not_e
         "lists at most 100,000 directory entries without entering a folder named like a default ignore such as "
         "`node_modules` or `.git`"
     ) in threat
+
+
+def test_the_security_docs_say_what_the_importers_do_not_what_they_did_before_v0152() -> None:
+    """The threat model and the input guide describe the importers as they are, with the two residuals.
+
+    The hard link residual is checked against the code too: ``read_contained_source_text`` names it
+    as a known limitation. The refusal the docs describe is in the test below.
+
+    Mutations: put either old sentence back, delete a residual, or delete the dated correction.
+    """
+    threat = _read("docs/security/threat-model.md")
+    assert "can follow an outside-root symlink" not in threat
+    assert "can reread a file after archiving it. Until remediated" not in threat
+    assert (
+        "The Markdown, ChatGPT, and OpenClaw directory importers refuse a symlinked file or folder under the selected "
+        "root and a path that leaves it, read each file once, and archive the text they parse (since v0.15.2)."
+    ) in threat
+    assert "A hard link planted in the folder to a file elsewhere is read as ordinary content" in threat
+    assert "a folder on the path swapped for a symlink between the listing and the read can redirect the read" in threat
+    assert "Corrected 2026-10-02: this entry said an importer could follow an outside-root symlink" in threat
+
+    guide = _read("docs/security/input-validation.md")
+    assert "can currently include a symlinked member outside the selected root" not in guide
+    assert "Since v0.15.2 those importers refuse a symlinked file or folder under the selected root" in guide
+    assert "A hard link planted in the folder to a file elsewhere is read as ordinary content" in guide
+    assert "A folder on the path swapped for a symlink between the listing and the read can redirect the read" in guide
+    assert "Corrected 2026-10-02: this section said the importers could include a symlinked member" in guide
+
+    from alicebot_api import importer_paths
+
+    assert "a hard link planted inside the root" in " ".join((importer_paths.read_contained_source_text.__doc__ or "").split())
+
+
+def test_the_entry_says_the_importer_docs_were_corrected_and_what_v0192_ships() -> None:
+    """The entry names both files, v0.15.2, the two residuals and what v0.19.2 ships.
+
+    Mutations, each one alone: delete the v0.19.2 sentence, or the sentence that names the residuals.
+    """
+    entry = _entry()
+    assert "That has not been true since v0.15.2" in entry
+    assert "a hard link planted inside the selected folder and an ancestor folder swapped for a symlink" in entry
+    assert "v0.19.2 ships the old text in both files." in entry
+
+
+def test_the_importers_refuse_a_symlinked_file_and_a_symlinked_folder(tmp_path: Path) -> None:
+    """What the docs now say the importers do, shown on the code that lists and reads a source.
+
+    A link to a file outside the selected root, and a link to a folder outside it, are refused when
+    the folder is listed, and a link in place of a listed file is refused when it is opened.
+
+    Mutations: drop the file ``is_symlink`` refusal or the directory one in
+    ``contained_source_files``, or open without ``O_NOFOLLOW`` in ``read_contained_source_text``.
+    (``followlinks=False`` on the walk is not a separate mutation: the directory refusal fires
+    before a followed link would be entered.)
+    """
+    import pytest
+
+    from alicebot_api.importer_paths import contained_source_files, read_contained_source_text
+
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "secret.md").write_text("- Note: outside the root\n", encoding="utf-8")
+
+    linked_file_root = tmp_path / "linked-file"
+    linked_file_root.mkdir()
+    (linked_file_root / "a.md").symlink_to(outside / "secret.md")
+    with pytest.raises(ValueError, match="symlinked files"):
+        contained_source_files(linked_file_root, suffixes=(".md",), recursive=True, error_factory=ValueError)
+
+    linked_folder_root = tmp_path / "linked-folder"
+    linked_folder_root.mkdir()
+    (linked_folder_root / "sub").symlink_to(outside, target_is_directory=True)
+    with pytest.raises(ValueError, match="symlinked directories"):
+        contained_source_files(linked_folder_root, suffixes=(".md",), recursive=True, error_factory=ValueError)
+
+    swapped_root = tmp_path / "swapped"
+    swapped_root.mkdir()
+    note = swapped_root / "note.md"
+    note.write_text("- Note: a plain note\n", encoding="utf-8")
+    listed = contained_source_files(swapped_root, suffixes=(".md",), recursive=True, error_factory=ValueError)
+    note.unlink()
+    note.symlink_to(outside / "secret.md")
+    with pytest.raises(ValueError, match="symlinked files"):
+        read_contained_source_text(listed[0], source_root=swapped_root, max_bytes=1000, error_factory=ValueError)

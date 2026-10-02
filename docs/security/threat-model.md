@@ -155,10 +155,16 @@ active-key or RLS bypass remains in scope.
 - Redaction flows may read content into process memory before validating and
   applying the durable scrub. Returned/persisted results are redacted, but the
   transient plaintext lifetime is a RAM-hygiene limitation.
-- The Markdown, ChatGPT, and OpenClaw directory importers can follow an
-  outside-root symlink and can reread a file after archiving it. Until remediated,
-  import only from an owner-controlled, immutable staging directory containing
-  no symlinks.
+- The Markdown, ChatGPT, and OpenClaw directory importers refuse a symlinked
+  file or folder under the selected root and a path that leaves it, read each
+  file once, and archive the text they parse (since v0.15.2). Two residuals
+  remain, and both need local write access inside a folder you chose. A hard
+  link planted in the folder to a file elsewhere is read as ordinary content,
+  and a folder on the path swapped for a symlink between the listing and the
+  read can redirect the read. Import only from a folder you control. Corrected
+  2026-10-02: this entry said an importer could follow an outside-root symlink
+  and reread a file after archiving it. v0.15.2 fixed both, and the release
+  notes of v0.15.2 and v0.15.3 say so.
 - Python dependency advisories are monitored by Dependabot but are not checked
   by a fail-closed install-tree audit in CI.
 - Confirming a pending write is not a human gate (added 2026-09-30).
