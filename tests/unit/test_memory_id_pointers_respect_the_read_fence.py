@@ -656,12 +656,12 @@ def test_supersession_context_names_nothing_when_the_first_hop_is_hidden() -> No
     notes = service._supersession_context(
         [packed],
         scope=_ResolvedRetrievalScope(
-        projects=frozenset(),
-        people=frozenset(),
-        window_start=None,
-        window_end=None,
-        exclude_global_domains=frozenset(),
-    ),
+            projects=frozenset(),
+            people=frozenset(),
+            window_start=None,
+            window_end=None,
+            exclude_global_domains=frozenset(),
+        ),
         memory_visible=lambda row: False,
     )
     assert notes[0]["supersedes"] == []
@@ -688,12 +688,12 @@ def _event(event_id: str, target_id: str) -> dict:
 
 
 NO_SCOPE = _ResolvedRetrievalScope(
-        projects=frozenset(),
-        people=frozenset(),
-        window_start=None,
-        window_end=None,
-        exclude_global_domains=frozenset(),
-    )
+    projects=frozenset(),
+    people=frozenset(),
+    window_start=None,
+    window_end=None,
+    exclude_global_domains=frozenset(),
+)
 DEFAULT_CEILING = ["public", "internal", "private", "unknown"]
 
 

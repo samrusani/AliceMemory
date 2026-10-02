@@ -8,6 +8,7 @@ that makes it fail.
 
 from __future__ import annotations
 
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -315,13 +316,19 @@ def test_the_single_scan_reader_returns_what_two_ordinary_queries_return(tmp_pat
             assert project_rows and global_rows and loop_project and loop_global, "the fixture must fill both sides"
 
 
+@pytest.mark.skipif(
+    sqlite3.sqlite_version_info < (3, 35, 0),
+    reason="AS MATERIALIZED needs SQLite 3.35; an older SQLite reads the same rows without it, twice as slowly",
+)
 def test_the_single_scan_labels_each_row_once(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Mutation: label rows in a second pass, as two ordinary queries would.
 
     The label is the scan's Python call, one per row. Two ordinary queries would call it twice for every
     row, which is what the single-scan shape exists to avoid (spec 12). The test counts the calls to
     ``alice_project_scope_identity`` that one partition read makes over 30 memories, each of which holds an
-    Alice id so the native fast path decides none of them.
+    Alice id so the native fast path decides none of them. SQLite does not share a common table expression
+    between two references on its own (68 calls without the hint on 3.49.1), so ``CTE_MATERIALIZED_HINT`` is what
+    this test pins.
     """
 
     from alicebot_api.vnext_stores.sqlite import query_predicates

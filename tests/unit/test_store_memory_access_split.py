@@ -33,8 +33,11 @@ SOURCE_RECEIPTS = {
     "apps/api/src/alicebot_api/vnext_stores/postgres/memory_access.py": (
         "49748ecd931bd0d1e28e28cc77534c700e8b9362c3f015970a73bb75733e1719"
     ),
+    # Re-minted for per-project memory S2 (2026-10-02): the project fence builders read the reserved global
+    # marker and take the domains to leave out, and the single-scan partition SQL and the materialized-CTE hint
+    # are new. The Postgres carrier is unchanged on purpose: the Postgres runtime resolves no project view.
     "apps/api/src/alicebot_api/vnext_stores/sqlite/query_predicates.py": (
-        "aada597da76324ec05a118f95c2b26441b076771a0e53b8d45f08eefb656bbb4"
+        "3344702b269aad05a412b5157efe1960073f8b498d0f94aaaaff554468be99be"
     ),
     # Re-minted for the Phase 4 Stage 2 resident vector cache (reviewed
     # carrier change; the receipt guards unreviewed drift): the vector scan
@@ -49,8 +52,11 @@ SOURCE_RECEIPTS = {
     # drift): ``list_memories`` and ``count_memories`` take ``include_expired``,
     # and the roll-up input list and count and the accepted-card lookup leave out a
     # memory whose ``valid_to`` has passed, with recall's own test.
+    # Re-minted again for per-project memory S2 (2026-10-02): ``list_memories`` builds its filters in
+    # ``_memory_list_clauses`` and takes ``exclude_global_domains``, and ``list_memories_view_partitions`` is new
+    # (reviewed change, not drift).
     "apps/api/src/alicebot_api/vnext_stores/sqlite/memory_access.py": (
-        "3bb85f649be41c4f8759068bf5e5a49f113b9dd7435cb241b5a24e26c65e73d0"
+        "c29e0e444eb3ddb87e86c3fbc6d39c576141cbc70efb1fd42839a492a0e7a541"
     ),
 }
 
@@ -93,6 +99,7 @@ SQLITE_METHODS = (
     "latest_agentic_commit_memory",
     "get_memory_by_confirmation_id",
     "list_memories",
+    "list_memories_view_partitions",
     "list_memories_by_statuses",
     "count_memories_by_status",
     "list_recent_agentic_commits",
@@ -176,8 +183,24 @@ EXPECTED_CLASS_ORDERS = {
     # ``check_literal_match_query``, beside the paired
     # ``list_memories_referencing_sources``. Re-minted for the merged facade
     # (reviewed change, not drift).
-    "SQLiteVNextStore": (126, "08f33e48b0ada3aee40ab843f826bd0610a31ad495091bf6880bd2b68192084a"),
+    # Per-project memory S2 (2026-10-02): two SQLite-only methods more, the single-scan partition reads
+    # ``list_memories_view_partitions`` and ``list_open_loops_view_partitions``. The Postgres runtime resolves no
+    # project view, so it has no pair. Re-minted for the facade (reviewed change, not drift).
+    "SQLiteVNextStore": (128, "fae6bee37a2b06541ee94f76edd545492b2443b6d3118e0e6e131b774cff651f"),
 }
+
+
+#: Keyword arguments the SQLite readers take and the Postgres readers do not (per-project memory S2, 2026-10-02).
+#: ``exclude_global_domains`` leaves out global rows in those domains before ``LIMIT`` when the request tuple holds
+#: the reserved global marker. The Postgres runtime resolves no project view, so its readers have no such argument,
+#: and every other parameter must still match.
+SQLITE_ONLY_PARAMETERS = frozenset({"exclude_global_domains"})
+
+
+def _without_sqlite_only_parameters(signature: inspect.Signature) -> inspect.Signature:
+    return signature.replace(
+        parameters=[value for key, value in signature.parameters.items() if key not in SQLITE_ONLY_PARAMETERS]
+    )
 
 
 def _source_texts() -> dict[str, str]:
@@ -294,9 +317,9 @@ def test_memory_access_methods_are_direct_grafts_in_native_backend_order() -> No
             assert method.__qualname__ == f"{class_name}.{name}"
 
     for name in set(POSTGRES_METHODS) & set(SQLITE_METHODS):
-        assert inspect.signature(getattr(postgres_store.PostgresVNextStore, name)) == inspect.signature(
-            getattr(sqlite_store.SQLiteVNextStore, name)
-        )
+        assert _without_sqlite_only_parameters(
+            inspect.signature(getattr(sqlite_store.SQLiteVNextStore, name))
+        ) == inspect.signature(getattr(postgres_store.PostgresVNextStore, name))
 
 
 def test_sqlite_predicate_helpers_preserve_descriptor_identity_and_metadata() -> None:

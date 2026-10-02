@@ -85,6 +85,7 @@ SQLITE_METHODS = (
     "find_open_loop_by_automation_digest",
     "list_open_loops_referencing_source",
     "list_open_loops",
+    "list_open_loops_view_partitions",
     "list_open_loop_events",
     "update_open_loop",
     "update_open_loop_status",
@@ -109,17 +110,22 @@ SOURCE_RECEIPTS = {
     # ``list_open_loops`` and ``list_open_loop_events``: they bind a query through
     # ``literal_match_operand`` and so refuse one past the LIKE operand limit.
     # The Postgres carrier is unchanged on purpose: it has no such limit.
-    SQLITE_CARRIER_PATH: "f5b34e8c1fc4356979d1af3c312ae72e50074a91598c6b220dad30eaa96d5f4b",
+    # Re-minted again, with the manifests below, for per-project memory S2 (2026-10-02): ``list_open_loops``
+    # and ``list_open_loop_events`` take ``exclude_global_domains`` and read the reserved global marker through
+    # ``_metadata_scope_clause``, and ``list_open_loops_view_partitions`` is new, the single-scan read that
+    # returns this project's loops and the global loops together. The Postgres carrier is unchanged on purpose:
+    # the Postgres runtime resolves no project view (reviewed change, not drift).
+    SQLITE_CARRIER_PATH: "d5db5e684749e6a727982298420ec38aa3a80a412f2cf1a6ae825b6f0ebe9cb2",
     POSTGRES_COLUMNS_PATH: "5b0d972a55abf8590ce14394a37fd71b9b88ba7ab3de82d61efc1bddfc022b71",
     SQLITE_COLUMNS_PATH: "be81b8628d0831d3d02b280b5455fb02333db5740ebef8d85d58024384ae6556",
 }
 EXPECTED_METHOD_AST_MANIFESTS = {
     POSTGRES_CARRIER_PATH: "9a354d1cfb9f134ec7fadb74dd1647b1502ecb2a5b83edb3b65c7123091111ca",
-    SQLITE_CARRIER_PATH: "ce092d81cea43cabcc15a9fbfa355e7403a48930a9d071c5c924e27bdbc1cbce",
+    SQLITE_CARRIER_PATH: "3a60ad21c13822e68d9f3a48a5b603baaa7fb7ee5b0066aa179064c0acef5d6a",
 }
 EXPECTED_METADATA_MANIFESTS = {
     POSTGRES_CARRIER_PATH: "801a455053962b25972ab783d36b03d0389df5c151cba545b05ee8d150f172b9",
-    SQLITE_CARRIER_PATH: "adb5a1b9aeeea1cab3ef24f4fd3beffdfeb2ce450943dc8a0f220b192791f020",
+    SQLITE_CARRIER_PATH: "2389d487b34a98ccb0da5f174b5b4c38110c54cc7dadb3d400908887c8b43d53",
 }
 EXPECTED_COMMENT_MANIFESTS = {
     POSTGRES_CARRIER_PATH: (9, "bb34d175e716f5a929fa1ee5e7e30ba0e0b25be285cda3556a0c709719316c4e"),
@@ -135,7 +141,10 @@ EXPECTED_CLASS_ORDERS = {
     # ``check_literal_match_query``, beside the paired
     # ``list_memories_referencing_sources``. Re-minted for the merged facade
     # (reviewed change, not drift).
-    "SQLiteVNextStore": (126, "08f33e48b0ada3aee40ab843f826bd0610a31ad495091bf6880bd2b68192084a"),
+    # Per-project memory S2 (2026-10-02): two SQLite-only methods more, the single-scan partition reads
+    # ``list_memories_view_partitions`` and ``list_open_loops_view_partitions``. The Postgres runtime resolves no
+    # project view, so it has no pair. Re-minted for the facade (reviewed change, not drift).
+    "SQLiteVNextStore": (128, "fae6bee37a2b06541ee94f76edd545492b2443b6d3118e0e6e131b774cff651f"),
 }
 EXPECTED_COLUMN_AST = {
     POSTGRES_COLUMNS_PATH: {
