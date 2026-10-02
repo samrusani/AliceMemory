@@ -83,11 +83,18 @@ SOURCE_RECEIPTS = {
     # SQLite carrier re-minted for the Phase 4 Stage 2 resident vector cache
     # (reviewed change): redaction paths that NULL a live embedding now bump
     # the embedding_stamp token in the same transaction (prompt eviction).
-    SQLITE_CARRIER_PATH: "67adaa614f8daef7fa7abac2a4e582feb2bbdb113ec2e12419b402506da8e44f",
+    # Re-minted again for one clock reading per write (reviewed change):
+    # create_memory takes first_seen_at, last_seen_at, created_at and
+    # updated_at from the one ``now`` it reads, and update_memory takes
+    # updated_at and deleted_at from one reading, so a wall clock that steps
+    # back between two reads cannot fail memories_seen_range_check. Previous
+    # sqlite receipt 67adaa61..., method AST 3f134ac9...; the metadata
+    # manifests are unchanged.
+    SQLITE_CARRIER_PATH: "c37f6b8012de25c3e702705909ba5669141af15d6c4ad5ac381915207b863615",
 }
 EXPECTED_METHOD_AST_MANIFESTS = {
     "postgres": "e937452df97467820cbcb42938b5f4a2336cd0157f0ca69f8f6420d4ee85211b",
-    "sqlite": "3f134ac942ff9065746231c1964ba4334159ccb99424b42f758f0502251680f7",
+    "sqlite": "df43d593a59eb6deaf3ba935c09382e330b96a90b9f0b63314712619ba468a0d",
 }
 EXPECTED_METADATA_MANIFESTS = {
     "postgres": "af03955c805f720b8d3ec735f8202efeb5f405c8c7de1cc45cbfef3644867824",
