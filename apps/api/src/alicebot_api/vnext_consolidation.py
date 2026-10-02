@@ -38,7 +38,7 @@ from hashlib import sha256
 from inspect import Parameter, signature
 import json
 import logging
-from typing import Protocol, cast
+from typing import Any, Protocol, cast
 
 import numpy as np
 
@@ -64,6 +64,7 @@ from alicebot_api.vnext_model_intelligence import (
     resolve_model_route,
 )
 from alicebot_api.vnext_project_scope import project_scope_identity
+from alicebot_api.vnext_recall_visibility import drop_expired_memories
 from alicebot_api.vnext_repositories import JsonObject
 from alicebot_api.vnext_rollups import (
     RollupOptions,
@@ -109,7 +110,10 @@ class VNextConsolidationValidationError(ValueError):
 class VNextConsolidationStore(VNextRollupStore, Protocol):
     """Required store surface. ``search_memories_vector``, ``search_sources``,
     ``list_artifacts`` and ``list_artifact_quality_ratings`` are used when
-    present (checked via ``getattr``) so slimmer stores still work."""
+    present (checked via ``getattr``) so slimmer stores still work. The
+    ``include_expired`` keyword of ``list_memories`` and ``count_memories`` is
+    passed when the method names it (checked with ``signature``); a store that
+    does not is filtered after the read."""
 
     def append_event(self, event: JsonObject) -> JsonObject: ...
 
@@ -291,6 +295,16 @@ def _supports_explicit_parameter(method: object, name: str) -> bool:
     )
 
 
+def _unexpired_only_kwargs(method: object) -> dict[str, Any]:
+    """``include_expired=False`` when the store method takes that keyword, else nothing.
+
+    The bundled stores take it. A narrower adapter does not, and its rows are
+    filtered by ``drop_expired_memories`` after the read instead.
+    """
+
+    return {"include_expired": False} if _supports_explicit_parameter(method, "include_expired") else {}
+
+
 def _list_memories_bounded(
     store: VNextConsolidationStore,
     *,
@@ -305,6 +319,12 @@ def _list_memories_bounded(
     Older third-party store adapters only implement ``status``. Keep those
     adapters working while ensuring the bundled PostgreSQL and SQLite stores
     never materialize an unbounded status list for consolidation.
+
+    A memory whose ``valid_to`` has passed is not part of the corpus: recall
+    does not return it, its text is not sent to the embeddings endpoint, and a
+    merge that superseded it would bring it back as a new memory. The bundled
+    stores leave it out in SQL, before ``LIMIT``. A store that cannot is
+    filtered here, so an adapter never sends one.
     """
 
     list_memories = store.list_memories
@@ -322,6 +342,7 @@ def _list_memories_bounded(
         raise VNextConsolidationValidationError(
             "project-scoped consolidation requires list_memories with explicit projects support"
         )
+    expiry_kwargs = _unexpired_only_kwargs(list_memories)
     if supports_bounded_scope:
         if projects:
             rows = list_memories(
@@ -330,6 +351,7 @@ def _list_memories_bounded(
                 sensitivity_allowed=sensitivity_allowed,
                 projects=projects,
                 limit=limit,
+                **expiry_kwargs,
             )
         else:
             rows = list_memories(
@@ -337,22 +359,27 @@ def _list_memories_bounded(
                 domains=domains,
                 sensitivity_allowed=sensitivity_allowed,
                 limit=limit,
+                **expiry_kwargs,
             )
-        return _scoped_rows(
-            rows,
-            domains=domains,
-            sensitivity_allowed=sensitivity_allowed,
-            projects=projects,
+        return drop_expired_memories(
+            _scoped_rows(
+                rows,
+                domains=domains,
+                sensitivity_allowed=sensitivity_allowed,
+                projects=projects,
+            )
         )
     if projects:
         raise VNextConsolidationValidationError(
             "project-scoped consolidation cannot use an unbounded legacy memory reader"
         )
-    return _scoped_rows(
-        list_memories(status=status),
-        domains=domains,
-        sensitivity_allowed=sensitivity_allowed,
-        projects=projects,
+    return drop_expired_memories(
+        _scoped_rows(
+            list_memories(status=status, **expiry_kwargs),
+            domains=domains,
+            sensitivity_allowed=sensitivity_allowed,
+            projects=projects,
+        )
     )[:limit]
 
 
@@ -632,6 +659,10 @@ class VNextConsolidationService:
             not projects or _supports_explicit_parameter(count_memories, "projects")
         ):
             try:
+                # The count and the list behind it leave out an expired memory
+                # the same way, so the corpus the report states is the corpus read.
+                count_expiry_kwargs = _unexpired_only_kwargs(count_memories)
+
                 def _count(status: str) -> int:
                     if projects:
                         return int(
@@ -640,6 +671,7 @@ class VNextConsolidationService:
                                 domains=domains,
                                 sensitivity_allowed=sensitivity,
                                 projects=projects,
+                                **count_expiry_kwargs,
                             )
                         )
                     return int(
@@ -647,6 +679,7 @@ class VNextConsolidationService:
                             status=status,
                             domains=domains,
                             sensitivity_allowed=sensitivity,
+                            **count_expiry_kwargs,
                         )
                     )
 

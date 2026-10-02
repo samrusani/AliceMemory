@@ -392,7 +392,14 @@ def list_memories(
     query: str | None = None,
     order_by_created_at: bool = False,
     limit: int | None = None,
+    include_expired: bool = True,
 ) -> list[VNextRow]:
+    """List memories. ``include_expired=False`` leaves out a memory whose ``valid_to`` has passed.
+
+    The default keeps the management reads (review, confirm, unexpire, export)
+    seeing an expired memory. A read an agent or a brief shows to a person passes
+    ``False``, which applies recall's own test (``_expiry_clause``) before ``LIMIT``.
+    """
     if limit is not None and limit < 1:
         raise ValueError("limit must be positive")
     status_sql = ""
@@ -446,6 +453,8 @@ def list_memories(
             )
             escaped_query = literal_match_operand(normalized_query)
             params.extend((escaped_query, escaped_query, escaped_query))
+    expiry_sql, expiry_params = self._expiry_clause(include_expired)
+    params.extend(expiry_params)
     order_sql = (
         "ORDER BY created_at DESC, id DESC"
         if order_by_created_at
@@ -466,6 +475,7 @@ def list_memories(
                   {project_sql}
                   {created_at_sql}
                   {query_sql}
+                  {expiry_sql}
                 {order_sql}
                 {limit_sql}
                 """,
@@ -682,8 +692,13 @@ def count_memories(
     domains: list[str] | None = None,
     sensitivity_allowed: list[str] | None = None,
     projects: Sequence[str] | None = None,
+    include_expired: bool = True,
 ) -> int:
-    """Count the exact in-scope memory corpus without materializing it."""
+    """Count the exact in-scope memory corpus without materializing it.
+
+    ``include_expired=False`` leaves out a memory whose ``valid_to`` has passed,
+    as ``list_memories`` does, so a count and the list behind it agree.
+    """
     params: list[object] = [self.user_id]
     status_sql = ""
     if status is not None:
@@ -703,6 +718,8 @@ def count_memories(
         params.extend(sensitivity_allowed)
     project_sql, project_params = self._project_clause(tuple(normalize_project_scope(projects or ())))
     params.extend(project_params)
+    expiry_sql, expiry_params = self._expiry_clause(include_expired)
+    params.extend(expiry_params)
     row = self._fetch_one(
         "count memories",
         f"""
@@ -714,6 +731,7 @@ def count_memories(
                   {domains_sql}
                   {sensitivity_sql}
                   {project_sql}
+                  {expiry_sql}
                 """,
         tuple(params),
     )
@@ -744,6 +762,10 @@ def list_rollup_input_memories(
     params.extend(sensitivity_allowed)
     project_sql, project_params = self._project_clause(tuple(normalize_project_scope(projects or ())))
     params.extend(project_params)
+    # A roll-up groups memories that recall can return, so an expired one is
+    # left out here, before LIMIT, the way recall leaves it out.
+    expiry_sql, expiry_params = self._expiry_clause(False)
+    params.extend(expiry_params)
     params.append(limit)
     return self._fetch_all(
         f"""
@@ -756,6 +778,7 @@ def list_rollup_input_memories(
                   {domains_sql}
                   AND COALESCE(sensitivity, 'unknown') IN ({sensitivity_placeholders})
                   {project_sql}
+                  {expiry_sql}
                 ORDER BY created_at DESC, id DESC
                 LIMIT ?
                 """,
@@ -784,6 +807,8 @@ def count_rollup_input_memories(
     params.extend(sensitivity_allowed)
     project_sql, project_params = self._project_clause(tuple(normalize_project_scope(projects or ())))
     params.extend(project_params)
+    expiry_sql, expiry_params = self._expiry_clause(False)
+    params.extend(expiry_params)
     row = self._fetch_one(
         "count rollup input memories",
         f"""
@@ -796,6 +821,7 @@ def count_rollup_input_memories(
                   {domains_sql}
                   AND COALESCE(sensitivity, 'unknown') IN ({sensitivity_placeholders})
                   {project_sql}
+                  {expiry_sql}
                 """,
         tuple(params),
     )
@@ -887,6 +913,11 @@ def list_accepted_rollup_cards(
     params.extend(sensitivity_allowed)
     project_sql, project_params = self._project_clause(tuple(normalize_project_scope(projects or ())))
     params.extend(project_params)
+    # An expired card is not the accepted card for its topic. The test sits
+    # inside the ranking query, so an older card that is still open is ranked
+    # and returned when the newest one has expired.
+    expiry_sql, expiry_params = self._expiry_clause(False)
+    params.extend(expiry_params)
     params.append(bounded_limit)
     return self._fetch_all(
         f"""
@@ -909,6 +940,7 @@ def list_accepted_rollup_cards(
                     {domains_sql}
                     AND COALESCE(sensitivity, 'unknown') IN ({sensitivity_placeholders})
                     {project_sql}
+                    {expiry_sql}
                 )
                 SELECT {", ".join(MEMORY_COLUMNS)}
                 FROM ranked_rollups

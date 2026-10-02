@@ -1017,11 +1017,19 @@ def test_reindex_recall_and_the_stores_share_one_expiry_test() -> None:
     embedding list interpolates ``POSTGRES_UNEXPIRED_SQL``, which holds the same
     text. A change to the test in one place and not the others fails here.
 
+    The same two forms are now used by the reads that are not recall: SQLite's
+    ``list_memories`` and ``count_memories`` call ``_expiry_clause`` with the flag
+    they are given (6 calls with recall's four), the roll-up input list and count
+    and the accepted-card lookup call ``_expiry_clause(False)`` (3 calls), and
+    Postgres interpolates ``POSTGRES_UNEXPIRED_SQL`` in the same five reads, with
+    the alias form (``postgres_unexpired_sql("m.")``) for the resume events join.
+
     Mutations: change the comparison in ``POSTGRES_UNEXPIRED_SQL`` (``>`` for
     ``>=``) or in one of Postgres recall's four statements; change the clause in
-    ``_expiry_clause``; stop either SQLite embedding function calling it; add a
-    call that passes ``include_expired=True`` anywhere in the package (the last
-    check then lists it).
+    ``_expiry_clause``; stop either SQLite embedding function calling it; stop one
+    of the five SQLite or five Postgres reads above using it; add a call that
+    passes ``include_expired=True`` anywhere in the package (the last check then
+    lists it).
     """
 
     from alicebot_api.vnext_stores.sqlite.query_predicates import _expiry_clause
@@ -1035,7 +1043,14 @@ def test_reindex_recall_and_the_stores_share_one_expiry_test() -> None:
     assert clause == " AND (valid_to IS NULL OR valid_to >= ?)" and len(params) == 1
     assert _expiry_clause(True) == ("", [])  # type: ignore[operator]
     sqlite_recall = inspect.getsource(sqlite_memory_access)
-    assert sqlite_recall.count("self._expiry_clause(include_expired") == 4
+    assert sqlite_recall.count("self._expiry_clause(include_expired") == 6
+    assert sqlite_recall.count("self._expiry_clause(False") == 3
+    assert postgres_recall.count("{POSTGRES_UNEXPIRED_SQL}") == 5
+    from alicebot_api import sqlite_store as sqlite_facade
+    from alicebot_api import vnext_store as postgres_facade
+
+    assert inspect.getsource(postgres_facade).count('{postgres_unexpired_sql("m.")}') == 1
+    assert inspect.getsource(sqlite_facade).count('self._expiry_clause(False, prefix="memory.")') == 1
     # the embedding list and count call the very function the store grafts for recall
     assert sqlite_embedding_cas._expiry_clause.__func__ is SQLiteVNextStore._expiry_clause  # type: ignore[attr-defined]
     assert sqlite_embedding_cas._expiry_clause is _expiry_clause

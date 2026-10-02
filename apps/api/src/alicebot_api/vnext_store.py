@@ -27,6 +27,7 @@ from alicebot_api.vnext_project_scope import (
     source_capture_identity_matches,
     source_project_scope,
 )
+from alicebot_api.vnext_recall_visibility import postgres_unexpired_sql
 from alicebot_api.vnext_repositories import JsonObject
 from alicebot_api.vnext_stores.memory_lifecycle_common import (
     PRIOR_REDACTED_MEMORY_METADATA_KEYS as PRIOR_REDACTED_MEMORY_METADATA_KEYS,
@@ -515,7 +516,12 @@ class PostgresVNextStore:
         occurred_at_end: datetime | None = None,
         limit: int = 20,
     ) -> list[VNextRow]:
-        """Return events joined to resume-admitted memories before LIMIT."""
+        """Return events joined to resume-admitted memories before LIMIT.
+
+        A memory is admitted when its status is in ``statuses`` and its
+        ``valid_to`` has not passed (the test recall uses), so the event of an
+        expired memory is not listed and does not use up the ``LIMIT``.
+        """
 
         if limit < 1:
             raise ValueError("limit must be positive")
@@ -538,6 +544,7 @@ class PostgresVNextStore:
                  AND event.user_id = m.user_id
                 WHERE m.deleted_at IS NULL
                   AND m.status = ANY(%s::text[])
+                  AND {postgres_unexpired_sql("m.")}
                   AND (
                     %s::text[] IS NULL
                     OR ({_SCOPED_MEMORY_PROJECT_SQL}) ?| %s::text[]

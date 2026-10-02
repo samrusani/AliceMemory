@@ -12,6 +12,7 @@ from alicebot_api.vnext_embeddings import (
     memory_embedding_signature_is_current,
 )
 from alicebot_api.vnext_project_scope import project_scope_identity
+from alicebot_api.vnext_recall_visibility import POSTGRES_UNEXPIRED_SQL
 from alicebot_api.vnext_stores.postgres.columns import MEMORY_COLUMNS
 from alicebot_api.vnext_stores.postgres.embedding_cas import (
     _MEMORY_EMBEDDING_CONTENT_SHA256_SQL,
@@ -256,7 +257,15 @@ def list_memories(
     query: str | None = None,
     order_by_created_at: bool = False,
     limit: int | None = None,
+    include_expired: bool = True,
 ) -> list[VNextRow]:
+    """List memories. ``include_expired=False`` leaves out a memory whose ``valid_to`` has passed.
+
+    The default keeps the management reads (review, confirm, unexpire, export)
+    seeing an expired memory. A read an agent or a brief shows to a person passes
+    ``False``, which applies recall's own test (``POSTGRES_UNEXPIRED_SQL``) before
+    ``LIMIT``.
+    """
     if limit is not None and limit < 1:
         raise ValueError("limit must be positive")
     status_sql = ""
@@ -311,6 +320,7 @@ def list_memories(
             )
             escaped_query = _escape_like_literal(normalized_query)
             params.extend((escaped_query, escaped_query, escaped_query))
+    expiry_sql = "" if include_expired else f" AND {POSTGRES_UNEXPIRED_SQL}"
     order_sql = (
         "ORDER BY created_at DESC, id DESC"
         if order_by_created_at
@@ -325,7 +335,7 @@ def list_memories(
                 SELECT {MEMORY_COLUMNS}
                 FROM memories
                 WHERE deleted_at IS NULL{status_sql}{statuses_sql}{memory_types_sql}
-                  {domains_sql}{sensitivity_sql}{projects_sql}{created_at_sql}{query_sql}
+                  {domains_sql}{sensitivity_sql}{projects_sql}{created_at_sql}{query_sql}{expiry_sql}
                 {order_sql}
                 {limit_sql}
                 """,
@@ -527,8 +537,13 @@ def count_memories(
     domains: list[str] | None = None,
     sensitivity_allowed: list[str] | None = None,
     projects: Sequence[str] | None = None,
+    include_expired: bool = True,
 ) -> int:
-    """Count the exact in-scope memory corpus without materializing it."""
+    """Count the exact in-scope memory corpus without materializing it.
+
+    ``include_expired=False`` leaves out a memory whose ``valid_to`` has passed,
+    as ``list_memories`` does, so a count and the list behind it agree.
+    """
     status_sql = ""
     params: list[object] = []
     if status is not None:
@@ -549,12 +564,13 @@ def count_memories(
     if project_list is not None:
         projects_sql = f" AND ({_MEMORY_PROJECT_SCOPE_SQL}) ?| %s::text[]"
         params.append(project_list)
+    expiry_sql = "" if include_expired else f" AND {POSTGRES_UNEXPIRED_SQL}"
     row = self._fetch_one(
         "count memories",
         f"""
                 SELECT COUNT(*) AS count
                 FROM memories
-                WHERE deleted_at IS NULL{status_sql}{domains_sql}{sensitivity_sql}{projects_sql}
+                WHERE deleted_at IS NULL{status_sql}{domains_sql}{sensitivity_sql}{projects_sql}{expiry_sql}
                 """,
         tuple(params),
     )
@@ -577,12 +593,15 @@ def list_rollup_input_memories(
         return []
     domain_filter = domains or None
     project_list = list(project_scope_identity(projects or ())) or None
+    # A roll-up groups memories that recall can return, so an expired one is
+    # left out here, before LIMIT, the way recall leaves it out.
     return self._fetch_all(
         f"""
                 SELECT {MEMORY_COLUMNS}
                 FROM memories
                 WHERE deleted_at IS NULL
                   AND status IN {_MEMORY_SEARCHABLE_STATUSES_SQL}
+                  AND {POSTGRES_UNEXPIRED_SQL}
                   AND COALESCE(metadata_json ->> 'candidate_kind', '') <> %s
                   AND (%s::text[] IS NULL OR domain = ANY(%s::text[]) OR domain = 'unknown')
                   AND COALESCE(sensitivity, 'unknown') = ANY(%s::text[])
@@ -622,6 +641,7 @@ def count_rollup_input_memories(
                 FROM memories
                 WHERE deleted_at IS NULL
                   AND status IN {_MEMORY_SEARCHABLE_STATUSES_SQL}
+                  AND {POSTGRES_UNEXPIRED_SQL}
                   AND COALESCE(metadata_json ->> 'candidate_kind', '') <> %s
                   AND (%s::text[] IS NULL OR domain = ANY(%s::text[]) OR domain = 'unknown')
                   AND COALESCE(sensitivity, 'unknown') = ANY(%s::text[])
@@ -710,6 +730,7 @@ def list_accepted_rollup_cards(
                 FROM memories
                 WHERE deleted_at IS NULL
                   AND status IN {_MEMORY_SEARCHABLE_STATUSES_SQL}
+                  AND {POSTGRES_UNEXPIRED_SQL}
                   AND metadata_json ->> 'candidate_kind' = %s
                   AND metadata_json ->> 'rollup_key' = ANY(%s::text[])
                   AND (%s::text[] IS NULL OR domain = ANY(%s::text[]) OR domain = 'unknown')

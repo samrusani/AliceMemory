@@ -43,6 +43,7 @@ from alicebot_api.vnext_agent_control import (
 from alicebot_api.vnext_memory_commit import VNextMemoryCommitService
 from alicebot_api.vnext_project_scope import project_scope_identity
 from alicebot_api.vnext_projects import VNextProjectService
+from alicebot_api.vnext_recall_visibility import memory_window_is_open
 from alicebot_api.vnext_repositories import JsonObject as VNextJsonObject
 from alicebot_api.recall_framing import (
     memory_writer,
@@ -771,6 +772,10 @@ def _resume_event_honours_policy_fence(
         row = store.get_open_loop(target_id)
     if not isinstance(row, Mapping):
         return False
+    # The event was listed through a join that leaves out an expired memory.
+    # The row is read again by id, so the same test applies to what is shown.
+    if target_type == "memory" and not memory_window_is_open(row):
+        return False
     return _resource_matches_domains(row, effective_domains) and _resource_matches_sensitivity(
         row, effective_sensitivity_allowed
     )
@@ -828,6 +833,9 @@ def _vnext_recent_decisions(
                 created_at_end=until,
                 query=query,
                 order_by_created_at=True,
+                # A memory whose valid_to has passed is not current, the same
+                # test recall applies, before any limit.
+                include_expired=False,
             )
             if _resource_matches_project_scope(row, effective_project_scope)
             and _memory_matches_query(row, query)
@@ -902,6 +910,7 @@ def _vnext_resume(
             query=query,
             order_by_created_at=True,
             limit=1,
+            include_expired=False,
         )
         last_decision: JsonObject | None = None
         if decisions:
@@ -953,6 +962,7 @@ def _vnext_resume(
                 query=query,
                 order_by_created_at=True,
                 limit=1,
+                include_expired=False,
             )
             if todo_memories:
                 next_action = {

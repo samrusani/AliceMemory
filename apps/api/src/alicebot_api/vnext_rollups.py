@@ -176,6 +176,10 @@ from alicebot_api.vnext_memory_version import (
     memory_version_snapshot,
 )
 from alicebot_api.vnext_project_scope import project_scope_identity
+from alicebot_api.vnext_recall_visibility import (
+    drop_expired_memories,
+    memory_window_is_open,
+)
 from alicebot_api.vnext_repositories import JsonObject
 from alicebot_api.vnext_store import FTS_QUERY_STOPWORDS
 
@@ -1763,6 +1767,11 @@ class VNextRollupService:
             )
         rows = scoped_rows
         rows = [row for row in rows if not _is_rollup_card(row)]
+        # The same parity for validity: the bundled stores leave an expired
+        # memory out in SQL, and every tier below (entity, topic and the
+        # semantic tier that sends text to the embeddings endpoint) groups what
+        # is left. A store that cannot is filtered here.
+        rows = drop_expired_memories(rows)
         # Insertion-order independent: grouping sees one canonical order.
         rows.sort(key=lambda row: (str(row.get("created_at") or ""), str(row.get("id"))))
         return rows, bounded, total_count, total_exact
@@ -2354,6 +2363,11 @@ class VNextRollupService:
             metadata = row.get("metadata_json")
             if not isinstance(metadata, dict) or metadata.get("candidate_kind") != ROLLUP_CANDIDATE_KIND:
                 continue
+            # A card whose validity window has closed is not the accepted card
+            # for its topic. The bundled stores leave it out in SQL, before they
+            # pick one card per key; this is the same parity for any other store.
+            if not memory_window_is_open(row):
+                continue
             key = metadata.get("rollup_key")
             if isinstance(key, str) and key and key not in accepted:
                 accepted[key] = row
@@ -2372,6 +2386,57 @@ class VNextRollupService:
                 )
         return pending, accepted
 
+    def _expired_card_for_digest(
+        self,
+        rollup_digest: str,
+        *,
+        rollup_key: str,
+        domains: list[str] | None,
+        sensitivity_allowed: list[str],
+        projects: tuple[str, ...],
+    ) -> JsonObject | None:
+        """The card an earlier pass made for exactly these members, if its validity window has closed.
+
+        A card's ``memory_key`` is derived from its digest, so a proposal for members that have not
+        changed since the card was made has the key the card already holds, and creating it would
+        collide with that row. While the expired card counted as the accepted card, the group was
+        reported as covered and no proposal was tried. Now that an expired card is not the accepted
+        card, this keeps an unchanged group from being proposed again under the same key: it is
+        reported, and left alone, until its members change. A store with no ``get_memory_by_key``
+        reports nothing, as before.
+
+        The status of the card is not tested. Its row holds the key whatever the status, and the
+        staleness sweep moves an expired card from ``active`` to ``stale`` while it keeps its
+        ``valid_to``, so a test for a searchable status would let the pass raise on the key as soon
+        as the sweep had run.
+
+        This read applies every other control the accepted-card read applies, and the fence is a
+        required keyword-only argument so a caller cannot leave one out: the row must be a roll-up
+        card, for this group's key, inside the domains, the sensitivity ceiling and the projects of
+        the pass. A card outside any of them is not named.
+        """
+
+        getter = getattr(self.store, "get_memory_by_key", None)
+        if not callable(getter):
+            return None
+        row = getter(memory_key=f"vnext.rollup.{rollup_digest}")
+        if row is None:
+            return None
+        if memory_window_is_open(row):
+            return None
+        if not _is_rollup_card(row):
+            return None
+        metadata = row.get("metadata_json")
+        if not isinstance(metadata, dict) or metadata.get("rollup_key") != rollup_key:
+            return None
+        if not _scoped_rows(
+            [row],
+            domains=domains,
+            sensitivity_allowed=sensitivity_allowed,
+            projects=projects,
+        ):
+            return None
+        return row
 
     # -- card assembly --------------------------------------------------------------
 
@@ -2750,6 +2815,19 @@ class VNextRollupService:
                 group_record["candidate_memory_id"] = pending[rollup_digest]
                 outcome.groups.append(group_record)
                 outcome.candidate_ids.append(pending[rollup_digest])
+                continue
+
+            expired_card = self._expired_card_for_digest(
+                rollup_digest,
+                rollup_key=group.rollup_key,
+                domains=domains,
+                sensitivity_allowed=sensitivity,
+                projects=projects,
+            )
+            if expired_card is not None:
+                group_record["state"] = "expired_card_members_unchanged"
+                group_record["expired_memory_id"] = str(expired_card.get("id"))
+                outcome.groups.append(group_record)
                 continue
 
             group_entity = group.rollup_key.removeprefix("entity:") if group.group_kind == "entity" else None
