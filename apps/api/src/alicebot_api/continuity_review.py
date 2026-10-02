@@ -44,6 +44,17 @@ class ContinuityReviewValidationError(ValueError):
     """Raised when a continuity review request is invalid."""
 
 
+class ContinuityReviewStateError(ContinuityReviewValidationError):
+    """The object exists but its status does not allow the correction.
+
+    A rejected argument and a status that forbids the action are both
+    ``ContinuityReviewValidationError``. This subclass marks the second, so the
+    MCP server can answer ``precondition_failed`` for it by class and keep
+    ``invalid_request`` for the first. The text is unchanged and every caller
+    that catches the base class still catches it.
+    """
+
+
 class ContinuityReviewNotFoundError(LookupError):
     """Raised when a continuity object is not visible in scope."""
 
@@ -371,13 +382,13 @@ def apply_continuity_correction(
 
     if action == "confirm":
         if current["status"] not in {"active", "stale"}:
-            raise ContinuityReviewValidationError("confirm requires an active or stale continuity object")
+            raise ContinuityReviewStateError("confirm requires an active or stale continuity object")
         next_status = "active"
         next_last_confirmed_at = _utcnow()
 
     elif action == "edit":
         if current["status"] not in {"active", "stale"}:
-            raise ContinuityReviewValidationError("edit requires an active or stale continuity object")
+            raise ContinuityReviewStateError("edit requires an active or stale continuity object")
 
         if (
             request.title is None
@@ -408,17 +419,17 @@ def apply_continuity_correction(
 
     elif action == "delete":
         if current["status"] not in {"active", "stale"}:
-            raise ContinuityReviewValidationError("delete requires an active or stale continuity object")
+            raise ContinuityReviewStateError("delete requires an active or stale continuity object")
         next_status = "deleted"
 
     elif action == "mark_stale":
         if current["status"] != "active":
-            raise ContinuityReviewValidationError("mark_stale requires an active continuity object")
+            raise ContinuityReviewStateError("mark_stale requires an active continuity object")
         next_status = "stale"
 
     elif action == "supersede":
         if current["status"] not in {"active", "stale"}:
-            raise ContinuityReviewValidationError("supersede requires an active or stale continuity object")
+            raise ContinuityReviewStateError("supersede requires an active or stale continuity object")
 
         replacement_title = _validate_title(request.replacement_title or current["title"])
         replacement_body = request.replacement_body if request.replacement_body is not None else current["body"]

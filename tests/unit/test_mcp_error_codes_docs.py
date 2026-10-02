@@ -82,6 +82,32 @@ def test_the_table_says_what_an_agent_should_do_for_each_new_code() -> None:
         assert all(cell for cell in rows[code]), code
 
 
+def test_the_section_says_what_an_id_tells_a_caller() -> None:
+    """The section says ``alice_explain`` stays uniform and that every other tool answers the difference.
+
+    The second half is a ruling of the second review of PR 528, so it is pinned in words: a key bound to one project
+    can learn that an id it holds exists in another. The paragraph is read inside the section, never page-wide.
+
+    Mutations, each one alone: change ``gets `tool_request_failed` from `alice_explain``` to ``gets `not_found` from
+    `alice_explain```; delete the sentence that says a key bound to one project can learn that an id exists in
+    another project; change ```not_permitted` from `alice_memory_review` by id`` to ```not_found` from
+    `alice_memory_review` by id``; delete the clause that names the HTTP routes. Each fails this test.
+    """
+
+    section = _flat(_error_codes_section())
+
+    assert (
+        "A caller that authenticates with an agent key gets `tool_request_failed` from `alice_explain` whether "
+        "the target is missing or unreadable"
+    ) in section
+    assert (
+        "an id that the key's project scope refuses answers `not_permitted` from `alice_memory_review` by id, "
+        "`alice_memory_correct` and `alice_memory_manage`, and an id that does not exist answers `not_found`"
+    ) in section
+    assert "a key bound to one project can learn that an id it already holds exists in another project" in section
+    assert "the HTTP memory routes answer 403 and 404 the same way" in section
+
+
 def test_the_pages_that_describe_the_old_answer_carry_the_marker_in_the_right_place() -> None:
     """Each page that says a refusal comes back as ``tool_request_failed`` also says, after one marker, what main does.
 
@@ -131,8 +157,9 @@ def test_the_changelog_has_one_unreleased_entry_that_states_the_v0200_code() -> 
     """One Unreleased entry names the new codes and says v0.20.0 answered ``tool_request_failed`` for each case.
 
     Mutations, each one alone: delete the sentence ``v0.20.0 answered `tool_request_failed` for each of these
-    cases``; move the entry under the v0.20.0 heading; add a second entry that names ``not_permitted``. Each fails
-    this test.
+    cases``; move the entry under the v0.20.0 heading; add a second entry that names ``not_permitted``; change
+    ``still gets one uniform `tool_request_failed``` to ``still gets one uniform `not_found```; change ``nine`` to
+    ``eight``; delete the sentence about the other tools that take an id. Each fails this test.
     """
 
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
@@ -146,4 +173,10 @@ def test_the_changelog_has_one_unreleased_entry_that_states_the_v0200_code() -> 
         assert code in entry
     assert "v0.20.0 answered `tool_request_failed` for each of these cases" in entry
     assert "`alice_memory_correct`" in entry and "`human_or_admin_review_required`" in entry
+    assert "A key-bound caller of `alice_explain` still gets one uniform `tool_request_failed`" in entry
+    assert (
+        "tells a key-bound caller an id its project scope refuses (`not_permitted`) from one that does not exist "
+        "(`not_found`)"
+    ) in entry
+    assert "the nine rejected review arguments of the Postgres parity test" in entry
     assert "`not_permitted`" not in changelog.split("\n## v0.20.0")[1].split("\n## v0.19.2")[0]

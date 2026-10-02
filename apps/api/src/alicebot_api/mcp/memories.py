@@ -15,6 +15,8 @@ from alicebot_api.vnext_agent_control import (
 from alicebot_api.vnext_embeddings import DeferredMemoryEmbedding
 from alicebot_api.vnext_memory_commit import (
     IdempotencyKeyConflictError,
+    MemoryNotFoundError,
+    MemoryStateError,
     VNextMemoryCommitService,
     VNextMemoryCommitValidationError,
     _brain_charter_row,
@@ -411,12 +413,12 @@ def redact_memory_flow(
     memory_service.lock_supersession_graph()
     memory = store.get_memory_for_redaction(memory_id)
     if memory is None:
-        raise VNextMemoryCommitValidationError("memory was not found")
+        raise MemoryNotFoundError("memory was not found")
     if is_pending_project_update_memory(memory):
-        raise VNextMemoryCommitValidationError(PENDING_PROJECT_UPDATE_MEMORY_MUTATION_MESSAGE)
+        raise MemoryStateError(PENDING_PROJECT_UPDATE_MEMORY_MUTATION_MESSAGE)
     project_update_artifacts = store.lock_project_update_artifacts_for_redaction(memory_id)
     if any(str(artifact.get("status") or "") not in {"accepted", "rejected"} for artifact in project_update_artifacts):
-        raise VNextMemoryCommitValidationError(PENDING_PROJECT_UPDATE_MEMORY_MUTATION_MESSAGE)
+        raise MemoryStateError(PENDING_PROJECT_UPDATE_MEMORY_MUTATION_MESSAGE)
 
     artifact_ids = [str(artifact.get("id") or "") for artifact in project_update_artifacts]
     exact_replay = _memory_redaction_is_exact(memory) and all(

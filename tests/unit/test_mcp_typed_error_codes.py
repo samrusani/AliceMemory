@@ -37,7 +37,13 @@ from alicebot_api.continuity_contradictions import (
 from alicebot_api.continuity_evidence import ContinuityEvidenceNotFoundError
 from alicebot_api.continuity_recall import ContinuityRecallValidationError, RetrievalTraceNotFoundError
 from alicebot_api.continuity_resumption import ContinuityResumptionValidationError
-from alicebot_api.continuity_review import ContinuityReviewNotFoundError, ContinuityReviewValidationError
+from alicebot_api.continuity_review import (
+    ContinuityReviewNotFoundError,
+    ContinuityReviewStateError,
+    ContinuityReviewValidationError,
+    apply_continuity_correction,
+)
+from alicebot_api.contracts import ContinuityCorrectionInput
 from alicebot_api.mcp import evidence_artifacts, registry
 from alicebot_api.mcp.runtime import _sqlite_path_from_url
 from alicebot_api.mcp.types import (
@@ -324,6 +330,7 @@ _DISPATCH_TABLE: tuple[tuple[str, Callable[[], Exception], str], ...] = (
     ("task brief not found", lambda: TaskBriefNotFoundError(_SENTINEL), "not_found"),
     ("memory not found", lambda: MemoryNotFoundError(_SENTINEL), "not_found"),
     ("memory state", lambda: MemoryStateError(_SENTINEL), "precondition_failed"),
+    ("review state", lambda: ContinuityReviewStateError(_SENTINEL), "precondition_failed"),
     ("lifecycle transition", lambda: LifecycleTransitionError(_SENTINEL), "precondition_failed"),
     ("sqlite check", lambda: _real_integrity_error("check"), "invalid_request"),
     ("sqlite foreign key", lambda: _real_integrity_error("foreign_key"), "precondition_failed"),
@@ -355,7 +362,9 @@ def test_the_dispatcher_picks_the_code_from_the_class_of_the_exception(
     sentinel on the wire; the next test is the one that proves the text never decides.
 
     Mutations, each one alone, in ``mcp/registry.py``: drop one class from the tuple of its ``except`` clause (its
-    row fails); move ``MemoryNotFoundError`` into the ``MCPPreconditionFailedError`` clause; make ``CheckViolation``
+    row fails); move ``MemoryNotFoundError`` into the ``MCPPreconditionFailedError`` clause; move the
+    ``MCPPreconditionFailedError`` clause below the argument clause (the ``review state`` row fails, because
+    ``ContinuityReviewStateError`` is a ``ContinuityReviewValidationError``); make ``CheckViolation``
     or a SQLite constraint answer a neighbour class; delete the ``except MCPToolError: raise`` clause, after which the
     last ``ValueError`` clause flattens every coded error a handler raised; widen the policy clause from
     ``AgentPolicyBlockedError`` and ``AgentKeyAuthenticationError`` to ``PermissionError`` (the plain permission
@@ -448,6 +457,60 @@ def test_the_text_of_an_exception_never_decides_the_code(
 
     assert isinstance(error, dict)
     assert error["code"] == code, label
+
+
+def test_the_hermes_bridge_demo_sends_the_same_codes_as_the_stdio_server(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``scripts/run_hermes_mcp_smoke.py`` keeps its own copy of the wire mapping and follows the server's codes.
+
+    Each coded class answers its code with the fixed sentence and never the text; a bare ``MCPToolError`` and a
+    subclass whose code is outside the closed set answer ``tool_request_failed``. The sentinel test of
+    ``test_mcp_error_contracts.py`` is untouched and covers the bare case.
+
+    Mutations: delete the ``except MCPCodedToolError`` clause of the script (the four coded rows fail with
+    ``tool_request_failed``); drop the ``in MCP_CODED_ERROR_CODES`` check (the outside-the-set row fails).
+    """
+
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "run_hermes_mcp_smoke_typed_codes", _ROOT / "scripts" / "run_hermes_mcp_smoke.py"
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    register, _shutdown, registry_ = module._build_local_mcp_compat_runtime()
+    monkeypatch.setattr(module, "list_mcp_tools", lambda: [{"name": "alice_recall"}])
+    register(
+        {
+            "alice_core": {
+                "env": {"DATABASE_URL": "postgresql://localhost/alicebot", "ALICEBOT_AUTH_USER_ID": _USER_ID},
+                "tools": {"include": ["alice_recall"]},
+            }
+        }
+    )
+
+    class _OutsideTheSet(MCPCodedToolError):
+        code = "not_a_code_the_server_sends"
+
+    cases = (
+        (MCPArgumentError(_SENTINEL), "invalid_request"),
+        (MCPNotPermittedError(_SENTINEL), "not_permitted"),
+        (MCPReferenceNotFoundError(_SENTINEL), "not_found"),
+        (MCPPreconditionFailedError(_SENTINEL), "precondition_failed"),
+        (_OutsideTheSet(_SENTINEL), "tool_request_failed"),
+        (MCPToolError(_SENTINEL), "tool_request_failed"),
+    )
+    for exception, code in cases:
+
+        def fail(*_args: object, _exception: Exception = exception, **_kwargs: object) -> dict[str, object]:
+            raise _exception
+
+        monkeypatch.setattr(module, "call_mcp_tool", fail)
+        raw = registry_.dispatch("mcp_alice_core_alice_recall", {})
+        assert _SENTINEL not in raw
+        assert json.loads(raw) == {"error": {"code": code, "message": _FIXED_MESSAGE}}, type(exception).__name__
 
 
 def test_an_unknown_tool_still_answers_tool_not_found(postgres_url_context: MCPRuntimeContext) -> None:
@@ -613,12 +676,17 @@ def test_each_service_lookup_of_a_missing_memory_is_not_found(
 ) -> None:
     """Every action of ``alice_memory_manage``, the audit and the confirmation lookup answer ``not_found``.
 
+    The actions are read from ``_MEMORY_MANAGE_ACTIONS``, so an eighth action fails the first assertion until it has
+    a row here.
+
     Mutations, each one alone, in ``vnext_memory_commit.py``: raise the plain
     ``VNextMemoryCommitValidationError`` in place of ``MemoryNotFoundError`` at one site (``confirm``, ``undo``,
     the superseding memory of ``undo``, ``correct`` (reached through the legacy tool), ``forget``,
-    ``accept_consolidation``, ``expire``, ``unexpire``, ``audit``). The row of that action fails. The two sites that
-    read a row again after taking its lock (``confirm`` and ``undo``) are reached by the last two assertions, which
-    make the locked read answer nothing.
+    ``accept_consolidation``, ``expire``, ``unexpire``, ``audit``). The row of that action fails. In
+    ``mcp/memories.py`` raise the plain ``VNextMemoryCommitValidationError`` in place of ``MemoryNotFoundError`` at
+    the missing-memory check of ``redact_memory_flow`` (the ``redact`` row fails). The two sites that read a row
+    again after taking its lock (``confirm`` and ``undo``) are reached by the last two assertions, which make the
+    locked read answer nothing.
     """
 
     missing = str(uuid4())
@@ -633,9 +701,14 @@ def test_each_service_lookup_of_a_missing_memory_is_not_found(
         ("alice_memory_manage", {"action": "expire", "memory_id": missing, "reason": "no longer true"}),
         ("alice_memory_manage", {"action": "unexpire", "memory_id": missing, "reason": "still true"}),
         ("alice_memory_manage", {"action": "accept_consolidation", "memory_id": missing, "reason": "looks right"}),
+        ("alice_memory_manage", {"action": "redact", "memory_id": missing, "reason": "the owner asked for removal"}),
         ("alice_explain", {"memory_id": missing}),
         ("alice_memory_commit", {"confirmation_id": "confirm-" + missing, "confirmation_action": "confirm"}),
     )
+    from alicebot_api.mcp.memories import _MEMORY_MANAGE_ACTIONS
+
+    covered = {str(arguments["action"]) for name, arguments in cases if name == "alice_memory_manage"}
+    assert covered == set(_MEMORY_MANAGE_ACTIONS), sorted(set(_MEMORY_MANAGE_ACTIONS) ^ covered)
     for name, arguments in cases:
         assert _code(sqlite_context, name, arguments) == "not_found", (name, arguments)
 
@@ -701,6 +774,77 @@ def test_a_pending_project_update_cannot_be_forgotten_and_says_so_as_a_state(
     assert code == "precondition_failed"
 
 
+def test_a_pending_project_update_cannot_be_redacted_and_says_so_as_a_state(
+    sqlite_context: MCPRuntimeContext,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``redact`` refuses a pending coupled project update, and an open artifact of one, as a state refusal.
+
+    ``redact_memory_flow`` has its own two checks, apart from the commit service's, so each needs its own row.
+
+    Mutations, each one alone, in ``mcp/memories.py``: raise the plain ``VNextMemoryCommitValidationError`` in place
+    of ``MemoryStateError`` at the ``is_pending_project_update_memory`` check (the first assertion fails) or at the
+    check of the artifacts that are neither accepted nor rejected (the second fails).
+    """
+
+    from alicebot_api.mcp import memories as mcp_memories
+
+    memory_id = str(_commit(sqlite_context)["memory"]["id"])  # type: ignore[index]
+    redact = {"action": "redact", "memory_id": memory_id, "reason": "the owner asked for removal"}
+
+    with monkeypatch.context() as patch:
+        patch.setattr(mcp_memories, "is_pending_project_update_memory", lambda _memory: True)
+        assert _code(sqlite_context, "alice_memory_manage", redact) == "precondition_failed"
+
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            SQLiteVNextStore,
+            "lock_project_update_artifacts_for_redaction",
+            lambda _self, _memory_id: [{"id": str(uuid4()), "status": "pending"}],
+            raising=False,
+        )
+        assert _code(sqlite_context, "alice_memory_manage", redact) == "precondition_failed"
+
+    # Past both state checks, redact is for a human or an admin agent: a trusted agent is refused by policy.
+    assert _code(sqlite_context, "alice_memory_manage", {**redact, **_TRUSTED}) == "not_permitted"
+
+
+def test_each_status_refusal_of_a_continuity_correction_is_a_state_error_and_a_bad_edit_is_not() -> None:
+    """A correction the object's status forbids is a state error; a correction with nothing to change is an argument.
+
+    ``ContinuityReviewValidationError`` was one class for both, so the first answer an agent got for a retired object
+    was ``invalid_request``, "fix the call and retry", for a call that cannot succeed. The class of each raise is
+    checked exactly, so the base class does not pass for the subclass.
+
+    Mutations, each one alone, in ``continuity_review.py``: change one of the five ``raise
+    ContinuityReviewStateError`` (confirm, edit, delete, mark_stale, supersede) back to
+    ``ContinuityReviewValidationError`` (its row fails); change the ``edit requires at least one of`` raise to
+    ``ContinuityReviewStateError`` (the last assertion fails).
+    """
+
+    from tests.unit.test_continuity_review import ContinuityReviewStoreStub
+
+    user_id = UUID("11111111-1111-4111-8111-111111111111")
+
+    def raised(status: str, action: str, **fields: object) -> BaseException:
+        store = ContinuityReviewStoreStub()
+        row = store.add_object(title="Decision: Retired", status=status)
+        with pytest.raises(ContinuityReviewValidationError) as caught:
+            apply_continuity_correction(
+                store,  # type: ignore[arg-type]
+                user_id=user_id,
+                continuity_object_id=row["id"],
+                request=ContinuityCorrectionInput(action=action, **fields),  # type: ignore[arg-type]
+            )
+        return caught.value
+
+    for action in ("confirm", "edit", "delete", "supersede"):
+        assert type(raised("deleted", action, title="x")) is ContinuityReviewStateError, action
+    assert type(raised("stale", "mark_stale")) is ContinuityReviewStateError
+
+    assert type(raised("active", "edit")) is ContinuityReviewValidationError
+
+
 def test_a_review_item_the_filters_hide_answers_the_same_as_one_that_is_not_there(
     sqlite_context: MCPRuntimeContext,
 ) -> None:
@@ -725,8 +869,10 @@ def test_a_key_bound_explain_stays_uniform_and_a_keyless_one_gets_the_code(
 ) -> None:
     """``alice_explain`` for a key-bound agent answers one generic code for a missing and a refused target.
 
-    A key-bound caller sits across a trust boundary, and the owner's rule (the 2026-09-22 notes) is that it cannot
-    tell a missing memory from an unreadable one. A keyless caller is local owner tooling and gets the code.
+    A key-bound caller sits across a trust boundary, and since the v0.10.4 audit remediation ``alice_explain`` has
+    given it one answer for a missing and an unreadable target, because that tool expands related rows. A keyless
+    caller is local owner tooling and gets the code. The other tools that take an id do not hide the difference; the
+    next test pins that, on purpose.
 
     Mutations: in ``_handle_alice_vnext_memory_audit`` (``mcp/evidence_artifacts.py``), delete the key-bound branch
     before ``raise validation_error`` (the first assertion fails with ``not_found``); in
@@ -757,6 +903,72 @@ def test_a_key_bound_explain_stays_uniform_and_a_keyless_one_gets_the_code(
         evidence_artifacts._raise_explain_authorization_error(
             AgentIdentity(agent_id="keyless-typed-codes", permission_profile="trusted_local_agent"), error
         )
+
+
+def test_a_key_bound_agent_can_tell_a_refused_id_from_a_missing_one_except_on_explain(
+    sqlite_context: MCPRuntimeContext,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With a real key bound to one project, an id in another project is ``not_permitted`` and a random id is
+    ``not_found``, on review, correct and manage; ``alice_explain`` answers ``tool_request_failed`` for both.
+
+    This is the ruling of the second review of PR 528, recorded here because it is a choice and not an accident: the
+    codes exist so an agent can tell "not allowed" from "broken", the HTTP memory routes already answer 403 and 404
+    the same way, and an id is a random UUID, so a caller learns something only about an id it already holds.
+    ``alice_explain`` keeps its one uniform answer. If the owner rules the other way, this test is the one to change,
+    together with the docs paragraph that says so.
+
+    Mutations, each one alone: in ``_raise_mcp_policy_blocked`` (``mcp/policy.py``) raise
+    ``MCPReferenceNotFoundError`` in place of ``MCPNotPermittedError`` (every ``not_permitted`` row fails); in
+    ``_handle_alice_vnext_memory_audit`` delete the key-bound branch (the explain rows fail with ``not_found``).
+    """
+
+    from alicebot_api.mcp.runtime import _vnext_store_context
+    from alicebot_api.vnext_agent_keys import create_agent_key
+
+    other_project_id = str(_commit(sqlite_context, project_scope=["other-project"])["memory"]["id"])  # type: ignore[index]
+    inside = _commit(sqlite_context, canonical_text="A fact inside the key's project.", project_scope=["alicebot"])
+    inside_id = str(inside["memory"]["id"])  # type: ignore[index]
+    missing = str(uuid4())
+    seen: dict[str, dict[str, str]] = {}
+    for profile in ("project_scoped_agent", "trusted_local_agent", "read_only_agent", "admin_agent"):
+        with _vnext_store_context(sqlite_context) as store:
+            _record, raw_key = create_agent_key(
+                store,  # type: ignore[arg-type]
+                user_id=UUID(_USER_ID),
+                agent_id=f"keyed-{profile}",
+                permission_profile=profile,
+                project_scope="alicebot",
+            )
+        monkeypatch.setenv("ALICE_AGENT_API_KEY", raw_key)
+        # The control: the same key reads an id inside its own project, so the refusals below are about the project.
+        assert _wire(sqlite_context, "alice_memory_review", {"review_item_id": inside_id})["_is_error"] is False
+        codes: dict[str, str] = {}
+        for label, name, arguments in (
+            ("review", "alice_memory_review", {"review_item_id": "{id}"}),
+            ("correct", "alice_memory_correct", {"review_item_id": "{id}", "action": "approve"}),
+            ("forget", "alice_memory_manage", {"action": "forget", "memory_id": "{id}"}),
+            ("unexpire", "alice_memory_manage", {"action": "unexpire", "memory_id": "{id}", "reason": "still true"}),
+            ("explain", "alice_explain", {"memory_id": "{id}"}),
+        ):
+            for kind, target in (("outside", other_project_id), ("missing", missing)):
+                filled = {key: target if value == "{id}" else value for key, value in arguments.items()}
+                codes[f"{label} {kind}"] = _code(sqlite_context, name, filled)
+        seen[profile] = codes
+    monkeypatch.delenv("ALICE_AGENT_API_KEY", raising=False)
+
+    expected = {
+        **{f"{label} outside": "not_permitted" for label in ("review", "correct", "forget", "unexpire")},
+        **{f"{label} missing": "not_found" for label in ("review", "correct", "forget", "unexpire")},
+        "explain outside": "tool_request_failed",
+        "explain missing": "tool_request_failed",
+    }
+    assert seen == {
+        "project_scoped_agent": expected,
+        "trusted_local_agent": expected,
+        "read_only_agent": expected,
+        "admin_agent": expected,
+    }
 
 
 def test_a_key_bound_explain_of_a_missing_continuity_target_stays_uniform(
@@ -1499,38 +1711,100 @@ def test_each_argument_parser_raises_the_argument_class(label: str, call: Callab
 
 # --- The classification of every other raise site is closed ----------------------------------------------------
 
-# A bare ``raise MCPToolError(...)`` answers ``tool_request_failed``. A new one is a decision, so each file and
-# function that may hold one is listed here with the reason. Everything else raises a class that names its kind.
-_BARE_RAISE_ALLOWLIST = {
+# A ``raise`` of one of these classes answers ``tool_request_failed``: the dispatcher leaves each of them generic on
+# purpose (see the comment on the last ``except`` clause of ``call_mcp_tool``). A new one is a decision, so each
+# raise that may exist is listed here with the reason, keyed by file, function, class and the text of the raised
+# expression, with the number of times it appears. A raise anywhere else, a second copy of a listed one, or a listed
+# one that is gone fails. Everything else in ``mcp/`` raises a class that names its kind.
+_GENERIC_CLASSES = frozenset(
+    {
+        "MCPToolError",
+        "VNextMemoryCommitValidationError",
+        "IdempotencyKeyConflictError",
+        "MemoryMutationValidationError",
+        "ValueError",
+        "TypeError",
+    }
+)
+_BARE_RAISE_ALLOWLIST: dict[tuple[str, str, str, str], tuple[int, str]] = {
     (
         "registry.py",
         "call_mcp_tool",
-    ): "the dispatcher's own fallbacks: an untyped validation class, an other SQLite constraint, any ValueError",
+        "MCPToolError",
+        "MCPToolError(str(exc))",
+    ): (2, "the dispatcher's own fallbacks: an other SQLite constraint, and any ValueError or TypeError"),
     (
         "memories.py",
         "_handle_alice_vnext_commit_memory",
-    ): "an idempotency key bound to a different request: a conflict, not one of the four kinds",
+        "MCPToolError",
+        "MCPToolError(str(conflict))",
+    ): (1, "an idempotency key bound to a different request: a conflict, not one of the four kinds"),
+    (
+        "memories.py",
+        "redact_memory_flow",
+        "VNextMemoryCommitValidationError",
+        "VNextMemoryCommitValidationError('reason is required to redact a memory')",
+    ): (
+        1,
+        "a flow shared with the HTTP and CLI doors; the MCP handler parses reason as required text first, so this "
+        "is not reachable over MCP",
+    ),
     (
         "evidence_artifacts.py",
         "_handle_alice_explain",
-    ): "key-bound explain answers one uniform refusal for a missing and an unreadable target",
+        "MCPToolError",
+        "MCPToolError(_EXPLAIN_UNAVAILABLE_MESSAGE)",
+    ): (2, "key-bound explain answers one uniform refusal for a missing and an unreadable target"),
     (
         "evidence_artifacts.py",
         "_raise_explain_authorization_error",
-    ): "the same uniform refusal for a key-bound caller, and an undecided one",
-    ("evidence_artifacts.py", "_handle_alice_vnext_memory_audit"): "the same uniform refusal for a key-bound caller",
+        "MCPToolError",
+        "MCPToolError(_EXPLAIN_UNAVAILABLE_MESSAGE)",
+    ): (2, "the same uniform refusal for a key-bound caller, and an undecided one"),
+    (
+        "evidence_artifacts.py",
+        "_handle_alice_vnext_memory_audit",
+        "MCPToolError",
+        "MCPToolError(_EXPLAIN_UNAVAILABLE_MESSAGE)",
+    ): (1, "the same uniform refusal for a key-bound caller"),
     (
         "runtime.py",
         "_sqlite_path_from_url",
-    ): "a malformed database URL is operator configuration, not a state the agent can change",
-    ("types.py", "_json_value"): "an internal result holds a value that is not JSON",
-    ("types.py", "_json_object"): "an internal result is not a JSON object",
+        "MCPToolError",
+        "MCPToolError('sqlite database URL must include a database file path')",
+    ): (1, "a malformed database URL is operator configuration, not a state the agent can change"),
+    (
+        "runtime.py",
+        "_sqlite_path_from_url",
+        "MCPToolError",
+        "MCPToolError('sqlite database URLs must reference a local file path')",
+    ): (1, "a malformed database URL is operator configuration, not a state the agent can change"),
+    (
+        "runtime.py",
+        "_sqlite_path_from_url",
+        "MCPToolError",
+        "MCPToolError(f\"expected a sqlite:/// database URL, got '{database_url}'\")",
+    ): (1, "a malformed database URL is operator configuration, not a state the agent can change"),
+    (
+        "types.py",
+        "_json_value",
+        "MCPToolError",
+        "MCPToolError(f'MCP result contains unsupported JSON value {type(normalized).__name__}')",
+    ): (1, "an internal result holds a value that is not JSON"),
+    (
+        "types.py",
+        "_json_object",
+        "MCPToolError",
+        "MCPToolError('MCP result must be a JSON object')",
+    ): (1, "an internal result is not a JSON object"),
 }
 _INTERNAL_FALLTHROUGH_SUFFIX = "did not complete"
 
 
-def _bare_tool_error_raises() -> list[tuple[str, str, int, str | None]]:
-    found: list[tuple[str, str, int, str | None]] = []
+def _generic_raises() -> list[tuple[str, str, int, str, str, str | None]]:
+    """Every ``raise`` of a generic class in ``mcp/``: file, function, line, class, expression, message literal."""
+
+    found: list[tuple[str, str, int, str, str, str | None]] = []
     for path in sorted(_MCP_DIR.glob("*.py")):
         tree = ast.parse(path.read_text(encoding="utf-8"))
         parents: dict[ast.AST, ast.AST] = {}
@@ -1541,7 +1815,7 @@ def _bare_tool_error_raises() -> list[tuple[str, str, int, str | None]]:
             if not isinstance(node, ast.Raise) or not isinstance(node.exc, ast.Call):
                 continue
             func = node.exc.func
-            if not (isinstance(func, ast.Name) and func.id == "MCPToolError"):
+            if not (isinstance(func, ast.Name) and func.id in _GENERIC_CLASSES):
                 continue
             enclosing = node
             while enclosing in parents and not isinstance(enclosing, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -1549,43 +1823,58 @@ def _bare_tool_error_raises() -> list[tuple[str, str, int, str | None]]:
             name = enclosing.name if isinstance(enclosing, (ast.FunctionDef, ast.AsyncFunctionDef)) else "<module>"
             first = node.exc.args[0] if node.exc.args else None
             literal = first.value if isinstance(first, ast.Constant) and isinstance(first.value, str) else None
-            found.append((path.name, name, node.lineno, literal))
+            found.append((path.name, name, node.lineno, func.id, ast.unparse(node.exc), literal))
     return found
 
 
-def test_a_bare_tool_error_is_raised_only_where_the_allowlist_says_why() -> None:
-    """A handler that rejects a request names the kind of the refusal; a bare ``MCPToolError`` is the exception.
+def _unlisted_generic_raises() -> tuple[list[str], dict[tuple[str, str, str, str], int]]:
+    counts: dict[tuple[str, str, str, str], int] = {}
+    unlisted: list[str] = []
+    for filename, function, lineno, class_name, expression, literal in _generic_raises():
+        if class_name == "MCPToolError" and literal is not None and literal.endswith(_INTERNAL_FALLTHROUGH_SUFFIX):
+            continue
+        key = (filename, function, class_name, expression)
+        counts[key] = counts.get(key, 0) + 1
+        if key not in _BARE_RAISE_ALLOWLIST or counts[key] > _BARE_RAISE_ALLOWLIST[key][0]:
+            unlisted.append(f"{filename}:{lineno} in {function}: {expression}")
+    return unlisted, counts
+
+
+def test_a_generic_raise_is_made_only_where_the_allowlist_says_why() -> None:
+    """A handler that rejects a request names the kind of the refusal; a generic raise is the exception.
 
     Allowed: the ``... did not complete`` fall-through of each handler (an internal failure with nothing for the
-    caller to change) and the sites in the allowlist, each with its reason. A new ``raise MCPToolError("x is
-    required")`` fails here and the message says which class to raise instead.
+    caller to change) and the raises in the allowlist, each with its reason. A new ``raise MCPToolError("x is
+    required")``, or a raise of the commit service's base class for a missing memory, fails here and the message says
+    which class to raise instead. The allowlist is keyed by the text of the raised expression and a count, so a dead
+    copy of a listed raise inside a listed function fails too.
 
-    Mutations: change the ``raise MCPArgumentError`` of ``_parse_required_text`` in ``mcp/arguments.py`` back to
-    ``raise MCPToolError``; add ``raise MCPToolError("memory 1 was not found")`` to any handler. Each fails.
+    Mutations, each one alone: change the ``raise MCPArgumentError`` of ``_parse_required_text`` in
+    ``mcp/arguments.py`` back to ``raise MCPToolError``; add ``raise MCPToolError("memory 1 was not found")`` to any
+    handler, including a listed one such as ``_handle_alice_explain``; raise ``VNextMemoryCommitValidationError(
+    "memory was not found")`` for the missing-memory check of ``redact_memory_flow`` in ``mcp/memories.py`` (the way
+    the redact miss of the first review got through); add a second ``raise MCPToolError(str(exc))`` to
+    ``call_mcp_tool``. Each fails.
     """
 
-    unclassified = [
-        f"{filename}:{lineno} in {function}"
-        for filename, function, lineno, literal in _bare_tool_error_raises()
-        if not (literal is not None and literal.endswith(_INTERNAL_FALLTHROUGH_SUFFIX))
-        and (filename, function) not in _BARE_RAISE_ALLOWLIST
-    ]
+    unlisted, _counts = _unlisted_generic_raises()
 
-    assert unclassified == [], (
-        "a bare MCPToolError answers tool_request_failed. Raise MCPArgumentError (a rejected argument), "
-        "MCPNotPermittedError (a policy or profile refusal), MCPReferenceNotFoundError (an id that does not exist) "
-        "or MCPPreconditionFailedError (a state that forbids the call), or add the site to _BARE_RAISE_ALLOWLIST "
-        "with a reason: " + ", ".join(unclassified)
+    assert unlisted == [], (
+        "a generic raise answers tool_request_failed. Raise MCPArgumentError (a rejected argument), "
+        "MCPNotPermittedError (a policy or profile refusal), MCPReferenceNotFoundError or MemoryNotFoundError (an "
+        "id that does not exist), MCPPreconditionFailedError or MemoryStateError (a state that forbids the call), "
+        "or add the raise to _BARE_RAISE_ALLOWLIST with a reason: " + ", ".join(unlisted)
     )
 
 
-def test_every_allowlisted_site_still_exists() -> None:
-    """The allowlist names only sites that exist, so it cannot rot into a list of nothing.
+def test_every_allowlisted_raise_still_exists_the_listed_number_of_times() -> None:
+    """The allowlist names only raises that exist, as many as it says, so it cannot rot into a list of nothing.
 
-    Mutation: remove the only bare raise of an allowlisted function (for example the ``_json_value`` raise in
-    ``mcp/types.py``) without removing its allowlist row.
+    Mutations, each one alone: remove the only raise of an allowlisted function (for example the ``_json_value``
+    raise in ``mcp/types.py``) without removing its allowlist row; remove one of the two ``raise
+    MCPToolError(_EXPLAIN_UNAVAILABLE_MESSAGE)`` of ``_handle_alice_explain``. Each fails.
     """
 
-    present = {(filename, function) for filename, function, _lineno, _literal in _bare_tool_error_raises()}
+    _unlisted, counts = _unlisted_generic_raises()
 
-    assert set(_BARE_RAISE_ALLOWLIST) <= present, sorted(set(_BARE_RAISE_ALLOWLIST) - present)
+    assert counts == {key: count for key, (count, _reason) in _BARE_RAISE_ALLOWLIST.items()}

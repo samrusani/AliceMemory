@@ -29,6 +29,7 @@ from alicebot_api.continuity_recall import (
 from alicebot_api.continuity_resumption import ContinuityResumptionValidationError
 from alicebot_api.continuity_review import (
     ContinuityReviewNotFoundError,
+    ContinuityReviewStateError,
     ContinuityReviewValidationError,
 )
 from alicebot_api.store import JsonObject
@@ -562,6 +563,11 @@ def call_mcp_tool(
         # Only these two classes: a plain PermissionError is a file or socket
         # failure and stays tool_execution_failed.
         raise MCPNotPermittedError(str(exc)) from exc
+    except (MemoryStateError, LifecycleTransitionError, ContinuityReviewStateError) as exc:
+        # Before the argument clause below: ContinuityReviewStateError is a
+        # subclass of ContinuityReviewValidationError, which that clause lists,
+        # and the first clause that matches wins.
+        raise MCPPreconditionFailedError(str(exc)) from exc
     except (
         ContinuityCaptureValidationError,
         ContinuityRecallValidationError,
@@ -582,8 +588,6 @@ def call_mcp_tool(
         MemoryNotFoundError,
     ) as exc:
         raise MCPReferenceNotFoundError(str(exc)) from exc
-    except (MemoryStateError, LifecycleTransitionError) as exc:
-        raise MCPPreconditionFailedError(str(exc)) from exc
     except CheckViolation as exc:
         raise MCPArgumentError(
             "vNext request violates a persisted schema constraint; use schema-backed enum values "

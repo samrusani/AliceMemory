@@ -610,7 +610,7 @@ size limits that v0.19.2 and v0.20.0 already answered with `invalid_request`.
 | `invalid_request` | The arguments were rejected: a property the tool does not take, a missing or mistyped value, a value out of range, an action the tool does not know, or text over a size limit. | Fix the call and retry. |
 | `not_permitted` | A policy, the agent's permission profile, its key or its project scope refused the call, or the call asked for something the server forbids, such as raw content outside development. | Do not retry. Ask the owner. |
 | `not_found` | An id the call names does not exist for this caller: a memory, a pending confirmation, an open loop, an artifact, a review item or a provenance source. A review item outside the caller's own filters answers the same. | Check the id, or stop. |
-| `precondition_failed` | The call is well formed and allowed, but the state forbids it: a confirmation that was already answered, a memory whose status does not allow the action, a tool the SQLite backend does not serve, or a write that refers to a row the vault does not hold. | Change the state first, or use another route. The same call will not work until the state changes. |
+| `precondition_failed` | The call is well formed and allowed, but the state forbids it: a confirmation that was already answered, a memory or review item whose status does not allow the action, a tool the SQLite backend does not serve, or a write that refers to a row the vault does not hold. | Change the state first, or use another route. The same call will not work until the state changes. |
 | `tool_request_failed` | Any other refusal. | Treat it as opaque. |
 | `tool_execution_failed` | The tool failed in a way the server did not expect. | Treat it as opaque. Look at the server log. |
 | `tool_not_found` | The tool name is not on the surface this server serves. | Stop calling it. |
@@ -624,12 +624,18 @@ reason for a refusal stays in the server log and, for a policy refusal, in the
 policy events. A code comes from the class of the error that was raised, never
 from its message text.
 
-Two answers stay uniform on purpose. A caller that authenticates with an agent
-key gets `tool_request_failed` from `alice_explain` whether the target is
-missing or unreadable, because a different code would tell it which. A review
-item the caller's filters hide answers `not_found`, the same as a missing one.
-For any other id, a caller that holds the id can tell a refusal (`not_permitted`)
-from a missing row (`not_found`). Ids are random UUIDs.
+What an id tells a caller. A caller that authenticates with an agent key gets
+`tool_request_failed` from `alice_explain` whether the target is missing or
+unreadable, because explain expands related rows and a different code would
+tell it which. Every other tool that takes an id answers the difference, to a
+key-bound caller too: an id that the key's project scope refuses answers
+`not_permitted` from `alice_memory_review` by id, `alice_memory_correct` and
+`alice_memory_manage`, and an id that does not exist answers `not_found`. So a
+key bound to one project can learn that an id it already holds exists in
+another project. That is what the codes are for, the HTTP memory routes answer
+403 and 404 the same way, and an id is a random UUID, so the answer only tells
+a caller about an id it already has. A review item the caller's own filters
+hide answers `not_found`, the same as a missing one.
 
 These stay `tool_request_failed`: an idempotency key already bound to a
 different request, a credential refusal, a malformed database URL, and an
