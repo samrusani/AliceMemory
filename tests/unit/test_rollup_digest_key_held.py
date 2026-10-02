@@ -9,8 +9,14 @@ card whose validity window had closed. Two more ways of holding the key still ma
 * a reviewer rejected the card (status ``rejected``, window open), and
 * the confirmation-age arm of the staleness sweep marked the card ``stale`` (it leaves ``valid_to`` open).
 
-Both are reproduced here on SQLite. A superseded or archived card, a card outside the fence of the pass and a
-row that is not a roll-up card hold the key the same way, so the pass reports every one of them as held back.
+Both are reproduced here on SQLite. A superseded card, a card outside the fence of the pass and a row that is not a
+roll-up card hold the key the same way, so the pass reports every one of them as held back.
+
+A card archived through ``update_memory`` holds the key too, and it is the one case the store's own read hides:
+``update_memory`` sets ``deleted_at`` and keeps ``memory_key``, and ``get_memory_by_key`` skips rows with
+``deleted_at`` set, so a read that guards the key must ask for soft-deleted rows (``include_deleted=True``). The
+archived rows in these tests are made that way, through ``update_memory``, never by creating a row with the status
+``archived``, which leaves ``deleted_at`` empty and does not reach the case.
 
 Every test names, in its docstring, the change to the code that must fail it. No test calls a model, an
 embeddings endpoint or the network.
@@ -20,11 +26,13 @@ from __future__ import annotations
 
 import inspect
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 
 import pytest
 
 from alicebot_api.vnext_rollups import VNextRollupService, _may_name_card
 from alicebot_api.vnext_scheduler import SchedulerRunRequest, VNextSchedulerService
+from alicebot_api.vnext_stores.postgres.memory_access import get_memory_by_key as postgres_get_memory_by_key
 from tests.unit.test_expired_memories_everywhere import (
     ALL_SENSITIVITY,
     FAR_FUTURE,
@@ -154,9 +162,12 @@ def test_a_card_with_an_open_window_holds_the_key_in_every_status(status: str) -
     The row holds the memory key in every status, so a new card for the same members collides with it. The
     window is open here, which is the case #518's read leaves out.
 
-    Mutation: test the status in ``_row_at_digest_key`` (return ``(False, None)`` for any status outside
-    ``active`` and ``accepted``), which fails the ``candidate``, ``stale``, ``rejected``, ``superseded`` and
-    ``archived`` cases.
+    The ``archived`` card is archived through ``update_memory`` (``deleted_at`` set, key kept).
+
+    Mutations, each one alone: test the status in ``_row_at_digest_key`` (return ``(False, None)`` for any status
+    outside ``active`` and ``accepted``), which fails the ``candidate``, ``stale``, ``rejected``, ``superseded``
+    and ``archived`` cases; drop ``include_deleted=True`` from the store call in ``_row_at_digest_key``, which
+    fails the ``archived`` case.
     """
 
     with _memory_store() as store:
@@ -164,6 +175,117 @@ def test_a_card_with_an_open_window_holds_the_key_in_every_status(status: str) -
         held, named = _held(VNextRollupService(store, embedding_provider=None), "digest-open")
         assert held is True
         assert named is not None and named["id"] == card["id"]
+
+
+def test_a_card_archived_through_the_store_holds_its_group_back_and_the_pass_does_not_raise() -> None:
+    """A card archived with ``update_memory`` still holds its key; the next pass reports the group and proposes nothing.
+
+    ``update_memory`` with status ``archived`` sets ``deleted_at`` and keeps ``memory_key``, and the unique index
+    counts the row. ``get_memory_by_key`` skips a row with ``deleted_at`` set, so before this change the read that
+    guards the key did not see the card and the pass raised ``IntegrityError`` on it (as it did in v0.20.0). The pass
+    now reports ``existing_card_members_unchanged`` with ``existing_status`` ``archived``, makes no new row, and a
+    fifth memory changes the members so the next pass proposes a new card, not a revision of the archived one.
+
+    Mutations, each one alone: drop ``include_deleted=True`` from the store call in ``_row_at_digest_key`` (the
+    second pass raises ``IntegrityError``); delete the ``_row_at_digest_key`` block from ``propose_rollups`` (same).
+    """
+
+    with _memory_store() as store:
+        service, card_id = _first_card(store)
+        store.update_memory(memory_id=card_id, patch={"status": "archived"})
+        archived = store.conn.execute("SELECT status, deleted_at FROM memories WHERE id = ?", (card_id,)).fetchone()
+        assert archived[0] == "archived" and archived[1] is not None
+        assert store.get_memory(card_id) is None
+        cards_before = _rollup_card_count(store)
+
+        second = service.propose_rollups()
+        assert second.proposals == []
+        assert [group["state"] for group in second.groups] == ["existing_card_members_unchanged"]
+        assert second.groups[0]["existing_memory_id"] == card_id
+        assert second.groups[0]["existing_status"] == "archived"
+        assert _rollup_card_count(store) == cards_before
+
+        _seed_game_memories(store, order=(4,))
+        changed = service.propose_rollups()
+        assert [group["state"] for group in changed.groups] == ["created"]
+        assert len(changed.proposals) == 1 and changed.proposals[0]["revises_memory_id"] is None
+
+
+def test_an_archived_card_with_a_closed_window_is_reported_as_expired_and_the_pass_does_not_raise() -> None:
+    """A card that was archived and whose window has closed keeps #518's state, ``expired_card_members_unchanged``.
+
+    The expired-card read runs first. It asked the store for live rows only, so before this change it did not see
+    an archived card and the group fell through to the digest-key read, which reported
+    ``existing_card_members_unchanged``; with neither read asking for soft-deleted rows the pass raised.
+
+    Mutation: drop ``include_deleted=True`` from the store call in ``_expired_card_for_digest`` (the group is
+    reported as ``existing_card_members_unchanged`` and the ``expired_memory_id`` key is missing).
+    """
+
+    with _memory_store() as store:
+        service, card_id = _first_card(store)
+        store.conn.execute("UPDATE memories SET valid_to = '2020-01-01T00:00:00Z' WHERE id = ?", (card_id,))
+        store.update_memory(memory_id=card_id, patch={"status": "archived"})
+        assert store.get_memory(card_id) is None
+        cards_before = _rollup_card_count(store)
+
+        outcome = service.propose_rollups()
+        assert outcome.proposals == []
+        assert [group["state"] for group in outcome.groups] == ["expired_card_members_unchanged"]
+        assert outcome.groups[0]["expired_memory_id"] == card_id
+        assert _rollup_card_count(store) == cards_before
+
+
+def test_get_memory_by_key_skips_a_soft_deleted_row_unless_it_is_asked_for_one() -> None:
+    """The SQLite read hides an archived row by default and returns it for ``include_deleted=True``.
+
+    The default stays as it was, so every other caller still sees live rows only. A live row is returned either
+    way, and a key no row holds is ``None`` either way.
+
+    Mutations, each one alone, in ``vnext_stores/sqlite/memory_access.py``: make ``get_memory_by_key`` ignore
+    ``include_deleted`` and always filter ``deleted_at IS NULL`` (the ``include_deleted=True`` read returns
+    nothing and its assertion fails); make it never filter (the default read returns the archived row and the
+    first assertion fails).
+    """
+
+    with _memory_store() as store:
+        live = _digest_card(store, "digest-live", valid_to=None)
+        archived = _digest_card(store, "digest-archived", valid_to=None, status="archived")
+        assert store.get_memory_by_key(memory_key="vnext.rollup.digest-archived") is None
+        assert store.get_memory_by_key(memory_key="vnext.rollup.digest-archived", include_deleted=False) is None
+        found = store.get_memory_by_key(memory_key="vnext.rollup.digest-archived", include_deleted=True)
+        assert found is not None and found["id"] == archived["id"] and found["status"] == "archived"
+        assert found["deleted_at"] is not None
+        for flag in (False, True):
+            row = store.get_memory_by_key(memory_key="vnext.rollup.digest-live", include_deleted=flag)
+            assert row is not None and row["id"] == live["id"]
+            assert store.get_memory_by_key(memory_key="vnext.rollup.digest-nothing", include_deleted=flag) is None
+
+
+def test_the_postgres_get_memory_by_key_filters_soft_deleted_rows_only_by_default() -> None:
+    """The Postgres read builds the same query: ``deleted_at IS NULL`` by default, no such clause with ``include_deleted``.
+
+    The Postgres store is not opened here. The function is called on a stand-in that records the SQL and the
+    parameters it is given, so the test reads what the function asks the database for.
+
+    Mutations, each one alone, in ``vnext_stores/postgres/memory_access.py``: always add the ``deleted_at IS NULL``
+    clause (the ``include_deleted=True`` assertion fails); never add it (the default assertion fails); drop the
+    ``include_deleted`` parameter (the call raises ``TypeError``).
+    """
+
+    seen: list[tuple[str, tuple[object, ...]]] = []
+
+    def fetch_optional_one(sql: str, params: tuple[object, ...]) -> None:
+        seen.append((sql, params))
+
+    store = SimpleNamespace(_fetch_optional_one=fetch_optional_one)
+    postgres_get_memory_by_key(store, memory_key="vnext.rollup.digest-x")
+    postgres_get_memory_by_key(store, memory_key="vnext.rollup.digest-x", include_deleted=False)
+    postgres_get_memory_by_key(store, memory_key="vnext.rollup.digest-x", include_deleted=True)
+    default_sql, explicit_false_sql, include_sql = (entry[0] for entry in seen)
+    assert "deleted_at IS NULL" in default_sql and "deleted_at IS NULL" in explicit_false_sql
+    assert "deleted_at IS NULL" not in include_sql
+    assert {entry[1] for entry in seen} == {("assistant_default", "vnext.rollup.digest-x")}
 
 
 def test_a_key_no_row_holds_is_not_held_and_a_store_with_no_key_lookup_holds_nothing() -> None:

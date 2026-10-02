@@ -238,3 +238,55 @@ def test_the_builder_is_the_only_door_the_tool_and_the_http_route_use() -> None:
 
     assert "memory_commit_request_from_payload(" in inspect.getsource(mcp_memories._handle_alice_vnext_commit_memory)
     assert "memory_commit_request_from_payload(" in inspect.getsource(vnext_memories.commit_vnext_memory)
+
+
+ROOT = Path(__file__).resolve().parents[2]
+MARK = "Unreleased (on main, not in v0.20.0):"
+
+
+def _flat(text: str) -> str:
+    return " ".join(text.split())
+
+
+def test_the_known_limitations_bullet_keeps_the_v0200_text_and_marks_the_limit_as_main_only() -> None:
+    """The bullet says v0.20.0 has no limit on SQLite, then, after one marker, that main refuses over 20,000.
+
+    v0.20.0 is released and README-level docs describe it, so the refusal is main-only until the release PR
+    converts the marker. Without the marker the page says v0.20.0 already refuses the text, which is false.
+
+    Mutations, each one alone, in ``docs/alpha/known-limitations.md``: delete ``Unreleased (on main, not in
+    v0.20.0):`` from this bullet; delete the v0.20.0 clause before the marker (``has no length limit``); delete the
+    clause after it that says the text is refused; add a second marker to the bullet. Each fails this test. The
+    three expiry-bullet checks in ``test_expired_memories_docs.py`` do not see this bullet.
+    """
+
+    lines = (ROOT / "docs/alpha/known-limitations.md").read_text(encoding="utf-8").splitlines()
+    bullets = [_flat(line) for line in lines if line.startswith("- the Postgres HTTP commit routes take up to 20,000")]
+    assert len(bullets) == 1
+    bullet = bullets[0]
+    assert bullet.count(MARK) == 1
+    before, after = bullet.split(MARK)
+    assert "`alice_memory_commit` on SQLite has no length limit" in before
+    assert "a 2,000,000-character memory was stored whole" in before
+    assert "`alice_memory_commit` refuses a memory whose text is over 20,000 characters" in after
+    assert "refuses" not in before
+    assert "`alice_vnext_correct_memory` and `alice_vnext_propose_memory`" in after
+
+
+def test_the_mcp_tools_page_keeps_the_v0200_text_and_marks_the_limit_as_main_only() -> None:
+    """The paragraph on ``canonical_text`` says the number, then, after one marker, that main refuses a longer text.
+
+    Mutations, each one alone, in ``docs/alpha/mcp-tools.md``: delete ``Unreleased (on main, not in v0.20.0):``
+    from the paragraph; delete the sentence after the marker that says v0.20.0 had no limit on SQLite; delete the
+    refusal clause after the marker; move the refusal clause before the marker. Each fails this test.
+    """
+
+    page = _flat((ROOT / "docs/alpha/mcp-tools.md").read_text(encoding="utf-8"))
+    start = page.index("The text of a new write, `canonical_text`, is at most 20,000 characters")
+    paragraph = page[start : page.index("Alice decides the outcome, never the caller:")]
+    assert paragraph.count(MARK) == 1
+    before, after = paragraph.split(MARK)
+    assert "the number the Postgres HTTP commit routes already used" in before
+    assert "refused" not in before
+    assert "a longer text is refused with the tool error `invalid_request`" in after
+    assert "In v0.20.0 the MCP tool had no limit on SQLite" in after

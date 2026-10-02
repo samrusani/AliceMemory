@@ -41,14 +41,23 @@ def get_memory_by_key(
     *,
     memory_key: str,
     agent_profile_id: str = "assistant_default",
+    include_deleted: bool = False,
 ) -> VNextRow | None:
+    """The memory at ``memory_key``, or ``None``.
+
+    A soft-deleted (archived) row is not returned unless ``include_deleted`` is true. It still holds its key:
+    the unique constraint on ``(user, profile, memory_key)`` counts every row, so a caller that reads the key
+    to avoid a collision on insert passes ``include_deleted=True`` to see every row the constraint sees.
+    """
+
+    deleted_clause = "" if include_deleted else "AND deleted_at IS NULL"
     return self._fetch_optional_one(
         f"""
                 SELECT {MEMORY_COLUMNS}
                 FROM memories
                 WHERE agent_profile_id = %s
                   AND memory_key = %s
-                  AND deleted_at IS NULL
+                  {deleted_clause}
                 LIMIT 1
                 """,
         (agent_profile_id, memory_key),

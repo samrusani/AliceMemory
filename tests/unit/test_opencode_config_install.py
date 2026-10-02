@@ -1839,6 +1839,10 @@ def test_jsonc_scan_of_a_large_file_stays_linear() -> None:
     busy, which the earlier version, a ratio of two wall-clock timings, did: it failed 2 runs of 40 when other
     processes loaded the CPU in bursts, and it also failed once in a full run.
 
+    Scope: the count guards the reads of the text and nothing else. A quadratic step that does not read the text, such
+    as copying the token list at every token (``tokens = tokens + [token]``), passes this test; the timing test it
+    replaced would have failed it, and also failed on a busy machine, so that case is not covered here.
+
     Mutations, each one alone, in ``_jsonc_tokens``: give the whitespace token the line from the start of the file
     (``_JsoncTok("ws", start, index, _jsonc_line(text, start))``), or count the breaks by slicing
     (``line = text[:index].count("\\n") + 1`` at the top of the loop). Each fails this test within the first few

@@ -2,8 +2,9 @@
 
 ``memories`` has the check ``last_seen_at >= first_seen_at``. ``create_memory`` took ``first_seen_at`` and
 ``last_seen_at`` from two separate readings of the wall clock, and two back-to-back readings can go backwards
-(57 times in 198 million pairs on one machine), so a write that landed on a step back failed on the check with
-``IntegrityError``, in v0.20.0 and on main before this change. ``update_memory`` took ``updated_at`` and, for an
+(rarely: 2 pairs in 60 million in the one measurement the CHANGELOG entry gives, and a rerun can find a different
+number or none), so a write that landed on a step back failed on the check with ``IntegrityError``, in v0.20.0 and
+on main before this change. ``update_memory`` took ``updated_at`` and, for an
 archive, ``deleted_at`` from two readings as well, which could leave a memory deleted before it was updated.
 
 Every test names, in its docstring, the change to the code that must fail it. The clock is injected, nothing here

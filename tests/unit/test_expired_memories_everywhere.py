@@ -1123,19 +1123,24 @@ def _digest_card(
     project: str | None = None,
     candidate_kind: str = ROLLUP_CANDIDATE_KIND,
 ) -> dict[str, object]:
-    """One roll-up card holding the memory key a pass derives from ``digest``."""
+    """One roll-up card holding the memory key a pass derives from ``digest``.
+
+    A card with status ``archived`` is archived the way the store archives one, through ``update_memory``,
+    which sets ``deleted_at`` and keeps ``memory_key``. Creating the row with ``status="archived"`` leaves
+    ``deleted_at`` empty, which is not a soft-deleted row and does not reach the read that skips them.
+    """
 
     metadata: dict[str, object] = {"candidate_kind": candidate_kind, "rollup_key": rollup_key, "rollup_digest": digest}
     if project is not None:
         metadata["project_scope"] = [project]
-    return store.create_memory(
+    card = store.create_memory(
         {
             "memory_key": f"vnext.rollup.{digest}",
             "value": {"text": digest},
             "memory_type": "semantic",
             "title": digest,
             "canonical_text": digest,
-            "status": status,
+            "status": "active" if status == "archived" else status,
             "domain": domain,
             "sensitivity": sensitivity,
             "project_id": project,
@@ -1143,6 +1148,14 @@ def _digest_card(
             "metadata_json": metadata,
         }
     )
+    if status == "archived":
+        store.update_memory(memory_id=str(card["id"]), patch={"status": "archived"})
+        row = store.conn.execute(
+            "SELECT status, deleted_at FROM memories WHERE id = ?", (str(card["id"]),)
+        ).fetchone()
+        assert row[0] == "archived" and row[1] is not None
+        assert store.get_memory(str(card["id"])) is None
+    return card
 
 
 def _expired_card(service: VNextRollupService, digest: str, **fence: object) -> dict[str, object] | None:

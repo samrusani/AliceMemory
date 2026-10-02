@@ -2440,6 +2440,11 @@ class VNextRollupService:
         ``valid_to``, so a test for a searchable status would let the pass raise on the key as soon
         as the sweep had run.
 
+        The read asks the store for soft-deleted rows too (``include_deleted=True``). A card archived
+        through ``update_memory`` has ``deleted_at`` set and keeps its ``memory_key``, and the unique
+        index counts it, so a read that skipped soft-deleted rows would not see the row that makes the
+        create raise.
+
         This read applies every other control the accepted-card read applies, and the fence is a
         required keyword-only argument so a caller cannot leave one out: the row must be a roll-up
         card, for this group's key, inside the domains, the sensitivity ceiling and the projects of
@@ -2450,7 +2455,7 @@ class VNextRollupService:
         getter = getattr(self.store, "get_memory_by_key", None)
         if not callable(getter):
             return None
-        row = getter(memory_key=f"vnext.rollup.{rollup_digest}")
+        row = getter(memory_key=f"vnext.rollup.{rollup_digest}", include_deleted=True)
         if row is None:
             return None
         if memory_window_is_open(row):
@@ -2485,6 +2490,10 @@ class VNextRollupService:
         card read and reports the group as held back instead of proposing it, until its members change and
         the digest, and with it the key, changes.
 
+        The read asks the store for soft-deleted rows too (``include_deleted=True``): a card archived through
+        ``update_memory`` has ``deleted_at`` set and keeps its ``memory_key``, and the unique index counts it,
+        so a read that skipped soft-deleted rows would not see the row that makes the create raise.
+
         ``held`` is true for any row at the key. ``card`` is that row only when the pass may name it, by the
         same controls the expired-card read applies (a roll-up card, for this group's key, inside the
         domains, the sensitivity ceiling and the projects of the pass); a row outside them makes the group
@@ -2496,7 +2505,7 @@ class VNextRollupService:
         getter = getattr(self.store, "get_memory_by_key", None)
         if not callable(getter):
             return False, None
-        row = getter(memory_key=f"vnext.rollup.{rollup_digest}")
+        row = getter(memory_key=f"vnext.rollup.{rollup_digest}", include_deleted=True)
         if row is None:
             return False, None
         named = _may_name_card(
