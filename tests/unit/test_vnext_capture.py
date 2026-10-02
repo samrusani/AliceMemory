@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 import json
 from pathlib import Path
 import sqlite3
@@ -69,6 +71,30 @@ class InMemoryVNextCaptureStore:
         self._next_chunk_id = 1
         self._next_memory_id = 1
         self._next_provenance_id = 1
+        self.savepoints_opened = 0
+
+    @contextmanager
+    def savepoint(self) -> Iterator[None]:
+        """The real stores' contract: a failed block leaves no row, events included."""
+        self.savepoints_opened += 1
+        marks = (
+            len(self.events),
+            len(self.sources),
+            len(self.chunks),
+            len(self.memories),
+            len(self.provenance_links),
+        )
+        known_hashes = dict(self._source_by_hash)
+        try:
+            yield
+        except BaseException:
+            del self.events[marks[0] :]
+            del self.sources[marks[1] :]
+            del self.chunks[marks[2] :]
+            del self.memories[marks[3] :]
+            del self.provenance_links[marks[4] :]
+            self._source_by_hash = known_hashes
+            raise
 
     def append_event(self, event: dict[str, object]) -> dict[str, object]:
         self.calls.append(f"append_event:{event['event_type']}")
