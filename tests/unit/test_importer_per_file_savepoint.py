@@ -11,6 +11,7 @@ connection that records the SQL it is sent, and by the integration twin in
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 from contextlib import closing
 from io import StringIO
@@ -649,6 +650,47 @@ def test_a_savepoint_reports_the_callers_error_when_sqlite_has_already_ended_the
                 raise RuntimeError("the real failure")
 
 
+@pytest.mark.parametrize("interruption", [KeyboardInterrupt, asyncio.CancelledError])
+def test_the_sqlite_savepoint_rolls_back_on_an_interrupt_and_on_a_cancellation(
+    tmp_path: Path, interruption: type[BaseException]
+) -> None:
+    """A ``BaseException`` rolls the block back too, not only an ``Exception``.
+
+    Ctrl-C raises ``KeyboardInterrupt`` and a cancelled task raises
+    ``asyncio.CancelledError``; neither is an ``Exception``. The block's row must
+    be gone inside the still-open transaction (a caller that catches the
+    interruption and goes on would otherwise commit a half-built unit), the
+    outer block's row must stay, the savepoint must be released, and the
+    connection must take the next write. Fails if the handler is
+    ``except Exception``: the row is still visible, and neither ``ROLLBACK TO``
+    nor ``RELEASE`` is sent.
+    """
+
+    database = _vault(tmp_path)
+    sent: list[str] = []
+    with sqlite_user_connection(database, USER_ID) as conn:
+        store = SQLiteVNextStore(conn, USER_ID)
+        with store.savepoint():
+            store.create_source(_source("outer"))
+            conn.set_trace_callback(sent.append)
+            with pytest.raises(interruption):
+                with store.savepoint():
+                    store.create_source(_source("interrupted"))
+                    raise interruption()
+            conn.set_trace_callback(None)
+            assert [row["title"] for row in conn.execute("SELECT title FROM sources ORDER BY title")] == ["outer"]
+            store.create_source(_source("after"))
+
+    statements = [sql for sql in sent if sql.startswith(("SAVEPOINT", "RELEASE", "ROLLBACK", "COMMIT"))]
+    name = statements[0].split()[1]
+    assert statements == [
+        f"SAVEPOINT {name}",
+        f"ROLLBACK TO SAVEPOINT {name}",
+        f"RELEASE SAVEPOINT {name}",
+    ]
+    assert _read(database, "SELECT title FROM sources ORDER BY title") == [("after",), ("outer",)]
+
+
 # The Postgres store, against a connection that records the SQL it is sent.
 
 
@@ -718,6 +760,34 @@ def test_the_postgres_savepoint_reports_the_callers_error_when_the_connection_is
             raise RuntimeError("the real failure")
 
 
+@pytest.mark.parametrize("interruption", [KeyboardInterrupt, asyncio.CancelledError])
+def test_the_postgres_savepoint_rolls_back_then_releases_on_an_interrupt_and_on_a_cancellation(
+    interruption: type[BaseException],
+) -> None:
+    """A ``BaseException`` rolls the block back too, not only an ``Exception``.
+
+    Ctrl-C raises ``KeyboardInterrupt`` and a cancelled task raises
+    ``asyncio.CancelledError``; neither is an ``Exception``. A pooled connection
+    handed back to the pool after one must not carry the block's writes, so the
+    interruption is re-raised only after ``ROLLBACK TO`` and ``RELEASE``. Fails
+    if the handler is ``except Exception``: the interruption leaves the block
+    with no rollback and no release sent.
+    """
+
+    conn = _RecordingConnection()
+    store = PostgresVNextStore(conn)  # type: ignore[arg-type]
+    with pytest.raises(interruption):
+        with store.savepoint():
+            raise interruption()
+
+    name = conn.statements[0].split()[1]
+    assert conn.statements == [
+        f"SAVEPOINT {name}",
+        f"ROLLBACK TO SAVEPOINT {name}",
+        f"RELEASE SAVEPOINT {name}",
+    ]
+
+
 # The words that say what changed, on the one docs page and in the CHANGELOG.
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -769,10 +839,11 @@ def test_the_changelog_entry_states_the_v0200_behaviour_and_what_stays() -> None
     Fails if the entry stops saying what v0.20.0 did (stayed live, reported a
     duplicate, wrote two failure events), if those sentences lose their scope to
     SQLite or the Postgres sentence stops saying it was read from the code and
-    not run, if the nothing-to-switch-off sentence loses its scope to the search
-    quality work (the sibling Unreleased entries, such as the expiry fix, also
-    change behaviour with no switch, so an unscoped "one change in this release"
-    is false), or if an old half-built source is not said to stay as it is.
+    not run, if the no-switch sentence stops being a statement about this change
+    alone (other Unreleased entries, and sibling changes of the same work such as
+    the typed MCP error codes, also change behaviour with no switch, so any claim
+    that this is "the one change" of its kind is false), or if an old half-built
+    source is not said to stay as it is.
     """
 
     entry = _changelog_entry()
@@ -780,9 +851,12 @@ def test_the_changelog_entry_states_the_v0200_behaviour_and_what_stays() -> None
     assert "reported `duplicate` and never completed it" in entry
     assert "two `source.import_failed` events" in entry
     assert (
-        "This is the one change in the search quality work that alters behaviour with nothing to switch it off." in entry
+        "No setting turns this off: every import now handles a failing file this way, "
+        "and what v0.20.0 did instead is set out below." in entry
     )
-    assert "the one change in this release" not in entry
+    assert "the one change" not in entry
+    assert "alters behaviour with nothing to switch it off" not in entry
+    assert "search quality" not in entry
     assert "On Postgres, a failure at the SQL level went differently in v0.20.0" in entry
     assert "read from the code and was not run against a live server" in entry
     assert "names a Markdown file by its path under the folder (`relative_path`)" in entry
