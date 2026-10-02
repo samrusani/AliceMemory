@@ -33,6 +33,58 @@ exposure of a deliberately keyless port therefore violates the supported
 deployment assumption; a code path that bypasses an active-key boundary does
 not.
 
+Unreleased (on main, not in v0.19.2): keyless operation also checks the name a
+request uses, because a browser on the owner's machine can reach a loopback API
+without being a trusted process. DNS rebinding points a name the attacker owns
+at 127.0.0.1, so a page the attacker serves can call the API with the attacker's
+name in `Host` and read the answer as same-origin. The two keyless gates (the
+`/v0/vnext` gate and the `/v1` gate) therefore refuse a request that carries no
+agent key unless its `Host` is `localhost`, `127.0.0.1` or `::1` (any port,
+case-insensitive, an IPv6 literal in brackets, one trailing dot allowed) or an
+exact name the operator lists in `ALICEBOT_ALLOWED_HOSTS`. Nothing is matched by
+prefix, suffix or wildcard. A missing, repeated or malformed `Host` is refused,
+and `X-Forwarded-Host` and `Forwarded` are never read. If an `Origin` header is
+present it must be an exact entry of `CORS_ALLOWED_ORIGINS` or the request's own
+origin (the same host and port as the validated `Host`), and `null` is refused.
+That second rule also stops a cross-origin request that needs no rebinding, such
+as a form post to `POST /v1/evals/runs`, which a `Host` check cannot see because
+the request names the right host. A wildcard in `CORS_ALLOWED_ORIGINS` does not
+admit a keyless cross-origin request. The browser-clipper capture route keeps its
+exemption: a visited page calls it by design and its one-time capability is the
+credential. A request with an agent key is not checked, so keyed traffic and the
+reverse-proxy topology are unchanged. A refused request gets the gate's usual
+401. In v0.19.2 both gates looked at the peer address only, so a rebound request
+reached the API. The browser leg of the attack has not been reproduced in a real
+browser; the rule holds without it. The legacy `/v0` routes, which are served
+only in development and test or with `LEGACY_V0_ENABLED_OUTSIDE_DEV`, take no
+agent key, so the identity layer applies the same rule to every request to them,
+whatever `Authorization` header it carries. A CORS preflight is not refused by it.
+
+Unreleased (on main, not in v0.19.2): the HTTP API caps a request body before any
+layer reads it, because a request that has not authenticated can still make the
+server read and parse what it sends. A pure ASGI layer, registered last so it is
+the outermost, answers HTTP 413 for a body over `ALICEBOT_MAX_REQUEST_BODY_BYTES`
+(4 MiB by default). It refuses a declared `Content-Length` over the cap before a
+byte is read, and for a chunked or undeclared body it counts the bytes the layers
+below pull and refuses as soon as the total crosses the cap, with
+`Connection: close`. It covers the identity layer, the vNext and `/v1` gates, the
+framework's own parse and callers that hold a valid key. The connector sync
+routes take lists of whole documents that no model bounds, so they have their own
+cap, `ALICEBOT_MAX_CONNECTOR_SYNC_BODY_BYTES` (32 MiB by default). The vNext gate
+refuses a keyless request from another peer, or with a foreign Host or Origin,
+before it reads the body, as the `/v1` gate already did, and the identity layer
+skips its body rewrite for such a request. A JSON body nested more than 256 levels
+deep is refused with HTTP 422 before any layer decodes it, with a validation
+error of type `json_too_deep` and nothing from the body in it. In v0.19.2 the
+identity layer, the two gates and the framework each read a body of any size and
+parsed it before authentication: a 100 MiB chunked body took the server from
+104 MiB to 712 MiB, and a body nested about 975 levels deep or more raised
+`RecursionError` out of a layer and answered HTTP 500. The cap is a bound on one
+request, not a rate limit. A client inside the cap can send many requests, and the
+cost of a request near the cap is real (a 30.9 MiB connector sync body peaked at
+about 330 MiB of server memory), so the reverse proxy should cap the body too:
+`packaging/cloud/Caddyfile.example` sets `request_body { max_size 4MB }`.
+
 ### Assets And Security Objectives
 
 | Asset | Objective |
@@ -92,7 +144,7 @@ not.
 | Application/database | Runtime store operation to PostgreSQL | Application role, transaction-scoped `app.current_user_id`, forced RLS, parameterized SQL; admin URL reserved for migration/recovery. |
 | Local process/file | SQLite, secrets, logs, exports, imports | Owner-only paths, alias/symlink checks where implemented, explicit import provenance; SQLite is not a tenant boundary. |
 | MCP client/process | JSON-RPC stdio to core tools | Local process trust when keyless; `ALICE_AGENT_API_KEY` binds a key and suppresses legacy handlers lacking equivalent persisted-target authorization. |
-| Alice/provider | Outbound model or connector request | Validated provider configuration, credential references, sanitized public errors, restrictive network deployment policy. |
+| Alice/provider | Outbound model or connector request | Validated provider configuration, credential references, sanitized public errors, restrictive network deployment policy. Unreleased (on main, not in v0.19.2): every outbound call goes through one door, `open_provider_url`, which follows no redirect and, for the provider helpers, Gmail and Calendar, dials only an address the outbound policy allows. |
 | Content/policy | Source or model text to memory/review action | Content remains data; policy evaluation and review gates are code-controlled. |
 
 ### Principal Data Flows
@@ -137,6 +189,9 @@ active-key or RLS bypass remains in scope.
 | Abuse case | Control/evidence | Residual concern |
 | --- | --- | --- |
 | Missing key treated as remote anonymous access | Documented local-only boundary; active-key rule rejects keyless requests. | Host/proxy misconfiguration can invalidate the assumption. |
+| A provider answers with a redirect, or its name resolves to an internal address after the base URL was checked | Unreleased (on main, not in v0.19.2): `open_provider_url` refuses every redirect, so the target is never contacted and no `Authorization` or `api-key` header is sent on, and with `enforce_public_peer` it resolves the name when it connects and dials only an allowed address, over http and https. The provider helpers, response generation, Gmail and Calendar enforce it. The embeddings, reranker, fact-key and brain clients do not, because a local Ollama endpoint is a documented setup. | A request carried by a proxy is not held to the address rule, because the peer is then the proxy. The embeddings, reranker, fact-key and brain clients can reach a loopback or private address the operator configured. A provider call's response body is read whole. Any valid key can register a provider on `/v1`, which authenticates and does not authorize. |
+| Oversized or deeply nested request body before authentication | Unreleased (on main, not in v0.19.2): a body over 4 MiB (32 MiB for connector sync) is refused with HTTP 413 before any layer reads it, a keyless request from another peer is refused before its body is read, a body nested more than 256 levels is refused with HTTP 422, and the Caddy example caps the body at the proxy. | A request inside the cap still costs memory and time, and the cap is no rate limit. The cap counts bytes as sent. |
+| DNS rebinding or a cross-origin request to a keyless loopback API | Unreleased (on main, not in v0.19.2): a keyless request must name `localhost`, `127.0.0.1`, `::1` or an operator-listed host in `Host`, and any `Origin` must be a configured origin or its own. A keyed request is not checked. | Not reproduced in a real browser. The legacy `/v0` routes take no key, so every request to them gets the Host and Origin rule. A name the operator lists in `ALICEBOT_ALLOWED_HOSTS` is trusted as this machine. |
 | Payload claims a stronger profile or another project | Key-bound actor/profile/scope, escalation rejection events, policy tests. | Final carrier needs all-route ASGI closure evidence. |
 | Cross-user PostgreSQL read/write | Application-role RLS and user-scoped connections. | Admin credentials or a compromised host bypass the product boundary. |
 | Broad credential exposed to a visited page | One-time origin-bound clipper capability replaces reusable bookmarklet token. | The page can make its one authorized submission; the UI must show the bound origin. |
@@ -221,13 +276,17 @@ active-key or RLS bypass remains in scope.
   They are not fixed in v0.19.2, and the v0.19.2 release notes give the detail.
   The Postgres stack's HTTP API parses a JSON request body of any size before it
   authenticates (a 262,057 byte body was read in full before the 401), and it
-  does not check the `Host` header of a keyless loopback request. The
+  does not check the `Host` header of a keyless loopback request. Unreleased (on
+  main, not in v0.19.2): the `Host` and `Origin` rules above are in (DB-005), and a
+  request body over 4 MiB is refused with HTTP 413 before it is read (DB-006). The
   local-folder scan reads each matching file whole with no size limit, and a
   file swapped for a link between its containment check and its read is read
   from outside the watched folder. The provider helper, which checks the
   configured base URL once, and the embeddings client, which does not check it,
   follow a redirect and send the `Authorization` header to the target; the
-  reranker and fact-key clients use the same opener and were not run. Two
+  reranker and fact-key clients use the same opener and were not run. Unreleased
+  (on main, not in v0.19.2): no provider client follows a redirect any more, and
+  the provider helpers, Gmail and Calendar dial only an allowed address (DB-009). Two
   scheduled CI jobs, the real-host canary and archive maintenance, hold
   issue-write authority while they install packages that are not pinned to an
   exact version: the canary installs the latest host CLIs, and archive

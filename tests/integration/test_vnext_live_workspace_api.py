@@ -56,7 +56,7 @@ def invoke_request(
         messages.append(message)
 
     query_string = urlencode(query_params or {}).encode()
-    headers = [(b"content-type", b"application/json")]
+    headers = [(b"host", b"127.0.0.1:8000"), (b"content-type", b"application/json")]
     if authorization is not None:
         headers.append((b"authorization", authorization.encode()))
     scope = {

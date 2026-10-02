@@ -589,6 +589,10 @@ def validate_caddyfile(text: str) -> None:
         re.search(r"(?im)^\s*header_up\s+X-Forwarded-For\b", normalized) is None,
         "caddy_forwarded_client_overridden",
     )
+    _require(
+        re.search(r"request_body\s*\{[^}]*\bmax_size\s+[0-9]+\s*[A-Za-z]+\b", normalized) is not None,
+        "caddy_request_body_limit_missing",
+    )
     for forbidden in ("reverse_proxy 0.0.0.0", "reverse_proxy localhost", "http://alice.example.com"):
         _require(forbidden not in normalized, "caddy_non_loopback_or_plaintext_upstream")
 

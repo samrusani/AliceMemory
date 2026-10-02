@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import cast
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode
-from urllib.request import Request, urlopen
+from urllib.request import Request
 from uuid import UUID
 
 import psycopg
@@ -45,6 +45,7 @@ from alicebot_api.gmail_secret_manager import (
     GmailSecretManager,
     GmailSecretManagerError,
 )
+from alicebot_api.provider_http import open_provider_url
 from alicebot_api.store import ContinuityStore, ContinuityStoreInvariantError, GmailAccountRow, JsonObject
 from alicebot_api.workspaces import TaskWorkspaceNotFoundError
 
@@ -434,7 +435,11 @@ def refresh_gmail_access_token(
     )
 
     try:
-        with urlopen(request, timeout=GMAIL_TOKEN_REFRESH_TIMEOUT_SECONDS) as response:
+        with open_provider_url(
+            request,
+            timeout=GMAIL_TOKEN_REFRESH_TIMEOUT_SECONDS,
+            enforce_public_peer=True,
+        ) as response:
             payload = json.loads(response.read().decode("utf-8"))
     except HTTPError as exc:
         if exc.code in {400, 401}:
@@ -697,7 +702,11 @@ def fetch_gmail_message_raw_bytes(*, access_token: str, provider_message_id: str
     )
 
     try:
-        with urlopen(request, timeout=GMAIL_MESSAGE_FETCH_TIMEOUT_SECONDS) as response:
+        with open_provider_url(
+            request,
+            timeout=GMAIL_MESSAGE_FETCH_TIMEOUT_SECONDS,
+            enforce_public_peer=True,
+        ) as response:
             payload = json.loads(response.read().decode("utf-8"))
     except HTTPError as exc:
         if exc.code == 404:

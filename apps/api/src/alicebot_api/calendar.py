@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import TypedDict
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode
-from urllib.request import Request, urlopen
+from urllib.request import Request
 from uuid import UUID
 
 import psycopg
@@ -47,6 +47,7 @@ from alicebot_api.contracts import (
     TaskArtifactIngestInput,
     TaskArtifactRegisterInput,
 )
+from alicebot_api.provider_http import open_provider_url
 from alicebot_api.store import (
     CalendarAccountRow,
     ContinuityStore,
@@ -401,7 +402,11 @@ def fetch_calendar_event_list_payload(
     )
 
     try:
-        with urlopen(request, timeout=CALENDAR_EVENT_FETCH_TIMEOUT_SECONDS) as response:
+        with open_provider_url(
+            request,
+            timeout=CALENDAR_EVENT_FETCH_TIMEOUT_SECONDS,
+            enforce_public_peer=True,
+        ) as response:
             payload = json.loads(response.read().decode("utf-8"))
     except HTTPError as exc:
         raise CalendarEventFetchError("calendar events could not be fetched") from exc
@@ -499,7 +504,11 @@ def fetch_calendar_event_payload(*, access_token: str, provider_event_id: str) -
     )
 
     try:
-        with urlopen(request, timeout=CALENDAR_EVENT_FETCH_TIMEOUT_SECONDS) as response:
+        with open_provider_url(
+            request,
+            timeout=CALENDAR_EVENT_FETCH_TIMEOUT_SECONDS,
+            enforce_public_peer=True,
+        ) as response:
             payload = json.loads(response.read().decode("utf-8"))
     except HTTPError as exc:
         if exc.code == 404:

@@ -41,7 +41,7 @@ def invoke_compile_context(payload: dict[str, Any]) -> tuple[int, dict[str, Any]
         "path": "/v0/context/compile",
         "raw_path": b"/v0/context/compile",
         "query_string": b"",
-        "headers": [(b"content-type", b"application/json")],
+        "headers": [(b"host", b"127.0.0.1:8000"), (b"content-type", b"application/json")],
         "client": ("127.0.0.1", 50000),
         "server": ("testserver", 80),
         "root_path": "",

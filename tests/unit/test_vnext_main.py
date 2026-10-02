@@ -922,7 +922,8 @@ def _invoke_vnext_request(
     async def send(message: dict[str, object]) -> None:
         messages.append(message)
 
-    headers = [(b"content-type", content_type.encode())]
+    # A keyless request must name this machine in Host (DB-005), as every real client does.
+    headers = [(b"host", b"127.0.0.1:8000"), (b"content-type", content_type.encode())]
     if authorization is not None:
         headers.append((b"authorization", authorization.encode()))
     if origin is not None:

@@ -49,7 +49,7 @@ def invoke_request(
     async def send(message: dict[str, object]) -> None:
         messages.append(message)
 
-    request_headers = [(b"content-type", b"application/json")]
+    request_headers = [(b"host", b"127.0.0.1:8000"), (b"content-type", b"application/json")]
     if user_id is not None:
         request_headers.append((b"x-alicebot-user-id", str(user_id).encode()))
 
