@@ -83,3 +83,54 @@ def test_the_tools_doc_marks_the_expired_successor_and_the_loop() -> None:
     assert "`alice_memory_manage` with `action: expire` sets while the status stays `active`" in tools
     assert "A chain that loops back to a memory it already passed names no id." in tools
     assert "In v0.19.2 the id of the expired memory is named, and so is the id of the memory the loop came back to." in tools
+
+
+def test_the_entry_states_the_v0192_backup_behaviour() -> None:
+    """The four revision columns, the header and the export, each with what v0.19.2 did.
+
+    Mutations, each one alone: delete the sentence that says v0.19.2 stored the text, or the
+    one that says the header ended with ``alice_memory_failed``, or the one that says the
+    export ended with ``alice_memory_failed``.
+    """
+    entry = _entry()
+    assert (
+        "JSON text nested more than 256 levels in `previous_value`, `new_value`, `source_event_ids` and `candidate` "
+        "of a memory revision"
+    ) in entry
+    assert "In v0.19.2 that text was stored whenever the decoder could read it (up to about 10,000 levels)" in entry
+    assert "where v0.19.2 ended with `alice_memory_failed`" in entry
+    assert "ends with `export_failed` after one line that names the table and the column" in entry
+    assert "In v0.19.2 it ended with `alice_memory_failed`." in entry
+
+
+def test_the_backup_doc_marks_the_revision_cap_the_header_and_the_export() -> None:
+    """The backup guide says what main does and what v0.19.2 did for each of the three.
+
+    Mutations: delete the marker, the v0.19.2 comparison, or the example line for the export.
+    """
+    text = _read("docs/alpha/backup-and-restore.md")
+    assert (
+        MARK + " JSON text nested more than 256 levels in the `previous_value`, `new_value`, `source_event_ids` "
+        "or `candidate` column of a memory revision is refused with `restore_failed`"
+    ) in text
+    assert "`alice-memory: line 1: a record is nested too deeply for import to read`" in text
+    assert (
+        "In v0.19.2 text in those columns that the decoder could read was stored whatever its depth, and the deep "
+        "header ended with `alice_memory_failed`."
+    ) in text
+    assert "`alice-memory: memory_revisions column previous_value is nested too deeply for export to write`" in text
+    assert "ends with `export_failed`. In v0.19.2 it ended with `alice_memory_failed`." in text
+
+
+def test_the_known_limitation_for_deep_backup_json_names_the_export_line() -> None:
+    """The known limitation keeps the v0.19.2 sentence and adds the marked change after it.
+
+    Mutations: delete the v0.19.2 half, the marker, or the export line.
+    """
+    text = _read("docs/alpha/known-limitations.md")
+    assert (
+        "still ends with the generic `alice_memory_failed`. " + MARK + " that export ends with `export_failed` after one "
+        "line that names the table and the column"
+    ) in text
+    assert "`alice-memory: memory_revisions column previous_value is nested too deeply for export to write`" in text
+    assert "text nested more than 256 levels in `previous_value`, `new_value`, `source_event_ids` or `candidate` is refused with `restore_failed`" in text
