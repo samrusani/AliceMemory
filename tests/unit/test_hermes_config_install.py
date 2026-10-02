@@ -1240,6 +1240,55 @@ def test_hermes_rerun_keeps_embeddings_env_keys(tmp_path: Path, capsys) -> None:
     assert env["ALICE_EMBEDDINGS_API_KEY"] == embeddings_key
 
 
+def test_hermes_rerun_keeps_the_project_env_keys(tmp_path: Path, capsys) -> None:
+    """ALICE_PROJECT_DIR and ALICE_PROJECT_SCOPING added by hand survive a re-run.
+
+    The folder is a bare scalar and the switch is double-quoted. A dry run
+    changes nothing and names both keys, and the real run keeps both lines
+    byte for byte, with a backup of the original, and does not print the folder.
+    Mutation: drop ALICE_PROJECT_DIR from HERMES_DOCUMENTED_ENV_KEYS, or drop
+    ALICE_PROJECT_SCOPING from it (each alone). The re-run then refuses the entry
+    as holding a key install did not write, and this test fails.
+    """
+
+    home = tmp_path / "home"
+    vault = (tmp_path / "old-vault").resolve()
+    vault.mkdir()
+    folder = "/work/" + "project-folder-4471"
+    env_lines = (
+        f"      ALICE_PROJECT_DIR: {folder}",
+        '      ALICE_PROJECT_SCOPING: "on"',
+    )
+    original = _v016_alice(str(vault), *env_lines)
+    config = _seed(home, original)
+    kept = "kept: env.ALICE_PROJECT_DIR, env.ALICE_PROJECT_SCOPING"
+
+    code, out, err = _install_without_flag(home, capsys, "--dry-run")
+    assert code == 0, (out, err)
+    assert config.read_text(encoding="utf-8") == original
+    assert kept in out
+    assert folder not in out + err
+
+    code, out, err = _install_without_flag(home, capsys)
+    assert code == 0, (out, err)
+    assert kept in out
+    assert folder not in out + err
+    written = config.read_text(encoding="utf-8")
+    for line in env_lines:
+        assert line in written
+    env = yaml.safe_load(written)["mcp_servers"]["alice"]["env"]
+    assert env["ALICE_PROJECT_DIR"] == folder
+    assert env["ALICE_PROJECT_SCOPING"] == "on"
+    backups = _backups(config, vault)
+    assert len(backups) == 1
+    assert backups[0].read_text(encoding="utf-8") == original
+
+    # A second run finds nothing to change.
+    code, out, err = _install_without_flag(home, capsys)
+    assert code == 0, (out, err)
+    assert config.read_text(encoding="utf-8") == written
+
+
 def test_hermes_unknown_env_key_still_refuses(tmp_path: Path, capsys) -> None:
     """env.FOO is not a documented key, so install refuses and does not write.
 

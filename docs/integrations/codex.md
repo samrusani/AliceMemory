@@ -75,6 +75,8 @@ A re-run keeps these keys when they already sit on Alice's table and Codex would
 - `env_vars`: an array of strings, on one line or several
 - documented `ALICE_*` env values, and `ALICE_MEMORY_DATA_DIR`, copied byte for byte
 
+Unreleased (on main, not in v0.20.0): `ALICE_PROJECT_DIR` and `ALICE_PROJECT_SCOPING` (see [Projects](../alpha/projects.md)) are documented env names too, so a re-run keeps them. In v0.20.0 an alice table that holds either one is refused.
+
 A `tools...` key you wrote inside the alice table is kept too, when there is no `[mcp_servers.alice.tools...]` table. If both are present, in either order, install refuses and asks you to move each `tools.<name>` key into its own `[mcp_servers.alice.tools.<name>]` table. Install does not edit, move, or remove a `tools` table, including a bare `[mcp_servers.alice.tools]` table.
 
 A comment inside `command`, `args`, or an inline `env` is refused. The comment stays in the file. Comments inside a carried value such as `env_vars` stay.

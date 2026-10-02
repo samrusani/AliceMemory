@@ -2211,9 +2211,15 @@ _ALICE_INSTALL_KEYS = frozenset({"command", "args", "env"})
 #   docs/alpha/mcp-tools.md (masked like ALICE_AGENT_API_KEY, never printed)
 # ALICE_EMBEDDINGS_MAX_INPUT_CHARS: docs/integrations/mcp.md (a whole number,
 #   not a secret; the same host env map as the other embeddings keys)
+# ALICE_PROJECT_DIR: docs/alpha/projects.md (a folder, not a secret; the
+#   start folder for project detection, named in the host env map because a
+#   host entry is static)
+# ALICE_PROJECT_SCOPING: docs/alpha/projects.md (on or off, not a secret; the
+#   same host env map)
 # Dropping this tuple makes a re-run refuse ALICE_MCP_FULL_TOOLS,
 # ALICE_AGENT_API_KEY, ALICE_EMBEDDINGS_BASE_URL, ALICE_EMBEDDINGS_MODEL,
-# ALICE_EMBEDDINGS_API_KEY, and ALICE_EMBEDDINGS_MAX_INPUT_CHARS.
+# ALICE_EMBEDDINGS_API_KEY, ALICE_EMBEDDINGS_MAX_INPUT_CHARS,
+# ALICE_PROJECT_DIR, and ALICE_PROJECT_SCOPING.
 HERMES_DOCUMENTED_ENV_KEYS = (
     "ALICE_MCP_FULL_TOOLS",
     "ALICE_MCP_LEGACY_TOOLS",
@@ -2223,6 +2229,8 @@ HERMES_DOCUMENTED_ENV_KEYS = (
     "ALICE_EMBEDDINGS_MODEL",
     "ALICE_EMBEDDINGS_API_KEY",
     "ALICE_EMBEDDINGS_MAX_INPUT_CHARS",
+    "ALICE_PROJECT_DIR",
+    "ALICE_PROJECT_SCOPING",
 )
 _DOCUMENTED_ENV_NAMES = frozenset(HERMES_DOCUMENTED_ENV_KEYS)
 

@@ -397,6 +397,47 @@ def test_codex_carries_documented_env_byte_for_byte(
             assert "reads --data-dir" in out
 
 
+def test_codex_carries_the_project_env_keys(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """ALICE_PROJECT_DIR and ALICE_PROJECT_SCOPING on the alice table are kept, not refused.
+
+    The inline form and the sub-table form are separate files. Each value is
+    copied byte for byte and the receipt does not print the folder.
+    Mutation: drop ALICE_PROJECT_DIR from HERMES_DOCUMENTED_ENV_KEYS, or drop
+    ALICE_PROJECT_SCOPING from it (each alone). Install then refuses the entry
+    as holding an env key it will not edit and this test fails.
+    """
+
+    inline = (
+        "[mcp_servers.alice]\n"
+        'command = "uvx"\n'
+        'args = ["alice-memory", "mcp", "--data-dir", "/old"]\n'
+        'env = { ALICE_PROJECT_DIR = "/work/repo", ALICE_PROJECT_SCOPING = \'on\' }\n'
+    )
+    table = (
+        "[mcp_servers.alice]\n"
+        'command = "uvx"\n'
+        'args = ["alice-memory", "mcp", "--data-dir", "/old"]\n'
+        "\n"
+        "[mcp_servers.alice.env]\n"
+        'ALICE_PROJECT_DIR = "/work/repo"\n'
+        "ALICE_PROJECT_SCOPING = 'on'\n"
+    )
+    for label, source in (("inline", inline), ("table", table)):
+        home = tmp_path / label
+        path = _seed(home, source)
+        code, out, err = _install(home, tmp_path / f"vault-{label}", capsys)
+        assert code == 0, (label, out, err)
+        written = path.read_text(encoding="utf-8")
+        assert 'ALICE_PROJECT_DIR = "/work/repo"' in written, label
+        assert "ALICE_PROJECT_SCOPING = 'on'" in written, label
+        assert "/work/repo" not in out + err, label
+        env = tomllib.loads(written)["mcp_servers"]["alice"]["env"]
+        assert env["ALICE_PROJECT_DIR"] == "/work/repo", label
+        assert env["ALICE_PROJECT_SCOPING"] == "on", label
+
+
 def test_codex_carries_scalar_keys(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     original = (
         "[mcp_servers.alice]\n"

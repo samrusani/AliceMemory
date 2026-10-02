@@ -139,6 +139,12 @@ sent to the embeddings endpoint, on the same terms as the seven keys above. In
 v0.19.2 that key does not exist, and an entry that carries it is refused like
 any other key install did not write.
 
+Unreleased (on main, not in v0.20.0): install also keeps `ALICE_PROJECT_DIR`
+and `ALICE_PROJECT_SCOPING` (see [Projects](../alpha/projects.md)) on the same
+terms as the keys above. Only `alice-memory project` reads them so far. In
+v0.20.0 an entry that holds either one is refused like any other key install
+did not write.
+
 From v0.19.0, a comment inside the `alice` block stays when nothing needs to
 change: install says `action: unchanged` and leaves the file's bytes alone.
 When install has a change to make and the block holds a full-line or inline
