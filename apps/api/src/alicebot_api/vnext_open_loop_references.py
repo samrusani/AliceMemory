@@ -30,6 +30,12 @@ nothing is: a reference to a source that is protected, deleted, missing or not a
   digits follow it after a hyphen (``<id>-20261003``). A string that is only an id is read as the link writer reads it
   (``UUID()``, which also ignores hyphens in other places). Inside longer text only ASCII hex digits in those two
   layouts are read, and an id with its hyphens in other places, split or otherwise encoded is not an id to this scan.
+  The hyphenated layout is read with no boundary, so hex digits glued to an id in that layout can form a second window
+  that names no row: a hyphen and groups of 4, 4, 4 and 12 digits right after an id, or groups of 8, 4, 4 and 4 digits
+  and a hyphen right before a 32-digit id. Under a reference key that window is cut, and with it part of an id the
+  reader may read, there and wherever the same response repeats it. Under other keys alone it is kept. No id the
+  reader may not read is shown by it; a boundary there would let a window of unrelated digits hide the front of a
+  withheld id.
   A column value that is no id in any of those spellings is withheld as a missing one is. What is shown is the stored
   value, untouched.
 * The withheld ids are collected for the whole call, over every row it returns (one loop, a list, or every loop of a

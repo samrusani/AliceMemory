@@ -825,7 +825,12 @@ hyphenated or as 32 hex digits in a row, in braces, and after `urn:uuid:`,
 `uuid:`, `source:` or `memory:`. Inside longer text the hyphenated layout is read
 wherever it stands. A run of 32 hex digits is an id only when no hex digit stands
 next to it, so a git sha or a 64-digit digest is returned whole, and so is an id
-the reader may read that has a hyphen and more hex digits after it. A value that
+the reader may read that has a hyphen and more hex digits after it. One layout
+of glued digits is cut under a reference key: a hyphen and groups of 4, 4, 4 and
+12 digits right after an id, or groups of 8, 4, 4 and 4 digits and a hyphen right
+before a 32-digit id, read as a hyphenated id that names no row, so part of an id
+the reader may read is withheld there and wherever the same response repeats it.
+No id the reader may not read is shown by it. A value that
 is only an id is read the way the link writer reads it, which also takes hyphens
 in other places. Inside longer text an id with its hyphens in other places, a
 split id and an encoded id are not recognised. The free-text columns of a loop

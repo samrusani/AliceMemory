@@ -1323,6 +1323,7 @@ def test_the_docs_state_the_spellings_the_per_response_rule_and_the_residual() -
         "The withheld ids are collected over every loop of one response",
         "A run of 32 hex digits counts as an id only when no hex digit stands next to it",
         "and so is an id the reader may read that has a hyphen and more hex digits after it (`<id>-20261003`).",
+        "One layout of glued digits is cut under a reference key:",
         "An id without hyphens inside a URL or a sentence is withheld like the hyphenated one.",
         "Inside longer text an id with its hyphens in other places, a split id and an encoded id are not recognised.",
         "Not changed here: the free-text columns of a loop (`title`, `description`, `resolution_note`), which are returned as stored and are not scanned for ids.",
@@ -1335,6 +1336,7 @@ def test_the_docs_state_the_spellings_the_per_response_rule_and_the_residual() -
         "The withheld ids are collected over every loop of one response",
         "A run of 32 hex digits is an id only when no hex digit stands next to it",
         "and so is an id the reader may read that has a hyphen and more hex digits after it.",
+        "One layout of glued digits is cut under a reference key:",
         "Inside longer text an id with its hyphens in other places, a split id and an encoded id are not recognised.",
         "The free-text columns of a loop (`title`, `description`, `resolution_note`) are returned as stored and are not scanned.",
         "The extractor of candidate loops no longer writes the id of a source with no title into the `description`",
@@ -1343,6 +1345,7 @@ def test_the_docs_state_the_spellings_the_per_response_rule_and_the_residual() -
     for sentence in (
         "in every spelling and after the source or memory is deleted",
         "inside longer text an id with its hyphens in other places, a split id and an encoded id are not recognised;",
+        "read as an id that names no row and cut part of the readable id;",
         "the id of a row that was removed outright, under a key that names no reference and linked nowhere in the response, reads like a trace id and is kept.",
     ):
         assert limitations.count(sentence) == 1, sentence
@@ -1350,6 +1353,34 @@ def test_the_docs_state_the_spellings_the_per_response_rule_and_the_residual() -
         assert "in other places or nowhere" not in text, name
         assert "keep the limit stated in the entry on cited sources" not in text, name
 
+
+@pytest.mark.parametrize("shape", ["digits_after", "digits_before"])
+def test_hex_digits_glued_to_a_readable_id_in_the_hyphenated_layout_can_cut_it_under_a_reference_key(shape: str) -> None:
+    """The limit the docs state. The hyphenated layout is read with no boundary, so digits glued to an id the reader may
+    read can form a second hyphenated window that names no row: a hyphen and groups of 4, 4, 4 and 12 digits right after
+    the id, or groups of 8, 4, 4 and 4 digits and a hyphen right before a 32-digit id. Under a reference key that
+    window is cut, and part of the readable id with it, there and (by the per-response rule) wherever the response
+    repeats it, a key that names no reference included. Under a key that names no reference alone the same text is
+    kept, because a window that names no row and is linked nowhere may be a trace id. No other id is in the text, so
+    nothing the reader may not read is shown either way.
+
+    Mutation: none in this change. Make a window of an admitted id win over an overlapping window that names no row, and
+    this test fails, which is the signal to delete it and the sentence in the four places that state the limit.
+    """
+
+    store, identifier = _state("source", "admitted")
+    compact = identifier.replace("-", "")
+    text = f"{identifier}-1234-1234-1234-123456789012" if shape == "digits_after" else f"12345678-1234-1234-1234-{compact}"
+    sentence = f"see {text} today"
+    metadata = {"project_scope": ["alpha"], "source_refs": [sentence], "evidence": {"note": sentence}}
+    out = withhold_unreadable_references(store, [_loop(metadata_json=metadata, source_id=identifier)], fence=_FENCE)
+    cut = out[0]["metadata_json"]["source_refs"][0]  # type: ignore[index]
+    assert _CUT in cut and cut != sentence, cut
+    assert out[0]["metadata_json"]["evidence"] == {"note": cut}  # type: ignore[index]
+    assert out[0]["source_id"] == identifier
+    plain_only = {"project_scope": ["alpha"], "evidence": {"note": sentence}}
+    kept = withhold_unreadable_references(store, [_loop(metadata_json=plain_only, source_id=identifier)], fence=_FENCE)
+    assert kept[0]["metadata_json"] == plain_only
 
 def test_the_module_docstring_states_the_rule_it_implements() -> None:
     """The docstring of ``vnext_open_loop_references`` is the rule's statement and names the limits: the spellings it
@@ -1370,6 +1401,7 @@ def test_the_module_docstring_states_the_rule_it_implements() -> None:
         "digits follow it after a hyphen (``<id>-20261003``)",
         "A string that is only an id is read as the link writer reads it (``UUID()``, which also ignores hyphens in other places).",
         "Inside longer text only ASCII hex digits in those two layouts are read",
+        "The hyphenated layout is read with no boundary, so hex digits glued to an id in that layout can form a second window",
         "The free-text columns of a loop (``title``, ``description``, ``resolution_note``) are returned as stored and are not scanned",
     ):
         assert phrase in text, phrase
