@@ -20,6 +20,7 @@ Value conventions (differences forced by SQLite storage types):
 
 from __future__ import annotations
 
+import itertools
 import json
 import sqlite3
 from collections.abc import Iterator, Mapping, Sequence
@@ -284,6 +285,11 @@ AGENT_API_KEY_COLUMNS = (
 )
 
 
+
+# Names for nested savepoints. One counter for the process, so two stores on
+# two connections never share a name and a nested block never reuses its
+# parent's.
+_SAVEPOINT_NAMES = itertools.count(1)
 
 # Columns stored as JSON TEXT that must decode back to dicts/lists so
 # returned rows match psycopg's jsonb decoding.
@@ -1622,6 +1628,45 @@ class SQLiteVNextStore:
             (self.user_id,),
         )
         return int(cast(int, row["active_count"]))
+
+    @contextmanager
+    def savepoint(self) -> Iterator[None]:
+        """Run one unit of writes that lands whole or leaves no row.
+
+        An exception rolls back everything written inside the block, including
+        the events it appended, and is re-raised for the caller to report. The
+        enclosing transaction stays open and commits once, when its owner
+        commits.
+
+        Python's ``sqlite3`` opens its transaction at the first write, so a
+        savepoint issued before any write would be the outermost one, and its
+        release would commit. The transaction is therefore begun here when none
+        is open, the way ``update_source`` begins its own. A connection that
+        commits every statement on its own (``isolation_level`` of ``None``, or
+        ``autocommit=True``) keeps doing so: there the release commits the
+        block, which is what that connection means by a commit.
+        """
+
+        conn = self.conn
+        legacy_transaction_control = getattr(conn, "autocommit", -1) == -1
+        if legacy_transaction_control and conn.isolation_level is not None and not conn.in_transaction:
+            conn.execute("BEGIN IMMEDIATE")
+        name = f"alice_savepoint_{next(_SAVEPOINT_NAMES)}"
+        conn.execute(f"SAVEPOINT {name}")
+        try:
+            yield
+        except BaseException:
+            try:
+                conn.execute(f"ROLLBACK TO SAVEPOINT {name}")
+                conn.execute(f"RELEASE SAVEPOINT {name}")
+            except sqlite3.Error:
+                # SQLite ended the whole transaction itself (a full disk is one
+                # case), so there is no savepoint left to roll back to. The
+                # caller's error is the one to report, not this one.
+                pass
+            raise
+        else:
+            conn.execute(f"RELEASE SAVEPOINT {name}")
 
 
 __all__ = [
