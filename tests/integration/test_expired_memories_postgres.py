@@ -87,9 +87,9 @@ def test_the_postgres_reads_leave_out_an_expired_memory_before_the_limit(migrate
         assert [str(row["id"]) for row in newest_open] == [middle]
         assert store.count_memories(status="active", include_expired=False) == 2
 
-        events = store.list_resume_memory_events(statuses=("active",), limit=1)
+        events = store.list_resume_memory_events(statuses=("active",), limit=1, domains=None, sensitivity_allowed=None)
         assert [str(event["target_id"]) for event in events] == [middle]
-        every_event = store.list_resume_memory_events(statuses=("active",), limit=20)
+        every_event = store.list_resume_memory_events(statuses=("active",), limit=20, domains=None, sensitivity_allowed=None)
         assert gone not in {str(event["target_id"]) for event in every_event}
 
         arguments = {

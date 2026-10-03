@@ -1974,6 +1974,8 @@ class FakeVNextMCPStore:
         occurred_at_start: datetime | None = None,
         occurred_at_end: datetime | None = None,
         limit: int = 20,
+        domains: list[str] | None,
+        sensitivity_allowed: list[str] | None,
     ) -> list[dict[str, object]]:
         if limit < 1:
             raise ValueError("limit must be positive")
@@ -2044,6 +2046,8 @@ class FakeVNextMCPStore:
         occurred_at_start: datetime | None = None,
         occurred_at_end: datetime | None = None,
         limit: int = 20,
+        domains: list[str] | None,
+        sensitivity_allowed: list[str] | None,
     ) -> list[dict[str, object]]:
         if limit < 1:
             raise ValueError("limit must be positive")
@@ -2604,7 +2608,9 @@ def test_fake_vnext_mcp_store_excludes_deleted_memories_and_deleted_backing_rows
     }
     assert "memory-live" in rollup_input_ids
     assert not {"memory-deleted", "rollup-card-deleted"} & rollup_input_ids
-    assert [row["id"] for row in store.list_resume_memory_events(statuses=("active", "accepted"), limit=20)] == [
+    assert [row["id"] for row in store.list_resume_memory_events(
+                statuses=("active", "accepted"), limit=20, domains=None, sensitivity_allowed=None
+            )] == [
         "event-live"
     ]
     assert [row["id"] for row in store.list_beliefs(status="active")] == ["belief-live"]
@@ -2646,7 +2652,9 @@ def test_fake_vnext_mcp_store_memory_query_matches_resume_contract(
     ]
 
     listed = store.list_memories(status="active", query=query)
-    resumed = store.list_resume_memory_events(statuses=("active",), query=query)
+    resumed = store.list_resume_memory_events(
+        statuses=("active",), query=query, domains=None, sensitivity_allowed=None
+    )
 
     assert bool(listed) is matches
     assert bool(resumed) is matches
@@ -6307,7 +6315,9 @@ def test_fake_open_loop_queries_use_ascii_literal_leaf_semantics() -> None:
         )
 
     def event_ids(query: str) -> set[object]:
-        return {row["id"] for row in store.list_open_loop_events(statuses=("open",), query=query, limit=50)}
+        return {row["id"] for row in store.list_open_loop_events(
+                statuses=("open",), query=query, limit=50, domains=None, sensitivity_allowed=None
+            )}
 
     assert event_ids("alpha beta") == {"nested-positive", "array-positive"}
     assert event_ids("release") == {
@@ -6330,7 +6340,9 @@ def test_fake_open_loop_queries_use_ascii_literal_leaf_semantics() -> None:
         assert event_ids(non_string_query) == set()
     for non_string_row_query in ("8675309", "object row sentinel", "array row sentinel"):
         assert event_ids(non_string_row_query) == set()
-    assert {row["id"] for row in store.list_open_loop_events(statuses=("open",), query="   ", limit=50)} == {
+    assert {row["id"] for row in store.list_open_loop_events(
+        statuses=("open",), query="   ", limit=50, domains=None, sensitivity_allowed=None
+    )} == {
         *payloads,
         *row_event_targets,
     }
@@ -6534,6 +6546,8 @@ def test_sqlite_open_loop_queries_use_ascii_literal_leaf_semantics() -> None:
                 query=query,
                 occurred_at_start=datetime(2030, 7, 10, 12, tzinfo=UTC),
                 limit=50,
+                domains=None,
+                sensitivity_allowed=None,
             )
             assert {row["id"] for row in actual} == expected_ids
 
@@ -6545,6 +6559,8 @@ def test_sqlite_open_loop_queries_use_ascii_literal_leaf_semantics() -> None:
                 query="   ",
                 occurred_at_start=datetime(2030, 7, 10, 12, tzinfo=UTC),
                 limit=50,
+                domains=None,
+                sensitivity_allowed=None,
             )
         ) == len(event_payloads) + len(row_event_targets)
 
