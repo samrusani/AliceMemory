@@ -76,16 +76,20 @@ def get_memory(self, memory_id: str) -> VNextRow | None:
     )
 
 
-def get_memories_by_ids(self, memory_ids: Sequence[str]) -> list[VNextRow]:
+def get_memories_by_ids(self, memory_ids: Sequence[str], *, include_deleted: bool = False) -> list[VNextRow]:
+    """The memories at ``memory_ids``. A soft-deleted (archived or redacted) row is returned only with
+    ``include_deleted``, which a reader that must tell a deleted memory from one that never existed passes."""
+
     ids = list(dict.fromkeys(str(memory_id) for memory_id in memory_ids if memory_id))
     if not ids:
         return []
+    deleted_clause = "" if include_deleted else "AND deleted_at IS NULL"
     return self._fetch_all(
         f"""
                 SELECT {MEMORY_COLUMNS}
                 FROM memories
-                WHERE deleted_at IS NULL
-                  AND id = ANY(%s::uuid[])
+                WHERE id = ANY(%s::uuid[])
+                  {deleted_clause}
                 """,
         (ids,),
     )

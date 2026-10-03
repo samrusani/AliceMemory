@@ -32,8 +32,12 @@ SOURCE_RECEIPTS = {
     ),
     # Re-minted for ``get_memory_by_key(include_deleted=...)`` (reviewed change, not drift; see the SQLite
     # entry below). Previous Postgres receipt 49748ecd...
+    # Re-minted once more for ``get_memories_by_ids(include_deleted=...)`` (open-loop ids in every spelling and after
+    # deletion; reviewed change, not drift). Proof: the only difference from origin/main daa46ef5 is that one function,
+    # which takes a keyword-only ``include_deleted`` (false by default, so every caller reads what it read before)
+    # and drops the ``deleted_at IS NULL`` clause only when it is true. Previous Postgres receipt f642880f...
     "apps/api/src/alicebot_api/vnext_stores/postgres/memory_access.py": (
-        "f642880f44eaaa7d8fa6ed10dbb1e609b791eb0fa8902c934ec9fa41f4e6cdd3"
+        "46946cc087de35f54474adf47cadcd67b862685bfa67a38be277d8e58a00c47e"
     ),
     # Re-minted for per-project memory S2 (2026-10-02): the project fence builders read the reserved global
     # marker and take the domains to leave out, and the single-scan partition SQL and the materialized-CTE hint
@@ -68,8 +72,12 @@ SOURCE_RECEIPTS = {
     # single-scan reader takes ``domains`` and ``sensitivity_allowed`` as required arguments (reviewed change, not drift).
     # Re-minted for the merge of main into the S2 branch (2026-10-02): the file now holds both reviewed changes above.
     # Previous receipts: 8a0bcba8... on the S2 branch and 3d2f1732... on main.
+    # Re-minted for ``get_memories_by_ids(include_deleted=...)`` (open-loop ids in every spelling and after deletion;
+    # reviewed change, not drift). Proof: the only difference from origin/main daa46ef5 is that one function, which
+    # takes a keyword-only ``include_deleted`` (false by default) and drops the ``deleted_at IS NULL`` clause only when
+    # it is true. Previous SQLite receipt 91636de9...
     "apps/api/src/alicebot_api/vnext_stores/sqlite/memory_access.py": (
-        "91636de97634c2c7496b4f783d9a267a308c720b87e16433061b192226fd3ca7"
+        "64f21989d3bb05d742dd712b310511d3c63f32b9a4d62af6b888ff2b367f0b3b"
     ),
 }
 

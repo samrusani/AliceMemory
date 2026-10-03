@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 from copy import deepcopy
+from uuid import uuid4
 
 import pytest
 
@@ -545,6 +547,49 @@ def test_direct_project_workflows_are_idempotent_for_unchanged_evidence() -> Non
     assert len([row for row in store.memories.values() if row.get("status") == "candidate"]) == 1
     assert [row["id"] for row in second_loops] == [row["id"] for row in first_loops]
     assert len([row for row in store.open_loops.values() if row.get("title")]) == 2
+
+
+def test_a_candidate_loop_description_never_holds_the_id_of_its_source() -> None:
+    """A candidate loop says which source it came from in its ``description``. For a source with no title the text used
+    to fall back to the id of the source, so the id of a source the reader of the loop may not read (the loop's
+    ``source_id`` column is withheld from that reader, and so is the id in ``metadata_json``) was still shown in the free
+    text, to a project key after the source was deleted or reclassified. The text now says the source has no title. A
+    source with a title is named as before. The loop still carries the id in its ``source_id`` column, the digest that
+    dedupes the loop does not read the description, and a second run returns the loop it made the first time.
+
+    Mutation: put the id back as the fallback, in ``_open_loop_candidates`` (``_title(source)`` with no ``fallback``).
+    """
+
+    store = _seed_store()
+    untitled = str(uuid4())
+    store.sources.append(
+        {
+            "id": untitled,
+            "source_type": "manual_text",
+            "captured_at": "2026-05-10T09:30:00Z",
+            "domain": "project",
+            "sensitivity": "private",
+            "metadata_json": {"project_scope": ["project-1"], "raw_text": "TODO: file the kiln report"},
+        }
+    )
+    service = VNextProjectService(store)
+    request = ProjectAutomationRequest(project_id="project-1", domains=("project",))
+
+    first = service.extract_open_loops(request)
+    descriptions: dict[str, list[object]] = {}
+    for loop in first:
+        descriptions.setdefault(str(loop["source_id"]), []).append(loop["description"])
+    assert sorted(descriptions["source-1"]) == [
+        "Candidate task discovered from source Alice project note.",
+        "Candidate waiting_on_person discovered from source Alice project note.",
+    ]
+    assert descriptions[untitled] == ["Candidate task discovered from a source with no title."]
+    assert set(descriptions) == {"source-1", untitled}
+    for loop in first:
+        assert untitled not in json.dumps({key: value for key, value in loop.items() if key != "source_id"})
+    second = service.extract_open_loops(request)
+    assert [row["id"] for row in second] == [row["id"] for row in first]
+    assert len(store.open_loops) == len(first)
 
 
 def test_project_update_digest_changes_when_behavior_config_changes() -> None:

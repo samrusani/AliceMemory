@@ -798,7 +798,7 @@ could be shown the row they name, by the test `alice_explain` applies. For any
 other reference (another project's row, a global row, a row above the reader's
 ceiling or in a domain its profile may not read, a deleted row, a row that does
 not exist, a value that is no id) the key stays and the value is `null`, so the
-cases read alike. An id inside `metadata_json` is removed. This holds for
+cases read alike. An id inside `metadata_json` is removed, with the rule below. This holds for
 `alice_open_loops` (the list, its legacy alias `alice_vnext_open_loops`, and the
 `close`, `snooze`, `edit` and `reopen` actions that return the updated row),
 `POST /v0/vnext/open-loops/{id}/review`, the open loops of
@@ -807,6 +807,37 @@ a key that may read the row get the reference unchanged, and a reference to a
 deleted row is withheld from them too. A loop that an automation made over a
 global source shows no `source_id` to a key bound to a project. In v0.20.0 every
 one of these returned the ids as stored to any key that could read the loop.
+
+The rule for ids inside `metadata_json`. Under a reference key (`source_id`,
+`source_ids`, `source_ref`, `source_refs`, `source_references`,
+`selected_source_ids`, `memory_id`, `memory_ids`, `memory_ref`, `memory_refs`,
+`source_memory_ids`, at any depth) an id stays only if it names a row the reader
+may read. Under any other key an id goes if it names a row the reader may not
+read, a deleted source or memory included (the lookup reads deleted rows), or if
+the same response withholds it from a reference position, the `source_id` and
+`memory_id` columns among them. The withheld ids are collected over every loop
+of one response, so a list, a review or a context pack never shows an id in one
+loop that it withholds in another. An id under another key that names no row and
+is linked nowhere in the response is kept, because it may be a trace id, and so
+is the id of a row that was removed outright and that nothing in the response
+links. An id is read whole or inside longer text, in upper or lower case,
+hyphenated or as 32 hex digits in a row, in braces, and after `urn:uuid:`,
+`uuid:`, `source:` or `memory:`. Inside longer text the hyphenated layout is read
+wherever it stands. A run of 32 hex digits is an id only when no hex digit stands
+next to it, so a git sha or a 64-digit digest is returned whole, and so is an id
+the reader may read that has a hyphen and more hex digits after it. One layout
+of glued digits is cut under a reference key: a hyphen and groups of 4, 4, 4 and
+12 digits right after an id, or groups of 8, 4, 4 and 4 digits and a hyphen right
+before a 32-digit id, read as a hyphenated id that names no row, so part of an id
+the reader may read is withheld there and wherever the same response repeats it.
+No id the reader may not read is shown by it. A value that
+is only an id is read the way the link writer reads it, which also takes hyphens
+in other places. Inside longer text an id with its hyphens in other places, a
+split id and an encoded id are not recognised. The free-text columns of a loop
+(`title`, `description`, `resolution_note`) are returned as stored and are not
+scanned. The extractor of candidate loops no longer writes the id of a source
+with no title into the `description` (it says the source has no title), and a
+loop saved before keeps the text it holds.
 
 Two limits. The test at write time is the writer's own read fence, not the
 fence of whoever reads later: a source an `admin_agent` key could cite (a
