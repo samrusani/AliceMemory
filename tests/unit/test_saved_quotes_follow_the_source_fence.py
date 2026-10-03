@@ -45,13 +45,13 @@ from alicebot_api.vnext_agent_keys import create_agent_key
 _USER_ID = "00000000-0000-0000-0000-000000000001"
 _KEY_ENV = "ALICE_AGENT_API_KEY"
 
-# Two unique tokens inside one quote. A copy cut in the middle still holds one of them.
-_TOKEN_A = "zinnwald-quote-8841"
-_TOKEN_B = "marlin-oxide-5520"
+# Two unique words inside one quote. A copy cut in the middle still holds one of them.
+_WORD_A = "zinnwald-quote-8841"
+_WORD_B = "marlin-oxide-5520"
 # No word of the quote matches a capture rule (the extractor turns a line with "is", "needs" and the like into a
 # candidate memory, which would copy the quote into a memory's own text), so the quote reaches a memory only as saved
 # provenance.
-_QUOTE = f"{_TOKEN_A} cone ten firing kiln log {_TOKEN_B}"
+_QUOTE = f"{_WORD_A} cone ten firing kiln log {_WORD_B}"
 _SOURCE_TEXT = f"Alpha pottery log. Operator note: {_QUOTE}. End of log."
 
 _KEY_SPECS = {
@@ -184,7 +184,7 @@ class _Vault:
         assert done["is_error"] is False, done
         source_id = str(done["payload"]["source_id"])  # type: ignore[index]
         # The quote must reach a memory only through the provenance saved on it, never as the memory's own text.
-        assert not self.sql("SELECT id FROM memories WHERE canonical_text LIKE ?", (f"%{_TOKEN_A}%",))
+        assert not self.sql("SELECT id FROM memories WHERE canonical_text LIKE ?", (f"%{_WORD_A}%",))
         return source_id
 
     def _candidate(self, text: str) -> str:
@@ -356,7 +356,7 @@ def _holds_quote(answer: dict[str, object]) -> bool:
     if isinstance(payload, dict) and "sources" in payload:
         payload = {key: value for key, value in payload.items() if key != "sources"}
     text = json.dumps(payload)
-    return _TOKEN_A in text or _TOKEN_B in text
+    return _WORD_A in text or _WORD_B in text
 
 
 def _readers(vault: _Vault, who: str | None, memory_id: str, query: str) -> dict[str, dict[str, object]]:
@@ -407,7 +407,7 @@ def test_every_reader_carries_the_saved_quote_before_the_label_changes(vault: _V
                 assert _pack_holds_the_memory(answer, memory_id, http=_is_http(surface)), (who, surface)
             assert _holds_quote(answer), (door, who, surface)
     review = vault.review("trusted", memory_id)
-    assert str(review["text"]).count(_TOKEN_A) >= 2, "the link and the memory's own copy"
+    assert str(review["text"]).count(_WORD_A) >= 2, "the link and the memory's own copy"
 
 
 @pytest.mark.parametrize("variant", _VARIANTS)
@@ -482,10 +482,10 @@ def test_a_reader_who_may_read_every_source_is_shown_exactly_what_the_owner_is_s
         return payload["memories"], payload["supporting_evidence"]  # type: ignore[index]
 
     owner_review, owner_pack = review(None), pack(None)
-    assert _TOKEN_A in json.dumps(owner_review), "the control: the owner's review carries the quote"
-    assert _TOKEN_A in json.dumps(owner_pack), "the control: the owner's pack carries the quote"
+    assert _WORD_A in json.dumps(owner_review), "the control: the owner's review carries the quote"
+    assert _WORD_A in json.dumps(owner_pack), "the control: the owner's pack carries the quote"
     scoped_pack = pack("trusted")
-    assert _TOKEN_A in json.dumps(scoped_pack)
+    assert _WORD_A in json.dumps(scoped_pack)
     for who in _KEY_SPECS:
         assert review(who) == owner_review, (door, who)
         assert pack(who) == (owner_pack if who == "unbound" else scoped_pack), (door, who)
@@ -621,7 +621,7 @@ def test_the_pack_sources_section_is_a_separate_reader(vault: _Vault, variant: s
     assert not _holds_quote(pack), "the quote the memory saved is withheld"
     assert [str(row["id"]) for row in pack["payload"]["memories"]] == [memory_id]  # type: ignore[index]
     excerpts = [str(row.get("excerpt")) for row in pack["payload"]["sources"]]  # type: ignore[index]
-    assert any(_TOKEN_A in excerpt for excerpt in excerpts) is excerpt_is_returned, variant
+    assert any(_WORD_A in excerpt for excerpt in excerpts) is excerpt_is_returned, variant
 
 
 # -- 4. the verbs that hand a memory row back -------------------------------------------------------------------
@@ -756,7 +756,7 @@ def _plant_saved_quote(vault: _Vault, memory_id: str, source_id: str) -> None:
             actor_type="agent",
         )
     # sqlite3 opened above autocommits the UPDATE; the planted row is the one the readers below see.
-    assert _TOKEN_A in str(vault.sql("SELECT metadata_json FROM memories WHERE id = ?", (memory_id,))[0][0])
+    assert _WORD_A in str(vault.sql("SELECT metadata_json FROM memories WHERE id = ?", (memory_id,))[0][0])
 
 
 @pytest.mark.parametrize("variant", ("confidential", "archived"))

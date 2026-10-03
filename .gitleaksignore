@@ -102,3 +102,10 @@ c9199e2d48c89d052de3152de5a4c2f834ae7aee:tests/unit/test_project_cli.py:generic-
 # no artifact keeps. The file now builds it at run time; this entry covers the historical blob in
 # the PR range. Not a credential.
 617a94f9a54c2ec587713eeae9665cef82e9913c:tests/unit/host_evidence_fakes.py:generic-api-key:25
+
+# Saved-quote read fence (PR 541): the first commit named the unique test word
+# `_TOKEN_A`, and the generic-api-key rule read the word as a key. It is a made-up
+# phrase that the lifecycle test searches for in serialized answers, not a
+# credential. History is not rewritten, so the finding in the first commit is
+# listed by fingerprint; the follow-up commit renames the variable.
+bf1237b8d11f9af0ce2f3b3351df416e09041dee:tests/unit/test_saved_quotes_follow_the_source_fence.py:generic-api-key:49
