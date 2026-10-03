@@ -10,7 +10,16 @@ none of them reaches an artifact.
 
 ``FAKE_MODE`` picks the client: ``answer`` declares roots and elicitation and answers
 ``roots/list``; ``error`` declares nothing and answers with method not found; ``silent``
-declares nothing and never answers; ``no_hook`` is ``answer`` with no hook run.
+declares nothing and never answers; ``declared_error`` declares roots and elicitation and answers
+with method not found; ``no_hook`` is ``answer`` with no hook run.
+
+``FAKE_HANGUP`` makes the client close its end of the server's stdin early: ``after_initialize``
+right after the initialize reply, ``after_initialized`` right after it sends
+``notifications/initialized``, ``after_probe`` when it has read ``roots/list`` and before it answers.
+
+``FAKE_EARLY_ANSWER=1`` makes the client send a ``roots/list`` answer, with the id the stub gives its probe,
+right after the initialize reply and before ``notifications/initialized``, so before the stub has asked.
+It then carries on as the mode says, and answers the real probe.
 
 ``FAKE_WATCH`` is a comma-separated list of variable names. A stand-in that finds any of them in
 its own environment writes ``saw-env`` into ``FAKE_MARKERS``, so a test can plant a variable and
@@ -107,7 +116,16 @@ def handshake(server, capabilities, roots_mode, cwd, name, version):
     )
     reply = server.next(10)
     assert isinstance(reply, dict) and reply.get("id") == 1, reply
+    hangup = os.environ.get("FAKE_HANGUP", "")
+    if hangup == "after_initialize":
+        server.close()
+        return
+    if os.environ.get("FAKE_EARLY_ANSWER") == "1":
+        server.send({"jsonrpc": "2.0", "id": "alice-evidence-roots-1", "result": {"roots": []}})
     server.send({"jsonrpc": "2.0", "method": "notifications/initialized"})
+    if hangup == "after_initialized":
+        server.close()
+        return
     server.send({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
     deadline = time.time() + 8
     while time.time() < deadline:
@@ -116,6 +134,9 @@ def handshake(server, capabilities, roots_mode, cwd, name, version):
             return
         if message == "timeout" or message.get("method") != "roots/list":
             continue
+        if hangup == "after_probe":
+            server.close()
+            return
         if roots_mode == "answer":
             root = {"uri": "file://" + cwd, "name": os.path.basename(cwd)}
             server.send({"jsonrpc": "2.0", "id": message["id"], "result": {"roots": [root]}})
@@ -137,6 +158,7 @@ def call_api(url):
 MODES = {
     "answer": ({"roots": {"listChanged": True}, "elicitation": {}}, "answer"),
     "no_hook": ({"roots": {"listChanged": True}, "elicitation": {}}, "answer"),
+    "declared_error": ({"roots": {"listChanged": True}, "elicitation": {}}, "error"),
     "error": ({}, "error"),
     "silent": ({}, "silent"),
 }
