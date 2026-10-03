@@ -1,0 +1,269 @@
+{
+ "schema": "alice-bench-questions/1",
+ "set_id": "fixture-lighthouse",
+ "note": "Invented documents, invented questions, invented anchors. Public. It exists so the harness, the scorer and the gate arithmetic can be tested in CI without any private material.",
+ "questions": [
+  {
+   "id": "f01",
+   "kind": "fixture",
+   "question": "Who has the spare key to the brass cabinet, and where is it kept?",
+   "keyword_query": "spare key brass cabinet hook",
+   "facts": [
+    {
+     "fact": "who holds the spare key",
+     "anchors": [
+      {
+       "text": "Marta Quill holds the only spare key to the cabinet",
+       "file": "tide-keeping.md"
+      }
+     ]
+    },
+    {
+     "fact": "where the key hangs",
+     "anchors": [
+      {
+       "text": "hangs it on the hook behind the kitchen clock",
+       "file": "tide-keeping.md"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "f02",
+   "kind": "fixture",
+   "question": "When do the winter supplies arrive and on which boat?",
+   "keyword_query": "winter supplies arrive third Tuesday cutter",
+   "facts": [
+    {
+     "fact": "third Tuesday by the Gannet",
+     "anchors": [
+      {
+       "text": "arrive on the third Tuesday of each month by the cutter Gannet",
+       "file": "supply-schedule.md"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "f03",
+   "kind": "fixture",
+   "question": "How often is the lens polished and what is it polished with?",
+   "keyword_query": "lens polish rouge chamois days",
+   "facts": [
+    {
+     "fact": "chamois and rouge every ninth day",
+     "anchors": [
+      {
+       "text": "polished with chamois and rouge every ninth day",
+       "file": "lamp-maintenance.md"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "f04",
+   "kind": "fixture",
+   "question": "What does the fog horn do once visibility falls below a mile?",
+   "keyword_query": "fog horn blasts seconds visibility",
+   "facts": [
+    {
+     "fact": "two blasts every forty seconds",
+     "anchors": [
+      {
+       "text": "two blasts every forty seconds",
+       "file": "fog-signal.md"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "f05",
+   "kind": "fixture",
+   "question": "Are dogs allowed up the tower, and how many people can stand on the gallery together?",
+   "keyword_query": "dogs gallery visitors limit landing",
+   "facts": [
+    {
+     "fact": "dogs stop at the first landing",
+     "anchors": [
+      {
+       "text": "Dogs are not allowed above the first landing",
+       "file": "visitor-rules.md"
+      }
+     ]
+    },
+    {
+     "fact": "six visitors at once",
+     "anchors": [
+      {
+       "text": "At most six visitors may stand on it at once",
+       "file": "visitor-rules.md"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "f06",
+   "kind": "fixture",
+   "question": "What goes in the margin when the almanac and the harbour board disagree?",
+   "keyword_query": "almanac harbour board disagree margin note",
+   "facts": [
+    {
+     "fact": "checked by telephone in the margin",
+     "anchors": [
+      {
+       "text": "writes \"checked by telephone\" in the margin",
+       "file": "tide-keeping.md"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "f07",
+   "kind": "fixture",
+   "question": "What do keepers do about a wrong line in the radio log?",
+   "keyword_query": "radio log mistake struck through torn",
+   "facts": [
+    {
+     "fact": "never torn out, only struck through",
+     "anchors": [
+      {
+       "text": "never torn out, only struck through",
+       "file": "radio-log.md"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "f08",
+   "kind": "fixture",
+   "question": "When was the cooperative formed, and whose job did it take over?",
+   "keyword_query": "cooperative formed 1987 harbour board station",
+   "facts": [
+    {
+     "fact": "formed in 1987",
+     "anchors": [
+      {
+       "text": "Cooperative was formed in 1987",
+       "file": "station-history.md"
+      }
+     ]
+    },
+    {
+     "fact": "took over from the harbour board",
+     "anchors": [
+      {
+       "text": "take over the station from the harbour board",
+       "file": "station-history.md"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "f09",
+   "kind": "fixture",
+   "question": "What was lost to the sea in the storm of 1938, and what did the keepers save?",
+   "keyword_query": "storm 1938 lost sea saved keepers",
+   "facts": [
+    {
+     "fact": "the season's lamp oil was lost",
+     "anchors": [
+      {
+       "text": "the whole season's lamp oil was lost to the sea",
+       "file": "station-history.md"
+      }
+     ]
+    },
+    {
+     "fact": "the almanac and ledger were saved",
+     "anchors": [
+      {
+       "text": "saved the almanac and the ledger",
+       "file": "station-history.md"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "f10",
+   "kind": "fixture",
+   "question": "Where can a visitor get a coffee?",
+   "keyword_query": "coffee visitors boathouse refreshments",
+   "facts": [
+    {
+     "fact": "the café in the old boathouse",
+     "anchors": [
+      {
+       "text": "café in the old boathouse",
+       "file": "visitor-rules.md"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "f11",
+   "kind": "fixture",
+   "question": "When are the quince trees pruned, and where does the ladder live?",
+   "keyword_query": "quince prune February ladder shed",
+   "facts": [
+    {
+     "fact": "late February pruning",
+     "anchors": [
+      {
+       "text": "Prune the quince trees in late February",
+       "file": "orchard-notes.md"
+      }
+     ]
+    },
+    {
+     "fact": "ladder in the green shed",
+     "anchors": [
+      {
+       "text": "keeps the ladder in the green shed",
+       "file": "orchard-notes.md"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "f12",
+   "kind": "fixture",
+   "question": "What does the keeper do when the lamp fails, and who gets the phone call?",
+   "keyword_query": "lamp fails keeper horn telephone",
+   "facts": [
+    {
+     "fact": "sounds the fog horn in the long pattern",
+     "anchors": [
+      {
+       "text": "sounds the fog horn in the long pattern",
+       "file": "lamp-maintenance.md"
+      }
+     ]
+    },
+    {
+     "fact": "telephones the harbour office",
+     "anchors": [
+      {
+       "text": "telephones the harbour office",
+       "file": "lamp-maintenance.md"
+      },
+      {
+       "text": "telephones the harbour office",
+       "file": "fog-signal.md"
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}
