@@ -425,9 +425,11 @@ def test_an_anchor_planted_in_a_questions_own_text_scores_zero(tmp_path: Path) -
 def _fingerprint(order: str, **changes: object) -> dict[str, object]:
     """A complete fingerprint for one import order. Every field but the order is shared."""
 
-    fp: dict[str, object] = {key: f"same-{key}" for key in bench.SAME_ACROSS_ORDERS}
+    fp: dict[str, object] = {key: f"same-{key}" for key in dict.fromkeys((*bench.SAME_ACROSS_ORDERS, *bench.CHECKOUT_IDENTITY_KEYS))}
     fp["import_order"] = order
     fp.update(changes)
+    # The vault was built by the checkout that ran it, unless a test says it was not.
+    fp.setdefault("vault_build", {key: fp[key] for key in bench.CHECKOUT_IDENTITY_KEYS})
     return fp
 
 
@@ -878,6 +880,76 @@ def test_outputs_are_compared_only_when_one_checkout_switch_and_corpus_made_them
         assert bench.main(["score", "--questions", str(QUESTIONS), "--outputs", first, second]) == bench.EXIT_REFUSED
     assert stdout.getvalue() == "", "a refused comparison prints no table"
     assert bench.main(["score", "--questions", str(QUESTIONS), "--outputs", first, first]) == bench.EXIT_REFUSED
+
+
+def test_outputs_that_differ_only_in_the_source_hash_are_not_compared() -> None:
+    """Two outputs of one commit and one dirty flag whose source differs are not one comparison.
+
+    Once a checkout is dirty, a second edit leaves the commit and the flag as they were, so the hash of the
+    source under ``apps/api/src`` is what says the code changed. An outputs file from before the hash existed
+    cannot be compared either, because its fingerprint does not say.
+
+    Mutation: drop ``checkout_source_sha256`` from ``SAME_ACROSS_ORDERS``. ``score`` would take the minimum
+    over outputs that two different edits of the code produced.
+    """
+
+    assert "checkout_source_sha256" in bench.SAME_ACROSS_ORDERS
+    shared: dict[str, object] = {"git": "present", "git_sha": "abc", "dirty": True}
+    first = {"fingerprint": _fingerprint("sorted", checkout_source_sha256="hash-of-the-first-edit", **shared)}
+    second = {"fingerprint": _fingerprint("reverse", checkout_source_sha256="hash-of-the-second-edit", **shared)}
+    with pytest.raises(bench.BenchError, match=r"did not measure the same thing \(checkout_source_sha256 differ\)"):
+        bench.require_comparable_outputs([("a.json", first), ("b.json", second)])
+    same = {"fingerprint": _fingerprint("reverse", checkout_source_sha256="hash-of-the-first-edit", **shared)}
+    bench.require_comparable_outputs([("a.json", first), ("b.json", same)])
+    older = {"fingerprint": {key: value for key, value in _fingerprint("reverse").items() if key != "checkout_source_sha256"}}
+    with pytest.raises(bench.BenchError, match="lacks checkout_source_sha256"):
+        bench.require_comparable_outputs([("a.json", first), ("b.json", older)])
+
+
+def test_outputs_from_another_python_or_another_sqlite_are_not_compared() -> None:
+    """Review of #532, minor. The full-text ranking comes from SQLite, so two versions are two measurements.
+
+    Mutation: drop ``python_version`` or ``sqlite_version`` from ``SAME_ACROSS_ORDERS`` (``score`` would take a
+    minimum over outputs that two different SQLite libraries ranked).
+    """
+
+    first = {"fingerprint": _fingerprint("sorted")}
+    for key in ("python_version", "sqlite_version"):
+        assert key in bench.SAME_ACROSS_ORDERS
+        other = {"fingerprint": _fingerprint("reverse", **{key: "another version"})}
+        with pytest.raises(bench.BenchError, match=rf"did not measure the same thing \({key} differ\)"):
+            bench.require_comparable_outputs([("a.json", first), ("b.json", other)])
+
+
+def test_outputs_whose_vault_was_built_by_another_checkout_than_the_one_that_ran_it_are_not_compared() -> None:
+    """Review of #532, minor. A fingerprint holds the build record of its vault and the identity of its run, and they must agree.
+
+    A batch during which the source changed would carry the build's source hash in ``vault_build`` and another one
+    in ``checkout_source_sha256``, and the two outputs files would still compare equal on every other key. Each key of
+    the checkout identity is changed in the build record in turn, in the second file and in the first, and a record
+    that is missing or is not a record is refused as well.
+
+    Mutation: drop the ``vault_build`` comparison from ``require_comparable_outputs``, compare all but one of the
+    identity keys, or look at the files after the first only.
+    """
+
+    clean = {"fingerprint": _fingerprint("sorted")}
+    bench.require_comparable_outputs([("a.json", clean), ("b.json", {"fingerprint": _fingerprint("reverse")})])
+    reverse = {"fingerprint": _fingerprint("reverse")}
+    for key in bench.CHECKOUT_IDENTITY_KEYS:
+        build = {**clean["fingerprint"]["vault_build"], key: "another"}
+        pattern = rf"{{}}\.json ran on a vault that another checkout built \({key} differ"
+        with pytest.raises(bench.BenchError, match=pattern.format("b")):
+            bench.require_comparable_outputs([("a.json", clean), ("b.json", {"fingerprint": _fingerprint("reverse", vault_build=build)})])
+        with pytest.raises(bench.BenchError, match=pattern.format("a")):
+            bench.require_comparable_outputs([("a.json", {"fingerprint": _fingerprint("sorted", vault_build=build)}), ("b.json", reverse)])
+    for unusable in (None, "text", {}, {"git_sha": "same-git_sha"}):
+        bad = {"fingerprint": _fingerprint("reverse", vault_build=unusable)}
+        with pytest.raises(bench.BenchError, match="does not say which checkout built the vault it ran on"):
+            bench.require_comparable_outputs([("a.json", clean), ("b.json", bad)])
+    absent = {"fingerprint": {key: value for key, value in _fingerprint("reverse").items() if key != "vault_build"}}
+    with pytest.raises(bench.BenchError, match="lacks vault_build"):
+        bench.require_comparable_outputs([("a.json", clean), ("b.json", absent)])
 
 
 def test_score_json_leaves_out_per_question_results_unless_they_are_asked_for(tmp_path: Path) -> None:

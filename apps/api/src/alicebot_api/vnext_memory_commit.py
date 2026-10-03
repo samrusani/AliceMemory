@@ -51,6 +51,11 @@ from alicebot_api.vnext_lifecycle import (
     supersession_would_cycle,
 )
 from alicebot_api.vnext_memory_version import memory_matches_snapshot
+from alicebot_api.vnext_source_fence import (
+    AttachableSources,
+    SourceReadFence,
+    resolve_attachable_sources,
+)
 from alicebot_api.write_bounds import (
     MAX_COMMIT_CANONICAL_TEXT_CHARS as _MAX_COMMIT_CANONICAL_TEXT_CHARS,
     MAX_COMMIT_SOURCE_REF_CHARS as _MAX_COMMIT_SOURCE_REF_CHARS,
@@ -309,6 +314,19 @@ class MemoryNotFoundError(VNextMemoryCommitValidationError):
     The text is what the plain error said before this class existed, and every
     caller that catches ``VNextMemoryCommitValidationError`` still catches it.
     The MCP server answers ``not_found`` for it by class, never by its text.
+    """
+
+
+class RefusedOnDeletedMemoryError(AgentPolicyBlockedError):
+    """The policy refused a redact of an archived or redacted row, which the caller must hear as "not found".
+
+    Redact reads such a row on purpose, to scrub and to replay it, while every other verb reads it as absent. A
+    refused caller is told "not found" for it, as for an id the vault never held, or redact would tell it which ids
+    were deleted. The refusal itself is still a refusal: the decision was recorded and is audited like any other, and
+    a surface that catches ``AgentPolicyBlockedError`` leaves its transaction normally so that audit row is
+    committed. Raising a plain ``MemoryNotFoundError`` there would roll the audit row back with the call. The surface
+    then turns this class into its own "not found" (``not_found`` over MCP, 404 over HTTP) instead of its refusal
+    (``not_permitted``, 403). A surface that does not know the class, the command line, answers the refusal.
     """
 
 
@@ -623,34 +641,6 @@ def _withheld_history(entries: list[object]) -> tuple[list[object], bool]:
                 withheld_any = True
         carried.append(entry)
     return carried, withheld_any
-
-
-def _source_ref_values(value: object) -> list[str]:
-    refs: list[str] = []
-    if isinstance(value, str):
-        if value.strip():
-            refs.append(value.strip())
-    elif isinstance(value, Mapping):
-        for key in ("source_id", "id", "ref", "source_ref"):
-            candidate = value.get(key)
-            if isinstance(candidate, (str, int)):
-                refs.append(str(candidate))
-        for nested_key in ("source_ids", "source_refs", "sources"):
-            refs.extend(_source_ref_values(value.get(nested_key)))
-    elif isinstance(value, (list, tuple)):
-        for item in value:
-            refs.extend(_source_ref_values(item))
-    return refs
-
-
-def _source_uuid(value: object) -> str | None:
-    for ref in _source_ref_values(value):
-        normalized = ref.removeprefix("source:")
-        try:
-            return str(UUID(normalized))
-        except ValueError:
-            continue
-    return None
 
 
 def _scope_columns(
@@ -1330,6 +1320,17 @@ class VNextMemoryCommitService:
                     "policy_decision": decision.to_record(),
                 }
             )
+        # Every source id the request names is checked against the caller's
+        # read fence before anything is written, in every write mode: a
+        # pending write stores the ref on the row just as a committed one does.
+        # A missing, deleted or out-of-fence source raises one error. It comes
+        # after the rejection above, so a refused caller is told nothing about
+        # which ids exist.
+        attachable = resolve_attachable_sources(
+            self.store,
+            request.source_refs,
+            fence=SourceReadFence.for_identity(identity),
+        )
         try:
             if decision.write_mode == "confirm_inline":
                 return _with_commit_receipt(
@@ -1345,6 +1346,7 @@ class VNextMemoryCommitService:
                     request=request,
                     decision=decision,
                     confirmed_inline=False,
+                    attachable_sources=attachable,
                 )
             )
         except _IdempotentReplaySignal as replay:
@@ -1382,13 +1384,22 @@ class VNextMemoryCommitService:
             if locked is None:
                 raise MemoryNotFoundError("confirmation was not found")
             memory = locked
-        # Authorization first, then the pending check, then the ceiling,
-        # then S4.4's credential check on the accept or reject write.
-        # An unauthorized caller is refused with an audit event and is not
-        # told whether the row is pending. An authorized confirm of a row
+        # Authorization first, then the pending check, then S4.4's credential
+        # check on the accept or reject write. Authorization is the whole
+        # policy: who may resolve the write, the caller's project scope and
+        # permission profile, and the sensitivity ceiling (a reject of a
+        # pending write stays allowed above it, because it stores nothing).
+        # A refused caller gets an audit event and is not told whether the
+        # row is pending, answered or expired. An authorized confirm of a row
         # that is not pending still raises before any write.
         if not caller_may_resolve_pending_write(identity, memory):
             self._refuse_unauthorized_pending_resolver(identity=identity, memory=memory)
+        self.refuse_unauthorized_write(
+            identity=identity,
+            action="memory.confirm",
+            memory=memory,
+            allow_above_ceiling=normalized_action == "reject",
+        )
         confirmation_now = _agentic_metadata(memory).get("confirmation")
         confirmation_status = confirmation_now.get("status") if isinstance(confirmation_now, Mapping) else None
         if normalized_action in {"confirm", "edit"} and confirmation_status != "pending":
@@ -1724,6 +1735,7 @@ class VNextMemoryCommitService:
             if locked is None:
                 raise MemoryNotFoundError("memory was not found")
             memory = locked
+        self.refuse_unauthorized_write(identity=identity, action="memory.undo", memory=memory)
         _require_project_update_decision_path(memory)
         self._policy_checked_write(identity=identity, action="memory.undo", memory=memory)
         successor: VNextRow | None = None
@@ -1737,6 +1749,7 @@ class VNextMemoryCommitService:
                 raise MemoryNotFoundError("superseding memory was not found")
             if str(successor["id"]) == str(memory["id"]):
                 raise VNextMemoryCommitValidationError("a memory cannot supersede itself")
+            self.refuse_unauthorized_write(identity=identity, action="memory.undo", memory=successor)
             _require_project_update_decision_path(successor)
             self._policy_checked_write(identity=identity, action="memory.undo", memory=successor)
         # A retirement always completes (owner ruling R2): a reason carrying
@@ -1772,6 +1785,7 @@ class VNextMemoryCommitService:
         )
         if memory is None:
             raise MemoryNotFoundError("memory was not found")
+        self.refuse_unauthorized_write(identity=identity, action="memory.correct", memory=memory)
         _require_project_update_decision_path(memory)
         self._policy_checked_write(identity=identity, action="memory.correct", memory=memory)
         # Retirement is terminal: correcting a superseded/rejected/archived row
@@ -1883,6 +1897,7 @@ class VNextMemoryCommitService:
         )
         if memory is None:
             raise MemoryNotFoundError("memory was not found")
+        self.refuse_unauthorized_write(identity=identity, action="memory.forget", memory=memory)
         _require_project_update_decision_path(memory)
         self._policy_checked_write(identity=identity, action="memory.forget", memory=memory)
         # A retirement always completes (owner ruling R2).
@@ -2457,30 +2472,24 @@ class VNextMemoryCommitService:
         )
         raise AgentPolicyBlockedError(decision)
 
-    def _policy_checked_write(
+    def _write_policy_decision(
         self,
         *,
         identity: AgentIdentity | None,
         action: str,
         memory: Mapping[str, object],
-        target_type: str = "memory",
         allow_above_ceiling: bool = False,
     ) -> PolicyDecision:
-        """Authorize one mutation of a stored target and record the decision.
+        """Decide one mutation of a stored target without writing anything.
 
-        Upserts the identity, evaluates the policy scoped to the target's
-        domain, sensitivity and project scope, appends the policy audit
-        events with that target type and id, and raises
-        ``AgentPolicyBlockedError`` when blocked. ``identity=None``
-        (human/system callers) always evaluates as allowed.
-
-        A mutation whose target sensitivity is above the caller's ceiling
-        is blocked with ``sensitivity_above_agent_ceiling``. Pass
-        ``allow_above_ceiling`` only for a reject of a pending write: that
-        stores nothing. Confirm and reject of a pending write are also
-        limited to the author, an admin_agent key, or the owner.
+        Evaluates the policy scoped to the target's domain, sensitivity and
+        project scope, blocks a target above the caller's sensitivity
+        ceiling, and limits ``memory.confirm`` to the author, an admin_agent
+        key or the owner. ``identity=None`` (human/system callers) always
+        evaluates as allowed. Pass ``allow_above_ceiling`` only for a reject
+        of a pending write: that stores nothing.
         """
-        self._upsert_identity(identity)
+
         # memory.expire / memory.unexpire / memory.accept_consolidation are
         # in the agent-control WRITE_ACTIONS vocabulary, so
         # evaluate_agent_policy carries the read-only write block itself.
@@ -2504,6 +2513,19 @@ class VNextMemoryCommitService:
                 decision="blocked",
                 reasons=tuple(dict.fromkeys((*decision.reasons, PENDING_WRITE_RESOLVER_REASON))),
             )
+        return decision
+
+    def _record_write_decision(
+        self,
+        *,
+        identity: AgentIdentity | None,
+        decision: PolicyDecision,
+        memory: Mapping[str, object],
+        target_type: str = "memory",
+    ) -> PolicyDecision:
+        """Upsert the identity, append the policy audit events, raise when blocked."""
+
+        self._upsert_identity(identity)
         target_id = str(memory.get("id")) if memory.get("id") is not None else None
         append_policy_events(
             self.store,
@@ -2515,6 +2537,74 @@ class VNextMemoryCommitService:
         if decision.decision == "blocked":
             raise AgentPolicyBlockedError(decision)
         return decision
+
+    def _policy_checked_write(
+        self,
+        *,
+        identity: AgentIdentity | None,
+        action: str,
+        memory: Mapping[str, object],
+        target_type: str = "memory",
+        allow_above_ceiling: bool = False,
+    ) -> PolicyDecision:
+        """Authorize one mutation of a stored target and record the decision.
+
+        Upserts the identity, evaluates the policy scoped to the target's
+        domain, sensitivity and project scope, appends the policy audit
+        events with that target type and id, and raises
+        ``AgentPolicyBlockedError`` when blocked. ``identity=None``
+        (human/system callers) always evaluates as allowed.
+
+        A mutation whose target sensitivity is above the caller's ceiling
+        is blocked with ``sensitivity_above_agent_ceiling``. Pass
+        ``allow_above_ceiling`` only for a reject of a pending write: that
+        stores nothing. Confirm and reject of a pending write are also
+        limited to the author, an admin_agent key, or the owner.
+        """
+
+        decision = self._write_policy_decision(
+            identity=identity,
+            action=action,
+            memory=memory,
+            allow_above_ceiling=allow_above_ceiling,
+        )
+        return self._record_write_decision(
+            identity=identity,
+            decision=decision,
+            memory=memory,
+            target_type=target_type,
+        )
+
+    def refuse_unauthorized_write(
+        self,
+        *,
+        identity: AgentIdentity | None,
+        action: str,
+        memory: Mapping[str, object],
+        allow_above_ceiling: bool = False,
+    ) -> None:
+        """Refuse a caller the policy blocks, before any check of the row's state.
+
+        Authorization is decided before the state of the target, so a caller
+        the policy refuses (project scope, permission profile, sensitivity
+        ceiling, who may resolve a pending write) hears the refusal whatever
+        state the row is in: a state-specific error would tell it that the
+        row is pending, answered or otherwise special. A blocked decision is
+        recorded and raised exactly as ``_policy_checked_write`` does. An
+        allowed one writes nothing, so a call the state then refuses still
+        leaves no policy row; the real check, with its audit events, follows
+        the state check.
+        """
+
+        decision = self._write_policy_decision(
+            identity=identity,
+            action=action,
+            memory=memory,
+            allow_above_ceiling=allow_above_ceiling,
+        )
+        if decision.decision == "blocked":
+            # Records the refusal, then raises AgentPolicyBlockedError for a blocked decision.
+            self._record_write_decision(identity=identity, decision=decision, memory=memory)
 
     def authorize_memory_action(
         self,
@@ -2996,6 +3086,7 @@ class VNextMemoryCommitService:
         request: MemoryCommitRequest,
         decision: MemoryCommitPolicyDecision,
         confirmed_inline: bool,
+        attachable_sources: AttachableSources,
     ) -> JsonObject:
         actor_type = "agent" if identity is not None else "user"
         actor_id = identity.agent_id if identity is not None else None
@@ -3052,7 +3143,12 @@ class VNextMemoryCommitService:
             actor_type=actor_type,
             actor_id=actor_id,
         )
-        self._create_provenance_links(memory=memory, request=request, actor_type=actor_type)
+        self._create_provenance_links(
+            memory=memory,
+            request=request,
+            actor_type=actor_type,
+            attachable_sources=attachable_sources,
+        )
         self._link_memory_entities(
             memory=memory,
             identity=identity,
@@ -3534,14 +3630,14 @@ class VNextMemoryCommitService:
             raise ContinuityStoreInvariantError("content mutation could not expire obsolete entity links") from exc
 
     def _create_provenance_links(
-        self, *, memory: Mapping[str, object], request: MemoryCommitRequest, actor_type: str
+        self,
+        *,
+        memory: Mapping[str, object],
+        request: MemoryCommitRequest,
+        actor_type: str,
+        attachable_sources: AttachableSources,
     ) -> None:
-        seen: set[str] = set()
-        for source_ref in request.source_refs:
-            source_id = _source_uuid(source_ref)
-            if source_id is None or source_id in seen:
-                continue
-            seen.add(source_id)
+        for source_id in attachable_sources.ids:
             self.store.create_provenance_link(
                 {
                     "target_type": "memory",

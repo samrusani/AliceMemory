@@ -31,6 +31,7 @@ from alicebot_api.vnext_project_scope import (
 )
 from alicebot_api.vnext_repositories import JsonObject as VNextJsonObject
 from alicebot_api.vnext_retrieval import MEMORY_ENTITY_EDGE_TYPES
+from alicebot_api.vnext_source_fence import EXPLAIN_DISCLOSURE_ACTION
 from alicebot_api.vnext_json import json_safe
 from alicebot_api.vnext_store import PostgresVNextStore
 
@@ -269,7 +270,7 @@ def _authorize_explain_resource(
     _actor_type, _actor_id, decision = _policy_checked(
         store,  # type: ignore[arg-type]
         identity=identity,
-        action="memory.audit",
+        action=EXPLAIN_DISCLOSURE_ACTION,
         domains=(str(resource.get("domain") or "unknown"),),
         sensitivity_allowed=(str(resource.get("sensitivity") or "unknown"),),
         project_scope=project_scope,
