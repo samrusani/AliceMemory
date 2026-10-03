@@ -72,7 +72,7 @@ python scripts/alice_bench_gates.py
 python scripts/alice_bench_gates.py --improve 0.12 --regress 0.04
 ```
 
-The same file records the budget for the CI time of this work: the unit-test job has a 20 minute limit and ran a median of 11.6 and at most 15.1 minutes across the 30 successful runs on main on 2026-10-01 and 2026-10-02, the new tests may add 90 seconds, and the unit tests are split by directory before another test lands if the job passes 17 minutes.
+The same file records the budget for the CI time of this work. The unit tests run as 3 parallel shard jobs behind the required check, each with a 20 minute limit. The single job they came from ran a median of 13.9 and at most 17.8 minutes across the 70 runs in which it succeeded on 2026-10-02 and 2026-10-03, past the 17 minute line, and the longest shard ran a median of 7.6 and at most 8.0 minutes across the 2 successful runs of the pull request that split it. The new tests may add 90 seconds, and the unit tests are split again before another test lands if a shard passes 17 minutes.
 
 ## What the numbers can and cannot say
 
