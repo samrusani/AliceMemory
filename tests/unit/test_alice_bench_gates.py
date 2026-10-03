@@ -206,7 +206,8 @@ def test_the_ci_time_budget_matches_the_workflow_it_describes() -> None:
     before_seconds = before["measured_seconds"]
     assert (before_seconds["min"], before_seconds["median"], before_seconds["max"]) == (482, 836, 1070)
     assert before_seconds["max"] >= budget["split_threshold_minutes"] * 60, "the sample is why the job was split"
-    assert "every successful run" in before["measured_scope"] and "2026-10-02" in before["measured_scope"]
+    assert "every run of tests.yml" in before["measured_scope"] and "in which the job succeeded" in before["measured_scope"]
+    assert "2026-10-02" in before["measured_scope"] and "2026-10-03" in before["measured_scope"]
     assert budget["p0a_tests"]["seconds_measured_locally"] < budget["new_test_budget_seconds"]
     assert set(budget["p0a_tests"]) == {"seconds_measured_locally", "note"}, "no count of tests or files that can go stale"
     assert "new_test_budget_seconds" in budget["p0a_tests"]["note"] and "count" in budget["p0a_tests"]["note"]

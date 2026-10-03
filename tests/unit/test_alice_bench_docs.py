@@ -240,7 +240,7 @@ def test_the_note_states_the_ci_time_sample_that_gates_json_records() -> None:
     assert f"each with a {budget['timeout_minutes']} minute limit" in sentence
     assert (
         f"a median of {before_median} and at most {before_max} minutes across the "
-        f"{before['measured_runs']} successful runs of 2026-10-02 and 2026-10-03"
+        f"{before['measured_runs']} runs in which it succeeded on 2026-10-02 and 2026-10-03"
     ) in sentence
     assert (
         f"the longest shard ran a median of {shard_median} and at most {shard_max} minutes across the "
