@@ -665,20 +665,19 @@ def test_the_id_of_a_source_the_caller_may_not_read_is_withheld_with_its_quote(v
 # -- 3. the pack's own source section is a different reader -----------------------------------------------------
 
 
-@pytest.mark.parametrize(("variant", "excerpt_is_returned"), [("confidential", False), ("health", True)])
+@pytest.mark.parametrize(("variant", "excerpt_is_returned"), [("confidential", False), ("health", False)])
 def test_the_pack_sources_section_is_a_separate_reader(vault: _Vault, variant: str, excerpt_is_returned: bool) -> None:
-    """Pins the limit the release notes state, so the words and the behaviour cannot drift apart. The pack's ``sources``
-    section is the source's own excerpt, read by the source search, which holds a source to the project of the key, to
-    the sensitivity ceiling and to deletion, but not to the domains of a key that names none. So after a source is made
-    ``health`` the project scoped key's pack still carries the source's excerpt, while the quote the memory saved is
-    withheld (``supporting_evidence`` and the memory rows hold none of it). After the source is made confidential the
-    source search leaves the source out, which is the control that this section does hold the sensitivity fence.
+    """The pack's ``sources`` section is the source's own excerpt, read by the source search, a different reader from
+    the quote the memory saved. It holds a source to the project of the key, to the sensitivity ceiling, to deletion
+    and, since a request that names no domains is held to the profile's domains, to the domains of a key that names
+    none. So after a source is made ``health`` or confidential the project scoped key's pack carries no excerpt of it,
+    and the quote the memory saved is withheld too (``supporting_evidence`` and the memory rows hold none of it).
 
-    Delete the ``health`` row of this test when the source search applies the domain test, and change the
-    known-limitations line with it.
+    Until the omitted-domains change the ``health`` row returned the excerpt, and this test pinned that as a stated
+    limit.
 
-    Mutation: none in this change. Make the source search honour the domains of the caller and the ``health`` row
-    fails, which is the signal to delete it.
+    Mutation: make ``_filtered_domains`` in ``vnext_agent_control.py`` return the request unchanged when it names no
+    domains (the behaviour of v0.20.0); the ``health`` row then fails.
     """
 
     source_id = vault.capture_source()

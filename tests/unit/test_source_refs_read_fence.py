@@ -12,8 +12,9 @@ The fence is the one ``alice_explain`` applies to each source it discloses. Ever
 project, above the ceiling, restricted domain, global) is one answer: ``not_found`` with the fixed message.
 
 ``POST /v0/vnext/open-loops`` is the third door: an open loop keeps the ``source_id`` and ``memory_id`` it is given in
-columns of its own, and the open-loop list returns them. Section 3c holds that door to the same fence, for a source and
-for a memory, and answers 404 for every refusal.
+columns of its own. Section 3c holds that door to the same fence, for a source and for a memory, and answers 404 for
+every refusal. That is the writer's fence, once. What a later reader of the loop is shown is a separate rule, held to
+the reader's own fence (``tests/unit/test_open_loop_references_read_fence.py``).
 
 Each test names the mutation that must fail it. The mutations were made by hand in a scratch edit and the file was
 restored by copying the saved copy back.
@@ -1118,8 +1119,9 @@ def _row_counts(vault: _Vault) -> dict[str, int]:
 def test_a_key_bound_open_loop_names_only_a_source_or_memory_its_key_may_read(
     vault: _Vault, monkeypatch: pytest.MonkeyPatch, writer: str, field: str
 ) -> None:
-    """The loop keeps the id it is given and ``alice_open_loops`` returns it, so the id must be one the key could be
-    shown. Each key tries every state of a source and of a memory: its own project (the control that must succeed),
+    """The loop keeps the id it is given, so the id must be one the key could be shown (the readers also withhold
+    from a lower reader what the writer was allowed to name, which the other test file pins). Each key tries every
+    state of a source and of a memory: its own project (the control that must succeed),
     a restricted domain, above its ceiling, another project, global, deleted and unknown. What is admitted is stored
     and answers 201. Everything else answers one 404 body, and the call writes nothing in any table.
 
@@ -1282,9 +1284,9 @@ def test_one_refused_id_refuses_the_whole_call_and_a_loop_with_no_ids_is_unchang
 
 
 def test_a_refused_open_loop_id_never_reaches_the_open_loop_list(vault: _Vault, monkeypatch: pytest.MonkeyPatch) -> None:
-    """The reason the door matters: ``alice_open_loops`` returns ``source_id`` and ``memory_id`` of each loop to every
-    key that may read the loop. After the refused calls no loop holds the id of another project's source or memory,
-    and the loop that names the key's own source is listed with it, so the list is shown to carry the field at all.
+    """The reason the door matters: a loop keeps ``source_id`` and ``memory_id`` and ``alice_open_loops`` returns the
+    ones the reader may read. After the refused calls no loop holds the id of another project's source or memory, and
+    the loop that names the key's own source is listed with it, so the list is shown to carry the field at all.
 
     Mutation: any mutation of the matrix test above that stores a foreign id.
     """
@@ -1385,20 +1387,22 @@ def test_a_link_that_passes_for_a_writer_still_shows_its_id_to_keys_with_a_lower
 ) -> None:
     """The fence at write time is the writer's own read fence, not the fence of whoever reads later. An ``admin_agent``
     key may cite a confidential source of its own project, and then a ``trusted_local_agent`` key and a
-    ``project_scoped_agent`` key of the same project (both with a lower ceiling) read the memory. Each reader of the
-    link now asks the reader's own fence again (``SavedProvenanceReader``, ``tests/unit/test_saved_quotes_follow_the_source_fence.py``),
-    so ``alice_memory_review`` by id lists no link and names the source's id nowhere, and the context pack's
-    ``supporting_evidence`` is empty, for those keys. ``alice_explain`` of the memory still fails for them, and the
-    admin key still reads the link, the id and the explanation. An open loop that names the source is a different
-    reader, and ``alice_open_loops`` still returns its id to them: that line of the test is the one to change when the
-    open-loop reader is held to the fence, and the known-limitations line with it.
+    ``project_scoped_agent`` key of the same project (both with a lower ceiling) read the memory and an open loop that
+    names the source. Each reader of the link now asks the reader's own fence again (``SavedProvenanceReader``,
+    ``tests/unit/test_saved_quotes_follow_the_source_fence.py``), so ``alice_memory_review`` by id lists no link and
+    names the source's id nowhere, and the context pack's ``supporting_evidence`` is empty, for those keys.
+    ``alice_explain`` of the memory still fails for them. The open-loop readers check each reference against the
+    reader's own fence too, so the same keys get the loop with ``source_id`` ``null``. The admin key still reads the
+    link, the id, the explanation and the loop's ``source_id``.
 
-    The name of this test is the old limit, kept so that the pin changes in place: until this change a lower ceiling saw
-    the id in the review and in the pack.
+    The name of this test is the old limit, kept so that the pin changes in place: until these changes a lower ceiling
+    saw the id in the review, in the pack and in the open loop.
 
     Mutations: make ``_admits`` refuse an ``admin_agent`` identity (the admin commit then answers ``not_found``);
-    return the stored links in ``_vnext_memory_review`` (``mcp/review.py``), which fails the review assertion; or remove
-    the ``admits_link`` test in ``_supporting_evidence`` (``vnext_retrieval.py``), which fails the pack assertion.
+    return the stored links in ``_vnext_memory_review`` (``mcp/review.py``), which fails the review assertion; remove
+    the ``admits_link`` test in ``_supporting_evidence`` (``vnext_retrieval.py``), which fails the pack assertion; or
+    drop the ``withhold_unreadable_references`` call in ``_handle_alice_vnext_open_loops`` (the open-loop assertion
+    then fails).
     """
 
     confidential = vault.sources["confidential"]
@@ -1409,8 +1413,9 @@ def test_a_link_that_passes_for_a_writer_still_shows_its_id_to_keys_with_a_lower
     )
     assert made["is_error"] is False, made
     memory_id = str(made["payload"]["memory"]["id"])  # type: ignore[index]
-    status, _body = _post_open_loop(vault, monkeypatch)("alpha_admin", source_id=confidential)
+    status, body = _post_open_loop(vault, monkeypatch)("alpha_admin", source_id=confidential)
     assert status == 201
+    loop_id = str(body["open_loop"]["id"])  # type: ignore[index]
     admin = vault.wire("alice_memory_review", {"review_item_id": memory_id}, key=vault.keys["alpha_admin"])
     assert [link["source_id"] for link in admin["payload"]["review"]["provenance_links"]] == [confidential]  # type: ignore[index]
     assert vault.wire("alice_explain", {"memory_id": memory_id}, key=vault.keys["alpha_admin"])["is_error"] is False
@@ -1430,7 +1435,11 @@ def test_a_link_that_passes_for_a_writer_still_shows_its_id_to_keys_with_a_lower
         assert pack["supporting_evidence"] == [], reader  # type: ignore[index]
         assert confidential not in json.dumps(pack), reader
         assert "cedar-ledger-55" not in json.dumps(pack), reader
-        assert confidential in json.dumps(vault.wire("alice_open_loops", {"status": "all"}, key=key)["payload"]), reader
+        listed = vault.wire("alice_open_loops", {"status": "all"}, key=key)["payload"]["items"]  # type: ignore[index]
+        assert [(row["id"], row["source_id"]) for row in listed] == [(loop_id, None)], reader
+        assert confidential not in json.dumps(listed), reader
+    admin_listed = vault.wire("alice_open_loops", {"status": "all"}, key=vault.keys["alpha_admin"])["payload"]["items"]  # type: ignore[index]
+    assert [(row["id"], row["source_id"]) for row in admin_listed] == [(loop_id, confidential)]
 
 
 # -- 5. an idempotent replay is not a new attach ----------------------------------------------------------------

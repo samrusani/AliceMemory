@@ -48,10 +48,12 @@ from alicebot_api.vnext_agent_control import (
     PolicyDecision,
 )
 from alicebot_api.vnext_memory_commit import VNextMemoryCommitService
+from alicebot_api.vnext_open_loop_references import withhold_unreadable_references_from_loop
 from alicebot_api.vnext_project_scope import project_scope_identity
 from alicebot_api.vnext_projects import VNextProjectService
 from alicebot_api.vnext_recall_visibility import memory_window_is_open
 from alicebot_api.vnext_repositories import JsonObject as VNextJsonObject
+from alicebot_api.vnext_source_fence import SourceReadFence
 from alicebot_api.recall_framing import (
     memory_writer,
     present_model_item,
@@ -764,7 +766,7 @@ def _handle_alice_open_loops(context: MCPRuntimeContext, arguments: Mapping[str,
         except AgentPolicyBlockedError as exc:
             blocked_decision = exc.decision
         else:
-            loop = VNextProjectService(store).review_open_loop(
+            updated = VNextProjectService(store).review_open_loop(
                 loop_id=loop_id,
                 action=action,
                 title=_parse_optional_text(arguments, "title"),
@@ -772,6 +774,11 @@ def _handle_alice_open_loops(context: MCPRuntimeContext, arguments: Mapping[str,
                 due_at=_parse_optional_text(arguments, "due_at"),
                 priority=_parse_optional_text(arguments, "priority"),
                 resolution_note=_parse_optional_text(arguments, "resolution_note"),
+            )
+            # The updated row comes back whole. A caller allowed to update the loop is not thereby allowed to read
+            # the source and memory it points at, so those are checked against the caller's own read fence.
+            loop = withhold_unreadable_references_from_loop(
+                store, updated, fence=SourceReadFence.for_identity(identity)
             )
     if blocked_decision is not None:
         _raise_mcp_policy_blocked(blocked_decision)

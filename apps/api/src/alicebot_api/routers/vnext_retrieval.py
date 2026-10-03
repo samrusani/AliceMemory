@@ -46,6 +46,7 @@ from alicebot_api.vnext_context_tree import (
     VNextContextTreeStore,
     VNextContextTreeValidationError,
 )
+from alicebot_api.vnext_open_loop_references import withhold_unreadable_references_from_pack
 from alicebot_api.vnext_queue import VNextQueueNotFoundError
 from alicebot_api.vnext_retrieval import VNextRetrievalRequest, VNextRetrievalService, VNextRetrievalValidationError
 from alicebot_api.vnext_source_fence import SourceReadFence
@@ -267,32 +268,37 @@ def create_vnext_context_pack(
             if decision.decision == "blocked":
                 return _vnext_permission_response(decision)
             actor_type, actor_id = _vnext_agent_actor(identity, fallback="system")
+            compiled = VNextRetrievalService(store).compile_context_pack(
+                VNextRetrievalRequest(
+                    query=retrieval_request.query,
+                    domains=decision.effective_domains,
+                    projects=decision.effective_project_scope,
+                    people=retrieval_request.people,
+                    time_window=retrieval_request.time_window,
+                    sensitivity_allowed=decision.effective_sensitivity_allowed,
+                    include_sources=retrieval_request.include_sources,
+                    include_contradictions=retrieval_request.include_contradictions,
+                    context_depth=retrieval_request.context_depth,
+                    budget_strategy=retrieval_request.budget_strategy,
+                    max_items=retrieval_request.max_items,
+                    max_tokens=retrieval_request.max_tokens,
+                    actor_type=actor_type,
+                    actor_id=actor_id,
+                    agent_identity=identity.to_record() if identity is not None else None,
+                    policy_decision=decision.to_record(),
+                    trace_id=request.trace_id or decision.trace_id,
+                    run_id=identity.agent_run_id if identity is not None else None,
+                ),
+                # The caller's read fence over sources, so the full rows of this pack and its supporting evidence
+                # carry no quote of a source this caller may not read now.
+                source_fence=SourceReadFence.for_identity(identity),
+            )
+            # The pack's open loops are whole rows. The loop is the caller's to read, the source and memory it points
+            # at are checked against the caller's own read fence.
             payload = annotate_http_context_pack(
                 store,
-                VNextRetrievalService(store).compile_context_pack(
-                    VNextRetrievalRequest(
-                        query=retrieval_request.query,
-                        domains=decision.effective_domains,
-                        projects=decision.effective_project_scope,
-                        people=retrieval_request.people,
-                        time_window=retrieval_request.time_window,
-                        sensitivity_allowed=decision.effective_sensitivity_allowed,
-                        include_sources=retrieval_request.include_sources,
-                        include_contradictions=retrieval_request.include_contradictions,
-                        context_depth=retrieval_request.context_depth,
-                        budget_strategy=retrieval_request.budget_strategy,
-                        max_items=retrieval_request.max_items,
-                        max_tokens=retrieval_request.max_tokens,
-                        actor_type=actor_type,
-                        actor_id=actor_id,
-                        agent_identity=identity.to_record() if identity is not None else None,
-                        policy_decision=decision.to_record(),
-                        trace_id=request.trace_id or decision.trace_id,
-                        run_id=identity.agent_run_id if identity is not None else None,
-                    ),
-                    # The caller's read fence over sources, so the full rows of this pack and its supporting evidence
-                    # carry no quote of a source this caller may not read now.
-                    source_fence=SourceReadFence.for_identity(identity),
+                withhold_unreadable_references_from_pack(
+                    store, compiled, fence=SourceReadFence.for_identity(identity)
                 ),
             )
     except VNextRetrievalValidationError:

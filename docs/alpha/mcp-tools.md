@@ -790,14 +790,33 @@ may not create a loop gets the same refusal whatever id it names) and before
 anything is written. The loop stores the id in canonical form. The owner, a call
 with no agent key, may name any live source and memory of the vault.
 
+Unreleased (on main, not in v0.20.0): the readers of an open loop hold the
+loop's references to the reader's own fence, so what a writer was allowed to name
+is not shown to a reader who may not read it. A loop returns its `source_id` and
+`memory_id`, and the ids in its `metadata_json`, as before only where the reader
+could be shown the row they name, by the test `alice_explain` applies. For any
+other reference (another project's row, a global row, a row above the reader's
+ceiling or in a domain its profile may not read, a deleted row, a row that does
+not exist, a value that is no id) the key stays and the value is `null`, so the
+cases read alike. An id inside `metadata_json` is removed. This holds for
+`alice_open_loops` (the list, its legacy alias `alice_vnext_open_loops`, and the
+`close`, `snooze`, `edit` and `reopen` actions that return the updated row),
+`POST /v0/vnext/open-loops/{id}/review`, the open loops of
+`POST /v0/vnext/context-packs` and the scheduler's open-loop report. The owner and
+a key that may read the row get the reference unchanged, and a reference to a
+deleted row is withheld from them too. A loop that an automation made over a
+global source shows no `source_id` to a key bound to a project. In v0.20.0 every
+one of these returned the ids as stored to any key that could read the loop.
+
 Two limits. The test at write time is the writer's own read fence, not the
 fence of whoever reads later: a source an `admin_agent` key could cite (a
-confidential source of its own project) stays citable, and the keys of that
-project with a lower ceiling then see its id in `alice_open_loops`, and
-`alice_explain` of that memory fails for them. They are shown no text of the
-source. The context pack and `alice_memory_review` by id ask the reader's own
-fence again (see [Saved quotes](#saved-quotes)). And a memory or open loop saved
-before the fix keeps the link or id it has.
+confidential source of its own project) stays citable, and `alice_explain` of
+that memory then fails for the keys of that project with a lower ceiling. They
+are shown no text of the source. The context pack and `alice_memory_review` by
+id ask the reader's own fence again (see [Saved quotes](#saved-quotes)), and so
+do the readers of an open loop (see the paragraph above). And a memory or open
+loop saved before the fix keeps the link or id it holds in storage, which those
+readers withhold from a caller who may not read it.
 
 ### Saved quotes
 
@@ -836,11 +855,60 @@ none of the link, the quote or the id of a memory that cites it to those keys, a
 may read every cited source gets the stored row. The owner, a call with no agent
 key, is shown what was stored. In v0.20.0 every key below the new label, and for
 an archived source every key, kept receiving the quote, and `alice_explain` of a
-memory with no link returned it. Not covered: the pack's `sources`
-section and `alice_recall` return the source's own excerpt through the source
-search, which does not apply the domain test for a key that names no domains; a
-memory that `alice_capture` derived from a source holds that text as its own;
-and `alice_open_loops` returns the id of a source an open loop names.
+memory with no link returned it. The pack's `sources` section and `alice_recall`
+are a different reader, the source's own excerpt, held to the domains of a key
+that names none (see [Domains a profile may read](#domains-a-profile-may-read)).
+Not covered: a memory that `alice_capture` derived from a source holds that text
+as its own; the operator routes `GET /v0/vnext/memories/{id}/audit`,
+`GET /v0/vnext/memories/recent-commits` and `GET /v0/vnext/sources/{id}`, which
+only the owner and a `trusted_local_agent` or `admin_agent` key bound to no
+project reach, return what was stored; and on an install with no agent keys, a
+call that declares a restricted profile is held to it by `alice_memory_review` by
+id but not by `alice_explain`.
+
+## Domains a profile may read
+
+Every permission profile except `trusted_local_agent` and `admin_agent` is held
+back from five domains: family, health, spiritual, legal and financial. A
+request that names only those domains is refused (`not_permitted`), and a
+request that names them with others has them removed. `personal` and
+`professional` are not held back, and `regulated` is a sensitivity level, so the
+profile's sensitivity ceiling is what holds it.
+
+Unreleased (on main, not in v0.20.0): a request that names no domain, with
+`domains` left out or sent as an empty list, is held to the same set. A
+`project_scoped_agent`, `read_only_agent` or `memory_proposal_agent` caller then
+reads every domain except those five, `unknown` included, and a request that
+names domains narrows that set further. This applies to every read that takes
+`domains`: `alice_recall` (its memories and its source excerpts),
+`alice_context_pack`, `alice_resume`, `alice_open_loops`,
+`alice_recent_decisions` and `alice_memory_review` (which already did), and the
+context-pack, report and artifact routes over HTTP. A request
+that names a word that is not a domain label (for example `banana` or `HEALTH`)
+matches no row, as before, and is not read as "no filter". The `unknown` domain is
+readable because the stores return `unknown` rows under every domain filter, the
+source fence tests a row's own domain the same way, and imports and captures file
+under `unknown` by default. Unclassified material is held by the sensitivity
+ceiling and the project scope, not by its domain. The held-back set is read from
+the stored label, so a health note filed as `personal` is not held back.
+
+A keyless call that declares one of those profiles, or only an `agent_id` (which
+defaults to `read_only_agent`, except `hermes`, which defaults to
+`trusted_local_agent`, and `openclaw`, which defaults to `project_scoped_agent`),
+is held the same way, as it already was when it named a held-back domain. The
+owner (a call with no key and no declared identity), a declared
+`trusted_local_agent` or `admin_agent`, and a key of either profile read every
+domain with or without naming them, as before. In v0.20.0 a restricted caller
+that named no domain read all of them, health included, and the same caller got
+`not_permitted` when it named `health`.
+
+With per-project scoping on, the project's own notes in a held-back domain are
+left out for a restricted caller too (the project view holds back global notes
+in those domains for every caller and leaves the project's own). With scoping
+off, `alice_resume` reads the newest events before it applies the domain list, as
+it does when a caller names domains, so a run of newer events in held-back domains
+can leave `recent_changes` shorter than `max_recent_changes` for a restricted
+caller.
 
 ## Size bounds
 

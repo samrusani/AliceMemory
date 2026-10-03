@@ -10,6 +10,7 @@ from typing import Any, Callable, Mapping, TypeVar, cast
 from uuid import UUID, uuid4
 
 from alicebot_api.vnext_agent_control import (
+    VNEXT_DOMAINS,
     AgentIdentity,
     AgentPolicyBlockedError,
     PolicyDecision,
@@ -124,21 +125,6 @@ MEMORY_STATUSES = (
 # the centrally-enforced transitions.
 assert set(MEMORY_STATUSES) == (_LIFECYCLE_LIVE_STATUSES | _LIFECYCLE_RETIRED_STATUSES), (
     "MEMORY_STATUSES and vnext_lifecycle status partitions have diverged"
-)
-VNEXT_DOMAINS = (
-    "professional",
-    "personal",
-    "family",
-    "health",
-    "spiritual",
-    "financial",
-    "legal",
-    "learning",
-    "relationship",
-    "project",
-    "agent_run",
-    "system",
-    "unknown",
 )
 VNEXT_SENSITIVITY_LEVELS = (
     "public",

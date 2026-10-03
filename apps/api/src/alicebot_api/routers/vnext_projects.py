@@ -39,6 +39,7 @@ from alicebot_api.vnext_agent_control import (
 from alicebot_api.vnext_agent_keys import AgentKeyAuthenticationError
 from alicebot_api.vnext_event_log import append_event
 from alicebot_api.vnext_memory_commit import VNextMemoryCommitService
+from alicebot_api.vnext_open_loop_references import withhold_unreadable_references_from_loop
 from alicebot_api.vnext_projects import (
     VNextProjectService,
     VNextProjectValidationError,
@@ -226,7 +227,7 @@ def create_vnext_open_loop(
                 else None
             )
             actor_type, _actor_id = _vnext_agent_actor(identity, fallback="user")
-            payload = store.create_open_loop(
+            created = store.create_open_loop(
                 {
                     "title": request.title.strip(),
                     "description": request.description,
@@ -244,6 +245,9 @@ def create_vnext_open_loop(
                 },
                 actor_type=actor_type,
             )
+            # The row goes back through the one output rule every reader of a loop is held to. The ids were checked
+            # for this caller just above, so nothing is withheld here unless a row changed in between.
+            payload = withhold_unreadable_references_from_loop(store, created, fence=read_fence)
             if identity is not None:
                 append_event(
                     store,
@@ -251,7 +255,7 @@ def create_vnext_open_loop(
                     actor_type="agent",
                     actor_id=identity.agent_id,
                     target_type="open_loop",
-                    target_id=str(payload["id"]),
+                    target_id=str(created["id"]),
                     trace_id=request.trace_id or decision.trace_id,
                     run_id=identity.agent_run_id,
                     payload={"agent_identity": identity.to_record(), "policy_decision": decision.to_record()},
@@ -612,7 +616,7 @@ def review_vnext_open_loop(
                 )
             except AgentPolicyBlockedError as exc:
                 return _vnext_permission_response(exc.decision)
-            payload = VNextProjectService(store).review_open_loop(
+            updated = VNextProjectService(store).review_open_loop(
                 loop_id=loop_id,
                 action=request.action,
                 title=request.title,
@@ -620,6 +624,11 @@ def review_vnext_open_loop(
                 due_at=request.due_at,
                 priority=request.priority,
                 resolution_note=request.resolution_note,
+            )
+            # The updated row comes back whole. A caller allowed to update the loop is not thereby allowed to read
+            # the source and memory it points at, so those are checked against the caller's own read fence.
+            payload = withhold_unreadable_references_from_loop(
+                store, updated, fence=SourceReadFence.for_identity(identity)
             )
     except AgentIdentityValidationError as exc:
         return public_exception_response(exc, status_code=400)
