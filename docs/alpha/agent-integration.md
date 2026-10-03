@@ -191,6 +191,11 @@ Permission profiles:
 - `memory_proposal_agent`: proposal-focused agent
 - `admin_agent`: scheduler and administrative actions
 
+Every profile except `trusted_local_agent` and `admin_agent` is held back from the
+family, health, spiritual, legal and financial domains. Unreleased (on main, not in
+v0.20.0): that holds when a request names no domain too, not only when it names one.
+See [MCP tools](mcp-tools.md#domains-a-profile-may-read).
+
 ## Authentication
 
 Custom agents calling the HTTP API authenticate with per-agent API keys. Create one per agent:

@@ -51,7 +51,8 @@ alicebot eval run --suite all
 
 Sensitive domain guidance:
 
-- project-scoped agents should avoid personal, family, health, spiritual, legal, financial, and regulated domains
+- every permission profile except `trusted_local_agent` and `admin_agent` is held back from five domains: family, health, spiritual, legal and financial. The engine does not hold back `personal` or `professional`, and `regulated` is a sensitivity level that the profile's sensitivity ceiling holds. A project-scoped agent should still avoid personal material that is not about its project
+- Unreleased (on main, not in v0.20.0): a request that names no domain is held to the same set, so a restricted caller that sends no `domains` reads every domain except those five, `unknown` included. In v0.20.0 the five were removed only from domains the caller listed, and a request that listed none read all of them. See [MCP tools](mcp-tools.md#domains-a-profile-may-read)
 - trusted local assistants should request sensitive domains only when necessary
 - blocked or filtered policy decisions should be surfaced in `/vnext` Agent Activity
 
