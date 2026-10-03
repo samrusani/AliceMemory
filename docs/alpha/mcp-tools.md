@@ -820,10 +820,23 @@ copies name such a source, the three copies of the quote are removed from the
 row and the entries of its `source_refs` lists that name the source (in the
 metadata, in `agentic_memory` and in `value`, and in the `previous_value` and
 `new_value` of a revision) are dropped, so the id of the source goes with its
-quote. The memory is still returned, with its text. A caller that may read every
-cited source gets the stored row. The owner, a call with no agent key, is shown
-what was stored. In v0.20.0 every key below the new label, and for an archived
-source every key, kept receiving the quote. Not covered: the pack's `sources`
+quote. The memory is still returned, with its text. A memory with no link at all
+(a commit held for review or waiting for its author's confirmation, then
+approved or confirmed, stores none) is judged by the source ids its own copies
+name, in the context pack as well, and `alice_explain` refuses a key that may
+not read a source the memory row, its revisions or its event payloads name, as it
+does for a linked one. When a link is left out, another link of the same memory
+whose quote says the same text (ignoring the whitespace between words) is shown
+without its quote, because the commit route saves one excerpt as the quote of
+every link it makes. A link whose quote says something else keeps it. A source
+with no project (a source the owner captured has none) is outside the fence of
+every key bound to a project, the admin key included, so review by id returns
+none of the link, the quote or the id of a memory that cites it to those keys, as
+`alice_explain` already did; a key bound to no project keeps them. A caller that
+may read every cited source gets the stored row. The owner, a call with no agent
+key, is shown what was stored. In v0.20.0 every key below the new label, and for
+an archived source every key, kept receiving the quote, and `alice_explain` of a
+memory with no link returned it. Not covered: the pack's `sources`
 section and `alice_recall` return the source's own excerpt through the source
 search, which does not apply the domain test for a key that names no domains; a
 memory that `alice_capture` derived from a source holds that text as its own;

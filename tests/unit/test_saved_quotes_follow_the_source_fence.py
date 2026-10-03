@@ -175,11 +175,16 @@ class _Vault:
 
     # -- the doors that save a quote ----------------------------------------------------------------------------
 
-    def capture_source(self) -> str:
+    def capture_source(
+        self, raw_text: str = _SOURCE_TEXT, title: str = "Alpha pottery log", *, as_owner: bool = False
+    ) -> str:
+        """Capture a source. By the vault's writer key, so it belongs to project alpha, or as the owner (no key), so it
+        belongs to no project."""
+
         done = self.wire(
             "alice_capture",
-            {"raw_text": _SOURCE_TEXT, "title": "Alpha pottery log", "domain": "project", "sensitivity": "internal"},
-            who=self.writer,
+            {"raw_text": raw_text, "title": title, "domain": "project", "sensitivity": "internal"},
+            who=None if as_owner else self.writer,
         )
         assert done["is_error"] is False, done
         source_id = str(done["payload"]["source_id"])  # type: ignore[index]
@@ -240,6 +245,11 @@ class _Vault:
         """``agentic_memory.conversation_excerpt``, ``agentic_memory.source_refs``, ``value.source_refs`` and the link
         quote, through ``POST /v0/vnext/memories/commit`` (the MCP tool has no ``conversation_excerpt`` field)."""
 
+        return self.http_commit_citing([source_id], tag=tag)
+
+    def http_commit_citing(self, source_ids: list[str], tag: str = "") -> tuple[str, str]:
+        """The same commit with several ``source_refs``: the route saves the one excerpt as the quote of every link."""
+
         from alicebot_api.routers import vnext_memories as router
 
         response = router.commit_vnext_memory(
@@ -251,7 +261,7 @@ class _Vault:
                 domain="project",
                 sensitivity="internal",
                 confidence=0.95,
-                source_refs=[source_id],
+                source_refs=list(source_ids),
                 conversation_excerpt=_QUOTE,
                 agent_id=_AGENT_IDS["trusted"],
             ),
@@ -260,6 +270,63 @@ class _Vault:
         body = json.loads(response.body)
         assert response.status_code == 201, body
         return str(body["memory"]["id"]), f"cone ten firing schedule {tag} wall calendar"
+
+    def _http_commit_without_link(
+        self, source_id: str, *, confidence: float, tag: str, excerpt: str = _QUOTE
+    ) -> tuple[dict[str, object], str, str]:
+        """``POST /v0/vnext/memories/commit`` at a confidence the policy does not accept at once. The row stores
+        ``agentic_memory.conversation_excerpt``, ``agentic_memory.source_refs`` and ``value.source_refs``, and no
+        provenance link: a link is created only by a commit that is committed at once."""
+
+        from alicebot_api.routers import vnext_memories as router
+
+        response = router.commit_vnext_memory(
+            router.VNextMemoryCommitRequest(
+                user_id=UUID(_USER_ID),
+                title=f"Held cone ten note {tag}",
+                canonical_text=f"The held cone ten firing schedule {tag} is posted by the kiln door.",
+                memory_type="project_fact",
+                domain="project",
+                sensitivity="internal",
+                confidence=confidence,
+                source_refs=[source_id],
+                conversation_excerpt=excerpt,
+                agent_id=_AGENT_IDS["trusted"],
+            ),
+            authorization=f"Bearer {self.keys['trusted']}",
+        )
+        body = json.loads(response.body)
+        memory_id = str(body["memory"]["id"])
+        assert not self.sql("SELECT id FROM provenance_links WHERE target_id = ?", (memory_id,)), "no link"
+        return body, memory_id, f"held cone ten firing schedule {tag} kiln door"
+
+    def held_commit(self, source_id: str, tag: str = "") -> tuple[str, str]:
+        """A commit the policy holds for review (confidence under 0.5), then approved by the admin key. No link."""
+
+        body, memory_id, query = self._http_commit_without_link(source_id, confidence=0.4, tag=tag)
+        assert body["status"] == "review_required", body
+        approved = self.wire(
+            "alice_memory_correct", {"review_item_id": memory_id, "action": "approve", "reason": "check"}, who=self.reviewer
+        )
+        assert approved["is_error"] is False, approved
+        assert not self.sql("SELECT id FROM provenance_links WHERE target_id = ?", (memory_id,)), "approval adds no link"
+        return memory_id, query
+
+    def confirmed_commit(self, source_id: str, tag: str = "") -> tuple[str, str]:
+        """A commit that needs the author's confirmation (confidence under 0.85), confirmed by the same key. No link."""
+
+        body, memory_id, query = self._http_commit_without_link(source_id, confidence=0.7, tag=tag)
+        assert body["status"] == "confirmation_required", body
+        confirmation = body["confirmation"]
+        confirmed = self.wire(
+            "alice_memory_commit",
+            {"confirmation_id": confirmation["confirmation_id"], "confirmation_action": "confirm"},  # type: ignore[index]
+            who="trusted",
+        )
+        assert confirmed["is_error"] is False, confirmed
+        assert not self.sql("SELECT id FROM provenance_links WHERE target_id = ?", (memory_id,)), "confirming adds no link"
+        assert self.sql("SELECT status FROM memories WHERE id = ?", (memory_id,))[0]["status"] == "active"
+        return memory_id, query
 
     # -- the change of label ------------------------------------------------------------------------------------
 
@@ -821,3 +888,251 @@ def test_the_http_review_route_hands_back_the_row_without_the_quote_of_a_source_
     answer = {"payload": json.loads(response.body)}
     assert answer["payload"]["memory"]["id"] == candidate
     assert _holds_quote(answer) is (variant == "confidential")
+
+
+# -- 6. a memory with no provenance link ------------------------------------------------------------------------
+
+
+def _holds_source_id(answer: dict[str, object], source_id: str) -> bool:
+    """Whether the id of the source is anywhere in the serialized answer, leaving out the pack's ``sources`` section
+    (the source's own row, read by the source search and fenced there)."""
+
+    payload = answer["payload"]
+    if isinstance(payload, dict) and "sources" in payload:
+        payload = {key: value for key, value in payload.items() if key != "sources"}
+    return source_id in json.dumps(payload)
+
+
+_LINKLESS_DOORS = ("held_commit", "confirmed_commit")
+# The surfaces that carry the copy of the quote that a memory keeps in its own metadata. The MCP pack carries only the
+# evidence of a link, so for a memory with no link it has nothing to withhold and nothing to leak.
+_COPY_SURFACES = ("review", "http_pack", "http_pack_deep")
+# The review returns the source id in the memory's ref lists. The HTTP pack's own scope pass has already dropped the
+# refs it cannot prove from each row (for the authorized key too, which is why the rows must be judged before it), and
+# the pack's trace names the source it selected, so the id is not a sign of the memory's copies there and only the
+# quote is checked.
+_ID_SURFACES = ("review",)
+
+
+@pytest.mark.parametrize("door", _LINKLESS_DOORS)
+def test_a_memory_with_no_link_carries_its_quote_and_its_source_id_in_its_own_copies_before_the_label_changes(
+    vault: _Vault, door: str
+) -> None:
+    """The control for the lifecycle below. A commit that is not accepted at once (held for review at a confidence under
+    0.5 and then approved by an admin key, or confirmed by its author at a confidence under 0.85) saves no provenance
+    link: the quote and the id of its source are only in the copies on the memory (``agentic_memory.conversation_excerpt``,
+    ``agentic_memory.source_refs``, ``value.source_refs`` and the revision). Every key reads them there, in the review by
+    id and in the full rows of the HTTP pack, and ``alice_explain`` returns them too. The MCP pack carries none of them.
+
+    Mutation: none to make; this is the baseline that gives the lifecycle test its meaning.
+    """
+
+    source_id = vault.capture_source()
+    memory_id, query = getattr(vault, door)(source_id)
+    for who in _KEY_SPECS:
+        answers = _readers(vault, who, memory_id, query)
+        for surface, answer in answers.items():
+            assert answer["is_error"] is False, (who, surface, str(answer["text"])[:300])
+            assert _holds_quote(answer) is (surface in _COPY_SURFACES), (door, who, surface)
+            if surface in _ID_SURFACES:
+                assert _holds_source_id(answer, source_id), (door, who, surface)
+            if surface != "review":
+                assert _pack_holds_the_memory(answer, memory_id, http=_is_http(surface)), (who, surface)
+        explained = vault.explain(who, memory_id)
+        assert explained["is_error"] is False and _holds_quote(explained), (door, who)
+    assert _holds_quote(vault.review(None, memory_id)), "the owner"
+
+
+@pytest.mark.parametrize("variant", _VARIANTS)
+@pytest.mark.parametrize("door", _LINKLESS_DOORS)
+def test_the_copies_of_a_memory_with_no_link_follow_its_source_when_the_source_is_reclassified(
+    vault: _Vault, door: str, variant: str
+) -> None:
+    """The finding of the second review of this change, as a lifecycle. The memory has no link, so its copies of the
+    quote and of the source id are the only thing that ties it to the source. The source is made confidential or private,
+    its domain is changed to health, it is moved to project ``beta`` or it is archived, and each key reads the memory.
+
+    On the first version of this change every restricted key still got the quote from the full rows of
+    ``POST /v0/vnext/context-packs`` (``relevant_memories[].metadata_json``): the pack's scope pass drops the refs it
+    cannot prove from each row before the rows were judged, so the reader found no refused source on a row that had no
+    link, and kept the quote. ``alice_explain`` returned the memory row, the revision and the event payload to every
+    restricted key, because it authorized only the sources a link names. Now a key that may not read the source gets no
+    byte of the quote and no source id from the review, the HTTP pack or its deep tier, and explain is refused as it is
+    for a memory with a link; a key that may read the source gets what it did before, and the memory is returned in
+    every pack.
+
+    Mutations, each alone: in ``compile_context_pack`` (``vnext_retrieval.py``) move the ``saved_provenance.memories(...)``
+    line below the ``_sanitize_memory_scope_references`` call (the HTTP rows keep the quote for every key bound to a
+    project); in ``SavedProvenanceReader._memory`` drop ``| _source_ids_named_by_memory_copies(row)`` from ``named``
+    (the review and the HTTP rows keep the quote for every key); make ``source_ids_named_by_memory_audit`` return an
+    empty set (explain succeeds for every key).
+    """
+
+    source_id = vault.capture_source()
+    memory_id, query = getattr(vault, door)(source_id)
+    vault.reclassify(source_id, variant)
+    authorized = _AUTHORIZED_AFTER[variant]
+    for who in _KEY_SPECS:
+        for surface, answer in _readers(vault, who, memory_id, query).items():
+            assert answer["is_error"] is False, (who, surface, str(answer["text"])[:300])
+            if surface != "review":
+                assert _pack_holds_the_memory(answer, memory_id, http=_is_http(surface)), (
+                    "the memory stays visible, only its copies are withheld",
+                    door,
+                    variant,
+                    who,
+                    surface,
+                )
+            assert _holds_quote(answer) is (who in authorized and surface in _COPY_SURFACES), (
+                door,
+                variant,
+                who,
+                surface,
+            )
+            if surface in _ID_SURFACES:
+                assert _holds_source_id(answer, source_id) is (who in authorized), (door, variant, who, surface)
+        explained = vault.explain(who, memory_id)
+        assert (explained["is_error"] is False) is (who in authorized), (door, variant, who)
+        if who in authorized:
+            assert _holds_quote(explained)
+        else:
+            assert source_id not in str(explained["text"]) and _WORD_A not in str(explained["text"])
+    for surface, answer in _readers(vault, None, memory_id, query).items():
+        assert (_holds_quote(answer)) is (surface in _COPY_SURFACES), ("the owner is not fenced", door, variant, surface)
+
+
+@pytest.mark.parametrize("door", _LINKLESS_DOORS)
+def test_a_reader_who_may_read_the_source_is_shown_the_same_rows_for_a_memory_with_no_link(
+    vault: _Vault, door: str
+) -> None:
+    """Authorized callers are unchanged by judging the rows first. While the source is readable, the full rows of the
+    HTTP pack of a key bound to ``alpha`` are those of the other keys bound to ``alpha``, and carry the copies; after the
+    source is made confidential the admin key (which may read it) still gets the same rows.
+
+    Mutation: in ``SavedProvenanceReader._memory`` return ``_memory_without_refused_provenance(row, refused=refused,
+    withhold_quotes=True)`` even when nothing is refused (it must hand back the row itself): every key's rows lose the
+    copies, and the rows no longer carry the quote before the change.
+    """
+
+    source_id = vault.capture_source()
+    memory_id, query = getattr(vault, door)(source_id)
+
+    def rows(who: str) -> object:
+        payload = vault.http_pack(who, query)["payload"]
+        return [row for row in payload["relevant_memories"] if row["id"] == memory_id]  # type: ignore[index]
+
+    trusted_rows = rows("trusted")
+    assert trusted_rows and _WORD_A in json.dumps(trusted_rows)
+    for who in ("project", "admin", "read_only"):
+        assert rows(who) == trusted_rows, who
+    vault.reclassify(source_id, "confidential")
+    assert rows("admin") == trusted_rows
+    assert _WORD_A not in json.dumps(rows("trusted"))
+
+
+@pytest.mark.parametrize("variant", ("confidential", "archived"))
+def test_the_quote_on_the_link_to_a_readable_source_is_withheld_when_a_sibling_link_is_refused(
+    vault: _Vault, variant: str
+) -> None:
+    """The commit route saves one ``conversation_excerpt`` as the quote of every link it makes. A memory committed with
+    two sources, where the excerpt came from the first, has two links with the same bytes. When the first source is
+    made confidential or archived, its link is left out and the memory's copies are withheld, and the link to the second
+    source (which the caller may still read) used to be returned with the same quote bytes in ``alice_memory_review`` and
+    in ``supporting_evidence``. Now the link to the readable source is still shown (its id and role), without the quote.
+    The admin key keeps both links and both quotes for a confidential source.
+
+    Mutation: in ``SavedProvenanceReader._shown`` (``vnext_source_fence.py``) return ``link`` whenever it is admitted,
+    without looking at the other links of the memory (the quote stays on the second link, in the review and the pack).
+    """
+
+    refused = vault.capture_source()
+    kept = vault.capture_source("Alpha second log. Operator note: glaze shelf inventory nine jars.", "Alpha second log")
+    memory_id, query = vault.http_commit_citing([refused, kept])
+    vault.reclassify(refused, variant)
+    authorized = _AUTHORIZED_AFTER[variant]
+
+    def link_rows(answer: dict[str, object]) -> list[dict[str, object]]:
+        payload = answer["payload"]
+        if "review" in payload:  # type: ignore[operator]
+            return payload["review"]["provenance_links"]  # type: ignore[index,no-any-return]
+        return [row for row in payload["supporting_evidence"] if row["target_id"] == memory_id]  # type: ignore[index]
+
+    for who in _KEY_SPECS:
+        for surface in ("review", "pack", "http_pack"):
+            answer = _readers(vault, who, memory_id, query)[surface]
+            links = link_rows(answer)
+            ids = {str(row["source_id"]) for row in links}
+            if who in authorized:
+                assert ids == {refused, kept} and all(_WORD_A in str(row["quote"]) for row in links), (who, surface)
+            else:
+                assert ids == {kept}, ("the link to the readable source stays, the other is left out", who, surface)
+                assert all(row["quote"] is None for row in links), (variant, who, surface)
+                assert not _holds_quote(answer), (variant, who, surface)
+                assert refused not in json.dumps(answer["payload"]), (variant, who, surface)
+
+
+@pytest.mark.parametrize("variant", ("confidential", "archived"))
+def test_a_quote_that_says_something_else_stays_on_a_link_when_another_source_is_refused(
+    vault: _Vault, variant: str
+) -> None:
+    """The control for the test above, from the review flow people use every day. A memory approved from a captured
+    candidate with a ``provenance`` has two links: ``quoted_from``, from the candidate to the source it was captured
+    from, with the candidate's own sentence as the quote, and ``supports``, to the source the review cited, with the
+    reviewer's quote. When the cited source is made confidential or archived, the ``supports`` link is left out and the
+    ``quoted_from`` link keeps its quote, because it does not say the refused source's text. Withholding every quote of a
+    memory whenever one of its sources is refused would also take this one.
+
+    Mutation: in ``SavedProvenanceReader._shown`` withhold the quote when any sibling link is left out (replace the
+    comparison ``_quote_text(other.get(_QUOTE_KEY)) == quote`` with ``True``).
+    """
+
+    source_id = vault.capture_source()
+    memory_id, query = vault.edit_and_approve(source_id)
+    links = vault.sql("SELECT evidence_role, source_id, quote FROM provenance_links WHERE target_id = ?", (memory_id,))
+    assert sorted(row["evidence_role"] for row in links) == ["quoted_from", "supports"]
+    own_quote = next(str(row["quote"]) for row in links if row["evidence_role"] == "quoted_from")
+    assert own_quote and _WORD_A not in own_quote
+    vault.reclassify(source_id, variant)
+    authorized = _AUTHORIZED_AFTER[variant]
+    for who in ("trusted", "project", "read_only", "unbound", "admin"):
+        for surface in ("review", "pack"):
+            answer = _readers(vault, who, memory_id, query)[surface]
+            payload = answer["payload"]
+            rows = (
+                payload["review"]["provenance_links"]  # type: ignore[index]
+                if surface == "review"
+                else [row for row in payload["supporting_evidence"] if row["target_id"] == memory_id]  # type: ignore[index]
+            )
+            roles = {row["evidence_role"]: row["quote"] for row in rows}
+            assert own_quote in str(roles.get("quoted_from")), ("the candidate's own quote stays", variant, who, surface)
+            assert ("supports" in roles) is (who in authorized), (variant, who, surface)
+
+
+def test_a_source_with_no_project_is_outside_the_fence_of_a_key_bound_to_a_project(vault: _Vault) -> None:
+    """A source the owner captured belongs to no project. A key bound to a project is blocked on a source with no project
+    (``require_explicit_project_scope``), so after this change ``alice_memory_review`` by id leaves out the link, the
+    quote and the source id of a memory that cites it for every key bound to a project, the admin key included, which is
+    what ``alice_explain`` has always done for such a key. A key bound to no project reads it. On v0.20.0 the review
+    returned all three to a key bound to a project. The release notes say this in one sentence.
+
+    The memory is planted with the two writes a review makes (the metadata copy and a link), as the lifecycle tests of the
+    review door do.
+
+    Mutation: pass ``require_explicit_project_scope=False`` in ``SourceReadFence._admits``: the keys bound to ``alpha``
+    read the link, the quote and the id again, and disagree with explain.
+    """
+
+    source_id = vault.capture_source(as_owner=True)
+    row = vault.sql("SELECT metadata_json FROM sources WHERE id = ?", (source_id,))[0]
+    assert json.loads(row["metadata_json"])["project_scope"] == [], "the owner's capture belongs to no project"
+    candidate = vault._candidate("Projectlessnote: the alpha kiln shelf is cleaned on Fridays")
+    _plant_saved_quote(vault, candidate, source_id)
+    for who in _KEY_SPECS:
+        answer = vault.review(who, candidate)
+        assert answer["is_error"] is False, (who, answer)
+        readable = who == "unbound"
+        assert _holds_quote(answer) is readable, who
+        assert _holds_source_id(answer, source_id) is readable, who
+        assert (vault.explain(who, candidate)["is_error"] is False) is readable, ("explain agrees", who)
+
+

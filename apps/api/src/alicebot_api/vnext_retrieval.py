@@ -4432,6 +4432,14 @@ class VNextRetrievalService:
             person_linked_memory_ids=person_linked_memory_ids,
         )
         ranked_memories = [_compact_item(candidate.item) for candidate in memory_candidates if candidate.selected]
+        # The rows the pack hands back keep the quotes their memories saved (``metadata_json.provenance`` and the other
+        # copies). Those are held to the caller's read fence here, first, while each row still names the sources it
+        # cited: the scope pass below removes source refs from the rows of a scoped pack (those of a source the key
+        # may read too), and a memory with no provenance link keeps its sources only in those refs, so a row judged
+        # after it would show the reader nothing to refuse and keep its quote. The budget prices the rows afterwards,
+        # so a withheld quote is not counted in the size of the pack, and a pack for the owner or an authorized caller
+        # is byte for byte what it was.
+        ranked_memories = cast(list[JsonObject], saved_provenance.memories(ranked_memories))
         superseded_pointer_withheld_ids = self._sanitize_memory_scope_pointers(
             ranked_memories,
             scope=scope,
@@ -4779,11 +4787,6 @@ class VNextRetrievalService:
             # Absent when dormant so ungated traces stay byte-identical.
             trace["stages"][vnext_currency.CURRENCY_STAGE] = currency_record  # type: ignore[index]
         # ---- currency chains (read-time update chains) end ----------------
-        # The rows the pack hands back keep the quotes their memories saved (``metadata_json.provenance`` and the
-        # other copies). Those are held to the caller's read fence too, so the full rows of the HTTP pack and the
-        # legacy tool do not carry a quote that ``supporting_evidence`` leaves out. This runs after the budget has
-        # priced the rows, so a pack for the owner and for an authorized caller is byte for byte what it was.
-        selected_memories = cast(list[JsonObject], saved_provenance.memories(selected_memories))
         pack: JsonObject = {
             "context_pack_id": context_pack_id,
             "query_interpretation": interpretation,
@@ -5296,8 +5299,9 @@ class VNextRetrievalService:
         )
         for memory in memories:
             memory_id = str(memory.get("id"))
-            for link in links_by_target.get(memory_id, []):
-                if not saved_provenance.admits_link(link):
+            for stored_link in links_by_target.get(memory_id, []):
+                link = saved_provenance.shown_link(stored_link)
+                if link is None:
                     continue
                 if scope.active:
                     source_id = str(link.get("source_id") or "")

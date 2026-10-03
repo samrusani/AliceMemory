@@ -280,6 +280,17 @@ _EXCERPT_KEY = "conversation_excerpt"
 # caller may not read is dropped from the list.
 _SOURCE_REFS_KEY = "source_refs"
 _REVISION_VALUE_KEYS = ("previous_value", "new_value")
+# The column of a link that holds the quote it was made with.
+_QUOTE_KEY = "quote"
+
+
+def _quote_text(value: object) -> str | None:
+    """A quote as text to compare: its words with the whitespace between them collapsed, or None when it has none."""
+
+    if value is None:
+        return None
+    text = " ".join(str(value).split())
+    return text or None
 
 
 def _canonical_source_id(value: object) -> str | None:
@@ -324,6 +335,35 @@ def _source_ids_named_by_revision(row: Mapping[str, object]) -> set[str]:
         value = row.get(key)
         if isinstance(value, Mapping):
             named.update(source_uuids_in_ref(value.get(_SOURCE_REFS_KEY)))
+    return named
+
+
+def source_ids_named_by_memory_audit(audit: Mapping[str, object]) -> set[str]:
+    """Every source id the copies in a memory audit name, other than through a provenance link.
+
+    The audit (``VNextMemoryCommitService.audit``) holds the memory row, its revisions and the payload of its events,
+    and each keeps the refs and the quote the memory was written with. A memory with no link (a commit held for
+    review or confirmed inline, then approved) names its sources only there. The audit of a key is allowed only when
+    every source named anywhere in it is readable, so the caller asks this for what a link does not say.
+    """
+
+    named: set[str] = set()
+    memory = audit.get("memory")
+    if isinstance(memory, Mapping):
+        named.update(_source_ids_named_by_memory_copies(memory))
+    revisions = audit.get("revisions")
+    for revision in revisions if isinstance(revisions, list) else []:
+        if isinstance(revision, Mapping):
+            named.update(_source_ids_named_by_revision(revision))
+    events = audit.get("events")
+    for event in events if isinstance(events, list) else []:
+        payload = event.get("payload_json") if isinstance(event, Mapping) else None
+        if not isinstance(payload, Mapping):
+            continue
+        named.update(_source_ids_named_by_memory_copies(payload))
+        changes = payload.get("changes")
+        if isinstance(changes, Mapping):
+            named.update(_source_ids_named_by_memory_copies(changes))
     return named
 
 
@@ -385,7 +425,17 @@ class SavedProvenanceReader:
       (``metadata_json.provenance``, ``metadata_json.replacement_provenance`` and
       ``metadata_json.agentic_memory.conversation_excerpt``) are removed, and the entries of the ref lists that name
       the source (``source_refs`` in the metadata, in ``agentic_memory`` and in ``value``, and the same list in a
-      revision's ``previous_value`` and ``new_value``) are dropped.
+      revision's ``previous_value`` and ``new_value``) are dropped;
+    * when a link of a memory is left out, the quote of any other link of that memory that says the same text (ignoring
+      whitespace) is withheld too. The commit route saves one ``conversation_excerpt`` as the quote of each link it
+      makes, so the quote left on a link to a readable source can be the bytes of the source the caller may not read.
+      A link whose quote is different text (the link from a captured candidate to its own source, or a review's own
+      quote) keeps it.
+
+    A memory with no link at all (a commit held for review or confirmed inline, then approved) keeps the sources it
+    cited only in the ref lists of its own copies, so the reader judges a row by those copies as well. It must be asked
+    about a row as the store holds it: a scrub that drops the refs of a row first (the context pack's scope pass does
+    this for a pack with a project scope) leaves nothing here to judge, and the quote stays.
 
     The owner (``fence.fenced`` is false) is shown what was stored: every method returns its input unchanged and reads
     nothing it was not asked to. A memory whose sources are all admitted is returned as the same object.
@@ -414,15 +464,23 @@ class SavedProvenanceReader:
         if not self.fenced:
             return list(raw)
         self.judge_links(raw)
-        return [link for link in raw if self.admits_link(link)]
+        shown = (self._shown(link, siblings=raw) for link in raw)
+        return [link for link in shown if link is not None]
 
     def judge_links(self, links: Iterable[Mapping[str, object]]) -> None:
-        """Look up the source of every link in one read, so ``admits_link`` does not read one at a time."""
+        """Look up the sources of ``links`` and of the other links of the same memories in one read, so
+        ``admits_link`` and ``shown_link`` do not read one at a time."""
 
-        if self.fenced:
-            self._judge(
-                source_id for link in links if (source_id := _canonical_source_id(link.get("source_id"))) is not None
-            )
+        if not self.fenced:
+            return
+        given = list(links)
+        self._load_links([str(link.get("target_id") or "") for link in given])
+        every = [*given]
+        for target_id in dict.fromkeys(str(link.get("target_id") or "") for link in given):
+            every.extend(self._links.get(target_id, []))
+        self._judge(
+            source_id for link in every if (source_id := _canonical_source_id(link.get("source_id"))) is not None
+        )
 
     def admits_link(self, link: Mapping[str, object]) -> bool:
         """True when the caller may be shown ``link``: its source exists and the fence admits it."""
@@ -434,6 +492,17 @@ class SavedProvenanceReader:
             return False
         self._judge([source_id])
         return self._admitted.get(source_id, False)
+
+    def shown_link(self, link: Mapping[str, object]) -> dict[str, object] | None:
+        """``link`` as the caller is shown it: ``None`` when it is left out (``admits_link`` is false), the link with
+        its ``quote`` withheld when a link of the same memory that is left out says the same text, the link itself
+        otherwise."""
+
+        if not self.fenced:
+            return link  # type: ignore[return-value]
+        target_id = str(link.get("target_id") or "")
+        self._load_links([target_id])
+        return self._shown(link, siblings=self._links.get(target_id, []))
 
     # -- memories and revisions ----------------------------------------------------------------------------------
 
@@ -479,6 +548,19 @@ class SavedProvenanceReader:
         return self._rebuild(payload)
 
     # -- internals -----------------------------------------------------------------------------------------------
+
+    def _shown(self, link: Mapping[str, object], *, siblings: Sequence[Mapping[str, object]]) -> dict[str, object] | None:
+        self._judge(
+            source_id for other in (link, *siblings) if (source_id := _canonical_source_id(other.get("source_id"))) is not None
+        )
+        if not self.admits_link(link):
+            return None
+        quote = _quote_text(link.get(_QUOTE_KEY))
+        if quote is not None and any(
+            _quote_text(other.get(_QUOTE_KEY)) == quote for other in siblings if not self.admits_link(other)
+        ):
+            return {**link, _QUOTE_KEY: None}
+        return link  # type: ignore[return-value]
 
     def _memory(self, row: Mapping[str, object]) -> dict[str, object]:
         memory_id = str(row.get("id") or "")
@@ -591,5 +673,6 @@ __all__ = [
     "resolve_attachable_memory_id",
     "resolve_attachable_source_id",
     "resolve_attachable_sources",
+    "source_ids_named_by_memory_audit",
     "source_uuids_in_ref",
 ]

@@ -23,7 +23,8 @@ import pytest
 from alicebot_api.vnext_agent_control import AgentIdentity
 from alicebot_api.vnext_memory_commit import VNextMemoryCommitService, _held_to_the_callers_read_fence
 from alicebot_api.vnext_retrieval import VNextRetrievalService
-from alicebot_api.vnext_source_fence import SavedProvenanceReader, SourceReadFence
+from alicebot_api.mcp import evidence_artifacts
+from alicebot_api.vnext_source_fence import SavedProvenanceReader, SourceReadFence, source_ids_named_by_memory_audit
 
 _ROOT = Path(__file__).resolve().parents[2]
 _SRC = _ROOT / "apps" / "api" / "src" / "alicebot_api"
@@ -255,8 +256,9 @@ def test_a_refused_source_is_withheld_with_every_copy_of_its_quote(kind: str) ->
 
 def test_one_refused_source_withholds_the_copies_but_keeps_the_link_of_a_readable_one() -> None:
     """A memory that cites two sources keeps the link, and the quote on it, of the one the caller may read, and loses the
-    link of the other. The metadata copies carry one quote for the memory and cannot say which source it came from, so
-    they are withheld as soon as any cited source is refused. A ref that names no source (a URL) stays.
+    link of the other, when the two quotes say different things. The metadata copies carry one quote for the memory and
+    cannot say which source it came from, so they are withheld as soon as any cited source is refused. A ref that names
+    no source (a URL) stays. (A link that says the same text as the refused one is the next test.)
 
     Mutation: build ``refused`` in ``_memory`` from the metadata copies only (drop the link ids from ``named``): the
     refused link no longer withholds the copies.
@@ -270,10 +272,136 @@ def test_one_refused_source_withholds_the_copies_but_keeps_the_link_of_a_readabl
     memory = _memory("m1", sources=[own])
     memory["metadata_json"]["source_refs"] = [own, "https://example.test/doc"]  # type: ignore[index]
     reader = _reader(store)
-    assert [(link["source_id"], link["quote"]) for link in reader.links("m1")] == [(own, "own quote")]
+    shown_links = reader.links("m1")
+    assert [(link["source_id"], link["quote"]) for link in shown_links] == [(own, "own quote")]
+    assert shown_links[0] is store.links[0], "an authorized link is the stored one"
     shown = reader.memory(memory)
     assert "provenance" not in shown["metadata_json"]  # type: ignore[operator]
     assert shown["metadata_json"]["source_refs"] == [own, "https://example.test/doc"]  # type: ignore[index]
+
+
+def test_a_link_that_says_the_same_text_as_a_refused_link_loses_its_quote_and_one_that_says_something_else_keeps_it() -> None:
+    """The commit route saves one ``conversation_excerpt`` as the quote of every link it makes, so a memory committed
+    with two sources, where the excerpt came from the first, has two links with the same text. When the caller may not
+    read the first source, the link to the second is still shown (its id and role) but without the quote, which can be
+    the refused source's bytes. The comparison ignores the whitespace between words. A link whose quote says something
+    else, as the link from a captured candidate to its own source does, keeps it, and so does a link when the refused
+    link has no quote or a blank one. The stored links are not changed.
+
+    Mutations, each alone, in ``SavedProvenanceReader._shown``: return ``link`` whenever it is admitted (the same text
+    stays); compare the quotes without ``_quote_text`` (``_quote_text`` returning ``str(value)``: the whitespace variant
+    stays); withhold the quote of every link when any sibling is refused (the independent quote is lost); drop the
+    ``quote is not None`` guard (a link with no quote is copied), or the blank test of ``_quote_text`` (``return
+    text``: a blank quote is withheld as if it were text).
+    """
+
+    store = _Store()
+    first, independent, blank, speaks, mute = (store.add_source() for _ in range(5))
+    refused, refused_blank, refused_mute, refused_mute_too = (
+        store.add_source(sensitivity="confidential") for _ in range(4)
+    )
+    store.add_link("m1", first, quote=_QUOTE)
+    store.add_link("m1", independent, quote="independent quote")
+    store.add_link("m1", refused, quote="  " + _QUOTE.replace(" ", "\n  ") + " ")
+    store.add_link("m2", blank, quote="   ")
+    store.add_link("m2", refused_blank, quote="   ")
+    store.add_link("m3", speaks, quote="a quote")
+    store.add_link("m3", refused_mute, quote=None)
+    store.add_link("m4", mute, quote=None)
+    store.add_link("m4", refused_mute_too, quote=None)
+    reader = _reader(store)
+    assert [(link["source_id"], link["quote"]) for link in reader.links("m1")] == [
+        (first, None),
+        (independent, "independent quote"),
+    ]
+    shown_first = reader.links("m1")[0]
+    assert shown_first["evidence_role"] == "supports" and shown_first["target_id"] == "m1"
+    assert store.links[0]["quote"] == _QUOTE, "the stored link is not changed by the read"
+    assert [(link["source_id"], link["quote"]) for link in reader.links("m2")] == [(blank, "   ")]
+    assert [(link["source_id"], link["quote"]) for link in reader.links("m3")] == [(speaks, "a quote")]
+    (still_mute,) = reader.links("m4")
+    assert still_mute is store.links[7], "a link with no quote is not copied for a sibling with no quote"
+
+
+def test_the_quote_of_every_link_of_a_memory_is_kept_while_every_source_is_readable() -> None:
+    """The control for the test above: when no link of a memory is left out, ``links`` and ``shown_link`` hand back the
+    stored links themselves, quote included, even when two of them say the same text, and a refused source of another
+    memory that says that text is not a sibling.
+
+    Mutations, each alone, in ``SavedProvenanceReader``: compare a quote with the admitted siblings as well (drop the
+    ``if not self.admits_link(other)`` filter of ``_shown``: every link equals itself and loses its quote); take every
+    link the reader has loaded as the siblings of a link (``siblings=[link for links in self._links.values() for link in
+    links]`` in ``shown_link``): the first memory loses its quote to the refused source of the second.
+    """
+
+    store = _Store()
+    first, second = store.add_source(), store.add_source()
+    refused = store.add_source(sensitivity="confidential")
+    store.add_link("m1", first, quote="shared quote")
+    store.add_link("m1", second, quote="second quote")
+    store.add_link("m2", first, quote="shared quote")
+    store.add_link("m2", refused, quote="shared quote")
+    store.add_link("m3", first, quote="twin quote")
+    store.add_link("m3", second, quote="twin quote")
+    reader = _reader(store)
+    assert reader.shown_link(store.links[3]) is None
+    assert reader.shown_link(store.links[2]) == {**store.links[2], "quote": None}
+    kept = reader.links("m1")
+    assert [(link["source_id"], link["quote"]) for link in kept] == [(first, "shared quote"), (second, "second quote")]
+    assert all(shown is stored for shown, stored in zip(kept, store.links[:2], strict=True))
+    assert reader.shown_link(store.links[0]) is store.links[0], "the refused source of m2 is not a sibling of m1's link"
+    twins = reader.links("m3")
+    assert all(shown is stored for shown, stored in zip(twins, store.links[4:], strict=True)) and len(twins) == 2
+
+
+def test_the_pack_reads_the_links_and_the_sources_of_every_memory_once_to_judge_the_quotes() -> None:
+    """``supporting_evidence`` asks about each link of each packed memory. After ``judge_links`` has been given the links
+    the pack read, ``shown_link`` costs no further read of the links or the sources, however many memories there are,
+    because the siblings of a link are loaded in the same two reads.
+
+    Mutation: make ``judge_links`` skip ``_load_links`` (or ``shown_link`` skip the cache and read the memory's links
+    each time): the counters read the number of memories.
+    """
+
+    store = _Store()
+    sources = [store.add_source(), store.add_source(sensitivity="confidential")]
+    for index in range(6):
+        for source in sources:
+            store.add_link(f"m{index}", source, quote=f"quote {index}")
+    reader = _reader(store)
+    reader.judge_links(store.links)
+    shown = [reader.shown_link(link) for link in store.links]
+    assert (store.link_reads, store.source_reads) == (1, 1)
+    assert [link is None for link in shown] == [False, True] * 6, "the link to the confidential source is left out"
+    assert all(link["quote"] is None for link in shown if link is not None), "the sibling of a refused link"
+
+
+def test_a_memory_with_no_link_is_judged_by_its_copies_and_a_row_scrubbed_first_shows_nothing_to_refuse() -> None:
+    """A commit held for review, or confirmed inline, then approved has no provenance link, so the sources it cited are
+    named only in the ref lists of its own copies (``agentic_memory.source_refs``, ``value.source_refs``). The reader
+    refuses on those, and withholds the excerpt. The same row after a scrub has dropped the refs (the context pack's
+    scope pass does this for a pack with a project scope) names no source, so the reader finds nothing to refuse and the
+    excerpt stays. That is why the pack asks the reader before the scrubs, which
+    ``test_the_pack_judges_the_memory_rows_before_any_scrub_of_their_references`` pins.
+
+    Mutation: drop ``| _source_ids_named_by_memory_copies(row)`` from ``named`` in ``SavedProvenanceReader._memory``: the
+    first assertion fails.
+    """
+
+    store = _Store()
+    refused = store.add_source(sensitivity="confidential")
+    memory = _memory("m1", sources=[refused])
+    del memory["metadata_json"]["provenance"]  # type: ignore[attr-defined]
+    del memory["metadata_json"]["replacement_provenance"]  # type: ignore[attr-defined]
+    assert not store.links, "the memory has no link"
+    shown = _reader(store).memory(memory)
+    assert "conversation_excerpt" not in shown["metadata_json"]["agentic_memory"]  # type: ignore[index]
+    assert refused not in str(shown) and "zinnwald" not in str(shown)
+    scrubbed = copy.deepcopy(memory)
+    scrubbed["metadata_json"]["source_refs"] = []  # type: ignore[index]
+    scrubbed["metadata_json"]["agentic_memory"]["source_refs"] = []  # type: ignore[index]
+    scrubbed["value"]["source_refs"] = []  # type: ignore[index]
+    assert _reader(store).memory(scrubbed) is scrubbed, "a row with no ref left shows the reader nothing to refuse"
 
 
 def test_the_same_source_is_asked_again_by_every_read() -> None:
@@ -457,6 +585,52 @@ def test_every_context_pack_call_names_its_fence_and_the_agent_facing_ones_pass_
     assert agent_facing == _AGENT_FACING_PACK_SITES
 
 
+def test_the_pack_judges_the_memory_rows_before_any_scrub_of_their_references() -> None:
+    """``compile_context_pack`` passes its ranked memory rows through the reader first, and feeds the result forward.
+    The scrubs that follow (``_sanitize_memory_scope_pointers``, ``_drop_hidden_memory_ids_from_metadata`` and
+    ``_sanitize_memory_scope_references``) remove refs from each row, and a memory with no provenance link names its
+    sources only there: judged after them, the row shows the reader nothing to refuse and keeps its quote, for every key
+    bound to a project (the scope pass runs only for a pack with a scope). This is the order pin for the behaviour that
+    ``test_the_copies_of_a_memory_with_no_link_follow_its_source_when_the_source_is_reclassified`` measures.
+
+    Mutation: move the ``ranked_memories = ... saved_provenance.memories(ranked_memories)`` statement below the
+    ``_sanitize_memory_scope_references`` call (or rename its target so the scrubs do not receive its result).
+    """
+
+    tree = ast.parse((_SRC / "vnext_retrieval.py").read_text(encoding="utf-8"))
+    pack = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef) and node.name == "compile_context_pack"
+    )
+    reads = [
+        node
+        for node in ast.walk(pack)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "memories"
+        and ast.unparse(node.func.value) == "saved_provenance"
+    ]
+    assert len(reads) == 1, "one judgement of the rows, and it is the first"
+    assignment = next(
+        node
+        for node in ast.walk(pack)
+        if isinstance(node, ast.Assign) and any(call is reads[0] for call in ast.walk(node.value))
+    )
+    assert [ast.unparse(target) for target in assignment.targets] == ["ranked_memories"]
+    assert ast.unparse(reads[0].args[0]) == "ranked_memories"
+    scrubs = {"_sanitize_memory_scope_pointers", "_sanitize_memory_scope_references", "_drop_hidden_memory_ids_from_metadata"}
+    scrub_calls = [
+        node
+        for node in ast.walk(pack)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr in scrubs
+    ]
+    assert {call.func.attr for call in scrub_calls} == scrubs  # type: ignore[attr-defined]
+    for call in scrub_calls:
+        assert call.lineno > assignment.lineno, ast.unparse(call.func)
+        assert ast.unparse(call.args[0]) == "ranked_memories", "the scrub receives the judged rows"
+
+
 # The public verbs of the commit service that return a memory row, and why each is held to the caller's read fence.
 _HELD_VERBS = ("commit", "confirm", "undo", "correct", "forget", "accept_consolidation_candidate", "expire", "unexpire")
 # Public methods that build a dict with a ``"memory"`` key and are not held, each with the reason.
@@ -606,3 +780,119 @@ def test_every_writer_of_a_saved_quote_is_on_the_list_a_reader_was_checked_again
         "unlisted writers": sorted(found - set(_QUOTE_WRITERS)),
         "listed but gone": sorted(set(_QUOTE_WRITERS) - found),
     }
+
+
+# -- 4. alice_explain and the sources a memory names without a link ---------------------------------------------
+
+
+def test_the_sources_a_memory_audit_names_are_read_from_the_memory_the_revisions_and_the_events() -> None:
+    """A memory audit (``VNextMemoryCommitService.audit``) holds the memory row, its revisions and its events, and each
+    keeps the refs of the sources the memory was written with: the memory in ``agentic_memory.source_refs``,
+    ``value.source_refs`` and the metadata, a revision in ``previous_value`` and ``new_value``, an event in the
+    ``changes`` of a ``memory.updated`` payload. The helper returns every id in every form the commit accepts, and
+    ignores a ref that is not a source id and a row that has none of the fields.
+
+    Mutations, each alone: drop the ``revisions`` loop, the ``events`` loop, or the ``changes`` branch of
+    ``source_ids_named_by_memory_audit``: the id of that place is missing from the set.
+    """
+
+    ids = [str(uuid4()) for _ in range(8)]
+    audit = {
+        "memory": {
+            "id": "m1",
+            "metadata_json": {"agentic_memory": {"source_refs": [ids[0], "https://example.test/doc"]}, "source_refs": [ids[1]]},
+            "value": {"source_refs": [f"source:{ids[2]}"]},
+        },
+        "revisions": [
+            {"revision_number": 1, "new_value": {"source_refs": [ids[3]]}, "previous_value": {"source_refs": [ids[4]]}},
+            {"revision_number": 2, "new_value": None, "previous_value": "text"},
+            "not a row",
+        ],
+        "events": [
+            {"payload_json": {"changes": {"metadata_json": {"agentic_memory": {"source_refs": [ids[5]]}}}}},
+            {"payload_json": {"metadata_json": {"source_refs": ["{" + ids[6] + "}"]}}},
+            {"payload_json": {"policy_decision": {"decision": "allowed"}}},
+            {"payload_json": None},
+            "not a row",
+        ],
+        "provenance_links": [{"source_id": ids[7]}],
+    }
+    assert source_ids_named_by_memory_audit(audit) == set(ids[:7]), "the links are authorized on their own"
+    assert source_ids_named_by_memory_audit({}) == set()
+    assert source_ids_named_by_memory_audit({"memory": None, "revisions": "x", "events": 3}) == set()
+
+
+class _ExplainStore:
+    def __init__(self, sources: dict[str, dict[str, object]]) -> None:
+        self.sources = sources
+        self.reads: list[str] = []
+
+    def get_source(self, source_id: str) -> dict[str, object] | None:
+        self.reads.append(source_id)
+        return self.sources.get(source_id)
+
+
+@pytest.fixture
+def authorized_ids(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Replace the policy call of explain with one that refuses a confidential source, and record each source it is asked
+    about. The policy itself is exercised by the lifecycle tests on a real vault."""
+
+    asked: list[str] = []
+
+    def authorize(
+        store: object, *, identity: object, resource: dict[str, object], project_scope: object, target_type: str, target_id: str
+    ) -> None:
+        asked.append(target_id)
+        assert target_type == "source"
+        if resource.get("sensitivity") == "confidential":
+            raise evidence_artifacts._ExplainAuthorizationError()
+
+    monkeypatch.setattr(evidence_artifacts, "_authorize_explain_resource", authorize)
+    return asked
+
+
+def test_explain_authorizes_a_source_named_only_by_a_copy_and_refuses_the_call_for_one_it_may_not_read(
+    authorized_ids: list[str],
+) -> None:
+    """A memory with no link names its sources only in its copies. For a key the audit authorizes each of them as it does
+    a linked source: a readable one passes, one above the key's ceiling refuses the call, and one that does not exist (a
+    deleted source, an id that was never a source) refuses it as a missing linked source does. A source that a link and a
+    copy both name is asked about once.
+
+    Mutations: remove the ``copied_source_ids`` loop of ``_authorize_memory_audit_provenance`` (the first two refusals
+    return an id set); iterate ``copied_source_ids`` and not ``copied_source_ids - authorized_source_ids`` (the shared
+    source is asked about twice).
+    """
+
+    readable, confidential, missing = str(uuid4()), str(uuid4()), str(uuid4())
+    store = _ExplainStore({readable: {"id": readable, "sensitivity": "internal"}, confidential: {"sensitivity": "confidential"}})
+    identity = _identity()
+    authorize = evidence_artifacts._authorize_memory_audit_provenance
+
+    assert authorize(store, identity=identity, provenance_links=[], copied_source_ids={readable}) == {readable}
+    for refused in (confidential, missing):
+        with pytest.raises(evidence_artifacts._ExplainAuthorizationError):
+            authorize(store, identity=identity, provenance_links=[], copied_source_ids={readable, refused})
+    authorized_ids.clear()
+    linked = authorize(
+        store, identity=identity, provenance_links=[{"source_id": readable}], copied_source_ids={readable}
+    )
+    assert linked == {readable} and authorized_ids == [readable], "one policy question for a source named twice"
+
+
+def test_explain_asks_nothing_about_copies_for_a_call_that_is_not_key_bound(authorized_ids: list[str]) -> None:
+    """A keyless call keeps its historical tolerance: nothing is read and nothing is refused, whatever the copies name.
+    The parameter is required and keyword-only, so a caller cannot leave the copies out by accident.
+
+    Mutation: remove the ``_is_key_bound_explain`` early return of ``_authorize_memory_audit_provenance``: the keyless
+    call reads the store and is refused for a source it may not read.
+    """
+
+    store = _ExplainStore({})
+    owner_like = AgentIdentity(agent_id="declared", permission_profile="read_only_agent")
+    authorize = evidence_artifacts._authorize_memory_audit_provenance
+    for identity in (None, owner_like):
+        assert authorize(store, identity=identity, provenance_links=[], copied_source_ids={str(uuid4())}) == set()
+    assert store.reads == [] and authorized_ids == []
+    parameter = inspect.signature(authorize).parameters["copied_source_ids"]
+    assert parameter.kind is inspect.Parameter.KEYWORD_ONLY and parameter.default is inspect.Parameter.empty
