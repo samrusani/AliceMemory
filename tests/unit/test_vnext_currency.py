@@ -47,6 +47,7 @@ from alicebot_api.vnext_memory_commit import VNextMemoryCommitService
 from alicebot_api.vnext_retrieval import VNextRetrievalRequest, VNextRetrievalService
 from alicebot_api import vnext_currency as vnext_currency_module
 from alicebot_api import vnext_retrieval as vnext_retrieval_module
+from alicebot_api.vnext_source_fence import SourceReadFence
 
 
 def _memory(
@@ -564,7 +565,8 @@ def test_compile_context_pack_renders_the_chain_block_and_trace() -> None:
     )
 
     pack = VNextRetrievalService(store).compile_context_pack(
-        VNextRetrievalRequest(query="bike-a-thon fundraiser")
+        VNextRetrievalRequest(query="bike-a-thon fundraiser"),
+        source_fence=SourceReadFence.unfenced()
     )
 
     memories = pack["relevant_memories"]
@@ -597,7 +599,8 @@ def test_compile_context_pack_discloses_ambiguous_skips_without_annotating() -> 
     )
 
     pack = VNextRetrievalService(store).compile_context_pack(
-        VNextRetrievalRequest(query="marathon fundraiser")
+        VNextRetrievalRequest(query="marathon fundraiser"),
+        source_fence=SourceReadFence.unfenced()
     )
 
     assert all(CURRENCY_ANNOTATION_KEY not in memory for memory in pack["relevant_memories"])
@@ -635,7 +638,8 @@ def test_dormant_pack_is_byte_identical_to_a_feature_stubbed_build(monkeypatch) 
         else:
             monkeypatch.undo()
         pack = service.compile_context_pack(
-            VNextRetrievalRequest(query="retriever fundraiser", trace_id="fixed-trace")
+            VNextRetrievalRequest(query="retriever fundraiser", trace_id="fixed-trace"),
+            source_fence=SourceReadFence.unfenced()
         )
         pack["context_pack_id"] = "fixed"  # uuid minted per call; not feature behavior
         return json.dumps(pack, sort_keys=True, default=str)
@@ -670,7 +674,8 @@ def test_minimal_depth_never_runs_the_chain_stage() -> None:
     )
 
     pack = VNextRetrievalService(store).compile_context_pack(
-        VNextRetrievalRequest(query="bike-a-thon fundraiser", context_depth="minimal")
+        VNextRetrievalRequest(query="bike-a-thon fundraiser", context_depth="minimal"),
+        source_fence=SourceReadFence.unfenced()
     )
 
     assert CURRENCY_STAGE not in pack["trace"]["stages"]
@@ -697,7 +702,8 @@ def test_pack_determinism_two_identical_compiles() -> None:
 
     def compile_snapshot() -> str:
         pack = service.compile_context_pack(
-            VNextRetrievalRequest(query="bike-a-thon fundraiser", trace_id="fixed-trace")
+            VNextRetrievalRequest(query="bike-a-thon fundraiser", trace_id="fixed-trace"),
+            source_fence=SourceReadFence.unfenced()
         )
         return json.dumps(
             {

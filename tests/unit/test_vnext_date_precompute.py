@@ -29,6 +29,7 @@ from alicebot_api.vnext_temporal_query import (
     iso_day_with_weekday,
     ordinal_position,
 )
+from alicebot_api.vnext_source_fence import SourceReadFence
 
 
 def _utc(*args: int) -> datetime:
@@ -317,7 +318,7 @@ def _compile(store: _PrecomputeStubStore, **overrides: object) -> dict[str, obje
         include_sources=True,
         **overrides,  # type: ignore[arg-type]
     )
-    return VNextRetrievalService(store).compile_context_pack(request)
+    return VNextRetrievalService(store).compile_context_pack(request, source_fence=SourceReadFence.unfenced())
 
 
 def test_pack_items_get_iso_event_time_stamps() -> None:

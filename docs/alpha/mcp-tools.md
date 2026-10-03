@@ -790,13 +790,44 @@ may not create a loop gets the same refusal whatever id it names) and before
 anything is written. The loop stores the id in canonical form. The owner, a call
 with no agent key, may name any live source and memory of the vault.
 
-Two limits. The test is the writer's own read fence, not the fence of whoever
-reads later: a source an `admin_agent` key could cite (a confidential source of
-its own project) stays citable, and the keys of that project with a lower
-ceiling then see its id in the context pack's `supporting_evidence`, in
-`alice_memory_review` by id and in `alice_open_loops`, and `alice_explain` of
-that memory fails for them. They are shown no text of the source. And a memory
-or open loop saved before the fix keeps the link or id it has.
+Two limits. The test at write time is the writer's own read fence, not the
+fence of whoever reads later: a source an `admin_agent` key could cite (a
+confidential source of its own project) stays citable, and the keys of that
+project with a lower ceiling then see its id in `alice_open_loops`, and
+`alice_explain` of that memory fails for them. They are shown no text of the
+source. The context pack and `alice_memory_review` by id ask the reader's own
+fence again (see [Saved quotes](#saved-quotes)). And a memory or open loop saved
+before the fix keeps the link or id it has.
+
+### Saved quotes
+
+Unreleased (on main, not in v0.20.0): a link from a memory to a source keeps the
+quote it was made with, and the memory keeps copies of that quote in its
+metadata (`metadata_json.provenance` from an edit-and-approve review,
+`replacement_provenance` from a supersede review, and
+`agentic_memory.conversation_excerpt` from the commit route). The source can be
+reclassified after that (its sensitivity raised, its domain changed, its project
+moved) or archived, so a reader asks the same test as above again, with the
+source as it is when the call is made and the caller's own permission. The
+readers are `alice_memory_review` by id, the context pack (`supporting_evidence`
+and, over HTTP and in the legacy tool, the metadata of the full memory rows) and
+the memory row that `alice_memory_manage` (`expire`, `unexpire`, `undo`,
+`forget`), `alice_memory_correct`, `alice_memory_commit` and the HTTP routes of
+the same verbs hand back. A link whose source is missing, archived or outside
+the caller's fence is left out whole, as a link that was never stored would be,
+and so is a link that names no source. When a memory has such a link, or its own
+copies name such a source, the three copies of the quote are removed from the
+row and the entries of its `source_refs` lists that name the source (in the
+metadata, in `agentic_memory` and in `value`, and in the `previous_value` and
+`new_value` of a revision) are dropped, so the id of the source goes with its
+quote. The memory is still returned, with its text. A caller that may read every
+cited source gets the stored row. The owner, a call with no agent key, is shown
+what was stored. In v0.20.0 every key below the new label, and for an archived
+source every key, kept receiving the quote. Not covered: the pack's `sources`
+section and `alice_recall` return the source's own excerpt through the source
+search, which does not apply the domain test for a key that names no domains; a
+memory that `alice_capture` derived from a source holds that text as its own;
+and `alice_open_loops` returns the id of a source an open loop names.
 
 ## Size bounds
 

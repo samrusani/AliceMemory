@@ -11,6 +11,7 @@ from alicebot_api.store import ContinuityStore
 from alicebot_api.vnext_embeddings import signed_memory_embedding_update
 from alicebot_api.vnext_retrieval import VNextRetrievalRequest, VNextRetrievalService
 from alicebot_api.vnext_store import PostgresVNextStore
+from alicebot_api.vnext_source_fence import SourceReadFence
 
 
 def _create_user(app_url: str, user_id) -> None:
@@ -92,7 +93,8 @@ def test_ambiguous_business_money_query_keeps_signed_professional_vector_candida
                 include_sources=False,
                 include_contradictions=False,
                 actor_type="system",
-            )
+            ),
+            source_fence=SourceReadFence.unfenced()
         )
         explicitly_personal = service.compile_context_pack(
             VNextRetrievalRequest(
@@ -102,7 +104,8 @@ def test_ambiguous_business_money_query_keeps_signed_professional_vector_candida
                 include_sources=False,
                 include_contradictions=False,
                 actor_type="system",
-            )
+            ),
+            source_fence=SourceReadFence.unfenced()
         )
 
     assert pack["query_interpretation"]["domains"] == []
@@ -355,7 +358,8 @@ def test_people_and_time_scope_precedes_source_chunk_title_and_loop_limits(
                 time_window="7d",
                 reference_time=window_end,
                 max_items=1,
-            )
+            ),
+            source_fence=SourceReadFence.unfenced()
         )
     assert [str(row["id"]) for row in pack["sources"]] == [target_source_id]
     assert [str(row["id"]) for row in pack["open_loops"]] == [target_loop_id]

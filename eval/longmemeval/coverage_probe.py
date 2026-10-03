@@ -97,6 +97,7 @@ from longmemeval.runner import (
     _cleanup_store,
     _sha256_prefix,
 )
+from alicebot_api.vnext_source_fence import SourceReadFence
 
 
 COVERAGE_SCHEMA = "longmemeval_coverage_v1"
@@ -305,7 +306,7 @@ def probe_question(
             actor_type="system",
         )
         retrieval_started = time.monotonic()
-        pack = service.compile_context_pack(request)
+        pack = service.compile_context_pack(request, source_fence=SourceReadFence.unfenced())
         retrieval_seconds = time.monotonic() - retrieval_started
         retrieved = retrieved_sessions_from_pack(pack, run.store)
         trace = pack.get("trace") if isinstance(pack.get("trace"), dict) else {}

@@ -46,6 +46,7 @@ from alicebot_api.vnext_retrieval import (
 )
 
 from tests.unit.test_vnext_retrieval import InMemoryVNextRetrievalStore, _memory_row
+from alicebot_api.vnext_source_fence import SourceReadFence
 
 USER_ID = "00000000-0000-0000-0000-000000000001"
 CUT_MARKER = "…"
@@ -74,7 +75,8 @@ def _compile(
             domains=("project",),
             max_tokens=max_tokens,
             budget_strategy=strategy,
-        )
+        ),
+        source_fence=SourceReadFence.unfenced()
     )
 
 
@@ -864,7 +866,8 @@ def _vault_pack(database: Path, query: str, max_tokens: int | None) -> dict[str,
     with sqlite_user_connection(database, USER_ID) as connection:
         store = SQLiteVNextStore(connection, USER_ID)
         return VNextRetrievalService(store).compile_context_pack(
-            VNextRetrievalRequest(query=query, max_tokens=max_tokens, max_items=8)
+            VNextRetrievalRequest(query=query, max_tokens=max_tokens, max_items=8),
+            source_fence=SourceReadFence.unfenced()
         )
 
 

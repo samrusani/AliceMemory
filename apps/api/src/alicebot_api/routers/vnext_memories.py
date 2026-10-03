@@ -84,7 +84,7 @@ from alicebot_api.vnext_memory_commit import (
     load_promotion_settings,
     memory_commit_request_from_payload,
 )
-from alicebot_api.vnext_source_fence import SourceRefNotFoundError
+from alicebot_api.vnext_source_fence import SavedProvenanceReader, SourceReadFence, SourceRefNotFoundError
 from alicebot_api.vnext_promotion_policy import PromotionCandidate
 from alicebot_api.vnext_project_update_guard import (
     PENDING_PROJECT_UPDATE_MEMORY_MUTATION_MESSAGE,
@@ -1263,6 +1263,9 @@ def review_vnext_memory(
             target_id=str(memory_id),
             payload={"action": action, "project_id": request.project_id},
         )
+        # The row this route hands back is held to the caller's read fence: a memory that cites an archived source (or
+        # one above the caller's ceiling) is not returned with the quote it saved.
+        updated = SavedProvenanceReader(store, fence=SourceReadFence.for_identity(identity)).memory(updated)
 
     _persist_vnext_deferred_embeddings(
         database_url=settings.database_url,

@@ -33,6 +33,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from alicebot_api.vnext_source_fence import SourceReadFence
 
 USER_ID = "00000000-0000-0000-0000-000000000001"
 
@@ -251,7 +252,8 @@ def _compile_pack_uncompacted(tmp_path: Path, raw_text: str, query: str) -> dict
             raw_text, title="Vault", domain="personal", sensitivity="private"
         )
         return VNextRetrievalService(store).compile_context_pack(
-            VNextRetrievalRequest(query=query)
+            VNextRetrievalRequest(query=query),
+            source_fence=SourceReadFence.unfenced()
         )
 
 

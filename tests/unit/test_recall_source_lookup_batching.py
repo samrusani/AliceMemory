@@ -31,6 +31,7 @@ from alicebot_api.vnext_retrieval import (
     annotate_derived_memory_corrections,
 )
 from alicebot_api.vnext_store import PostgresVNextStore
+from alicebot_api.vnext_source_fence import SourceReadFence
 
 USER_ID = "00000000-0000-0000-0000-000000000001"
 OTHER_USER_ID = "00000000-0000-0000-0000-000000000002"
@@ -845,7 +846,7 @@ def test_recall_and_pack_run_one_memory_lookup_for_all_packed_sources(tmp_path: 
         assert _lookups(statements) == 1, _lookups(statements)
 
         statements.clear()
-        pack = service.compile_context_pack(VNextRetrievalRequest(query="kettle shelf"))
+        pack = service.compile_context_pack(VNextRetrievalRequest(query="kettle shelf"), source_fence=SourceReadFence.unfenced())
         assert len(pack["sources"]) >= 8
         assert _lookups(statements) == 1, _lookups(statements)
 

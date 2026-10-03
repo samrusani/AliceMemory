@@ -313,7 +313,7 @@ def test_probe_request_uses_the_question_date_as_reference_time(
         def __init__(self, _store: object) -> None:
             pass
 
-        def compile_context_pack(self, request):
+        def compile_context_pack(self, request, **_kwargs):
             captured["request"] = request
             return {"relevant_memories": [], "trace": {"stages": {}}}
 

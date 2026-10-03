@@ -41,6 +41,7 @@ from alicebot_api.vnext_retrieval import (
 )
 from alicebot_api.vnext_retrieval import _stabilize_scored_rows  # tie-break internals under test
 from alicebot_api.vnext_temporal_query import TemporalAnchor
+from alicebot_api.vnext_source_fence import SourceReadFence
 
 
 USER_ID = "33333333-3333-4333-8333-333333333333"
@@ -323,7 +324,8 @@ def _compile_pack(db_path: Path) -> dict[str, object]:
         store = SQLiteVNextStore(conn, USER_ID)
         service = VNextRetrievalService(store)
         return service.compile_context_pack(
-            VNextRetrievalRequest(query=_QUERY, max_items=8, include_sources=True, actor_type="system")
+            VNextRetrievalRequest(query=_QUERY, max_items=8, include_sources=True, actor_type="system"),
+            source_fence=SourceReadFence.unfenced()
         )
 
 

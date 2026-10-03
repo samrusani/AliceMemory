@@ -16,6 +16,7 @@ from alicebot_api.db import user_connection
 from alicebot_api.store import ContinuityStore
 from alicebot_api.vnext_retrieval import VNextRetrievalRequest, VNextRetrievalService
 from alicebot_api.vnext_store import PostgresVNextStore
+from alicebot_api.vnext_source_fence import SourceReadFence
 
 QUESTION = "When does the Alice public announcement go out?"
 
@@ -55,7 +56,7 @@ def test_natural_language_question_falls_back_to_or_matching(migrated_database_u
 
         # End to end: the retrieval service retries with OR semantics and
         # the trace reports the relaxed pass honestly.
-        pack = VNextRetrievalService(store).compile_context_pack(VNextRetrievalRequest(query=QUESTION))
+        pack = VNextRetrievalService(store).compile_context_pack(VNextRetrievalRequest(query=QUESTION), source_fence=SourceReadFence.unfenced())
         assert [str(item["id"]) for item in pack["relevant_memories"]] == [str(memory["id"])]
         assert pack["trace"]["stages"]["fts"] == {
             "source": "postgres_fts_or_fallback",
@@ -64,7 +65,8 @@ def test_natural_language_question_falls_back_to_or_matching(migrated_database_u
 
         # A query the AND pass already satisfies never uses the fallback.
         pack = VNextRetrievalService(store).compile_context_pack(
-            VNextRetrievalRequest(query="Alice announcement")
+            VNextRetrievalRequest(query="Alice announcement"),
+            source_fence=SourceReadFence.unfenced()
         )
         assert [str(item["id"]) for item in pack["relevant_memories"]] == [str(memory["id"])]
         assert pack["trace"]["stages"]["fts"] == {"source": "postgres_fts", "candidate_count": 1}
