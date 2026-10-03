@@ -62,8 +62,8 @@ PostgreSQL + pgvector  |  SQLite
   `alice_memory_review`, `alice_memory_correct`, `alice_explain`, and
   `alice_memory_manage`.
 - `alice-memory` is the SQLite on-ramp. It serves MCP, and
-  `alice-memory install` writes the host MCP config and, for Claude Code and
-  Cursor, a session-start hook.
+  `alice-memory install` writes the host MCP config and a session-start hook
+  for Claude Code and Cursor, and for Codex when `--host codex` is passed.
 - HTTP and CLI adapters expose equivalent core workflows. Agent HTTP calls use
   per-agent API keys; key records are authoritative for identity and policy.
 - Remaining HTTP/CLI compatibility adapters are not part of the default product;
@@ -92,10 +92,12 @@ PostgreSQL + pgvector  |  SQLite
   embedding endpoint, retrieval degrades explicitly to full-text only and says
   so in its trace.
 - Retrieval runs, candidates, traces, public eval cases/results, and benchmark
-  receipts make quality claims inspectable. A historical 79.4% result is not a
-  substitute for repeated measurements on the current candidate. It also has a
-  known issue: the harness showed the reader model each session's id, and in
-  that dataset every evidence session id starts with `answer_`. See the README
+  receipts make quality claims inspectable. The LongMemEval_s receipt is 81.2%,
+  a mean of three runs on `v0.12.0` with the privileged `store_chunks` path. It
+  is not the product path and not a measurement of the current release. The
+  earlier single 79.4% run is retained as evidence. The receipt has a known
+  issue: the harness showed the reader model each session's id, and in that
+  dataset every evidence session id starts with `answer_`. See the README
   Benchmark section.
 
 ### Provider support
@@ -246,8 +248,8 @@ usage justifies a separately reviewed boundary.
   MCP and CLI registries, compatibility imports, and console entrypoints remain
   unchanged. Exact closure, SQL-shape, namespace, and installed-artifact tests
   enforce those boundaries.
-- `v0.12.0` shipped this structure. Its review record is the Phase 3
-  handoff's `REVIEW_REPORT.md`.
+- `v0.12.0` shipped this structure. Its review record is `REVIEW_REPORT.md` in
+  `docs/handoff/2026-07-18-v0.12.0-phase3-structural-refactor/`.
 - Changes made after any release tag were not part of that release's immutable
   artifacts. See the Published boundary above for what is current.
 - The default deployment is local-first and single-workspace. A future hosted

@@ -5,8 +5,8 @@
 - `v0.20.0` is the latest published release. Its immutable release record is
   `docs/release/v0.20.0-release-notes.md`, with artifact digests in
   `docs/release/v0.20.0-checksums.txt`. `v0.19.2` is the immediately prior
-  published release. (The `v0.13.0`, `v0.15.0` and `v0.19.1` tags were never
-  published.)
+  published release. (The `v0.9.3`, `v0.10.0`, `v0.13.0`, `v0.15.0` and
+  `v0.19.1` tags were never published.)
 - `v0.11.0` shipped the Phase 1 periphery cut; `v0.11.1` shipped the Phase 2
   debt sweep. Their records are unchanged.
 - `v0.12.0` shipped the Phase 3 structural refactor with **Structure only.
@@ -30,11 +30,11 @@
 ## Next
 
 Phases 1 to 5 shipped by `v0.14.0`. `v0.16.0` put the default loop on the
-wheel, and `v0.17.0` hardened install and the write paths. Next is host
-coverage and skill packs. From `v0.18.0`, OpenCode is an opt-in
-`alice-memory install` host, and from `v0.19.0` Codex is one too. The Claude
-Code plugin directory ships in `v0.19.0`. The skill pack revisions are in
-design.
+wheel, and `v0.17.0` hardened install and the write paths. From `v0.18.0`,
+OpenCode is an opt-in `alice-memory install` host, and from `v0.19.0` Codex is
+one too. The Claude Code plugin directory ships in `v0.19.0`. Host coverage is
+done, and the skill pack revisions are in design. Next is search quality: the
+next release is planned as a search-quality release, ahead of new features.
 
 Of the former roadmap list, benchmark replication, multi-session synthesis
 measurement, reference integrations, SQLite vector scale, and the enterprise

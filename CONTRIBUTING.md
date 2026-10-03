@@ -27,12 +27,17 @@ make test-web
 git diff --check
 ```
 
-`make test-python` retains the aggregate coverage floor and enforces a ratcheted
-per-file floor for the production FastAPI module. `make test-longmemeval` is
-model-free and validates the checked-in compact dataset manifest even when the
-ignored 277 MB benchmark dataset is absent. `make test-web` includes unit,
-per-file coverage, type, lint, production build, bundle-budget, real-browser,
-and accessibility checks.
+`make test-python` retains the aggregate coverage floor (`--cov-fail-under=50`)
+and enforces a ratcheted 45 percent floor on the combined statements of
+`main.py` and 13 router modules (`make check-python-coverage`).
+`make test-longmemeval` is model-free and validates the checked-in compact
+dataset manifest even when the ignored 277 MB benchmark dataset is absent.
+`make test-web` includes unit, per-file coverage, type, lint, production build,
+bundle-budget, real-browser, and accessibility checks.
+
+`make test-web` needs Node 22.22.2, which CI runs. The web test toolchain
+(jsdom 30 and jest-dom 7) declares `^22.22.2 || ^24.15.0 || >=26`. Running the
+stack needs Node 20 or later, as in the README.
 
 Changes that advertise Python 3.13 or 3.14 compatibility must also pass the
 representative SQLite/config/MCP functional selection under those interpreters;

@@ -12,11 +12,17 @@ working tree, or the historical scan does not transfer automatically to a
 later tree.
 
 The owner has accepted Phase 5.1.c at the claim bar "automated security
-scanning under OpenAI Trusted Access on the repository, plus internal
-adversarial review." This closes the owner disposition at that stated bar; it
-does not assert that an external review occurred, that the carrier was
-independently audited, or that the open proof gaps below disappeared. Stage B
-history is retained to make that distinction auditable.
+scanning and internal adversarial review, findings triaged and fixed." This
+closes the owner disposition at that stated bar; it does not assert that an
+external review occurred, that the carrier was independently audited, or that
+the open proof gaps below disappeared. Stage B history is retained to make that
+distinction auditable.
+
+> **Correction (2026-10-04):** the sentences above that say a receipt is
+> superseded and the repaired carrier needs fresh evidence describe 2026-07-22.
+> v0.14.0 was published on 2026-07-24 after the owner recorded the real-host
+> receipt (29 of 29 checks), so the release no longer waits on fresh Stage A
+> receipts. The public security claim is: automated security scanning and internal adversarial review, findings triaged and fixed. No one outside the project has audited the code.
 
 ## Surface Closure
 
@@ -44,6 +50,14 @@ count may be updated merely to make a gate pass.
 | Secrets/errors | Agent-key hash verifier, provider secret references, recursive key/value redaction, sanitized provider errors, stable public-error vocabulary and AST manifest. Raw-agent-key log and provider-key non-echo sentinels passed on the superseded carrier. | Re-run on the repaired carrier and release commit; redaction pre-read still leaves transient plaintext in RAM. |
 | Dependencies | Exact web package versions and lockfile; production/full npm bulk audits; Dependabot; CodeQL; Gitleaks; SHA-pinned Actions. | No fail-closed Python advisory audit or fully locked Python application graph. |
 | Configuration | Production config checks, explicit CORS, loopback defaults, security headers. | `get_settings()` is first-caller-wins per process; document for embedders. |
+
+Corrected 2026-10-04: the "Directory importers have an outside-root symlink and
+archive/parse TOCTOU gap" entry in the Input/injection row and the section
+"Deferred Finding: Directory Import Source Integrity" are kept as recorded for
+the 5.1 carrier. v0.15.2 fixed the symlink escape and the archive/parse
+mismatch. Two residuals remain, a hard link and a folder on the path swapped for
+a symlink between the listing and the read, and
+[input validation](input-validation.md) describes them.
 
 ## Reproduction Commands
 
@@ -119,6 +133,10 @@ Stage A is ready to hand to the owner only when the final-carrier commands and
 full release matrix pass without security-relevant skips, target operation
 counts are reproduced, the browser-clipper negative tests pass for both stores,
 and every remaining gap is explicitly retained. The owner has recorded the
-Stage B disposition at the Trusted Access automated-scan plus internal
-adversarial-review bar. Phase 5 still requires green committed-SHA CI and the
-5.4 real-host receipt; these documents grant neither.
+Stage B disposition at the automated-scan plus internal adversarial-review bar.
+Phase 5 still requires green committed-SHA CI and the 5.4 real-host receipt;
+these documents grant neither.
+
+> **Correction (2026-10-04):** the last sentence above describes 2026-07-22.
+> v0.14.0 was published on 2026-07-24 after the owner recorded the real-host
+> receipt (29 of 29 checks), so neither gate is open for that release.

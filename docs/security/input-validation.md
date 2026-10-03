@@ -33,7 +33,7 @@ future dynamic SQL is safe by construction.
   FTS syntax. Unit tests exercise quotes, operators, punctuation, and FTS5
   metacharacters for memory and source-chunk search.
 
-SQLite adversarial FTS coverage is currently broader. Stage B should include
+SQLite adversarial FTS coverage is currently broader. A future external review should include
 hostile PostgreSQL strings across strict, match-any, source, and scoped paths,
 including empty/stop-word-only inputs and Unicode boundary cases.
 

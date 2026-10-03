@@ -5,8 +5,7 @@
 Phase 5.1.c is owner-owned. Its original Stage B plan contemplated an external
 reviewer, and the scope below is retained as historical provenance. The owner's
 authoritative disposition now accepts Phase 5.1.c at the claim bar "automated
-security scanning under OpenAI Trusted Access on the repository, plus internal
-adversarial review."
+security scanning and internal adversarial review, findings triaged and fixed."
 
 Current status: **owner disposition accepted at that claim bar**. No external
 auditor is required, no external audit occurred, and no exact-review-commit
@@ -14,6 +13,10 @@ receipt from an external reviewer exists. Stage A and Stage B evidence must not
 be described as an independent audit, security certification, clean bill of
 health, or proof that every documented gap is closed. The 5.4 real-host receipt
 and green committed-SHA CI remain separate release gates.
+
+> **Correction (2026-10-04):** the last sentence above describes 2026-07-22.
+> v0.14.0 was published on 2026-07-24 after the owner recorded the real-host
+> receipt (29 of 29 checks), so neither gate is open for that release. The public security claim is: automated security scanning and internal adversarial review, findings triaged and fixed. No one outside the project has audited the code.
 
 ## Retained Stage B Review Target
 
@@ -65,7 +68,9 @@ configuration they actually assessed.
 Any future reviewer should explicitly revisit the deferred directory-import
 symlink/TOCTOU issue, Python dependency-audit gap, settings cache footgun,
 redaction RAM lifetime, and the historical scan's unresolved availability and
-provider-network hypotheses.
+provider-network hypotheses. (Corrected 2026-10-04: v0.15.2 fixed the symlink
+escape and the archive/parse mismatch; the two residuals are in
+[input validation](input-validation.md).)
 
 ## Optional Future External-Review Deliverables
 

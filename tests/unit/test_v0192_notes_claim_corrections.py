@@ -279,7 +279,7 @@ def test_the_retired_v0191_number_is_explained_and_recorded() -> None:
 
     for name in ("CURRENT_STATE.md", ".ai/handoff/CURRENT_STATE.md"):
         state = _flat(name)
-        assert "Three tags exist that were never published: `v0.13.0`, superseded by `v0.13.1`; `v0.15.0`; and `v0.19.1`, superseded by `v0.19.2`." in state, name
+        assert "Five tags exist that were never published: `v0.9.3`, a withdrawn security candidate; `v0.10.0`, which failed its release gate; `v0.13.0`, superseded by `v0.13.1`; `v0.15.0`; and `v0.19.1`, superseded by `v0.19.2`." in state, name
         assert "None has a PyPI artifact or a published GitHub Release." in state, name
         assert (
             "and `v0.19.1`, whose publish run failed at the draft readback because a release script "

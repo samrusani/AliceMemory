@@ -29,11 +29,6 @@ The release PR bumps `pyproject.toml`, `apps/web/package.json`,
 `packaging/mcpb/manifest.json`, and the plugin (version and both pins) to
 that same version.
 
-For the first release that ships the plugin, the release PR's README wording
-says it is available from the marketplace once the release is published. The
-post-publication PR changes that wording to say it installs from the
-marketplace.
-
 The post-publication PR adds `.claude-plugin/marketplace.json` at the
 repository root, or, when the file exists, moves its plugin entry's `ref` and
 `sha` to the new tag. The file has `name` `alicememory`, `owner` with `name`
@@ -59,7 +54,7 @@ readback:
    the protected-path guardrail — so no release commit reaches `main` without
    passing them. This is a single-maintainer repository: the maintainer merges
    release pull requests by administrative merge after those checks pass, which
-   is the audited release route. The controls below gate *what publishes*, not
+   is the release route. The controls below gate *what publishes*, not
    *who approves the merge*. Keep `main` branch protection enabled as well.
    Before every release, run the read-only ruleset drift check so a renamed CI
    job cannot silently remove a current release-critical context. Additional
@@ -70,10 +65,11 @@ readback:
      --repo OWNER/REPOSITORY --sha RELEASE_SHA --check-rulesets
    ```
 
-   The required check named `Unit tests + live eval battery (SQLite)` is the
-   summary job of the unit tests in `tests.yml`. The unit tests run as three
-   shard jobs, the model-free eval battery runs in its own job, and a coverage
-   job combines the shard data and enforces the coverage threshold. The summary
+   Unreleased (on main, not in v0.20.0): The required check named
+   `Unit tests + live eval battery (SQLite)` is the summary job of the unit
+   tests in `tests.yml`. The unit tests run as three shard jobs, the model-free
+   eval battery runs in its own job, and a coverage job combines the shard data
+   and enforces the coverage threshold. The summary
    needs all of them, runs whatever they did, and fails unless each one
    succeeded. Keep its name and its `if: always()`, and do not require the shard
    jobs one by one: a skipped required check counts as passing, and the shard
