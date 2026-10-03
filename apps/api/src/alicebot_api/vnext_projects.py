@@ -250,12 +250,18 @@ def _text(row: JsonObject) -> str:
     return str(row.get("id", "item"))
 
 
-def _title(row: JsonObject) -> str:
+def _title(row: JsonObject, *, fallback: str | None = None) -> str:
+    """The row's title, name or text, or ``fallback`` when it has none, or else its id.
+
+    A caller that writes the result into text a reader is shown passes a ``fallback``, so that the id of a row its
+    reader may not read does not end up in that text.
+    """
+
     for key in ("title", "name", "canonical_text"):
         value = row.get(key)
         if isinstance(value, str) and value.strip():
             return " ".join(value.split())
-    return str(row.get("id", "item"))
+    return fallback if fallback is not None else str(row.get("id", "item"))
 
 
 def _slug(value: str) -> str:
@@ -433,6 +439,10 @@ def _open_loop_candidates(source: JsonObject) -> list[JsonObject]:
         ("research_gap", re.compile(r"^\s*research\s*:?\s*(.+)$", re.IGNORECASE)),
         ("project_blocker", re.compile(r"^\s*block(?:ed|er)?\s*:?\s*(.+)$", re.IGNORECASE)),
     )
+    # The id of the source is not written into the text: the loop's own columns carry it, and a reader that may not
+    # read the source must not find it in the description of a loop it may read.
+    source_title = _title(source, fallback="")
+    source_label = f"source {source_title}" if source_title else "a source with no title"
     for line in _text(source).splitlines():
         for loop_type, pattern in patterns:
             match = pattern.match(line)
@@ -446,7 +456,7 @@ def _open_loop_candidates(source: JsonObject) -> list[JsonObject]:
             candidates.append(
                 {
                     "title": title[:240],
-                    "description": f"Candidate {loop_type} discovered from source {_title(source)}.",
+                    "description": f"Candidate {loop_type} discovered from {source_label}.",
                     "priority": "high" if loop_type == "project_blocker" else "normal",
                     "source_id": source.get("id"),
                     "domain": source.get("domain", "unknown"),

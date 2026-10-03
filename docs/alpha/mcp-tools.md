@@ -820,13 +820,19 @@ of one response, so a list, a review or a context pack never shows an id in one
 loop that it withholds in another. An id under another key that names no row and
 is linked nowhere in the response is kept, because it may be a trace id, and so
 is the id of a row that was removed outright and that nothing in the response
-links. An id is read whole or inside longer text, in upper or lower case, with
-its hyphens in the standard places, in other places or nowhere, in braces, and
-after `urn:uuid:`, `uuid:`, `source:` or `memory:`. A run of 32 hex digits is an
-id only when no hex digit stands next to it, so a git sha or a 64-digit digest
-is returned whole. An id that is split or otherwise encoded is not
-recognised. The free-text columns of a loop (`title`, `description`,
-`resolution_note`) are returned as stored and are not scanned.
+links. An id is read whole or inside longer text, in upper or lower case,
+hyphenated or as 32 hex digits in a row, in braces, and after `urn:uuid:`,
+`uuid:`, `source:` or `memory:`. Inside longer text the hyphenated layout is read
+wherever it stands. A run of 32 hex digits is an id only when no hex digit stands
+next to it, so a git sha or a 64-digit digest is returned whole, and so is an id
+the reader may read that has a hyphen and more hex digits after it. A value that
+is only an id is read the way the link writer reads it, which also takes hyphens
+in other places. Inside longer text an id with its hyphens in other places, a
+split id and an encoded id are not recognised. The free-text columns of a loop
+(`title`, `description`, `resolution_note`) are returned as stored and are not
+scanned. The extractor of candidate loops no longer writes the id of a source
+with no title into the `description` (it says the source has no title), and a
+loop saved before keeps the text it holds.
 
 Two limits. The test at write time is the writer's own read fence, not the
 fence of whoever reads later: a source an `admin_agent` key could cite (a

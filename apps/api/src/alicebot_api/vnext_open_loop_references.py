@@ -22,12 +22,14 @@ nothing is: a reference to a source that is protected, deleted, missing or not a
   withholds the same id from a reference position (see below). Any other id there is kept, because an id under an
   unknown key may be a run id or a trace id, which names no stored row and is not a reference. A string that is only
   an id is removed with its key or list slot, and an id inside longer text is replaced by ``(id withheld)``.
-* An id is read in every spelling the link writer reads, whole or inside longer text: lower or upper case, with its
-  hyphens in the standard places, in other places or nowhere, in braces, and after ``urn:uuid:``, ``uuid:``,
-  ``source:`` or ``memory:``. It is compared in canonical form. The standard hyphenated spelling is read wherever it
-  stands. Any other run of 32 hex digits (with no hyphen, or with hyphens in other places) is an id only when no hex
-  digit stands next to it, so a 40-digit git sha or a 64-digit digest is never cut into an id. Inside longer text only
-  ASCII hex digits are read, and an id that is split or otherwise encoded is not an id to this scan.
+* An id is read in every spelling the link writer reads, whole or inside longer text: lower or upper case, hyphenated
+  or as 32 hex digits with no hyphen, in braces, and after ``urn:uuid:``, ``uuid:``, ``source:`` or ``memory:``. It is
+  compared in canonical form. Inside longer text the hyphenated spelling (groups of 8, 4, 4, 4 and 12 digits) is read
+  wherever it stands, and 32 hex digits in a row are an id only when no hex digit stands next to them, so a 40-digit
+  git sha or a 64-digit digest is never cut into an id, and neither is the id of a row the reader may read when hex
+  digits follow it after a hyphen (``<id>-20261003``). A string that is only an id is read as the link writer reads it
+  (``UUID()``, which also ignores hyphens in other places). Inside longer text only ASCII hex digits in those two
+  layouts are read, and an id with its hyphens in other places, split or otherwise encoded is not an id to this scan.
   A column value that is no id in any of those spellings is withheld as a missing one is. What is shown is the stored
   value, untouched.
 * The withheld ids are collected for the whole call, over every row it returns (one loop, a list, or every loop of a
@@ -41,6 +43,9 @@ nothing is: a reference to a source that is protected, deleted, missing or not a
   reference position of the response names it. The one case left is a row that was removed outright (or an id that
   never named a row) and that no reference position of the response links: under an unknown key it cannot be told
   from a trace id and is kept.
+* The free-text columns of a loop (``title``, ``description``, ``resolution_note``) are returned as stored and are not
+  scanned, so an id a writer put there is shown. The extractor of candidate loops used to write the id of a source
+  with no title into the ``description`` and no longer does.
 
 ``fence`` is a required keyword-only argument of every function here, with no default. ``SourceReadFence.unfenced()``
 is the owner's fence, written at the call site: it admits any live row and refuses a deleted one, so a loop that
@@ -85,9 +90,12 @@ _METADATA_MAX_DEPTH = 64
 # it and leave the rest unrecognised. Group 1 is the id.
 # The standard hyphenated spelling is read wherever it stands, as it always was.
 _HYPHENATED_ID = re.compile(r"(?=([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}))")
-# 32 hex digits with hyphens nowhere or anywhere between them (``UUID()`` reads all of those). No hex digit may stand
-# next to the window, so a sha or a digest is not cut. A hyphen next to it is not a hex digit.
-_BARE_ID = re.compile(r"(?<![0-9a-fA-F])(?=([0-9a-fA-F](?:-*[0-9a-fA-F]){31})(?![0-9a-fA-F]))")
+# 32 hex digits in a row. No hex digit may stand next to the run, so a sha or a digest is not cut, and a hyphen next to
+# it is not a hex digit. Hyphens between the digits are not read here (a whole string that is only an id is read by
+# ``_canonical_id``): a pattern that let hyphens stand anywhere among the 32 digits found windows that start inside a
+# hyphenated id and run into the hex digits after it, and under a reference key every such window that names no
+# admitted row was cut out of an id the reader may read.
+_BARE_ID = re.compile(r"(?<![0-9a-fA-F])(?=([0-9a-fA-F]{32})(?![0-9a-fA-F]))")
 _DROPPED = object()
 
 
@@ -119,15 +127,17 @@ def withhold_unreadable_references(
         if memory is not None:
             memory_ids.add(memory)
             referenced.add(memory)
-        _collect_ids(row.get("metadata_json"), metadata_ids, referenced, strict=False, depth=0)
+        _collect_ids(row.get("metadata_json"), metadata_ids, referenced, at_reference=False, depth=0)
     source_rows = _rows_by_id(store, sorted(source_ids | metadata_ids), bulk="get_sources_by_ids", single="get_source")
     memory_rows = _rows_by_id(store, sorted(memory_ids | metadata_ids), bulk="get_memories_by_ids", single="get_memory")
     admitted_sources = frozenset(key for key, row in source_rows.items() if fence.admits(row))
     admitted_memories = frozenset(key for key, row in memory_rows.items() if fence.admits_memory(row))
     refused = (set(source_rows) - admitted_sources) | (set(memory_rows) - admitted_memories)
-    admitted = admitted_sources | admitted_memories
-    # An id the response withholds from a reference position is withheld everywhere in it, whatever the lookup found.
-    withheld = frozenset(refused | (referenced - admitted))
+    # Every id of a row the fence refuses, and every id at a reference position that names no admitted row (a refused,
+    # a deleted, a removed or a missing one), is withheld at every position of every row of the response, in every
+    # spelling. This is the one set the text scan uses: a position under a reference key needs no test of its own,
+    # because an id there that is not admitted is in it already.
+    withheld = frozenset(refused | (referenced - admitted_sources - admitted_memories))
     for row in rows:
         if row.get("source_id") is not None and _canonical_id(row["source_id"]) not in admitted_sources:
             row["source_id"] = None
@@ -135,7 +145,7 @@ def withhold_unreadable_references(
             row["memory_id"] = None
         metadata = row.get("metadata_json")
         if isinstance(metadata, Mapping):
-            scrubbed = _scrub(metadata, strict=False, depth=0, admitted=admitted, withheld=withheld)
+            scrubbed = _scrub(metadata, depth=0, withheld=withheld)
             if scrubbed is _DROPPED:
                 scrubbed = {}
             if scrubbed != metadata:
@@ -210,7 +220,7 @@ def _ids_in_text(text: str) -> set[str]:
     return found
 
 
-def _collect_ids(value: object, found: set[str], referenced: set[str], *, strict: bool, depth: int) -> None:
+def _collect_ids(value: object, found: set[str], referenced: set[str], *, at_reference: bool, depth: int) -> None:
     """Add the id of every string and key in ``value`` to ``found``, canonical, and to ``referenced`` those that stand
     in a reference position (under a key that names a reference, at any depth). Below the depth limit nothing is read.
     """
@@ -220,20 +230,20 @@ def _collect_ids(value: object, found: set[str], referenced: set[str], *, strict
     if isinstance(value, str):
         ids = _ids_in_text(value)
         found.update(ids)
-        if strict:
+        if at_reference:
             referenced.update(ids)
     elif isinstance(value, Mapping):
         for key, nested in value.items():
             if isinstance(key, str):
                 ids = _ids_in_text(key)
                 found.update(ids)
-                if strict:
+                if at_reference:
                     referenced.update(ids)
             names_reference = isinstance(key, str) and key.lower() in _REFERENCE_KEYS
-            _collect_ids(nested, found, referenced, strict=strict or names_reference, depth=depth + 1)
+            _collect_ids(nested, found, referenced, at_reference=at_reference or names_reference, depth=depth + 1)
     elif isinstance(value, Sequence) and not isinstance(value, (bytes, bytearray)):
         for nested in value:
-            _collect_ids(nested, found, referenced, strict=strict, depth=depth + 1)
+            _collect_ids(nested, found, referenced, at_reference=at_reference, depth=depth + 1)
 
 
 def _reads_deleted_rows(read: Callable[..., object]) -> bool:
@@ -272,20 +282,15 @@ def _rows_by_id(
     return found
 
 
-def _scrub_text(text: str, *, strict: bool, admitted: frozenset[str], withheld: frozenset[str]) -> object:
-    """``text`` without the ids to withhold, or ``_DROPPED`` when the text is only such an id.
-
-    ``strict`` is set under a key that names a reference: an id there that names no admitted row is withheld, so a
-    protected, a deleted and a missing id read alike. Elsewhere only an id in ``withheld`` goes: one that names a
-    refused row, or that the response withholds from a reference position.
-    """
+def _scrub_text(text: str, *, withheld: frozenset[str]) -> object:
+    """``text`` without the ids in ``withheld``, or ``_DROPPED`` when the text is only such an id."""
 
     windows = _id_windows(text)
     whole = _canonical_id(text)
     found = {canonical for _start, _end, canonical in windows}
     if whole is not None:
         found.add(whole)
-    bad = {found_id for found_id in found if found_id not in admitted} if strict else found & withheld
+    bad = found & withheld
     if not bad:
         return text
     if whole in bad:
@@ -307,27 +312,26 @@ def _scrub_text(text: str, *, strict: bool, admitted: frozenset[str], withheld: 
     return "".join(pieces)
 
 
-def _scrub(value: object, *, strict: bool, depth: int, admitted: frozenset[str], withheld: frozenset[str]) -> object:
+def _scrub(value: object, *, depth: int, withheld: frozenset[str]) -> object:
     if depth > _METADATA_MAX_DEPTH:
         return _DROPPED
     if isinstance(value, str):
-        return _scrub_text(value, strict=strict, admitted=admitted, withheld=withheld)
+        return _scrub_text(value, withheld=withheld)
     if isinstance(value, Mapping):
         output: dict[object, object] = {}
         for key, nested in value.items():
             new_key: object = key
             if isinstance(key, str):
-                new_key = _scrub_text(key, strict=strict, admitted=admitted, withheld=withheld)
+                new_key = _scrub_text(key, withheld=withheld)
                 if new_key is _DROPPED:
                     continue
-            names_reference = isinstance(key, str) and key.lower() in _REFERENCE_KEYS
-            new_value = _scrub(nested, strict=strict or names_reference, depth=depth + 1, admitted=admitted, withheld=withheld)
+            new_value = _scrub(nested, depth=depth + 1, withheld=withheld)
             if new_value is _DROPPED:
                 continue
             output[new_key] = new_value
         return output
     if isinstance(value, Sequence) and not isinstance(value, (bytes, bytearray)):
-        items = (_scrub(nested, strict=strict, depth=depth + 1, admitted=admitted, withheld=withheld) for nested in value)
+        items = (_scrub(nested, depth=depth + 1, withheld=withheld) for nested in value)
         return [item for item in items if item is not _DROPPED]
     return value
 

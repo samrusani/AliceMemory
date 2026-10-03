@@ -14,8 +14,11 @@ Now an id is read in every spelling the link writer reads, whole or inside longe
 (section 1). The lookup reads deleted sources and memories too, so a deleted row is refused and not unknown, and the
 ids the response withholds from a reference position are withheld from every other position of every row of that
 response (sections 2 and 3). Section 4 holds what must not change: readable ids, trace ids, shas and digests. Section
-5 pins the store reads, section 6 runs every surface over a real SQLite vault with real agent keys, and the last
-section pins the words.
+4b holds what the second outside review found in the first version of this change: a readable id that has a hyphen and
+more hex digits after it was cut under a reference key, because a window that reads 32 digits with hyphens anywhere
+among them starts inside the id and runs on into the digits after it. Inside text only the hyphenated layout and a run
+of 32 digits are read, and a string that is only an id is read as the link writer reads it. Section 5 pins the store
+reads, section 6 runs every surface over a real SQLite vault with real agent keys, and the last section pins the words.
 
 Each test names the mutation that must fail it. The mutations were made by hand in a scratch edit and the file was
 restored by copying the saved copy back.
@@ -25,6 +28,7 @@ from __future__ import annotations
 
 import inspect
 import json
+import random
 import re
 from types import SimpleNamespace
 from uuid import UUID, uuid4
@@ -65,20 +69,21 @@ _DELETED = "2026-01-01T00:00:00Z"
 
 
 def _odd(compact: str) -> str:
-    """The 32 digits with hyphens in groups of four, a place ``UUID()`` reads and the standard layout does not use."""
+    """The 32 digits with hyphens in groups of four, a place ``UUID()`` reads and the standard layout does not use.
+    A string that is only such an id is an id to the link writer, so it is read whole. Inside longer text it is not
+    read (section 4b)."""
 
     return "-".join(compact[start : start + 4] for start in range(0, 32, 4))
 
 
 # name, text before the id, shape of the 32 digits, upper case, text after the id. Every one is read by the link
-# writer (``UUID()``, with the ``source:`` and ``memory:`` prefixes removed first) and by ``_canonical_id``.
+# writer (``UUID()``, with the ``source:`` and ``memory:`` prefixes removed first) and by ``_canonical_id``, and each is
+# found inside longer text as well. The spelling with hyphens in other places is read as a whole string only (4b).
 _SPELLINGS = (
     ("hyphen_lower", "", "hyphen", False, ""),
     ("hyphen_upper", "", "hyphen", True, ""),
     ("compact_lower", "", "compact", False, ""),
     ("compact_upper", "", "compact", True, ""),
-    ("odd_hyphens", "", "odd", False, ""),
-    ("odd_hyphens_upper", "", "odd", True, ""),
     ("braces", "{", "hyphen", False, "}"),
     ("braces_compact", "{", "compact", False, "}"),
     ("urn_uuid", "urn:uuid:", "hyphen", False, ""),
@@ -98,7 +103,7 @@ def _parts(identifier: str, name: str) -> tuple[str, str, str]:
 
     _name, before, shape, upper, after = next(spelling for spelling in _SPELLINGS if spelling[0] == name)
     compact = identifier.replace("-", "")
-    core = {"hyphen": identifier, "compact": compact, "odd": _odd(compact)}[shape]
+    core = {"hyphen": identifier, "compact": compact}[shape]
     return before, core.upper() if upper else core, after
 
 
@@ -226,12 +231,12 @@ def test_a_withheld_id_is_withheld_in_every_spelling_at_every_position_when_the_
     kind: str, state: str, spelling: str
 ) -> None:
     """The id of a source or memory the reader may not read (another project's row, a deleted row, an archived or a
-    redacted memory) is gone from a loop in all fifteen spellings. The loop names it under a reference key and under
+    redacted memory) is gone from a loop in all thirteen spellings. The loop names it under a reference key and under
     keys that name no reference, as a whole value, in a URL, in a sentence, in a list and as a key. A whole-string id is
     removed with its key or slot and an id inside text is replaced by ``(id withheld)``, with the text around it kept.
 
-    On main a spelling without hyphens or with its hyphens in other places survived inside a URL or a sentence, under
-    a reference key too. Mutations: scan text for the hyphenated spelling only (the compact and odd-hyphen rows fail),
+    On main a spelling without hyphens survived inside a URL or a sentence, under a reference key too. Mutations: scan
+    text for the hyphenated spelling only (the compact rows fail),
     or leave a state out of the lookup (the row's id is then read as a missing one).
     """
 
@@ -321,9 +326,10 @@ def test_a_row_that_is_gone_and_linked_nowhere_is_kept_under_an_unknown_key_like
 @pytest.mark.parametrize("kind", ["source", "memory"])
 def test_an_id_the_reader_may_read_is_never_withheld_in_any_spelling(kind: str, spelling: str) -> None:
     """The control that keeps a blanket removal from passing. An own-project source or memory is admitted, so the loop
-    that names it in all fifteen spellings and every position comes back as stored, the same metadata object.
+    that names it in all thirteen spellings and every position comes back as stored, the same metadata object.
 
-    Mutation: make the scrub withhold ids that are admitted (drop the ``admitted`` test from ``_scrub_text``).
+    Mutation: make the scrub withhold ids that are admitted (build ``withheld`` from every id of a reference position,
+    admitted or not, in ``withhold_unreadable_references``).
     """
 
     store, identifier = _state(kind, "admitted")
@@ -519,7 +525,6 @@ def test_a_sha_or_digest_that_contains_a_withheld_id_is_not_cut() -> None:
         "slash": (f"/{compact}/", f"/{_CUT}/"),
         "equals": (f"id={compact};", f"id={_CUT};"),
         "hyphen_neighbours": (f"0123-{compact}-abcd", f"0123-{_CUT}-abcd"),
-        "odd_with_spaces": (f"id {_odd(compact)} end", f"id {_CUT} end"),
     }
     metadata = {**whole, **{key: stored for key, (stored, _shown) in cut_or_not.items()}}
     out = withhold_unreadable_references(store, [_loop(metadata_json=metadata)], fence=_FENCE)
@@ -529,7 +534,7 @@ def test_a_sha_or_digest_that_contains_a_withheld_id_is_not_cut() -> None:
 
 
 def test_a_sha_and_a_digest_under_a_reference_key_are_returned_whole_and_an_md5_is_withheld_as_an_id_that_names_no_row() -> None:
-    """Under a reference key the rule is strict, so an id that names no admitted row goes. A 32-digit run on its own is
+    """Under a reference key an id that names no admitted row goes. A 32-digit run on its own is
     an id (the link writer reads it), so a bare md5 there is removed and inside text is replaced, as the hyphenated
     trace UUID has always been. A 40-digit sha and a 64-digit digest are no id, and stay.
 
@@ -548,10 +553,10 @@ def test_a_sha_and_a_digest_under_a_reference_key_are_returned_whole_and_an_md5_
 
 
 def test_an_id_that_is_split_or_has_a_non_hex_digit_is_not_an_id_and_is_not_withheld() -> None:
-    """Inside text the scan reads 32 ASCII hex digits, with hyphens or none, and nothing else. An id with one digit
-    replaced by a letter outside the hex range and an id split in two by a space are not ids, so they are returned as
-    stored. The docstring and the docs say so, so their claim is not wider than the code. (An id written backwards is
-    another id, and names no row.)
+    """Inside text the scan reads 32 ASCII hex digits, in the hyphenated layout or in a row, and nothing else. An id with
+    one digit replaced by a letter outside the hex range and an id split in two by a space are not ids, so they are
+    returned as stored. The docstring and the docs say so, so their claim is not wider than the code. (An id written
+    backwards is another id, and names no row.)
 
     Mutation: let the scan skip over a space or a non-hex letter inside a window (the two values are then cut).
     """
@@ -565,6 +570,219 @@ def test_an_id_that_is_split_or_has_a_non_hex_digit_is_not_an_id_and_is_not_with
     }
     out = withhold_unreadable_references(store, [_loop(metadata_json=metadata)], fence=_FENCE)
     assert out[0]["metadata_json"] == metadata
+
+
+# -- 4b. a readable id next to hex digits, and the layout with hyphens in other places ---------------------------------
+
+# What can follow an id after a hyphen. A scan that let hyphens stand anywhere among 32 digits found a window that starts
+# after a hyphen inside the id and runs on into these digits, read it as another id, and under a reference key cut it
+# out of an id the reader may read (``<id>-20261003`` was shown as ``<first group>-(id withheld)``).
+_HEX_AFTER_A_HYPHEN = ("-20261003", "-2026-10-03", "-deadbeef", "-0001-0002", "-1a2b3c4d", "-2026-1003", "-cafe-babe-0001")
+# name, text before the id, the id as written, text after it.
+_READABLE_LAYOUTS = (
+    ("hyphen", "", lambda i: i, ""),
+    ("hyphen_upper", "", lambda i: i.upper(), ""),
+    ("compact", "", lambda i: i.replace("-", ""), ""),
+    ("compact_upper", "", lambda i: i.replace("-", "").upper(), ""),
+    ("source_prefix", "source:", lambda i: i, ""),
+    ("memory_prefix", "memory:", lambda i: i, ""),
+    ("urn_uuid", "urn:uuid:", lambda i: i, ""),
+    ("braces", "{", lambda i: i, "}"),
+)
+
+
+def _layout(identifier: str, name: str, suffix: str) -> tuple[str, str]:
+    """``(value, value with the id replaced)`` for ``identifier`` written in layout ``name`` with ``suffix`` after it."""
+
+    _name, before, write, after = next(layout for layout in _READABLE_LAYOUTS if layout[0] == name)
+    return before + write(identifier) + after + suffix, before + _CUT + after + suffix
+
+
+@pytest.mark.parametrize("suffix", _HEX_AFTER_A_HYPHEN)
+@pytest.mark.parametrize("layout", [layout[0] for layout in _READABLE_LAYOUTS])
+@pytest.mark.parametrize("kind", ["source", "memory"])
+def test_an_id_the_reader_may_read_is_returned_as_stored_when_hex_digits_follow_it_after_a_hyphen(
+    kind: str, layout: str, suffix: str
+) -> None:
+    """A source or memory of the reader's own project, named under reference keys and under keys that name no
+    reference, in every layout, with hyphen separated hex digits after it: the reference key's scalar and list slot, a
+    URL, a sentence, a plain key, and the column. Every value comes back as stored (the same metadata object). The
+    reader may read the row, so nothing of the id is withheld, and the text after the hyphen is not an id.
+
+    Mutation: let hyphens stand anywhere among the 32 digits in ``_BARE_ID`` (``[0-9a-fA-F](?:-*[0-9a-fA-F]){31}``). Windows
+    that start inside the id and run into the digits after it are then found, and under a reference key each one is cut.
+    """
+
+    store, identifier = _state(kind, "admitted")
+    value, _cut = _layout(identifier, layout, suffix)
+    scalar, listed = ("source_id", "source_refs") if kind == "source" else ("memory_id", "memory_ids")
+    metadata = {
+        "project_scope": ["alpha"],
+        scalar: value,
+        listed: [value, f"https://example.test/{kind}/{value}", f"derived from {value} on import", "a label"],
+        "evidence": {"quote_from": value, "note": f"see {value} today", "all": [value]},
+    }
+    column = "source_id" if kind == "source" else "memory_id"
+    out = withhold_unreadable_references(store, [_loop(metadata_json=metadata, **{column: identifier})], fence=_FENCE)
+    assert out[0]["metadata_json"] == metadata and out[0]["metadata_json"] is metadata
+    assert out[0][column] == identifier
+
+
+@pytest.mark.parametrize("suffix", _HEX_AFTER_A_HYPHEN)
+@pytest.mark.parametrize("layout", [layout[0] for layout in _READABLE_LAYOUTS])
+@pytest.mark.parametrize(("kind", "state"), [("source", "refused"), ("memory", "soft_deleted")], ids=["source-refused", "memory-soft_deleted"])
+def test_a_withheld_id_is_cut_out_of_text_with_hex_digits_after_it_and_the_digits_stay(
+    kind: str, state: str, layout: str, suffix: str
+) -> None:
+    """The control for the test above: the same text for a row the reader may not read loses its id and keeps the digits
+    after the hyphen. A value that is only an id (with ``urn:uuid:``, braces or a prefix) is read whole and removed with
+    its key or slot, and the same value with digits after it is text, so only the id is replaced.
+
+    Mutation: stop cutting text at a window of an id that reads as a withheld one (every case here then fails).
+    """
+
+    store, identifier = _state(kind, state)
+    value, cut = _layout(identifier, layout, suffix)
+    scalar, listed = ("source_id", "source_refs") if kind == "source" else ("memory_id", "memory_ids")
+    metadata = {
+        "project_scope": ["alpha"],
+        scalar: value,
+        listed: [value, f"https://example.test/{kind}/{value}"],
+        "evidence": {"note": f"see {value} today"},
+    }
+    out = withhold_unreadable_references(store, [_loop(metadata_json=metadata)], fence=_FENCE)
+    assert out[0]["metadata_json"] == {
+        "project_scope": ["alpha"],
+        scalar: cut,
+        listed: [cut, f"https://example.test/{kind}/{cut}"],
+        "evidence": {"note": f"see {cut} today"},
+    }
+    assert identifier.replace("-", "") not in _squashed(out[0]["metadata_json"])
+
+
+def test_a_value_that_is_only_an_id_with_hyphens_in_other_places_is_read_as_an_id() -> None:
+    """The link writer reads a whole string with ``UUID()``, which ignores hyphens wherever they stand, so a stored value
+    such as ``abcd-ef01-...`` (groups of four) is an id to it, and here too: in the column, under a reference key, as a
+    list slot, under a key that names no reference, and as a dict key. A refused or deleted row's value is removed with
+    its key or slot, and the column keeps its key with ``None``. A readable row's value stays as stored.
+
+    Mutation: read a whole string only in the hyphenated and the compact layout (``_canonical_id`` without ``UUID()``).
+    """
+
+    for kind, state in (("source", "refused"), ("source", "soft_deleted"), ("memory", "refused"), ("memory", "archived")):
+        store, identifier = _state(kind, state)
+        odd, odd_upper = _odd(identifier.replace("-", "")), _odd(identifier.replace("-", "")).upper()
+        column = "source_id" if kind == "source" else "memory_id"
+        listed = "source_refs" if kind == "source" else "memory_ids"
+        metadata = {
+            "project_scope": ["alpha"],
+            listed: [odd, odd_upper, "a label"],
+            "evidence": {"quote_from": odd, "all": [odd_upper, "kept"], "kept": 1, odd: "x"},
+        }
+        out = withhold_unreadable_references(store, [_loop(metadata_json=metadata, **{column: odd})], fence=_FENCE)
+        assert out[0][column] is None, (kind, state)
+        assert out[0]["metadata_json"] == {
+            "project_scope": ["alpha"],
+            listed: ["a label"],
+            "evidence": {"all": ["kept"], "kept": 1},
+        }, (kind, state)
+    store, identifier = _state("source", "admitted")
+    odd = _odd(identifier.replace("-", ""))
+    metadata = {"source_refs": [odd], "evidence": {"quote_from": odd}}
+    out = withhold_unreadable_references(store, [_loop(source_id=odd, metadata_json=metadata)], fence=_FENCE)
+    assert out[0]["source_id"] == odd and out[0]["metadata_json"] is metadata
+
+
+def test_an_id_with_hyphens_in_other_places_inside_longer_text_is_not_read_and_is_returned_as_stored() -> None:
+    """The limit the module docstring, the docs and the CHANGELOG state: inside text only the hyphenated layout (8, 4, 4,
+    4 and 12 digits) and a run of 32 digits are read. The 32 digits with hyphens in groups of four, in a URL or a
+    sentence, are not read, under a reference key or under another key. Reading them was the cause of the false
+    positive above, and reading them is not what the tower spec asks for.
+
+    Mutation: let hyphens stand anywhere among the 32 digits in ``_BARE_ID`` (the values are then cut).
+    """
+
+    store, identifier = _state("source", "refused")
+    odd = _odd(identifier.replace("-", ""))
+    metadata = {
+        "source_refs": [f"see {odd} now", f"https://example.test/{odd}"],
+        "evidence": {"note": f"copied from {odd.upper()} today", "all": [f"x {odd}"]},
+    }
+    out = withhold_unreadable_references(store, [_loop(source_id=identifier, metadata_json=metadata)], fence=_FENCE)
+    assert out[0]["source_id"] is None
+    assert out[0]["metadata_json"] == metadata
+
+
+@pytest.mark.parametrize("dense", ["a-" * 20000, "ab-" * 20000, "0123-4567-89ab-cdef-" * 2000, "-".join(["0f"] * 30000)])
+def test_text_made_of_short_hex_groups_and_hyphens_has_no_window(dense: str) -> None:
+    """Dense hyphen and hex text holds no id. With hyphens allowed anywhere among 32 digits every position after a hyphen
+    started a window, so the scan found tens of thousands of them in a megabyte of such text and ran about a hundred
+    times slower than a scan that reads two layouts. The windows of a text of single digits and short groups are none.
+
+    Mutation: let hyphens stand anywhere among the 32 digits in ``_BARE_ID`` (windows are found at every group).
+    """
+
+    from alicebot_api.vnext_open_loop_references import _id_windows
+
+    assert _id_windows(dense) == []
+
+
+def test_a_fuzz_of_ids_and_hex_joined_by_hyphens_matches_a_ground_truth_built_from_the_segments() -> None:
+    """Strings are built from segments, so every id in them is known: a readable id and a refused id in four layouts,
+    separated by hyphens, spaces, slashes and colons from hex runs that are no id (1 to 11 digits but never 4 or 12,
+    so no run can form the layout of an id with the digits of its neighbour). The expected output is the string with
+    each refused id replaced and nothing else changed, whatever stands beside it. Each string stands under a reference
+    key and under a plain key, with the refused id linked in the column. The readable id must survive in every one. (A
+    string whose hex runs and hyphens add up to 32 digits is skipped: ``UUID()`` reads it as an id, whole, which is how
+    the link writer reads a stored value, so it is not a case of text that holds no id.)
+
+    Mutation: let hyphens stand anywhere among the 32 digits in ``_BARE_ID``, or stop cutting at the second window of
+    a string.
+    """
+
+    rng = random.Random(20261003)
+    readable_store, readable = _state("source", "admitted")
+    refused_store, refused = _state("source", "refused")
+    store = _Store([*readable_store.sources.values(), *refused_store.sources.values()])
+
+    def written(identifier: str) -> str:
+        return rng.choice((identifier, identifier.upper(), identifier.replace("-", ""), identifier.replace("-", "").upper()))
+
+    def run() -> str:
+        return "".join(rng.choice("0123456789abcdef") for _ in range(rng.choice((1, 2, 3, 5, 6, 7, 8, 9, 10, 11))))
+
+    failures: list[tuple[str, object]] = []
+    for _ in range(400):
+        segments: list[tuple[str, str]] = []
+        for _slot in range(rng.randint(3, 7)):
+            choice = rng.random()
+            if choice < 0.25:
+                segments.append((written(readable), "readable"))
+            elif choice < 0.5:
+                segments.append((written(refused), "refused"))
+            else:
+                segments.append((run(), "plain"))
+        text = segments[0][0]
+        expected = _CUT if segments[0][1] == "refused" else segments[0][0]
+        for piece, role in segments[1:]:
+            separator = rng.choice(("-", "-", "-", " ", "/", ":"))
+            text += separator + piece
+            expected += separator + (_CUT if role == "refused" else piece)
+        if text == written(refused) or all(role == "refused" for _piece, role in segments):
+            continue
+        try:
+            UUID(text)
+        except ValueError:
+            pass
+        else:
+            continue  # a string of hex runs and hyphens whose digits total 32 is an id to the link writer, whole
+        metadata = {"source_refs": [text, "a label"], "evidence": {"note": text}}
+        out = withhold_unreadable_references(store, [_loop(source_id=refused, metadata_json=metadata)], fence=_FENCE)
+        shown = out[0]["metadata_json"]
+        wanted = {"source_refs": [expected, "a label"], "evidence": {"note": expected}}
+        if shown != wanted or refused.replace("-", "") in _squashed(shown):
+            failures.append((text, shown))
+    assert not failures, failures[:3]
 
 
 # -- 5. the stores -----------------------------------------------------------------------------------------------
@@ -821,6 +1039,41 @@ def test_a_source_the_reader_may_read_is_shown_until_it_is_deleted_and_then_it_i
     assert after["metadata_json"] == {"project_scope": ["alpha"], "evidence": {"note": f"see {_CUT}"}}
 
 
+@pytest.mark.parametrize("surface", _SURFACES)
+def test_an_own_project_source_followed_by_hyphen_separated_hex_is_shown_as_stored_on_every_surface(
+    world: _World, surface: str
+) -> None:
+    """The finding of the second review, on the real surfaces. A source of the project scoped key's own project is
+    linked in the column, and ``source_refs`` holds its id followed by ``-20261003``, ``-2026-10-03`` and ``-deadbeef``,
+    in a URL, with ``source:`` in front, and in the compact spelling. The memory ids are held the same way. The key may
+    read both rows, so the loop comes back as stored on the MCP list, ``edit``, the HTTP review route and the HTTP
+    context pack. On the branch the first review passed these, ``source_refs`` came back as ``<first group>-(id
+    withheld)``.
+
+    Mutation: as for the unit test of the same name (hyphens allowed anywhere among the 32 digits in ``_BARE_ID``).
+    """
+
+    own, own_memory = world.sources["own"], world.memories["own"]
+    metadata = {
+        "project_scope": ["alpha"],
+        "source_id": f"{own}-20261003",
+        "source_refs": [
+            f"{own}-20261003",
+            f"{own}-2026-10-03",
+            f"https://example.test/source/{own}-deadbeef",
+            f"source:{own}-1a2b3c4d",
+            f"{UUID(own).hex}-0001-0002",
+            "a label",
+        ],
+        "memory_ids": [f"{own_memory}-20261003", f"memory:{own_memory}-deadbeef"],
+        "evidence": {"quote_from": f"{own}-20261003"},
+    }
+    world._plant("suffix_probe", source_kind="own", memory_kind="own", metadata=metadata)
+    row = _read(world, surface, "suffix_probe")
+    assert row["metadata_json"] == metadata, row["metadata_json"]
+    assert (row["source_id"], row["memory_id"]) == (own, own_memory)
+
+
 def _make_row(world: _World, state: str) -> tuple[str, str]:
     """``(kind, id)`` of a row of the vault in ``state`` that the project scoped key of ``alpha`` may not be shown."""
 
@@ -1050,10 +1303,12 @@ def test_the_owner_is_shown_no_id_of_a_deleted_row_in_any_spelling(world: _World
 def test_the_docs_state_the_spellings_the_per_response_rule_and_the_residual() -> None:
     """The CHANGELOG entry of the read fence is amended in place (one entry, not two) and describes the end behaviour, and
     ``mcp-tools.md`` and ``known-limitations.md`` carry the rule: every spelling, a deleted row withheld, the
-    per-response collection, the hex boundary, and the two things that remain (the free-text columns, and an id of a row
-    removed outright that nothing links).
+    per-response collection, the hex boundary, the readable id that has hyphen separated hex after it, and what remains
+    (the free-text columns, an id with its hyphens in other places inside text, and an id of a row removed outright that
+    nothing links). None of them may claim that hyphens are read anywhere among the digits inside text, or that the
+    context pack and the review by id keep their limit (the saved-quotes change on main holds those two).
 
-    Mutation: delete any one of the sentences below from the file that carries it.
+    Mutation: delete any one of the sentences below from the file that carries it, or put the odd-hyphen claim back.
     """
 
     def squashed(path: str) -> str:
@@ -1067,29 +1322,41 @@ def test_the_docs_state_the_spellings_the_per_response_rule_and_the_residual() -
         "A deleted source or memory is a row the reader may not read: the lookup reads soft-deleted rows too",
         "The withheld ids are collected over every loop of one response",
         "A run of 32 hex digits counts as an id only when no hex digit stands next to it",
+        "and so is an id the reader may read that has a hyphen and more hex digits after it (`<id>-20261003`).",
         "An id without hyphens inside a URL or a sentence is withheld like the hyphenated one.",
-        "and the free-text columns of a loop (`title`, `description`, `resolution_note`), which are returned as stored and are not scanned for ids.",
+        "Inside longer text an id with its hyphens in other places, a split id and an encoded id are not recognised.",
+        "Not changed here: the free-text columns of a loop (`title`, `description`, `resolution_note`), which are returned as stored and are not scanned for ids.",
+        "It now writes `a source with no title`.",
+        "`tests/unit/test_open_loop_ids_every_spelling_and_after_delete.py`",
     ):
         assert changelog.count(sentence) == 1, sentence
     for sentence in (
         "The rule for ids inside `metadata_json`.",
         "The withheld ids are collected over every loop of one response",
         "A run of 32 hex digits is an id only when no hex digit stands next to it",
+        "and so is an id the reader may read that has a hyphen and more hex digits after it.",
+        "Inside longer text an id with its hyphens in other places, a split id and an encoded id are not recognised.",
         "The free-text columns of a loop (`title`, `description`, `resolution_note`) are returned as stored and are not scanned.",
+        "The extractor of candidate loops no longer writes the id of a source with no title into the `description`",
     ):
         assert tools.count(sentence) == 1, sentence
     for sentence in (
         "in every spelling and after the source or memory is deleted",
+        "inside longer text an id with its hyphens in other places, a split id and an encoded id are not recognised;",
         "the id of a row that was removed outright, under a key that names no reference and linked nowhere in the response, reads like a trace id and is kept.",
     ):
         assert limitations.count(sentence) == 1, sentence
+    for name, text in (("CHANGELOG.md", changelog), ("mcp-tools.md", tools), ("known-limitations.md", limitations)):
+        assert "in other places or nowhere" not in text, name
+        assert "keep the limit stated in the entry on cited sources" not in text, name
 
 
 def test_the_module_docstring_states_the_rule_it_implements() -> None:
-    """The docstring of ``vnext_open_loop_references`` is the rule's statement and names the three limits: the spellings
-    it reads, the per-response collection, and the removed-outright residual. A change to the behaviour must change it.
+    """The docstring of ``vnext_open_loop_references`` is the rule's statement and names the limits: the spellings it
+    reads (and the one it reads only as a whole string), the per-response collection, the removed-outright residual and
+    the free-text columns. A change to the behaviour must change it.
 
-    Mutation: delete any one of the phrases below from the docstring.
+    Mutation: delete any one of the phrases below from the docstring, or put the odd-hyphen claim back.
     """
 
     from alicebot_api import vnext_open_loop_references as module
@@ -1099,7 +1366,11 @@ def test_the_module_docstring_states_the_rule_it_implements() -> None:
         "The withheld ids are collected for the whole call, over every row it returns",
         "A deleted row is refused, not unknown.",
         "The one case left is a row that was removed outright",
-        "Any other run of 32 hex digits (with no hyphen, or with hyphens in other places) is an id only when no hex digit stands next to it",
-        "Inside longer text only ASCII hex digits are read",
+        "32 hex digits in a row are an id only when no hex digit stands next to them",
+        "digits follow it after a hyphen (``<id>-20261003``)",
+        "A string that is only an id is read as the link writer reads it (``UUID()``, which also ignores hyphens in other places).",
+        "Inside longer text only ASCII hex digits in those two layouts are read",
+        "The free-text columns of a loop (``title``, ``description``, ``resolution_note``) are returned as stored and are not scanned",
     ):
         assert phrase in text, phrase
+    assert "with hyphens in other places) is an id" not in text
