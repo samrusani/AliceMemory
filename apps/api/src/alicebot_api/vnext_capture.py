@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import AbstractContextManager
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from hashlib import md5, sha256
@@ -8,8 +9,22 @@ import logging
 import math
 from pathlib import Path
 import re
-from typing import Mapping, Protocol, Sequence
+from typing import Mapping, Protocol, Sequence, cast
 
+from alicebot_api.credential_floor import (
+    CREDENTIAL_MATERIAL_REFUSED_MESSAGE,
+    EXPANSION_REFUSED_MESSAGE,
+    VERDICT_EXPANSION,
+    private_key_armor_role,
+)
+from alicebot_api.importer_paths import (
+    DEFAULT_MAX_CHATGPT_EXPORT_BYTES,
+    DEFAULT_MAX_TEXT_FILE_BYTES,
+    MIB,
+    ImportFileTooLargeError,
+    read_contained_source_text,
+)
+from alicebot_api.legacy_credential_check import commit_door_fields_verdict
 from alicebot_api.memory_provenance import (
     ASSERTION_CLASS_USER_ASSERTED,
     PROVENANCE_ROLE_USER,
@@ -19,7 +34,11 @@ from alicebot_api.memory_provenance import (
     provenance_promotion_rank,
 )
 from alicebot_api.store import ContinuityStoreInvariantError
-from alicebot_api.vnext_embeddings import DeferredMemoryEmbedding, attach_memory_embeddings
+from alicebot_api.vnext_embeddings import (
+    DeferredMemoryEmbedding,
+    attach_memory_embeddings,
+    embeddable_deferred_inputs,
+)
 from alicebot_api.vnext_entities import (
     ENTITY_EXTRACTION_SKIP_SENSITIVITIES,
     EntityLinkingService,
@@ -40,13 +59,44 @@ DEFAULT_CHUNK_MAX_CHARS = 2_400
 SUPPORTED_TEXT_SUFFIXES = frozenset({".md", ".markdown", ".txt", ".text"})
 SOURCE_IMPORT_ERROR_CODE = "source_import_failed"
 SOURCE_IMPORT_ERROR_MESSAGE = "Source could not be imported"
+CREDENTIAL_WITHHELD = "[withheld: credential material]"
 ENTITY_EXTRACTION_ERROR_CODE = "entity_extraction_failed"
 ENTITY_EXTRACTION_ERROR_MESSAGE = "Entity extraction failed"
+# One ChatGPT conversation the importer could not turn into a transcript. The
+# receipt names it by position, and the other conversations still import.
+CHATGPT_CONVERSATION_UNREADABLE_CODE = "conversation_unreadable"
+CHATGPT_CONVERSATION_UNREADABLE_MESSAGE = "Conversation could not be read"
 logger = logging.getLogger(__name__)
+
+
+def _unit_verdict(value: object) -> str | None:
+    """The commit door's verdict for one import unit.
+
+    The same check ``capture_source`` uses. A line, message, title, id, or
+    name the floor misses and the commit gate flags is withheld here, so
+    the rest of the file or conversation still imports.
+    """
+
+    return commit_door_fields_verdict(value)
 
 
 class VNextCaptureValidationError(ValueError):
     """Raised when a vNext capture request cannot be normalized."""
+
+
+class CaptureCredentialRefused(VNextCaptureValidationError):
+    """A capture field carries credential material. Nothing was written."""
+
+
+class ImportFileTooLargeRefused(VNextCaptureValidationError):
+    """A selected import file is over the per-file size limit. Nothing was written.
+
+    The file was refused before it was read. ``reason_code`` is what a command
+    puts in its error record, so a person or an agent can tell this refusal from
+    a bad path or a file that is not text.
+    """
+
+    reason_code = ImportFileTooLargeError.reason_code
 
 
 class VNextCaptureStore(Protocol):
@@ -61,6 +111,15 @@ class VNextCaptureStore(Protocol):
     def create_memory(self, memory: JsonObject, *, actor_type: str = "system") -> JsonObject: ...
 
     def create_provenance_link(self, link: JsonObject, *, actor_type: str = "system") -> JsonObject: ...
+
+    def savepoint(self) -> AbstractContextManager[None]:
+        """One unit of writes that lands whole or leaves no row.
+
+        Required, with no fallback: a store without it would turn a failed
+        file back into a half-built source without anyone being told. The
+        importers wrap each file's capture in it.
+        """
+        ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -146,6 +205,9 @@ class BatchImportResult:
     errors: tuple[str, ...] = ()
     error_code: str | None = None
     deferred_embedding_inputs: tuple[DeferredMemoryEmbedding, ...] = ()
+    skipped_count: int = 0
+    skipped_credentials: int = 0
+    skipped_credential_items: tuple[str, ...] = ()
 
     def to_record(self) -> JsonObject:
         return {
@@ -153,10 +215,33 @@ class BatchImportResult:
             "imported_count": self.imported_count,
             "duplicate_count": self.duplicate_count,
             "failed_count": self.failed_count,
+            "skipped_count": self.skipped_count,
+            "skipped_credentials": self.skipped_credentials,
+            "skipped_credential_items": list(self.skipped_credential_items),
             "source_ids": list(self.source_ids),
             "errors": list(self.errors),
             "error_code": self.error_code,
         }
+
+
+def _batch_status(
+    *,
+    imported_count: int,
+    duplicate_count: int,
+    failed_count: int,
+    skipped_count: int,
+) -> str:
+    """Batch outcome. A credential skip is not a failure."""
+
+    if imported_count == 0 and duplicate_count == 0 and failed_count > 0:
+        return "failed"
+    if imported_count == 0 and duplicate_count > 0 and failed_count == 0:
+        return "duplicate"
+    if imported_count == 0 and duplicate_count == 0 and failed_count == 0 and skipped_count > 0:
+        return "skipped"
+    if failed_count:
+        return "partial"
+    return "ok"
 
 
 @dataclass(frozen=True, slots=True)
@@ -180,6 +265,9 @@ class SourceCaptureInput:
     source_created_at: str | None = None
     source_modified_at: str | None = None
     metadata_json: JsonObject = field(default_factory=dict)
+    # Imports pass False. A capture still proposes candidates unless the
+    # caller says this source is material to read, not a fact to review.
+    extract_candidates: bool = True
 
 
 def normalize_text(raw_text: str) -> str:
@@ -624,46 +712,6 @@ def _memory_key(
     return f"vnext.capture.{candidate.memory_type}.{digest}"
 
 
-def _extract_text_from_json_value(value: object) -> list[str]:
-    """Fallback text extraction that preserves encounter order and repeats."""
-    if isinstance(value, str):
-        normalized = " ".join(value.split()).strip()
-        return [normalized] if normalized else []
-
-    if isinstance(value, list):
-        texts: list[str] = []
-        for item in value:
-            texts.extend(_extract_text_from_json_value(item))
-        return texts
-
-    if not isinstance(value, dict):
-        return []
-
-    texts = []
-    for key in ("text", "message"):
-        if key in value:
-            texts.extend(_extract_text_from_json_value(value[key]))
-
-    content = value.get("content")
-    if isinstance(content, dict):
-        for key in ("parts", "text", "content", "message"):
-            if key in content:
-                texts.extend(_extract_text_from_json_value(content[key]))
-    elif content is not None:
-        texts.extend(_extract_text_from_json_value(content))
-
-    mapping = value.get("mapping")
-    if isinstance(mapping, dict):
-        for node in mapping.values():
-            texts.extend(_extract_text_from_json_value(node))
-
-    for key in ("messages", "conversations", "items", "records"):
-        if key in value:
-            texts.extend(_extract_text_from_json_value(value[key]))
-
-    return texts
-
-
 def _chatgpt_conversations(payload: object) -> list[dict[str, object]]:
     if isinstance(payload, list):
         return [item for item in payload if isinstance(item, dict)]
@@ -732,17 +780,31 @@ def _ordered_chatgpt_nodes(conversation: dict[str, object]) -> list[dict[str, ob
     visited: set[str] = set()
     ordered_nodes: list[dict[str, object]] = []
 
-    def visit(node_id: str) -> None:
-        if node_id in visited:
-            return
-        visited.add(node_id)
-        ordered_nodes.append(mapping[node_id])
+    def children_in_visit_order(node_id: str) -> list[str]:
         preferred = active_successor.get(node_id)
         children = children_by_parent[node_id]
         if preferred in children:
             children = [preferred, *(child for child in children if child != preferred)]
-        for child in children:
-            visit(child)
+        return children
+
+    def visit(start: str) -> None:
+        # Depth first, parent before child, each node once. This is a loop over
+        # an explicit stack and not a recursive call per node: one long chain of
+        # replies is one node deep per message, and a conversation of a few
+        # thousand messages overran the interpreter's recursion limit and
+        # failed the whole import. A node is marked visited when it is popped,
+        # not when it is pushed, and its children are pushed last first so the
+        # first child is popped next. That is the order the recursive walk
+        # produced, including for a node reachable by two paths and for a
+        # cycle.
+        stack = [start]
+        while stack:
+            node_id = stack.pop()
+            if node_id in visited:
+                continue
+            visited.add(node_id)
+            ordered_nodes.append(mapping[node_id])
+            stack.extend(reversed(children_in_visit_order(node_id)))
 
     for root in roots:
         visit(root)
@@ -815,6 +877,17 @@ class _ChatGPTConversationTranscript:
     modified_at: str | None
 
 
+@dataclass(frozen=True, slots=True)
+class _ChatGPTConversationRefused:
+    """A conversation whose transcript could not be built.
+
+    Only its position is kept. The reason is the same for every conversation
+    that lands here, and what went wrong goes to the process log.
+    """
+
+    index: int
+
+
 def _chatgpt_conversation_id(conversation: dict[str, object], *, index: int) -> str:
     for key in ("id", "conversation_id"):
         value = conversation.get(key)
@@ -823,10 +896,187 @@ def _chatgpt_conversation_id(conversation: dict[str, object], *, index: int) -> 
     return f"conversation-{index}"
 
 
+def _printed_label(value: str | None) -> str:
+    """Receipt text for a path or title. A flagged value prints as withheld."""
+
+    if value is None or value == "":
+        return "withheld"
+    if _unit_verdict(value) is not None:
+        return "withheld"
+    return value
+
+
+def _stored_label(value: str | None) -> str | None:
+    if value is None:
+        return None
+    if _unit_verdict(value) is not None:
+        return "withheld"
+    return value
+
+
+def _label_event_value(value: object) -> object:
+    """Apply ``_stored_label`` to every string in an event payload value."""
+
+    if isinstance(value, str):
+        return _stored_label(value)
+    if isinstance(value, dict):
+        return {key: _label_event_value(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_label_event_value(item) for item in value]
+    return value
+
+
+def _line_phrase(start: int, end: int) -> str:
+    if start == end:
+        return f"line {start}"
+    return f"lines {start} to {end}"
+
+
+def _file_phrase(index: int, name: str) -> str:
+    shown = "name withheld" if _unit_verdict(name) is not None else name
+    return f"file {index} ({shown})"
+
+
+def _conversation_phrase(conversation: str, message_index: int) -> str:
+    return f"conversation {conversation} message {message_index}"
+
+
+def _remember_item(items: list[str], item: str) -> None:
+    if item not in items:
+        items.append(item)
+
+
+def _refuse_flagged_import_folder(source: str | Path) -> None:
+    """A token in the folder name refuses the import before any write.
+
+    The error text does not include the path.
+    """
+
+    path = Path(source).expanduser()
+    if path.is_dir() or not path.suffix:
+        folder_name = path.name
+    else:
+        folder_name = path.parent.name
+    if folder_name and _unit_verdict(folder_name) is not None:
+        raise VNextCaptureValidationError("The import folder name is withheld")
+
+
+def _public_markdown_import_error(exc: Exception) -> VNextCaptureValidationError:
+    """Name a UTF-8 failure by file, and keep a flagged name out of the text."""
+
+    message = str(exc)
+    prefix = "import source file is not valid UTF-8 text: "
+    if message.startswith(prefix):
+        name = Path(message[len(prefix) :]).name
+        safe = "withheld" if _unit_verdict(name) is not None else name
+        return VNextCaptureValidationError(f"import source file is not valid UTF-8 text: {safe}")
+    if _unit_verdict(message) is not None:
+        return VNextCaptureValidationError("The import path is withheld")
+    return VNextCaptureValidationError(message)
+
+
+def _mib_phrase(size_bytes: int) -> str:
+    return f"{size_bytes / MIB:.2f} MiB"
+
+
+def _public_too_large_error(exc: ImportFileTooLargeError) -> ImportFileTooLargeRefused:
+    """Name the file by its own name, never its path, and state both numbers.
+
+    A file name the commit door flags is withheld, as it is for a file that is
+    not valid UTF-8.
+    """
+
+    name = exc.file_path.name
+    shown = "a file whose name is withheld" if _unit_verdict(name) is not None else name
+    if exc.exact:
+        size_phrase = f"is {exc.size_bytes} bytes ({_mib_phrase(exc.size_bytes)})"
+    else:
+        size_phrase = f"is more than {exc.limit_bytes} bytes ({_mib_phrase(exc.limit_bytes)})"
+    return ImportFileTooLargeRefused(
+        f"import source file is too large: {shown} {size_phrase}, "
+        f"the limit is {exc.limit_bytes} bytes ({_mib_phrase(exc.limit_bytes)})"
+    )
+
+
+def read_named_text_file(file_path: Path, *, max_file_bytes: int = DEFAULT_MAX_TEXT_FILE_BYTES) -> str:
+    """Read the one text file an operator named, bounded, and without following a link at the open.
+
+    ``capture_file`` and the ``--file`` options of the CLI read a file the caller
+    named, not a folder. They read it the way the importers read theirs: one open
+    with ``O_NOFOLLOW`` and ``O_NONBLOCK``, the size taken from that descriptor
+    before any byte is read, a read that stops one byte past ``max_file_bytes``,
+    and strict UTF-8 with universal newlines. A path the caller gave may itself be
+    a link, and the caller resolves it first, as the importers resolve their
+    source. What the open refuses is a final component that is a link by the time
+    it is opened, a file that is not a regular file (a FIFO, a device), and a file
+    over the limit.
+
+    A file over the limit raises ``ImportFileTooLargeRefused``. Every other refusal
+    is a ``VNextCaptureValidationError`` that names the file and never its text.
+    """
+
+    try:
+        return read_contained_source_text(file_path, max_bytes=max_file_bytes, error_factory=ValueError)
+    except ImportFileTooLargeError as exc:
+        raise _public_too_large_error(exc) from exc
+    except ValueError as exc:
+        raise _public_markdown_import_error(exc) from exc
+
+
+def _filter_markdown_units(raw_text: str, *, file_index: int, file_name: str) -> tuple[str, list[str]]:
+    """Replace each flagged line, or one private-key block, before capture.
+
+    Line numbers count from 1 on the first line of the file. Each receipt
+    item names the file, then ``line N`` or ``lines N to M``, and never
+    the matched text. A flagged file name is ``file K (name withheld)``.
+    An unmatched BEGIN line is withheld through the end of the file, so
+    the key body is not left for the capture backstop to store.
+    """
+
+    from alicebot_api.markdown_import import _armored_private_key_ranges
+
+    file_label = _file_phrase(file_index, file_name)
+    lines = raw_text.splitlines()
+    ranges = _armored_private_key_ranges(lines)
+    kept: list[str] = []
+    skipped: list[str] = []
+    index = 0
+    while index < len(lines):
+        line_no = index + 1
+        span = ranges.get(line_no)
+        if span is not None:
+            start_no, end_no = span
+            if line_no != start_no:
+                index += 1
+                continue
+            block = "\n".join(lines[start_no - 1 : end_no])
+            if _unit_verdict(block) is not None:
+                kept.append(CREDENTIAL_WITHHELD)
+                skipped.append(f"{file_label} {_line_phrase(start_no, end_no)}")
+            else:
+                kept.extend(lines[start_no - 1 : end_no])
+            index = end_no
+            continue
+        line = lines[index]
+        role = private_key_armor_role(line)
+        if role is not None and role[0] == "begin":
+            kept.append(CREDENTIAL_WITHHELD)
+            skipped.append(f"{file_label} {_line_phrase(line_no, len(lines))}")
+            break
+        if line.strip() and _unit_verdict(line) is not None:
+            kept.append(CREDENTIAL_WITHHELD)
+            skipped.append(f"{file_label} {_line_phrase(line_no, line_no)}")
+        else:
+            kept.append(line)
+        index += 1
+    return "\n".join(kept), skipped
+
+
 def _chatgpt_conversation_transcript(
     conversation: dict[str, object],
     *,
     index: int,
+    credential_skips: list[str] | None = None,
 ) -> _ChatGPTConversationTranscript:
     title = " ".join(str(conversation.get("title") or f"Conversation {index}").split())
     if not title:
@@ -853,8 +1103,29 @@ def _chatgpt_conversation_transcript(
         if timestamp is not None:
             message_timestamps.append(timestamp)
             message_lines.append(f"[AT]: {timestamp}")
-        message_lines.extend(f"[{role}]: {part}" for part in parts)
         message_count += 1
+        safe_parts: list[str] = []
+        for part in parts:
+            if _unit_verdict(part) is not None:
+                safe_parts.append(CREDENTIAL_WITHHELD)
+                if credential_skips is not None:
+                    _remember_item(
+                        credential_skips,
+                        _conversation_phrase(_printed_label(external_id), message_count),
+                    )
+            else:
+                safe_parts.append(part)
+        joined = "\n".join(safe_parts)
+        # A secret that only exists across parts of this message is withheld
+        # here. The rest of the conversation stays in the transcript.
+        if _unit_verdict(joined) is not None:
+            safe_parts = [CREDENTIAL_WITHHELD]
+            if credential_skips is not None:
+                _remember_item(
+                    credential_skips,
+                    _conversation_phrase(_printed_label(external_id), message_count),
+                )
+        message_lines.extend(f"[{role}]: {part}" for part in safe_parts)
 
     created_at = _chatgpt_timestamp(conversation.get("create_time"))
     modified_at = _chatgpt_timestamp(conversation.get("update_time"))
@@ -863,6 +1134,15 @@ def _chatgpt_conversation_transcript(
     if modified_at is None and message_timestamps:
         modified_at = max(message_timestamps)
 
+    if _unit_verdict(title) is not None:
+        if credential_skips is not None:
+            _remember_item(
+                credential_skips,
+                f"conversation {_printed_label(external_id)} title",
+            )
+        title = "withheld"
+    if _unit_verdict(external_id) is not None:
+        external_id = "withheld"
     lines = [
         f"[CONVERSATION]: {external_id}",
         f"[TITLE]: {title}",
@@ -943,10 +1223,10 @@ class VNextCaptureService:
             target_type="source",
             payload={
                 "source_type": source_type,
-                "title": title,
+                "title": _stored_label(title),
                 "error_code": SOURCE_IMPORT_ERROR_CODE,
                 "error_message": SOURCE_IMPORT_ERROR_MESSAGE,
-                "metadata_json": metadata,
+                "metadata_json": cast(JsonObject, _label_event_value(metadata)),
             },
         )
 
@@ -979,11 +1259,15 @@ class VNextCaptureService:
         domain: str = "unknown",
         sensitivity: str = "unknown",
         metadata_json: JsonObject | None = None,
+        max_file_bytes: int = DEFAULT_MAX_TEXT_FILE_BYTES,
     ) -> CaptureResult:
+        # The path is resolved once, as the importers resolve their source, and
+        # the file is then opened once without following a link and read up to
+        # ``max_file_bytes``. A file over the limit is refused before it is read.
         file_path = Path(path).expanduser().resolve()
         if file_path.suffix.casefold() not in SUPPORTED_TEXT_SUFFIXES:
             raise VNextCaptureValidationError(f"unsupported vNext text source type: {file_path.suffix}")
-        raw_text = file_path.read_text(encoding="utf-8")
+        raw_text = read_named_text_file(file_path, max_file_bytes=max_file_bytes)
         return self.capture_source(
             SourceCaptureInput(
                 source_type="file",
@@ -1003,6 +1287,23 @@ class VNextCaptureService:
         )
 
     def capture_source(self, source_input: SourceCaptureInput) -> CaptureResult:
+        # Before dedupe and before the try that logs a failure. A refusal
+        # must not look up an existing row and must not persist the fields.
+        # The commit door, not the floor alone: a low-entropy AKIA-shaped
+        # key the floor treats as a placeholder is still refused.
+        verdict = commit_door_fields_verdict(
+            source_input.title,
+            source_input.author,
+            source_input.uri,
+            source_input.raw_path,
+            source_input.external_id,
+            source_input.raw_text,
+            source_input.metadata_json,
+        )
+        if verdict == VERDICT_EXPANSION:
+            raise CaptureCredentialRefused(EXPANSION_REFUSED_MESSAGE)
+        if verdict is not None:
+            raise CaptureCredentialRefused(CREDENTIAL_MATERIAL_REFUSED_MESSAGE)
         try:
             normalized_text = normalize_text(source_input.raw_text)
             # Effective project scope, from the dedicated field with a
@@ -1162,8 +1463,11 @@ class VNextCaptureService:
                 payload={"content_hash": content_hash, "chunk_count": len(chunk_rows)},
             )
 
+            extracted = (
+                extract_candidate_memories(chunk_rows) if source_input.extract_candidates else []
+            )
             candidates = self._drop_cross_batch_user_asserted_duplicates(
-                extract_candidate_memories(chunk_rows),
+                extracted,
                 project_scope=project_scope,
                 domain=source_input.domain,
                 sensitivity=source_input.sensitivity,
@@ -1248,7 +1552,14 @@ class VNextCaptureService:
                     },
                 )
 
-            deferred_embedding_inputs = tuple(DeferredMemoryEmbedding.from_memory(memory) for memory in memory_rows)
+            # Capture writes candidate memories only, and recall cannot return a
+            # candidate, so no text is sent to the embeddings endpoint here: the
+            # deferred list keeps only rows recall can return, and
+            # ``attach_memory_embeddings`` withholds the rest, which for a
+            # candidate is all of them. A candidate is embedded when a reviewer
+            # accepts it (the review paths call ``refresh_memory_derived_state``),
+            # and a rejected one is never embedded.
+            deferred_embedding_inputs = embeddable_deferred_inputs(memory_rows)
             if not self.defer_embeddings:
                 attach_memory_embeddings(
                     self.store,
@@ -1456,21 +1767,41 @@ class VNextCaptureService:
         *,
         domain: str = "unknown",
         sensitivity: str = "unknown",
+        max_file_bytes: int = DEFAULT_MAX_TEXT_FILE_BYTES,
     ) -> BatchImportResult:
-        folder_path = Path(folder).expanduser().resolve()
-        if not folder_path.exists() or not folder_path.is_dir():
-            raise VNextCaptureValidationError(f"markdown source folder does not exist: {folder_path}")
+        # Same selection and one-shot read as the legacy markdown importer:
+        # no symlink outside the root, and a single file is allowed.
+        # The per-unit filter runs first. capture_source then refuses whatever
+        # that filter could not isolate. A file over ``max_file_bytes`` refuses
+        # the whole import before it is read, as a file that is not UTF-8 does.
+        from alicebot_api.markdown_import import MarkdownImportValidationError, _snapshot_markdown_source
+
+        _refuse_flagged_import_folder(folder)
+        try:
+            folder_path, snapshot = _snapshot_markdown_source(folder, max_file_bytes=max_file_bytes)
+        except ImportFileTooLargeError as exc:
+            raise _public_too_large_error(exc) from exc
+        except MarkdownImportValidationError as exc:
+            raise _public_markdown_import_error(exc) from exc
 
         source_ids: list[str] = []
         errors: list[str] = []
         duplicate_count = 0
         failed_count = 0
+        skipped_count = 0
+        credential_items: list[str] = []
         run_hashes: set[str] = set()
         deferred_embedding_inputs: list[DeferredMemoryEmbedding] = []
 
-        for file_path in sorted(folder_path.rglob("*.md")):
+        for file_index, source_file in enumerate(snapshot, start=1):
+            file_path = source_file.path
+            raw_text, file_skips = _filter_markdown_units(
+                source_file.text,
+                file_index=file_index,
+                file_name=file_path.name,
+            )
+            credential_items.extend(file_skips)
             try:
-                raw_text = file_path.read_text(encoding="utf-8")
                 content_hash = content_hash_for_text(raw_text)
                 if content_hash in run_hashes:
                     duplicate_count += 1
@@ -1480,61 +1811,80 @@ class VNextCaptureService:
                         payload={
                             "content_hash": content_hash,
                             "source_type": "markdown",
-                            "raw_path": str(file_path),
                             "duplicate_scope": "batch",
                         },
                     )
                     continue
                 run_hashes.add(content_hash)
 
-                result = self.capture_source(
-                    SourceCaptureInput(
-                        source_type="markdown",
-                        title=file_path.stem,
-                        raw_text=raw_text,
-                        raw_path=str(file_path),
-                        connector_name="markdown_folder",
-                        external_id=str(file_path.relative_to(folder_path)),
-                        domain=domain,
-                        sensitivity=sensitivity,
-                        metadata_json={
-                            "folder": str(folder_path),
-                            "relative_path": str(file_path.relative_to(folder_path)),
-                        },
+                # One file is one unit. A failure part way rolls the file back
+                # to nothing, the failure is logged after that rollback, and
+                # the next file imports in the same transaction.
+                with self.store.savepoint():
+                    result = self.capture_source(
+                        SourceCaptureInput(
+                            source_type="markdown",
+                            title=file_path.stem,
+                            raw_text=raw_text,
+                            raw_path=str(file_path),
+                            connector_name="markdown_folder",
+                            external_id=source_file.relative_path,
+                            domain=domain,
+                            sensitivity=sensitivity,
+                            extract_candidates=False,
+                            metadata_json={
+                                "folder": str(folder_path),
+                                "relative_path": source_file.relative_path,
+                            },
+                        )
                     )
-                )
                 deferred_embedding_inputs.extend(result.deferred_embedding_inputs)
                 if result.duplicate:
                     duplicate_count += 1
                     continue
                 if result.source_id is not None:
                     source_ids.append(result.source_id)
+            except CaptureCredentialRefused:
+                # The file is skipped. The receipt names it without a token.
+                skipped_count += 1
+                _remember_item(credential_items, _file_phrase(file_index, file_path.name))
+                continue
             except Exception as exc:
                 failed_count += 1
                 errors.append(SOURCE_IMPORT_ERROR_MESSAGE)
+                # The failure event the capture wrote was rolled back with the
+                # file, so this one is the only record. It names the file by
+                # its path under the folder, as the rolled-back one did, since
+                # two files in different subfolders can share a name.
                 self._log_failure(
                     source_type="markdown",
                     title=file_path.name,
                     error=exc,
-                    metadata={"raw_path": str(file_path), "folder": str(folder_path)},
+                    metadata={
+                        "folder": str(folder_path),
+                        "relative_path": source_file.relative_path,
+                        "title": file_path.name,
+                    },
                 )
 
         imported_count = len(source_ids)
-        status = "ok" if failed_count == 0 else "partial"
-        if imported_count == 0 and duplicate_count > 0 and failed_count == 0:
-            status = "duplicate"
-        if imported_count == 0 and duplicate_count == 0 and failed_count > 0:
-            status = "failed"
+        status = _batch_status(
+            imported_count=imported_count,
+            duplicate_count=duplicate_count,
+            failed_count=failed_count,
+            skipped_count=skipped_count,
+        )
 
         self._log_event(
             event_type="source.batch_import_completed",
             target_type="source",
             payload={
                 "source_type": "markdown",
-                "folder": str(folder_path),
+                "folder": _stored_label(str(folder_path)),
                 "imported_count": imported_count,
                 "duplicate_count": duplicate_count,
                 "failed_count": failed_count,
+                "skipped_count": skipped_count,
             },
         )
         return BatchImportResult(
@@ -1542,6 +1892,9 @@ class VNextCaptureService:
             imported_count=imported_count,
             duplicate_count=duplicate_count,
             failed_count=failed_count,
+            skipped_count=skipped_count,
+            skipped_credentials=len(credential_items),
+            skipped_credential_items=tuple(credential_items),
             source_ids=tuple(source_ids),
             errors=tuple(errors),
             error_code=SOURCE_IMPORT_ERROR_CODE if failed_count else None,
@@ -1554,110 +1907,216 @@ class VNextCaptureService:
         *,
         domain: str = "personal",
         sensitivity: str = "private",
+        max_file_bytes: int = DEFAULT_MAX_CHATGPT_EXPORT_BYTES,
     ) -> BatchImportResult:
-        export_path = Path(path).expanduser().resolve()
-        raw_export = export_path.read_text(encoding="utf-8")
-        payload = json.loads(raw_export)
-        conversations = _chatgpt_conversations(payload)
-        transcripts = [
-            _chatgpt_conversation_transcript(conversation, index=index)
-            for index, conversation in enumerate(conversations, start=1)
-        ]
-        transcript_format = "chatgpt_conversation_v1"
-        if not transcripts:
-            extracted_texts = _extract_text_from_json_value(payload)
-            fallback_text = (
-                "\n".join(extracted_texts)
-                if extracted_texts
-                else json.dumps(
-                    payload,
-                    sort_keys=True,
-                    ensure_ascii=False,
-                )
-            )
-            fallback_title = export_path.name
-            transcripts = [
-                _ChatGPTConversationTranscript(
-                    index=1,
-                    external_id=f"{export_path.name}#conversation-1",
-                    title=fallback_title,
-                    raw_text=(
-                        f"[CONVERSATION]: {export_path.name}#conversation-1\n[TITLE]: {fallback_title}\n{fallback_text}"
-                    ),
-                    message_count=len(extracted_texts),
-                    created_at=None,
-                    modified_at=None,
-                )
-            ]
-            transcript_format = "json_fallback_v1"
+        # Same selection and one-shot read as the legacy ChatGPT importer.
+        # A file with no conversations is refused. It is not stored. A file
+        # over ``max_file_bytes`` is refused before it is read, and so is a file
+        # that is not JSON. A single conversation that cannot be turned into a
+        # transcript is counted as failed and named by its position, and the
+        # others still import, as a capture that fails for one conversation does.
+        from alicebot_api.chatgpt_import import ChatGPTImportValidationError, _snapshot_chatgpt_source
+        from alicebot_api.importer_paths import ImportSourceFile
 
-        export_sha256 = "sha256:" + sha256(raw_export.encode("utf-8")).hexdigest()
+        _refuse_flagged_import_folder(path)
+        try:
+            export_path, snapshot = _snapshot_chatgpt_source(path, max_file_bytes=max_file_bytes)
+        except ImportFileTooLargeError as exc:
+            raise _public_too_large_error(exc) from exc
+        except ChatGPTImportValidationError as exc:
+            message = str(exc)
+            if _unit_verdict(message) is not None:
+                raise VNextCaptureValidationError("The import path is withheld") from exc
+            raise VNextCaptureValidationError(message) from exc
+
+        credential_items: list[str] = []
+        parsed_files: list[
+            tuple[ImportSourceFile, str, list[_ChatGPTConversationTranscript | _ChatGPTConversationRefused]]
+        ] = []
+        for source_file in snapshot:
+            try:
+                payload = json.loads(source_file.text)
+            except json.JSONDecodeError as exc:
+                raise VNextCaptureValidationError("ChatGPT export is not valid JSON") from exc
+            except RecursionError as exc:
+                # Arrays or objects nested past the decoder's depth. A real
+                # export nests a few levels and spreads a conversation over a
+                # mapping, so this is a file that is not an export.
+                raise VNextCaptureValidationError("ChatGPT export is nested too deeply to read") from exc
+            conversations = _chatgpt_conversations(payload)
+            if not conversations:
+                raise VNextCaptureValidationError("ChatGPT export has no conversations")
+            transcripts: list[_ChatGPTConversationTranscript | _ChatGPTConversationRefused] = []
+            for index, conversation in enumerate(conversations, start=1):
+                conversation_skips: list[str] = []
+                try:
+                    built = _chatgpt_conversation_transcript(
+                        conversation,
+                        index=index,
+                        credential_skips=conversation_skips,
+                    )
+                except MemoryError:
+                    # Not a fact about this conversation. The process is out of
+                    # memory, so the next conversation would fail the same way, and
+                    # calling this one unreadable would hide that and import a
+                    # partial export as if it were complete.
+                    raise
+                except Exception as exc:
+                    # Nothing is written in this pass, so the refusal is only
+                    # recorded here and counted with the writes below. The log gets
+                    # one line with the position and the kind of error, and never a
+                    # traceback or the error's own text, which can quote the export.
+                    # The traceback is there at debug level for whoever asks for it.
+                    logger.warning(
+                        "ChatGPT conversation could not be read conversation_index=%d error_code=%s error_type=%s",
+                        index,
+                        CHATGPT_CONVERSATION_UNREADABLE_CODE,
+                        type(exc).__name__,
+                    )
+                    logger.debug(
+                        "ChatGPT conversation traceback conversation_index=%d",
+                        index,
+                        exc_info=(type(exc), exc, exc.__traceback__),
+                    )
+                    transcripts.append(_ChatGPTConversationRefused(index=index))
+                    continue
+                # Skips from a conversation that failed half way are dropped
+                # with it, so the receipt never names a unit of a conversation
+                # it did not read.
+                for skip in conversation_skips:
+                    _remember_item(credential_items, skip)
+                transcripts.append(built)
+            export_sha256 = "sha256:" + sha256(source_file.text.encode("utf-8")).hexdigest()
+            parsed_files.append((source_file, export_sha256, transcripts))
+
         captured_at = datetime.now(UTC).isoformat().replace("+00:00", "Z")
         source_ids: list[str] = []
         errors: list[str] = []
         duplicate_count = 0
         failed_count = 0
+        skipped_count = 0
         deferred_embedding_inputs: list[DeferredMemoryEmbedding] = []
-        for transcript in transcripts:
-            try:
-                result = self.capture_source(
-                    SourceCaptureInput(
-                        source_type="chatgpt_export",
-                        title=transcript.title,
-                        raw_text=transcript.raw_text,
-                        raw_path=str(export_path),
-                        connector_name="chatgpt_export",
-                        external_id=transcript.external_id,
-                        domain=domain,
-                        sensitivity=sensitivity,
-                        captured_at=captured_at,
-                        source_created_at=transcript.created_at,
-                        source_modified_at=transcript.modified_at,
-                        metadata_json={
-                            "filename": export_path.name,
-                            "export_sha256": export_sha256,
-                            "transcript_format": transcript_format,
-                            "export_conversation_count": len(transcripts),
-                            "conversation_index": transcript.index,
-                            "conversation_id": transcript.external_id,
-                            "conversation_title": transcript.title,
-                            "message_count": transcript.message_count,
+        conversation_count = 0
+        for file_index, (source_file, export_sha256, transcripts) in enumerate(parsed_files, start=1):
+            conversation_count += len(transcripts)
+            file_path = source_file.path
+            for transcript in transcripts:
+                if isinstance(transcript, _ChatGPTConversationRefused):
+                    failed_count += 1
+                    errors.append(
+                        f"conversation {transcript.index} refused: {CHATGPT_CONVERSATION_UNREADABLE_CODE}"
+                    )
+                    self._log_event(
+                        event_type="source.import_failed",
+                        target_type="source",
+                        payload={
+                            "source_type": "chatgpt_export",
+                            "title": None,
+                            "error_code": CHATGPT_CONVERSATION_UNREADABLE_CODE,
+                            "error_message": CHATGPT_CONVERSATION_UNREADABLE_MESSAGE,
+                            "metadata_json": cast(
+                                JsonObject,
+                                _label_event_value(
+                                    {"filename": file_path.name, "conversation_index": transcript.index}
+                                ),
+                            ),
                         },
                     )
-                )
-            except Exception as exc:
-                failed_count += 1
-                errors.append(SOURCE_IMPORT_ERROR_MESSAGE)
-                logger.exception(
-                    "ChatGPT conversation import failed conversation_index=%d error_code=%s",
-                    transcript.index,
-                    SOURCE_IMPORT_ERROR_CODE,
-                )
-                continue
-            deferred_embedding_inputs.extend(result.deferred_embedding_inputs)
-            if result.duplicate:
-                duplicate_count += 1
-            elif result.source_id is not None:
-                source_ids.append(result.source_id)
+                    continue
+                try:
+                    # One conversation is one unit, as one file is in the
+                    # Markdown importer: a failure part way rolls it back to
+                    # nothing and is logged after that rollback.
+                    with self.store.savepoint():
+                        result = self.capture_source(
+                            SourceCaptureInput(
+                                source_type="chatgpt_export",
+                                title=transcript.title,
+                                raw_text=transcript.raw_text,
+                                raw_path=str(file_path),
+                                connector_name="chatgpt_export",
+                                external_id=transcript.external_id,
+                                domain=domain,
+                                sensitivity=sensitivity,
+                                captured_at=captured_at,
+                                source_created_at=transcript.created_at,
+                                source_modified_at=transcript.modified_at,
+                                extract_candidates=False,
+                                metadata_json={
+                                    "filename": file_path.name,
+                                    "export_sha256": export_sha256,
+                                    "transcript_format": "chatgpt_conversation_v1",
+                                    "export_conversation_count": len(transcripts),
+                                    "conversation_index": transcript.index,
+                                    "conversation_id": transcript.external_id,
+                                    "conversation_title": transcript.title,
+                                    "message_count": transcript.message_count,
+                                },
+                            )
+                        )
+                except CaptureCredentialRefused:
+                    # A refused conversation is skipped, not failed.
+                    skipped_count += 1
+                    if _unit_verdict(file_path.name) is not None:
+                        _remember_item(credential_items, _file_phrase(file_index, file_path.name))
+                    else:
+                        _remember_item(
+                            credential_items,
+                            _conversation_phrase(
+                                _printed_label(transcript.external_id),
+                                transcript.message_count or transcript.index,
+                            ),
+                        )
+                    continue
+                except Exception as exc:
+                    failed_count += 1
+                    errors.append(SOURCE_IMPORT_ERROR_MESSAGE)
+                    logger.exception(
+                        "ChatGPT conversation import failed conversation_index=%d error_code=%s",
+                        transcript.index,
+                        SOURCE_IMPORT_ERROR_CODE,
+                    )
+                    # The event the capture wrote was rolled back with the
+                    # conversation, so this one is the only record. It carries
+                    # the index and id the rolled-back one carried, because two
+                    # conversations can share a title.
+                    self._log_failure(
+                        source_type="chatgpt_export",
+                        title=transcript.title,
+                        error=exc,
+                        metadata={
+                            "filename": file_path.name,
+                            "title": transcript.title,
+                            "conversation_index": transcript.index,
+                            "conversation_id": transcript.external_id,
+                        },
+                    )
+                    continue
+                deferred_embedding_inputs.extend(result.deferred_embedding_inputs)
+                if result.duplicate:
+                    duplicate_count += 1
+                elif result.source_id is not None:
+                    source_ids.append(result.source_id)
 
         imported_count = len(source_ids)
-        status = "ok" if failed_count == 0 else "partial"
-        if imported_count == 0 and duplicate_count > 0 and failed_count == 0:
-            status = "duplicate"
-        if imported_count == 0 and duplicate_count == 0 and failed_count > 0:
-            status = "failed"
+        status = _batch_status(
+            imported_count=imported_count,
+            duplicate_count=duplicate_count,
+            failed_count=failed_count,
+            skipped_count=skipped_count,
+        )
 
         self._log_event(
             event_type="source.batch_import_completed",
             target_type="source",
             payload={
                 "source_type": "chatgpt_export",
-                "filename": export_path.name,
-                "export_sha256": export_sha256,
-                "conversation_count": len(transcripts),
+                "filename": _stored_label(export_path.name),
+                "conversation_count": conversation_count,
                 "imported_count": imported_count,
                 "duplicate_count": duplicate_count,
                 "failed_count": failed_count,
+                "skipped_count": skipped_count,
             },
         )
         return BatchImportResult(
@@ -1665,6 +2124,9 @@ class VNextCaptureService:
             imported_count=imported_count,
             duplicate_count=duplicate_count,
             failed_count=failed_count,
+            skipped_count=skipped_count,
+            skipped_credentials=len(credential_items),
+            skipped_credential_items=tuple(credential_items),
             source_ids=tuple(source_ids),
             errors=tuple(errors),
             error_code=SOURCE_IMPORT_ERROR_CODE if failed_count else None,
@@ -1675,6 +2137,7 @@ class VNextCaptureService:
 __all__ = [
     "BatchImportResult",
     "CaptureCandidate",
+    "CaptureCredentialRefused",
     "CaptureResult",
     "SourceCaptureInput",
     "USER_ASSERTED_VALUE_CONFIDENCE",

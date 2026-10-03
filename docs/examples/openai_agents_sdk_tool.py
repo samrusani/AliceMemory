@@ -181,8 +181,10 @@ def alice_recall_memories(query: str, max_items: int = 5) -> str:
         max_items: Maximum number of memories to return (1-50).
 
     Returns:
-        JSON string with ``context_pack_id`` and ``memories`` — each entry
-        carries ``id``, ``title``, ``memory_type``, and ``text``.
+        JSON string with ``framing``, ``context_pack_id``, and ``memories``.
+        Each memory keeps the stored ``text`` byte for byte and carries
+        ``writer``. ``framing`` is the one line that says those notes are
+        data, not instructions.
     """
     payload = _post_alice(
         "/v0/vnext/context-packs",
@@ -198,11 +200,13 @@ def alice_recall_memories(query: str, max_items: int = 5) -> str:
             "title": item.get("title"),
             "memory_type": item.get("memory_type"),
             "text": item.get("canonical_text") or item.get("summary") or "",
+            "writer": item.get("writer"),
         }
         for item in payload.get("relevant_memories") or []
     ]
     return json.dumps(
         {
+            "framing": payload.get("framing"),
             "context_pack_id": payload.get("context_pack_id"),
             "memories": memories,
         },

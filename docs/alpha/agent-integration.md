@@ -57,7 +57,9 @@ reviewer promotes them. Import is a source. Commit is a fact. Print the
 Do not tell the user they must clear a review queue before a note is usable.
 
 Lifecycle tools (`alice_memory_manage`, review, correct) are also
-full-surface.
+full-surface. Finishing a `confirmation_required` write is not: it happens
+on `alice_memory_commit` itself (see
+[Explicit Memory Commits](#explicit-memory-commits)).
 
 Respect domain and sensitivity policy on every call, and use `/vnext` for
 review, audit, undo, correction, forget, and troubleshooting.
@@ -85,9 +87,19 @@ report honest statuses such as `disabled: context_depth=minimal`.
 
 ### Budget strategies and the allocation report
 
-When the request sets `max_tokens`, a greedy packer drops lowest-priority
-items to fit. `budget_strategy` (default `balanced`) controls the packing
-order — never what was retrieved or ranked:
+When the request sets `max_tokens`, a greedy packer drops the items that do
+not fit. In v0.19.2 the first item that does not fit also drops every item
+after it, so one large item ranked first leaves the pack empty.
+From v0.20.0, an item that does not fit is skipped and
+the next one is tried. When nothing fits whole, the first item that can be cut
+to fit has its text cut to the budget and ending in `…`, and the `budget`
+report adds `cut_item_count: 1`. Packed items keep their ranking order, and
+`token_estimate` never exceeds `max_tokens`. An item's ids, scope and
+metadata are priced and never cut, so a budget below the cost of the
+cheapest item with its text removed still returns no item. For rows written
+by `alice_capture` and `alice_memory_commit` that is about 320 tokens for a
+source and about 710 for a memory. `budget_strategy` (default `balanced`)
+controls the packing order, never what was retrieved or ranked:
 
 | `budget_strategy` | Packs first | Reach for it when |
 | --- | --- | --- |
@@ -105,10 +117,9 @@ entities, grounding, derived values, and item annotations; the report's
 the unique-content budget. `max_tokens` is therefore not a transport cap.
 
 `context_depth` and `budget_strategy` are fields on the context-pack
-request across the service surfaces; the matching `alice_context_pack` MCP
-tool arguments land in the same release — check the server's `tools/list`
-response (the source of truth for input schemas) before passing them, and
-keep tool payloads generic otherwise.
+request across the service surfaces. `alice_context_pack` takes both as
+arguments. The server's `tools/list` response has the exact schema. Keep
+tool payloads generic otherwise.
 
 The compact MCP result reports `serialized_token_estimate` for that exact
 compact tool payload. When the compiler also supplied complete-envelope
@@ -235,6 +246,28 @@ The public families are `authentication_failed`, `forbidden`,
 retain their documented string or array `detail` variants; all variants remain
 under the same top-level `detail` key and are described by the OpenAPI schema.
 
+From v0.20.0, a JSON request body that holds a lone
+surrogate, for example the escape `"\ud800"`, is refused with HTTP 422 and the
+array `detail` of a validation error, on every route that takes a POST, PUT,
+PATCH or DELETE, when the decoder can parse the body. The error says where the
+text is and does not repeat it. A path with no route still answers 404 and a path
+whose route does not take the method still answers 405. A body nested more
+than 256 levels deep answers HTTP 422 with an error of type `json_too_deep`, and
+a body over 4 MiB (32 MiB for `POST /v0/vnext/connectors/{name}/sync`) answers
+HTTP 413 with `detail.code` `request_too_large`, a family added to the list above.
+A layer in front of the routes answers the 413, so the OpenAPI schema does not list
+it. v0.19.2 answers HTTP 500 for a surrogate in a string field and for a body
+nested about 975 levels deep or more, and it limits no body size.
+
+From v0.20.0, a request body that is not valid UTF-8, for
+example UTF-16 or UTF-32 JSON or arbitrary bytes, is answered with HTTP 422 and the
+array `detail` of a validation error when the request has no JSON content type,
+that is, no `Content-Type` header or one such as `text/plain`. The error gives its
+type, its location and its message, and none of the body. A body that is valid
+UTF-8 is answered as before, with its text in `input`, and a request with
+`Content-Type: application/json` is answered as before. v0.19.2 answers HTTP 500
+for such a body.
+
 ## Scopes
 
 Memories carry four scopes. `user_id` is the hard tenancy boundary (RLS);
@@ -290,10 +323,35 @@ on the core MCP surface (or `POST /v0/vnext/memories/commit` over HTTP,
 agent learns something worth keeping and the user has not asked: an explicit
 instruction is one reason to commit, not a precondition. The commit is
 policy-checked
-and returns one of four outcomes — `committed`, `confirmation_required`
-(finish with `alice_memory_manage` action `confirm`), `review_required`, or
-`rejected` — never a silent write. Follow-up lifecycle verbs (`confirm`,
-`undo`, `forget`) live on `alice_memory_manage`.
+and returns one of four outcomes: `committed`, `confirmation_required`,
+`review_required`, or `rejected`. It is never a silent write.
+
+A `confirmation_required` write is not stored yet. The agent asks the user,
+then calls `alice_memory_commit` again with only the returned
+`confirmation_id` and `confirmation_action` (`confirm` or `reject`), plus its
+identity fields and an optional `rationale`. That works on the default three
+tools. It runs the same service call as `alice_memory_manage` action
+`confirm`, with the same policy check, project fence and audit trail. The
+project fence binds a key-bound scope; a keyless server trusts whatever
+`project_scope` the caller declares. An agent write above that agent's
+sensitivity ceiling is rejected and not saved. Do not retry it with a
+lower sensitivity label. Tell the user. The owner can raise this agent's
+clearance or store the memory themselves. The owner (a keyless call
+with no agent identity), an `admin_agent` key, and a keyless call that
+declares `permission_profile: admin_agent` are not held to that ceiling.
+A keyless server does not verify a declared profile. That is keyless
+owner mode. Only the author, an
+`admin_agent` key, or the owner can confirm or reject a pending write.
+On a keyless install that limit is not protection: the caller can declare
+the author's agent_id. The author can still reject their own pending
+write above the ceiling. Alice cannot tell whether the user was asked. The
+revision, the policy events and the `agent.memory_confirmed` or
+`agent.memory_confirmation_rejected` event name the key's `agent_id` when
+`ALICE_AGENT_API_KEY` is set, and the declared, unverified `agent_id` on a
+keyless server; the `memory.updated` and `memory_revision.created` events
+carry no `actor_id`. A keyless call without an `agent_id` names no agent
+on any row (`actor_type: user`). Other follow-up lifecycle verbs (`undo`,
+`forget`) live on `alice_memory_manage`, which is full-surface.
 
 Identity requirements:
 

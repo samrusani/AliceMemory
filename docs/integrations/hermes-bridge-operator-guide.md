@@ -1,9 +1,10 @@
 # Hermes Bridge Operator Guide
 
 This is the canonical operator guide for the Hermes bridge bundled with the
-Alice `v0.9.x` line. The embedded Hermes provider plugin keeps its own `0.5.1`
-integration-contract version in `plugin.yaml`; that number is not the Alice
-application release and does not imply `v1.0.0` guarantees.
+Alice `v0.9.x` line. The embedded Hermes provider plugin keeps its own `0.5.3`
+integration-contract version in `plugin.yaml` (`0.5.1` in v0.18.0 and v0.19.0,
+`0.5.2` in v0.19.2). These numbers are not the Alice
+application release and do not imply `v1.0.0` guarantees.
 
 Recommended deployment shape: **provider plus MCP**.
 
@@ -24,7 +25,8 @@ Use MCP-only as a fallback when provider install is temporarily blocked.
 - Recommended mode: `docs/integrations/examples/hermes-config.provider-plus-mcp.yaml`
 - Fallback mode: `docs/integrations/examples/hermes-config.mcp-only.yaml`
 
-Both examples use the default eleven-tool core surface and its canonical
+Both examples turn on the full eleven-tool core surface with
+`ALICE_MCP_FULL_TOOLS=1` and use its canonical
 `alice_memory_review` / `alice_memory_correct` review flow. For a key-bound
 Hermes server, set `ALICE_AGENT_API_KEY` to an issued key; do not enable the
 legacy flag, because authenticated MCP runs deliberately hide and reject the

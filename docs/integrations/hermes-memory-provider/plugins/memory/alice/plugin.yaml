@@ -1,4 +1,4 @@
 name: alice
 # Independent Hermes provider-contract version, not the Alice app version.
-version: 0.5.1
+version: 0.5.3
 description: "Alice continuity-backed external memory provider for Hermes (recall, resumption, open-loop prefetch)."

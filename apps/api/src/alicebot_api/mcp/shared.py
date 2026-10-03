@@ -40,6 +40,7 @@ from .policy import (
     _mcp_agent_policy_preflight as _mcp_agent_policy_preflight,
     _policy_checked as _policy_checked,
     _raise_mcp_policy_blocked as _raise_mcp_policy_blocked,
+    _refuse_reserved_project_marker as _refuse_reserved_project_marker,
 )
 from .runtime import (
     _SQLITE_DEFAULT_USER_DISPLAY_NAME as _SQLITE_DEFAULT_USER_DISPLAY_NAME,
@@ -52,6 +53,7 @@ from .runtime import (
     _vnext_store_context as _vnext_store_context,
 )
 from .types import (
+    MCPInvalidRequestError as MCPInvalidRequestError,
     MCPRuntimeContext as MCPRuntimeContext,
     MCPToolError as MCPToolError,
     MCPToolNotFoundError as MCPToolNotFoundError,
@@ -76,6 +78,7 @@ from .types import (
 
 __all__ = [
     "AGENT_API_KEY_ENV",
+    "MCPInvalidRequestError",
     "MCPRuntimeContext",
     "MCPToolError",
     "MCPToolNotFoundError",
@@ -131,6 +134,7 @@ __all__ = [
     "_policy_checked",
     "_raise_mcp_policy_blocked",
     "_recency_sort_key",
+    "_refuse_reserved_project_marker",
     "_render_prefetch_context_text",
     "_resolve_review_apply_action",
     "_retrieval_filter_kwargs",

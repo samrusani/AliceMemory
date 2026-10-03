@@ -71,26 +71,55 @@ SQLITE_METHODS = (
     "list_provenance_links_for_targets",
 )
 
+# All three re-minted 2026-09-23 for S4.4 round 2 (owner ruling C2, reviewed
+# change): create_memory and update_memory in both carriers call the shared
+# credential activation check, which lives in the common module, before a
+# row is created in or moved into a searchable status. Previous receipts:
+# common 191f0ebd..., postgres 1960ff3d..., sqlite 5ebda2b3...; method ASTs
+# postgres 538d5a18..., sqlite 5bd15d28.... Metadata manifests are unchanged.
 SOURCE_RECEIPTS = {
-    COMMON_PATH: "191f0ebd106cf757f5082af171da06e2e77eee518d17e80e5489e9e0d81493fe",
-    POSTGRES_CARRIER_PATH: "1960ff3dd899c63c0f298e79b7e0ea13c9115ae7aacc91081967ce9473d92f92",
+    COMMON_PATH: "8fc077dc71f0e631a2df81de2ebeec1fb6c768f341c2e7891309e4753eef7bb5",
+    POSTGRES_CARRIER_PATH: "65e23bf5c8809a5dabe3f3339500f4a8f879258b2d9ca5a91acae3331d9b54a3",
     # SQLite carrier re-minted for the Phase 4 Stage 2 resident vector cache
     # (reviewed change): redaction paths that NULL a live embedding now bump
     # the embedding_stamp token in the same transaction (prompt eviction).
-    SQLITE_CARRIER_PATH: "5ebda2b3ff1bdf5bb5dc5be44923ec600c68e85f00725541b1c35df64b9a3a85",
+    # Re-minted again for one clock reading per write (reviewed change):
+    # create_memory takes first_seen_at, last_seen_at, created_at and
+    # updated_at from the one ``now`` it reads, and update_memory takes
+    # updated_at and deleted_at from one reading, so a wall clock that steps
+    # back between two reads cannot fail memories_seen_range_check. Previous
+    # sqlite receipt 67adaa61..., method AST 3f134ac9...; the metadata
+    # manifests are unchanged.
+    SQLITE_CARRIER_PATH: "c37f6b8012de25c3e702705909ba5669141af15d6c4ad5ac381915207b863615",
 }
 EXPECTED_METHOD_AST_MANIFESTS = {
-    "postgres": "538d5a18c0dfa01b368b409832738d5a25d7ff4bd063ba17062b01fefbb05d3b",
-    "sqlite": "5bd15d28cf3b5424ad9cf8f033095827c33a5342c5caf51f8b05f3042ed880eb",
+    "postgres": "e937452df97467820cbcb42938b5f4a2336cd0157f0ca69f8f6420d4ee85211b",
+    "sqlite": "df43d593a59eb6deaf3ba935c09382e330b96a90b9f0b63314712619ba468a0d",
 }
 EXPECTED_METADATA_MANIFESTS = {
     "postgres": "af03955c805f720b8d3ec735f8202efeb5f405c8c7de1cc45cbfef3644867824",
     "sqlite": "9a5a4a9f0ae533652250a9e9854cd34a068392d71ffde98b012c9c620134d2c4",
 }
 EXPECTED_CLASS_ORDERS = {
-    # Two paired browser-clip capability methods extend both façades.
-    "PostgresVNextStore": (170, "5f28f1a17670a0c8b7b373acd0c314637c58e6a10ccf52053481a8a028bb3c09"),
-    "SQLiteVNextStore": (123, "72cbbffacc5fee804508f7e9517450c955f2c85235bd403d4f5759ee86c103e3"),
+    # Two paired browser-clip capability methods extend both façades, and one
+    # more paired method, ``list_memories_referencing_sources``.
+    # Per-file importer savepoint (2026-10-02): one paired method more, ``savepoint``, appended last.
+    # Previous receipt: (171, 526374782104a2a1...). Proof: the member list equals the list at origin/main
+    # 040a2a10 with ``savepoint`` added at the end and nothing else moved (reviewed change, not drift).
+    "PostgresVNextStore": (172, "6f1a459fcf4319cf4281f6cc0d4e81679c3e05d851fd0a874a2d90298d7c2569"),
+    # One SQLite-only method more, ``check_source_search_query``: the Postgres
+    # source search has no expression-depth or LIKE-length limit to check.
+    # Merge of #500 and #502 (2026-10-01): one more SQLite-only method,
+    # ``check_literal_match_query``, beside the paired
+    # ``list_memories_referencing_sources``. Re-minted for the merged facade
+    # (reviewed change, not drift).
+    # Per-project memory S2 (2026-10-02): two SQLite-only methods more, the single-scan partition reads
+    # ``list_memories_view_partitions`` and ``list_open_loops_view_partitions``. The Postgres runtime resolves no
+    # project view, so it has no pair. Re-minted for the facade (reviewed change, not drift).
+    # Per-file importer savepoint (2026-10-02): the same paired method, ``savepoint``, appended last.
+    # Previous receipt: (128, fae6bee37a2b06541...). Proof: the member list equals the list at origin/main
+    # 040a2a10 with ``savepoint`` added at the end and nothing else moved (reviewed change, not drift).
+    "SQLiteVNextStore": (129, "562de07a40ecd996d8b22c4e114cf229561a0d0b778b23ba3291f7e693c1f1ec"),
 }
 EXPECTED_FACADE_COMMENT_DIGESTS = {
     POSTGRES_FACADE_PATH: "d8599a46ee26dc35a3ae52c1a98a416509add9ae4a42ece780c5c5ed7e132b93",

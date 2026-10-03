@@ -39,7 +39,11 @@ from alicebot_api.vnext_projects import (
     VNextProjectStore,
     VNextProjectValidationError,
 )
-from alicebot_api.vnext_project_scope import normalize_project_scope, project_scope_identity
+from alicebot_api.vnext_project_scope import (
+    normalize_project_scope,
+    project_scope_identity,
+    refuse_global_marker,
+)
 from alicebot_api.vnext_repositories import JsonObject
 
 
@@ -560,6 +564,10 @@ class _StagedSchedulerStore:
 
 
 def _normalized_project_scope(values: tuple[str, ...]) -> tuple[str, ...]:
+    # Explicit project names only: every scheduler request takes its projects
+    # through here, and the reserved global marker would be read as a name no
+    # row holds and hide every global memory.
+    refuse_global_marker(values, where="scheduler")
     return normalize_project_scope(values)
 
 

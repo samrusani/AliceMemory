@@ -140,8 +140,21 @@ EXPECTED_PRIMITIVE_METADATA = {
 }
 EXPECTED_CLASS_KEY_SHA256 = {
     # Re-minted for the paired browser-clip capability façade methods.
-    "postgres": "88174a48507e75d260fa597319e8baec273a663b0036899d70c9550138bc6046",
-    "sqlite": "25cc77d828edc52ce8a1bea7ecc0964b9b9ad9a6656b6e0c37f4a012a03f2d8f",
+    # The sqlite hash is re-minted again for ``check_source_search_query``. It is
+    # SQLite only on purpose: the Postgres source search has no expression-depth
+    # or LIKE-length limit to check. Both are re-minted again for the paired
+    # ``list_memories_referencing_sources`` method.
+    # Re-minted for the per-file importer savepoint (2026-10-02): ``savepoint`` is appended last on both façades.
+    # Previous receipt: 650e2e0ff088d67c... Proof: the class key list equals the list at origin/main 040a2a10
+    # plus ``savepoint`` before ``__dict__``, with every other key in the same order.
+    "postgres": "3d2cd1d2fbb766ea4b5f9bf700fe6c0ccdc5fea9705092f82ead06c3ab635e50",
+    # Re-minted for the merge of #500 and #502: ``check_literal_match_query``.
+    # Re-minted again for per-project memory S2 (2026-10-02): the two single-scan partition reads
+    # ``list_memories_view_partitions`` and ``list_open_loops_view_partitions``, SQLite only on purpose
+    # (the Postgres runtime resolves no project view).
+    # Re-minted again for the per-file importer savepoint (2026-10-02), the same appended method.
+    # Previous receipt: 365b7a01acf7a8b5... Proof: as for postgres, one added key and no other change.
+    "sqlite": "e837e40125b4aeb2a135d93cc510b8dbe4c9be397500c971bcbec951ffb561b0",
 }
 EXPECTED_SUPPORT_AST_SHA256 = {
     "postgres_columns": {

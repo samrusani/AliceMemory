@@ -52,6 +52,8 @@ Optional flags:
 - `--symlink` for local development iteration
 - `--destination-root /path/to/hermes/plugins/memory` to target a specific Hermes install
 
+The installer copies the provider into Hermes. The copy does not change when you upgrade Alice, and the provider is not in the wheel. Run the installer again with `--force` to pick up a newer provider. A `--symlink` install follows the repository.
+
 ## Configure
 
 Recommended Hermes `config.yaml` examples are published here:
@@ -179,7 +181,24 @@ Practical default:
 - `bridge_mode` (string enum: `manual`, `assist`, `auto`; default `assist`)
 - `session_end_flush_timeout_seconds` (float, default `5.0`)
 
-`sync_turn_capture_enabled: false` always wins. Use that when you want bridge recall/prefetch behavior without post-turn capture, even if `bridge_mode` is `assist` or `auto`.
+`sync_turn_capture_enabled: false` always wins. Use that when you want bridge recall/prefetch behavior without post-turn capture, even if `bridge_mode` is `assist` or `auto`. `memory_write_capture_enabled` posts to `POST /v0/continuity/captures`.
+
+From v0.18.0, with `sync_turn_capture_enabled` set, or with an explicit `bridge_mode` of `assist` or `auto`, only user-role candidates that match an explicit prefix are auto-saved and the rest are queued. When a candidate extracted from the assistant reply carries a credential, the whole turn is refused, so a valid user decision in that same turn is not saved. `POST /v0/continuity/captures` refuses credential material.
+
+Correction, 2026-09-30: the paragraph above is true of the server route and false for this plugin before version 0.5.2. Plugin 0.5.1, which shipped in v0.18.0 and v0.19.0, joined each turn into one text and split it back into roles by line, so a reply that held a line break followed by `User: decision: ...` reached the route as the user's own text and was auto-saved. (In v0.17.0 that request returned HTTP 422 and nothing was stored.) The same split kept only the first line of each side, and two different turns could share one dedupe fingerprint. Separately, `POST /v1/memory/operations/commit` does not read a candidate's role: in `assist` and `auto` mode it applies an assistant-role candidate that carries an explicit prefix. The Hermes plugin does not call that route, and the rule above covers the `/v0/continuity` capture routes only.
+
+From v0.19.2, plugin 0.5.2 sends the user text and the assistant text of a turn to `POST /v0/continuity/captures/candidates` as two separate fields and never splits a joined text back into roles. A reply that contains a line starting with `User:` stays assistant text, which is at most queued for review and is never auto-saved. A multi-line user message is sent whole. Each side is capped at 3,800 characters on its own, where the joined text used to be capped once. Two different turns no longer share a dedupe fingerprint. When the candidate routes answer HTTP 404, the plugin posts one labelled `User:` and `Assistant:` text to `POST /v0/continuity/captures`, which reads no roles and derives an object only when the whole text starts with a prefix. An existing install keeps plugin 0.5.1 until you run `./scripts/install_hermes_alice_memory_provider.py --force`; a `--symlink` install picks up the change.
+
+From v0.20.0, plugin 0.5.3 replaces each lone surrogate in the user text, the assistant text, a mirrored memory write and the prefetch query with U+FFFD before it queues or sends them, so a turn that carries one is saved. A high surrogate directly followed by a low one is joined into the one character it stands for. The plugin logs and counts nothing about a replacement. Plugin 0.5.2 sent the surrogate, and the server answered HTTP 500 and dropped the turn. From v0.20.0 every route that takes a POST, PUT, PATCH or DELETE answers a JSON request body that carries a lone surrogate with HTTP 422, when the decoder can parse the body. An existing install keeps its plugin until you run `./scripts/install_hermes_alice_memory_provider.py --force`; a `--symlink` install picks up the change.
+
+From v0.19.2, `POST /v1/memory/operations/commit` reads the role. In `assist` and `auto` mode it applies only a candidate from `user_content` that matched an explicit prefix at confidence 0.9 or more, the rule the `/v0/continuity` capture commit uses. A candidate from the assistant and a phrase match from either role are `review_required`, so the correction above about that route describes v0.19.0 and earlier. The plugin does not call it.
+
+From v0.19.0, `POST /v0/continuity/captures/candidates`
+withholds a token in its response and stores nothing. Committing that
+withheld text is refused with the same 400 as a credential and stores
+nothing. In v0.18.0 that response echoes the token.
+
+In v0.17.0, `POST /v0/continuity/captures` checks for credentials only when the capture derives an object. For a client that sends `user_id` in the body, a capture that derives no object stores its raw text in the capture inbox, credential material included. The Hermes memory-write mirror sends the user id only in a header, so in v0.17.0 it got HTTP 422 and stored nothing. Auto-save is broader: `assist` auto-saves any explicit candidate of an allowed type at confidence 0.9 or more, from either role, and `auto` auto-saves an allowed type at confidence 0.85 or more. The `sync_turn` capture can also fail with HTTP 422, because the plugin sends the user id only in the `X-AliceBot-User-Id` header.
 
 Legacy compatibility keys still accepted for shipped configs:
 

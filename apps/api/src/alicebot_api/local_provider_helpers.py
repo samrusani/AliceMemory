@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any
 from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
+from urllib.request import Request
 
 from alicebot_api.contracts import (
     ModelFinishReason,
@@ -11,7 +11,8 @@ from alicebot_api.contracts import (
     ModelInvocationResponse,
     ModelUsagePayload,
 )
-from alicebot_api.provider_security import validate_provider_base_url
+from alicebot_api.provider_http import open_provider_url
+from alicebot_api.provider_security import redirect_note, validate_provider_base_url
 from alicebot_api.response_generation import (
     ModelInvocationError,
     ModelProviderUnavailableError,
@@ -51,10 +52,10 @@ def request_json(
         request_headers["Content-Type"] = "application/json"
     request = Request(endpoint, data=body, headers=request_headers, method=method)
     try:
-        with urlopen(request, timeout=timeout_seconds) as response:  # nosec B310
+        with open_provider_url(request, timeout=timeout_seconds, enforce_public_peer=True) as response:
             raw_payload = response.read()
     except HTTPError as exc:
-        raise ModelInvocationError(f"model provider returned HTTP {exc.code}") from exc
+        raise ModelInvocationError(f"model provider returned HTTP {exc.code}{redirect_note(exc.code)}") from exc
     except TimeoutError as exc:
         raise ModelProviderUnavailableError("model provider request timed out") from exc
     except URLError as exc:
@@ -86,10 +87,10 @@ def request_ok(
         request_headers.update(headers)
     request = Request(endpoint, headers=request_headers, method=method)
     try:
-        with urlopen(request, timeout=timeout_seconds) as response:  # nosec B310
+        with open_provider_url(request, timeout=timeout_seconds, enforce_public_peer=True) as response:
             response.read()
     except HTTPError as exc:
-        raise ModelInvocationError(f"model provider returned HTTP {exc.code}") from exc
+        raise ModelInvocationError(f"model provider returned HTTP {exc.code}{redirect_note(exc.code)}") from exc
     except TimeoutError as exc:
         raise ModelProviderUnavailableError("model provider request timed out") from exc
     except URLError as exc:

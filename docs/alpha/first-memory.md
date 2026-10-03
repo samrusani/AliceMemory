@@ -32,9 +32,11 @@ From a human client (Claude Desktop, an IDE) connected to the Alice MCP server, 
 Alice returns one of:
 
 - `committed`
-- `confirmation_required` (finish with `alice_memory_manage`, action `confirm`)
+- `confirmation_required` (nothing is stored yet; an agent must ask the user first, showing them the proposed text, then finish it by calling `alice_memory_commit` again with the returned `confirmation_id`, `confirmation_action` set to `confirm` or `reject` from the user's answer, the same identity fields if the write carried any, and no memory fields. Alice cannot tell whether anyone was asked, so an agent must never answer for the user.)
 - `review_required`
 - `rejected`
+
+Unreleased (on main, not in v0.20.0): with `ALICE_MCP_COMMIT_RESULT=compact` in the server's environment the answer is about 0.6 KB for a one-sentence fact and carries the memory `id`, the outcome, the `receipt`, the reasons a write was held, and for a held write the `confirmation_id` and the proposed text. In v0.20.0 it is about 3.7 KB with the whole stored row. See [The commit result](mcp-tools.md#the-commit-result).
 
 Now prove it round-trips:
 

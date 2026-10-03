@@ -2,13 +2,13 @@
 
 ## Baseline (Not Roadmap Work)
 
-- `v0.15.7` is the latest published release. Its immutable release record is
-  `docs/release/v0.15.7-release-notes.md`, with artifact digests in
-  `docs/release/v0.15.7-checksums.txt`. (The `v0.13.0` tag was never
-  published; superseded.)
+- `v0.20.0` is the latest published release. Its immutable release record is
+  `docs/release/v0.20.0-release-notes.md`, with artifact digests in
+  `docs/release/v0.20.0-checksums.txt`. `v0.19.2` is the immediately prior
+  published release. (The `v0.13.0`, `v0.15.0` and `v0.19.1` tags were never
+  published.)
 - `v0.11.0` shipped the Phase 1 periphery cut; `v0.11.1` shipped the Phase 2
-  debt sweep. Their tags, release records, and published artifacts are not
-  changed by the Phase 3 carrier.
+  debt sweep. Their records are unchanged.
 - `v0.12.0` shipped the Phase 3 structural refactor with **Structure only.
   Zero behavior change.** `v0.13.1` shipped the Phase 4 core roadmap:
   three-run benchmark replication on a pinned manifest, SQLite vector scale
@@ -20,15 +20,23 @@
   with per-question evidence for every run committed. That harness is not
   the product path. `pack_excerpts` is the product-path mode and is not
   yet a published score. The earlier **79.4% (397/500)** single run from
-  2026-07-07 is retained as evidence.
+  2026-07-07 is retained as evidence. Known issue: the harness showed the
+  reader model each session's id, and in this dataset every evidence session
+  id starts with `answer_`. The effect is unmeasured, so both numbers may be
+  overstated by an unknown amount. See the README Benchmark section.
 - Detailed v0.10.4 repair-batch chronology is historical evidence under
   `docs/handoff/history/`; it is not current roadmap work.
 
 ## Next
 
-`v0.14.0` (Phase 5 enterprise track) is released; the next phase begins here.
-Phases 1 through 5 are shipped and recorded in their release notes. Of the
-former roadmap list, benchmark replication, multi-session synthesis
+Phases 1 to 5 shipped by `v0.14.0`. `v0.16.0` put the default loop on the
+wheel, and `v0.17.0` hardened install and the write paths. Next is host
+coverage and skill packs. From `v0.18.0`, OpenCode is an opt-in
+`alice-memory install` host, and from `v0.19.0` Codex is one too. The Claude
+Code plugin directory ships in `v0.19.0`. The skill pack revisions are in
+design.
+
+Of the former roadmap list, benchmark replication, multi-session synthesis
 measurement, reference integrations, SQLite vector scale, and the enterprise
 evidence base (real-host single-tenant deployment contract executed end to
 end, least-privilege operations, encrypted off-host backups with a tested
@@ -86,9 +94,8 @@ restore, recorded security disposition) shipped in Phases 4 and 5.
   invocation.
 - A consumer knowledge-management product.
 - OCR or transcription execution; Alice accepts text extracted elsewhere.
-- Re-expanding the default MCP surface beyond the eleven core tools.
+- Growing the core MCP surface past eleven tools. The default handshake stays
+  at three.
 
-`v0.15.7` is the latest published release and remains the install, checksum,
+`v0.20.0` is the latest published release and remains the install, checksum,
 and baseline reference.
-
-`v0.16.0` is the current release candidate. It is not published.

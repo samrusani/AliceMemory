@@ -2,7 +2,9 @@
 
 The canonical setup walkthrough lives at [docs/alpha/quickstart.md](../alpha/quickstart.md).
 
-Short version:
+The default setup is one command, `uvx alice-memory install`. It uses one local SQLite file and needs no Docker or Postgres.
+
+For the Postgres stack, the short version is below. The clone checks out `main`, which can be ahead of the latest release. To run v0.20.0, run `git checkout v0.20.0` before `make setup`.
 
 ```bash
 git clone https://github.com/samrusani/AliceMemory.git
@@ -13,9 +15,9 @@ make doctor
 make dev
 ```
 
-## Minimal Profile (Alice Lite)
+## Alice Lite (Smaller Postgres Profile)
 
-Alice Lite is a lighter local deployment profile of the same system, not a separate product. If you want the smallest possible local footprint:
+The smallest setup is the SQLite install above: one file, no Docker or Postgres. Alice Lite is a smaller Postgres deployment profile of the same system, not a separate product. Use it when you want the Postgres stack with a smaller footprint:
 
 ```bash
 ./scripts/alice_lite_up.sh

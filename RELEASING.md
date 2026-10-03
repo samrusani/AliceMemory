@@ -2,7 +2,7 @@
 
 
 
-`v0.15.7` is the latest published release and remains the checksum/install
+`v0.20.0` is the latest published release and remains the checksum/install
 baseline.
 Preparing candidate documents does not authorize a tag, PyPI upload, or GitHub
 Release.
@@ -20,7 +20,33 @@ A stable publication uses all of the following on the same commit:
 - package version `X.Y.Z`;
 - annotated Git tag `vX.Y.Z`;
 - non-draft, non-prerelease GitHub release `vX.Y.Z`;
-- wheel and sdist metadata version `X.Y.Z`.
+- wheel and sdist metadata version `X.Y.Z`;
+- `packaging/mcpb/manifest.json` version `X.Y.Z`.
+- `plugins/alice-memory/.claude-plugin/plugin.json` version `X.Y.Z`, and both
+  plugin commands pin `alice-memory==X.Y.Z`.
+
+The release PR bumps `pyproject.toml`, `apps/web/package.json`,
+`packaging/mcpb/manifest.json`, and the plugin (version and both pins) to
+that same version.
+
+For the first release that ships the plugin, the release PR's README wording
+says it is available from the marketplace once the release is published. The
+post-publication PR changes that wording to say it installs from the
+marketplace.
+
+The post-publication PR adds `.claude-plugin/marketplace.json` at the
+repository root, or, when the file exists, moves its plugin entry's `ref` and
+`sha` to the new tag. The file has `name` `alicememory`, `owner` with `name`
+`Alice Memory`, a `description`, and one plugin entry. That entry's `name`
+matches `plugin.json`. Its `source` is `git-subdir`, with `url`
+`https://github.com/samrusani/AliceMemory.git` (in this field the `owner/repo`
+shorthand made Claude Code 2.1.281 clone over SSH in CI, which fails without
+GitHub SSH keys; `claude plugin marketplace add` with the shorthand is a
+different path and added the marketplace over HTTPS on a CI runner with no SSH
+key),
+`path` `plugins/alice-memory`, `ref` `vX.Y.Z`,
+and `sha`, the full 40-character lowercase tag commit. Then it dispatches
+the marketplace check in the real-host workflow.
 
 ## Manual Repository Prerequisites
 
@@ -43,6 +69,15 @@ readback:
    GITHUB_TOKEN="$(gh auth token)" python scripts/check_github_release_checks.py \
      --repo OWNER/REPOSITORY --sha RELEASE_SHA --check-rulesets
    ```
+
+   The required check named `Unit tests + live eval battery (SQLite)` is the
+   summary job of the unit tests in `tests.yml`. The unit tests run as three
+   shard jobs, the model-free eval battery runs in its own job, and a coverage
+   job combines the shard data and enforces the coverage threshold. The summary
+   needs all of them, runs whatever they did, and fails unless each one
+   succeeded. Keep its name and its `if: always()`, and do not require the shard
+   jobs one by one: a skipped required check counts as passing, and the shard
+   check runs are not in the ruleset or in the exact-SHA check by design.
 
    If that readback reports drift in `MainProtect`, an authorized repository
    administrator can prepare and inspect an update that preserves every
@@ -209,13 +244,15 @@ compact dataset-manifest/slice consistency contract, and the offline evidence
 replay. Web gates include units, core plus vNext per-file coverage,
 TypeScript, lint, the production build, navigation/axe/outage browser
 tests, and bundle budgets. It also builds both distributions, runs Twine, and
-tests the installed wheel/sdist across all four public entrypoints. It first
-fetches `origin/main`, and writes `$DIST_DIR/SHA256SUMS` only after both
+tests the installed wheel and sdist across all five console entrypoints. It
+first fetches `origin/main`, and writes `$DIST_DIR/SHA256SUMS` only after both
 artifacts pass.
 
 Web dependency auditing deliberately remains on
 `apps/web/scripts/npm-advisory-audit.mjs` while the reproducible web toolchain
-is pinned to Node 20 and pnpm 10.23.0. pnpm 11 now uses npm's bulk advisory
+is pinned to Node 22.22.2 and pnpm 10.23.0. From v0.19.0, the web test job
+and the deployment-guide smoke job pin Node 22.22.2. The v0.18.0 tag pins
+those jobs to Node 20. pnpm 11 now uses npm's bulk advisory
 endpoint, as recorded in the [pnpm 11 audit migration](https://github.com/orgs/pnpm/discussions/11377),
 but upgrading the package-manager major is a separate compatibility carrier.
 The repository wrapper already calls that bulk endpoint directly and fails
@@ -372,6 +409,24 @@ The `Publish to PyPI` workflow then:
 - only after the PyPI job succeeds, verifies the staged files against PyPI's
   recorded SHA-256 digests and makes that same draft non-draft and immutable.
 
+Only the first job installs the project. The jobs that stage the draft,
+finalize, resume and recover a release run scripts on the runner's bare Python,
+without `alicebot_api` (one job installs only `build`), so every script they
+run imports only the standard library, and no sibling script either: a script
+started by path has its own directory on `sys.path` and not the repository
+root, and the tests load these scripts as `scripts.X` and run them under
+`python -I`, where a bare sibling name does not resolve.
+`tests/unit/test_publish_workflow_lean_job_imports.py` reads the jobs from
+`publish-pypi.yml` and enforces that, and runs the scripts under `python -I -S`,
+including the rebuild comparison and the finalize, resume and recovery
+invocations with PyPI answered offline. Each set of flags a lean job passes to
+`release_check.py` has to be one the test runs, so a new flag needs a test. A
+step in one of those jobs that runs inline Python (`python -c`, a heredoc, a
+variable holding the interpreter, a `shell:` of python) fails the test unless
+the test file allowlists it with a reason. A step that names a script in a form
+the test cannot read fails it outright. `v0.19.1` was never published because a
+release script imported the package in one of those jobs.
+
 ### Recovering finalization after PyPI succeeds
 
 The workflow deliberately stages and verifies a draft before crossing the
@@ -431,7 +486,5 @@ the tag and must not have claimed publication early.
 Verify checksum files on Linux with `sha256sum -c SHA256SUMS` and on stock
 macOS with `shasum -a 256 -c SHA256SUMS`.
 
-`v0.15.7` is the latest published release and remains the install, checksum,
+`v0.20.0` is the latest published release and remains the install, checksum,
 and baseline reference.
-
-`v0.16.0` is the current release candidate. It is not published.

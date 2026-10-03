@@ -93,7 +93,7 @@ def test_get_embedding_provider_returns_none_when_unconfigured(monkeypatch) -> N
 def test_embed_batch_posts_openai_shape_and_pads_vectors(monkeypatch) -> None:
     captured: dict[str, object] = {}
 
-    def fake_urlopen(request, timeout):
+    def fake_urlopen(request, timeout, enforce_public_peer):
         captured["url"] = request.full_url
         captured["timeout"] = timeout
         captured["headers"] = dict(request.header_items())
@@ -108,7 +108,7 @@ def test_embed_batch_posts_openai_shape_and_pads_vectors(monkeypatch) -> None:
         ).encode("utf-8")
         return _FakeResponse(body)
 
-    monkeypatch.setattr(vnext_embeddings, "urlopen", fake_urlopen)
+    monkeypatch.setattr(vnext_embeddings, "open_provider_url", fake_urlopen)
     provider = OpenAICompatibleEmbeddingProvider(
         base_url="http://localhost:11434/v1/",
         model="nomic-embed-text",
@@ -131,8 +131,8 @@ def test_embed_batch_normalizes_non_utf8_response_to_typed_provider_error(
 ) -> None:
     monkeypatch.setattr(
         vnext_embeddings,
-        "urlopen",
-        lambda request, timeout: _FakeResponse(b"\xff\xfe\xfa"),
+        "open_provider_url",
+        lambda request, timeout, enforce_public_peer: _FakeResponse(b"\xff\xfe\xfa"),
     )
     provider = OpenAICompatibleEmbeddingProvider(
         base_url="http://localhost:1234/v1",
@@ -168,8 +168,8 @@ def test_embed_batch_normalizes_non_utf8_response_to_typed_provider_error(
 def test_embed_batch_rejects_non_permutation_indices(monkeypatch, data) -> None:
     monkeypatch.setattr(
         vnext_embeddings,
-        "urlopen",
-        lambda request, timeout: _FakeResponse(json.dumps({"data": data}).encode("utf-8")),
+        "open_provider_url",
+        lambda request, timeout, enforce_public_peer: _FakeResponse(json.dumps({"data": data}).encode("utf-8")),
     )
     provider = OpenAICompatibleEmbeddingProvider(
         base_url="http://localhost:1234/v1", model="local-embed"
@@ -182,8 +182,8 @@ def test_embed_batch_rejects_non_permutation_indices(monkeypatch, data) -> None:
 def test_embed_batch_without_indices_preserves_response_order(monkeypatch) -> None:
     monkeypatch.setattr(
         vnext_embeddings,
-        "urlopen",
-        lambda request, timeout: _FakeResponse(
+        "open_provider_url",
+        lambda request, timeout, enforce_public_peer: _FakeResponse(
             json.dumps(
                 {"data": [{"embedding": [0.1]}, {"embedding": [0.2]}]}
             ).encode("utf-8")
@@ -202,12 +202,12 @@ def test_embed_batch_without_indices_preserves_response_order(monkeypatch) -> No
 def test_embed_batch_omits_authorization_header_without_api_key(monkeypatch) -> None:
     captured: dict[str, object] = {}
 
-    def fake_urlopen(request, timeout):
+    def fake_urlopen(request, timeout, enforce_public_peer):
         del timeout
         captured["headers"] = {key.casefold(): value for key, value in request.header_items()}
         return _FakeResponse(json.dumps({"data": [{"index": 0, "embedding": [0.1]}]}).encode("utf-8"))
 
-    monkeypatch.setattr(vnext_embeddings, "urlopen", fake_urlopen)
+    monkeypatch.setattr(vnext_embeddings, "open_provider_url", fake_urlopen)
     provider = OpenAICompatibleEmbeddingProvider(base_url="http://localhost:1234/v1", model="local-embed")
 
     provider.embed_text("local server text")
@@ -218,8 +218,8 @@ def test_embed_batch_omits_authorization_header_without_api_key(monkeypatch) -> 
 def test_embed_batch_raises_provider_error_on_bad_payload(monkeypatch) -> None:
     monkeypatch.setattr(
         vnext_embeddings,
-        "urlopen",
-        lambda request, timeout: _FakeResponse(json.dumps({"unexpected": True}).encode("utf-8")),
+        "open_provider_url",
+        lambda request, timeout, enforce_public_peer: _FakeResponse(json.dumps({"unexpected": True}).encode("utf-8")),
     )
     provider = OpenAICompatibleEmbeddingProvider(base_url="http://localhost:1234/v1", model="local-embed")
 
@@ -380,7 +380,7 @@ def test_attach_memory_embedding_writes_vector_with_provider() -> None:
 
     attached = attach_memory_embedding(
         store,
-        {"id": "memory-1", "title": "Fact", "canonical_text": "Fact text."},
+        {"status": "active", "id": "memory-1", "title": "Fact", "canonical_text": "Fact text."},
         provider=_StubProvider(),
     )
 
@@ -403,7 +403,7 @@ def test_attach_memory_embedding_logs_event_but_never_blocks_on_failure() -> Non
 
     attached = attach_memory_embedding(
         store,
-        {"id": "memory-1", "canonical_text": "Fact text."},
+        {"status": "active", "id": "memory-1", "canonical_text": "Fact text."},
         provider=_StubProvider(fail=True),
         actor_type="agent",
         actor_id="hermes",
@@ -427,7 +427,7 @@ def test_attach_memory_embedding_never_blocks_on_store_write_failure() -> None:
 
     attached = attach_memory_embedding(
         store,
-        {"id": "memory-1", "canonical_text": "Fact text."},
+        {"status": "active", "id": "memory-1", "canonical_text": "Fact text."},
         provider=_StubProvider(),
     )
 
@@ -451,9 +451,9 @@ def test_attach_memory_embeddings_batches_provider_call_and_isolates_store_failu
     attached = attach_memory_embeddings(
         store,
         [
-            {"id": "memory-1", "canonical_text": "First fact."},
-            {"id": "memory-2", "canonical_text": "Second fact."},
-            {"id": "memory-3", "canonical_text": "Third fact."},
+            {"status": "active", "id": "memory-1", "canonical_text": "First fact."},
+            {"status": "active", "id": "memory-2", "canonical_text": "Second fact."},
+            {"status": "active", "id": "memory-3", "canonical_text": "Third fact."},
         ],
         provider=provider,
     )
@@ -474,7 +474,7 @@ def test_two_phase_embedding_prepares_without_store_then_persists_best_effort() 
 
     inputs = tuple(
         DeferredMemoryEmbedding.from_memory(
-            {"id": f"memory-{index}", "canonical_text": f"Fact {index}."}
+            {"status": "active", "id": f"memory-{index}", "canonical_text": f"Fact {index}."}
         )
         for index in range(1, 4)
     )
@@ -503,7 +503,7 @@ def test_two_phase_embedding_does_not_count_stale_compare_and_set_miss() -> None
 
     inputs = (
         DeferredMemoryEmbedding.from_memory(
-            {"id": "memory-1", "canonical_text": "Text before an edit."}
+            {"status": "active", "id": "memory-1", "canonical_text": "Text before an edit."}
         ),
     )
     preparation = prepare_memory_embeddings(inputs, provider=_StubProvider())
@@ -514,7 +514,7 @@ def test_two_phase_embedding_does_not_count_stale_compare_and_set_miss() -> None
 def test_two_phase_embedding_carries_provider_failures_to_persistence_log() -> None:
     inputs = (
         DeferredMemoryEmbedding.from_memory(
-            {"id": "memory-1", "canonical_text": "Fact text."}
+            {"status": "active", "id": "memory-1", "canonical_text": "Fact text."}
         ),
     )
 
@@ -545,7 +545,7 @@ def test_best_effort_deferred_embedding_swallows_connection_acquire_failure(
 
     deferred = (
         DeferredMemoryEmbedding.from_memory(
-            {"id": "memory-1", "canonical_text": "Fact text."}
+            {"status": "active", "id": "memory-1", "canonical_text": "Fact text."}
         ),
     )
 
@@ -579,7 +579,7 @@ def test_best_effort_deferred_embedding_isolates_store_write_failure() -> None:
     store = WriteFailureStore()
     deferred = (
         DeferredMemoryEmbedding.from_memory(
-            {"id": "memory-1", "canonical_text": "Fact text."}
+            {"status": "active", "id": "memory-1", "canonical_text": "Fact text."}
         ),
     )
 
@@ -612,7 +612,7 @@ def test_best_effort_deferred_embedding_swallows_followup_commit_failure(
     store = _AttachStore()
     deferred = (
         DeferredMemoryEmbedding.from_memory(
-            {"id": "memory-1", "canonical_text": "Fact text."}
+            {"status": "active", "id": "memory-1", "canonical_text": "Fact text."}
         ),
     )
 

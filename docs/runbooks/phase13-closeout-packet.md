@@ -1,5 +1,7 @@
 # Phase 13 Closeout Packet
 
+> Historical: kept for reference; not current guidance.
+
 ## Purpose
 Capture the release-aligned closeout state for the completed Phase 13 boundary.
 

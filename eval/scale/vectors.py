@@ -16,7 +16,7 @@ Two delivery mechanisms, both producing identical vectors:
   (both take an ``embedding_provider`` argument).
 - :class:`stub_embeddings_server` runs a local OpenAI-compatible
   ``/embeddings`` endpoint so ambient ``get_embedding_provider()`` callers
-  (capture and memory-commit embed-on-write) exercise the real
+  (memory-commit embed-on-write, and acceptance of a candidate) exercise the real
   ``OpenAICompatibleEmbeddingProvider`` HTTP client path end to end.
 
 Caveat carried into the published results: this makes embedding computation

@@ -38,12 +38,25 @@ Changes that advertise Python 3.13 or 3.14 compatibility must also pass the
 representative SQLite/config/MCP functional selection under those interpreters;
 CI runs that matrix for every pull request.
 
-The Postgres integration command needs the role-separated test environment
-documented in `RELEASING.md`. Run bridge checks when the change touches those
-surfaces:
+The Postgres integration commands need the role-separated test environment
+documented in `RELEASING.md`. CI runs the suite with the legacy surfaces
+mounted, then runs the default-surface smoke with them unset:
 
 ```bash
-./.venv/bin/python -m pytest tests/integration -q
+ALICE_LEGACY_SURFACES=1 ./.venv/bin/python -m pytest tests/integration -q
+env -u ALICE_LEGACY_SURFACES -u ALICE_MCP_LEGACY_TOOLS -u ALICE_AGENT_API_KEY \
+  ./.venv/bin/python -m pytest tests/integration/test_default_surface_integration.py \
+  tests/integration/test_openai_agents_sdk_tool.py -q --require-executed-tests
+```
+
+Both read `DATABASE_URL` (the app role) and `DATABASE_ADMIN_URL` (the admin
+role). Without them, the tests use the same local roles as `.env.example`. The
+database needs pgvector 0.8 or later. `make test-python` runs the first
+command, so it needs that database too.
+
+Run the Hermes bridge checks when the change touches the Hermes bridge:
+
+```bash
 ./.venv/bin/python scripts/run_hermes_memory_provider_smoke.py
 ./.venv/bin/python scripts/run_hermes_mcp_smoke.py
 ./.venv/bin/python scripts/run_hermes_bridge_demo.py

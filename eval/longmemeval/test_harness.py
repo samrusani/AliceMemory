@@ -40,6 +40,7 @@ from longmemeval.dataset import (  # noqa: E402
     resolve_dataset_path,
 )
 from longmemeval.fetch import LongMemEvalFetchError, sha256_of_file, verify_file  # noqa: E402
+from longmemeval.session_labels import SESSION_LABEL_MODE_RAW, session_labeler_for_question  # noqa: E402
 
 _SCRIPTS_DIR = _EVAL_DIR.parent / "scripts"
 if str(_SCRIPTS_DIR) not in sys.path:
@@ -482,7 +483,9 @@ def _packing_run() -> adapter.QuestionRun:
             "src-c": [_padded("the puppy came home from the shelter and slept all afternoon")],
         }
     )
-    return adapter.QuestionRun(question, store)  # type: ignore[arg-type]
+    # Stub stores hold the literal session ids written in this module, so the packing
+    # logic is tested in raw mode; labelling is tested in test_session_label_leak_guard.py.
+    return adapter.QuestionRun(question, store, session_label_mode=SESSION_LABEL_MODE_RAW)  # type: ignore[arg-type]
 
 
 def _packing_pack() -> dict[str, object]:
@@ -678,7 +681,13 @@ def _anchoring_run(
             "answer_session_ids": ["session_stub"],
         }
     )
-    return adapter.QuestionRun(question, _AnchorStubStore(chunks_by_source, sessions))  # type: ignore[arg-type]
+    # Stub stores hold the literal session ids written in this module, so the packing
+    # logic is tested in raw mode; labelling is tested in test_session_label_leak_guard.py.
+    return adapter.QuestionRun(  # type: ignore[arg-type]
+        question,
+        _AnchorStubStore(chunks_by_source, sessions),
+        session_label_mode=SESSION_LABEL_MODE_RAW,
+    )
 
 
 def _entry_cost(chunk_text: str, session_id: str, date: str, excerpt_ordinal: int) -> int:
@@ -1441,8 +1450,12 @@ def test_retrieval_outcome_record_carries_pack_provenance(tmp_path: Path) -> Non
     assert outcome.context_block not in json.dumps(record)  # compact: hash, not text
     session_ids = provenance["source_session_ids"]
     assert isinstance(session_ids, list) and session_ids
+    # Rows record session LABELS (keyed hashes by default), never the raw ids.
+    labeler = session_labeler_for_question(question)
     haystack_sessions = set(question.haystack_session_ids)
-    assert all(session_id in haystack_sessions for session_id in session_ids)
+    assert all(labeler.is_known_label(session_id) for session_id in session_ids)
+    assert not any(session_id in haystack_sessions for session_id in session_ids)
+    assert {labeler.raw_id(session_id) for session_id in session_ids} <= haystack_sessions
     assert len(session_ids) == record["source_count"]
     memory_ids = provenance["memory_ids"]
     assert isinstance(memory_ids, list)
@@ -1700,22 +1713,23 @@ def _coverage_question(question_id: str, question_type: str, answer_session_ids:
 
 def test_coverage_row_math() -> None:
     question = _coverage_question("q_cov", "multi-session", ["s1", "s2"])
+    raw = SESSION_LABEL_MODE_RAW
     # All evidence retrieved (extra retrieved sessions do not hurt).
-    row = coverage_probe.coverage_row(question, {"s1", "s2", "s3"})
+    row = coverage_probe.coverage_row(question, {"s1", "s2", "s3"}, session_label_mode=raw)
     assert (row["n_evidence"], row["n_hit"]) == (2, 2)
     assert row["any_coverage"] is True and row["all_coverage"] is True
     assert row["missed_session_ids"] == []
     # Partial: any but not all.
-    row = coverage_probe.coverage_row(question, {"s2", "s3"})
+    row = coverage_probe.coverage_row(question, {"s2", "s3"}, session_label_mode=raw)
     assert (row["n_evidence"], row["n_hit"]) == (2, 1)
     assert row["any_coverage"] is True and row["all_coverage"] is False
     assert row["missed_session_ids"] == ["s1"]
     # Miss: neither.
-    row = coverage_probe.coverage_row(question, {"s3"})
+    row = coverage_probe.coverage_row(question, {"s3"}, session_label_mode=raw)
     assert row["n_hit"] == 0
     assert row["any_coverage"] is False and row["all_coverage"] is False
     # No evidence ids: coverage undefined, excluded from percentages.
-    row = coverage_probe.coverage_row(_coverage_question("q_abs", "multi-session", []), {"s1"})
+    row = coverage_probe.coverage_row(_coverage_question("q_abs", "multi-session", []), {"s1"}, session_label_mode=raw)
     assert row["any_coverage"] is None and row["all_coverage"] is None
 
 
@@ -1724,11 +1738,12 @@ def test_summarize_rows_per_type_percentages() -> None:
     q_partial = _coverage_question("q2", "multi-session", ["s1", "s2"])
     q_miss = _coverage_question("q3", "temporal-reasoning", ["s1"])
     q_unscored = _coverage_question("q4", "temporal-reasoning", [])
+    raw = SESSION_LABEL_MODE_RAW
     rows = [
-        coverage_probe.coverage_row(q_all, {"s1", "s2"}),
-        coverage_probe.coverage_row(q_partial, {"s1"}),
-        coverage_probe.coverage_row(q_miss, {"s3"}),
-        coverage_probe.coverage_row(q_unscored, {"s3"}),
+        coverage_probe.coverage_row(q_all, {"s1", "s2"}, session_label_mode=raw),
+        coverage_probe.coverage_row(q_partial, {"s1"}, session_label_mode=raw),
+        coverage_probe.coverage_row(q_miss, {"s3"}, session_label_mode=raw),
+        coverage_probe.coverage_row(q_unscored, {"s3"}, session_label_mode=raw),
     ]
     summary = coverage_probe.summarize_rows(rows)
     assert summary["overall"] == {"questions": 4, "scored": 3, "any_coverage": 0.6667, "all_coverage": 0.3333}

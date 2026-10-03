@@ -1,7 +1,7 @@
 # Reference Integration Paths
 
 This page is the path-selection guide for external builders adopting Alice on
-top of the latest published `v0.15.7` baseline. Later changes on `main` are
+top of the latest published `v0.20.0` baseline. Later changes on `main` are
 unreleased until they receive a release
 identity and publication evidence.
 
@@ -40,8 +40,8 @@ a local SQLite file with no server to operate.
 
 - entrypoint: `uvx alice-memory mcp` (or `alice-memory mcp` from an install)
 - runnable example: `docs/examples/mcp_quickstart.py` spawns the packaged
-  server, verifies the eleven-core-tool surface over live `tools/list`, and
-  round-trips a capture, commit, and recall over stdio
+  server, checks the default three-tool surface over live `tools/list`, and
+  round-trips a commit and a recall over stdio
 - CI smoke: `tests/integration/test_mcp_quickstart.py`
 - client configuration snippets: `docs/integrations/mcp.md`
 

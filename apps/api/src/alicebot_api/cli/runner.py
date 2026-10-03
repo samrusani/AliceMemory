@@ -19,6 +19,7 @@ from alicebot_api.continuity_review import ContinuityReviewNotFoundError, Contin
 from alicebot_api.task_briefing import TaskBriefNotFoundError, TaskBriefValidationError
 from alicebot_api.temporal_state import TemporalStateValidationError
 from alicebot_api.trusted_fact_promotions import TrustedFactPromotionNotFoundError
+from alicebot_api.vnext_capture import ImportFileTooLargeRefused as _ImportFileTooLargeRefused
 from alicebot_api.vnext_capture import VNextCaptureValidationError
 from alicebot_api.vnext_brain import VNextBrainValidationError
 from alicebot_api.vnext_connections import VNextConnectionValidationError
@@ -34,12 +35,13 @@ from .constants import (
     _CLI_FILESYSTEM_FAILED,
     _CLI_INVALID_REQUEST,
     _CLI_NOT_FOUND,
+    _CLI_SQLITE_IMPORT,
     logger,
 )
 from .errors import EmbeddingBackfillFailure, EvalGateFailure, PartialCommandFailure, _emit_cli_error
 from .arguments import _validate_arguments
 from .parser import build_parser
-from .shared import _build_context
+from .shared import _SqliteImportCommandError, _build_context
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -123,7 +125,19 @@ def main(argv: list[str] | None = None) -> int:
             TaskBriefValidationError,
             TemporalStateValidationError,
         )
-        if isinstance(exc, not_found_errors):
+        exit_code = 1
+        if isinstance(exc, _SqliteImportCommandError):
+            code, message = _CLI_SQLITE_IMPORT
+            # invalid_request from argument parsing exits 2. This refusal is
+            # the same class of bad request.
+            exit_code = 2
+        elif isinstance(exc, _ImportFileTooLargeRefused):
+            # The one capture refusal that has a type and a message of its own.
+            # The text holds a file name that was checked against the credential
+            # floor, two sizes and nothing from the file.
+            code = exc.reason_code
+            message = f"{exc}. Raise the limit with --max-file-mib, or import a smaller file."
+        elif isinstance(exc, not_found_errors):
             code, message = _CLI_NOT_FOUND
         elif isinstance(exc, invalid_request_errors):
             code, message = _CLI_INVALID_REQUEST
@@ -139,7 +153,7 @@ def main(argv: list[str] | None = None) -> int:
             exc_info=(type(exc), exc, exc.__traceback__),
         )
         _emit_cli_error(code=code, message=message)
-        return 1
+        return exit_code
     except EvalGateFailure as exc:
         # Honor the JSON output contract (report to stdout) while signaling a
         # nonzero exit for a failing / not-fully-passing eval report.

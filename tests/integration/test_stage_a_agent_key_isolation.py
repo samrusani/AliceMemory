@@ -35,7 +35,7 @@ def _invoke_get(
     async def send(message: dict[str, object]) -> None:
         messages.append(message)
 
-    headers: list[tuple[bytes, bytes]] = [(b"content-type", b"application/json")]
+    headers: list[tuple[bytes, bytes]] = [(b"host", b"127.0.0.1:8000"), (b"content-type", b"application/json")]
     if authorization is not None:
         headers.append((b"authorization", authorization.encode("utf-8")))
     scope = {

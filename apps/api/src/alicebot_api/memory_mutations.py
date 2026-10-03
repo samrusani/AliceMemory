@@ -5,7 +5,8 @@ import re
 from typing import cast
 from uuid import UUID, uuid4
 
-from alicebot_api.continuity_capture import capture_continuity_candidates
+from alicebot_api.continuity_capture import capture_continuity_candidates, user_prefix_autosave
+from alicebot_api.credential_floor import refuse_credential_material
 from alicebot_api.continuity_objects import (
     create_continuity_object_record,
     default_continuity_promotable,
@@ -15,7 +16,6 @@ from alicebot_api.continuity_objects import (
 from alicebot_api.continuity_review import apply_continuity_correction
 from alicebot_api.contracts import (
     CONTINUITY_CAPTURE_COMMIT_MODES,
-    CONTINUITY_CAPTURE_ASSIST_AUTOSAVE_TYPES,
     CONTINUITY_CAPTURE_REVIEW_REQUIRED_TYPES,
     MEMORY_OPERATION_POLICY_ACTIONS,
     MEMORY_OPERATION_STATUSES,
@@ -391,6 +391,31 @@ def _classify_operation(
     return "ADD", "distinct_candidate_requires_add"
 
 
+def _payload_confidence(candidate_payload: JsonObject) -> float:
+    """Read confidence as a number. Anything else, a string or a bool included, is 0.0."""
+
+    raw_confidence = candidate_payload.get("confidence", 0.0)
+    if isinstance(raw_confidence, bool) or not isinstance(raw_confidence, (int, float)):
+        return 0.0
+    return float(raw_confidence)
+
+
+def _admitted_for_auto_apply(candidate_payload: JsonObject) -> bool:
+    """Apply the continuity capture admission rule to a stored candidate.
+
+    Only a user turn that used an explicit prefix, at confidence 0.9 or more,
+    is applied without review. A missing ``source_role`` is not a user.
+    """
+
+    return user_prefix_autosave(
+        explicit=candidate_payload.get("explicit") is True,
+        candidate_type=str(candidate_payload.get("candidate_type", "")),
+        confidence=_payload_confidence(candidate_payload),
+        source_role=str(candidate_payload.get("source_role", "")),
+        admission_reason=str(candidate_payload.get("admission_reason", "")),
+    )
+
+
 def _resolve_policy_action(
     *,
     candidate_payload: JsonObject,
@@ -404,29 +429,40 @@ def _resolve_policy_action(
         return "review_required", "destructive_operations_require_review"
 
     candidate_type = str(candidate_payload.get("candidate_type", ""))
-    explicit = bool(candidate_payload.get("explicit", False))
-    raw_confidence = candidate_payload.get("confidence", 0.0)
-    confidence = (
-        float(raw_confidence)
-        if isinstance(raw_confidence, (str, int, float))
-        else 0.0
-    )
 
-    if confidence < 0.9:
+    if _payload_confidence(candidate_payload) < 0.9:
         return "review_required", "low_confidence_requires_review"
     if candidate_type in CONTINUITY_CAPTURE_REVIEW_REQUIRED_TYPES:
         return "review_required", "candidate_type_requires_review"
     if mode == "manual":
         return "review_required", "manual_mode_requires_review"
-    if mode == "assist":
-        if explicit and candidate_type in CONTINUITY_CAPTURE_ASSIST_AUTOSAVE_TYPES:
-            return "auto_apply", "assist_mode_allowlist_explicit_high_confidence"
-        return "review_required", "assist_mode_review_gate"
-    if mode == "auto":
-        if candidate_type in CONTINUITY_CAPTURE_ASSIST_AUTOSAVE_TYPES:
-            return "auto_apply", "auto_mode_allowlist_high_confidence"
-        return "review_required", "auto_mode_review_gate"
+    if mode in {"assist", "auto"}:
+        # The same rule as the continuity capture commit. Until this rule was
+        # shared, this policy read no role: an assistant-role "decision: ..."
+        # was applied in assist and auto mode.
+        if _admitted_for_auto_apply(candidate_payload):
+            return "auto_apply", "user_explicit_prefix_rule"
+        return "review_required", f"{mode}_mode_review_gate"
     return "review_required", "unknown_mode_review_gate"
+
+
+def _effective_policy(
+    candidate_row: MemoryOperationCandidateRow,
+) -> tuple[str, str]:
+    """The stored policy, unless the admission rule now queues the candidate.
+
+    A row stored as ``auto_apply`` before the rule was shared can carry an
+    assistant-role or regex-hit candidate. Commit re-checks it instead of
+    trusting the stored label.
+    """
+
+    stored_action = str(candidate_row["policy_action"])
+    stored_reason = str(candidate_row["policy_reason"])
+    if stored_action != "auto_apply":
+        return stored_action, stored_reason
+    if _admitted_for_auto_apply(cast(JsonObject, candidate_row["candidate_payload"])):
+        return stored_action, stored_reason
+    return "review_required", "stored_auto_apply_fails_admission_rule"
 
 
 def _validate_limit(limit: int) -> None:
@@ -488,6 +524,16 @@ def generate_memory_operation_candidates(
             candidate_payload=cast(JsonObject, candidate),
             operation_type=operation_type,
             mode=mode,
+        )
+        # The credential floor, before the candidate row persists the text.
+        # Until 2026-09-22 this path never consulted it, so a GitHub token in
+        # "Decision: ..." became a stored candidate and, on commit, an active
+        # Decision read back through the brief and recall. Raising here rolls
+        # the whole request back.
+        refuse_credential_material(
+            candidate["normalized_text"],
+            candidate["evidence_snippet"],
+            error=MemoryMutationValidationError,
         )
         created = store.create_memory_operation_candidate(
             sync_fingerprint=sync_fingerprint,
@@ -717,8 +763,16 @@ def commit_memory_operations(
                 operation_types.add(str(existing_operation["operation_type"]))
             continue
 
-        if candidate_row["policy_action"] == "review_required" and not request.include_review_required:
-            serialized_candidates.append(_serialize_memory_operation_candidate(candidate_row))
+        policy_action, policy_reason = _effective_policy(candidate_row)
+        if policy_action == "review_required" and not request.include_review_required:
+            serialized_candidates.append(
+                _serialize_memory_operation_candidate(
+                    cast(
+                        MemoryOperationCandidateRow,
+                        {**candidate_row, "policy_action": policy_action, "policy_reason": policy_reason},
+                    )
+                )
+            )
             summary["skipped_count"] += 1
             continue
 

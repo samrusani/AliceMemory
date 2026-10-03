@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from alicebot_api.project_view import ProjectView
 from alicebot_api.store import JsonObject
 from alicebot_api.vnext_agent_control import PolicyDecision
 from alicebot_api.vnext_repositories import JsonObject as VNextJsonObject
@@ -31,18 +32,19 @@ from .shared import (
     _raise_mcp_policy_blocked,
     _vnext_store_context,
 )
+from .types import MCPArgumentError, MCPPreconditionFailedError
 
 
 def _handle_alice_vnext_scheduler_status(context: MCPRuntimeContext, _arguments: Mapping[str, object]) -> JsonObject:
     if _is_sqlite_backend(context):
-        raise MCPToolError("vNext scheduler tools require the Postgres backend")
+        raise MCPPreconditionFailedError("vNext scheduler tools require the Postgres backend")
     with _vnext_store_context(context) as store:
         return _json_object(VNextSchedulerService(store).status())
 
 
 def _handle_alice_vnext_scheduler_run_now(context: MCPRuntimeContext, arguments: Mapping[str, object]) -> JsonObject:
     if _is_sqlite_backend(context):
-        raise MCPToolError("vNext scheduler tools require the Postgres backend")
+        raise MCPPreconditionFailedError("vNext scheduler tools require the Postgres backend")
     identity = _agent_identity_from_arguments(context, arguments)
     workflow_type = _parse_required_text(arguments, "workflow_type")
     sensitivity_allowed = _parse_string_list(arguments, "sensitivity_allowed") or (
@@ -71,6 +73,7 @@ def _handle_alice_vnext_scheduler_run_now(context: MCPRuntimeContext, arguments:
             sensitivity_allowed=sensitivity_allowed,
             project_scope=_parse_string_list(arguments, "project_scope") or _parse_string_list(arguments, "projects"),
             workflow_type=workflow_type,
+            project_view=ProjectView.unscoped(),
         )
         if decision.decision == "blocked":
             blocked_decision = decision
@@ -100,17 +103,20 @@ def _handle_alice_vnext_scheduler_run_now(context: MCPRuntimeContext, arguments:
 
 def _handle_alice_vnext_scheduler_run_due(context: MCPRuntimeContext, arguments: Mapping[str, object]) -> JsonObject:
     if _is_sqlite_backend(context):
-        raise MCPToolError("vNext scheduler tools require the Postgres backend")
+        raise MCPPreconditionFailedError("vNext scheduler tools require the Postgres backend")
     identity = _agent_identity_from_arguments(context, arguments)
     limit_value = arguments.get("limit", 10)
     if not isinstance(limit_value, int):
-        raise MCPToolError("limit must be an integer")
+        raise MCPArgumentError("limit must be an integer")
     blocked_decision: PolicyDecision | None = None
     payload: VNextJsonObject | None = None
     actor_type = "scheduler"
     decision: PolicyDecision | None = None
     with _vnext_store_context(context) as store:
-        actor_type, _actor_id, decision = _policy_checked(store, identity=identity, action="scheduler.run_due")
+        actor_type, _actor_id, decision = _policy_checked(
+            store, identity=identity, action="scheduler.run_due",
+            project_view=ProjectView.unscoped(),
+        )
         if decision.decision == "blocked":
             blocked_decision = decision
     if blocked_decision is not None:
@@ -131,12 +137,15 @@ def _handle_alice_vnext_scheduler_run_due(context: MCPRuntimeContext, arguments:
 
 def _handle_alice_vnext_scheduler_pause(context: MCPRuntimeContext, arguments: Mapping[str, object]) -> JsonObject:
     if _is_sqlite_backend(context):
-        raise MCPToolError("vNext scheduler tools require the Postgres backend")
+        raise MCPPreconditionFailedError("vNext scheduler tools require the Postgres backend")
     identity = _agent_identity_from_arguments(context, arguments)
     blocked_decision: PolicyDecision | None = None
     payload: VNextJsonObject | None = None
     with _vnext_store_context(context) as store:
-        actor_type, _actor_id, decision = _policy_checked(store, identity=identity, action="scheduler.pause")
+        actor_type, _actor_id, decision = _policy_checked(
+            store, identity=identity, action="scheduler.pause",
+            project_view=ProjectView.unscoped(),
+        )
         if decision.decision == "blocked":
             blocked_decision = decision
         else:
@@ -150,12 +159,15 @@ def _handle_alice_vnext_scheduler_pause(context: MCPRuntimeContext, arguments: M
 
 def _handle_alice_vnext_scheduler_resume(context: MCPRuntimeContext, arguments: Mapping[str, object]) -> JsonObject:
     if _is_sqlite_backend(context):
-        raise MCPToolError("vNext scheduler tools require the Postgres backend")
+        raise MCPPreconditionFailedError("vNext scheduler tools require the Postgres backend")
     identity = _agent_identity_from_arguments(context, arguments)
     blocked_decision: PolicyDecision | None = None
     payload: VNextJsonObject | None = None
     with _vnext_store_context(context) as store:
-        actor_type, _actor_id, decision = _policy_checked(store, identity=identity, action="scheduler.resume")
+        actor_type, _actor_id, decision = _policy_checked(
+            store, identity=identity, action="scheduler.resume",
+            project_view=ProjectView.unscoped(),
+        )
         if decision.decision == "blocked":
             blocked_decision = decision
         else:

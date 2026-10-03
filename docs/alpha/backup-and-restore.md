@@ -78,13 +78,227 @@ publication committed but a post-commit condition or reporting step failed.
 The records are present: inspect stderr and the target path, and do not
 blindly retry.
 
+Unreleased (on main, not in v0.20.0): the per-project scoping switch that
+`alice-memory project scoping on|off` sets is saved in the vault's
+`alice_schema_state` table, which an export does not carry. Each change also
+appends a `scoping.changed` event, and the event is exported. When
+`alice-memory import` restores a file that holds such events into a vault that
+has no scoping setting, it sets the setting from the newest event (by time,
+then id) and prints one receipt line that says which value it set. A vault
+that already has a setting keeps it, and the line says so. A file with no such
+event prints nothing about scoping. In v0.20.0 there is no switch and no event.
+See [Projects](projects.md).
+
+A plain import, without `--quarantine`, refuses a backup that holds
+credential material. The error code is `import_credential_material`, the
+exit code is 1, and nothing is written. stderr lists the line and memory
+id of every offender and does not print the matched text.
+`alice-memory export` lists those offenders on stderr and exits 0. A
+file is written only when `--out` is set. Without `--out`, the JSONL
+goes to stdout and no file is created. Redact the listed rows in the
+source vault and export again.
+
+That refusal covers the memory columns the check reads: title, text, summary,
+value, metadata, key and project. Sources, chunks, revisions, provenance
+quotes, open loops, entities, graph edges, relationship events and event rows
+come across unchanged, and so do the other memory columns (`trust_reason`,
+`created_by_agent_id`, the model name and the ids). Recall, the session brief
+and the session hook can return their text. From v0.19.2, import reads every text and JSON column of those records, and those
+memory columns, with the credential floor, the check a memory row gets, and lists
+each hit on the receipt, never the text, then exits 0. The receipt line is
+`credential-shaped text in records import does not refuse: N`, printed every
+time except with `--quarantine`, and one `table id column` line follows for each
+hit. An id that is itself
+credential-shaped, holds a control character or is over 128 characters is
+shown as `(id withheld, line N)`. Import does not refuse these records: a vault from
+before the credential floor can hold a secret in a source, and no SQLite
+command removes a source. Rotate each credential listed. `alice-memory
+export` lists the same rows on stderr, with a note that import restores them,
+and exits 0. A memory row that import would refuse is listed under the memory
+warning only. With `--quarantine` the receipt keeps its own report, below,
+which lists every leftover with the command that removes it.
+`alice-memory doctor` reads source chunk text as well as the source row, so a
+token that sits only in a chunk is listed under `flagged sources`; in v0.19.0
+it prints `flagged sources: 0` for that source. The doctor uses the commit
+door's verdict, which is the floor plus the commit gate, so it is broader than
+the import listing: a low-entropy key shaped like an AWS access key id in a
+chunk is flagged by the doctor, and import restores it and lists none.
+
+`--quarantine` is the owner's recovery path when a backup holds a credential
+and the source vault is gone. It removes the credential from the named
+memory and from the records derived from it, and it reports any other copies
+it finds. `--db` is a SQLite file path on every `alice-memory` subcommand,
+not only import. A Postgres URL is refused with exit code 2 and
+`sqlite_db_path_required`, including `install` and `install --dry-run`.
+Nothing is written.
+
+```bash
+alice-memory import \
+  --db ~/alice-restore-test/memory.db \
+  --in ~/alice-backups/alice-20260711-120000.jsonl \
+  --quarantine <memory_id>[,<memory_id>...]
+```
+
+The SHA-256 footer is checked on the file exactly as given, before any text
+is replaced. A tampered file fails the same way it does without the flag,
+including when the flag names an id that is not in the file. An id that is
+not a memory record in a valid file is an error and nothing is written.
+
+Each named memory is stored with status `rejected`. Recall, resume, and a
+context pack do not return that row. The row is kept. What survives on that
+row is its ids, its status, its timestamps, and numeric columns outside
+JSON. `memory_key` becomes `quarantined.<memory_id>`. `commit_digest` is
+cleared, matching product redaction, so a later commit with the old
+idempotency key creates a fresh row through the normal checks.
+`extracted_by_model` is replaced. Title, canonical text, summary, trust
+reason, and fact keys become the fixed placeholder
+`[quarantined on import]`. `value` and `metadata_json` become
+`{"quarantined": true}`.
+
+The same placeholder replaces `text_before`, `text_after`, and `reason` on
+every revision of that memory, and that revision's `memory_key` becomes
+`quarantined.<memory_id>`. The four revision JSON columns (`previous_value`,
+`new_value`, `candidate`, and `metadata_json`) become
+`{"quarantined": true}` when they were present, and stay null when they were
+null. Revision rows stay, because `memory_revisions.memory_id` is a required
+foreign key.
+
+Every event that belongs to the memory has its payload replaced with
+`{"quarantined": true}`. The payload keeps `memory_id` and
+`candidate_memory_id` when those values are a quarantined id, so explain
+and a later redact can still link the event. An event belongs to the memory
+when its target is that memory, or when its payload `memory_id`,
+`candidate_memory_id`, or `replacement_memory_id` is that memory's id.
+`integrity_hash` on those events is cleared. It is a SHA-256 of the event
+record, including the payload, so a reconstructed original payload could be
+checked against a kept hash.
+
+Records that exist only because of the named memory are rewritten with the
+same placeholder, and each is counted on the receipt:
+
+- `provenance_links.quote`, where `target_type` is `memory` and the target
+  is a named id
+- that memory's open loops (title, description, and resolution note)
+- graph edges that touch it (the explanation, and metadata set to
+  `{"quarantined": true}`)
+- names of entities linked only to quarantined memories (`name`,
+  `normalized_name`, and `aliases`)
+- rollup instance entries whose `memory_id` is a named id
+- on a successor, the copied `rationale`, `idempotency_key`, and
+  `request_fingerprint`. The successor's own title and text stay.
+
+Shared source chunks are not rewritten. Shared entity names are not
+rewritten. After a successful import, `credential_verdict` runs over every
+imported text column that was not replaced by `[quarantined on import]` or
+`{"quarantined": true}`. The receipt prints table, id, and column for each
+hit, and for each shared source chunk and shared entity name, then the
+command that removes that record, or `no command removes this today`. It
+does not print the matched text.
+
+On success the exit code is 0. The receipt lists the quarantined ids and
+the counts. It does not print the removed text.
+
+A second import of the same file with the same `--quarantine` list follows
+`--mode skip` (the default). The stored rows already match the redacted
+records, so they are skipped, the command exits 0, and the database is
+unchanged. `--mode fail` still aborts when any id already exists, including
+a quarantined row. Importing that same file again without `--quarantine`
+aborts and writes nothing. The file still carries the credential, so the
+credential refusal fires before the collision check. Existing rows are
+never overwritten. The rejected row and the placeholder stay.
+
+From v0.19.2, import is for your own backups, and a
+backup file is not evidence of who wrote a row. The SHA-256 footer is an
+unkeyed digest: anyone can edit a record and recompute it, so it shows that
+the file is whole and says nothing about authorship. Import therefore rewrites
+a stored claim that an agent API key wrote a row, in `metadata_json` and
+`payload_json` of any record (a sibling `agent_identity` with `auth` equal to
+`agent_api_key`), to `auth: imported_claim` plus `claimed_auth:
+agent_api_key`, and clears the integrity hash of an event row it changed.
+Recall, resume and a context pack then label the writer
+`declared_on_keyless_install`, not `verified_by_key`. The receipt prints
+`provenance claims restored as unverified: N`, counting rows, printed every
+time so a zero shows the check ran. A note that a key really wrote reads the
+same way after a restore, so the owner is told how many rows lost the label.
+Export, import, export is identical except for rows that carried a key claim,
+which differ in `auth` and `claimed_auth` (and, for events, `integrity_hash`).
+`--mode skip` accepts an existing row that equals the file's row either as
+the file gives it or as it is restored, so a vault can import its own export
+and a restored vault can import the same file again. A `metadata_json` or
+`payload_json` nested more than 256 levels is refused with `restore_failed`,
+and so is JSON text under an `agentic_memory` or `agent_identity` key in one of
+them, which is decoded and held to the same 256 levels, or refused when it is
+too deep to decode. In v0.19.2 a column that is itself a JSON text too deep to
+decode is refused too and nothing is written, but with the generic
+`alice_memory_failed` error, not `restore_failed`. The product writes an
+identity at most three levels down. In v0.19.0 and
+earlier, import restores the claim as the file states it.
+
+From v0.20.0, a JSON column that holds text too deep for the
+decoder (about 10,000 levels on Python 3.12), a record whose JSON is a mapping or
+list nested about 1,000 levels or more, and a line nested too deep to decode are
+refused with `restore_failed`, and nothing is written. Before the error record
+import prints one line that names the file line, the table and the column, for
+example `alice-memory: line 12: event_log column payload_json is nested too
+deeply for import to read`. It never prints a value. The 256-level refusal and
+the one for JSON text under `agentic_memory` or `agent_identity` print the same
+kind of line. A text column that is not a JSON column, such as a source chunk's
+text or a memory title, is restored as the text it is even when it looks like
+deeply nested JSON. In v0.19.2 these ended with `alice_memory_failed` and no
+reason, and a source chunk's text made of nested brackets did too.
+
+From v0.20.0, JSON text nested more than 256 levels in the
+`previous_value`, `new_value`, `source_event_ids` or `candidate` column of a memory
+revision is refused with `restore_failed` and the same kind of reason line, and so is
+such text in the `value` or `source_event_ids` column of a memory and the `aliases`
+column of an entity. 256 is the limit the key claim walk applies to `metadata_json`
+and `payload_json`. Nothing else held those seven columns to it while a file is
+checked: the decoder takes text up to about 10,000 levels, the credential scan takes
+a memory's `value` up to about 1,000, and the export writer takes a little under
+1,000, so a vault made by import never holds a row that export cannot write. A
+header whose extra key is nested too deeply for the digest line is refused with
+`restore_failed` and
+`alice-memory: line 1: a record is nested too deeply for import to read`. In
+v0.19.2 text in the four revision columns that the decoder could read was stored
+whatever its depth, text in the other three was stored up to about 1,000 levels, and
+the deep header ended with `alice_memory_failed`. A vault that already
+holds such text, for example one written by a v0.19.0 import, cannot be exported
+while the text is nested about 1,000 levels or more. `alice-memory export` then
+prints one line that names the table and the column, for example `alice-memory:
+memory_revisions column previous_value is nested too deeply for export to
+write`, and ends with `export_failed`. In v0.19.2 it ended with
+`alice_memory_failed`. With `--out` it leaves no output file. To
+standard output it has already written records by then and stops with no footer,
+so a shell redirect keeps a partial file that import refuses; do not keep it. The
+standard output of v0.19.2 was partial in the same way. Text nested less than
+that exports as before.
+
+From v0.20.0, `--mode skip` also accepts a legacy row. The
+schema bootstrap fills a few columns of a row from the rest of the row each time
+the vault is opened: a source's `dedupe_key`, a memory's `created_by_agent_id` and
+`run_id`, and, for a memory that keeps its project scope only under
+`agentic_memory`, the canonical `project_scope` in `metadata_json` and
+`project_id`. A file from an older vault, or a hand-made one, can leave such a
+column empty, and a headerless file from before a column existed does not carry
+it. Import stores the row as the file gives it and the next open fills the column
+in. Skip does not compare a column the file row does not carry, and it compares a
+memory or a source whose derived column the file gave empty as the bootstrap will
+fill it, on a scratch in-memory database that never touches the vault. A column
+the file gives with a value is compared as before, so a row that really differs is
+still refused, and `--mode fail` still stops on any existing id. In v0.19.2 the
+second `--mode skip` import of such a file stopped with `restore_failed`.
+
+This command restores a SQLite database. It is not a PostgreSQL import.
+
 Portable backups include active sources and chunks, memories and fact keys,
 revisions, provenance, entities, graph edges, entity relationship events,
 open loops, and the event log. They intentionally omit users, agent API keys,
 embedding vectors, and soft-deleted content. References from retained rows to
 omitted soft-deleted parents are nulled where nullable; graph edges whose
 known endpoints were omitted are excluded. Historical event ids, timestamps,
-and integrity hashes are inserted verbatim. The restored rows are rebound to
+and integrity hashes are inserted verbatim, except an event quarantined with
+a memory: its payload is replaced and its integrity hash is cleared.
+The restored rows are rebound to
 the importing local user. Configure the intended embedding endpoint and run:
 
 ```bash

@@ -20,9 +20,12 @@ Ten verbs cover the lifecycle of a memory:
 | [expire / unexpire](#expire--unexpire) | Close or reopen a memory's validity window | Shipped |
 | [redact](#redact) | Scrub governed memory copies, keeping the audit skeleton and source evidence | Shipped |
 
-All shipped verbs are on the default (core) MCP surface — no
-`ALICE_MCP_LEGACY_TOOLS` flag needed — and all of them work in SQLite
-on-ramp mode as well as against Postgres.
+`remember` by explicit commit, `recall`, and `confirm` work on the default
+three MCP tools: `alice_memory_commit`, `alice_recall`, and `alice_resume`.
+Source-backed capture (`alice_capture`), `alice_context_pack`, and the other
+seven verbs need `ALICE_MCP_FULL_TOOLS=1` in the MCP server environment. No
+verb needs `ALICE_MCP_LEGACY_TOOLS`. All of them work in SQLite on-ramp mode
+as well as against Postgres.
 
 ## The outcome vocabulary
 
@@ -39,12 +42,21 @@ one of four outcomes, decided by the memory commit policy engine:
 What routes where (from `evaluate_memory_commit_policy`):
 
 - Blocked policy, a read-only caller, or secret-looking content (API keys,
-  tokens, passwords) → `rejected`.
+  tokens, passwords) in any field, or split across fields → `rejected`.
 - Confidence below 0.5, external source types (email, web pages, generated
   artifacts), non-explicit intent, or bulk source references → `review_required`.
 - Confidence between 0.5 and 0.85, sensitive domains (health, family,
-  financial, legal, spiritual), sensitivity above `private`, or declared
-  contradictions → `confirmation_required`.
+  financial, legal, spiritual), or declared contradictions →
+  `confirmation_required`.
+- An agent (keyed, or keyless with a declared agent identity) committing
+  above its sensitivity ceiling is `rejected` with reason
+  `sensitivity_above_agent_ceiling` and no pending row, including when the
+  checks above would have returned `confirmation_required` or
+  `review_required`. The owner (a keyless call with no agent identity), an
+  `admin_agent` key, and a keyless call that declares
+  `permission_profile: admin_agent` still get `confirmation_required` for
+  a confidential write. A keyless server does not verify a declared
+  profile. That is keyless owner mode.
 - Everything else from a trusted or project-scoped agent → `committed`.
 
 ## Audit guarantees
@@ -102,9 +114,14 @@ Two paths, one trust boundary:
 Outcomes: the four-outcome vocabulary above for commits; captures return
 `imported` with candidate memories that wait in the review queue.
 
-Audit: a `created` revision, provenance links for `source_refs`, and an
-`agent.memory_committed` / `agent.memory_confirmation_required` /
-`agent.memory_review_required` / `agent.memory_commit_rejected` event.
+Audit: a written row gets a `created` revision and an
+`agent.memory_committed`, `agent.memory_confirmation_required`, or
+`agent.memory_review_required` event. A refusal writes
+`agent.memory_commit_rejected` and does not write a memory row, a revision,
+or provenance. An agent refusal also writes `policy.decision`. A ceiling
+refusal also writes `agent.policy_filtered` when the policy decision is
+`allowed_with_filtering`, and `agent.policy_blocked` when that decision is
+`blocked`.
 Commits accept an `idempotency_key`; retries replay the original result
 instead of double-writing.
 
@@ -149,22 +166,105 @@ revision storing the text before and after, and an
 `agent.memory_corrected` event. The pre-correction text is preserved in the
 revision history, and correction history accumulates on the memory record.
 
+New text that carries credential material is refused on both surfaces and
+the memory is left unchanged. Approving a memory also reads the text it
+already holds: approve, accept and promote refuse a memory whose title, text
+or summary carries credential material, or whose approval reason does, and
+leave it where it was. Both memory stores refuse to create a memory in, or
+move one into, `active` or `accepted` while its text carries credential
+material, whichever surface asks.
+
+A reject always completes. If the reason carries credential material, the
+memory's metadata and the revision store the fixed text `rationale withheld:
+it carried credential material` instead, and the response carries
+`rationale_withheld: true`. Text supplied with a reject (a caller's
+`canonical_text`, or an edited title or summary) is never stored when it
+carries credential material: it is replaced by `text withheld: it carried
+credential material` and the response carries `text_withheld: true`. The
+same holds for `alice_review_apply` delete and mark_stale on continuity
+objects.
+
 ## confirm
 
 Completes a write that policy held as `confirmation_required` (the pending
 memory is not searchable until confirmed).
 
-- MCP: `alice_memory_manage` with `action: "confirm"` and the
-  `confirmation_id` from the commit response; pass `canonical_text` to
-  confirm with a correction
+- MCP, default three tools: `alice_memory_commit` with only the
+  `confirmation_id` from the commit response and `confirmation_action`
+  (`confirm` or `reject`), plus identity fields and an optional
+  `rationale`. A memory field on that call is refused, and there is no
+  edit: to change the text, reject it and commit the corrected text.
+- MCP, full surface: `alice_memory_manage` with `action: "confirm"` and the
+  `confirmation_id`; pass `canonical_text` to confirm with a correction
 - HTTP: `POST /v0/vnext/memories/confirm`
 - CLI: `alicebot vnext memories confirm <confirmation_id> [--action confirm|reject|edit]`
 
-Outcomes: `committed` (memory becomes active) or `rejected`. Confirmations
-expire after 24 hours; an expired confirmation resolves to `rejected` with
-reason `confirmation_expired`. Audit: a `promoted` (or `corrected`, when
-text was edited) revision and an `agent.memory_confirmed` or
-`agent.memory_confirmation_rejected` event.
+Both MCP routes call `VNextMemoryCommitService.confirm` through the same
+handler code, so identity, the policy check on the pending row's domain,
+sensitivity and project scope, and the audit below are the same. The
+project scope check binds a key-bound scope; a keyless server trusts
+whatever `project_scope` the caller declares. Both routes use the
+service ceiling: a mutation of a target above the caller's sensitivity
+ceiling is blocked, including confirm, forget, expire and undo. An agent
+commit above that ceiling is rejected with no pending row. The receipt
+says this was not saved, do not retry with a lower sensitivity label,
+tell the user, and the owner can raise this agent's clearance or store
+the memory themselves. The owner (a keyless call with no agent identity),
+an `admin_agent` key, and a keyless call that declares
+`permission_profile: admin_agent` are not held to that ceiling. A keyless
+server does not verify a declared profile. That is keyless owner mode.
+Only the author, an `admin_agent` key, or the
+owner (a keyless call with no agent identity) can confirm or reject a
+pending write. On a keyless install that limit is not protection: the
+caller can declare the author's agent_id. The author can still reject
+their own pending write above the ceiling. Confirming a row that is not
+pending is refused and writes nothing. Neither route can
+tell whether the user was asked; the tool description tells the agent to
+ask. The revision, the policy events and the `agent.memory_confirmed` or
+`agent.memory_confirmation_rejected` event name the caller as
+`actor_id`: the key's `agent_id` when `ALICE_AGENT_API_KEY` is set, the
+declared and unverified `agent_id` on a keyless server. The
+`memory.updated` and `memory_revision.created` events carry no
+`actor_id`. A keyless call that declares no `agent_id` is recorded as
+`actor_type: user` with no `actor_id` on every row and no policy event.
+
+Outcomes: `committed` (memory becomes active) or `rejected`. A pending
+confirmation stays out of recall until it is answered, and nothing
+expires it in the background. Only `VNextMemoryCommitService.confirm`
+reads the 24 hour `expires_at`: after it, a confirm or reject through
+either MCP route above, the HTTP confirm route or the CLI confirm that
+passes the policy check resolves the row to `rejected` with reason
+`confirmation_expired` instead of acting on it. The review paths do not
+read it: `alice_memory_correct` `approve` and a correction through
+`POST /v0/vnext/memories/correct` or `alicebot vnext memories correct`
+can still make the row active after 24 hours. Audit: a `promoted`
+revision (`corrected` when text was edited, `rejected` for a reject or an
+expiry) and an `agent.memory_confirmed`,
+`agent.memory_confirmation_rejected` or
+`agent.memory_confirmation_expired` event.
+
+Credential material, on every route above. Before the 24 hours, a confirm
+whose new text, whose pending text, or whose rationale carries credential
+material is refused and the write stays pending. A reject always completes;
+a rationale, or `canonical_text`, carrying credential material is stored as
+a fixed placeholder and the response carries `rationale_withheld` and
+`text_withheld` (see [correct](#correct)). `alice_memory_commit` takes no
+`canonical_text`, so on that route only the rationale can be withheld. After
+the 24 hours, the call resolves the row to `rejected` as described above
+whatever its text or rationale: the revision stores a fixed expiry reason,
+not the caller's rationale, and the response carries neither flag.
+
+Over the stdio server, a refused confirm or reject, and a credential
+refusal on confirm, comes back as `tool_request_failed` with the message
+`The tool request could not be processed` and no reason code. An author
+refusal and a ceiling refusal record the reason on the policy events
+(`policy.decision` and `agent.policy_blocked`). HTTP returns 403 with
+that policy decision for those two refusals. A credential refusal on
+confirm leaves the row pending and does not keep a policy event for that
+refusal. Unreleased (on main, not in v0.20.0): over stdio an author refusal
+and a ceiling refusal come back as `not_permitted`, an unknown confirmation
+id as `not_found` and a confirmation that is not pending as
+`precondition_failed`; a credential refusal stays `tool_request_failed`.
 
 ## undo
 
@@ -238,6 +338,11 @@ temporal exclusion, not a lifecycle judgment: the row's status stays
 `valid_to` passes (the staleness sweep later marks long-expired rows
 `stale`). Unexpire reopens the window. Both require a `reason`.
 
+In v0.20.0, `alice_resume`, `alice_recent_decisions` and the session brief still
+listed an expired memory, and consolidation and the roll-up semantic tier could send
+its text to the embeddings endpoint. Unreleased (on main, not in v0.20.0): all of
+them leave it out, with the test recall uses.
+
 - MCP: `alice_memory_manage` with `action: "expire"` (optional `valid_to`
   ISO-8601 timestamp, default now) or `action: "unexpire"`
 - HTTP: `POST /v0/vnext/memories/expire`, `POST /v0/vnext/memories/unexpire`
@@ -246,7 +351,11 @@ temporal exclusion, not a lifecycle judgment: the row's status stays
 
 Outcomes: `expired` (with the effective `valid_to`) and `active`.
 Unexpiring a memory that has no validity end replays as a no-op with a
-note. Superseded and rejected rows cannot be expired or unexpired. Audit:
+note. Expire always completes: a reason carrying credential material is
+stored as `rationale withheld: it carried credential material` and the
+response carries `rationale_withheld: true`; forget, undo and the quarantine
+sweep do the same. Unexpire makes the memory retrievable again, so it is
+refused when the memory's text, or the reason, carries credential material. Superseded and rejected rows cannot be expired or unexpired. Audit:
 an `edited` revision plus an `agent.memory_expired` /
 `agent.memory_unexpired` event recording the window change and reason.
 
@@ -307,6 +416,16 @@ substitute for source or backup hygiene. Alice source/source-chunk evidence
 inside the store is intentionally out of this memory-lifecycle operation's
 scope because it may be shared. Upstream providers, prior exports, replicas,
 and backups also need their own erasure policy.
+
+Unreleased (on main, not in v0.20.0): redact asks the policy before it reads the
+state of the row, as forget, undo, correct and confirm do. A caller the policy
+refuses (its project scope, its profile, its ceiling) is told the refusal,
+never that the row is a pending project update, has an open project-update
+artifact, or is already redacted; for an archived or redacted row it hears
+not found (`not_found` over stdio, 404 over HTTP), the same as for an id the
+vault never held. In v0.20.0 such a caller was refused (403 over HTTP) for the
+row and told not found only for an unknown id. The refusal is recorded in the
+audit trail whichever answer the caller hears.
 
 ---
 

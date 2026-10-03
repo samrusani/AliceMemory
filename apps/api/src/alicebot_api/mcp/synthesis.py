@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from alicebot_api.project_view import ProjectView
 from alicebot_api.store import JsonObject
 from alicebot_api.vnext_brain import (
     BrainArtifactRequest,
@@ -96,6 +97,7 @@ def _handle_alice_generate_connections(context: MCPRuntimeContext, arguments: Ma
         domains=request.domains,
         sensitivity_allowed=request.sensitivity_allowed,
         project_scope=_parse_string_list(arguments, "project_scope") or _parse_string_list(arguments, "projects"),
+        project_view=ProjectView.unscoped(),
     )
     request = ConnectionFinderRequest(
         query=request.query,
@@ -160,6 +162,7 @@ def _handle_alice_generate_contradictions(context: MCPRuntimeContext, arguments:
         domains=request.domains,
         sensitivity_allowed=request.sensitivity_allowed,
         project_scope=_parse_string_list(arguments, "project_scope") or _parse_string_list(arguments, "projects"),
+        project_view=ProjectView.unscoped(),
     )
     request = ContradictionFinderRequest(
         query=request.query,

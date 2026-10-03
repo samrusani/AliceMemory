@@ -118,6 +118,45 @@ hermes mcp test alice_core
 ./.venv/bin/python scripts/run_hermes_mcp_smoke.py
 ```
 
+## Re-running install
+
+`alice-memory install --host hermes` keeps a documented Alice env value on
+`mcp_servers.alice` when that value is a one-line plain, single-quoted, or
+double-quoted scalar, with no anchor, alias, tag, or block scalar. The keys
+are `ALICE_MCP_FULL_TOOLS`, `ALICE_MCP_LEGACY_TOOLS`, `ALICE_AGENT_API_KEY`,
+`ALICE_LEGACY_SURFACES`, `ALICE_EMBEDDINGS_BASE_URL`,
+`ALICE_EMBEDDINGS_MODEL`, and `ALICE_EMBEDDINGS_API_KEY`. The name and the
+scalar text stay as written. The receipt lists the kept keys and masks
+printed values the same way as the other hosts, so `ALICE_AGENT_API_KEY`
+and `ALICE_EMBEDDINGS_API_KEY` are not printed. If the entry has any other
+key that install did not write, install refuses and changes nothing. Edit the
+alice entry by hand in that case. A documented key whose value is an anchor,
+an alias, a tag, or a block scalar is refused the same way.
+
+From v0.20.0, install also keeps
+`ALICE_EMBEDDINGS_MAX_INPUT_CHARS`, the most characters of one memory's text
+sent to the embeddings endpoint, on the same terms as the seven keys above. In
+v0.19.2 that key does not exist, and an entry that carries it is refused like
+any other key install did not write.
+
+Unreleased (on main, not in v0.20.0): install also keeps `ALICE_PROJECT_DIR`
+and `ALICE_PROJECT_SCOPING` (see [Projects](../alpha/projects.md)) on the same
+terms as the keys above. Only `alice-memory project` reads them so far. In
+v0.20.0 an entry that holds either one is refused like any other key install
+did not write.
+
+Unreleased (on main, not in v0.20.0): install also keeps `ALICE_MCP_COMMIT_RESULT`
+(`compact` or `full`, see [The commit result](../alpha/mcp-tools.md#the-commit-result))
+on the same terms as the keys above. In v0.20.0 an entry that holds it is refused
+like any other key install did not write.
+
+From v0.19.0, a comment inside the `alice` block stays when nothing needs to
+change: install says `action: unchanged` and leaves the file's bytes alone.
+When install has a change to make and the block holds a full-line or inline
+comment, it refuses with exit 1 and `install_refused`, writes no backup,
+prints the block, and leaves the file as it is. Edit the block by hand in that
+case. In v0.18.0 that re-run rewrote the block and dropped the comment.
+
 ## Related Docs
 
 - `docs/integrations/hermes-bridge-operator-guide.md`

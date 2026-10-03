@@ -32,11 +32,26 @@ METHOD_NAMES = (
     "clear_memory_embedding",
     "list_memories_missing_embeddings",
 )
+# Both ``list_memories_missing_embeddings`` digests and the SQLite
+# ``count_memories_missing_embeddings`` digest were re-minted for the status
+# fence (reviewed carrier change): the list takes a required, keyword-only
+# ``statuses`` and selects only rows in those statuses, so the text of a
+# forgotten, rejected or candidate memory is never listed for embedding. The
+# count shares the SQLite ``_embedding_status_values`` check with the list.
+# ``update_memory_embedding``, ``clear_memory_embedding`` and
+# ``_missing_embeddings_clause`` are untouched, and their digests did not move.
+#
+# Both ``list_memories_missing_embeddings`` digests and the SQLite
+# ``count_memories_missing_embeddings`` digest were re-minted again for the
+# expiry test (reviewed carrier change): each query also leaves out a memory
+# whose ``valid_to`` has passed, with the test recall's own SQL uses
+# (``_expiry_clause`` on SQLite, ``POSTGRES_UNEXPIRED_SQL`` on Postgres), so the
+# text of an expired memory is never listed for embedding.
 EXPECTED_METHOD_AST_SHA256 = {
     "postgres": {
-        "update_memory_embedding": "1913baf9be41677c5a39292a500936d050a6fb9d4e6e429ff2941176c76d4fed",
+        "update_memory_embedding": "0cd0f0ef6f7bcaa6328b6f586a711a10b011c77af3e49d65b96c27b77a657cd9",
         "clear_memory_embedding": "4e9fe6955f3246b51998c6b547f48a659f947f8a8150e6c86d4e61a0cf46df6c",
-        "list_memories_missing_embeddings": "6022cbe4070c9db61833045c3d83ae0216880bcc3327b9998716f6da286183e0",
+        "list_memories_missing_embeddings": "cfdbde2bb409a2a6761fe31f116a9ebb73ba12d4e7994ae691f87e335a095a2d",
     },
     # SQLite update/clear re-minted for the Phase 4 Stage 2 resident vector
     # cache (reviewed carrier change): both methods point-read whether a
@@ -45,10 +60,19 @@ EXPECTED_METHOD_AST_SHA256 = {
     # (BEGIN IMMEDIATE, unless already in a transaction) BEFORE that read,
     # so the bump decision is atomic with the write (no TOCTOU window
     # against a concurrent embed-on-write).
+    #
+    # Both backends' update and list methods were re-minted again for the
+    # embedding input cap (reviewed carrier change): update takes an optional
+    # ``truncated_to_chars`` and writes it into the signature only when the
+    # text was cut; list takes an optional ``embedding_input_cap`` and then also
+    # lists a row whose stored cut label is not the label a vector made now
+    # would carry. With neither argument given the generated SQL is byte for
+    # byte what it was, which ``test_embedding_cas_generated_sql_is_byte_identical``
+    # still pins.
     "sqlite": {
-        "update_memory_embedding": "42f7ede575246981330ad6e17f91051e198f87fbaed61ef4c2b00045c442c368",
+        "update_memory_embedding": "1f4517352a0f7d6a9147f326bc96a6c1d61effa3f106add89546cd981ddd05fc",
         "clear_memory_embedding": "51b583b250883911f0c5a068fec7ec4565f719c2bffafb1ed1c6b3dc980fa36c",
-        "list_memories_missing_embeddings": "cf3e90cc72c5e388786b66aae1cd1b4da6c3d2e6438919d6a0fd94271f88f2d5",
+        "list_memories_missing_embeddings": "bea1d517cd3ad4d0af12c96d93a5b21671b84a4712d5172e718f5af5b43c4b05",
     },
 }
 EXPECTED_SUPPORT_AST_SHA256 = {
@@ -73,6 +97,10 @@ EXPECTED_SUPPORT_AST_SHA256 = {
         "_vector_literal",
         "ae3ceb92a7583015a26695c40f64131cfd3731928b636ebbc97e28ec41bdfb0a",
     ),
+    "postgres_text_chars_sql": (
+        "_MEMORY_EMBEDDING_TEXT_CHARS_SQL",
+        "09dbf72a100f9306eecdd21982fda8ee60a2b5045bde1aef3d0cb195aca1d74f",
+    ),
     "sqlite_columns": ("MEMORY_COLUMNS", "262cceffd732759a4f0b8d0d9809e7387b3d2b99f9ac7fe781f5749894d44679"),
     "sqlite_digest_udf": (
         "_embedding_content_sha256_sqlite",
@@ -82,27 +110,57 @@ EXPECTED_SUPPORT_AST_SHA256 = {
         "_ensure_embedding_content_sha256_sqlite",
         "4c9e94f8ffb659534bb7e1174e19d9a477fb0dd1e493466139a87d21b5866ce7",
     ),
+    "sqlite_input_cut_udf": (
+        "_embedding_input_cut_sqlite",
+        "0c0405578793905bb01daa4e3232e49914e9c56f616f19452cba3cbf750aeb18",
+    ),
+    "sqlite_register_input_cut_udf": (
+        "_ensure_embedding_input_cut_sqlite",
+        "9693ce8e49a924e6d6624fac3e867a31e27e869830e0350b4578e8ff4acae547",
+    ),
+    "sqlite_missing_clause": (
+        "_missing_embeddings_clause",
+        "17f4bb82aa50dd6f9556514f5a7b4107804d384784309b550c0db2cfc24544b8",
+    ),
+    "sqlite_count_missing": (
+        "count_memories_missing_embeddings",
+        "42498ff284e084c4d5b39685a53722a84967abe98535e3015b0b2db3aafff987",
+    ),
+    "sqlite_status_values": (
+        "_embedding_status_values",
+        "68142bc048f3b0001d774d77d966156e67d7e8c19657de7f402d06e478901dad",
+    ),
+    "postgres_status_values": (
+        "_embedding_status_values",
+        "c8cfbcefb6c2f73f625b80d9fb2703de2c33147f73a198651fbb376c87b46f7a",
+    ),
 }
 EXPECTED_SIGNATURES = {
     "update_memory_embedding": (
         "(self, *, memory_id: 'str', vector: 'list[float]', provider: 'str | None' = None, "
         "model: 'str | None' = None, endpoint: 'str | None' = None, content_sha256: 'str | None' = None, "
-        "signature_version: 'int' = 1) -> 'VNextRow | None'"
+        "signature_version: 'int' = 1, truncated_to_chars: 'int | None' = None) -> 'VNextRow | None'"
     ),
     "clear_memory_embedding": "(self, *, memory_id: 'str') -> 'VNextRow | None'",
     "list_memories_missing_embeddings": (
-        "(self, *, limit: 'int' = 100, after_id: 'str | None' = None, "
+        "(self, *, statuses: 'Sequence[str]', limit: 'int' = 100, after_id: 'str | None' = None, "
         "embedding_provider: 'str | None' = None, embedding_model: 'str | None' = None, "
-        "embedding_endpoint: 'str | None' = None, embedding_signature_version: 'int | None' = None) "
-        "-> 'list[VNextRow]'"
+        "embedding_endpoint: 'str | None' = None, embedding_signature_version: 'int | None' = None, "
+        "embedding_input_cap: 'int | None' = None) -> 'list[VNextRow]'"
     ),
 }
+# The four ``*_missing`` hashes were re-minted for the status fence: each query
+# now holds ``AND status IN (...)`` after ``deleted_at IS NULL``, with the
+# statuses bound first. The test below builds each query with
+# ``statuses=("active", "accepted")``. The update and clear hashes did not move.
+# They were re-minted again for the expiry test: each query holds the unexpired
+# test right after the status test (SQLite binds the time after the statuses).
 EXPECTED_QUERY_SHA256 = {
     "postgres_unsigned_update": ("dcbf4bc29a7702e9c17d864f65e1c1f36d641927d3f31aa4ec80825646c030ef",),
     "postgres_signed_update": ("1351db18168f7e23454736129e26a7c01039ca1bfdfcac235e3c666cf60d91db",),
     "postgres_clear": ("a5a6952a93bd77b3bdf311fe2682b411263d18a2822a9617c6fb7524555123ca",),
-    "postgres_unsigned_missing": ("13a290c0fb56e0abb6b4feb15fbd96642ba60478b3d7e8e666ef904135002f31",),
-    "postgres_signed_missing": ("d7af83168e7337a5798f1f9f201c5eb0863121b32d2f769a440dd1b099b01226",),
+    "postgres_unsigned_missing": ("866920a62d5650df8e229d0dffa43ac0a8ce18116e3cbb98376928f19b239534",),
+    "postgres_signed_missing": ("8593736f07c1853635e8d3868e6a8b54a034ccd3de1a3519abf885a0ff23fa3e",),
     # SQLite update/clear sequences start with BEGIN IMMEDIATE (the capture
     # connection is autocommit-shaped) followed by the Stage 2
     # embedding-presence point-read (the vector-cache invalidation gate),
@@ -126,8 +184,8 @@ EXPECTED_QUERY_SHA256 = {
         "7049f5693c64baa495f701ff8492f8c3dac4f6eb2cce1fcb7ae745141c04951a",
         "4c02258b8fe75dc0cf54d352a81badde39d952bc69eae56cd12edb1505165ff4",
     ),
-    "sqlite_unsigned_missing": ("e8149c28b861289b5899d7c8fce9efea98b2e809fed5ee209ee4490cb3712cae",),
-    "sqlite_signed_missing": ("79eb432dd9482731107d8f4f62231755dc2ecb21db0a17fa3f6de3979def3a7c",),
+    "sqlite_unsigned_missing": ("ba95f6ee2890bb17631c3db9a68929aa6bc89cb00f8abbad748046b657863179",),
+    "sqlite_signed_missing": ("3bfc8136be3abee82cb86c8827c65e6d7092ae4cbda2435361c17cee9327c35a",),
 }
 
 
@@ -284,10 +342,17 @@ def test_embedding_cas_support_nodes_and_old_module_reexports_are_exact() -> Non
         "postgres_strip_sql": _tree(POSTGRES_CARRIER_PATH),
         "postgres_strip_function": _tree(POSTGRES_CARRIER_PATH),
         "postgres_digest_sql": _tree(POSTGRES_CARRIER_PATH),
+        "postgres_text_chars_sql": _tree(POSTGRES_CARRIER_PATH),
         "postgres_vector": _tree(POSTGRES_CARRIER_PATH),
         "sqlite_columns": _tree(SQLITE_COLUMNS_PATH),
         "sqlite_digest_udf": _tree(SQLITE_CARRIER_PATH),
         "sqlite_register_udf": _tree(SQLITE_CARRIER_PATH),
+        "sqlite_input_cut_udf": _tree(SQLITE_CARRIER_PATH),
+        "sqlite_register_input_cut_udf": _tree(SQLITE_CARRIER_PATH),
+        "sqlite_missing_clause": _tree(SQLITE_CARRIER_PATH),
+        "sqlite_count_missing": _tree(SQLITE_CARRIER_PATH),
+        "sqlite_status_values": _tree(SQLITE_CARRIER_PATH),
+        "postgres_status_values": _tree(POSTGRES_CARRIER_PATH),
     }
     for key, (name, expected_digest) in EXPECTED_SUPPORT_AST_SHA256.items():
         nodes = _top_level_named_nodes(trees[key]).get(name, [])
@@ -326,6 +391,9 @@ def test_embedding_cas_support_nodes_and_old_module_reexports_are_exact() -> Non
     )
     assert hashlib.sha256(postgres_store._MEMORY_EMBEDDING_CONTENT_SHA256_SQL.encode()).hexdigest() == (
         "7f5ef7bc3d1c489800a39c9a21b824990a6d92b65cef1de90bab248b11eb03ba"
+    )
+    assert hashlib.sha256(postgres_embedding_cas._MEMORY_EMBEDDING_TEXT_CHARS_SQL.encode()).hexdigest() == (
+        "c2d8e56d80af6485667434446914d6776d3d6da91b4e50f8c1c3212910995f3a"
     )
     assert postgres_store.__all__ == ["PostgresVNextStore", "VNextRow"]
     assert sqlite_store.__all__ == [
@@ -386,9 +454,12 @@ def test_embedding_cas_generated_sql_is_byte_identical() -> None:
             )
         ),
         "postgres_clear": postgres_queries(lambda store: store.clear_memory_embedding(memory_id=memory_id)),
-        "postgres_unsigned_missing": postgres_queries(lambda store: store.list_memories_missing_embeddings()),
+        "postgres_unsigned_missing": postgres_queries(
+            lambda store: store.list_memories_missing_embeddings(statuses=("active", "accepted"))
+        ),
         "postgres_signed_missing": postgres_queries(
             lambda store: store.list_memories_missing_embeddings(
+                statuses=("active", "accepted"),
                 embedding_provider="provider",
                 embedding_model="model",
                 embedding_endpoint="endpoint",
@@ -424,11 +495,14 @@ def test_embedding_cas_generated_sql_is_byte_identical() -> None:
             lambda store: sqlite_store.SQLiteVNextStore.clear_memory_embedding(store, memory_id="memory")
         ),
         "sqlite_unsigned_missing": sqlite_queries(
-            lambda store: sqlite_store.SQLiteVNextStore.list_memories_missing_embeddings(store)
+            lambda store: sqlite_store.SQLiteVNextStore.list_memories_missing_embeddings(
+                store, statuses=("active", "accepted")
+            )
         ),
         "sqlite_signed_missing": sqlite_queries(
             lambda store: sqlite_store.SQLiteVNextStore.list_memories_missing_embeddings(
                 store,
+                statuses=("active", "accepted"),
                 embedding_provider="provider",
                 embedding_model="model",
                 embedding_endpoint="endpoint",

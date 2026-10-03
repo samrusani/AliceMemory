@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from datetime import datetime
-from typing import Protocol
+from typing import Protocol, cast
 from alicebot_api.continuity_brief import compile_continuity_brief
 from alicebot_api.continuity_recall import (
     get_retrieval_trace,
@@ -26,6 +26,13 @@ from alicebot_api.contracts import (
     TemporalStateAtQueryInput,
     TemporalTimelineQueryInput,
 )
+from alicebot_api.project_view import (
+    ProjectView,
+    fetch_in_two_queries,
+    project_first_fill,
+)
+from alicebot_api.session_briefing import sensitive_global_exclusion
+from alicebot_api.source_ranking import SourceRanking
 from alicebot_api.store import JsonObject
 from alicebot_api.temporal_state import (
     get_temporal_state_at,
@@ -37,12 +44,21 @@ from alicebot_api.task_briefing import (
     get_persisted_task_brief,
 )
 from alicebot_api.vnext_agent_control import (
+    AgentPolicyBlockedError,
     PolicyDecision,
-    resource_project_scope,
 )
+from alicebot_api.vnext_memory_commit import VNextMemoryCommitService
 from alicebot_api.vnext_project_scope import project_scope_identity
 from alicebot_api.vnext_projects import VNextProjectService
+from alicebot_api.vnext_recall_visibility import memory_window_is_open
 from alicebot_api.vnext_repositories import JsonObject as VNextJsonObject
+from alicebot_api.recall_framing import (
+    memory_writer,
+    present_model_item,
+    with_result_framing,
+    without_leading_framing_line,
+    writer_for_recent_change,
+)
 from alicebot_api.vnext_retrieval import (
     CONTEXT_DEPTH_MINIMAL,
     CONTEXT_DEPTH_MINIMAL_MAX_ITEMS,
@@ -53,17 +69,19 @@ from alicebot_api.vnext_retrieval import (
     VNextRetrievalService,
     _order_memories_for_strategy,
     _prefer_current_versions,
+    _validity_annotation,
     _ResolvedRetrievalScope,
     expand_provenance_once,
     reciprocal_rank_fusion,
 )
 
-from .context import _COMPACT_SOURCE_FIELDS, _compact_items
+from .context import _COMPACT_SOURCE_FIELDS, _compact_fields
+from .policy import _default_project_view
 from .projects import _handle_alice_vnext_open_loops
 from .retrieval_shared import (
+    _CONTEXT_MEMORY_STATUSES,
     _SQLITE_NEXT_ACTION_MEMORY_TYPES,
     _SQLITE_OPEN_LOOP_ACTIVE_STATUSES,
-    _SQLITE_REVIEWABLE_STATUSES,
     _compact_vnext_event,
     _compact_vnext_memory,
     _compact_vnext_open_loop,
@@ -71,6 +89,7 @@ from .retrieval_shared import (
     _memory_matches_project,
     _memory_matches_query,
     _provenance_count,
+    _resource_is_held_back_global,
     _resource_matches_domains,
     _resource_matches_project_scope,
     _resource_matches_sensitivity,
@@ -99,13 +118,13 @@ from .shared import (
     _parse_required_uuid,
     _parse_string_list,
     _parse_task_brief_request,
-    _policy_checked,
     _raise_mcp_policy_blocked,
     _render_prefetch_context_text,
     _retrieval_filter_kwargs,
     _store_context,
     _vnext_store_context,
 )
+from .types import MCPArgumentError, MCPReferenceNotFoundError
 
 
 def _compact_recall_result(item: Mapping[str, object], *, score: float, provenance_count: int) -> JsonObject:
@@ -155,6 +174,9 @@ def _recall_source_scope(retrieval_filters: Mapping[str, object]) -> _ResolvedRe
         people=people,
         window_start=window_start if isinstance(window_start, datetime) else None,
         window_end=window_end if isinstance(window_end, datetime) else None,
+        # Recall is an explicit search (spec 6.5): it returns global notes in the
+        # sensitive domains under the permissions and limits it already applies.
+        exclude_global_domains=frozenset(),
     )
 
 
@@ -189,6 +211,7 @@ def _handle_alice_recall(context: MCPRuntimeContext, arguments: Mapping[str, obj
         domains=tuple(domains),
         sensitivity_allowed=tuple(sensitivity_allowed),
         project_scope=requested_projects,
+        project_view=ProjectView.unscoped(),
     )
     domains = list(decision.effective_domains)
     sensitivity_allowed = list(decision.effective_sensitivity_allowed)
@@ -200,6 +223,10 @@ def _handle_alice_recall(context: MCPRuntimeContext, arguments: Mapping[str, obj
         # Reuse the hybrid retrieval stages (Postgres FTS + pgvector) that back
         # vNext context packs so recall and context packs rank identically.
         service = VNextRetrievalService(store)
+        # Recall always searches sources (include_sources only gates whether the
+        # excerpts come back), so a query the source search cannot take is
+        # refused here, before the memory, vector and graph stages run.
+        service.require_source_query_searchable(query)
         fts_rows, fts_source = service._memory_fts_rows(
             query=query,
             domains=domains,
@@ -245,6 +272,11 @@ def _handle_alice_recall(context: MCPRuntimeContext, arguments: Mapping[str, obj
         # it never changes what was retrieved or ranked.
         scores = {str(item.get("id")): score for item, score in fused}
         ordered_rows = _order_memories_for_strategy([item for item, _score in fused], budget_strategy)
+        # The fence the memories above were retrieved under, resolved once. It
+        # is built from retrieval_filters AFTER the policy decision has
+        # overwritten "projects" with effective_project_scope, for the source
+        # stage below and for the memory ids a result's validity names.
+        recall_scope = _recall_source_scope(retrieval_filters)
         # Source excerpts are fetched before the hop so a query that hits
         # the note, not the decision text, still names a source. The hop
         # writes into results[], not sources[]. include_sources only gates
@@ -261,7 +293,10 @@ def _handle_alice_recall(context: MCPRuntimeContext, arguments: Mapping[str, obj
             # projects. Source scope is an exclusion filter, not a ranking
             # hint: without this the excerpt path is a way around a control
             # the pack enforces.
-            scope=_recall_source_scope(retrieval_filters),
+            scope=recall_scope,
+            # Written here on purpose. Recall ranks sources by document, the
+            # ranking v0.20.0 has, until the passage stage exists.
+            ranking=SourceRanking.document(),
             winning_memories=ordered_rows,
         )
         window_start = retrieval_filters.get("scope_window_start")
@@ -302,16 +337,57 @@ def _handle_alice_recall(context: MCPRuntimeContext, arguments: Mapping[str, obj
         # context pack already runs after the budget-strategy reorder.
         # Replacement sits above its superseded ancestor; nothing is dropped.
         ordered_rows, _supersession_reorders = _prefer_current_versions(ordered_rows)
+        # Same pack-mate hint compile_context_pack uses: a row named by a
+        # result's supersedes pointer is superseded even without the column.
+        superseded_by_packmate: dict[str, str] = {}
+        for memory in ordered_rows:
+            pointer = memory.get("supersedes")
+            if pointer:
+                superseded_by_packmate.setdefault(str(pointer), str(memory.get("id") or ""))
+        # A result carries the raw stored row, so the ids its validity names
+        # have not been through the pointer fence the context pack applies.
+        # A pointer id is itself sensitive metadata: one to a memory outside
+        # the caller's fence is withheld, and `superseded` stays true.
+        validities = [
+            _validity_annotation(
+                dict(item),
+                superseded_by_hint=superseded_by_packmate.get(str(item.get("id") or "")),
+            )
+            for item in ordered_rows
+        ]
+        service.fence_validity_memory_ids(
+            [validity for validity in validities if validity is not None],
+            domains=domains,
+            sensitivity_allowed=sensitivity_allowed,
+            scope=recall_scope,
+        )
         results: list[JsonObject] = []
-        for item in ordered_rows:
+        for item, validity in zip(ordered_rows, validities, strict=True):
             provenance_count = len(store.list_provenance_links(target_type="memory", target_id=str(item.get("id"))))
+            compact = _compact_recall_result(
+                item, score=scores[str(item.get("id"))], provenance_count=provenance_count
+            )
+            # Only the superseded flag changes the recall shape. Rows that
+            # merely have a validity window keep the compact result.
+            if isinstance(validity, dict) and validity.get("superseded") is True:
+                compact["validity"] = cast(JsonObject, validity)
             results.append(
-                _compact_recall_result(item, score=scores[str(item.get("id"))], provenance_count=provenance_count)
+                present_model_item(
+                    compact,
+                    source=item,
+                    writer=memory_writer(store, item),
+                )
             )
 
         source_excerpts: list[JsonObject] = []
-        if include_sources:
-            source_excerpts = _compact_items(raw_sources, _COMPACT_SOURCE_FIELDS)
+        if include_sources and isinstance(raw_sources, list):
+            source_excerpts = [
+                present_model_item(
+                    _compact_fields(source, _COMPACT_SOURCE_FIELDS),
+                    source=source if isinstance(source, Mapping) else None,
+                )
+                for source in raw_sources
+            ]
 
     payload: dict[str, object] = {
         "query": query,
@@ -360,7 +436,7 @@ def _handle_alice_recall(context: MCPRuntimeContext, arguments: Mapping[str, obj
                 filter_payload["created_by_agent_ids"] = list(retrieval_filters["created_by_agent_ids"])
             retrieval_payload["filters"] = filter_payload
         payload["retrieval"] = retrieval_payload
-    return _json_object(payload)
+    return _json_object(with_result_framing(payload))
 
 
 def _handle_alice_recall_debug(
@@ -411,15 +487,29 @@ def _handle_alice_state_at(context: MCPRuntimeContext, arguments: Mapping[str, o
 
 def _handle_alice_resume(context: MCPRuntimeContext, arguments: Mapping[str, object]) -> JsonObject:
     requested_project = _parse_optional_text(arguments, "project")
+    explicit_scope = _parse_string_list(arguments, "project_scope") or (
+        (requested_project,) if requested_project else ()
+    )
+    # A call that names no project reads the project view when scoping is on and a
+    # project is found: this project's items first, then global ones, with global
+    # items in the sensitive domains left out (spec 6.6, ruling Q25a). A call that
+    # names a project keeps today's rule and no global is added.
+    project_view = _default_project_view(context) if not explicit_scope else ProjectView.unscoped()
     decision = _mcp_agent_policy_preflight(
         context,
         arguments,
         action="context_pack.request",
+        project_view=project_view,
         domains=_parse_string_list(arguments, "domains"),
         sensitivity_allowed=_parse_string_list(arguments, "sensitivity_allowed")
         or ("public", "internal", "private", "unknown"),
-        project_scope=_parse_string_list(arguments, "project_scope")
-        or ((requested_project,) if requested_project else ()),
+        project_scope=explicit_scope,
+    )
+    # The view applies only where the policy left the scope to it. An identity that
+    # declares a scope, or a key locked to a project, keeps its own and gets no
+    # global notes added.
+    applied_view = (
+        project_view if decision.effective_project_scope == project_view.scope else ProjectView.unscoped()
     )
     return _vnext_resume(
         context,
@@ -427,6 +517,7 @@ def _handle_alice_resume(context: MCPRuntimeContext, arguments: Mapping[str, obj
         effective_project_scope=decision.effective_project_scope,
         effective_domains=decision.effective_domains,
         effective_sensitivity_allowed=decision.effective_sensitivity_allowed,
+        project_view=applied_view,
     )
 
 
@@ -516,7 +607,7 @@ def _handle_alice_task_brief_compare(
 ) -> JsonObject:
     compare_to_mode = arguments.get("compare_to_mode")
     if not isinstance(compare_to_mode, str) or compare_to_mode.strip() == "":
-        raise MCPToolError("compare_to_mode is required and must be a string")
+        raise MCPArgumentError("compare_to_mode is required and must be a string")
 
     primary_request = _parse_task_brief_request(arguments)
     secondary_arguments = dict(arguments)
@@ -590,31 +681,66 @@ def _handle_alice_prefetch_context(context: MCPRuntimeContext, arguments: Mappin
         )
 
     brief = resumption_payload["brief"]
+    framed_brief = _frame_prefetch_brief(brief)
     return _json_object(
-        {
-            "prefetch_context": {
-                "assembly_version": _PREFETCH_CONTEXT_ASSEMBLY_VERSION_V0,
-                "text": _render_prefetch_context_text(
-                    brief=brief,
-                    open_loops_limit=max_open_loops,
-                    recent_changes_limit=max_recent_changes,
-                ),
-                "scope": brief["scope"],
-                "last_decision": brief["last_decision"],
-                "next_action": brief["next_action"],
-                "open_loops": brief["open_loops"],
-                "recent_changes": brief["recent_changes"],
-                "sources": brief["sources"],
+        with_result_framing(
+            {
+                "prefetch_context": {
+                    "assembly_version": _PREFETCH_CONTEXT_ASSEMBLY_VERSION_V0,
+                    "text": without_leading_framing_line(
+                        _render_prefetch_context_text(
+                            brief=brief,
+                            open_loops_limit=max_open_loops,
+                            recent_changes_limit=max_recent_changes,
+                        )
+                    ),
+                    "scope": brief["scope"],
+                    "last_decision": framed_brief["last_decision"],
+                    "next_action": framed_brief["next_action"],
+                    "open_loops": framed_brief["open_loops"],
+                    "recent_changes": framed_brief["recent_changes"],
+                    "sources": framed_brief["sources"],
+                }
             }
-        }
+        )
     )
+
+
+def _frame_prefetch_brief(brief: Mapping[str, object]) -> dict[str, object]:
+    """Quote stored titles in the prefetch brief. The text field is not the only copy."""
+
+    framed: dict[str, object] = {}
+    for key in ("last_decision", "next_action", "open_loops", "recent_changes"):
+        section = brief.get(key)
+        framed[key] = _frame_prefetch_section(section)
+    sources = brief.get("sources")
+    if isinstance(sources, list):
+        framed["sources"] = [
+            present_model_item(item) if isinstance(item, Mapping) else item for item in sources
+        ]
+    else:
+        framed["sources"] = sources
+    return framed
+
+
+def _frame_prefetch_section(section: object) -> object:
+    if not isinstance(section, Mapping):
+        return section
+    copied = dict(section)
+    item = copied.get("item")
+    if isinstance(item, Mapping):
+        copied["item"] = present_model_item(item)
+    items = copied.get("items")
+    if isinstance(items, list):
+        copied["items"] = [present_model_item(entry) if isinstance(entry, Mapping) else entry for entry in items]
+    return copied
 
 
 def _handle_alice_open_loops(context: MCPRuntimeContext, arguments: Mapping[str, object]) -> JsonObject:
     action = (_parse_optional_text(arguments, "action") or "list").lower()
     if action not in _OPEN_LOOP_TOOL_ACTIONS:
         allowed = ", ".join(_OPEN_LOOP_TOOL_ACTIONS)
-        raise MCPToolError(f"action must be one of: {allowed}")
+        raise MCPArgumentError(f"action must be one of: {allowed}")
     if action == "list":
         return _handle_alice_vnext_open_loops(context, arguments)
 
@@ -625,18 +751,18 @@ def _handle_alice_open_loops(context: MCPRuntimeContext, arguments: Mapping[str,
     with _vnext_store_context(context) as store:
         target = store.get_open_loop(loop_id)
         if target is None:
-            raise MCPToolError(f"open loop {loop_id} was not found")
-        _actor_type, _actor_id, decision = _policy_checked(
-            store,
-            identity=identity,
-            action="open_loop.update",
-            domains=(str(target.get("domain") or "unknown"),),
-            sensitivity_allowed=(str(target.get("sensitivity") or "unknown"),),
-            project_scope=resource_project_scope(target),
-            require_explicit_project_scope=True,
-        )
-        if decision.decision == "blocked":
-            blocked_decision = decision
+            raise MCPReferenceNotFoundError(f"open loop {loop_id} was not found")
+        # Same ceiling block as memory mutations. The policy event names
+        # this loop; the previous check logged the decision with no target.
+        try:
+            VNextMemoryCommitService(store).authorize_memory_action(
+                identity=identity,
+                action="open_loop.update",
+                memory=target,
+                target_type="open_loop",
+            )
+        except AgentPolicyBlockedError as exc:
+            blocked_decision = exc.decision
         else:
             loop = VNextProjectService(store).review_open_loop(
                 loop_id=loop_id,
@@ -666,6 +792,11 @@ def _resume_event_honours_policy_fence(
     *,
     effective_domains: tuple[str, ...],
     effective_sensitivity_allowed: tuple[str, ...],
+    # Required, with no default, like the fence arguments next to it: the project view
+    # holds back global notes in some domains, and an event row holds only ids, so the
+    # row it points at is the thing to test (the event queries leave them out in SQL
+    # too, which keeps a held-back event from using up a place).
+    exclude_global_domains: frozenset[str],
 ) -> bool:
     target_type = event.get("target_type")
     target_id = event.get("target_id")
@@ -678,9 +809,35 @@ def _resume_event_honours_policy_fence(
         row = store.get_open_loop(target_id)
     if not isinstance(row, Mapping):
         return False
+    # The event was listed through a join that leaves out an expired memory.
+    # The row is read again by id, so the same test applies to what is shown.
+    if target_type == "memory" and not memory_window_is_open(row):
+        return False
+    if _resource_is_held_back_global(row, exclude_global_domains):
+        return False
     return _resource_matches_domains(row, effective_domains) and _resource_matches_sensitivity(
         row, effective_sensitivity_allowed
     )
+
+
+def _require_literal_match_query(store: object, query: str | None) -> None:
+    """Refuse a query the store's literal substring reads cannot take, before any read.
+
+    ``alice_resume`` and ``alice_recent_decisions`` hand the query to four
+    reads that bind it as one LIKE operand. The SQLite store refuses an operand
+    past its limit, with the typed error the server answers as
+    ``invalid_request``. The Postgres store has no such limit and defines no
+    ``check_literal_match_query``, so this does nothing for it. Asking first
+    makes the answer depend on the query alone: without it a caller whose fence
+    admits nothing, or a vault with nothing to match, would be taken where
+    another is refused, because SQLite only fails the reads that reach a row.
+    """
+
+    if query is None:
+        return
+    check = getattr(store, "check_literal_match_query", None)
+    if callable(check):
+        check(query)
 
 
 def _vnext_recent_decisions(
@@ -701,11 +858,12 @@ def _vnext_recent_decisions(
     sensitivity_filter = list(effective_sensitivity_allowed)
 
     with _vnext_store_context(context) as store:
+        _require_literal_match_query(store, query)
         matched = [
             row
             for row in store.list_memories(
                 status=None,
-                statuses=tuple(_SQLITE_REVIEWABLE_STATUSES),
+                statuses=tuple(_CONTEXT_MEMORY_STATUSES),
                 memory_types=("decision",),
                 domains=domain_filter,
                 sensitivity_allowed=sensitivity_filter,
@@ -714,6 +872,9 @@ def _vnext_recent_decisions(
                 created_at_end=until,
                 query=query,
                 order_by_created_at=True,
+                # A memory whose valid_to has passed is not current, the same
+                # test recall applies, before any limit.
+                include_expired=False,
             )
             if _resource_matches_project_scope(row, effective_project_scope)
             and _memory_matches_query(row, query)
@@ -722,7 +883,11 @@ def _vnext_recent_decisions(
         ]
         matched.sort(key=_created_at_sort_key, reverse=True)
         decisions = [
-            _compact_vnext_memory(row, provenance_count=_provenance_count(store, row.get("id")))
+            present_model_item(
+                _compact_vnext_memory(row, provenance_count=_provenance_count(store, row.get("id"))),
+                source=row,
+                writer=memory_writer(store, row),
+            )
             for row in matched[:limit]
         ]
 
@@ -733,7 +898,13 @@ def _vnext_recent_decisions(
     }
     if filters_ignored:
         payload["filters_ignored"] = filters_ignored
-    return _json_object(payload)
+    return _json_object(with_result_framing(payload))
+
+
+def _event_recency(row: Mapping[str, object]) -> tuple[str, str]:
+    """Sort key for event rows, newest first when reversed: time, then id."""
+
+    return (str(row.get("occurred_at") or ""), str(row.get("id") or ""))
 
 
 def _vnext_resume(
@@ -743,6 +914,7 @@ def _vnext_resume(
     effective_project_scope: tuple[str, ...],
     effective_domains: tuple[str, ...],
     effective_sensitivity_allowed: tuple[str, ...],
+    project_view: ProjectView,
 ) -> JsonObject:
     max_recent_changes = _parse_int(
         arguments,
@@ -770,26 +942,65 @@ def _vnext_resume(
     domain_filter = list(effective_domains) if effective_domains else None
     sensitivity_filter = list(effective_sensitivity_allowed)
 
+    # In the project view, global items in the sensitive domains are left out of
+    # every part of the result, the way a brief leaves them out (ruling Q25a).
+    held_back = sensitive_global_exclusion(project_view)
+
     with _vnext_store_context(context) as store:
-        decisions = store.list_memories(
-            status=None,
-            statuses=tuple(_SQLITE_REVIEWABLE_STATUSES),
-            memory_types=("decision",),
-            domains=domain_filter,
-            sensitivity_allowed=sensitivity_filter,
-            projects=effective_project_scope or None,
-            created_at_start=since,
-            created_at_end=until,
-            query=query,
-            order_by_created_at=True,
-            limit=1,
-        )
+        _require_literal_match_query(store, query)
+
+        def read_memories(memory_types: tuple[str, ...]) -> list[JsonObject]:
+            """One memory, newest first: this project's, else a global one, in the project view."""
+
+            if project_view.mode == "project":
+                return project_first_fill(
+                    limit=1,
+                    view=project_view,
+                    exclude_global_domains=held_back,
+                    fetch=fetch_in_two_queries(
+                        lambda scope, excluded, count: store.list_memories(
+                            status=None,
+                            statuses=tuple(_CONTEXT_MEMORY_STATUSES),
+                            memory_types=memory_types,
+                            domains=domain_filter,
+                            sensitivity_allowed=sensitivity_filter,
+                            projects=scope,
+                            created_at_start=since,
+                            created_at_end=until,
+                            query=query,
+                            order_by_created_at=True,
+                            limit=count,
+                            include_expired=False,
+                            exclude_global_domains=tuple(sorted(excluded)),
+                        )
+                    ),
+                )
+            return store.list_memories(
+                status=None,
+                statuses=tuple(_CONTEXT_MEMORY_STATUSES),
+                memory_types=memory_types,
+                domains=domain_filter,
+                sensitivity_allowed=sensitivity_filter,
+                projects=effective_project_scope or None,
+                created_at_start=since,
+                created_at_end=until,
+                query=query,
+                order_by_created_at=True,
+                limit=1,
+                include_expired=False,
+            )
+
+        decisions = read_memories(("decision",))
         last_decision: JsonObject | None = None
         if decisions:
             last_decision = {
                 "kind": "memory",
-                **_compact_vnext_memory(
-                    decisions[0], provenance_count=_provenance_count(store, decisions[0].get("id"))
+                **present_model_item(
+                    _compact_vnext_memory(
+                        decisions[0], provenance_count=_provenance_count(store, decisions[0].get("id"))
+                    ),
+                    source=decisions[0],
+                    writer=memory_writer(store, decisions[0]),
                 ),
             }
 
@@ -800,6 +1011,26 @@ def _vnext_resume(
             # passing it through would build `sensitivity IN ()` on SQLite.
             if not effective_sensitivity_allowed:
                 loop_rows = []
+            elif project_view.mode == "project":
+                loop_rows = project_first_fill(
+                    limit=max_open_loops,
+                    view=project_view,
+                    exclude_global_domains=held_back,
+                    fetch=fetch_in_two_queries(
+                        lambda scope, excluded, count: store.list_open_loops(
+                            status=None,
+                            statuses=tuple(_SQLITE_OPEN_LOOP_ACTIVE_STATUSES),
+                            query=query,
+                            domains=domain_filter,
+                            sensitivity_allowed=sensitivity_filter,
+                            limit=count,
+                            scope_projects=scope,
+                            scope_window_start=since,
+                            scope_window_end=until,
+                            exclude_global_domains=tuple(sorted(excluded)),
+                        )
+                    ),
+                )
             else:
                 loop_rows = store.list_open_loops(
                     status=None,
@@ -812,29 +1043,23 @@ def _vnext_resume(
                     scope_window_start=since,
                     scope_window_end=until,
                 )
-        open_loops = [_compact_vnext_open_loop(row) for row in loop_rows[:max_open_loops]]
+        open_loops = [
+            present_model_item(_compact_vnext_open_loop(row), source=row) for row in loop_rows[:max_open_loops]
+        ]
 
         next_action: JsonObject | None = open_loops[0] if open_loops else None
         if next_action is None:
-            todo_memories = store.list_memories(
-                status=None,
-                statuses=tuple(_SQLITE_REVIEWABLE_STATUSES),
-                memory_types=tuple(_SQLITE_NEXT_ACTION_MEMORY_TYPES),
-                domains=domain_filter,
-                sensitivity_allowed=sensitivity_filter,
-                projects=effective_project_scope or None,
-                created_at_start=since,
-                created_at_end=until,
-                query=query,
-                order_by_created_at=True,
-                limit=1,
-            )
+            todo_memories = read_memories(tuple(_SQLITE_NEXT_ACTION_MEMORY_TYPES))
             if todo_memories:
                 next_action = {
                     "kind": "memory",
-                    **_compact_vnext_memory(
-                        todo_memories[0],
-                        provenance_count=_provenance_count(store, todo_memories[0].get("id")),
+                    **present_model_item(
+                        _compact_vnext_memory(
+                            todo_memories[0],
+                            provenance_count=_provenance_count(store, todo_memories[0].get("id")),
+                        ),
+                        source=todo_memories[0],
+                        writer=memory_writer(store, todo_memories[0]),
                     ),
                 }
 
@@ -847,38 +1072,97 @@ def _vnext_resume(
             # and join loop events to authoritative loop scope before LIMIT.
             # The loop join deliberately has no opened-at bound: an older
             # active loop can have a newer event inside the requested event
-            # window. list_resume_memory_events and list_open_loop_events
-            # still omit domain/sensitivity, so targets outside those fences
-            # are dropped after the join. Events that are not a memory or
-            # open_loop target are dropped; they are not claimed as fenced.
-            event_rows = []
-            seen_event_ids: set[str] = set()
-            for event in store.list_resume_memory_events(
-                statuses=tuple(_SQLITE_REVIEWABLE_STATUSES),
-                projects=effective_project_scope,
-                query=query,
-                occurred_at_start=since,
-                occurred_at_end=until,
-                limit=max_recent_changes,
-            ):
-                event_id = str(event.get("id") or "")
-                if event_id:
-                    seen_event_ids.add(event_id)
-                event_rows.append(event)
-            for event in store.list_open_loop_events(
-                statuses=tuple(_SQLITE_OPEN_LOOP_ACTIVE_STATUSES),
-                scope_projects=effective_project_scope,
-                query=query,
-                occurred_at_start=since,
-                occurred_at_end=until,
-                limit=max_recent_changes,
-            ):
-                event_id = str(event.get("id") or "")
-                if event_id and event_id in seen_event_ids:
-                    continue
-                if event_id:
-                    seen_event_ids.add(event_id)
-                event_rows.append(event)
+            # window. In the project view both event readers also take domain
+            # and sensitivity, so a target outside those fences is dropped in
+            # the join, before any place is given. The unscoped branch is the
+            # v0.20.0 read: the readers get None for both, and the targets
+            # outside those fences are dropped after the join. Events that are
+            # not a memory or open_loop target are dropped; they are not
+            # claimed as fenced.
+            event_rows: list[JsonObject] = []
+            if project_view.mode == "project":
+                # One list of max_recent_changes rows, so one fill (spec 6.2): the
+                # project's events first and limit // 4 places held for global
+                # ones, across both event kinds. A fill per kind, merged and cut
+                # by time afterwards, would let global events take far more than
+                # the reserve (every place when the project has events of one kind
+                # only) and push a project event out of the list.
+                #
+                # Every filter of the request goes into the two reads, before the
+                # cut to ``count`` and before the fill gives out its places: a row
+                # the caller may not see, left to the by-id fence after the cut,
+                # would take a place and then be dropped, and a newer one of those
+                # could push out every older row the caller may see.
+                def read_events(scope: tuple[str, ...], excluded: frozenset[str], count: int) -> list[JsonObject]:
+                    """One side of the fill: both event kinds, newest first, at most ``count`` rows."""
+
+                    events: list[JsonObject] = [
+                        *store.list_resume_memory_events(
+                            statuses=tuple(_CONTEXT_MEMORY_STATUSES),
+                            projects=scope,
+                            query=query,
+                            occurred_at_start=since,
+                            occurred_at_end=until,
+                            limit=count,
+                            exclude_global_domains=tuple(sorted(excluded)),
+                            domains=domain_filter,
+                            sensitivity_allowed=sensitivity_filter,
+                        ),
+                        *store.list_open_loop_events(
+                            statuses=tuple(_SQLITE_OPEN_LOOP_ACTIVE_STATUSES),
+                            scope_projects=scope,
+                            query=query,
+                            occurred_at_start=since,
+                            occurred_at_end=until,
+                            limit=count,
+                            exclude_global_domains=tuple(sorted(excluded)),
+                            domains=domain_filter,
+                            sensitivity_allowed=sensitivity_filter,
+                        ),
+                    ]
+                    events.sort(key=_event_recency, reverse=True)
+                    return events[:count]
+
+                event_rows.extend(
+                    project_first_fill(
+                        limit=max_recent_changes,
+                        view=project_view,
+                        exclude_global_domains=held_back,
+                        fetch=fetch_in_two_queries(read_events),
+                    )
+                )
+            else:
+                seen_event_ids: set[str] = set()
+                for event in store.list_resume_memory_events(
+                    statuses=tuple(_CONTEXT_MEMORY_STATUSES),
+                    projects=effective_project_scope,
+                    query=query,
+                    occurred_at_start=since,
+                    occurred_at_end=until,
+                    limit=max_recent_changes,
+                    domains=None,
+                    sensitivity_allowed=None,
+                ):
+                    event_id = str(event.get("id") or "")
+                    if event_id:
+                        seen_event_ids.add(event_id)
+                    event_rows.append(event)
+                for event in store.list_open_loop_events(
+                    statuses=tuple(_SQLITE_OPEN_LOOP_ACTIVE_STATUSES),
+                    scope_projects=effective_project_scope,
+                    query=query,
+                    occurred_at_start=since,
+                    occurred_at_end=until,
+                    limit=max_recent_changes,
+                    domains=None,
+                    sensitivity_allowed=None,
+                ):
+                    event_id = str(event.get("id") or "")
+                    if event_id and event_id in seen_event_ids:
+                        continue
+                    if event_id:
+                        seen_event_ids.add(event_id)
+                    event_rows.append(event)
             event_rows = [
                 event
                 for event in event_rows
@@ -887,26 +1171,33 @@ def _vnext_resume(
                     event,
                     effective_domains=effective_domains,
                     effective_sensitivity_allowed=effective_sensitivity_allowed,
+                    exclude_global_domains=held_back,
                 )
             ]
-            event_rows.sort(
-                key=lambda row: (str(row.get("occurred_at") or ""), str(row.get("id") or "")),
-                reverse=True,
-            )
-            recent_changes = [_compact_vnext_event(row) for row in event_rows[:max_recent_changes]]
+            event_rows.sort(key=_event_recency, reverse=True)
+            recent_changes = [
+                present_model_item(
+                    _compact_vnext_event(row),
+                    source=row,
+                    writer=writer_for_recent_change(store, row),
+                )
+                for row in event_rows[:max_recent_changes]
+            ]
 
     return _json_object(
-        {
-            "brief": {
-                "last_decision": last_decision,
-                "next_action": next_action,
-                "open_loops": open_loops,
-                "recent_changes": recent_changes,
-                "generated_at": _utc_now_iso_text(),
-                "mode": "vnext",
-                "filters_ignored": filters_ignored,
+        with_result_framing(
+            {
+                "brief": {
+                    "last_decision": last_decision,
+                    "next_action": next_action,
+                    "open_loops": open_loops,
+                    "recent_changes": recent_changes,
+                    "generated_at": _utc_now_iso_text(),
+                    "mode": "vnext",
+                    "filters_ignored": filters_ignored,
+                }
             }
-        }
+        )
     )
 
 
@@ -929,6 +1220,7 @@ def _handle_alice_recent_decisions(context: MCPRuntimeContext, arguments: Mappin
         # match domain). Policy project scope is the explicit project_scope
         # argument plus whatever the identity already carries.
         project_scope=_parse_string_list(arguments, "project_scope"),
+        project_view=ProjectView.unscoped(),
     )
     return _vnext_recent_decisions(
         context,
@@ -956,6 +1248,7 @@ def _handle_alice_recent_changes(context: MCPRuntimeContext, arguments: Mapping[
         sensitivity_allowed=_parse_string_list(arguments, "sensitivity_allowed")
         or ("public", "internal", "private", "unknown"),
         project_scope=_parse_string_list(arguments, "project_scope"),
+        project_view=ProjectView.unscoped(),
     )
 
     with _store_context(context) as store:

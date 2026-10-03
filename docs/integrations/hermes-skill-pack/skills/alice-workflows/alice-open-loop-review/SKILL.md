@@ -12,6 +12,11 @@ metadata:
 
 # Alice Open-Loop Review
 
+Legacy pack. The supported Hermes pack is `agent-skills/hermes/alice-memory`.
+This skill needs the full tool surface: set `ALICE_MCP_FULL_TOOLS=1` in the
+Alice MCP server env. On the default three tools, `alice_open_loops` is not
+available.
+
 ## Goal
 
 Turn open loops into a prioritized action queue grounded in Alice continuity state.
@@ -28,11 +33,13 @@ Use this skill when the user asks:
 - `mcp_<alice_server>_alice_open_loops`
 - Optional: `mcp_<alice_server>_alice_recent_changes` (keyless-local legacy tool; unavailable when the Alice MCP server is bound with `ALICE_AGENT_API_KEY`)
 
-`<alice_server>` is usually `alice_core`.
+`<alice_server>` is the key under `mcp_servers`. It is `alice` when
+`alice-memory install --host hermes` wrote it and `alice_core` in the example
+configs.
 
 ## Workflow
 
-1. Call `alice_open_loops` for the relevant scope.
+1. Call `alice_open_loops` with `action` set to `list`. It takes no `thread_id`.
 2. Keep output grouped by posture:
    - `waiting_for`
    - `blocker`
@@ -44,7 +51,7 @@ Use this skill when the user asks:
 ## Tool Call Template
 
 ```text
-mcp_alice_core_alice_open_loops({"thread_id":"<uuid>","limit":10})
+mcp_<alice_server>_alice_open_loops({"action":"list","limit":10})
 ```
 
 ## Output Contract

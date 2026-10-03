@@ -42,7 +42,7 @@ def render_release_body(
         if checksum is None:
             raise ValueError(f"invalid checksum manifest line {line_number}")
         artifact_lines.append(
-            f"- `{checksum.group('filename')}` — `sha256:{checksum.group('digest')}`"
+            f"- `{checksum.group('filename')}`: `sha256:{checksum.group('digest')}`"
         )
     if not artifact_lines:
         raise ValueError("checksum manifest contains no artifacts")

@@ -1109,10 +1109,10 @@ def test_content_update_transactionally_expires_only_derived_entity_edges() -> N
     memory = store.create_memory(
         {
             "memory_key": "edge.seed",
-            "value": {"text": "Sami Rusani said hello."},
+            "value": {"text": "Jane Doe said hello."},
             "status": "active",
             "memory_type": "semantic",
-            "canonical_text": "Sami Rusani said hello.",
+            "canonical_text": "Jane Doe said hello.",
         }
     )
     mention = store.create_graph_edge(

@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 from pydantic import Field
 
 from alicebot_api.db import user_connection
+from alicebot_api.recall_framing import annotate_http_context_pack
 from alicebot_api.config import get_settings
 from alicebot_api.public_errors import public_exception_response
 from alicebot_api.routers._vnext_shared import (
@@ -265,7 +266,9 @@ def create_vnext_context_pack(
             if decision.decision == "blocked":
                 return _vnext_permission_response(decision)
             actor_type, actor_id = _vnext_agent_actor(identity, fallback="system")
-            payload = VNextRetrievalService(store).compile_context_pack(
+            payload = annotate_http_context_pack(
+                store,
+                VNextRetrievalService(store).compile_context_pack(
                 VNextRetrievalRequest(
                     query=retrieval_request.query,
                     domains=decision.effective_domains,
@@ -286,6 +289,7 @@ def create_vnext_context_pack(
                     trace_id=request.trace_id or decision.trace_id,
                     run_id=identity.agent_run_id if identity is not None else None,
                 )
+                ),
             )
     except VNextRetrievalValidationError:
         return _vnext_public_error_response(status_code=400, detail="vNext context-pack request is invalid")

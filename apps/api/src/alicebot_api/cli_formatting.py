@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from typing import Mapping, Sequence, cast
 
+from alicebot_api.recall_framing import writer_attribution
+from alicebot_api.session_briefing import SESSION_BRIEF_FRAME, quote_session_brief_text
 from alicebot_api.contracts import (
     ContinuityArtifactDetailResponse,
     ContinuityBriefResponse,
@@ -92,7 +94,11 @@ def _format_provenance_source(item: ContinuityRecallResultRecord) -> str:
     return "(unknown)"
 
 
-def _format_explanation_source_facts(item: ContinuityRecallResultRecord) -> str:
+def _format_explanation_source_facts(
+    item: ContinuityRecallResultRecord,
+    *,
+    quote_stored_text: bool = False,
+) -> str:
     explanation = item.get("explanation")
     if not isinstance(explanation, dict):
         return "(none)"
@@ -106,11 +112,16 @@ def _format_explanation_source_facts(item: ContinuityRecallResultRecord) -> str:
         label = fact.get("label")
         value = fact.get("value")
         if isinstance(label, str) and isinstance(value, str):
-            rendered.append(f"{label}={value}")
+            shown = quote_session_brief_text(value) if quote_stored_text and value.strip() else value
+            rendered.append(f"{label}={shown}")
     return " | ".join(rendered) if rendered else "(none)"
 
 
-def _format_explanation_evidence(item: ContinuityRecallResultRecord) -> str:
+def _format_explanation_evidence(
+    item: ContinuityRecallResultRecord,
+    *,
+    quote_stored_text: bool = False,
+) -> str:
     explanation = item.get("explanation")
     if not isinstance(explanation, dict):
         return "(none)"
@@ -125,11 +136,16 @@ def _format_explanation_evidence(item: ContinuityRecallResultRecord) -> str:
         source_id = segment.get("source_id")
         snippet = segment.get("snippet")
         if isinstance(source_kind, str) and isinstance(source_id, str) and isinstance(snippet, str):
-            rendered.append(f"{source_kind}:{source_id} \"{snippet}\"")
+            shown = quote_session_brief_text(snippet) if quote_stored_text else f'"{snippet}"'
+            rendered.append(f"{source_kind}:{source_id} {shown}")
     return " | ".join(rendered) if rendered else "(none)"
 
 
-def _format_explanation_supersession(item: ContinuityRecallResultRecord) -> str:
+def _format_explanation_supersession(
+    item: ContinuityRecallResultRecord,
+    *,
+    quote_stored_text: bool = False,
+) -> str:
     explanation = item.get("explanation")
     if not isinstance(explanation, dict):
         return "(none)"
@@ -142,7 +158,7 @@ def _format_explanation_supersession(item: ContinuityRecallResultRecord) -> str:
             continue
         text = note.get("note")
         if isinstance(text, str):
-            rendered.append(text)
+            rendered.append(quote_session_brief_text(text) if quote_stored_text and text.strip() else text)
     return " | ".join(rendered) if rendered else "(none)"
 
 
@@ -203,10 +219,23 @@ def _render_recall_item(
     *,
     index: int | None = None,
     prefix: str = _RECALL_ITEM_PREFIX,
+    quote_stored_text: bool = False,
 ) -> list[str]:
     marker = "-" if index is None else f"{index}."
+    title = item["title"]
+    if quote_stored_text and isinstance(title, str) and title.strip():
+        title = quote_session_brief_text(title)
     lines = [
-        f"{prefix}{marker} [{item['object_type']}|{item['status']}] {item['title']}",
+        f"{prefix}{marker} [{item['object_type']}|{item['status']}] {title}",
+    ]
+    if quote_stored_text:
+        writer = item.get("writer") if isinstance(item.get("writer"), dict) else writer_attribution(item)
+        writer_id = writer.get("id") if isinstance(writer, dict) else None
+        established = writer.get("established") if isinstance(writer, dict) else None
+        if isinstance(writer_id, str) and isinstance(established, str):
+            lines.append(f"{prefix}  writer.id={writer_id} writer.established={established}")
+    lines.extend(
+        [
         f"{prefix}  id={item['id']} capture_event_id={item['capture_event_id']}",
         (
             f"{prefix}  lifecycle=preserved:{item['lifecycle']['is_preserved']} "
@@ -232,10 +261,11 @@ def _render_recall_item(
         f"{prefix}  trust={_format_explanation_trust(item)}",
         f"{prefix}  contradiction_summary={_format_explanation_contradictions(item)}",
         f"{prefix}  timestamps={_format_explanation_timestamps(item)}",
-        f"{prefix}  source_facts={_format_explanation_source_facts(item)}",
-        f"{prefix}  evidence_segments={_format_explanation_evidence(item)}",
-        f"{prefix}  supersession_notes={_format_explanation_supersession(item)}",
-    ]
+        f"{prefix}  source_facts={_format_explanation_source_facts(item, quote_stored_text=quote_stored_text)}",
+        f"{prefix}  evidence_segments={_format_explanation_evidence(item, quote_stored_text=quote_stored_text)}",
+        f"{prefix}  supersession_notes={_format_explanation_supersession(item, quote_stored_text=quote_stored_text)}",
+        ]
+    )
     return lines
 
 
@@ -247,6 +277,7 @@ def _render_recall_list_section(
     total_count: int,
     order: Sequence[str],
     empty_message: str,
+    quote_stored_text: bool = False,
 ) -> list[str]:
     lines = [
         f"{title} (returned={len(items)} total={total_count} limit={limit})",
@@ -257,7 +288,7 @@ def _render_recall_list_section(
         return lines
 
     for index, item in enumerate(items, start=1):
-        lines.extend(_render_recall_item(item, index=index))
+        lines.extend(_render_recall_item(item, index=index, quote_stored_text=quote_stored_text))
     return lines
 
 
@@ -398,7 +429,7 @@ def format_resume_output(payload: ContinuityResumptionBriefResponse) -> str:
     if last_decision["item"] is None:
         lines.append(f"  empty: {last_decision['empty_state']['message']}")
     else:
-        lines.extend(_render_recall_item(last_decision["item"]))
+        lines.extend(_render_recall_item(last_decision["item"], quote_stored_text=True))
 
     lines.extend(
         _render_recall_list_section(
@@ -408,6 +439,7 @@ def format_resume_output(payload: ContinuityResumptionBriefResponse) -> str:
             total_count=brief["open_loops"]["summary"]["total_count"],
             order=brief["open_loops"]["summary"]["order"],
             empty_message=brief["open_loops"]["empty_state"]["message"],
+            quote_stored_text=True,
         )
     )
     lines.extend(
@@ -418,6 +450,7 @@ def format_resume_output(payload: ContinuityResumptionBriefResponse) -> str:
             total_count=brief["recent_changes"]["summary"]["total_count"],
             order=brief["recent_changes"]["summary"]["order"],
             empty_message=brief["recent_changes"]["empty_state"]["message"],
+            quote_stored_text=True,
         )
     )
 
@@ -426,9 +459,17 @@ def format_resume_output(payload: ContinuityResumptionBriefResponse) -> str:
     if next_action["item"] is None:
         lines.append(f"  empty: {next_action['empty_state']['message']}")
     else:
-        lines.extend(_render_recall_item(next_action["item"]))
+        lines.extend(_render_recall_item(next_action["item"], quote_stored_text=True))
 
     lines.extend(_render_retrieval_debug(payload))
+    has_stored_note = (
+        last_decision["item"] is not None
+        or next_action["item"] is not None
+        or len(brief["open_loops"]["items"]) > 0
+        or len(brief["recent_changes"]["items"]) > 0
+    )
+    if has_stored_note:
+        lines.insert(0, SESSION_BRIEF_FRAME)
     return "\n".join(lines)
 
 

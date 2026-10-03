@@ -5,7 +5,6 @@ from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 import json
 import logging
-import re
 from typing import Callable, Mapping, cast
 from uuid import UUID, uuid4
 
@@ -52,15 +51,35 @@ from alicebot_api.vnext_lifecycle import (
     supersession_would_cycle,
 )
 from alicebot_api.vnext_memory_version import memory_matches_snapshot
+from alicebot_api.vnext_source_fence import (
+    AttachableSources,
+    SourceReadFence,
+    resolve_attachable_sources,
+)
+from alicebot_api.write_bounds import (
+    MAX_COMMIT_CANONICAL_TEXT_CHARS as _MAX_COMMIT_CANONICAL_TEXT_CHARS,
+    MAX_COMMIT_SOURCE_REF_CHARS as _MAX_COMMIT_SOURCE_REF_CHARS,
+    MAX_COMMIT_SOURCE_REFS as _MAX_COMMIT_SOURCE_REFS,
+)
+from alicebot_api.credential_floor import (
+    SECRET_PREFIX_PATTERNS as SECRET_PREFIX_PATTERNS,
+    TEXT_WITHHELD_PLACEHOLDER,
+    VERDICT_CREDENTIAL,
+    VERDICT_EXPANSION,
+    credential_verdict,
+    refuse_credential_activation,
+    withhold_credential_text,
+)
+from alicebot_api.legacy_credential_check import (
+    commit_door_secret_verdict,
+    commit_gate_refuses as legacy_commit_gate_refuses,
+)
 from alicebot_api.vnext_promotion_policy import (
     PromotionCandidate,
     PromotionDecision,
     PromotionSettings,
     PromotionSettingsValidationError,
-    SECRET_ASSIGNMENT_PATTERN,
     evaluate_promotion,
-    looks_like_credential,
-    looks_like_secret_value,
     resolve_promotion_settings,
     writer_trust_for,
 )
@@ -68,7 +87,7 @@ from alicebot_api.vnext_project_update_guard import (
     PENDING_PROJECT_UPDATE_MEMORY_MUTATION_MESSAGE,
     is_pending_project_update_memory,
 )
-from alicebot_api.vnext_project_scope import project_scope_identity
+from alicebot_api.vnext_project_scope import normalize_project_scope, project_scope_identity
 from alicebot_api.vnext_repositories import EventStore, JsonObject
 from alicebot_api.store import ContinuityStoreInvariantError
 from alicebot_api.vnext_store import PostgresVNextStore, VNextRow
@@ -238,28 +257,107 @@ EXPIRE_BLOCKED_STATUSES = ("superseded", "rejected")
 # NULL. Stores that grow a real clear_memory_valid_to seam make this
 # sentinel unnecessary; until then it is recorded in metadata_json.validity.
 VALID_TO_UNBOUNDED_SENTINEL = "9999-12-31T23:59:59Z"
-# Self-identifying credentials: the value itself announces what it is. These
-# only count when they start a token and are followed by key-shaped material,
-# because as bare substrings they read "task-list" as an `sk-` key and a person
-# named "Akia" as an AWS key id.
-SECRET_PREFIX_PATTERNS = (
-    re.compile(r"(?<![0-9a-z])sk-[0-9a-z_-]{8,}"),
-    re.compile(r"(?<![0-9a-z])ghp_[0-9a-z]{8,}"),
-    re.compile(r"(?<![0-9a-z])xoxb-[0-9a-z-]{8,}"),
-    re.compile(r"(?<![0-9a-z])akia[0-9a-z]{12,}"),
-    re.compile(r"-----begin(?: [a-z]+)* private key-----"),
-)
+# SECRET_PREFIX_PATTERNS moved to alicebot_api.credential_floor, the one
+# credential check that commit, confirm and correct call. Re-exported above
+# so the name still resolves here.
 
-# SECRET_ASSIGNMENT_PATTERN and looks_like_secret_value are imported from
-# vnext_promotion_policy rather than defined twice. The floor needs the
-# same rule and cannot import from here without a cycle, and two copies of
-# "is this an assignment of a secret" is exactly how the two guards drifted
-# apart in the first place. Re-exported here so the name still resolves on
-# this module.
+# source_refs are persisted on the row, replayed into context packs, and
+# scanned by the credential floor, so an unbounded list was both a storage
+# and a scan-time problem (the 2026-09-03 dump measured 33.9 s for a single
+# element against the old quadratic assignment regex). The HTTP model and the
+# MCP schema carry the same bounds; this is the one every caller of the
+# service meets.
+# Defined once, in write_bounds, so the HTTP model and the MCP schemas read
+# the same numbers; re-exported here, where the one enforcer lives.
+MAX_COMMIT_SOURCE_REFS = _MAX_COMMIT_SOURCE_REFS
+MAX_COMMIT_SOURCE_REF_CHARS = _MAX_COMMIT_SOURCE_REF_CHARS
+MAX_COMMIT_CANONICAL_TEXT_CHARS = _MAX_COMMIT_CANONICAL_TEXT_CHARS
 
 
 class VNextMemoryCommitValidationError(ValueError):
     """Raised when an agentic memory commit request is invalid."""
+
+
+class MemoryCommitTextTooLarge(VNextMemoryCommitValidationError):
+    """``canonical_text`` is longer than a memory commit takes.
+
+    The limit is ``MAX_COMMIT_CANONICAL_TEXT_CHARS``, the number the Postgres HTTP
+    models have always used. ``public_message`` holds the count and the limit and
+    fixed words, never the text, so a caller can return it to an agent as it is.
+    """
+
+    def __init__(self, *, measured: int, limit: int) -> None:
+        self.measured = measured
+        self.limit = limit
+        super().__init__(
+            f"canonical_text is {measured} characters; the limit is {limit}. "
+            "Shorten it, or commit it as separate memories."
+        )
+
+    @property
+    def public_message(self) -> str:
+        return str(self)
+
+
+class IdempotencyKeyConflictError(VNextMemoryCommitValidationError):
+    """The idempotency key is already bound to a different request.
+
+    A blocked replay raises this when the content does not match, or when
+    the stored labels are not the labels the caller sent. The policy rows
+    from the check are kept. The public body is the writer's 400.
+    """
+
+
+class MemoryNotFoundError(VNextMemoryCommitValidationError):
+    """A memory or a pending confirmation the call names does not exist.
+
+    The text is what the plain error said before this class existed, and every
+    caller that catches ``VNextMemoryCommitValidationError`` still catches it.
+    The MCP server answers ``not_found`` for it by class, never by its text.
+    """
+
+
+class RefusedOnDeletedMemoryError(AgentPolicyBlockedError):
+    """The policy refused a redact of an archived or redacted row, which the caller must hear as "not found".
+
+    Redact reads such a row on purpose, to scrub and to replay it, while every other verb reads it as absent. A
+    refused caller is told "not found" for it, as for an id the vault never held, or redact would tell it which ids
+    were deleted. The refusal itself is still a refusal: the decision was recorded and is audited like any other, and
+    a surface that catches ``AgentPolicyBlockedError`` leaves its transaction normally so that audit row is
+    committed. Raising a plain ``MemoryNotFoundError`` there would roll the audit row back with the call. The surface
+    then turns this class into its own "not found" (``not_found`` over MCP, 404 over HTTP) instead of its refusal
+    (``not_permitted``, 403). A surface that does not know the class, the command line, answers the refusal.
+    """
+
+
+class MemoryStateError(VNextMemoryCommitValidationError):
+    """The row exists and the caller may act on it, but its state forbids the call.
+
+    A confirmation already answered, or a coupled project update that has its
+    own review path. The text is unchanged and every caller that catches
+    ``VNextMemoryCommitValidationError`` still catches it. The MCP server
+    answers ``precondition_failed`` for it by class, never by its text.
+    """
+
+
+def _stored_labels_are_the_requests(
+    memory: Mapping[str, object],
+    request: MemoryCommitRequest,
+    identity: AgentIdentity | None,
+) -> bool:
+    """True when the stored row's labels are the ones this request sent.
+
+    Domain and sensitivity are read the same way ``_policy_checked_write``
+    reads them. An omitted project scope falls back to the identity, the
+    same way ``_scope_columns`` does.
+    """
+
+    scope = request.project_scope or (identity.project_scope if identity is not None else ())
+    return (
+        str(memory.get("domain") or "unknown") == request.domain
+        and str(memory.get("sensitivity") or "unknown") == request.sensitivity
+        and resource_project_scope(memory) == normalize_project_scope(list(scope))
+    )
 
 
 class _IdempotentReplaySignal(RuntimeError):
@@ -405,6 +503,20 @@ def _normalized_text(value: object, *, field_name: str) -> str:
     return normalized
 
 
+def _commit_canonical_text(value: object) -> str:
+    """The text of a new memory, collapsed the way it is stored, refused when it is too long.
+
+    The length is of the collapsed text, which is what the memory holds. Collapsing never
+    makes a text longer, so a text the Postgres HTTP model takes (at most the same number of
+    characters as sent) is always taken here.
+    """
+
+    text = _normalized_text(value, field_name="canonical_text")
+    if len(text) > MAX_COMMIT_CANONICAL_TEXT_CHARS:
+        raise MemoryCommitTextTooLarge(measured=len(text), limit=MAX_COMMIT_CANONICAL_TEXT_CHARS)
+    return text
+
+
 def _enum_token(value: str) -> str:
     return "_".join(value.casefold().replace("-", "_").split())
 
@@ -456,108 +568,79 @@ def _object_tuple(value: object) -> tuple[object, ...]:
         return ()
     if not isinstance(value, (list, tuple)):
         raise VNextMemoryCommitValidationError("source_refs must be an array")
+    if len(value) > MAX_COMMIT_SOURCE_REFS:
+        raise VNextMemoryCommitValidationError(
+            f"source_refs must hold at most {MAX_COMMIT_SOURCE_REFS} entries"
+        )
+    for ref in value:
+        # A string ref is measured as sent (owner ruling R4): measuring its
+        # JSON form counted every quote and newline twice, so a 2,100
+        # character ref of quotes was refused. Any other ref is measured by
+        # its serialized length.
+        size = len(ref) if isinstance(ref, str) else len(json.dumps(json_safe(ref), ensure_ascii=False))
+        if size > MAX_COMMIT_SOURCE_REF_CHARS:
+            raise VNextMemoryCommitValidationError(
+                f"each source_ref must be at most {MAX_COMMIT_SOURCE_REF_CHARS} characters"
+            )
     return tuple(value)
 
 
-def _contains_secret_marker(text: str) -> bool:
-    """Whether one text carries credential-shaped material.
-
-    Delegates to the promotion floor's detector so the two guards cannot
-    drift apart. They had: measured on eleven real credential shapes, this
-    path caught four and the floor caught ten, so six genuine secrets were
-    accepted outright by the guard whose job is to refuse them, and on an
-    unconfigured deployment the floor never runs to catch them. The floor
-    also normalises, which this path did not, so a zero-width space or a
-    fullwidth "s" defeated it.
-
-    The prefix patterns and the assignment rule are still consulted after it,
-    so this stays a strict superset rather than a replacement whose coverage
-    has to be argued. The two are complementary, not redundant: the floor
-    normalises and decodes, which catches unicode, zero-width and fullwidth
-    defeats; the assignment rule reads a secret-shaped name followed by a
-    real value, which catches X_API_TOKEN= and PGPASSWORD=. Neither catches
-    the other's set.
-    """
-
-    if looks_like_credential(text):
-        return True
-    folded = text.casefold()
-    if any(pattern.search(folded) for pattern in SECRET_PREFIX_PATTERNS):
-        return True
-    return any(
-        looks_like_secret_value(match.group("value"))
-        for match in SECRET_ASSIGNMENT_PATTERN.finditer(text)
-    )
-
-
-def _flatten_text(value: object) -> list[str]:
-    """Every string reachable inside a caller-supplied structure, keys included."""
-    if isinstance(value, str):
-        return [value]
-    if isinstance(value, Mapping):
-        flattened: list[str] = []
-        for key, item in value.items():
-            if isinstance(key, str):
-                flattened.append(key)
-                # Keep the pair adjacent as well. A credential is recognised by
-                # a secret-shaped name next to its value, and flattening a
-                # mapping into separate strings would break exactly that.
-                if isinstance(item, (str, int, float)):
-                    flattened.append(f"{key}={item}")
-            flattened.extend(_flatten_text(item))
-        return flattened
-    if isinstance(value, (list, tuple)):
-        flattened = []
-        for item in value:
-            flattened.extend(_flatten_text(item))
-        return flattened
-    if value is None:
-        return []
-    return [str(value)]
-
-
-def _request_contains_secret_marker(request: MemoryCommitRequest) -> bool:
-    """Scan every caller-supplied text field, not just the canonical body.
+def _request_contains_secret_marker(request: MemoryCommitRequest) -> str | None:
+    """Scan every persisted caller field; the credential floor's verdict or None.
 
     A credential pasted into the title, excerpt, rationale, or source refs is
     stored and later returned inside context packs exactly like body text, so
     guarding one field only moves the leak rather than closing it.
+
+    Until 2026-09-22 this scanned each field on its own, so a key split
+    across the title and the body ("id AK" + "IAIOSFODNN7EXAMPLE ...")
+    committed active while the promotion floor, which joins the fields,
+    would have caught it. It now delegates to the credential floor, in the
+    floor's reading order: title, body, free text, structured values, then
+    the persisted identifiers (idempotency_key, trace_id and project_scope,
+    read by value only). A key planted in an identifier is stored and
+    replayed like any other field.
+
+    Then v0.16.0's own check (S4.4 round 5, ruling H1). This is one of the
+    two doors v0.16.0 checked, and the floor's name grammar reads only the
+    last segment of a name, so PASSWORD_DB=, TOKEN_GITHUB=, API_KEY_RAW= and
+    GITHUB_TOKEN_WRITE= with real values, which v0.16.0 refused here, were
+    stored. The request is refused when the floor refuses OR when v0.16.0's
+    check, re-implemented in linear time over the fields v0.16.0 read, finds
+    something no carve-out excuses (see legacy_credential_check).
     """
-    fields = [request.title, request.canonical_text]
-    if request.conversation_excerpt:
-        fields.append(request.conversation_excerpt)
-    if request.rationale:
-        fields.append(request.rationale)
-    fields.extend(_flatten_text(request.source_refs))
-    return any(_contains_secret_marker(value) for value in fields)
+
+    return commit_door_secret_verdict(
+        request.title,
+        request.canonical_text,
+        request.conversation_excerpt,
+        request.rationale,
+        request.source_refs,
+        request.idempotency_key,
+        request.trace_id,
+        list(request.project_scope),
+    )
 
 
-def _source_ref_values(value: object) -> list[str]:
-    refs: list[str] = []
-    if isinstance(value, str):
-        if value.strip():
-            refs.append(value.strip())
-    elif isinstance(value, Mapping):
-        for key in ("source_id", "id", "ref", "source_ref"):
-            candidate = value.get(key)
-            if isinstance(candidate, (str, int)):
-                refs.append(str(candidate))
-        for nested_key in ("source_ids", "source_refs", "sources"):
-            refs.extend(_source_ref_values(value.get(nested_key)))
-    elif isinstance(value, (list, tuple)):
-        for item in value:
-            refs.extend(_source_ref_values(item))
-    return refs
+def _withheld_history(entries: list[object]) -> tuple[list[object], bool]:
+    """Carried-forward history entries with any credential reason withheld.
 
+    Owner ruling R2: when a writer rebuilds validity.history or
+    lifecycle_history, the entries it carries forward pass through the same
+    withhold helper as the new reason, so a reason stored before the floor
+    existed does not ride along into the rewritten row.
+    """
 
-def _source_uuid(value: object) -> str | None:
-    for ref in _source_ref_values(value):
-        normalized = ref.removeprefix("source:")
-        try:
-            return str(UUID(normalized))
-        except ValueError:
-            continue
-    return None
+    carried: list[object] = []
+    withheld_any = False
+    for entry in entries:
+        if isinstance(entry, Mapping) and isinstance(entry.get("reason"), str):
+            reason, withheld = withhold_credential_text(str(entry["reason"]))
+            if withheld:
+                entry = {**entry, "reason": reason}
+                withheld_any = True
+        carried.append(entry)
+    return carried, withheld_any
 
 
 def _scope_columns(
@@ -601,7 +684,7 @@ def _require_project_update_decision_path(memory: Mapping[str, object]) -> None:
     """Keep pending coupled candidates on their atomic project-review path."""
 
     if is_pending_project_update_memory(memory):
-        raise VNextMemoryCommitValidationError(PENDING_PROJECT_UPDATE_MEMORY_MUTATION_MESSAGE)
+        raise MemoryStateError(PENDING_PROJECT_UPDATE_MEMORY_MUTATION_MESSAGE)
 
 
 def _agentic_metadata(row: Mapping[str, object] | None) -> dict[str, object]:
@@ -755,6 +838,8 @@ def promotion_candidate_for_request(
         source_refs=tuple(request.source_refs),
         contradiction_refs=tuple(request.contradiction_refs),
         conversation_excerpt=request.conversation_excerpt,
+        rationale=request.rationale,
+        project_scope=tuple(request.project_scope),
         written_by_agent=identity is not None,
     )
 
@@ -784,8 +869,10 @@ def evaluate_memory_commit_policy(
         reasons.append("agent_policy_blocked")
         mode = "reject"
         status = "rejected"
-    elif _request_contains_secret_marker(request):
-        reasons.append("unsafe_secret_storage")
+    elif (secret_verdict := _request_contains_secret_marker(request)) is not None:
+        reasons.append(
+            "unsafe_text_expansion" if secret_verdict == VERDICT_EXPANSION else "unsafe_secret_storage"
+        )
         mode = "reject"
         status = "rejected"
     elif request.intent.casefold() not in EXPLICIT_MEMORY_INTENTS:
@@ -849,6 +936,18 @@ def evaluate_memory_commit_policy(
             mode = "propose_review"
             status = "review_required"
 
+    # Above the caller's ceiling the write is a refusal, not a pending row.
+    # Confirmation would ask the agent to store something it cannot confirm,
+    # and the default SQLite install has no review console to finish it.
+    # The owner (identity is None) and an admin_agent key are not filtered.
+    mode, status = _reject_agent_commit_above_sensitivity_ceiling(
+        identity=identity,
+        base_decision=base_decision,
+        mode=mode,
+        status=status,
+        reasons=reasons,
+    )
+
     # Promotion runs strictly after the existing gate, on the gate's own
     # result. It can lift "this needs a human" to "write it"; it can never
     # lift a rejection, so every authorization, scope and secret-marker
@@ -883,9 +982,18 @@ def evaluate_memory_commit_policy(
 
 
 COMMITTED_FACT_RECEIPT = "saved as a fact."
+# The same sentence is in the alice_memory_commit tool description and both
+# skill packs. Relabelling the text as private would store it for more agents.
+SENSITIVITY_ABOVE_CEILING_RECEIPT = (
+    "This was not saved. Do not retry with a lower sensitivity label. "
+    "Tell the user. The owner can raise this agent's clearance or store the memory themselves."
+)
+PENDING_WRITE_RESOLVER_REASON = "only_the_author_an_admin_key_or_the_owner_may_confirm_or_reject"
+# Reported as themselves when a commit is also above the ceiling.
+_KEPT_REJECTION_REASONS = ("unsafe_secret_storage", "agent_policy_blocked")
 
 
-def memory_commit_receipt(status: str) -> str:
+def memory_commit_receipt(status: str, *, reason: str | None = None) -> str:
     """One line a host can print. Only a committed row is a fact."""
 
     if status == "committed":
@@ -894,13 +1002,109 @@ def memory_commit_receipt(status: str) -> str:
         return "needs confirmation."
     if status == "review_required":
         return "waiting in review."
+    if status == "rejected" and reason == "sensitivity_above_agent_ceiling":
+        return SENSITIVITY_ABOVE_CEILING_RECEIPT
     if status == "rejected":
         return "rejected."
     return "not recorded as a fact."
 
 
 def _with_commit_receipt(payload: JsonObject) -> JsonObject:
-    return {**payload, "receipt": memory_commit_receipt(str(payload.get("status") or ""))}
+    reason = payload.get("reason")
+    return {
+        **payload,
+        "receipt": memory_commit_receipt(
+            str(payload.get("status") or ""),
+            reason=str(reason) if isinstance(reason, str) else None,
+        ),
+    }
+
+
+def _reject_agent_commit_above_sensitivity_ceiling(
+    *,
+    identity: AgentIdentity | None,
+    base_decision: PolicyDecision,
+    mode: str,
+    status: str,
+    reasons: list[str],
+) -> tuple[str, str]:
+    """Refuse an agent write the caller is not cleared to store.
+
+    Runs after the confidence and sensitivity gates and before promotion.
+    Promotion does not lift a rejection. A keyless call with an agent
+    identity is an agent here; the owner is ``identity is None``.
+    """
+
+    if identity is None or "restricted_sensitivity_filtered" not in base_decision.reasons:
+        return mode, status
+    # Leave a refusal the policy engine or the credential check already
+    # recorded. Replacing it would tell the owner they can store a
+    # credential, or hide the reason the caller was stopped.
+    if mode == "reject" and any(reason in _KEPT_REJECTION_REASONS for reason in reasons):
+        return mode, status
+    reasons.append("sensitivity_above_agent_ceiling")
+    return "reject", "rejected"
+
+
+def pending_write_author_agent_id(memory: Mapping[str, object]) -> str | None:
+    """The agent recorded as the author of a pending write, if there is one.
+
+    Owner writes leave this empty. A keyless caller can claim an agent id;
+    that claim is not checked, so matching it is not protection without keys.
+    """
+
+    created_by = memory.get("created_by_agent_id")
+    if isinstance(created_by, str) and created_by.strip():
+        return created_by.strip()
+    agentic = _agentic_metadata(memory)
+    identity_record = agentic.get("agent_identity")
+    if isinstance(identity_record, Mapping):
+        agent_id = identity_record.get("agent_id")
+        if isinstance(agent_id, str) and agent_id.strip():
+            return agent_id.strip()
+    confirmation = agentic.get("confirmation")
+    if isinstance(confirmation, Mapping):
+        agent_id = confirmation.get("agent_id")
+        if isinstance(agent_id, str) and agent_id.strip():
+            return agent_id.strip()
+    return None
+
+
+def caller_may_resolve_pending_write(
+    identity: AgentIdentity | None,
+    memory: Mapping[str, object],
+) -> bool:
+    """Author, an admin_agent key, or the owner.
+
+    The owner is a keyless call with no agent identity. An admin_agent key
+    is ``auth == agent_api_key``; a keyless call that only declares
+    ``permission_profile: admin_agent`` is not an admin key. On a keyless
+    install the author check is not protection, because the caller can
+    declare the author's agent id.
+    """
+
+    if identity is None:
+        return True
+    if identity.auth == "agent_api_key" and identity.permission_profile == "admin_agent":
+        return True
+    author = pending_write_author_agent_id(memory)
+    return author is not None and identity.agent_id == author
+
+
+def _block_mutation_above_sensitivity_ceiling(decision: PolicyDecision) -> PolicyDecision:
+    """Block a write aimed at one target above the caller's ceiling.
+
+    Recall and list stay ``allowed_with_filtering``. This runs only from
+    ``_policy_checked_write``, which is a mutation of one stored row.
+    """
+
+    if decision.decision == "blocked" or "restricted_sensitivity_filtered" not in decision.reasons:
+        return decision
+    return replace(
+        decision,
+        decision="blocked",
+        reasons=tuple(dict.fromkeys((*decision.reasons, "sensitivity_above_agent_ceiling"))),
+    )
 
 
 class VNextMemoryCommitService:
@@ -957,6 +1161,14 @@ class VNextMemoryCommitService:
         actor_id: str | None,
         trace_id: str | None,
     ) -> None:
+        """Embed a row that recall can return, now or after the commit.
+
+        Called for a row that is active (a direct commit, a correction, a
+        confirmation, an approval). Never for a candidate or a row waiting for
+        confirmation: those are embedded when they become active.
+        ``prepare_memory_embeddings`` refuses any row recall cannot return, so a
+        row offered here by mistake is withheld and not sent.
+        """
         if self._defer_embeddings:
             self._deferred_embedding_inputs.append(DeferredMemoryEmbedding.from_memory(memory))
             return
@@ -978,7 +1190,7 @@ class VNextMemoryCommitService:
         try:
             return resolve_transition(operation, current_status)
         except LifecycleTransitionError as exc:
-            raise VNextMemoryCommitValidationError(str(exc)) from exc
+            raise MemoryStateError(str(exc)) from exc
 
     def lock_supersession_graph(self) -> None:
         """Acquire the transaction-scoped lifecycle lock before any row lock.
@@ -1108,6 +1320,17 @@ class VNextMemoryCommitService:
                     "policy_decision": decision.to_record(),
                 }
             )
+        # Every source id the request names is checked against the caller's
+        # read fence before anything is written, in every write mode: a
+        # pending write stores the ref on the row just as a committed one does.
+        # A missing, deleted or out-of-fence source raises one error. It comes
+        # after the rejection above, so a refused caller is told nothing about
+        # which ids exist.
+        attachable = resolve_attachable_sources(
+            self.store,
+            request.source_refs,
+            fence=SourceReadFence.for_identity(identity),
+        )
         try:
             if decision.write_mode == "confirm_inline":
                 return _with_commit_receipt(
@@ -1123,16 +1346,21 @@ class VNextMemoryCommitService:
                     request=request,
                     decision=decision,
                     confirmed_inline=False,
+                    attachable_sources=attachable,
                 )
             )
         except _IdempotentReplaySignal as replay:
-            return _with_commit_receipt(
-                self._idempotent_replay(
+            try:
+                replayed = self._idempotent_replay(
                     memory=replay.memory,
                     request=request,
                     identity=identity,
                 )
-            )
+            except IdempotencyKeyConflictError as exc:
+                # A plain validation error leaves this transaction, so the
+                # writes that lost the insert race roll back.
+                raise VNextMemoryCommitValidationError(str(exc)) from None
+            return _with_commit_receipt(replayed)
 
     def confirm(
         self,
@@ -1149,14 +1377,41 @@ class VNextMemoryCommitService:
             raise VNextMemoryCommitValidationError("confirmation action must be confirm, reject, or edit")
         memory = self._memory_by_confirmation_id(confirmation_id)
         if memory is None:
-            raise VNextMemoryCommitValidationError("confirmation was not found")
+            raise MemoryNotFoundError("confirmation was not found")
         get_memory_for_update = getattr(self.store, "get_memory_for_update", None)
         if callable(get_memory_for_update):
             locked = get_memory_for_update(str(memory["id"]))
             if locked is None:
-                raise VNextMemoryCommitValidationError("confirmation was not found")
+                raise MemoryNotFoundError("confirmation was not found")
             memory = locked
-        self._policy_checked_write(identity=identity, action="memory.confirm", memory=memory)
+        # Authorization first, then the pending check, then S4.4's credential
+        # check on the accept or reject write. Authorization is the whole
+        # policy: who may resolve the write, the caller's project scope and
+        # permission profile, and the sensitivity ceiling (a reject of a
+        # pending write stays allowed above it, because it stores nothing).
+        # A refused caller gets an audit event and is not told whether the
+        # row is pending, answered or expired. An authorized confirm of a row
+        # that is not pending still raises before any write.
+        if not caller_may_resolve_pending_write(identity, memory):
+            self._refuse_unauthorized_pending_resolver(identity=identity, memory=memory)
+        self.refuse_unauthorized_write(
+            identity=identity,
+            action="memory.confirm",
+            memory=memory,
+            allow_above_ceiling=normalized_action == "reject",
+        )
+        confirmation_now = _agentic_metadata(memory).get("confirmation")
+        confirmation_status = confirmation_now.get("status") if isinstance(confirmation_now, Mapping) else None
+        if normalized_action in {"confirm", "edit"} and confirmation_status != "pending":
+            raise MemoryStateError("confirmation is not pending")
+        # Reject of the caller's own pending write stays allowed above the
+        # ceiling: it stores nothing. Every other mutation is blocked.
+        self._policy_checked_write(
+            identity=identity,
+            action="memory.confirm",
+            memory=memory,
+            allow_above_ceiling=normalized_action == "reject",
+        )
         metadata = _memory_metadata(memory)
         agentic = _agentic_metadata(memory)
         confirmation_value = agentic.get("confirmation")
@@ -1171,7 +1426,7 @@ class VNextMemoryCommitService:
             )
             if replay is not None:
                 return replay
-            raise VNextMemoryCommitValidationError("confirmation is not pending")
+            raise MemoryStateError("confirmation is not pending")
 
         actor_type = "agent" if identity is not None else "user"
         actor_id = identity.agent_id if identity is not None else None
@@ -1276,6 +1531,28 @@ class VNextMemoryCommitService:
             event_type = "agent.memory_confirmed"
             revision_type = "corrected" if normalized_action == "edit" else "promoted"
 
+        # The credential floor, before anything is written. Until 2026-09-22
+        # confirm(action=edit), and confirm with canonical_text, rewrote the
+        # row's text with no credential check, so a secret the commit gate
+        # rejects became active here. An accept is an activation: the shared
+        # activation check reads the title, text and summary the row will
+        # carry once active, plus the rationale persisted with it (ruling C2).
+        # A reject always completes (ruling C6): a rationale, or a
+        # caller-supplied canonical_text, that carries credential material is
+        # stored as a fixed placeholder and the response says so.
+        rationale_withheld = False
+        text_withheld = False
+        if next_status == "active":
+            title_after = next_text[:120] if normalized_action == "edit" else str(memory.get("title") or "")
+            refuse_credential_activation(
+                title_after, next_text, next_text[:280], rationale, error=VNextMemoryCommitValidationError
+            )
+        else:
+            rationale, rationale_withheld = withhold_credential_text(rationale)
+            if canonical_text is not None:
+                withheld_text, text_withheld = withhold_credential_text(next_text, TEXT_WITHHELD_PLACEHOLDER)
+                next_text = withheld_text or ""
+
         agentic["confirmation"] = confirmation
         agentic["status"] = response_status
         agentic["lifecycle_status"] = "inline_confirmed" if next_status == "active" else "confirmation_rejected"
@@ -1342,12 +1619,16 @@ class VNextMemoryCommitService:
             trace_id=str(agentic.get("trace_id") or ""),
             payload={"confirmation_id": confirmation_id, "action": normalized_action, "status": response_status},
         )
-        return {
+        response: JsonObject = {
             "status": response_status,
             "write_mode": "confirm_inline",
             "confirmation_id": confirmation_id,
             "memory": updated,
         }
+        if next_status != "active":
+            response["rationale_withheld"] = rationale_withheld
+            response["text_withheld"] = text_withheld
+        return response
 
     def _replay_confirmation(
         self,
@@ -1358,30 +1639,14 @@ class VNextMemoryCommitService:
         confirmation_id: str,
         action: str,
     ) -> JsonObject | None:
-        """Handle repeated confirmation calls idempotently.
+        """Handle a repeated reject idempotently.
 
-        Re-confirming an already-confirmed memory does not create a second
-        memory or flip lifecycle state; it refreshes ``last_confirmed_at``
-        (the staleness sweep's freshness signal) and notes the refresh with a
-        revision. Re-rejecting an already-rejected/expired confirmation is a
-        no-op replay. Mismatched actions still raise in the caller.
+        Confirm of a row that is not pending is refused in ``confirm``
+        before this runs, and it writes nothing. Re-rejecting an
+        already-rejected or expired confirmation is a no-op replay.
+        Mismatched actions still raise in the caller.
         """
         status = confirmation.get("status")
-        if status == "confirmed" and action == "confirm":
-            refreshed = self._refresh_last_confirmed(
-                identity=identity,
-                memory=memory,
-                action="agentic_memory_reconfirm",
-                reason="Repeated inline confirmation replayed; last_confirmed_at refreshed.",
-                metadata={"confirmation_id": confirmation_id, "idempotent_replay": True},
-            )
-            return {
-                "status": "committed",
-                "write_mode": "confirm_inline",
-                "confirmation_id": confirmation_id,
-                "memory": refreshed,
-                "idempotent_replay": True,
-            }
         if status in {"rejected", "expired"} and action == "reject":
             return {
                 "status": "rejected",
@@ -1464,12 +1729,13 @@ class VNextMemoryCommitService:
         get_memory_for_update = getattr(self.store, "get_memory_for_update", None)
         memory = self.store.get_memory(memory_id) if memory_id else self._latest_agentic_commit(identity)
         if memory is None:
-            raise VNextMemoryCommitValidationError("memory was not found")
+            raise MemoryNotFoundError("memory was not found")
         if callable(get_memory_for_update):
             locked = get_memory_for_update(str(memory["id"]))
             if locked is None:
-                raise VNextMemoryCommitValidationError("memory was not found")
+                raise MemoryNotFoundError("memory was not found")
             memory = locked
+        self.refuse_unauthorized_write(identity=identity, action="memory.undo", memory=memory)
         _require_project_update_decision_path(memory)
         self._policy_checked_write(identity=identity, action="memory.undo", memory=memory)
         successor: VNextRow | None = None
@@ -1480,12 +1746,16 @@ class VNextMemoryCommitService:
                 else self.store.get_memory(superseded_by_memory_id)
             )
             if successor is None:
-                raise VNextMemoryCommitValidationError("superseding memory was not found")
+                raise MemoryNotFoundError("superseding memory was not found")
             if str(successor["id"]) == str(memory["id"]):
                 raise VNextMemoryCommitValidationError("a memory cannot supersede itself")
+            self.refuse_unauthorized_write(identity=identity, action="memory.undo", memory=successor)
             _require_project_update_decision_path(successor)
             self._policy_checked_write(identity=identity, action="memory.undo", memory=successor)
-        return self._transition_memory(
+        # A retirement always completes (owner ruling R2): a reason carrying
+        # credential material is stored as the fixed placeholder.
+        reason_text, rationale_withheld = withhold_credential_text(reason or "Agentic memory commit undone.")
+        result = self._transition_memory(
             identity=identity,
             memory=memory,
             operation=UNDO,
@@ -1494,9 +1764,11 @@ class VNextMemoryCommitService:
             event_type="agent.memory_undone",
             revision_type="superseded",
             action="agentic_memory_undo",
-            reason=reason or "Agentic memory commit undone.",
+            reason=reason_text or "Agentic memory commit undone.",
             superseded_by=successor,
         )
+        result["rationale_withheld"] = rationale_withheld or bool(result.get("rationale_withheld"))
+        return result
 
     def correct(
         self,
@@ -1512,7 +1784,8 @@ class VNextMemoryCommitService:
             get_memory_for_update(memory_id) if callable(get_memory_for_update) else self.store.get_memory(memory_id)
         )
         if memory is None:
-            raise VNextMemoryCommitValidationError("memory was not found")
+            raise MemoryNotFoundError("memory was not found")
+        self.refuse_unauthorized_write(identity=identity, action="memory.correct", memory=memory)
         _require_project_update_decision_path(memory)
         self._policy_checked_write(identity=identity, action="memory.correct", memory=memory)
         # Retirement is terminal: correcting a superseded/rejected/archived row
@@ -1525,6 +1798,16 @@ class VNextMemoryCommitService:
                 "consolidation candidates must be approved through accept_consolidation"
             )
         next_text = _normalized_text(canonical_text, field_name="canonical_text")
+        # The credential floor, before anything is written, on the row as it
+        # will be stored. Until 2026-09-22 correct() rewrote title and text
+        # with no credential check, so a secret the commit gate rejects was
+        # stored active and recalled. A correction leaves the row active, so
+        # it is an activation: title and summary are derived from the new
+        # text and dropped as copies; the reason is persisted in the
+        # corrections history and the revision, so it is read with the row.
+        refuse_credential_activation(
+            next_text[:120], next_text, next_text[:280], reason, error=VNextMemoryCommitValidationError
+        )
         self._invalidate_pending_derived_candidates(
             member_id=str(memory["id"]),
             identity=identity,
@@ -1613,10 +1896,13 @@ class VNextMemoryCommitService:
             get_memory_for_update(memory_id) if callable(get_memory_for_update) else self.store.get_memory(memory_id)
         )
         if memory is None:
-            raise VNextMemoryCommitValidationError("memory was not found")
+            raise MemoryNotFoundError("memory was not found")
+        self.refuse_unauthorized_write(identity=identity, action="memory.forget", memory=memory)
         _require_project_update_decision_path(memory)
         self._policy_checked_write(identity=identity, action="memory.forget", memory=memory)
-        return self._transition_memory(
+        # A retirement always completes (owner ruling R2).
+        reason_text, rationale_withheld = withhold_credential_text(reason or "Agentic memory forgotten.")
+        result = self._transition_memory(
             identity=identity,
             memory=memory,
             operation=FORGET,
@@ -1625,8 +1911,10 @@ class VNextMemoryCommitService:
             event_type="agent.memory_forgotten",
             revision_type="archived",
             action="agentic_memory_forget",
-            reason=reason or "Agentic memory forgotten.",
+            reason=reason_text or "Agentic memory forgotten.",
         )
+        result["rationale_withheld"] = rationale_withheld or bool(result.get("rationale_withheld"))
+        return result
 
     def accept_consolidation_candidate(
         self,
@@ -1669,7 +1957,7 @@ class VNextMemoryCommitService:
             get_memory_for_update(memory_id) if callable(get_memory_for_update) else self.store.get_memory(memory_id)
         )
         if memory is None:
-            raise VNextMemoryCommitValidationError("memory was not found")
+            raise MemoryNotFoundError("memory was not found")
         decision = self._policy_checked_write(
             identity=identity,
             action="memory.accept_consolidation",
@@ -1702,6 +1990,16 @@ class VNextMemoryCommitService:
                 "consolidation candidate must be in candidate or needs_review status"
             )
         reason_text = _normalized_text(reason, field_name="reason")
+        # The activation check (ruling C2), before any member is superseded:
+        # acceptance makes the candidate's text searchable, and the reason is
+        # persisted with it in the metadata, the revision and the event.
+        refuse_credential_activation(
+            memory.get("title"),
+            memory.get("canonical_text"),
+            memory.get("summary"),
+            reason_text,
+            error=VNextMemoryCommitValidationError,
+        )
         accepted_id = str(memory["id"])
         actor_type = "agent" if identity is not None else "user"
         actor_id = identity.agent_id if identity is not None else None
@@ -1936,10 +2234,13 @@ class VNextMemoryCommitService:
             get_memory_for_update(memory_id) if callable(get_memory_for_update) else self.store.get_memory(memory_id)
         )
         if memory is None:
-            raise VNextMemoryCommitValidationError("memory was not found")
+            raise MemoryNotFoundError("memory was not found")
         decision = self._policy_checked_write(identity=identity, action="memory.expire", memory=memory)
         self._require_transition(EXPIRE, str(memory.get("status") or ""))
-        reason_text = _normalized_text(reason, field_name="reason")
+        # A retirement always completes (owner ruling R2): the reason is
+        # withheld once, here, before the metadata, the revision and the event.
+        reason_text, rationale_withheld = withhold_credential_text(_normalized_text(reason, field_name="reason"))
+        reason_text = reason_text or ""
         valid_to_iso = _valid_to_iso(valid_to)
         actor_type = "agent" if identity is not None else "user"
         actor_id = identity.agent_id if identity is not None else None
@@ -1948,7 +2249,9 @@ class VNextMemoryCommitService:
         validity_value = metadata.get("validity")
         validity = dict(validity_value) if isinstance(validity_value, Mapping) else {}
         validity_history_value = validity.get("history")
-        history = list(validity_history_value) if isinstance(validity_history_value, list) else []
+        history, history_withheld = _withheld_history(
+            list(validity_history_value) if isinstance(validity_history_value, list) else []
+        )
         history.append(
             {"op": "expired", "at": now, "valid_to": valid_to_iso, "reason": reason_text, "actor_id": actor_id}
         )
@@ -1996,6 +2299,7 @@ class VNextMemoryCommitService:
             "memory": updated,
             "valid_to": valid_to_iso,
             "policy_decision": decision.to_record(),
+            "rationale_withheld": rationale_withheld or history_withheld,
         }
 
     def unexpire(
@@ -2026,7 +2330,7 @@ class VNextMemoryCommitService:
             get_memory_for_update(memory_id) if callable(get_memory_for_update) else self.store.get_memory(memory_id)
         )
         if memory is None:
-            raise VNextMemoryCommitValidationError("memory was not found")
+            raise MemoryNotFoundError("memory was not found")
         decision = self._policy_checked_write(
             identity=identity,
             action="memory.unexpire",
@@ -2044,6 +2348,17 @@ class VNextMemoryCommitService:
                 "policy_decision": decision.to_record(),
                 "note": "memory has no validity end to clear; replay changed nothing",
             }
+        # Clearing valid_to makes the row retrievable again whether or not
+        # its status changes, so unexpire is an activation (owner ruling R2):
+        # one call over the row text and the reason, before anything is
+        # written.
+        refuse_credential_activation(
+            memory.get("title"),
+            memory.get("canonical_text"),
+            memory.get("summary"),
+            reason_text,
+            error=VNextMemoryCommitValidationError,
+        )
         actor_type = "agent" if identity is not None else "user"
         actor_id = identity.agent_id if identity is not None else None
         now = _utc_iso()
@@ -2051,7 +2366,9 @@ class VNextMemoryCommitService:
         validity_value = metadata.get("validity")
         validity = dict(validity_value) if isinstance(validity_value, Mapping) else {}
         validity_history_value = validity.get("history")
-        history = list(validity_history_value) if isinstance(validity_history_value, list) else []
+        history, history_withheld = _withheld_history(
+            list(validity_history_value) if isinstance(validity_history_value, list) else []
+        )
         history.append({"op": "unexpired", "at": now, "reason": reason_text, "actor_id": actor_id})
         validity.update({"state": "cleared", "unexpired_at": now, "valid_to": None, "history": history})
         validity.pop("unbounded_sentinel", None)
@@ -2115,23 +2432,64 @@ class VNextMemoryCommitService:
             "memory": updated,
             "policy_decision": decision.to_record(),
             "idempotent_replay": False,
+            "rationale_withheld": history_withheld,
         }
 
-    def _policy_checked_write(
+    def _refuse_unauthorized_pending_resolver(
+        self,
+        *,
+        identity: AgentIdentity | None,
+        memory: Mapping[str, object],
+    ) -> None:
+        """Refuse confirm or reject before the caller can learn the row state.
+
+        Runs the policy check and records it, then blocks with the resolver
+        reason. The ceiling is not applied here: authorization is the first
+        refusal, and a stranger is not told that the row is above a ceiling.
+        """
+
+        self._upsert_identity(identity)
+        decision = evaluate_agent_policy(
+            identity=identity,
+            action="memory.confirm",
+            domains=(str(memory.get("domain") or "unknown"),),
+            sensitivity_allowed=(str(memory.get("sensitivity") or "unknown"),),
+            project_scope=resource_project_scope(memory),
+            require_explicit_project_scope=True,
+        )
+        decision = replace(
+            decision,
+            decision="blocked",
+            reasons=tuple(dict.fromkeys((*decision.reasons, PENDING_WRITE_RESOLVER_REASON))),
+        )
+        target_id = str(memory.get("id")) if memory.get("id") is not None else None
+        append_policy_events(
+            self.store,
+            identity=identity,
+            decision=decision,
+            target_type="memory",
+            target_id=target_id,
+        )
+        raise AgentPolicyBlockedError(decision)
+
+    def _write_policy_decision(
         self,
         *,
         identity: AgentIdentity | None,
         action: str,
         memory: Mapping[str, object],
+        allow_above_ceiling: bool = False,
     ) -> PolicyDecision:
-        """Mirror the undo/forget policy treatment for service-layer writes.
+        """Decide one mutation of a stored target without writing anything.
 
-        Upserts the identity, evaluates the policy scoped to the target
-        memory's domain/sensitivity, appends the policy audit events, and
-        raises ``AgentPolicyBlockedError`` when blocked. ``identity=None``
-        (human/system callers) always evaluates as allowed.
+        Evaluates the policy scoped to the target's domain, sensitivity and
+        project scope, blocks a target above the caller's sensitivity
+        ceiling, and limits ``memory.confirm`` to the author, an admin_agent
+        key or the owner. ``identity=None`` (human/system callers) always
+        evaluates as allowed. Pass ``allow_above_ceiling`` only for a reject
+        of a pending write: that stores nothing.
         """
-        self._upsert_identity(identity)
+
         # memory.expire / memory.unexpire / memory.accept_consolidation are
         # in the agent-control WRITE_ACTIONS vocabulary, so
         # evaluate_agent_policy carries the read-only write block itself.
@@ -2143,16 +2501,110 @@ class VNextMemoryCommitService:
             project_scope=resource_project_scope(memory),
             require_explicit_project_scope=True,
         )
+        if not allow_above_ceiling:
+            decision = _block_mutation_above_sensitivity_ceiling(decision)
+        if (
+            action == "memory.confirm"
+            and decision.decision != "blocked"
+            and not caller_may_resolve_pending_write(identity, memory)
+        ):
+            decision = replace(
+                decision,
+                decision="blocked",
+                reasons=tuple(dict.fromkeys((*decision.reasons, PENDING_WRITE_RESOLVER_REASON))),
+            )
+        return decision
+
+    def _record_write_decision(
+        self,
+        *,
+        identity: AgentIdentity | None,
+        decision: PolicyDecision,
+        memory: Mapping[str, object],
+        target_type: str = "memory",
+    ) -> PolicyDecision:
+        """Upsert the identity, append the policy audit events, raise when blocked."""
+
+        self._upsert_identity(identity)
+        target_id = str(memory.get("id")) if memory.get("id") is not None else None
         append_policy_events(
             self.store,
             identity=identity,
             decision=decision,
-            target_type="memory",
-            target_id=str(memory.get("id")) if memory.get("id") is not None else None,
+            target_type=target_type,
+            target_id=target_id,
         )
         if decision.decision == "blocked":
             raise AgentPolicyBlockedError(decision)
         return decision
+
+    def _policy_checked_write(
+        self,
+        *,
+        identity: AgentIdentity | None,
+        action: str,
+        memory: Mapping[str, object],
+        target_type: str = "memory",
+        allow_above_ceiling: bool = False,
+    ) -> PolicyDecision:
+        """Authorize one mutation of a stored target and record the decision.
+
+        Upserts the identity, evaluates the policy scoped to the target's
+        domain, sensitivity and project scope, appends the policy audit
+        events with that target type and id, and raises
+        ``AgentPolicyBlockedError`` when blocked. ``identity=None``
+        (human/system callers) always evaluates as allowed.
+
+        A mutation whose target sensitivity is above the caller's ceiling
+        is blocked with ``sensitivity_above_agent_ceiling``. Pass
+        ``allow_above_ceiling`` only for a reject of a pending write: that
+        stores nothing. Confirm and reject of a pending write are also
+        limited to the author, an admin_agent key, or the owner.
+        """
+
+        decision = self._write_policy_decision(
+            identity=identity,
+            action=action,
+            memory=memory,
+            allow_above_ceiling=allow_above_ceiling,
+        )
+        return self._record_write_decision(
+            identity=identity,
+            decision=decision,
+            memory=memory,
+            target_type=target_type,
+        )
+
+    def refuse_unauthorized_write(
+        self,
+        *,
+        identity: AgentIdentity | None,
+        action: str,
+        memory: Mapping[str, object],
+        allow_above_ceiling: bool = False,
+    ) -> None:
+        """Refuse a caller the policy blocks, before any check of the row's state.
+
+        Authorization is decided before the state of the target, so a caller
+        the policy refuses (project scope, permission profile, sensitivity
+        ceiling, who may resolve a pending write) hears the refusal whatever
+        state the row is in: a state-specific error would tell it that the
+        row is pending, answered or otherwise special. A blocked decision is
+        recorded and raised exactly as ``_policy_checked_write`` does. An
+        allowed one writes nothing, so a call the state then refuses still
+        leaves no policy row; the real check, with its audit events, follows
+        the state check.
+        """
+
+        decision = self._write_policy_decision(
+            identity=identity,
+            action=action,
+            memory=memory,
+            allow_above_ceiling=allow_above_ceiling,
+        )
+        if decision.decision == "blocked":
+            # Records the refusal, then raises AgentPolicyBlockedError for a blocked decision.
+            self._record_write_decision(identity=identity, decision=decision, memory=memory)
 
     def authorize_memory_action(
         self,
@@ -2160,10 +2612,18 @@ class VNextMemoryCommitService:
         identity: AgentIdentity | None,
         action: str,
         memory: Mapping[str, object],
+        target_type: str = "memory",
+        allow_above_ceiling: bool = False,
     ) -> PolicyDecision:
-        """Authorize a persisted memory target for a cross-surface lifecycle adapter."""
+        """Authorize a persisted target for a cross-surface lifecycle adapter."""
 
-        return self._policy_checked_write(identity=identity, action=action, memory=memory)
+        return self._policy_checked_write(
+            identity=identity,
+            action=action,
+            memory=memory,
+            target_type=target_type,
+            allow_above_ceiling=allow_above_ceiling,
+        )
 
     def auto_promoted_by_agent(
         self,
@@ -2254,6 +2714,11 @@ class VNextMemoryCommitService:
         reason_text = " ".join(str(reason).split()).strip()
         if not reason_text:
             raise VNextMemoryCommitValidationError("reason is required")
+        # A retirement always completes (owner ruling R2). Withheld once here,
+        # so the per-row expiries and the memory.quarantine_sweep event both
+        # carry the placeholder.
+        withheld_reason, rationale_withheld = withhold_credential_text(reason_text)
+        reason_text = withheld_reason or reason_text
 
         normalized_agent = " ".join(str(agent_id).split()).strip()
         if identity is not None and normalized_agent != identity.agent_id:
@@ -2309,6 +2774,7 @@ class VNextMemoryCommitService:
             "skipped": skipped,
             "reversible_via": "memory.unexpire",
             "policy_decision": decision.to_record(),
+            "rationale_withheld": rationale_withheld,
         }
         if not dry_run:
             append_event(
@@ -2384,7 +2850,7 @@ class VNextMemoryCommitService:
         """
         memory = self.store.get_memory(memory_id)
         if memory is None:
-            raise VNextMemoryCommitValidationError("memory was not found")
+            raise MemoryNotFoundError("memory was not found")
         if authorize_memory is not None:
             authorize_memory(memory)
         return {
@@ -2499,7 +2965,19 @@ class VNextMemoryCommitService:
         request: MemoryCommitRequest,
         identity: AgentIdentity | None,
     ) -> JsonObject:
-        self._policy_checked_write(identity=identity, action="memory.commit", memory=memory)
+        try:
+            self._policy_checked_write(identity=identity, action="memory.commit", memory=memory)
+        except AgentPolicyBlockedError:
+            content_differs = False
+            try:
+                self._assert_idempotent_request_matches(memory=memory, request=request)
+            except VNextMemoryCommitValidationError:
+                content_differs = True
+            if content_differs or not _stored_labels_are_the_requests(memory, request, identity):
+                raise IdempotencyKeyConflictError(
+                    "idempotency_key was already used for a different memory request"
+                ) from None
+            raise
         self._assert_idempotent_request_matches(memory=memory, request=request)
         agentic = _agentic_metadata(memory)
         decision_record = agentic.get("policy_decision")
@@ -2608,6 +3086,7 @@ class VNextMemoryCommitService:
         request: MemoryCommitRequest,
         decision: MemoryCommitPolicyDecision,
         confirmed_inline: bool,
+        attachable_sources: AttachableSources,
     ) -> JsonObject:
         actor_type = "agent" if identity is not None else "user"
         actor_id = identity.agent_id if identity is not None else None
@@ -2664,7 +3143,12 @@ class VNextMemoryCommitService:
             actor_type=actor_type,
             actor_id=actor_id,
         )
-        self._create_provenance_links(memory=memory, request=request, actor_type=actor_type)
+        self._create_provenance_links(
+            memory=memory,
+            request=request,
+            actor_type=actor_type,
+            attachable_sources=attachable_sources,
+        )
         self._link_memory_entities(
             memory=memory,
             identity=identity,
@@ -2794,12 +3278,10 @@ class VNextMemoryCommitService:
             actor_type=actor_type,
             request=request,
         )
-        self._attach_or_defer_memory_embedding(
-            memory,
-            actor_type=actor_type,
-            actor_id=actor_id,
-            trace_id=request.trace_id or decision.policy_decision.trace_id,
-        )
+        # No embedding here. The row is ``needs_review``, which recall cannot
+        # return, so its text is not sent to the embeddings endpoint. ``confirm``
+        # embeds it when it becomes active, through
+        # ``_refresh_memory_derived_state``; a rejected row is never embedded.
         self._append_revision(
             memory=memory,
             action="agentic_memory_confirmation_required",
@@ -2881,12 +3363,11 @@ class VNextMemoryCommitService:
             actor_type=actor_type,
             request=request,
         )
-        self._attach_or_defer_memory_embedding(
-            memory,
-            actor_type=actor_type,
-            actor_id=actor_id,
-            trace_id=request.trace_id or decision.policy_decision.trace_id,
-        )
+        # No embedding here. The row is a ``candidate``, which recall cannot
+        # return, so its text is not sent to the embeddings endpoint. Review
+        # approval embeds it when it becomes active (the HTTP and MCP review
+        # paths call ``refresh_memory_derived_state``); a rejected candidate is
+        # never embedded.
         self._append_revision(
             memory=memory,
             action="agentic_memory_review_required",
@@ -3149,14 +3630,14 @@ class VNextMemoryCommitService:
             raise ContinuityStoreInvariantError("content mutation could not expire obsolete entity links") from exc
 
     def _create_provenance_links(
-        self, *, memory: Mapping[str, object], request: MemoryCommitRequest, actor_type: str
+        self,
+        *,
+        memory: Mapping[str, object],
+        request: MemoryCommitRequest,
+        actor_type: str,
+        attachable_sources: AttachableSources,
     ) -> None:
-        seen: set[str] = set()
-        for source_ref in request.source_refs:
-            source_id = _source_uuid(source_ref)
-            if source_id is None or source_id in seen:
-                continue
-            seen.add(source_id)
+        for source_id in attachable_sources.ids:
             self.store.create_provenance_link(
                 {
                     "target_type": "memory",
@@ -3309,7 +3790,9 @@ class VNextMemoryCommitService:
         metadata = _memory_metadata(memory)
         agentic = _agentic_metadata(memory)
         lifecycle_history_value = agentic.get("lifecycle_history")
-        history = list(lifecycle_history_value) if isinstance(lifecycle_history_value, list) else []
+        history, history_withheld = _withheld_history(
+            list(lifecycle_history_value) if isinstance(lifecycle_history_value, list) else []
+        )
         history.append({"status": lifecycle_status, "at": _utc_iso(), "reason": reason})
         agentic["lifecycle_status"] = lifecycle_status
         agentic["lifecycle_history"] = history
@@ -3396,7 +3879,12 @@ class VNextMemoryCommitService:
             target_id=str(updated["id"]),
             payload=event_payload,
         )
-        return {"status": lifecycle_status, "write_mode": "commit", "memory": updated}
+        return {
+            "status": lifecycle_status,
+            "write_mode": "commit",
+            "memory": updated,
+            "rationale_withheld": history_withheld,
+        }
 
 
 def memory_commit_request_from_payload(payload: Mapping[str, object], *, user_id: object) -> MemoryCommitRequest:
@@ -3408,7 +3896,7 @@ def memory_commit_request_from_payload(payload: Mapping[str, object], *, user_id
     return MemoryCommitRequest(
         user_id=str(user_id),
         title=_normalized_text(payload.get("title"), field_name="title"),
-        canonical_text=_normalized_text(payload.get("canonical_text"), field_name="canonical_text"),
+        canonical_text=_commit_canonical_text(payload.get("canonical_text")),
         memory_type=_enum_value(
             payload.get("memory_type", "semantic"),
             field_name="memory_type",
@@ -3449,6 +3937,7 @@ __all__ = [
     "VALID_TO_UNBOUNDED_SENTINEL",
     "MemoryCommitPolicyDecision",
     "MemoryCommitRequest",
+    "MemoryCommitTextTooLarge",
     "VNextMemoryCommitService",
     "VNextMemoryCommitValidationError",
     "VNEXT_DOMAINS",

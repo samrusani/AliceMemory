@@ -9,10 +9,20 @@ from urllib.parse import urlsplit
 ALLOWED_PROVIDER_URL_SCHEMES = frozenset({"http", "https"})
 _LOCALHOST_HOSTS = frozenset({"localhost", "localhost.localdomain"})
 _HTTP_STATUS_PATTERN = re.compile(r"\bHTTP\s+(\d{3})\b", flags=re.IGNORECASE)
+# The statuses the standard library's redirect handler follows. No provider
+# client follows them any more (see provider_http).
+REDIRECT_STATUS_CODES = frozenset({301, 302, 303, 307, 308})
+REDIRECT_NOTE = "redirects are not followed; set base_url to the final URL"
 
 
 class ProviderURLValidationError(ValueError):
     """Raised when a provider base URL violates outbound security policy."""
+
+
+def redirect_note(status_code: int) -> str:
+    """Return the sentence to append to a "returned HTTP <code>" error for a redirect, or an empty string."""
+
+    return f"; {REDIRECT_NOTE}" if status_code in REDIRECT_STATUS_CODES else ""
 
 
 def validate_provider_base_url(base_url: str, *, require_dns_resolution: bool = True) -> str:
@@ -52,7 +62,8 @@ def sanitize_provider_error_message(raw_message: str) -> str:
 
     status_match = _HTTP_STATUS_PATTERN.search(message)
     if status_match is not None:
-        return f"provider upstream request failed with HTTP {status_match.group(1)}"
+        status_code = int(status_match.group(1))
+        return f"provider upstream request failed with HTTP {status_code}{redirect_note(status_code)}"
 
     lowered = message.lower()
     if "invalid json" in lowered:

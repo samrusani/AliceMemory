@@ -75,10 +75,20 @@ def _settings_with_command_overrides(args: argparse.Namespace) -> Settings:
     )
 
 
+class _SqliteImportCommandError(ValueError):
+    """``alicebot vnext sources import-*`` was given a SQLite URL."""
+
+
 def _build_context(args: argparse.Namespace) -> CLIContext:
     settings = _settings_with_command_overrides(args)
     database_url = settings.database_url
     if database_url.startswith("sqlite:"):
+        if getattr(args, "vnext_sources_command", None) in {"import-markdown", "import-chatgpt"}:
+            raise _SqliteImportCommandError(
+                "A SQLite URL cannot run alicebot vnext sources import. "
+                "Use alice-memory import-markdown --from PATH or "
+                "alice-memory import-chatgpt --from PATH."
+            )
         raise ValueError(
             "the 'alicebot' CLI requires a Postgres DATABASE_URL, got a SQLite URL. "
             "For local SQLite memory, use the 'alice-memory' CLI instead."
@@ -278,21 +288,35 @@ def _vnext_authenticated_agent_identity_from_args(
 # set of PUBLIC names the CLI facade re-exports, so a module-level import or a
 # public helper name here would fail a guard that exists to keep this package
 # thin. Respecting it costs two local imports.
-def _vnext_proposal_promotion_candidate(args: argparse.Namespace) -> object:
-    """Build the promotion candidate for a CLI ``memory.propose`` call."""
+def _vnext_proposal_from_args(args: argparse.Namespace) -> object:
+    """The MemoryProposal a CLI ``memory.propose`` call describes. Typed as
+    object because a module-level import would add a public CLI name."""
 
-    from alicebot_api.vnext_promotion_policy import promotion_candidate_for_proposal
+    from alicebot_api.vnext_memory_propose import MemoryProposal
 
-    return promotion_candidate_for_proposal(
-        canonical_text=getattr(args, "canonical_text", "") or "",
-        title=getattr(args, "title", "") or "",
+    canonical_text = getattr(args, "canonical_text", "") or ""
+    return MemoryProposal(
+        proposal_type=getattr(args, "proposal_type", None) or "candidate_memory",
+        title=getattr(args, "title", None) or canonical_text[:120],
+        canonical_text=canonical_text,
         memory_type=getattr(args, "memory_type", "semantic") or "semantic",
         domain=getattr(args, "domain", "unknown") or "unknown",
         sensitivity=getattr(args, "sensitivity", "unknown") or "unknown",
+        confidence=getattr(args, "confidence", None),
+        rationale=getattr(args, "rationale", None),
+        source_refs=tuple(getattr(args, "source_ref", None) or ()),
+        project_scope=tuple(getattr(args, "project_scope", None) or ()),
         source_type=getattr(args, "source_type", None) or "trusted_agent",
-        source_refs=getattr(args, "source_ref", None) or (),
-        contradiction_refs=getattr(args, "contradiction_ref", None) or (),
+        contradiction_refs=tuple(getattr(args, "contradiction_ref", None) or ()),
     )
+
+
+def _vnext_proposal_promotion_candidate(args: argparse.Namespace) -> object:
+    """Build the promotion candidate for a CLI ``memory.propose`` call."""
+
+    from alicebot_api.vnext_memory_propose import MemoryProposal
+
+    return cast(MemoryProposal, _vnext_proposal_from_args(args)).promotion_candidate()
 
 
 def _vnext_append_promotion_event(

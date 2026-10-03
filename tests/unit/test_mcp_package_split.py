@@ -132,8 +132,57 @@ def test_mcp_registry_order_definitions_and_alias_identity_are_frozen() -> None:
     # existed on the handlers; additionalProperties is false, so the schema
     # had to name them before a caller could pass the fence. No tool added,
     # removed, or renamed.
-    assert _digest(core_definitions) == "d1a28b67f55c634518699b6c72ec23a90040ac678b23ff4f587ee69a64579cc1"
-    assert _digest(legacy_definitions) == "ca3d747e552bdece52c22d76332fc69f499878290edf3f236a8a7ea6a2e34e41"
+    # Moved again 2026-09-22 (D8). Counts unchanged, legacy digest and handler
+    # map digest unchanged. Per-tool digests against the previous pin differ
+    # for alice_memory_commit only: it gained confirmation_id and
+    # confirmation_action, dropped the top-level "required" list (a
+    # confirmation call carries no title or canonical_text; the handler still
+    # requires both for a new write), and its description and the title,
+    # canonical_text and rationale descriptions now say how to finish a
+    # pending write on the same tool instead of naming alice_memory_manage.
+    # Moved once more the same day after review: only alice_memory_commit's
+    # description and confirmation_action description, which now say reject
+    # is allowed past the sensitivity ceiling and describe expiry as applied
+    # on the next confirm or reject rather than in the background.
+    # And once more after the second review, wording only: the expiry sentence
+    # now says "on this tool" (the review approve path does not read the 24
+    # hours), and confirmation_action says a keyless server does not check a
+    # declared project_scope.
+    # Moved 2026-09-23 (S4.5 on main after #414). Counts and the handler map
+    # digest unchanged. Core carries S4.3's confirmation fields, S4.4's
+    # source_refs bounds and credential wording, and S4.5's ceiling refusal
+    # and author check on alice_memory_commit, plus S4.5's ceiling wording on
+    # alice_memory_manage and S4.4's correction bounds on alice_memory_correct.
+    # A refusal does not claim every outcome has provenance and a revision.
+    # Legacy is S4.4's pin: S4.5 changed no legacy tool.
+    # Re-minted 2026-09-23 when recall-framing merged s4-ceiling-in-the-service.
+    # Core now has those definitions plus the framing sentences on alice_recall,
+    # alice_resume, alice_context_pack, and alice_recent_decisions, so neither
+    # earlier core pin matches. No tool added, removed, or renamed.
+    # Re-minted 2026-09-23. The framing sentence is now the SessionStart sentence.
+    # Re-minted 2026-09-23. MCP tool descriptions now say the sentence is stated
+    # once on the result, before the quoted items. No tool added, removed, or
+    # renamed. Legacy definitions are unchanged.
+    # Re-minted 2026-09-29 (#470). Every core and legacy tool gains an
+    # annotations object: openWorldHint false, plus readOnlyHint or
+    # destructiveHint per the MCP definitions. No tool added, removed, or
+    # renamed, and no description changed.
+    # Re-minted 2026-09-30. alice_memory_review moves from destructiveHint true
+    # to readOnlyHint true: it only lists items or shows one. Flipping that one
+    # annotation back reproduces the previous core digest. The legacy digest,
+    # the counts, and the handler map digest are unchanged, and no tool was
+    # added, removed, or renamed.
+    # Re-minted 2026-10-01. The alice_context_pack max_tokens description now
+    # says an item that does not fit is skipped and the first item that can fit
+    # is cut when nothing fits whole. No tool added, removed, or renamed, and no
+    # schema, annotation, or default changed. Legacy definitions are unchanged.
+    # Re-minted 2026-10-02. The alice_memory_commit canonical_text description
+    # now states the 20,000 character limit. Restoring the previous description
+    # reproduces the previous core digest. No tool added, removed, or renamed,
+    # and no schema, annotation, or default changed. Legacy definitions are
+    # unchanged.
+    assert _digest(core_definitions) == "4979dd00c126ed7e06dfeba6237af9404d1a4d9699b63e95e36bdfcdf434fc3c"
+    assert _digest(legacy_definitions) == "6b302f61e48d4f6196af8a7d2c8882130d565d84134f51bba38648f84c09089e"
     ordered_handler_map = [(name, handler.__name__) for name, handler in handlers.items()]
     assert _digest(ordered_handler_map) == "d864c98bb914bbc6ace464fa8020b3ed264f17f2061a6101aae677d801032ae5"
     for first, second in EXPECTED_ALIAS_PAIRS:

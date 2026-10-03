@@ -17,7 +17,6 @@ from alicebot_api.vnext_embeddings import (
     endpoint_fingerprint,
     get_embedding_provider,
     memory_embedding_text,
-    persist_deferred_memory_embeddings_best_effort,
 )
 from alicebot_api.vnext_event_log import append_event
 from alicebot_api.mcp_tools import redact_memory_flow
@@ -27,7 +26,7 @@ from .models import CLIContext
 from .shared import (
     _json_dumps,
     _vnext_append_promotion_event,
-    _vnext_proposal_promotion_candidate,
+    _vnext_proposal_from_args,
     _persist_deferred_embedding_inputs,
     _store_context,
     _vnext_agent_identity_from_args,
@@ -37,80 +36,35 @@ from .shared import (
 
 
 def _run_vnext_agent_propose_memory(ctx: CLIContext, args: argparse.Namespace) -> str:
+    # Imported here, not at module level: tests/unit/test_cli_package_split.py
+    # pins the CLI package's public names.
+    from alicebot_api.vnext_memory_propose import propose_memory
+
     if not getattr(args, "agent_id", None):
         raise ValueError("--agent-id is required")
-    blocked_decision = None
-    memory: JsonObject | None = None
-    decision = None
+    proposal = _vnext_proposal_from_args(args)
     with _vnext_store_context(ctx) as store:
-        identity, _actor_type, _actor_id, decision = _vnext_policy_checked_for_args(
-            store,
-            args,
-            action="memory.propose",
-            domains=(args.domain,),
-            promotion_candidate=_vnext_proposal_promotion_candidate(args),
-        )
-        if decision.decision == "blocked":
-            blocked_decision = decision
-        else:
-            if identity is None:
-                raise ValueError("--agent-id is required")
-            # A promoted proposal is a live memory, not a review item. With no
-            # persona configured review_required stays True and this stays the
-            # candidate row it always was.
-            review_required = decision.review_required
-            memory = store.create_memory(
-                {
-                    "memory_type": args.memory_type,
-                    "memory_key": f"agent_proposal.{args.proposal_type}.{uuid4()}",
-                    "value": {
-                        "proposal_type": args.proposal_type,
-                        "text": args.canonical_text,
-                        "rationale": args.rationale,
-                    },
-                    "status": "candidate" if review_required else "active",
-                    "confidence": args.confidence,
-                    "title": args.title,
-                    "canonical_text": args.canonical_text,
-                    "summary": args.canonical_text[:280],
-                    "domain": args.domain,
-                    "sensitivity": args.sensitivity,
-                    "metadata_json": {
-                        "proposal_type": args.proposal_type,
-                        "review_required": review_required,
-                        **agent_metadata(identity, decision),
-                    },
-                },
-                actor_type="agent",
-            )
-            append_event(
+
+        def authorize(candidate: object) -> tuple[object, object]:
+            identity, _actor_type, _actor_id, decision = _vnext_policy_checked_for_args(
                 store,
-                event_type="agent.memory_proposed",
-                actor_type="agent",
-                actor_id=identity.agent_id,
-                target_type="memory",
-                target_id=str(memory["id"]),
-                trace_id=decision.trace_id,
-                run_id=identity.agent_run_id,
-                payload={"proposal_type": args.proposal_type, "agent_identity": identity.to_record()},
+                args,
+                action="memory.propose",
+                domains=(args.domain,),
+                promotion_candidate=candidate,
             )
-            _vnext_append_promotion_event(
-                store,
-                identity=identity,
-                decision=decision,
-                target_type="memory",
-                target_id=str(memory["id"]),
-                trace_id=decision.trace_id,
-            )
-    if blocked_decision is not None:
-        ensure_policy_allowed(blocked_decision)
-    if memory is None or decision is None:
+            return identity, decision
+
+        # One propose function for all three doors (ruling C2(ii)).
+        outcome = propose_memory(store, proposal=proposal, authorize=authorize)  # type: ignore[arg-type]
+    if outcome.memory is None:
+        ensure_policy_allowed(outcome.decision)
         raise RuntimeError("agent memory proposal did not complete")
     return _json_dumps(
         {
-            "proposal": memory,
-            "policy_decision": decision.to_record(),
-            "review_required": decision.review_required,
+            "proposal": outcome.memory,
+            "policy_decision": outcome.decision.to_record(),
+            "review_required": outcome.decision.review_required,
         }
     )
 
@@ -355,6 +309,18 @@ def _run_vnext_memory_audit(ctx: CLIContext, args: argparse.Namespace) -> str:
 
 
 def _run_vnext_memories_backfill_embeddings(ctx: CLIContext, args: argparse.Namespace) -> str:
+    # Imported here, not at module level: tests/unit/test_cli_package_split.py
+    # pins the CLI package's public names.
+    from alicebot_api.vnext_embeddings import (
+        EMBEDDING_PREPARATION_ERROR_CODE,
+        EMBEDDING_PREPARATION_ERROR_MESSAGE,
+        MemoryEmbeddingFailure,
+        embedding_input_cap,
+        persist_deferred_memory_embeddings_outcome,
+        summarize_embedding_failures,
+    )
+    from alicebot_api.vnext_retrieval import MEMORY_SEARCHABLE_STATUSES
+
     provider = get_embedding_provider()
     if provider is None:
         raise ValueError(
@@ -366,23 +332,31 @@ def _run_vnext_memories_backfill_embeddings(ctx: CLIContext, args: argparse.Name
     batch_size = args.batch_size
     if batch_size < 1 or batch_size > MAX_EMBEDDINGS_BATCH_SIZE:
         raise ValueError(f"--batch-size must be between 1 and {MAX_EMBEDDINGS_BATCH_SIZE}")
+    input_cap = embedding_input_cap(provider)
     embedded = 0
     reindexed_incompatible = 0
+    truncated_inputs = 0
     skipped = 0
-    failed = 0
+    failures: list[MemoryEmbeddingFailure] = []
     batches = 0
     after_id: str | None = None
     while True:
         # Snapshot one page in a short transaction. Provider I/O and vector
         # persistence both happen only after this read transaction closes.
         with _vnext_store_context(ctx) as store:
+            # Only the statuses recall can return, and only a memory whose
+            # validity window is still open: this listing never hands the text
+            # of a forgotten, rejected, candidate or expired memory to the
+            # endpoint.
             rows = store.list_memories_missing_embeddings(
+                statuses=MEMORY_SEARCHABLE_STATUSES,
                 limit=batch_size,
                 after_id=after_id,
                 embedding_provider=provider.provider,
                 embedding_model=provider.model,
                 embedding_endpoint=endpoint_fingerprint(getattr(provider, "base_url", "")),
                 embedding_signature_version=EMBEDDING_SIGNATURE_VERSION,
+                embedding_input_cap=input_cap,
             )
         if not rows:
             break
@@ -394,24 +368,41 @@ def _run_vnext_memories_backfill_embeddings(ctx: CLIContext, args: argparse.Name
         if not embeddable:
             continue
         deferred_inputs = tuple(DeferredMemoryEmbedding.from_memory(row) for row, _text in embeddable)
-        attached = persist_deferred_memory_embeddings_best_effort(
+        outcome = persist_deferred_memory_embeddings_outcome(
             deferred_inputs,
             store_context=lambda: _vnext_store_context(ctx),
             provider=provider,
         )
-        embedded += attached
-        batch_failed = len(embeddable) - attached
-        failed += batch_failed
-        if batch_failed:
+        attached_ids = set(outcome.attached_ids)
+        # A row that stopped being recall-visible between the list and the send
+        # (its validity window closed in that moment) is withheld, not failed.
+        skipped += len(outcome.withheld_ids)
+        embedded += outcome.attached
+        truncated_inputs += outcome.truncated
+        batch_failures = list(outcome.failed)
+        # Every row that did not get a vector is named, even by a path that
+        # recorded no failure of its own.
+        listed_ids = {failure.memory_id for failure in batch_failures} | set(outcome.withheld_ids)
+        for item in deferred_inputs:
+            if item.memory_id not in attached_ids and item.memory_id not in listed_ids:
+                batch_failures.append(
+                    MemoryEmbeddingFailure(
+                        item.memory_id,
+                        EMBEDDING_PREPARATION_ERROR_CODE,
+                        EMBEDDING_PREPARATION_ERROR_MESSAGE,
+                    )
+                )
+        failures.extend(batch_failures)
+        if batch_failures:
             _emit_cli_error(
                 code="embedding_batch_failed",
                 message="An embedding batch failed",
             )
-        # Exact for a fully persisted batch. For partial persistence, report a
-        # guaranteed lower bound instead of claiming an incompatible vector
-        # was replaced when only fresh rows may have succeeded.
-        fresh_count = sum(row.get("embedding_present") is not True for row, _text in embeddable)
-        reindexed_incompatible += max(0, attached - fresh_count)
+        reindexed_incompatible += sum(
+            1
+            for row, _text in embeddable
+            if str(row.get("id")) in attached_ids and row.get("embedding_present") is True
+        )
     output = _json_dumps(
         {
             "provider": provider.provider,
@@ -420,10 +411,13 @@ def _run_vnext_memories_backfill_embeddings(ctx: CLIContext, args: argparse.Name
             "embedded": embedded,
             "reindexed_incompatible": reindexed_incompatible,
             "skipped": skipped,
-            "failed": failed,
+            "failed": len(failures),
+            "input_cap_chars": input_cap,
+            "truncated_inputs": truncated_inputs,
+            **summarize_embedding_failures(failures),
         }
     )
-    if failed:
+    if failures:
         raise EmbeddingBackfillFailure(output)
     return output
 

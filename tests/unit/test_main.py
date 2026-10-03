@@ -1217,6 +1217,8 @@ def test_rewrite_user_id_json_body_injects_missing_user_id() -> None:
         "message": "hello",
         "user_id": str(authenticated_user_id),
     }
+    # The middleware replays this cache. The returned Request is not enough.
+    assert request._body == rewritten_body
 
 
 def test_rewrite_user_id_json_body_rejects_mismatch() -> None:
@@ -1387,7 +1389,7 @@ def test_vnext_capability_auth_exception_is_confined_to_capture_route(monkeypatc
                 "capture_capability": capability,
             }
         ).encode("utf-8"),
-        headers={"content-type": "application/json"},
+        headers={"content-type": "application/json", "host": "127.0.0.1:8000"},
     )
 
     assert asyncio.run(main_module._vnext_protected_http_auth(capture, call_next)).status_code == 204

@@ -9,8 +9,10 @@ import os
 import re
 from typing import Iterable, Protocol
 from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
+from urllib.request import Request
 
+from alicebot_api.provider_http import open_provider_url
+from alicebot_api.provider_security import redirect_note
 from alicebot_api.vnext_repositories import JsonObject
 
 
@@ -255,10 +257,12 @@ class OpenAIResponsesBrainModelProvider:
             method="POST",
         )
         try:
-            with urlopen(request, timeout=self.timeout_seconds) as response:
+            with open_provider_url(request, timeout=self.timeout_seconds, enforce_public_peer=False) as response:
                 response_payload = json.loads(response.read())
         except HTTPError as exc:
-            raise VNextModelIntelligenceError(f"model provider returned HTTP {exc.code}") from exc
+            raise VNextModelIntelligenceError(
+                f"model provider returned HTTP {exc.code}{redirect_note(exc.code)}"
+            ) from exc
         except (URLError, json.JSONDecodeError) as exc:
             raise VNextModelIntelligenceError(f"model provider request failed: {exc}") from exc
         return _extract_responses_text(response_payload)

@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 
+from alicebot_api.credential_floor import SEARCHABLE_STATUSES, refuse_credential_activation
 from alicebot_api.vnext_repositories import JsonObject
 
 # Canonical true-redaction marker. Content columns are replaced with this
@@ -16,6 +17,42 @@ REDACTION_MARKER = "[REDACTED]"
 
 # JSON replacement written into redacted JSON content columns.
 REDACTED_JSON_VALUE: JsonObject = {"redacted": True}
+
+
+def refuse_created_credential_activation(memory: Mapping[str, object]) -> None:
+    """The store-level activation check on create (owner ruling C2).
+
+    Both stores' create_memory call this before the INSERT. A row created
+    directly in a searchable status is read as it will be stored.
+    """
+
+    if str(memory.get("status") or "candidate") in SEARCHABLE_STATUSES:
+        refuse_credential_activation(memory.get("title"), memory.get("canonical_text", ""), memory.get("summary"))
+
+
+def refuse_updated_credential_activation(
+    patch: Mapping[str, object], load_prior: Callable[[], Mapping[str, object] | None]
+) -> None:
+    """The store-level activation check on update (owner ruling C2).
+
+    Runs only when the patch moves a row into a searchable status from one
+    that is not: the row is read as it will be stored, the patch's text over
+    the stored text (the update COALESCEs, so a None in the patch keeps the
+    stored value). A patch that keeps an active row active is a text edit,
+    which the door that sent it checks.
+    """
+
+    if patch.get("status") not in SEARCHABLE_STATUSES:
+        return
+    prior = load_prior()
+    if prior is None or str(prior.get("status") or "") in SEARCHABLE_STATUSES:
+        return
+
+    def stored(name: str) -> object:
+        value = patch.get(name)
+        return prior.get(name) if value is None else value
+
+    refuse_credential_activation(stored("title"), stored("canonical_text"), stored("summary"))
 
 
 def redacted_memory_metadata(metadata: object, *, redacted_at: str) -> JsonObject:

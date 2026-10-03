@@ -3,14 +3,14 @@
 ## Scope Boundary
 
 
-- **Published boundary:** `v0.15.7` is the latest published release. Imported
-  documents are readable as sources. Artifact digests are in
-  `docs/release/v0.15.7-checksums.txt`.
-- **Prior published:** `v0.15.6` is the immediately prior published release,
+- **Published boundary:** `v0.20.0` is the latest published release. The
+  default loop is on the wheel. Artifact digests are in
+  `docs/release/v0.20.0-checksums.txt`.
+- **Prior published:** `v0.19.2` is the immediately prior published release,
   tagged and immutable, published on PyPI with Trusted Publishing provenance;
-  artifact digests are in `docs/release/v0.15.6-checksums.txt`. Every earlier
-  release remains published and immutable with its own records under
-  `docs/release/`.
+  artifact digests are in `docs/release/v0.19.2-checksums.txt`. Every earlier
+  published release remains published and immutable with its own records
+  under `docs/release/`. `v0.19.1` was tagged and never published.
 - **Shipped boundary:** `v0.12.0` shipped the Phase 3 structural refactor
   with **Structure only. Zero behavior change.** It relocates code behind
   stable imports and entrypoints. The default runtime is the
@@ -31,7 +31,7 @@ Both implement the same core memory contracts.
 ```text
 external agent / operator
         |
-        +-- MCP (11 core tools)
+        +-- MCP (3 default tools, 11 with ALICE_MCP_FULL_TOOLS=1)
         +-- HTTP (agent-key authenticated core routes)
         +-- CLI (core memory and continuity commands)
         |
@@ -55,10 +55,15 @@ PostgreSQL + pgvector  |  SQLite
 
 ### Agent interface
 
-- The default MCP server exposes eleven tools: `alice_capture`, `alice_recall`,
-  `alice_resume`, `alice_context_pack`, `alice_open_loops`,
-  `alice_recent_decisions`, `alice_memory_review`, `alice_memory_correct`,
-  `alice_explain`, `alice_memory_commit`, and `alice_memory_manage`.
+- The default MCP handshake exposes three tools: `alice_memory_commit`,
+  `alice_recall`, and `alice_resume`. Set `ALICE_MCP_FULL_TOOLS=1` to expose
+  all eleven core tools. The other eight are `alice_capture`,
+  `alice_context_pack`, `alice_open_loops`, `alice_recent_decisions`,
+  `alice_memory_review`, `alice_memory_correct`, `alice_explain`, and
+  `alice_memory_manage`.
+- `alice-memory` is the SQLite on-ramp. It serves MCP, and
+  `alice-memory install` writes the host MCP config and, for Claude Code and
+  Cursor, a session-start hook.
 - HTTP and CLI adapters expose equivalent core workflows. Agent HTTP calls use
   per-agent API keys; key records are authoritative for identity and policy.
 - Remaining HTTP/CLI compatibility adapters are not part of the default product;
@@ -88,7 +93,10 @@ PostgreSQL + pgvector  |  SQLite
   so in its trace.
 - Retrieval runs, candidates, traces, public eval cases/results, and benchmark
   receipts make quality claims inspectable. A historical 79.4% result is not a
-  substitute for repeated measurements on the current candidate.
+  substitute for repeated measurements on the current candidate. It also has a
+  known issue: the harness showed the reader model each session's id, and in
+  that dataset every evidence session id starts with `answer_`. See the README
+  Benchmark section.
 
 ### Provider support
 
@@ -216,28 +224,30 @@ usage justifies a separately reviewed boundary.
 - Store contracts run with PostgreSQL and SQLite parity where applicable.
 - OpenAPI closure, phantom-key rejection, route counts, full Python/web
   coverage, static checks, reproducible packages, installed-artifact smokes,
-  semantic evidence, and independent review remain release gates.
+  semantic evidence, and internal review remain release gates.
 - Historical migration tests stay even when the product surface that created a
   table has been removed.
 
 ## Current Architectural Posture
 
-- `v0.15.7` is the latest published release and reconciles runtime and product
+- `v0.20.0` is the latest published release and reconciles runtime and product
   identity around the agent interface, retrieval/memory quality, and a
   real-host-proven single-tenant deployment contract.
 - Phase 3 reduces `main.py` to app assembly and shared middleware,
   extracts domain routers, mirrors PostgreSQL and SQLite vNext store seams,
   splits the surviving legacy store and pure contracts, and moves MCP/CLI
-  implementations into packages behind stable facades. Every production Python
-  file is below 4,000 lines; the largest is 3,803 lines.
+  implementations into packages behind stable facades. Phase 3 brought every
+  production Python file below 4,000 lines. `vnext_retrieval.py` has grown past
+  that since (4,470 lines in `v0.17.0`, 4,640 in `v0.19.0`, 4,901 in
+  `v0.19.2`, 5,441 in `v0.20.0`). So has `host_install.py` (8,201 lines in
+  `v0.19.0` and `v0.19.2`, 8,204 in `v0.20.0`) and `onramp.py` (3,720 lines in
+  `v0.19.2`, 4,183 in `v0.20.0`).
 - HTTP route paths, operation IDs, dependencies, error behavior, store SQL,
   MCP and CLI registries, compatibility imports, and console entrypoints remain
   unchanged. Exact closure, SQL-shape, namespace, and installed-artifact tests
   enforce those boundaries.
-- The carrier is uncommitted and targets `v0.12.0`; its independent final
-  verdict is owned only by the handoff's `REVIEW_REPORT.md`. The version cut,
-  exact-SHA gates, checksums, tag, GitHub Release, and PyPI readback remain
-  outside the local structural freeze.
+- `v0.12.0` shipped this structure. Its review record is the Phase 3
+  handoff's `REVIEW_REPORT.md`.
 - Changes made after any release tag were not part of that release's immutable
   artifacts. See the Published boundary above for what is current.
 - The default deployment is local-first and single-workspace. A future hosted
@@ -246,7 +256,5 @@ usage justifies a separately reviewed boundary.
   `docs/handoff/`; it does not constrain legitimate future production trees or
   approve them automatically.
 
-`v0.15.7` is the latest published release and remains the install, checksum,
+`v0.20.0` is the latest published release and remains the install, checksum,
 and baseline reference.
-
-`v0.16.0` is the current release candidate. It is not published.

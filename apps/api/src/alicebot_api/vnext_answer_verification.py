@@ -45,6 +45,8 @@ import hashlib
 import logging
 import time
 
+from alicebot_api.recall_framing import frame_rendered_block, writer_attribution
+from alicebot_api.session_briefing import quote_session_brief_text
 from alicebot_api.vnext_repositories import JsonObject
 
 
@@ -169,34 +171,55 @@ def render_pack_context_block(pack: Mapping[str, object]) -> str:
 
     Mirrors what an answering layer can actually see: memory facts
     (title + canonical text), supporting-evidence excerpts, source
-    titles, and the pack's own grounding notes. Read-only over the pack;
-    no store access, no model calls.
+    titles, and the pack's own grounding notes. Stored notes are quoted
+    under one framing line, and each stored item names its writer.
+    Grounding notes are Alice's own sentences and stay outside the quotes.
+    Read-only over the pack; no store access, no model calls.
     """
     lines: list[str] = []
     for memory in _pack_rows(pack, "relevant_memories"):
         title = str(memory.get("title") or "").strip()
         body = str(memory.get("canonical_text") or "").strip()
+        writer = writer_attribution(memory)
+        suffix = f" writer.id={writer['id']} writer.established={writer['established']}"
         if title and body:
-            lines.append(f"- {_clip(title)}: {_clip(body)}")
+            lines.append(
+                f"- {quote_session_brief_text(_clip(title))}: {quote_session_brief_text(_clip(body))}{suffix}"
+            )
         elif title or body:
-            lines.append(f"- {_clip(title or body)}")
+            lines.append(f"- {quote_session_brief_text(_clip(title or body))}{suffix}")
     for evidence in _pack_rows(pack, "supporting_evidence"):
-        excerpt = str(evidence.get("excerpt") or evidence.get("text") or "").strip()
+        excerpt = str(evidence.get("excerpt") or evidence.get("text") or evidence.get("quote") or "").strip()
         if excerpt:
-            lines.append(f"- Evidence: {_clip(excerpt)}")
+            writer = writer_attribution(evidence)
+            lines.append(
+                "- Evidence: "
+                f"{quote_session_brief_text(_clip(excerpt))} "
+                f"writer.id={writer['id']} writer.established={writer['established']}"
+            )
     for source in _pack_rows(pack, "sources"):
         title = str(source.get("title") or "").strip()
         if title:
-            lines.append(f"- Source: {_clip(title)}")
+            writer = writer_attribution(source)
+            lines.append(
+                f"- Source: {quote_session_brief_text(_clip(title))} "
+                f"writer.id={writer['id']} writer.established={writer['established']}"
+            )
+    grounding_lines: list[str] = []
     grounding = pack.get("grounding")
     if isinstance(grounding, Mapping):
         unsupported = grounding.get("unsupported_entities")
         if isinstance(unsupported, Sequence) and not isinstance(unsupported, (str, bytes)):
             for name in unsupported:
-                lines.append(f'- Note: no stored memories mention "{name}".')
-    if not lines:
+                grounding_lines.append(f'- Note: no stored memories mention "{name}".')
+    if not lines and not grounding_lines:
         return "(no stored memories were retrieved for this question)"
-    return "\n".join(lines)
+    if not lines:
+        return "\n".join(grounding_lines)
+    rendered = frame_rendered_block("\n".join(lines))
+    if grounding_lines:
+        return rendered + "\n" + "\n".join(grounding_lines)
+    return rendered
 
 
 def build_answer_verifier_prompt(

@@ -7,10 +7,18 @@ from typing import cast
 from uuid import UUID
 
 from alicebot_api.continuity_objects import (
+    ContinuityObjectValidationError,
     create_continuity_object_record,
     get_continuity_object_for_capture_event,
     list_continuity_objects_for_capture_events,
 )
+from alicebot_api.credential_floor import (
+    CREDENTIAL_MATERIAL_REFUSED_MESSAGE,
+    EXPANSION_REFUSED_MESSAGE,
+    TEXT_WITHHELD_PLACEHOLDER,
+    VERDICT_EXPANSION,
+)
+from alicebot_api.legacy_credential_check import commit_door_secret_verdict
 from alicebot_api.contracts import (
     CONTINUITY_CAPTURE_ASSIST_AUTOSAVE_TYPES,
     CONTINUITY_CAPTURE_CANDIDATE_TYPES,
@@ -45,6 +53,7 @@ from alicebot_api.contracts import (
     MemoryTrustClass,
 )
 from alicebot_api.store import ContinuityCaptureEventRow, ContinuityStore, JsonObject
+from alicebot_api.write_bounds import MAX_CAPTURE_CANDIDATE_CHARS, MAX_CAPTURE_COMMIT_CANDIDATES, serialized_chars
 
 
 class ContinuityCaptureValidationError(ValueError):
@@ -133,6 +142,8 @@ _CANDIDATE_PREFIX_RULES: tuple[
     ("correct:", "correction", "Note", "explicit_prefix_correction"),
     ("note:", "note", "Note", "explicit_prefix_note"),
 )
+
+_PREFIX_ADMISSION_REASONS = frozenset(reason for _prefix, _candidate_type, _object_type, reason in _CANDIDATE_PREFIX_RULES)
 
 _CANDIDATE_REGEX_RULES: tuple[
     tuple[
@@ -327,6 +338,33 @@ def _candidate_id(*, candidate_type: str, normalized_text: str, source_role: str
     return hashlib.sha256(encoded).hexdigest()
 
 
+def user_prefix_autosave(
+    *,
+    explicit: bool,
+    candidate_type: str,
+    confidence: float,
+    source_role: str,
+    admission_reason: str,
+) -> bool:
+    """Auto-save only a user turn that used an explicit prefix rule.
+
+    Regex hits set ``explicit`` too. Assistant turns do as well. Neither
+    is an instruction from the user to save the line.
+
+    This is the one admission rule for automatic writes from a captured
+    turn. The ``/v0/continuity`` capture commit and the ``/v1`` memory
+    operations policy both call it, so the two doors cannot drift apart.
+    """
+
+    return (
+        source_role == "user"
+        and explicit
+        and candidate_type in CONTINUITY_CAPTURE_ASSIST_AUTOSAVE_TYPES
+        and admission_reason in _PREFIX_ADMISSION_REASONS
+        and confidence >= 0.9
+    )
+
+
 def _derive_trust_class(*, explicit: bool, confidence: float) -> MemoryTrustClass:
     if explicit and confidence >= 0.9:
         return "deterministic"
@@ -343,10 +381,12 @@ def _build_candidate_record(candidate: ExtractedCandidate) -> ContinuityCaptureC
     )
     if candidate.candidate_type == "no_op":
         proposed_action: ContinuityCaptureProposedAction = "no_op"
-    elif (
-        candidate.explicit
-        and candidate.candidate_type in CONTINUITY_CAPTURE_ASSIST_AUTOSAVE_TYPES
-        and candidate.confidence >= 0.9
+    elif user_prefix_autosave(
+        explicit=candidate.explicit,
+        candidate_type=candidate.candidate_type,
+        confidence=candidate.confidence,
+        source_role=candidate.source_role,
+        admission_reason=candidate.admission_reason,
     ):
         proposed_action = "auto_save_candidate"
     else:
@@ -422,6 +462,58 @@ def _is_ack_only_turn(*, user_text: str, assistant_text: str) -> bool:
         return True
     if normalized_assistant == "" and normalized_user in _ACK_ONLY_TURNS:
         return True
+    return False
+
+
+def _withhold_echo(text: str) -> str:
+    """A response field. A token is replaced. Nothing is stored here."""
+
+    if text and commit_door_secret_verdict("", text) is not None:
+        return TEXT_WITHHELD_PLACEHOLDER
+    return text
+
+
+def _withhold_candidate_echo(
+    candidate: ContinuityCaptureCandidateRecord,
+) -> ContinuityCaptureCandidateRecord:
+    echoed = dict(candidate)
+    for key in ("normalized_text", "evidence_snippet"):
+        value = echoed.get(key)
+        if isinstance(value, str):
+            echoed[key] = _withhold_echo(value)
+    return cast(ContinuityCaptureCandidateRecord, echoed)
+
+
+def withhold_capture_candidates_echo(
+    response: ContinuityCaptureCandidatesResponse,
+) -> ContinuityCaptureCandidatesResponse:
+    """The response boundary. ``capture_continuity_candidates`` keeps the real text.
+
+    ``generate_memory_operation_candidates`` reads that text, so the credential
+    floor still sees the token. The HTTP route and the MCP handler withhold
+    here, after that call, and they do not write.
+    """
+
+    return {
+        "candidates": [_withhold_candidate_echo(candidate) for candidate in response["candidates"]],
+        "summary": response["summary"],
+    }
+
+
+def _carries_withheld_placeholder(value: object) -> bool:
+    """True when a commit payload contains the response placeholder.
+
+    Committing that placeholder would store it as a memory. The commit door
+    does not treat the placeholder as credential text, so this check refuses
+    it with the same error before anything is written.
+    """
+
+    if isinstance(value, str):
+        return TEXT_WITHHELD_PLACEHOLDER in value
+    if isinstance(value, dict):
+        return any(_carries_withheld_placeholder(item) for item in value.values())
+    if isinstance(value, list):
+        return any(_carries_withheld_placeholder(item) for item in value)
     return False
 
 
@@ -590,19 +682,17 @@ def _resolve_commit_decision(
     if candidate_type in CONTINUITY_CAPTURE_REVIEW_REQUIRED_TYPES:
         return "queued_for_review", "type_requires_review", "review_queue"
 
-    if mode == "assist":
-        if (
-            candidate_type in CONTINUITY_CAPTURE_ASSIST_AUTOSAVE_TYPES
-            and explicit
-            and confidence >= 0.9
+    if mode in {"assist", "auto"}:
+        if user_prefix_autosave(
+            explicit=explicit,
+            candidate_type=candidate_type,
+            confidence=confidence,
+            source_role=candidate["source_role"],
+            admission_reason=candidate["admission_reason"],
         ):
-            return "auto_saved", "assist_mode_allowlist_explicit_high_confidence", "continuity_objects"
-        return "queued_for_review", "assist_mode_review_gate", "review_queue"
-
-    if mode == "auto":
-        if candidate_type in CONTINUITY_CAPTURE_ASSIST_AUTOSAVE_TYPES and confidence >= 0.85:
-            return "auto_saved", "auto_mode_allowlist_high_confidence", "continuity_objects"
-        return "queued_for_review", "auto_mode_review_gate", "review_queue"
+            return "auto_saved", "user_explicit_prefix_rule", "continuity_objects"
+        gate = "assist_mode_review_gate" if mode == "assist" else "auto_mode_review_gate"
+        return "queued_for_review", gate, "review_queue"
 
     return "queued_for_review", "unsupported_mode_review_fallback", "review_queue"
 
@@ -667,7 +757,22 @@ def commit_continuity_captures(
     noop_count = 0
     duplicate_noop_count = 0
 
+    # Bounded before anything is read or written (review finding 8).
+    if len(request.candidates) > MAX_CAPTURE_COMMIT_CANDIDATES:
+        raise ContinuityCaptureValidationError(
+            f"candidates must hold at most {MAX_CAPTURE_COMMIT_CANDIDATES} entries"
+        )
+    for raw_candidate in request.candidates:
+        if serialized_chars(raw_candidate) > MAX_CAPTURE_CANDIDATE_CHARS:
+            raise ContinuityCaptureValidationError(
+                f"each candidate must serialize to {MAX_CAPTURE_CANDIDATE_CHARS} characters or fewer"
+            )
     normalized_candidates = [_normalize_candidate(candidate) for candidate in request.candidates]
+    # A withheld echo is not committable. Refuse before any capture event
+    # or continuity object is written, with the same error as a credential.
+    for raw_candidate, candidate in zip(request.candidates, normalized_candidates, strict=True):
+        if _carries_withheld_placeholder(raw_candidate) or _carries_withheld_placeholder(candidate):
+            raise ContinuityObjectValidationError(CREDENTIAL_MATERIAL_REFUSED_MESSAGE)
 
     for candidate in normalized_candidates:
         sync_fingerprint = normalized_sync_fingerprint or f"candidate:{candidate['candidate_id']}"
@@ -799,6 +904,16 @@ def capture_continuity_input(
     normalized_text = _normalize_content(request.raw_content)
     if not normalized_text:
         raise ContinuityCaptureValidationError("raw_content must not be empty")
+
+    # The memory-write mirror, the HTTP 404 fallback, and a client that
+    # sends user_id in the body all land here. The commit door runs before
+    # the capture event is written, so a refusal leaves no row. The router
+    # maps this error to HTTP 400, which the plugin treats as final.
+    verdict = commit_door_secret_verdict("", normalized_text)
+    if verdict == VERDICT_EXPANSION:
+        raise ContinuityCaptureValidationError(EXPANSION_REFUSED_MESSAGE)
+    if verdict is not None:
+        raise ContinuityCaptureValidationError(CREDENTIAL_MATERIAL_REFUSED_MESSAGE)
 
     explicit_signal = request.explicit_signal
     if explicit_signal is not None and explicit_signal not in CONTINUITY_CAPTURE_EXPLICIT_SIGNALS:
@@ -941,6 +1056,8 @@ __all__ = [
     "capture_continuity_candidates",
     "capture_continuity_input",
     "commit_continuity_captures",
+    "user_prefix_autosave",
+    "withhold_capture_candidates_echo",
     "get_continuity_capture_detail",
     "list_continuity_capture_inbox",
 ]

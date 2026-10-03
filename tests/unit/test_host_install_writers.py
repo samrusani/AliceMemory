@@ -11,6 +11,10 @@ import json
 import zipfile
 from pathlib import Path
 
+import pytest
+
+import yaml
+
 from alicebot_api.host_install import (
     ALICE_MEMORY_DATA_DIR_ENV,
     DEFAULT_INSTALL_HOSTS,
@@ -18,7 +22,6 @@ from alicebot_api.host_install import (
     build_mcpb_manifest,
     committed_mcpb_manifest_path,
     host_file_map,
-    load_simple_yaml,
     openclaw_add_line,
 )
 from alicebot_api.onramp import (
@@ -29,6 +32,7 @@ from alicebot_api.onramp import (
     main as onramp_main,
 )
 
+pytestmark = pytest.mark.usefixtures("uvx_on_path")
 USER_ID = "00000000-0000-0000-0000-000000000001"
 REPO_ROOT = Path(__file__).resolve().parents[2]
 README_PATH = REPO_ROOT / "README.md"
@@ -36,6 +40,12 @@ INSTALL_FAILED = {
     "error": {
         "code": "install_failed",
         "message": "The host install could not complete",
+    }
+}
+INSTALL_REFUSED = {
+    "error": {
+        "code": "install_refused",
+        "message": _ERROR_CONTRACTS["install_refused"],
     }
 }
 PASTE_MARKERS = ("mcpServers", "mcp_servers", "mcp.servers")
@@ -86,6 +96,16 @@ def _expected_session_start_hook(data_dir: Path) -> dict[str, str]:
             f"--data-dir {resolved}"
         )
     }
+
+
+def _expected_claude_code_session_start_group(data_dir: Path) -> dict[str, object]:
+    """Claude Code nests handlers under ``hooks`` and needs ``type``.
+
+    Until 2026-09-22 this helper pinned Cursor's flat shape for Claude Code
+    too, which Claude Code ignores. See test_claude_code_session_start_hook.
+    """
+
+    return {"hooks": [{"type": "command", **_expected_session_start_hook(data_dir)}]}
 
 
 def _assert_alice_payload(payload: dict, data_dir: Path, *, with_env: bool) -> None:
@@ -157,8 +177,8 @@ def test_host_claude_code_writes_mcp_and_session_start(
 ) -> None:
     """--host claude-code writes MCP plus hooks.SessionStart.
 
-    Mutation: write MCP only, or write the bare
-    ``alice-memory-session-start``. This test fails.
+    Mutation: write MCP only, write the bare ``alice-memory-session-start``,
+    or write Cursor's flat entry. This test fails.
     """
 
     monkeypatch.setenv("HOME", str(tmp_path))
@@ -173,7 +193,9 @@ def test_host_claude_code_writes_mcp_and_session_start(
     mcp = _load_json(files["claude-code"]["mcp"])
     hooks = _load_json(files["claude-code"]["hooks"])
     _assert_alice_payload(mcp["mcpServers"]["alice"], vault, with_env=False)
-    assert hooks["hooks"]["SessionStart"] == [_expected_session_start_hook(vault)]
+    assert hooks["hooks"]["SessionStart"] == [
+        _expected_claude_code_session_start_group(vault)
+    ]
     assert "session_start: added" in out
 
 
@@ -350,7 +372,9 @@ def test_host_hermes_writes_yaml_env_map(
     )
     assert code == 0, err
     files = host_file_map(home.resolve())
-    loaded = load_simple_yaml(files["hermes"]["mcp"].read_text(encoding="utf-8"))
+    # PyYAML is how Hermes reads config.yaml. Until 2026-09-22 these tests read
+    # it back with the writer's own hand parser, which hid its corruption.
+    loaded = yaml.safe_load(files["hermes"]["mcp"].read_text(encoding="utf-8"))
     assert isinstance(loaded, dict)
     _assert_alice_payload(loaded["mcp_servers"]["alice"], vault, with_env=True)
     assert ALICE_MEMORY_DATA_DIR_ENV in out or "env" in files["hermes"]["mcp"].read_text(
@@ -364,8 +388,8 @@ def test_hermes_flow_style_foreign_server_is_not_stringified(
 ) -> None:
     """A flow-style Hermes ``other`` server is not written back as a string.
 
-    Hard-fail or keep ``other`` as a mapping. Mutation: stringify ``other``.
-    This test fails.
+    Refuse and keep the file, or keep ``other`` as a mapping. Mutation:
+    stringify ``other``. This test fails.
     """
 
     monkeypatch.setenv("HOME", str(tmp_path))
@@ -380,17 +404,18 @@ def test_hermes_flow_style_foreign_server_is_not_stringified(
     code, _out, err = _install(_base_argv(home, vault, "--host", "hermes"), capsys)
     raw = hermes_mcp.read_text(encoding="utf-8")
     if code == 0:
-        loaded = load_simple_yaml(raw)
+        loaded = yaml.safe_load(raw)
         assert isinstance(loaded, dict)
         other = loaded["mcp_servers"]["other"]
         assert isinstance(other, dict), raw
         assert other.get("command") == "node"
         _assert_alice_payload(loaded["mcp_servers"]["alice"], vault, with_env=True)
     else:
-        assert _error_records(err) == [INSTALL_FAILED]
-        assert "{command: node, args: [other.js]}" in raw
-        assert '"{command: node, args: [other.js]}"' not in raw
-        assert "alice:" not in raw
+        # A refusal is the other safe outcome: the file keeps its bytes and
+        # install exits with install_refused. Until 2026-09-22 this branch
+        # expected install_failed, which the writer no longer produces here.
+        assert _error_records(err) == [INSTALL_REFUSED]
+        assert raw == flow
 
 
 def test_existing_foreign_server_stays_and_second_run_does_not_duplicate_alice(
@@ -466,7 +491,7 @@ def test_existing_foreign_server_stays_and_second_run_does_not_duplicate_alice(
     assert openclaw["mcp"]["servers"]["other"] == {"command": "node", "args": ["other.js"]}
     assert list(openclaw["mcp"]["servers"]).count("alice") == 1
 
-    hermes = load_simple_yaml(hermes_mcp.read_text(encoding="utf-8"))
+    hermes = yaml.safe_load(hermes_mcp.read_text(encoding="utf-8"))
     assert isinstance(hermes, dict)
     assert hermes["theme"] == "keep-me"
     assert hermes["mcp_servers"]["other"]["command"] == "node"
@@ -615,9 +640,10 @@ def test_default_hosts_write_session_start_and_openclaw_line(
     assert not files["hermes"]["mcp"].exists()
     cursor_hooks = _load_json(files["cursor"]["hooks"])
     claude_hooks = _load_json(files["claude-code"]["hooks"])
-    expected_hook = _expected_session_start_hook(vault)
-    assert cursor_hooks["hooks"]["sessionStart"][0] == expected_hook
-    assert claude_hooks["hooks"]["SessionStart"][0] == expected_hook
+    assert cursor_hooks["hooks"]["sessionStart"][0] == _expected_session_start_hook(vault)
+    assert claude_hooks["hooks"]["SessionStart"][0] == (
+        _expected_claude_code_session_start_group(vault)
+    )
     assert openclaw_add_line(str(vault.resolve())) in out
     assert not vault.exists()
 

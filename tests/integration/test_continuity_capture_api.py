@@ -20,6 +20,7 @@ def invoke_request(
     *,
     query_params: dict[str, str] | None = None,
     payload: dict[str, Any] | None = None,
+    headers: dict[str, str] | None = None,
 ) -> tuple[int, dict[str, Any]]:
     messages: list[dict[str, object]] = []
     encoded_body = b"" if payload is None else json.dumps(payload).encode()
@@ -46,7 +47,14 @@ def invoke_request(
         "path": path,
         "raw_path": path.encode(),
         "query_string": query_string,
-        "headers": [(b"content-type", b"application/json")],
+        "headers": [
+            (b"host", b"127.0.0.1:8000"),
+            (b"content-type", b"application/json"),
+            *[
+                (key.lower().encode("latin-1"), value.encode("latin-1"))
+                for key, value in (headers or {}).items()
+            ],
+        ],
         "client": ("127.0.0.1", 50000),
         "server": ("testserver", 80),
         "root_path": "",
@@ -291,14 +299,16 @@ def test_continuity_capture_candidate_and_commit_pipeline_supports_assist_mode_a
     assert commit_payload["summary"] == {
         "mode": "assist",
         "candidate_count": 2,
-        "auto_saved_count": 2,
-        "review_queued_count": 0,
+        "auto_saved_count": 1,
+        "review_queued_count": 1,
         "noop_count": 0,
         "duplicate_noop_count": 0,
-        "auto_saved_types": ["correction", "decision"],
-        "review_queued_types": [],
+        "auto_saved_types": ["decision"],
+        "review_queued_types": ["correction"],
     }
-    assert all(item["decision"] == "auto_saved" for item in commit_payload["commits"])
+    by_type = {item["candidate_type"]: item for item in commit_payload["commits"]}
+    assert by_type["decision"]["decision"] == "auto_saved"
+    assert by_type["correction"]["decision"] == "queued_for_review"
 
 
 def test_continuity_capture_pipeline_routes_disallowed_or_low_confidence_candidates_to_review_queue(
@@ -452,3 +462,136 @@ def test_continuity_capture_pipeline_noop_and_repeated_sync_are_write_safe(
     )
     assert list_status_after == 200
     assert list_payload_after["summary"]["total_count"] == 1
+
+
+def test_refused_title_cut_assignment_leaves_no_capture_events_row(
+    migrated_database_urls,
+    monkeypatch,
+) -> None:
+    """A quoted assignment past the title cut refuses the whole turn.
+
+    The floor accepts the text. The commit door does not. The capture
+    event is written before the object, and a later candidate in the same
+    request would have been stored. The refusal rolls the transaction
+    back, so continuity_capture_events has no row. Mutation: check the
+    title only. The commit returns 200.
+    """
+
+    value = "Ab" + "12" + "cd" + "EF"
+    quoted = "PASSWORD" + '_DB="' + value + '"'
+    filler = "ship the weekly billing report " * 9
+    refused_text = "decision: " + filler + quoted
+    assert refused_text.find(quoted) >= 280
+    assert len(refused_text) <= 500
+
+    user_id = seed_user(migrated_database_urls["app"], email="title-cut@example.com")
+    monkeypatch.setattr(
+        main_module,
+        "get_settings",
+        lambda: Settings(database_url=migrated_database_urls["app"]),
+    )
+    monkeypatch.setattr(
+        continuity_router,
+        "get_settings",
+        lambda: Settings(database_url=migrated_database_urls["app"]),
+    )
+
+    status, _payload = invoke_request(
+        "POST",
+        "/v0/continuity/captures/commit",
+        payload={
+            "user_id": str(user_id),
+            "mode": "assist",
+            "sync_fingerprint": "sync-title-cut-001",
+            "candidates": [
+                {
+                    "candidate_type": "decision",
+                    "object_type": "Decision",
+                    "normalized_text": "decision: keep the weekly billing report",
+                    "confidence": 0.95,
+                    "explicit": True,
+                    "source_role": "user",
+                    "admission_reason": "explicit_prefix_decision",
+                },
+                {
+                    "candidate_type": "decision",
+                    "object_type": "Decision",
+                    "normalized_text": refused_text,
+                    "confidence": 0.95,
+                    "explicit": True,
+                    "source_role": "user",
+                    "admission_reason": "explicit_prefix_decision",
+                },
+            ],
+        },
+    )
+    assert status == 400
+
+    with user_connection(migrated_database_urls["app"], user_id) as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT count(*) AS n FROM continuity_capture_events")
+            row = cur.fetchone()
+    count = row["n"] if isinstance(row, dict) else row[0]
+    assert count == 0
+
+
+def _runtime_token() -> str:
+    """A scanner-shaped token assembled at runtime. The source has no literal."""
+
+    return "ghp_" + "0123456789abcdefghijklmnopqrstuvwxyz"
+
+
+def _capture_event_count(database_url: str, user_id: UUID) -> int:
+    with user_connection(database_url, user_id) as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT count(*) AS n FROM continuity_capture_events")
+            row = cur.fetchone()
+    count = row["n"] if isinstance(row, dict) else row[0]
+    return int(count)
+
+
+def test_header_only_mirror_capture_with_a_token_returns_400_and_stores_nothing(
+    migrated_database_urls,
+    monkeypatch,
+) -> None:
+    """The memory-write mirror posts header-only to POST /v0/continuity/captures.
+
+    In v0.17.0 that header-only post got HTTP 422 and stored nothing. It
+    did not store the raw text. A runtime-built token now returns 400 and
+    leaves no continuity_capture_events row. Ordinary mirror text still
+    returns 201. Mutation: remove the commit_door_secret_verdict check in
+    capture_continuity_input. The token post then returns 201 and the row
+    count is 1.
+    """
+
+    user_id = seed_user(migrated_database_urls["app"], email="mirror-token@example.com")
+    settings = Settings(database_url=migrated_database_urls["app"], app_env="development", auth_user_id="")
+    monkeypatch.setattr(main_module, "get_settings", lambda: settings)
+    monkeypatch.setattr(continuity_router, "get_settings", lambda: settings)
+    token = _runtime_token()
+    raw_content = f"Hermes built-in memory update (MEMORY.md): rotate to {token}"
+    body = json.dumps({"raw_content": raw_content}, separators=(",", ":")).encode("utf-8")
+    assert b"user_id" not in body
+
+    status, payload = invoke_request(
+        "POST",
+        "/v0/continuity/captures",
+        payload={"raw_content": raw_content},
+        headers={"X-AliceBot-User-Id": str(user_id)},
+    )
+
+    assert status == 400
+    assert payload["detail"]["code"] == "invalid_request"
+    assert token not in json.dumps(payload)
+    assert _capture_event_count(migrated_database_urls["app"], user_id) == 0
+
+    ordinary = "Hermes built-in memory update (MEMORY.md): the harbour clipboard stays on the desk"
+    ordinary_status, ordinary_payload = invoke_request(
+        "POST",
+        "/v0/continuity/captures",
+        payload={"raw_content": ordinary},
+        headers={"X-AliceBot-User-Id": str(user_id)},
+    )
+    assert ordinary_status == 201
+    assert ordinary_payload["capture"]["capture_event"]["raw_content"] == ordinary
+    assert _capture_event_count(migrated_database_urls["app"], user_id) == 1

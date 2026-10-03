@@ -45,7 +45,19 @@ import inspect
 import json
 import logging
 import re
-from typing import Callable, Mapping, NotRequired, Protocol, Sequence, TypeVar, TypedDict, cast
+from typing import (
+    Callable,
+    Collection,
+    Mapping,
+    MutableMapping,
+    NamedTuple,
+    NotRequired,
+    Protocol,
+    Sequence,
+    TypeVar,
+    TypedDict,
+    cast,
+)
 from uuid import uuid4
 
 # Read-only reuse of the contradiction-detection machinery that backs
@@ -77,6 +89,7 @@ from alicebot_api import vnext_currency
 # "reranker" blocks in VNextRetrievalService.
 from alicebot_api import vnext_reranker
 from alicebot_api.vnext_reranker import RerankProvider, get_reranker_provider
+from alicebot_api.source_ranking import SourceRanking
 from alicebot_api.vnext_entity_names import normalize_entity_name
 from alicebot_api.vnext_embeddings import (
     EMBEDDING_SIGNATURE_VERSION,
@@ -89,9 +102,12 @@ from alicebot_api.vnext_embeddings import (
 from alicebot_api.vnext_event_log import append_event
 from alicebot_api.vnext_grounding import compute_query_grounding
 from alicebot_api.vnext_json import json_safe
+from alicebot_api.vnext_lifecycle import RETIRED_STATUSES
 from alicebot_api.vnext_promotion_policy import memory_write_provenance
 from alicebot_api.vnext_project_scope import (
+    is_global_scope,
     project_scope_identity,
+    project_scopes_overlap,
     resolve_project_scope,
     source_project_scope,
 )
@@ -101,6 +117,7 @@ from alicebot_api.vnext_ranking import (
     content_stable_event_time as _tiebreak_event_time,
     content_stable_tiebreak,
 )
+from alicebot_api.vnext_recall_visibility import MEMORY_SEARCHABLE_STATUSES
 from alicebot_api.vnext_repositories import JsonObject
 from alicebot_api.vnext_store import fts_fallback_tokens
 from alicebot_api.vnext_temporal_query import (
@@ -152,6 +169,16 @@ SCOPED_ROW_OVERFETCH_LIMIT = 200
 # SQL, while an adapter that cannot prove exhaustion before the boundary fails
 # closed instead of doubling forever or silently returning an incomplete pack.
 LEGACY_SCOPED_SCAN_MAX_ROWS = 16_384
+# ``recent_changes`` is an advisory section of a pack, and its events are
+# fenced after the store's own LIMIT, so a run of events about memories the
+# caller may not read has to be scanned past. The scan stops at this many rows
+# and the section keeps what it found, because a short list is safe and a
+# failed pack call is not. It sits well under the ceiling above so a vault
+# that is mostly hidden costs a bounded amount per pack call.
+RECENT_CHANGES_SCAN_MAX_ROWS = 2_048
+# Memory ids go to the store in batches of this size. SQLite builds older than
+# 3.32 take at most 999 bound variables in one statement.
+MEMORY_ID_LOOKUP_BATCH_SIZE = 500
 DEFAULT_SENSITIVITY_ALLOWED = ("public", "internal", "private", "unknown")
 STRATEGIC_QUERY_TYPES = {"strategic_synthesis", "contradiction_check", "project_status", "agent_context"}
 RRF_K = 60
@@ -358,8 +385,9 @@ GRAPH_ENTITY_MATCH_LIMIT = 5
 MEMORY_ENTITY_EDGE_TYPES = ("mentions", "about")
 # Mirror of the stores' _MEMORY_SEARCHABLE_STATUSES_SQL ('active',
 # 'accepted'): get_memory does not enforce the searchable-status discipline
-# the search_* SQL bakes in, so the graph stage re-applies it in Python.
-MEMORY_SEARCHABLE_STATUSES = ("active", "accepted")
+# the search_* SQL bakes in, so the graph stage re-applies it in Python. The
+# tuple is defined in vnext_recall_visibility, which the embedding door reads
+# too, and is re-exported here under its old name.
 # Temporal-anchor stage: when parse_temporal_anchor finds a date-bearing
 # phrase in the query ("in March 2023", "two months ago"), memories whose
 # event window intersects the parsed [start, end) window join RRF as one
@@ -400,6 +428,24 @@ class VNextRetrievalValidationError(ValueError):
 
 class VNextRetrievalCompletenessError(RuntimeError):
     """Raised when a legacy adapter cannot prove scoped recall completeness."""
+
+
+def _require_document_ranking(ranking: object) -> None:
+    """Refuse every source ranking the source stage cannot honour yet.
+
+    Only ``SourceRanking.document()`` has a code path, so any other value is
+    refused here and never accepted and ignored. A caller that writes a passage
+    ranking before the passage stage exists learns it at the call, not from a
+    result that looks like the ranking it asked for. The passage slice replaces
+    this refusal with the stage.
+    """
+
+    if not isinstance(ranking, SourceRanking):
+        raise VNextRetrievalValidationError("ranking must be a SourceRanking value")
+    if ranking != SourceRanking.document():
+        raise VNextRetrievalValidationError(
+            "this build ranks sources by document only; pass SourceRanking.document()"
+        )
 
 
 class VNextRetrievalStore(Protocol):
@@ -768,6 +814,12 @@ class _ResolvedRetrievalScope:
     people: frozenset[str]
     window_start: datetime | None
     window_end: datetime | None
+    #: Domains whose GLOBAL rows (a scope that holds no Alice project id) this
+    #: read leaves out, before fusion, so a held-back row never spends a rank
+    #: (spec 6.4 item 5). Required, with no default: a site that builds a scope
+    #: states the choice, and the empty set is written where it is meant. The
+    #: brief passes ``SENSITIVE_DOMAINS`` for the project view.
+    exclude_global_domains: frozenset[str]
 
     @property
     def active(self) -> bool:
@@ -776,6 +828,7 @@ class _ResolvedRetrievalScope:
             or self.people
             or self.window_start is not None
             or self.window_end is not None
+            or self.exclude_global_domains
         )
 
 
@@ -806,6 +859,8 @@ def _resolve_retrieval_scope(request: VNextRetrievalRequest) -> _ResolvedRetriev
             people=people,
             window_start=None,
             window_end=None,
+            # An explicit search: every global row the caller may read is returned.
+            exclude_global_domains=frozenset(),
         )
     match = _TIME_WINDOW_PATTERN.fullmatch(raw_window)
     if match is None:
@@ -827,6 +882,7 @@ def _resolve_retrieval_scope(request: VNextRetrievalRequest) -> _ResolvedRetriev
         people=people,
         window_start=window_end - timedelta(days=days),
         window_end=window_end,
+        exclude_global_domains=frozenset(),
     )
 
 
@@ -889,6 +945,32 @@ def _row_scope_event_time(row: Mapping[str, object]) -> datetime | None:
     return parse_event_datetime(row.get("captured_at"))
 
 
+def _project_scope_meets(row_scope: set[str], requested: Collection[str]) -> bool:
+    """Does a row's resolved project scope meet the requested tuple?
+
+    The tuple may hold the reserved global marker (spec 6.1): it asks for a row
+    whose scope holds no Alice project id. The one predicate in
+    ``vnext_project_scope`` decides, so a request without the marker keeps the
+    plain intersection it always had.
+    """
+
+    return project_scopes_overlap(tuple(sorted(row_scope)), tuple(sorted(requested)))
+
+
+def _is_held_back_global(
+    row: Mapping[str, object],
+    row_scope: set[str],
+    excluded_domains: Collection[str],
+) -> bool:
+    """A global row (no Alice project id in its scope) whose stored domain is held back.
+
+    The test is on the row: a project's own row in the same domain is not held back,
+    and a global row in any other domain is not either.
+    """
+
+    return row.get("domain") in excluded_domains and is_global_scope(tuple(sorted(row_scope)))
+
+
 def _row_matches_scope(
     row: Mapping[str, object],
     scope: _ResolvedRetrievalScope,
@@ -901,7 +983,11 @@ def _row_matches_scope(
         if source_scope_envelope
         else _row_project_scope_values(row)
     )
-    if scope.projects and not (project_scope & scope.projects):
+    if scope.projects and not _project_scope_meets(project_scope, scope.projects):
+        return False
+    if scope.exclude_global_domains and _is_held_back_global(
+        row, project_scope, scope.exclude_global_domains
+    ):
         return False
     if scope.people:
         direct_people = _row_scope_values(row, _PEOPLE_SCOPE_KEYS)
@@ -965,6 +1051,7 @@ def _fetch_filtered_prefix(
     target: int,
     predicate_applied_before_limit: bool = False,
     initial_limit: int | None = None,
+    max_rows: int | None = None,
 ) -> tuple[list[JsonObject], StageSourceT]:
     """Fetch/select a ranked prefix with finite legacy compatibility deepening.
 
@@ -976,13 +1063,17 @@ def _fetch_filtered_prefix(
     deduplicated, repeated/non-growing prefixes fail closed, and an adapter
     that still returns a full prefix at ``LEGACY_SCOPED_SCAN_MAX_ROWS`` raises
     ``VNextRetrievalCompletenessError`` instead of doubling forever or
-    returning a false-negative pack.
+    returning a false-negative pack. ``max_rows`` lowers that ceiling for a
+    caller that would rather stop early; it never raises it.
     """
     if predicate_applied_before_limit:
         rows, source = fetch(target)
         return _dedupe_retrieval_rows(select_rows(_dedupe_retrieval_rows(rows))), source
+    scan_ceiling = (
+        LEGACY_SCOPED_SCAN_MAX_ROWS if max_rows is None else min(max_rows, LEGACY_SCOPED_SCAN_MAX_ROWS)
+    )
     limit = min(
-        LEGACY_SCOPED_SCAN_MAX_ROWS,
+        scan_ceiling,
         max(target, initial_limit or SCOPED_ROW_OVERFETCH_LIMIT),
     )
     previous_unique_count = -1
@@ -996,13 +1087,13 @@ def _fetch_filtered_prefix(
             raise VNextRetrievalCompletenessError(
                 "legacy scoped retrieval adapter returned a repeated or non-progressing prefix"
             )
-        if limit >= LEGACY_SCOPED_SCAN_MAX_ROWS:
+        if limit >= scan_ceiling:
             raise VNextRetrievalCompletenessError(
                 "legacy scoped retrieval adapter did not prove exhaustion within "
-                f"{LEGACY_SCOPED_SCAN_MAX_ROWS} rows"
+                f"{scan_ceiling} rows"
             )
         previous_unique_count = len(rows)
-        limit = min(limit * 2, LEGACY_SCOPED_SCAN_MAX_ROWS)
+        limit = min(limit * 2, scan_ceiling)
 
 
 def _fetch_scope_filtered(
@@ -1135,8 +1226,7 @@ def _graph_memory_admissible(
     if memory_types and row.get("memory_type") not in memory_types:
         return False
     if projects:
-        requested_projects = set(project_scope_identity(projects))
-        if not (_row_project_scope_values(row) & requested_projects):
+        if not _project_scope_meets(_row_project_scope_values(row), projects):
             return False
     if created_by_agent_ids and row.get("created_by_agent_id") not in created_by_agent_ids:
         return False
@@ -1297,6 +1387,8 @@ SOURCE_FALLBACK_CHUNK_SCAN_LIMIT = 24
 # Least fraction of the budget a word-boundary trim may leave before the blunt
 # character cut is preferred instead.
 _WORD_TRIM_FLOOR = 0.6
+# The mark a cut line carries. One character, appended where text was removed.
+_CUT_MARKER = "\u2026"
 
 
 def _tokens(text: str) -> set[str]:
@@ -1422,8 +1514,8 @@ def _trimmed_to_budget(text: str, max_chars: int) -> str:
     sliced = text[:max_chars]
     tidy = sliced.rsplit(" ", 1)[0]
     if len(tidy) >= max_chars * _WORD_TRIM_FLOOR:
-        return tidy + "\u2026"
-    return sliced + "\u2026"
+        return tidy + _CUT_MARKER
+    return sliced + _CUT_MARKER
 
 
 def _query_anchored_window(chunk: str, *, query: str, max_chars: int) -> str:
@@ -1492,16 +1584,126 @@ def estimate_item_tokens(item: JsonObject) -> int:
     return max(1, (chars + TOKEN_ESTIMATE_CHARS_PER_TOKEN - 1) // TOKEN_ESTIMATE_CHARS_PER_TOKEN)
 
 
+# Text a budget cut may shorten: the excerpt a source carries, and the text a
+# memory or open loop carries (a memory row repeats it as canonical_text,
+# summary and value.text). Ids, scope, provenance, metadata and titles are
+# never cut, so a cut item still names what it is and where it came from.
+_CUTTABLE_TEXT_KEYS = ("excerpt", "canonical_text", "summary", "description")
+
+
+def _cuttable_text_lengths(item: JsonObject) -> list[int]:
+    lengths: list[int] = []
+    for key in _CUTTABLE_TEXT_KEYS:
+        text = item.get(key)
+        if isinstance(text, str):
+            lengths.append(len(text))
+    value = item.get("value")
+    if isinstance(value, Mapping) and isinstance(value.get("text"), str):
+        lengths.append(len(value["text"]))
+    return lengths
+
+
+def _cut_text(text: str, *, query: str, max_chars: int) -> str:
+    """Shorten text to about ``max_chars`` and mark the cut.
+
+    The cut is the one a source excerpt already gets: a window around the line
+    that best answers the query, ending in the same one-character marker that
+    ``_trimmed_to_budget`` appends. Text that already fits comes back unchanged.
+    """
+
+    if len(text) <= max_chars:
+        return text
+    window = _query_anchored_window(text, query=query, max_chars=max_chars)
+    if window == text.strip() or window.endswith(_CUT_MARKER):
+        return window
+    return window + _CUT_MARKER
+
+
+def _item_with_text_cut(item: JsonObject, *, query: str, max_chars: int) -> JsonObject:
+    cut = dict(item)
+    for key in _CUTTABLE_TEXT_KEYS:
+        text = cut.get(key)
+        if isinstance(text, str):
+            cut[key] = _cut_text(text, query=query, max_chars=max_chars)
+    value = cut.get("value")
+    if isinstance(value, Mapping) and isinstance(value.get("text"), str):
+        cut["value"] = {**value, "text": _cut_text(value["text"], query=query, max_chars=max_chars)}
+    return cut
+
+
+def _fit_item_to_tokens(item: JsonObject, *, query: str, max_tokens: int) -> JsonObject | None:
+    """The longest cut of ``item`` that the search finds within ``max_tokens``, or None.
+
+    None means the item cannot be made to fit: with every cuttable text reduced
+    to the bare cut marker, the ids, scope and metadata it carries alone cost
+    more than the budget. That irreducible cost is the pack's floor for this
+    item. A returned item was priced with ``estimate_item_tokens`` before it was
+    returned, so it fits whatever the search assumed about how cost grows.
+    """
+
+    best = _item_with_text_cut(item, query=query, max_chars=0)
+    if estimate_item_tokens(best) > max_tokens:
+        return None
+    low, high = 0, max(_cuttable_text_lengths(item), default=0)
+    while low < high:
+        middle = (low + high + 1) // 2
+        candidate = _item_with_text_cut(item, query=query, max_chars=middle)
+        if estimate_item_tokens(candidate) <= max_tokens:
+            best, low = candidate, middle
+        else:
+            high = middle - 1
+    return best
+
+
+class _PackedSections(NamedTuple):
+    """What one pass of the greedy packer admitted, section by section."""
+
+    memories: list[JsonObject]
+    open_loops: list[JsonObject]
+    sources: list[JsonObject]
+    supporting_evidence: list[JsonObject]
+    contradicting_evidence: list[JsonObject]
+    contradictions_stage: str
+
+
+def _first_item_that_fits_when_cut(
+    offers: Mapping[str, Sequence[JsonObject]],
+    *,
+    section_order: Sequence[str],
+    query: str,
+    max_tokens: int,
+) -> tuple[str, int, JsonObject] | None:
+    """The first offered item, in offer order, that a cut can make fit.
+
+    Returns its section, its index in that section, and the cut item. Sections
+    the packer derives rather than ranks (evidence quotes, contradiction
+    records) are not in ``offers`` and are never cut.
+    """
+
+    for section in section_order:
+        for index, offered in enumerate(offers.get(section, ())):
+            fitted = _fit_item_to_tokens(offered, query=query, max_tokens=max_tokens)
+            if fitted is not None:
+                return section, index, fitted
+    return None
+
+
 @dataclass(slots=True)
 class _TokenBudget:
     """Greedy token-budget packer state.
 
-    Items are offered section by section in the strategy's section order.
-    Once one item does not fit, the budget is marked truncated and every
-    later item is dropped too, keeping the packed prefix aligned with the
-    offer order. ``allocation`` records the admitted token estimate per
-    section so agents can see where the budget went; the values always sum
-    to ``token_estimate``.
+    Items are offered section by section in the strategy's section order, and
+    in rank order within a section. An item that does not fit is skipped and
+    the next one is tried, so one large item early in the order cannot take the
+    smaller items behind it down with it. Packed items keep their offer order.
+    ``truncated`` is set when any offered item was dropped or cut.
+    ``allocation`` records the admitted token estimate per section so agents
+    can see where the budget went; the values always sum to ``token_estimate``,
+    which never exceeds ``token_budget``.
+
+    Through v0.19.2 the first item that did not fit latched ``truncated`` and
+    every later item was dropped too, which left a pack empty whenever a large
+    item was ranked first.
     """
 
     token_budget: int | None
@@ -1509,6 +1711,7 @@ class _TokenBudget:
     token_estimate: int = 0
     truncated: bool = False
     dropped_item_count: int = 0
+    cut_item_count: int = 0
     allocation: dict[str, int] = field(default_factory=dict)
 
     def open_section(self, section: str) -> None:
@@ -1518,9 +1721,7 @@ class _TokenBudget:
     def admit(self, item: JsonObject, *, section: str) -> bool:
         self.open_section(section)
         cost = estimate_item_tokens(item)
-        if self.truncated or (
-            self.token_budget is not None and self.token_estimate + cost > self.token_budget
-        ):
+        if self.token_budget is not None and self.token_estimate + cost > self.token_budget:
             self.truncated = True
             self.dropped_item_count += 1
             return False
@@ -1529,7 +1730,7 @@ class _TokenBudget:
         return True
 
     def to_record(self) -> JsonObject:
-        return {
+        record: JsonObject = {
             "token_budget": self.token_budget,
             "token_estimate": self.token_estimate,
             "truncated": self.truncated,
@@ -1537,6 +1738,11 @@ class _TokenBudget:
             "strategy": self.strategy,
             "allocation": dict(self.allocation),
         }
+        if self.cut_item_count:
+            # Absent unless an item was cut to fit, so every pack that was not
+            # cut keeps the report it had.
+            record["cut_item_count"] = self.cut_item_count
+        return record
 
 
 def _parse_timestamp(value: object) -> datetime | None:
@@ -1593,7 +1799,520 @@ def _last_corrected_at(memory: JsonObject) -> datetime | None:
     return max(moments, default=None)
 
 
-def _validity_annotation(memory: JsonObject, *, superseded_by_hint: str | None = None) -> JsonObject | None:
+def _flat_stored_text(value: object) -> str:
+    if not isinstance(value, str):
+        return ""
+    return " ".join(value.split())
+
+
+def _memory_is_superseded(memory: Mapping[str, object]) -> bool:
+    if str(memory.get("status") or "") == "superseded":
+        return True
+    pointer = memory.get("superseded_by")
+    return pointer is not None and str(pointer).strip() != ""
+
+
+def _quoted_from_links(
+    store: object,
+    *,
+    memory_id: str,
+    source_id: str,
+    links_by_memory: Mapping[str, Sequence[object]] | None = None,
+) -> list[Mapping[str, object]]:
+    if links_by_memory is not None:
+        raw_links = links_by_memory.get(memory_id, ())
+    else:
+        list_links = getattr(store, "list_provenance_links", None)
+        if not callable(list_links):
+            return []
+        raw_links = list_links(target_type="memory", target_id=memory_id) or ()
+    chosen: list[Mapping[str, object]] = []
+    for link in raw_links:
+        if not isinstance(link, Mapping):
+            continue
+        if str(link.get("evidence_role") or "") != "quoted_from":
+            continue
+        if str(link.get("source_id") or "") != source_id:
+            continue
+        chosen.append(link)
+    return chosen
+
+
+def _memory_validity_has_closed(memory: Mapping[str, object], *, now: datetime) -> bool:
+    """True when the row's validity window closed before ``now``.
+
+    ``alice_memory_manage`` expire sets ``valid_to`` and leaves the status
+    alone, so a row closed that way is still ``active``. Recall and the pack
+    both leave such a row out (their searches keep only rows with no
+    ``valid_to`` or one that has not passed), so a label that named it would
+    point at a fact neither of them returns. The far-future unbounded
+    ``valid_to`` stand-in is never in the past.
+    """
+
+    valid_to = _parse_timestamp(memory.get("valid_to"))
+    return valid_to is not None and valid_to < now
+
+
+def _memory_was_retired(memory: Mapping[str, object]) -> bool:
+    """True when the row is retired, whether or not a replacement was named.
+
+    A row whose status is ``superseded`` with no ``superseded_by`` pointer was
+    retired without a replacement: ``alice_memory_manage`` forget and undo both
+    leave a row like that. A ``rejected`` or ``archived`` row was withdrawn as
+    well. A retired row at the end of a supersession chain is not a fact an
+    agent should read now. A row that is deleted never gets here: ``get_memory``
+    does not return it, so the walk ends there unresolved.
+    """
+
+    return str(memory.get("status") or "") in RETIRED_STATUSES
+
+
+def _current_memory_id(
+    store: object,
+    memory: Mapping[str, object],
+    *,
+    memory_visible: Callable[[Mapping[str, object]], bool],
+    now: datetime | None = None,
+) -> str:
+    """Id of the fact an agent should read now, or "" when it cannot be shown.
+
+    An in-place correction keeps the same id. A supersession chain walks
+    ``superseded_by`` to the row that is not itself superseded. Every row the
+    walk touches, the starting memory included, must pass ``memory_visible``,
+    the same fence the caller's memory reads run under. A pointer id is
+    itself sensitive metadata, so a hop that is hidden, unresolved, or past
+    the depth cap yields "" rather than the last id seen.
+
+    The row the chain ends on must also still be live. When it was forgotten,
+    undone, rejected or archived, or deleted, or its validity window has closed
+    (``alice_memory_manage`` expire leaves the status ``active``), there is no
+    current fact to name, so the answer is "" and not the id of the last row
+    read. The caller still labels the passage as corrected. A chain that loops
+    back to a row it has already read names nothing: every row on the loop is
+    superseded. ``now`` is the clock the validity window is read against.
+    """
+
+    clock = now if now is not None else datetime.now(UTC)
+    seen: set[str] = set()
+    current: Mapping[str, object] = memory
+    for _step in range(8):
+        memory_id = str(current.get("id") or "")
+        if memory_id == "" or memory_id in seen:
+            return ""
+        if not memory_visible(current):
+            return ""
+        seen.add(memory_id)
+        if not _memory_is_superseded(current):
+            if _memory_was_retired(current) or _memory_validity_has_closed(current, now=clock):
+                return ""
+            return memory_id
+        successor_id = str(current.get("superseded_by") or "").strip()
+        if successor_id == "":
+            # Retired with no replacement (forgotten or undone), so nothing
+            # is current.
+            return ""
+        getter = getattr(store, "get_memory", None)
+        if not callable(getter):
+            return ""
+        successor = getter(successor_id)
+        if not isinstance(successor, Mapping):
+            return ""
+        current = successor
+    # The eight-hop walk ended on a row it has not checked yet. It names that
+    # row only when the row is visible and ends the chain with a live fact. A
+    # row that is still superseded means the chain is longer than the walk, so
+    # the current fact is not known.
+    last_id = str(current.get("id") or "")
+    if (
+        last_id == ""
+        or _memory_is_superseded(current)
+        or _memory_was_retired(current)
+        or _memory_validity_has_closed(current, now=clock)
+        or not memory_visible(current)
+    ):
+        return ""
+    return last_id
+
+
+def _quoted_link_is_stale(
+    memory: Mapping[str, object],
+    link: Mapping[str, object],
+    *,
+    captured_at: datetime | None,
+) -> bool:
+    """True when this quoted_from passage is older than the fact.
+
+    A quote that no longer matches canonical text was stored at capture
+    and the memory was corrected afterwards. A matching quote on a
+    superseded row counts only when that supersession is after the
+    source's captured_at. A source captured after the row was already
+    superseded is a new import, not this label.
+    """
+
+    quote = _flat_stored_text(link.get("quote"))
+    canonical = _flat_stored_text(memory.get("canonical_text"))
+    if quote and quote != canonical:
+        return True
+    if not _memory_is_superseded(memory):
+        return False
+    if captured_at is None:
+        return True
+    updated_at = _parse_timestamp(memory.get("updated_at"))
+    if updated_at is None:
+        return True
+    return updated_at > captured_at
+
+
+def _quote_covers_excerpt(quote: str, excerpt: str) -> bool:
+    if excerpt == "":
+        return True
+    if quote == "":
+        return False
+    return quote in excerpt or excerpt in quote
+
+
+def _memory_visibility_predicate(
+    *,
+    domains: list[str],
+    sensitivity_allowed: list[str],
+    scope: _ResolvedRetrievalScope | None,
+    person_linked_memory_ids: frozenset[str] = frozenset(),
+) -> Callable[[Mapping[str, object]], bool]:
+    """The fence a memory read runs under, as a yes/no for one stored row."""
+
+    def visible(row: Mapping[str, object]) -> bool:
+        if _allowed(dict(row), domains=domains, sensitivity_allowed=sensitivity_allowed) is not None:
+            return False
+        if scope is not None and scope.active:
+            return _row_matches_scope(row, scope, person_linked_memory_ids=person_linked_memory_ids)
+        return True
+
+    return visible
+
+
+# A memory id is a UUID in Postgres and in every id the store makes. The scan
+# for ids inside ``metadata_json`` only looks for that shape, because a
+# Postgres lookup of any other text as a uuid raises.
+_MEMORY_ID_TEXT = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
+_WHOLE_MEMORY_ID_TEXT = re.compile(r"(?:memory:)?" + _MEMORY_ID_TEXT.pattern)
+_MEMORY_ID_WITHHELD = "(id withheld)"
+# Metadata the product writes is a few levels deep, and a restore refuses more
+# than 256. Recursing that far on text a v0.19.0 store let through would raise
+# before it finished, so the scan stops here and drops what is below.
+_METADATA_ID_SCAN_MAX_DEPTH = 64
+_SCRUB_DROPPED = object()
+
+
+def _collect_memory_id_texts(value: object, found: set[str], *, depth: int) -> bool:
+    """Add every UUID-shaped substring of the strings and keys in ``value``, lowercased.
+
+    Returns True when ``value`` nests deeper than ``_METADATA_ID_SCAN_MAX_DEPTH``,
+    so some of it was not read.
+    """
+
+    if depth > _METADATA_ID_SCAN_MAX_DEPTH:
+        return True
+    too_deep = False
+    if isinstance(value, str):
+        found.update(match.lower() for match in _MEMORY_ID_TEXT.findall(value))
+    elif isinstance(value, Mapping):
+        for key, nested in value.items():
+            if isinstance(key, str):
+                found.update(match.lower() for match in _MEMORY_ID_TEXT.findall(key))
+            too_deep = _collect_memory_id_texts(nested, found, depth=depth + 1) or too_deep
+    elif isinstance(value, Sequence) and not isinstance(value, (bytes, bytearray)):
+        for nested in value:
+            too_deep = _collect_memory_id_texts(nested, found, depth=depth + 1) or too_deep
+    return too_deep
+
+
+def _scrub_memory_id_text(text: str, hidden: frozenset[str]) -> object:
+    """``text`` without a hidden id, or ``_SCRUB_DROPPED`` when the text is only that id."""
+
+    if not any(match.lower() in hidden for match in _MEMORY_ID_TEXT.findall(text)):
+        return text
+    if _WHOLE_MEMORY_ID_TEXT.fullmatch(text.strip()):
+        return _SCRUB_DROPPED
+    return _MEMORY_ID_TEXT.sub(
+        lambda match: _MEMORY_ID_WITHHELD if match.group(0).lower() in hidden else match.group(0),
+        text,
+    )
+
+
+def _scrub_memory_ids(value: object, hidden: frozenset[str], *, depth: int) -> object:
+    """A copy of ``value`` with every id in ``hidden`` removed, or ``_SCRUB_DROPPED``.
+
+    A string that is only a hidden id is dropped, so its key or list slot goes
+    with it. A hidden id inside a longer string is replaced. Below
+    ``_METADATA_ID_SCAN_MAX_DEPTH`` nothing is scanned, so the value is dropped.
+    """
+
+    if depth > _METADATA_ID_SCAN_MAX_DEPTH:
+        return _SCRUB_DROPPED
+    if isinstance(value, str):
+        return _scrub_memory_id_text(value, hidden)
+    if isinstance(value, Mapping):
+        output: dict[object, object] = {}
+        for key, nested in value.items():
+            new_key = _scrub_memory_id_text(key, hidden) if isinstance(key, str) else key
+            if new_key is _SCRUB_DROPPED:
+                continue
+            new_value = _scrub_memory_ids(nested, hidden, depth=depth + 1)
+            if new_value is _SCRUB_DROPPED:
+                continue
+            output[new_key] = new_value
+        return output
+    if isinstance(value, Sequence) and not isinstance(value, (bytes, bytearray)):
+        items = (_scrub_memory_ids(nested, hidden, depth=depth + 1) for nested in value)
+        return [item for item in items if item is not _SCRUB_DROPPED]
+    return value
+
+
+def _drop_pointers_outside_fence(
+    holders: Sequence[MutableMapping[str, object]],
+    pointer_keys: Sequence[str],
+    *,
+    targets: Mapping[str, Mapping[str, object]],
+    memory_visible: Callable[[Mapping[str, object]], bool],
+    fail_closed_when_unresolved: bool,
+) -> list[tuple[MutableMapping[str, object], str]]:
+    """Remove each memory-id pointer whose target the caller may not read.
+
+    A pointer id is itself sensitive metadata, so this is the one place that
+    decides whether a pointer may be shown. ``targets`` holds the rows the
+    pointers resolved to. A pointer to a row that is in ``targets`` goes when
+    ``memory_visible`` says no. A pointer to a row that is not in ``targets``
+    names a row this user does not have, which is not a hidden one, because
+    the lookup applies no fence: it is kept unless
+    ``fail_closed_when_unresolved`` is set, which a scoped read sets.
+
+    Returns each ``(holder, pointer_key)`` it removed, so a caller that derives
+    something from the pointer, such as a validity flag, can keep the part that
+    is not an id.
+    """
+
+    dropped: list[tuple[MutableMapping[str, object], str]] = []
+    for holder in holders:
+        for pointer_key in pointer_keys:
+            pointer = holder.get(pointer_key)
+            if not pointer:
+                continue
+            target = targets.get(str(pointer))
+            if target is None:
+                if fail_closed_when_unresolved:
+                    holder.pop(pointer_key, None)
+                    dropped.append((holder, pointer_key))
+                continue
+            if not memory_visible(target):
+                holder.pop(pointer_key, None)
+                dropped.append((holder, pointer_key))
+    return dropped
+
+
+# Memories asked for per packed source when labelling a corrected excerpt. The
+# label depends on which rows come back, so this stays at the 50 that v0.19.0
+# asked for, not the store's 500 default.
+_CORRECTION_LABEL_MEMORIES_PER_SOURCE = 50
+
+# Memory ids per provenance-link lookup. One statement per packed request is
+# the aim, but a SQLite build from before 3.32 allows only 999 bound
+# variables, so a very large pack splits its ids rather than fails.
+_CORRECTION_LABEL_LINK_BATCH = 500
+
+
+def _memories_referencing_sources(
+    store: object,
+    source_ids: Sequence[str],
+    *,
+    limit_per_source: int,
+) -> dict[str, list[Mapping[str, object]]]:
+    """Memories that reference each source: one batched lookup when the store has one.
+
+    The batched method is what keeps a pack of N sources from asking the store
+    N times. A store without it (a minimal test double, an older store) gets
+    the one-source method once per source, which returns the same rows.
+    """
+
+    batched = getattr(store, "list_memories_referencing_sources", None)
+    if callable(batched):
+        grouped = batched(source_ids, limit_per_source=limit_per_source) or {}
+        return {
+            source_id: [row for row in grouped.get(source_id, ()) if isinstance(row, Mapping)]
+            for source_id in source_ids
+        }
+    single = getattr(store, "list_memories_referencing_source", None)
+    if not callable(single):
+        return {}
+    return {
+        source_id: [
+            row
+            for row in (single(source_id=source_id, limit=limit_per_source) or ())
+            if isinstance(row, Mapping)
+        ]
+        for source_id in source_ids
+    }
+
+
+def _provenance_links_by_memory(
+    store: object,
+    memory_ids: Sequence[str],
+) -> dict[str, list[object]] | None:
+    """Links of every memory in ``memory_ids``, keyed by memory id, or None.
+
+    None means the store has no bulk link lookup, so callers read one memory at
+    a time. An empty dict means the lookup ran and found nothing.
+    """
+
+    list_bulk = getattr(store, "list_provenance_links_for_targets", None)
+    if not callable(list_bulk):
+        return None
+    links_by_memory: dict[str, list[object]] = {}
+    for offset in range(0, len(memory_ids), _CORRECTION_LABEL_LINK_BATCH):
+        batch = list(memory_ids[offset : offset + _CORRECTION_LABEL_LINK_BATCH])
+        for link in list_bulk(target_type="memory", target_ids=batch) or ():
+            if not isinstance(link, Mapping):
+                continue
+            target_id = str(link.get("target_id") or "")
+            links_by_memory.setdefault(target_id, []).append(link)
+    return links_by_memory
+
+
+def annotate_derived_memory_corrections(
+    store: object,
+    sources: Sequence[MutableMapping[str, object]],
+    *,
+    memory_visible: Callable[[Mapping[str, object]], bool],
+) -> None:
+    """Label every packed excerpt whose derived memory was corrected or superseded.
+
+    The batch form of ``annotate_derived_memory_correction``, which is its
+    one-source case. It reads what the labels need from the store once for the
+    whole pack: one lookup of the memories that reference any of the sources,
+    and one lookup of their provenance links. v0.19.0 made both calls once per
+    packed source, and each memory lookup scans the memories table.
+
+    The labels are the ones the one-source function sets. ``memory_visible`` is
+    required and has no default: it is the fence the caller's memory reads run
+    under, applied to every memory the walk to a current fact touches. The
+    stale flag stays set whatever the caller may read; only the pointer id is
+    withheld.
+    """
+
+    sources_by_id: dict[str, list[MutableMapping[str, object]]] = {}
+    for source in sources:
+        source_id = str(source.get("id") or "")
+        if source_id:
+            sources_by_id.setdefault(source_id, []).append(source)
+    if not sources_by_id:
+        return
+    memories_by_source = _memories_referencing_sources(
+        store,
+        list(sources_by_id),
+        limit_per_source=_CORRECTION_LABEL_MEMORIES_PER_SOURCE,
+    )
+    memory_ids_by_source = {
+        source_id: [str(memory.get("id") or "") for memory in rows if str(memory.get("id") or "")]
+        for source_id, rows in memories_by_source.items()
+    }
+    all_memory_ids = list(dict.fromkeys(memory_id for ids in memory_ids_by_source.values() for memory_id in ids))
+    bulk_links = _provenance_links_by_memory(store, all_memory_ids) if all_memory_ids else None
+    for source_id, group in sources_by_id.items():
+        memory_rows = memories_by_source.get(source_id) or []
+        if not memory_rows:
+            continue
+        links_by_memory: dict[str, list[object]] = {}
+        if bulk_links is not None:
+            links_by_memory = {
+                memory_id: bulk_links[memory_id]
+                for memory_id in memory_ids_by_source[source_id]
+                if memory_id in bulk_links
+            }
+        for source in group:
+            _annotate_corrected_source(
+                store,
+                source,
+                memory_rows,
+                links_by_memory=links_by_memory,
+                memory_visible=memory_visible,
+            )
+
+
+def annotate_derived_memory_correction(
+    store: object,
+    source: MutableMapping[str, object],
+    *,
+    memory_visible: Callable[[Mapping[str, object]], bool],
+) -> None:
+    """Label a packed excerpt whose derived memory was corrected or superseded.
+
+    Sets ``derived_memory_corrected`` when a ``quoted_from`` link on this
+    source points at a memory that was corrected or superseded after the
+    capture, and the stored quote is the passage in the excerpt. The flag
+    stays set whatever the caller may read, because an agent must not quote
+    a stale passage as current. ``current_memory_id`` is set only when every
+    memory on the walk to the current fact passes ``memory_visible``, the
+    fence the caller's memory reads run under. A pointer id is itself
+    sensitive metadata, so there is no fallback to an earlier visible hop.
+    Ordinary sources gain no keys.
+
+    A pack of several sources calls ``annotate_derived_memory_corrections``
+    instead, so the store is asked once for all of them.
+    """
+
+    annotate_derived_memory_corrections(store, [source], memory_visible=memory_visible)
+
+
+def _annotate_corrected_source(
+    store: object,
+    source: MutableMapping[str, object],
+    memory_rows: Sequence[Mapping[str, object]],
+    *,
+    links_by_memory: Mapping[str, Sequence[object]],
+    memory_visible: Callable[[Mapping[str, object]], bool],
+) -> None:
+    source_id = str(source.get("id") or "")
+    captured_at = _parse_timestamp(source.get("captured_at"))
+    excerpt = _flat_stored_text(source.get("excerpt"))
+    chosen_id: str | None = None
+    chosen_in_excerpt = False
+    corrected = False
+    for memory in memory_rows:
+        memory_id = str(memory.get("id") or "")
+        if memory_id == "":
+            continue
+        links = _quoted_from_links(
+            store,
+            memory_id=memory_id,
+            source_id=source_id,
+            links_by_memory=links_by_memory if links_by_memory else None,
+        )
+        for link in links:
+            if not _quoted_link_is_stale(memory, link, captured_at=captured_at):
+                continue
+            quote = _flat_stored_text(link.get("quote"))
+            in_excerpt = _quote_covers_excerpt(quote, excerpt)
+            if excerpt and not in_excerpt:
+                continue
+            corrected = True
+            current_id = _current_memory_id(store, memory, memory_visible=memory_visible)
+            if current_id == "":
+                continue
+            if chosen_id is None or (in_excerpt and not chosen_in_excerpt):
+                chosen_id = current_id
+                chosen_in_excerpt = in_excerpt
+    if not corrected:
+        return
+    source["derived_memory_corrected"] = True
+    if chosen_id is not None:
+        source["current_memory_id"] = chosen_id
+
+
+def _validity_annotation(
+    memory: JsonObject,
+    *,
+    superseded_by_hint: str | None = None,
+    superseded_pointer_withheld: bool = False,
+) -> JsonObject | None:
     """Compact validity summary for rows carrying temporal/supersession signal.
 
     Derived purely from values the row already carries -- the
@@ -1604,6 +2323,10 @@ def _validity_annotation(memory: JsonObject, *, superseded_by_hint: str | None =
     ``superseded_by_hint`` is a pack-local back-pointer: when a pack-mate's
     ``supersedes`` names this row, the row is annotated as superseded even
     if it never received the ``superseded_by`` column (one-sided patches).
+    ``superseded_pointer_withheld`` says the row's ``superseded_by`` pointer was
+    removed from this copy of the row because it names a memory the caller may
+    not read. The row is still superseded, so ``superseded`` stays true, and
+    with no id to show it carries no ``superseded_by_memory_id``.
     Rows without any signal return ``None`` so plain memories keep their
     exact shape, and the far-future unbounded ``valid_to`` sentinel (see
     ``VALID_TO_UNBOUNDED_YEAR``) is treated as no signal.
@@ -1616,7 +2339,7 @@ def _validity_annotation(memory: JsonObject, *, superseded_by_hint: str | None =
     if valid_to is not None and valid_to.year < VALID_TO_UNBOUNDED_YEAR:
         validity["valid_to"] = valid_to.isoformat()
     superseded_by = memory.get("superseded_by") or superseded_by_hint
-    if superseded_by or str(memory.get("status")) == "superseded":
+    if superseded_by or superseded_pointer_withheld or str(memory.get("status")) == "superseded":
         validity["superseded"] = True
     if superseded_by:
         validity["superseded_by_memory_id"] = str(superseded_by)
@@ -1948,7 +2671,11 @@ class VNextRetrievalService:
             return {}
         bulk = getattr(self.store, "get_memories_by_ids", None)
         if callable(bulk):
-            rows = bulk(normalized_ids)
+            rows = [
+                row
+                for start in range(0, len(normalized_ids), MEMORY_ID_LOOKUP_BATCH_SIZE)
+                for row in bulk(normalized_ids[start : start + MEMORY_ID_LOOKUP_BATCH_SIZE])
+            ]
         else:
             get_memory = getattr(self.store, "get_memory", None)
             rows = (
@@ -2036,34 +2763,105 @@ class VNextRetrievalService:
         *,
         scope: _ResolvedRetrievalScope,
         person_linked_memory_ids: frozenset[str],
-    ) -> None:
-        """Remove supersession pointers that would cross an explicit scope.
+        domains: list[str],
+        sensitivity_allowed: list[str],
+    ) -> frozenset[str]:
+        """Remove supersession pointers that would cross the caller's read fence.
 
-        A pointer id is itself sensitive metadata. Scoped packs therefore
-        fail closed when the target cannot be resolved or does not satisfy
-        the same project/person/time predicate as the selected row.
+        A pointer id is itself sensitive metadata. A pointer goes when its
+        target is not readable under the fence the memory stages ran with: the
+        domain and sensitivity ceiling, and the project, person and time scope
+        when one is active. The ceiling applies with no scope at all, so a
+        visible successor does not carry a ``supersedes`` pointer to a
+        predecessor the caller's sensitivity ceiling hides.
+
+        A target that does not resolve is a row this user does not have, not a
+        hidden one, because the lookup applies no fence. A scoped pack fails
+        closed on it. An unscoped pack keeps the pointer, and the high-depth
+        ``supersession_context`` shows it as an id-only reference on purpose.
+
+        Only the two pointer columns are cleaned here. The ids copied into a
+        row's ``metadata_json`` are cleaned by ``_drop_hidden_memory_ids_from_metadata``.
+
+        Returns the id of every memory whose ``superseded_by`` pointer was
+        removed. The caller derives ``validity`` after this runs, and that
+        memory is still superseded, so it passes the set on to keep
+        ``validity.superseded`` true without the id.
         """
-        if not scope.active:
-            return
         pointer_ids = [
             str(pointer)
             for memory in memories
             for pointer_key in ("supersedes", "superseded_by")
             if (pointer := memory.get(pointer_key))
         ]
-        targets = self._memories_by_ids(pointer_ids)
+        if not pointer_ids:
+            return frozenset()
+        dropped = _drop_pointers_outside_fence(
+            memories,
+            ("supersedes", "superseded_by"),
+            targets=self._memories_by_ids(pointer_ids),
+            memory_visible=_memory_visibility_predicate(
+                domains=domains,
+                sensitivity_allowed=sensitivity_allowed,
+                scope=scope,
+                person_linked_memory_ids=person_linked_memory_ids,
+            ),
+            fail_closed_when_unresolved=scope.active,
+        )
+        return frozenset(
+            str(holder["id"]) for holder, pointer_key in dropped if pointer_key == "superseded_by" and holder.get("id")
+        )
+
+    def _drop_hidden_memory_ids_from_metadata(
+        self,
+        memories: Sequence[MutableMapping[str, object]],
+        *,
+        memory_visible: Callable[[Mapping[str, object]], bool],
+    ) -> None:
+        """Remove from each row's ``metadata_json`` the id of a memory the caller may not read.
+
+        A memory id is itself sensitive metadata. A stored row can carry the id
+        of another memory inside its ``metadata_json``, as the copy of a
+        supersession pointer or as a reference one of the write paths left
+        there, and the rows of a pack are returned whole in the typed sections
+        of ``alice_context_pack`` with ``debug`` set. The pointer columns are
+        fenced by ``_sanitize_memory_scope_pointers``. This is the same fence
+        for the ids in the JSON.
+
+        Every UUID-shaped string in the metadata, as a value, a list element or
+        a key, is looked up once for the whole pack. One that names a memory
+        ``memory_visible`` rejects goes. A string that is only that id, with or
+        without a ``memory:`` prefix, is removed with its key or list slot.
+        An id inside a longer string is replaced by ``(id withheld)``. One that
+        names no row at all is left as it is, because it is not a hidden row;
+        the same rule the pointer columns follow on an unscoped read.
+
+        ``memory_visible`` is required and has no default, for the same reason
+        as on every other reader of the fence: a default would be "no fence"
+        for the next caller that forgot it. Metadata nested deeper than
+        ``_METADATA_ID_SCAN_MAX_DEPTH`` cannot be scanned, so the part below
+        that depth is dropped.
+        """
+
+        found_in: list[tuple[MutableMapping[str, object], set[str], bool]] = []
         for memory in memories:
-            for pointer_key in ("supersedes", "superseded_by"):
-                pointer = memory.get(pointer_key)
-                if not pointer:
-                    continue
-                target = targets.get(str(pointer))
-                if target is None or not _row_matches_scope(
-                    target,
-                    scope,
-                    person_linked_memory_ids=person_linked_memory_ids,
-                ):
-                    memory.pop(pointer_key, None)
+            metadata = memory.get("metadata_json")
+            if metadata is None:
+                continue
+            texts: set[str] = set()
+            too_deep = _collect_memory_id_texts(metadata, texts, depth=0)
+            if texts or too_deep:
+                found_in.append((memory, texts, too_deep))
+        if not found_in:
+            return
+        candidates = sorted(set().union(*(texts for _memory, texts, _too_deep in found_in)))
+        targets = self._memories_by_ids(candidates) if candidates else {}
+        hidden = frozenset(memory_id.lower() for memory_id, target in targets.items() if not memory_visible(target))
+        for memory, texts, too_deep in found_in:
+            if texts.isdisjoint(hidden) and not too_deep:
+                continue
+            scrubbed = _scrub_memory_ids(memory["metadata_json"], hidden, depth=0)
+            memory["metadata_json"] = {} if scrubbed is _SCRUB_DROPPED else scrubbed
 
     def _sanitize_memory_scope_references(
         self,
@@ -2551,10 +3349,17 @@ class VNextRetrievalService:
         sensitivity_allowed: list[str],
         limit: int,
         winning_memories: Sequence[JsonObject],
+        ranking: SourceRanking,
         scope: _ResolvedRetrievalScope | None = None,
         anchor: TemporalAnchor | None = None,
     ) -> tuple[dict[str, Sequence[JsonObject]], JsonObject]:
         """Ranked source lists for RRF fusion plus the honest stage record.
+
+        ``ranking`` is REQUIRED and has no default, as ``scope`` is on
+        ``search_source_excerpts``: a defaulted ranking is a silent choice for
+        the caller that forgets it. Only ``SourceRanking.document()`` has a code
+        path today, which is the stage as written below, and any other value is
+        refused before a store is touched.
 
         Up to three lists (see SOURCE_STAGE_* constants):
 
@@ -2579,11 +3384,16 @@ class VNextRetrievalService:
         failing, so minimal stores and test fakes keep working. The stage
         record reports each list's candidate count under its stage key.
         """
+        _require_document_ranking(ranking)
         # source id -> the chunk this stage ranked best, for the packed
         # excerpt. Reset per run so a previous query's winner is never reused.
         self._winning_chunk_text = {}
         scope = scope or _ResolvedRetrievalScope(
-            projects=frozenset(), people=frozenset(), window_start=None, window_end=None
+            projects=frozenset(),
+            people=frozenset(),
+            window_start=None,
+            window_end=None,
+            exclude_global_domains=frozenset(),
         )
         has_source_resolver = callable(getattr(self.store, "get_sources_by_ids", None)) or callable(
             getattr(self.store, "get_source", None)
@@ -2830,12 +3640,46 @@ class VNextRetrievalService:
                 best_score, best_text = score, text
         return best_text
 
-    def _packable_source(self, item: JsonObject, *, query: str) -> JsonObject:
+    def _packable_sources(
+        self,
+        items: Sequence[JsonObject],
+        *,
+        query: str,
+        memory_visible: Callable[[Mapping[str, object]], bool],
+    ) -> list[JsonObject]:
+        """Compact every ranked source for packing, then label them in one pass.
+
+        The correction label needs the memories that reference each source.
+        Asking the store once per source made recall and the pack scan the
+        memories table once per packed source (v0.19.0 to v0.19.2), so the
+        excerpts are built first and the labels are read for all of them in one
+        lookup. ``memory_visible`` is required and has no default, for the
+        reason ``_packable_source`` gives.
+        """
+
+        compacted = [self._compact_source(item, query=query) for item in items]
+        annotate_derived_memory_corrections(self.store, compacted, memory_visible=memory_visible)
+        return compacted
+
+    def _packable_source(
+        self,
+        item: JsonObject,
+        *,
+        query: str,
+        memory_visible: Callable[[Mapping[str, object]], bool],
+    ) -> JsonObject:
+        """One source through ``_packable_sources``. Packs call that for the whole list."""
+
+        return self._packable_sources([item], query=query, memory_visible=memory_visible)[0]
+
+    def _compact_source(self, item: JsonObject, *, query: str) -> JsonObject:
         """Compact a ranked source for packing: drop the document, add an excerpt.
 
         The excerpt is the chunk the FTS stage already ranked highest for this
         source, windowed around its best-matching line. Re-deriving a "best"
-        chunk here would discard the ranking that retrieval just did.
+        chunk here would discard the ranking that retrieval just did. The
+        correction label is added afterwards by ``_packable_sources``, once the
+        excerpt exists, because the label is about the passage the agent reads.
         """
 
         compacted = _compact_item(item)
@@ -2869,6 +3713,83 @@ class VNextRetrievalService:
             compacted["excerpt_kind"] = "imported_source_material"
         return compacted
 
+    def memory_visibility(
+        self,
+        *,
+        domains: list[str],
+        sensitivity_allowed: list[str],
+        scope: _ResolvedRetrievalScope | None,
+    ) -> Callable[[Mapping[str, object]], bool]:
+        """The fence a caller's memory reads run under, as a yes/no for one row.
+
+        Built from the same filters the memory stages were given. All three are
+        required. ``scope=None`` is the honest unscoped query and has to be
+        written down at the call site. A person scope is resolved through the
+        entity graph here, once, like the memory stages do.
+        """
+
+        return _memory_visibility_predicate(
+            domains=domains,
+            sensitivity_allowed=sensitivity_allowed,
+            scope=scope,
+            person_linked_memory_ids=(
+                self._person_linked_memory_ids(scope.people) if scope is not None else frozenset()
+            ),
+        )
+
+    def fence_validity_memory_ids(
+        self,
+        validities: Sequence[JsonObject],
+        *,
+        domains: list[str],
+        sensitivity_allowed: list[str],
+        scope: _ResolvedRetrievalScope | None,
+    ) -> None:
+        """Remove the memory ids a ``validity`` annotation names outside the caller's fence.
+
+        ``_validity_annotation`` copies the ``superseded_by`` and ``supersedes``
+        pointers of a stored row into ``superseded_by_memory_id`` and
+        ``supersedes_memory_id``. A recall result carries the raw row, so its
+        pointers have not been through the pack's pointer fence. An id goes when
+        the row it names is outside the fence the memory stages ran with. The
+        ``superseded`` flag stays, so an agent still does not read the row as
+        current; only the id is withheld. A pointer to a row that cannot be found
+        is dropped on a scoped read and kept on an unscoped one, as on the pack.
+        """
+
+        id_keys = ("superseded_by_memory_id", "supersedes_memory_id")
+        pointer_ids = [str(validity[key]) for validity in validities for key in id_keys if validity.get(key)]
+        if not pointer_ids:
+            return
+        _drop_pointers_outside_fence(
+            validities,
+            id_keys,
+            targets=self._memories_by_ids(pointer_ids),
+            memory_visible=self.memory_visibility(
+                domains=domains,
+                sensitivity_allowed=sensitivity_allowed,
+                scope=scope,
+            ),
+            fail_closed_when_unresolved=scope is not None and scope.active,
+        )
+
+    def require_source_query_searchable(self, query: str) -> None:
+        """Refuse, before any stage runs, a query the source search cannot take.
+
+        The store owns the limit, because it is the store's SQL that fails: the
+        SQLite store exposes ``check_source_search_query`` and raises
+        ``SourceSearchQueryTooLarge``; the Postgres store and minimal test
+        stores have no such limit and expose nothing, so this does nothing
+        for them. Without this the same refusal still comes from
+        ``search_sources``, only after the memory, vector and graph stages
+        have run. Callers use it only when the source search will run, so a
+        pack that turns sources off keeps taking a long query.
+        """
+
+        check = getattr(self.store, "check_source_search_query", None)
+        if callable(check):
+            check(query)
+
     def search_source_excerpts(
         self,
         *,
@@ -2877,6 +3798,7 @@ class VNextRetrievalService:
         sensitivity_allowed: list[str],
         limit: int,
         scope: _ResolvedRetrievalScope | None,
+        ranking: SourceRanking,
         winning_memories: Sequence[JsonObject] = (),
     ) -> tuple[list[JsonObject], JsonObject]:
         """Ranked imported source material for a query, with readable excerpts.
@@ -2899,6 +3821,11 @@ class VNextRetrievalService:
         moment someone adds a caller and forgets. ``None`` is still accepted,
         because an unscoped owner query is legitimate, but it has to be written
         down at the call site.
+
+        ``ranking`` is required for the same reason and is passed on to
+        ``_source_stage_lists``. A caller writes ``SourceRanking.document()``
+        where it means the one-entry-per-document ranking v0.20.0 has; any other
+        value is refused until a stage exists that honours it.
 
         NOT the only source reader. ``compile_context_pack`` runs its own
         ``_source_stage_lists`` -> ``_fused_candidates`` -> ``_packable_source``
@@ -2923,6 +3850,7 @@ class VNextRetrievalService:
             sensitivity_allowed=sensitivity_allowed,
             limit=limit,
             winning_memories=winning_memories,
+            ranking=ranking,
             scope=scope,
         )
         candidates = _fused_candidates(
@@ -2932,11 +3860,16 @@ class VNextRetrievalService:
             sensitivity_allowed=sensitivity_allowed,
             limit=limit,
         )
-        excerpts = [
-            self._packable_source(candidate.item, query=query)
-            for candidate in candidates
-            if candidate.selected
-        ]
+        memory_visible = self.memory_visibility(
+            domains=domains,
+            sensitivity_allowed=sensitivity_allowed,
+            scope=scope,
+        )
+        excerpts = self._packable_sources(
+            [candidate.item for candidate in candidates if candidate.selected],
+            query=query,
+            memory_visible=memory_visible,
+        )
         return excerpts, stage_record
 
     def compile_context_pack(self, request: VNextRetrievalRequest) -> JsonObject:
@@ -2964,6 +3897,8 @@ class VNextRetrievalService:
         domains = list(interpretation["domains"])
         sensitivity_allowed = list(interpretation["sensitivity_allowed"])
         sources_enabled = bool(interpretation["requires_sources"])
+        if sources_enabled:
+            self.require_source_query_searchable(request.query)
         contradictions_requested = bool(interpretation["requires_contradictions"])
         memory_types = tuple(request.memory_types)
         projects = tuple(sorted(scope.projects))
@@ -3329,6 +4264,10 @@ class VNextRetrievalService:
                 sensitivity_allowed=sensitivity_allowed,
                 limit=max(DEFAULT_SOURCE_LIMIT, max_items),
                 winning_memories=provenance_memories,
+                # Written here on purpose. The pack ranks sources by document
+                # whatever recall does, so a change to recall's ranking never
+                # moves a pack.
+                ranking=SourceRanking.document(),
                 scope=scope,
                 anchor=anchor,
             )
@@ -3474,12 +4413,23 @@ class VNextRetrievalService:
             limit=DEFAULT_OPEN_LOOP_LIMIT,
         )
 
-        ranked_memories = [_compact_item(candidate.item) for candidate in memory_candidates if candidate.selected]
-        self._sanitize_memory_scope_pointers(
-            ranked_memories,
+        # The fence the memory stages ran under, built once for everything the
+        # pack names that is derived from a memory row.
+        pack_memory_visible = _memory_visibility_predicate(
+            domains=domains,
+            sensitivity_allowed=sensitivity_allowed,
             scope=scope,
             person_linked_memory_ids=person_linked_memory_ids,
         )
+        ranked_memories = [_compact_item(candidate.item) for candidate in memory_candidates if candidate.selected]
+        superseded_pointer_withheld_ids = self._sanitize_memory_scope_pointers(
+            ranked_memories,
+            scope=scope,
+            person_linked_memory_ids=person_linked_memory_ids,
+            domains=domains,
+            sensitivity_allowed=sensitivity_allowed,
+        )
+        self._drop_hidden_memory_ids_from_metadata(ranked_memories, memory_visible=pack_memory_visible)
         self._sanitize_memory_scope_references(
             ranked_memories,
             scope=scope,
@@ -3490,11 +4440,11 @@ class VNextRetrievalService:
         # pair leaks into the same pack, the replacement packs directly
         # above its superseded ancestor; every other item keeps its order.
         ordered_memories, supersession_reorders = _prefer_current_versions(ordered_memories)
-        ranked_sources = [
-            self._packable_source(candidate.item, query=request.query)
-            for candidate in source_candidates
-            if candidate.selected
-        ]
+        ranked_sources = self._packable_sources(
+            [candidate.item for candidate in source_candidates if candidate.selected],
+            query=request.query,
+            memory_visible=pack_memory_visible,
+        )
         ranked_open_loops = [_compact_item(candidate.item) for candidate in open_loop_candidates if candidate.selected]
 
         # Greedy token-budget packing, section by section. Default
@@ -3513,52 +4463,107 @@ class VNextRetrievalService:
             budget_strategy=strategy,
             pack_view=str(interpretation.get("pack_view") or PACK_VIEW_FACTS),
         )
+        # Wrapped before any item is priced. Admitting the bare row and
+        # emitting the wrapped one made the budget count something smaller
+        # than the pack carries, under-counting every promoted row by the
+        # whole provenance record.
+        memory_offers = [_with_write_provenance(item) for item in ordered_memories]
+
+        def pack_sections(
+            budget: _TokenBudget,
+            *,
+            memories: list[JsonObject],
+            open_loops: list[JsonObject],
+            sources: list[JsonObject],
+        ) -> _PackedSections:
+            selected_memories: list[JsonObject] = []
+            selected_open_loops: list[JsonObject] = []
+            selected_sources: list[JsonObject] = []
+            supporting_evidence: list[JsonObject] = []
+            contradicting_evidence: list[JsonObject] = []
+            contradictions_stage = contradictions_not_requested_status
+            memories_packed = False
+            for section in section_order:
+                budget.open_section(section)
+                if section == SECTION_RELEVANT_MEMORIES:
+                    selected_memories = [item for item in memories if budget.admit(item, section=section)]
+                    memories_packed = True
+                elif section == SECTION_OPEN_LOOPS:
+                    selected_open_loops = [item for item in open_loops if budget.admit(item, section=section)]
+                elif section == SECTION_SOURCES:
+                    selected_sources = [item for item in sources if budget.admit(item, section=section)]
+                elif section == SECTION_SUPPORTING_EVIDENCE:
+                    evidence_base = selected_memories if memories_packed else ordered_memories
+                    supporting_evidence = [
+                        evidence
+                        for evidence in self._supporting_evidence(evidence_base, scope=scope)
+                        if budget.admit(evidence, section=section)
+                    ]
+                elif section == SECTION_CONTRADICTING_EVIDENCE:
+                    contradiction_base = selected_memories if memories_packed else ordered_memories
+                    contradiction_records, contradictions_stage = self._contradicting_evidence(
+                        contradiction_base,
+                        requested=contradictions_requested,
+                        domains=domains,
+                        sensitivity_allowed=sensitivity_allowed,
+                        scope=scope,
+                        person_linked_memory_ids=person_linked_memory_ids,
+                        not_requested_status=contradictions_not_requested_status,
+                    )
+                    contradicting_evidence = [
+                        record for record in contradiction_records if budget.admit(record, section=section)
+                    ]
+            return _PackedSections(
+                selected_memories,
+                selected_open_loops,
+                selected_sources,
+                supporting_evidence,
+                contradicting_evidence,
+                contradictions_stage,
+            )
+
         budget = _TokenBudget(token_budget=request.max_tokens, strategy=strategy)
-        selected_memories: list[JsonObject] = []
-        selected_open_loops: list[JsonObject] = []
-        selected_sources: list[JsonObject] = []
-        supporting_evidence: list[JsonObject] = []
-        contradicting_evidence: list[JsonObject] = []
-        contradictions_stage = contradictions_not_requested_status
-        memories_packed = False
-        for section in section_order:
-            budget.open_section(section)
-            if section == SECTION_RELEVANT_MEMORIES:
-                # Wrap before admitting. Admitting the bare row and emitting
-                # the wrapped one made the budget count something smaller
-                # than the pack carries, under-counting every promoted row by
-                # the whole provenance record.
-                selected_memories = [
-                    wrapped
-                    for wrapped in (_with_write_provenance(item) for item in ordered_memories)
-                    if budget.admit(wrapped, section=section)
-                ]
-                memories_packed = True
-            elif section == SECTION_OPEN_LOOPS:
-                selected_open_loops = [item for item in ranked_open_loops if budget.admit(item, section=section)]
-            elif section == SECTION_SOURCES:
-                selected_sources = [item for item in ranked_sources if budget.admit(item, section=section)]
-            elif section == SECTION_SUPPORTING_EVIDENCE:
-                evidence_base = selected_memories if memories_packed else ordered_memories
-                supporting_evidence = [
-                    evidence
-                    for evidence in self._supporting_evidence(evidence_base, scope=scope)
-                    if budget.admit(evidence, section=section)
-                ]
-            elif section == SECTION_CONTRADICTING_EVIDENCE:
-                contradiction_base = selected_memories if memories_packed else ordered_memories
-                contradiction_records, contradictions_stage = self._contradicting_evidence(
-                    contradiction_base,
-                    requested=contradictions_requested,
-                    domains=domains,
-                    sensitivity_allowed=sensitivity_allowed,
-                    scope=scope,
-                    person_linked_memory_ids=person_linked_memory_ids,
-                    not_requested_status=contradictions_not_requested_status,
+        packed = pack_sections(
+            budget, memories=memory_offers, open_loops=ranked_open_loops, sources=ranked_sources
+        )
+        if budget.token_budget is not None and budget.token_estimate == 0:
+            # Nothing fit whole. Cut the first item that can be made to fit,
+            # taking items in offer order, and pack again with that cut item in
+            # place of its whole self. Everything else is offered exactly as it
+            # was, so the cut item is admitted first and the rest are dropped
+            # as before. An item whose ids and metadata alone cost more than
+            # the budget cannot be cut small enough, so the next one is tried.
+            offers = {
+                SECTION_RELEVANT_MEMORIES: list(memory_offers),
+                SECTION_OPEN_LOOPS: list(ranked_open_loops),
+                SECTION_SOURCES: list(ranked_sources),
+            }
+            first_fit = _first_item_that_fits_when_cut(
+                offers,
+                section_order=section_order,
+                query=request.query,
+                max_tokens=budget.token_budget,
+            )
+            if first_fit is not None:
+                fit_section, fit_index, fitted = first_fit
+                offers[fit_section][fit_index] = fitted
+                budget = _TokenBudget(token_budget=request.max_tokens, strategy=strategy)
+                packed = pack_sections(
+                    budget,
+                    memories=offers[SECTION_RELEVANT_MEMORIES],
+                    open_loops=offers[SECTION_OPEN_LOOPS],
+                    sources=offers[SECTION_SOURCES],
                 )
-                contradicting_evidence = [
-                    record for record in contradiction_records if budget.admit(record, section=section)
-                ]
+                budget.truncated = True
+                budget.cut_item_count = 1
+        (
+            selected_memories,
+            selected_open_loops,
+            selected_sources,
+            supporting_evidence,
+            contradicting_evidence,
+            contradictions_stage,
+        ) = packed
         memory_candidates = _apply_budget_exclusions(memory_candidates, selected_memories)
         open_loop_candidates = _apply_budget_exclusions(open_loop_candidates, selected_open_loops)
         source_candidates = _apply_budget_exclusions(source_candidates, selected_sources)
@@ -3580,6 +4585,7 @@ class VNextRetrievalService:
             validity = _validity_annotation(
                 memory,
                 superseded_by_hint=superseded_by_packmate.get(str(memory.get("id"))),
+                superseded_pointer_withheld=str(memory.get("id") or "") in superseded_pointer_withheld_ids,
             )
             if validity is not None:
                 memory["validity"] = validity
@@ -3632,7 +4638,7 @@ class VNextRetrievalService:
             supersession_context = self._supersession_context(
                 selected_memories,
                 scope=scope,
-                person_linked_memory_ids=person_linked_memory_ids,
+                memory_visible=pack_memory_visible,
             )
 
         if depth == CONTEXT_DEPTH_MINIMAL:
@@ -3642,6 +4648,8 @@ class VNextRetrievalService:
             recent_changes = self._recent_changes(
                 scope=scope,
                 person_linked_memory_ids=person_linked_memory_ids,
+                domains=domains,
+                sensitivity_allowed=sensitivity_allowed,
             )
             recent_changes_stage_record = {"candidate_count": len(recent_changes)}
 
@@ -4108,9 +5116,20 @@ class VNextRetrievalService:
         *,
         scope: _ResolvedRetrievalScope,
         person_linked_memory_ids: frozenset[str],
+        domains: list[str],
+        sensitivity_allowed: list[str],
         limit: int = DEFAULT_RECENT_CHANGES_LIMIT,
     ) -> list[JsonObject]:
-        """Most recent ``memory.*`` events from the store event log."""
+        """Most recent ``memory.*`` events from the store event log.
+
+        An entry names the memory it is about in ``target_id``, and a memory id
+        is itself sensitive metadata. An event is kept only when its target
+        passes the fence the pack's memory stages ran with: the domain and
+        sensitivity ceiling, and the project and person scope when one is
+        active. The time window bounds the event, not the row it is about, so
+        the predicate is built without it. An event whose target cannot be
+        found is dropped on a scoped pack and kept on an unscoped one.
+        """
         list_memory_events = getattr(self.store, "list_memory_events", None)
         list_events = getattr(self.store, "list_events", None)
         if not callable(list_memory_events) and not callable(list_events):
@@ -4120,7 +5139,15 @@ class VNextRetrievalService:
             people=scope.people,
             window_start=None,
             window_end=None,
+            exclude_global_domains=scope.exclude_global_domains,
         )
+        memory_visible = _memory_visibility_predicate(
+            domains=domains,
+            sensitivity_allowed=sensitivity_allowed,
+            scope=identity_scope,
+            person_linked_memory_ids=person_linked_memory_ids,
+        )
+
         def _select_events(rows: Sequence[JsonObject]) -> list[JsonObject]:
             eligible = [
                 event
@@ -4135,24 +5162,19 @@ class VNextRetrievalService:
                     )
                 )
             ]
-            if not identity_scope.active:
-                return eligible
             targets = self._memories_by_ids(
                 [str(event.get("target_id") or "") for event in eligible]
             )
-            return [
-                event
-                for event in eligible
-                if (
-                    target := targets.get(str(event.get("target_id") or ""))
-                )
-                is not None
-                and _row_matches_scope(
-                    target,
-                    identity_scope,
-                    person_linked_memory_ids=person_linked_memory_ids,
-                )
-            ]
+
+            def _target_visible(event: JsonObject) -> bool:
+                target = targets.get(str(event.get("target_id") or ""))
+                if target is None:
+                    # No such row is not a hidden row: the lookup applies no
+                    # fence. A scoped pack fails closed on it, as it always has.
+                    return not identity_scope.active
+                return memory_visible(target)
+
+            return [event for event in eligible if _target_visible(event)]
 
         scoped_event_parameters = (
             "event_type_prefix",
@@ -4162,33 +5184,60 @@ class VNextRetrievalService:
             "scope_window_start",
             "scope_window_end",
         )
-        if _supports_explicit_parameters(list_memory_events, scoped_event_parameters):
-            scoped_list_memory_events = cast(
-                Callable[..., list[JsonObject]],
-                list_memory_events,
-            )
-            events = _select_events(
-                scoped_list_memory_events(
-                    event_type_prefix="memory.",
-                    scope_projects=tuple(sorted(scope.projects)),
-                    scope_people=tuple(sorted(scope.people)),
-                    scope_person_memory_ids=tuple(sorted(person_linked_memory_ids)),
-                    scope_window_start=scope.window_start,
-                    scope_window_end=scope.window_end,
-                    limit=limit,
+        use_scoped_events = _supports_explicit_parameters(list_memory_events, scoped_event_parameters)
+
+        def _fetch_events(row_limit: int) -> tuple[list[JsonObject], str]:
+            # The store applies project, person and time scope before its LIMIT.
+            # The domain and sensitivity ceiling is applied after it, so the
+            # prefix is deepened until enough visible events survive.
+            if use_scoped_events:
+                scoped_list_memory_events = cast(
+                    Callable[..., list[JsonObject]],
+                    list_memory_events,
                 )
-            )
-        else:
+                return (
+                    list(
+                        scoped_list_memory_events(
+                            event_type_prefix="memory.",
+                            scope_projects=tuple(sorted(scope.projects)),
+                            scope_people=tuple(sorted(scope.people)),
+                            scope_person_memory_ids=tuple(sorted(person_linked_memory_ids)),
+                            scope_window_start=scope.window_start,
+                            scope_window_end=scope.window_end,
+                            limit=row_limit,
+                        )
+                    ),
+                    "scoped",
+                )
             assert callable(list_events)
+            return list(list_events(target_type="memory", limit=row_limit)), "listing"
+
+        selected_so_far: list[JsonObject] = []
+
+        def _select_and_remember(rows: Sequence[JsonObject]) -> list[JsonObject]:
+            nonlocal selected_so_far
+            selected_so_far = _select_events(rows)
+            return selected_so_far
+
+        try:
             events, _event_source = _fetch_filtered_prefix(
-                lambda n: (
-                    list(list_events(target_type="memory", limit=n)),
-                    "listing",
-                ),
-                select_rows=_select_events,
+                _fetch_events,
+                select_rows=_select_and_remember,
                 target=limit,
                 initial_limit=limit * 4,
+                max_rows=RECENT_CHANGES_SCAN_MAX_ROWS,
             )
+        except VNextRetrievalCompletenessError:
+            # Recent changes only add to a pack, and dropping an entry is the safe
+            # direction, so a vault whose newest events are nearly all hidden from
+            # this caller gets the visible ones found so far (newest first), not a
+            # failed pack. The older visible events past the scan are not listed.
+            logger.warning(
+                "recent_changes scan ended early (ceiling %d rows) with %d visible events found",
+                RECENT_CHANGES_SCAN_MAX_ROWS,
+                len(selected_so_far),
+            )
+            events = _dedupe_retrieval_rows(selected_so_far)
         return [
             {
                 "event_id": str(event.get("id")),
@@ -4284,7 +5333,7 @@ class VNextRetrievalService:
         memories: list[JsonObject],
         *,
         scope: _ResolvedRetrievalScope,
-        person_linked_memory_ids: frozenset[str],
+        memory_visible: Callable[[Mapping[str, object]], bool],
     ) -> list[JsonObject]:
         """Compact supersession chain notes (context_depth=high only).
 
@@ -4293,20 +5342,19 @@ class VNextRetrievalService:
         ``get_memory`` (duck-typed; unresolvable pointers degrade to
         id-only references) up to SUPERSESSION_CHAIN_HOP_LIMIT hops with a
         cycle guard. Deterministic — chain notes quote stored rows only.
+
+        A revision's id and title are named only when the row passes
+        ``memory_visible``, the fence the pack's memory stages ran under. A
+        hidden revision ends the walk and names nothing, itself or anything
+        past it. That is a different outcome from a pointer to no row at all,
+        which an unscoped pack still shows as an id-only reference and a scoped
+        pack drops. ``memory_visible`` is required and has no default, so a
+        caller cannot walk the chain without a fence by leaving it out.
         """
         get_memory = getattr(self.store, "get_memory", None)
 
         def resolver(memory_id: str) -> JsonObject | None:
-            row = get_memory(memory_id) if callable(get_memory) else None
-            if row is None:
-                return None
-            if scope.active and not _row_matches_scope(
-                row,
-                scope,
-                person_linked_memory_ids=person_linked_memory_ids,
-            ):
-                return None
-            return row
+            return get_memory(memory_id) if callable(get_memory) else None
 
         notes: list[JsonObject] = []
         for memory in memories:
@@ -4320,6 +5368,7 @@ class VNextRetrievalService:
                     str(superseded_by_pointer),
                     pointer_key="superseded_by",
                     resolver=resolver,
+                    memory_visible=memory_visible,
                     seen={memory_id},
                     reveal_unresolved=not scope.active,
                 )
@@ -4331,6 +5380,7 @@ class VNextRetrievalService:
                     str(supersedes_pointer),
                     pointer_key="supersedes",
                     resolver=resolver,
+                    memory_visible=memory_visible,
                     seen={memory_id},
                     reveal_unresolved=not scope.active,
                 )
@@ -4357,7 +5407,8 @@ class VNextRetrievalService:
         start_id: str,
         *,
         pointer_key: str,
-        resolver: object,
+        resolver: Callable[[str], JsonObject | None],
+        memory_visible: Callable[[Mapping[str, object]], bool],
         seen: set[str],
         reveal_unresolved: bool = True,
     ) -> list[JsonObject]:
@@ -4365,10 +5416,15 @@ class VNextRetrievalService:
         current: str | None = start_id
         while current and current not in seen and len(chain) < SUPERSESSION_CHAIN_HOP_LIMIT:
             seen.add(current)
-            row = resolver(current) if callable(resolver) else None
+            row = resolver(current)
             if row is None:
+                # No such row. Not a hidden one: the lookup applies no fence.
                 if reveal_unresolved:
                     chain.append({"id": current})
+                break
+            if not memory_visible(row):
+                # A hidden revision is neither named nor titled, and the walk
+                # stops here so nothing past it is named either.
                 break
             chain.append(
                 {

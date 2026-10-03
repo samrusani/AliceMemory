@@ -20,6 +20,7 @@ Value conventions (differences forced by SQLite storage types):
 
 from __future__ import annotations
 
+import itertools
 import json
 import sqlite3
 from collections.abc import Iterator, Mapping, Sequence
@@ -31,6 +32,11 @@ from uuid import UUID
 
 import numpy as np
 
+from alicebot_api.source_search_limits import (
+    literal_match_operand,
+    require_literal_match_query,
+    require_source_search_query,
+)
 from alicebot_api.sqlite_schema import bootstrap_sqlite_schema
 from alicebot_api.store import ContinuityStoreInvariantError
 from alicebot_api.vnext_capture import (
@@ -123,6 +129,7 @@ from alicebot_api.vnext_stores.sqlite.graph_open_loops import (
     find_open_loop_by_automation_digest as _graph_find_open_loop_by_automation_digest,
     list_open_loops_referencing_source as _graph_list_open_loops_referencing_source,
     list_open_loops as _graph_list_open_loops,
+    list_open_loops_view_partitions as _graph_list_open_loops_view_partitions,
     list_open_loop_events as _graph_list_open_loop_events,
     update_open_loop as _graph_update_open_loop,
     update_open_loop_status as _graph_update_open_loop_status,
@@ -163,8 +170,10 @@ from alicebot_api.vnext_stores.sqlite.memory_access import (
     list_accepted_rollup_cards as _memory_list_accepted_rollup_cards,
     list_memories as _memory_list_memories,
     list_memories_by_statuses as _memory_list_memories_by_statuses,
+    list_memories_view_partitions as _memory_list_memories_view_partitions,
     list_memories_for_staleness_sweep as _memory_list_memories_for_staleness_sweep,
     list_memories_referencing_source as _memory_list_memories_referencing_source,
+    list_memories_referencing_sources as _memory_list_memories_referencing_sources,
     list_pending_derived_candidates_for_member as _memory_list_pending_derived_candidates_for_member,
     list_pending_inline_confirmations as _memory_list_pending_inline_confirmations,
     list_pending_rollup_candidates as _memory_list_pending_rollup_candidates,
@@ -205,6 +214,7 @@ from alicebot_api.vnext_stores.sqlite.query_predicates import (
     _sensitivity_clause as _query_sensitivity_clause,
     _source_project_scope_identity_json_sqlite as _source_project_scope_identity_json_sqlite,
     _sqlite_ascii_literal_contains_sql as _sqlite_ascii_literal_contains_sql,
+    _stated_exclusion as _query_stated_exclusion,
 )
 
 VNextRow = dict[str, object]
@@ -275,6 +285,11 @@ AGENT_API_KEY_COLUMNS = (
 )
 
 
+
+# Names for nested savepoints. One counter for the process, so two stores on
+# two connections never share a name and a nested block never reuses its
+# parent's.
+_SAVEPOINT_NAMES = itertools.count(1)
 
 # Columns stored as JSON TEXT that must decode back to dicts/lists so
 # returned rows match psycopg's jsonb decoding.
@@ -481,26 +496,62 @@ class SQLiteVNextStore:
         occurred_at_start: datetime | None = None,
         occurred_at_end: datetime | None = None,
         limit: int = 20,
+        exclude_global_domains: Sequence[str] | None = None,
+        # No defaults for the domain filter and the sensitivity ceiling, as in
+        # ``list_memories_view_partitions``: a caller states what it admits, and
+        # ``None`` is the statement "no filter".
+        domains: list[str] | None,
+        sensitivity_allowed: list[str] | None,
     ) -> list[VNextRow]:
-        """Return events joined to resume-admitted memories before LIMIT."""
+        """Return events joined to resume-admitted memories before LIMIT.
+
+        A memory is admitted when its status is in ``statuses`` and its
+        ``valid_to`` has not passed (recall's ``_expiry_clause``), so the event of
+        an expired memory is not listed and does not use up the ``LIMIT``.
+
+        ``projects`` may hold the reserved global marker (spec 6.1). With it,
+        ``exclude_global_domains`` leaves out events of global memories in those
+        domains before ``LIMIT``, and it must be stated (an empty tuple leaves none
+        out): ``None`` raises.
+
+        ``domains`` and ``sensitivity_allowed`` are the rules ``list_memories``
+        applies to the memory itself (a memory in an unlisted domain, or above the
+        ceiling, has its events left out before ``LIMIT``), so an event the caller
+        may not see never takes a place that one it may see needs. An empty
+        ``sensitivity_allowed`` admits nothing: it returns no rows and builds no
+        ``sensitivity IN ()``.
+        """
 
         if limit < 1:
             raise ValueError("limit must be positive")
+        if sensitivity_allowed is not None and not sensitivity_allowed:
+            return []
         normalized_statuses = list(dict.fromkeys(str(value) for value in statuses if str(value)))
         if not normalized_statuses:
             return []
         project_sql, project_params = self._project_clause(
             tuple(normalize_project_scope(projects or ())),
             prefix="memory.",
+            global_excluded_domains=_query_stated_exclusion(exclude_global_domains),
         )
+        expiry_sql, expiry_params = self._expiry_clause(False, prefix="memory.")
+        domain_sql, domain_params = self._domain_clause(domains, prefix="memory.")
+        sensitivity_sql, sensitivity_params = self._sensitivity_clause(sensitivity_allowed, prefix="memory.")
         clauses = [
             "event.user_id = ?",
             "event.target_type = 'memory'",
             "memory.deleted_at IS NULL",
             f"memory.status IN ({self._placeholders(normalized_statuses)})",
         ]
-        params: list[object] = [self.user_id, *normalized_statuses, *project_params]
-        scoped_where_sql = " AND ".join(clauses) + project_sql
+        params: list[object] = [
+            self.user_id,
+            *normalized_statuses,
+            *project_params,
+            *expiry_params,
+            *domain_params,
+            *sensitivity_params,
+        ]
+        scoped_where_sql = " AND ".join(clauses) + project_sql + expiry_sql + domain_sql + sensitivity_sql
         filters: list[str] = []
         normalized_query = str(query).strip() if query is not None else ""
         if normalized_query:
@@ -509,7 +560,7 @@ class SQLiteVNextStore:
                 f" OR {_sqlite_ascii_literal_contains_sql("COALESCE(memory.canonical_text, '')")}"
                 f" OR {_sqlite_ascii_literal_contains_sql("COALESCE(memory.summary, '')")})"
             )
-            escaped_query = _escape_like_literal(normalized_query)
+            escaped_query = literal_match_operand(normalized_query)
             params.extend((escaped_query, escaped_query, escaped_query))
         if occurred_at_start is not None:
             filters.append("julianday(event.occurred_at) >= julianday(?)")
@@ -1015,6 +1066,9 @@ class SQLiteVNextStore:
             ),
             scope_window_start=scope_window_start,
             scope_window_end=scope_window_end,
+            # Stated, an empty tuple: a source is held back in Python (the brief's
+            # ``_source_honours_fence``), not in this read, so it leaves nothing out itself.
+            global_excluded_domains=(),
         )
         prefixed_columns = ", ".join(f"c.{column}" for column in SOURCE_CHUNK_COLUMNS)
         params: list[object] = [match_expression, self.user_id]
@@ -1043,6 +1097,34 @@ class SQLiteVNextStore:
                 return []
             raise
 
+    def check_source_search_query(self, query: str) -> None:
+        """Refuse a query ``search_sources`` could not run, with a typed error.
+
+        SQLite fails that search with ``Expression tree is too large`` or
+        ``LIKE or GLOB pattern too complex``. The limits and how they were
+        measured are in ``source_search_limits``. A caller that wants
+        to refuse before it does other work calls this first; ``search_sources``
+        calls it too, so no caller reaches SQLite with such a query. The
+        Postgres store has no such limit and defines no such method.
+        """
+
+        require_source_search_query(query)
+
+    def check_literal_match_query(self, query: str) -> None:
+        """Refuse a query the literal substring reads could not run, with a typed error.
+
+        ``list_memories``, ``list_open_loops``, ``list_open_loop_events`` and
+        ``list_resume_memory_events`` bind a query as one LIKE operand, and
+        SQLite fails them with ``LIKE or GLOB pattern too complex`` past 50,000
+        bytes. Each of the four refuses such a query itself, through
+        ``literal_match_operand``. A caller that wants the refusal before it does
+        other work, and whatever the vault holds or the caller may read, calls
+        this first. The Postgres store has no such limit and defines no such
+        method.
+        """
+
+        require_literal_match_query(query)
+
     def search_sources(
         self,
         *,
@@ -1055,6 +1137,7 @@ class SQLiteVNextStore:
         scope_window_start: datetime | None = None,
         scope_window_end: datetime | None = None,
     ) -> list[VNextRow]:
+        self.check_source_search_query(query)
         patterns = [pattern.casefold() for pattern in _search_patterns(query)]
         exact_pattern = patterns[0]
         domain_sql, domain_params = self._domain_clause(domains)
@@ -1073,6 +1156,8 @@ class SQLiteVNextStore:
             ),
             scope_window_start=scope_window_start,
             scope_window_end=scope_window_end,
+            # Stated, an empty tuple: see ``search_source_chunks``.
+            global_excluded_domains=(),
         )
         count = len(patterns)
         match_columns = ("title", "author", "uri", "raw_path", "content_hash", "metadata_json")
@@ -1120,6 +1205,8 @@ class SQLiteVNextStore:
 
     list_memories_referencing_source = _memory_list_memories_referencing_source
 
+    list_memories_referencing_sources = _memory_list_memories_referencing_sources
+
     get_memory_for_update = _lifecycle_get_memory_for_update
 
     get_memory_for_redaction = _lifecycle_get_memory_for_redaction
@@ -1137,6 +1224,8 @@ class SQLiteVNextStore:
     get_memory_by_confirmation_id = _memory_get_memory_by_confirmation_id
 
     list_memories = _memory_list_memories
+
+    list_memories_view_partitions = _memory_list_memories_view_partitions
 
     list_memories_by_statuses = _memory_list_memories_by_statuses
 
@@ -1275,6 +1364,8 @@ class SQLiteVNextStore:
     list_open_loops_referencing_source = _graph_list_open_loops_referencing_source
 
     list_open_loops = _graph_list_open_loops
+
+    list_open_loops_view_partitions = _graph_list_open_loops_view_partitions
 
     list_open_loop_events = _graph_list_open_loop_events
 
@@ -1560,6 +1651,45 @@ class SQLiteVNextStore:
             (self.user_id,),
         )
         return int(cast(int, row["active_count"]))
+
+    @contextmanager
+    def savepoint(self) -> Iterator[None]:
+        """Run one unit of writes that lands whole or leaves no row.
+
+        An exception rolls back everything written inside the block, including
+        the events it appended, and is re-raised for the caller to report. The
+        enclosing transaction stays open and commits once, when its owner
+        commits.
+
+        Python's ``sqlite3`` opens its transaction at the first write, so a
+        savepoint issued before any write would be the outermost one, and its
+        release would commit. The transaction is therefore begun here when none
+        is open, the way ``update_source`` begins its own. A connection that
+        commits every statement on its own (``isolation_level`` of ``None``, or
+        ``autocommit=True``) keeps doing so: there the release commits the
+        block, which is what that connection means by a commit.
+        """
+
+        conn = self.conn
+        legacy_transaction_control = getattr(conn, "autocommit", -1) == -1
+        if legacy_transaction_control and conn.isolation_level is not None and not conn.in_transaction:
+            conn.execute("BEGIN IMMEDIATE")
+        name = f"alice_savepoint_{next(_SAVEPOINT_NAMES)}"
+        conn.execute(f"SAVEPOINT {name}")
+        try:
+            yield
+        except BaseException:
+            try:
+                conn.execute(f"ROLLBACK TO SAVEPOINT {name}")
+                conn.execute(f"RELEASE SAVEPOINT {name}")
+            except sqlite3.Error:
+                # SQLite ended the whole transaction itself (a full disk is one
+                # case), so there is no savepoint left to roll back to. The
+                # caller's error is the one to report, not this one.
+                pass
+            raise
+        else:
+            conn.execute(f"RELEASE SAVEPOINT {name}")
 
 
 __all__ = [

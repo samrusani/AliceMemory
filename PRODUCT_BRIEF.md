@@ -12,14 +12,14 @@ Agent developers — people building or operating AI agents who need durable, ex
   present, while reviews and corrections preserve their own audit chain.
   Explicit commits may legitimately have no source reference.
 - Review-governed writes: agent commits resolve to commit, confirm, review, or reject through policy; the review console is the trust boundary.
-- Local-first: your data stays on your machine; models and embeddings are pluggable via OpenAI-compatible endpoints.
+- Local-first: Alice stores your data on a machine you control. Text goes to a model or embedding provider only if you configure one, and then only to that provider.
 
 ## Current Posture
-- `v0.15.7` is the latest published release and immutable baseline. Imported
-  notes are readable as sources. `v0.15.6` is the immediately prior
-  published release. The PyPI wheel and source distribution have Trusted
-  Publishing provenance, with exact digests in
-  `docs/release/v0.15.7-checksums.txt`.
+- `v0.20.0` is the latest published release and immutable baseline. The
+  default loop is on the wheel. `v0.19.2` is the immediately prior
+  published release, and `v0.19.1` was tagged and never published. The PyPI
+  wheel and source distribution have Trusted Publishing provenance, with
+  exact digests in `docs/release/v0.20.0-checksums.txt`.
 - `v0.11.0` shipped the Phase 1 periphery cut. It removes the Telegram,
   hosted/control-plane, public chat/response, chief-of-staff, and model-pack
   periphery so the default runtime matches the product described here. The
@@ -33,12 +33,17 @@ Agent developers — people building or operating AI agents who need durable, ex
   with per-question evidence for each committed. That harness reads chunks
   straight from the store. It is not the product path. `pack_excerpts` is
   the product-path mode and is not yet a published score. The **79.4%
-  (397/500)** single run from 2026-07-07 is retained as evidence.
+  (397/500)** single run from 2026-07-07 is retained as evidence. Known
+  issue: the harness showed the reader model each session's id, and in this
+  dataset every evidence session id starts with `answer_`. The effect is
+  unmeasured, so both numbers may be overstated by an unknown amount. See the
+  README Benchmark section.
 - The fourth-audit remediation shipped in `v0.10.3` after exact-SHA gates
-  and independent review passed.
+  and internal review passed.
 - Alice is public-alpha, pre-1.0, single-user, and self-hosted. `alice-memory`
-  is published on PyPI; `uvx alice-memory mcp` serves the core tools against a
-  local SQLite file with no Docker or Postgres.
+  is published on PyPI; `uvx alice-memory mcp` serves three MCP tools on a
+  local SQLite file, or all eleven with `ALICE_MCP_FULL_TOOLS=1`, with no
+  Docker or Postgres.
 - `v0.12.0` shipped the Phase 3 structural refactor with **Structure only.
   Zero behavior change.** It relocates oversized HTTP, store, contract, MCP,
   and CLI modules behind stable facades and entrypoints without changing the
@@ -64,7 +69,5 @@ Agent developers — people building or operating AI agents who need durable, ex
 - The MCP surface is small enough to learn in one sitting.
 - Every claim in the docs matches shipped behavior.
 
-`v0.15.7` is the latest published release and remains the install, checksum,
+`v0.20.0` is the latest published release and remains the install, checksum,
 and baseline reference.
-
-`v0.16.0` is the current release candidate. It is not published.

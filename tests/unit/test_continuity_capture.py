@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
@@ -8,12 +10,18 @@ import pytest
 from alicebot_api.continuity_capture import (
     ContinuityCaptureNotFoundError,
     ContinuityCaptureValidationError,
+    _build_candidate_record,
+    _extract_from_role,
     capture_continuity_candidates,
     capture_continuity_input,
     commit_continuity_captures,
     get_continuity_capture_detail,
     list_continuity_capture_inbox,
+    withhold_capture_candidates_echo,
 )
+from alicebot_api.continuity_objects import ContinuityObjectValidationError
+from alicebot_api.credential_floor import credential_verdict
+from alicebot_api.legacy_credential_check import commit_door_secret_verdict
 from alicebot_api.contracts import (
     ContinuityCaptureCandidatesInput,
     ContinuityCaptureCommitInput,
@@ -177,6 +185,85 @@ def test_capture_continuity_input_defaults_to_triage_for_ambiguous_input() -> No
     assert payload["capture"]["derived_object"] is None
 
 
+def test_create_continuity_capture_refuses_before_any_insert(monkeypatch: pytest.MonkeyPatch) -> None:
+    """POST /v0/continuity/captures refuses a token and an expanding text before insert.
+
+    The check lives in capture_continuity_input and the route maps the error to
+    400. A spy store records create_continuity_capture_event. Three mutations
+    must fail this test: deleting the check (the token post returns 201),
+    letting the expansion verdict pass (the expanding text returns 201), and
+    moving the check to after the insert (the refusal still returns 400, and
+    the spy has a row).
+    """
+
+    from contextlib import contextmanager
+    import json
+
+    from alicebot_api.config import Settings
+    from alicebot_api.routers import continuity as continuity_router
+    from alicebot_api.routers.continuity import ContinuityCaptureRequest, create_continuity_capture
+
+    created: list[RecordingCaptureStore] = []
+
+    class RecordingCaptureStore(ContinuityCaptureStoreStub):
+        def __init__(self, conn: object) -> None:
+            super().__init__()
+            self.inserts: list[str] = []
+            created.append(self)
+
+        def create_continuity_capture_event(self, **kwargs: object):
+            raw_content = kwargs["raw_content"]
+            assert isinstance(raw_content, str)
+            self.inserts.append(raw_content)
+            return super().create_continuity_capture_event(
+                raw_content=raw_content,
+                explicit_signal=kwargs["explicit_signal"] if isinstance(kwargs["explicit_signal"], str) else None,
+                admission_posture=str(kwargs["admission_posture"]),
+                admission_reason=str(kwargs["admission_reason"]),
+            )
+
+    @contextmanager
+    def fake_connection(database_url: str, user_id: UUID):
+        del database_url, user_id
+        yield object()
+
+    monkeypatch.setattr(continuity_router, "user_connection", fake_connection)
+    monkeypatch.setattr(continuity_router, "ContinuityStore", RecordingCaptureStore)
+    monkeypatch.setattr(continuity_router, "get_settings", lambda: Settings())
+
+    user_id = UUID("11111111-1111-4111-8111-111111111111")
+    token = "ghp_" + "0123456789abcdefghijklmnopqrstuvwxyz"
+    expansion = "\uFDFA" * 100
+
+    def post(raw_content: str) -> tuple[int, dict[str, object], RecordingCaptureStore]:
+        created.clear()
+        response = create_continuity_capture(
+            ContinuityCaptureRequest(user_id=user_id, raw_content=raw_content)
+        )
+        body = json.loads(response.body)
+        assert isinstance(body, dict)
+        assert len(created) == 1
+        return response.status_code, body, created[0]
+
+    status, body, store = post(f"Hermes note: rotate to {token}")
+    assert status == 400
+    assert body["detail"]["code"] == "invalid_request"
+    assert store.inserts == []
+    assert token not in json.dumps(body)
+
+    status, body, store = post(expansion)
+    assert status == 400
+    assert body["detail"]["code"] == "invalid_request"
+    assert store.inserts == []
+    assert expansion not in json.dumps(body)
+
+    ordinary = "Need to think about this sometime"
+    status, body, store = post(ordinary)
+    assert status == 201
+    assert store.inserts == [ordinary]
+    assert body["capture"]["capture_event"]["raw_content"] == ordinary
+
+
 def test_continuity_capture_list_and_detail_preserve_triage_visibility() -> None:
     store = ContinuityCaptureStoreStub()
 
@@ -262,7 +349,9 @@ def test_capture_candidates_extracts_explicit_decision_and_correction_from_turn_
     assert payload["summary"]["candidate_count"] == 2
     assert payload["summary"]["explicit_count"] == 2
     assert {item["candidate_type"] for item in payload["candidates"]} == {"decision", "correction"}
-    assert all(item["proposed_action"] == "auto_save_candidate" for item in payload["candidates"])
+    by_role = {item["source_role"]: item for item in payload["candidates"]}
+    assert by_role["user"]["proposed_action"] == "auto_save_candidate"
+    assert by_role["assistant"]["proposed_action"] == "queue_for_review"
 
 
 def test_capture_candidates_returns_no_op_for_ack_only_turns() -> None:
@@ -280,6 +369,41 @@ def test_capture_candidates_returns_no_op_for_ack_only_turns() -> None:
     assert payload["summary"]["candidate_count"] == 1
     assert payload["summary"]["no_op_count"] == 1
     assert payload["candidates"][0]["candidate_type"] == "no_op"
+
+
+def test_capture_candidates_returns_real_text_and_the_echo_withholds_it() -> None:
+    """The service returns the token. The response boundary withholds it.
+
+    generate_memory_operation_candidates reads the service text. Fails if
+    that text is already the placeholder, or if the echo still has the token.
+    Nothing is stored.
+    """
+
+    store = ContinuityCaptureStoreStub()
+    token = "ghp_" + "0123456789abcdefghijklmnopqrstuvwxyz"
+    payload = capture_continuity_candidates(
+        store,  # type: ignore[arg-type]
+        user_id=store.user_id,
+        request=ContinuityCaptureCandidatesInput(
+            user_content=f"Decision: rotate the deploy key to {token}",
+            assistant_content="noted",
+        ),
+    )
+    assert token in json.dumps(payload)
+    echoed = withhold_capture_candidates_echo(payload)
+    rendered = json.dumps(echoed)
+    assert token not in rendered
+    assert "text withheld: it carried credential material" in rendered
+    assert store.capture_events == {}
+    plain = capture_continuity_candidates(
+        store,  # type: ignore[arg-type]
+        user_id=store.user_id,
+        request=ContinuityCaptureCandidatesInput(
+            user_content="Decision: ship the bridge this week",
+            assistant_content="noted",
+        ),
+    )
+    assert "ship the bridge this week" in json.dumps(plain)
 
 
 def test_commit_captures_assist_mode_auto_saves_explicit_decisions_and_routes_notes_to_review() -> None:
@@ -354,7 +478,13 @@ def test_commit_captures_manual_mode_routes_explicit_items_to_review() -> None:
     assert payload["summary"]["review_queued_count"] == 1
 
 
-def test_commit_captures_auto_mode_autosaves_allowlist_candidates_above_threshold() -> None:
+def test_commit_captures_auto_mode_queues_assistant_and_regex_hits() -> None:
+    """Auto mode no longer saves an assistant hit or a regex hit.
+
+    Mutation: restore auto_mode_allowlist_high_confidence for confidence
+    at or above 0.85. The assistant candidate is auto-saved and this test fails.
+    """
+
     store = ContinuityCaptureStoreStub()
     payload = commit_continuity_captures(
         store,  # type: ignore[arg-type]
@@ -372,17 +502,56 @@ def test_commit_captures_auto_mode_autosaves_allowlist_candidates_above_threshol
                     "source_role": "assistant",
                     "admission_reason": "derived_waiting_for",
                     "evidence_snippet": "waiting on release approval",
-                }
+                },
+                {
+                    "candidate_type": "decision",
+                    "object_type": "Decision",
+                    "normalized_text": "we decided to keep the billing store on Postgres",
+                    "confidence": 0.9,
+                    "explicit": True,
+                    "source_role": "user",
+                    "admission_reason": "explicit_phrase_decision",
+                    "evidence_snippet": "we decided",
+                },
             ],
         ),
     )
 
-    assert payload["commits"][0]["decision"] == "auto_saved"
-    assert payload["commits"][0]["continuity_object"] is not None
-    assert payload["commits"][0]["continuity_object"]["status"] == "active"
-    assert payload["summary"]["auto_saved_count"] == 1
-    assert payload["summary"]["review_queued_count"] == 0
-    assert payload["summary"]["auto_saved_types"] == ["waiting_for"]
+    assert [item["decision"] for item in payload["commits"]] == ["queued_for_review", "queued_for_review"]
+    assert payload["summary"]["auto_saved_count"] == 0
+    assert payload["summary"]["review_queued_count"] == 2
+
+
+def test_commit_captures_auto_mode_saves_a_user_prefix_rule() -> None:
+    """A user who types an explicit prefix is saved in auto mode.
+
+    Mutation: queue every auto-mode candidate. This test fails.
+    """
+
+    store = ContinuityCaptureStoreStub()
+    candidates = capture_continuity_candidates(
+        store,  # type: ignore[arg-type]
+        user_id=store.user_id,
+        request=ContinuityCaptureCandidatesInput(
+            user_content="decision: use Postgres for billing",
+            assistant_content="Decision: the assistant also picked Postgres",
+        ),
+    )["candidates"]
+    payload = commit_continuity_captures(
+        store,  # type: ignore[arg-type]
+        user_id=store.user_id,
+        request=ContinuityCaptureCommitInput(
+            mode="auto",
+            sync_fingerprint="sync:auto-prefix",
+            candidates=candidates,  # type: ignore[arg-type]
+        ),
+    )
+    by_role = {item["candidate_id"]: item for item in payload["commits"]}
+    user = next(item for item in candidates if item["source_role"] == "user")
+    assistant = next(item for item in candidates if item["source_role"] == "assistant")
+    assert by_role[user["candidate_id"]]["decision"] == "auto_saved"
+    assert by_role[user["candidate_id"]]["reason"] == "user_explicit_prefix_rule"
+    assert by_role[assistant["candidate_id"]]["decision"] == "queued_for_review"
 
 
 def test_commit_captures_auto_mode_routes_below_threshold_candidates_to_review() -> None:
@@ -476,3 +645,257 @@ def test_commit_captures_is_idempotent_for_repeated_sync_attempts() -> None:
     assert second["summary"]["auto_saved_count"] == 0
     assert second["summary"]["duplicate_noop_count"] == 1
     assert second["commits"][0]["decision"] == "duplicate_noop"
+
+
+def test_commit_captures_assist_mode_queues_user_regex_and_assistant_prefix() -> None:
+    """Assist mode queues a user regex hit and an assistant prefix hit.
+
+    Mutation: auto-save every explicit allowlisted candidate at confidence
+    0.9, including an assistant prefix and a regex hit. Both are auto-saved
+    and this test fails.
+    """
+
+    store = ContinuityCaptureStoreStub()
+    candidates = capture_continuity_candidates(
+        store,  # type: ignore[arg-type]
+        user_id=store.user_id,
+        request=ContinuityCaptureCandidatesInput(
+            user_content="we decided to keep the billing store on Postgres",
+            assistant_content="decision: the assistant also picked Postgres",
+        ),
+    )["candidates"]
+    by_role = {item["source_role"]: item for item in candidates}
+    assert by_role["user"]["admission_reason"] == "explicit_phrase_decision"
+    assert by_role["user"]["explicit"] is True
+    assert by_role["assistant"]["admission_reason"] == "explicit_prefix_decision"
+    assert by_role["assistant"]["explicit"] is True
+
+    payload = commit_continuity_captures(
+        store,  # type: ignore[arg-type]
+        user_id=store.user_id,
+        request=ContinuityCaptureCommitInput(
+            mode="assist",
+            sync_fingerprint="sync:assist-queue",
+            candidates=candidates,  # type: ignore[arg-type]
+        ),
+    )
+
+    assert [item["decision"] for item in payload["commits"]] == [
+        "queued_for_review",
+        "queued_for_review",
+    ]
+    assert payload["summary"]["auto_saved_count"] == 0
+    assert payload["summary"]["review_queued_count"] == 2
+
+
+def test_quoted_note_does_not_abort_a_later_candidate_in_the_same_turn() -> None:
+    """An ordinary quoted note is stored, and so is the next candidate.
+
+    Mutation: check json.dumps of the body. The first candidate raises and
+    the second candidate is not stored.
+    """
+
+    store = ContinuityCaptureStoreStub()
+    quoted = capture_continuity_candidates(
+        store,  # type: ignore[arg-type]
+        user_id=store.user_id,
+        request=ContinuityCaptureCandidatesInput(
+            user_content='decision: the password was "rotated" by ops',
+            assistant_content="",
+        ),
+    )["candidates"]
+    later = capture_continuity_candidates(
+        store,  # type: ignore[arg-type]
+        user_id=store.user_id,
+        request=ContinuityCaptureCandidatesInput(
+            user_content="decision: keep the weekly billing report",
+            assistant_content="",
+        ),
+    )["candidates"]
+    assert quoted[0]["proposed_action"] == "auto_save_candidate"
+    assert later[0]["proposed_action"] == "auto_save_candidate"
+
+    payload = commit_continuity_captures(
+        store,  # type: ignore[arg-type]
+        user_id=store.user_id,
+        request=ContinuityCaptureCommitInput(
+            mode="assist",
+            sync_fingerprint="sync:quoted-note",
+            candidates=[*quoted, *later],  # type: ignore[arg-type]
+        ),
+    )
+
+    assert [item["decision"] for item in payload["commits"]] == ["auto_saved", "auto_saved"]
+    assert payload["summary"]["auto_saved_count"] == 2
+    assert len(store.objects_by_capture_event) == 2
+
+
+def test_quoted_assignment_past_the_title_cut_is_not_auto_saved() -> None:
+    """A quoted assignment past the 280-character title cut is refused.
+
+    The title cut drops it. A JSON dump of the body hides the quotes, so
+    the assignment is missed and the candidate is auto-saved. The floor
+    accepts the raw text. Mutation: check the title only, or pass
+    json.dumps(body) to the commit door. The row is stored and this test
+    fails.
+    """
+
+    value = "Ab" + "12" + "cd" + "EF"
+    quoted = "PASSWORD" + '_DB="' + value + '"'
+    filler = ("ship the weekly billing report " * 20).strip()
+    user_content = "decision: " + filler + " " + quoted
+    store = ContinuityCaptureStoreStub()
+    payload = capture_continuity_candidates(
+        store,  # type: ignore[arg-type]
+        user_id=store.user_id,
+        request=ContinuityCaptureCandidatesInput(
+            user_content=user_content,
+            assistant_content="",
+        ),
+    )
+    echoed = payload["candidates"]
+    assert quoted in echoed[0]["normalized_text"]
+    withheld = withhold_capture_candidates_echo(payload)["candidates"]
+    assert quoted not in withheld[0]["normalized_text"]
+    assert "text withheld: it carried credential material" == withheld[0]["normalized_text"]
+    extracted = _extract_from_role(text=user_content, source_role="user")
+    assert extracted is not None
+    candidate = _build_candidate_record(extracted)
+    normalized = candidate["normalized_text"]
+    assert candidate["proposed_action"] == "auto_save_candidate"
+    assert normalized.find(quoted) >= 280
+    assert credential_verdict(normalized) is None
+    assert commit_door_secret_verdict("Decision", normalized) is not None
+
+    with pytest.raises(ContinuityObjectValidationError, match="credential material"):
+        commit_continuity_captures(
+            store,  # type: ignore[arg-type]
+            user_id=store.user_id,
+            request=ContinuityCaptureCommitInput(
+                mode="assist",
+                sync_fingerprint="sync:title-cut",
+                candidates=[candidate],  # type: ignore[arg-type]
+            ),
+        )
+    assert store.objects_by_capture_event == {}
+
+
+def _deploy_token() -> str:
+    return "ghp_" + "0123456789abcdefghijklmnopqrstuvwxyz"
+
+
+def _bind_capture_store(monkeypatch: pytest.MonkeyPatch, store: ContinuityCaptureStoreStub) -> None:
+    from alicebot_api.config import Settings
+    from alicebot_api.routers import continuity as continuity_router
+
+    @contextmanager
+    def _connection(*_args: object, **_kwargs: object):
+        yield object()
+
+    monkeypatch.setattr(continuity_router, "user_connection", _connection)
+    monkeypatch.setattr(continuity_router, "ContinuityStore", lambda _conn: store)
+    monkeypatch.setattr(
+        continuity_router,
+        "get_settings",
+        lambda: Settings(database_url="postgresql://alicebot_app:alicebot_app@localhost:5432/alicebot"),
+    )
+
+
+def test_route_commit_of_the_withheld_candidate_returns_400_and_stores_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Capture a token on the route, then commit exactly that response.
+
+    The response withholds the token. The commit is the same 400 as a
+    credential refusal and writes no continuity object.
+    """
+
+    from alicebot_api.routers.continuity import (
+        ContinuityCaptureCandidatesRequest,
+        ContinuityCaptureCommitRequest,
+        commit_continuity_capture_candidates,
+        create_continuity_capture_candidates,
+    )
+
+    store = ContinuityCaptureStoreStub()
+    _bind_capture_store(monkeypatch, store)
+    token = _deploy_token()
+    captured = create_continuity_capture_candidates(
+        ContinuityCaptureCandidatesRequest(
+            user_id=store.user_id,
+            user_content=f"Decision: rotate the deploy token to {token}",
+            assistant_content="noted",
+        )
+    )
+    assert captured.status_code == 200
+    body = json.loads(captured.body)
+    rendered = json.dumps(body)
+    assert token not in rendered
+    assert "text withheld: it carried credential material" in rendered
+    assert store.capture_events == {}
+    assert store.objects_by_capture_event == {}
+
+    refused = commit_continuity_capture_candidates(
+        ContinuityCaptureCommitRequest(
+            user_id=store.user_id,
+            mode="assist",
+            sync_fingerprint="sync:withheld-route",
+            candidates=body["candidates"],
+        )
+    )
+    assert refused.status_code == 400
+    assert json.loads(refused.body)["detail"]["code"] == "invalid_request"
+    assert store.capture_events == {}
+    assert store.objects_by_capture_event == {}
+
+
+def test_mcp_commit_of_the_withheld_candidate_refuses_and_stores_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Capture a token through alice_capture_candidates, then commit that payload.
+
+    The tool error is the credential refusal. No continuity object is stored.
+    """
+
+    import alicebot_api.mcp.capture_mutations as capture_mutations
+    from alicebot_api.mcp.registry import call_mcp_tool
+    from alicebot_api.mcp.types import MCPRuntimeContext, MCPToolError
+    from alicebot_api.surface_flags import MCP_LEGACY_TOOLS_ENV
+
+    store = ContinuityCaptureStoreStub()
+
+    @contextmanager
+    def _store(_context: object):
+        yield store
+
+    monkeypatch.setattr(capture_mutations, "_store_context", _store)
+    monkeypatch.setenv(MCP_LEGACY_TOOLS_ENV, "1")
+    monkeypatch.delenv("ALICE_AGENT_API_KEY", raising=False)
+    context = MCPRuntimeContext(
+        database_url="postgresql://alicebot_app:alicebot_app@localhost:5432/alicebot",
+        user_id=store.user_id,
+    )
+    token = _deploy_token()
+    captured = call_mcp_tool(
+        context,
+        name="alice_capture_candidates",
+        arguments={"user_content": f"Decision: rotate the deploy token to {token}", "assistant_content": "noted"},
+    )
+    rendered = json.dumps(captured)
+    assert token not in rendered
+    assert "text withheld: it carried credential material" in rendered
+    assert store.capture_events == {}
+    assert store.objects_by_capture_event == {}
+
+    with pytest.raises(MCPToolError, match="credential material"):
+        call_mcp_tool(
+            context,
+            name="alice_commit_captures",
+            arguments={
+                "mode": "assist",
+                "sync_fingerprint": "sync:withheld-mcp",
+                "candidates": captured["candidates"],
+            },
+        )
+    assert store.capture_events == {}
+    assert store.objects_by_capture_event == {}

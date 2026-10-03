@@ -19,6 +19,7 @@ from alicebot_api.continuity_capture import (
     capture_continuity_candidates,
     capture_continuity_input,
     commit_continuity_captures,
+    withhold_capture_candidates_echo,
     get_continuity_capture_detail,
     list_continuity_capture_inbox,
 )
@@ -175,6 +176,7 @@ from alicebot_api.public_evals import (
 )
 from alicebot_api.retrieval_evaluation import get_retrieval_evaluation_summary
 from alicebot_api.store import ContinuityStore
+from alicebot_api.write_bounds import MAX_CAPTURE_COMMIT_CANDIDATES
 from alicebot_api.task_briefing import TaskBriefValidationError
 from alicebot_api.temporal_state import (
     TemporalStateNotFoundError,
@@ -221,7 +223,8 @@ class ContinuityCaptureCandidatesRequest(BaseModel):
 class ContinuityCaptureCommitRequest(BaseModel):
     user_id: UUID
     mode: str = Field(default="assist", min_length=1, max_length=20)
-    candidates: list[dict[str, object]] = Field(default_factory=list)
+    # The service also bounds each candidate by serialized size (write_bounds).
+    candidates: list[dict[str, object]] = Field(default_factory=list, max_length=MAX_CAPTURE_COMMIT_CANDIDATES)
     sync_fingerprint: str | None = Field(default=None, min_length=1, max_length=200)
     source_kind: str = Field(default="sync_turn", min_length=1, max_length=80)
 
@@ -371,15 +374,17 @@ def create_continuity_capture_candidates(request: ContinuityCaptureCandidatesReq
 
     try:
         with user_connection(settings.database_url, request.user_id) as conn:
-            payload = capture_continuity_candidates(
-                ContinuityStore(conn),
-                user_id=request.user_id,
-                request=ContinuityCaptureCandidatesInput(
-                    user_content=request.user_content,
-                    assistant_content=request.assistant_content,
-                    session_id=request.session_id,
-                    source_kind=request.source_kind,
-                ),
+            payload = withhold_capture_candidates_echo(
+                capture_continuity_candidates(
+                    ContinuityStore(conn),
+                    user_id=request.user_id,
+                    request=ContinuityCaptureCandidatesInput(
+                        user_content=request.user_content,
+                        assistant_content=request.assistant_content,
+                        session_id=request.session_id,
+                        source_kind=request.source_kind,
+                    ),
+                )
             )
     except ContinuityCaptureValidationError as exc:
         return public_exception_response(exc, status_code=400)

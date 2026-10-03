@@ -6,6 +6,8 @@ import logging
 from pathlib import Path
 from typing import Protocol
 
+from alicebot_api.credential_floor import refuse_credential_material
+from alicebot_api.vnext_embeddings import DeferredMemoryEmbedding, attach_memory_embedding
 from alicebot_api.vnext_event_log import append_event
 from alicebot_api.vnext_agent_control import resource_project_scope
 from alicebot_api.vnext_project_update_guard import is_project_update_artifact
@@ -160,8 +162,44 @@ def _artifact_markdown_for_task(task: JsonObject) -> str:
 
 
 class VNextQueueService:
-    def __init__(self, store: VNextQueueStore) -> None:
+    def __init__(self, store: VNextQueueStore, *, defer_embeddings: bool = False) -> None:
         self.store = store
+        # With ``defer_embeddings`` a promotion queues the new memory's text for
+        # the caller to embed after its transaction commits, the way the commit
+        # and project services do. Without it the memory is embedded in place.
+        self._defer_embeddings = defer_embeddings
+        self._deferred_embedding_inputs: list[DeferredMemoryEmbedding] = []
+
+    @property
+    def deferred_embedding_inputs(self) -> tuple[DeferredMemoryEmbedding, ...]:
+        """Immutable embedding snapshots collected for post-commit processing."""
+
+        return tuple(self._deferred_embedding_inputs)
+
+    def _embed_or_defer_promoted_memory(
+        self,
+        memory: JsonObject,
+        *,
+        actor_type: str,
+        actor_id: str | None,
+        trace_id: str | None,
+    ) -> None:
+        """Embed the active memory a promotion made, now or after the commit.
+
+        Goes through the one embedding door (``prepare_memory_embeddings`` via
+        ``attach_memory_embedding`` or the deferred snapshot), which sends only a
+        memory recall can return. Failure never blocks the promotion.
+        """
+        if self._defer_embeddings:
+            self._deferred_embedding_inputs.append(DeferredMemoryEmbedding.from_memory(memory))
+            return
+        attach_memory_embedding(
+            self.store,
+            memory,
+            actor_type=actor_type,
+            actor_id=actor_id,
+            trace_id=trace_id,
+        )
 
     def enqueue_task(self, request: QueueTaskRequest) -> JsonObject:
         title = _normalize_required_text(request.title, field_name="title")
@@ -399,6 +437,12 @@ class VNextQueueService:
         content = str(artifact.get("content_markdown") or "").strip()
         if not content:
             raise VNextQueueValidationError("artifact content must not be empty before promotion")
+        title = str(artifact.get("title") or "Promoted artifact")
+        # The credential floor, before the memory is created. Promotion makes
+        # an active, human_curated, confidence 1.0 memory, and artifact text
+        # is caller-influenced through queue-task instructions. Until
+        # 2026-09-22 this path never consulted the floor.
+        refuse_credential_material(title, content, error=VNextQueueValidationError)
         create_memory = getattr(self.store, "create_memory", None)
         if not callable(create_memory):
             raise VNextQueueValidationError(
@@ -420,7 +464,7 @@ class VNextQueueService:
                 "confidence": 1.0,
                 "trust_class": "human_curated",
                 "promotion_eligibility": "promotable",
-                "title": str(artifact.get("title") or "Promoted artifact"),
+                "title": title,
                 "canonical_text": content,
                 "summary": content[:280],
                 "domain": str(artifact.get("domain") or "unknown"),
@@ -456,6 +500,15 @@ class VNextQueueService:
             trace_id=trace_id,
             run_id=run_id,
             payload={"memory_id": memory_id},
+        )
+        # After every write above has succeeded, so a promotion that conflicts
+        # and rolls back sends no text. In v0.20.0 and earlier the promoted
+        # memory was never embedded.
+        self._embed_or_defer_promoted_memory(
+            promoted,
+            actor_type=actor_type,
+            actor_id=actor_id,
+            trace_id=trace_id,
         )
         return {**updated_artifact, "promoted_memory_id": memory_id}
 

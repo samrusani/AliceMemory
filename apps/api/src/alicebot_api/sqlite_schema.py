@@ -1949,6 +1949,29 @@ def _repair_tombstone_lookup_value_holders(conn: sqlite3.Connection) -> None:
             )
 
 
+# The tables whose rows ``apply_row_backfills`` can change.
+ROW_BACKFILL_TABLES = frozenset({"memories", "sources"})
+
+
+def apply_row_backfills(conn: sqlite3.Connection) -> None:
+    """Run the bootstrap steps that fill a column of a row from the row itself.
+
+    ``bootstrap_sqlite_schema`` runs these on every open, so a row stored with
+    one of these columns empty is rewritten the next time the file is opened:
+    a source's ``dedupe_key``, a memory's ``created_by_agent_id`` and
+    ``run_id``, and the legacy nested project scope in ``metadata_json`` and
+    ``project_id``. ``alice-memory import --mode skip`` runs this on a scratch
+    database to learn what a file row will hold once the vault is next opened,
+    and compares that with the stored row. A step added to the bootstrap that
+    does the same kind of fill belongs here too; a test runs both over the same
+    rows and fails when they leave different results.
+    """
+
+    _backfill_source_dedupe_keys(conn)
+    _backfill_legacy_memory_project_scopes(conn)
+    _backfill_memory_agent_attribution(conn)
+
+
 def _missing_fts_tables(conn: sqlite3.Connection) -> list[str]:
     """FTS tables not present yet; tolerant of any installed row_factory."""
     cursor = conn.execute(
@@ -2048,6 +2071,8 @@ __all__ = [
     "PERMISSION_PROFILES",
     "REDACTION_MARKER",
     "REVISION_TYPES",
+    "ROW_BACKFILL_TABLES",
     "SENSITIVITY_LEVELS",
+    "apply_row_backfills",
     "bootstrap_sqlite_schema",
 ]

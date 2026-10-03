@@ -11,6 +11,7 @@ from uuid import UUID, uuid4
 import pytest
 
 from alicebot_api import vnext_retrieval as vnext_retrieval_module
+from alicebot_api.source_ranking import SourceRanking
 from alicebot_api.sqlite_schema import bootstrap_sqlite_schema
 from alicebot_api.sqlite_store import SQLiteVNextStore, ensure_sqlite_user
 from alicebot_api.vnext_embeddings import VNextEmbeddingProviderError
@@ -1391,6 +1392,7 @@ def test_source_provenance_uses_one_bulk_link_read_and_one_bulk_source_read() ->
         sensitivity_allowed=["private"],
         limit=40,
         winning_memories=memories,
+        ranking=SourceRanking.document(),
     )
 
     assert len(ranked_lists["provenance"]) == 40
@@ -2209,6 +2211,7 @@ def test_legacy_scope_deepening_fails_closed_at_finite_boundary() -> None:
         people=frozenset({"sam"}),
         window_start=None,
         window_end=None,
+        exclude_global_domains=frozenset(),
     )
     limits: list[int] = []
 
@@ -2239,6 +2242,7 @@ def test_legacy_scope_deepening_detects_repeated_prefix_and_deduplicates() -> No
         people=frozenset({"sam"}),
         window_start=None,
         window_end=None,
+        exclude_global_domains=frozenset(),
     )
     repeated_limits: list[int] = []
     decoy = {"id": "same-decoy", "metadata_json": {"people": ["alex"]}}

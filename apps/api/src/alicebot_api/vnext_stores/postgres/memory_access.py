@@ -12,6 +12,7 @@ from alicebot_api.vnext_embeddings import (
     memory_embedding_signature_is_current,
 )
 from alicebot_api.vnext_project_scope import project_scope_identity
+from alicebot_api.vnext_recall_visibility import POSTGRES_UNEXPIRED_SQL
 from alicebot_api.vnext_stores.postgres.columns import MEMORY_COLUMNS
 from alicebot_api.vnext_stores.postgres.embedding_cas import (
     _MEMORY_EMBEDDING_CONTENT_SHA256_SQL,
@@ -40,14 +41,23 @@ def get_memory_by_key(
     *,
     memory_key: str,
     agent_profile_id: str = "assistant_default",
+    include_deleted: bool = False,
 ) -> VNextRow | None:
+    """The memory at ``memory_key``, or ``None``.
+
+    A soft-deleted (archived) row is not returned unless ``include_deleted`` is true. It still holds its key:
+    the unique constraint on ``(user, profile, memory_key)`` counts every row, so a caller that reads the key
+    to avoid a collision on insert passes ``include_deleted=True`` to see every row the constraint sees.
+    """
+
+    deleted_clause = "" if include_deleted else "AND deleted_at IS NULL"
     return self._fetch_optional_one(
         f"""
                 SELECT {MEMORY_COLUMNS}
                 FROM memories
                 WHERE agent_profile_id = %s
                   AND memory_key = %s
-                  AND deleted_at IS NULL
+                  {deleted_clause}
                 LIMIT 1
                 """,
         (agent_profile_id, memory_key),
@@ -131,6 +141,77 @@ def list_memories_referencing_source(self, *, source_id: str, limit: int = 500) 
     )
 
 
+def list_memories_referencing_sources(
+    self,
+    source_ids: Sequence[str],
+    *,
+    limit_per_source: int,
+) -> dict[str, list[VNextRow]]:
+    """``list_memories_referencing_source`` for several sources in one statement.
+
+    Returns ``{source_id: rows}`` with one key per distinct source id asked
+    for, in the order asked, and an empty list for a source nothing
+    references. Each list is exactly what the one-source method returns for
+    that source with ``limit=limit_per_source``: the same rows, the same
+    order, the same cap. The controls are the same two the one-source method
+    applies, the row-level security of the user's connection and
+    ``deleted_at IS NULL``.
+
+    The statement runs the one-source query once per requested id inside a
+    ``LATERAL`` subquery, so the predicate, the ordering and the per-source
+    ``LIMIT`` are the one-source query's own text. The saving is the round
+    trip and the per-statement overhead of one query per packed source, not
+    the scan: each id still evaluates the predicate over the memories table.
+    ``limit_per_source`` has no default because the callers disagree about
+    the cap.
+    """
+
+    if limit_per_source < 1:
+        raise ValueError("limit must be positive")
+    ids = list(dict.fromkeys(str(source_id) for source_id in source_ids if source_id))
+    grouped: dict[str, list[VNextRow]] = {source_id: [] for source_id in ids}
+    if not ids:
+        return grouped
+    refs = [f"source:{source_id}" for source_id in ids]
+    qualified_columns = ", ".join(f"m.{column.strip()}" for column in MEMORY_COLUMNS.split(",") if column.strip())
+    rows = self._fetch_all(
+        f"""
+                SELECT w.source_id AS ref_source_id, hit.*
+                FROM unnest(%s::text[], %s::text[]) AS w(source_id, source_ref)
+                CROSS JOIN LATERAL (
+                  SELECT {qualified_columns}
+                  FROM memories AS m
+                  WHERE m.deleted_at IS NULL
+                    AND (
+                      m.source_event_ids ? w.source_id
+                      OR EXISTS (
+                        SELECT 1
+                        FROM provenance_links AS p
+                        WHERE p.target_type = 'memory'
+                          AND p.target_id = m.id::text
+                          AND p.source_id = w.source_id::uuid
+                      )
+                      OR m.metadata_json ->> 'source_id' = w.source_id
+                      OR m.metadata_json ->> 'source_ref' IN (w.source_id, w.source_ref)
+                      OR m.metadata_json -> 'source_ids' ? w.source_id
+                      OR m.metadata_json -> 'source_refs' ? w.source_id
+                      OR m.metadata_json -> 'source_refs' ? w.source_ref
+                      OR m.metadata_json -> 'source_references' ? w.source_id
+                      OR m.metadata_json -> 'source_references' ? w.source_ref
+                      OR m.metadata_json -> 'selected_source_ids' ? w.source_id
+                    )
+                  ORDER BY m.updated_at DESC, m.created_at DESC, m.id DESC
+                  LIMIT %s
+                ) AS hit
+                ORDER BY w.source_id, hit.updated_at DESC, hit.created_at DESC, hit.id DESC
+                """,
+        (ids, refs, limit_per_source),
+    )
+    for row in rows:
+        grouped[str(row.pop("ref_source_id"))].append(row)
+    return grouped
+
+
 def list_pending_derived_candidates_for_member(
     self,
     *,
@@ -185,7 +266,15 @@ def list_memories(
     query: str | None = None,
     order_by_created_at: bool = False,
     limit: int | None = None,
+    include_expired: bool = True,
 ) -> list[VNextRow]:
+    """List memories. ``include_expired=False`` leaves out a memory whose ``valid_to`` has passed.
+
+    The default keeps the management reads (review, confirm, unexpire, export)
+    seeing an expired memory. A read an agent or a brief shows to a person passes
+    ``False``, which applies recall's own test (``POSTGRES_UNEXPIRED_SQL``) before
+    ``LIMIT``.
+    """
     if limit is not None and limit < 1:
         raise ValueError("limit must be positive")
     status_sql = ""
@@ -240,6 +329,7 @@ def list_memories(
             )
             escaped_query = _escape_like_literal(normalized_query)
             params.extend((escaped_query, escaped_query, escaped_query))
+    expiry_sql = "" if include_expired else f" AND {POSTGRES_UNEXPIRED_SQL}"
     order_sql = (
         "ORDER BY created_at DESC, id DESC"
         if order_by_created_at
@@ -254,7 +344,7 @@ def list_memories(
                 SELECT {MEMORY_COLUMNS}
                 FROM memories
                 WHERE deleted_at IS NULL{status_sql}{statuses_sql}{memory_types_sql}
-                  {domains_sql}{sensitivity_sql}{projects_sql}{created_at_sql}{query_sql}
+                  {domains_sql}{sensitivity_sql}{projects_sql}{created_at_sql}{query_sql}{expiry_sql}
                 {order_sql}
                 {limit_sql}
                 """,
@@ -456,8 +546,13 @@ def count_memories(
     domains: list[str] | None = None,
     sensitivity_allowed: list[str] | None = None,
     projects: Sequence[str] | None = None,
+    include_expired: bool = True,
 ) -> int:
-    """Count the exact in-scope memory corpus without materializing it."""
+    """Count the exact in-scope memory corpus without materializing it.
+
+    ``include_expired=False`` leaves out a memory whose ``valid_to`` has passed,
+    as ``list_memories`` does, so a count and the list behind it agree.
+    """
     status_sql = ""
     params: list[object] = []
     if status is not None:
@@ -478,12 +573,13 @@ def count_memories(
     if project_list is not None:
         projects_sql = f" AND ({_MEMORY_PROJECT_SCOPE_SQL}) ?| %s::text[]"
         params.append(project_list)
+    expiry_sql = "" if include_expired else f" AND {POSTGRES_UNEXPIRED_SQL}"
     row = self._fetch_one(
         "count memories",
         f"""
                 SELECT COUNT(*) AS count
                 FROM memories
-                WHERE deleted_at IS NULL{status_sql}{domains_sql}{sensitivity_sql}{projects_sql}
+                WHERE deleted_at IS NULL{status_sql}{domains_sql}{sensitivity_sql}{projects_sql}{expiry_sql}
                 """,
         tuple(params),
     )
@@ -506,12 +602,15 @@ def list_rollup_input_memories(
         return []
     domain_filter = domains or None
     project_list = list(project_scope_identity(projects or ())) or None
+    # A roll-up groups memories that recall can return, so an expired one is
+    # left out here, before LIMIT, the way recall leaves it out.
     return self._fetch_all(
         f"""
                 SELECT {MEMORY_COLUMNS}
                 FROM memories
                 WHERE deleted_at IS NULL
                   AND status IN {_MEMORY_SEARCHABLE_STATUSES_SQL}
+                  AND {POSTGRES_UNEXPIRED_SQL}
                   AND COALESCE(metadata_json ->> 'candidate_kind', '') <> %s
                   AND (%s::text[] IS NULL OR domain = ANY(%s::text[]) OR domain = 'unknown')
                   AND COALESCE(sensitivity, 'unknown') = ANY(%s::text[])
@@ -551,6 +650,7 @@ def count_rollup_input_memories(
                 FROM memories
                 WHERE deleted_at IS NULL
                   AND status IN {_MEMORY_SEARCHABLE_STATUSES_SQL}
+                  AND {POSTGRES_UNEXPIRED_SQL}
                   AND COALESCE(metadata_json ->> 'candidate_kind', '') <> %s
                   AND (%s::text[] IS NULL OR domain = ANY(%s::text[]) OR domain = 'unknown')
                   AND COALESCE(sensitivity, 'unknown') = ANY(%s::text[])
@@ -639,6 +739,7 @@ def list_accepted_rollup_cards(
                 FROM memories
                 WHERE deleted_at IS NULL
                   AND status IN {_MEMORY_SEARCHABLE_STATUSES_SQL}
+                  AND {POSTGRES_UNEXPIRED_SQL}
                   AND metadata_json ->> 'candidate_kind' = %s
                   AND metadata_json ->> 'rollup_key' = ANY(%s::text[])
                   AND (%s::text[] IS NULL OR domain = ANY(%s::text[]) OR domain = 'unknown')
@@ -1157,6 +1258,7 @@ for _memory_method in (
     get_memory,
     get_memories_by_ids,
     list_memories_referencing_source,
+    list_memories_referencing_sources,
     list_pending_derived_candidates_for_member,
     list_memories,
     list_memories_by_statuses,

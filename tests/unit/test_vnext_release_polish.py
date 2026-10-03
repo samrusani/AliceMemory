@@ -403,11 +403,12 @@ def test_release_gates_run_normal_cross_module_mypy() -> None:
     tests_workflow = " ".join(_read(".github/workflows/tests.yml").split())
     expected = (
         "python -m mypy --ignore-missing-imports apps/api/src/alicebot_api "
+        "scripts/alice_bench.py scripts/alice_bench_gates.py scripts/alice_bench_audit.py "
         "scripts/release_check.py scripts/test_distribution_artifact.py "
         "scripts/normalize_sdist.py scripts/render_release_body.py "
         "scripts/decode_github_release_body.py "
         "scripts/prepare_mainprotect_update.py "
-        "scripts/check_python_coverage.py "
+        "scripts/check_python_coverage.py scripts/combine_python_coverage.py "
         "scripts/check_control_doc_truth.py scripts/check_github_release_checks.py "
         "scripts/check_release_controls_attestation.py"
     )
@@ -446,12 +447,16 @@ def test_release_workflow_is_manual_only_and_scheduler_child_preserves_once() ->
 def test_pnpm10_dependency_audit_decision_is_fail_closed_and_documented() -> None:
     package = json.loads(_read("apps/web/package.json"))
     workflow = _read(".github/workflows/tests.yml")
+    smoke = _read(".github/workflows/deployment-guide-smoke.yml")
     audit_script = _read("apps/web/scripts/npm-advisory-audit.mjs")
     releasing = _read("RELEASING.md")
 
     assert package["packageManager"] == "pnpm@10.23.0"
-    assert package["devDependencies"]["semver"] == "7.8.0"
-    assert "node-version: \"20\"" in workflow
+    assert package["devDependencies"]["semver"] == "7.8.5"
+    assert workflow.count('node-version: "22.22.2"') == 1
+    assert smoke.count('node-version: "22.22.2"') == 1
+    assert 'node-version: "20"' not in workflow
+    assert 'node-version: "20"' not in smoke
     assert "node scripts/npm-advisory-audit.mjs --prod --audit-level=high" in workflow
     assert "node scripts/npm-advisory-audit.mjs --audit-level=high" in workflow
     assert "pnpm test:advisory-audit" in workflow
@@ -474,19 +479,29 @@ def test_ci_action_dependency_carrier_uses_exact_atomic_pins() -> None:
         workflows,
     )
 
-    # 19 since the Bandit SAST job joined security-scans.yml. The count is the
-    # point: it forces a new action usage to be reviewed rather than absorbed.
+    # 28 since real-host-ci.yml checks out once for the pinned job, once
+    # for the weekly canary, once for the dispatch-only hook trial, once
+    # for the dispatch-only plugin hook trial, once for the
+    # dispatch-only marketplace check, and once for the dispatch-only
+    # host evidence job, and
+    # commit-author-check.yml checks out once, and tests.yml checks out
+    # once each for the unit shards (one job, three matrix legs), the
+    # eval battery job and the combined coverage job, where the single
+    # unit job checked out once.
+    # Each uses the checkout SHA already reviewed on the other workflows.
+    # The count is the point: it forces a new action usage to be reviewed
+    # rather than absorbed.
     assert checkout_refs == [
         "3d3c42e5aac5ba805825da76410c181273ba90b1"
-    ] * 19
+    ] * 28
     assert codeql_refs == [
-        "f205ea1c3313d32999d8d6a48b4f6530d4437b38"
+        "ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd"
     ] * 3
     security_workflow = _read(".github/workflows/security-scans.yml")
     for step in ("init", "autobuild", "analyze"):
         assert (
             f"github/codeql-action/{step}@"
-            "f205ea1c3313d32999d8d6a48b4f6530d4437b38 # v4.37.4"
+            "ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd # v4.37.7"
         ) in security_workflow
 
 

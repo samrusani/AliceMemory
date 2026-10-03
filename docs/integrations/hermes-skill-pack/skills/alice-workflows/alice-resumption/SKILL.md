@@ -12,6 +12,11 @@ metadata:
 
 # Alice Resumption
 
+Legacy pack. The supported Hermes pack is `agent-skills/hermes/alice-memory`.
+This skill needs the full tool surface: set `ALICE_MCP_FULL_TOOLS=1` in the
+Alice MCP server env. On the default three tools, only the `alice_resume` step
+works.
+
 ## Goal
 
 Resume work from deterministic continuity state instead of reconstructing history manually.
@@ -28,7 +33,9 @@ Use this skill when the user asks:
 - `mcp_<alice_server>_alice_resume`
 - Optional: `mcp_<alice_server>_alice_context_pack`
 
-`<alice_server>` is usually `alice_core`.
+`<alice_server>` is the key under `mcp_servers`. It is `alice` when
+`alice-memory install --host hermes` wrote it and `alice_core` in the example
+configs.
 
 ## Workflow
 
@@ -44,11 +51,11 @@ Use this skill when the user asks:
 ## Tool Call Templates
 
 ```text
-mcp_alice_core_alice_resume({"thread_id":"<uuid>","max_recent_changes":5,"max_open_loops":5})
+mcp_<alice_server>_alice_resume({"thread_id":"<uuid>","max_recent_changes":5,"max_open_loops":5})
 ```
 
 ```text
-mcp_alice_core_alice_context_pack({"thread_id":"<uuid>","recent_changes_limit":5,"open_loops_limit":5,"recent_decisions_limit":5})
+mcp_<alice_server>_alice_context_pack({"query":"<topic>","max_items":10})
 ```
 
 ## Output Contract

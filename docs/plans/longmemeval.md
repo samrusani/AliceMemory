@@ -67,8 +67,8 @@ Per question (`eval/longmemeval/adapter.py`):
    paragraph per turn, session id + date in the header, title, and
    metadata) and fed to `VNextCaptureService.capture_source`: sources,
    chunks (turn-boundary chunking via the paragraph splitter), provenance
-   links, candidate memories from the extraction heuristics, and
-   embed-on-write when `ALICE_EMBEDDINGS_*` is configured. Candidates are
+   links, and candidate memories from the extraction heuristics, which
+   are not embedded while they are candidates. Candidates are
    then promoted to `active` via the store's review-accept patch
    (`update_memory(status="active")`) because Alice's search stages only
    see active/accepted memories — the harness plays the "user accepted the
@@ -147,9 +147,9 @@ default `eval/longmemeval/results/`).
 - **Ingest**: pure-Python capture of ~500 KB of chat per question; a few
   seconds each, roughly 30–60 minutes total on a laptop. Threads overlap
   model latency well but not this CPU-bound phase (GIL).
-- **With embeddings on**: embed-on-write is one HTTP call per candidate
-  memory (that is the real product write path — the harness does not batch
-  around it). Expect a few hundred candidates per question, i.e. ~10⁵ calls
+- **With embeddings on**: the harness embeds the promoted memories in
+  batches at promotion, because capture no longer embeds a candidate
+  (from v0.20.0). Expect a few hundred memories per question, i.e. ~10⁵ calls
   for the full run — use a local embedding server (Ollama/LM Studio) or
   budget hours against a hosted one.
 - **Generation + judging** with hosted models: 500 × (one ~3–4k-token

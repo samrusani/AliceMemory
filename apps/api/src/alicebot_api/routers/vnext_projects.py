@@ -34,11 +34,11 @@ from alicebot_api.vnext_agent_control import (
     AgentIdentityValidationError,
     AgentPolicyBlockedError,
     agent_metadata,
-    resource_project_scope,
     summarize_agent_policy_telemetry,
 )
 from alicebot_api.vnext_agent_keys import AgentKeyAuthenticationError
 from alicebot_api.vnext_event_log import append_event
+from alicebot_api.vnext_memory_commit import VNextMemoryCommitService
 from alicebot_api.vnext_projects import (
     VNextProjectService,
     VNextProjectValidationError,
@@ -53,6 +53,13 @@ from alicebot_api.vnext_scheduler_runtime import (
     daemon_status,
     run_due_workflows_durable,
     run_now_durable,
+)
+from alicebot_api.vnext_source_fence import (
+    MemoryRefNotFoundError,
+    SourceReadFence,
+    SourceRefNotFoundError,
+    resolve_attachable_memory_id,
+    resolve_attachable_source_id,
 )
 from alicebot_api.vnext_store import PostgresVNextStore
 
@@ -201,6 +208,23 @@ def create_vnext_open_loop(
             )
             if decision.decision == "blocked":
                 return _vnext_permission_response(decision)
+            # The loop keeps the source and memory ids it is given and the
+            # open-loop list returns them, so each must be one this caller could
+            # be shown. Missing, deleted, malformed and out-of-fence ids answer
+            # alike. This runs after the policy refusal, so a refused caller
+            # learns nothing about which ids exist, and before the write, and
+            # the id stored is the canonical one that was checked.
+            read_fence = SourceReadFence.for_identity(identity)
+            source_id = (
+                resolve_attachable_source_id(store, request.source_id, fence=read_fence)
+                if request.source_id is not None
+                else None
+            )
+            memory_id = (
+                resolve_attachable_memory_id(store, request.memory_id, fence=read_fence)
+                if request.memory_id is not None
+                else None
+            )
             actor_type, _actor_id = _vnext_agent_actor(identity, fallback="user")
             payload = store.create_open_loop(
                 {
@@ -208,9 +232,9 @@ def create_vnext_open_loop(
                     "description": request.description,
                     "due_at": request.due_at,
                     "priority": request.priority,
-                    "memory_id": request.memory_id,
+                    "memory_id": memory_id,
                     "project_id": request.project_id,
-                    "source_id": request.source_id,
+                    "source_id": source_id,
                     "domain": request.domain,
                     "sensitivity": request.sensitivity,
                     "metadata_json": {
@@ -236,6 +260,10 @@ def create_vnext_open_loop(
         return _vnext_agent_auth_error_response(exc)
     except AgentPolicyBlockedError as exc:
         return _vnext_permission_response(exc.decision)
+    except (SourceRefNotFoundError, MemoryRefNotFoundError) as exc:
+        # Outside the connection block, so the refused call rolls back with the
+        # policy rows it wrote and leaves nothing behind.
+        return public_exception_response(exc, status_code=404)
 
     return JSONResponse(status_code=201, content=jsonable_encoder({"open_loop": payload}))
 
@@ -573,19 +601,17 @@ def review_vnext_open_loop(
             target = store.get_open_loop(loop_id)
             if target is None:
                 return _vnext_public_error_response(status_code=404, detail="vNext open loop was not found")
-            decision = _vnext_policy_checked(
-                store=store,
-                identity=identity,
-                action="open_loop.update",
-                domains=(str(target.get("domain") or "unknown"),),
-                sensitivity_allowed=(str(target.get("sensitivity") or "unknown"),),
-                project_scope=resource_project_scope(target),
-                target_type="open_loop",
-                target_id=loop_id,
-                require_explicit_project_scope=True,
-            )
-            if decision.decision == "blocked":
-                return _vnext_permission_response(decision)
+            # Same ceiling as the MCP open-loop updates. Returning the 403
+            # from inside the connection keeps the policy event committed.
+            try:
+                VNextMemoryCommitService(store).authorize_memory_action(
+                    identity=identity,
+                    action="open_loop.update",
+                    memory=target,
+                    target_type="open_loop",
+                )
+            except AgentPolicyBlockedError as exc:
+                return _vnext_permission_response(exc.decision)
             payload = VNextProjectService(store).review_open_loop(
                 loop_id=loop_id,
                 action=request.action,

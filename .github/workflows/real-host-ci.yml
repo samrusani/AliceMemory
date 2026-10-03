@@ -1,0 +1,595 @@
+name: Real host CI
+
+# Pinned claude, hermes, opencode, and codex for pull requests that change host
+# install, the launcher, the session-start hook, or a test that imports them.
+# The pins are the versions that ran headless on Linux with no credentials:
+# claude 2.1.281 (Claude Code), Hermes Agent v0.19.0 (2026.7.20),
+# opencode 1.18.32, codex-cli 0.158.0. The Codex hook tests run `codex exec`
+# against a loopback mock of /v1/responses inside pytest, so nothing reaches
+# the network.
+# The Monday canary installs current claude, hermes, opencode, and codex. The
+# canary does not pin a version. Its job holds contents: read and nothing else,
+# and its checkout keeps no credentials, because the packages it installs can
+# change under it. A failed canary opens an [ops] issue from a separate job,
+# canary-alert. That job holds issues: write, checks out nothing, runs no shell
+# and installs nothing, and it starts only when the canary job's own result is
+# failure, so the skipped canary of a pull request or a dispatch opens nothing.
+# A manual dispatch takes a `job` input. `all` runs every dispatch job. A job
+# name runs that job alone, so the plugin hook trial can run on a branch that
+# has no committed marketplace file.
+# The dispatch-only host-evidence job runs the pinned Claude Code and the pinned
+# Codex once each, from a folder two levels below the root of a scratch git
+# repository, against a loopback stub API and a made-up key. It records what a
+# SessionStart hook and an MCP server receive from each host: the hook's stdin
+# keys and values, the variable names and working folder of each process, and
+# whether the client declares the roots capability and answers roots/list.
+# Paths are recorded as placeholders that keep their shape, and the value of an
+# environment variable is never recorded. A value in the hook's stdin is kept as
+# it is when it is a number, a flag, or a string with no space and at most 64
+# characters (a short word, an email address, an unspaced run of letters), unless
+# that string is a path, a uuid or 32 or more letters and digits mixed. Text with
+# a space, or longer than 64 characters, is recorded as its size. The job has no
+# credentials: the checkout keeps none, and the script gives a host neither a
+# credential-like variable nor the runner's file-command variables (GITHUB_ENV,
+# GITHUB_PATH, GITHUB_OUTPUT, GITHUB_STATE, GITHUB_STEP_SUMMARY).
+# Pytest uses the setup-python interpreter recorded during the Alice
+# install. The Hermes virtualenv bin stays on PATH so hermes resolves,
+# and that package install does not include pytest.
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/real-host-ci.yml
+      - apps/api/src/alicebot_api/host_install.py
+      - apps/api/src/alicebot_api/host_launcher.py
+      - apps/api/src/alicebot_api/session_start_hook.py
+      - scripts/fuzz_codex_config_writer.py
+      - tests/unit/launcher_helpers.py
+      - tests/unit/test_absolute_uvx.py
+      - tests/unit/test_claude_code_plugin.py
+      - tests/unit/test_claude_code_session_start_hook.py
+      - tests/unit/test_codex_config_install.py
+      - tests/unit/test_codex_hook_install.py
+      - tests/unit/test_codex_hook_real_host.py
+      - tests/unit/test_data_dir_guard.py
+      - tests/unit/test_hermes_config_install.py
+      - tests/unit/test_hook_shell_quoting.py
+      - tests/unit/test_host_install_receipt_values.py
+      - tests/unit/test_host_install_reruns.py
+      - tests/unit/test_host_install_round3.py
+      - tests/unit/test_host_install_round4.py
+      - tests/unit/test_host_install_round5.py
+      - tests/unit/test_host_install_round6.py
+      - tests/unit/test_host_install_round7.py
+      - tests/unit/test_host_install_round7b.py
+      - tests/unit/test_host_install_round8.py
+      - tests/unit/test_host_install_writers.py
+      - tests/unit/test_host_launcher.py
+      - tests/unit/test_install_uv_warning.py
+      - tests/unit/test_install_without_uvx.py
+      - tests/unit/test_opencode_config_install.py
+      - tests/unit/test_per_project_hook.py
+      - tests/unit/test_per_project_no_schema_change.py
+      - tests/unit/test_per_project_s2_off_parity.py
+      - tests/unit/test_session_brief.py
+      - tests/unit/test_sleep_time_proposals.py
+      - tests/unit/test_session_hook_wire_text_notes.py
+      - tests/unit/test_validity_on_by_default.py
+      - plugins/alice-memory/**
+      - .claude-plugin/**
+  schedule:
+    - cron: "41 6 * * 1"
+  workflow_dispatch:
+    inputs:
+      job:
+        description: Which dispatch job to run. all runs every one of them.
+        type: choice
+        options:
+          - all
+          - pinned
+          - hook-trial
+          - plugin-hook-trial
+          - marketplace-check
+          - host-evidence
+        default: all
+
+permissions:
+  contents: read
+
+concurrency:
+  group: real-host-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  pinned:
+    name: Pinned real hosts
+    if: "${{ github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && (inputs.job == 'all' || inputs.job == 'pinned')) }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      DISABLE_AUTOUPDATER: "1"
+      DISABLE_UPDATES: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22.14.0"
+
+      - name: Install Alice
+        run: |
+          python -m pip install -e '.[dev]'
+          echo "ALICE_PYTHON=$(python -c 'import sys; print(sys.executable)')" >> "$GITHUB_ENV"
+
+      - name: Install pinned Claude Code
+        run: npm install -g @anthropic-ai/claude-code@2.1.281
+
+      - name: Install pinned Hermes
+        run: |
+          python -m venv "$RUNNER_TEMP/hermes-venv"
+          "$RUNNER_TEMP/hermes-venv/bin/pip" install --disable-pip-version-check 'hermes-agent==0.19.0'
+          echo "$RUNNER_TEMP/hermes-venv/bin" >> "$GITHUB_PATH"
+
+      - name: Install pinned OpenCode
+        run: npm install -g opencode-ai@1.18.32
+
+      - name: Install pinned Codex
+        run: npm install -g @openai/codex@0.158.0
+
+      - name: Run real host tests
+        env:
+          ALICE_TEST_REAL_HOSTS: "1"
+        run: |
+          command -v claude
+          command -v hermes
+          command -v opencode
+          command -v codex
+          claude_version="$(claude --version)"
+          hermes_report="$(hermes --version)"
+          hermes_version="${hermes_report%%$'\n'*}"
+          opencode_version="$(opencode --version)"
+          codex_version="$(codex --version)"
+          printf 'claude version: %s\n' "$claude_version"
+          printf 'hermes version: %s\n' "$hermes_version"
+          printf 'opencode version: %s\n' "$opencode_version"
+          printf 'codex version: %s\n' "$codex_version"
+          case "$claude_version" in
+            "2.1.281 (Claude Code)") ;;
+            *) echo "claude is not the pinned version"; exit 1 ;;
+          esac
+          case "$hermes_version" in
+            "Hermes Agent v0.19.0 (2026.7.20)") ;;
+            *) echo "hermes is not the pinned version"; exit 1 ;;
+          esac
+          case "$opencode_version" in
+            1.18.32) ;;
+            *) echo "opencode is not the pinned version"; exit 1 ;;
+          esac
+          case "$codex_version" in
+            "codex-cli 0.158.0") ;;
+            *) echo "codex is not the pinned version"; exit 1 ;;
+          esac
+          "$ALICE_PYTHON" -m pytest \
+            tests/unit/test_claude_code_session_start_hook.py::test_real_claude_doctor_accepts_the_written_settings \
+            tests/unit/test_hermes_config_install.py::test_real_hermes_loads_the_written_config \
+            tests/unit/test_opencode_config_install.py::test_real_opencode_reads_the_written_config \
+            tests/unit/test_opencode_config_install.py::test_real_opencode_rejects_a_broken_alice_entry \
+            tests/unit/test_codex_config_install.py::test_real_codex_reads_the_written_config \
+            tests/unit/test_codex_config_install.py::test_real_codex_rejects_a_broken_alice_entry \
+            tests/unit/test_codex_config_install.py::test_real_codex_tools_key_and_table \
+            tests/unit/test_claude_code_plugin.py::test_real_claude_validates_the_plugin \
+            tests/unit/test_claude_code_plugin.py::test_real_claude_plugin_install_and_run \
+            tests/unit/test_codex_hook_real_host.py::test_real_codex_runs_the_session_start_hook \
+            tests/unit/test_codex_hook_real_host.py::test_real_codex_ignores_json_hook_output \
+            tests/unit/test_codex_hook_real_host.py::test_real_codex_skips_a_hooks_file_with_an_http_handler \
+            tests/unit/test_codex_hook_real_host.py::test_real_codex_and_install_agree_on_hooks_json_number_and_spelling_rules \
+            tests/unit/test_codex_hook_real_host.py::test_real_codex_does_not_spill_a_large_brief \
+            -q --tb=short -rP --junitxml "$RUNNER_TEMP/real-hosts.xml"
+          "$ALICE_PYTHON" - "$RUNNER_TEMP/real-hosts.xml" <<'PY'
+          import sys
+          import xml.etree.ElementTree as ET
+
+          root = ET.parse(sys.argv[1]).getroot()
+          suites = [root] if root.tag == "testsuite" else list(root.findall("testsuite"))
+          ran = sum(int(suite.attrib.get("tests", "0")) for suite in suites)
+          skipped = sum(int(suite.attrib.get("skipped", "0")) for suite in suites)
+          if ran != 15 or skipped != 0:
+              raise SystemExit(
+                  f"real host tests did not all run: tests={ran} skipped={skipped}"
+              )
+          PY
+
+  canary:
+    name: Unpinned real-host canary
+    if: "${{ github.event_name == 'schedule' }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      DISABLE_AUTOUPDATER: "1"
+      DISABLE_UPDATES: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22.14.0"
+
+      - name: Install Alice
+        run: |
+          python -m pip install -e '.[dev]'
+          echo "ALICE_PYTHON=$(python -c 'import sys; print(sys.executable)')" >> "$GITHUB_ENV"
+
+      - name: Install current Claude Code
+        run: npm install -g @anthropic-ai/claude-code@latest
+
+      - name: Install current Hermes
+        run: |
+          python -m venv "$RUNNER_TEMP/hermes-venv"
+          "$RUNNER_TEMP/hermes-venv/bin/pip" install --disable-pip-version-check hermes-agent
+          echo "$RUNNER_TEMP/hermes-venv/bin" >> "$GITHUB_PATH"
+
+      - name: Install current OpenCode
+        run: npm install -g opencode-ai@latest
+
+      - name: Install current Codex
+        run: npm install -g @openai/codex@latest
+
+      - name: Run real host tests
+        env:
+          ALICE_TEST_REAL_HOSTS: "1"
+        run: |
+          command -v claude
+          command -v hermes
+          command -v opencode
+          command -v codex
+          printf 'claude version: %s\n' "$(claude --version)"
+          printf 'hermes version: %s\n' "$(hermes --version)"
+          printf 'opencode version: %s\n' "$(opencode --version)"
+          printf 'codex version: %s\n' "$(codex --version)"
+          "$ALICE_PYTHON" -m pytest \
+            tests/unit/test_claude_code_session_start_hook.py::test_real_claude_doctor_accepts_the_written_settings \
+            tests/unit/test_hermes_config_install.py::test_real_hermes_loads_the_written_config \
+            tests/unit/test_opencode_config_install.py::test_real_opencode_reads_the_written_config \
+            tests/unit/test_opencode_config_install.py::test_real_opencode_rejects_a_broken_alice_entry \
+            tests/unit/test_codex_config_install.py::test_real_codex_reads_the_written_config \
+            tests/unit/test_codex_config_install.py::test_real_codex_rejects_a_broken_alice_entry \
+            tests/unit/test_codex_config_install.py::test_real_codex_tools_key_and_table \
+            tests/unit/test_claude_code_plugin.py::test_real_claude_validates_the_plugin \
+            tests/unit/test_claude_code_plugin.py::test_real_claude_plugin_install_and_run \
+            tests/unit/test_codex_hook_real_host.py::test_real_codex_runs_the_session_start_hook \
+            tests/unit/test_codex_hook_real_host.py::test_real_codex_ignores_json_hook_output \
+            tests/unit/test_codex_hook_real_host.py::test_real_codex_skips_a_hooks_file_with_an_http_handler \
+            tests/unit/test_codex_hook_real_host.py::test_real_codex_and_install_agree_on_hooks_json_number_and_spelling_rules \
+            tests/unit/test_codex_hook_real_host.py::test_real_codex_does_not_spill_a_large_brief \
+            -q --tb=short -rP --junitxml "$RUNNER_TEMP/real-hosts.xml"
+          "$ALICE_PYTHON" - "$RUNNER_TEMP/real-hosts.xml" <<'PY'
+          import sys
+          import xml.etree.ElementTree as ET
+
+          root = ET.parse(sys.argv[1]).getroot()
+          suites = [root] if root.tag == "testsuite" else list(root.findall("testsuite"))
+          ran = sum(int(suite.attrib.get("tests", "0")) for suite in suites)
+          skipped = sum(int(suite.attrib.get("skipped", "0")) for suite in suites)
+          if ran != 15 or skipped != 0:
+              raise SystemExit(
+                  f"real host tests did not all run: tests={ran} skipped={skipped}"
+              )
+          PY
+
+  canary-alert:
+    name: Open the canary failure issue
+    needs: canary
+    if: "${{ always() && needs.canary.result == 'failure' }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      - name: Create failure alert issue
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const title = '[ops] real-host canary failure';
+            const bodyLines = [
+              'The weekly real-host canary failed.',
+              '',
+              'It installs the current claude, hermes, opencode, and codex CLIs with no version pin and runs the real-host tests, including the Codex SessionStart hook run.',
+              '',
+              `- workflow run: ${runUrl}`,
+              `- commit: ${context.sha}`,
+              '',
+              'The pinned pull request job is a separate check.'
+            ];
+            const body = bodyLines.join('\n');
+
+            const { data: openIssues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              per_page: 100,
+            });
+
+            const existing = openIssues.find(
+              (issue) => issue.title === title && !issue.pull_request
+            );
+            if (existing) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: existing.number,
+                body,
+              });
+              return;
+            }
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title,
+              body,
+            });
+
+  hook-trial:
+    name: SessionEnd hook trial
+    if: "${{ github.event_name == 'workflow_dispatch' && (inputs.job == 'all' || inputs.job == 'hook-trial') }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      DISABLE_AUTOUPDATER: "1"
+      DISABLE_UPDATES: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22.14.0"
+
+      - name: Install Alice
+        run: python -m pip install -e .
+
+      - name: Install pinned Claude Code
+        run: npm install -g @anthropic-ai/claude-code@2.1.281
+
+      - name: Run the hook trial
+        run: python scripts/real_host_hook_trial.py run "$RUNNER_TEMP/artifacts" "$RUNNER_TEMP/trial"
+
+      - name: Upload trial artifacts
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          path: ${{ runner.temp }}/artifacts/
+          if-no-files-found: error
+
+  plugin-hook-trial:
+    name: Claude Code plugin hook trial
+    if: "${{ github.event_name == 'workflow_dispatch' && (inputs.job == 'all' || inputs.job == 'plugin-hook-trial') }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      DISABLE_AUTOUPDATER: "1"
+      DISABLE_UPDATES: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22.14.0"
+
+      - name: Install pinned Claude Code
+        run: npm install -g @anthropic-ai/claude-code@2.1.281
+
+      - name: Run the plugin hook trial
+        run: python scripts/real_host_plugin_hook_trial.py run "$RUNNER_TEMP/plugin-hook-trial" "$RUNNER_TEMP/plugin-hook-work"
+
+      - name: Upload trial artifacts
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: plugin-hook-trial
+          path: ${{ runner.temp }}/plugin-hook-trial/
+          if-no-files-found: error
+
+  # Adds the marketplace three ways, each into a fresh HOME, then installs
+  # alice-memory@alicememory and checks the plugin list. A path (./) and the
+  # HTTPS clone URL must work, and fail the job when they do not. The
+  # owner/repo shorthand is tried and reported: Claude Code may clone it over
+  # SSH, which a runner without a key cannot do, so its result is an answer
+  # for the docs and never a failure. The HTTPS and shorthand forms read the
+  # default branch of the repository, so on a branch whose marketplace file
+  # differs from main they install what main pins.
+  marketplace-check:
+    name: Claude Code marketplace check
+    if: "${{ github.event_name == 'workflow_dispatch' && (inputs.job == 'all' || inputs.job == 'marketplace-check') }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      DISABLE_AUTOUPDATER: "1"
+      DISABLE_UPDATES: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22.14.0"
+
+      - name: Install pinned Claude Code
+        run: npm install -g @anthropic-ai/claude-code@2.1.281
+
+      - name: Validate the committed marketplace
+        run: |
+          test -f .claude-plugin/marketplace.json
+          ref="$(python3 -c 'import json; print(json.load(open(".claude-plugin/marketplace.json"))["plugins"][0]["source"]["ref"])')"
+          version="${ref#v}"
+          echo "EXPECTED_PLUGIN_VERSION=$version" >> "$GITHUB_ENV"
+          claude plugin validate . --strict --json
+          home="$(mktemp -d)"
+          HOME="$home" claude plugin marketplace add ./ < /dev/null
+          HOME="$home" claude plugin install "alice-memory@alicememory" < /dev/null
+          HOME="$home" claude plugin list --json > "$RUNNER_TEMP/plugins.json"
+          python3 scripts/check_marketplace_plugin_list.py "$version" "$RUNNER_TEMP/plugins.json"
+
+      - name: Add the marketplace from the HTTPS URL
+        if: "${{ !cancelled() }}"
+        run: |
+          expected="${EXPECTED_PLUGIN_VERSION:?the expected plugin version was not read}"
+          home="$(mktemp -d)"
+          HOME="$home" claude plugin marketplace add https://github.com/samrusani/AliceMemory.git < /dev/null
+          HOME="$home" claude plugin install "alice-memory@alicememory" < /dev/null
+          HOME="$home" claude plugin list --json > "$RUNNER_TEMP/plugins-https.json"
+          python3 scripts/check_marketplace_plugin_list.py "$expected" "$RUNNER_TEMP/plugins-https.json"
+
+      - name: Try the owner/repo shorthand
+        id: shorthand
+        if: "${{ !cancelled() }}"
+        # Report only. The step ends 0 whatever the shorthand does, because a
+        # failure here is the answer. continue-on-error and the step timeout
+        # cover a fault in the step itself, such as a hang.
+        continue-on-error: true
+        timeout-minutes: 15
+        run: |
+          set +e
+          source_arg="samrusani/AliceMemory"
+          expected="${EXPECTED_PLUGIN_VERSION:-}"
+          home="$(mktemp -d)"
+          add_log="$RUNNER_TEMP/shorthand-add.log"
+          result=works
+          reason="the add and the install worked, and the plugin list held alice-memory@alicememory $expected, enabled"
+          HOME="$home" timeout 180 claude plugin marketplace add "$source_arg" < /dev/null > "$add_log" 2>&1
+          status=$?
+          cat "$add_log"
+          if [ "$status" -ne 0 ]; then
+            result=add-failed
+            if grep -Eq 'Permission denied \(publickey\)|Host key verification failed|git@github\.com' "$add_log"; then
+              reason="the add cloned over SSH and the runner has no SSH key (exit $status)"
+            elif [ "$status" -eq 124 ]; then
+              reason="the add did not finish in 180 seconds"
+            else
+              reason="the add failed with exit $status, and the output above says why"
+            fi
+          else
+            HOME="$home" timeout 180 claude plugin install "alice-memory@alicememory" < /dev/null
+            status=$?
+            if [ "$status" -ne 0 ]; then
+              result=install-failed
+              reason="the add worked, and the install failed with exit $status"
+            else
+              HOME="$home" timeout 180 claude plugin list --json < /dev/null > "$RUNNER_TEMP/plugins-shorthand.json"
+              status=$?
+              if [ "$status" -ne 0 ]; then
+                result=list-failed
+                reason="the add and the install worked, and the plugin list failed with exit $status"
+              elif ! python3 scripts/check_marketplace_plugin_list.py "$expected" "$RUNNER_TEMP/plugins-shorthand.json"; then
+                result=list-mismatch
+                reason="the add and the install worked, and the plugin list did not hold alice-memory@alicememory $expected, enabled"
+              fi
+            fi
+          fi
+          echo "result=$result" >> "$GITHUB_OUTPUT"
+          echo "claude plugin marketplace add $source_arg: $result, $reason"
+          if [ "$result" = works ]; then
+            echo "::notice title=Marketplace shorthand works::claude plugin marketplace add $source_arg works: $reason"
+          else
+            echo "::warning title=Marketplace shorthand did not work::claude plugin marketplace add $source_arg gave $result: $reason"
+          fi
+          {
+            echo "### Marketplace shorthand"
+            echo
+            echo "\`claude plugin marketplace add $source_arg\` on a GitHub-hosted runner: **$result**"
+            echo
+            echo "$reason"
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+
+  # Records what the pinned hosts hand a SessionStart hook and an MCP server, for
+  # per-project memory slice S0. The script refuses to start a host outside GitHub
+  # Actions, never reads a real key, and writes the host-evidence artifact with
+  # placeholders for every path and no environment variable value. The checkout
+  # keeps no credentials because the hosts it installs are third-party code.
+  host-evidence:
+    name: Host evidence for per-project memory
+    if: "${{ github.event_name == 'workflow_dispatch' && (inputs.job == 'all' || inputs.job == 'host-evidence') }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      DISABLE_AUTOUPDATER: "1"
+      DISABLE_UPDATES: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22.14.0"
+
+      - name: Install Alice
+        run: python -m pip install -e .
+
+      - name: Install pinned Claude Code
+        run: npm install -g @anthropic-ai/claude-code@2.1.281
+
+      - name: Install pinned Codex
+        run: npm install -g @openai/codex@0.158.0
+
+      - name: Record what each host sends a hook and an MCP server
+        run: python scripts/real_host_evidence.py run "$RUNNER_TEMP/host-evidence" "$RUNNER_TEMP/host-evidence-work"
+
+      - name: Upload host evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: host-evidence
+          path: ${{ runner.temp }}/host-evidence/
+          if-no-files-found: error

@@ -373,9 +373,9 @@ def test_same_entity_memories_group_into_entity_rollup() -> None:
     store = FakeRollupStore()
     for index, text in enumerate(
         (
-            "Type3 Capital closed the seed round in March",
-            "Quarterly review with Type3 Capital moved to October",
-            "Type3 Capital is hiring two analysts this fall",
+            "Northwind Capital closed the seed round in March",
+            "Quarterly review with Northwind Capital moved to October",
+            "Northwind Capital is hiring two analysts this fall",
         )
     ):
         store.create_memory(
@@ -397,8 +397,8 @@ def test_same_entity_memories_group_into_entity_rollup() -> None:
     assert len(candidates) == 1
     card = candidates[0]
     assert card["value"]["rollup"]["group_kind"] == "entity"
-    assert card["metadata_json"]["rollup_key"] == "entity:type3 capital"
-    assert "Type3 Capital" in card["title"]
+    assert card["metadata_json"]["rollup_key"] == "entity:northwind capital"
+    assert "Northwind Capital" in card["title"]
     assert card["value"]["rollup"]["member_count"] == 3
     assert card["memory_type"] == "project_fact"
 
@@ -454,18 +454,18 @@ def test_candidate_and_rollup_card_rows_never_rejoin_grouping() -> None:
 def _seed_entity_group(store) -> list[JsonObject]:
     """Five distinct memories that all mention one entity (one entity group)."""
     texts = (
-        "Type3 Capital closed the seed round in March",
-        "Type3 Capital moved the quarterly review to October",
-        "Type3 Capital is hiring two analysts this fall",
-        "Type3 Capital signed a new lease near the harbor",
-        "Type3 Capital published its annual letter in December",
+        "Northwind Capital closed the seed round in March",
+        "Northwind Capital moved the quarterly review to October",
+        "Northwind Capital is hiring two analysts this fall",
+        "Northwind Capital signed a new lease near the harbor",
+        "Northwind Capital published its annual letter in December",
     )
     rows: list[JsonObject] = []
     for index, text in enumerate(texts):
         rows.append(
             store.create_memory(
                 {
-                    "memory_key": f"memory.type3-{index}",
+                    "memory_key": f"memory.northwind-{index}",
                     "value": {"text": text},
                     "status": "active",
                     "memory_type": "project_fact",

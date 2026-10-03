@@ -18,9 +18,11 @@ from alicebot_api.vnext_project_scope import (
 )
 from alicebot_api.vnext_repositories import JsonObject
 
+# The key shape lives in a leaf module so the credential floor can import it
+# without a cycle through the promotion policy. Re-exported here.
+from alicebot_api.agent_key_format import AGENT_KEY_PREFIX as AGENT_KEY_PREFIX
+from alicebot_api.agent_key_format import AGENT_KEY_PREFIX_LENGTH as AGENT_KEY_PREFIX_LENGTH
 
-AGENT_KEY_PREFIX = "alice_sk_"
-AGENT_KEY_PREFIX_LENGTH = 12
 AGENT_KEY_AUTH = "agent_api_key"
 UNAUTHENTICATED_LOCAL_AUTH = "unauthenticated_local"
 

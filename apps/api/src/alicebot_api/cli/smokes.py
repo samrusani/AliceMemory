@@ -547,7 +547,7 @@ def _run_vnext_smoke_live_capture_connectors(ctx: CLIContext, _args: argparse.Na
                             "message_id": telegram_update_id + 1,
                             "date": 1_778_400_000,
                             "chat": {"id": 999001, "type": "private"},
-                            "from": {"id": 1001, "username": "samir"},
+                            "from": {"id": 1001, "username": "jordan"},
                             "text": f"Fact: Telegram smoke {smoke_id} should be reviewable.",
                         },
                     },
@@ -1335,7 +1335,7 @@ def _run_vnext_smoke_agentic_memory_commit(ctx: CLIContext, _args: argparse.Name
                     "title": f"Agentic memory smoke sensitive {smoke_id}",
                     "canonical_text": f"Agentic memory smoke {smoke_id} keeps sensitive health details behind confirmation.",
                     "domain": "health",
-                    "sensitivity": "confidential",
+                    "sensitivity": "private",
                     "confidence": 0.94,
                 },
                 user_id=ctx.user_id,
@@ -1349,6 +1349,24 @@ def _run_vnext_smoke_agentic_memory_commit(ctx: CLIContext, _args: argparse.Name
         confirmed_memory = _object_dict(confirmed.get("memory"))
         gates["inline_confirmation_commits"] = (
             confirmed.get("status") == "committed" and confirmed_memory.get("status") == "active"
+        )
+
+        above_ceiling = service.commit(
+            identity=hermes,
+            request=memory_commit_request_from_payload(
+                {
+                    "title": f"Agentic memory smoke above ceiling {smoke_id}",
+                    "canonical_text": f"Agentic memory smoke {smoke_id} refuses a confidential hermes commit.",
+                    "domain": "professional",
+                    "sensitivity": "confidential",
+                    "confidence": 0.94,
+                },
+                user_id=ctx.user_id,
+            ),
+        )
+        gates["confidential_hermes_commit_refused"] = (
+            above_ceiling.get("status") == "rejected"
+            and above_ceiling.get("reason") == "sensitivity_above_agent_ceiling"
         )
 
         external = service.commit(
@@ -1684,7 +1702,7 @@ def _run_vnext_smoke_connector_hardening(ctx: CLIContext, _args: argparse.Namesp
                             "message_id": telegram_update_id + 1,
                             "date": 1_778_400_000,
                             "chat": {"id": 999001, "type": "private"},
-                            "from": {"id": 1001, "username": "samir"},
+                            "from": {"id": 1001, "username": "jordan"},
                             "text": f"Fact: Telegram hardening smoke {smoke_id} is allowlisted.",
                         },
                     },

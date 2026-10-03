@@ -1,4 +1,4 @@
-# AliceBot evals
+# Alice evals
 
 This page documents what each eval in this repository actually measures, what
 requires a live database, and which historical numbers should *not* be read
@@ -192,8 +192,8 @@ Metrics and targets:
 ### Suite: `entity_resolution` (Sprint D)
 
 Drives surface variants of the same entity through the REAL capture
-pipeline (`VNextCaptureService.capture_text`) — e.g. "Sami Rusani" and
-"Dr Sami Rusani" across separate sources — plus blocklist-noise probes
+pipeline (`VNextCaptureService.capture_text`) — e.g. "Jane Doe" and
+"Dr Jane Doe" across separate sources — plus blocklist-noise probes
 (repeated weekday/month capitals engineered to clear the repeat-threshold
 rule so ONLY the blocklist stops them). Asserts variants canonicalize to
 one entity row, mention counts match the capturing sources, honorific
@@ -236,6 +236,15 @@ zero by corpus construction).
   randomness); directly-seeded rows pin explicit `status: "active"` and a
   fixed far-future `valid_to`, so the staleness-demotion work landing in
   the search SQL cannot silently demote eval rows.
+- Results do not depend on the day a suite runs. Every retrieval request
+  the harness builds carries one fixed reference time
+  (`VNEXT_EVAL_REFERENCE_TIME`, the corpus epoch), so a month or day without
+  a year in a query resolves to the same window on every date. The epoch is
+  chosen so those windows fall in 2025, before any eval row exists, which
+  keeps the temporal-anchor stage out of queries whose dates are words in the
+  fact being asked about. A unit test runs every suite under several process
+  clocks and requires identical results, and another checks that no eval
+  query resolves to a window that reaches the epoch.
 - The unit tests prove each suite can genuinely fail by breaking one
   production behavior at a time through a delegating store wrapper
   (dropped status transitions → suppression fails; blind search → decision

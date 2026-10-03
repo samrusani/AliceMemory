@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import ClassVar
 from uuid import UUID
 
 from alicebot_api.store import JsonObject, JsonValue
@@ -70,6 +71,91 @@ class MCPToolError(ValueError):
     """Raised when MCP tool input or execution fails."""
 
 
+class MCPInvalidRequestError(MCPToolError):
+    """A refused request whose reason is safe to tell the client.
+
+    Every other ``MCPToolError`` answers one static message, because its text
+    can carry caller input or internals: ``tool_request_failed``, or one of the
+    fixed codes of ``MCPCodedToolError``. This one answers ``invalid_request``
+    with ``public_message``. Build it only from fixed words and counts, never
+    from request text. It is still an ``MCPToolError``, so code that catches
+    that keeps working.
+    """
+
+    def __init__(self, public_message: str) -> None:
+        super().__init__(public_message)
+        self.public_message = public_message
+
+
+class MCPCodedToolError(MCPToolError):
+    """A refused request that answers one fixed code from a closed set.
+
+    The code says what kind of refusal it was, so an agent can tell "not
+    allowed" from "broken". The message the client sees is not the exception
+    text: the server sends the same fixed words as ``tool_request_failed``, so
+    nothing a caller or a store put into the exception can reach the wire. The
+    four subclasses below are the only coded errors; the server sends a code
+    only when it is in ``MCP_CODED_ERROR_CODES``.
+
+    Raise a subclass where the class of the failure is known (a policy refusal,
+    a missing id, a state that forbids the call, a rejected argument). Map an
+    existing exception by its class, never by reading its text. It is still an
+    ``MCPToolError``, so code that catches that keeps working.
+    """
+
+    #: The generic code, so a subclass that names none answers ``tool_request_failed``.
+    code: ClassVar[str] = "tool_request_failed"
+
+
+class MCPArgumentError(MCPCodedToolError):
+    """A schema or value the tool rejected. Answers ``invalid_request``.
+
+    The message is the fixed words of ``tool_request_failed`` here, unlike
+    ``MCPInvalidRequestError``, whose message names a count and a limit.
+    """
+
+    code = "invalid_request"
+
+
+class MCPNotPermittedError(MCPCodedToolError):
+    """A policy, permission profile, key or project scope refused the call. Answers ``not_permitted``."""
+
+    code = "not_permitted"
+
+
+class MCPReferenceNotFoundError(MCPCodedToolError):
+    """An id the call refers to does not exist for this caller. Answers ``not_found``.
+
+    A row the caller's filters hide is the same answer as a row that is not
+    there.
+    """
+
+    code = "not_found"
+
+
+class MCPPreconditionFailedError(MCPCodedToolError):
+    """The call is well formed and allowed, but the state forbids it.
+
+    Answers ``precondition_failed``: the vault is not set up, the backend does
+    not serve the tool, or the target is in a status that does not allow the
+    action. Retrying the same call does not help until the state changes.
+    """
+
+    code = "precondition_failed"
+
+
+#: Every code a ``MCPCodedToolError`` may put on the wire. The server falls back
+#: to ``tool_request_failed`` for a subclass whose code is not listed here.
+MCP_CODED_ERROR_CODES = frozenset(
+    {
+        MCPArgumentError.code,
+        MCPNotPermittedError.code,
+        MCPReferenceNotFoundError.code,
+        MCPPreconditionFailedError.code,
+    }
+)
+
+
 class MCPToolNotFoundError(LookupError):
     """Raised when an MCP tool name is not supported."""
 
@@ -109,3 +195,8 @@ class MCPRuntimeContext:
     # than opening a second key-verification transaction.
     agent_identity: AgentIdentity | None = None
     agent_identity_resolved: bool = False
+    # The ``--project-dir`` of ``alice-memory mcp``, the first source of the start
+    # folder (spec 4.2). A test sets it without touching the process working
+    # folder. ``None`` falls through to ``ALICE_PROJECT_DIR`` and the working
+    # folder, read again on each call.
+    project_dir: str | None = None

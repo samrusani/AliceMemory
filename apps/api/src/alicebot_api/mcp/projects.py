@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from alicebot_api.project_view import ProjectView
 from alicebot_api.store import JsonObject
 from alicebot_api.vnext_agent_control import (
     PolicyDecision,
@@ -66,6 +67,7 @@ def _handle_alice_project_update_candidate(context: MCPRuntimeContext, arguments
             sensitivity_allowed=request.sensitivity_allowed,
             project_scope=_parse_string_list(arguments, "project_scope") or _parse_string_list(arguments, "projects"),
             workflow_type="project_update_scan",
+            project_view=ProjectView.unscoped(),
         )
         if decision.decision == "blocked":
             blocked_decision = decision
@@ -161,6 +163,7 @@ def _handle_alice_project_dashboard(context: MCPRuntimeContext, arguments: Mappi
         action="project.dashboard",
         sensitivity_allowed=sensitivity_allowed,
         project_scope=_parse_string_list(arguments, "project_scope"),
+        project_view=ProjectView.unscoped(),
     )
     with _vnext_store_context(context) as store:
         return _json_object(
@@ -207,6 +210,7 @@ def _handle_alice_vnext_open_loops(context: MCPRuntimeContext, arguments: Mappin
         domains=_parse_string_list(arguments, "domains"),
         sensitivity_allowed=sensitivity_allowed,
         project_scope=_parse_string_list(arguments, "project_scope"),
+        project_view=ProjectView.unscoped(),
     )
     limit = _parse_int(arguments, key="limit", default=20, minimum=1, maximum=100)
     with _vnext_store_context(context) as store:

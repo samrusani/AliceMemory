@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import itertools
 import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from typing import Any, cast
 from uuid import uuid4
@@ -27,6 +29,7 @@ from alicebot_api.vnext_project_scope import (
     source_capture_identity_matches,
     source_project_scope,
 )
+from alicebot_api.vnext_recall_visibility import postgres_unexpired_sql
 from alicebot_api.vnext_repositories import JsonObject
 from alicebot_api.vnext_stores.memory_lifecycle_common import (
     PRIOR_REDACTED_MEMORY_METADATA_KEYS as PRIOR_REDACTED_MEMORY_METADATA_KEYS,
@@ -149,6 +152,7 @@ from alicebot_api.vnext_stores.postgres.memory_access import (
     list_memories_by_statuses as _memory_list_memories_by_statuses,
     list_memories_for_staleness_sweep as _memory_list_memories_for_staleness_sweep,
     list_memories_referencing_source as _memory_list_memories_referencing_source,
+    list_memories_referencing_sources as _memory_list_memories_referencing_sources,
     list_pending_derived_candidates_for_member as _memory_list_pending_derived_candidates_for_member,
     list_pending_inline_confirmations as _memory_list_pending_inline_confirmations,
     list_pending_rollup_candidates as _memory_list_pending_rollup_candidates,
@@ -202,6 +206,9 @@ from alicebot_api.vnext_stores.retrieval_common import (
 JsonList = list[object]
 VNextRow = dict[str, object]
 MAX_SOURCE_CHUNKS_PER_READ = 501
+# Names for nested savepoints. One counter for the process, so a nested block
+# never reuses its parent's name.
+_SAVEPOINT_NAMES = itertools.count(1)
 
 
 
@@ -513,9 +520,23 @@ class PostgresVNextStore:
         occurred_at_start: datetime | None = None,
         occurred_at_end: datetime | None = None,
         limit: int = 20,
+        domains: list[str] | None,
+        sensitivity_allowed: list[str] | None,
     ) -> list[VNextRow]:
-        """Return events joined to resume-admitted memories before LIMIT."""
+        """Return events joined to resume-admitted memories before LIMIT.
 
+        A memory is admitted when its status is in ``statuses`` and its
+        ``valid_to`` has not passed (the test recall uses), so the event of an
+        expired memory is not listed and does not use up the ``LIMIT``.
+
+        ``domains`` and ``sensitivity_allowed`` have no defaults, as on the SQLite
+        store, where they fence the read before ``LIMIT``. The Postgres runtime
+        resolves no project view and has no such read, so only ``None`` is accepted
+        and anything else raises instead of being ignored.
+        """
+
+        if domains is not None or sensitivity_allowed is not None:
+            raise ValueError("the Postgres event reads take no domain or sensitivity fence; pass None")
         if limit < 1:
             raise ValueError("limit must be positive")
         normalized_statuses = list(dict.fromkeys(str(value) for value in statuses if str(value)))
@@ -537,6 +558,7 @@ class PostgresVNextStore:
                  AND event.user_id = m.user_id
                 WHERE m.deleted_at IS NULL
                   AND m.status = ANY(%s::text[])
+                  AND {postgres_unexpired_sql("m.")}
                   AND (
                     %s::text[] IS NULL
                     OR ({_SCOPED_MEMORY_PROJECT_SQL}) ?| %s::text[]
@@ -1447,6 +1469,8 @@ class PostgresVNextStore:
     get_memories_by_ids = _memory_get_memories_by_ids
 
     list_memories_referencing_source = _memory_list_memories_referencing_source
+
+    list_memories_referencing_sources = _memory_list_memories_referencing_sources
 
     get_memory_for_update = _lifecycle_get_memory_for_update
 
@@ -3605,6 +3629,42 @@ class PostgresVNextStore:
             (workflow_type,),
         )
         return bool(row.get("acquired"))
+
+    @contextmanager
+    def savepoint(self) -> Iterator[None]:
+        """Run one unit of writes that lands whole or leaves no row.
+
+        An exception rolls back everything written inside the block, including
+        the events it appended, and is re-raised for the caller to report. The
+        enclosing transaction stays open and commits once, when its owner
+        commits. The rollback also clears the aborted state a failed statement
+        leaves in the transaction, so the caller can log the failure and carry
+        on with the next unit.
+
+        This is a plain ``SAVEPOINT`` and never a transaction of its own. On a
+        pooled product connection the transaction is already open. On any other
+        connection that is not in autocommit mode, the first statement begins
+        the transaction and its owner commits it. On an autocommit connection
+        Postgres refuses a savepoint outside a transaction block, so it fails
+        loudly instead of committing at the end of the block.
+        """
+
+        name = f"alice_savepoint_{next(_SAVEPOINT_NAMES)}"
+        self.conn.execute(f"SAVEPOINT {name}")
+        try:
+            yield
+        except BaseException:
+            try:
+                self.conn.execute(f"ROLLBACK TO SAVEPOINT {name}")
+                self.conn.execute(f"RELEASE SAVEPOINT {name}")
+            except psycopg.Error:
+                # The connection is gone or the transaction already ended, so
+                # there is no savepoint left to roll back to. The caller's
+                # error is the one to report, not this one.
+                pass
+            raise
+        else:
+            self.conn.execute(f"RELEASE SAVEPOINT {name}")
 
 
 __all__ = [

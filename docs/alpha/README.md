@@ -1,15 +1,15 @@
-# Alice vNext Public Preview
+# Alice docs
 
-This folder keeps the legacy `docs/alpha` path name, but the current release posture is Alice vNext public preview.
+Start with one command: `uvx alice-memory install`. It uses one local SQLite file and three MCP tools by default. The Postgres stack adds the `/vnext` review console, capture connectors and the scheduler. See the [quickstart](quickstart.md).
 
-Alice vNext public preview is a technical, local-first package for people who want agent memory and continuity without hosted storage or direct database writes by agents. Alice is the continuity layer for AI agents.
+This folder keeps the legacy `docs/alpha` path name. Alice is a local-first package for people who want agent memory and continuity without hosted storage or direct database writes by agents. Alice is the continuity layer for AI agents.
 
 Alice is agent-first, not dashboard-first:
 
 1. Install Alice locally.
 2. Connect an existing agent through MCP/API/CLI.
 3. Let agents request scoped context packs, submit reviewable outputs, and commit only explicit user-directed memories through Alice policy.
-4. Use `/vnext` to review, govern, audit, undo, correct, forget, configure, and troubleshoot.
+4. On the Postgres stack, use `/vnext` to review, govern, audit, undo, correct, forget, configure, and troubleshoot. On SQLite, review runs through `alice_memory_review` and `alice_memory_correct`, and undo and forget through `alice_memory_manage` (`ALICE_MCP_FULL_TOOLS=1`).
 
 Start here:
 
@@ -17,6 +17,7 @@ Start here:
 - [First-run checklist](first-run.md)
 - [First memory guide](first-memory.md)
 - [Local runtime](local-runtime.md)
+- [Projects](projects.md)
 - [Doctor](doctor.md)
 - [Demo mode](demo-mode.md)
 - [Review dashboard demo](review-dashboard-demo.md)
@@ -39,13 +40,13 @@ Start here:
 - [Known limitations](known-limitations.md)
 - [Security and privacy](security-and-privacy.md)
 - [Alpha onboarding](onboarding.md)
-- [Alpha release notes](release-notes.md)
+- [Postgres stack notes](release-notes.md)
 
 Current alpha posture:
 
 - local runtime, not hosted SaaS
 - headless Ubuntu install path for SSH-only dogfood hosts
-- technical setup, not consumer install
+- one-command SQLite install; the Postgres stack is a technical setup
 - reviewable source, artifact, and agent memory proposal flows
 - explicit trusted-agent memory commits with confirmation/review/reject policy gates
 - no direct Postgres writes by agents

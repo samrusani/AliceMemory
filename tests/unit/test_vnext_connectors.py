@@ -159,7 +159,7 @@ def _telegram_payload(update_id: int, text: str = "Fact: Telegram capture preser
             "message_id": update_id + 100,
             "date": 1_778_400_000,
             "chat": {"id": 999001, "type": "private"},
-            "from": {"id": 1001, "username": "samir"},
+            "from": {"id": 1001, "username": "jordan"},
             "text": text,
         },
     }
@@ -212,7 +212,16 @@ def test_telegram_sync_preserves_raw_evidence_defaults_and_uses_cursor_for_dupli
     assert [event["event_type"] for event in store.events].count("connector.sync_completed") == 2
 
 
-def test_connector_sync_can_defer_embeddings_without_changing_public_payload() -> None:
+def test_connector_sync_defers_no_embedding_for_candidates_and_the_public_payload_is_unchanged() -> None:
+    """A connector sync captures candidates, which recall cannot return, so it queues no embedding.
+
+    In v0.19.2 the queue held the candidate memory of each imported item.
+
+    Mutation: build ``deferred_embedding_inputs`` in ``vnext_capture.py`` from
+    ``DeferredMemoryEmbedding.from_memory`` over every row again (the queue then
+    holds one item).
+    """
+
     store = InMemoryVNextConnectorStore()
 
     result = VNextConnectorService(store, defer_embeddings=True).sync_telegram_updates(
@@ -221,8 +230,7 @@ def test_connector_sync_can_defer_embeddings_without_changing_public_payload() -
     )
 
     assert result.imported_count == 1
-    assert len(result.deferred_embedding_inputs) == 1
-    assert result.deferred_embedding_inputs[0].memory_id == "memory-1"
+    assert result.deferred_embedding_inputs == ()
     assert "deferred_embedding_inputs" not in result.to_record()
 
 
@@ -712,7 +720,7 @@ def test_screenshot_and_voice_normalizers_capture_processed_text_and_raw_payload
             "title": "Morning note",
             "recorded_at": "2026-05-11T10:30:00Z",
             "segments": [
-                {"speaker": "Samir", "text": "Decision: Keep connector sync deterministic."},
+                {"speaker": "Jordan", "text": "Decision: Keep connector sync deterministic."},
                 {"speaker": "Alice", "text": "Noted."},
             ],
             "transcription_provider": "local-whisper",
@@ -723,7 +731,7 @@ def test_screenshot_and_voice_normalizers_capture_processed_text_and_raw_payload
     assert screenshot.metadata_json["raw_payload"]["image_hash"] == "sha256:image"
     assert screenshot.metadata_json["untrusted_source_material"] is True
     assert voice.source_type == "voice_transcript"
-    assert "Samir: Decision: Keep connector sync deterministic." in voice.raw_text
+    assert "Jordan: Decision: Keep connector sync deterministic." in voice.raw_text
     assert voice.metadata_json["transcription_provider"] == "local-whisper"
     assert voice.metadata_json["untrusted_source_material"] is True
 

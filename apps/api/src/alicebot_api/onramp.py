@@ -13,14 +13,29 @@ Subcommands:
   provenance links, open loops, and the event log.
 - ``import``: load an export JSONL file into a (new or existing) local
   database, preserving ids and timestamps so provenance references and
-  the audit trail survive the round trip.
+  the audit trail survive the round trip. ``--quarantine`` removes the
+  credential from each named memory and from the records derived from it,
+  and reports any other copies it finds. Import refuses a memory row that
+  holds credential material in a column the credential check reads. Every
+  other record type is restored, and the receipt lists the table, id and
+  column of each record column that holds credential-shaped text, including
+  the memory columns the check does not read.
 - ``reindex-embeddings``: rebuild missing or provider/model-incompatible
-  vectors in place after an import, upgrade, or embedding-model change.
+  vectors in place after an import, upgrade, embedding-model change, or
+  change of ``ALICE_EMBEDDINGS_MAX_INPUT_CHARS``. It sends only the text of
+  active and accepted memories (the statuses recall can return) whose validity
+  window has not closed to the embeddings endpoint: a forgotten, rejected,
+  candidate or expired memory is not sent, and is embedded when it becomes
+  active or its ``valid_to`` is cleared. A text the endpoint refuses
+  is isolated from its batch: the rest still get vectors, and the output
+  lists the failed memory ids and the endpoint's reason.
 - ``brief``: print a labelled session brief (committed facts and imported
   sources) as markdown on stdout. Host session-start hooks call this.
 - ``doctor``: print a local SQLite vault census on stdout: sources,
-  searchable chunks, committed facts, last brief token estimate,
-  then candidates waiting. Not ``alicebot vnext doctor``.
+  searchable chunks, committed facts, memories without a current vector,
+  last brief character count (N / 9500 characters), then candidates
+  waiting. Not
+  ``alicebot vnext doctor``. In v0.18.0 this line was a token estimate.
 - ``demo``: import a markdown folder into a SQLite vault, then print
   the import summary, doctor, session brief, and the one source
   snippet a new session will quote. Defaults to ``~/.alice-demo``,
@@ -30,7 +45,10 @@ Subcommands:
   Search is unchanged. Accept is a later commit. Defaults to
   ``~/.alice``, like doctor.
 - ``install``: write host MCP config (and optional SessionStart hooks)
-  under ``--home``. Does not import a vault. Hermes is opt-in.
+  under ``--home``. Does not import a vault. Hermes, OpenCode and Codex are opt-in.
+- ``project``: ``show`` prints the project a folder resolves to, ``report``
+  counts notes by project (neither writes), and ``scoping on|off|status`` reads
+  or sets the per-project scoping switch. Nothing reads the switch yet.
 - ``--version``: print the package version.
 
 Export/import round-trip contract ("you own the memory"):
@@ -46,9 +64,24 @@ Export/import round-trip contract ("you own the memory"):
   ``create_*`` methods: those methods re-stamp ``created_at``/``updated_at``
   and append fresh ``*.created`` mutation events, which would corrupt the
   imported audit trail. Historical events also use direct INSERT so their
-  ids, occurred_at values, and integrity hashes remain byte-for-byte exact;
-  append-only triggers on ``event_log``/``memory_revisions`` only block
+  ids, occurred_at values, and integrity hashes remain byte-for-byte exact,
+  except a memory named by ``--quarantine``. That memory is stored with
+  status ``rejected``. Its text is replaced by ``[quarantined on import]``,
+  its JSON columns become ``{"quarantined": true}``, its ``memory_key``
+  becomes ``quarantined.<memory_id>``, and ``commit_digest`` is cleared.
+  The integrity hash of each event that belongs to it is cleared because
+  that hash is a SHA-256 of the event record, including the payload, so a
+  reconstructed original payload could be checked against it. The event
+  payload keeps ``memory_id`` and ``candidate_memory_id`` when they name a
+  quarantined memory, so a later redact can still update the row.
+  Append-only triggers on ``event_log``/``memory_revisions`` only block
   UPDATE/DELETE.
+- One exception to ``export -> import -> export`` equality: a stored claim
+  that an agent API key wrote a row (``agent_identity`` with ``auth`` equal to
+  ``agent_api_key``) is restored as ``auth: imported_claim`` with the original
+  value kept as ``claimed_auth``, because the footer is an unkeyed SHA-256 and
+  proves integrity, not authorship. Only rows that carried such a claim
+  differ, and an event row that changed has its integrity hash cleared.
 - Soft-deleted rows are omitted. Nullable references to omitted parents are
   cleared, and graph edges with omitted known endpoints are left behind, so
   the portable record set can be restored into a fresh database.
@@ -68,12 +101,13 @@ import json
 import logging
 import marshal
 import os
+import re
 import shutil
 import sqlite3
 import sys
 import tempfile
 import unicodedata
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from functools import lru_cache
@@ -82,9 +116,29 @@ from typing import IO
 from uuid import UUID
 
 from alicebot_api import __version__
+from alicebot_api.credential_floor import (
+    VERDICT_EXPANSION,
+    credential_verdict,
+    is_derived_copy,
+    is_product_rollup_key,
+)
+from alicebot_api.importer_paths import (
+    DEFAULT_MAX_CHATGPT_EXPORT_BYTES,
+    DEFAULT_MAX_TEXT_FILE_BYTES,
+    MIB,
+    parse_max_file_mib,
+)
 from alicebot_api.mcp_server import _DEFAULT_MCP_USER_ID, MCPServer
 from alicebot_api.mcp_tools import MCPRuntimeContext
-from alicebot_api.sqlite_schema import bootstrap_sqlite_schema
+from alicebot_api.project_cli import add_project_parser, run_project
+from alicebot_api.project_scoping import (
+    SCOPING_EVENT_TYPE,
+    ImportedScoping,
+    apply_imported_scoping,
+    import_receipt_line,
+)
+from alicebot_api.project_view import VIEW_CHOICES, ProjectView
+from alicebot_api.sqlite_schema import ROW_BACKFILL_TABLES, apply_row_backfills, bootstrap_sqlite_schema
 from alicebot_api.store import ContinuityStoreInvariantError
 from alicebot_api.sqlite_store import (
     ENTITY_COLUMNS,
@@ -102,17 +156,24 @@ from alicebot_api.sqlite_store import (
     ensure_sqlite_user,
     sqlite_user_connection,
 )
+from alicebot_api.vnext_agent_keys import AGENT_KEY_AUTH
 from alicebot_api.vnext_json import json_safe
 from alicebot_api.vnext_embeddings import (
     EMBEDDING_SIGNATURE_VERSION,
+    EMBEDDING_STALE_ERROR_CODE,
+    EMBEDDING_STALE_ERROR_MESSAGE,
     MAX_EMBEDDINGS_BATCH_SIZE,
-    VNextEmbeddingConfigurationError,
-    VNextEmbeddingProviderError,
+    STALE_REASON,
+    DeferredMemoryEmbedding,
+    MemoryEmbeddingFailure,
+    embedding_input_cap,
     endpoint_fingerprint,
     get_embedding_provider,
     memory_embedding_text,
-    signed_memory_embedding_update,
+    prepare_memory_embeddings,
+    summarize_embedding_failures,
 )
+from alicebot_api.vnext_retrieval import MEMORY_SEARCHABLE_STATUSES
 
 DEFAULT_DATA_DIR = "~/.alice"
 DEFAULT_DEMO_DATA_DIR = "~/.alice-demo"
@@ -122,12 +183,16 @@ _KNOWN_COMMANDS = (
     "mcp",
     "export",
     "import",
+    "import-markdown",
+    "import-chatgpt",
     "reindex-embeddings",
     "brief",
     "doctor",
     "demo",
     "sleep",
+    "sleep-proposals",
     "install",
+    "project",
 )
 
 _EXPORT_FORMAT = "alice-memory-jsonl"
@@ -154,6 +219,18 @@ _ERROR_CONTRACTS: dict[str, str] = {
     "import_path_conflict": "The import input conflicts with the database or a SQLite sidecar",
     "import_snapshot_failed": "The import file could not be read into a stable snapshot",
     "import_validation_failed": "The import file is invalid or incompatible",
+    "import_quarantine_unknown": "A --quarantine memory id is not in the import file",
+    "sqlite_db_path_required": (
+        "alice-memory --db takes a SQLite file path. A Postgres URL is not a database file."
+    ),
+    "import_credential_material": (
+        "Memories listed above carry credential material; no records were written. In the "
+        "source vault, redact each listed memory, then export again. SQLite: alice_memory_manage "
+        "with action=redact (needs ALICE_MCP_FULL_TOOLS=1). Postgres: alicebot vnext memories "
+        "redact <memory_id> --reason <why>. Forget or correct is not enough: the old text stays "
+        "in the row or its correction history. Do not edit the export by hand; that breaks its "
+        "SHA-256 footer"
+    ),
     "restore_failed": "The import was aborted before publication; no records were written",
     "restore_committed_hardening_failed": (
         "The restore committed, but database permissions were not hardened; do not retry blindly"
@@ -176,16 +253,47 @@ _ERROR_CONTRACTS: dict[str, str] = {
     ),
     "demo_failed": "The demo could not complete after import",
     "sleep_failed": "The sleep pass could not complete",
+    "proposals_failed": "The sleep proposal list could not be read",
+    "project_not_found": (
+        "No project was found for this folder, so --scope project_only has nothing to show; "
+        "use --scope all or --scope global, or pass --project-dir"
+    ),
+    "doctor_failed": "The vault census could not be completed",
     "install_failed": "The host install could not complete",
+    "install_refused": (
+        "A host config was left unchanged because install could not edit it safely; "
+        "add the printed snippet by hand"
+    ),
+    "install_hook_by_hand": (
+        "Install wrote the MCP entry to config.toml but could not add the SessionStart hook, "
+        "because config.toml already defines hooks; add the printed hook to config.toml by hand"
+    ),
+    "install_refused_plugin": (
+        "The alice-memory plugin is enabled and install's Claude Code entries exist. "
+        "Run claude mcp remove alice --scope user, remove the session-start hook, "
+        "or disable the plugin."
+    ),
+    "data_dir_invalid": (
+        "The data directory is empty or not an absolute path after ~ expansion"
+    ),
+    "project_failed": "The project command could not be completed",
+    "project_report_failed": "The project report could not be read from the vault",
 }
 
 
-def _emit_error(code: str) -> None:
-    """Write one compact, stable error record without runtime details."""
+def _emit_error(code: str, *, named: str | None = None) -> None:
+    """Write one compact, stable error record without runtime details.
 
+    ``named`` is included in the message when the contract has to name a value,
+    such as a refused ``--data-dir``.
+    """
+
+    message = _ERROR_CONTRACTS[code]
+    if named is not None:
+        message = f"{message}: {named}"
     print(
         json.dumps(
-            {"error": {"code": code, "message": _ERROR_CONTRACTS[code]}},
+            {"error": {"code": code, "message": message}},
             ensure_ascii=True,
             separators=(",", ":"),
             sort_keys=True,
@@ -235,6 +343,30 @@ _EMBEDDING_NOTE = (
     "(FTS keyword recall works immediately)"
 )
 
+# One fixed string for every text field replaced by --quarantine. Recall,
+# resume, and context packs do not return status ``rejected``, so this
+# placeholder is not a way to import the credential it replaced.
+_QUARANTINE_PLACEHOLDER = "[quarantined on import]"
+_QUARANTINE_JSON_OBJECT: dict[str, bool] = {"quarantined": True}
+_QUARANTINE_TEXT_FIELDS = ("title", "canonical_text", "summary", "trust_reason", "fact_keys")
+_QUARANTINE_REVISION_TEXT_FIELDS = ("text_before", "text_after", "reason")
+_QUARANTINE_REVISION_JSON_FIELDS = ("previous_value", "new_value", "candidate", "metadata_json")
+_QUARANTINE_EVENT_LINK_KEYS = ("memory_id", "candidate_memory_id", "replacement_memory_id")
+_QUARANTINE_EVENT_KEPT_KEYS = ("memory_id", "candidate_memory_id")
+_SUCCESSOR_COPIED_FIELDS = frozenset({"rationale", "idempotency_key", "request_fingerprint"})
+_QUARANTINE_COUNT_LABELS = (
+    ("memory", "memory", "memories"),
+    ("memory_revision", "revision", "revisions"),
+    ("event", "event", "events"),
+    ("provenance_link", "provenance quote", "provenance quotes"),
+    ("open_loop", "open loop", "open loops"),
+    ("graph_edge", "graph edge", "graph edges"),
+    ("entity", "entity", "entities"),
+    ("rollup_instance", "rollup instance", "rollup instances"),
+    ("successor", "successor", "successors"),
+)
+_NO_QUARANTINE_REMOVAL_COMMAND = "no command removes this today"
+
 
 def _parse_uuid(value: str) -> UUID:
     try:
@@ -243,11 +375,61 @@ def _parse_uuid(value: str) -> UUID:
         raise argparse.ArgumentTypeError(f"invalid UUID value: {value}") from exc
 
 
+def _is_postgres_database_url(value: str) -> bool:
+    """True for a ``postgres`` or ``postgresql`` URL, including driver suffixes."""
+    scheme = value.strip().partition(":")[0].lower()
+    return scheme == "postgres" or scheme.startswith("postgresql")
+
+
 def resolve_db_path(*, data_dir: str, db: str | None) -> Path:
-    """The database file path: ``--db`` wins, else ``<data-dir>/memory.db``."""
+    """The database file path: ``--db`` wins, else ``<data-dir>/memory.db``.
+
+    A Postgres URL is not a SQLite file. ``Path`` would otherwise treat it as
+    a relative path and the command would create that file.
+    """
     if db is not None:
+        if _is_postgres_database_url(db):
+            raise ValueError("alice-memory --db takes a SQLite file path, not a Postgres URL")
         return Path(db).expanduser().resolve()
     return Path(data_dir).expanduser().resolve() / DEFAULT_DB_FILENAME
+
+
+def _refuse_postgres_db_argument(args: argparse.Namespace) -> bool:
+    """Refuse ``--db`` when it is a Postgres URL. Nothing is written."""
+    db = getattr(args, "db", None)
+    if not isinstance(db, str) or not _is_postgres_database_url(db):
+        return False
+    _emit_error("sqlite_db_path_required")
+    return True
+
+
+def data_dir_absolute_after_tilde(value: str) -> bool:
+    """True when ``value`` is absolute after ``~`` expansion.
+
+    ``Path.expanduser`` is the same expansion ``resolve_db_path`` uses.
+    ``${...}``, ``$HOME``, ``%USERPROFILE%`` and a relative path stay relative.
+    """
+
+    if value == "":
+        return False
+    return Path(value).expanduser().is_absolute()
+
+
+def _refuse_invalid_mcp_data_dir(args: argparse.Namespace) -> bool:
+    """Refuse ``alice-memory mcp --data-dir`` when it is empty or not absolute.
+
+    An empty value, ``${user_config.data_dir}``, ``$HOME/.alice``,
+    ``%USERPROFILE%\\.alice`` and ``alice`` are refused. ``~/.alice`` and an
+    absolute path are accepted. Nothing is written.
+    """
+
+    if getattr(args, "command", None) != "mcp":
+        return False
+    data_dir = getattr(args, "data_dir", None)
+    if not isinstance(data_dir, str) or data_dir_absolute_after_tilde(data_dir):
+        return False
+    _emit_error("data_dir_invalid", named=data_dir)
+    return True
 
 
 def sqlite_url_for_path(path: Path) -> str:
@@ -360,6 +542,27 @@ def _remove_sqlite_files(path: Path) -> None:
 
 class _BackupError(Exception):
     """A safe, user-facing SQLite snapshot or restore error."""
+
+
+class _ExportDepthError(_BackupError):
+    """A row in the vault holds JSON nested too deeply for export to write.
+
+    Older releases stored JSON text in a column without limiting how deeply it
+    nests, so a vault can hold a row that cannot be exported: the decoder takes
+    text nested about ten thousand levels, and the recursive writer fails from
+    about a thousand. The message names the table and the column, and never a
+    value. The command prints it, then ends with ``export_failed``.
+    """
+
+    def __init__(self, *, table: str, column: str | None = None) -> None:
+        super().__init__()
+        self.table = table
+        self.column = column
+
+    def __str__(self) -> str:
+        if self.column is None:
+            return f"a {self.table} row is nested too deeply for export to write"
+        return f"{self.table} column {self.column} is nested too deeply for export to write"
 
 
 _BASE_ALICE_TABLES = frozenset({"users", "memories", "sources", "event_log"})
@@ -723,11 +926,17 @@ def bootstrap_database(
     _secure_sqlite_files(db_path)
 
 
-def _add_database_arguments(parser: argparse.ArgumentParser) -> None:
+def _add_database_arguments(
+    parser: argparse.ArgumentParser,
+    *,
+    data_dir_default: str | None = DEFAULT_DATA_DIR,
+    data_dir_help: str | None = None,
+) -> None:
     parser.add_argument(
         "--data-dir",
-        default=DEFAULT_DATA_DIR,
-        help=f"Directory holding {DEFAULT_DB_FILENAME}. Defaults to {DEFAULT_DATA_DIR}.",
+        default=data_dir_default,
+        help=data_dir_help
+        or f"Directory holding {DEFAULT_DB_FILENAME}. Defaults to {DEFAULT_DATA_DIR}.",
     )
     parser.add_argument(
         "--db",
@@ -744,6 +953,31 @@ def _add_database_arguments(parser: argparse.ArgumentParser) -> None:
         "--user-email",
         default=DEFAULT_USER_EMAIL,
         help=f"Email recorded for the local user row. Defaults to {DEFAULT_USER_EMAIL}.",
+    )
+
+
+def _add_project_view_arguments(parser: argparse.ArgumentParser) -> None:
+    """``--project-dir`` and ``--scope`` for the commands that print a brief (spec 13)."""
+
+    parser.add_argument(
+        "--project-dir",
+        default=None,
+        help=(
+            "Folder that decides which project to show, when per-project scoping is on. "
+            "Without it: $ALICE_PROJECT_DIR, then the working folder. It must be absolute "
+            "and exist, or the next source is used. Ignored while scoping is off."
+        ),
+    )
+    parser.add_argument(
+        "--scope",
+        choices=VIEW_CHOICES,
+        default=None,
+        help=(
+            "Which notes to show when a project is found. project (the default): this "
+            "project's notes first, then notes that belong to no project. project_only: "
+            "this project's notes only. global: notes that belong to no project. all: "
+            "every note, as before per-project memory. Ignored while scoping is off."
+        ),
     )
 
 
@@ -793,6 +1027,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="Serve the Alice MCP tools over stdio against a local SQLite file.",
     )
     _add_database_arguments(mcp_parser)
+    mcp_parser.add_argument(
+        "--project-dir",
+        default=None,
+        help=(
+            "Folder that decides which project a call is for, when per-project scoping is on. "
+            "Without it: $ALICE_PROJECT_DIR, then the working folder the host started the "
+            "server in. It must be absolute and exist, or the next source is used."
+        ),
+    )
 
     export_parser = subparsers.add_parser(
         "export",
@@ -843,12 +1086,28 @@ def build_parser() -> argparse.ArgumentParser:
             "existing rows are never overwritten."
         ),
     )
+    import_parser.add_argument(
+        "--quarantine",
+        default=None,
+        type=_quarantine_arg,
+        help=(
+            "Comma-separated memory ids to store as rejected. Removes the "
+            "credential from each named memory and from the records derived "
+            "from it, and reports any other copies it finds. After a successful "
+            "import, credential_verdict scans every imported text column that "
+            "was not replaced, and prints table, id, and column only. The "
+            "SHA-256 footer is checked on the file as given before any "
+            "replacement. An id that is not in the file is an error and "
+            "nothing is written."
+        ),
+    )
 
     reindex_parser = subparsers.add_parser(
         "reindex-embeddings",
         help=(
             "Rebuild missing, unsigned, or provider/model-incompatible memory "
-            "embeddings in the local SQLite database."
+            "embeddings of active and accepted, unexpired memories in the local "
+            "SQLite database."
         ),
     )
     _add_database_arguments(reindex_parser)
@@ -875,10 +1134,14 @@ def build_parser() -> argparse.ArgumentParser:
             "a recent committed fact, open loop, or imported source."
         ),
     )
+    _add_project_view_arguments(brief_parser)
 
     doctor_parser = subparsers.add_parser(
         "doctor",
-        help="Print a local SQLite vault census: sources, chunks, facts, then candidates.",
+        help=(
+            "Print a local SQLite vault census: sources, chunks, facts, "
+            "candidates, then sleep proposals."
+        ),
     )
     _add_database_arguments(doctor_parser)
 
@@ -899,20 +1162,47 @@ def build_parser() -> argparse.ArgumentParser:
     sleep_parser = subparsers.add_parser(
         "sleep",
         help=(
-            "Write a capped sidecar of source commit proposals. Does not "
-            "rewrite notes or facts, and does not open the capture inbox."
+            "Write a capped sidecar of source commit proposals, oldest "
+            "sources first. A row stops counting toward the cap once its "
+            "source has an active or accepted memory. The row stays in the "
+            "sidecar. Does not rewrite notes or facts, and does not open "
+            "the capture inbox."
         ),
     )
     _add_database_arguments(sleep_parser)
+
+    proposals_parser = subparsers.add_parser(
+        "sleep-proposals",
+        help=(
+            "List this user's sleep proposals oldest first by captured_at, "
+            "then id, framed and JSON-quoted, with the alice_memory_commit "
+            "arguments that accept each one, including the source domain, "
+            "sensitivity, and project scope. Skips a source that already has "
+            "an active or accepted memory. Applies the session brief fences "
+            "and the commit door again. Writes nothing."
+        ),
+    )
+    _add_database_arguments(proposals_parser)
+    _add_project_view_arguments(proposals_parser)
 
     install_parser = subparsers.add_parser(
         "install",
         help=(
             "Write host MCP config for Claude Desktop, Claude Code, Cursor, "
-            "and OpenClaw. Hermes is --host hermes. Does not import a vault."
+            "and OpenClaw. Hermes is --host hermes. OpenCode is --host opencode. "
+            "Codex is --host codex. Does not import a vault."
         ),
     )
-    _add_database_arguments(install_parser)
+    # install needs to know whether --data-dir was passed: without it, each
+    # host keeps the data dir its existing Alice entry already uses.
+    _add_database_arguments(
+        install_parser,
+        data_dir_default=None,
+        data_dir_help=(
+            "Vault directory for the host entries. Without it, install keeps the "
+            f"data dir an existing Alice entry uses, else {DEFAULT_DATA_DIR}."
+        ),
+    )
     install_parser.add_argument(
         "--host",
         action="append",
@@ -922,11 +1212,13 @@ def build_parser() -> argparse.ArgumentParser:
             "cursor",
             "openclaw",
             "hermes",
+            "opencode",
+            "codex",
         ),
         dest="hosts",
         help=(
             "Host to configure. Repeatable. Default: claude-desktop, "
-            "claude-code, cursor, openclaw. Hermes is opt-in."
+            "claude-code, cursor, openclaw. Hermes, OpenCode and Codex are opt-in."
         ),
     )
     install_parser.add_argument(
@@ -944,6 +1236,55 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Write a Claude Desktop .mcpb zip that launches uvx alice-memory mcp.",
     )
+
+    import_markdown_parser = subparsers.add_parser(
+        "import-markdown",
+        help="Import a Markdown folder or file into local SQLite sources.",
+    )
+    _add_database_arguments(import_markdown_parser)
+    import_markdown_parser.add_argument(
+        "--from",
+        dest="from_path",
+        required=True,
+        help="Markdown file or folder to import.",
+    )
+    import_markdown_parser.add_argument("--domain", default="unknown", help="Source domain.")
+    import_markdown_parser.add_argument("--sensitivity", default="unknown", help="Source sensitivity.")
+    import_markdown_parser.add_argument(
+        "--max-file-mib",
+        type=parse_max_file_mib,
+        default=None,
+        help=(
+            "Refuse the import, before reading, when any one Markdown file is larger than "
+            f"this many MiB. Defaults to {DEFAULT_MAX_TEXT_FILE_BYTES // MIB}."
+        ),
+    )
+
+    import_chatgpt_parser = subparsers.add_parser(
+        "import-chatgpt",
+        help="Import a ChatGPT export JSON file into local SQLite sources.",
+    )
+    _add_database_arguments(import_chatgpt_parser)
+    import_chatgpt_parser.add_argument(
+        "--from",
+        dest="from_path",
+        required=True,
+        help="ChatGPT export JSON file to import.",
+    )
+    import_chatgpt_parser.add_argument("--domain", default="personal", help="Source domain.")
+    import_chatgpt_parser.add_argument("--sensitivity", default="private", help="Source sensitivity.")
+    import_chatgpt_parser.add_argument(
+        "--max-file-mib",
+        type=parse_max_file_mib,
+        default=None,
+        help=(
+            "Refuse the import, before reading, when the export file is larger than this many "
+            f"MiB. Defaults to {DEFAULT_MAX_CHATGPT_EXPORT_BYTES // MIB}. The whole export is "
+            "held in memory, at about 6 to 9 times its size."
+        ),
+    )
+
+    add_project_parser(subparsers, add_database_arguments=_add_database_arguments)
     return parser
 
 
@@ -971,7 +1312,11 @@ def _run_mcp(args: argparse.Namespace) -> int:
         file=sys.stderr,
         flush=True,
     )
-    context = MCPRuntimeContext(database_url=database_url, user_id=args.user_id)
+    context = MCPRuntimeContext(
+        database_url=database_url,
+        user_id=args.user_id,
+        project_dir=args.project_dir,
+    )
     server = MCPServer(
         context=context,
         input_stream=sys.stdin.buffer,
@@ -980,8 +1325,35 @@ def _run_mcp(args: argparse.Namespace) -> int:
     return server.run()
 
 
+def _project_view_for_command(args: argparse.Namespace, db_path: Path) -> ProjectView | None:
+    """The view for ``brief`` and ``sleep-proposals``, or ``None`` when it is refused.
+
+    ``--project-dir`` and ``--scope`` apply while per-project scoping is on, and
+    are accepted and ignored while it is off, so a script that passes them works
+    either way. ``--scope project_only`` with no project found is refused: a
+    quiet answer over every note to a question about one project's notes is the
+    failure this feature exists to prevent.
+    """
+
+    from alicebot_api.project_view import resolve_view_at_edge, working_folder
+
+    resolution = resolve_view_at_edge(
+        db_path=db_path,
+        environ=os.environ,
+        argument_dir=args.project_dir,
+        hook_cwd=None,
+        process_cwd=working_folder(),
+        choice=args.scope,
+    )
+    view = resolution.view
+    if args.scope == "project_only" and resolution.scoping.enabled and view.project is None:
+        _emit_error("project_not_found")
+        return None
+    return view
+
+
 def _run_brief(args: argparse.Namespace) -> int:
-    from alicebot_api.session_briefing import compile_local_session_brief
+    from alicebot_api.session_briefing import compile_local_session_brief, sensitive_global_exclusion
 
     db_path = resolve_db_path(data_dir=args.data_dir, db=args.db)
     bootstrap_database(
@@ -990,13 +1362,122 @@ def _run_brief(args: argparse.Namespace) -> int:
         user_email=args.user_email,
         secure_parent=args.db is None,
     )
+    view = _project_view_for_command(args, db_path)
+    if view is None:
+        return 2
     markdown = compile_local_session_brief(
         db_path,
         user_id=args.user_id,
         query=args.query,
+        project_view=view,
+        exclude_global_domains=sensitive_global_exclusion(view),
     )
     print(markdown)
     return 0
+
+
+def _print_batch_record(record: object) -> None:
+    print(json.dumps(record, ensure_ascii=True, sort_keys=True))
+
+
+def _emit_import_path_error(message: str, *, code: str = "import_path") -> None:
+    """Path and encoding failures. Exit 1. A flagged path is not printed.
+
+    ``code`` is ``import_path`` unless the refusal has a type of its own, which
+    today is only ``import_file_too_large``.
+    """
+
+    from alicebot_api.credential_floor import credential_verdict
+
+    if credential_verdict(message) is not None:
+        message = "The import path is withheld"
+    print(
+        json.dumps(
+            {"error": {"code": code, "message": message}},
+            ensure_ascii=True,
+            separators=(",", ":"),
+            sort_keys=True,
+        ),
+        file=sys.stderr,
+        flush=True,
+    )
+
+
+def _file_limit_bytes(args: argparse.Namespace, default_bytes: int) -> int:
+    """The per-file limit in bytes: ``--max-file-mib`` if given, else the default."""
+
+    mib = getattr(args, "max_file_mib", None)
+    return default_bytes if mib is None else mib * MIB
+
+
+def _too_large_message(message: str) -> str:
+    return f"{message}. Raise the limit with --max-file-mib, or import a smaller file."
+
+
+def _run_import_markdown(args: argparse.Namespace) -> int:
+    from alicebot_api.vnext_capture import (
+        ImportFileTooLargeRefused,
+        VNextCaptureService,
+        VNextCaptureValidationError,
+    )
+
+    db_path = resolve_db_path(data_dir=args.data_dir, db=args.db)
+    bootstrap_database(
+        db_path,
+        user_id=args.user_id,
+        user_email=args.user_email,
+        secure_parent=args.db is None,
+    )
+    try:
+        with sqlite_user_connection(db_path, args.user_id) as conn:
+            store = SQLiteVNextStore(conn, args.user_id)
+            result = VNextCaptureService(store).import_markdown_folder(
+                args.from_path,
+                domain=args.domain,
+                sensitivity=args.sensitivity,
+                max_file_bytes=_file_limit_bytes(args, DEFAULT_MAX_TEXT_FILE_BYTES),
+            )
+    except ImportFileTooLargeRefused as exc:
+        _emit_import_path_error(_too_large_message(str(exc)), code=exc.reason_code)
+        return 1
+    except VNextCaptureValidationError as exc:
+        _emit_import_path_error(str(exc))
+        return 1
+    _print_batch_record(result.to_record())
+    return 1 if result.status == "failed" else 0
+
+
+def _run_import_chatgpt(args: argparse.Namespace) -> int:
+    from alicebot_api.vnext_capture import (
+        ImportFileTooLargeRefused,
+        VNextCaptureService,
+        VNextCaptureValidationError,
+    )
+
+    db_path = resolve_db_path(data_dir=args.data_dir, db=args.db)
+    bootstrap_database(
+        db_path,
+        user_id=args.user_id,
+        user_email=args.user_email,
+        secure_parent=args.db is None,
+    )
+    try:
+        with sqlite_user_connection(db_path, args.user_id) as conn:
+            store = SQLiteVNextStore(conn, args.user_id)
+            result = VNextCaptureService(store).import_chatgpt_export_file(
+                args.from_path,
+                domain=args.domain,
+                sensitivity=args.sensitivity,
+                max_file_bytes=_file_limit_bytes(args, DEFAULT_MAX_CHATGPT_EXPORT_BYTES),
+            )
+    except ImportFileTooLargeRefused as exc:
+        _emit_import_path_error(_too_large_message(str(exc)), code=exc.reason_code)
+        return 1
+    except VNextCaptureValidationError as exc:
+        _emit_import_path_error(str(exc))
+        return 1
+    _print_batch_record(result.to_record())
+    return 1 if result.status == "failed" else 0
 
 
 def _run_doctor(args: argparse.Namespace) -> int:
@@ -1009,7 +1490,13 @@ def _run_doctor(args: argparse.Namespace) -> int:
         user_email=args.user_email,
         secure_parent=args.db is None,
     )
-    print(compile_local_vault_doctor(db_path, user_id=args.user_id))
+    from alicebot_api.vault_sleep import SleepError
+
+    try:
+        print(compile_local_vault_doctor(db_path, user_id=args.user_id))
+    except SleepError:
+        _emit_error("doctor_failed")
+        return 1
     return 0
 
 
@@ -1048,6 +1535,54 @@ def _run_demo(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_sleep_proposals(args: argparse.Namespace) -> int:
+    from alicebot_api.vnext_agent_control import DEFAULT_AGENT_SENSITIVITY, evaluate_agent_policy
+    from alicebot_api.vault_sleep import SleepError, compile_sleep_proposal_listing
+
+    db_path = resolve_db_path(data_dir=args.data_dir, db=args.db)
+    bootstrap_database(
+        db_path,
+        user_id=args.user_id,
+        user_email=args.user_email,
+        secure_parent=args.db is None,
+    )
+    from alicebot_api.project_view import effective_scope_for_view
+    from alicebot_api.session_briefing import sensitive_global_exclusion
+
+    view = _project_view_for_command(args, db_path)
+    if view is None:
+        return 2
+    decision = evaluate_agent_policy(
+        identity=None,
+        action="context_pack.request",
+        domains=(),
+        sensitivity_allowed=DEFAULT_AGENT_SENSITIVITY,
+        project_scope=(),
+    )
+    try:
+        print(
+            compile_sleep_proposal_listing(
+                db_path,
+                user_id=args.user_id,
+                effective_domains=decision.effective_domains,
+                effective_sensitivity_allowed=decision.effective_sensitivity_allowed,
+                effective_project_scope=effective_scope_for_view(
+                    view=view,
+                    decision_scope=decision.effective_project_scope,
+                    requested_scope=(),
+                    identity_scope=(),
+                    identity_locked=False,
+                ),
+                project_view=view,
+                exclude_global_domains=sensitive_global_exclusion(view),
+            )
+        )
+    except SleepError:
+        _emit_error("proposals_failed")
+        return 1
+    return 0
+
+
 def _run_sleep(args: argparse.Namespace) -> int:
     from alicebot_api.vault_sleep import SleepError, run_local_vault_sleep
 
@@ -1067,7 +1602,12 @@ def _run_sleep(args: argparse.Namespace) -> int:
 
 
 def _run_install(args: argparse.Namespace) -> int:
-    from alicebot_api.host_install import InstallError, run_host_install
+    from alicebot_api.host_install import (
+        InstallError,
+        InstallFailed,
+        InstallRefused,
+        run_host_install,
+    )
 
     try:
         print(
@@ -1079,6 +1619,19 @@ def _run_install(args: argparse.Namespace) -> int:
                 write_mcpb=args.write_mcpb,
             )
         )
+    except InstallFailed as failed:
+        print(failed.output)
+        _emit_error("install_failed")
+        return 1
+    except InstallRefused as refused:
+        print(refused.output)
+        if refused.kinds and all(kind == "plugin" for kind in refused.kinds):
+            _emit_error("install_refused_plugin")
+        elif refused.kinds and all(kind == "hook_by_hand" for kind in refused.kinds):
+            _emit_error("install_hook_by_hand")
+        else:
+            _emit_error("install_refused")
+        return 1
     except InstallError:
         _emit_error("install_failed")
         return 1
@@ -1094,9 +1647,13 @@ def _export_line(record_type: str, row: object) -> str:
 
 
 def _decoded_rows(
-    conn: sqlite3.Connection, query: str, params: tuple[object, ...]
+    conn: sqlite3.Connection, query: str, params: tuple[object, ...], *, record_type: str
 ) -> Iterator[dict[str, object]]:
-    """Stream dict rows with JSON TEXT decoded, bounded by a fetch batch."""
+    """Stream dict rows with JSON TEXT decoded, bounded by a fetch batch.
+
+    JSON text too deep for the decoder raises ``_ExportDepthError`` naming the
+    table of ``record_type`` and the column.
+    """
     cursor = conn.execute(query, params)
     columns = [description[0] for description in cursor.description]
     while True:
@@ -1107,7 +1664,10 @@ def _decoded_rows(
             row = dict(raw) if isinstance(raw, dict) else dict(zip(columns, raw))
             for key, value in row.items():
                 if key in _JSON_COLUMNS and isinstance(value, str):
-                    row[key] = json.loads(value)
+                    try:
+                        row[key] = json.loads(value)
+                    except RecursionError as exc:
+                        raise _ExportDepthError(table=_RECORD_SPECS[record_type][0], column=key) from exc
             yield row
 
 
@@ -1194,6 +1754,7 @@ def _export_rows(
             ORDER BY captured_at DESC, id DESC
             """,
             (uid,),
+            record_type="source",
         )
     )
     yield from (
@@ -1208,6 +1769,7 @@ def _export_rows(
             ORDER BY c.source_id ASC, c.chunk_index ASC, c.id ASC
             """,
             (uid,),
+            record_type="source_chunk",
         )
     )
     yield from (
@@ -1221,6 +1783,7 @@ def _export_rows(
             ORDER BY m.created_at ASC, m.id ASC
             """,
             (uid,),
+            record_type="memory",
         )
     )
     yield from (
@@ -1234,6 +1797,7 @@ def _export_rows(
             ORDER BY created_at ASC, id ASC
             """,
             (uid,),
+            record_type="entity",
         )
     )
     yield from (
@@ -1248,6 +1812,7 @@ def _export_rows(
             ORDER BY r.changed_at ASC, r.id ASC
             """,
             (uid,),
+            record_type="entity_relationship_event",
         )
     )
     # All edges, including closed ones (valid_to set): the temporal
@@ -1313,6 +1878,7 @@ def _export_rows(
             ORDER BY g.created_at ASC, g.id ASC
             """,
             (uid,),
+            record_type="graph_edge",
         )
     )
     yield from (
@@ -1327,6 +1893,7 @@ def _export_rows(
             ORDER BY r.memory_id ASC, r.sequence_no ASC, r.id ASC
             """,
             (uid,),
+            record_type="memory_revision",
         )
     )
     yield from (
@@ -1375,6 +1942,7 @@ def _export_rows(
             ORDER BY p.created_at ASC, p.id ASC
             """,
             (uid,),
+            record_type="provenance_link",
         )
     )
     yield from (
@@ -1388,6 +1956,7 @@ def _export_rows(
             ORDER BY l.created_at ASC, l.id ASC
             """,
             (uid,),
+            record_type="open_loop",
         )
     )
     yield from (
@@ -1401,6 +1970,7 @@ def _export_rows(
             ORDER BY occurred_at ASC, id ASC
             """,
             (uid,),
+            record_type="event",
         )
     )
 
@@ -1423,8 +1993,25 @@ def _export_schema() -> dict[str, object]:
     }
 
 
-def _write_export(stream: IO[str], *, db_path: Path, user_id: UUID) -> int:
-    """Write a versioned export from a read-only private SQLite snapshot."""
+def _write_export(
+    stream: IO[str],
+    *,
+    db_path: Path,
+    user_id: UUID,
+    credential_findings: list["_CredentialFinding"] | None = None,
+    record_hits: list["_RecordCredentialHit"] | None = None,
+) -> int:
+    """Write a versioned export from a read-only private SQLite snapshot.
+
+    When ``credential_findings`` is given, every memory row is also run
+    through the same credential check import applies, so the owner hears
+    about a row import will refuse while the source vault still exists.
+    When ``record_hits`` is given, every other record is read the way import
+    reads it, and each column that holds credential-shaped text is added. A
+    memory row contributes its columns the check does not read, unless the
+    check refuses the row, which is listed under ``credential_findings`` only.
+    Import restores those records and lists them, so they are not a refusal.
+    """
     with _prepared_export_connection(db_path, user_id) as conn:
         header = {
             "format": _EXPORT_FORMAT,
@@ -1443,7 +2030,24 @@ def _write_export(stream: IO[str], *, db_path: Path, user_id: UUID) -> int:
         counts = {record_type: 0 for record_type in _RECORD_SPECS}
         written = 0
         for record_type, row in _export_rows(conn, user_id):
-            line = _export_line(record_type, row) + "\n"
+            try:
+                line = _export_line(record_type, row) + "\n"
+                finding = None
+                if record_type == "memory" and isinstance(row, Mapping):
+                    # The header is line 1, so this record lands on line written + 2.
+                    finding = _memory_record_credential_finding(row, line_no=written + 2)
+                if finding is not None and credential_findings is not None:
+                    credential_findings.append(finding)
+                if record_hits is not None and finding is None and isinstance(row, Mapping):
+                    # A memory row import refuses is listed above and not here.
+                    record_hits.extend(_record_credential_hits(record_type, row, line_no=written + 2))
+            except RecursionError as exc:
+                # JSON nested past what the recursive writers take (from about a thousand
+                # levels). The decoder took it, so the row got this far.
+                raise _ExportDepthError(
+                    table=_RECORD_SPECS[record_type][0],
+                    column=_deepest_column(row) if isinstance(row, Mapping) else None,
+                ) from exc
             stream.write(line)
             digest.update(line.encode("utf-8"))
             counts[record_type] += 1
@@ -1460,6 +2064,25 @@ def _write_export(stream: IO[str], *, db_path: Path, user_id: UUID) -> int:
         return written
 
 
+def _export_record_hit_lines(hits: Sequence["_RecordCredentialHit"]) -> list[str]:
+    """stderr lines for credential-shaped text import does not refuse, or none.
+
+    Named apart from the memory warning: import restores these records.
+    """
+    if not hits:
+        return []
+    lines = [
+        f"alice-memory: line {hit.line_no}: {_record_hit_line(hit)} holds credential-shaped text"
+        for hit in hits
+    ]
+    lines.append(
+        "alice-memory: note: alice-memory import restores these records unchanged and lists them "
+        "on its receipt. It refuses a memory row only for credential-shaped text in its title, "
+        "text, summary, value, metadata, key or project."
+    )
+    return lines
+
+
 def _run_export(args: argparse.Namespace) -> int:
     db_path = resolve_db_path(data_dir=args.data_dir, db=args.db)
     if not db_path.exists():
@@ -1472,6 +2095,8 @@ def _run_export(args: argparse.Namespace) -> int:
             return 1
         out_path = requested_out_path.resolve()
         temp_path: Path | None = None
+        credential_findings: list[_CredentialFinding] = []
+        record_hits: list[_RecordCredentialHit] = []
         try:
             _ensure_private_directory(out_path.parent)
             fd, raw_temp_path = tempfile.mkstemp(
@@ -1483,7 +2108,13 @@ def _run_export(args: argparse.Namespace) -> int:
             temp_path = Path(raw_temp_path)
             with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as stream:
                 os.fchmod(stream.fileno(), 0o600)
-                written = _write_export(stream, db_path=db_path, user_id=args.user_id)
+                written = _write_export(
+                    stream,
+                    db_path=db_path,
+                    user_id=args.user_id,
+                    credential_findings=credential_findings,
+                    record_hits=record_hits,
+                )
                 stream.flush()
                 os.fsync(stream.fileno())
             os.replace(temp_path, out_path)
@@ -1499,6 +2130,8 @@ def _run_export(args: argparse.Namespace) -> int:
                 "SQLite export failed",
                 exc_info=(type(exc), exc, exc.__traceback__),
             )
+            if isinstance(exc, _ExportDepthError):
+                _stderr_line(f"alice-memory: {exc}")
             _emit_error("export_failed")
             return 1
         finally:
@@ -1513,11 +2146,41 @@ def _run_export(args: argparse.Namespace) -> int:
                 file=sys.stderr,
                 flush=True,
             )
+            if credential_findings:
+                for line in _credential_finding_lines(credential_findings):
+                    print(line, file=sys.stderr, flush=True)
+                print(
+                    "alice-memory: warning: alice-memory import will refuse this export. Redact "
+                    "the memories listed above in this vault (alice_memory_manage action=redact, "
+                    "with ALICE_MCP_FULL_TOOLS=1), then export again.",
+                    file=sys.stderr,
+                    flush=True,
+                )
+            for line in _export_record_hit_lines(record_hits):
+                print(line, file=sys.stderr, flush=True)
         except (OSError, ValueError):
             return 2
     else:
+        stdout_findings: list[_CredentialFinding] = []
+        stdout_hits: list[_RecordCredentialHit] = []
         try:
-            _write_export(sys.stdout, db_path=db_path, user_id=args.user_id)
+            _write_export(
+                sys.stdout,
+                db_path=db_path,
+                user_id=args.user_id,
+                credential_findings=stdout_findings,
+                record_hits=stdout_hits,
+            )
+            for line in _credential_finding_lines(stdout_findings):
+                _stderr_line(line)
+            if stdout_findings:
+                _stderr_line(
+                    "alice-memory: warning: alice-memory import will refuse this export. Redact "
+                    "the memories listed above in this vault (alice_memory_manage action=redact, "
+                    "with ALICE_MCP_FULL_TOOLS=1), then export again."
+                )
+            for line in _export_record_hit_lines(stdout_hits):
+                _stderr_line(line)
         except (
             _BackupError,
             OSError,
@@ -1528,6 +2191,8 @@ def _run_export(args: argparse.Namespace) -> int:
                 "SQLite stdout export failed",
                 exc_info=(type(exc), exc, exc.__traceback__),
             )
+            if isinstance(exc, _ExportDepthError):
+                _stderr_line(f"alice-memory: {exc}")
             _emit_error("export_failed")
             return 1
     return 0
@@ -1540,6 +2205,54 @@ class _ImportError(Exception):
     """A user-facing import failure; the message names the offending line."""
 
 
+class _ImportDepthError(_ImportError):
+    """JSON in the backup, or in a row it would meet, is nested too deeply to read.
+
+    ``json.loads`` raises RecursionError on text nested about ten thousand
+    levels, and the importer's own walkers fail from about a thousand. Import
+    refuses with ``restore_failed`` and prints this message first. It names the
+    line, the table and the column, and never a value. A caller that knows more
+    than the raiser sets ``table``, ``column`` or ``line_no`` before it raises
+    the error on.
+    """
+
+    def __init__(
+        self,
+        *,
+        table: str | None = None,
+        column: str | None = None,
+        line_no: int | None = None,
+        existing_row: bool = False,
+    ) -> None:
+        super().__init__()
+        self.table = table
+        self.column = column
+        self.line_no = line_no
+        self.existing_row = existing_row
+
+    def __str__(self) -> str:
+        where = f"line {self.line_no}: " if self.line_no is not None else ""
+        if self.existing_row:
+            return (
+                f"{where}the {self.table} row already in the vault has {self.column} nested too "
+                "deeply to compare with the file"
+            )
+        if self.table is None:
+            return f"{where}a record is nested too deeply for import to read"
+        if self.column is None:
+            return f"{where}a {self.table} record is nested too deeply for import to read"
+        return f"{where}{self.table} column {self.column} is nested too deeply for import to read"
+
+
+class _ImportCredentialError(_ImportError):
+    """Memory records carry credential material. Reported under its own code,
+    naming every offender's line and memory id, never the matched text."""
+
+    def __init__(self, findings: Sequence["_CredentialFinding"]) -> None:
+        super().__init__(f"{len(findings)} memory record(s) carry credential material")
+        self.findings = tuple(findings)
+
+
 @dataclass(frozen=True)
 class _ValidatedImport:
     versioned: bool
@@ -1548,6 +2261,7 @@ class _ValidatedImport:
     content_sha256: str
     manifest_sha256: str
     spool_path: Path
+    record_credential_hits: tuple[_RecordCredentialHit, ...] = ()
 
 
 def _create_import_spool(path: Path) -> tuple[Path, sqlite3.Connection]:
@@ -1631,6 +2345,8 @@ def _decode_import_envelope(
         payload = json.loads(text)
     except json.JSONDecodeError as exc:
         raise _ImportError(f"line {line_no}: invalid JSON: {exc}") from exc
+    except RecursionError as exc:
+        raise _ImportDepthError(line_no=line_no) from exc
     if not isinstance(payload, dict):
         raise _ImportError(
             f"line {line_no}: expected a JSON object, got {type(payload).__name__}"
@@ -1644,12 +2360,356 @@ def _decode_import_envelope(
     return record_type, record
 
 
-def _validate_import_file(path: Path) -> _ValidatedImport:
+def _json_column(value: object, *, column: str) -> object:
+    """A memory's JSON column as the mapping or list it holds; text that is not JSON as text.
+
+    Text too deep for the decoder is refused, naming ``column``. Validation has
+    already refused it in every JSON column of every record, so this is the
+    second check on the way to the same refusal.
+    """
+
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except json.JSONDecodeError:
+            return value
+        except RecursionError as exc:
+            raise _ImportDepthError(table="memories", column=column) from exc
+    return value
+
+
+def _json_depth(value: object) -> int:
+    """How many levels of mapping and list ``value`` nests, counted without recursion."""
+
+    deepest = 0
+    pending: list[tuple[object, int]] = [(value, 1)]
+    while pending:
+        item, depth = pending.pop()
+        deepest = max(deepest, depth)
+        if isinstance(item, Mapping):
+            pending.extend((child, depth + 1) for child in item.values())
+        elif isinstance(item, list):
+            pending.extend((child, depth + 1) for child in item)
+    return deepest
+
+
+def _deepest_column(record: Mapping[str, object]) -> str | None:
+    """The column of ``record`` that nests deepest, or None when none nests at all."""
+
+    named: str | None = None
+    named_depth = 1
+    for column, value in record.items():
+        depth = _json_depth(value)
+        if depth > named_depth:
+            named, named_depth = column, depth
+    return named
+
+
+def _nesting_error(record_type: str, record: Mapping[str, object], line_no: int) -> _ImportDepthError:
+    """The refusal for a record whose nesting a reader could not take, naming its deepest column."""
+
+    return _ImportDepthError(
+        table=_RECORD_SPECS[record_type][0], column=_deepest_column(record), line_no=line_no
+    )
+
+
+# JSON columns whose text nothing else holds to the 256 level cap while a file is validated.
+# ``metadata_json`` and ``payload_json`` are walked by the key claim walk, which stops at
+# ``_KEY_CLAIM_MAX_DEPTH`` levels. The columns below are stored as the text they are, or are
+# read only by the credential scan, which takes text up to about a thousand levels, a little
+# more than export can write, or by a shape check that a list of nested lists passes. A vault
+# must not hold what export cannot write, so text nested past the same cap is refused in
+# these. A test imports and exports every JSON column of every record type to keep the list
+# complete.
+_TEXT_DEPTH_CAPPED_COLUMNS: dict[str, frozenset[str]] = {
+    "memory_revisions": frozenset({"previous_value", "new_value", "source_event_ids", "candidate"}),
+    "memories": frozenset({"value", "source_event_ids"}),
+    "vnext_entities": frozenset({"aliases"}),
+}
+
+
+def _refuse_undecodable_json_columns(record_type: str, record: Mapping[str, object], *, line_no: int) -> None:
+    """Refuse a JSON column that holds text too deep for the decoder.
+
+    A string in a JSON column is stored as the text it is, and every read of the
+    row decodes it, so a row with such text in one cannot be read back. Only the
+    JSON columns are checked. A text column (a memory title, a chunk's text)
+    that happens to look like deeply nested JSON is only text.
+    """
+
+    table = _RECORD_SPECS[record_type][0]
+    capped = _TEXT_DEPTH_CAPPED_COLUMNS.get(table, frozenset())
+    for column, value in record.items():
+        if column not in _JSON_COLUMNS or not isinstance(value, str):
+            continue
+        try:
+            decoded = json.loads(value)
+        except json.JSONDecodeError:
+            continue
+        except RecursionError as exc:
+            raise _ImportDepthError(table=table, column=column, line_no=line_no) from exc
+        # The decoder takes about ten thousand levels, and export fails from about a
+        # thousand, so text between the two would be stored and could not be exported.
+        # ``_json_depth`` counts the scalar at the bottom as a level, hence the one more.
+        if column in capped and _json_depth(decoded) > _KEY_CLAIM_MAX_DEPTH + 1:
+            raise _ImportDepthError(table=table, column=column, line_no=line_no)
+
+
+@dataclass(frozen=True)
+class _CredentialFinding:
+    line_no: int
+    memory_id: str
+    verdict: str
+    fields: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class _RecordCredentialHit:
+    """One record column that holds credential-shaped text and is not refused.
+
+    Never the text itself. Import and export list these and go on: a vault
+    from before the credential floor can legitimately hold a secret in a
+    source, and no SQLite command removes a source. The columns are those of
+    every non-memory record, and those of a memory row that the credential
+    check does not read (see ``_MEMORY_FLOOR_COLUMNS``).
+    """
+
+    line_no: int
+    table: str
+    row_id: str
+    column: str
+
+
+# Keys the product itself writes into a memory's metadata_json that the
+# credential name rule would read as secret names. Enumerated from the vNext
+# memory writers (a test walks them and fails on a new one), not guessed:
+# a rollup card's rollup_key. The producer writes topic, entity, and
+# semantic labels, with an optional scope:<16 hex>: prefix. That key
+# blocked the restore of the product's own export (S4.4 round 3, P2 item 7).
+# The string is still read by value, so the label meets the text floor.
+SYSTEM_METADATA_KEYS = frozenset({"rollup_key"})
+
+
+def _without_system_keys(value: object) -> object:
+    """The mapping with each product rollup key wrapped in a list, so the
+    floor reads that value on its own and never as a keyed pair.
+
+    Only a value that matches the producer grammar is unwrapped. Any other
+    ``rollup_key`` stays a keyed pair. Wrapping the string in a list keeps
+    the value read and drops the pair, which is how the label is still read.
+    """
+
+    if isinstance(value, Mapping):
+        return {
+            key: [item]
+            if key in SYSTEM_METADATA_KEYS and is_product_rollup_key(item)
+            else _without_system_keys(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [_without_system_keys(item) for item in value]
+    return value
+
+
+def _without_product_value_rollup_key(value: object) -> object:
+    """Unwrap ``value.rollup.rollup_key`` when it matches the producer grammar.
+
+    The import value column is otherwise read with its keys. A rollup card
+    stores that key under ``rollup``. A ``rollup_key`` anywhere else in the
+    value column, including the top level, stays a keyed pair. The unwrapped
+    string is still read by value.
+    """
+
+    if not isinstance(value, Mapping):
+        return value
+    rollup = value.get("rollup")
+    if not isinstance(rollup, Mapping) or not is_product_rollup_key(rollup.get("rollup_key")):
+        return value
+    unwrapped_rollup = {
+        key: [item] if key == "rollup_key" else item
+        for key, item in rollup.items()
+    }
+    return {key: unwrapped_rollup if key == "rollup" else item for key, item in value.items()}
+
+
+def _memory_record_credential_fields(record: Mapping[str, object]) -> tuple[tuple[str, object], ...]:
+    """The fields of one memory record the floor reads, in reading order.
+
+    Title and canonical text; the value column as a mapping, keyed;
+    metadata_json as a mapping, keyed, except the
+    keys the product itself writes; then the identifiers memory_key and
+    project_id. The summary is left out when it is a derived copy of the
+    text (canonical_text[:N] or a "..." preview); a summary that says
+    something else is read.
+    """
+
+    text = record.get("canonical_text")
+    summary = record.get("summary")
+    fields: list[tuple[str, object]] = [("title", record.get("title")), ("canonical_text", text)]
+    if summary is not None and not is_derived_copy(summary, text):
+        fields.append(("summary", summary))
+    fields.extend(
+        [
+            ("value", _without_product_value_rollup_key(_json_column(record.get("value"), column="value"))),
+            (
+                "metadata_json",
+                _without_system_keys(_json_column(record.get("metadata_json"), column="metadata_json")),
+            ),
+            ("memory_key", record.get("memory_key")),
+            ("project_id", record.get("project_id")),
+        ]
+    )
+    return tuple(fields)
+
+
+def _memory_record_credential_finding(record: Mapping[str, object], *, line_no: int) -> _CredentialFinding | None:
+    """The credential floor for one restored memory row, or None when it is clean.
+
+    Until 2026-09-22 import restored a backup with no credential check, so a
+    crafted export planted a secret as an active memory. Every memory record
+    is checked whatever its status: a retired row's title and text can still
+    be rendered through a supersession chain, and a correction's previous
+    text stays in metadata_json. The finding names the fields, never the text.
+    """
+
+    fields = _memory_record_credential_fields(record)
+    verdict = credential_verdict(*(value for _name, value in fields))
+    if verdict is None:
+        return None
+    named = tuple(name for name, value in fields if value is not None and credential_verdict(value) is not None)
+    return _CredentialFinding(
+        line_no=line_no,
+        memory_id=str(record.get("id")),
+        verdict=verdict,
+        fields=named or ("across fields",),
+    )
+
+
+# Columns import never stores from the file: user_id is rebound to the
+# importing user, so a value the file carries there reaches no row.
+_NOT_STORED_FROM_FILE = frozenset({"user_id"})
+# The memory columns the credential check reads (``_memory_record_credential_fields``).
+# A memory row that holds credential material in one of them is refused, so the
+# report reads the rest of the row: trust_reason, created_by_agent_id (recall
+# returns it as writer.id), the ids, the model name and the digests. The summary
+# is left out because it is read only when it is not a copy of the text.
+_MEMORY_FLOOR_COLUMNS = frozenset(
+    {"title", "canonical_text", "summary", "value", "metadata_json", "memory_key", "project_id"}
+)
+_RECEIPT_ID_MAX_CHARS = 128
+
+
+# Values the product writes into id, hash and time columns. A value that is
+# wholly one of these is not read: the credential check returns nothing for any
+# of them (a test pins that), and they are most of a large export's short
+# columns. Anything that differs, by one character, is read like any other text.
+_STRUCTURAL_VALUE = re.compile(
+    r"""
+      [0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}
+    | (?:sha256:)?[0-9a-f]{32,128}
+    | \d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?(?:Z|[+-]\d{2}:?\d{2})?)?
+    """,
+    re.VERBOSE | re.IGNORECASE | re.ASCII,
+)
+
+
+def _is_structural_value(value: object) -> bool:
+    return isinstance(value, str) and _STRUCTURAL_VALUE.fullmatch(value) is not None
+
+
+def _reported_credential_columns(record_type: str, record: Mapping[str, object]) -> tuple[str, ...]:
+    """The columns of one record that hold credential-shaped text and are not refused.
+
+    Every column the import stores, read by value with the same pair that
+    ``_quarantine_credential_reports`` uses: ``_quarantine_text_column`` picks
+    the text and JSON columns, and ``credential_verdict`` reads each. Ids and
+    hashes are read too, because an id is shown to a model in recall results,
+    except a value that is wholly a UUID, a digest or a timestamp. A memory row
+    is read only in the columns the credential check leaves out.
+    """
+
+    _table, columns = _RECORD_SPECS[record_type]
+    skipped = _NOT_STORED_FROM_FILE | (_MEMORY_FLOOR_COLUMNS if record_type == "memory" else frozenset())
+    return tuple(
+        column
+        for column in columns
+        if column not in skipped
+        and _quarantine_text_column(record.get(column))
+        and not _is_structural_value(record.get(column))
+        and credential_verdict(record.get(column)) is not None
+    )
+
+
+def _record_credential_hits(
+    record_type: str, record: Mapping[str, object], *, line_no: int
+) -> list[_RecordCredentialHit]:
+    table, _columns = _RECORD_SPECS[record_type]
+    row_id = str(record.get("id"))
+    return [
+        _RecordCredentialHit(line_no=line_no, table=table, row_id=row_id, column=column)
+        for column in _reported_credential_columns(record_type, record)
+    ]
+
+
+def _receipt_row_id(hit: _RecordCredentialHit) -> str:
+    """The id for a receipt line, or a stand-in when printing it would print the finding.
+
+    An id that is itself credential-shaped, holds a control character (a newline
+    would start a fake receipt line), or is very long is withheld. The line
+    number still locates the row.
+    """
+
+    row_id = hit.row_id
+    if len(row_id) > _RECEIPT_ID_MAX_CHARS or not row_id.isprintable() or credential_verdict(row_id) is not None:
+        return f"(id withheld, line {hit.line_no})"
+    return row_id
+
+
+def _record_hit_line(hit: _RecordCredentialHit) -> str:
+    return f"{hit.table} {_receipt_row_id(hit)} {hit.column}"
+
+
+def _credential_finding_lines(findings: Sequence[_CredentialFinding]) -> list[str]:
+    lines = []
+    for finding in findings:
+        what = "expands too far under unicode normalisation" if finding.verdict == VERDICT_EXPANSION else (
+            "carries credential material"
+        )
+        lines.append(
+            f"alice-memory: line {finding.line_no}: memory {finding.memory_id} {what} "
+            f"({', '.join(finding.fields)})"
+        )
+    return lines
+
+
+_IMPORT_PROGRESS_EVERY = 10_000
+
+
+def _stderr_line(line: str) -> None:
+    print(line, file=sys.stderr, flush=True)
+
+
+def _validate_import_file(
+    path: Path,
+    *,
+    progress: Callable[[str], None] | None = None,
+    enforce_credential_floor: bool = True,
+) -> _ValidatedImport:
     """Validate the complete file before opening or creating the target DB.
 
     Version 2 exports carry schema, counts, and a canonical SHA-256 footer;
     a missing footer therefore detects truncation. Legacy headerless JSONL
     remains accepted, but cannot offer an integrity guarantee it never had.
+
+    ``enforce_credential_floor`` is false only for ``--quarantine``. That
+    path still checks the footer on the file as given, then rewrites the
+    named memory before deciding whether any memory row would still carry
+    credential material. A normal import refuses here, before any write.
+
+    Every other record type is read too, but only to report: the table, id
+    and column of each hit come back in ``record_credential_hits`` and the
+    import goes on. A memory row the check does not refuse is read in the
+    columns the check leaves out.
     """
     versioned: bool | None = None
     footer: dict[str, object] | None = None
@@ -1662,6 +2722,8 @@ def _validate_import_file(path: Path) -> _ValidatedImport:
         raise _ImportError(f"could not create validated import spool: {exc}") from exc
     spool_complete = False
     record_count = 0
+    credential_findings: list[_CredentialFinding] = []
+    record_hits: list[_RecordCredentialHit] = []
     saw_nonblank = False
     export_user_id: str | None = None
     try:
@@ -1712,15 +2774,20 @@ def _validate_import_file(path: Path) -> _ValidatedImport:
                             raise _ImportError(
                                 f"line {line_no}: unsupported export integrity declaration"
                             )
-                        if integrity["scope"] == _LEGACY_V2_INTEGRITY_SCOPE:
-                            digest.update(
-                                (_export_line(_EXPORT_HEADER_TYPE, record) + "\n").encode(
-                                    "utf-8"
+                        try:
+                            if integrity["scope"] == _LEGACY_V2_INTEGRITY_SCOPE:
+                                digest.update(
+                                    (_export_line(_EXPORT_HEADER_TYPE, record) + "\n").encode(
+                                        "utf-8"
+                                    )
                                 )
-                            )
-                        manifest_sha256 = hashlib.sha256(
-                            _export_line(_EXPORT_HEADER_TYPE, record).encode("utf-8")
-                        ).hexdigest()
+                            manifest_sha256 = hashlib.sha256(
+                                _export_line(_EXPORT_HEADER_TYPE, record).encode("utf-8")
+                            ).hexdigest()
+                        except RecursionError as exc:
+                            # A header nested past what the digest line takes: an extra key
+                            # can hold any depth the decoder accepts.
+                            raise _ImportDepthError(line_no=line_no) from exc
                         continue
                 if record_type == _EXPORT_HEADER_TYPE:
                     raise _ImportError(f"line {line_no}: export header must be the first record")
@@ -1765,21 +2832,36 @@ def _validate_import_file(path: Path) -> _ValidatedImport:
                             f"line {line_no}: legacy {record_type} has unknown fields that "
                             f"this Alice version cannot restore: {unknown_columns}"
                         )
+                # Before any reader decodes the record: a JSON column that holds text
+                # too deep for the decoder is refused here, naming the column.
+                _refuse_undecodable_json_columns(record_type, record, line_no=line_no)
+                try:
+                    if record_type == "memory":
+                        finding = _memory_record_credential_finding(record, line_no=line_no)
+                        if finding is not None:
+                            credential_findings.append(finding)
+                    # Reported, never refused. See _RecordCredentialHit. A memory row the
+                    # check refuses aborts the import before the receipt prints.
+                    record_hits.extend(_record_credential_hits(record_type, record, line_no=line_no))
+                    line_digest = (_export_line(record_type, record) + "\n").encode("utf-8")
+                except RecursionError as exc:
+                    # A mapping nested past what the recursive readers take, from about a
+                    # thousand levels (json_safe, which the digest line uses, is one). The
+                    # decoder takes ten thousand, so the line got this far. marshal, which
+                    # the spool uses, stops at two thousand, so it is never reached.
+                    raise _nesting_error(record_type, record, line_no) from exc
+                if progress is not None and (record_count + 1) % _IMPORT_PROGRESS_EVERY == 0:
+                    progress(f"alice-memory: validated {record_count + 1} records")
                 counts[record_type] += 1
                 spool.execute(
                     """
                     INSERT INTO validated_records (record_type, ordinal, line_no, payload)
                     VALUES (?, ?, ?, ?)
                     """,
-                    (
-                        record_type,
-                        counts[record_type],
-                        line_no,
-                        sqlite3.Binary(marshal.dumps(record)),
-                    ),
+                    (record_type, counts[record_type], line_no, sqlite3.Binary(marshal.dumps(record))),
                 )
                 record_count += 1
-                digest.update((_export_line(record_type, record) + "\n").encode("utf-8"))
+                digest.update(line_digest)
         if not saw_nonblank:
             raise _ImportError("file is empty")
         if versioned:
@@ -1795,6 +2877,9 @@ def _validate_import_file(path: Path) -> _ValidatedImport:
                 raise _ImportError("export integrity per-type counts do not match its contents")
             if footer.get("sha256") != digest.hexdigest():
                 raise _ImportError("export integrity SHA-256 does not match its contents")
+        if enforce_credential_floor and credential_findings:
+            # Every offender in one pass, so a user fixes the vault once.
+            raise _ImportCredentialError(credential_findings)
         spool.commit()
         spool.close()
         spool_complete = True
@@ -1817,12 +2902,567 @@ def _validate_import_file(path: Path) -> _ValidatedImport:
         content_sha256=digest.hexdigest(),
         manifest_sha256=manifest_sha256,
         spool_path=spool_path,
+        record_credential_hits=tuple(record_hits),
     )
+
+
+def _quarantine_arg(value: str) -> tuple[str, ...]:
+    """Parse ``--quarantine id[,id...]`` without reading the import file."""
+    parts = tuple(part.strip() for part in value.split(","))
+    if not parts or any(not part for part in parts):
+        raise argparse.ArgumentTypeError(
+            "--quarantine needs one or more memory ids, separated by commas"
+        )
+    return parts
+
+
+def _normalized_quarantine_ids(raw: object) -> tuple[str, ...]:
+    """Dedupe ids, preserving the order the owner typed them."""
+    if raw is None:
+        return ()
+    parts = raw if isinstance(raw, tuple) else _quarantine_arg(str(raw))
+    ordered: list[str] = []
+    for part in parts:
+        if part not in ordered:
+            ordered.append(part)
+    return tuple(ordered)
+
+
+@dataclass(frozen=True)
+class _QuarantinePlan:
+    """What one import must rewrite, and which shared copies it only reports."""
+
+    ids: frozenset[str]
+    exclusive_entity_ids: frozenset[str]
+    successor_ids: frozenset[str]
+    reports: tuple[tuple[str, str, str], ...]
+
+
+_EMPTY_QUARANTINE_PLAN = _QuarantinePlan(frozenset(), frozenset(), frozenset(), ())
+
+
+def _redact_text(value: object) -> object:
+    if isinstance(value, str):
+        return _QUARANTINE_PLACEHOLDER
+    return value
+
+
+def _quarantine_json_object(value: object) -> object:
+    """Replace a present JSON value. NULL stays NULL."""
+    if value is None:
+        return None
+    return dict(_QUARANTINE_JSON_OBJECT)
+
+
+def _event_belongs_to_quarantine(record: dict[str, object], quarantine_ids: frozenset[str]) -> bool:
+    """True when an event is about one of the named memories.
+
+    Membership is the memory target, or a payload ``memory_id``,
+    ``candidate_memory_id``, or ``replacement_memory_id`` equal to one of
+    those ids. The check reads the file record, before the payload is replaced.
+    """
+    if str(record.get("target_type") or "") == "memory" and str(record.get("target_id") or "") in quarantine_ids:
+        return True
+    payload = record.get("payload_json")
+    if isinstance(payload, dict):
+        for key in _QUARANTINE_EVENT_LINK_KEYS:
+            if str(payload.get(key) or "") in quarantine_ids:
+                return True
+    return False
+
+
+def _edge_endpoints(record: dict[str, object]) -> tuple[tuple[str, str], tuple[str, str]]:
+    return (
+        (str(record.get("from_type") or ""), str(record.get("from_id") or "")),
+        (str(record.get("to_type") or ""), str(record.get("to_id") or "")),
+    )
+
+
+def _edge_touches_quarantine(record: dict[str, object], quarantine_ids: frozenset[str]) -> bool:
+    return any(kind == "memory" and endpoint in quarantine_ids for kind, endpoint in _edge_endpoints(record))
+
+
+def _memory_entity_link(record: dict[str, object]) -> tuple[str, str] | None:
+    entity_id = ""
+    memory_id = ""
+    for kind, endpoint in _edge_endpoints(record):
+        if not endpoint:
+            continue
+        if kind == "entity":
+            entity_id = endpoint
+        elif kind == "memory":
+            memory_id = endpoint
+    if entity_id and memory_id:
+        return entity_id, memory_id
+    return None
+
+
+def _metadata_pointer(record: dict[str, object], key: str) -> str:
+    metadata = record.get("metadata_json")
+    if not isinstance(metadata, dict):
+        return ""
+    value = metadata.get(key)
+    return value if isinstance(value, str) else ""
+
+
+def _build_quarantine_plan(
+    validated_import: _ValidatedImport,
+    quarantine_ids: tuple[str, ...],
+) -> _QuarantinePlan:
+    """Classify derived rows before insert. Shared chunks and entities stay."""
+    ids = frozenset(quarantine_ids)
+    if not ids:
+        return _EMPTY_QUARANTINE_PLAN
+    memories = [record for _line_no, record in _iter_spooled_records(validated_import, "memory")]
+    edges = [record for _line_no, record in _iter_spooled_records(validated_import, "graph_edge")]
+    links = [record for _line_no, record in _iter_spooled_records(validated_import, "provenance_link")]
+
+    successors: set[str] = set()
+    for record in memories:
+        memory_id = str(record.get("id") or "")
+        supersedes_ids = {
+            pointer
+            for pointer in (
+                str(record.get("supersedes") or ""),
+                _metadata_pointer(record, "supersedes"),
+            )
+            if pointer
+        }
+        if memory_id and memory_id not in ids and supersedes_ids & ids:
+            successors.add(memory_id)
+        if memory_id in ids:
+            for successor_id in (
+                str(record.get("superseded_by") or ""),
+                _metadata_pointer(record, "superseded_by"),
+            ):
+                if successor_id and successor_id not in ids:
+                    successors.add(successor_id)
+
+    linked: dict[str, set[str]] = {}
+    for edge in edges:
+        pair = _memory_entity_link(edge)
+        if pair is None:
+            continue
+        entity_id, memory_id = pair
+        linked.setdefault(entity_id, set()).add(memory_id)
+    exclusive = frozenset(
+        entity_id for entity_id, memory_ids in linked.items() if memory_ids and memory_ids <= ids
+    )
+    shared_entities = frozenset(
+        entity_id for entity_id, memory_ids in linked.items() if memory_ids & ids and not memory_ids <= ids
+    )
+
+    chunk_targets: dict[str, set[str]] = {}
+    for link in links:
+        if str(link.get("target_type") or "") != "memory":
+            continue
+        chunk_id = str(link.get("source_chunk_id") or "")
+        target_id = str(link.get("target_id") or "")
+        if chunk_id and target_id:
+            chunk_targets.setdefault(chunk_id, set()).add(target_id)
+    shared_chunks = frozenset(
+        chunk_id
+        for chunk_id, targets in chunk_targets.items()
+        if targets & ids and not targets <= ids
+    )
+
+    reports: list[tuple[str, str, str]] = []
+    for chunk_id in sorted(shared_chunks):
+        reports.append(("source_chunks", chunk_id, "text"))
+    for entity_id in sorted(shared_entities):
+        for column in ("aliases", "name", "normalized_name"):
+            reports.append(("vnext_entities", entity_id, column))
+    reports.sort()
+    return _QuarantinePlan(
+        ids=ids,
+        exclusive_entity_ids=exclusive,
+        successor_ids=frozenset(successors),
+        reports=tuple(reports),
+    )
+
+
+def _redact_quarantined_memory(record: dict[str, object]) -> dict[str, object]:
+    redacted = dict(record)
+    memory_id = str(record.get("id") or "")
+    # Rejected rows are outside recall, resume, and context packs.
+    redacted["status"] = "rejected"
+    redacted["memory_key"] = f"quarantined.{memory_id}"
+    # Cleared, matching product redaction, so the old idempotency key can
+    # create a fresh row through the normal checks.
+    redacted["commit_digest"] = None
+    for field in _QUARANTINE_TEXT_FIELDS:
+        redacted[field] = _redact_text(redacted.get(field))
+    if isinstance(redacted.get("extracted_by_model"), str):
+        redacted["extracted_by_model"] = _QUARANTINE_PLACEHOLDER
+    redacted["value"] = dict(_QUARANTINE_JSON_OBJECT)
+    redacted["metadata_json"] = dict(_QUARANTINE_JSON_OBJECT)
+    return redacted
+
+
+def _redact_quarantined_revision(record: dict[str, object]) -> dict[str, object]:
+    redacted = dict(record)
+    redacted["memory_key"] = f"quarantined.{record.get('memory_id') or ''}"
+    for field in _QUARANTINE_REVISION_TEXT_FIELDS:
+        redacted[field] = _redact_text(redacted.get(field))
+    for field in _QUARANTINE_REVISION_JSON_FIELDS:
+        if field in redacted:
+            redacted[field] = _quarantine_json_object(redacted.get(field))
+    return redacted
+
+
+def _redact_quarantined_event(
+    record: dict[str, object],
+    quarantine_ids: frozenset[str],
+) -> dict[str, object]:
+    redacted = dict(record)
+    payload = redacted.get("payload_json")
+    kept: dict[str, str] = {}
+    if isinstance(payload, dict):
+        for key in _QUARANTINE_EVENT_KEPT_KEYS:
+            value = payload.get(key)
+            if isinstance(value, str) and value in quarantine_ids:
+                kept[key] = value
+    redacted["payload_json"] = {"quarantined": True, **kept}
+    # integrity_hash is a SHA-256 of the event record, including the payload.
+    # A reconstructed original payload could be checked against a kept hash.
+    redacted["integrity_hash"] = None
+    return redacted
+
+
+def _replace_successor_fields(value: object) -> tuple[object, int]:
+    """Replace copied successor fields. Leave every other key in place."""
+    if isinstance(value, dict):
+        replaced = 0
+        rewritten: dict[str, object] = {}
+        for key, item in value.items():
+            if key in _SUCCESSOR_COPIED_FIELDS and isinstance(item, str):
+                rewritten[key] = _QUARANTINE_PLACEHOLDER
+                replaced += 1
+            else:
+                nested, nested_count = _replace_successor_fields(item)
+                rewritten[key] = nested
+                replaced += nested_count
+        return rewritten, replaced
+    if isinstance(value, list):
+        replaced = 0
+        items: list[object] = []
+        for item in value:
+            nested, nested_count = _replace_successor_fields(item)
+            items.append(nested)
+            replaced += nested_count
+        return items, replaced
+    return value, 0
+
+
+def _replace_quarantined_rollup_instances(
+    value: object,
+    quarantine_ids: frozenset[str],
+) -> tuple[object, int]:
+    """Replace rollup instance entries that belong to a quarantined memory."""
+    if not isinstance(value, dict):
+        return value, 0
+    rollup = value.get("rollup")
+    if not isinstance(rollup, dict):
+        return value, 0
+    instances = rollup.get("instances")
+    if not isinstance(instances, list):
+        return value, 0
+    replaced = 0
+    rewritten_instances: list[object] = []
+    for item in instances:
+        memory_id = item.get("memory_id") if isinstance(item, dict) else None
+        if isinstance(memory_id, str) and memory_id in quarantine_ids:
+            rewritten_instances.append({"quarantined": True, "memory_id": memory_id})
+            replaced += 1
+        else:
+            rewritten_instances.append(item)
+    if replaced == 0:
+        return value, 0
+    rewritten = dict(value)
+    rewritten_rollup = dict(rollup)
+    rewritten_rollup["instances"] = rewritten_instances
+    rewritten["rollup"] = rewritten_rollup
+    return rewritten, replaced
+
+
+def _apply_import_quarantine(
+    record_type: str,
+    record: dict[str, object],
+    plan: _QuarantinePlan,
+) -> tuple[dict[str, object], dict[str, int]]:
+    """Return the row to insert and the receipt counts that row adds."""
+    if not plan.ids:
+        return record, {}
+    if record_type == "memory":
+        memory_id = str(record.get("id") or "")
+        if memory_id in plan.ids:
+            return _redact_quarantined_memory(record), {"memory": 1}
+        rewritten = dict(record)
+        counts: dict[str, int] = {}
+        if memory_id in plan.successor_ids:
+            metadata, replaced = _replace_successor_fields(rewritten.get("metadata_json"))
+            if replaced:
+                rewritten["metadata_json"] = metadata
+                counts["successor"] = 1
+        new_value, instance_count = _replace_quarantined_rollup_instances(rewritten.get("value"), plan.ids)
+        if instance_count:
+            rewritten["value"] = new_value
+            counts["rollup_instance"] = instance_count
+        return (rewritten if counts else record), counts
+    if record_type == "memory_revision" and str(record.get("memory_id") or "") in plan.ids:
+        return _redact_quarantined_revision(record), {"memory_revision": 1}
+    if record_type == "event" and _event_belongs_to_quarantine(record, plan.ids):
+        return _redact_quarantined_event(record, plan.ids), {"event": 1}
+    if (
+        record_type == "provenance_link"
+        and str(record.get("target_type") or "") == "memory"
+        and str(record.get("target_id") or "") in plan.ids
+        and isinstance(record.get("quote"), str)
+    ):
+        redacted = dict(record)
+        redacted["quote"] = _QUARANTINE_PLACEHOLDER
+        return redacted, {"provenance_link": 1}
+    if record_type == "open_loop" and str(record.get("memory_id") or "") in plan.ids:
+        redacted = dict(record)
+        for field in ("title", "description", "resolution_note"):
+            if isinstance(redacted.get(field), str):
+                redacted[field] = _QUARANTINE_PLACEHOLDER
+        return redacted, {"open_loop": 1}
+    if record_type == "graph_edge" and _edge_touches_quarantine(record, plan.ids):
+        redacted = dict(record)
+        if isinstance(redacted.get("explanation"), str):
+            redacted["explanation"] = _QUARANTINE_PLACEHOLDER
+        redacted["metadata_json"] = dict(_QUARANTINE_JSON_OBJECT)
+        return redacted, {"graph_edge": 1}
+    if record_type == "entity" and str(record.get("id") or "") in plan.exclusive_entity_ids:
+        redacted = dict(record)
+        redacted["name"] = _QUARANTINE_PLACEHOLDER
+        redacted["normalized_name"] = f"quarantined.{record.get('id') or ''}"
+        redacted["aliases"] = []
+        return redacted, {"entity": 1}
+    return record, {}
+
+
+def _credential_findings_after_quarantine(
+    validated_import: _ValidatedImport,
+    plan: _QuarantinePlan,
+) -> tuple[_CredentialFinding, ...]:
+    """S4.4's memory check on each memory as quarantine will store it.
+
+    A named memory, a rollup instance, and a successor's copied fields are
+    rewritten first. A memory that still carries credential material after
+    that rewrite is refused, and nothing is written. Shared chunks and
+    shared entity names are not memories, so they are not refused here.
+    """
+
+    findings: list[_CredentialFinding] = []
+    for line_no, record in _iter_spooled_records(validated_import, "memory"):
+        rewritten, _added = _apply_import_quarantine("memory", record, plan)
+        finding = _memory_record_credential_finding(rewritten, line_no=line_no)
+        if finding is not None:
+            findings.append(finding)
+    return tuple(findings)
+
+
+def _column_replaced_by_quarantine(value: object) -> bool:
+    """True when quarantine replaced this column with the placeholder or the fixed object."""
+
+    if value == _QUARANTINE_PLACEHOLDER:
+        return True
+    decoded = value
+    if isinstance(value, str):
+        try:
+            decoded = json.loads(value)
+        except json.JSONDecodeError:
+            return False
+        except RecursionError:
+            # Text too deep for the decoder is not the fixed object. A JSON column
+            # that holds such text was refused in validation, so this is a text
+            # column, and that is stored as the text it is.
+            return False
+    return isinstance(decoded, Mapping) and dict(decoded) == _QUARANTINE_JSON_OBJECT
+
+
+def _quarantine_text_column(value: object) -> bool:
+    """A stored text or JSON column the post-import scan should read."""
+
+    if value is None or isinstance(value, (bool, int, float)):
+        return False
+    if _column_replaced_by_quarantine(value):
+        return False
+    return isinstance(value, (str, Mapping, list, tuple))
+
+
+def _quarantine_credential_reports(
+    validated_import: _ValidatedImport,
+    plan: _QuarantinePlan,
+) -> tuple[tuple[str, str, str], ...]:
+    """Leftover text columns ``credential_verdict`` still flags, as table, id, column.
+
+    Runs on the row quarantine will store. Columns replaced by the placeholder
+    or ``{"quarantined": true}`` are not passed to the detector. The matched
+    text is not returned. Shared source chunks and shared entity names are
+    scanned here too; the receipt already lists those from the plan, so a hit
+    on one of them is not repeated.
+    """
+
+    if not plan.ids:
+        return ()
+    already = set(plan.reports)
+    found: list[tuple[str, str, str]] = []
+    for record_type, (table, columns) in _RECORD_SPECS.items():
+        for _line_no, record in _iter_spooled_records(validated_import, record_type):
+            rewritten, _added = _apply_import_quarantine(record_type, record, plan)
+            row_id = str(rewritten.get("id") or "")
+            for column in columns:
+                value = rewritten.get(column)
+                if not _quarantine_text_column(value):
+                    continue
+                if credential_verdict(value) is None:
+                    continue
+                item = (table, row_id, column)
+                if item in already:
+                    continue
+                already.add(item)
+                found.append(item)
+    found.sort()
+    return tuple(found)
+
+
+def _missing_quarantine_memory_ids(
+    validated_import: _ValidatedImport,
+    quarantine_ids: tuple[str, ...],
+) -> tuple[str, ...]:
+    """Ids the owner named that are not memory records in the validated file."""
+    if not quarantine_ids:
+        return ()
+    wanted = frozenset(quarantine_ids)
+    found: set[str] = set()
+    for _line_no, record in _iter_spooled_records(validated_import, "memory"):
+        memory_id = str(record.get("id") or "")
+        if memory_id in wanted:
+            found.add(memory_id)
+    return tuple(memory_id for memory_id in quarantine_ids if memory_id not in found)
+
+
 def _encode_column_value(column: str, value: object) -> object:
     """TEXT-encode JSON columns the way the store writes them; pass the rest."""
     if column in _JSON_COLUMNS and value is not None and not isinstance(value, str):
         return json.dumps(json_safe(value), ensure_ascii=False, separators=(",", ":"))
     return value
+
+
+# A backup file cannot prove that an agent API key wrote a row. The footer is an
+# unkeyed SHA-256 over the canonical lines, so anyone can edit a record and
+# recompute it: it shows integrity and says nothing about authorship. Readers
+# label a writer ``verified_by_key`` when a stored ``agent_identity`` says
+# ``auth`` is ``agent_api_key``, so import rewrites that claim before a row is
+# stored. The original value stays readable as ``claimed_auth``.
+_IMPORTED_CLAIM_AUTH = "imported_claim"
+_KEY_CLAIM_COLUMNS = ("metadata_json", "payload_json")
+# The writer-label readers decode a JSON string where they expect a mapping, at
+# these two keys and at the column itself. Prose that merely quotes an identity
+# is not read, so it is not rewritten.
+_KEY_CLAIM_TEXT_CARRIERS = frozenset({"agentic_memory", "agent_identity"})
+# The product writes an identity at most three levels down. A column nested
+# deeper than this is not a product record. A walk that stopped early would
+# leave a claim in place, and one with no limit overflows the stack on a file
+# nested about 900 levels, so import refuses the record instead.
+_KEY_CLAIM_MAX_DEPTH = 256
+
+
+def _mapping_or_json_text(value: object) -> Mapping[str, object] | None:
+    """A mapping, or JSON text that decodes to one, as the writer labels read it.
+
+    JSON text too deep for the decoder (it raises RecursionError, at about ten
+    thousand levels) is refused like a mapping past the walk limit. It cannot be
+    checked for a claim, and the readers that decode it the same way fail on it.
+    """
+    if isinstance(value, Mapping):
+        return value
+    if isinstance(value, str) and value.strip().startswith("{"):
+        try:
+            decoded = json.loads(value)
+        except json.JSONDecodeError:
+            return None
+        except RecursionError as exc:
+            raise _ImportDepthError() from exc
+        return decoded if isinstance(decoded, Mapping) else None
+    return None
+
+
+def _downgrade_key_claims(value: object, depth: int = 0) -> tuple[object, bool]:
+    """Rewrite every ``agent_identity`` whose ``auth`` is exactly ``agent_api_key``.
+
+    Returns the value and whether anything changed. An unchanged value is
+    returned as it came, so a column with no claim is stored byte for byte.
+    The match is on the exact string the product writes: ``AGENT_API_KEY`` and
+    a padded value are left as they are, and the readers do not verify them.
+    """
+    if depth > _KEY_CLAIM_MAX_DEPTH:
+        raise _ImportDepthError()
+    if isinstance(value, Mapping):
+        changed = False
+        rewritten: dict[str, object] = {}
+        for key, item in value.items():
+            if key == "agent_identity":
+                identity = _mapping_or_json_text(item)
+                if identity is not None and identity.get("auth") == AGENT_KEY_AUTH:
+                    rewritten[key] = {**identity, "auth": _IMPORTED_CLAIM_AUTH, "claimed_auth": AGENT_KEY_AUTH}
+                    changed = True
+                    continue
+            if key in _KEY_CLAIM_TEXT_CARRIERS and isinstance(item, str):
+                carried = _mapping_or_json_text(item)
+                if carried is not None:
+                    inner, inner_changed = _downgrade_key_claims(carried, depth + 1)
+                    rewritten[key] = inner if inner_changed else item
+                    changed = changed or inner_changed
+                    continue
+            inner, inner_changed = _downgrade_key_claims(item, depth + 1)
+            rewritten[key] = inner
+            changed = changed or inner_changed
+        return (rewritten, True) if changed else (value, False)
+    if isinstance(value, list):
+        changed = False
+        items: list[object] = []
+        for item in value:
+            inner, inner_changed = _downgrade_key_claims(item, depth + 1)
+            items.append(inner)
+            changed = changed or inner_changed
+        return (items, True) if changed else (value, False)
+    return value, False
+
+
+def _downgrade_record_key_claims(record: dict[str, object]) -> tuple[dict[str, object], bool]:
+    """The row to store, and whether a key claim in it was rewritten.
+
+    Reads ``metadata_json`` and ``payload_json`` on every record type, after
+    quarantine replacement. JSON text in those columns is decoded and, when it
+    held a claim, stored as the rewritten mapping. A row that changed loses its
+    ``integrity_hash``, as a quarantined event does: the hash covers the payload.
+    """
+    rewritten = dict(record)
+    changed = False
+    for column in _KEY_CLAIM_COLUMNS:
+        if column not in record:
+            continue
+        raw = record[column]
+        try:
+            decoded: object = _mapping_or_json_text(raw) if isinstance(raw, str) else raw
+            if decoded is None:
+                continue
+            value, column_changed = _downgrade_key_claims(decoded)
+        except _ImportDepthError as exc:
+            exc.column = column
+            raise
+        if column_changed:
+            rewritten[column] = value
+            changed = True
+    if not changed:
+        return record, False
+    if "integrity_hash" in rewritten:
+        rewritten["integrity_hash"] = None
+    return rewritten, True
 
 
 def _normalized_import_values(
@@ -1842,8 +3482,22 @@ def _collision_is_identical(
     existing: dict[str, object],
     columns: tuple[str, ...],
     expected: tuple[object, ...],
+    *,
+    table: str,
+    line_no: int,
+    compared: frozenset[str] | None = None,
 ) -> bool:
+    """True when the stored row holds ``expected`` in every compared column.
+
+    A JSON column is compared as decoded JSON. ``compared`` names the columns the
+    file row carries; the rest are not compared (see ``_import_records``). A stored
+    JSON column too deep for the decoder, which a release before v0.19.2 could have
+    stored, is refused naming the column: it cannot be compared.
+    """
+
     for column, expected_value in zip(columns, expected):
+        if compared is not None and column not in compared:
+            continue
         existing_value = existing.get(column)
         if column in _JSON_COLUMNS:
             try:
@@ -1852,6 +3506,13 @@ def _collision_is_identical(
                     if isinstance(existing_value, str)
                     else existing_value
                 )
+            except json.JSONDecodeError:
+                return False
+            except RecursionError as exc:
+                raise _ImportDepthError(
+                    table=table, column=column, line_no=line_no, existing_row=True
+                ) from exc
+            try:
                 expected_json = (
                     json.loads(expected_value)
                     if isinstance(expected_value, str)
@@ -1866,71 +3527,255 @@ def _collision_is_identical(
     return True
 
 
+class _BackfillProbe:
+    """What the schema bootstrap leaves in a memory or source row after the next open.
+
+    ``bootstrap_sqlite_schema`` fills a column of an existing row from the row
+    itself on every open (``apply_row_backfills``). A file from an older vault, or
+    a hand-made one, can give such a column empty: a source without a
+    ``dedupe_key``, a memory with the agent in its metadata and no
+    ``created_by_agent_id``, a project scope held only under ``agentic_memory``.
+    Import stores the row as the file gives it, and the next open of the vault
+    fills the column in. This asks a scratch database, built once and used one
+    row at a time, what that open would store, by running the bootstrap's own
+    steps on the row. Nothing from the probe reaches the vault.
+    """
+
+    def __init__(self) -> None:
+        self._scratch: sqlite3.Connection | None = None
+
+    def close(self) -> None:
+        if self._scratch is not None:
+            self._scratch.close()
+            self._scratch = None
+
+    def _connection(self) -> sqlite3.Connection:
+        if self._scratch is None:
+            scratch = sqlite3.connect(":memory:", isolation_level=None)
+            try:
+                bootstrap_sqlite_schema(scratch)
+                scratch.execute("PRAGMA foreign_keys=OFF")
+            except BaseException:
+                scratch.close()
+                raise
+            self._scratch = scratch
+        return self._scratch
+
+    def settled_values(
+        self,
+        table: str,
+        columns: tuple[str, ...],
+        values: tuple[object, ...],
+    ) -> tuple[object, ...] | None:
+        """``values`` as the row would read after the next open, or None when it cannot say."""
+
+        if table not in ROW_BACKFILL_TABLES:
+            return None
+        scratch = self._connection()
+        row_id = values[columns.index("id")]
+        try:
+            scratch.execute("BEGIN")
+            scratch.execute(
+                f"INSERT INTO {table} ({', '.join(columns)}) VALUES ({', '.join('?' for _ in columns)})",
+                values,
+            )
+            apply_row_backfills(scratch)
+            row = scratch.execute(
+                f"SELECT {', '.join(columns)} FROM {table} WHERE id = ?", (row_id,)
+            ).fetchone()
+        except (sqlite3.Error, TypeError, ValueError):
+            return None
+        finally:
+            if scratch.in_transaction:
+                scratch.execute("ROLLBACK")
+        return tuple(row) if row is not None else None
+
+
+def _stored_row_matches(
+    existing: dict[str, object],
+    columns: tuple[str, ...],
+    candidates: Sequence[tuple[object, ...]],
+    *,
+    table: str,
+    line_no: int,
+    compared: frozenset[str],
+    probe: _BackfillProbe,
+) -> bool:
+    """True when the stored row equals one of the candidate rows in meaning.
+
+    Each candidate is first compared as it is. A memory or a source that does not
+    match is then compared as the schema bootstrap will leave it, which only fills
+    a column the candidate gave empty (see ``_BackfillProbe``). A column the
+    candidate gives with a value is never replaced, so a row that really differs
+    stays different.
+    """
+
+    for values in candidates:
+        if _collision_is_identical(
+            existing, columns, values, table=table, line_no=line_no, compared=compared
+        ):
+            return True
+    for values in candidates:
+        settled = probe.settled_values(table, columns, values)
+        if settled is not None and _collision_is_identical(
+            existing, columns, settled, table=table, line_no=line_no, compared=compared
+        ):
+            return True
+    return False
+
+
 def _import_records(
     conn: sqlite3.Connection,
     store: SQLiteVNextStore,
     validated_import: _ValidatedImport,
     *,
     mode: str,
+    plan: _QuarantinePlan | None = None,
+    quarantine_tally: dict[str, int] | None = None,
+    claim_tally: dict[str, int] | None = None,
+    scoping_events: list[dict[str, object]] | None = None,
 ) -> dict[str, dict[str, int]]:
     """Insert parsed records in FK-safe order; returns per-type counts.
 
     Direct INSERT (not the store ``create_*`` methods) so ids and
     timestamps land exactly as exported and no fresh mutation events are
     appended. Event rows use the same direct path, preserving occurred_at
-    and integrity_hash text exactly. ``user_id`` is rebound to the importing
-    user. ``skip`` accepts only field-for-field identical collisions;
-    divergent content with the same id is never merged. Raises
+    and integrity_hash text exactly, except events quarantined with a
+    memory: those payloads are replaced and their integrity hash is
+    cleared, because it is a SHA-256 of the event record, including the
+    payload. ``user_id`` is rebound to the importing user. ``skip`` accepts
+    only field-for-field identical collisions; divergent content with the
+    same id is never merged. A second import of the same file with the
+    same ``--quarantine`` ids therefore skips the redacted rows. Raises
     ``_ImportError`` on the first collision in ``fail`` mode and on any
     constraint violation; the staged transaction rolls back on failure.
+    Quarantine replacement happens after the file's SHA-256 check, on the
+    row about to be inserted, and is what ``skip`` compares.
+
+    A stored claim that an agent API key wrote a row is rewritten next, on
+    every record type, before the existing-row lookup (see
+    ``_downgrade_record_key_claims``). ``claim_tally`` counts the rows that
+    were inserted with a rewritten claim, by record type. ``skip`` compares
+    the rewritten row, and also accepts an existing row that equals the row
+    as the file gave it: that is a vault re-importing its own export, where
+    nothing new is restored and the existing row stays as it is.
+
+    ``skip`` also accepts a legacy row: a column the file row does not carry (a
+    file from before the column existed) is not compared, and a memory or source
+    whose derived column the file gave empty is compared as the schema bootstrap
+    will fill it (see ``_BackfillProbe``). Both let a vault import the same
+    old file again after the bootstrap has changed the rows from the first import.
+
+    ``scoping_events``, when given, collects every ``scoping.changed`` event
+    record in the file, whether it is inserted or skipped, so the import can
+    apply the newest one to the project scoping switch (see
+    ``project_scoping.apply_imported_scoping``).
     """
+    quarantine_plan = plan if plan is not None else _EMPTY_QUARANTINE_PLAN
     counts: dict[str, dict[str, int]] = {}
-    for record_type, (table, columns) in _RECORD_SPECS.items():
-        for line_no, record in _iter_spooled_records(validated_import, record_type):
-            tally = counts.setdefault(record_type, {"imported": 0, "skipped": 0})
-            row_id = str(record["id"])
-            existing = conn.execute(
-                f"SELECT {', '.join(columns)} FROM {table} WHERE id = ?", (row_id,)
-            ).fetchone()
-            values = _normalized_import_values(store, columns, record)
-            if existing is not None:
-                if mode == "fail":
-                    raise _ImportError(
-                        f"line {line_no}: {record_type} id {row_id} already exists; "
-                        "aborting (--mode fail). Rerun with --mode skip to keep "
-                        "existing rows and import only new records."
+    probe = _BackfillProbe()
+    try:
+        for record_type, (table, columns) in _RECORD_SPECS.items():
+            for line_no, record in _iter_spooled_records(validated_import, record_type):
+                tally = counts.setdefault(record_type, {"imported": 0, "skipped": 0})
+                if (
+                    scoping_events is not None
+                    and record_type == "event"
+                    and record.get("event_type") == SCOPING_EVENT_TYPE
+                ):
+                    scoping_events.append(record)
+                record, added = _apply_import_quarantine(record_type, record, quarantine_plan)
+                if quarantine_tally is not None:
+                    for key, amount in added.items():
+                        quarantine_tally[key] = quarantine_tally.get(key, 0) + amount
+                row_id = str(record["id"])
+                try:
+                    stored, claim_rewritten = _downgrade_record_key_claims(record)
+                except _ImportDepthError as exc:
+                    exc.table, exc.line_no = table, line_no
+                    raise
+                existing = conn.execute(
+                    f"SELECT {', '.join(columns)} FROM {table} WHERE id = ?", (row_id,)
+                ).fetchone()
+                values = _normalized_import_values(store, columns, stored)
+                if existing is not None:
+                    if mode == "fail":
+                        raise _ImportError(
+                            f"line {line_no}: {record_type} id {row_id} already exists; "
+                            "aborting (--mode fail). Rerun with --mode skip to keep "
+                            "existing rows and import only new records."
+                        )
+                    candidates = [values]
+                    if claim_rewritten:
+                        candidates.append(_normalized_import_values(store, columns, record))
+                    if not _stored_row_matches(
+                        dict(existing),
+                        columns,
+                        candidates,
+                        table=table,
+                        line_no=line_no,
+                        compared=frozenset(column for column in columns if column in record),
+                        probe=probe,
+                    ):
+                        raise _ImportError(
+                            f"line {line_no}: {record_type} id {row_id} has the same id "
+                            "but different content; refusing to combine incompatible backups"
+                        )
+                    tally["skipped"] += 1
+                    continue
+                try:
+                    conn.execute(
+                        f"""
+                        INSERT INTO {table} ({", ".join(columns)})
+                        VALUES ({", ".join("?" for _ in columns)})
+                        """,
+                        values,
                     )
-                if not _collision_is_identical(dict(existing), columns, values):
+                except (
+                    sqlite3.Error,
+                    ContinuityStoreInvariantError,
+                    KeyError,
+                    TypeError,
+                    ValueError,
+                ) as exc:
                     raise _ImportError(
-                        f"line {line_no}: {record_type} id {row_id} has the same id "
-                        "but different content; refusing to combine incompatible backups"
-                    )
-                tally["skipped"] += 1
-                continue
-            try:
-                conn.execute(
-                    f"""
-                    INSERT INTO {table} ({", ".join(columns)})
-                    VALUES ({", ".join("?" for _ in columns)})
-                    """,
-                    values,
-                )
-            except (
-                sqlite3.Error,
-                ContinuityStoreInvariantError,
-                KeyError,
-                TypeError,
-                ValueError,
-            ) as exc:
-                raise _ImportError(
-                    f"line {line_no}: {record_type} {row_id} could not be imported: {exc}"
-                ) from exc
-            tally["imported"] += 1
+                        f"line {line_no}: {record_type} {row_id} could not be imported: {exc}"
+                    ) from exc
+                tally["imported"] += 1
+                if claim_rewritten and claim_tally is not None:
+                    claim_tally[record_type] = claim_tally.get(record_type, 0) + 1
+    finally:
+        probe.close()
     return counts
 
 
+def _count_phrase(count: int, singular: str, plural: str) -> str:
+    noun = singular if count == 1 else plural
+    return f"{count} {noun}"
+
+
+def _quarantine_removal_line(table: str, row_id: str) -> str:
+    """The command that removes this leftover, or the fixed no-command line.
+
+    Shared source chunks and shared entity names have no removal command.
+    ``alicebot vnext memories redact`` keeps source and source-chunk text.
+    """
+    if table == "memories":
+        return f"alicebot vnext memories redact {row_id}"
+    return _NO_QUARANTINE_REMOVAL_COMMAND
+
+
 def _print_import_summary(
-    counts: dict[str, dict[str, int]], *, in_path: Path, db_path: Path
+    counts: dict[str, dict[str, int]],
+    *,
+    in_path: Path,
+    db_path: Path,
+    quarantine_ids: tuple[str, ...] = (),
+    quarantine_counts: dict[str, int] | None = None,
+    quarantine_reports: tuple[tuple[str, str, str], ...] = (),
+    restored_claims: int = 0,
+    record_hits: tuple[_RecordCredentialHit, ...] | None = None,
+    scoping: ImportedScoping | None = None,
 ) -> None:
     imported_total = sum(tally["imported"] for tally in counts.values())
     skipped_total = sum(tally["skipped"] for tally in counts.values())
@@ -1943,6 +3788,38 @@ def _print_import_summary(
         if tally is None:
             continue
         print(f"  {record_type}: {tally['imported']} imported, {tally['skipped']} skipped")
+    if scoping is not None:
+        # Only a file that carries a scoping.changed event gets this line.
+        print(import_receipt_line(scoping))
+    # Always printed, so a zero shows the check ran. Rows, not claims: a row
+    # that carried two claims counts once.
+    print(f"provenance claims restored as unverified: {restored_claims}")
+    if record_hits is not None:
+        # None means --quarantine: its own scan below already lists every
+        # leftover, with the command that removes it. Otherwise the line is
+        # printed every time, so a zero shows the check ran. The matched text
+        # is never printed.
+        print(f"credential-shaped text in records import does not refuse: {len(record_hits)}")
+        for hit in sorted(record_hits, key=lambda item: (item.table, item.row_id, item.column)):
+            print(f"  {_record_hit_line(hit)}")
+        if record_hits:
+            print(
+                "note: import restores these records unchanged and does not refuse them. "
+                "Rotate each credential listed."
+            )
+    if quarantine_ids:
+        tallies = quarantine_counts or {}
+        print(
+            "quarantine: "
+            + ", ".join(
+                _count_phrase(tallies.get(key, 0), singular, plural)
+                for key, singular, plural in _QUARANTINE_COUNT_LABELS
+            )
+        )
+        print("quarantined memory ids: " + ", ".join(quarantine_ids))
+        for table, row_id, column in quarantine_reports:
+            print(f"quarantine report: {table} {row_id} {column}")
+            print(_quarantine_removal_line(table, row_id))
     memories_imported = counts.get("memory", {}).get("imported", 0)
     if memories_imported:
         plural = "memory" if memories_imported == 1 else "memories"
@@ -2009,6 +3886,22 @@ def _run_import(args: argparse.Namespace) -> int:
         return 1
 
 
+def _report_nesting_refusal(exc: BaseException) -> None:
+    """Print why import refused for nesting, then the ``restore_failed`` record.
+
+    The reason names a line, a table and a column and never a value. A
+    RecursionError that no check caught names nothing, and says so.
+    """
+
+    logger.debug(
+        "SQLite import refused a record nested too deeply",
+        exc_info=(type(exc), exc, exc.__traceback__),
+    )
+    reason = str(exc) if isinstance(exc, _ImportDepthError) else "a record is nested too deeply for import to read"
+    _stderr_line(f"alice-memory: {reason}")
+    _emit_error("restore_failed")
+
+
 def _run_import_snapshot(
     args: argparse.Namespace,
     *,
@@ -2016,8 +3909,28 @@ def _run_import_snapshot(
     display_path: Path,
     db_path: Path,
 ) -> int:
+    # Quarantine rewrites the named memory after the footer check. The
+    # credential floor still refuses any memory that would be stored with
+    # credential material, judged on the rewritten row. Other imports
+    # refuse during validation, before the spool is committed.
+    quarantine_ids = _normalized_quarantine_ids(getattr(args, "quarantine", None))
     try:
-        validated_import = _validate_import_file(in_path)
+        _stderr_line(f"alice-memory: validating {display_path}")
+        validated_import = _validate_import_file(
+            in_path,
+            progress=_stderr_line,
+            enforce_credential_floor=not quarantine_ids,
+        )
+    except _ImportCredentialError as exc:
+        # User-visible, on stderr: the line and memory id of every offender
+        # and which fields carried it. Never the matched text.
+        for line in _credential_finding_lines(exc.findings):
+            _stderr_line(line)
+        _emit_error("import_credential_material")
+        return 1
+    except _ImportDepthError as exc:
+        _report_nesting_refusal(exc)
+        return 1
     except _ImportError as exc:
         logger.debug(
             "SQLite import validation failed",
@@ -2033,8 +3946,60 @@ def _run_import_snapshot(
         _emit_error("import_snapshot_failed")
         return 1
 
+    # The footer check above hashed the file as given. Quarantine replacement
+    # starts here, and only for ids that are memory records in that file.
+    try:
+        missing_quarantine_ids = _missing_quarantine_memory_ids(validated_import, quarantine_ids)
+    except _ImportError as exc:
+        logger.debug(
+            "SQLite import quarantine check failed",
+            exc_info=(type(exc), exc, exc.__traceback__),
+        )
+        _remove_sqlite_files(validated_import.spool_path)
+        _emit_error("import_validation_failed")
+        return 1
+    if missing_quarantine_ids:
+        logger.debug("quarantine ids not in the import file: %s", ", ".join(missing_quarantine_ids))
+        _remove_sqlite_files(validated_import.spool_path)
+        _emit_error("import_quarantine_unknown")
+        return 1
+
+    try:
+        quarantine_plan = (
+            _build_quarantine_plan(validated_import, quarantine_ids)
+            if quarantine_ids
+            else _EMPTY_QUARANTINE_PLAN
+        )
+        leftover_memory_findings = (
+            _credential_findings_after_quarantine(validated_import, quarantine_plan) if quarantine_ids else ()
+        )
+    except (_ImportDepthError, RecursionError) as exc:
+        _remove_sqlite_files(validated_import.spool_path)
+        _report_nesting_refusal(exc)
+        return 1
+    except _ImportError as exc:
+        logger.debug(
+            "SQLite import quarantine plan failed",
+            exc_info=(type(exc), exc, exc.__traceback__),
+        )
+        _remove_sqlite_files(validated_import.spool_path)
+        _emit_error("import_validation_failed")
+        return 1
+    if leftover_memory_findings:
+            # Same refusal as a normal import: the rewritten file would still
+            # store a memory that carries credential material. Nothing is written.
+            _remove_sqlite_files(validated_import.spool_path)
+            for line in _credential_finding_lines(leftover_memory_findings):
+                _stderr_line(line)
+            _emit_error("import_credential_material")
+            return 1
+
     target_existed = db_path.exists()
     working_path: Path | None = None
+    credential_reports: tuple[tuple[str, str, str], ...] = ()
+    claim_tally: dict[str, int] = {}
+    scoping_events: list[dict[str, object]] = []
+    imported_scoping: ImportedScoping | None = None
     try:
         _ensure_private_directory(db_path.parent)
         fd, raw_working_path = tempfile.mkstemp(
@@ -2057,9 +4022,24 @@ def _run_import_snapshot(
             user_email=args.user_email,
             secure_parent=args.db is None,
         )
+        quarantine_counts = {key: 0 for key, _singular, _plural in _QUARANTINE_COUNT_LABELS}
         with sqlite_user_connection(working_path, args.user_id) as conn:
             store = SQLiteVNextStore(conn, args.user_id)
-            counts = _import_records(conn, store, validated_import, mode=args.mode)
+            counts = _import_records(
+                conn,
+                store,
+                validated_import,
+                mode=args.mode,
+                plan=quarantine_plan,
+                quarantine_tally=quarantine_counts,
+                claim_tally=claim_tally,
+                scoping_events=scoping_events,
+            )
+            imported_scoping = apply_imported_scoping(conn, scoping_events)
+        if quarantine_ids:
+            # The spool still holds the file. Scan the rewritten rows before
+            # publication deletes that spool. Never include the matched text.
+            credential_reports = _quarantine_credential_reports(validated_import, quarantine_plan)
         # Move all committed WAL pages into the staged main file before
         # atomic publication, then durably persist it.
         checkpoint = sqlite3.connect(str(working_path))
@@ -2091,6 +4071,10 @@ def _run_import_snapshot(
             # can never be misreported as a rolled-back restore.
             working_path = db_path
             _remove_sqlite_files(staged_path)
+    except (_ImportDepthError, RecursionError) as exc:
+        # Nothing was published. The finally clause below removes the staged copy.
+        _report_nesting_refusal(exc)
+        return 1
     except (_BackupError, _ImportError, OSError, sqlite3.Error) as exc:
         logger.debug(
             "SQLite restore failed before publication",
@@ -2120,7 +4104,17 @@ def _run_import_snapshot(
     _fsync_directory(db_path.parent)
     summary_error: OSError | ValueError | None = None
     try:
-        _print_import_summary(counts, in_path=display_path, db_path=db_path)
+        _print_import_summary(
+            counts,
+            in_path=display_path,
+            db_path=db_path,
+            quarantine_ids=quarantine_ids,
+            quarantine_counts=quarantine_counts,
+            quarantine_reports=tuple(sorted({*quarantine_plan.reports, *credential_reports})),
+            restored_claims=sum(claim_tally.values()),
+            record_hits=None if quarantine_ids else validated_import.record_credential_hits,
+            scoping=imported_scoping,
+        )
         sys.stdout.flush()
     except (OSError, ValueError) as exc:
         summary_error = exc
@@ -2157,16 +4151,23 @@ def _run_reindex_embeddings(args: argparse.Namespace) -> int:
         user_email=args.user_email,
         secure_parent=args.db is None,
     )
+    input_cap = embedding_input_cap(provider)
     embedded = 0
     reindexed_incompatible = 0
+    truncated_inputs = 0
     skipped = 0
-    failed = 0
+    failures: list[MemoryEmbeddingFailure] = []
     batches = 0
     after_id: str | None = None
     while True:
         with sqlite_user_connection(db_path, args.user_id) as conn:
             store = SQLiteVNextStore(conn, args.user_id)
+            # Only the statuses recall can return, and only a memory whose
+            # validity window is still open: this listing never hands the text
+            # of a forgotten, rejected, candidate or expired memory to the
+            # endpoint.
             rows = store.list_memories_missing_embeddings(
+                statuses=MEMORY_SEARCHABLE_STATUSES,
                 limit=batch_size,
                 after_id=after_id,
                 embedding_provider=provider.provider,
@@ -2175,35 +4176,54 @@ def _run_reindex_embeddings(args: argparse.Namespace) -> int:
                     getattr(provider, "base_url", "")
                 ),
                 embedding_signature_version=EMBEDDING_SIGNATURE_VERSION,
+                embedding_input_cap=input_cap,
             )
         if not rows:
             break
         batches += 1
         after_id = str(rows[-1]["id"])
-        pending = [(row, memory_embedding_text(row)) for row in rows]
-        embeddable = [(row, text) for row, text in pending if text]
-        skipped += len(pending) - len(embeddable)
+        embeddable = [row for row in rows if memory_embedding_text(row)]
+        skipped += len(rows) - len(embeddable)
         if not embeddable:
             continue
-        try:
-            vectors = provider.embed_batch([text for _row, text in embeddable])
-        except (VNextEmbeddingConfigurationError, VNextEmbeddingProviderError) as exc:
-            failed += len(embeddable)
-            logger.debug(
-                "SQLite embedding batch failed",
-                exc_info=(type(exc), exc, exc.__traceback__),
-            )
-            _emit_error("embedding_batch_failed")
-            continue
+        # The provider is called with no connection open. A refused text is
+        # isolated from its batch inside prepare_memory_embeddings, so its
+        # neighbours still get vectors and the refused id is named below.
+        preparation = prepare_memory_embeddings(
+            tuple(DeferredMemoryEmbedding.from_memory(row) for row in embeddable),
+            provider=provider,
+            log_failures=False,
+        )
+        # A row that stopped being recall-visible between the list and the send
+        # (its validity window closed in that moment) is withheld, not failed.
+        skipped += len(preparation.withheld)
+        batch_failures = list(preparation.failures)
+        incompatible_ids = {
+            str(row["id"]) for row in embeddable if row.get("embedding_present") in (True, 1)
+        }
         with sqlite_user_connection(db_path, args.user_id) as conn:
             store = SQLiteVNextStore(conn, args.user_id)
-            for (row, _text), vector in zip(embeddable, vectors, strict=True):
-                store.update_memory_embedding(
-                    **signed_memory_embedding_update(row, vector, provider=provider)
-                )
-                if row.get("embedding_present") in (True, 1):
-                    reindexed_incompatible += 1
+            for prepared in preparation.prepared:
+                if store.update_memory_embedding(**prepared.to_update()) is None:
+                    # The text changed after the list was read; the vector was
+                    # of the old text and was discarded. A later run makes it.
+                    batch_failures.append(
+                        MemoryEmbeddingFailure(
+                            prepared.memory_id,
+                            EMBEDDING_STALE_ERROR_CODE,
+                            EMBEDDING_STALE_ERROR_MESSAGE,
+                            reason=STALE_REASON,
+                        )
+                    )
+                    continue
                 embedded += 1
+                if prepared.truncated_to_chars is not None:
+                    truncated_inputs += 1
+                if prepared.memory_id in incompatible_ids:
+                    reindexed_incompatible += 1
+        if batch_failures:
+            failures.extend(batch_failures)
+            _emit_error("embedding_batch_failed")
     _secure_sqlite_files(db_path)
     print(
         json.dumps(
@@ -2214,12 +4234,15 @@ def _run_reindex_embeddings(args: argparse.Namespace) -> int:
                 "embedded": embedded,
                 "reindexed_incompatible": reindexed_incompatible,
                 "skipped": skipped,
-                "failed": failed,
+                "failed": len(failures),
+                "input_cap_chars": input_cap,
+                "truncated_inputs": truncated_inputs,
+                **summarize_embedding_failures(failures),
             },
             sort_keys=True,
         )
     )
-    return 1 if failed else 0
+    return 1 if failures else 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -2235,11 +4258,19 @@ def main(argv: list[str] | None = None) -> int:
         logger.debug("alice-memory argument parsing failed: %s", parser_stderr.getvalue().strip())
         _emit_error("invalid_request")
         return int(exc.code) if isinstance(exc.code, int) else 2
+    if _refuse_postgres_db_argument(args):
+        return 2
+    if _refuse_invalid_mcp_data_dir(args):
+        return 2
     try:
         if args.command == "export":
             return _run_export(args)
         if args.command == "import":
             return _run_import(args)
+        if args.command == "import-markdown":
+            return _run_import_markdown(args)
+        if args.command == "import-chatgpt":
+            return _run_import_chatgpt(args)
         if args.command == "reindex-embeddings":
             return _run_reindex_embeddings(args)
         if args.command == "brief":
@@ -2250,8 +4281,12 @@ def main(argv: list[str] | None = None) -> int:
             return _run_demo(args)
         if args.command == "sleep":
             return _run_sleep(args)
+        if args.command == "sleep-proposals":
+            return _run_sleep_proposals(args)
         if args.command == "install":
             return _run_install(args)
+        if args.command == "project":
+            return run_project(args)
         return _run_mcp(args)
     except Exception as exc:  # pragma: no cover - boundary fail-closed backstop
         logger.debug(

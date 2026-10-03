@@ -14,7 +14,12 @@ from datetime import (
     datetime,
 )
 from uuid import UUID
-from psycopg.errors import CheckViolation
+from psycopg.errors import CheckViolation, ForeignKeyViolation
+from alicebot_api.commit_result import (
+    COMMIT_RESULT_TOOL,
+    commit_result_mode,
+    compact_commit_result,
+)
 from alicebot_api.continuity_capture import ContinuityCaptureValidationError
 from alicebot_api.continuity_brief import ContinuityBriefValidationError
 from alicebot_api.continuity_evidence import ContinuityEvidenceNotFoundError
@@ -29,9 +34,9 @@ from alicebot_api.continuity_recall import (
 from alicebot_api.continuity_resumption import ContinuityResumptionValidationError
 from alicebot_api.continuity_review import (
     ContinuityReviewNotFoundError,
+    ContinuityReviewStateError,
     ContinuityReviewValidationError,
 )
-from alicebot_api.memory_mutations import MemoryMutationValidationError
 from alicebot_api.store import JsonObject
 from alicebot_api.surface_flags import (
     LEGACY_SURFACES_ENV,
@@ -41,11 +46,21 @@ from alicebot_api.surface_flags import (
     mcp_full_tools_enabled,
     mcp_legacy_tools_enabled,
 )
-from alicebot_api.temporal_state import TemporalStateValidationError
+from alicebot_api.temporal_state import TemporalStateNotFoundError, TemporalStateValidationError
 from alicebot_api.task_briefing import (
     TaskBriefNotFoundError,
     TaskBriefValidationError,
 )
+from alicebot_api.source_search_limits import SourceSearchQueryTooLarge
+from alicebot_api.vnext_agent_control import AgentPolicyBlockedError
+from alicebot_api.vnext_agent_keys import AgentKeyAuthenticationError
+from alicebot_api.vnext_lifecycle import LifecycleTransitionError
+from alicebot_api.vnext_memory_commit import (
+    MemoryCommitTextTooLarge,
+    MemoryNotFoundError,
+    MemoryStateError,
+)
+from alicebot_api.vnext_source_fence import SourceRefNotFoundError
 
 from .capture_automation import (
     _handle_alice_vnext_capture,
@@ -132,12 +147,14 @@ from .scheduler import (
 )
 from .shared import (
     AGENT_API_KEY_ENV,
+    MCPInvalidRequestError,
     MCPRuntimeContext,
     MCPToolError,
     MCPToolNotFoundError,
     _agent_identity_from_arguments,
     _canonicalize_json,
     _normalize_arguments,
+    _refuse_reserved_project_marker,
 )
 from .synthesis import (
     _handle_alice_belief_review,
@@ -149,11 +166,18 @@ from .synthesis import (
     _handle_alice_graph_edge_review,
     _handle_alice_graph_neighborhood,
 )
+from .types import (
+    MCPArgumentError,
+    MCPNotPermittedError,
+    MCPPreconditionFailedError,
+    MCPReferenceNotFoundError,
+)
 
 _TOOL_HANDLERS = {
     "alice_capture": _handle_alice_vnext_capture,
     # Core front door for explicit agent writes; same handler as the legacy
-    # alice_vnext_commit_memory alias below.
+    # alice_vnext_commit_memory alias below. Only this name's schema admits
+    # confirmation_id, so only this name reaches the confirmation route.
     "alice_memory_commit": _handle_alice_vnext_commit_memory,
     "alice_memory_manage": _handle_alice_memory_manage,
     "alice_capture_candidates": _handle_alice_capture_candidates,
@@ -271,7 +295,7 @@ def _validate_mcp_arguments_against_advertised_schema(
         return
 
     def fail(path: str, detail: str) -> None:
-        raise MCPToolError(f"tool '{name}' has invalid value at {path}: {detail}")
+        raise MCPArgumentError(f"tool '{name}' has invalid value at {path}: {detail}")
 
     def matches_type(value: object, schema_type: str) -> bool:
         if schema_type == "null":
@@ -313,7 +337,7 @@ def _validate_mcp_arguments_against_advertised_schema(
             try:
                 parsed_uuid = UUID(value)
             except (AttributeError, ValueError) as exc:
-                raise MCPToolError(f"tool '{name}' has invalid value at {path}: must be a UUID string") from exc
+                raise MCPArgumentError(f"tool '{name}' has invalid value at {path}: must be a UUID string") from exc
             if str(parsed_uuid) != value.casefold():
                 fail(path, "must be a canonical UUID string")
             return
@@ -329,7 +353,7 @@ def _validate_mcp_arguments_against_advertised_schema(
             try:
                 parsed_datetime = datetime.fromisoformat(value.replace("Z", "+00:00").replace("z", "+00:00"))
             except ValueError as exc:
-                raise MCPToolError(
+                raise MCPArgumentError(
                     f"tool '{name}' has invalid value at {path}: must be a valid RFC 3339 date-time"
                 ) from exc
             if parsed_datetime.tzinfo is None:
@@ -341,7 +365,7 @@ def _validate_mcp_arguments_against_advertised_schema(
             try:
                 date.fromisoformat(value)
             except ValueError as exc:
-                raise MCPToolError(
+                raise MCPArgumentError(
                     f"tool '{name}' has invalid value at {path}: must be a valid RFC 3339 full-date"
                 ) from exc
             return
@@ -370,6 +394,12 @@ def _validate_mcp_arguments_against_advertised_schema(
         pattern = candidate_schema.get("pattern")
         if isinstance(value, str) and isinstance(pattern, str) and re.fullmatch(pattern, value) is None:
             fail(path, f"must match pattern {pattern}")
+
+        # Enforced since 2026-09-23 (S4.4 round 2, ruling R4). Before that a
+        # maxLength in a schema was advertised and never checked.
+        maximum_length = candidate_schema.get("maxLength")
+        if isinstance(value, str) and isinstance(maximum_length, int) and len(value) > maximum_length:
+            fail(path, f"must be at most {maximum_length} characters")
 
         if isinstance(value, (int, float)) and not isinstance(value, bool):
             minimum = candidate_schema.get("minimum")
@@ -413,11 +443,11 @@ def _validate_mcp_arguments_against_advertised_schema(
             missing = sorted(str(key) for key in required if isinstance(key, str) and key not in value)
             if missing:
                 location = "" if path == "arguments" else f" at {path}"
-                raise MCPToolError(f"tool '{name}' is missing required properties{location}: " + ", ".join(missing))
+                raise MCPArgumentError(f"tool '{name}' is missing required properties{location}: " + ", ".join(missing))
         minimum_properties = candidate_schema.get("minProperties")
         if isinstance(value, Mapping) and isinstance(minimum_properties, int) and len(value) < minimum_properties:
             location = "" if path == "arguments" else f" at {path}"
-            raise MCPToolError(f"tool '{name}' requires at least {minimum_properties} properties{location}")
+            raise MCPArgumentError(f"tool '{name}' requires at least {minimum_properties} properties{location}")
         maximum_properties = candidate_schema.get("maxProperties")
         if isinstance(value, Mapping) and isinstance(maximum_properties, int) and len(value) > maximum_properties:
             fail(path, f"must contain at most {maximum_properties} properties")
@@ -426,7 +456,7 @@ def _validate_mcp_arguments_against_advertised_schema(
             unknown = sorted(str(key) for key in value if key not in allowed)
             if unknown:
                 location = "" if path == "arguments" else f" at {path}"
-                raise MCPToolError(
+                raise MCPArgumentError(
                     f"tool '{name}' does not accept additional properties{location}: " + ", ".join(unknown)
                 )
         if isinstance(value, Mapping) and isinstance(properties, Mapping):
@@ -512,6 +542,8 @@ def call_mcp_tool(
 
     parsed_arguments = _normalize_arguments(arguments)
     _validate_mcp_arguments_against_advertised_schema(name, parsed_arguments)
+    # The reserved global marker of per-project memory is never caller input.
+    _refuse_reserved_project_marker(parsed_arguments)
     try:
         if name in _CORE_TOOL_NAMES:
             # Authentication is a property of the MCP boundary, not an
@@ -526,42 +558,97 @@ def call_mcp_tool(
                 agent_identity_resolved=True,
             )
         payload = handler(context, parsed_arguments)
+    except MCPToolError:
+        # A handler already classified this refusal: a coded error, or the
+        # public invalid_request. It is a ValueError, so without this clause
+        # the generic ValueError clause at the end of the chain would flatten
+        # it to tool_request_failed before the server could read its class.
+        raise
+    except (AgentPolicyBlockedError, AgentKeyAuthenticationError) as exc:
+        # A policy or key refusal that no handler turned into an MCP error.
+        # Only these two classes: a plain PermissionError is a file or socket
+        # failure and stays tool_execution_failed.
+        raise MCPNotPermittedError(str(exc)) from exc
+    except (MemoryStateError, LifecycleTransitionError, ContinuityReviewStateError) as exc:
+        # Before the argument clause below: ContinuityReviewStateError is a
+        # subclass of ContinuityReviewValidationError, which that clause lists,
+        # and the first clause that matches wins.
+        raise MCPPreconditionFailedError(str(exc)) from exc
     except (
         ContinuityCaptureValidationError,
         ContinuityRecallValidationError,
         ContinuityBriefValidationError,
         ContinuityResumptionValidationError,
         ContinuityReviewValidationError,
-        ContinuityReviewNotFoundError,
         ContinuityContradictionValidationError,
-        ContinuityContradictionNotFoundError,
-        RetrievalTraceNotFoundError,
-        ContinuityEvidenceNotFoundError,
-        MemoryMutationValidationError,
-        TaskBriefNotFoundError,
         TaskBriefValidationError,
         TemporalStateValidationError,
     ) as exc:
-        raise MCPToolError(str(exc)) from exc
+        raise MCPArgumentError(str(exc)) from exc
+    except (
+        ContinuityReviewNotFoundError,
+        ContinuityContradictionNotFoundError,
+        RetrievalTraceNotFoundError,
+        ContinuityEvidenceNotFoundError,
+        TaskBriefNotFoundError,
+        MemoryNotFoundError,
+        SourceRefNotFoundError,
+        # A LookupError, so it is not an argument error and must be listed
+        # here. alice_explain re-raises it for a keyless caller; a key-bound one
+        # never gets this far, its handler turns it into one opaque answer.
+        TemporalStateNotFoundError,
+    ) as exc:
+        raise MCPReferenceNotFoundError(str(exc)) from exc
+    except ForeignKeyViolation as exc:
+        # The PostgreSQL twin of the SQLite foreign-key clause below: a write
+        # that names a row the vault does not hold (an unknown source id in
+        # source_refs, for one). Both backends answer the same code. Read from
+        # the driver's class, never from the message.
+        raise MCPPreconditionFailedError(
+            "a row this write references does not exist in the database; verify the referenced ids."
+        ) from exc
     except CheckViolation as exc:
-        raise MCPToolError(
+        raise MCPArgumentError(
             "vNext request violates a persisted schema constraint; use schema-backed enum values "
             "for memory_type, domain, sensitivity, status, and action fields."
         ) from exc
     except sqlite3.IntegrityError as exc:
-        message = str(exc)
-        if "CHECK constraint" in message:
-            raise MCPToolError(
+        # Read the constraint from the error code SQLite attaches (Python 3.11
+        # and later), never from the message text.
+        error_code = getattr(exc, "sqlite_errorcode", None)
+        if error_code == sqlite3.SQLITE_CONSTRAINT_CHECK:
+            raise MCPArgumentError(
                 "vNext request violates a persisted schema constraint; use schema-backed enum values "
                 "for memory_type, domain, sensitivity, status, and action fields."
             ) from exc
-        if "FOREIGN KEY constraint failed" in message:
-            raise MCPToolError(
+        if error_code == sqlite3.SQLITE_CONSTRAINT_FOREIGNKEY:
+            raise MCPPreconditionFailedError(
                 "a row this write references does not exist in the SQLite database (most often the "
                 "acting user row); bootstrap it with 'alice-memory init' or verify the referenced ids."
             ) from exc
-        raise MCPToolError(message) from exc
+        raise MCPToolError(str(exc)) from exc
+    except SourceSearchQueryTooLarge as exc:
+        # Before the ValueError clause below, which it is a subclass of and
+        # which would hide the limit behind the static message. The text is
+        # counts and limits only, never the query.
+        raise MCPInvalidRequestError(exc.public_message) from exc
+    except MemoryCommitTextTooLarge as exc:
+        # Also before the ValueError clause below, for the same reason. The text is the count
+        # and the limit only, never the memory text.
+        raise MCPInvalidRequestError(exc.public_message) from exc
     except (TypeError, ValueError) as exc:
+        # Every other class answers the generic code, on purpose. Two that look
+        # typed are not: MemoryMutationValidationError is one class for a
+        # rejected argument and for a missing candidate, and
+        # VNextMemoryCommitValidationError is the base class of the commit
+        # service's errors (an idempotency conflict is one of them). The
+        # credential refusals are plain ValueError subclasses. Telling their
+        # kinds apart would mean reading the text.
         raise MCPToolError(str(exc)) from exc
 
+    # The compact commit result is chosen here, by tool name, after the handler
+    # and outside it. The legacy alias alice_vnext_commit_memory shares the
+    # handler and is not on this name, so it keeps the full result.
+    if name == COMMIT_RESULT_TOOL and commit_result_mode(os.environ) == "compact":
+        payload = compact_commit_result(payload)
     return _canonicalize_json(payload)  # type: ignore[return-value]

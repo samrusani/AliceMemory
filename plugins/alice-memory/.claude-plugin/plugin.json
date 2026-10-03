@@ -1,0 +1,18 @@
+{
+  "name": "alice-memory",
+  "version": "0.20.0",
+  "description": "Local-first memory for Claude Code: an MCP server and a SessionStart brief on one SQLite file.",
+  "author": {"name": "Alice Memory", "url": "https://alicememory.com"},
+  "homepage": "https://alicememory.com",
+  "repository": "https://github.com/samrusani/AliceMemory",
+  "license": "MIT",
+  "userConfig": {
+    "data_dir": {
+      "type": "string",
+      "title": "Alice data directory",
+      "description": "Absolute path, or ~/..., of the folder holding memory.db. Use the same folder as your other hosts.",
+      "default": "~/.alice",
+      "required": false
+    }
+  }
+}

@@ -30,11 +30,18 @@ SOURCE_RECEIPTS = {
     "apps/api/src/alicebot_api/vnext_stores/postgres/query_predicates.py": (
         "f0ec9c7f13bc7bf93f5a3beaa86916a04e45200ef0296d6f9288eed3912be33d"
     ),
+    # Re-minted for ``get_memory_by_key(include_deleted=...)`` (reviewed change, not drift; see the SQLite
+    # entry below). Previous Postgres receipt 49748ecd...
     "apps/api/src/alicebot_api/vnext_stores/postgres/memory_access.py": (
-        "74f6e82af228e6ca87af55d055a7e3048a2939f88167d908363107d2931a1035"
+        "f642880f44eaaa7d8fa6ed10dbb1e609b791eb0fa8902c934ec9fa41f4e6cdd3"
     ),
+    # Re-minted for per-project memory S2 (2026-10-02): the project fence builders read the reserved global
+    # marker and take the domains to leave out, and the single-scan partition SQL and the materialized-CTE hint
+    # are new. The Postgres carrier is unchanged on purpose: the Postgres runtime resolves no project view.
+    # Re-minted once more in the S2 review round (2026-10-02): a request that holds the marker and does not state which
+    # global domains it leaves out raises (reviewed change, not drift).
     "apps/api/src/alicebot_api/vnext_stores/sqlite/query_predicates.py": (
-        "aada597da76324ec05a118f95c2b26441b076771a0e53b8d45f08eefb656bbb4"
+        "eab46f165564c212db21b6b6b621ecb447aaa86d48aba6512bd5f2e88f20bd82"
     ),
     # Re-minted for the Phase 4 Stage 2 resident vector cache (reviewed
     # carrier change; the receipt guards unreviewed drift): the vector scan
@@ -42,9 +49,27 @@ SOURCE_RECEIPTS = {
     # the cached candidate SQL now carries the scan's FULL predicate set --
     # including the signature json_extract clauses -- so no predicate is
     # ever captured into the resident data (metadata_json rewrites cannot
-    # stale the cache).
+    # stale the cache). Re-minted again for ``list_memories``, which binds a query
+    # through ``literal_match_operand`` and so refuses one past the LIKE operand
+    # limit. The Postgres carrier is unchanged on purpose: it has no such limit.
+    # Both carriers were re-minted again for the expiry test (reviewed change, not
+    # drift): ``list_memories`` and ``count_memories`` take ``include_expired``,
+    # and the roll-up input list and count and the accepted-card lookup leave out a
+    # memory whose ``valid_to`` has passed, with recall's own test.
+    # Both carriers were re-minted once more for ``get_memory_by_key``, which takes ``include_deleted`` (false
+    # by default, so every caller reads what it read before): a soft-deleted row still holds its memory key in
+    # the unique index, and the roll-up pass reads the key with ``include_deleted=True`` so a card archived
+    # through ``update_memory`` is seen instead of raising on create (reviewed change, not drift). Previous
+    # SQLite receipt 3bb85f64...
+    # Re-minted again for per-project memory S2 (2026-10-02): ``list_memories`` builds its filters in
+    # ``_memory_list_clauses`` and takes ``exclude_global_domains``, and ``list_memories_view_partitions`` is new
+    # (reviewed change, not drift).
+    # Re-minted once more in the S2 review round (2026-10-02): ``exclude_global_domains`` defaults to ``None`` and the
+    # single-scan reader takes ``domains`` and ``sensitivity_allowed`` as required arguments (reviewed change, not drift).
+    # Re-minted for the merge of main into the S2 branch (2026-10-02): the file now holds both reviewed changes above.
+    # Previous receipts: 8a0bcba8... on the S2 branch and 3d2f1732... on main.
     "apps/api/src/alicebot_api/vnext_stores/sqlite/memory_access.py": (
-        "043d5678070e1795194b677e89f74335cadf2d9220da110345dbd0391b742f3b"
+        "91636de97634c2c7496b4f783d9a267a308c720b87e16433061b192226fd3ca7"
     ),
 }
 
@@ -53,6 +78,7 @@ POSTGRES_METHODS = (
     "get_memory",
     "get_memories_by_ids",
     "list_memories_referencing_source",
+    "list_memories_referencing_sources",
     "list_pending_derived_candidates_for_member",
     "list_memories",
     "list_memories_by_statuses",
@@ -80,11 +106,13 @@ SQLITE_METHODS = (
     "get_memory",
     "get_memories_by_ids",
     "list_memories_referencing_source",
+    "list_memories_referencing_sources",
     "list_pending_derived_candidates_for_member",
     "get_memory_by_commit_digest",
     "latest_agentic_commit_memory",
     "get_memory_by_confirmation_id",
     "list_memories",
+    "list_memories_view_partitions",
     "list_memories_by_statuses",
     "count_memories_by_status",
     "list_recent_agentic_commits",
@@ -157,10 +185,41 @@ SQLITE_QUERY_EXPORTS = (
 )
 
 EXPECTED_CLASS_ORDERS = {
-    # Two paired browser-clip capability methods extend both façades.
-    "PostgresVNextStore": (170, "5f28f1a17670a0c8b7b373acd0c314637c58e6a10ccf52053481a8a028bb3c09"),
-    "SQLiteVNextStore": (123, "72cbbffacc5fee804508f7e9517450c955f2c85235bd403d4f5759ee86c103e3"),
+    # Two paired browser-clip capability methods extend both façades. One more
+    # paired method, ``list_memories_referencing_sources``, is the batched form
+    # of ``list_memories_referencing_source``; both carrier receipts above were
+    # re-minted for it (reviewed change, not drift).
+    # Per-file importer savepoint (2026-10-02): one paired method more, ``savepoint``, appended last.
+    # Previous receipt: (171, 526374782104a2a1...). Proof: the member list equals the list at origin/main
+    # 040a2a10 with ``savepoint`` added at the end and nothing else moved (reviewed change, not drift).
+    "PostgresVNextStore": (172, "6f1a459fcf4319cf4281f6cc0d4e81679c3e05d851fd0a874a2d90298d7c2569"),
+    # One SQLite-only method more, ``check_source_search_query``: the Postgres
+    # source search has no expression-depth or LIKE-length limit to check.
+    # Merge of #500 and #502 (2026-10-01): one more SQLite-only method,
+    # ``check_literal_match_query``, beside the paired
+    # ``list_memories_referencing_sources``. Re-minted for the merged facade
+    # (reviewed change, not drift).
+    # Per-project memory S2 (2026-10-02): two SQLite-only methods more, the single-scan partition reads
+    # ``list_memories_view_partitions`` and ``list_open_loops_view_partitions``. The Postgres runtime resolves no
+    # project view, so it has no pair. Re-minted for the facade (reviewed change, not drift).
+    # Per-file importer savepoint (2026-10-02): the same paired method, ``savepoint``, appended last.
+    # Previous receipt: (128, fae6bee37a2b06541...). Proof: the member list equals the list at origin/main
+    # 040a2a10 with ``savepoint`` added at the end and nothing else moved (reviewed change, not drift).
+    "SQLiteVNextStore": (129, "562de07a40ecd996d8b22c4e114cf229561a0d0b778b23ba3291f7e693c1f1ec"),
 }
+
+
+#: Keyword arguments the SQLite readers take and the Postgres readers do not (per-project memory S2, 2026-10-02).
+#: ``exclude_global_domains`` leaves out global rows in those domains before ``LIMIT`` when the request tuple holds
+#: the reserved global marker. The Postgres runtime resolves no project view, so its readers have no such argument,
+#: and every other parameter must still match.
+SQLITE_ONLY_PARAMETERS = frozenset({"exclude_global_domains"})
+
+
+def _without_sqlite_only_parameters(signature: inspect.Signature) -> inspect.Signature:
+    return signature.replace(
+        parameters=[value for key, value in signature.parameters.items() if key not in SQLITE_ONLY_PARAMETERS]
+    )
 
 
 def _source_texts() -> dict[str, str]:
@@ -277,9 +336,9 @@ def test_memory_access_methods_are_direct_grafts_in_native_backend_order() -> No
             assert method.__qualname__ == f"{class_name}.{name}"
 
     for name in set(POSTGRES_METHODS) & set(SQLITE_METHODS):
-        assert inspect.signature(getattr(postgres_store.PostgresVNextStore, name)) == inspect.signature(
-            getattr(sqlite_store.SQLiteVNextStore, name)
-        )
+        assert _without_sqlite_only_parameters(
+            inspect.signature(getattr(sqlite_store.SQLiteVNextStore, name))
+        ) == inspect.signature(getattr(postgres_store.PostgresVNextStore, name))
 
 
 def test_sqlite_predicate_helpers_preserve_descriptor_identity_and_metadata() -> None:

@@ -759,14 +759,18 @@ def test_memory_queries_use_ascii_case_insensitive_literal_substrings() -> None:
     }
     for query, expected_ids in expectations.items():
         memories = store.list_memories(query=query, order_by_created_at=True, limit=50)
-        resume_events = store.list_resume_memory_events(statuses=("active",), query=query, limit=100)
+        resume_events = store.list_resume_memory_events(
+            statuses=("active",), query=query, limit=100, domains=None, sensitivity_allowed=None
+        )
         assert {str(row["id"]) for row in memories} == expected_ids
         assert {str(event["target_id"]) for event in resume_events} == expected_ids
 
     assert len(store.list_memories(query="   ", limit=50)) == len(rows)
     assert {
         str(event["target_id"])
-        for event in store.list_resume_memory_events(statuses=("active",), query="   ", limit=100)
+        for event in store.list_resume_memory_events(
+            statuses=("active",), query="   ", limit=100, domains=None, sensitivity_allowed=None
+        )
     } == {str(row["id"]) for row in rows.values()}
     conn.close()
 
@@ -2481,6 +2485,7 @@ def test_vector_search_rejects_embeddings_from_a_different_model_signature() -> 
     assert mismatched_endpoint == []
     assert (
         store.list_memories_missing_embeddings(
+            statuses=("active", "accepted"),
             embedding_provider="openai_compatible",
             embedding_model="embed-v1",
             embedding_signature_version=2,
@@ -2488,6 +2493,7 @@ def test_vector_search_rejects_embeddings_from_a_different_model_signature() -> 
         == []
     )
     incompatible = store.list_memories_missing_embeddings(
+        statuses=("active", "accepted"),
         embedding_provider="openai_compatible",
         embedding_model="embed-v2",
         embedding_signature_version=2,
@@ -2526,6 +2532,7 @@ def test_vector_search_rejects_embeddings_from_a_different_model_signature() -> 
         == []
     )
     stale_backfill = store.list_memories_missing_embeddings(
+        statuses=("active", "accepted"),
         embedding_provider="openai_compatible",
         embedding_model="embed-v1",
         embedding_endpoint="host-a",
@@ -4237,14 +4244,14 @@ def test_find_entities_by_names_matches_normalized_names_and_aliases_in_one_call
     conn = _open_connection()
     store = _make_store(conn)
     openai = _create_entity(store, name="OpenAI", aliases=["open ai"])
-    type3 = _create_entity(store, name="Type3 Capital")
+    northwind = _create_entity(store, name="Northwind Capital")
     _create_entity(store, name="Anthropic")
 
-    # Mentions push type3 ahead in the mention_count DESC ordering.
-    store.record_entity_mention(entity_id=type3["id"], observed_at="2026-07-01T00:00:00Z")
+    # Mentions push northwind ahead in the mention_count DESC ordering.
+    store.record_entity_mention(entity_id=northwind["id"], observed_at="2026-07-01T00:00:00Z")
 
-    rows = store.find_entities_by_names(("type3 capital", "open ai"))
-    assert [row["id"] for row in rows] == [type3["id"], openai["id"]]
+    rows = store.find_entities_by_names(("northwind capital", "open ai"))
+    assert [row["id"] for row in rows] == [northwind["id"], openai["id"]]
 
     # Alias matching is exact string equality, not substring.
     assert store.find_entities_by_names(("open",)) == []
@@ -4388,9 +4395,9 @@ def test_entity_relationship_events_reject_update_and_delete() -> None:
 def test_list_entities_filters_by_type_and_orders_by_recency() -> None:
     conn = _open_connection()
     store = _make_store(conn)
-    org = _create_entity(store, name="Type3 Capital")
-    person = _create_entity(store, name="Sam Rusani", entity_type="person")
-    store.update_entity(entity_id=org["id"], patch={"name": "Type3.Capital"})
+    org = _create_entity(store, name="Northwind Capital")
+    person = _create_entity(store, name="Alex Rivera", entity_type="person")
+    store.update_entity(entity_id=org["id"], patch={"name": "Northwind.Example"})
 
     everything = store.list_entities()
     assert [row["id"] for row in everything] == [org["id"], person["id"]]  # most recently updated first
@@ -4460,7 +4467,7 @@ def test_bootstrap_upgrades_a_pre_existing_db_file_with_the_entity_substrate(tmp
 
     # The upgraded file is fully usable, append-only enforcement included.
     store = _make_store(conn)
-    entity = _create_entity(store, name="Type3 Capital")
+    entity = _create_entity(store, name="Northwind Capital")
     store.record_relationship_change(entity_id=entity["id"], relationship_type="portfolio")
     assert [row["relationship_type_after"] for row in store.list_relationship_events(entity["id"])] == ["portfolio"]
     with pytest.raises(sqlite3.IntegrityError, match="append-only"):

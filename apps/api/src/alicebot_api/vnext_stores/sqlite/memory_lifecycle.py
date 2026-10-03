@@ -17,11 +17,12 @@ from alicebot_api.vnext_stores.memory_lifecycle_common import (
     is_prior_redacted_memory_marker,
     is_redacted_memory,
     redacted_memory_metadata,
+    refuse_created_credential_activation,
+    refuse_updated_credential_activation,
 )
 from alicebot_api.vnext_stores.sqlite.columns import MEMORY_COLUMNS, PROVENANCE_COLUMNS
 from alicebot_api.vnext_stores.sqlite.primitives import (
     _iso_or_none,
-    _iso_or_now,
     _json_list_text,
     _json_object_text,
     _new_id,
@@ -34,7 +35,11 @@ from alicebot_api.vnext_stores.sqlite.vector_scan import bump_embedding_stamp
 VNextRow = dict[str, object]
 
 def create_memory(self, memory: JsonObject, *, actor_type: str = "system") -> VNextRow:
+    refuse_created_credential_activation(memory)
     memory_id = _new_id(memory.get("id"))
+    # One clock reading for the whole write. ``first_seen_at`` and ``last_seen_at`` default to it, so
+    # they are equal, and the table's ``last_seen_at >= first_seen_at`` check cannot fail on two
+    # readings that go backwards (the wall clock can step back between two reads).
     now = _utc_now_iso()
     self._execute(
         """
@@ -112,8 +117,8 @@ def create_memory(self, memory: JsonObject, *, actor_type: str = "system") -> VN
             memory.get("summary"),
             memory.get("domain", "unknown"),
             memory.get("sensitivity", "unknown"),
-            _iso_or_now(memory.get("first_seen_at")),
-            _iso_or_now(memory.get("last_seen_at")),
+            _iso_or_none(memory.get("first_seen_at")) or now,
+            _iso_or_none(memory.get("last_seen_at")) or now,
             _iso_or_none(memory.get("last_reviewed_at")),
             _json_object_text(canonical_memory_metadata(memory)),
             memory.get("commit_digest"),
@@ -259,6 +264,9 @@ def memory_redaction_bundle_is_exact(self, memory_id: str, artifact_ids: Sequenc
     return bool(row.get("exact"))
 
 def update_memory(self, *, memory_id: str, patch: JsonObject, actor_type: str = "system") -> VNextRow:
+    refuse_updated_credential_activation(patch, lambda: self.get_memory(str(memory_id)))
+    # One clock reading for the write: an archive sets ``updated_at`` and ``deleted_at`` together.
+    now = _utc_now_iso()
     cursor = self._execute(
         """
                 UPDATE memories
@@ -326,9 +334,9 @@ def update_memory(self, *, memory_id: str, patch: JsonObject, actor_type: str = 
             patch.get("project_id"),
             _uuid_text(patch.get("superseded_by")),
             _uuid_text(patch.get("supersedes")),
-            _utc_now_iso(),
+            now,
             patch.get("status"),
-            _utc_now_iso(),
+            now,
             str(memory_id),
             self.user_id,
         ),

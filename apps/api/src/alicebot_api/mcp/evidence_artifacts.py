@@ -10,6 +10,8 @@ from alicebot_api.continuity_evidence import (
 )
 from alicebot_api.contracts import TemporalExplainQueryInput
 from alicebot_api.config import get_settings
+from alicebot_api.project_view import ProjectView
+from alicebot_api.recall_framing import frame_disclosed_tree, memory_writer, with_result_framing
 from alicebot_api.store import JsonObject
 from alicebot_api.temporal_state import get_temporal_explain
 from alicebot_api.vnext_agent_control import (
@@ -29,6 +31,7 @@ from alicebot_api.vnext_project_scope import (
 )
 from alicebot_api.vnext_repositories import JsonObject as VNextJsonObject
 from alicebot_api.vnext_retrieval import MEMORY_ENTITY_EDGE_TYPES
+from alicebot_api.vnext_source_fence import EXPLAIN_DISCLOSURE_ACTION
 from alicebot_api.vnext_json import json_safe
 from alicebot_api.vnext_store import PostgresVNextStore
 
@@ -50,6 +53,12 @@ from .shared import (
     _raise_mcp_policy_blocked,
     _store_context,
     _vnext_store_context,
+)
+from .types import (
+    MCPArgumentError,
+    MCPNotPermittedError,
+    MCPPreconditionFailedError,
+    MCPReferenceNotFoundError,
 )
 
 
@@ -132,11 +141,13 @@ def _handle_alice_explain(context: MCPRuntimeContext, arguments: Mapping[str, ob
     entity_id = _parse_optional_uuid(arguments, "entity_id")
     provided = [value for value in (memory_id, continuity_object_id, entity_id) if value is not None]
     if len(provided) > 1:
-        raise MCPToolError("alice_explain accepts exactly one of memory_id, continuity_object_id, or entity_id")
+        raise MCPArgumentError("alice_explain accepts exactly one of memory_id, continuity_object_id, or entity_id")
     if memory_id is not None:
         return _handle_alice_vnext_memory_audit(context, arguments)
     if _is_sqlite_backend(context):
-        raise MCPToolError(
+        if not provided:
+            raise MCPArgumentError("alice_explain requires memory_id, continuity_object_id, or entity_id")
+        raise MCPPreconditionFailedError(
             "alice_explain with entity_id or continuity_object_id is available on the Postgres "
             "backend; pass memory_id on the SQLite on-ramp"
         )
@@ -165,11 +176,11 @@ def _handle_alice_explain(context: MCPRuntimeContext, arguments: Mapping[str, ob
                 raise MCPToolError(_EXPLAIN_UNAVAILABLE_MESSAGE) from None
             raise
     if continuity_object_id is None:
-        raise MCPToolError("alice_explain requires memory_id, continuity_object_id, or entity_id")
+        raise MCPArgumentError("alice_explain requires memory_id, continuity_object_id, or entity_id")
 
     include_raw_content = _parse_bool(arguments, key="include_raw_content", default=False)
     if include_raw_content and get_settings().app_env not in {"development", "test"}:
-        raise MCPToolError("include_raw_content is restricted to development/test environments")
+        raise MCPNotPermittedError("include_raw_content is restricted to development/test environments")
 
     if _is_key_bound_explain(identity):
         assert identity is not None
@@ -203,7 +214,7 @@ def _handle_alice_artifact_inspect(
 ) -> JsonObject:
     include_raw_content = _parse_bool(arguments, key="include_raw_content", default=False)
     if include_raw_content and get_settings().app_env not in {"development", "test"}:
-        raise MCPToolError("include_raw_content is restricted to development/test environments")
+        raise MCPNotPermittedError("include_raw_content is restricted to development/test environments")
 
     with _store_context(context) as store:
         return _json_object(
@@ -259,13 +270,14 @@ def _authorize_explain_resource(
     _actor_type, _actor_id, decision = _policy_checked(
         store,  # type: ignore[arg-type]
         identity=identity,
-        action="memory.audit",
+        action=EXPLAIN_DISCLOSURE_ACTION,
         domains=(str(resource.get("domain") or "unknown"),),
         sensitivity_allowed=(str(resource.get("sensitivity") or "unknown"),),
         project_scope=project_scope,
         require_explicit_project_scope=True,
         target_type=target_type,
         target_id=target_id,
+        project_view=ProjectView.unscoped(),
     )
     # ``allowed_with_filtering`` is not sufficient for an explain response:
     # the downstream services expand related rows and do not accept filters.
@@ -610,11 +622,23 @@ def _handle_alice_vnext_memory_audit(context: MCPRuntimeContext, arguments: Mapp
                 identity=identity,
                 chain=audit.get("supersession_chain"),
             )
-            payload = _extend_memory_audit(
+            extended = _extend_memory_audit(
                 store,
                 audit,
                 allowed_entity_ids=allowed_entity_ids,
             )
+            # Quote the stored notes a model reads. The result states the
+            # framing sentence once. Timeline summaries and event payloads
+            # stay the audit record Alice wrote.
+            payload = dict(extended)
+            memory = extended.get("memory")
+            framed_memory = frame_disclosed_tree(memory)
+            if isinstance(memory, Mapping) and isinstance(framed_memory, dict):
+                framed_memory["writer"] = memory_writer(store, memory)
+            payload["memory"] = framed_memory
+            payload["revisions"] = frame_disclosed_tree(extended.get("revisions"))
+            payload["provenance_links"] = frame_disclosed_tree(extended.get("provenance_links"))
+            payload["supersession_chain"] = frame_disclosed_tree(extended.get("supersession_chain"))
         except _ExplainAuthorizationError as exc:
             authorization_error = exc
         except VNextMemoryCommitValidationError as exc:
@@ -627,7 +651,7 @@ def _handle_alice_vnext_memory_audit(context: MCPRuntimeContext, arguments: Mapp
         raise validation_error
     if payload is None:
         raise MCPToolError("vNext memory audit did not complete")
-    return _json_object(payload)
+    return _json_object(with_result_framing(payload))
 
 
 def _handle_alice_vnext_review_items(context: MCPRuntimeContext, arguments: Mapping[str, object]) -> JsonObject:
@@ -652,7 +676,7 @@ def _authorize_vnext_artifact_target(
 
     artifact = store.get_artifact_for_update(artifact_id) if for_update else store.get_artifact(artifact_id)
     if artifact is None:
-        raise MCPToolError(f"artifact {artifact_id} was not found")
+        raise MCPReferenceNotFoundError(f"artifact {artifact_id} was not found")
 
     actor_type, actor_id, raw_decision = _policy_checked(
         store,
@@ -665,6 +689,7 @@ def _authorize_vnext_artifact_target(
         require_unfiltered_target=True,
         target_type="artifact",
         target_id=artifact_id,
+        project_view=ProjectView.unscoped(),
     )
     return artifact, actor_type, actor_id, raw_decision
 

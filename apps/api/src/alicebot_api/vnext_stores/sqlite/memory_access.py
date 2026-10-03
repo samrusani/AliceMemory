@@ -10,6 +10,7 @@ from typing import cast
 
 import numpy as np
 
+from alicebot_api.source_search_limits import literal_match_operand
 from alicebot_api.store import ContinuityStoreInvariantError
 from alicebot_api.vnext_embeddings import (
     EMBEDDING_SIGNATURE_METADATA_KEY,
@@ -18,6 +19,7 @@ from alicebot_api.vnext_embeddings import (
     pad_embedding_vector,
 )
 from alicebot_api.vnext_project_scope import (
+    GLOBAL_PROJECT_MARKER,
     normalize_project_scope,
     project_scope_identity,
 )
@@ -25,9 +27,11 @@ from alicebot_api.vnext_stores.retrieval_common import _search_patterns
 from alicebot_api.vnext_stores.sqlite.columns import MEMORY_COLUMNS
 from alicebot_api.vnext_stores.sqlite.primitives import _iso_or_none
 from alicebot_api.vnext_stores.sqlite.query_predicates import (
-    _escape_like_literal,
     _fts_match_any_expression,
     _fts_match_expression,
+    CTE_MATERIALIZED_HINT,
+    _project_view_partition_sql,
+    _stated_exclusion,
     _sqlite_ascii_literal_contains_sql,
 )
 from alicebot_api.vnext_stores.sqlite.vector_scan import cached_vector_ranked
@@ -91,7 +95,16 @@ def get_memory_by_key(
     *,
     memory_key: str,
     agent_profile_id: str = "assistant_default",
+    include_deleted: bool = False,
 ) -> VNextRow | None:
+    """The memory at ``memory_key``, or ``None``.
+
+    A soft-deleted (archived) row is not returned unless ``include_deleted`` is true. It still holds its key:
+    the unique index on ``(user, profile, memory_key)`` counts every row, so a caller that reads the key to
+    avoid a collision on insert passes ``include_deleted=True`` to see every row the index sees.
+    """
+
+    deleted_clause = "" if include_deleted else "AND deleted_at IS NULL"
     return self._fetch_optional_one(
         f"""
                 SELECT {", ".join(MEMORY_COLUMNS)}
@@ -99,7 +112,7 @@ def get_memory_by_key(
                 WHERE user_id = ?
                   AND agent_profile_id = ?
                   AND memory_key = ?
-                  AND deleted_at IS NULL
+                  {deleted_clause}
                 LIMIT 1
                 """,
         (self.user_id, agent_profile_id, memory_key),
@@ -175,6 +188,109 @@ def list_memories_referencing_source(self, *, source_id: str, limit: int = 500) 
                 """,
         (self.user_id, source_id, source_id, source_id, f"source:{source_id}", limit),
     )
+
+
+def list_memories_referencing_sources(
+    self,
+    source_ids: Sequence[str],
+    *,
+    limit_per_source: int,
+) -> dict[str, list[VNextRow]]:
+    """``list_memories_referencing_source`` for several sources in one statement.
+
+    Returns ``{source_id: rows}`` with one key per distinct source id asked
+    for, in the order asked, and an empty list for a source nothing
+    references. Each list is exactly what the one-source method returns for
+    that source with ``limit=limit_per_source``: the same rows, the same
+    order, the same cap. The controls are the same two the one-source method
+    applies, this user's rows and ``deleted_at IS NULL``. Nothing here reads a
+    memory the one-source method would not have returned.
+
+    The one-source method parses the JSON of every memory row on each call, so
+    asking once per packed source costs one table scan per source. This reads
+    the memories table once: each of the three reference kinds yields
+    ``(source id, memory id)`` pairs filtered to the requested ids, and a
+    window function applies the cap per source. ``limit_per_source`` has no
+    default because the callers disagree about the cap.
+    """
+
+    if limit_per_source < 1:
+        raise ValueError("limit must be positive")
+    ids = list(dict.fromkeys(str(source_id) for source_id in source_ids if source_id))
+    grouped: dict[str, list[VNextRow]] = {source_id: [] for source_id in ids}
+    if not ids:
+        return grouped
+    qualified_columns = ", ".join(f"m.{column}" for column in MEMORY_COLUMNS)
+    rows = self._fetch_all(
+        f"""
+                WITH wanted(source_id) AS (
+                  SELECT CAST(value AS TEXT) FROM json_each(?)
+                ),
+                hits(ref_source_id, memory_id) AS (
+                  SELECT CAST(source_event.value AS TEXT), m.id
+                  FROM memories AS m, json_each(m.source_event_ids) AS source_event
+                  WHERE m.user_id = ?
+                    AND m.deleted_at IS NULL
+                    AND CAST(source_event.value AS TEXT) IN (SELECT source_id FROM wanted)
+                  UNION
+                  SELECT p.source_id, p.target_id
+                  FROM provenance_links AS p
+                  WHERE p.user_id = ?
+                    AND p.target_type = 'memory'
+                    AND p.source_id IN (SELECT source_id FROM wanted)
+                  UNION
+                  SELECT CAST(ref.value AS TEXT), m.id
+                  FROM memories AS m, json_tree(m.metadata_json) AS ref
+                  WHERE m.user_id = ?
+                    AND m.deleted_at IS NULL
+                    AND ref.key IN (
+                      'source_id', 'source_ids', 'source_ref', 'source_refs',
+                      'source_references', 'selected_source_ids'
+                    )
+                    AND CAST(ref.value AS TEXT) IN (SELECT source_id FROM wanted)
+                  UNION
+                  SELECT substr(CAST(ref.value AS TEXT), 8), m.id
+                  FROM memories AS m, json_tree(m.metadata_json) AS ref
+                  WHERE m.user_id = ?
+                    AND m.deleted_at IS NULL
+                    AND ref.key IN (
+                      'source_id', 'source_ids', 'source_ref', 'source_refs',
+                      'source_references', 'selected_source_ids'
+                    )
+                    AND substr(CAST(ref.value AS TEXT), 1, 7) = 'source:'
+                    AND substr(CAST(ref.value AS TEXT), 8) IN (SELECT source_id FROM wanted)
+                ),
+                ranked(ref_source_id, memory_id, rank_in_source) AS (
+                  SELECT h.ref_source_id, m.id,
+                         ROW_NUMBER() OVER (
+                           PARTITION BY h.ref_source_id
+                           ORDER BY m.updated_at DESC, m.created_at DESC, m.id DESC
+                         )
+                  FROM hits AS h
+                  JOIN memories AS m
+                    ON m.id = h.memory_id
+                   AND m.user_id = ?
+                   AND m.deleted_at IS NULL
+                )
+                SELECT r.ref_source_id AS ref_source_id, {qualified_columns}
+                FROM ranked AS r
+                JOIN memories AS m ON m.id = r.memory_id
+                WHERE r.rank_in_source <= ?
+                ORDER BY r.ref_source_id, r.rank_in_source
+                """,
+        (
+            json.dumps(ids),
+            self.user_id,
+            self.user_id,
+            self.user_id,
+            self.user_id,
+            self.user_id,
+            limit_per_source,
+        ),
+    )
+    for row in rows:
+        grouped[str(row.pop("ref_source_id"))].append(row)
+    return grouped
 
 
 def list_pending_derived_candidates_for_member(
@@ -275,6 +391,89 @@ def get_memory_by_confirmation_id(self, confirmation_id: str) -> VNextRow | None
     )
 
 
+def _memory_list_clauses(
+    self,
+    *,
+    status: str | None,
+    statuses: Sequence[str] | None,
+    memory_types: Sequence[str] | None,
+    domains: list[str] | None,
+    sensitivity_allowed: list[str] | None,
+    created_at_start: datetime | None,
+    created_at_end: datetime | None,
+    query: str | None,
+    include_expired: bool,
+) -> tuple[str, list[object], str, list[object]] | None:
+    """The filters of ``list_memories`` in two pieces, or ``None`` when they admit nothing.
+
+    ``head`` runs from the user through the sensitivity ceiling and ``tail`` holds
+    the time window, the literal query and the expiry test. The project fence goes
+    between them, so ``list_memories`` and the single-scan partition read build one
+    set of filters and cannot drift apart.
+    """
+
+    status_sql = ""
+    params: list[object] = [self.user_id]
+    if status is not None:
+        status_sql = " AND status = ?"
+        params.append(status)
+    statuses_sql = ""
+    if statuses is not None:
+        normalized_statuses = list(dict.fromkeys(str(value) for value in statuses if str(value)))
+        if not normalized_statuses:
+            return None
+        statuses_sql = f" AND status IN ({self._placeholders(normalized_statuses)})"
+        params.extend(normalized_statuses)
+    memory_types_sql = ""
+    if memory_types is not None:
+        normalized_memory_types = list(dict.fromkeys(str(value) for value in memory_types if str(value)))
+        if not normalized_memory_types:
+            return None
+        memory_types_sql = f" AND memory_type IN ({self._placeholders(normalized_memory_types)})"
+        params.extend(normalized_memory_types)
+    domains_sql = ""
+    if domains:
+        domain_placeholders = ", ".join("?" for _domain in domains)
+        domains_sql = f" AND (domain IN ({domain_placeholders}) OR domain = 'unknown')"
+        params.extend(domains)
+    sensitivity_sql = ""
+    if sensitivity_allowed is not None:
+        if not sensitivity_allowed:
+            return None
+        sensitivity_placeholders = ", ".join("?" for _sensitivity in sensitivity_allowed)
+        sensitivity_sql = f" AND COALESCE(sensitivity, 'unknown') IN ({sensitivity_placeholders})"
+        params.extend(sensitivity_allowed)
+    head_sql = (
+        f"WHERE user_id = ?{status_sql}{statuses_sql}{memory_types_sql}"
+        f"\n                  AND deleted_at IS NULL"
+        f"\n                  {domains_sql}"
+        f"\n                  {sensitivity_sql}"
+    )
+    tail_params: list[object] = []
+    created_at_sql = ""
+    if created_at_start is not None:
+        created_at_sql += " AND julianday(created_at) >= julianday(?)"
+        tail_params.append(_iso_or_none(created_at_start))
+    if created_at_end is not None:
+        created_at_sql += " AND julianday(created_at) <= julianday(?)"
+        tail_params.append(_iso_or_none(created_at_end))
+    query_sql = ""
+    if query is not None:
+        normalized_query = str(query).strip()
+        if normalized_query:
+            query_sql = (
+                f" AND ({_sqlite_ascii_literal_contains_sql("COALESCE(title, '')")}"
+                f" OR {_sqlite_ascii_literal_contains_sql("COALESCE(canonical_text, '')")}"
+                f" OR {_sqlite_ascii_literal_contains_sql("COALESCE(summary, '')")})"
+            )
+            escaped_query = literal_match_operand(normalized_query)
+            tail_params.extend((escaped_query, escaped_query, escaped_query))
+    expiry_sql, expiry_params = self._expiry_clause(include_expired)
+    tail_params.extend(expiry_params)
+    tail_sql = f"{created_at_sql}\n                  {query_sql}\n                  {expiry_sql}"
+    return head_sql, params, tail_sql, tail_params
+
+
 def list_memories(
     self,
     *,
@@ -289,60 +488,43 @@ def list_memories(
     query: str | None = None,
     order_by_created_at: bool = False,
     limit: int | None = None,
+    include_expired: bool = True,
+    exclude_global_domains: Sequence[str] | None = None,
 ) -> list[VNextRow]:
+    """List memories. ``include_expired=False`` leaves out a memory whose ``valid_to`` has passed.
+
+    The default keeps the management reads (review, confirm, unexpire, export)
+    seeing an expired memory. A read an agent or a brief shows to a person passes
+    ``False``, which applies recall's own test (``_expiry_clause``) before ``LIMIT``.
+
+    ``projects`` may hold the reserved global marker (spec 6.1). With it,
+    ``exclude_global_domains`` leaves out global memories in those domains before
+    ``LIMIT``, so a held-back row never uses up a place. It has no effect on a
+    request that does not hold the marker. With the marker it must be stated, an
+    empty tuple when nothing is left out: ``None`` raises.
+    """
     if limit is not None and limit < 1:
         raise ValueError("limit must be positive")
-    status_sql = ""
-    params: list[object] = [self.user_id]
-    if status is not None:
-        status_sql = " AND status = ?"
-        params.append(status)
-    statuses_sql = ""
-    if statuses is not None:
-        normalized_statuses = list(dict.fromkeys(str(value) for value in statuses if str(value)))
-        if not normalized_statuses:
-            return []
-        statuses_sql = f" AND status IN ({self._placeholders(normalized_statuses)})"
-        params.extend(normalized_statuses)
-    memory_types_sql = ""
-    if memory_types is not None:
-        normalized_memory_types = list(dict.fromkeys(str(value) for value in memory_types if str(value)))
-        if not normalized_memory_types:
-            return []
-        memory_types_sql = f" AND memory_type IN ({self._placeholders(normalized_memory_types)})"
-        params.extend(normalized_memory_types)
-    domains_sql = ""
-    if domains:
-        domain_placeholders = ", ".join("?" for _domain in domains)
-        domains_sql = f" AND (domain IN ({domain_placeholders}) OR domain = 'unknown')"
-        params.extend(domains)
-    sensitivity_sql = ""
-    if sensitivity_allowed is not None:
-        if not sensitivity_allowed:
-            return []
-        sensitivity_placeholders = ", ".join("?" for _sensitivity in sensitivity_allowed)
-        sensitivity_sql = f" AND COALESCE(sensitivity, 'unknown') IN ({sensitivity_placeholders})"
-        params.extend(sensitivity_allowed)
-    project_sql, project_params = self._project_clause(tuple(normalize_project_scope(projects or ())))
-    params.extend(project_params)
-    created_at_sql = ""
-    if created_at_start is not None:
-        created_at_sql += " AND julianday(created_at) >= julianday(?)"
-        params.append(_iso_or_none(created_at_start))
-    if created_at_end is not None:
-        created_at_sql += " AND julianday(created_at) <= julianday(?)"
-        params.append(_iso_or_none(created_at_end))
-    query_sql = ""
-    if query is not None:
-        normalized_query = str(query).strip()
-        if normalized_query:
-            query_sql = (
-                f" AND ({_sqlite_ascii_literal_contains_sql("COALESCE(title, '')")}"
-                f" OR {_sqlite_ascii_literal_contains_sql("COALESCE(canonical_text, '')")}"
-                f" OR {_sqlite_ascii_literal_contains_sql("COALESCE(summary, '')")})"
-            )
-            escaped_query = _escape_like_literal(normalized_query)
-            params.extend((escaped_query, escaped_query, escaped_query))
+    clauses = _memory_list_clauses(
+        self,
+        status=status,
+        statuses=statuses,
+        memory_types=memory_types,
+        domains=domains,
+        sensitivity_allowed=sensitivity_allowed,
+        created_at_start=created_at_start,
+        created_at_end=created_at_end,
+        query=query,
+        include_expired=include_expired,
+    )
+    if clauses is None:
+        return []
+    head_sql, head_params, tail_sql, tail_params = clauses
+    project_sql, project_params = self._project_clause(
+        tuple(normalize_project_scope(projects or ())),
+        global_excluded_domains=_stated_exclusion(exclude_global_domains),
+    )
+    params = [*head_params, *project_params, *tail_params]
     order_sql = (
         "ORDER BY created_at DESC, id DESC"
         if order_by_created_at
@@ -356,18 +538,121 @@ def list_memories(
         f"""
                 SELECT {", ".join(MEMORY_COLUMNS)}
                 FROM memories
-                WHERE user_id = ?{status_sql}{statuses_sql}{memory_types_sql}
-                  AND deleted_at IS NULL
-                  {domains_sql}
-                  {sensitivity_sql}
+                {head_sql}
                   {project_sql}
-                  {created_at_sql}
-                  {query_sql}
+                  {tail_sql}
                 {order_sql}
                 {limit_sql}
                 """,
         tuple(params),
     )
+
+
+def list_memories_view_partitions(
+    self,
+    *,
+    project_ids: Sequence[str],
+    exclude_global_domains: Sequence[str],
+    per_partition_limit: int,
+    # The domain filter and the sensitivity ceiling have no defaults: a caller that
+    # forgets one would read every domain or every sensitivity. ``None`` is written
+    # at the call site when a filter is meant to be absent.
+    domains: list[str] | None,
+    sensitivity_allowed: list[str] | None,
+    status: str | None = None,
+    statuses: Sequence[str] | None = None,
+    memory_types: Sequence[str] | None = None,
+    created_at_start: datetime | None = None,
+    created_at_end: datetime | None = None,
+    query: str | None = None,
+    order_by_created_at: bool = False,
+    include_expired: bool = True,
+) -> tuple[list[VNextRow], list[VNextRow]]:
+    """The project's memories and the global memories in one scan (spec 6.2, 12).
+
+    Returns ``(project_rows, global_rows)``, each newest first and at most
+    ``per_partition_limit`` long, under the same filters as ``list_memories``.
+    ``project_ids`` are Alice project ids. A memory is global when its scope holds
+    no Alice project id, and global memories in ``exclude_global_domains`` are left
+    out before the limit. It adds no column, no index and no table.
+
+    One pass over the table labels every row once (1 for the project, 0 for global,
+    NULL for a row outside the view) into a narrow common table expression: the row
+    id, the ordering columns and the label. The expression is read twice, once per
+    label, each read a top-N by the list's own order, and the winning ids are joined
+    back to the table for their full rows. Nothing wide is sorted. SQLite does not
+    share a common table expression between two references by itself, so the
+    expression carries ``AS MATERIALIZED`` (``CTE_MATERIALIZED_HINT``) and the label,
+    a Python call per row that holds an Alice id, runs once per row: a test counts
+    the calls. Two ordinary queries scan the table twice, and a window function over
+    the labelled rows measured slower than both (spec 12).
+    """
+
+    if per_partition_limit < 1:
+        raise ValueError("limit must be positive")
+    clauses = _memory_list_clauses(
+        self,
+        status=status,
+        statuses=statuses,
+        memory_types=memory_types,
+        domains=domains,
+        sensitivity_allowed=sensitivity_allowed,
+        created_at_start=created_at_start,
+        created_at_end=created_at_end,
+        query=query,
+        include_expired=include_expired,
+    )
+    if clauses is None:
+        return [], []
+    head_sql, head_params, tail_sql, tail_params = clauses
+    partition_sql, partition_params = _project_view_partition_sql(
+        placeholders=self._placeholders,
+        projects=(*project_ids, GLOBAL_PROJECT_MARKER),
+        scope_expression="alice_project_scope_identity(metadata_json, project_id)",
+        text_expressions=("metadata_json", "project_id"),
+        domain_expression="domain",
+        global_excluded_domains=tuple(sorted(exclude_global_domains)),
+    )
+    ordering = ("created_at",) if order_by_created_at else ("updated_at", "created_at")
+    order_columns = ", ".join(ordering)
+    order_sql = ", ".join(f"{column} DESC" for column in ordering) + ", id DESC"
+    joined_order_sql = ", ".join(f"m.{column} DESC" for column in ordering) + ", m.id DESC"
+    rows = self._fetch_all(
+        f"""
+                WITH alice_labelled AS{CTE_MATERIALIZED_HINT} (
+                  SELECT id, {order_columns}, {partition_sql} AS alice_partition
+                  FROM memories
+                  {head_sql}
+                    {tail_sql}
+                )
+                SELECT {", ".join(f"m.{column}" for column in MEMORY_COLUMNS)},
+                       picked.alice_partition AS alice_partition
+                FROM (
+                  SELECT id, alice_partition FROM (
+                    SELECT id, alice_partition FROM alice_labelled
+                    WHERE alice_partition = 1
+                    ORDER BY {order_sql}
+                    LIMIT ?
+                  )
+                  UNION ALL
+                  SELECT id, alice_partition FROM (
+                    SELECT id, alice_partition FROM alice_labelled
+                    WHERE alice_partition = 0
+                    ORDER BY {order_sql}
+                    LIMIT ?
+                  )
+                ) AS picked
+                JOIN memories AS m ON m.id = picked.id
+                ORDER BY picked.alice_partition DESC, {joined_order_sql}
+                """,
+        (*partition_params, *head_params, *tail_params, per_partition_limit, per_partition_limit),
+    )
+    project_rows: list[VNextRow] = []
+    global_rows: list[VNextRow] = []
+    for row in rows:
+        partition = row.pop("alice_partition")
+        (project_rows if partition == 1 else global_rows).append(row)
+    return project_rows, global_rows
 
 
 def list_memories_by_statuses(
@@ -579,8 +864,13 @@ def count_memories(
     domains: list[str] | None = None,
     sensitivity_allowed: list[str] | None = None,
     projects: Sequence[str] | None = None,
+    include_expired: bool = True,
 ) -> int:
-    """Count the exact in-scope memory corpus without materializing it."""
+    """Count the exact in-scope memory corpus without materializing it.
+
+    ``include_expired=False`` leaves out a memory whose ``valid_to`` has passed,
+    as ``list_memories`` does, so a count and the list behind it agree.
+    """
     params: list[object] = [self.user_id]
     status_sql = ""
     if status is not None:
@@ -600,6 +890,8 @@ def count_memories(
         params.extend(sensitivity_allowed)
     project_sql, project_params = self._project_clause(tuple(normalize_project_scope(projects or ())))
     params.extend(project_params)
+    expiry_sql, expiry_params = self._expiry_clause(include_expired)
+    params.extend(expiry_params)
     row = self._fetch_one(
         "count memories",
         f"""
@@ -611,6 +903,7 @@ def count_memories(
                   {domains_sql}
                   {sensitivity_sql}
                   {project_sql}
+                  {expiry_sql}
                 """,
         tuple(params),
     )
@@ -641,6 +934,10 @@ def list_rollup_input_memories(
     params.extend(sensitivity_allowed)
     project_sql, project_params = self._project_clause(tuple(normalize_project_scope(projects or ())))
     params.extend(project_params)
+    # A roll-up groups memories that recall can return, so an expired one is
+    # left out here, before LIMIT, the way recall leaves it out.
+    expiry_sql, expiry_params = self._expiry_clause(False)
+    params.extend(expiry_params)
     params.append(limit)
     return self._fetch_all(
         f"""
@@ -653,6 +950,7 @@ def list_rollup_input_memories(
                   {domains_sql}
                   AND COALESCE(sensitivity, 'unknown') IN ({sensitivity_placeholders})
                   {project_sql}
+                  {expiry_sql}
                 ORDER BY created_at DESC, id DESC
                 LIMIT ?
                 """,
@@ -681,6 +979,8 @@ def count_rollup_input_memories(
     params.extend(sensitivity_allowed)
     project_sql, project_params = self._project_clause(tuple(normalize_project_scope(projects or ())))
     params.extend(project_params)
+    expiry_sql, expiry_params = self._expiry_clause(False)
+    params.extend(expiry_params)
     row = self._fetch_one(
         "count rollup input memories",
         f"""
@@ -693,6 +993,7 @@ def count_rollup_input_memories(
                   {domains_sql}
                   AND COALESCE(sensitivity, 'unknown') IN ({sensitivity_placeholders})
                   {project_sql}
+                  {expiry_sql}
                 """,
         tuple(params),
     )
@@ -784,6 +1085,11 @@ def list_accepted_rollup_cards(
     params.extend(sensitivity_allowed)
     project_sql, project_params = self._project_clause(tuple(normalize_project_scope(projects or ())))
     params.extend(project_params)
+    # An expired card is not the accepted card for its topic. The test sits
+    # inside the ranking query, so an older card that is still open is ranked
+    # and returned when the newest one has expired.
+    expiry_sql, expiry_params = self._expiry_clause(False)
+    params.extend(expiry_params)
     params.append(bounded_limit)
     return self._fetch_all(
         f"""
@@ -806,6 +1112,7 @@ def list_accepted_rollup_cards(
                     {domains_sql}
                     AND COALESCE(sensitivity, 'unknown') IN ({sensitivity_placeholders})
                     {project_sql}
+                    {expiry_sql}
                 )
                 SELECT {", ".join(MEMORY_COLUMNS)}
                 FROM ranked_rollups
@@ -1282,11 +1589,13 @@ for _memory_method in (
     get_memory,
     get_memories_by_ids,
     list_memories_referencing_source,
+    list_memories_referencing_sources,
     list_pending_derived_candidates_for_member,
     get_memory_by_commit_digest,
     latest_agentic_commit_memory,
     get_memory_by_confirmation_id,
     list_memories,
+    list_memories_view_partitions,
     list_memories_by_statuses,
     count_memories_by_status,
     list_recent_agentic_commits,

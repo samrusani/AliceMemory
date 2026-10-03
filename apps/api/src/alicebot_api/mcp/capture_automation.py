@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from alicebot_api.project_view import ProjectView
 from alicebot_api.store import JsonObject
 from alicebot_api.vnext_agent_control import (
     PolicyDecision,
@@ -43,6 +44,7 @@ from .synthesis import (
     _handle_alice_generate_connections,
     _handle_alice_generate_contradictions,
 )
+from .types import MCPArgumentError
 
 
 def _handle_alice_vnext_capture(context: MCPRuntimeContext, arguments: Mapping[str, object]) -> JsonObject:
@@ -62,6 +64,7 @@ def _handle_alice_vnext_capture(context: MCPRuntimeContext, arguments: Mapping[s
             domains=(domain,),
             sensitivity_allowed=(sensitivity,),
             project_scope=_parse_string_list(arguments, "project_scope"),
+            project_view=ProjectView.unscoped(),
         )
         if decision.decision == "blocked":
             blocked_decision = decision
@@ -105,7 +108,7 @@ def _handle_alice_vnext_capture(context: MCPRuntimeContext, arguments: Mapping[s
 def _handle_alice_vnext_ingest_agent_output(context: MCPRuntimeContext, arguments: Mapping[str, object]) -> JsonObject:
     identity = _agent_identity_from_arguments(context, arguments)
     if identity is None:
-        raise MCPToolError("agent_id is required for alice_vnext_ingest_agent_output")
+        raise MCPArgumentError("agent_id is required for alice_vnext_ingest_agent_output")
     domain = _parse_optional_text(arguments, "domain") or "project"
     sensitivity = _parse_optional_text(arguments, "sensitivity") or "private"
     blocked_decision: PolicyDecision | None = None
@@ -120,6 +123,7 @@ def _handle_alice_vnext_ingest_agent_output(context: MCPRuntimeContext, argument
             sensitivity_allowed=(sensitivity,),
             project_scope=_parse_string_list(arguments, "project_scope"),
             write_policy="proposal_only" if _parse_bool(arguments, key="propose_memory", default=False) else None,
+            project_view=ProjectView.unscoped(),
         )
         if decision.decision == "blocked":
             blocked_decision = decision
@@ -175,6 +179,7 @@ def _handle_alice_vnext_queue_task(context: MCPRuntimeContext, arguments: Mappin
             sensitivity_allowed=(sensitivity,),
             project_scope=_parse_string_list(arguments, "project_scope"),
             write_policy=write_policy,
+            project_view=ProjectView.unscoped(),
         )
         if decision.decision == "blocked":
             blocked_decision = decision
@@ -215,7 +220,7 @@ def _handle_alice_vnext_generate_artifact(context: MCPRuntimeContext, arguments:
         scheduler_arguments["workflow_type"] = workflow_type
         return _handle_alice_vnext_scheduler_run_now(context, scheduler_arguments)
     if workflow_type not in {"daily_brief", "weekly_synthesis"}:
-        raise MCPToolError(
+        raise MCPArgumentError(
             "workflow_type must be daily_brief, weekly_synthesis, connection_report, "
             "contradiction_report, open_loop_review, project_update_scan, or memory_consolidation"
         )
@@ -237,6 +242,7 @@ def _handle_alice_vnext_generate_artifact(context: MCPRuntimeContext, arguments:
             domains=_parse_string_list(arguments, "domains"),
             sensitivity_allowed=sensitivity_allowed,
             project_scope=_parse_string_list(arguments, "project_scope") or _parse_string_list(arguments, "projects"),
+            project_view=ProjectView.unscoped(),
         )
         if decision.decision == "blocked":
             blocked_decision = decision

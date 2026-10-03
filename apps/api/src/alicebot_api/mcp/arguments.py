@@ -7,6 +7,8 @@ from datetime import UTC, datetime
 from typing import TypedDict, cast
 from uuid import UUID
 
+from alicebot_api.recall_framing import frame_rendered_block
+from alicebot_api.session_briefing import quote_session_brief_text
 from alicebot_api.contracts import (
     CONTINUITY_BRIEF_TYPE_ORDER,
     CONTINUITY_CORRECTION_ACTIONS,
@@ -38,7 +40,7 @@ from alicebot_api.vnext_retrieval import (
 )
 
 from .types import (
-    MCPToolError,
+    MCPArgumentError,
     _MODEL_GENERATION_MODES,
     _MODEL_ROUTE_MODES,
     _REVIEW_APPLY_ACTION_ALIASES,
@@ -53,7 +55,7 @@ def _normalize_arguments(arguments: object) -> Mapping[str, object]:
     if arguments is None:
         return {}
     if not isinstance(arguments, Mapping):
-        raise MCPToolError("tool arguments must be a JSON object")
+        raise MCPArgumentError("tool arguments must be a JSON object")
     return arguments
 
 
@@ -62,7 +64,7 @@ def _parse_optional_text(arguments: Mapping[str, object], key: str) -> str | Non
     if value is None:
         return None
     if not isinstance(value, str):
-        raise MCPToolError(f"{key} must be a string")
+        raise MCPArgumentError(f"{key} must be a string")
     normalized = " ".join(value.split()).strip()
     if normalized == "":
         return None
@@ -72,10 +74,10 @@ def _parse_optional_text(arguments: Mapping[str, object], key: str) -> str | Non
 def _parse_required_text(arguments: Mapping[str, object], key: str) -> str:
     value = arguments.get(key)
     if not isinstance(value, str):
-        raise MCPToolError(f"{key} is required and must be a string")
+        raise MCPArgumentError(f"{key} is required and must be a string")
     normalized = " ".join(value.split()).strip()
     if normalized == "":
-        raise MCPToolError(f"{key} must not be empty")
+        raise MCPArgumentError(f"{key} must not be empty")
     return normalized
 
 
@@ -102,10 +104,10 @@ def _parse_required_document_text(arguments: Mapping[str, object], key: str) -> 
 
     value = arguments.get(key)
     if not isinstance(value, str):
-        raise MCPToolError(f"{key} is required and must be a string")
+        raise MCPArgumentError(f"{key} is required and must be a string")
     normalized = value.replace("\r\n", "\n").replace("\r", "\n").strip()
     if normalized == "":
-        raise MCPToolError(f"{key} must not be empty")
+        raise MCPArgumentError(f"{key} must not be empty")
     return normalized
 
 
@@ -114,17 +116,17 @@ def _parse_optional_uuid(arguments: Mapping[str, object], key: str) -> UUID | No
     if value is None:
         return None
     if not isinstance(value, str):
-        raise MCPToolError(f"{key} must be a UUID string")
+        raise MCPArgumentError(f"{key} must be a UUID string")
     try:
         return UUID(value)
     except ValueError as exc:
-        raise MCPToolError(f"{key} must be a valid UUID") from exc
+        raise MCPArgumentError(f"{key} must be a valid UUID") from exc
 
 
 def _parse_required_uuid(arguments: Mapping[str, object], key: str) -> UUID:
     value = _parse_optional_uuid(arguments, key)
     if value is None:
-        raise MCPToolError(f"{key} is required and must be a UUID string")
+        raise MCPArgumentError(f"{key} is required and must be a UUID string")
     return value
 
 
@@ -133,14 +135,14 @@ def _parse_optional_datetime(arguments: Mapping[str, object], key: str) -> datet
     if value is None:
         return None
     if not isinstance(value, str):
-        raise MCPToolError(f"{key} must be an ISO-8601 datetime string")
+        raise MCPArgumentError(f"{key} must be an ISO-8601 datetime string")
     normalized = value.strip()
     if normalized.endswith("Z"):
         normalized = normalized[:-1] + "+00:00"
     try:
         return datetime.fromisoformat(normalized)
     except ValueError as exc:
-        raise MCPToolError(f"{key} must be an ISO-8601 datetime string") from exc
+        raise MCPArgumentError(f"{key} must be an ISO-8601 datetime string") from exc
 
 
 def _parse_int(
@@ -153,23 +155,23 @@ def _parse_int(
 ) -> int:
     value = arguments.get(key, default)
     if isinstance(value, bool):
-        raise MCPToolError(f"{key} must be an integer")
+        raise MCPArgumentError(f"{key} must be an integer")
 
     if isinstance(value, int):
         parsed = value
     elif isinstance(value, str):
         stripped = value.strip()
         if stripped == "":
-            raise MCPToolError(f"{key} must be an integer")
+            raise MCPArgumentError(f"{key} must be an integer")
         try:
             parsed = int(stripped)
         except ValueError as exc:
-            raise MCPToolError(f"{key} must be an integer") from exc
+            raise MCPArgumentError(f"{key} must be an integer") from exc
     else:
-        raise MCPToolError(f"{key} must be an integer")
+        raise MCPArgumentError(f"{key} must be an integer")
 
     if parsed < minimum or parsed > maximum:
-        raise MCPToolError(f"{key} must be between {minimum} and {maximum}")
+        raise MCPArgumentError(f"{key} must be between {minimum} and {maximum}")
     return parsed
 
 
@@ -178,7 +180,7 @@ def _parse_optional_json_object(arguments: Mapping[str, object], key: str) -> Js
     if value is None:
         return None
     if not isinstance(value, dict):
-        raise MCPToolError(f"{key} must be a JSON object")
+        raise MCPArgumentError(f"{key} must be a JSON object")
     return value
 
 
@@ -190,11 +192,11 @@ def _parse_string_list(arguments: Mapping[str, object], key: str) -> tuple[str, 
         normalized = " ".join(value.split()).strip()
         return (normalized,) if normalized else ()
     if not isinstance(value, list):
-        raise MCPToolError(f"{key} must be a string array")
+        raise MCPArgumentError(f"{key} must be a string array")
     output: list[str] = []
     for item in value:
         if not isinstance(item, str):
-            raise MCPToolError(f"{key} must be a string array")
+            raise MCPArgumentError(f"{key} must be a string array")
         normalized = " ".join(item.split()).strip()
         if normalized:
             output.append(normalized)
@@ -206,7 +208,7 @@ def _parse_memory_types(arguments: Mapping[str, object], *, key: str = "memory_t
     values = _parse_string_list(arguments, key)
     invalid = sorted({value for value in values if value not in VNEXT_MEMORY_TYPES})
     if invalid:
-        raise MCPToolError(
+        raise MCPArgumentError(
             f"{key} contains unsupported values: {', '.join(invalid)}; "
             f"allowed values are: {', '.join(VNEXT_MEMORY_TYPES)}"
         )
@@ -265,7 +267,7 @@ def _retrieval_filter_kwargs(arguments: Mapping[str, object]) -> _RetrievalFilte
     if until is not None and until.tzinfo is None:
         until = until.replace(tzinfo=UTC)
     if since is not None and until is not None and since > until:
-        raise MCPToolError("since must be at or before until")
+        raise MCPArgumentError("since must be at or before until")
     if since is not None:
         kwargs["scope_window_start"] = since
     if until is not None:
@@ -278,10 +280,10 @@ def _parse_task_brief_request(
 ) -> TaskBriefCompileRequestInput:
     mode_value = arguments.get(mode_key)
     if not isinstance(mode_value, str):
-        raise MCPToolError(f"{mode_key} is required and must be a string")
+        raise MCPArgumentError(f"{mode_key} is required and must be a string")
     normalized_mode = mode_value.strip()
     if normalized_mode == "":
-        raise MCPToolError(f"{mode_key} must not be empty")
+        raise MCPArgumentError(f"{mode_key} must not be empty")
     token_budget = arguments.get("token_budget")
     parsed_token_budget: int | None
     if token_budget is None:
@@ -320,10 +322,10 @@ def _parse_task_brief_request(
 def _parse_continuity_brief_request(arguments: Mapping[str, object]) -> ContinuityBriefRequestInput:
     brief_type_value = arguments.get("brief_type", "general")
     if not isinstance(brief_type_value, str) or brief_type_value.strip() == "":
-        raise MCPToolError("brief_type must be a string")
+        raise MCPArgumentError("brief_type must be a string")
     brief_type = brief_type_value.strip()
     if brief_type not in CONTINUITY_BRIEF_TYPE_ORDER:
-        raise MCPToolError("brief_type must be one of: " + ", ".join(CONTINUITY_BRIEF_TYPE_ORDER))
+        raise MCPArgumentError("brief_type must be one of: " + ", ".join(CONTINUITY_BRIEF_TYPE_ORDER))
     return ContinuityBriefRequestInput(
         brief_type=brief_type,  # type: ignore[arg-type]
         query=_parse_optional_text(arguments, "query"),
@@ -381,15 +383,15 @@ def _parse_optional_float(arguments: Mapping[str, object], key: str) -> float | 
     if value is None:
         return None
     if isinstance(value, bool):
-        raise MCPToolError(f"{key} must be a number")
+        raise MCPArgumentError(f"{key} must be a number")
     if isinstance(value, (int, float)):
         return float(value)
     if isinstance(value, str):
         try:
             return float(value.strip())
         except ValueError as exc:
-            raise MCPToolError(f"{key} must be a number") from exc
-    raise MCPToolError(f"{key} must be a number")
+            raise MCPArgumentError(f"{key} must be a number") from exc
+    raise MCPArgumentError(f"{key} must be a number")
 
 
 def _parse_bool(arguments: Mapping[str, object], *, key: str, default: bool = False) -> bool:
@@ -402,7 +404,7 @@ def _parse_bool(arguments: Mapping[str, object], *, key: str, default: bool = Fa
             return True
         if normalized in {"false", "0", "no"}:
             return False
-    raise MCPToolError(f"{key} must be a boolean")
+    raise MCPArgumentError(f"{key} must be a boolean")
 
 
 def _parse_optional_bool(arguments: Mapping[str, object], *, key: str) -> bool | None:
@@ -421,10 +423,10 @@ def _parse_context_pack_tuning(arguments: Mapping[str, object]) -> tuple[str, st
     """Validated (context_depth, budget_strategy) pair with tier defaults."""
     depth = _parse_optional_text(arguments, "context_depth") or CONTEXT_DEPTH_LOW
     if depth not in CONTEXT_DEPTHS:
-        raise MCPToolError(f"context_depth must be one of: {', '.join(CONTEXT_DEPTHS)}")
+        raise MCPArgumentError(f"context_depth must be one of: {', '.join(CONTEXT_DEPTHS)}")
     strategy = _parse_optional_text(arguments, "budget_strategy") or BUDGET_STRATEGY_BALANCED
     if strategy not in BUDGET_STRATEGIES:
-        raise MCPToolError(f"budget_strategy must be one of: {', '.join(BUDGET_STRATEGIES)}")
+        raise MCPArgumentError(f"budget_strategy must be one of: {', '.join(BUDGET_STRATEGIES)}")
     return depth, strategy
 
 
@@ -440,17 +442,17 @@ class _ModelGenerationKwargs(TypedDict):
 def _parse_model_generation_kwargs(arguments: Mapping[str, object]) -> _ModelGenerationKwargs:
     generation_mode = _parse_optional_text(arguments, "generation_mode") or "deterministic"
     if generation_mode not in _MODEL_GENERATION_MODES:
-        raise MCPToolError("generation_mode must be deterministic or model_backed")
+        raise MCPArgumentError("generation_mode must be deterministic or model_backed")
     route_mode = _parse_optional_text(arguments, "model_route_mode")
     if route_mode is not None and route_mode not in _MODEL_ROUTE_MODES:
-        raise MCPToolError(
+        raise MCPArgumentError(
             "model_route_mode must be local_only, cloud_allowed, cloud_requires_approval, or model_disabled"
         )
     temperature = _parse_optional_float(arguments, "model_temperature")
     if temperature is None:
         temperature = 0.2
     if temperature < 0.0 or temperature > 2.0:
-        raise MCPToolError("model_temperature must be between 0.0 and 2.0")
+        raise MCPArgumentError("model_temperature must be between 0.0 and 2.0")
     return {
         "generation_mode": generation_mode,
         "model_route_mode": route_mode,
@@ -468,13 +470,13 @@ def _parse_review_status(
 ) -> str:
     raw_status = arguments.get("status", default)
     if not isinstance(raw_status, str):
-        raise MCPToolError("status must be a string")
+        raise MCPArgumentError("status must be a string")
     normalized = raw_status.strip()
     if normalized in _REVIEW_STATUS_ALIASES:
         normalized = _REVIEW_STATUS_ALIASES[normalized]
     if normalized not in _REVIEW_STATUS_CHOICES:
         allowed = ", ".join(_REVIEW_STATUS_CHOICES)
-        raise MCPToolError(f"status must be one of: {allowed}")
+        raise MCPArgumentError(f"status must be one of: {allowed}")
     if normalized == "pending_review":
         return "stale"
     return normalized
@@ -484,10 +486,10 @@ def _parse_review_item_id(arguments: Mapping[str, object], *, required: bool) ->
     review_item_id = _parse_optional_uuid(arguments, "review_item_id")
     continuity_object_id = _parse_optional_uuid(arguments, "continuity_object_id")
     if review_item_id is not None and continuity_object_id is not None and review_item_id != continuity_object_id:
-        raise MCPToolError("review_item_id and continuity_object_id must match when both are provided")
+        raise MCPArgumentError("review_item_id and continuity_object_id must match when both are provided")
     resolved = review_item_id or continuity_object_id
     if required and resolved is None:
-        raise MCPToolError("review_item_id or continuity_object_id is required and must be a UUID string")
+        raise MCPArgumentError("review_item_id or continuity_object_id is required and must be a UUID string")
     return resolved
 
 
@@ -502,7 +504,7 @@ def _resolve_review_apply_action(raw_action: str, *, allow_legacy: bool) -> str:
         return normalized
     # Advertise only the schema enum; legacy action names are still accepted
     # above when allow_legacy is set, but are not part of the public surface.
-    raise MCPToolError(f"action must be one of: {', '.join(_REVIEW_APPLY_ACTION_CHOICES)}")
+    raise MCPArgumentError(f"action must be one of: {', '.join(_REVIEW_APPLY_ACTION_CHOICES)}")
 
 
 def _build_recall_query(arguments: Mapping[str, object], *, limit: int) -> ContinuityRecallQueryInput:
@@ -578,22 +580,22 @@ def _render_prefetch_context_text(
 
     last_decision = _extract_prefetch_single_title(brief.get("last_decision"))
     if last_decision:
-        lines.append(f"- Last decision: {last_decision}")
+        lines.append(f"- Last decision: {quote_session_brief_text(last_decision)}")
 
     next_action = _extract_prefetch_single_title(brief.get("next_action"))
     if next_action:
-        lines.append(f"- Next action: {next_action}")
+        lines.append(f"- Next action: {quote_session_brief_text(next_action)}")
 
     open_loop_titles = _extract_prefetch_titles(brief.get("open_loops"), limit=open_loops_limit)
     if open_loop_titles:
         lines.append("- Open loops:")
-        lines.extend([f"  - {title}" for title in open_loop_titles])
+        lines.extend([f"  - {quote_session_brief_text(title)}" for title in open_loop_titles])
 
     recent_change_titles = _extract_prefetch_titles(brief.get("recent_changes"), limit=recent_changes_limit)
     if recent_change_titles:
         lines.append("- Recent changes:")
-        lines.extend([f"  - {title}" for title in recent_change_titles])
+        lines.extend([f"  - {quote_session_brief_text(title)}" for title in recent_change_titles])
 
     if len(lines) == 1:
         return ""
-    return "\n".join(lines)
+    return frame_rendered_block("\n".join(lines))

@@ -14,7 +14,7 @@ Normalization rules:
 - Punctuation is stripped from the EDGES of each whitespace token
   (quotes, trailing commas/periods, bracketing dashes) while INTERNAL
   punctuation is preserved, so ``"OpenAI,"`` -> ``openai`` but
-  ``type3.capital`` -> ``type3.capital``, ``agent-first`` ->
+  ``northwind.example`` -> ``northwind.example``, ``agent-first`` ->
   ``agent-first``, and ``o'brien`` keeps its apostrophe.
 - Tokens that were pure punctuation are dropped.
 

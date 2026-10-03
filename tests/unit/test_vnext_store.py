@@ -725,7 +725,7 @@ def test_artifact_quality_ratings_insert_and_export_json_safe_payloads() -> None
     cursor = RecordingCursor(
         fetchone_results=[
             {"id": artifact_id, "artifact_type": "daily_brief", "status": "needs_review"},
-            {"id": rating_id, "artifact_id": artifact_id, "reviewer_id": "samir"},
+            {"id": rating_id, "artifact_id": artifact_id, "reviewer_id": "jordan"},
             _event_row(artifact_id),
         ],
         fetchall_result=[{"id": rating_id, "artifact_id": artifact_id, "usefulness": 5}],
@@ -736,7 +736,7 @@ def test_artifact_quality_ratings_insert_and_export_json_safe_payloads() -> None
         {
             "id": rating_id,
             "artifact_id": artifact_id,
-            "reviewer_id": "samir",
+            "reviewer_id": "jordan",
             "usefulness": 5,
             "accuracy": 4,
             "source_grounding": 5,
@@ -771,7 +771,7 @@ def test_artifact_quality_ratings_upsert_on_artifact_reviewer_conflict() -> None
     cursor = RecordingCursor(
         fetchone_results=[
             {"id": artifact_id, "artifact_type": "daily_brief", "status": "needs_review"},
-            {"id": rating_id, "artifact_id": artifact_id, "reviewer_id": "samir", "usefulness": 2},
+            {"id": rating_id, "artifact_id": artifact_id, "reviewer_id": "jordan", "usefulness": 2},
             _event_row(artifact_id),
         ]
     )
@@ -780,7 +780,7 @@ def test_artifact_quality_ratings_upsert_on_artifact_reviewer_conflict() -> None
     created = store.create_artifact_quality_rating(
         {
             "artifact_id": artifact_id,
-            "reviewer_id": "samir",
+            "reviewer_id": "jordan",
             "usefulness": 2,
             "verbosity": "too_shallow",
             "metadata_json": {},
@@ -890,6 +890,9 @@ def test_memory_revision_provenance_and_graph_methods_write_audit_events() -> No
             {"id": memory_id},
             _event_row(memory_id),
             {"id": memory_id},
+            # update_memory to a searchable status reads the stored row first,
+            # for the credential activation check (S4.4 round 2, ruling C2).
+            {"id": memory_id, "status": "candidate", "canonical_text": "Alice vNext is being built."},
             {"id": memory_id},
             _event_row(memory_id),
             {"id": revision_id, "memory_id": memory_id},
@@ -1103,6 +1106,8 @@ def test_resume_store_queries_apply_admission_predicates_before_limit() -> None:
         occurred_at_start=since,
         occurred_at_end=until,
         limit=2,
+        domains=None,
+        sensitivity_allowed=None,
     )
     store.list_open_loop_events(
         statuses=("open", "waiting"),
@@ -1111,6 +1116,8 @@ def test_resume_store_queries_apply_admission_predicates_before_limit() -> None:
         occurred_at_start=since,
         occurred_at_end=until,
         limit=2,
+        domains=None,
+        sensitivity_allowed=None,
     )
     # Established context-tree consumers retain the original method contract.
     store.list_memory_events(
@@ -1420,7 +1427,7 @@ def test_project_people_belief_and_open_loop_methods_write_audit_events() -> Non
     store.get_project(project_id)
     store.list_projects(status="active", domains=["project"], sensitivity_allowed=["private"], limit=3)
     store.update_project(project_id=project_id, patch={"current_state": "Sprint 1"})
-    store.create_person({"id": person_id, "name": "Samir", "aliases_json": ["owner"]})
+    store.create_person({"id": person_id, "name": "Jordan", "aliases_json": ["owner"]})
     store.get_person(person_id)
     store.update_person(person_id=person_id, patch={"notes": "Project owner"})
     store.create_belief({"id": belief_id, "memory_id": memory_id, "claim": "Provenance is mandatory."})
@@ -2422,7 +2429,9 @@ def test_update_memory_embedding_and_missing_embedding_listing() -> None:
     store = PostgresVNextStore(RecordingConnection(cursor))
 
     updated = store.update_memory_embedding(memory_id=memory_id, vector=[1.0, 0.5])
-    missing = store.list_memories_missing_embeddings(limit=64, after_id=memory_id)
+    missing = store.list_memories_missing_embeddings(
+        statuses=("active", "accepted"), limit=64, after_id=memory_id
+    )
 
     assert updated == {"id": memory_id}
     assert missing[0]["id"] == memory_id
@@ -2433,7 +2442,8 @@ def test_update_memory_embedding_and_missing_embedding_listing() -> None:
     assert "embedding_vector IS NULL" in missing_query
     assert "%s::uuid IS NULL OR id > %s::uuid" in missing_query
     assert "ORDER BY id ASC" in missing_query
-    assert missing_params == (memory_id, memory_id, 64)
+    assert "AND status IN (%s, %s)" in missing_query
+    assert missing_params == ("active", "accepted", memory_id, memory_id, 64)
 
 
 def test_signed_embedding_update_compares_current_memory_content_digest() -> None:
@@ -2519,6 +2529,7 @@ def test_embedding_digest_sql_uses_exact_python_strip_table_at_every_cas_boundar
 
     missing_cursor = RecordingCursor(fetchone_results=[], fetchall_result=[])
     PostgresVNextStore(RecordingConnection(missing_cursor)).list_memories_missing_embeddings(
+        statuses=("active", "accepted"),
         embedding_provider="stub",
         embedding_model="embed-v1",
         embedding_signature_version=2,
@@ -2542,6 +2553,7 @@ def test_embedding_backfill_includes_unsigned_or_incompatible_vectors() -> None:
     store = PostgresVNextStore(RecordingConnection(cursor))
 
     store.list_memories_missing_embeddings(
+        statuses=("active", "accepted"),
         limit=32,
         embedding_provider="openai_compatible",
         embedding_model="embed-v2",
@@ -2555,7 +2567,7 @@ def test_embedding_backfill_includes_unsigned_or_incompatible_vectors() -> None:
     assert "digest(" in query
     assert "concat_ws(" in query
     assert "embedding_present" in query
-    assert params == ("openai_compatible", "embed-v2", "1", None, None, 32)
+    assert params == ("active", "accepted", "openai_compatible", "embed-v2", "1", None, None, 32)
 
 
 def test_clear_memory_embedding_removes_signature_metadata() -> None:
@@ -3029,7 +3041,7 @@ def test_find_entities_by_names_matches_normalized_names_and_aliases_in_one_quer
     )
     store = PostgresVNextStore(RecordingConnection(cursor))
 
-    rows = store.find_entities_by_names(("openai", "type3.capital"))
+    rows = store.find_entities_by_names(("openai", "northwind.example"))
 
     assert rows[0]["id"] == "entity-1"
     assert len(cursor.executed) == 1  # one round trip covers both match paths
@@ -3039,7 +3051,7 @@ def test_find_entities_by_names_matches_normalized_names_and_aliases_in_one_quer
     assert "aliases ?| %s::text[]" in query
     assert "deleted_at IS NULL" in query
     assert "ORDER BY mention_count DESC, updated_at DESC, id DESC" in query
-    assert params == (["openai", "type3.capital"], ["openai", "type3.capital"])
+    assert params == (["openai", "northwind.example"], ["openai", "northwind.example"])
 
     # An empty name tuple short-circuits without touching the database.
     assert store.find_entities_by_names(()) == []

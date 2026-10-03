@@ -54,7 +54,8 @@ def dispatch_vnext_artifact_review(
             artifact=reviewed,
             deferred_embedding_inputs=service.deferred_embedding_inputs,
         )
-    reviewed = VNextQueueService(cast(VNextQueueStore, store)).review_artifact(
+    queue_service = VNextQueueService(cast(VNextQueueStore, store), defer_embeddings=True)
+    reviewed = queue_service.review_artifact(
         artifact_id=artifact_id,
         action=action,
         actor_type=actor_type,
@@ -62,7 +63,10 @@ def dispatch_vnext_artifact_review(
         trace_id=trace_id,
         run_id=run_id,
     )
-    return VNextArtifactReviewDispatchResult(artifact=reviewed)
+    return VNextArtifactReviewDispatchResult(
+        artifact=reviewed,
+        deferred_embedding_inputs=queue_service.deferred_embedding_inputs,
+    )
 
 
 __all__ = [

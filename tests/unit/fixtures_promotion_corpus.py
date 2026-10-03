@@ -39,7 +39,7 @@ BUILDER_NOTES: tuple[tuple[str, str], ...] = (
     ('Proj', 'Alice is the working name for the memory layer.'),
     ('Proj', 'Hermes handles the personal assistant surface.'),
     ('Proj', 'Openclaw is scoped to coding tasks only.'),
-    ('Proj', 'Type3 Capital is the fund, not the product.'),
+    ('Proj', 'Northwind Capital is the fund, not the product.'),
     ('Pref', 'I prefer oat milk in coffee.'),
     ('Pref', 'I prefer async standups to synchronous ones.'),
     ('Pref', 'I read papers in the morning and write in the afternoon.'),

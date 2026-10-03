@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import cast
 from uuid import UUID
 
 from alicebot_api.continuity_contradictions import sync_contradiction_state_for_objects
@@ -23,6 +24,14 @@ from alicebot_api.contracts import (
     ContinuitySupersessionChain,
     isoformat_or_none,
 )
+from alicebot_api.credential_floor import (
+    TEXT_WITHHELD_PLACEHOLDER,
+    carries_credential_material,
+    refuse_credential_activation,
+    refuse_credential_material,
+    withhold_credential_text,
+)
+from alicebot_api.write_bounds import MAX_CORRECTION_FIELD_CHARS, MAX_CORRECTION_TITLE_CHARS, first_oversized
 from alicebot_api.store import (
     ContinuityCorrectionEventRow,
     ContinuityObjectRow,
@@ -33,6 +42,17 @@ from alicebot_api.store import (
 
 class ContinuityReviewValidationError(ValueError):
     """Raised when a continuity review request is invalid."""
+
+
+class ContinuityReviewStateError(ContinuityReviewValidationError):
+    """The object exists but its status does not allow the correction.
+
+    A rejected argument and a status that forbids the action are both
+    ``ContinuityReviewValidationError``. This subclass marks the second, so the
+    MCP server can answer ``precondition_failed`` for it by class and keep
+    ``invalid_request`` for the first. The text is unchanged and every caller
+    that catches the base class still catches it.
+    """
 
 
 class ContinuityReviewNotFoundError(LookupError):
@@ -297,6 +317,19 @@ def _create_correction_event(
     )
 
 
+def _refuse_credential_row(title: object, body: object, provenance: object, reason: object) -> None:
+    """One call per object written: title, body (as a mapping), provenance
+    with its keys, then the reason that is persisted on the correction event."""
+
+    refuse_credential_material(
+        title,
+        body,
+        provenance,
+        reason,
+        error=ContinuityReviewValidationError,
+    )
+
+
 def apply_continuity_correction(
     store: ContinuityStore,
     *,
@@ -315,7 +348,27 @@ def apply_continuity_correction(
     if reason is not None and len(reason) > 500:
         raise ContinuityReviewValidationError("reason must be 500 characters or fewer")
 
+    # The object is looked up before anything is scanned, so a request for an
+    # id that does not exist costs a lookup, not a scan of its payload. Then
+    # every caller field is bounded before the credential floor reads it
+    # (review finding 8: a 3 MB body cost 44 s of CPU before the lookup).
     current = _lookup_object_or_raise(store, continuity_object_id=continuity_object_id)
+    for name, title in (("title", request.title), ("replacement_title", request.replacement_title)):
+        if title is not None and len(title) > MAX_CORRECTION_TITLE_CHARS:
+            raise ContinuityReviewValidationError(f"{name} must be {MAX_CORRECTION_TITLE_CHARS} characters or fewer")
+    oversized = first_oversized(
+        {
+            "body": request.body,
+            "provenance": request.provenance,
+            "replacement_body": request.replacement_body,
+            "replacement_provenance": request.replacement_provenance,
+        },
+        MAX_CORRECTION_FIELD_CHARS,
+    )
+    if oversized is not None:
+        raise ContinuityReviewValidationError(
+            f"{oversized} must serialize to {MAX_CORRECTION_FIELD_CHARS} characters or fewer"
+        )
     before_snapshot = _snapshot(current)
 
     next_title = current["title"]
@@ -329,13 +382,13 @@ def apply_continuity_correction(
 
     if action == "confirm":
         if current["status"] not in {"active", "stale"}:
-            raise ContinuityReviewValidationError("confirm requires an active or stale continuity object")
+            raise ContinuityReviewStateError("confirm requires an active or stale continuity object")
         next_status = "active"
         next_last_confirmed_at = _utcnow()
 
     elif action == "edit":
         if current["status"] not in {"active", "stale"}:
-            raise ContinuityReviewValidationError("edit requires an active or stale continuity object")
+            raise ContinuityReviewStateError("edit requires an active or stale continuity object")
 
         if (
             request.title is None
@@ -358,20 +411,25 @@ def apply_continuity_correction(
 
         next_status = "active"
         next_last_confirmed_at = _utcnow()
+        # The credential floor, on the object as it will be stored, once per
+        # row written. Until 2026-09-22 this path, which /v1 memory operation
+        # commit uses for UPDATE, never consulted it. A title-only edit is
+        # read against the stored body. Provenance is read with its keys.
+        _refuse_credential_row(next_title, next_body, next_provenance, reason)
 
     elif action == "delete":
         if current["status"] not in {"active", "stale"}:
-            raise ContinuityReviewValidationError("delete requires an active or stale continuity object")
+            raise ContinuityReviewStateError("delete requires an active or stale continuity object")
         next_status = "deleted"
 
     elif action == "mark_stale":
         if current["status"] != "active":
-            raise ContinuityReviewValidationError("mark_stale requires an active continuity object")
+            raise ContinuityReviewStateError("mark_stale requires an active continuity object")
         next_status = "stale"
 
     elif action == "supersede":
         if current["status"] not in {"active", "stale"}:
-            raise ContinuityReviewValidationError("supersede requires an active or stale continuity object")
+            raise ContinuityReviewStateError("supersede requires an active or stale continuity object")
 
         replacement_title = _validate_title(request.replacement_title or current["title"])
         replacement_body = request.replacement_body if request.replacement_body is not None else current["body"]
@@ -385,6 +443,10 @@ def apply_continuity_correction(
             if request.replacement_confidence is not None
             else float(current["confidence"])
         )
+
+        # The credential floor, on the new object as it will be stored. The
+        # superseded object keeps its text, so it needs no second call.
+        _refuse_credential_row(replacement_title, replacement_body, replacement_provenance, reason)
 
         supersede_payload: JsonObject = {
             "replacement_title": replacement_title,
@@ -484,6 +546,47 @@ def apply_continuity_correction(
     else:
         raise ContinuityReviewValidationError(f"unsupported continuity correction action: {action}")
 
+    event_payload = request.as_payload()
+    rationale_withheld = False
+    text_withheld = False
+    if action == "confirm":
+        # Confirm makes the object current again, so it takes the shared
+        # activation check over the object and the reason persisted with it
+        # (ruling C2). The request fields confirm ignores are still stored on
+        # the correction event, so they are checked as that row.
+        refuse_credential_activation(
+            current["title"], current["body"], None, reason, error=ContinuityReviewValidationError
+        )
+        refuse_credential_material(
+            request.title,
+            request.body,
+            request.provenance,
+            request.replacement_title,
+            request.replacement_body,
+            request.replacement_provenance,
+            error=ContinuityReviewValidationError,
+        )
+    elif action in {"delete", "mark_stale"}:
+        # A retirement always completes (ruling C6). A reason carrying
+        # credential material is stored as a fixed placeholder; so is any
+        # ignored request field the event would otherwise store.
+        reason, rationale_withheld = withhold_credential_text(reason)
+        event_payload["reason"] = reason
+        for key in ("title", "body", "provenance", "replacement_title", "replacement_body", "replacement_provenance"):
+            value = event_payload.get(key)
+            fields = [value]
+            if value is not None and carries_credential_material(*fields):
+                event_payload[key] = TEXT_WITHHELD_PLACEHOLDER
+                text_withheld = True
+    else:
+        # An edit ignores replacement_* but still persists them on the event.
+        refuse_credential_material(
+            request.replacement_title,
+            request.replacement_body,
+            request.replacement_provenance,
+            error=ContinuityReviewValidationError,
+        )
+
     after_snapshot: JsonObject = {
         **before_snapshot,
         "status": next_status,
@@ -507,7 +610,7 @@ def apply_continuity_correction(
         reason=reason,
         before_snapshot=before_snapshot,
         after_snapshot=after_snapshot,
-        payload=request.as_payload(),
+        payload=event_payload,
     )
 
     updated = store.update_continuity_object_optional(
@@ -532,11 +635,18 @@ def apply_continuity_correction(
     )
     updated = _lookup_object_or_raise(store, continuity_object_id=continuity_object_id)
 
-    return {
+    response: dict[str, object] = {
         "continuity_object": _serialize_review_object(store, updated),
         "correction_event": _serialize_correction_event(correction_event),
         "replacement_object": None,
     }
+    if action in {"delete", "mark_stale"}:
+        # Ruling C6: a retirement reports whether it withheld anything. The
+        # response contract class is frozen by the contracts split test, so
+        # the two flags ride on it rather than widening it in this change.
+        response["rationale_withheld"] = rationale_withheld
+        response["text_withheld"] = text_withheld
+    return cast(ContinuityCorrectionApplyResponse, response)
 
 
 def build_default_continuity_review_query() -> ContinuityReviewQueueQueryInput:

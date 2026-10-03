@@ -85,6 +85,7 @@ SQLITE_METHODS = (
     "find_open_loop_by_automation_digest",
     "list_open_loops_referencing_source",
     "list_open_loops",
+    "list_open_loops_view_partitions",
     "list_open_loop_events",
     "update_open_loop",
     "update_open_loop_status",
@@ -104,27 +105,62 @@ SQLITE_COLUMN_NAMES = (
 )
 
 SOURCE_RECEIPTS = {
-    POSTGRES_CARRIER_PATH: "9e91fbb96705ccb61c8100c32f8fc7875b6e715d8355865923491c7fa937a102",
-    SQLITE_CARRIER_PATH: "fb0569f51578e3c57f43cd6beb9dc88ab307242f6ef829180e7613b50000283f",
+    # Re-minted for the filter-before-cut fix (2026-10-03): ``list_open_loop_events`` takes ``domains`` and
+    # ``sensitivity_allowed`` as required arguments, and the SQLite one applies them in the join before ``LIMIT``
+    # (an empty ceiling returns no rows without a query). The Postgres reader takes the same two arguments so that
+    # the shared unscoped call site can state ``None`` for both, and it refuses anything else, since the Postgres
+    # runtime resolves no project view (reviewed change, not drift).
+    POSTGRES_CARRIER_PATH: "e4724ba1ec3b8917c5be74b619259ddf1c282825b8e938ce4fa9947491a90a6f",
+    # The SQLite carrier is re-minted, with its method AST manifest below, for
+    # ``list_open_loops`` and ``list_open_loop_events``: they bind a query through
+    # ``literal_match_operand`` and so refuse one past the LIKE operand limit.
+    # The Postgres carrier is unchanged on purpose: it has no such limit.
+    # Re-minted again, with the manifests below, for per-project memory S2 (2026-10-02): ``list_open_loops``
+    # and ``list_open_loop_events`` take ``exclude_global_domains`` and read the reserved global marker through
+    # ``_metadata_scope_clause``, and ``list_open_loops_view_partitions`` is new, the single-scan read that
+    # returns this project's loops and the global loops together. The Postgres carrier is unchanged on purpose:
+    # the Postgres runtime resolves no project view (reviewed change, not drift).
+    # Re-minted once more in the S2 review round (2026-10-02): the exclusion argument of the three readers defaults
+    # to ``None`` ("not stated", which raises when the request holds the marker) and the single-scan reader takes the
+    # domain filter and the sensitivity ceiling as required arguments (reviewed change, not drift).
+    SQLITE_CARRIER_PATH: "b34fae4bcbf1be2720e08b6a66705020d1792d8934ca98fffba6ff4e918913cc",
     POSTGRES_COLUMNS_PATH: "5b0d972a55abf8590ce14394a37fd71b9b88ba7ab3de82d61efc1bddfc022b71",
     SQLITE_COLUMNS_PATH: "be81b8628d0831d3d02b280b5455fb02333db5740ebef8d85d58024384ae6556",
 }
 EXPECTED_METHOD_AST_MANIFESTS = {
-    POSTGRES_CARRIER_PATH: "9a354d1cfb9f134ec7fadb74dd1647b1502ecb2a5b83edb3b65c7123091111ca",
-    SQLITE_CARRIER_PATH: "96a4c8d4ecbbe8dbd4ef4f3f3831a0cc81a049f90192f6bf9a634c3fb6b497be",
+    POSTGRES_CARRIER_PATH: "2558088459f1b9a565e1b366ffe0b7c4025c623a9e2ea78007d06a46793ce1b8",
+    SQLITE_CARRIER_PATH: "581dc3785233e8dff8a4ab1a41a57d35407dab5cde3a87d06c24269fbf21b17a",
 }
 EXPECTED_METADATA_MANIFESTS = {
-    POSTGRES_CARRIER_PATH: "801a455053962b25972ab783d36b03d0389df5c151cba545b05ee8d150f172b9",
-    SQLITE_CARRIER_PATH: "adb5a1b9aeeea1cab3ef24f4fd3beffdfeb2ce450943dc8a0f220b192791f020",
+    POSTGRES_CARRIER_PATH: "6edb6a10e7a37dbbbbde97e5550422718a0112257666de8e23d49c60490fa13f",
+    SQLITE_CARRIER_PATH: "da4c86fd17190805004670b0bec8a40e03a4a9a29a262efa961d3bc62abea644",
 }
 EXPECTED_COMMENT_MANIFESTS = {
     POSTGRES_CARRIER_PATH: (9, "bb34d175e716f5a929fa1ee5e7e30ba0e0b25be285cda3556a0c709719316c4e"),
-    SQLITE_CARRIER_PATH: (1, "8f448801a348111594f3d0f33c9e82756981958985c270d45a8716914892d71b"),
+    # The SQLite carrier gains a three-line comment above the two new required arguments of
+    # ``list_open_loop_events`` (3 comments before, 6 now); the Postgres carrier gains none.
+    SQLITE_CARRIER_PATH: (6, "970028b5c929f0e749d8b40bdee571c872600de7a713e58d60e0da86f022af8a"),
 }
 EXPECTED_CLASS_ORDERS = {
-    # Two paired browser-clip capability methods extend both façades.
-    "PostgresVNextStore": (170, "5f28f1a17670a0c8b7b373acd0c314637c58e6a10ccf52053481a8a028bb3c09"),
-    "SQLiteVNextStore": (123, "72cbbffacc5fee804508f7e9517450c955f2c85235bd403d4f5759ee86c103e3"),
+    # Two paired browser-clip capability methods extend both façades, and one
+    # more paired method, ``list_memories_referencing_sources``.
+    # Per-file importer savepoint (2026-10-02): one paired method more, ``savepoint``, appended last.
+    # Previous receipt: (171, 526374782104a2a1...). Proof: the member list equals the list at origin/main
+    # 040a2a10 with ``savepoint`` added at the end and nothing else moved (reviewed change, not drift).
+    "PostgresVNextStore": (172, "6f1a459fcf4319cf4281f6cc0d4e81679c3e05d851fd0a874a2d90298d7c2569"),
+    # One SQLite-only method more, ``check_source_search_query``: the Postgres
+    # source search has no expression-depth or LIKE-length limit to check.
+    # Merge of #500 and #502 (2026-10-01): one more SQLite-only method,
+    # ``check_literal_match_query``, beside the paired
+    # ``list_memories_referencing_sources``. Re-minted for the merged facade
+    # (reviewed change, not drift).
+    # Per-project memory S2 (2026-10-02): two SQLite-only methods more, the single-scan partition reads
+    # ``list_memories_view_partitions`` and ``list_open_loops_view_partitions``. The Postgres runtime resolves no
+    # project view, so it has no pair. Re-minted for the facade (reviewed change, not drift).
+    # Per-file importer savepoint (2026-10-02): the same paired method, ``savepoint``, appended last.
+    # Previous receipt: (128, fae6bee37a2b06541...). Proof: the member list equals the list at origin/main
+    # 040a2a10 with ``savepoint`` added at the end and nothing else moved (reviewed change, not drift).
+    "SQLiteVNextStore": (129, "562de07a40ecd996d8b22c4e114cf229561a0d0b778b23ba3291f7e693c1f1ec"),
 }
 EXPECTED_COLUMN_AST = {
     POSTGRES_COLUMNS_PATH: {

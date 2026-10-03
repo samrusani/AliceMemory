@@ -2,15 +2,22 @@
 
 ## Supported Versions
 
-Alice is pre-1.0 software. Security fixes target the latest published minor
-release series. Older minor series and development snapshots are not maintained
-with security backports; move to the latest published release before reporting
-or validating a fix. The default branch is useful for reproducing a forthcoming
-fix, but it is not a supported release until it is tagged and published.
+Alice is pre-1.0 software. Security fixes ship in the next release. Only the
+latest published release is supported.
+Older releases and development snapshots do not get security backports; move to
+the latest published release before reporting or validating a fix. The default
+branch is useful for reproducing a forthcoming fix, but it is not a supported
+release until it is tagged and published.
 
 ## Reporting a Vulnerability
 
-Please report security issues privately by opening a private security advisory in GitHub for this repository. Include:
+Report security issues privately, by either route:
+
+- open a private security advisory from the repository's Security tab ("Report a
+  vulnerability");
+- email hello@alicememory.com.
+
+Include:
 
 - affected component/file
 - reproduction steps
@@ -19,6 +26,12 @@ Please report security issues privately by opening a private security advisory i
 
 Do not open public issues for active security vulnerabilities.
 
+## Security Review
+
+Alice's security work is automated security scanning and internal adversarial
+review, with findings triaged and fixed. No one outside the project has audited
+the code. From v0.15.1 on, each version's release notes list its known gaps.
+
 ## Security Boundaries
 
 - Alice is local-first, single-user, self-hosted software. It is not a
@@ -26,7 +39,13 @@ Do not open public issues for active security vulnerabilities.
 - **Keyless means local-machine-owner trust.** A keyless vNext deployment is
   safe only when the API remains on loopback and every local process and OS user
   that can reach it is trusted as the Alice owner. In this mode a caller-supplied
-  `user_id` is routing context, not proof of identity.
+  `user_id` is routing context, not proof of identity. From v0.20.0, a keyless
+  request must also name this machine in `Host`
+  (`localhost`, `127.0.0.1`, `::1` or a name in `ALICEBOT_ALLOWED_HOSTS`), and
+  any `Origin` it sends must be a configured CORS origin or its own, so a page
+  served from another name cannot reach a loopback API by DNS rebinding. The
+  legacy `/v0` routes, served in development and test, take no key, so they apply
+  this rule to every request.
 - Once a user has any active agent API key, protected `/v0/vnext` requests for
   that user reject keyless access and require `Authorization: Bearer
   alice_sk_...`. A browser-clipper one-time capability is a deliberately narrow

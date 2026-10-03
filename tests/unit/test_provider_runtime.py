@@ -53,8 +53,8 @@ def test_local_and_azure_provider_timeouts_are_typed(monkeypatch) -> None:
     def timeout_urlopen(*_args, **_kwargs):
         raise TimeoutError("timed out")
 
-    monkeypatch.setattr("alicebot_api.local_provider_helpers.urlopen", timeout_urlopen)
-    monkeypatch.setattr("alicebot_api.azure_provider_helpers.urlopen", timeout_urlopen)
+    monkeypatch.setattr("alicebot_api.local_provider_helpers.open_provider_url", timeout_urlopen)
+    monkeypatch.setattr("alicebot_api.azure_provider_helpers.open_provider_url", timeout_urlopen)
 
     with pytest.raises(ModelProviderUnavailableError, match="timed out"):
         request_json(
@@ -78,11 +78,11 @@ def test_local_and_azure_non_utf8_responses_are_typed(monkeypatch) -> None:
     from alicebot_api.local_provider_helpers import request_json
 
     monkeypatch.setattr(
-        "alicebot_api.local_provider_helpers.urlopen",
+        "alicebot_api.local_provider_helpers.open_provider_url",
         lambda *_args, **_kwargs: FakeHTTPResponse(b"\xff\xfe\xfa"),
     )
     monkeypatch.setattr(
-        "alicebot_api.azure_provider_helpers.urlopen",
+        "alicebot_api.azure_provider_helpers.open_provider_url",
         lambda *_args, **_kwargs: FakeHTTPResponse(b"\xff\xfe\xfa"),
     )
 
@@ -209,7 +209,7 @@ def test_openai_compatible_adapter_invokes_registered_transport(monkeypatch) -> 
     adapter = registry.resolve(OPENAI_COMPATIBLE_ADAPTER_KEY)
     runtime_provider = make_runtime_provider_config(invoke_path="/responses-alt")
 
-    def fake_urlopen(request, timeout):
+    def fake_urlopen(request, timeout, enforce_public_peer):
         captured["url"] = request.full_url
         captured["timeout"] = timeout
         captured["headers"] = dict(request.header_items())
@@ -238,8 +238,8 @@ def test_openai_compatible_adapter_invokes_registered_transport(monkeypatch) -> 
             ).encode("utf-8")
         )
 
-    monkeypatch.setattr("alicebot_api.local_provider_helpers.urlopen", fake_urlopen)
-    monkeypatch.setattr("alicebot_api.response_generation.urlopen", fake_urlopen)
+    monkeypatch.setattr("alicebot_api.local_provider_helpers.open_provider_url", fake_urlopen)
+    monkeypatch.setattr("alicebot_api.response_generation.open_provider_url", fake_urlopen)
 
     capabilities = adapter.discover_capabilities(
         config=runtime_provider,
@@ -283,7 +283,7 @@ def test_openai_compatible_adapter_omits_auth_for_bootstrapped_no_auth_config(
         settings=Settings(),
     )
 
-    def fake_urlopen(request, timeout):
+    def fake_urlopen(request, timeout, enforce_public_peer):
         headers = dict(request.header_items())
         captured_headers.append(headers)
         captured_requests.append(
@@ -311,8 +311,8 @@ def test_openai_compatible_adapter_omits_auth_for_bootstrapped_no_auth_config(
             ).encode("utf-8")
         )
 
-    monkeypatch.setattr("alicebot_api.local_provider_helpers.urlopen", fake_urlopen)
-    monkeypatch.setattr("alicebot_api.response_generation.urlopen", fake_urlopen)
+    monkeypatch.setattr("alicebot_api.local_provider_helpers.open_provider_url", fake_urlopen)
+    monkeypatch.setattr("alicebot_api.response_generation.open_provider_url", fake_urlopen)
 
     capabilities = adapter.discover_capabilities(
         config=runtime_provider,
@@ -353,7 +353,7 @@ def test_ollama_adapter_discovers_capabilities_and_invokes(monkeypatch) -> None:
         invoke_path="/api/chat",
     )
 
-    def fake_urlopen(request, timeout):
+    def fake_urlopen(request, timeout, enforce_public_peer):
         body = None if request.data is None else json.loads(request.data.decode("utf-8"))
         captured.append(
             {
@@ -388,7 +388,7 @@ def test_ollama_adapter_discovers_capabilities_and_invokes(monkeypatch) -> None:
             ).encode("utf-8")
         )
 
-    monkeypatch.setattr("alicebot_api.local_provider_helpers.urlopen", fake_urlopen)
+    monkeypatch.setattr("alicebot_api.local_provider_helpers.open_provider_url", fake_urlopen)
 
     capabilities = adapter.discover_capabilities(
         config=runtime_provider,
@@ -430,7 +430,7 @@ def test_llamacpp_adapter_discovers_capabilities_and_invokes(monkeypatch) -> Non
         invoke_path="/v1/chat/completions",
     )
 
-    def fake_urlopen(request, timeout):
+    def fake_urlopen(request, timeout, enforce_public_peer):
         body = None if request.data is None else json.loads(request.data.decode("utf-8"))
         captured.append(
             {
@@ -466,7 +466,7 @@ def test_llamacpp_adapter_discovers_capabilities_and_invokes(monkeypatch) -> Non
             ).encode("utf-8")
         )
 
-    monkeypatch.setattr("alicebot_api.local_provider_helpers.urlopen", fake_urlopen)
+    monkeypatch.setattr("alicebot_api.local_provider_helpers.open_provider_url", fake_urlopen)
 
     capabilities = adapter.discover_capabilities(
         config=runtime_provider,
@@ -508,7 +508,7 @@ def test_vllm_adapter_discovers_capabilities_and_invokes(monkeypatch) -> None:
         invoke_path="/v1/chat/completions",
     )
 
-    def fake_urlopen(request, timeout):
+    def fake_urlopen(request, timeout, enforce_public_peer):
         body = None if request.data is None else json.loads(request.data.decode("utf-8"))
         captured.append(
             {
@@ -544,7 +544,7 @@ def test_vllm_adapter_discovers_capabilities_and_invokes(monkeypatch) -> None:
             ).encode("utf-8")
         )
 
-    monkeypatch.setattr("alicebot_api.local_provider_helpers.urlopen", fake_urlopen)
+    monkeypatch.setattr("alicebot_api.local_provider_helpers.open_provider_url", fake_urlopen)
 
     capabilities = adapter.discover_capabilities(
         config=runtime_provider,
@@ -587,7 +587,7 @@ def test_azure_adapter_discovers_capabilities_and_invokes_with_api_key(monkeypat
         azure_api_version="2024-10-21",
     )
 
-    def fake_urlopen(request, timeout):
+    def fake_urlopen(request, timeout, enforce_public_peer):
         body = None if request.data is None else json.loads(request.data.decode("utf-8"))
         captured.append(
             {
@@ -619,7 +619,7 @@ def test_azure_adapter_discovers_capabilities_and_invokes_with_api_key(monkeypat
             ).encode("utf-8")
         )
 
-    monkeypatch.setattr("alicebot_api.azure_provider_helpers.urlopen", fake_urlopen)
+    monkeypatch.setattr("alicebot_api.azure_provider_helpers.open_provider_url", fake_urlopen)
 
     capabilities = adapter.discover_capabilities(
         config=runtime_provider,
@@ -666,12 +666,12 @@ def test_azure_adapter_uses_bearer_token_auth_mode(monkeypatch) -> None:
         azure_api_version="2024-10-21",
     )
 
-    def fake_urlopen(request, timeout):
+    def fake_urlopen(request, timeout, enforce_public_peer):
         del timeout
         captured["headers"] = dict(request.header_items())
         return FakeHTTPResponse(json.dumps({"data": [{"id": "gpt-4.1"}]}).encode("utf-8"))
 
-    monkeypatch.setattr("alicebot_api.azure_provider_helpers.urlopen", fake_urlopen)
+    monkeypatch.setattr("alicebot_api.azure_provider_helpers.open_provider_url", fake_urlopen)
 
     adapter.discover_capabilities(
         config=runtime_provider,

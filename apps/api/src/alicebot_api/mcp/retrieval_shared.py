@@ -11,6 +11,7 @@ from alicebot_api.sqlite_store import SQLiteVNextStore
 from alicebot_api.store import JsonObject
 from alicebot_api.vnext_agent_control import resource_project_scope
 from alicebot_api.vnext_project_scope import (
+    is_global_scope,
     project_identifier_identity,
     project_scopes_overlap,
 )
@@ -18,6 +19,11 @@ from alicebot_api.vnext_project_scope import (
 from .shared import _json_object
 
 _SQLITE_REVIEWABLE_STATUSES = frozenset({"active", "candidate"})
+
+# Agent context reads active memory only. Candidates stay in the review
+# tools until a reviewer promotes them. ``_vnext_resume`` is the SQLite and
+# Postgres resume path, so this tuple is what both stores are asked for.
+_CONTEXT_MEMORY_STATUSES = frozenset({"active"})
 
 
 _SQLITE_NEXT_ACTION_MEMORY_TYPES = frozenset({"open_loop", "commitment"})
@@ -155,6 +161,21 @@ def _resource_matches_project_scope(resource: Mapping[str, object], project_scop
     if not project_scope:
         return True
     return project_scopes_overlap(resource_project_scope(resource), project_scope)
+
+
+def _resource_is_held_back_global(resource: Mapping[str, object], exclude_global_domains: frozenset[str]) -> bool:
+    """A global row (its scope holds no Alice project id) in a domain the project view holds back.
+
+    The test is on the row, as the brief's ``_is_held_back`` is: a note of this project in the
+    same domain is not held back, and a global note in any other domain is not either. An empty
+    set holds nothing back.
+    """
+
+    return (
+        bool(exclude_global_domains)
+        and resource.get("domain") in exclude_global_domains
+        and is_global_scope(resource_project_scope(resource))
+    )
 
 
 def _resource_matches_domains(resource: Mapping[str, object], domains: tuple[str, ...]) -> bool:

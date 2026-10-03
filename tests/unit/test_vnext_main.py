@@ -922,7 +922,8 @@ def _invoke_vnext_request(
     async def send(message: dict[str, object]) -> None:
         messages.append(message)
 
-    headers = [(b"content-type", content_type.encode())]
+    # A keyless request must name this machine in Host (DB-005), as every real client does.
+    headers = [(b"host", b"127.0.0.1:8000"), (b"content-type", content_type.encode())]
     if authorization is not None:
         headers.append((b"authorization", authorization.encode()))
     if origin is not None:
@@ -2630,7 +2631,7 @@ def test_vnext_project_and_open_loop_endpoints(monkeypatch) -> None:
         "sensitivity": "private",
         "metadata_json": {
             "project_scope": ["project-1"],
-            "raw_text": "Project: Alice vNext needs project automation.\nTODO: validate dashboard Owner: Samir",
+            "raw_text": "Project: Alice vNext needs project automation.\nTODO: validate dashboard Owner: Jordan",
         },
     }
     _install_fake_vnext_store(monkeypatch, store)
@@ -2676,7 +2677,7 @@ def test_vnext_project_and_open_loop_endpoints(monkeypatch) -> None:
     assert update_payload["metadata_json"]["candidate_memory_id"] == "memory-1"
     assert extract_response.status_code == 201
     assert extract_payload["created_count"] == 1
-    assert extract_payload["open_loops"][0]["metadata_json"]["owner"] == "Samir"
+    assert extract_payload["open_loops"][0]["metadata_json"]["owner"] == "Jordan"
     assert review_update_response.status_code == 200
     assert set(review_update_payload) == set(
         main_module.OPENAPI_OPERATION_RESPONSE_SCHEMAS[
@@ -3378,7 +3379,7 @@ def test_live_capture_connector_api_endpoints(monkeypatch) -> None:
                         "message_id": 10,
                         "date": 1_778_400_000,
                         "chat": {"id": 999001},
-                        "from": {"id": 1001, "username": "samir"},
+                        "from": {"id": 1001, "username": "jordan"},
                         "text": "Fact: API Telegram capture works.",
                     },
                 }
