@@ -2292,8 +2292,11 @@ def test_a_dot_git_that_git_walks_past_is_a_refusal_and_never_the_enclosing_repo
     assert not (tmp_path / "refused-run" / bench.MANIFEST_FILENAME).exists()
 
     nested = _small_repo(outer / "inner")
+    (nested / "docs" / "nested.md").write_text("the nested repository\n", encoding="utf-8")
+    _git(nested, "add", "-A")
+    _git(nested, "commit", "-q", "-m", "second")
     assert bench.git_state(nested) == {"git": "present", "git_sha": _head(nested), "dirty": False}
-    assert _head(nested) != outer_head
+    assert _head(nested) != outer_head, "its own commit, never the outer one: the first commits alone would be one commit if made in one second"
     linked = tmp_path / "linked"
     _git(outer, "worktree", "add", "--detach", str(linked))
     assert bench.git_state(linked) == {"git": "present", "git_sha": outer_head, "dirty": False}
