@@ -35,7 +35,7 @@ Allowed direct commit domain: `project`.
 
 Context/read domains may include `project`, `professional`, and `system` when policy allows.
 
-Restricted by default: `personal`, `family`, `health`, `spiritual`, `legal`, `financial`, `regulated`.
+Held back from reads by the profile: `family`, `health`, `spiritual`, `legal` and `financial`. `personal` is not held back by the engine, so stay out of it unless the material is about the project, and commits must use `domain: project`. `regulated` is a sensitivity level, above the profile's `private` ceiling, not a domain.
 
 Submit a sprint output with `alice_capture` only when the server lists it. The field carrying the text is `raw_text`:
 

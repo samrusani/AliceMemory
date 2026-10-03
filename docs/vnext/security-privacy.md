@@ -45,7 +45,9 @@ Connector secrets are referenced, not returned. The browser clipper and other
 surviving local connectors may use `secret_ref` values. Local secret values are
 stored through the secret-provider abstraction, with an encrypted local file
 fallback for alpha use and an environment-reference provider for operators who
-prefer environment variables.
+prefer environment variables. The encrypted local file is keyed by the value of
+`ALICE_VNEXT_SECRET_STORE_KEY` when that variable is set; otherwise Alice
+creates a key file with owner-only permissions in the same secrets directory.
 
 Secret rules:
 

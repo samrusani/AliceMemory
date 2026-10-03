@@ -15,6 +15,8 @@ Any third-party agent should follow the same Alice pattern.
 
 ## API Example
 
+This is the body of `POST /v0/vnext/context-packs`.
+
 ```json
 {
   "user_id": "00000000-0000-0000-0000-000000000001",
@@ -39,11 +41,11 @@ Any third-party agent should follow the same Alice pattern.
 
 ## MCP Example
 
-The default MCP surface is three tools (`alice_memory_commit`, `alice_recall`, `alice_resume`; see [mcp-tools.md](mcp-tools.md)). Capture and the pack are on the full surface (`ALICE_MCP_FULL_TOOLS=1`). The `alice_vnext_*` examples below are keyless-local legacy compatibility only and require `ALICE_MCP_LEGACY_TOOLS=1`; a server bound with `ALICE_AGENT_API_KEY` hides and rejects them.
+The default MCP surface is three tools (`alice_memory_commit`, `alice_recall`, `alice_resume`; see [mcp-tools.md](mcp-tools.md)). Capture and the pack are on the full surface (`ALICE_MCP_FULL_TOOLS=1`).
 
-Use `alice_vnext_context_tree` when the agent needs read-only navigation, then use `alice_vnext_context_pack` with the same identity fields before acting. Submit important output with `alice_vnext_ingest_agent_output`.
+Read with `alice_recall` and `alice_resume`. On the full surface, `alice_context_pack` takes flat scope fields (`domains`, `projects`, `sensitivity_allowed`, `max_items`) and `alice_capture` submits an output as a source (the field that carries the text is `raw_text`).
 
-For explicit "remember this" instructions, use `alice_vnext_commit_memory`:
+For explicit "remember this" instructions, and for durable facts the agent learns on its own, call `alice_memory_commit`:
 
 Use canonical schema values for persisted labels. For quote saves, use `memory_type=semantic`; use `memory_type=procedure` for repeatable playbooks with steps, applicability, failure modes, and provenance; use `domain=learning` only when a quote collection needs an explicit domain. Avoid invented values like `memory_type=quote`, `domain=quotes`, or `sensitivity=sensitive`.
 
@@ -55,7 +57,6 @@ Do not rely on passive chat transcript capture as the primary memory path. For f
   "agent_type": "research_agent",
   "permission_profile": "project_scoped_agent",
   "project_scope": ["Alice"],
-  "intent": "explicit_remember",
   "title": "Research source rule",
   "canonical_text": "Alice project research briefs must separate quoted evidence from model interpretation.",
   "domain": "project",
@@ -68,17 +69,13 @@ Do not rely on passive chat transcript capture as the primary memory path. For f
 Alice returns one of four outcomes:
 
 - `committed`: active memory, with event and revision audit trail.
-- `confirmation_required`: call `alice_vnext_confirm_memory` only after the user confirms or edits the text.
-- `review_required`: the item is in `/vnext` dashboard review.
+- `confirmation_required`: nothing is stored. Ask the user, then call `alice_memory_commit` again with the returned `confirmation_id`, `confirmation_action` set to `confirm` or `reject` from the user's answer, the same identity fields, and no memory fields.
+- `review_required`: the item waits for review, in `/vnext` on the Postgres stack or through `alice_memory_review` and `alice_memory_correct` on the full surface.
 - `rejected`: the agent should narrow scope or ask the user instead of retrying broadly.
 
-Repair tools:
+Repair, on the full surface: `alice_memory_manage` takes `undo`, `forget` and `expire`, `alice_memory_review` lists what waits, and `alice_memory_correct` approves, edits, rejects or supersedes.
 
-- `alice_vnext_undo_memory`
-- `alice_vnext_correct_memory`
-- `alice_vnext_forget_memory`
-- `alice_vnext_recent_memory_commits`
-- `alice_vnext_memory_audit`
+The `alice_vnext_*` names, such as `alice_vnext_context_tree` for the read-only context tree, are the frozen legacy surface. They need a keyless server with `ALICE_MCP_LEGACY_TOOLS=1` and are hidden and rejected when `ALICE_AGENT_API_KEY` is set. On the SQLite backend most of them run, but the ones that read the continuity store do not; see [Legacy tool surface](mcp-tools.md#legacy-tool-surface).
 
 ## Agent Examples
 

@@ -14,7 +14,7 @@ uvx alice-memory install
 What install writes:
 
 - An `alice` MCP entry for Claude Desktop, Claude Code, Cursor and OpenClaw. Other entries in those files are kept. The receipt prints each file's path.
-- A SessionStart hook for Claude Code (`~/.claude/settings.json`) and Cursor (`~/.cursor/hooks.json`), so the next session can inject the brief. Claude Desktop and OpenClaw get no hook.
+- A SessionStart hook for Claude Code (`~/.claude/settings.json`) and Cursor (`~/.cursor/hooks.json`), so the next session can inject the brief. Claude Desktop and OpenClaw get no hook. Examples and the host config shapes are in [session-start hook examples](../examples/alice-memory-session-start.md).
 - For OpenClaw, the receipt also prints an `openclaw mcp add alice ...` line you can run instead.
 - Hermes is opt-in. `--host hermes` configures Hermes only, because any `--host` replaces the default set; pass each host you want to write them together. Install then writes only the `mcp_servers.alice` lines in `~/.hermes/config.yaml` and keeps the rest of the file. Hermes gets no hook. A comment inside the alice block stays when there is nothing to change; when there is, install refuses and prints the block, and v0.18.0 dropped the comment. If the file uses YAML the installer does not edit, install changes nothing, prints the lines to add by hand, and exits non-zero.
 - OpenCode is opt-in with `--host opencode`, which writes `opencode.json` or `opencode.jsonc`. See [OpenCode](../integrations/opencode.md).
@@ -42,7 +42,7 @@ What install does not do:
 - It does not write Hermes unless you pass `--host hermes`.
 - It does not turn on the full tool surface. The server lists three tools by default: `alice_memory_commit`, `alice_recall` and `alice_resume`. Set `ALICE_MCP_FULL_TOOLS=1` in the entry's `env` for all eleven core tools.
 
-Launcher selection, hook limits on Windows and on pinned entries, and the other install edge cases are in the [v0.17.0 release notes](../release/v0.17.0-release-notes.md#install-and-host-config).
+Launcher selection, hook limits on Windows and on pinned entries, and the other install edge cases as of v0.17.0 are in the [v0.17.0 release notes](../release/v0.17.0-release-notes.md#install-and-host-config). That page is a dated record: where this page or a later CHANGELOG section says otherwise, they are current.
 
 ## Run the MCP server by hand (SQLite)
 
@@ -62,6 +62,16 @@ alice-memory mcp --data-dir ~/.alice
 ```
 
 This is the same SQLite path, for one user: three MCP tools by default (`alice_memory_commit`, `alice_recall`, `alice_resume`). Capture, the pack, and review are on the full surface (`ALICE_MCP_FULL_TOOLS=1`). No review console, scheduler, or legacy surfaces. See [known limitations](known-limitations.md). The Postgres setup below adds the `/vnext` review console, capture connectors and the scheduler.
+
+## Sleep proposals (SQLite)
+
+`alice-memory sleep` writes proposals for sources that have no memory yet, oldest first, to `sleep_proposals.jsonl` next to `memory.db`. At most eight proposals count toward the cap at a time. It creates no memory and changes no source or fact. A proposal stops counting once its source has an active or accepted memory; the row stays in the file. A source whose excerpt holds credential material is not proposed.
+
+`alice-memory sleep-proposals` lists the proposals oldest first, framed and JSON-quoted like the session brief, each with the `alice_memory_commit` arguments that accept it, including the source's domain, sensitivity and project scope. It skips a source that already has an active or accepted memory and writes nothing. To accept one, an agent or you calls `alice_memory_commit` with those arguments; the sidecar is not edited.
+
+`alice-memory doctor` prints a `sleep proposals: <n>` line. Both commands take `--data-dir` and `--db`.
+
+Unreleased (on main, not in v0.20.0): `alice-memory sleep-proposals` also takes `--scope` and `--project-dir`; see [Projects](projects.md).
 
 ## Requirements
 

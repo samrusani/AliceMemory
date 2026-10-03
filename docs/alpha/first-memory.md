@@ -41,7 +41,7 @@ Unreleased (on main, not in v0.20.0): with `ALICE_MCP_COMMIT_RESULT=compact` in 
 Now prove it round-trips:
 
 1. Call `alice_recall` with `{"query": "planning summaries"}`. The memory comes back with its fused-rank score.
-2. Call `alice_resume`. The last decision should be the fact you just committed.
+2. Call `alice_resume`. The new memory shows under `recent_changes`. `last_decision` fills only from a memory saved with `memory_type` set to `decision`, and this example saves a `semantic` memory, so add `"memory_type": "decision"` to the commit if you want to see it there.
 3. On the full surface (`ALICE_MCP_FULL_TOOLS=1`), `alice_explain` with the returned `memory_id` shows where the memory came from, its revisions, and why it can be trusted.
 
 Do not write directly to Postgres or SQLite, and do not bypass Alice policy.
@@ -158,4 +158,4 @@ If that works, Alice memory is functioning. The missing piece is agent prompting
 
 ---
 
-Footnote: earlier previews taught this flow through the legacy `alice_vnext_commit_memory` / `alice_vnext_ingest_agent_output` tools. Those remain available only on a deliberately keyless Postgres server behind `ALICE_MCP_LEGACY_TOOLS=1`; key-bound and new integrations use the core tools above.
+Footnote: earlier previews taught this flow through the legacy `alice_vnext_commit_memory` / `alice_vnext_ingest_agent_output` tools. Those remain available only on a deliberately keyless server behind `ALICE_MCP_LEGACY_TOOLS=1`; key-bound and new integrations use the core tools above.

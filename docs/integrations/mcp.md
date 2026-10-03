@@ -8,6 +8,7 @@ is available behind a separate environment flag.
 ## Entrypoints
 
 ```bash
+uvx alice-memory mcp --data-dir ~/.alice   # packaged, SQLite, no Postgres
 ./.venv/bin/python -m alicebot_api.mcp_server --help
 ./.venv/bin/python -m alicebot_api.mcp_server
 alicebot-mcp --help
@@ -60,11 +61,11 @@ Optional:
 - `ALICE_MCP_LEGACY_TOOLS=1` — append 62 retained long-tail memory tools to
   whatever core set is enabled, only for an unbound local-operator server;
   ignored when `ALICE_AGENT_API_KEY` is set
-- `ALICE_LEGACY_SURFACES=1` — additionally expose the three task-brief tools.
-  Both flags are read at process start (routes are mounted at import time), so
-  changing them requires restarting the server
-  when the MCP legacy flag is also set; this mount-time compatibility flag is
-  deprecated for removal before `1.0`
+- `ALICE_LEGACY_SURFACES=1`: additionally expose the three task-brief tools,
+  when the MCP legacy flag is also set. Both flags are read at process start
+  (routes are mounted at import time), so changing them requires restarting
+  the server; this mount-time compatibility flag is deprecated for removal
+  before `1.0`
 
 ## Default Tool Surface
 
@@ -86,9 +87,12 @@ Details and examples: [docs/alpha/mcp-tools.md](../alpha/mcp-tools.md).
 With `ALICE_MCP_LEGACY_TOOLS=1`, 62 retained legacy memory tools are listed
 alongside whatever core set is enabled (65 with the default three, 73 with
 the full eleven). With the task-brief flag as well, the counts are 68 and
-76. The legacy surface requires Postgres: on the SQLite backend the legacy
-tools are listed but their calls fail. It also requires `ALICE_AGENT_API_KEY`
-to be unset. Key-bound servers list and accept only the enabled core set.
+76. On the SQLite backend the legacy tools that read the continuity store
+(for example `alice_brief`, `alice_timeline`, `alice_state_at` and the
+task-brief tools) are listed but their calls fail, while most of the
+`alice_vnext_*` tools, which use the vNext store, run. The legacy surface
+also requires `ALICE_AGENT_API_KEY` to be unset. Key-bound servers list and
+accept only the enabled core set.
 The long tail covers briefs, timeline, state-at-time, capture pipelines,
 queue/graph/belief/scheduler controls, provider runtime tools, and the
 `alice_vnext_*` agentic control-plane contract, including
@@ -105,7 +109,9 @@ is working, see [../alpha/first-memory.md](../alpha/first-memory.md).
 Normal chat is not guaranteed to become trusted memory; explicit memory
 instructions should use an explicit commit or capture call.
 
-## Example: Claude Desktop MCP Config
+## Example: Claude Desktop MCP Config (source checkout, Postgres)
+
+For the packaged SQLite runtime, which needs no checkout and no `DATABASE_URL`, run `alice-memory install`; see [Install with alice-memory](../alpha/quickstart.md#install-with-alice-memory) and the `uvx` entry under [Start the server](../alpha/mcp-tools.md#start-the-server). The block below is the source checkout with Postgres.
 
 ```json
 {
@@ -158,7 +164,8 @@ One-command bridge demo:
   a query over 40,000 UTF-8 bytes. Unreleased (on main, not in v0.20.0): three
   more codes, `not_permitted`, `not_found` and `precondition_failed`, tell a
   refusal from a failure, and `invalid_request` also answers a rejected
-  argument with the same fixed message. The table in
+  argument, with the same fixed message except for the reserved project name
+  `~global`, which says the name is reserved. The table in
   [`docs/alpha/mcp-tools.md`](../alpha/mcp-tools.md#error-codes) says what each
   code means.
 - JSON-RPC framing errors use the standard static messages `Parse error`,

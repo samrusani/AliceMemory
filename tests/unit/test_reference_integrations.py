@@ -15,7 +15,7 @@ def test_reference_path_guide_links_major_integration_routes() -> None:
     assert "alice_recall" in guide
     assert "alice_resume" in guide
     assert "provider registration and capability discovery" in guide
-    assert "The three major adoption paths are Generic Agent, Hermes, and OpenClaw." in guide
+    assert "The adoption paths are Generic Agent, MCP Quickstart, Agent-Framework Function Tools, Hermes, and OpenClaw." in guide
 
 
 def test_hermes_reference_doc_centers_provider_plus_mcp_and_one_call_continuity() -> None:

@@ -12,6 +12,8 @@ Recommended deployment shape: `provider_plus_mcp`.
   a server bound with `ALICE_AGENT_API_KEY` hides and rejects every legacy tool.
 - MCP-only remains available when provider install is blocked.
 
+The provider and the MCP tools use separate stores; see the operational split in [hermes-memory-provider.md](hermes-memory-provider.md#first-memory-expectations).
+
 ## What Stays Stable
 
 Hermes does not create a second Alice runtime contract.
@@ -30,9 +32,13 @@ Use these docs when you need the underlying Alice runtime controls:
 
 | Mode | Use it when | What you get |
 |---|---|---|
-| Provider + MCP | default Hermes deployment | prefetch, post-turn lifecycle hooks, plus full Alice tool access |
+| Provider + MCP | default Hermes deployment on the full stack | prefetch, post-turn lifecycle hooks, plus full Alice tool access |
 | MCP-only | provider plugin install is blocked | explicit Alice tools with no provider lifecycle hooks |
 | Provider + MCP + skill pack | you want stronger prompting and workflow policy | recommended runtime shape plus Hermes-side policy guidance |
+
+## Packaged install (pip or uvx)
+
+`alice-memory install --host hermes` writes one entry, `mcp_servers.alice`, into `~/.hermes/config.yaml`: the `uvx` launcher (or the installed script), args `alice-memory mcp --data-dir <dir>`, and `env: ALICE_MEMORY_DATA_DIR`. It runs on SQLite, gives Hermes the default three tools and writes no provider. Provider + MCP, `memory.provider: alice`, the provider installer script and the `alice_core` examples on this page need the full stack from a checkout (Postgres and the Alice API on port 8000, see the Full stack section of the README); the packaged install has no command that starts that API. `alice` and `alice_core` are two different entries: keep the one that matches your setup, not both.
 
 ## Recommended Setup
 
@@ -109,7 +115,7 @@ If provider install is not available yet, keep:
 
 - `memory.provider: builtin`
 - the Alice `mcp_servers` block
-- the same `alice_brief` / `alice_recall` / review tool usage
+- the same `alice_recall` / `alice_resume` / `alice_memory_review` tool usage
 
 Then validate with:
 
@@ -141,7 +147,9 @@ any other key install did not write.
 
 Unreleased (on main, not in v0.20.0): install also keeps `ALICE_PROJECT_DIR`
 and `ALICE_PROJECT_SCOPING` (see [Projects](../alpha/projects.md)) on the same
-terms as the keys above. Only `alice-memory project` reads them so far. In
+terms as the keys above. `alice-memory project`, `alice-memory brief`,
+`alice-memory sleep-proposals`, the SessionStart hook and `alice_resume` read
+them. While scoping is off, the default on main, they change nothing. In
 v0.20.0 an entry that holds either one is refused like any other key install
 did not write.
 

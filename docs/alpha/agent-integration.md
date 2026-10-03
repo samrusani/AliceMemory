@@ -92,8 +92,8 @@ not fit. In v0.19.2 the first item that does not fit also drops every item
 after it, so one large item ranked first leaves the pack empty.
 From v0.20.0, an item that does not fit is skipped and
 the next one is tried. When nothing fits whole, the first item that can be cut
-to fit has its text cut to the budget and ending in `…`, and the `budget`
-report adds `cut_item_count: 1`. Packed items keep their ranking order, and
+to fit has its text cut to the budget and ending in `…`, and the budget
+report (`token_report` in the MCP tool result) adds `cut_item_count: 1`. Packed items keep their ranking order, and
 `token_estimate` never exceeds `max_tokens`. An item's ids, scope and
 metadata are priced and never cut, so a budget below the cost of the
 cheapest item with its text removed still returns no item. For rows written
@@ -385,7 +385,8 @@ Identity requirements:
 - Keys cannot be minted in SQLite on-ramp mode — `alicebot agent keys
   create` requires Postgres. Leave `ALICE_AGENT_API_KEY` unset there:
   identity is honored and audited as `unauthenticated_local`. If it is
-  set anyway, enforcement fails closed and every write is rejected.
+  set anyway, enforcement fails closed and every core tool call is refused,
+  reads included.
 
 ## CLI Example
 
