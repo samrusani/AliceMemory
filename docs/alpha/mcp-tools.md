@@ -504,7 +504,11 @@ Alice decides the outcome, never the caller:
   reject it. On a keyless install that limit is not protection: the
   caller can declare the author's agent_id. The author can still reject
   their own pending write above the ceiling. Confirming a row that is
-  not pending is refused and writes nothing.
+  not pending is refused and writes nothing. Unreleased (on main, not in
+  v0.20.0): the caller's project scope, permission profile and ceiling are
+  checked before the pending check too, so a caller refused for any of them
+  is never told whether the row is pending, answered or expired. In v0.20.0
+  only the check of who may resolve the write came first.
   Over the stdio server, a refused confirm or reject, and a credential
   refusal on confirm, comes back as `tool_request_failed` with the message
   `The tool request could not be processed` and no reason code. An
@@ -695,8 +699,8 @@ size limits that v0.19.2 and v0.20.0 already answered with `invalid_request`.
 | --- | --- | --- |
 | `invalid_request` | The arguments were rejected: a property the tool does not take, a missing or mistyped value, a value out of range, an action the tool does not know, or text over a size limit. | Fix the call and retry. |
 | `not_permitted` | A policy, the agent's permission profile, its key or its project scope refused the call, or the call asked for something the server forbids, such as raw content outside development. | Do not retry. Ask the owner. |
-| `not_found` | An id the call names does not exist for this caller: a memory, a pending confirmation, an open loop, an artifact, a review item or a provenance source. A review item outside the caller's own filters answers the same. | Check the id, or stop. |
-| `precondition_failed` | The call is well formed and allowed, but the state forbids it: a confirmation that was already answered, a memory or review item whose status does not allow the action, a tool the SQLite backend does not serve, or a write that refers to a row the vault does not hold. | Change the state first, or use another route. The same call will not work until the state changes. |
+| `not_found` | An id the call names does not exist for this caller: a memory, a pending confirmation, an open loop, an artifact, a review item, an entity (for a caller with no agent key) or a provenance source. A review item outside the caller's own filters answers the same, and so does a memory that has been archived or redacted. | Check the id, or stop. |
+| `precondition_failed` | The call is well formed and allowed, but the state forbids it: a confirmation that was already answered, a memory or review item whose status does not allow the action, a tool the SQLite backend does not serve, or a write that refers to a row the vault does not hold (a foreign key failure, the same answer on SQLite and on PostgreSQL). | Change the state first, or use another route. The same call will not work until the state changes. |
 | `tool_request_failed` | Any other refusal. | Treat it as opaque. |
 | `tool_execution_failed` | The tool failed in a way the server did not expect. | Treat it as opaque. Look at the server log. |
 | `tool_not_found` | The tool name is not on the surface this server serves. | Stop calling it. |
@@ -718,10 +722,34 @@ key-bound caller too: an id that the key's project scope refuses answers
 `not_permitted` from `alice_memory_review` by id, `alice_memory_correct` and
 `alice_memory_manage`, and an id that does not exist answers `not_found`. So a
 key bound to one project can learn that an id it already holds exists in
-another project. That is what the codes are for, the HTTP memory routes answer
-403 and 404 the same way, and an id is a random UUID, so the answer only tells
-a caller about an id it already has. A review item the caller's own filters
-hide answers `not_found`, the same as a missing one.
+another project. That is what the codes are for, the HTTP memory routes also
+tell a refusal (403) from a missing id (404 from the review, redact and audit
+routes, 400 from the others), and an id is a random UUID, so the answer only
+tells a caller about an id it already has. A review item the caller's own
+filters hide answers `not_found`, the same as a missing one.
+
+A refused caller hears `not_permitted` for a live row and `not_found` for an
+archived or redacted row, the same as for an id the vault never held. That is
+the rule on every verb, `alice_memory_manage` with `action: redact` included.
+So an id a caller holds in another project answers `not_permitted` while the
+row is live, and `not_found` once the row is archived or redacted. A caller
+that asks with an id it has never seen cannot tell a deleted row from one that
+never existed. A caller that held the id can see the answer change, and learns
+only that the row is gone.
+
+Authorization comes before state. A caller the policy refuses (its project
+scope, its permission profile, its sensitivity ceiling, or, for a pending
+write, who may resolve it) gets `not_permitted` whatever state the row is in:
+waiting for a confirmation, answered, expired, superseded, stale, a
+consolidation candidate, or a project update that still awaits review. So
+`precondition_failed` only ever reaches a caller the policy allows, and a
+refused caller learns nothing about a row beyond the fact that it exists
+outside its scope. The same holds for the memory named in `superseded_by` and
+for the HTTP routes, which call the same service. A memory that has been
+archived or redacted is gone from the API, and every verb answers a refused
+caller `not_found` for it, as for an id the vault never held. That includes
+`alice_memory_manage` with `action: redact`, the one verb that reads such a
+row on purpose, so that it can scrub and replay it.
 
 These stay `tool_request_failed`: an idempotency key already bound to a
 different request, a credential refusal, a malformed database URL, and an
