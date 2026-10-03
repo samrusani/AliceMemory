@@ -1030,6 +1030,34 @@ def test_a_reader_who_may_read_the_source_is_shown_the_same_rows_for_a_memory_wi
     assert _WORD_A not in json.dumps(rows("trusted"))
 
 
+@pytest.mark.parametrize("door", _LINKLESS_DOORS)
+def test_the_pack_budget_does_not_count_the_bytes_it_withholds(vault: _Vault, door: str) -> None:
+    """The pack prices each memory row for its token budget. Rows are held to the caller's read fence before they are
+    priced, so the size a restricted caller is told does not include the quote that was withheld from it. Before, the
+    estimate counted the stored row, so two callers who got the same memory differed in what they were shown and not in
+    the number they were told, and the estimate told the restricted one how long the withheld quote was.
+
+    After the source is made confidential the admin key (which may read it) and the trusted key read the same query with
+    the source section off, so the only difference between the two packs is the quote, and the trusted key's estimate is
+    the smaller.
+
+    Mutation: move the ``saved_provenance.memories(ranked_memories)`` statement of ``compile_context_pack`` back below
+    the budget, to the line before ``pack: JsonObject = {`` (as ``selected_memories = ...``): the two estimates are
+    equal (and the HTTP rows lose the guard of the scope pass, so the lifecycle tests above fail as well).
+    """
+
+    source_id = vault.capture_source()
+    memory_id, query = getattr(vault, door)(source_id)
+    vault.reclassify(source_id, "confidential")
+
+    def estimate(who: str) -> int:
+        answer = vault.http_pack(who, query, include_sources=False)
+        assert memory_id in [row["id"] for row in answer["payload"]["relevant_memories"]]  # type: ignore[index]
+        return int(answer["payload"]["budget"]["token_estimate"])  # type: ignore[index]
+
+    assert estimate("trusted") < estimate("admin")
+
+
 @pytest.mark.parametrize("variant", ("confidential", "archived"))
 def test_the_quote_on_the_link_to_a_readable_source_is_withheld_when_a_sibling_link_is_refused(
     vault: _Vault, variant: str
