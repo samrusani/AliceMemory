@@ -790,13 +790,31 @@ may not create a loop gets the same refusal whatever id it names) and before
 anything is written. The loop stores the id in canonical form. The owner, a call
 with no agent key, may name any live source and memory of the vault.
 
+Unreleased (on main, not in v0.20.0): the readers of an open loop hold the
+loop's references to the reader's own fence, so what a writer was allowed to name
+is not shown to a reader who may not read it. A loop returns its `source_id` and
+`memory_id`, and the ids in its `metadata_json`, as before only where the reader
+could be shown the row they name, by the test `alice_explain` applies. For any
+other reference (another project's row, a global row, a row above the reader's
+ceiling or in a domain its profile may not read, a deleted row, a row that does
+not exist, a value that is no id) the key stays and the value is `null`, so the
+cases read alike. An id inside `metadata_json` is removed. This holds for
+`alice_open_loops` (the list, its legacy alias `alice_vnext_open_loops`, and the
+`close`, `snooze`, `edit` and `reopen` actions that return the updated row),
+`POST /v0/vnext/open-loops/{id}/review`, the open loops of
+`POST /v0/vnext/context-packs` and the scheduler's open-loop report. The owner and
+a key that may read the row get the reference unchanged, and a reference to a
+deleted row is withheld from them too. A loop that an automation made over a
+global source shows no `source_id` to a key bound to a project. In v0.20.0 every
+one of these returned the ids as stored to any key that could read the loop.
+
 Two limits. The test is the writer's own read fence, not the fence of whoever
 reads later: a source an `admin_agent` key could cite (a confidential source of
 its own project) stays citable, and the keys of that project with a lower
-ceiling then see its id in the context pack's `supporting_evidence`, in
-`alice_memory_review` by id and in `alice_open_loops`, and `alice_explain` of
-that memory fails for them. They are shown no text of the source. And a memory
-or open loop saved before the fix keeps the link or id it has.
+ceiling then see its id in the context pack's `supporting_evidence` and in
+`alice_memory_review` by id, and `alice_explain` of that memory fails for them.
+They are shown no text of the source. An open loop is not on that list (see the
+paragraph above). And a memory saved before the fix keeps the link it has.
 
 ## Size bounds
 

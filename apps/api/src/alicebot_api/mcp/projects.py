@@ -10,11 +10,13 @@ from alicebot_api.vnext_agent_control import (
     agent_metadata,
 )
 from alicebot_api.vnext_embeddings import DeferredMemoryEmbedding
+from alicebot_api.vnext_open_loop_references import withhold_unreadable_references
 from alicebot_api.vnext_projects import (
     ProjectAutomationRequest,
     VNextProjectService,
 )
 from alicebot_api.vnext_repositories import JsonObject as VNextJsonObject
+from alicebot_api.vnext_source_fence import SourceReadFence
 
 from .evidence_artifacts import _authorize_vnext_artifact_target
 from .retrieval_shared import _resource_matches_project_scope
@@ -213,6 +215,7 @@ def _handle_alice_vnext_open_loops(context: MCPRuntimeContext, arguments: Mappin
         project_view=ProjectView.unscoped(),
     )
     limit = _parse_int(arguments, key="limit", default=20, minimum=1, maximum=100)
+    identity = _agent_identity_from_arguments(context, arguments)
     with _vnext_store_context(context) as store:
         loops = store.list_open_loops(
             status=status if status != "all" else None,
@@ -223,5 +226,11 @@ def _handle_alice_vnext_open_loops(context: MCPRuntimeContext, arguments: Mappin
         )
         if decision.effective_project_scope:
             loops = [loop for loop in loops if _resource_matches_project_scope(loop, decision.effective_project_scope)]
-        loops = loops[:limit]
+        # The loop is the caller's to read, the source and memory it points at are checked on their own: a reference
+        # the caller's fence does not admit is returned as ``null``, the way a reference to a missing row is.
+        loops = withhold_unreadable_references(
+            store,
+            loops[:limit],
+            fence=SourceReadFence.for_identity(identity),
+        )
     return _json_object({"items": loops, "count": len(loops)})
