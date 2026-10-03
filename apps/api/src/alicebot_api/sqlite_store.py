@@ -497,6 +497,11 @@ class SQLiteVNextStore:
         occurred_at_end: datetime | None = None,
         limit: int = 20,
         exclude_global_domains: Sequence[str] | None = None,
+        # No defaults for the domain filter and the sensitivity ceiling, as in
+        # ``list_memories_view_partitions``: a caller states what it admits, and
+        # ``None`` is the statement "no filter".
+        domains: list[str] | None,
+        sensitivity_allowed: list[str] | None,
     ) -> list[VNextRow]:
         """Return events joined to resume-admitted memories before LIMIT.
 
@@ -508,10 +513,19 @@ class SQLiteVNextStore:
         ``exclude_global_domains`` leaves out events of global memories in those
         domains before ``LIMIT``, and it must be stated (an empty tuple leaves none
         out): ``None`` raises.
+
+        ``domains`` and ``sensitivity_allowed`` are the rules ``list_memories``
+        applies to the memory itself (a memory in an unlisted domain, or above the
+        ceiling, has its events left out before ``LIMIT``), so an event the caller
+        may not see never takes a place that one it may see needs. An empty
+        ``sensitivity_allowed`` admits nothing: it returns no rows and builds no
+        ``sensitivity IN ()``.
         """
 
         if limit < 1:
             raise ValueError("limit must be positive")
+        if sensitivity_allowed is not None and not sensitivity_allowed:
+            return []
         normalized_statuses = list(dict.fromkeys(str(value) for value in statuses if str(value)))
         if not normalized_statuses:
             return []
@@ -521,14 +535,23 @@ class SQLiteVNextStore:
             global_excluded_domains=_query_stated_exclusion(exclude_global_domains),
         )
         expiry_sql, expiry_params = self._expiry_clause(False, prefix="memory.")
+        domain_sql, domain_params = self._domain_clause(domains, prefix="memory.")
+        sensitivity_sql, sensitivity_params = self._sensitivity_clause(sensitivity_allowed, prefix="memory.")
         clauses = [
             "event.user_id = ?",
             "event.target_type = 'memory'",
             "memory.deleted_at IS NULL",
             f"memory.status IN ({self._placeholders(normalized_statuses)})",
         ]
-        params: list[object] = [self.user_id, *normalized_statuses, *project_params, *expiry_params]
-        scoped_where_sql = " AND ".join(clauses) + project_sql + expiry_sql
+        params: list[object] = [
+            self.user_id,
+            *normalized_statuses,
+            *project_params,
+            *expiry_params,
+            *domain_params,
+            *sensitivity_params,
+        ]
+        scoped_where_sql = " AND ".join(clauses) + project_sql + expiry_sql + domain_sql + sensitivity_sql
         filters: list[str] = []
         normalized_query = str(query).strip() if query is not None else ""
         if normalized_query:

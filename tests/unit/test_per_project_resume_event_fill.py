@@ -327,6 +327,8 @@ def _per_kind_fill_changes(data_dir: Path, repo: Path, limit: int) -> list[Chang
                     projects=scope,
                     limit=count,
                     exclude_global_domains=tuple(sorted(excluded)),
+                    domains=None,
+                    sensitivity_allowed=None,
                 )
             ),
         )
@@ -340,6 +342,8 @@ def _per_kind_fill_changes(data_dir: Path, repo: Path, limit: int) -> list[Chang
                     scope_projects=scope,
                     limit=count,
                     exclude_global_domains=tuple(sorted(excluded)),
+                    domains=None,
+                    sensitivity_allowed=None,
                 )
             ),
         )

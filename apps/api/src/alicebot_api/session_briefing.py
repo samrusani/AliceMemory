@@ -178,6 +178,8 @@ class SessionBriefStore(Protocol):
         query: str | None = None,
         limit: int = 20,
         exclude_global_domains: Sequence[str] | None = None,
+        domains: list[str] | None,
+        sensitivity_allowed: list[str] | None,
     ) -> list[JsonObject]: ...
 
     def list_open_loop_events(
@@ -188,6 +190,8 @@ class SessionBriefStore(Protocol):
         query: str | None = None,
         limit: int = 20,
         exclude_global_domains: Sequence[str] | None = None,
+        domains: list[str] | None,
+        sensitivity_allowed: list[str] | None,
     ) -> list[JsonObject]: ...
 
     def list_events(
@@ -384,6 +388,7 @@ def compile_session_brief(
             effective_sensitivity_allowed=effective_sensitivity_allowed,
             effective_project_scope=effective_project_scope,
             exclude_global_domains=held_back,
+            in_project_view=in_project_view,
         )
         # list_memories is created_at DESC, so a later-written ancestor can
         # lead. Same demote-not-drop helper the pack and recall already use.
@@ -488,10 +493,20 @@ def _merge_recent_change_targets(
     effective_sensitivity_allowed: tuple[str, ...],
     effective_project_scope: tuple[str, ...],
     exclude_global_domains: frozenset[str],
+    in_project_view: bool,
 ) -> None:
     # Stated on every call, an empty tuple when the view holds nothing back: a read
     # whose tuple holds the global marker must say what it leaves out.
     held_back = tuple(sorted(exclude_global_domains))
+    # In the project view the two reads carry the caller's domain filter and
+    # sensitivity ceiling, so the cut to RECENT_CHANGE_LIMIT counts only events of
+    # rows the caller may see. Without a project view the reads are v0.20.0's, which
+    # cut first and fence each event after: both are stated as None there.
+    read_domains: list[str] | None = None
+    read_sensitivity: list[str] | None = None
+    if in_project_view:
+        read_domains = list(effective_domains) if effective_domains else None
+        read_sensitivity = list(effective_sensitivity_allowed)
     seen_fact_ids = {str(row.get("id") or "") for row in facts}
     seen_loop_ids = {str(row.get("id") or "") for row in open_loops}
     for event in store.list_resume_memory_events(
@@ -499,6 +514,8 @@ def _merge_recent_change_targets(
         projects=effective_project_scope,
         limit=RECENT_CHANGE_LIMIT,
         exclude_global_domains=held_back,
+        domains=read_domains,
+        sensitivity_allowed=read_sensitivity,
     ):
         if not _event_target_honours_fence(
             store,
@@ -526,6 +543,8 @@ def _merge_recent_change_targets(
         scope_projects=effective_project_scope,
         limit=RECENT_CHANGE_LIMIT,
         exclude_global_domains=held_back,
+        domains=read_domains,
+        sensitivity_allowed=read_sensitivity,
     ):
         if not _event_target_honours_fence(
             store,

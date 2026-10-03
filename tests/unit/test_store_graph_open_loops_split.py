@@ -105,7 +105,12 @@ SQLITE_COLUMN_NAMES = (
 )
 
 SOURCE_RECEIPTS = {
-    POSTGRES_CARRIER_PATH: "9e91fbb96705ccb61c8100c32f8fc7875b6e715d8355865923491c7fa937a102",
+    # Re-minted for the filter-before-cut fix (2026-10-03): ``list_open_loop_events`` takes ``domains`` and
+    # ``sensitivity_allowed`` as required arguments, and the SQLite one applies them in the join before ``LIMIT``
+    # (an empty ceiling returns no rows without a query). The Postgres reader takes the same two arguments so that
+    # the shared unscoped call site can state ``None`` for both, and it refuses anything else, since the Postgres
+    # runtime resolves no project view (reviewed change, not drift).
+    POSTGRES_CARRIER_PATH: "e4724ba1ec3b8917c5be74b619259ddf1c282825b8e938ce4fa9947491a90a6f",
     # The SQLite carrier is re-minted, with its method AST manifest below, for
     # ``list_open_loops`` and ``list_open_loop_events``: they bind a query through
     # ``literal_match_operand`` and so refuse one past the LIKE operand limit.
@@ -118,21 +123,23 @@ SOURCE_RECEIPTS = {
     # Re-minted once more in the S2 review round (2026-10-02): the exclusion argument of the three readers defaults
     # to ``None`` ("not stated", which raises when the request holds the marker) and the single-scan reader takes the
     # domain filter and the sensitivity ceiling as required arguments (reviewed change, not drift).
-    SQLITE_CARRIER_PATH: "ea341a22729b39999952652aea98b8be0ad47a2f6b00562d274784ec37c7bab8",
+    SQLITE_CARRIER_PATH: "b34fae4bcbf1be2720e08b6a66705020d1792d8934ca98fffba6ff4e918913cc",
     POSTGRES_COLUMNS_PATH: "5b0d972a55abf8590ce14394a37fd71b9b88ba7ab3de82d61efc1bddfc022b71",
     SQLITE_COLUMNS_PATH: "be81b8628d0831d3d02b280b5455fb02333db5740ebef8d85d58024384ae6556",
 }
 EXPECTED_METHOD_AST_MANIFESTS = {
-    POSTGRES_CARRIER_PATH: "9a354d1cfb9f134ec7fadb74dd1647b1502ecb2a5b83edb3b65c7123091111ca",
-    SQLITE_CARRIER_PATH: "4f156371e0a648337fa8eedd1309f7ad8c0ca2645897e7b163e1b279596f12ca",
+    POSTGRES_CARRIER_PATH: "2558088459f1b9a565e1b366ffe0b7c4025c623a9e2ea78007d06a46793ce1b8",
+    SQLITE_CARRIER_PATH: "581dc3785233e8dff8a4ab1a41a57d35407dab5cde3a87d06c24269fbf21b17a",
 }
 EXPECTED_METADATA_MANIFESTS = {
-    POSTGRES_CARRIER_PATH: "801a455053962b25972ab783d36b03d0389df5c151cba545b05ee8d150f172b9",
-    SQLITE_CARRIER_PATH: "7c26d636538ae73d8a4478d81ae709af8d5b5d9cf11ec360c51321e289669910",
+    POSTGRES_CARRIER_PATH: "6edb6a10e7a37dbbbbde97e5550422718a0112257666de8e23d49c60490fa13f",
+    SQLITE_CARRIER_PATH: "da4c86fd17190805004670b0bec8a40e03a4a9a29a262efa961d3bc62abea644",
 }
 EXPECTED_COMMENT_MANIFESTS = {
     POSTGRES_CARRIER_PATH: (9, "bb34d175e716f5a929fa1ee5e7e30ba0e0b25be285cda3556a0c709719316c4e"),
-    SQLITE_CARRIER_PATH: (3, "69d8e6d6f01975b24325e6d2d4f1281163c96ddcf83ad3e045b1cddf7391c16e"),
+    # The SQLite carrier gains a three-line comment above the two new required arguments of
+    # ``list_open_loop_events`` (3 comments before, 6 now); the Postgres carrier gains none.
+    SQLITE_CARRIER_PATH: (6, "970028b5c929f0e749d8b40bdee571c872600de7a713e58d60e0da86f022af8a"),
 }
 EXPECTED_CLASS_ORDERS = {
     # Two paired browser-clip capability methods extend both façades, and one

@@ -877,6 +877,11 @@ def list_open_loop_events(
     occurred_at_end: datetime | None = None,
     limit: int = 20,
     exclude_global_domains: Sequence[str] | None = None,
+    # No defaults for the domain filter and the sensitivity ceiling, as in
+    # ``list_open_loops_view_partitions``: a caller states what it admits, and
+    # ``None`` is the statement "no filter".
+    domains: list[str] | None,
+    sensitivity_allowed: list[str] | None,
 ) -> list[VNextRow]:
     """Return scoped events for active loops without bounding loop age.
 
@@ -884,10 +889,18 @@ def list_open_loop_events(
     ``exclude_global_domains`` leaves out events of global loops in those domains
     before ``LIMIT``, and it must be stated (an empty tuple leaves none out):
     ``None`` raises.
+
+    ``domains`` and ``sensitivity_allowed`` are the rules ``list_open_loops``
+    applies to the loop itself (a loop in an unlisted domain, or above the ceiling,
+    has its events left out before ``LIMIT``), so an event the caller may not see
+    never takes a place that one it may see needs. An empty ``sensitivity_allowed``
+    admits nothing: it returns no rows and builds no ``sensitivity IN ()``.
     """
 
     if limit < 1:
         raise ValueError("limit must be positive")
+    if sensitivity_allowed is not None and not sensitivity_allowed:
+        return []
     normalized_statuses = list(dict.fromkeys(str(value) for value in statuses if str(value)))
     if not normalized_statuses:
         return []
@@ -899,13 +912,21 @@ def list_open_loop_events(
         domain_expression="loop.domain",
         global_excluded_domains=_stated_exclusion(exclude_global_domains),
     )
+    domain_sql, domain_params = self._domain_clause(domains, prefix="loop.")
+    sensitivity_sql, sensitivity_params = self._sensitivity_clause(sensitivity_allowed, prefix="loop.")
     clauses = [
         "event.user_id = ?",
         "event.target_type = 'open_loop'",
         f"loop.status IN ({self._placeholders(normalized_statuses)})",
     ]
-    params: list[object] = [self.user_id, *normalized_statuses, *project_params]
-    scoped_where_sql = " AND ".join(clauses) + project_sql
+    params: list[object] = [
+        self.user_id,
+        *normalized_statuses,
+        *project_params,
+        *domain_params,
+        *sensitivity_params,
+    ]
+    scoped_where_sql = " AND ".join(clauses) + project_sql + domain_sql + sensitivity_sql
     query_sql = ""
     normalized_query = str(query).strip() if query is not None else ""
     if normalized_query:

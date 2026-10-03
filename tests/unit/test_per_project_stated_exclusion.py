@@ -52,10 +52,10 @@ READERS: dict[str, Callable[[SQLiteVNextStore, tuple[str, ...]], Reader]] = {
         status=None, scope_projects=projects, limit=5, **kw
     ),
     "list_open_loop_events": lambda store, projects: lambda **kw: store.list_open_loop_events(
-        statuses=("open",), scope_projects=projects, limit=5, **kw
+        statuses=("open",), scope_projects=projects, limit=5, domains=None, sensitivity_allowed=None, **kw
     ),
     "list_resume_memory_events": lambda store, projects: lambda **kw: store.list_resume_memory_events(
-        statuses=("active",), projects=projects, limit=5, **kw
+        statuses=("active",), projects=projects, limit=5, domains=None, sensitivity_allowed=None, **kw
     ),
 }
 
