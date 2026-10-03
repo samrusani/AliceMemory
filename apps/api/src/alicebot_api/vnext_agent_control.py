@@ -43,6 +43,26 @@ POLICY_DECISIONS = ("allowed", "allowed_with_filtering", "requires_review", "blo
 AGENT_AUTH_METHODS = ("agent_api_key", "unauthenticated_local")
 
 RESTRICTED_DOMAINS = frozenset({"family", "health", "spiritual", "legal", "financial"})
+# The thirteen domain labels. One definition: the commit service, the tool schemas and the schema vocabulary check
+# all read this tuple (``vnext_memory_commit`` still exports the name), and the policy engine derives what a
+# profile may read from it. A test keeps both database schemas equal to it.
+VNEXT_DOMAINS = (
+    "professional",
+    "personal",
+    "family",
+    "health",
+    "spiritual",
+    "financial",
+    "legal",
+    "learning",
+    "relationship",
+    "project",
+    "agent_run",
+    "system",
+    "unknown",
+)
+# Profiles that read every domain. Any other profile is held back from RESTRICTED_DOMAINS.
+UNRESTRICTED_DOMAIN_PROFILES = frozenset({"trusted_local_agent", "admin_agent"})
 RESTRICTED_SENSITIVITY = frozenset({"confidential", "highly_sensitive", "sacred", "regulated"})
 ALL_SENSITIVITY = ("public", "internal", "private", "confidential", "highly_sensitive", "sacred", "regulated", "unknown")
 DEFAULT_AGENT_SENSITIVITY = ("public", "internal", "private", "unknown")
@@ -283,9 +303,31 @@ def _profile_sensitivity(profile: str) -> tuple[str, ...]:
     return DEFAULT_AGENT_SENSITIVITY
 
 
+def permitted_domains(profile: str) -> tuple[str, ...] | None:
+    """The domains a profile may read, or ``None`` when it may read every domain.
+
+    ``None`` and an empty tuple are different answers and must stay different. ``None`` is an unrestricted
+    profile: a request that names no domain reads all of them. A restricted profile gets the labels it may
+    read, which is every label except ``RESTRICTED_DOMAINS`` and includes ``unknown`` (the stores return
+    ``unknown`` rows under every domain filter, and the source fence tests the row's own domain the same way).
+    An empty tuple would mean a profile that may read nothing, which the policy turns into a refusal, never
+    into a search with no domain filter.
+    """
+
+    if profile in UNRESTRICTED_DOMAIN_PROFILES:
+        return None
+    return tuple(domain for domain in VNEXT_DOMAINS if domain not in RESTRICTED_DOMAINS)
+
+
 def _filtered_domains(profile: str, domains: tuple[str, ...]) -> tuple[tuple[str, ...], tuple[str, ...]]:
-    if profile in {"trusted_local_agent", "admin_agent"}:
+    permitted = permitted_domains(profile)
+    if permitted is None:
         return domains, ()
+    if not domains:
+        # A request that names no domain is not a request for every domain. Every reader treats an empty
+        # ``effective_domains`` as "no domain filter", so the profile's own domains are written out here, and
+        # the readers never see an empty tuple for a profile that has a held-back set.
+        return permitted, ()
     blocked = tuple(domain for domain in domains if domain in RESTRICTED_DOMAINS)
     allowed = tuple(domain for domain in domains if domain not in RESTRICTED_DOMAINS)
     return allowed, blocked
@@ -377,6 +419,12 @@ def evaluate_agent_policy(
         decision = "allowed_with_filtering"
     if domains and not effective_domains and filtered_domains:
         reasons.append("all_requested_domains_restricted")
+        decision = "blocked"
+    elif not effective_domains and permitted_domains(profile) is not None:
+        # Fail closed. Every reader reads an empty ``effective_domains`` as "no domain filter", so a restricted
+        # profile must never leave here with one. No profile reaches this today (each has permitted domains);
+        # a profile whose permitted set is empty would.
+        reasons.append("no_permitted_domains")
         decision = "blocked"
 
     if profile == "read_only_agent" and action in WRITE_ACTIONS:

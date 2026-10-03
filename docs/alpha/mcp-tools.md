@@ -798,6 +798,50 @@ ceiling then see its id in the context pack's `supporting_evidence`, in
 that memory fails for them. They are shown no text of the source. And a memory
 or open loop saved before the fix keeps the link or id it has.
 
+## Domains a profile may read
+
+Every permission profile except `trusted_local_agent` and `admin_agent` is held
+back from five domains: family, health, spiritual, legal and financial. A
+request that names only those domains is refused (`not_permitted`), and a
+request that names them with others has them removed. `personal` and
+`professional` are not held back, and `regulated` is a sensitivity level, so the
+profile's sensitivity ceiling is what holds it.
+
+Unreleased (on main, not in v0.20.0): a request that names no domain, with
+`domains` left out or sent as an empty list, is held to the same set. A
+`project_scoped_agent`, `read_only_agent` or `memory_proposal_agent` caller then
+reads every domain except those five, `unknown` included, and a request that
+names domains narrows that set further. This applies to every read that takes
+`domains`: `alice_recall` (its memories and its source excerpts),
+`alice_context_pack`, `alice_resume`, `alice_open_loops`,
+`alice_recent_decisions` and `alice_memory_review` (which already did), and the
+context-pack, report and artifact routes over HTTP. A request
+that names a word that is not a domain label (for example `banana` or `HEALTH`)
+matches no row, as before, and is not read as "no filter". The `unknown` domain is
+readable because the stores return `unknown` rows under every domain filter, the
+source fence tests a row's own domain the same way, and imports and captures file
+under `unknown` by default. Unclassified material is held by the sensitivity
+ceiling and the project scope, not by its domain. The held-back set is read from
+the stored label, so a health note filed as `personal` is not held back.
+
+A keyless call that declares one of those profiles, or only an `agent_id` (which
+defaults to `read_only_agent`, except `hermes`, which defaults to
+`trusted_local_agent`, and `openclaw`, which defaults to `project_scoped_agent`),
+is held the same way, as it already was when it named a held-back domain. The
+owner (a call with no key and no declared identity), a declared
+`trusted_local_agent` or `admin_agent`, and a key of either profile read every
+domain with or without naming them, as before. In v0.20.0 a restricted caller
+that named no domain read all of them, health included, and the same caller got
+`not_permitted` when it named `health`.
+
+With per-project scoping on, the project's own notes in a held-back domain are
+left out for a restricted caller too (the project view holds back global notes
+in those domains for every caller and leaves the project's own). With scoping
+off, `alice_resume` reads the newest events before it applies the domain list, as
+it does when a caller names domains, so a run of newer events in held-back domains
+can leave `recent_changes` shorter than `max_recent_changes` for a restricted
+caller.
+
 ## Size bounds
 
 A memory commit accepts at most 64 `source_refs`. Each string ref is at
