@@ -160,7 +160,9 @@ def test_the_note_names_what_a_vault_is_held_to_and_each_name_is_a_real_manifest
     Mutation: rename ``vault_dir``, ``vault_text_sha256``, ``vault_chunks_sha256``, ``vault_row_counts``,
     ``harness_sha256`` or ``checkout_source_sha256`` in the harness without the note, delete the ``no git``
     sentence, put back the sentence that a run needs git, drop the sentence that a stray file in the snapshot is
-    refused, or drop the source hash, the ``no git`` statement or the vault folder from the CHANGELOG entry.
+    refused, drop the sentences about the two readings of a build, the harness hash of every command or the
+    check of a lone outputs file, or drop the source hash, the ``no git`` statement or the vault folder from the
+    CHANGELOG entry. ``vault_sources_sha256`` is named by the loop over ``VAULT_IDENTITY_KEYS``.
     """
 
     text = _note()
@@ -175,10 +177,16 @@ def test_the_note_names_what_a_vault_is_held_to_and_each_name_is_a_real_manifest
     assert "a `.DS_Store` that a Finder visit adds is a refusal too" in text
     assert "so an export that sits inside another repository is never given that repository's commit" in text
     assert "`no git`" in text and "reads git only when the checkout has a `.git` of its own" in text
+    assert "is read before a build imports anything and again after the last file" in text
+    assert "The hash of the harness is taken when the script is loaded, which is the start of a command, and every command refuses" in text
+    assert "an edit that is made and undone inside one command is not seen" in text
+    assert "Each outputs file is held to its own build record this way even when it is the only one" in text
     assert "and git, because a run reads the commit of its checkout" not in text
     entry = _changelog_entry()
     assert "a hash of the source under `apps/api/src`" in entry and "recorded as `no git`" in entry
-    assert "the folder it was built into and what it holds (its sources, the text of every chunk and the row count of every table)" in entry
+    assert "the folder it was built into and what it holds (its sources with every column, the text of every chunk and the row count of every table)" in entry
+    assert "reads its checkout and the harness before it imports and again after" in entry and "a single file included" in entry
+    assert "Every command refuses if the harness script changed after it was loaded" in entry
 
 
 def test_the_note_names_the_files_a_reader_needs() -> None:

@@ -14,6 +14,7 @@ spec of the search-quality release.
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import io
 import json
 import os
@@ -313,7 +314,7 @@ def test_a_checkout_is_refused_when_the_package_was_already_imported_from_elsewh
 
 
 def test_a_vault_is_read_only_by_the_checkout_that_built_it() -> None:
-    """TH9. Commit, dirty flag, source hash, import path and the Python and SQLite it ran on must each match the build record.
+    """TH9. Commit, dirty flag, source hash, import path, the Python and SQLite it ran on and the harness must each match the build record.
 
     Mutation: leave one key out of ``CHECKOUT_IDENTITY_KEYS``, accept a manifest with no build record,
     or accept no manifest at all, or stop comparing the recorded hash of the harness with the running one.
@@ -328,8 +329,10 @@ def test_a_vault_is_read_only_by_the_checkout_that_built_it() -> None:
         "alicebot_api_file",
         "python_version",
         "sqlite_version",
+        "harness_sha256",
     }
     assert tuple(identity) == bench.CHECKOUT_IDENTITY_KEYS
+    assert identity["harness_sha256"] == bench.sha256_file(BENCH_SCRIPT)
     build = {**identity, "search_quality": "unset"}
     manifest = {"build": build, "harness_sha256": bench.sha256_file(BENCH_SCRIPT)}
     assert bench.require_matching_build(manifest, REPO_ROOT) == manifest
@@ -341,6 +344,7 @@ def test_a_vault_is_read_only_by_the_checkout_that_built_it() -> None:
         "alicebot_api_file": "/another/tree/alicebot_api/__init__.py",
         "python_version": "0.0.0",
         "sqlite_version": "0.0.0",
+        "harness_sha256": "0" * 64,
     }
     for key in bench.CHECKOUT_IDENTITY_KEYS:
         altered = {**identity, key: other_values[key]}
@@ -2346,3 +2350,336 @@ def test_a_source_edited_while_a_batch_runs_is_refused_and_no_outputs_are_writte
     assert re.search(r"the checkout changed since the vault was built \([a-z_, ]*checkout_source_sha256 differ\)", edited.stderr), edited.stderr
     assert not edited_out.exists()
     assert "# edited while the batch ran" in module.read_text(encoding="utf-8"), "the edit was really made"
+
+
+# The review of the vault and checkout identity (the third round) ----------------------------------------
+#
+# The recheck of #532 and an outside review left four gaps. Each test below shows its gap by running it and
+# names the one change that must fail it.
+
+
+def _every_source_column(vault: Path) -> list[str]:
+    conn = sqlite3.connect(f"file:{vault / bench.VAULT_FILENAME}?mode=ro", uri=True)
+    try:
+        return [row[1] for row in conn.execute("PRAGMA table_info(sources)")]
+    finally:
+        conn.close()
+
+
+def _update_sources(vault: Path, sql: str) -> None:
+    conn = sqlite3.connect(vault / bench.VAULT_FILENAME)
+    try:
+        conn.execute(sql)
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def test_a_vault_built_with_other_labels_or_with_a_source_column_edited_in_place_is_refused(
+    run: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Recheck of #532, minor 1. The identity holds every column of every live source, the labels first of all.
+
+    A donor is built from the same corpus in the same order with other labels (``--domain`` and ``--sensitivity``)
+    and copied over the folder: it holds the same sources, the same text and the same chunks, so only the labels
+    tell it apart, and a recall shows them. Two copies of a good run have a label rewritten in place with one
+    ``UPDATE``, and nothing but that column moves: no count, no text, no chunk. Each is refused by all seven
+    commands and the refusal names the source hash alone. Then every column of ``sources`` is changed in turn in a
+    copy and the hash moves for each one (``deleted_at`` takes the source out of the live set, so the count moves).
+    The control shows that a label edit reaches what a recall returns.
+
+    Mutation: hash a fixed list of source columns that leaves out ``domain`` or ``sensitivity`` (or any other
+    column of ``sources``), drop ``vault_sources_sha256`` from ``VAULT_IDENTITY_KEYS`` or from the comparison in
+    ``require_matching_vault``, or read the rows of ``sources`` without the ``ORDER BY`` that makes the hash stable.
+    """
+
+    donor = tmp_path / "donor"
+    built = ["build", "--run-dir", str(donor), "--corpus", str(CORPUS), "--domain", "learning", "--sensitivity", "public"]
+    assert bench.main(built) == 0
+    capsys.readouterr()
+    clean = bench.vault_identity(run / "vault" / bench.VAULT_FILENAME)
+    held = bench.vault_identity(donor / "vault" / bench.VAULT_FILENAME)
+    assert all(held[key] == clean[key] for key in ("sources", "chunks", "vault_text_sha256", "vault_chunks_sha256")), (
+        "the control: the same corpus, the same text and the same chunks"
+    )
+    assert _recall_text(run / "vault") != _recall_text(donor / "vault"), "the control: a recall shows the labels"
+    victim = tmp_path / "victim-donor"
+    shutil.copytree(run, victim)
+    _swap_in_vault(victim, donor)
+    named = _vault_keys_named(_every_read_is_refused(victim, tmp_path, capsys, _VAULT_REFUSAL))
+    assert "vault_sources_sha256" in named and not named & {"sources", "chunks", "vault_text_sha256", "vault_chunks_sha256"}, named
+
+    for label, value in (("sensitivity", "public"), ("domain", "learning")):
+        edited = tmp_path / f"edited-{label}"
+        shutil.copytree(run, edited)
+        _update_sources(edited / "vault", f"UPDATE sources SET {label} = '{value}'")
+        after = bench.vault_identity(edited / "vault" / bench.VAULT_FILENAME)
+        assert {key for key in clean if after[key] != clean[key]} == {"vault_sources_sha256"}, label
+        assert _recall_text(edited / "vault") != _recall_text(run / "vault"), f"the control: a {label} edit reaches a recall"
+        refusal = _every_read_is_refused(edited, tmp_path, capsys, _VAULT_REFUSAL)
+        assert _vault_keys_named(refusal) == {"vault_sources_sha256"}, (label, refusal)
+
+    changes = {
+        "domain": "'learning'",
+        "sensitivity": "'public'",
+        "metadata_json": "json_set(metadata_json, '$.agent_id', 'someone')",
+        "deleted_at": "'2026-01-01T00:00:00Z'",
+    }
+    columns = _every_source_column(run / "vault")
+    assert {"source_type", "captured_at", "domain", "sensitivity", "metadata_json", "deleted_at"} <= set(columns)
+    for column in columns:
+        copy = tmp_path / f"column-{column}"
+        shutil.copytree(run, copy)
+        _update_sources(copy / "vault", f"UPDATE sources SET {column} = {changes.get(column, f'COALESCE({column}, \'\') || \'x\'')}")
+        after = bench.vault_identity(copy / "vault" / bench.VAULT_FILENAME)
+        moved = {key for key in clean if after[key] != clean[key]}
+        assert "vault_sources_sha256" in moved or column == "deleted_at", (column, moved)
+        if column == "deleted_at":
+            assert {"sources", "vault_text_sha256"} <= moved
+        manifest = _manifest(copy)
+        with pytest.raises(bench.RunDirError, match=r"the vault does not hold what the manifest says"):
+            bench.require_matching_vault(manifest, copy, copy / "vault")
+
+
+def test_a_checkout_edited_while_a_build_runs_is_refused_and_no_manifest_is_written(tmp_path: Path) -> None:
+    """Recheck of #532, minor 2. A build reads the identity of its checkout before the import and after it.
+
+    An export of the package with no ``.git`` is built in a process of its own, with the second import wrapped so
+    that it applies a chunker edit to the export: a real edit made while the build runs, after the first file has
+    loaded the chunker, so the vault is cut by the old code. The identity read after the loop would name the edited
+    tree and the manifest would record that hash for a vault the old code cut. With no ``.git`` the flags cannot give
+    the edit away, so the source hash is the one that moves, and the refusal names it. Nothing is recorded, so no
+    command can read the half built vault. The control runs the same wrapped build without the edit and builds.
+
+    Mutation: read the identity once, after the import loop (the first lines of ``build_vault`` that record it
+    before), or read both and not compare them.
+    """
+
+    export = _export_of(_second_checkout(tmp_path), tmp_path / "export")
+    module = export / "apps" / "api" / "src" / "alicebot_api" / "vnext_capture.py"
+
+    def build_with_an_edit(run_dir: Path, *, edit: bool) -> subprocess.CompletedProcess[str]:
+        old, new = _EDIT_CHUNK_SIZE
+        code = (
+            "import sys\n"
+            "from pathlib import Path\n"
+            f"sys.path.insert(0, {str(REPO_ROOT)!r})\n"
+            "import scripts.alice_bench as bench\n"
+            "real = bench._import_one\n"
+            "calls = []\n"
+            "def wrapped(*args, **kwargs):\n"
+            "    calls.append(1)\n"
+            f"    if {edit!r} and len(calls) == 2:\n"
+            f"        path = Path({str(module)!r})\n"
+            f"        path.write_text(path.read_text(encoding='utf-8').replace({old!r}, {new!r}), encoding='utf-8')\n"
+            "    return real(*args, **kwargs)\n"
+            "bench._import_one = wrapped\n"
+            f"print('RESULT', bench.main(['build', '--run-dir', {str(run_dir)!r}, '--corpus', {str(CORPUS)!r}, "
+            f"'--checkout', {str(export)!r}]))\n"
+        )
+        return subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=False, env=_env(SRC), timeout=300)
+
+    control_run = tmp_path / "control-run"
+    control = build_with_an_edit(control_run, edit=False)
+    assert control.stdout.strip().splitlines()[-1] == f"RESULT {bench.EXIT_OK}", control.stderr
+    assert _manifest(control_run)["build"]["checkout_source_sha256"] == bench.checkout_source_sha256(export)
+    assert _manifest(control_run)["build"]["git"] == "no git"
+
+    edited_run = tmp_path / "edited-run"
+    edited = build_with_an_edit(edited_run, edit=True)
+    assert edited.stdout.strip().splitlines()[-1] == f"RESULT {bench.EXIT_REFUSED}", edited.stderr
+    assert re.search(r"the checkout changed while the vault was being built \([a-z_, ]*checkout_source_sha256 differ\)", edited.stderr), edited.stderr
+    assert not (edited_run / bench.MANIFEST_FILENAME).exists(), "a build the checkout changed under is never recorded"
+    assert _EDIT_CHUNK_SIZE[1] in module.read_text(encoding="utf-8"), "the edit was really made"
+
+
+def _harness_copy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, name: str = "harness") -> tuple[Any, Path]:
+    """A byte-identical copy of the harness script, loaded as a module of its own, and the path of its file.
+
+    The copy is what a command runs, so a test can edit its file while a command runs without touching the
+    repository's script. Its hash is the hash of the real script until it is edited, so a run built by the real
+    script is a run built by the copy. ``--checkout`` has to be named, because the copy sits outside a repository.
+    """
+
+    folder = tmp_path / name
+    (folder / "scripts").mkdir(parents=True)
+    script = folder / "scripts" / "alice_bench.py"
+    shutil.copy(BENCH_SCRIPT, script)
+    shutil.copy(REPO_ROOT / "gates.json", folder / "gates.json")
+    module_name = f"alice_bench_copy_{name}_{tmp_path.name}"
+    spec = importlib.util.spec_from_file_location(module_name, script)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    monkeypatch.setitem(sys.modules, module_name, module)
+    spec.loader.exec_module(module)
+    assert module.sha256_file(script) == bench.sha256_file(BENCH_SCRIPT)
+    return module, script
+
+
+def _edit_the_harness(script: Path) -> None:
+    script.write_text(script.read_text(encoding="utf-8") + "\n# edited while the command ran\n", encoding="utf-8")
+
+
+def _once_before(owner: Any, name: str, action: Any) -> None:
+    """Replace ``owner.name`` so that the first call runs ``action`` and then the real function."""
+
+    real = getattr(owner, name)
+    done: list[int] = []
+
+    def wrapped(*args: Any, **kwargs: Any) -> Any:
+        if not done:
+            done.append(1)
+            action()
+        return real(*args, **kwargs)
+
+    setattr(owner, name, wrapped)
+
+
+def test_a_harness_edited_while_a_batch_or_a_build_runs_is_refused_and_nothing_is_recorded(
+    run: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Recheck of #532, minor 3. The harness hash is held to the build record at the end of a batch, and is part of it.
+
+    A batch runs from a byte-identical copy of the script and the first recall edits that copy: a real edit while
+    the batch runs, on a vault whose build record holds the hash of the script that built it. The identity read at
+    the end of the batch no longer matches the record, so the batch is refused with the hash named and writes no
+    outputs. Without the key in the record the outputs would name the edited script in ``harness_sha256`` while the
+    code that ran was the old one. A build is held the same way: the identity read before the import and after it
+    must agree on the hash, and no manifest is written. A script edited after it was loaded and before a build
+    began is refused before the build writes anything, because the first reading would otherwise already name the
+    edited script. The control batch runs unedited, and its outputs hold the same hash in the build record and in
+    the run.
+
+    Mutation: leave ``harness_sha256`` out of ``CHECKOUT_IDENTITY_KEYS`` (the batch would be refused later, by the
+    check of the command, with another message, and a build record would not hold the hash), drop the comparison of
+    the build record with the identity in ``fingerprint``, read the identity once in ``build_vault``, or drop the
+    comparison of the first reading with the hash taken at load time (the build would write its manifest before the
+    check at the end of the command refused it).
+    """
+
+    corpus_args = ["--corpus", str(CORPUS), "--checkout", str(REPO_ROOT)]
+    questions = ["--questions", str(QUESTIONS), "--checkout", str(REPO_ROOT)]
+
+    module, script = _harness_copy(tmp_path, monkeypatch, "control")
+    control_run = tmp_path / "control-run"
+    shutil.copytree(run, control_run)
+    control_out = tmp_path / "control.json"
+    assert module.main(["batch", "--run-dir", str(control_run), *questions, "--out", str(control_out)]) == 0
+    fingerprint = json.loads(control_out.read_text())["fingerprint"]
+    assert fingerprint["vault_build"]["harness_sha256"] == fingerprint["harness_sha256"] == bench.sha256_file(script)
+
+    module, script = _harness_copy(tmp_path, monkeypatch, "batch")
+    batch_run = tmp_path / "batch-run"
+    shutil.copytree(run, batch_run)
+    out = tmp_path / "edited.json"
+    _once_before(module.McpSession, "recall", lambda: _edit_the_harness(script))
+    capsys.readouterr()
+    assert module.main(["batch", "--run-dir", str(batch_run), *questions, "--out", str(out)]) == bench.EXIT_REFUSED
+    refusal = capsys.readouterr().err
+    assert re.search(r"the checkout changed since the vault was built \([a-z_, ]*harness_sha256 differ\)", refusal), refusal
+    assert not out.exists() and "# edited while the command ran" in script.read_text(encoding="utf-8")
+
+    module, script = _harness_copy(tmp_path, monkeypatch, "build")
+    build_run = tmp_path / "build-run"
+    _once_before(module, "_import_one", lambda: _edit_the_harness(script))
+    assert module.main(["build", "--run-dir", str(build_run), *corpus_args]) == bench.EXIT_REFUSED
+    refusal = capsys.readouterr().err
+    assert re.search(r"the checkout changed while the vault was being built \([a-z_, ]*harness_sha256 differ\)", refusal), refusal
+    assert not (build_run / bench.MANIFEST_FILENAME).exists()
+
+    module, script = _harness_copy(tmp_path, monkeypatch, "before-build")
+    early_run = tmp_path / "early-run"
+    _edit_the_harness(script)
+    assert module.main(["build", "--run-dir", str(early_run), *corpus_args]) == bench.EXIT_REFUSED
+    refusal = capsys.readouterr().err
+    assert "the harness script changed after this process loaded it" in refusal, refusal
+    assert not (early_run / bench.MANIFEST_FILENAME).exists() and not (early_run / "vault").exists(), "nothing was built"
+
+
+def test_a_harness_edited_while_any_other_command_runs_is_refused(
+    run: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Recheck of #532, minor 3. The hash of the harness is taken when the script is loaded, and every command ends by checking it.
+
+    ``recall``, both arms of ``search``, ``anchors``, ``fingerprint`` and ``score`` run from a byte-identical copy
+    of the script that a real edit changes while the command is working (inside the recall, the grep, the anchor
+    check or the scoring), and each is refused with the harness named and an exit status that says so. The control
+    runs each command unedited and it succeeds, so the refusal comes from the edit and not from the copy.
+
+    Mutation: drop the comparison after the command in ``main`` (each command would exit 0), or compare the file
+    with a hash read after the command and not with the one taken when the script was loaded.
+    """
+
+    fp: dict[str, Any] = dict.fromkeys((*bench.SAME_ACROSS_ORDERS, *bench.CHECKOUT_IDENTITY_KEYS), "same")
+    fp["import_order"] = "sorted"
+    fp["vault_build"] = {key: fp[key] for key in bench.CHECKOUT_IDENTITY_KEYS}
+    outputs = tmp_path / "outputs.json"
+    outputs.write_text(
+        json.dumps({"schema": bench.OUTPUTS_SCHEMA, "fingerprint": fp, "outputs": json.loads((FIXTURES / "outputs.json").read_text())["outputs"]}),
+        encoding="utf-8",
+    )
+    checkout = ["--checkout", str(REPO_ROOT)]
+    cases: list[tuple[str, tuple[Any, str], list[str]]] = [
+        ("recall", ("McpSession", "recall"), ["recall", "--query", "spare key", *checkout]),
+        ("search alice", ("McpSession", "call"), ["search", "--arm", "alice", "--query", "spare key", *checkout]),
+        ("search grep", (None, "grep_search"), ["search", "--arm", "grep", "--pattern", "key", *checkout]),
+        ("anchors", (None, "verify_anchors"), ["anchors", "--questions", str(QUESTIONS), *checkout]),
+        ("fingerprint", ("McpSession", "tools_list"), ["fingerprint", *checkout]),
+        ("score", (None, "score_outputs_document"), ["score", "--questions", str(QUESTIONS), "--outputs", str(outputs)]),
+    ]
+    for number, (name, (owner_name, function), argv) in enumerate(cases):
+        for edited in (False, True):
+            module, script = _harness_copy(tmp_path, monkeypatch, f"case-{number}-{edited}")
+            copy = tmp_path / f"run-{number}-{edited}"
+            shutil.copytree(run, copy)
+            command = [argv[0], *(["--run-dir", str(copy)] if argv[0] != "score" else []), *argv[1:]]
+            if argv[0] == "search":
+                command += ["--state-dir", str(copy / bench.STATE_DIRNAME / "case")]
+            if edited:
+                owner = module if owner_name is None else getattr(module, owner_name)
+                _once_before(owner, function, lambda script=script: _edit_the_harness(script))
+            capsys.readouterr()
+            code = module.main(command)
+            captured = capsys.readouterr()
+            if edited:
+                assert code == bench.EXIT_REFUSED, (name, captured.err)
+                assert "the harness script changed after this process loaded it" in captured.err, (name, captured.err)
+                assert "# edited while the command ran" in script.read_text(encoding="utf-8")
+            else:
+                assert code == bench.EXIT_OK, (name, captured.err)
+                assert captured.err == "", name
+
+
+def test_a_checkout_reached_through_a_symlink_builds_and_its_vault_reads_through_either_path(tmp_path: Path) -> None:
+    """Recheck of #532, minor 5. ``git_state`` compares the root git reports with the checkout after ``realpath``.
+
+    A symlink to a repository gives the same state as the repository, and so does a path with a symlinked folder
+    in it. Git reports the real root, so the checkout path has to be resolved before the comparison, or a checkout
+    that is reached through a link is refused as if it were an export inside another repository. A second checkout
+    is then built through the link, read through the link and read through its real path, and the vault is
+    recorded once: the real path of ``alicebot_api`` and the source hash do not depend on how the folder was named.
+
+    Mutation: compare the root git reports with ``str(repo)`` and not ``os.path.realpath(repo)`` in ``git_state``.
+    """
+
+    repo = _small_repo(tmp_path / "real-repo")
+    link = tmp_path / "link"
+    link.symlink_to(repo)
+    assert bench.git_state(link) == bench.git_state(repo) == {"git": "present", "git_sha": _head(repo), "dirty": False}
+    folder = tmp_path / "folder-link"
+    folder.symlink_to(tmp_path)
+    assert bench.git_state(folder / "real-repo") == bench.git_state(repo)
+
+    other = _second_checkout(tmp_path)
+    checkout_link = tmp_path / "checkout-link"
+    checkout_link.symlink_to(other)
+    run_dir = tmp_path / "run"
+    built = _cli("build", "--run-dir", str(run_dir), "--corpus", str(CORPUS), "--checkout", str(checkout_link))
+    assert built.returncode == 0, built.stderr
+    build = _manifest(run_dir)["build"]
+    assert build["git"] == "present" and build["git_sha"] == _head(other)
+    assert Path(build["alicebot_api_file"]).is_relative_to((other / "apps" / "api" / "src").resolve())
+    for checkout in (checkout_link, other):
+        recalled = _cli("recall", "--run-dir", str(run_dir), "--checkout", str(checkout), "--query", "spare key")
+        assert recalled.returncode == 0 and "spare key" in recalled.stdout, (checkout, recalled.stderr)
+    assert bench.checkout_source_sha256(checkout_link) == bench.checkout_source_sha256(other) == build["checkout_source_sha256"]
