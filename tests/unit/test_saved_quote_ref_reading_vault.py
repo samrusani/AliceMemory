@@ -19,7 +19,6 @@ restored by copying the saved original back.
 from __future__ import annotations
 
 import json
-import time
 from uuid import UUID, uuid4
 
 import pytest
@@ -27,7 +26,7 @@ import pytest
 from alicebot_api.mcp.runtime import _sqlite_path_from_url
 from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
 from tests.unit.test_saved_quote_every_copy import _ALLOWED_TEXT, _commit_with_refs, _correct, _link_count, _two_sources
-from tests.unit.test_saved_quote_ref_reading import _zero_led_id
+from tests.unit.test_saved_quote_ref_reading import _zero_led_id, assert_cost_grows_linearly
 from tests.unit.test_saved_quotes_follow_the_source_fence import (
     _AGENT_IDS,
     _AUTHORIZED_AFTER,
@@ -39,8 +38,10 @@ from tests.unit.test_saved_quotes_follow_the_source_fence import (
     vault,  # noqa: F401  (a fixture of the sibling module)
 )
 
-# A linear reader takes a few hundredths of a second on the huge ref below and a quadratic one takes seconds.
-_TIME_LIMIT_SECONDS = 2.0
+# The huge ref below is read twice, at two sizes eight times apart, and the cost must grow about as much as the size
+# (``assert_cost_grows_linearly``): a limit in seconds depends on the machine and on the coverage tracer of CI.
+_SMALL_REF_IDS = 500
+_LARGE_REF_IDS = 8 * _SMALL_REF_IDS
 
 
 def _surfaces(vault: _Vault, who: str | None, memory_id: str, query: str) -> dict[str, dict[str, object]]:
@@ -276,26 +277,27 @@ def test_a_ref_of_a_hundred_kilobytes_stored_by_the_proposal_door_is_read_in_tim
 ) -> None:
     """The proposal route stores ``source_refs`` as sent. One proposal with a single 150 KB ref string (4,000 ids) made
     ``alice_memory_review`` of the memory take 12 s and ``alice_explain`` 5 s for every key bound to the project, against
-    0.03 s and 0.02 s before the change; the owner was unaffected because the reader returns early for the owner. Both
-    calls now stay under the limit for every key.
+    0.03 s and 0.02 s before the change; the owner was unaffected because the reader returns early for the owner. Two
+    proposals, one with 500 ids in the ref and one with 4,000, are read by two keys: the time of both calls grows about as
+    much as the size for every key.
 
     Mutation: add ``_REFLOW.search(text, 0, start)`` with ``_REFLOW = re.compile(r"memory:$", re.IGNORECASE)`` to the loop of
-    ``_ids_in_text`` (``vnext_source_fence.py``), which rescans the text before each id: both calls take seconds and fail.
+    ``_ids_in_text`` (``vnext_source_fence.py``), which rescans the text before each id: both calls take seconds on the
+    larger ref and fail.
     """
 
     allowed, _unused = _two_sources(vault)
-    huge = ",".join(str(uuid4()) for _ in range(4_000))
-    memory_id = _propose(vault, [allowed, huge], tag="hugeref")
+    small = _propose(vault, [allowed, ",".join(str(uuid4()) for _ in range(_SMALL_REF_IDS))], tag="smallref")
+    large = _propose(vault, [allowed, ",".join(str(uuid4()) for _ in range(_LARGE_REF_IDS))], tag="hugeref")
     for who in ("project", "admin"):
-        started = time.process_time()
-        review = vault.review(who, memory_id)
-        review_seconds = time.process_time() - started
-        started = time.process_time()
-        vault.explain(who, memory_id)
-        explain_seconds = time.process_time() - started
-        assert review["is_error"] is False, who
-        assert review_seconds < _TIME_LIMIT_SECONDS, (who, f"review {review_seconds:.2f} s")
-        assert explain_seconds < _TIME_LIMIT_SECONDS, (who, f"explain {explain_seconds:.2f} s")
+        assert vault.review(who, large)["is_error"] is False, who
+        for call in ("review", "explain"):
+            assert_cost_grows_linearly(
+                lambda: getattr(vault, call)(who, small),
+                lambda: getattr(vault, call)(who, large),
+                size_ratio=_LARGE_REF_IDS // _SMALL_REF_IDS,
+                what=f"{call} by the {who} key of a memory with a ref of {_LARGE_REF_IDS:,} ids",
+            )
 
 
 # -- 5. what a review stores when no quote is sent -------------------------------------------------------------------

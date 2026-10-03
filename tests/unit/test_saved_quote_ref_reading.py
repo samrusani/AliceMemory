@@ -33,6 +33,7 @@ import json
 import random
 import re
 import time
+from collections.abc import Callable
 from uuid import UUID, uuid4
 
 import pytest
@@ -55,10 +56,43 @@ from tests.unit.test_saved_provenance_reader import (
 )
 from tests.unit.test_saved_quote_copies_reader import _QUOTE, _MemoryStore, _row, _two_sources
 
-# A parser that is linear takes a few hundredths of a second on every input below on a slow machine; one that rescans the
-# text before each id takes 12 seconds or more on 8,000 ids. The limit sits between them with a wide margin each way.
-_TIME_LIMIT_SECONDS = 1.5
-_IDS = 8_000
+# The cost of reading is checked by how it grows, not by a number of seconds, because the seconds depend on the machine and
+# on the coverage tracer that CI runs the unit tests under (one run of this file failed there at 1.59 s against a limit of
+# 1.5 s that a laptop meets with a wide margin). The same work is done on an input and on one eight times larger. A reader whose
+# cost is linear takes about eight times as long on the larger input; one that rescans the text before each id takes about
+# sixty-four times as long. The limit is a little over twice the linear ratio, so it sits between them with a margin each way.
+# Both runs are measured in CPU seconds of this process, best of three, so a loaded machine slows both alike.
+_SMALL_IDS = 1_000
+_LARGE_IDS = 8 * _SMALL_IDS
+_GROWTH_FACTOR = 2.25
+_NOISE_FLOOR_SECONDS = 0.02
+_RUNS = 3
+
+
+def _cpu_seconds(run: Callable[[], object]) -> float:
+    started = time.process_time()
+    run()
+    return time.process_time() - started
+
+
+def assert_cost_grows_linearly(
+    run_small: Callable[[], object], run_large: Callable[[], object], *, size_ratio: int, what: str
+) -> None:
+    """``run_large`` does the work of ``run_small`` on an input ``size_ratio`` times larger. Fails when it takes more than
+    ``_GROWTH_FACTOR * size_ratio`` times as long (never less than a noise floor of 0.02 s for the small input). A slow
+    first run of the large input is not repeated: only one that is close to the limit is run again, to rule out noise."""
+
+    small = min(_cpu_seconds(run_small) for _ in range(_RUNS))
+    limit = _GROWTH_FACTOR * size_ratio * max(small, _NOISE_FLOOR_SECONDS)
+    large = _cpu_seconds(run_large)
+    for _ in range(_RUNS - 1):
+        if large < limit or large > 3 * limit:
+            break
+        large = min(large, _cpu_seconds(run_large))
+    assert large < limit, (
+        f"{what}: {large:.2f} s on the larger input, {small:.2f} s on one {size_ratio} times smaller "
+        f"(limit {limit:.2f} s, a linear reader takes about {small * size_ratio:.2f} s)"
+    )
 
 
 def _new_ids(count: int) -> list[str]:
@@ -94,10 +128,11 @@ class _ArchiveStore(_MemoryStore):
 # -- 1. cost ---------------------------------------------------------------------------------------------------------
 
 
-def _cost_cases() -> dict[str, tuple[str, set[str], set[str]]]:
-    """``(ref, named, incidental)``: a ref string several hundred thousand characters long and the ids it must give."""
+def _cost_cases(ids_count: int) -> dict[str, tuple[str, set[str], set[str]]]:
+    """``(ref, named, incidental)``: a ref string with ``ids_count`` ids, or with runs of prefixes and whitespace that scale
+    with it (several hundred thousand characters at 8,000), and the ids it must give."""
 
-    ids = _new_ids(_IDS)
+    ids = _new_ids(ids_count)
     first = ids[0]
     return {
         "ids joined by commas": (",".join(ids), set(ids), set()),
@@ -105,44 +140,48 @@ def _cost_cases() -> dict[str, tuple[str, set[str], set[str]]]:
         "JSON text of ids": (json.dumps({"source_ids": ids}), set(ids), set()),
         "a sentence with a marker before each id": (" ".join("see source: " + i for i in ids), set(), set(ids)),
         "outside URLs": (" ".join("https://host.example/sources/" + i for i in ids), set(), set(ids)),
-        "a run of source: prefixes": ("source:" * 400_000, set(), set()),
-        "a run of source: prefixes and then an id": ("source:" * 300_000 + first, {first}, set()),
-        "a run of whitespace and then an id": (" " * 2_000_000 + first, {first}, set()),
+        "a run of source: prefixes": ("source:" * (50 * ids_count), set(), set()),
+        "a run of source: prefixes and then an id": ("source:" * (37 * ids_count) + first, {first}, set()),
+        "a run of whitespace and then an id": (" " * (250 * ids_count) + first, {first}, set()),
     }
 
 
-@pytest.mark.parametrize("label", list(_cost_cases()))
+_COST_CASES = list(_cost_cases(1))
+
+
+@pytest.mark.parametrize("label", _COST_CASES)
 def test_a_ref_string_is_read_in_time_that_grows_with_its_length(label: str) -> None:
-    """Each shape of a long ref string (8,000 ids, or megabytes of prefixes and whitespace) is read in well under the limit
-    and gives exactly the ids it holds, so a parser that is fast because it stops early fails the second assertion.
+    """Each shape of a long ref string (8,000 ids, or megabytes of prefixes and whitespace) is read in time that grows with
+    its length (the larger input takes no more than about twice as many times as long as it is larger) and gives exactly
+    the ids it holds, so a parser that is fast because it stops early fails the second assertion.
 
     Mutations, each alone, in ``vnext_source_fence.py``: add ``_REFLOW.search(text, 0, start)`` with
     ``_REFLOW = re.compile(r"memory:$", re.IGNORECASE)`` to the loop of ``_ids_in_text``, which rescans the text before
-    each id as the shipped reader did (every shape with thousands of ids fails on time: 12 s and more); restore the
+    each id as the shipped reader did (every shape with thousands of ids fails on growth); restore the
     ``while candidate[:7].lower() == "source:": candidate = candidate[7:].strip()`` loop of the previous ``_whole_id`` in
-    place of the prefix regex (the two runs of ``source:`` fail on time).
+    place of the prefix regex (the two runs of prefixes fail on growth).
     """
 
-    ref, named, incidental = _cost_cases()[label]
-    started = time.process_time()
-    cited = cited_source_ids(ref)
-    took = time.process_time() - started
+    ref, _named, _incidental = _cost_cases(_SMALL_IDS)[label]
+    large_ref, named, incidental = _cost_cases(_LARGE_IDS)[label]
+    cited = cited_source_ids(large_ref)
     assert (set(cited.named), set(cited.incidental)) == (named, incidental)
-    assert took < _TIME_LIMIT_SECONDS, f"{label}: {took:.2f} s for {len(ref):,} characters"
+    assert_cost_grows_linearly(
+        lambda: cited_source_ids(ref),
+        lambda: cited_source_ids(large_ref),
+        size_ratio=_LARGE_IDS // _SMALL_IDS,
+        what=f"{label} ({len(large_ref):,} characters)",
+    )
 
 
-def test_the_reader_and_the_audit_read_a_memory_whose_ref_is_huge_in_time_that_grows_with_its_size() -> None:
-    """The end to end of the first case. A memory (the proposal door stores whatever ``source_refs`` it is sent) holds a
-    ref of 8,000 ids in its metadata, in ``agentic_memory``, in ``value`` and in a revision, and the audit that
-    ``alice_explain`` judges holds it in its events as well. The reader (memory, revision and links) and the audit scan
-    together stay under the limit, the entry that names the refused ids is dropped, and the readable source stays.
-
-    Mutation: the first mutation of the test above (rescan from offset 0 for each id).
-    """
+def _huge_ref_memory(ids_count: int) -> tuple[Callable[[], object], int]:
+    """A memory (the proposal door stores whatever ``source_refs`` it is sent) whose metadata, ``agentic_memory``, ``value``,
+    a revision and an audit event all hold a ref of ``ids_count`` ids, as a function that reads all of it once with a fresh
+    reader, and the number of ids the audit must name."""
 
     store = _MemoryStore()
     readable = store.add_source()
-    huge = ",".join(_new_ids(_IDS))
+    huge = ",".join(_new_ids(ids_count))
     memory_id = str(uuid4())
     row = _row(memory_id, refs=[readable, huge])
     store.memories[memory_id] = row
@@ -153,18 +192,40 @@ def test_the_reader_and_the_audit_read_a_memory_whose_ref_is_huge_in_time_that_g
         "revisions": [revision],
         "events": [{"payload_json": {"source_refs": [readable, huge], "changes": {"source_refs": [huge]}}}],
     }
-    reader = _reader(store)
-    started = time.process_time()
-    shown = reader.memory(row)
-    shown_revision = reader.revision(revision)
-    shown_links = reader.links(memory_id)
-    cited = cited_source_ids_in_memory_audit(audit)
-    took = time.process_time() - started
-    assert took < _TIME_LIMIT_SECONDS, f"{took:.2f} s"
+    results: dict[str, object] = {}
+
+    def read() -> None:
+        reader = _reader(store)
+        results["memory"] = reader.memory(row)
+        results["revision"] = reader.revision(revision)
+        results["links"] = reader.links(memory_id)
+        results["cited"] = cited_source_ids_in_memory_audit(audit)
+        results["readable"] = readable
+
+    read()
+    shown = results["memory"]
     assert shown["metadata_json"]["agentic_memory"]["source_refs"] == [readable]  # type: ignore[index]
-    assert shown_revision["metadata_json"]["source_refs"] == [readable]  # type: ignore[index]
-    assert [link["quote"] for link in shown_links] == [None]
-    assert len(cited.named) == _IDS + 1
+    assert results["revision"]["metadata_json"]["source_refs"] == [readable]  # type: ignore[index]
+    assert [link["quote"] for link in results["links"]] == [None]  # type: ignore[union-attr]
+    return read, len(results["cited"].named)  # type: ignore[attr-defined]
+
+
+def test_the_reader_and_the_audit_read_a_memory_whose_ref_is_huge_in_time_that_grows_with_its_size() -> None:
+    """The end to end of the first case. A memory (the proposal door stores whatever ``source_refs`` it is sent) holds a
+    ref of thousands of ids in its metadata, in ``agentic_memory``, in ``value`` and in a revision, and the audit that
+    ``alice_explain`` judges holds it in its events as well. The reader (memory, revision and links) and the audit scan
+    together grow linearly with the size of the ref, the entry that names the refused ids is dropped, and the readable
+    source stays.
+
+    Mutation: the first mutation of the test above (rescan from offset 0 for each id).
+    """
+
+    read_small, small_named = _huge_ref_memory(_SMALL_IDS)
+    read_large, large_named = _huge_ref_memory(_LARGE_IDS)
+    assert (small_named, large_named) == (_SMALL_IDS + 1, _LARGE_IDS + 1)
+    assert_cost_grows_linearly(
+        read_small, read_large, size_ratio=_LARGE_IDS // _SMALL_IDS, what="the reader and the audit on a huge ref"
+    )
 
 
 # -- 2. which ids a string names -------------------------------------------------------------------------------------
