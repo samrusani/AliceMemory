@@ -9,6 +9,8 @@ from alicebot_api.vnext_agent_control import (
     AgentIdentity,
     AgentPolicyBlockedError,
     PolicyDecision,
+    evaluate_agent_policy,
+    resource_project_scope,
 )
 from alicebot_api.vnext_embeddings import DeferredMemoryEmbedding
 from alicebot_api.vnext_memory_commit import (
@@ -438,11 +440,22 @@ def redact_memory_flow(
     )
     exact_bundle_check = getattr(store, "memory_redaction_bundle_is_exact", None)
     exact_replay = bool(exact_replay and callable(exact_bundle_check) and exact_bundle_check(memory_id, artifact_ids))
-    if not exact_replay:
-        # An exact replay keeps strict no-write idempotence for authenticated
-        # agents: the ordinary policy adapter upserts the identity and appends a
-        # policy event. The replay was authorized above without writing, so it
-        # creates no durable rows.
+    if exact_replay:
+        # Preserve strict no-write idempotence for authenticated agents: the
+        # ordinary policy adapter upserts the identity and appends a policy
+        # event.  A replay still evaluates the same authorization, but does not
+        # create new durable rows.
+        decision = evaluate_agent_policy(
+            identity=identity,
+            action="memory.redact",
+            domains=(str(memory.get("domain") or "unknown"),),
+            sensitivity_allowed=(str(memory.get("sensitivity") or "unknown"),),
+            project_scope=resource_project_scope(memory),
+            require_explicit_project_scope=True,
+        )
+        if decision.decision == "blocked":
+            raise AgentPolicyBlockedError(decision)
+    else:
         memory_service.authorize_memory_action(
             identity=identity,
             action="memory.redact",
