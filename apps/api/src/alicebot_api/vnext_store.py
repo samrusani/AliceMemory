@@ -1135,16 +1135,20 @@ class PostgresVNextStore:
             (source_id,),
         )
 
-    def get_sources_by_ids(self, source_ids: Sequence[str]) -> list[VNextRow]:
+    def get_sources_by_ids(self, source_ids: Sequence[str], *, include_deleted: bool = False) -> list[VNextRow]:
+        """The sources at ``source_ids``. A soft-deleted row is returned only with ``include_deleted``, which a reader
+        that must tell a deleted source from one that never existed passes (the open-loop id filter)."""
+
         ids = list(dict.fromkeys(str(source_id) for source_id in source_ids if source_id))
         if not ids:
             return []
+        deleted_clause = "" if include_deleted else "AND deleted_at IS NULL"
         return self._fetch_all(
             f"""
                 SELECT {SOURCE_COLUMNS}
                 FROM sources
-                WHERE deleted_at IS NULL
-                  AND id = ANY(%s::uuid[])
+                WHERE id = ANY(%s::uuid[])
+                  {deleted_clause}
                 """,
             (ids,),
         )
