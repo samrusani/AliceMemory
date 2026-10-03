@@ -13,6 +13,7 @@ from .shared import (
     _vnext_sensitivity_allowed,
     _vnext_store_context,
 )
+from alicebot_api.vnext_source_fence import SourceReadFence as _SourceReadFence
 
 
 def _run_context_pack(ctx: CLIContext, args: argparse.Namespace) -> str:
@@ -39,7 +40,8 @@ def _run_context_pack(ctx: CLIContext, args: argparse.Namespace) -> str:
                 max_items=args.max_items,
                 max_tokens=args.max_tokens,
                 **tuning_kwargs,  # type: ignore[arg-type]
-            )
+            ),
+            source_fence=_SourceReadFence.unfenced()
         )
     return _json_dumps(payload)
 

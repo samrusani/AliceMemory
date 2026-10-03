@@ -45,6 +45,7 @@ from alicebot_api.vnext_scheduler import SchedulerRunRequest, VNextSchedulerServ
 from scale import corpus
 from scale.backends import BENCH_USER_ID, BackendSession
 from scale.vectors import DeterministicEmbeddingProvider
+from alicebot_api.vnext_source_fence import SourceReadFence
 
 SEED_COMMIT_EVERY = 1000
 
@@ -342,7 +343,7 @@ def run_operations(
             include_sources=True,
             actor_type="system",
         )
-        last_pack = retrieval.compile_context_pack(request)
+        last_pack = retrieval.compile_context_pack(request, source_fence=SourceReadFence.unfenced())
 
     recall = _measure(
         "recall_context_pack", run_recall,
@@ -352,7 +353,8 @@ def run_operations(
     )
     # Stage status snapshot from a known entity-resolving query.
     entity_pack = retrieval.compile_context_pack(
-        VNextRetrievalRequest(query=corpus.RECALL_QUERIES[2], max_items=8, include_sources=True, actor_type="system")
+        VNextRetrievalRequest(query=corpus.RECALL_QUERIES[2], max_items=8, include_sources=True, actor_type="system"),
+        source_fence=SourceReadFence.unfenced()
     )
     entity_trace = entity_pack.get("trace") if isinstance(entity_pack.get("trace"), dict) else {}
     stages = entity_trace.get("stages") if isinstance(entity_trace.get("stages"), dict) else {}

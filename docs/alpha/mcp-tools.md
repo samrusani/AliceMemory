@@ -808,13 +808,63 @@ deleted row is withheld from them too. A loop that an automation made over a
 global source shows no `source_id` to a key bound to a project. In v0.20.0 every
 one of these returned the ids as stored to any key that could read the loop.
 
-Two limits. The test is the writer's own read fence, not the fence of whoever
-reads later: a source an `admin_agent` key could cite (a confidential source of
-its own project) stays citable, and the keys of that project with a lower
-ceiling then see its id in the context pack's `supporting_evidence` and in
-`alice_memory_review` by id, and `alice_explain` of that memory fails for them.
-They are shown no text of the source. An open loop is not on that list (see the
-paragraph above). And a memory saved before the fix keeps the link it has.
+Two limits. The test at write time is the writer's own read fence, not the
+fence of whoever reads later: a source an `admin_agent` key could cite (a
+confidential source of its own project) stays citable, and `alice_explain` of
+that memory then fails for the keys of that project with a lower ceiling. They
+are shown no text of the source. The context pack and `alice_memory_review` by
+id ask the reader's own fence again (see [Saved quotes](#saved-quotes)), and so
+do the readers of an open loop (see the paragraph above). And a memory or open
+loop saved before the fix keeps the link or id it holds in storage, which those
+readers withhold from a caller who may not read it.
+
+### Saved quotes
+
+Unreleased (on main, not in v0.20.0): a link from a memory to a source keeps the
+quote it was made with, and the memory keeps copies of that quote in its
+metadata (`metadata_json.provenance` from an edit-and-approve review,
+`replacement_provenance` from a supersede review, and
+`agentic_memory.conversation_excerpt` from the commit route). The source can be
+reclassified after that (its sensitivity raised, its domain changed, its project
+moved) or archived, so a reader asks the same test as above again, with the
+source as it is when the call is made and the caller's own permission. The
+readers are `alice_memory_review` by id, the context pack (`supporting_evidence`
+and, over HTTP and in the legacy tool, the metadata of the full memory rows) and
+the memory row that `alice_memory_manage` (`expire`, `unexpire`, `undo`,
+`forget`), `alice_memory_correct`, `alice_memory_commit` and the HTTP routes of
+the same verbs hand back. A link whose source is missing, archived or outside
+the caller's fence is left out whole, as a link that was never stored would be,
+and so is a link that names no source. When a memory has such a link, or its own
+copies name such a source, the three copies of the quote are removed from the
+row and the entries of its `source_refs` lists that name the source (in the
+metadata, in `agentic_memory` and in `value`, and in the `previous_value` and
+`new_value` of a revision) are dropped, so the id of the source goes with its
+quote. The memory is still returned, with its text. A memory with no link at all
+(a commit held for review or waiting for its author's confirmation, then
+approved or confirmed, stores none) is judged by the source ids its own copies
+name, in the context pack as well, and `alice_explain` refuses a key that may
+not read a source the memory row, its revisions or its event payloads name, as it
+does for a linked one. When a link is left out, another link of the same memory
+whose quote says the same text (ignoring the whitespace between words) is shown
+without its quote, because the commit route saves one excerpt as the quote of
+every link it makes. A link whose quote says something else keeps it. A source
+with no project (a source the owner captured has none) is outside the fence of
+every key bound to a project, the admin key included, so review by id returns
+none of the link, the quote or the id of a memory that cites it to those keys, as
+`alice_explain` already did; a key bound to no project keeps them. A caller that
+may read every cited source gets the stored row. The owner, a call with no agent
+key, is shown what was stored. In v0.20.0 every key below the new label, and for
+an archived source every key, kept receiving the quote, and `alice_explain` of a
+memory with no link returned it. The pack's `sources` section and `alice_recall`
+are a different reader, the source's own excerpt, held to the domains of a key
+that names none (see [Domains a profile may read](#domains-a-profile-may-read)).
+Not covered: a memory that `alice_capture` derived from a source holds that text
+as its own; the operator routes `GET /v0/vnext/memories/{id}/audit`,
+`GET /v0/vnext/memories/recent-commits` and `GET /v0/vnext/sources/{id}`, which
+only the owner and a `trusted_local_agent` or `admin_agent` key bound to no
+project reach, return what was stored; and on an install with no agent keys, a
+call that declares a restricted profile is held to it by `alice_memory_review` by
+id but not by `alice_explain`.
 
 ## Domains a profile may read
 

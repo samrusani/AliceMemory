@@ -1454,9 +1454,9 @@ def test_every_eval_retrieval_request_carries_the_fixed_reference_time(
     seen: list[VNextRetrievalRequest] = []
     original = VNextRetrievalService.compile_context_pack
 
-    def spy(self: VNextRetrievalService, request: VNextRetrievalRequest) -> dict[str, object]:
+    def spy(self: VNextRetrievalService, request: VNextRetrievalRequest, **kwargs: object) -> dict[str, object]:
         seen.append(request)
-        return original(self, request)
+        return original(self, request, **kwargs)  # type: ignore[arg-type]
 
     monkeypatch.setattr(VNextRetrievalService, "compile_context_pack", spy)
 

@@ -119,6 +119,7 @@ from alicebot_api.vnext_ranking import (
 )
 from alicebot_api.vnext_recall_visibility import MEMORY_SEARCHABLE_STATUSES
 from alicebot_api.vnext_repositories import JsonObject
+from alicebot_api.vnext_source_fence import SavedProvenanceReader, SourceReadFence
 from alicebot_api.vnext_store import fts_fallback_tokens
 from alicebot_api.vnext_temporal_query import (
     TemporalAnchor,
@@ -3872,7 +3873,16 @@ class VNextRetrievalService:
         )
         return excerpts, stage_record
 
-    def compile_context_pack(self, request: VNextRetrievalRequest) -> JsonObject:
+    def compile_context_pack(self, request: VNextRetrievalRequest, *, source_fence: SourceReadFence) -> JsonObject:
+        """Compile one context pack for a caller.
+
+        ``source_fence`` is the caller's read fence over sources, and it has no default. A pack carries the quotes its
+        memories saved from their sources (``supporting_evidence``, and the metadata of each memory row), and a source
+        can be reclassified or archived after the memory cited it, so the quote of a source the caller may not read
+        now is withheld however the pack's own scope was set. The owner passes ``SourceReadFence.unfenced()``, written
+        at the call site, and is shown what was stored.
+        """
+        saved_provenance = SavedProvenanceReader(self.store, fence=source_fence)
         if isinstance(request.max_items, bool) or not isinstance(request.max_items, int):
             raise VNextRetrievalValidationError("max_items must be an integer")
         if request.max_items < 1 or request.max_items > MAX_CONTEXT_PACK_ITEMS:
@@ -4422,6 +4432,14 @@ class VNextRetrievalService:
             person_linked_memory_ids=person_linked_memory_ids,
         )
         ranked_memories = [_compact_item(candidate.item) for candidate in memory_candidates if candidate.selected]
+        # The rows the pack hands back keep the quotes their memories saved (``metadata_json.provenance`` and the other
+        # copies). Those are held to the caller's read fence here, first, while each row still names the sources it
+        # cited: the scope pass below removes source refs from the rows of a scoped pack (those of a source the key
+        # may read too), and a memory with no provenance link keeps its sources only in those refs, so a row judged
+        # after it would show the reader nothing to refuse and keep its quote. The budget prices the rows afterwards,
+        # so a withheld quote is not counted in the size of the pack, and a pack for the owner or an authorized caller
+        # is byte for byte what it was.
+        ranked_memories = cast(list[JsonObject], saved_provenance.memories(ranked_memories))
         superseded_pointer_withheld_ids = self._sanitize_memory_scope_pointers(
             ranked_memories,
             scope=scope,
@@ -4496,7 +4514,9 @@ class VNextRetrievalService:
                     evidence_base = selected_memories if memories_packed else ordered_memories
                     supporting_evidence = [
                         evidence
-                        for evidence in self._supporting_evidence(evidence_base, scope=scope)
+                        for evidence in self._supporting_evidence(
+                            evidence_base, scope=scope, saved_provenance=saved_provenance
+                        )
                         if budget.admit(evidence, section=section)
                     ]
                 elif section == SECTION_CONTRADICTING_EVIDENCE:
@@ -5254,12 +5274,17 @@ class VNextRetrievalService:
         memories: list[JsonObject],
         *,
         scope: _ResolvedRetrievalScope,
+        saved_provenance: SavedProvenanceReader,
     ) -> list[JsonObject]:
         evidence: list[JsonObject] = []
         memory_ids = [str(memory.get("id")) for memory in memories]
         links_by_target = self._provenance_by_target(
             target_type="memory", target_ids=memory_ids
         )
+        # The caller's read fence on each linked source, asked now and whatever the pack's scope is: a link keeps the
+        # quote it was made with, and the source can have been reclassified or archived since. A link whose source is
+        # missing, archived or outside the fence is left out whole, as a link that was never stored would be.
+        saved_provenance.judge_links(link for links in links_by_target.values() for link in links)
         sources_by_id = (
             self._sources_by_ids(
                 [
@@ -5274,7 +5299,10 @@ class VNextRetrievalService:
         )
         for memory in memories:
             memory_id = str(memory.get("id"))
-            for link in links_by_target.get(memory_id, []):
+            for stored_link in links_by_target.get(memory_id, []):
+                link = saved_provenance.shown_link(stored_link)
+                if link is None:
+                    continue
                 if scope.active:
                     source_id = str(link.get("source_id") or "")
                     source = sources_by_id.get(source_id)

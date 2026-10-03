@@ -288,7 +288,10 @@ def create_vnext_context_pack(
                     policy_decision=decision.to_record(),
                     trace_id=request.trace_id or decision.trace_id,
                     run_id=identity.agent_run_id if identity is not None else None,
-                )
+                ),
+                # The caller's read fence over sources, so the full rows of this pack and its supporting evidence
+                # carry no quote of a source this caller may not read now.
+                source_fence=SourceReadFence.for_identity(identity),
             )
             # The pack's open loops are whole rows. The loop is the caller's to read, the source and memory it points
             # at are checked against the caller's own read fence.

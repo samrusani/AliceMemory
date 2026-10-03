@@ -57,6 +57,7 @@ from alicebot_api.vnext_retrieval import (
     VNextRetrievalRequest,
     VNextRetrievalService,
 )
+from alicebot_api.vnext_source_fence import SourceReadFence
 
 
 # The frozen prompt, pinned as a LITERAL so any drift in the module
@@ -610,7 +611,7 @@ def test_unconfigured_service_takes_byte_identical_rerank_free_path(monkeypatch)
         monkeypatch.setattr(vnext_retrieval_module, "uuid4", lambda: UUID(int=next(counter)))
         service = VNextRetrievalService(_store())
         assert service.reranker_provider is None
-        return service.compile_context_pack(_REQUEST)
+        return service.compile_context_pack(_REQUEST, source_fence=SourceReadFence.unfenced())
 
     dormant_pack = compile_pack()
     monkeypatch.setattr(
@@ -629,8 +630,8 @@ def test_unconfigured_service_takes_byte_identical_rerank_free_path(monkeypatch)
 
 def test_configured_reranker_reorders_pack_and_discloses_stage() -> None:
     provider = ReversingRerankProvider()
-    dormant_pack = VNextRetrievalService(_store()).compile_context_pack(_REQUEST)
-    pack = VNextRetrievalService(_store(), reranker_provider=provider).compile_context_pack(_REQUEST)
+    dormant_pack = VNextRetrievalService(_store()).compile_context_pack(_REQUEST, source_fence=SourceReadFence.unfenced())
+    pack = VNextRetrievalService(_store(), reranker_provider=provider).compile_context_pack(_REQUEST, source_fence=SourceReadFence.unfenced())
 
     # One listwise call per fused pool (memories, sources).
     assert provider.calls == 2
@@ -664,8 +665,8 @@ def test_configured_reranker_reorders_pack_and_discloses_stage() -> None:
 
 def test_reranker_failure_fails_open_to_fused_order() -> None:
     provider = FailingRerankProvider()
-    dormant_pack = VNextRetrievalService(_store()).compile_context_pack(_REQUEST)
-    pack = VNextRetrievalService(_store(), reranker_provider=provider).compile_context_pack(_REQUEST)
+    dormant_pack = VNextRetrievalService(_store()).compile_context_pack(_REQUEST, source_fence=SourceReadFence.unfenced())
+    pack = VNextRetrievalService(_store(), reranker_provider=provider).compile_context_pack(_REQUEST, source_fence=SourceReadFence.unfenced())
 
     assert provider.calls == 2
     assert [memory["id"] for memory in pack["relevant_memories"]] == [
@@ -690,7 +691,8 @@ def test_minimal_depth_skips_reranker_with_honest_status() -> None:
             max_items=2,
             context_depth="minimal",
             trace_id="trace-rr-minimal",
-        )
+        ),
+        source_fence=SourceReadFence.unfenced()
     )
 
     assert provider.calls == 0

@@ -19,6 +19,7 @@ from alicebot_api.vnext_context_tree import (
     VNextContextTreeService,
 )
 from alicebot_api.vnext_repositories import JsonObject as VNextJsonObject
+from alicebot_api.vnext_source_fence import SourceReadFence
 from alicebot_api.vnext_retrieval import (
     MAX_CONTEXT_PACK_ITEMS,
     MAX_CONTEXT_PACK_TOKENS,
@@ -412,7 +413,8 @@ def _vnext_context_pack_payload(context: MCPRuntimeContext, arguments: Mapping[s
                     trace_id=_parse_optional_text(arguments, "trace_id") or decision.trace_id,
                     run_id=identity.agent_run_id if identity is not None else None,
                     **request_kwargs,
-                )
+                ),
+                source_fence=SourceReadFence.for_identity(identity),
             )
             _stamp_pack_writers(store, payload)
     if blocked_decision is not None:

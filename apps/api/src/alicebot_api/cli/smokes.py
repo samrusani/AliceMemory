@@ -61,6 +61,7 @@ from .shared import (
     _scheduler_service,
     _vnext_store_context,
 )
+from alicebot_api.vnext_source_fence import SourceReadFence as _SourceReadFence
 
 
 def _run_vnext_smoke_agentic_scheduler(ctx: CLIContext, _args: argparse.Namespace) -> str:
@@ -649,7 +650,8 @@ def _run_vnext_smoke_capture_to_brief(ctx: CLIContext, _args: argparse.Namespace
         )
         source_id = capture.source_ids[0] if capture.source_ids else None
         pack = _retrieval_service(store).compile_context_pack(
-            VNextRetrievalRequest(query=smoke_id, domains=("project",), sensitivity_allowed=("private", "unknown"))
+            VNextRetrievalRequest(query=smoke_id, domains=("project",), sensitivity_allowed=("private", "unknown")),
+            source_fence=_SourceReadFence.unfenced()
         )
         artifact = VNextBrainService(store).generate_daily_brief(
             BrainArtifactRequest(
@@ -865,7 +867,8 @@ def _run_vnext_smoke_operator_console(ctx: CLIContext, _args: argparse.Namespace
             )
         )
         pack = _retrieval_service(store).compile_context_pack(
-            VNextRetrievalRequest(query=smoke_id, domains=("project",), sensitivity_allowed=("private", "unknown"))
+            VNextRetrievalRequest(query=smoke_id, domains=("project",), sensitivity_allowed=("private", "unknown")),
+            source_fence=_SourceReadFence.unfenced()
         )
         health = connector_service.connector_health_all()
         doctor = VNextDoctorService(store, secret_provider=secrets).run(fix_safe=True, ci=True)
@@ -970,7 +973,8 @@ def _run_vnext_smoke_agent_integration_pack(ctx: CLIContext, _args: argparse.Nam
                 projects=identity.project_scope,
                 sensitivity_allowed=context_decision.effective_sensitivity_allowed,
                 max_items=8,
-            )
+            ),
+            source_fence=_SourceReadFence.unfenced()
         )
         append_event(
             store,
@@ -1320,7 +1324,8 @@ def _run_vnext_smoke_agentic_memory_commit(ctx: CLIContext, _args: argparse.Name
                 domains=("professional",),
                 sensitivity_allowed=("public", "internal", "private", "unknown"),
                 max_items=8,
-            )
+            ),
+            source_fence=_SourceReadFence.unfenced()
         )
         gates["committed_memory_enters_context"] = any(
             str(memory.get("id")) == committed_memory_id
@@ -1466,7 +1471,8 @@ def _run_vnext_smoke_agentic_memory_commit(ctx: CLIContext, _args: argparse.Name
                 domains=("professional",),
                 sensitivity_allowed=("public", "internal", "private", "unknown"),
                 max_items=8,
-            )
+            ),
+            source_fence=_SourceReadFence.unfenced()
         )
         gates["undone_memory_leaves_context"] = all(
             str(memory.get("id")) != committed_memory_id

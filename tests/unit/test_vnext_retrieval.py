@@ -53,6 +53,7 @@ from alicebot_api.vnext_retrieval import (
     query_terms,
     reciprocal_rank_fusion,
 )
+from alicebot_api.vnext_source_fence import SourceReadFence
 
 
 _UNSET = object()
@@ -459,7 +460,8 @@ def test_inferred_domains_are_disclosed_but_never_used_as_hard_filters() -> None
     )
 
     pack = VNextRetrievalService(store).compile_context_pack(
-        VNextRetrievalRequest(query="What did legal approve for data processing?")
+        VNextRetrievalRequest(query="What did legal approve for data processing?"),
+        source_fence=SourceReadFence.unfenced()
     )
 
     assert pack["query_interpretation"]["domains"] == []
@@ -549,7 +551,8 @@ def test_context_pack_includes_memories_sources_open_loops_provenance_and_trace(
     )
 
     pack = VNextRetrievalService(store).compile_context_pack(
-        VNextRetrievalRequest(query="Alice provenance retrieval", domains=("project",), max_items=4)
+        VNextRetrievalRequest(query="Alice provenance retrieval", domains=("project",), max_items=4),
+        source_fence=SourceReadFence.unfenced()
     )
 
     assert pack["query_interpretation"]["query_type"] == "strategic_synthesis"
@@ -614,7 +617,8 @@ def test_context_pack_fuses_vector_results_with_rrf_when_provider_is_configured(
     provider = StubEmbeddingProvider()
 
     pack = VNextRetrievalService(store, embedding_provider=provider).compile_context_pack(
-        VNextRetrievalRequest(query="Alice retrieval ranking", domains=("project",), max_items=4)
+        VNextRetrievalRequest(query="Alice retrieval ranking", domains=("project",), max_items=4),
+        source_fence=SourceReadFence.unfenced()
     )
 
     assert provider.embedded_texts == ["Alice retrieval ranking"]
@@ -635,7 +639,8 @@ def test_context_pack_degrades_to_fts_when_query_embedding_fails() -> None:
     )
 
     pack = VNextRetrievalService(store, embedding_provider=StubEmbeddingProvider(fail=True)).compile_context_pack(
-        VNextRetrievalRequest(query="Alice retrieval fallback", domains=("project",))
+        VNextRetrievalRequest(query="Alice retrieval fallback", domains=("project",)),
+        source_fence=SourceReadFence.unfenced()
     )
 
     assert [memory["id"] for memory in pack["relevant_memories"]] == ["memory-1"]
@@ -669,7 +674,8 @@ def test_context_pack_filters_sensitive_memories_and_records_trace_exclusion() -
             query="Alice retrieval",
             domains=("project",),
             sensitivity_allowed=("public",),
-        )
+        ),
+        source_fence=SourceReadFence.unfenced()
     )
 
     assert [memory["id"] for memory in pack["relevant_memories"]] == ["memory-public"]
@@ -699,7 +705,7 @@ def test_unscoped_query_does_not_filter_to_unknown_domain() -> None:
         ],
     )
 
-    pack = VNextRetrievalService(store).compile_context_pack(VNextRetrievalRequest(query="coffee preference"))
+    pack = VNextRetrievalService(store).compile_context_pack(VNextRetrievalRequest(query="coffee preference"), source_fence=SourceReadFence.unfenced())
 
     assert pack["query_interpretation"]["domains"] == []
     assert store.memory_search_domains is None
@@ -722,7 +728,8 @@ def test_grounding_runtime_failure_does_not_abort_context_pack_but_baseexception
         lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("probe failed")),
     )
     pack = VNextRetrievalService(store).compile_context_pack(
-        VNextRetrievalRequest(query="Did Marcus Chen approve the launch?")
+        VNextRetrievalRequest(query="Did Marcus Chen approve the launch?"),
+        source_fence=SourceReadFence.unfenced()
     )
     assert [row["id"] for row in pack["relevant_memories"]] == ["memory-1"]
     assert "grounding" not in pack
@@ -737,7 +744,8 @@ def test_grounding_runtime_failure_does_not_abort_context_pack_but_baseexception
     )
     with pytest.raises(ProbeCancelled, match="cancelled"):
         VNextRetrievalService(store).compile_context_pack(
-            VNextRetrievalRequest(query="Did Marcus Chen approve the launch?")
+            VNextRetrievalRequest(query="Did Marcus Chen approve the launch?"),
+            source_fence=SourceReadFence.unfenced()
         )
 
 
@@ -756,7 +764,7 @@ def test_context_pack_records_missing_information_when_no_candidates_match() -> 
         sources=[],
     )
 
-    pack = VNextRetrievalService(store).compile_context_pack(VNextRetrievalRequest(query="Alice provenance"))
+    pack = VNextRetrievalService(store).compile_context_pack(VNextRetrievalRequest(query="Alice provenance"), source_fence=SourceReadFence.unfenced())
 
     assert pack["relevant_memories"] == []
     assert {"kind": "memory", "reason": "No matching memory was selected."} in pack["missing_information"]
@@ -780,7 +788,8 @@ def test_context_pack_enforces_max_tokens_with_greedy_packing_and_traces_drops()
         for row in memories[:2]
     )
     pack = service.compile_context_pack(
-        VNextRetrievalRequest(query="Alice retrieval budget", max_items=8, max_tokens=first_two_cost)
+        VNextRetrievalRequest(query="Alice retrieval budget", max_items=8, max_tokens=first_two_cost),
+        source_fence=SourceReadFence.unfenced()
     )
 
     assert [memory["id"] for memory in pack["relevant_memories"]] == ["memory-1", "memory-2"]
@@ -833,7 +842,8 @@ def test_context_pack_budget_packs_sections_in_priority_order() -> None:
     )
 
     pack = VNextRetrievalService(store).compile_context_pack(
-        VNextRetrievalRequest(query="Alice budget priority", max_tokens=memory_cost + loop_cost)
+        VNextRetrievalRequest(query="Alice budget priority", max_tokens=memory_cost + loop_cost),
+        source_fence=SourceReadFence.unfenced()
     )
 
     # Memories pack first, open loops second; the source no longer fits.
@@ -851,7 +861,8 @@ def test_context_pack_rejects_non_positive_max_tokens() -> None:
     store = InMemoryVNextRetrievalStore(memories=[], sources=[])
     with pytest.raises(ValueError, match="max_tokens"):
         VNextRetrievalService(store).compile_context_pack(
-            VNextRetrievalRequest(query="Alice", max_tokens=0)
+            VNextRetrievalRequest(query="Alice", max_tokens=0),
+            source_fence=SourceReadFence.unfenced()
         )
 
 
@@ -872,7 +883,8 @@ def test_context_pack_enforces_authoritative_service_bounds(
 
     with pytest.raises(VNextRetrievalValidationError, match=field_name):
         VNextRetrievalService(store).compile_context_pack(
-            VNextRetrievalRequest(query="Alice", **overrides)  # type: ignore[arg-type]
+            VNextRetrievalRequest(query="Alice", **overrides),
+            source_fence=SourceReadFence.unfenced()  # type: ignore[arg-type]
         )
 
 
@@ -895,7 +907,8 @@ def test_context_pack_counts_recent_changes_inside_the_content_budget() -> None:
         VNextRetrievalRequest(
             query="Alice recent-change budget",
             max_tokens=memory_only_budget,
-        )
+        ),
+        source_fence=SourceReadFence.unfenced()
     )
 
     assert [item["id"] for item in pack["relevant_memories"]] == ["memory-1"]
@@ -928,7 +941,8 @@ def test_context_pack_threads_memory_types_and_projects_to_recall_stages() -> No
             query="Alice filter threading",
             memory_types=("decision",),
             projects=("alicebot",),
-        )
+        ),
+        source_fence=SourceReadFence.unfenced()
     )
 
     assert store.memory_search_kwargs[-1] == {
@@ -955,7 +969,8 @@ def test_context_pack_omits_filter_kwargs_when_unset_for_minimal_stores() -> Non
     store = MinimalStore(memories=[_memory_row("memory-1", "Alice minimal store check.")], sources=[])
 
     pack = VNextRetrievalService(store).compile_context_pack(
-        VNextRetrievalRequest(query="Alice minimal store")
+        VNextRetrievalRequest(query="Alice minimal store"),
+        source_fence=SourceReadFence.unfenced()
     )
 
     assert [memory["id"] for memory in pack["relevant_memories"]] == ["memory-1"]
@@ -998,7 +1013,8 @@ def test_natural_language_question_falls_back_to_or_matching_on_sqlite() -> None
     memory = _commit_announcement_decision(store)
 
     pack = VNextRetrievalService(store).compile_context_pack(
-        VNextRetrievalRequest(query="When does the Alice public announcement go out?")
+        VNextRetrievalRequest(query="When does the Alice public announcement go out?"),
+        source_fence=SourceReadFence.unfenced()
     )
 
     assert [item["id"] for item in pack["relevant_memories"]] == [memory["id"]]
@@ -1013,7 +1029,8 @@ def test_keyword_query_that_and_matches_does_not_use_the_fallback_on_sqlite() ->
     memory = _commit_announcement_decision(store)
 
     pack = VNextRetrievalService(store).compile_context_pack(
-        VNextRetrievalRequest(query="Alice announcement")
+        VNextRetrievalRequest(query="Alice announcement"),
+        source_fence=SourceReadFence.unfenced()
     )
 
     assert [item["id"] for item in pack["relevant_memories"]] == [memory["id"]]
@@ -1049,7 +1066,8 @@ def test_count_candidate_statistic_uses_real_sqlite_fts_mode_and_provenance_dedu
         VNextRetrievalRequest(
             query="How many bike service records are there?",
             domains=("personal",),
-        )
+        ),
+        source_fence=SourceReadFence.unfenced()
     )
 
     assert pack["trace"]["stages"]["fts"] == {
@@ -1085,7 +1103,8 @@ def test_strict_count_candidate_statistic_without_selected_rollup_stays_trace_on
     )
 
     pack = VNextRetrievalService(store).compile_context_pack(
-        VNextRetrievalRequest(query="How many bike service records are there?")
+        VNextRetrievalRequest(query="How many bike service records are there?"),
+        source_fence=SourceReadFence.unfenced()
     )
 
     statistic = pack["trace"]["stages"]["coverage_mode"]["candidate_instance_count"]
@@ -1103,7 +1122,8 @@ def test_single_token_miss_does_not_fire_the_or_fallback() -> None:
     )
 
     pack = VNextRetrievalService(store).compile_context_pack(
-        VNextRetrievalRequest(query="kubernetes")
+        VNextRetrievalRequest(query="kubernetes"),
+        source_fence=SourceReadFence.unfenced()
     )
 
     assert pack["relevant_memories"] == []
@@ -1117,7 +1137,8 @@ def test_multi_token_miss_retries_once_with_match_any_and_reports_fallback_sourc
     )
 
     pack = VNextRetrievalService(store).compile_context_pack(
-        VNextRetrievalRequest(query="kubernetes deployment pipeline")
+        VNextRetrievalRequest(query="kubernetes deployment pipeline"),
+        source_fence=SourceReadFence.unfenced()
     )
 
     assert store.fts_match_any_queries == ["kubernetes deployment pipeline"]
@@ -1148,7 +1169,8 @@ def test_or_fallback_degrades_cleanly_for_stores_without_match_any() -> None:
     store = LegacyStore(memories=[], sources=[])
 
     pack = VNextRetrievalService(store).compile_context_pack(
-        VNextRetrievalRequest(query="kubernetes deployment pipeline")
+        VNextRetrievalRequest(query="kubernetes deployment pipeline"),
+        source_fence=SourceReadFence.unfenced()
     )
 
     assert pack["relevant_memories"] == []
@@ -1208,7 +1230,8 @@ def test_source_stage_fuses_chunk_content_provenance_and_title_recency() -> None
     )
 
     pack = VNextRetrievalService(store).compile_context_pack(
-        VNextRetrievalRequest(query="migration cutover Friday", domains=("project",))
+        VNextRetrievalRequest(query="migration cutover Friday", domains=("project",)),
+        source_fence=SourceReadFence.unfenced()
     )
 
     # RRF: the content hit (chunk_fts rank 1 + title_recency rank 2) beats
@@ -1278,7 +1301,8 @@ def test_chunk_fts_deepens_until_it_finds_distinct_parent_sources() -> None:
     store = ChunkOnlyStore(memories=[], sources=sources, source_chunks=chunks)
 
     pack = VNextRetrievalService(store).compile_context_pack(
-        VNextRetrievalRequest(query="release completeness needle")
+        VNextRetrievalRequest(query="release completeness needle"),
+        source_fence=SourceReadFence.unfenced()
     )
 
     assert [row["id"] for row in pack["sources"]] == ["source-long", "source-other"]
@@ -1327,7 +1351,8 @@ def test_provenance_fusion_pulls_source_with_no_lexical_match() -> None:
     )
 
     pack = VNextRetrievalService(store).compile_context_pack(
-        VNextRetrievalRequest(query="quarterly board deck dark mode", domains=("project",))
+        VNextRetrievalRequest(query="quarterly board deck dark mode", domains=("project",)),
+        source_fence=SourceReadFence.unfenced()
     )
 
     assert [item["id"] for item in pack["sources"]] == ["source-evidence"]
@@ -1424,7 +1449,7 @@ def test_source_chunk_or_fallback_retries_once_and_reports_the_relaxed_pass() ->
     )
 
     query = "when was the budget review moved?"
-    pack = VNextRetrievalService(store).compile_context_pack(VNextRetrievalRequest(query=query))
+    pack = VNextRetrievalService(store).compile_context_pack(VNextRetrievalRequest(query=query), source_fence=SourceReadFence.unfenced())
 
     # Strict pass demands every token ("when" never appears); the one-shot
     # OR retry recovers the source and the trace reports the relaxed pass.
@@ -1457,7 +1482,8 @@ def test_source_stage_degrades_to_title_recency_for_stores_without_chunk_search(
     )
 
     pack = VNextRetrievalService(store).compile_context_pack(
-        VNextRetrievalRequest(query="Alice legacy source", domains=("project",))
+        VNextRetrievalRequest(query="Alice legacy source", domains=("project",)),
+        source_fence=SourceReadFence.unfenced()
     )
 
     # Old behavior preserved: the lexical list alone still populates the
@@ -1501,7 +1527,8 @@ def test_source_chunk_or_fallback_degrades_for_stores_without_match_any() -> Non
     )
 
     pack = VNextRetrievalService(store).compile_context_pack(
-        VNextRetrievalRequest(query="kubernetes deployment pipeline")
+        VNextRetrievalRequest(query="kubernetes deployment pipeline"),
+        source_fence=SourceReadFence.unfenced()
     )
 
     # The TypeError from the retry is swallowed; the strict (empty) chunk
@@ -1559,7 +1586,8 @@ def test_source_content_beats_recency_on_sqlite() -> None:
     assert lexical[-1]["id"] == early["id"]
 
     pack = VNextRetrievalService(store).compile_context_pack(
-        VNextRetrievalRequest(query="golden retriever Biscuit")
+        VNextRetrievalRequest(query="golden retriever Biscuit"),
+        source_fence=SourceReadFence.unfenced()
     )
 
     assert pack["sources"][0]["id"] == early["id"]
@@ -1615,7 +1643,7 @@ def test_source_content_or_fallback_beats_recency_on_sqlite() -> None:
     question = "When does the Alice public announcement go out?"
     assert store.search_source_chunks(query=question) == []
 
-    pack = VNextRetrievalService(store).compile_context_pack(VNextRetrievalRequest(query=question))
+    pack = VNextRetrievalService(store).compile_context_pack(VNextRetrievalRequest(query=question), source_fence=SourceReadFence.unfenced())
 
     assert pack["sources"][0]["id"] == early["id"]
     stage = pack["trace"]["stages"]["sources"]
@@ -1670,7 +1698,8 @@ def test_provenance_fusion_pulls_source_with_no_lexical_match_on_sqlite() -> Non
     )
 
     pack = VNextRetrievalService(store).compile_context_pack(
-        VNextRetrievalRequest(query="quarterly board deck dark mode")
+        VNextRetrievalRequest(query="quarterly board deck dark mode"),
+        source_fence=SourceReadFence.unfenced()
     )
 
     # The winning memory's provenance drags the lexically-invisible
@@ -1705,7 +1734,8 @@ def test_context_pack_filters_memories_by_project_metadata() -> None:
     )
 
     pack = VNextRetrievalService(store).compile_context_pack(
-        VNextRetrievalRequest(query="Alice project scoped", projects=("alicebot",))
+        VNextRetrievalRequest(query="Alice project scoped", projects=("alicebot",)),
+        source_fence=SourceReadFence.unfenced()
     )
 
     assert [memory["id"] for memory in pack["relevant_memories"]] == ["memory-alicebot"]
@@ -1721,13 +1751,16 @@ def test_context_pack_project_scope_uses_overlap_for_multi_project_memories() ->
     store = InMemoryVNextRetrievalStore(memories=[shared], sources=[])
 
     alice = VNextRetrievalService(store).compile_context_pack(
-        VNextRetrievalRequest(query="shared release coordination", projects=("alicebot",))
+        VNextRetrievalRequest(query="shared release coordination", projects=("alicebot",)),
+        source_fence=SourceReadFence.unfenced()
     )
     hermes = VNextRetrievalService(store).compile_context_pack(
-        VNextRetrievalRequest(query="shared release coordination", projects=("hermes",))
+        VNextRetrievalRequest(query="shared release coordination", projects=("hermes",)),
+        source_fence=SourceReadFence.unfenced()
     )
     unrelated = VNextRetrievalService(store).compile_context_pack(
-        VNextRetrievalRequest(query="shared release coordination", projects=("other",))
+        VNextRetrievalRequest(query="shared release coordination", projects=("other",)),
+        source_fence=SourceReadFence.unfenced()
     )
 
     assert [row["id"] for row in alice["relevant_memories"]] == ["memory-shared"]
@@ -1757,7 +1790,8 @@ def test_context_pack_does_not_widen_explicit_empty_memory_scope() -> None:
     )
 
     pack = VNextRetrievalService(store).compile_context_pack(
-        VNextRetrievalRequest(query="release coordination project", projects=("alicebot",))
+        VNextRetrievalRequest(query="release coordination project", projects=("alicebot",)),
+        source_fence=SourceReadFence.unfenced()
     )
 
     assert [row["id"] for row in pack["relevant_memories"]] == ["memory-alicebot"]
@@ -1811,10 +1845,12 @@ def test_source_post_admission_uses_complete_persisted_envelope_scope() -> None:
     )
 
     stale_pack = VNextRetrievalService(store).compile_context_pack(
-        VNextRetrievalRequest(query=marker, projects=(stale_project,))
+        VNextRetrievalRequest(query=marker, projects=(stale_project,)),
+        source_fence=SourceReadFence.unfenced()
     )
     real_pack = VNextRetrievalService(store).compile_context_pack(
-        VNextRetrievalRequest(query=marker, projects=(real_project,))
+        VNextRetrievalRequest(query=marker, projects=(real_project,)),
+        source_fence=SourceReadFence.unfenced()
     )
 
     assert stale_pack["sources"] == []
@@ -1897,7 +1933,8 @@ def test_scoped_pack_rejects_cross_project_source_metadata_and_derivations(monke
             query="release fundraiser",
             projects=("alicebot",),
             reference_time=datetime(2025, 3, 1, tzinfo=UTC),
-        )
+        ),
+        source_fence=SourceReadFence.unfenced()
     )
 
     assert source_resolver_results == [None]
@@ -1983,7 +2020,8 @@ def test_context_pack_applies_project_scope_to_every_emitted_content_section() -
         VNextRetrievalRequest(
             query="release readiness scoped",
             projects=("alicebot",),
-        )
+        ),
+        source_fence=SourceReadFence.unfenced()
     )
 
     assert [row["id"] for row in pack["relevant_memories"]] == ["memory-alicebot"]
@@ -2043,7 +2081,8 @@ def test_context_pack_applies_people_scope_to_memories_sources_and_loops() -> No
     )
 
     pack = VNextRetrievalService(store).compile_context_pack(
-        VNextRetrievalRequest(query="quarterly planning", people=("Sam",))
+        VNextRetrievalRequest(query="quarterly planning", people=("Sam",)),
+        source_fence=SourceReadFence.unfenced()
     )
 
     assert [row["id"] for row in pack["relevant_memories"]] == ["memory-sam"]
@@ -2076,7 +2115,8 @@ def test_people_scope_surfaces_valid_row_ranked_behind_a_full_decoy_window() -> 
     store = InMemoryVNextRetrievalStore(memories=[*decoys, valid_row], sources=[])
 
     pack = VNextRetrievalService(store).compile_context_pack(
-        VNextRetrievalRequest(query="quarterly planning", people=("Sam",), max_items=8)
+        VNextRetrievalRequest(query="quarterly planning", people=("Sam",), max_items=8),
+        source_fence=SourceReadFence.unfenced()
     )
 
     assert [row["id"] for row in pack["relevant_memories"]] == ["memory-sam"]
@@ -2107,7 +2147,8 @@ def test_time_window_surfaces_valid_row_ranked_behind_a_full_decoy_window() -> N
             time_window="7d",
             reference_time=reference_time,
             max_items=8,
-        )
+        ),
+        source_fence=SourceReadFence.unfenced()
     )
 
     assert [row["id"] for row in pack["relevant_memories"]] == ["memory-new"]
@@ -2134,7 +2175,8 @@ def test_people_scope_surfaces_valid_row_beyond_the_overfetch_cap() -> None:
     store = InMemoryVNextRetrievalStore(memories=[*decoys, valid_row], sources=[])
 
     pack = VNextRetrievalService(store).compile_context_pack(
-        VNextRetrievalRequest(query="quarterly planning", people=("Sam",), max_items=8)
+        VNextRetrievalRequest(query="quarterly planning", people=("Sam",), max_items=8),
+        source_fence=SourceReadFence.unfenced()
     )
 
     assert [row["id"] for row in pack["relevant_memories"]] == ["memory-sam"]
@@ -2166,7 +2208,8 @@ def test_time_window_surfaces_valid_row_beyond_the_overfetch_cap() -> None:
             time_window="7d",
             reference_time=reference_time,
             max_items=8,
-        )
+        ),
+        source_fence=SourceReadFence.unfenced()
     )
 
     assert [row["id"] for row in pack["relevant_memories"]] == ["memory-new"]
@@ -2196,7 +2239,8 @@ def test_people_scope_has_no_rank_4000_cliff_and_embeds_query_once() -> None:
             people=("Sam",),
             max_items=1,
             include_sources=False,
-        )
+        ),
+        source_fence=SourceReadFence.unfenced()
     )
 
     assert [row["id"] for row in pack["relevant_memories"]] == ["memory-sam"]
@@ -2407,7 +2451,8 @@ def test_sqlite_people_and_time_scope_precedes_source_chunk_title_and_loop_limit
             time_window="7d",
             reference_time=window_end,
             max_items=1,
-        )
+        ),
+        source_fence=SourceReadFence.unfenced()
     )
     assert [str(row["id"]) for row in pack["sources"]] == [target_source_id]
     assert [str(row["id"]) for row in pack["open_loops"]] == [target_loop_id]
@@ -2469,7 +2514,8 @@ def test_context_pack_applies_relative_time_window_to_every_content_section() ->
             query="time-window deployment",
             time_window="7d",
             reference_time=reference_time,
-        )
+        ),
+        source_fence=SourceReadFence.unfenced()
     )
 
     assert [row["id"] for row in pack["relevant_memories"]] == ["memory-new"]
@@ -2505,7 +2551,8 @@ def test_context_pack_threads_created_by_agents_and_run_filter_to_recall_stages(
             query="Alice agent scoped",
             created_by_agent_ids=("openclaw",),
             filter_run_id="run-2",
-        )
+        ),
+        source_fence=SourceReadFence.unfenced()
     )
 
     assert store.memory_search_kwargs[-1] == {
@@ -2520,7 +2567,8 @@ def test_context_pack_threads_created_by_agents_and_run_filter_to_recall_stages(
 
     # created_by filter alone returns every run from that agent.
     agent_pack = service.compile_context_pack(
-        VNextRetrievalRequest(query="Alice agent scoped", created_by_agent_ids=("openclaw",))
+        VNextRetrievalRequest(query="Alice agent scoped", created_by_agent_ids=("openclaw",)),
+        source_fence=SourceReadFence.unfenced()
     )
     assert {memory["id"] for memory in agent_pack["relevant_memories"]} == {
         "memory-openclaw-run1",
@@ -2542,7 +2590,8 @@ def test_filter_run_id_is_independent_of_the_event_attribution_run_id() -> None:
     )
 
     pack = VNextRetrievalService(store).compile_context_pack(
-        VNextRetrievalRequest(query="Alice run attribution", run_id="run-caller")
+        VNextRetrievalRequest(query="Alice run attribution", run_id="run-caller"),
+        source_fence=SourceReadFence.unfenced()
     )
 
     assert [memory["id"] for memory in pack["relevant_memories"]] == ["memory-other-run"]
@@ -2575,7 +2624,8 @@ def test_context_pack_adds_staleness_note_for_long_unconfirmed_memories() -> Non
     )
 
     pack = VNextRetrievalService(store).compile_context_pack(
-        VNextRetrievalRequest(query="Alice staleness check")
+        VNextRetrievalRequest(query="Alice staleness check"),
+        source_fence=SourceReadFence.unfenced()
     )
 
     by_id = {memory["id"]: memory for memory in pack["relevant_memories"]}
@@ -2611,7 +2661,8 @@ def test_context_pack_populates_contradicting_evidence_from_active_beliefs() -> 
     )
 
     pack = VNextRetrievalService(store).compile_context_pack(
-        VNextRetrievalRequest(query="deployment pipeline production launch")
+        VNextRetrievalRequest(query="deployment pipeline production launch"),
+        source_fence=SourceReadFence.unfenced()
     )
 
     assert len(pack["contradicting_evidence"]) == 1
@@ -2679,7 +2730,8 @@ def test_scoped_contradictions_deepen_beyond_200_and_bulk_load_backing_memories(
             query="deployment pipeline production launch",
             projects=("alicebot",),
             include_sources=False,
-        )
+        ),
+        source_fence=SourceReadFence.unfenced()
     )
 
     assert [row["belief_id"] for row in pack["contradicting_evidence"]] == [
@@ -2699,7 +2751,8 @@ def test_context_pack_degrades_contradictions_when_store_lacks_beliefs() -> None
     store.list_beliefs = None  # type: ignore[method-assign]
 
     pack = VNextRetrievalService(store).compile_context_pack(
-        VNextRetrievalRequest(query="Alice degrade check")
+        VNextRetrievalRequest(query="Alice degrade check"),
+        source_fence=SourceReadFence.unfenced()
     )
 
     assert pack["contradicting_evidence"] == []
@@ -2737,7 +2790,8 @@ def test_context_pack_populates_recent_changes_from_memory_events() -> None:
     )
 
     pack = VNextRetrievalService(store).compile_context_pack(
-        VNextRetrievalRequest(query="Alice recent changes")
+        VNextRetrievalRequest(query="Alice recent changes"),
+        source_fence=SourceReadFence.unfenced()
     )
 
     recent = pack["recent_changes"]
@@ -2795,7 +2849,8 @@ def test_scoped_recent_changes_deepen_beyond_200_and_bulk_load_targets() -> None
             query="AliceBot release status",
             projects=("alicebot",),
             include_sources=False,
-        )
+        ),
+        source_fence=SourceReadFence.unfenced()
     )
 
     assert [row["event_id"] for row in pack["recent_changes"]] == ["event-alicebot"]
@@ -2873,7 +2928,8 @@ def test_graph_stage_finds_entity_connected_memory_that_fts_misses() -> None:
     )
 
     pack = VNextRetrievalService(store).compile_context_pack(
-        VNextRetrievalRequest(query="Meridian acquisition status", domains=("project",))
+        VNextRetrievalRequest(query="Meridian acquisition status", domains=("project",)),
+        source_fence=SourceReadFence.unfenced()
     )
 
     selected_ids = [memory["id"] for memory in pack["relevant_memories"]]
@@ -2896,7 +2952,8 @@ def test_graph_stage_finds_entity_connected_memory_that_fts_misses() -> None:
     # Control: the same store without the edge never surfaces the memory.
     store.edges = []
     control = VNextRetrievalService(store).compile_context_pack(
-        VNextRetrievalRequest(query="Meridian acquisition status", domains=("project",))
+        VNextRetrievalRequest(query="Meridian acquisition status", domains=("project",)),
+        source_fence=SourceReadFence.unfenced()
     )
     assert "memory-connected" not in [memory["id"] for memory in control["relevant_memories"]]
 
@@ -2915,7 +2972,8 @@ def test_graph_stage_improves_rrf_rank_for_memory_seen_by_both_stages() -> None:
     )
 
     pack = VNextRetrievalService(store).compile_context_pack(
-        VNextRetrievalRequest(query="Meridian roadmap", domains=("project",))
+        VNextRetrievalRequest(query="Meridian roadmap", domains=("project",)),
+        source_fence=SourceReadFence.unfenced()
     )
 
     # FTS alone ranks memory-shared third; the graph vote lifts it to first.
@@ -3023,7 +3081,8 @@ def test_graph_stage_disables_cleanly_when_no_entity_matches() -> None:
     )
 
     pack = VNextRetrievalService(store).compile_context_pack(
-        VNextRetrievalRequest(query="roadmap notes", domains=("project",))
+        VNextRetrievalRequest(query="roadmap notes", domains=("project",)),
+        source_fence=SourceReadFence.unfenced()
     )
 
     assert pack["trace"]["stages"]["graph"] == {
@@ -3044,7 +3103,8 @@ def test_graph_stage_disables_honestly_for_stores_without_entity_support() -> No
     store.find_entities_by_names = None  # type: ignore[method-assign]
 
     pack = VNextRetrievalService(store).compile_context_pack(
-        VNextRetrievalRequest(query="Meridian roadmap", domains=("project",))
+        VNextRetrievalRequest(query="Meridian roadmap", domains=("project",)),
+        source_fence=SourceReadFence.unfenced()
     )
 
     assert [memory["id"] for memory in pack["relevant_memories"]] == ["memory-1"]
@@ -3136,7 +3196,8 @@ def test_context_pack_groups_procedures_and_routines_into_procedures_section() -
     )
 
     pack = VNextRetrievalService(store).compile_context_pack(
-        VNextRetrievalRequest(query="Alice grouping")
+        VNextRetrievalRequest(query="Alice grouping"),
+        source_fence=SourceReadFence.unfenced()
     )
 
     assert {item["id"] for item in pack["procedures"]} == {"memory-procedure", "memory-routine"}
@@ -3198,7 +3259,8 @@ def test_budget_allocation_reports_per_section_tokens_and_sums_to_estimate() -> 
     )
 
     pack = VNextRetrievalService(store).compile_context_pack(
-        VNextRetrievalRequest(query="Alice allocation report", domains=("project",))
+        VNextRetrievalRequest(query="Alice allocation report", domains=("project",)),
+        source_fence=SourceReadFence.unfenced()
     )
 
     budget = pack["budget"]
@@ -3224,7 +3286,8 @@ def test_unknown_budget_strategy_is_rejected_with_choices_listed() -> None:
 
     with pytest.raises(VNextRetrievalValidationError) as excinfo:
         VNextRetrievalService(store).compile_context_pack(
-            VNextRetrievalRequest(query="Alice", budget_strategy="alphabetical")
+            VNextRetrievalRequest(query="Alice", budget_strategy="alphabetical"),
+            source_fence=SourceReadFence.unfenced()
         )
 
     message = str(excinfo.value)
@@ -3259,7 +3322,8 @@ def test_sources_first_flips_which_section_survives_a_tight_budget() -> None:
                 domains=("project",),
                 max_tokens=budget_tokens,
                 budget_strategy=strategy,
-            )
+            ),
+            source_fence=SourceReadFence.unfenced()
         )
 
     balanced = compile_with("balanced")
@@ -3292,7 +3356,8 @@ def test_recent_first_orders_memories_by_recency_before_fused_rank() -> None:
                 domains=("project",),
                 max_tokens=max_tokens,
                 budget_strategy=strategy,
-            )
+            ),
+            source_fence=SourceReadFence.unfenced()
         )
 
     # Without a budget the strategy still reorders the packed memories.
@@ -3327,7 +3392,8 @@ def test_facts_first_boosts_fact_memory_types_to_the_front_of_packing() -> None:
                 domains=("project",),
                 max_tokens=max_tokens,
                 budget_strategy=strategy,
-            )
+            ),
+            source_fence=SourceReadFence.unfenced()
         )
 
     assert [item["id"] for item in compile_with("facts_first", None)["relevant_memories"]] == [
@@ -3361,7 +3427,8 @@ def test_contradictions_first_lets_contradictions_survive_a_budget_that_drops_th
                 query="deployment pipeline production launch",
                 max_tokens=max_tokens,
                 budget_strategy=strategy,
-            )
+            ),
+            source_fence=SourceReadFence.unfenced()
         )
 
     probe = compile_with("balanced", None)
@@ -3398,7 +3465,8 @@ def test_unknown_context_depth_is_rejected_with_choices_listed() -> None:
 
     with pytest.raises(VNextRetrievalValidationError) as excinfo:
         VNextRetrievalService(store).compile_context_pack(
-            VNextRetrievalRequest(query="Alice", context_depth="extreme")
+            VNextRetrievalRequest(query="Alice", context_depth="extreme"),
+            source_fence=SourceReadFence.unfenced()
         )
 
     message = str(excinfo.value)
@@ -3450,7 +3518,8 @@ def test_minimal_depth_is_fts_only_with_honest_disabled_stage_statuses() -> None
     store, provider = _minimal_tier_store()
 
     pack = VNextRetrievalService(store, embedding_provider=provider).compile_context_pack(
-        VNextRetrievalRequest(query="Meridian acquisition status", domains=("project",), context_depth="minimal")
+        VNextRetrievalRequest(query="Meridian acquisition status", domains=("project",), context_depth="minimal"),
+        source_fence=SourceReadFence.unfenced()
     )
 
     # FTS still works; vector and graph are skipped without a provider call.
@@ -3480,7 +3549,8 @@ def test_minimal_depth_is_fts_only_with_honest_disabled_stage_statuses() -> None
     # Control: the same corpus at the default depth uses every stage.
     control_store, control_provider = _minimal_tier_store()
     control = VNextRetrievalService(control_store, embedding_provider=control_provider).compile_context_pack(
-        VNextRetrievalRequest(query="Meridian acquisition status", domains=("project",))
+        VNextRetrievalRequest(query="Meridian acquisition status", domains=("project",)),
+        source_fence=SourceReadFence.unfenced()
     )
     assert control["context_depth"] == "low"
     assert control["trace"]["stages"]["vector"]["status"] == VECTOR_STAGE_ENABLED
@@ -3494,12 +3564,14 @@ def test_minimal_depth_caps_max_items_at_four() -> None:
     store = InMemoryVNextRetrievalStore(memories=memories, sources=[])
 
     pack = VNextRetrievalService(store).compile_context_pack(
-        VNextRetrievalRequest(query="Alice depth cap", max_items=8, context_depth="minimal")
+        VNextRetrievalRequest(query="Alice depth cap", max_items=8, context_depth="minimal"),
+        source_fence=SourceReadFence.unfenced()
     )
     assert len(pack["relevant_memories"]) == CONTEXT_DEPTH_MINIMAL_MAX_ITEMS
 
     smaller = VNextRetrievalService(store).compile_context_pack(
-        VNextRetrievalRequest(query="Alice depth cap", max_items=2, context_depth="minimal")
+        VNextRetrievalRequest(query="Alice depth cap", max_items=2, context_depth="minimal"),
+        source_fence=SourceReadFence.unfenced()
     )
     assert len(smaller["relevant_memories"]) == 2
 
@@ -3514,7 +3586,8 @@ def test_explicit_flags_override_the_minimal_tier_defaults() -> None:
             context_depth="minimal",
             include_sources=True,
             include_contradictions=True,
-        )
+        ),
+        source_fence=SourceReadFence.unfenced()
     )
 
     # Caller wins: sources and contradictions come back on, everything else
@@ -3568,14 +3641,16 @@ def test_explicit_flags_override_the_medium_and_low_tier_defaults() -> None:
             query="deployment pipeline production launch",
             context_depth="medium",
             include_contradictions=False,
-        )
+        ),
+        source_fence=SourceReadFence.unfenced()
     )
     assert medium_off["contradicting_evidence"] == []
     assert medium_off["trace"]["stages"]["contradictions"]["status"] == CONTRADICTIONS_STAGE_NOT_REQUESTED
 
     # low includes sources by default; an explicit False wins over the tier.
     low_no_sources = service.compile_context_pack(
-        VNextRetrievalRequest(query="deployment pipeline production launch", include_sources=False)
+        VNextRetrievalRequest(query="deployment pipeline production launch", include_sources=False),
+        source_fence=SourceReadFence.unfenced()
     )
     assert low_no_sources["sources"] == []
     assert low_no_sources["trace"]["stages"]["sources"]["status"] == SOURCES_STAGE_DISABLED_BY_FLAG
@@ -3600,7 +3675,7 @@ def test_medium_depth_forces_contradictions_on_for_non_strategic_queries() -> No
     # "when ... timeline ..." classifies as temporal_recall, a non-strategic
     # query type: at low the contradictions stage stays off by default.
     query = "when did the deployment pipeline timeline change"
-    low = VNextRetrievalService(build_store()).compile_context_pack(VNextRetrievalRequest(query=query))
+    low = VNextRetrievalService(build_store()).compile_context_pack(VNextRetrievalRequest(query=query), source_fence=SourceReadFence.unfenced())
     assert low["query_interpretation"]["query_type"] == "temporal_recall"
     assert low["contradicting_evidence"] == []
     assert low["trace"]["stages"]["contradictions"]["status"] == CONTRADICTIONS_STAGE_NOT_REQUESTED
@@ -3608,7 +3683,8 @@ def test_medium_depth_forces_contradictions_on_for_non_strategic_queries() -> No
     # medium is low plus the contradictions stage forced on for every query
     # type — the only default difference between the two tiers.
     medium = VNextRetrievalService(build_store()).compile_context_pack(
-        VNextRetrievalRequest(query=query, context_depth="medium")
+        VNextRetrievalRequest(query=query, context_depth="medium"),
+        source_fence=SourceReadFence.unfenced()
     )
     assert medium["context_depth"] == "medium"
     assert len(medium["contradicting_evidence"]) == 1
@@ -3640,7 +3716,8 @@ def test_high_depth_adds_supersession_chain_notes_for_packed_memories() -> None:
     )
 
     pack = VNextRetrievalService(store).compile_context_pack(
-        VNextRetrievalRequest(query="Alice supersession", domains=("project",), context_depth="high")
+        VNextRetrievalRequest(query="Alice supersession", domains=("project",), context_depth="high"),
+        source_fence=SourceReadFence.unfenced()
     )
 
     assert pack["context_depth"] == "high"
@@ -3672,7 +3749,8 @@ def test_high_depth_adds_supersession_chain_notes_for_packed_memories() -> None:
 
     # Below high, the section and its trace stage do not exist.
     low = VNextRetrievalService(store).compile_context_pack(
-        VNextRetrievalRequest(query="Alice supersession", domains=("project",))
+        VNextRetrievalRequest(query="Alice supersession", domains=("project",)),
+        source_fence=SourceReadFence.unfenced()
     )
     assert "supersession_context" not in low
     assert "supersession" not in low["trace"]["stages"]
@@ -3697,7 +3775,8 @@ def test_high_depth_supersession_chains_guard_against_cycles_and_cap_hops() -> N
     )
 
     pack = VNextRetrievalService(store).compile_context_pack(
-        VNextRetrievalRequest(query="Alice cycle guard", domains=("project",), context_depth="high")
+        VNextRetrievalRequest(query="Alice cycle guard", domains=("project",), context_depth="high"),
+        source_fence=SourceReadFence.unfenced()
     )
 
     notes = {note["memory_id"]: note for note in pack["supersession_context"]}
@@ -3729,7 +3808,8 @@ def test_scoped_supersession_context_does_not_disclose_out_of_scope_ids() -> Non
             query="Alice scoped supersession",
             projects=("alicebot",),
             context_depth="high",
-        )
+        ),
+        source_fence=SourceReadFence.unfenced()
     )
 
     serialized = json.dumps(pack, sort_keys=True)
@@ -3777,7 +3857,8 @@ def test_pack_items_carry_validity_only_when_temporal_signal_exists() -> None:
     )
 
     pack = VNextRetrievalService(store).compile_context_pack(
-        VNextRetrievalRequest(query="Alice validity")
+        VNextRetrievalRequest(query="Alice validity"),
+        source_fence=SourceReadFence.unfenced()
     )
 
     by_id = {memory["id"]: memory for memory in pack["relevant_memories"]}
@@ -3812,7 +3893,8 @@ def test_pack_ranks_replacement_above_superseded_ancestor_and_traces_the_reorder
     store = InMemoryVNextRetrievalStore(memories=[ancestor, bystander, replacement], sources=[])
 
     pack = VNextRetrievalService(store).compile_context_pack(
-        VNextRetrievalRequest(query="Alice preference check")
+        VNextRetrievalRequest(query="Alice preference check"),
+        source_fence=SourceReadFence.unfenced()
     )
 
     # Fused (FTS) order was ancestor, bystander, replacement; only the
@@ -3855,7 +3937,8 @@ def test_pack_annotates_one_sided_supersedes_pointer_via_packmate() -> None:
     store = InMemoryVNextRetrievalStore(memories=[ancestor, replacement], sources=[])
 
     pack = VNextRetrievalService(store).compile_context_pack(
-        VNextRetrievalRequest(query="Alice relocation office")
+        VNextRetrievalRequest(query="Alice relocation office"),
+        source_fence=SourceReadFence.unfenced()
     )
 
     assert [memory["id"] for memory in pack["relevant_memories"]] == [
@@ -3884,7 +3967,8 @@ def test_pack_keeps_order_when_replacement_already_ranks_above_ancestor() -> Non
     store = InMemoryVNextRetrievalStore(memories=[replacement, ancestor], sources=[])
 
     pack = VNextRetrievalService(store).compile_context_pack(
-        VNextRetrievalRequest(query="Alice rollout plan")
+        VNextRetrievalRequest(query="Alice rollout plan"),
+        source_fence=SourceReadFence.unfenced()
     )
 
     assert [memory["id"] for memory in pack["relevant_memories"]] == [
@@ -3905,7 +3989,8 @@ def test_supersession_reorder_terminates_on_corrupt_pointer_cycles() -> None:
     store = InMemoryVNextRetrievalStore(memories=[cyclic_a, cyclic_b], sources=[])
 
     pack = VNextRetrievalService(store).compile_context_pack(
-        VNextRetrievalRequest(query="Alice cycle pair")
+        VNextRetrievalRequest(query="Alice cycle pair"),
+        source_fence=SourceReadFence.unfenced()
     )
 
     assert [memory["id"] for memory in pack["relevant_memories"]] == ["memory-a", "memory-b"]
@@ -3954,7 +4039,8 @@ def test_properly_superseded_row_is_already_excluded_from_packs_on_sqlite() -> N
     )
 
     pack = VNextRetrievalService(store).compile_context_pack(
-        VNextRetrievalRequest(query="gym membership")
+        VNextRetrievalRequest(query="gym membership"),
+        source_fence=SourceReadFence.unfenced()
     )
 
     assert [memory["id"] for memory in pack["relevant_memories"]] == [str(replacement["id"])]
@@ -4003,7 +4089,8 @@ def test_knowledge_update_pack_prefers_correction_on_sqlite() -> None:
     )
 
     pack = VNextRetrievalService(store).compile_context_pack(
-        VNextRetrievalRequest(query="What is the user's favorite color?")
+        VNextRetrievalRequest(query="What is the user's favorite color?"),
+        source_fence=SourceReadFence.unfenced()
     )
 
     ordered_ids = [memory["id"] for memory in pack["relevant_memories"]]
@@ -4088,7 +4175,8 @@ def test_context_depth_low_matches_default_behavior_regression_pin() -> None:
                 domains=("project",),
                 trace_id="trace-pin",
                 **overrides,  # type: ignore[arg-type]
-            )
+            ),
+            source_fence=SourceReadFence.unfenced()
         )
 
     default_pack = compile_pack()
@@ -4169,7 +4257,8 @@ def test_ungated_query_takes_the_byte_identical_coverage_free_path(monkeypatch) 
                 query="Meridian roadmap release status",
                 domains=("project",),
                 trace_id="trace-dormant-pin",
-            )
+            ),
+            source_fence=SourceReadFence.unfenced()
         )
 
     dormant_pack = compile_pack()
@@ -4235,7 +4324,8 @@ def test_minimal_depth_keeps_coverage_mode_dormant_for_aggregation_queries() -> 
     )
 
     pack = VNextRetrievalService(store).compile_context_pack(
-        VNextRetrievalRequest(query="How many times did I host board game night?", context_depth="minimal")
+        VNextRetrievalRequest(query="How many times did I host board game night?", context_depth="minimal"),
+        source_fence=SourceReadFence.unfenced()
     )
 
     assert "coverage" not in json.dumps(pack, default=str)
@@ -4297,13 +4387,13 @@ def test_aggregation_intent_promotes_distinct_instances_over_near_duplicates(mon
         patch.setattr(
             vnext_retrieval_module.vnext_coverage_query, "detect_aggregation_intent", lambda q: None
         )
-        control_pack = VNextRetrievalService(control_store).compile_context_pack(request)
+        control_pack = VNextRetrievalService(control_store).compile_context_pack(request, source_fence=SourceReadFence.unfenced())
     control_ids = [str(source["id"]) for source in control_pack["sources"]]
     assert control_ids == [f"dupe-{index:02d}" for index in range(1, 9)]
     assert "coverage" not in json.dumps(control_pack, default=str)
 
     coverage_store = _instance_diversity_store()
-    pack = VNextRetrievalService(coverage_store).compile_context_pack(request)
+    pack = VNextRetrievalService(coverage_store).compile_context_pack(request, source_fence=SourceReadFence.unfenced())
 
     selected_ids = [str(source["id"]) for source in pack["sources"]]
     assert selected_ids == ["dupe-01", *_COVERAGE_INSTANCE_TEXTS, "dupe-02"]
@@ -4386,7 +4476,8 @@ def test_multi_clause_aggregation_backfills_clause_only_memory_into_freed_slots(
             vnext_retrieval_module.vnext_coverage_query, "detect_aggregation_intent", lambda q: None
         )
         control_pack = VNextRetrievalService(control_store).compile_context_pack(
-            VNextRetrievalRequest(query=query, max_items=4)
+            VNextRetrievalRequest(query=query, max_items=4),
+            source_fence=SourceReadFence.unfenced()
         )
     control_ids = [str(memory["id"]) for memory in control_pack["relevant_memories"]]
     assert control_ids == ["memory-filler-01", "memory-filler-02", "memory-filler-03", "memory-filler-04"]
@@ -4394,7 +4485,8 @@ def test_multi_clause_aggregation_backfills_clause_only_memory_into_freed_slots(
 
     coverage_store = build_store()
     pack = VNextRetrievalService(coverage_store).compile_context_pack(
-        VNextRetrievalRequest(query=query, max_items=4)
+        VNextRetrievalRequest(query=query, max_items=4),
+        source_fence=SourceReadFence.unfenced()
     )
 
     selected_ids = [str(memory["id"]) for memory in pack["relevant_memories"]]
@@ -4430,7 +4522,8 @@ def test_uncorroborated_count_statistic_does_not_consume_reader_budget() -> None
     store = InMemoryVNextRetrievalStore(memories=[], sources=[])
 
     pack = VNextRetrievalService(store).compile_context_pack(
-        VNextRetrievalRequest(query="How many bikes did I service?", max_tokens=1)
+        VNextRetrievalRequest(query="How many bikes did I service?", max_tokens=1),
+        source_fence=SourceReadFence.unfenced()
     )
 
     assert "aggregation" not in pack
@@ -4532,12 +4625,12 @@ def test_aggregation_intent_promotes_accepted_rollup_card_above_its_members(monk
             "promote_rollup_cards",
             lambda candidates, **kwargs: (list(candidates), 0),
         )
-        control_pack = VNextRetrievalService(control_store).compile_context_pack(request)
+        control_pack = VNextRetrievalService(control_store).compile_context_pack(request, source_fence=SourceReadFence.unfenced())
     control_ids = [str(memory["id"]) for memory in control_pack["relevant_memories"]]
     # Without the promotion the members eat every slot and the card never packs.
     assert control_ids == [f"memory-game-{index}" for index in range(1, 5)]
 
-    pack = VNextRetrievalService(_rollup_card_store()).compile_context_pack(request)
+    pack = VNextRetrievalService(_rollup_card_store()).compile_context_pack(request, source_fence=SourceReadFence.unfenced())
 
     selected_ids = [str(memory["id"]) for memory in pack["relevant_memories"]]
     # The card takes its best member's rank; the members stay directly
@@ -4583,7 +4676,8 @@ def test_frequency_members_with_multiple_occurrences_remain_trace_only() -> None
     pack = VNextRetrievalService(
         InMemoryVNextRetrievalStore(memories=[*members, card], sources=[])
     ).compile_context_pack(
-        VNextRetrievalRequest(query="How many times did I score goals?", max_items=3)
+        VNextRetrievalRequest(query="How many times did I score goals?", max_items=3),
+        source_fence=SourceReadFence.unfenced()
     )
 
     candidate = pack["trace"]["stages"]["coverage_mode"]["candidate_instance_count"]
@@ -4614,7 +4708,8 @@ def test_naturally_selected_unrelated_rollup_does_not_turn_trace_count_into_answ
         VNextRetrievalRequest(
             query="How many times did I host board game night?",
             max_items=4,
-        )
+        ),
+        source_fence=SourceReadFence.unfenced()
     )
 
     coverage = pack["trace"]["stages"]["coverage_mode"]
@@ -4636,10 +4731,10 @@ def test_how_often_cadence_recognizes_without_changing_store_calls_or_ranking(mo
             "detect_aggregation_intent",
             lambda query: None,
         )
-        control_pack = VNextRetrievalService(control_store).compile_context_pack(request)
+        control_pack = VNextRetrievalService(control_store).compile_context_pack(request, source_fence=SourceReadFence.unfenced())
 
     cadence_store = _rollup_card_store()
-    pack = VNextRetrievalService(cadence_store).compile_context_pack(request)
+    pack = VNextRetrievalService(cadence_store).compile_context_pack(request, source_fence=SourceReadFence.unfenced())
 
     coverage_stage = pack["trace"]["stages"]["coverage_mode"]
     assert coverage_stage["sub_intent"] == "cadence"
@@ -4680,7 +4775,8 @@ def test_non_aggregation_query_keeps_rollup_card_ranking_dormant(monkeypatch) ->
                 query="What did we play at board game night?",
                 max_items=4,
                 trace_id="trace-card-dormant-pin",
-            )
+            ),
+            source_fence=SourceReadFence.unfenced()
         )
 
     dormant_pack = compile_pack()
@@ -4724,7 +4820,7 @@ def test_aggregation_intent_without_cards_leaves_ordering_unchanged(monkeypatch)
     def compile_pack(store: InMemoryVNextRetrievalStore) -> dict[str, object]:
         counter = itertools.count(1)
         monkeypatch.setattr(vnext_retrieval_module, "uuid4", lambda: UUID(int=next(counter)))
-        return VNextRetrievalService(store).compile_context_pack(request)
+        return VNextRetrievalService(store).compile_context_pack(request, source_fence=SourceReadFence.unfenced())
 
     live_pack = compile_pack(build_store())
     with monkeypatch.context() as patch:
@@ -4763,7 +4859,8 @@ def test_temporal_anchor_surfaces_right_dated_memory_over_stronger_lexical_hit()
     store = InMemoryVNextRetrievalStore(memories=[wrong_dated, right_dated], sources=[])
 
     pack = VNextRetrievalService(store).compile_context_pack(
-        VNextRetrievalRequest(query="Which museum did I visit in March 2023?", max_items=1)
+        VNextRetrievalRequest(query="Which museum did I visit in March 2023?", max_items=1),
+        source_fence=SourceReadFence.unfenced()
     )
 
     assert [memory["id"] for memory in pack["relevant_memories"]] == ["memory-right-date"]
@@ -4809,7 +4906,8 @@ def test_scoped_temporal_stage_deepens_beyond_200_decoys() -> None:
             people=("Sam",),
             max_items=1,
             include_sources=False,
-        )
+        ),
+        source_fence=SourceReadFence.unfenced()
     )
 
     assert [row["id"] for row in pack["relevant_memories"]] == ["memory-sam"]
@@ -4836,7 +4934,8 @@ def test_no_anchor_query_has_no_temporal_stage_and_no_store_call() -> None:
     )
 
     pack = VNextRetrievalService(store).compile_context_pack(
-        VNextRetrievalRequest(query="kubernetes deployment pipeline")
+        VNextRetrievalRequest(query="kubernetes deployment pipeline"),
+        source_fence=SourceReadFence.unfenced()
     )
 
     assert "temporal_anchor" not in pack["trace"]["stages"]
@@ -4868,14 +4967,16 @@ def test_wrong_temporal_window_cannot_evict_strong_lexical_hits() -> None:
         )
 
     single = VNextRetrievalService(build_store(), embedding_provider=provider).compile_context_pack(
-        VNextRetrievalRequest(query="What vendor contract decision did we sign in March 2023?", max_items=1)
+        VNextRetrievalRequest(query="What vendor contract decision did we sign in March 2023?", max_items=1),
+        source_fence=SourceReadFence.unfenced()
     )
     assert [memory["id"] for memory in single["relevant_memories"]] == ["memory-strong"]
     trimmed = [record for record in single["trace"]["selected"] if record["target_id"] == "memory-wrong-window"]
     assert trimmed == []  # ranked but not selected
 
     both = VNextRetrievalService(build_store(), embedding_provider=provider).compile_context_pack(
-        VNextRetrievalRequest(query="What vendor contract decision did we sign in March 2023?", max_items=2)
+        VNextRetrievalRequest(query="What vendor contract decision did we sign in March 2023?", max_items=2),
+        source_fence=SourceReadFence.unfenced()
     )
     assert [memory["id"] for memory in both["relevant_memories"]] == [
         "memory-strong",
@@ -4908,7 +5009,8 @@ def test_temporal_anchor_boosts_right_dated_source_in_fused_sources_stage() -> N
     store = InMemoryVNextRetrievalStore(memories=[], sources=[source_wrong, source_right])
 
     pack = VNextRetrievalService(store).compile_context_pack(
-        VNextRetrievalRequest(query="Which museum did I visit in March 2023?")
+        VNextRetrievalRequest(query="Which museum did I visit in March 2023?"),
+        source_fence=SourceReadFence.unfenced()
     )
 
     assert [source["id"] for source in pack["sources"]][:2] == ["source-right-date", "source-wrong-date"]
@@ -4927,7 +5029,8 @@ def test_temporal_stage_degrades_honestly_for_stores_without_time_search() -> No
     )
 
     pack = VNextRetrievalService(store).compile_context_pack(
-        VNextRetrievalRequest(query="Which museum did I visit in March 2023?")
+        VNextRetrievalRequest(query="Which museum did I visit in March 2023?"),
+        source_fence=SourceReadFence.unfenced()
     )
 
     stage = pack["trace"]["stages"]["temporal_anchor"]
@@ -4946,7 +5049,8 @@ def test_minimal_depth_skips_the_temporal_stage_with_honest_status() -> None:
     )
 
     pack = VNextRetrievalService(store).compile_context_pack(
-        VNextRetrievalRequest(query="Which museum did I visit in March 2023?", context_depth="minimal")
+        VNextRetrievalRequest(query="Which museum did I visit in March 2023?", context_depth="minimal"),
+        source_fence=SourceReadFence.unfenced()
     )
 
     stage = pack["trace"]["stages"]["temporal_anchor"]
@@ -4970,7 +5074,8 @@ def test_reference_time_resolves_relative_phrases_deterministically() -> None:
         VNextRetrievalRequest(
             query="what happened last week",
             reference_time=datetime(2023, 4, 18, 3, 31, tzinfo=UTC),
-        )
+        ),
+        source_fence=SourceReadFence.unfenced()
     )
 
     stage = pack["trace"]["stages"]["temporal_anchor"]
@@ -5000,7 +5105,8 @@ def test_before_today_window_excludes_rows_first_seen_today() -> None:
         VNextRetrievalRequest(
             query="Which airline did I book before today?",
             reference_time=datetime(2023, 4, 18, 3, 31, tzinfo=UTC),
-        )
+        ),
+        source_fence=SourceReadFence.unfenced()
     )
 
     stage = pack["trace"]["stages"]["temporal_anchor"]

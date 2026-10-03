@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
+from functools import wraps
 from hashlib import sha256
 import json
 import logging
-from typing import Callable, Mapping, cast
+from typing import Any, Callable, Mapping, TypeVar, cast
 from uuid import UUID, uuid4
 
 from alicebot_api.vnext_agent_control import (
@@ -54,6 +55,7 @@ from alicebot_api.vnext_lifecycle import (
 from alicebot_api.vnext_memory_version import memory_matches_snapshot
 from alicebot_api.vnext_source_fence import (
     AttachableSources,
+    SavedProvenanceReader,
     SourceReadFence,
     resolve_attachable_sources,
 )
@@ -1093,6 +1095,35 @@ def _block_mutation_above_sensitivity_ceiling(decision: PolicyDecision) -> Polic
     )
 
 
+_VerbT = TypeVar("_VerbT", bound=Callable[..., Any])
+
+
+def _held_to_the_callers_read_fence(verb: _VerbT) -> _VerbT:
+    """Hold the memory rows a verb returns to the read fence of the caller it was called for.
+
+    A verb hands the row it changed back to its caller (``{"memory": row, ...}``), and the row carries the quotes the
+    memory saved from its sources: ``metadata_json.provenance``, ``replacement_provenance`` and
+    ``agentic_memory.conversation_excerpt``. A source may have been reclassified or archived since the link was made,
+    so the verb asks the caller's current permission on each source the memory cites, through
+    ``SavedProvenanceReader``, and withholds what it may not read. The caller is the verb's own ``identity`` argument,
+    which every surface already passes for the policy check; a call with no identity is the owner's and is returned
+    as it was.
+
+    Every surface that calls a verb (the MCP tools, the legacy aliases, the HTTP routes) gets this by calling it.
+    """
+
+    @wraps(verb)
+    def held(self: VNextMemoryCommitService, *args: Any, **kwargs: Any) -> Any:
+        result = verb(self, *args, **kwargs)
+        identity = kwargs.get("identity")
+        if identity is None:
+            return result
+        return SavedProvenanceReader(self.store, fence=SourceReadFence.for_identity(identity)).tree(result)
+
+    held.held_to_the_callers_read_fence = True  # type: ignore[attr-defined]
+    return cast(_VerbT, held)
+
+
 class VNextMemoryCommitService:
     def __init__(
         self,
@@ -1284,6 +1315,7 @@ class VNextMemoryCommitService:
             ),
         )
 
+    @_held_to_the_callers_read_fence
     def commit(
         self,
         *,
@@ -1348,6 +1380,7 @@ class VNextMemoryCommitService:
                 raise VNextMemoryCommitValidationError(str(exc)) from None
             return _with_commit_receipt(replayed)
 
+    @_held_to_the_callers_read_fence
     def confirm(
         self,
         *,
@@ -1691,6 +1724,7 @@ class VNextMemoryCommitService:
         )
         return updated
 
+    @_held_to_the_callers_read_fence
     def undo(
         self,
         *,
@@ -1756,6 +1790,7 @@ class VNextMemoryCommitService:
         result["rationale_withheld"] = rationale_withheld or bool(result.get("rationale_withheld"))
         return result
 
+    @_held_to_the_callers_read_fence
     def correct(
         self,
         *,
@@ -1869,6 +1904,7 @@ class VNextMemoryCommitService:
         )
         return {"status": "committed", "write_mode": "commit", "memory": updated}
 
+    @_held_to_the_callers_read_fence
     def forget(
         self,
         *,
@@ -1902,6 +1938,7 @@ class VNextMemoryCommitService:
         result["rationale_withheld"] = rationale_withheld or bool(result.get("rationale_withheld"))
         return result
 
+    @_held_to_the_callers_read_fence
     def accept_consolidation_candidate(
         self,
         memory_id: str,
@@ -2191,6 +2228,7 @@ class VNextMemoryCommitService:
             "idempotent_replay": False,
         }
 
+    @_held_to_the_callers_read_fence
     def expire(
         self,
         memory_id: str,
@@ -2288,6 +2326,7 @@ class VNextMemoryCommitService:
             "rationale_withheld": rationale_withheld or history_withheld,
         }
 
+    @_held_to_the_callers_read_fence
     def unexpire(
         self,
         memory_id: str,

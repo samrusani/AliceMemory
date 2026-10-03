@@ -97,6 +97,7 @@ from alicebot_api.vnext_promotion_policy import (
     resolve_promotion_settings,
     writer_trust_for,
 )
+from alicebot_api.vnext_source_fence import SourceReadFence
 
 
 PERSONAL = PromotionSettings(persona="personal")
@@ -2280,7 +2281,8 @@ def test_the_token_budget_counts_the_row_the_pack_actually_emits() -> None:
     from alicebot_api.vnext_retrieval import VNextRetrievalRequest, VNextRetrievalService
 
     pack = VNextRetrievalService(store).compile_context_pack(
-        VNextRetrievalRequest(query="owner drinks coffee before noon", domains=("personal",))
+        VNextRetrievalRequest(query="owner drinks coffee before noon", domains=("personal",)),
+        source_fence=SourceReadFence.unfenced()
     )
     emitted = pack["relevant_memories"]
     assert len(emitted) == 1
