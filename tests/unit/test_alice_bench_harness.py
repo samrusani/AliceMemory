@@ -15,7 +15,9 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import platform
 import shutil
+import sqlite3
 import subprocess
 import sys
 import threading
@@ -592,7 +594,8 @@ def test_the_fingerprint_names_what_a_number_measured_and_not_the_version_string
     """TH9. Sha, dirty flag, the source hash, the import path, the tools digest, the switch, the order and every hash.
 
     Mutation: record ``alicebot_api.__version__`` (it reads installed metadata and can name another
-    build), or leave one hash out of the fingerprint (the source hash included).
+    build), leave one hash out of the fingerprint (the source hash included), or leave out the Python and
+    SQLite versions the full-text ranking ran on.
     """
 
     gates_data = json.loads((REPO_ROOT / "gates.json").read_text())
@@ -644,8 +647,9 @@ def test_the_fingerprint_names_what_a_number_measured_and_not_the_version_string
     import alicebot_api
 
     encoded = json.dumps(print_)
-    assert "version" not in " ".join(print_)
+    assert not {"version", "package_version", "alicebot_api_version", "__version__"} & set(print_)
     assert alicebot_api.__version__ not in encoded
+    assert (print_["python_version"], print_["sqlite_version"]) == (platform.python_version(), sqlite3.sqlite_version)
 
 
 # TH10 --------------------------------------------------------------------

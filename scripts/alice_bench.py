@@ -40,6 +40,7 @@ import hashlib
 import io
 import json
 import os
+import platform
 import random
 import re
 import shlex
@@ -375,6 +376,11 @@ def git_state(repo: Path) -> dict[str, object]:
     with no ``.git`` there is reported as ``no git`` with no commit and no dirty flag. A ``.git``
     that git cannot read a commit from is a refusal, because a commit that cannot be read is a
     commit that is silently missing from the record.
+
+    Having a ``.git`` is not enough, because git walks past one it finds invalid (an empty folder,
+    a folder with only a ``HEAD`` stub, a symlink that points nowhere) and answers from the repository
+    around it. So the root git reports has to be the checkout's own root, and anything else is a
+    refusal too.
     """
 
     if not os.path.lexists(repo / ".git"):
@@ -382,6 +388,12 @@ def git_state(repo: Path) -> dict[str, object]:
     head = _git(repo, "rev-parse", "HEAD")
     if head.returncode != 0:
         raise CheckoutError("the checkout has a .git that git cannot read a commit from")
+    top = _git(repo, "rev-parse", "--show-toplevel")
+    if top.returncode != 0 or os.path.realpath(top.stdout.strip()) != os.path.realpath(repo):
+        raise CheckoutError(
+            "the checkout has a .git that is not the root of a repository of its own "
+            "(git answers from the repository around it), so its commit cannot be recorded"
+        )
     tracked = _git(repo, "diff", "--quiet", "HEAD")
     untracked = _git(repo, "ls-files", "--others", "--exclude-standard", "--", "apps", "workers")
     dirty = tracked.returncode != 0 or bool(untracked.stdout.strip())
@@ -444,10 +456,19 @@ def checkout_source_sha256(repo: Path) -> str:
 
 
 # What says that two processes ran the same checkout: whether it has a git history and, if so,
-# its commit and whether it differs from that commit; a hash of the source it imports; and the
-# real path ``alicebot_api`` was imported from. The hash is the one that cannot be fooled by a
+# its commit and whether it differs from that commit; a hash of the source it imports; the
+# real path ``alicebot_api`` was imported from; and the Python and SQLite it ran on, because the
+# full-text ranking of a recall comes from SQLite. The hash is the one that cannot be fooled by a
 # second edit on a dirty tree or by the absence of git.
-CHECKOUT_IDENTITY_KEYS = ("git", "git_sha", "dirty", "checkout_source_sha256", "alicebot_api_file")
+CHECKOUT_IDENTITY_KEYS = (
+    "git",
+    "git_sha",
+    "dirty",
+    "checkout_source_sha256",
+    "alicebot_api_file",
+    "python_version",
+    "sqlite_version",
+)
 
 
 def checkout_identity(repo: Path) -> dict[str, object]:
@@ -462,17 +483,26 @@ def checkout_identity(repo: Path) -> dict[str, object]:
         "dirty": state["dirty"],
         "checkout_source_sha256": checkout_source_sha256(repo),
         "alicebot_api_file": str(Path(os.path.realpath(alicebot_api.__file__))),
+        "python_version": platform.python_version(),
+        "sqlite_version": sqlite3.sqlite_version,
     }
 
 
+def differing_identity_keys(recorded: Mapping[str, Any], current: Mapping[str, Any]) -> list[str]:
+    """The keys of ``CHECKOUT_IDENTITY_KEYS`` on which two identities disagree."""
+
+    return [key for key in CHECKOUT_IDENTITY_KEYS if recorded[key] != current[key]]
+
+
 def require_matching_build(manifest: Mapping[str, Any] | None, repo: Path) -> Mapping[str, Any]:
-    """Refuse to read a vault that another checkout built. Returns the manifest it checked.
+    """Refuse to read a vault that another checkout or another harness built. Returns the manifest it checked.
 
     A vault is rebuilt for every checkout and never cached, because the chunker is one of
     the things a release can change. The manifest records which checkout built the vault,
     and a command that reads it has to be running the same one: the same source content,
-    the same commit and dirty state when there is a git history, and the same
-    ``alicebot_api`` on disk.
+    the same commit and dirty state when there is a git history, the same ``alicebot_api``
+    on disk, and the same Python and SQLite. It also records the hash of the harness that
+    built it, and a different harness (it chooses what is imported and how) is refused too.
     """
 
     if manifest is None:
@@ -483,13 +513,17 @@ def require_matching_build(manifest: Mapping[str, Any] | None, repo: Path) -> Ma
             "the manifest does not say which checkout built this vault (it may come from an older harness); "
             "build it again with --rebuild"
         )
-    current = checkout_identity(repo)
-    differing = [key for key in CHECKOUT_IDENTITY_KEYS if recorded[key] != current[key]]
+    differing = differing_identity_keys(recorded, checkout_identity(repo))
     if differing:
         raise CheckoutError(
             "this vault was built by a different checkout ("
             + ", ".join(differing)
             + " differ); a vault is rebuilt for every checkout, so build it again with --rebuild"
+        )
+    if manifest.get("harness_sha256") != sha256_file(Path(__file__)):
+        raise CheckoutError(
+            "this vault was built by a different version of the harness (harness_sha256 differs); "
+            "build it again with --rebuild"
         )
     return manifest
 
@@ -697,13 +731,45 @@ def vault_row_counts(db_path: Path) -> dict[str, int]:
     return counts
 
 
+def vault_chunks_sha256(db_path: Path) -> str:
+    """One hash over every stored chunk: its source, its position and its text.
+
+    Chunk text is what a recall serves and what the snapshot is a copy of, so it is the quantity the
+    harness measures. A line is the source's ``external_id`` (``None`` for a chunk whose source row is
+    gone), the chunk's index and a hash of its text. The lines are sorted, so the value does not
+    depend on the order rows were stored in, only on what is stored.
+    """
+
+    conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    try:
+        rows = conn.execute(
+            "SELECT s.external_id, c.chunk_index, c.text FROM source_chunks AS c "
+            "LEFT JOIN sources AS s ON s.id = c.source_id AND s.user_id = c.user_id"
+        ).fetchall()
+    finally:
+        conn.close()
+    lines = sorted(
+        json.dumps([external_id, chunk_index, sha256_bytes(str(text).encode("utf-8"))])
+        for external_id, chunk_index, text in rows
+    )
+    return sha256_bytes("\n".join(lines).encode("utf-8"))
+
+
+# What a vault is held to at read time. Each is a record of the manifest and a value that
+# ``vault_identity`` reads from the vault alone.
+VAULT_IDENTITY_KEYS = ("sources", "chunks", "vault_text_sha256", "vault_chunks_sha256", "vault_row_counts")
+
+
 def vault_identity(db_path: Path) -> dict[str, Any]:
     """What the vault holds, read from the vault alone and without writing to it.
 
-    The count of live sources, the count of chunks, and one hash over the live sources in the order
-    they were captured, each as its corpus path, its title and a hash of its stored text. A vault
+    The count of live sources, the count of chunks, a hash over the live sources in the order they
+    were captured (each as its corpus path, its title and a hash of its stored text), a hash over
+    every stored chunk (its source, its index and its text), and the row count of every table. A vault
     built from another corpus, in another import order, or by a chunker that cut it differently gives
-    another value, which the manifest of the build can then be held to.
+    another value, and so does a vault that has had a chunk edited in place or a memory, a graph row
+    or an event added, which the manifest of the build can then be held to. A recall writes no row, so
+    none of these moves while a vault is read.
     """
 
     sources = read_vault_sources(db_path)
@@ -713,10 +779,13 @@ def vault_identity(db_path: Path) -> dict[str, Any]:
         if not isinstance(text, str):
             raise BenchError("a stored source holds no raw_text; the vault cannot be identified")
         lines.append(f"{source['external_id']}\0{source['title']}\0{sha256_bytes(text.encode('utf-8'))}")
+    counts = vault_row_counts(db_path)
     return {
         "sources": len(sources),
-        "chunks": vault_row_counts(db_path).get("source_chunks", 0),
+        "chunks": counts.get("source_chunks", 0),
         "vault_text_sha256": sha256_bytes("\n".join(lines).encode("utf-8")),
+        "vault_chunks_sha256": vault_chunks_sha256(db_path),
+        "vault_row_counts": counts,
     }
 
 
@@ -726,15 +795,14 @@ def require_matching_vault(manifest: Mapping[str, Any], run_dir: Path, data_dir:
     The manifest records the folder the vault was built into, what that vault holds and what the
     snapshot holds. A command that reads either has to find exactly that: the same folder (a rebuild
     into another ``--data-dir`` leaves the old folder on disk), the same sources in the same capture
-    order with the same chunk count (a vault copied over another one under the same name), and the
-    same snapshot files. Each is a refusal and none is repaired, because the two arms must read the
-    text the manifest names.
+    order, the same chunks with the same text, the same number of rows in every table (a vault copied
+    over another one under the same name, or one that has been edited or added to), and the same
+    snapshot files, all of them, whatever their names. Each is a refusal and none is repaired,
+    because the two arms must read the text the manifest names.
     """
 
     recorded_dir = manifest.get("vault_dir")
-    if not isinstance(recorded_dir, str) or any(
-        key not in manifest for key in ("sources", "chunks", "vault_text_sha256", "snapshot_hash")
-    ):
+    if not isinstance(recorded_dir, str) or any(key not in manifest for key in (*VAULT_IDENTITY_KEYS, "snapshot_hash")):
         raise RunDirError(
             "the manifest does not say which vault folder it describes or what that vault holds "
             "(it may come from an older harness); build again with --rebuild"
@@ -749,12 +817,23 @@ def require_matching_vault(manifest: Mapping[str, Any], run_dir: Path, data_dir:
     if not db_path.is_file():
         raise RunDirError(f"the vault folder {current_dir!r} holds no {VAULT_FILENAME}; build again with --rebuild")
     actual = vault_identity(db_path)
-    differing = [key for key in ("sources", "chunks", "vault_text_sha256") if actual[key] != manifest[key]]
+    differing = [key for key in VAULT_IDENTITY_KEYS if actual[key] != manifest[key]]
     if differing:
+        detail = ""
+        if "vault_row_counts" in differing and isinstance(manifest["vault_row_counts"], dict):
+            recorded_counts = manifest["vault_row_counts"]
+            moved = sorted(
+                name
+                for name in {*recorded_counts, *actual["vault_row_counts"]}
+                if recorded_counts.get(name) != actual["vault_row_counts"].get(name)
+            )
+            detail = "; rows moved in " + ", ".join(moved)
         raise RunDirError(
             "the vault does not hold what the manifest says it was built with ("
             + ", ".join(differing)
-            + " differ); it was replaced or changed after the build, so build again with --rebuild"
+            + " differ"
+            + detail
+            + "); it was replaced or changed after the build, so build again with --rebuild"
         )
     snapshot_dir = run_dir / SNAPSHOT_DIRNAME
     if not snapshot_dir.is_dir() or snapshot_folder_hash(snapshot_dir) != manifest["snapshot_hash"]:
@@ -829,7 +908,7 @@ def build_vault(
             shutil.rmtree(path)
         else:
             path.unlink()
-    data_dir.mkdir()
+    data_dir.mkdir(parents=True)
     db_path = vault_path(data_dir)
 
     receipts: list[dict[str, Any]] = []
@@ -854,9 +933,7 @@ def build_vault(
         "corpus_hash": corpus_hash(files),
         "corpus_file_count": len(files),
         "snapshot_hash": snapshot_hash({entry["relative_path"]: entry["text"] for entry in snapshot_files}),
-        "sources": held["sources"],
-        "chunks": held["chunks"],
-        "vault_text_sha256": held["vault_text_sha256"],
+        **{key: held[key] for key in VAULT_IDENTITY_KEYS},
         "withheld": withheld,
         "duplicates": sum(1 for record in receipts if int(record.get("imported_count", 0)) == 0),
         "harness_sha256": sha256_file(Path(__file__)),
@@ -1296,6 +1373,8 @@ SAME_ACROSS_ORDERS = (
     "dirty",
     "alicebot_api_file",
     "checkout_source_sha256",
+    "python_version",
+    "sqlite_version",
     "tools_list_digest",
     "search_quality",
     "recall_arguments",
@@ -1316,7 +1395,8 @@ def require_comparable_outputs(documents: Sequence[tuple[str, Mapping[str, Any]]
     The minimum over import orders is only meaningful across one checkout, one switch,
     one corpus and one question set. Two outputs files from different commits, or from
     one order twice, would give a number that names neither. A single file has nothing
-    to be compared with.
+    to be compared with. Each file is also held to itself: the checkout that built its
+    vault (``vault_build``) has to be the checkout that ran it, key for key.
     """
 
     if len(documents) < 2:
@@ -1326,9 +1406,19 @@ def require_comparable_outputs(documents: Sequence[tuple[str, Mapping[str, Any]]
         fp = document.get("fingerprint")
         if not isinstance(fp, dict):
             raise BenchError(f"{name} has no fingerprint, so it cannot be compared with the other outputs")
-        missing = [key for key in (*SAME_ACROSS_ORDERS, "import_order") if key not in fp]
+        needed = dict.fromkeys((*SAME_ACROSS_ORDERS, *CHECKOUT_IDENTITY_KEYS, "import_order", "vault_build"))
+        missing = [key for key in needed if key not in fp]
         if missing:
             raise BenchError(f"the fingerprint of {name} lacks {', '.join(missing)}")
+        built = fp["vault_build"]
+        if not isinstance(built, dict) or any(key not in built for key in CHECKOUT_IDENTITY_KEYS):
+            raise BenchError(f"the fingerprint of {name} does not say which checkout built the vault it ran on")
+        moved = differing_identity_keys(built, fp)
+        if moved:
+            raise BenchError(
+                f"{name} ran on a vault that another checkout built ({', '.join(moved)} differ between the build "
+                "record and the run), so its numbers name two checkouts"
+            )
         fingerprints.append((name, fp))
     first_name, first = fingerprints[0]
     for name, fp in fingerprints[1:]:
@@ -1487,6 +1577,19 @@ def fingerprint(
     """
 
     identity = checkout_identity(repo)
+    if manifest is not None:
+        # The identity is read again here, at the end of a batch as well as at its start, and the
+        # vault's build record is held to it. A source file edited while a batch ran would otherwise
+        # leave outputs that name two different hashes, one for the build and one for the run.
+        build = manifest.get("build")
+        if not isinstance(build, dict) or any(key not in build for key in CHECKOUT_IDENTITY_KEYS):
+            raise CheckoutError("the manifest does not say which checkout built this vault; build it again with --rebuild")
+        moved = differing_identity_keys(build, identity)
+        if moved:
+            raise CheckoutError(
+                "the checkout changed since the vault was built (" + ", ".join(moved) + " differ), "
+                "so these outputs would name two checkouts; build again with --rebuild"
+            )
     real_file = Path(str(identity["alicebot_api_file"]))
     tools = session.tools_list() if session is not None else None
     recall: dict[str, Any] | None = None
@@ -1500,6 +1603,8 @@ def fingerprint(
         "dirty": identity["dirty"],
         "checkout_source_sha256": identity["checkout_source_sha256"],
         "alicebot_api_file": str(real_file),
+        "python_version": identity["python_version"],
+        "sqlite_version": identity["sqlite_version"],
         "alicebot_api_inside_checkout": real_file.is_relative_to(src_dir(repo.resolve()).resolve()),
         "vault_build": None if manifest is None else manifest.get("build"),
         "tools_list_digest": None if tools is None else tools_list_digest(tools),
