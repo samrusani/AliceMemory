@@ -43,8 +43,10 @@ link's quote and a copy was derived by running each of those writers on SQLite
 (``tests/unit/test_saved_quote_every_copy.py`` keeps the run as a test): the two strings
 are the same string. The commit door collapses the whitespace of the excerpt once
 (``_optional_text``, which every door into it shares) and then stores that one string
-as the quote of every link it makes and as the copy, and the review doors store the
-quote as sent in both places. Nothing cuts a quote to a length on the way into a link
+as the quote of every link it makes and as the copy. The review doors store the quote
+as sent in both places; a review that sends no quote stores the memory's own text as
+the quote of its link and ``null`` as the copy, so there is no second copy of any
+source's text to match. Nothing cuts a quote to a length on the way into a link
 or a copy: a 4,000 character excerpt arrives whole on both sides. So the rule is
 equality of the words, the whitespace between them ignored (``_quote_text``). A link
 whose quote is a part of a copy, or the other way round, is a different quote and is
@@ -52,15 +54,40 @@ not matched, because no writer makes that relation (a reviewer who types a part 
 excerpt as the quote has chosen to attribute that part to the source).
 
 Which sources a memory cites is read from its copies in every shape a writer stores,
-not only the shapes the link writer reads (``cited_source_ids``). A key that names a
-source (``source_id``, ``source_ids``, ``source_refs``, ``source_references``,
-``selected_source_ids`` and the like, at any depth) holds ids that must name a stored
-source the caller may read; an id anywhere else in a ref is judged only when it names a
-stored source, because it may be a chunk id or a session id, which no source has.
+not only the shapes the link writer reads (``cited_source_ids``), and from the copies
+in its revisions (``previous_value``, ``new_value`` and the revision's own
+``metadata_json``, where a memory proposal keeps the refs it was given). An id is read
+in one of two ways. An id at a position that says it is a source (the value of
+``source_id``, ``source_ids``, ``source_refs``, ``source_references``,
+``selected_source_ids`` or ``sources`` at any depth, an entry of a ref list, the whole
+of a string or one word of a string that is a list of ids, a word that starts with
+``source:`` or ``alice://sources/``) is *named*: it must name a stored source the
+caller may read, and one that does not is refused as a missing source is. An id
+anywhere else (under another key, in a sentence, in an outside URL, with punctuation
+around it) is *incidental*, because it may be a chunk id or a session id: it is refused
+only when it names a source the store holds a row for, an archived one included, and
+the caller may not read it. Two limits follow and are stated here and in the docs. An
+id that names no source row (a source removed from the database, which no door of the
+product does, as sources are archived) cannot be told from a chunk id, so an incidental
+id of that kind is not judged. And because an incidental id changes the answer only when
+it names a stored source the caller may not read, a caller that can store a memory can
+learn, from reading it back, whether an id it already holds names such a source: the
+quote is withheld and ``alice_explain`` refuses, or nothing changes. Judging incidental
+ids at all is what keeps a confidential source named under a free key from leaking, and
+withholding for every incidental id would withhold the quote of every memory whose refs
+hold a chunk id, so the cost is one bit about an id the caller already has. The named
+positions answer alike for a missing, an archived and an unreadable source.
+
+A ref string is stored as sent and the proposal door bounds only the size of the
+request, so every parser here is linear in the length of what it reads: a string is
+walked once, and a marker is tested at the position of an id and not by rescanning
+the text before it (``tests/unit/test_saved_quote_ref_reading.py`` times each shape on
+inputs of several hundred thousand characters).
 """
 
 from __future__ import annotations
 
+import inspect
 import json
 import re
 from collections.abc import Iterable, Mapping, Sequence
@@ -304,6 +331,29 @@ def _rows_by_id(store: object, source_ids: Sequence[str]) -> dict[str, Mapping[s
     return found
 
 
+def _takes_include_deleted(method: object) -> bool:
+    try:
+        return "include_deleted" in inspect.signature(method).parameters  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return False
+
+
+def source_rows_including_archived(store: object, source_ids: Sequence[str]) -> dict[str, Mapping[str, object]]:
+    """The rows of ``source_ids`` as a store holds them, an archived source's row (``deleted_at`` set) included.
+
+    ``_rows_by_id`` does not return an archived source, so an archived source cannot be told from an id that names no
+    source. The saved-quote reader (and ``alice_explain``) need to tell them apart for an id found where a chunk id
+    could be, so they ask ``get_sources_by_ids(..., include_deleted=True)``, which both stores take. A store whose
+    ``get_sources_by_ids`` has no such keyword (a stub) is read as ``_rows_by_id`` reads it. The caller decides what an
+    archived row means: ``SourceReadFence.admits`` refuses it.
+    """
+
+    bulk = getattr(store, "get_sources_by_ids", None)
+    if callable(bulk) and _takes_include_deleted(bulk):
+        return {str(row.get("id")): row for row in bulk(list(source_ids), include_deleted=True) if isinstance(row, Mapping)}
+    return _rows_by_id(store, source_ids)
+
+
 # -- reading what a link saved ---------------------------------------------------------------------------------------
 
 # Where a memory keeps its own copy of what a link holds. ``provenance`` is written by an edit-and-approve review,
@@ -357,10 +407,14 @@ _ID_IN_TEXT = re.compile(
     r"(?:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|[0-9a-fA-F]{32})"
     r"(?![0-9a-fA-F])"
 )
-_SOURCE_MARKER = re.compile(r"(?:source:|sources/)\s*$", re.IGNORECASE)
+# The ``source:`` prefixes (any case, any number, whitespace allowed around them) a ref may start with.
+_SOURCE_PREFIXES = re.compile(r"\s*(?:source:\s*)*", re.IGNORECASE)
+_ALICE_SOURCE_URL = "alice://sources/"
 # A ``memory:`` ref (the rollups and the consolidation write them into ``source_refs``) names a memory, so its id is
 # not read as a source id at all.
-_MEMORY_MARKER = re.compile(r"memory:$", re.IGNORECASE)
+_MEMORY_PREFIX = "memory:"
+# An id is at least 32 characters long in every spelling ``uuid.UUID`` accepts, so a shorter string holds none.
+_MIN_ID_CHARS = 32
 # A SQLite build from before 3.32 allows 999 bound variables, so sources are looked up in slices.
 _LOOKUP_BATCH = 500
 _TOKEN_BREAK = re.compile(r"[\s,;|]+")
@@ -370,17 +424,20 @@ _TOKEN_BREAK = re.compile(r"[\s,;|]+")
 class CitedSourceIds:
     """The ids a ref names, in two groups that are judged differently.
 
-    ``named`` are ids at a position that holds a source reference: the value of ``source_id``, ``source_ids``,
-    ``source_refs``, ``source_references``, ``selected_source_ids`` or ``sources`` (at any depth), an entry of a ref
-    list, an id spelled the way the link writer reads one (any case, no hyphens, braces, ``urn:uuid:``, a ``source:``
-    prefix in any case), and an id that follows ``source:`` or ``sources/`` inside longer text. An id there that names
-    no stored source counts as a missing source does, so it is refused. An id that follows ``memory:`` names a memory
-    and is not read.
+    ``named`` are ids the ref says are sources: the value of ``source_id``, ``source_ids``, ``source_refs``,
+    ``source_references``, ``selected_source_ids`` or ``sources`` (at any depth), an entry of a ref list, and an id
+    that is the whole of a string (or one of several ids that make up the whole of a string, split on whitespace,
+    commas, semicolons and bars) in any spelling the link writer reads (any case, no hyphens, braces, ``urn:uuid:``, a
+    ``source:`` prefix in any case), or that follows a ``source:`` prefix or an ``alice://sources/`` URL at the start
+    of a word (``source:<id>#chunk-1``). An id there that names no stored source counts as a missing source does, so
+    it is refused. An id that follows ``memory:`` names a memory and is not read.
 
-    ``incidental`` are the other ids in a ref (under a key such as ``origin`` or ``chunk_id``, or inside a note). Such
-    an id may be a chunk id or a session id and name no source, so it is refused only when it names a stored source
-    the caller may not read. A source that was archived or deleted cannot be told from an id that names none, so an
-    id of this kind that names one is not judged.
+    ``incidental`` are the other ids in a ref: under a key such as ``origin`` or ``chunk_id``, a bare id inside a
+    sentence (``copied from source: <id>``), an id inside an outside URL (``https://host/sources/<id>``), an id with
+    punctuation around it. Such an id may be a chunk id or a session id and name no source, so it is refused only when
+    it names a source that was stored, whether that source is archived or not, and the caller may not read it. An id
+    that names no source row at all is left alone, so a source removed from the database (no door of the product does
+    that: sources are archived) cannot be told from a chunk id.
     """
 
     named: frozenset[str] = frozenset()
@@ -398,41 +455,80 @@ class CitedSourceIds:
 _NO_CITED_IDS = CitedSourceIds()
 
 
-def _whole_id(text: str) -> str | None:
-    """The id ``text`` is, as the link writer reads one and more: whitespace and any number of ``source:`` prefixes
-    (in any case) removed, then a UUID in any spelling ``uuid.UUID`` accepts, in canonical lower case form."""
+def _uuid_text(text: str) -> str | None:
+    """``text`` (surrounding whitespace removed, any case) as a canonical UUID in any spelling ``uuid.UUID`` accepts, else None."""
 
-    candidate = text.strip()
-    while candidate[:7].lower() == "source:":
-        candidate = candidate[7:].strip()
+    if len(text) < _MIN_ID_CHARS:
+        return None
     try:
-        return str(UUID(candidate.lower()))
+        return str(UUID(text.strip().lower()))
     except ValueError:
         return None
 
 
+def _whole_id(text: str) -> str | None:
+    """The id ``text`` is, as the link writer reads one and more: whitespace and any number of ``source:`` prefixes
+    (in any case) removed, then a UUID in any spelling ``uuid.UUID`` accepts, in canonical lower case form."""
+
+    return _uuid_text(text[_SOURCE_PREFIXES.match(text).end() :])  # type: ignore[union-attr]
+
+
+def _word_id(word: str) -> tuple[str | None, bool]:
+    """The id a word (a piece of a string split on whitespace and commas) is or begins with, as ``(id, explicit)``.
+
+    A word that is an id in any spelling gives ``(id, False)``. A word that starts with a ``source:`` prefix or with
+    ``alice://sources/`` and then holds an id (``source:<id>``, ``source:<id>#chunk-1``, ``alice://sources/<id>``) gives
+    ``(id, True)``: the word says it names a source. A word that holds no id at its start gives ``(None, False)``.
+    """
+
+    start = _SOURCE_PREFIXES.match(word).end()  # type: ignore[union-attr]
+    if start == 0 and word[: len(_ALICE_SOURCE_URL)].lower() == _ALICE_SOURCE_URL:
+        start = len(_ALICE_SOURCE_URL)
+    if start == 0:
+        return _uuid_text(word), False
+    whole = _uuid_text(word[start:])
+    if whole is None:
+        found = _ID_IN_TEXT.match(word, start)
+        whole = str(UUID(found.group(0))) if found else None
+    return whole, whole is not None
+
+
 def _ids_in_text(text: str, *, as_ref: bool) -> tuple[set[str], set[str]]:
-    """The ids in ``text``, as ``(named, incidental)``. Outside a ref position every id is incidental."""
+    """The ids in ``text``, as ``(named, incidental)``. Outside a ref position every id is incidental.
+
+    In a ref position a string is read as follows. When the whole string is one id (after any ``source:`` prefixes) it
+    is named. Otherwise it is split into words on whitespace, commas, semicolons and bars: when every word is an id
+    (a list of ids) each is named; when any word is something else (a sentence, a URL) only a word that says it names
+    a source (``source:<id>``, ``alice://sources/<id>``) is named and every other id in the string is incidental. The
+    string is walked once, so the cost is linear in its length.
+    """
 
     named: set[str] = set()
     incidental: set[str] = set()
+    if len(text) < _MIN_ID_CHARS:
+        return named, incidental
+    whole = _whole_id(text)
+    if whole is not None:
+        (named if as_ref else incidental).add(whole)
+        return named, incidental
     if as_ref:
-        for token in _TOKEN_BREAK.split(text.strip()):
-            whole = _whole_id(token)
-            if whole is not None:
-                named.add(whole)
-    else:
-        whole = _whole_id(text)
-        if whole is not None:
-            incidental.add(whole)
+        words: list[tuple[str, bool]] = []
+        every_word_is_an_id = True
+        for word in _TOKEN_BREAK.split(text.strip()):
+            if not word:
+                continue
+            found, explicit = _word_id(word)
+            if found is None:
+                every_word_is_an_id = False
+            else:
+                words.append((found, explicit))
+        for found, explicit in words:
+            (named if explicit or every_word_is_an_id else incidental).add(found)
     for match in _ID_IN_TEXT.finditer(text):
-        if _MEMORY_MARKER.search(text, 0, match.start()):
+        start = match.start()
+        if text[max(0, start - len(_MEMORY_PREFIX)) : start].lower() == _MEMORY_PREFIX:
             continue
-        found = str(UUID(match.group(0)))
-        if as_ref and _SOURCE_MARKER.search(text, 0, match.start()):
-            named.add(found)
-        else:
-            incidental.add(found)
+        incidental.add(str(UUID(match.group(0))))
     return named, incidental - named
 
 
@@ -541,7 +637,10 @@ def _source_ids_named_by_memory_copies(row: Mapping[str, object]) -> CitedSource
 
 
 def _source_ids_named_by_revision(row: Mapping[str, object]) -> CitedSourceIds:
-    cited = _NO_CITED_IDS
+    """Every source id a revision names: in its ``previous_value`` and ``new_value``, and in its own ``metadata_json``
+    (a memory proposal writes the ``source_refs`` it was given there), which is read as a memory's metadata is."""
+
+    cited = _source_ids_named_by_memory_copies({"metadata_json": row.get("metadata_json")})
     for key in _REVISION_VALUE_KEYS:
         value = row.get(key)
         if isinstance(value, Mapping):
@@ -653,6 +752,10 @@ def _revision_without_refused_refs(
     row: Mapping[str, object], *, refused: frozenset[str], withhold_quotes: bool
 ) -> dict[str, object]:
     out = dict(row)
+    if isinstance(row.get("metadata_json"), Mapping):
+        out["metadata_json"] = _memory_without_refused_provenance(
+            {"metadata_json": row["metadata_json"]}, refused=refused, withhold_quotes=withhold_quotes
+        )["metadata_json"]
     for key in _REVISION_VALUE_KEYS:
         value = row.get(key)
         if not isinstance(value, Mapping):
@@ -701,9 +804,9 @@ class SavedProvenanceReader:
     * when a memory has such a link, or its own copies name such a source (``cited_source_ids``: every id any ref of
       the memory names, in every shape), its copies of the quote (``metadata_json.provenance``,
       ``metadata_json.replacement_provenance`` and ``metadata_json.agentic_memory.conversation_excerpt``, and the same
-      copies in a revision's ``previous_value`` and ``new_value``) are removed, and the entries of the ref lists that
-      name the source (``source_refs`` in the metadata, in ``agentic_memory`` and in ``value``, and the same list in a
-      revision's ``previous_value`` and ``new_value``) are dropped;
+      copies in a revision's ``previous_value``, ``new_value`` and ``metadata_json``) are removed, and the entries of
+      the ref lists that name the source (``source_refs`` in the metadata, in ``agentic_memory`` and in ``value``, and
+      the same list in a revision's ``previous_value``, ``new_value`` and ``metadata_json``) are dropped;
     * every text that is withheld in either way (the quote of a link that is left out, and every copy that is removed)
       is withheld from the other links of the same memory too: a link whose quote says the same text (ignoring
       whitespace) is shown without its quote. The commit route saves one ``conversation_excerpt`` as the quote of the
@@ -865,14 +968,7 @@ class SavedProvenanceReader:
             source_id for link in links if (source_id := _canonical_source_id(link.get("source_id"))) is not None
         }
         self._judge([*link_ids, *cited.every])
-        refused = frozenset(
-            {source_id for source_id in link_ids | cited.named if not self._admitted.get(source_id, False)}
-            | {
-                source_id
-                for source_id in cited.incidental
-                if self._exists.get(source_id, False) and not self._admitted.get(source_id, False)
-            }
-        )
+        refused = self._refused(cited, also_named=link_ids)
         withhold_quotes = bool(refused) or any(_canonical_source_id(link.get("source_id")) is None for link in links)
         # A copy a revision lost because the revision cites a refused source is withheld whatever the memory cites.
         texts = set(self._revision_texts.get(memory_id, ()))
@@ -897,18 +993,13 @@ class SavedProvenanceReader:
         memory_id = str(row.get("memory_id") or "")
         cited = _source_ids_named_by_revision(row)
         self._judge(cited.every)
-        refused = frozenset(
-            {source_id for source_id in cited.named if not self._admitted.get(source_id, False)}
-            | {
-                source_id
-                for source_id in cited.incidental
-                if self._exists.get(source_id, False) and not self._admitted.get(source_id, False)
-            }
-        )
+        refused = self._refused(cited)
         known = self._rows.get(memory_id)
         memory_withholds = known is not None and self._verdict(memory_id, known, self._links.get(memory_id, [])).withhold_quotes
         withhold_quotes = bool(refused) or memory_withholds
         texts: set[str] = set()
+        if withhold_quotes:
+            texts |= _memory_copy_quote_texts({"metadata_json": row.get("metadata_json")})
         for key in _REVISION_VALUE_KEYS:
             value = row.get(key)
             if withhold_quotes and isinstance(value, Mapping):
@@ -918,6 +1009,20 @@ class SavedProvenanceReader:
         if texts:
             self._revision_texts.setdefault(memory_id, set()).update(texts)
         return _revision_without_refused_refs(row, refused=refused, withhold_quotes=withhold_quotes)
+
+    def _refused(self, cited: CitedSourceIds, *, also_named: Iterable[str] = ()) -> frozenset[str]:
+        """The ids of ``cited`` (and ``also_named``) the caller may not be shown. A named id must name a stored source the
+        fence admits. An incidental id is refused when it names a source that was stored (an archived one included) and
+        the fence does not admit it, and is left alone when it names no source row. Judged already by ``_judge``."""
+
+        return frozenset(
+            {source_id for source_id in {*cited.named, *also_named} if not self._admitted.get(source_id, False)}
+            | {
+                source_id
+                for source_id in cited.incidental
+                if self._exists.get(source_id, False) and not self._admitted.get(source_id, False)
+            }
+        )
 
     def _cited_by(self, row: Mapping[str, object]) -> CitedSourceIds:
         cached = self._cited.get(id(row))
@@ -986,7 +1091,7 @@ class SavedProvenanceReader:
             return
         rows: dict[str, Mapping[str, object]] = {}
         for start in range(0, len(unknown), _LOOKUP_BATCH):
-            rows.update(_rows_by_id(self._store, unknown[start : start + _LOOKUP_BATCH]))
+            rows.update(source_rows_including_archived(self._store, unknown[start : start + _LOOKUP_BATCH]))
         for source_id in unknown:
             row = rows.get(source_id)
             self._exists[source_id] = row is not None
@@ -1047,5 +1152,6 @@ __all__ = [
     "resolve_attachable_source_id",
     "resolve_attachable_sources",
     "source_ids_named_by_memory_audit",
+    "source_rows_including_archived",
     "source_uuids_in_ref",
 ]

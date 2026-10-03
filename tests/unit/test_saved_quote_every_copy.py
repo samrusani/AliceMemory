@@ -46,8 +46,10 @@ _ALLOWED_TEXT = "Alpha second log. Operator note: glaze shelf inventory nine jar
 _QUERY_WORDS = "cone ten firing schedule {tag} wall calendar"
 
 # ``(refs, is_incidental)``: how a commit cites the allowed source ``a`` and the restricted source ``b``. A shape is
-# *incidental* when ``b`` is named under a key that does not hold a source reference, where the reader judges an id only if
-# it names a stored source (so an archived or deleted ``b`` is not judged there: see ``test_a_limit_...``).
+# *incidental* when ``b`` sits where the reader cannot be sure it is a source (under a key that does not hold a source
+# reference, in a sentence, with punctuation around it), so the reader judges it only if the store holds a row for it. An
+# archived ``b`` has a row, so it is judged there as well; a ``b`` whose row was removed from the database is not (see
+# ``test_a_limit_an_id_that_names_a_source_removed_from_the_database...`` in ``test_saved_quote_ref_reading_vault.py``).
 _Shape = tuple[Callable[[str, str], list[object]], bool]
 _SHAPES: dict[str, _Shape] = {
     "nested ids a,b": (lambda a, b: [{"source_ids": [a, b]}], False),
@@ -73,6 +75,11 @@ _SHAPES: dict[str, _Shape] = {
     "braces": (lambda a, b: [a, "{" + b + "}"], False),
     "urn:uuid:": (lambda a, b: [a, "urn:uuid:" + b], False),
     "another key": (lambda a, b: [{"source_id": a, "origin": b}], True),
+    "key and id in a string": (lambda a, b: [a, f"id={b}"], True),
+    "id in parentheses": (lambda a, b: [a, f"({b})"], True),
+    "id in quotes": (lambda a, b: [a, f'"{b}"'], True),
+    "another prefix": (lambda a, b: [a, f"src:{b}"], True),
+    "bracketed text": (lambda a, b: [f"[{a}, {b}]"], True),
     "ids as dict values": (lambda a, b: [{"source_ids": {"first": a, "second": b}}], True),
     "url under sources": (lambda a, b: [{"source_id": a, "sources": [{"url": "source:" + b}]}], True),
 }
@@ -226,8 +233,6 @@ def _shape_params() -> list[object]:
         for variant in _VARIANTS:
             if label not in _CORE and variant not in ("confidential", "archived"):
                 continue
-            if incidental and variant == "archived":
-                continue  # the stated limit, pinned by its own test
             params.append(pytest.param(label, variant, id=f"{label}-{variant}"))
     return params
 
@@ -248,11 +253,12 @@ def test_a_ref_in_any_shape_that_names_b_withholds_the_quote_from_a_key_that_may
     withhold and nothing to leak. The owner is shown what was stored.
 
     Mutations, each alone, in ``vnext_source_fence.py``: drop ``selected_source_ids`` from ``SOURCE_REFERENCE_KEYS`` (the
-    ``selected_source_ids`` rows fail); drop the ``.lower()`` of ``UUID(candidate.lower())`` in ``_whole_id`` (the upper case
-    URN rows fail); make the ``source:`` prefix case sensitive in ``_whole_id`` and in ``_SOURCE_MARKER`` together (the
-    upper case ``SOURCE:`` and ``Source:`` rows fail when ``b`` is archived); iterate only the first entry of a list in
+    ``selected_source_ids`` rows fail); drop the ``.lower()`` of ``UUID(text.strip().lower())`` in ``_uuid_text`` (the upper case
+    URN rows fail); make the ``source:`` prefix case sensitive in ``_SOURCE_PREFIXES`` (the
+    upper case ``SOURCE:`` and ``Source:`` rows fail); iterate only the first entry of a list in
     ``cited_source_ids`` (every row with a second id fails); make ``_json_container`` return None (the JSON row fails when
-    ``b`` is archived); drop the ``cited.incidental`` set from ``refused`` in ``_verdict`` (the ``another key`` rows fail).
+    ``b`` is archived); drop the ``cited.incidental`` set from ``refused`` in ``SavedProvenanceReader._refused`` (the incidental rows fail, the
+    archived ones too).
     """
 
     build, _incidental = _SHAPES[label]
@@ -286,26 +292,6 @@ def test_a_ref_in_any_shape_that_names_b_withholds_the_quote_from_a_key_that_may
         assert (vault.explain(who, memory_id)["is_error"] is False) is (who in authorized), (label, variant, who)
     for surface, answer in surfaces(None).items():
         assert _holds_quote(answer) is (linked or not surface.startswith("pack")), ("the owner", label, variant, surface)
-
-
-def test_a_limit_an_id_under_an_unlisted_key_that_names_an_archived_source_is_not_judged(vault: _Vault) -> None:
-    """The stated limit of the reader. An id under a key that does not hold a source reference (``origin``) is judged when it
-    names a stored source and left alone when it names none, because it may be a chunk id or a session id. A source that
-    was archived (or deleted) is not returned by either store, so such an id cannot be told from one that names no source,
-    and the quote stays for a key that may read the other source. The same ref with the id under ``source_ids`` is
-    judged (the shape table above). Closing this needs a store read that returns archived sources; if one is added, this
-    test fails and is turned into the case above for the ``another key`` shape.
-
-    Mutation: none to make; this pins a limit, and it fails when the limit is closed.
-    """
-
-    allowed, restricted = _two_sources(vault)
-    memory_id, _query, _body = _commit_with_refs(vault, [{"source_id": allowed, "origin": restricted}], tag="limitorigin")
-    vault.reclassify(restricted, "archived")
-    answer = vault.review("trusted", memory_id)
-    assert answer["is_error"] is False
-    assert _holds_quote(answer), "the stated limit: an archived source named under an unlisted key is not judged"
-    assert vault.explain("trusted", memory_id)["is_error"] is False
 
 
 # -- 3. long and odd excerpts --------------------------------------------------------------------------------------

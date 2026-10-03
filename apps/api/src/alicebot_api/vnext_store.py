@@ -1135,16 +1135,21 @@ class PostgresVNextStore:
             (source_id,),
         )
 
-    def get_sources_by_ids(self, source_ids: Sequence[str]) -> list[VNextRow]:
+    def get_sources_by_ids(self, source_ids: Sequence[str], *, include_deleted: bool = False) -> list[VNextRow]:
+        """The live rows of ``source_ids``. With ``include_deleted`` an archived source's row (``deleted_at`` set) comes
+        back as well, so a reader can tell an id that names an archived source from an id that names none; the caller
+        decides what an archived row means."""
+
         ids = list(dict.fromkeys(str(source_id) for source_id in source_ids if source_id))
         if not ids:
             return []
+        live_only = "" if include_deleted else "AND deleted_at IS NULL"
         return self._fetch_all(
             f"""
                 SELECT {SOURCE_COLUMNS}
                 FROM sources
-                WHERE deleted_at IS NULL
-                  AND id = ANY(%s::uuid[])
+                WHERE id = ANY(%s::uuid[])
+                  {live_only}
                 """,
             (ids,),
         )

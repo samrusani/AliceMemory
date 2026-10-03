@@ -20,6 +20,11 @@ archived the copy is withheld and the quote on the link to A must go with it, wh
 of a memory it was given a row for (``memory`` first, as the review does) or not (``links`` alone, which reads the row
 with ``get_memory``, a store read the reader did not make before). The refs are read in the shapes a writer stores:
 ``source_ids`` and ``selected_source_ids``.
+
+The fourth test covers the follow-up of the same review. ``get_sources_by_ids(..., include_deleted=True)`` is the Postgres read that
+returns an archived source's row (the plain call leaves it out), so an id found under a key that does not hold a
+source reference is judged when it names an archived source. And the ``metadata_json`` of a revision, where a memory
+proposal keeps the ``source_refs`` it was given, is scrubbed like the memory's own.
 """
 
 from __future__ import annotations
@@ -401,3 +406,96 @@ def test_a_nested_reference_withholds_the_quote_on_the_link_to_the_readable_sour
     with user_connection(migrated_database_urls["app"], user_id) as conn:
         ContinuityStore(conn).create_user(user_id, "saved-quote-nested@example.invalid", "Saved quote nested")
         run_nested_reference_lifecycle(PostgresVNextStore(conn))
+
+
+def run_archived_incidental_and_revision_lifecycle(store: PostgresVNextStore) -> None:
+    """An id under a free key that names a source, then archives it; a revision whose metadata names the same source."""
+
+    readable = _make_source(store, "Alpha second log")
+    archived = _make_source(store, "Alpha archived log")
+    refs = [{"source_id": readable, "origin": archived}]
+    memory = store.create_memory(
+        {
+            "memory_key": "project.origin-cone-ten-firing",
+            "memory_type": "project_fact",
+            "title": "Origin cone ten firing",
+            "canonical_text": "The origin cone ten firing schedule is posted on the wall calendar.",
+            "status": "active",
+            "domain": "project",
+            "sensitivity": "internal",
+            "project_id": "alpha",
+            "value": {"text": "origin cone ten firing schedule", "source_refs": refs},
+            "metadata_json": {
+                "project_scope": ["alpha"],
+                "agentic_memory": {"source_refs": refs, "conversation_excerpt": _QUOTE},
+            },
+        }
+    )
+    memory_id = str(memory["id"])
+    store.create_provenance_link(
+        {
+            "target_type": "memory",
+            "target_id": memory_id,
+            "source_id": readable,
+            "quote": _QUOTE,
+            "evidence_role": "supports",
+        }
+    )
+    store.append_revision(
+        {
+            "memory_id": memory_id,
+            "memory_key": str(memory["memory_key"]),
+            "new_value": memory.get("value"),
+            "revision_type": "created",
+            "action": "agent_memory_proposal",
+            "text_after": str(memory["canonical_text"]),
+            "metadata_json": {"proposal_id": "proposal-1", "source_refs": [readable, archived]},
+        },
+        actor_type="agent",
+    )
+    trusted = SourceReadFence.for_identity(_identity("trusted_local_agent"))
+    owner = SourceReadFence.unfenced()
+
+    def seen(fence: SourceReadFence) -> dict[str, object]:
+        reader = SavedProvenanceReader(store, fence=fence)
+        row = store.get_memory(memory_id)
+        assert row is not None
+        shown_memory = reader.memory(row)
+        shown_revisions = [reader.revision(revision) for revision in store.list_revisions(memory_id)]
+        return {"memory": shown_memory, "revisions": shown_revisions, "links": reader.links(memory_id)}
+
+    # The control: while the source is stored every reader is shown the quote and both ids.
+    for fence in (trusted, owner):
+        shown = seen(fence)
+        assert _holds_quote(shown["memory"]) and _holds_quote(shown["links"]), fence
+        assert archived in json.dumps(shown["revisions"], default=str), fence
+
+    store.delete_source(source_id=archived, actor_type="user")
+    assert store.get_sources_by_ids([archived]) == [], "the usual lookup leaves an archived source out"
+    rows = {str(row["id"]): row for row in store.get_sources_by_ids([readable, archived, str(uuid4())], include_deleted=True)}
+    assert set(rows) == {readable, archived}
+    assert rows[archived]["deleted_at"] is not None and rows[readable]["deleted_at"] is None
+    assert store.get_sources_by_ids([], include_deleted=True) == []
+
+    shown = seen(trusted)
+    assert not _holds_quote(shown), shown
+    assert archived not in json.dumps(shown, default=str)
+    assert [str(link["source_id"]) for link in shown["links"]] == [readable]  # type: ignore[attr-defined,union-attr]
+    assert all(link["quote"] is None for link in shown["links"])  # type: ignore[attr-defined,union-attr]
+    assert shown["revisions"][0]["metadata_json"]["source_refs"] == [readable]  # type: ignore[index]
+    kept = seen(owner)
+    assert _holds_quote(kept["memory"]) and _holds_quote(kept["links"])
+    assert archived in json.dumps(kept["revisions"], default=str), "the owner is shown what was stored"
+
+
+def test_an_archived_source_named_under_a_free_key_and_a_revision_of_refs_are_withheld_on_postgres(
+    migrated_database_urls,
+) -> None:
+    """Mutations: ask ``_rows_by_id`` and not ``source_rows_including_archived`` in ``SavedProvenanceReader._judge`` (the
+    memory and the link keep the quote of the archived source named under ``origin``); drop the ``metadata_json`` scrub from
+    ``_revision_without_refused_refs`` (the archived id stays in the revision)."""
+
+    user_id = uuid4()
+    with user_connection(migrated_database_urls["app"], user_id) as conn:
+        ContinuityStore(conn).create_user(user_id, "saved-quote-origin@example.invalid", "Saved quote origin")
+        run_archived_incidental_and_revision_lifecycle(PostgresVNextStore(conn))

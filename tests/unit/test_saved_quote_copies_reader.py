@@ -144,10 +144,9 @@ def test_cited_source_ids_reads_every_shape_and_spelling_a_writer_stores() -> No
     named; an id under any other key is incidental (it may be a chunk id or a session id); the text of a quote is not read.
 
     Mutations, each alone, in ``vnext_source_fence.py``: drop ``selected_source_ids`` from ``SOURCE_REFERENCE_KEYS`` (the
-    ``selected_source_ids`` row fails); drop the ``.lower()`` of ``UUID(candidate.lower())`` in ``_whole_id`` (the
-    ``URN:UUID:`` row fails); make the ``source:`` prefix case sensitive in ``_whole_id`` and in ``_SOURCE_MARKER`` together
-    (the ``SOURCE:`` and ``Source:`` rows fail; either alone changes nothing, because each finds the id the other
-    would miss); iterate only the first entry of a list (``node[:1]`` in the list branch of ``cited_source_ids``: every
+    ``selected_source_ids`` row fails); drop the ``.lower()`` of ``UUID(text.strip().lower())`` in ``_uuid_text`` (the
+    ``URN:UUID:`` row fails); make the ``source:`` prefix case sensitive in ``_SOURCE_PREFIXES`` (the ``SOURCE:`` and
+    ``Source:`` rows fail); iterate only the first entry of a list (``node[:1]`` in the list branch of ``cited_source_ids``: every
     row that holds a second id fails); make ``_json_container`` return None (the JSON row fails); skip the ``_TEXT_KEYS``
     test (the quote rows name ``b``).
     """
