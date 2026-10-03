@@ -420,6 +420,12 @@ def redact_memory_flow(
     # too, or it could tell a deleted row from an id the vault never held.
     # Nothing is written for an authorized caller; the policy row of a redaction
     # that goes on is written below.
+    try:
+        memory_service.refuse_unauthorized_write(identity=identity, action="memory.redact", memory=memory)
+    except AgentPolicyBlockedError:
+        if memory.get("deleted_at") is not None:
+            raise MemoryNotFoundError("memory was not found") from None
+        raise
     if is_pending_project_update_memory(memory):
         raise MemoryStateError(PENDING_PROJECT_UPDATE_MEMORY_MUTATION_MESSAGE)
     project_update_artifacts = store.lock_project_update_artifacts_for_redaction(memory_id)

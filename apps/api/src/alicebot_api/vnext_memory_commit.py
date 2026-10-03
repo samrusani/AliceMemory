@@ -1733,6 +1733,7 @@ class VNextMemoryCommitService:
             if locked is None:
                 raise MemoryNotFoundError("memory was not found")
             memory = locked
+        self.refuse_unauthorized_write(identity=identity, action="memory.undo", memory=memory)
         _require_project_update_decision_path(memory)
         self._policy_checked_write(identity=identity, action="memory.undo", memory=memory)
         successor: VNextRow | None = None
@@ -1895,6 +1896,7 @@ class VNextMemoryCommitService:
         if memory is None:
             raise MemoryNotFoundError("memory was not found")
         self.refuse_unauthorized_write(identity=identity, action="memory.forget", memory=memory)
+        _require_project_update_decision_path(memory)
         self._policy_checked_write(identity=identity, action="memory.forget", memory=memory)
         # A retirement always completes (owner ruling R2).
         reason_text, rationale_withheld = withhold_credential_text(reason or "Agentic memory forgotten.")
