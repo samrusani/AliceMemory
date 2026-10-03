@@ -5,7 +5,8 @@ Postgres store. Three things only a live database shows:
 
 * the two bulk lookups the rule makes (``get_sources_by_ids`` and ``get_memories_by_ids``, each ``id = ANY(%s::uuid[])``)
   parse and return the rows of the loops' own columns and of the ids found inside ``metadata_json``, which the driver
-  hands back as ``UUID`` objects and as ``jsonb``;
+  hands back as ``UUID`` objects and as ``jsonb``, and, with ``include_deleted``, the soft-deleted, archived and
+  redacted rows too, so that an id of a deleted row is withheld under any key (the last test of the file);
 * the HTTP review route and the HTTP context pack, which are Postgres only, withhold what the key bound to a project may
   not read and give the ``admin_agent`` key the reference it may read;
 * the scheduler's ``open_loop_review`` report (Postgres only) copies into its text and its ``source_refs`` only the
@@ -359,3 +360,123 @@ def test_the_scheduler_open_loop_report_copies_only_the_sources_its_identity_may
         refs = sorted(artifact["metadata_json"]["source_refs"])  # type: ignore[index]
         assert f"source:{world.own}" in refs, who
         assert (f"source:{world.confidential}" in refs) is sees_confidential, who
+
+
+def test_a_deleted_row_is_refused_and_an_id_is_withheld_in_every_spelling_on_postgres(
+    migrated_database_urls,
+) -> None:  # type: ignore[no-untyped-def]
+    """The two reads with ``include_deleted`` on the real store, and the two cases an outside review reproduced.
+
+    ``get_sources_by_ids`` and ``get_memories_by_ids`` leave a soft-deleted row out by default and return it, with
+    ``deleted_at`` set, when asked: a deleted source, an archived memory and a redacted memory. The rule then, for a
+    ``project_scoped_agent`` key bound to the project: (1) a confidential source's id written without hyphens inside a URL
+    and a sentence is withheld like the hyphenated one; (2) a loop that links a confidential source in its column and
+    repeats the id under ``evidence.quote_from`` shows it neither before nor after the source is deleted; (3) the ids of a
+    deleted source, an archived memory and a redacted memory under keys that name no reference, which nothing in the
+    response links, are withheld; (4) a readable source's id under the same keys is shown as stored.
+
+    Mutations: make either bulk read ignore ``include_deleted`` and always filter ``deleted_at IS NULL`` (the first
+    assertions fail, and so does case 3), drop the ``include_deleted`` argument from the call in ``_rows_by_id`` (case 3
+    fails), or scan text for the hyphenated spelling only (case 1 fails).
+    """
+
+    app_url = migrated_database_urls["app"]
+    user_id = seed_user(app_url, email=f"open-loop-references-deleted-{uuid4().hex[:8]}@example.com")
+    world = _World(app_url, user_id)
+    scoped = AgentIdentity(
+        agent_id="loop-scoped",
+        permission_profile="project_scoped_agent",
+        project_scope=(_PROJECT,),
+        auth="agent_api_key",
+        project_scope_locked=True,
+    )
+    fence = SourceReadFence.for_identity(scoped)
+    cut = "(id withheld)"
+    with user_connection(app_url, user_id) as conn:
+        store = PostgresVNextStore(conn)
+
+        def read(loop_id: str) -> dict[str, object]:
+            return withhold_unreadable_references(store, [dict(store.get_open_loop(loop_id))], fence=fence)[0]  # type: ignore[arg-type]
+
+        gone = _source(store, "gone")
+        archived_memory = _memory(store, "archived")
+        redacted_memory = _memory(store, "redacted")
+        store.delete_source(source_id=gone)
+        store.update_memory(memory_id=archived_memory, patch={"status": "archived"})
+        store.redact_memory_content(memory_id=redacted_memory)
+
+        # The reads: live rows by default, the deleted ones when asked.
+        assert [str(row["id"]) for row in store.get_sources_by_ids([gone, world.own])] == [world.own]
+        found = {str(row["id"]): row for row in store.get_sources_by_ids([gone, world.own], include_deleted=True)}
+        assert set(found) == {gone, world.own}
+        assert found[gone]["deleted_at"] is not None and found[world.own]["deleted_at"] is None
+        asked = [archived_memory, redacted_memory, world.own_memory]
+        assert [str(row["id"]) for row in store.get_memories_by_ids(asked)] == [world.own_memory]
+        found_memories = {str(row["id"]): row for row in store.get_memories_by_ids(asked, include_deleted=True)}
+        assert set(found_memories) == set(asked)
+        assert found_memories[archived_memory]["deleted_at"] is not None
+        assert found_memories[redacted_memory]["deleted_at"] is not None
+        assert found_memories[world.own_memory]["deleted_at"] is None
+
+        # Case 1: the compact spelling inside a URL and a sentence.
+        confidential = _source(store, "compact-confidential", sensitivity="confidential")
+        compact = UUID(confidential).hex
+        first = read(
+            _loop(
+                store,
+                "compact",
+                source_id=confidential,
+                metadata={
+                    "source_refs": [f"https://example.test/source/{confidential}", f"https://example.test/source/{compact}"],
+                    "note": f"derived from {compact} on import",
+                },
+            )
+        )
+        assert first["source_id"] is None
+        assert first["metadata_json"] == {
+            "project_scope": [_PROJECT],
+            "source_refs": [f"https://example.test/source/{cut}", f"https://example.test/source/{cut}"],
+            "note": f"derived from {cut} on import",
+        }
+
+        # Case 2: the id repeated under another key stays withheld after the source is deleted.
+        probe = _source(store, "probe-confidential", sensitivity="confidential")
+        probe_loop = _loop(
+            store,
+            "delete-probe",
+            source_id=probe,
+            metadata={"source_id": probe, "evidence": {"quote_from": probe}},
+        )
+        before = read(probe_loop)
+        store.delete_source(source_id=probe)
+        after = read(probe_loop)
+        for row in (before, after):
+            assert row["source_id"] is None
+            assert probe not in json.dumps(row, default=str) and UUID(probe).hex not in json.dumps(row, default=str)
+            assert row["metadata_json"] == {"project_scope": [_PROJECT], "evidence": {}}
+
+        # Case 3 and 4: deleted rows nothing links, and a readable one.
+        unlinked = read(
+            _loop(
+                store,
+                "unlinked",
+                metadata={
+                    "evidence": {
+                        "quote_from": gone,
+                        "note": f"see {UUID(gone).hex}",
+                        "readable": world.own,
+                        "readable_text": f"own {UUID(world.own).hex}",
+                    },
+                    "related": [archived_memory, UUID(redacted_memory).hex.upper()],
+                },
+            )
+        )
+        assert unlinked["metadata_json"] == {
+            "project_scope": [_PROJECT],
+            "evidence": {
+                "note": f"see {cut}",
+                "readable": world.own,
+                "readable_text": f"own {UUID(world.own).hex}",
+            },
+            "related": [],
+        }

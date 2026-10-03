@@ -811,21 +811,20 @@ class SQLiteVNextStore:
         )
 
     def get_sources_by_ids(self, source_ids: Sequence[str], *, include_deleted: bool = False) -> list[VNextRow]:
-        """The live rows of ``source_ids``. With ``include_deleted`` an archived source's row (``deleted_at`` set) comes
-        back as well, so a reader can tell an id that names an archived source from an id that names none; the caller
-        decides what an archived row means."""
+        """The sources at ``source_ids``. A soft-deleted row is returned only with ``include_deleted``, which a reader
+        that must tell a deleted source from one that never existed passes (the open-loop id filter)."""
 
         ids = list(dict.fromkeys(str(source_id) for source_id in source_ids if source_id))
         if not ids:
             return []
         placeholders = self._placeholders(ids)
-        live_only = "" if include_deleted else "AND deleted_at IS NULL"
+        deleted_clause = "" if include_deleted else "AND deleted_at IS NULL"
         return self._fetch_all(
             f"""
                 SELECT {", ".join(SOURCE_COLUMNS)}
                 FROM sources
                 WHERE user_id = ?
-                  {live_only}
+                  {deleted_clause}
                   AND id IN ({placeholders})
                 """,
             (self.user_id, *ids),
