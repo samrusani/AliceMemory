@@ -26,7 +26,8 @@ import pytest
 
 from alicebot_api.mcp.runtime import _sqlite_path_from_url
 from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
-from tests.unit.test_saved_quote_every_copy import _commit_with_refs, _correct, _link_count, _two_sources
+from tests.unit.test_saved_quote_every_copy import _ALLOWED_TEXT, _commit_with_refs, _correct, _link_count, _two_sources
+from tests.unit.test_saved_quote_ref_reading import _zero_led_id
 from tests.unit.test_saved_quotes_follow_the_source_fence import (
     _AGENT_IDS,
     _AUTHORIZED_AFTER,
@@ -286,12 +287,12 @@ def test_a_ref_of_a_hundred_kilobytes_stored_by_the_proposal_door_is_read_in_tim
     huge = ",".join(str(uuid4()) for _ in range(4_000))
     memory_id = _propose(vault, [allowed, huge], tag="hugeref")
     for who in ("project", "admin"):
-        started = time.perf_counter()
+        started = time.process_time()
         review = vault.review(who, memory_id)
-        review_seconds = time.perf_counter() - started
-        started = time.perf_counter()
+        review_seconds = time.process_time() - started
+        started = time.process_time()
         vault.explain(who, memory_id)
-        explain_seconds = time.perf_counter() - started
+        explain_seconds = time.process_time() - started
         assert review["is_error"] is False, who
         assert review_seconds < _TIME_LIMIT_SECONDS, (who, f"review {review_seconds:.2f} s")
         assert explain_seconds < _TIME_LIMIT_SECONDS, (who, f"explain {explain_seconds:.2f} s")
@@ -340,3 +341,121 @@ def test_a_review_that_sends_no_quote_stores_the_memory_text_on_the_link_and_nul
     link = vault.sql("SELECT quote FROM provenance_links WHERE target_id = ?", (replacement,))
     assert [item["quote"] for item in link] == [row["canonical_text"]]
     assert json.loads(row["metadata_json"])["replacement_provenance"]["quote"] is None
+
+
+# -- 6. a source whose id starts with 0, named with whitespace in the place of the 0 -----------------------------------
+
+
+def _two_sources_with_a_zero_led_b(vault: _Vault, zeros: int) -> tuple[str, str]:
+    """The source the keys may keep reading (``a``) and the one that is reclassified later (``b``), whose id starts with
+    ``zeros`` zeros. Both are captured through ``alice_capture``; the store is given ``b``'s id for that one capture."""
+
+    wanted = _zero_led_id(zeros)
+    allowed = vault.capture_source(_ALLOWED_TEXT, "Second log")
+    original = SQLiteVNextStore.get_or_create_source
+
+    def with_the_wanted_id(self: SQLiteVNextStore, source: dict[str, object], **kwargs: object):  # type: ignore[no-untyped-def]
+        return original(self, {**source, "id": wanted}, **kwargs)  # type: ignore[arg-type]
+
+    with vault.monkeypatch.context() as patch:
+        patch.setattr(SQLiteVNextStore, "get_or_create_source", with_the_wanted_id)
+        restricted = vault.capture_source()
+    assert restricted == wanted
+    return allowed, restricted
+
+
+_ZERO_LED_SHAPES = {
+    "source: and a space": lambda a, b: [{"source_ids": [a, "source: " + b.replace("-", "")[1:]]}],
+    "source: and a tab, hyphens kept": lambda a, b: [{"source_ids": [a, "source:\t" + b[1:]]}],
+    "a space under an id key": lambda a, b: [{"source_id": a, "id": " " + b.replace("-", "")[1:]}],
+    "a newline after the id, stripped first by the writer": lambda a, b: [
+        {"source_ids": [a, "source: " + b.replace("-", "")[1:] + "\n"]}
+    ],
+}
+_ZERO_LED_DOORS = ("http_commit", "held", "confirm")
+
+
+def _commit_through(vault: _Vault, door: str, refs: list[object], *, tag: str) -> tuple[str, str]:
+    """``POST /v0/vnext/memories/commit`` with the refs as given, then the step that makes the memory active: nothing for a
+    commit accepted at once (a link to the first id of each ref, and the excerpt as its quote and as the memory's own copy);
+    an approval for a commit held for review (confidence under 0.5); a confirmation for one that waits for its author
+    (confidence under 0.85). The last two store no link at all."""
+
+    if door == "http_commit":
+        memory_id, query, _body = _commit_with_refs(vault, refs, tag=tag)
+        return memory_id, query
+    confidence = 0.4 if door == "held" else 0.7
+    memory_id, query, body = _commit_with_refs(vault, refs, tag=tag, confidence=confidence)
+    assert body["status"] == ("review_required" if door == "held" else "confirmation_required"), body
+    assert _link_count(vault, memory_id) == 0
+    if door == "held":
+        done = vault.wire(
+            "alice_memory_correct", {"review_item_id": memory_id, "action": "approve", "reason": "check"}, who=vault.reviewer
+        )
+    else:
+        done = vault.wire(
+            "alice_memory_commit",
+            {"confirmation_id": body["confirmation"]["confirmation_id"], "confirmation_action": "confirm"},
+            who="trusted",
+        )
+    assert done["is_error"] is False, done
+    assert _link_count(vault, memory_id) == 0, "approving or confirming adds no link"
+    return memory_id, query
+
+
+def _zero_led_params() -> list[object]:
+    """Every shape through the door that links, the two that matter through the doors that store no link, and the archived
+    and the three zeros variants through each door."""
+
+    cases: list[tuple[str, str, int, str]] = []
+    for door in _ZERO_LED_DOORS:
+        shapes = list(_ZERO_LED_SHAPES) if door == "http_commit" else ["source: and a space", "a newline after the id, stripped first by the writer"]
+        cases += [(door, shape, 1, "confidential") for shape in shapes]
+        cases += [(door, "source: and a space", 1, "archived"), (door, "source: and a space", 3, "confidential")]
+    return [pytest.param(*case, id="-".join(map(str, case))) for case in cases]
+
+
+@pytest.mark.parametrize(("door", "shape", "zeros", "variant"), _zero_led_params())
+def test_a_source_with_a_leading_zero_named_with_whitespace_keeps_its_quote_from_every_reader(
+    vault: _Vault, door: str, shape: str, zeros: int, variant: str
+) -> None:
+    """The case of the outside review of the second head. A source whose id starts with ``0`` can be named by 31 digits and a
+    whitespace character (``source: `` and the digits is the form of the review): ``uuid.UUID`` reads it as the id with its
+    zero, so the commit route links and fences the source, and the reader, which stripped the string first, named nothing.
+    B was then made confidential or archived and the excerpt, which the memory keeps in ``agentic_memory`` (and in the link
+    to A for a commit accepted at once), was returned by ``alice_memory_review`` by id, the MCP pack and the HTTP pack to
+    every key that may not read B, and ``alice_explain`` did not refuse. Held (approved) and confirmed commits store no
+    link, so before the change of the second head they were clean on main and leaked through this spelling only.
+
+    Run through the three doors, four spellings, ids with one, two and three zeros, every key, every reader. A control reads
+    each surface before the change; the keys that may still read B keep the quote, the others get none, ``alice_explain``
+    agrees, and the owner is shown what was stored.
+
+    Mutation: in ``_uuid_text`` (``vnext_source_fence.py``) read only the stripped text (``for candidate in (text.strip(),)``):
+    every case fails; read only ``text`` in ``_whole_id`` (``for whole in (text,)``): the newline case fails; let
+    ``_SOURCE_PREFIXES`` take the whitespace after the prefix again: the cases with ``source:`` and a space or tab fail.
+    """
+
+    allowed, restricted = _two_sources_with_a_zero_led_b(vault, zeros)
+    tag = "zero" + "".join(ch for ch in f"{door}{shape}{zeros}{variant}".lower() if ch.isalpha())
+    refs = _ZERO_LED_SHAPES[shape](allowed, restricted)
+    memory_id, query = _commit_through(vault, door, refs, tag=tag)
+    linked = _link_count(vault, memory_id) > 0
+    assert linked is (door == "http_commit")
+
+    before = {
+        (who, surface): _holds_quote(answer)
+        for who in _KEY_SPECS
+        for surface, answer in _surfaces(vault, who, memory_id, query).items()
+    }
+    for (who, surface), held in before.items():
+        assert held is (linked or not surface.startswith("pack")), ("the control", door, shape, who, surface)
+    vault.reclassify(restricted, variant)
+    authorized = _AUTHORIZED_AFTER[variant]
+    for who in _KEY_SPECS:
+        for surface, answer in _surfaces(vault, who, memory_id, query).items():
+            assert answer["is_error"] is False, (door, shape, variant, who, surface, str(answer["text"])[:300])
+            assert _holds_quote(answer) is (before[(who, surface)] and who in authorized), (door, shape, variant, who, surface)
+        assert (vault.explain(who, memory_id)["is_error"] is False) is (who in authorized), (door, shape, variant, who)
+    for surface, answer in _surfaces(vault, None, memory_id, query).items():
+        assert _holds_quote(answer) is (linked or not surface.startswith("pack")), ("the owner", door, shape, variant, surface)

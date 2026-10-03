@@ -18,6 +18,11 @@ runs the same cases on a real vault with real keys.
 * Revisions. A revision row keeps its own ``metadata_json``, where a memory proposal writes the ``source_refs`` it was given,
   and the reader neither judged nor scrubbed it.
 
+A review of the next head found a fifth, in the spellings. ``uuid.UUID`` strips whitespace through ``int(..., 16)``, so 31
+digits and a space are an id that starts with ``0``; the link writer reads it and the commit route links and fences the
+source, and the reader, which stripped a string before it parsed it, named nothing. The tests of section 3c run every
+spelling the writer reads, for ids with one to three leading zeros, against the reader.
+
 Each test names the mutation that must fail it. The mutations were made by hand on a copy of the module and the file was
 restored by copying the saved original back.
 """
@@ -58,6 +63,15 @@ _IDS = 8_000
 
 def _new_ids(count: int) -> list[str]:
     return [str(uuid4()) for _ in range(count)]
+
+
+def _zero_led_id(zeros: int) -> str:
+    """A UUID whose first ``zeros`` hex digits are ``0`` and whose next one is not, as the id of a source can be."""
+
+    digits = uuid4().hex
+    while digits[zeros] == "0":
+        digits = uuid4().hex
+    return str(UUID("0" * zeros + digits[zeros:]))
 
 
 class _ArchiveStore(_MemoryStore):
@@ -110,9 +124,9 @@ def test_a_ref_string_is_read_in_time_that_grows_with_its_length(label: str) -> 
     """
 
     ref, named, incidental = _cost_cases()[label]
-    started = time.perf_counter()
+    started = time.process_time()
     cited = cited_source_ids(ref)
-    took = time.perf_counter() - started
+    took = time.process_time() - started
     assert (set(cited.named), set(cited.incidental)) == (named, incidental)
     assert took < _TIME_LIMIT_SECONDS, f"{label}: {took:.2f} s for {len(ref):,} characters"
 
@@ -140,12 +154,12 @@ def test_the_reader_and_the_audit_read_a_memory_whose_ref_is_huge_in_time_that_g
         "events": [{"payload_json": {"source_refs": [readable, huge], "changes": {"source_refs": [huge]}}}],
     }
     reader = _reader(store)
-    started = time.perf_counter()
+    started = time.process_time()
     shown = reader.memory(row)
     shown_revision = reader.revision(revision)
     shown_links = reader.links(memory_id)
     cited = cited_source_ids_in_memory_audit(audit)
-    took = time.perf_counter() - started
+    took = time.process_time() - started
     assert took < _TIME_LIMIT_SECONDS, f"{took:.2f} s"
     assert shown["metadata_json"]["agentic_memory"]["source_refs"] == [readable]  # type: ignore[index]
     assert shown_revision["metadata_json"]["source_refs"] == [readable]  # type: ignore[index]
@@ -249,20 +263,30 @@ def _slow_rule(text: str, as_ref: bool) -> tuple[set[str], set[str]]:
     """The rule of ``_ids_in_text``, written the obvious quadratic way and sharing none of its code."""
 
     def uuid_of(candidate: str) -> str | None:
-        try:
-            return str(UUID(candidate.strip().lower()))
-        except ValueError:
-            return None
+        for attempt in (candidate, candidate.strip()):
+            try:
+                return str(UUID(attempt.lower()))
+            except ValueError:
+                continue
+        return None
 
-    def strip_prefixes(candidate: str) -> str:
-        candidate = candidate.strip()
-        while candidate[:7].lower() == "source:":
-            candidate = candidate[7:].strip()
-        return candidate
+    def after_prefixes(candidate: str) -> str:
+        while True:
+            found = re.match(r"\s*source:", candidate, re.IGNORECASE)
+            if found is None:
+                return candidate
+            candidate = candidate[found.end() :]
+
+    def whole_id(candidate: str) -> str | None:
+        for attempt in (candidate, candidate.strip()):
+            found = uuid_of(after_prefixes(attempt))
+            if found is not None:
+                return found
+        return None
 
     named: set[str] = set()
     incidental: set[str] = set()
-    whole = uuid_of(strip_prefixes(text))
+    whole = whole_id(text)
     if whole is not None:
         return ({whole}, set()) if as_ref else (set(), {whole})
     if as_ref:
@@ -277,7 +301,7 @@ def _slow_rule(text: str, as_ref: bool) -> tuple[set[str], set[str]]:
             if lowered.startswith("alice://sources/"):
                 rest, explicit = word[len("alice://sources/") :], True
             elif lowered.startswith("source:"):
-                rest, explicit = strip_prefixes(word), True
+                rest, explicit = after_prefixes(word), True
             found = uuid_of(rest)
             if found is None and explicit:
                 match = re.match(_ID + r"(?![0-9a-fA-F])", rest)
@@ -303,6 +327,11 @@ def _random_texts(count: int, seed: int) -> list[str]:
         lambda i: i.replace("-", ""),
         lambda i: "{" + i + "}",
         lambda i: "urn:uuid:" + i,
+        # An id that starts with 0, written with a whitespace character in the place of the 0 (31 digits and one space):
+        # ``uuid.UUID`` reads it, and a read that strips first does not.
+        lambda i: " " + i.replace("-", "")[1:],
+        lambda i: "\t" + i[1:],
+        lambda i: i.replace("-", "")[1:] + "\n",
     )
     wrappers = (
         lambda s: s,
@@ -329,7 +358,7 @@ def _random_texts(count: int, seed: int) -> list[str]:
     )
     words = ("copied", "from", "see", "note:", "source:", "src:", "and", "deadbeef", "a" * 34, "x")
     separators = (", ", " ", ";", "|", "\n", "\t", ",", "", "  ")
-    pool = _new_ids(40)
+    pool = [*_new_ids(30), *(_zero_led_id(zeros) for zeros in (1, 1, 1, 2, 2, 3, 1, 1, 2, 1))]
     texts: list[str] = []
     for _ in range(count):
         parts: list[str] = []
@@ -341,7 +370,7 @@ def _random_texts(count: int, seed: int) -> list[str]:
         text = parts[0]
         for part in parts[1:]:
             text += rng.choice(separators) + part
-        texts.append(rng.choice(("", " ", "  ")) + text + rng.choice(("", " ", ",")))
+        texts.append(rng.choice(("", " ", "  ")) + text + rng.choice(("", " ", ",", "\n")))
     return texts
 
 
@@ -363,12 +392,44 @@ def test_the_fast_reading_of_a_string_is_the_slow_rule_on_random_strings() -> No
 # -- 3b. every id the link writer reads ------------------------------------------------------------------------------
 
 
-def _random_ref(rng: random.Random, pool: list[str], depth: int = 0) -> object:
+def _zero_led_spellings(source_id: str) -> tuple[str, ...]:
+    """The strings ``uuid.UUID`` reads as ``source_id`` that are not the 32 digits with its zeros: for an id whose first
+    ``k`` digits are ``0`` each drops ``k`` leading zeros and puts ``k`` characters in their place (whitespace, ``0x``, a
+    sign, an underscore), and for any other id the plain spelling. ``uuid.UUID`` hands the string to ``int(..., 16)``, which
+    strips whitespace and takes ``0x``, ``+`` and ``_``, so every one of these names the id."""
+
+    digits = source_id.replace("-", "")
+    zeros = len(digits) - len(digits.lstrip("0"))
+    if zeros == 0:
+        return (source_id,)
+    short = digits[1:]
+    spellings = [
+        " " + short,
+        "\t" + short,
+        short + "\n",
+        "\u00a0" + short,
+        " " + source_id[1:],
+        "+" + short,
+        short[:9] + "_" + short[9:],
+        "source: " + short,
+        "source:\t" + short,
+        "source: " + source_id[1:],
+        "source: " + short + "\n",
+        "source:" + short + " ",
+    ]
+    if zeros >= 2:
+        spellings += ["0x" + digits[2:], "0X" + digits[2:], " " * 2 + digits[2:], digits[2:] + "\n\t"]
+    return tuple(spellings)
+
+
+def _random_ref(rng: random.Random, pool: list[str], depth: int = 0, used: list[str] | None = None) -> object:
     """A ref value in the shapes the link writer reads (strings, lists, objects under ``source_id``, ``id``, ``ref``,
-    ``source_ref``, ``source_ids``, ``source_refs`` and ``sources``) and in shapes it ignores (other keys, labels, ints)."""
+    ``source_ref``, ``source_ids``, ``source_refs`` and ``sources``) and in shapes it ignores (other keys, labels, ints).
+    Each string of ``_zero_led_spellings`` that is used is appended to ``used``."""
 
     def spelled(source_id: str) -> str:
-        return rng.choice(
+        zero_led = _zero_led_spellings(source_id)
+        choice = rng.choice(
             (
                 source_id,
                 source_id.upper(),
@@ -380,8 +441,12 @@ def _random_ref(rng: random.Random, pool: list[str], depth: int = 0) -> object:
                 "source:" + source_id,
                 "source:" + source_id.upper(),
                 "source:" + source_id.replace("-", ""),
+                *zero_led,
             )
         )
+        if used is not None and len(zero_led) > 1 and choice in zero_led:
+            used.append(choice)
+        return choice
 
     roll = rng.random()
     if depth > 3 or roll < 0.35:
@@ -392,26 +457,173 @@ def _random_ref(rng: random.Random, pool: list[str], depth: int = 0) -> object:
             return rng.choice(("notes", "https://x.test/y", "memory:" + rng.choice(pool), "chunk-1", 7, None, True))
         return f"{spelled(rng.choice(pool))} {spelled(rng.choice(pool))}"
     if roll < 0.6:
-        return [_random_ref(rng, pool, depth + 1) for _ in range(rng.randint(0, 4))]
+        return [_random_ref(rng, pool, depth + 1, used) for _ in range(rng.randint(0, 4))]
     keys = ("source_id", "id", "ref", "source_ref", "source_ids", "source_refs", "sources", "origin", "other", "chunk_id")
-    return {rng.choice(keys): _random_ref(rng, pool, depth + 1) for _ in range(rng.randint(1, 3))}
+    return {rng.choice(keys): _random_ref(rng, pool, depth + 1, used) for _ in range(rng.randint(1, 3))}
 
 
 def test_every_id_the_link_writer_reads_is_named_by_the_reader() -> None:
     """The commit route makes its link, and the write fence checks its source, from the ids ``source_uuids_in_ref`` reads. The
     reader must name every one of them, in whatever shape the ref was stored, or a link could exist for a source the reader
     does not judge as a reference. 6,000 random refs built from the shapes the writer reads (nested lists and objects under
-    the keys it reads, padding, braces, ``urn:uuid:``, ``uuid:``, ``source:`` in either case) and from shapes it ignores.
+    the keys it reads, padding, braces, ``urn:uuid:``, ``uuid:``, ``source:`` in either case, and for ids that start with
+    zeros the spellings with whitespace, ``0x``, a sign or an underscore in the place of the zeros) and from shapes it
+    ignores. More than 300 of them must hold the writer's read of such a spelling.
 
     Mutations, each alone, in ``vnext_source_fence.py``: read a whole-string id as incidental when it is read as a ref
-    (``incidental.add(whole)`` in ``_ids_in_text``); skip the second entry of a list in ``cited_source_ids`` (``node[:1]``).
+    (``incidental.add(whole)`` in ``_ids_in_text``); skip the second entry of a list in ``cited_source_ids`` (``node[:1]``);
+    read only ``text.strip()`` in ``_uuid_text`` (``for candidate in (text.strip(),)``: the spellings with whitespace in the
+    place of a zero fail).
     """
 
     rng = random.Random(544)
-    pool = _new_ids(30)
+    pool = [*_new_ids(24), *(_zero_led_id(zeros) for zeros in (1, 1, 1, 2, 2, 3))]
+    zero_led = set(pool[24:])
+    used: list[str] = []
+    covered = 0
     for _ in range(6_000):
-        value = _random_ref(rng, pool)
-        assert set(source_uuids_in_ref(value)) <= set(cited_source_ids(value).named), value
+        before = len(used)
+        value = _random_ref(rng, pool, used=used)
+        written = set(source_uuids_in_ref(value))
+        assert written <= set(cited_source_ids(value).named), value
+        covered += len(used) > before and bool(written & zero_led)
+    assert covered > 300, "the refs must hold the writer's reads of ids that start with 0 for the check above to cover them"
+
+
+# -- 3c. ids that start with 0 -----------------------------------------------------------------------------------------
+
+_FIXED_ZERO_LED = "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d"
+
+
+def test_an_id_that_starts_with_zero_and_is_written_with_a_space_in_place_of_the_zero_is_named_by_the_reader() -> None:
+    """The case of the outside review of the second head. ``uuid.UUID`` hands a string of 32 characters to ``int(..., 16)``,
+    which strips whitespace, so ``" "`` and the 31 other digits of ``0a1b2c3d-...`` is that id. The link writer reads it
+    (``source_uuids_in_ref`` removes only a lower case ``source:`` and does not strip what follows) and the commit route
+    stores a ref with it, so the memory names a source that the reader did not name: the reader stripped the string before
+    it handed it to ``uuid.UUID`` and was left with 31 characters.
+
+    Mutation: in ``_uuid_text`` read only ``text.strip()`` (``for candidate in (text.strip(),)``): the reader names nothing
+    for the four refs and the property tests below fail.
+    """
+
+    zero_led = _FIXED_ZERO_LED
+    other = str(uuid4())
+    short = zero_led.replace("-", "")[1:]
+    ref = {"source_ids": [other, "source: " + short]}
+    assert zero_led in source_uuids_in_ref(ref), "the writer reads the id"
+    assert zero_led in cited_source_ids([ref]).named, "so the reader names it"
+    for label, spelled in {
+        "source: and a space": {"source_ids": [other, "source: " + short]},
+        "source: and a tab": {"source_ids": [other, "source:\t" + short]},
+        "hyphens kept": {"source_ids": [other, "source: " + zero_led[1:]]},
+        "nested objects": {"source_refs": [{"source_id": other}, {"source_id": "source: " + short}]},
+        "own id key": {"source_id": other, "id": " " + short},
+        "a newline after the id, stripped first by the writer": ["source: " + short + "\n"],
+    }.items():
+        assert zero_led in source_uuids_in_ref(spelled), label
+        assert zero_led in cited_source_ids(spelled).named, label
+
+
+def _zero_led_grid() -> list[tuple[str, str, int, object]]:
+    """``(label, id, spelling index, ref)`` for every spelling of an id with 1 to 3 leading zeros, in each of several
+    prefixes and containers."""
+
+    prefixes = ("", "source:", "source: ", "source:\t", "SOURCE:", "Source: ", "source:source:", "source: source: ", " source: ")
+    containers = (
+        lambda s: s,
+        lambda s: [s],
+        lambda s: {"source_id": s},
+        lambda s: {"id": s},
+        lambda s: {"ref": s},
+        lambda s: {"source_ref": s},
+        lambda s: {"source_ids": [s]},
+        lambda s: {"sources": [{"id": s}]},
+        lambda s: {"source_refs": [{"source_id": s}]},
+        lambda s: [[{"source_ids": ["00000000-0000-4000-8000-000000000001", s]}]],
+    )
+    cases: list[tuple[str, str, int, object]] = []
+    for zeros in (1, 2, 3):
+        source_id = _zero_led_id(zeros)
+        for index, spelling in enumerate(_zero_led_spellings(source_id)):
+            for prefix in prefixes:
+                for build_index, build in enumerate(containers):
+                    label = f"{zeros} zeros, spelling {index}, prefix {prefix!r}, container {build_index}"
+                    cases.append((label, source_id, index, build(prefix + spelling)))
+    return cases
+
+
+def test_every_spelling_of_an_id_with_leading_zeros_that_the_link_writer_reads_is_named_by_the_reader() -> None:
+    """The grid behind the case above: for ids with one, two and three leading zeros, every spelling ``uuid.UUID`` reads
+    (whitespace of any kind in place of the zeros, before or after the digits, with ``source:`` and a space or a tab after
+    it, hyphens kept, ``0x``, a sign, an underscore), in each of nine prefixes and ten containers. Wherever the writer reads
+    the id the reader names it. The check is not vacuous: the writer must read the id in several hundred of the cases, and
+    every spelling in at least one of them.
+
+    Mutations, each alone, in ``vnext_source_fence.py``: read only ``text.strip()`` in ``_uuid_text`` (the cases with a
+    space or a newline in the place of a zero fail); in ``_whole_id`` try only ``text`` and not ``text.strip()`` (the
+    cases where the writer strips before it removes the prefix fail: a newline after the id, with ``source:`` and a
+    space in front); let ``_SOURCE_PREFIXES`` take the whitespace after the prefix again, ``\\s*(?:source:\\s*)*`` (the
+    cases with ``source:`` and a space or a tab in place of the zero fail).
+    """
+
+    grid = _zero_led_grid()
+    live: set[tuple[str, int]] = set()
+    written_cases = 0
+    for label, source_id, index, ref in grid:
+        if source_id not in source_uuids_in_ref(ref):
+            continue
+        written_cases += 1
+        live.add((source_id, index))
+        assert source_id in cited_source_ids(ref).named, (label, ref)
+    assert written_cases > 500, written_cases
+    assert live == {(source_id, index) for _label, source_id, index, _ref in grid}, (
+        "a spelling the writer never reads is not a test of the reader"
+    )
+
+
+@pytest.mark.parametrize("zeros", [1, 3])
+@pytest.mark.parametrize(
+    "build_ref",
+    [
+        pytest.param(lambda a, b: {"source_ids": [a, "source: " + b.replace("-", "")[1:]]}, id="source and a space"),
+        pytest.param(lambda a, b: {"source_ids": [a, "source:\t" + b[1:]]}, id="source and a tab, hyphens kept"),
+        pytest.param(lambda a, b: {"source_id": a, "id": " " + b.replace("-", "")[1:]}, id="a space under an id key"),
+        pytest.param(lambda a, b: {"source_ids": [a, "source: " + b.replace("-", "")[1:] + "\n"]}, id="a newline after the id"),
+    ],
+)
+def test_a_memory_that_names_a_source_with_a_leading_zero_by_a_spelling_with_whitespace_is_judged_by_that_source(
+    zeros: int, build_ref: object
+) -> None:
+    """The reader, with a stub store. A commit with ``{"source_ids": [A, <spelling of B>]}`` links A only and saves the
+    excerpt as the quote of that link and as its own copy. When B is above the key's ceiling the copy, the ref and the quote
+    on A's link are withheld, the audit of ``alice_explain`` names B, and a key that may read B is shown the stored row as
+    the same object. B's id starts with zeros, so before this change the reader did not name it and judged nothing.
+
+    Mutation: the one of the test above (``_uuid_text`` reads only the stripped text): the quote stays on the link and the
+    row is returned whole.
+    """
+
+    store = _MemoryStore()
+    readable = store.add_source()
+    refused_id = store.add_source(sensitivity="confidential")
+    source_row = store.sources.pop(refused_id)
+    refused = _zero_led_id(zeros)
+    store.sources[refused] = {**source_row, "id": refused}
+    ref = build_ref(readable, refused)  # type: ignore[operator]
+    memory_id = str(uuid4())
+    row = _row(memory_id, refs=[ref])
+    store.memories[memory_id] = row
+    link = store.add_link(memory_id, readable)
+    assert refused in source_uuids_in_ref(ref)
+    shown = _reader(store).memory(row)
+    assert "conversation_excerpt" not in shown["metadata_json"]["agentic_memory"]  # type: ignore[index]
+    assert shown["metadata_json"]["agentic_memory"]["source_refs"] == []  # type: ignore[index]
+    assert [shown_link["quote"] for shown_link in _reader(store).links(memory_id)] == [None]
+    assert refused in cited_source_ids_in_memory_audit({"memory": row}).named
+    store.sources[refused]["sensitivity"] = "internal"
+    readable_reader = _reader(store)
+    assert readable_reader.memory(row) is row
+    assert readable_reader.links(memory_id)[0] is link
 
 
 # -- 4. archived sources ---------------------------------------------------------------------------------------------

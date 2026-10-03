@@ -58,8 +58,9 @@ not only the shapes the link writer reads (``cited_source_ids``), and from the c
 in its revisions (``previous_value``, ``new_value`` and the revision's own
 ``metadata_json``, where a memory proposal keeps the refs it was given). An id is read
 in one of two ways. An id at a position that says it is a source (the value of
-``source_id``, ``source_ids``, ``source_refs``, ``source_references``,
-``selected_source_ids`` or ``sources`` at any depth, an entry of a ref list, the whole
+``source_id``, ``source_ids``, ``source_ref``, ``source_refs``, ``source_references``,
+``selected_source_ids`` or ``sources`` at any depth, the value of ``id`` or ``ref``
+inside an entry of a ref list or a provenance object, an entry of a ref list, the whole
 of a string or one word of a string that is a list of ids, a word that starts with
 ``source:`` or ``alice://sources/``) is *named*: it must name a stored source the
 caller may read, and one that does not is refused as a missing source is. An id
@@ -77,6 +78,19 @@ ids at all is what keeps a confidential source named under a free key from leaki
 withholding for every incidental id would withhold the quote of every memory whose refs
 hold a chunk id, so the cost is one bit about an id the caller already has. The named
 positions answer alike for a missing, an archived and an unreadable source.
+
+An id is read in every spelling the link writer reads, and the reader is a superset of
+the writer's parse (``tests/unit/test_saved_quote_ref_reading.py`` checks it against
+``source_uuids_in_ref`` over random refs and over a grid of spellings). The spellings
+that are easy to miss are the ones ``uuid.UUID`` takes through ``int(..., 16)``: it
+strips whitespace, so 31 digits and a space, a tab or a newline are an id that starts
+with ``0``, and the writer links and fences a source named that way (``source: `` and
+the other 31 digits is the form the review found). The writer strips a string and
+removes a lower case ``source:`` from it, and for the value of ``id``, ``ref``,
+``source_id`` and ``source_ref`` it does not strip first, so the reader tries the
+string as stored and stripped, with the ``source:`` prefixes (any case, any number)
+removed from each, and reads each result with ``uuid.UUID`` as it stands first and
+stripped second (``_whole_id``, ``_uuid_text``).
 
 A ref string is stored as sent and the proposal door bounds only the size of the
 request, so every parser here is linear in the length of what it reads: a string is
@@ -407,8 +421,9 @@ _ID_IN_TEXT = re.compile(
     r"(?:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|[0-9a-fA-F]{32})"
     r"(?![0-9a-fA-F])"
 )
-# The ``source:`` prefixes (any case, any number, whitespace allowed around them) a ref may start with.
-_SOURCE_PREFIXES = re.compile(r"\s*(?:source:\s*)*", re.IGNORECASE)
+# The ``source:`` prefixes (any case, any number, whitespace allowed before each) a ref may start with. The whitespace
+# after the last prefix is not part of the match: it can be a character of the id (see ``_uuid_text``).
+_SOURCE_PREFIXES = re.compile(r"(?:\s*source:)*", re.IGNORECASE)
 _ALICE_SOURCE_URL = "alice://sources/"
 # A ``memory:`` ref (the rollups and the consolidation write them into ``source_refs``) names a memory, so its id is
 # not read as a source id at all.
@@ -424,8 +439,9 @@ _TOKEN_BREAK = re.compile(r"[\s,;|]+")
 class CitedSourceIds:
     """The ids a ref names, in two groups that are judged differently.
 
-    ``named`` are ids the ref says are sources: the value of ``source_id``, ``source_ids``, ``source_refs``,
-    ``source_references``, ``selected_source_ids`` or ``sources`` (at any depth), an entry of a ref list, and an id
+    ``named`` are ids the ref says are sources: the value of ``source_id``, ``source_ids``, ``source_ref``,
+    ``source_refs``, ``source_references``, ``selected_source_ids`` or ``sources`` (at any depth), the value of ``id``
+    or ``ref`` inside an entry of a ref list or a provenance object, an entry of a ref list, and an id
     that is the whole of a string (or one of several ids that make up the whole of a string, split on whitespace,
     commas, semicolons and bars) in any spelling the link writer reads (any case, no hyphens, braces, ``urn:uuid:``, a
     ``source:`` prefix in any case), or that follows a ``source:`` prefix or an ``alice://sources/`` URL at the start
@@ -456,21 +472,43 @@ _NO_CITED_IDS = CitedSourceIds()
 
 
 def _uuid_text(text: str) -> str | None:
-    """``text`` (surrounding whitespace removed, any case) as a canonical UUID in any spelling ``uuid.UUID`` accepts, else None."""
+    """``text`` (any case) as a canonical UUID in any spelling ``uuid.UUID`` accepts, else None.
 
-    if len(text) < _MIN_ID_CHARS:
-        return None
-    try:
-        return str(UUID(text.strip().lower()))
-    except ValueError:
-        return None
+    ``text`` is read as it stands first, and then with the whitespace around it removed. The first read is the one the
+    link writer makes (``source_uuids_in_ref`` hands ``uuid.UUID`` the string as stored, after removing a ``source:``
+    prefix), and it is not the second: ``uuid.UUID`` passes the string to ``int(..., 16)``, which strips whitespace, so a
+    string of 32 characters whose first one is a space, a tab or a newline is an id of 31 digits with a leading zero, and
+    stripping it first leaves 31 characters, which are no id. A source whose id starts with ``0`` can be written that
+    way, and the writer links and fences it, so the reader must name it. A string that is an id only with its whitespace
+    removed (a 32 digit id with a space around it) is read by the second try.
+    """
+
+    for candidate in (text, text.strip()):
+        if len(candidate) < _MIN_ID_CHARS:
+            continue
+        try:
+            return str(UUID(candidate.lower()))
+        except ValueError:
+            continue
+    return None
 
 
 def _whole_id(text: str) -> str | None:
-    """The id ``text`` is, as the link writer reads one and more: whitespace and any number of ``source:`` prefixes
-    (in any case) removed, then a UUID in any spelling ``uuid.UUID`` accepts, in canonical lower case form."""
+    """The id ``text`` is, in every way the link writer reads one and more.
 
-    return _uuid_text(text[_SOURCE_PREFIXES.match(text).end() :])  # type: ignore[union-attr]
+    The writer strips a string, removes a lower case ``source:`` and hands the rest to ``uuid.UUID``; for the value of
+    ``id``, ``ref``, ``source_id`` and ``source_ref`` it does not strip first. The two orders differ for an id with a
+    leading zero written with a whitespace character in its place (``source: `` and the 31 other digits, with a newline
+    after them: the stripped string ends at the last digit and the space after the colon is the zero). So the text is read
+    as it stands and stripped, and in each of the two, any number of ``source:`` prefixes (in any case, with whitespace
+    before each) are removed and what follows is read by ``_uuid_text``.
+    """
+
+    for whole in (text, text.strip()):
+        found = _uuid_text(whole[_SOURCE_PREFIXES.match(whole).end() :])  # type: ignore[union-attr]
+        if found is not None:
+            return found
+    return None
 
 
 def _word_id(word: str) -> tuple[str | None, bool]:
@@ -675,12 +713,6 @@ def cited_source_ids_in_memory_audit(audit: Mapping[str, object]) -> CitedSource
         if isinstance(changes, Mapping):
             cited |= _source_ids_named_by_memory_copies(changes)
     return cited
-
-
-def source_ids_named_by_memory_audit(audit: Mapping[str, object]) -> set[str]:
-    """The ids ``cited_source_ids_in_memory_audit`` finds at a position that holds a source reference."""
-
-    return set(cited_source_ids_in_memory_audit(audit).named)
 
 
 # -- the quote copies ------------------------------------------------------------------------------------------------
@@ -1151,7 +1183,6 @@ __all__ = [
     "resolve_attachable_memory_id",
     "resolve_attachable_source_id",
     "resolve_attachable_sources",
-    "source_ids_named_by_memory_audit",
     "source_rows_including_archived",
     "source_uuids_in_ref",
 ]

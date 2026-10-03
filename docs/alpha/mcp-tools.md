@@ -885,14 +885,21 @@ This matters for a ref that names several sources in one entry, such as
 saves the excerpt both as the quote of that link and as the memory's own copy,
 so when B is refused the copy goes and the link to A would still hold the same
 bytes. A link whose quote says something else keeps it. A memory is judged by
-every source id its refs name, in the shape they were stored in: `source_ids`,
-`source_references`, `selected_source_ids`, a list or an object under any key,
-a `source:` prefix in any case, `urn:uuid:`, an `alice://sources/<id>` URL, and
-several ids in one string or in a JSON string. An id in one of those positions
-must name a stored source the caller may read, and one that does not is refused
-as a missing source is. An id anywhere else (under a key such as `origin` or
-`chunk_id`, in a sentence such as `copied from source: <id>`, in an outside URL
-such as `https://host/projects/1/sources/<id>`, or with punctuation around it)
+every source id its refs name, in the shape they were stored in: under
+`source_id`, `source_ids`, `source_ref`, `source_refs`, `source_references`,
+`selected_source_ids` or `sources` at any depth, under `id` or `ref` inside an
+entry of a ref list, in a list or an object under any other key, with a
+`source:` prefix in any case, `urn:uuid:`, braces, no hyphens or upper case, as
+an `alice://sources/<id>` URL, and as several ids in one string or in a JSON
+string. Every spelling the link writer reads is read, an id that starts with `0`
+and is written with a space, a tab or another whitespace character in the place
+of the zero included (`source: ` and the other 31 digits, say): the writer reads
+it as that id, links it and checks it, so the reader names it too. An id in one
+of those positions must name a stored source the caller may read, and one that
+does not is refused as a missing source is. An id anywhere else (under a key
+such as `origin` or `chunk_id`, in a sentence such as
+`copied from source: <id>`, in an outside URL such as
+`https://host/projects/1/sources/<id>`, or with punctuation around it)
 may be a chunk id or a session id, so it counts only when the store holds a row
 for it, an archived source's row included: an id that names a stored source the
 caller may not read, or an archived one, is refused, and an id that names no

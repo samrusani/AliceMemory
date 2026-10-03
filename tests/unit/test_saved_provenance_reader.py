@@ -24,7 +24,7 @@ from alicebot_api.vnext_agent_control import AgentIdentity
 from alicebot_api.vnext_memory_commit import VNextMemoryCommitService, _held_to_the_callers_read_fence
 from alicebot_api.vnext_retrieval import VNextRetrievalService
 from alicebot_api.mcp import evidence_artifacts
-from alicebot_api.vnext_source_fence import SavedProvenanceReader, SourceReadFence, source_ids_named_by_memory_audit
+from alicebot_api.vnext_source_fence import SavedProvenanceReader, SourceReadFence, cited_source_ids_in_memory_audit
 
 _ROOT = Path(__file__).resolve().parents[2]
 _SRC = _ROOT / "apps" / "api" / "src" / "alicebot_api"
@@ -793,7 +793,7 @@ def test_the_sources_a_memory_audit_names_are_read_from_the_memory_the_revisions
     ignores a ref that is not a source id and a row that has none of the fields.
 
     Mutations, each alone: drop the ``revisions`` loop, the ``events`` loop, or the ``changes`` branch of
-    ``source_ids_named_by_memory_audit``: the id of that place is missing from the set.
+    ``cited_source_ids_in_memory_audit``: the id of that place is missing from the set.
     """
 
     ids = [str(uuid4()) for _ in range(8)]
@@ -817,9 +817,9 @@ def test_the_sources_a_memory_audit_names_are_read_from_the_memory_the_revisions
         ],
         "provenance_links": [{"source_id": ids[7]}],
     }
-    assert source_ids_named_by_memory_audit(audit) == set(ids[:7]), "the links are authorized on their own"
-    assert source_ids_named_by_memory_audit({}) == set()
-    assert source_ids_named_by_memory_audit({"memory": None, "revisions": "x", "events": 3}) == set()
+    assert set(cited_source_ids_in_memory_audit(audit).named) == set(ids[:7]), "the links are authorized on their own"
+    assert set(cited_source_ids_in_memory_audit({}).named) == set()
+    assert set(cited_source_ids_in_memory_audit({"memory": None, "revisions": "x", "events": 3}).named) == set()
 
 
 class _ExplainStore:

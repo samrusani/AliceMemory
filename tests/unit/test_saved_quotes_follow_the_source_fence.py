@@ -965,8 +965,8 @@ def test_the_copies_of_a_memory_with_no_link_follow_its_source_when_the_source_i
     Mutations, each alone: in ``compile_context_pack`` (``vnext_retrieval.py``) move the ``saved_provenance.memories(...)``
     line below the ``_sanitize_memory_scope_references`` call (the HTTP rows keep the quote for every key bound to a
     project); in ``SavedProvenanceReader._verdict`` ignore the ids the row's copies name (``cited = _NO_CITED_IDS``)
-    (the review and the HTTP rows keep the quote for every key); make ``source_ids_named_by_memory_audit`` return an
-    empty set (explain succeeds for every key).
+    (the review and the HTTP rows keep the quote for every key); make ``cited_source_ids_in_memory_audit`` return an
+    empty ``CitedSourceIds`` (explain succeeds for every key).
     """
 
     source_id = vault.capture_source()

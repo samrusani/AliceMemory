@@ -35,7 +35,6 @@ from alicebot_api.vnext_source_fence import (
     SourceReadFence,
     cited_source_ids,
     cited_source_ids_in_memory_audit,
-    source_ids_named_by_memory_audit,
 )
 from tests.unit.test_saved_provenance_reader import (
     _ExplainStore,
@@ -144,7 +143,7 @@ def test_cited_source_ids_reads_every_shape_and_spelling_a_writer_stores() -> No
     named; an id under any other key is incidental (it may be a chunk id or a session id); the text of a quote is not read.
 
     Mutations, each alone, in ``vnext_source_fence.py``: drop ``selected_source_ids`` from ``SOURCE_REFERENCE_KEYS`` (the
-    ``selected_source_ids`` row fails); drop the ``.lower()`` of ``UUID(text.strip().lower())`` in ``_uuid_text`` (the
+    ``selected_source_ids`` row fails); drop the ``.lower()`` of ``UUID(candidate.lower())`` in ``_uuid_text`` (the
     ``URN:UUID:`` row fails); make the ``source:`` prefix case sensitive in ``_SOURCE_PREFIXES`` (the ``SOURCE:`` and
     ``Source:`` rows fail); iterate only the first entry of a list (``node[:1]`` in the list branch of ``cited_source_ids``: every
     row that holds a second id fails); make ``_json_container`` return None (the JSON row fails); skip the ``_TEXT_KEYS``
@@ -530,8 +529,8 @@ def test_the_pack_reads_each_memory_row_and_source_once_for_its_links() -> None:
 
 def test_the_audit_names_every_shape_in_the_memory_the_revisions_and_the_events() -> None:
     """``alice_explain`` authorizes the ids ``cited_source_ids_in_memory_audit`` finds in the memory row, its revisions and
-    its event payloads, in every shape the reader reads, and ``source_ids_named_by_memory_audit`` keeps returning the ids
-    at positions that hold a reference. A shape that the link writer never read is found in each of the three places.
+    its event payloads, in every shape the reader reads, the ids at positions that hold a reference as named and the others as
+    incidental. A shape that the link writer never read is found in each of the three places.
 
     Mutation: drop the ``revisions`` loop of ``cited_source_ids_in_memory_audit``: the revision's id is missing.
     """
@@ -546,7 +545,6 @@ def test_the_audit_names_every_shape_in_the_memory_the_revisions_and_the_events(
     }
     cited = cited_source_ids_in_memory_audit(audit)
     assert (set(cited.named), set(cited.incidental)) == ({a, b}, {c})
-    assert source_ids_named_by_memory_audit(audit) == {a, b}
 
 
 def test_explain_authorizes_an_incidental_id_that_names_a_stored_source_and_ignores_one_that_names_none(
