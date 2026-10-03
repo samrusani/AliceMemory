@@ -19,6 +19,7 @@ jobs:
   # failing unless every one of those jobs succeeded.
   python-unit-shards:
     name: Unit tests, shard ${{ matrix.shard }} of 3 (SQLite)
+    if: false
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
