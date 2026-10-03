@@ -200,8 +200,8 @@ def test_a_refused_source_is_withheld_with_every_copy_of_its_quote(kind: str) ->
     Mutations, each alone, in ``vnext_source_fence.py``: ``return True`` from ``SourceReadFence._admits`` (every kind
     except ``archived``, ``missing`` and ``null id``, which the store and ``admits_link`` decide); make ``_judge`` set
     ``self._admitted[source_id] = True`` for a missing row (``missing``); make ``admits_link`` return ``True`` for a link
-    with no source id (``null id``); drop one of the three ``pop`` calls of ``_memory_without_refused_provenance`` (the
-    copy it names); drop one of the four ``_without_refused_refs`` calls (that list); drop the revision filter.
+    with no source id (``null id``); drop one of the copies that ``_without_quote_copies`` removes (the
+    copy it names); drop one of the four ``_scrub_refs_key`` calls (that list); drop the revision filter.
     """
 
     store = _Store()
@@ -260,7 +260,7 @@ def test_one_refused_source_withholds_the_copies_but_keeps_the_link_of_a_readabl
     cannot say which source it came from, so they are withheld as soon as any cited source is refused. A ref that names
     no source (a URL) stays. (A link that says the same text as the refused one is the next test.)
 
-    Mutation: build ``refused`` in ``_memory`` from the metadata copies only (drop the link ids from ``named``): the
+    Mutation: build ``refused`` in ``_verdict`` from the metadata copies only (drop ``link_ids`` from ``link_ids | cited.named``): the
     refused link no longer withholds the copies.
     """
 
@@ -384,7 +384,7 @@ def test_a_memory_with_no_link_is_judged_by_its_copies_and_a_row_scrubbed_first_
     excerpt stays. That is why the pack asks the reader before the scrubs, which
     ``test_the_pack_judges_the_memory_rows_before_any_scrub_of_their_references`` pins.
 
-    Mutation: drop ``| _source_ids_named_by_memory_copies(row)`` from ``named`` in ``SavedProvenanceReader._memory``: the
+    Mutation: make ``SavedProvenanceReader._verdict`` ignore the ids the row's copies name (``cited = _NO_CITED_IDS``): the
     first assertion fails.
     """
 

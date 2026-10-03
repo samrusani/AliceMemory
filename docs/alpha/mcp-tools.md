@@ -844,10 +844,21 @@ quote. The memory is still returned, with its text. A memory with no link at all
 approved or confirmed, stores none) is judged by the source ids its own copies
 name, in the context pack as well, and `alice_explain` refuses a key that may
 not read a source the memory row, its revisions or its event payloads name, as it
-does for a linked one. When a link is left out, another link of the same memory
-whose quote says the same text (ignoring the whitespace between words) is shown
-without its quote, because the commit route saves one excerpt as the quote of
-every link it makes. A link whose quote says something else keeps it. A source
+does for a linked one. The text of every quote that is withheld (the quote of
+a link that is left out, and each copy removed from the row or from a revision)
+is withheld from the memory's other links as well: a link whose quote says the
+same text (ignoring the whitespace between words) is shown without its quote.
+This matters for a ref that names several sources in one entry, such as
+`{"source_ids": [A, B]}`: the commit route links only the first id, and it
+saves the excerpt both as the quote of that link and as the memory's own copy,
+so when B is refused the copy goes and the link to A would still hold the same
+bytes. A link whose quote says something else keeps it. A memory is judged by
+every source id its refs name, in the shape they were stored in: `source_ids`,
+`source_references`, `selected_source_ids`, a list or an object under any key,
+a `source:` prefix in any case, `urn:uuid:`, a URL, and several ids in one string
+or in a JSON string. An id under a key that does not name a source (an
+`origin` key, a `chunk_id`) counts only when it names a source that exists,
+because it may be a chunk id or a session id. A source
 with no project (a source the owner captured has none) is outside the fence of
 every key bound to a project, the admin key included, so review by id returns
 none of the link, the quote or the id of a memory that cites it to those keys, as
@@ -859,7 +870,12 @@ memory with no link returned it. The pack's `sources` section and `alice_recall`
 are a different reader, the source's own excerpt, held to the domains of a key
 that names none (see [Domains a profile may read](#domains-a-profile-may-read)).
 Not covered: a memory that `alice_capture` derived from a source holds that text
-as its own; the operator routes `GET /v0/vnext/memories/{id}/audit`,
+as its own; an id under a key that does not name a source, when it names an
+archived or deleted source, cannot be told from an id that names none (neither
+store returns an archived source) and is not judged; the check at write time
+reads only the ref shapes the link writer reads, so a ref in another shape
+(`selected_source_ids`, an upper case `SOURCE:`) is stored without it and is
+judged only when it is read; the operator routes `GET /v0/vnext/memories/{id}/audit`,
 `GET /v0/vnext/memories/recent-commits` and `GET /v0/vnext/sources/{id}`, which
 only the owner and a `trusted_local_agent` or `admin_agent` key bound to no
 project reach, return what was stored; and on an install with no agent keys, a
