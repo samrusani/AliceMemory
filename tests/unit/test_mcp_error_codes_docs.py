@@ -305,5 +305,5 @@ def test_the_changelog_has_one_unreleased_entry_that_states_the_v0200_code() -> 
     assert "(404 from the review, redact and audit routes, 400 from the others)" in entry
     assert "the HTTP memory routes already do with 403 and 404" not in entry
     assert "`alice_explain` with an `entity_id`, `alice_state_at` and `alice_timeline` answer `not_found`" in entry
-    assert "A PostgreSQL foreign key failure, such as an unknown source id in `source_refs`, answers `precondition_failed`" in entry
+    assert "A PostgreSQL foreign key failure, a write that names a row the vault does not hold, answers `precondition_failed`" in entry
     assert "`not_permitted`" not in changelog.split("\n## v0.20.0")[1].split("\n## v0.19.2")[0]

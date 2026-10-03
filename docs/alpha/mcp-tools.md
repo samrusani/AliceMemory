@@ -699,7 +699,7 @@ size limits that v0.19.2 and v0.20.0 already answered with `invalid_request`.
 | --- | --- | --- |
 | `invalid_request` | The arguments were rejected: a property the tool does not take, a missing or mistyped value, a value out of range, an action the tool does not know, or text over a size limit. | Fix the call and retry. |
 | `not_permitted` | A policy, the agent's permission profile, its key or its project scope refused the call, or the call asked for something the server forbids, such as raw content outside development. | Do not retry. Ask the owner. |
-| `not_found` | An id the call names does not exist for this caller: a memory, a pending confirmation, an open loop, an artifact, a review item, an entity (for a caller with no agent key) or a provenance source. A review item outside the caller's own filters answers the same, and so does a memory that has been archived or redacted. | Check the id, or stop. |
+| `not_found` | An id the call names does not exist for this caller: a memory, a pending confirmation, an open loop, an artifact, a review item, an entity (for a caller with no agent key) or a provenance source. A review item outside the caller's own filters answers the same, and so do a memory that has been archived or redacted and a cited source that is deleted or outside the caller's read fence (see [Cited sources](#cited-sources)). | Check the id, or stop. |
 | `precondition_failed` | The call is well formed and allowed, but the state forbids it: a confirmation that was already answered, a memory or review item whose status does not allow the action, a tool the SQLite backend does not serve, or a write that refers to a row the vault does not hold (a foreign key failure, the same answer on SQLite and on PostgreSQL). | Change the state first, or use another route. The same call will not work until the state changes. |
 | `tool_request_failed` | Any other refusal. | Treat it as opaque. |
 | `tool_execution_failed` | The tool failed in a way the server did not expect. | Treat it as opaque. Look at the server log. |
@@ -754,6 +754,49 @@ row on purpose, so that it can scrub and replay it.
 These stay `tool_request_failed`: an idempotency key already bound to a
 different request, a credential refusal, a malformed database URL, and an
 internal step that did not complete.
+
+## Cited sources
+
+Unreleased (on main, not in v0.20.0): a source named in the `source_refs` of
+`alice_memory_commit`, or in the `provenance` or `replacement_provenance` of
+`alice_memory_correct`, must be one the caller could be shown, and every other
+source answers `not_found` with the fixed message. The test is the one
+`alice_explain` applies to each source it discloses: the project scope of a
+key bound to a project (a source of another project, a source shared with
+another project, and a global source are all outside it), the domains of the
+caller's permission profile (a `project_scoped_agent` key may not cite a
+health, family, spiritual, legal or financial source), the profile's
+sensitivity ceiling (a source above it is outside it) and deletion. A deleted
+source, a source that does not exist, and a source outside the fence answer
+exactly alike, so a source id tells a caller nothing about whether it exists.
+Without an agent identity the owner may cite any live source of the vault. A
+keyless call that declares a profile is held to that profile's domains and
+ceiling, and its declared project is not enforced, as on every other keyless
+read and write. The check runs in every write mode, after a policy refusal and
+before anything is written, and an idempotent replay returns the stored memory
+without reading the sources again. A ref that names no id (a URL, a label) is
+stored as before. `POST /v0/vnext/memories/commit` answers the same refusal
+with 404 and the public `not_found` error. In v0.20.0 a key bound to one
+project could attach a source of another project, and a source id that did not
+exist answered `tool_request_failed` where one that existed was stored.
+
+Unreleased (on main, not in v0.20.0): `POST /v0/vnext/open-loops`, which is HTTP
+only and takes a `source_id` and a `memory_id` for the loop to keep, holds both
+to the same test. The memory is held to the test `alice_explain` applies to a
+memory (its project scope, its domain, the profile's ceiling and deletion). An
+id that is missing, deleted, malformed or outside the fence answers 404 with the
+public `not_found` error, the same for each, after a policy refusal (a key that
+may not create a loop gets the same refusal whatever id it names) and before
+anything is written. The loop stores the id in canonical form. The owner, a call
+with no agent key, may name any live source and memory of the vault.
+
+Two limits. The test is the writer's own read fence, not the fence of whoever
+reads later: a source an `admin_agent` key could cite (a confidential source of
+its own project) stays citable, and the keys of that project with a lower
+ceiling then see its id in the context pack's `supporting_evidence`, in
+`alice_memory_review` by id and in `alice_open_loops`, and `alice_explain` of
+that memory fails for them. They are shown no text of the source. And a memory
+or open loop saved before the fix keeps the link or id it has.
 
 ## Size bounds
 

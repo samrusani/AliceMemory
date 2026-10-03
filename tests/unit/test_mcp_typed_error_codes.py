@@ -71,6 +71,7 @@ from alicebot_api.vnext_memory_commit import (
     MemoryStateError,
     VNextMemoryCommitValidationError,
 )
+from alicebot_api.vnext_source_fence import SourceReadFence
 
 _SENTINEL = "PRIVATE-TYPED-CODE-SENTINEL"
 _FIXED_MESSAGE = "The tool request could not be processed"
@@ -1519,7 +1520,9 @@ def test_each_provenance_refusal_names_its_kind(
         store = SimpleNamespace(get_source=store.get_source)  # type: ignore[attr-defined]
 
     with pytest.raises(MCPToolError) as caught:
-        _validated_review_provenance(store, provenance, fallback_confidence=None)
+        _validated_review_provenance(
+            store, provenance, fallback_confidence=None, source_fence=SourceReadFence.unfenced()
+        )
 
     assert type(caught.value) is expected, label
 

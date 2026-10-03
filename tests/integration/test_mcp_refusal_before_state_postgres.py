@@ -20,12 +20,13 @@ from io import BytesIO
 from uuid import UUID, uuid4
 
 import alicebot_api.main as main_module
-from alicebot_api import mcp_server
+from alicebot_api import mcp_server, vnext_memory_commit
 from alicebot_api.config import Settings
 from alicebot_api.db import user_connection
 from alicebot_api.mcp_tools import MCPRuntimeContext, redact_memory_flow
 from alicebot_api.routers import vnext_memories as vnext_memories_router
 from alicebot_api.vnext_agent_keys import create_agent_key
+from alicebot_api.vnext_source_fence import AttachableSources
 from alicebot_api.vnext_store import PostgresVNextStore
 
 from tests.integration.test_vnext_live_workspace_api import invoke_request, seed_user
@@ -264,13 +265,53 @@ def test_a_key_bound_mcp_caller_gets_not_permitted_in_every_state_and_not_found_
     }
 
 
-def test_an_unknown_source_ref_is_a_foreign_key_failure_answered_precondition_failed_on_postgres(
+def _cites_a_source_the_vault_does_not_hold(
+    app_url: str, email: str
+) -> tuple[MCPRuntimeContext, UUID, dict[str, object], str]:
+    user_id = seed_user(app_url, email=email)
+    missing = str(uuid4())
+    arguments: dict[str, object] = {
+        "title": "A fact that cites a source",
+        "canonical_text": "A fact that cites a source the vault does not hold.",
+        "domain": "project",
+        "sensitivity": "internal",
+        "confidence": 0.95,
+        "source_refs": [missing],
+    }
+    return MCPRuntimeContext(database_url=app_url, user_id=user_id), user_id, arguments, missing
+
+
+def test_an_unknown_source_ref_is_refused_by_the_read_fence_on_postgres(migrated_database_urls, monkeypatch) -> None:
+    """``source_refs`` naming a source the vault does not hold answers ``not_found`` before any write.
+
+    The read fence on cited sources resolves every id first, so the call never reaches the
+    foreign key, and the answer is the one a source outside the caller's fence gets. No memory
+    is left behind.
+
+    Mutation: let ``resolve_attachable_sources`` admit every id it is given (the insert then
+    fails the foreign key and the code is ``precondition_failed``).
+    """
+
+    monkeypatch.delenv("ALICE_AGENT_API_KEY", raising=False)
+    app_url = migrated_database_urls["app"]
+    context, user_id, arguments, _ = _cites_a_source_the_vault_does_not_hold(app_url, "fence-postgres@example.com")
+
+    assert _code(context, "alice_memory_commit", arguments) == "not_found"
+
+    with user_connection(app_url, user_id) as conn:
+        assert PostgresVNextStore(conn).list_memories(status=None) == []
+
+
+def test_a_source_gone_after_the_fence_is_a_foreign_key_failure_answered_precondition_failed_on_postgres(
     migrated_database_urls, monkeypatch
 ) -> None:
-    """``source_refs`` naming a source the vault does not hold fails ``provenance_links_source_fkey``.
+    """A source that passed the fence and is gone at insert time fails ``provenance_links_source_fkey``.
 
-    The driver raises ``psycopg.errors.ForeignKeyViolation`` and the dispatcher answers ``precondition_failed``, the code
-    SQLite gives for the same call. The failed commit leaves no memory behind, because the whole call rolls back.
+    This is the race the fence cannot close (a source deleted between the check and the insert),
+    simulated by a fence that admits an id the vault does not hold. The driver raises
+    ``psycopg.errors.ForeignKeyViolation`` and the dispatcher answers ``precondition_failed``, the
+    code SQLite gives for the same failure. The failed commit leaves no memory behind, because the
+    whole call rolls back.
 
     Mutation: delete the ``except ForeignKeyViolation`` clause in ``mcp/registry.py`` (the code is
     ``tool_execution_failed``).
@@ -278,16 +319,14 @@ def test_an_unknown_source_ref_is_a_foreign_key_failure_answered_precondition_fa
 
     monkeypatch.delenv("ALICE_AGENT_API_KEY", raising=False)
     app_url = migrated_database_urls["app"]
-    user_id = seed_user(app_url, email="foreign-key-postgres@example.com")
-    context = MCPRuntimeContext(database_url=app_url, user_id=user_id)
-    arguments: dict[str, object] = {
-        "title": "A fact that cites a source",
-        "canonical_text": "A fact that cites a source the vault does not hold.",
-        "domain": "project",
-        "sensitivity": "internal",
-        "confidence": 0.95,
-        "source_refs": [str(uuid4())],
-    }
+    context, user_id, arguments, missing = _cites_a_source_the_vault_does_not_hold(
+        app_url, "foreign-key-postgres@example.com"
+    )
+    monkeypatch.setattr(
+        vnext_memory_commit,
+        "resolve_attachable_sources",
+        lambda store, refs, *, fence: AttachableSources(ids=(missing,)),
+    )
 
     assert _code(context, "alice_memory_commit", arguments) == "precondition_failed"
 
