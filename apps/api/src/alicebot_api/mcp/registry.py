@@ -594,17 +594,8 @@ def call_mcp_tool(
         # A LookupError, so it is not an argument error and must be listed
         # here. alice_explain re-raises it for a keyless caller; a key-bound one
         # never gets this far, its handler turns it into one opaque answer.
-        TemporalStateNotFoundError,
     ) as exc:
         raise MCPReferenceNotFoundError(str(exc)) from exc
-    except ForeignKeyViolation as exc:
-        # The PostgreSQL twin of the SQLite foreign-key clause below: a write
-        # that names a row the vault does not hold (an unknown source id in
-        # source_refs, for one). Both backends answer the same code. Read from
-        # the driver's class, never from the message.
-        raise MCPPreconditionFailedError(
-            "a row this write references does not exist in the database; verify the referenced ids."
-        ) from exc
     except CheckViolation as exc:
         raise MCPArgumentError(
             "vNext request violates a persisted schema constraint; use schema-backed enum values "
