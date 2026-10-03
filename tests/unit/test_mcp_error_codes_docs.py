@@ -88,10 +88,15 @@ def test_the_section_says_what_an_id_tells_a_caller() -> None:
     The second half is a ruling of the second review of PR 528, so it is pinned in words: a key bound to one project
     can learn that an id it holds exists in another. The paragraph is read inside the section, never page-wide.
 
+    The HTTP clause is exact about the codes. The routes tell a refusal (403) from a missing id, but a missing id is 404
+    only on the review, redact and audit routes and 400 on the others, so the text says that and not "403 and 404 the
+    same way", which the first version of this page said and which was true of three routes out of ten.
+
     Mutations, each one alone: change ``gets `tool_request_failed` from `alice_explain``` to ``gets `not_found` from
     `alice_explain```; delete the sentence that says a key bound to one project can learn that an id exists in
     another project; change ```not_permitted` from `alice_memory_review` by id`` to ```not_found` from
-    `alice_memory_review` by id``; delete the clause that names the HTTP routes. Each fails this test.
+    `alice_memory_review` by id``; delete the clause that names the HTTP routes; change ``400 from the others`` to
+    ``404 from the others``. Each fails this test.
     """
 
     section = _flat(_error_codes_section())
@@ -105,7 +110,78 @@ def test_the_section_says_what_an_id_tells_a_caller() -> None:
         "`alice_memory_correct` and `alice_memory_manage`, and an id that does not exist answers `not_found`"
     ) in section
     assert "a key bound to one project can learn that an id it already holds exists in another project" in section
-    assert "the HTTP memory routes answer 403 and 404 the same way" in section
+    assert (
+        "the HTTP memory routes also tell a refusal (403) from a missing id (404 from the review, redact and audit "
+        "routes, 400 from the others)"
+    ) in section
+    assert "the HTTP memory routes answer 403 and 404 the same way" not in section
+
+
+def test_the_section_says_authorization_comes_before_state() -> None:
+    """The rule of the follow-up to PR 528, in words: the policy is asked before the state of the row.
+
+    A reader who builds an agent on these codes needs to know that ``precondition_failed`` never reaches a caller the
+    policy refuses, and that a deleted row is ``not_found`` to such a caller on every verb, redact included. The
+    paragraph is read inside the section, never page-wide.
+
+    Mutations, each one alone: delete the paragraph that starts ``Authorization comes before state``; change
+    ``gets `not_permitted` whatever state the row is in`` to ``gets `precondition_failed` when the row is in a
+    state``; delete the sentence that says ``precondition_failed`` only reaches a caller the policy allows; delete the
+    sentence about archived and redacted rows or the clause that names ``redact``. Each fails this test.
+    """
+
+    section = _flat(_error_codes_section())
+
+    assert "Authorization comes before state." in section
+    assert "gets `not_permitted` whatever state the row is in" in section
+    assert "`precondition_failed` only ever reaches a caller the policy allows" in section
+    assert "The same holds for the memory named in `superseded_by` and for the HTTP routes" in section
+    assert (
+        "A memory that has been archived or redacted is gone from the API, and every verb answers a refused caller "
+        "`not_found` for it"
+    ) in section
+    assert "`alice_memory_manage` with `action: redact`, the one verb that reads such a row on purpose" in section
+
+
+def test_the_confirm_paragraph_says_the_scope_is_checked_before_the_pending_check() -> None:
+    """The confirm paragraph says, after one marker, that scope, profile and ceiling now come before the pending check.
+
+    v0.20.0 checked only who may resolve the write first, so the sentence is main-only and says what v0.20.0 did.
+
+    Mutations, each one alone: delete the marker from the sentence; delete ``checked before the pending check too``;
+    delete the sentence that says only the check of who may resolve the write came first in v0.20.0. Each fails.
+    """
+
+    page = _flat((ROOT / "docs/alpha/mcp-tools.md").read_text(encoding="utf-8"))
+    anchor = "Confirming a row that is not pending is refused and writes nothing."
+    start = page.index(anchor) + len(anchor)
+    sentence_block = page[start : start + 520]
+
+    assert sentence_block.lstrip().startswith(MARK), sentence_block
+    assert "checked before the pending check too" in sentence_block
+    assert "In v0.20.0 only the check of who may resolve the write came first." in sentence_block
+
+
+def test_the_protocol_page_says_redact_asks_the_policy_before_the_state() -> None:
+    """The redact section of the protocol page says, after one marker, that the policy comes before the state of the row.
+
+    The behaviour change is unreleased and visible over HTTP (404 instead of 403 for a redacted row), so the page needs
+    the marker and the v0.20.0 answer.
+
+    Mutations, each one alone: delete the marker from the paragraph; delete ``redact asks the policy before it reads
+    the state of the row``; delete the sentence that says what v0.20.0 did; change ``404 over HTTP`` to ``403 over
+    HTTP``. Each fails this test.
+    """
+
+    page = _flat((ROOT / "docs/memory-operations-protocol.md").read_text(encoding="utf-8"))
+    section = page[page.index("## redact") :]
+    start = section.index(MARK)
+    paragraph = section[start : start + 800]
+
+    assert section.count(MARK) == 1
+    assert "redact asks the policy before it reads the state of the row" in paragraph
+    assert "(`not_found` over stdio, 404 over HTTP)" in paragraph
+    assert "In v0.20.0 such a caller was refused (403 over HTTP) for the row" in paragraph
 
 
 def test_the_pages_that_describe_the_old_answer_carry_the_marker_in_the_right_place() -> None:
@@ -156,10 +232,16 @@ def test_the_pages_that_describe_the_old_answer_carry_the_marker_in_the_right_pl
 def test_the_changelog_has_one_unreleased_entry_that_states_the_v0200_code() -> None:
     """One Unreleased entry names the new codes and says v0.20.0 answered ``tool_request_failed`` for each case.
 
+    The entry also carries the follow-up fixes, so the one entry stays the whole story of the feature: the policy is
+    asked before the state of the row, a missing entity is ``not_found``, and a PostgreSQL foreign key failure is
+    ``precondition_failed``.
+
     Mutations, each one alone: delete the sentence ``v0.20.0 answered `tool_request_failed` for each of these
     cases``; move the entry under the v0.20.0 heading; add a second entry that names ``not_permitted``; change
     ``still gets one uniform `tool_request_failed``` to ``still gets one uniform `not_found```; change ``nine`` to
-    ``eight``; delete the sentence about the other tools that take an id. Each fails this test.
+    ``eight``; delete the sentence about the other tools that take an id; delete ``A refusal is decided before the
+    state of the row``; change ``400 from the others`` to ``404 from the others``; delete the sentence about
+    PostgreSQL foreign key failures or the one about ``alice_explain`` with an ``entity_id``. Each fails this test.
     """
 
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
@@ -179,4 +261,10 @@ def test_the_changelog_has_one_unreleased_entry_that_states_the_v0200_code() -> 
         "(`not_found`)"
     ) in entry
     assert "the nine rejected review arguments of the Postgres parity test" in entry
+    assert "A refusal is decided before the state of the row." in entry
+    assert "`precondition_failed` reaches only a caller the policy allows" in entry
+    assert "(404 from the review, redact and audit routes, 400 from the others)" in entry
+    assert "the HTTP memory routes already do with 403 and 404" not in entry
+    assert "`alice_explain` with an `entity_id`, `alice_state_at` and `alice_timeline` answer `not_found`" in entry
+    assert "A PostgreSQL foreign key failure, such as an unknown source id in `source_refs`, answers `precondition_failed`" in entry
     assert "`not_permitted`" not in changelog.split("\n## v0.20.0")[1].split("\n## v0.19.2")[0]

@@ -417,6 +417,15 @@ inside the store is intentionally out of this memory-lifecycle operation's
 scope because it may be shared. Upstream providers, prior exports, replicas,
 and backups also need their own erasure policy.
 
+Unreleased (on main, not in v0.20.0): redact asks the policy before it reads the
+state of the row, as forget, undo, correct and confirm do. A caller the policy
+refuses (its project scope, its profile, its ceiling) is told the refusal,
+never that the row is a pending project update, has an open project-update
+artifact, or is already redacted; for an archived or redacted row it hears
+not found (`not_found` over stdio, 404 over HTTP), the same as for an id the
+vault never held. In v0.20.0 such a caller was refused (403 over HTTP) for the
+row and told not found only for an unknown id.
+
 ---
 
 For the full MCP tool schemas see [docs/alpha/mcp-tools.md](alpha/mcp-tools.md);

@@ -9,8 +9,6 @@ from alicebot_api.vnext_agent_control import (
     AgentIdentity,
     AgentPolicyBlockedError,
     PolicyDecision,
-    evaluate_agent_policy,
-    resource_project_scope,
 )
 from alicebot_api.vnext_embeddings import DeferredMemoryEmbedding
 from alicebot_api.vnext_memory_commit import (
@@ -414,6 +412,20 @@ def redact_memory_flow(
     memory = store.get_memory_for_redaction(memory_id)
     if memory is None:
         raise MemoryNotFoundError("memory was not found")
+    # Authorization before any state: a refused caller hears the refusal whether
+    # the row is pending, open in a project update, or already redacted. Every
+    # other verb reads a forgotten or redacted row as absent, because the store
+    # hides a deleted row from them; redact reads it on purpose, to scrub and
+    # to replay, so a refused caller is told "not found" for a deleted row here
+    # too, or it could tell a deleted row from an id the vault never held.
+    # Nothing is written for an authorized caller; the policy row of a redaction
+    # that goes on is written below.
+    try:
+        memory_service.refuse_unauthorized_write(identity=identity, action="memory.redact", memory=memory)
+    except AgentPolicyBlockedError:
+        if memory.get("deleted_at") is not None:
+            raise MemoryNotFoundError("memory was not found") from None
+        raise
     if is_pending_project_update_memory(memory):
         raise MemoryStateError(PENDING_PROJECT_UPDATE_MEMORY_MUTATION_MESSAGE)
     project_update_artifacts = store.lock_project_update_artifacts_for_redaction(memory_id)
@@ -426,22 +438,11 @@ def redact_memory_flow(
     )
     exact_bundle_check = getattr(store, "memory_redaction_bundle_is_exact", None)
     exact_replay = bool(exact_replay and callable(exact_bundle_check) and exact_bundle_check(memory_id, artifact_ids))
-    if exact_replay:
-        # Preserve strict no-write idempotence for authenticated agents: the
-        # ordinary policy adapter upserts the identity and appends a policy
-        # event.  A replay still evaluates the same authorization, but does not
-        # create new durable rows.
-        decision = evaluate_agent_policy(
-            identity=identity,
-            action="memory.redact",
-            domains=(str(memory.get("domain") or "unknown"),),
-            sensitivity_allowed=(str(memory.get("sensitivity") or "unknown"),),
-            project_scope=resource_project_scope(memory),
-            require_explicit_project_scope=True,
-        )
-        if decision.decision == "blocked":
-            raise AgentPolicyBlockedError(decision)
-    else:
+    if not exact_replay:
+        # An exact replay keeps strict no-write idempotence for authenticated
+        # agents: the ordinary policy adapter upserts the identity and appends a
+        # policy event. The replay was authorized above without writing, so it
+        # creates no durable rows.
         memory_service.authorize_memory_action(
             identity=identity,
             action="memory.redact",
