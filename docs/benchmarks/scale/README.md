@@ -1,30 +1,35 @@
 # Alice scale envelope: core-operation latency at 1k / 10k / 100k memories
 
-SQLite rows re-measured 2026-07-19 after the v0.13.0-cycle vector-scale work
-(vectorized scan plus resident vector cache); Postgres rows retain their
-2026-07-06 measurements because Postgres code was untouched by that work and
-the local measurement environment had degraded by 2026-07-19 (a re-run on a
-3-day-old Docker Postgres produced non-monotonic latencies and was discarded
-rather than published). Both measurement dates used the same harness: an
+The SQLite recall row was re-measured on 2026-07-19 after the v0.13.0-cycle
+vector-scale work (vectorized scan plus resident vector cache). Every other
+cell in the tables below, all Postgres cells and the SQLite cells except
+recall, is from the 2026-07-05 run, because Postgres code was untouched by
+that work. A Postgres re-run on 2026-07-19 on a 3-day-old Docker Postgres gave
+non-monotonic latencies (recall p50 335.6, 195.2 and 2135.7 ms at 1k, 10k and
+100k); its files stay in results/ and are not used in the tables. Both
+measurement dates used the same harness: an
 Apple Silicon laptop (single machine, no concurrency), a deterministic
 synthetic corpus, and a deterministic in-process embedding provider (so the
 vector stage runs at every scale without network calls). Tables report p50
 over the operation-specific iteration counts recorded in each raw result
 (20–50 after warmup; slow operations stop at a disclosed time budget).
-Reproduction command below. Raw results are in [results/](results/).
+Reproduction command below. Raw results: [results/](results/) holds the
+2026-07-19 run of both backends; [results-2026-07-05/](results-2026-07-05/)
+holds the run behind every Postgres cell and every SQLite cell except recall;
+[results-prefix-archive/](results-prefix-archive/) holds the pre-fix run.
 
 ## The two numbers that matter for agents
 
 | Operation | Backend | 1k | 10k | 100k |
 |---|---|---|---|---|
 | **recall (context pack)** | SQLite (2026-07-19) | 20.1ms | 176.9ms | 1764.4ms |
-| | Postgres (2026-07-06) | 22.9ms | 98.4ms | 393.6ms |
-| **memory commit** | SQLite | 2.3ms | 2.3ms | 2.4ms |
-| | Postgres | 15.5ms | 17.7ms | 20.1ms |
+| | Postgres (2026-07-05) | 22.9ms | 98.4ms | 393.6ms |
+| **memory commit** | SQLite (2026-07-05) | 2.3ms | 2.3ms | 2.4ms |
+| | Postgres (2026-07-05) | 15.5ms | 17.7ms | 20.1ms |
 
 ### Inside SQLite recall at 100k: the vector stage is no longer the wall
 
-The 2026-07-06 note attributed the 100k recall cost to the brute-force
+The 2026-07-05 note attributed the 100k recall cost to the brute-force
 vector scan alone. Direct stage measurement (2026-07-19) corrects that:
 
 - **Vector stage, warm resident cache: 385–465ms** (was ~2.1s stateless);
@@ -38,7 +43,11 @@ vector scan alone. Direct stage measurement (2026-07-19) corrects that:
   search over the full corpus — the next optimization wall, out of scope for
   the vector-cache work and recorded here so the attribution stays honest.
 
+No raw file for these stage figures is committed.
+
 ## Full matrix (p50)
+
+Every cell below is from the 2026-07-05 run ([results-2026-07-05/](results-2026-07-05/)).
 
 | Operation | Backend | 1k | 10k | 100k |
 |---|---|---|---|---|
@@ -55,9 +64,10 @@ vector scan alone. Direct stage measurement (2026-07-19) corrects that:
 | consolidation clustering pass | SQLite | 154.4ms | 1373.6ms | 4682.3ms |
 | | Postgres | 174.1ms | 1348.4ms | 2684.6ms |
 
-Ingest throughput: SQLite ~1,000–1,300 memories/sec at every scale;
-Postgres ~65–137 memories/sec (per-row round-trips; bulk import is not yet
-optimized).
+Ingest throughput: SQLite about 1,000 to 1,300 memories/sec at every scale
+(2026-07-05; 686 to 979 in the 2026-07-19 run); Postgres about 65 to 137
+(2026-07-05; 64 to 108 in the 2026-07-19 run). Postgres is per-row round-trips;
+bulk import is not yet optimized.
 
 ## What this means in practice
 
@@ -78,7 +88,7 @@ optimized).
   quadratic; the current implementation bounds its corpus to 2,000 memories,
   its float32 similarity work to bounded row blocks (about 1 MB at the current
   128 x 2,000 block), and unique comparisons to 1,999,000. These
-  historical 2026-07-06 measurements used the then-current implementation and
+  historical 2026-07-05 measurements used the then-current implementation and
   should not be read as proof of linear consolidation scaling.
 
 ## Found and fixed by this benchmark

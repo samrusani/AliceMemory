@@ -4,16 +4,7 @@ The canonical setup walkthrough lives at [docs/alpha/quickstart.md](../alpha/qui
 
 The default setup is one command, `uvx alice-memory install`. It uses one local SQLite file and needs no Docker or Postgres.
 
-For the Postgres stack, the short version is below. The clone checks out `main`, which can be ahead of the latest release. To run v0.20.0, run `git checkout v0.20.0` before `make setup`.
-
-```bash
-git clone https://github.com/samrusani/AliceMemory.git
-cd AliceMemory
-make setup
-make migrate
-make doctor
-make dev
-```
+For the Postgres stack, follow Setup and Start Alice in [docs/alpha/quickstart.md](../alpha/quickstart.md#setup).
 
 Then open `http://localhost:3000/vnext`.
 

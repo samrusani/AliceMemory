@@ -322,9 +322,9 @@ Notes:
 - Valid `--suite` values: `all`, `retrieval_quality`,
   `correction_suppression`, `decision_recovery`, `provenance_explanation`,
   `entity_resolution`, `graph_hop_retrieval`.
-  Anything else raises `unknown vNext eval suite`. (The `--suite` help
-  string in `cli.py` may lag this list; `VNEXT_EVAL_SUITE_ORDER` in
-  `vnext_evals.py` is the source of truth.)
+  Anything else raises `unknown vNext eval suite`. (The `--suite` help in
+  `cli/parser.py` is built from `VNEXT_EVAL_SUITE_ORDER` in `vnext_evals.py`,
+  so it lists the same suites.)
 
 ### What the unit tests cover (and don't)
 
@@ -383,6 +383,10 @@ skips ingest entirely and takes seconds instead of minutes. Same inputs
 produce the same numbers: ingest and FTS retrieval are deterministic, and
 the probe never reads `question_type` (or any benchmark label) on the
 retrieval path — labels are used for reporting only.
+
+## Search-quality harness (`scripts/alice_bench.py`)
+
+Unreleased (on main, not in v0.20.0): `scripts/alice_bench.py` builds a fresh vault from a folder of Markdown files, runs `alice_recall` the way an MCP host does, scores what came back against anchors, and runs a `grep` arm over the same files for comparison. v0.20.0 has no such harness and states no agent-answer number. The method is in [Agent-answer check: method note](../docs/benchmarks/agent-answer/README.md).
 
 ## Legacy baselines in `eval/baselines/` — read with caution
 

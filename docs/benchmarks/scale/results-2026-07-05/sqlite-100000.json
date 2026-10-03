@@ -1,0 +1,174 @@
+{
+  "benchmark": "alice-scale-envelope",
+  "generated_at": "2026-07-05T20:39:53.918258Z",
+  "backend": "sqlite",
+  "scale": 100000,
+  "seed": 42,
+  "store": "eval/scale/data/scale_42_100000.db",
+  "store_size_bytes": 1250713600,
+  "environment": {
+    "platform": "macOS-26.5.1-arm64-arm-64bit",
+    "python": "3.12.11",
+    "commit": "7e53ecc",
+    "cpu": "Apple M3 Max",
+    "ram_gb": 128,
+    "cores": "16",
+    "postgres_image": "pgvector/pgvector:pg16",
+    "embedding_model": "det-mix-256 (deterministic local; no API latency included)"
+  },
+  "ingest": {
+    "memories": 100000,
+    "sources": 20000,
+    "entities": 2000,
+    "edges": 25494,
+    "provenance_links": 100000,
+    "entities_seconds": 0.16,
+    "sources_seconds": 2.4,
+    "memories_seconds": 97.96,
+    "total_seconds": 100.52,
+    "memories_per_second": 1020.8,
+    "embed_on_write": true
+  },
+  "operations": {
+    "recall_context_pack": {
+      "iterations": 23,
+      "warmup_iterations": 3,
+      "p50_ms": 2253.694,
+      "p95_ms": 2382.398,
+      "mean_ms": 2032.476,
+      "min_ms": 345.669,
+      "max_ms": 2419.118,
+      "total_seconds": 46.75,
+      "notes": {
+        "queries": 8,
+        "iterations_capped_by_time_budget_seconds": 45.0,
+        "stages_entity_query": {
+          "fts": [
+            "postgres_fts",
+            0
+          ],
+          "vector": [
+            "enabled",
+            16
+          ],
+          "graph": [
+            "enabled",
+            16
+          ],
+          "sources": [
+            "store_lexical",
+            8
+          ],
+          "open_loops": [
+            null,
+            0
+          ],
+          "contradictions": [
+            "disabled: not requested",
+            0
+          ],
+          "recent_changes": [
+            null,
+            5
+          ]
+        }
+      }
+    },
+    "capture_text_single": {
+      "iterations": 50,
+      "warmup_iterations": 3,
+      "p50_ms": 18.27,
+      "p95_ms": 40.104,
+      "mean_ms": 20.629,
+      "min_ms": 17.715,
+      "max_ms": 74.167,
+      "total_seconds": 1.03,
+      "notes": {}
+    },
+    "memory_commit": {
+      "iterations": 50,
+      "warmup_iterations": 3,
+      "p50_ms": 2.403,
+      "p95_ms": 14.909,
+      "mean_ms": 3.315,
+      "min_ms": 2.071,
+      "max_ms": 17.108,
+      "total_seconds": 0.17,
+      "notes": {
+        "write_mode_last": "commit",
+        "status_last": "committed"
+      }
+    },
+    "review_queue_list": {
+      "iterations": 50,
+      "warmup_iterations": 3,
+      "p50_ms": 72.042,
+      "p95_ms": 176.739,
+      "mean_ms": 97.318,
+      "min_ms": 68.937,
+      "max_ms": 178.442,
+      "total_seconds": 4.87,
+      "notes": {
+        "returned_rows_last": 20
+      }
+    },
+    "entity_find_by_names": {
+      "iterations": 50,
+      "warmup_iterations": 3,
+      "p50_ms": 1.898,
+      "p95_ms": 1.97,
+      "mean_ms": 1.882,
+      "min_ms": 1.758,
+      "max_ms": 1.999,
+      "total_seconds": 0.09,
+      "notes": {
+        "lookup_names": 5,
+        "entities_matched_last": 4
+      }
+    },
+    "graph_one_hop_hot_entity": {
+      "iterations": 50,
+      "warmup_iterations": 3,
+      "p50_ms": 34.066,
+      "p95_ms": 37.532,
+      "mean_ms": 34.871,
+      "min_ms": 33.232,
+      "max_ms": 40.426,
+      "total_seconds": 1.74,
+      "notes": {
+        "hot_entity_edges": 1011
+      }
+    },
+    "staleness_sweep_pass": {
+      "iterations": 42,
+      "warmup_iterations": 1,
+      "p50_ms": 1786.628,
+      "p95_ms": 3357.197,
+      "mean_ms": 2152.44,
+      "min_ms": 1651.865,
+      "max_ms": 5025.743,
+      "total_seconds": 90.4,
+      "notes": {
+        "first_pass_ms": 2306.0,
+        "artifact_persisted": false,
+        "iterations_capped_by_time_budget_seconds": 90.0
+      }
+    },
+    "consolidation_pass": {
+      "iterations": 20,
+      "warmup_iterations": 0,
+      "p50_ms": 4682.271,
+      "p95_ms": 4763.455,
+      "mean_ms": 4648.13,
+      "min_ms": 4489.627,
+      "max_ms": 4825.864,
+      "total_seconds": 92.96,
+      "notes": {
+        "embedded_memory_hard_cap": 5000,
+        "artifact_persisted": false,
+        "iterations_capped_by_time_budget_seconds": 90.0
+      }
+    }
+  },
+  "combo_seconds": 357.3
+}

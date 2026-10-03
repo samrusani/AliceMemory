@@ -34,7 +34,7 @@ Temporal bounds are normalized to UTC during detection so date-only or naive ISO
 
 ## Trust Calibration
 
-Current branch behavior stores trust signals as ledger rows in `trust_signals`. Control Tower still owns which signal categories remain part of the long-term canonical trust ledger.
+Current branch behavior stores trust signals as ledger rows in `trust_signals`.
 
 Current branch signal types:
 
@@ -67,7 +67,7 @@ Both tables ship with indexes, grants, and row-level security policies matching 
 
 ### API
 
-Current branch endpoints, pending Control Tower confirmation of the long-term Phase 12 API shape:
+Endpoints:
 
 - `POST /v1/contradictions/detect`
 - `GET /v1/contradictions/cases`
@@ -86,6 +86,8 @@ New commands:
 - `alicebot trust signals`
 
 ### MCP
+
+These are legacy MCP tools. They are listed and callable only with `ALICE_MCP_LEGACY_TOOLS=1` on a keyless local server on Postgres, and never on a server bound with `ALICE_AGENT_API_KEY`. See [Legacy tool surface](../alpha/mcp-tools.md#legacy-tool-surface).
 
 New tools:
 
