@@ -191,18 +191,29 @@ def test_the_changelog_entry_states_the_v0200_behaviour() -> None:
 def test_the_note_states_the_ci_time_sample_that_gates_json_records() -> None:
     """The CI time sentence of the note carries the numbers of ``gates.json`` and no others.
 
-    Mutation: change the median, the maximum, the number of runs or the two dates in the note, or
-    change the sample in ``gates.json`` without the note.
+    Mutation: change the median, the maximum, the number of runs or the two dates of the pre-split
+    sample in the note, change the shard median, maximum or run count in the note, or change any of
+    them in ``gates.json`` without the note.
     """
 
     import json
 
     budget = json.loads((REPO_ROOT / "gates.json").read_text(encoding="utf-8"))["ci_time"]
+    before = budget["before_split"]
     sentence = next(line for line in _note().splitlines() if line.startswith("The same file records the budget"))
-    median_minutes = f"{budget['measured_seconds']['median'] / 60:.1f}"
-    max_minutes = f"{budget['measured_seconds']['max'] / 60:.1f}"
-    assert f"a median of {median_minutes} and at most {max_minutes} minutes" in sentence
-    assert f"across the {budget['measured_runs']} successful runs on main on 2026-10-01 and 2026-10-02" in sentence
-    assert f"{budget['timeout_minutes']} minute limit" in sentence
+    before_median = f"{before['measured_seconds']['median'] / 60:.1f}"
+    before_max = f"{before['measured_seconds']['max'] / 60:.1f}"
+    shard_median = f"{budget['measured_seconds']['median'] / 60:.1f}"
+    shard_max = f"{budget['measured_seconds']['max'] / 60:.1f}"
+    assert f"The unit tests run as {budget['shard_count']} parallel shard jobs" in sentence
+    assert f"each with a {budget['timeout_minutes']} minute limit" in sentence
+    assert (
+        f"a median of {before_median} and at most {before_max} minutes across the "
+        f"{before['measured_runs']} successful runs of 2026-10-02 and 2026-10-03"
+    ) in sentence
+    assert (
+        f"the longest shard ran a median of {shard_median} and at most {shard_max} minutes across the "
+        f"{budget['measured_runs']} successful runs of the pull request that split it"
+    ) in sentence
     assert f"may add {budget['new_test_budget_seconds']} seconds" in sentence
-    assert f"passes {budget['split_threshold_minutes']} minutes" in sentence
+    assert f"if a shard passes {budget['split_threshold_minutes']} minutes" in sentence

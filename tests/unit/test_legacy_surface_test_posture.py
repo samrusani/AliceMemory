@@ -18,7 +18,8 @@ def test_integration_runners_enable_legacy_surfaces_without_changing_unit_postur
     integration_job = workflow.split("  python-integration:", 1)[1].split(
         "\n  web:", 1
     )[0]
-    unit_job = workflow.split("  python-unit:", 1)[1].split(
+    # The unit family: the shards, the eval job, the coverage job and the summary.
+    unit_job = workflow.split("  python-unit-shards:", 1)[1].split(
         "\n  python-quality:", 1
     )[0]
     make_test_python = _read("Makefile").split("test-python:", 1)[1].split(

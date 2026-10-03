@@ -167,35 +167,50 @@ def test_the_hash_fields_are_empty_on_purpose_and_say_who_fills_them() -> None:
 
 
 def test_the_ci_time_budget_matches_the_workflow_it_describes() -> None:
-    """13.2. The budget for the new tests, measured against the job that runs them.
+    """13.2. The budget for the new tests, measured against the jobs that run them.
 
-    The python-unit job has a 20 minute limit, and a measurement of every successful push run on main
-    on 2026-10-01 and 2026-10-02 (30 runs) put it at a median of 11.6 and a maximum of 15.1 minutes. The
-    tests of this release may add 90 seconds, and the job is split by directory before another test
-    lands if it passes 17 minutes.
+    The single unit job had a 20 minute limit and a measurement of 70 successful runs on 2026-10-02
+    and 2026-10-03 put it at a median of 13.9 and a maximum of 17.8 minutes, past the 17 minute line.
+    The job is now three parallel shard jobs with the same limit and line, behind a summary job that
+    keeps the old name, the required status check. The tests of this release may add 90 seconds, and
+    the shards are split again before another test lands if a shard passes 17 minutes.
 
-    Mutation: change ``timeout-minutes`` of the python-unit job in the workflow (the budget then
-    describes a different job), record a split threshold at or above the timeout, write the sample
-    as fewer runs than it was taken over, or record a count of tests or files of the harness (it
-    would go stale with the next test: the entry holds the measured duration and its note only).
+    Mutation: change ``timeout-minutes`` of the shard job in the workflow (the budget then describes
+    a different job), change the shard count or the required check name in the workflow alone, record
+    a split threshold at or above the timeout, write the pre-split sample as fewer runs than it was
+    taken over, record a shard measurement at or above the split line, or record a count of tests or
+    files of the harness (it would go stale with the next test: the entry holds the measured duration
+    and its note only).
     """
+
+    import yaml
 
     budget = _thresholds()["ci_time"]
     assert isinstance(budget, dict)
-    workflow = (REPO_ROOT / ".github" / "workflows" / "tests.yml").read_text(encoding="utf-8")
-    unit_job = workflow.split("  python-unit:", 1)[1].split("\n  python-quality:", 1)[0]
-    timeout = int(re.search(r"timeout-minutes:\s*(\d+)", unit_job).group(1))  # type: ignore[union-attr]
-    assert timeout == budget["timeout_minutes"] == 20
+    workflow = yaml.safe_load((REPO_ROOT / ".github" / "workflows" / "tests.yml").read_text(encoding="utf-8"))
+    shard_job = workflow["jobs"]["python-unit-shards"]
+    summary_job = workflow["jobs"]["python-unit"]
+    assert shard_job["timeout-minutes"] == budget["timeout_minutes"] == 20
+    assert budget["shard_count"] == len(shard_job["strategy"]["matrix"]["include"]) == 3
+    assert budget["required_check"] == summary_job["name"] == "Unit tests + live eval battery (SQLite)"
+    assert budget["job"].startswith("python-unit-shards ") and "shard N of 3" in budget["job"]
     assert budget["split_threshold_minutes"] == 17 < budget["timeout_minutes"]
     assert budget["new_test_budget_seconds"] == 90
     measured = budget["measured_seconds"]
-    assert measured["min"] <= measured["median"] <= measured["max"] < budget["split_threshold_minutes"] * 60
-    assert budget["measured_runs"] == 30
-    assert (measured["min"], measured["median"], measured["max"]) == (444, 693.5, 904)
-    assert "every successful push run" in budget["measured_scope"] and "2026-10-01 and 2026-10-02" in budget["measured_scope"]
+    assert 0 < measured["min"] <= measured["median"] <= measured["max"] < budget["split_threshold_minutes"] * 60
+    assert budget["measured_runs"] >= 1
+    assert "longest of the three shard jobs" in budget["measured_scope"]
+    before = budget["before_split"]
+    assert before["job"] == "python-unit (Unit tests + live eval battery, SQLite)"
+    assert before["measured_runs"] == 70
+    before_seconds = before["measured_seconds"]
+    assert (before_seconds["min"], before_seconds["median"], before_seconds["max"]) == (482, 836, 1070)
+    assert before_seconds["max"] >= budget["split_threshold_minutes"] * 60, "the sample is why the job was split"
+    assert "every successful run" in before["measured_scope"] and "2026-10-02" in before["measured_scope"]
     assert budget["p0a_tests"]["seconds_measured_locally"] < budget["new_test_budget_seconds"]
     assert set(budget["p0a_tests"]) == {"seconds_measured_locally", "note"}, "no count of tests or files that can go stale"
     assert "new_test_budget_seconds" in budget["p0a_tests"]["note"] and "count" in budget["p0a_tests"]["note"]
+    assert "split_threshold_minutes" in budget["rule"] and "new_test_budget_seconds" in budget["rule"]
 
 
 def test_a_file_that_is_not_a_gates_file_is_refused_and_the_properties_read_the_locked_numbers(tmp_path: Path) -> None:
