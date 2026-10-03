@@ -154,8 +154,10 @@ Remember, recall, continue. These are the only tools in a default
   is filled once across memory events and open loop events: at most a quarter
   of its places, rounded down, are held for global events (whichever kind they
   are) when the project has more than enough events of its own, and global
-  events also fill any place the project leaves empty. See
-  [Projects](projects.md).
+  events also fill any place the project leaves empty. Events of notes the
+  caller may not see (outside the `domains` or `sensitivity_allowed` it asked
+  for, or held back) are left out while the events are read, before any place
+  is given, so they never use one up. See [Projects](projects.md).
 
 ## Reading recalled text
 

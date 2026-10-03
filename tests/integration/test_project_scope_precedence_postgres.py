@@ -901,6 +901,8 @@ def test_postgres_open_loop_queries_use_ascii_literal_leaf_semantics(
                     query=query,
                     occurred_at_start=datetime(2030, 7, 10, 12, tzinfo=UTC),
                     limit=50,
+                    domains=None,
+                    sensitivity_allowed=None,
                 )
                 assert {str(row["id"]) for row in actual} == expected_ids
 
@@ -912,6 +914,8 @@ def test_postgres_open_loop_queries_use_ascii_literal_leaf_semantics(
                     query="   ",
                     occurred_at_start=datetime(2030, 7, 10, 12, tzinfo=UTC),
                     limit=50,
+                    domains=None,
+                    sensitivity_allowed=None,
                 )
             ) == len(event_payloads) + len(row_event_targets)
 
@@ -967,14 +971,18 @@ def test_postgres_memory_queries_use_ascii_literal_semantics_across_store_and_pu
         }
         for query, expected_ids in expectations.items():
             memories = store.list_memories(query=query, order_by_created_at=True, limit=50)
-            resume_events = store.list_resume_memory_events(statuses=("active",), query=query, limit=100)
+            resume_events = store.list_resume_memory_events(
+                statuses=("active",), query=query, limit=100, domains=None, sensitivity_allowed=None
+            )
             assert {str(row["id"]) for row in memories} == expected_ids
             assert {str(event["target_id"]) for event in resume_events} == expected_ids
 
         assert len(store.list_memories(query="   ", limit=50)) == len(rows)
         assert {
             str(event["target_id"])
-            for event in store.list_resume_memory_events(statuses=("active",), query="   ", limit=100)
+            for event in store.list_resume_memory_events(
+                statuses=("active",), query="   ", limit=100, domains=None, sensitivity_allowed=None
+            )
         } == {str(row["id"]) for row in rows.values()}
 
     context = MCPRuntimeContext(database_url=app_url, user_id=user_id)

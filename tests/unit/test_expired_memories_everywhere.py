@@ -299,9 +299,9 @@ def test_the_sqlite_resume_events_leave_out_an_expired_memory_before_the_limit()
         _memory(store, "old")
         middle = _memory(store, "middle")
         gone = _memory(store, "gone", valid_to=PAST)
-        events = store.list_resume_memory_events(statuses=("active",), limit=1)
+        events = store.list_resume_memory_events(statuses=("active",), limit=1, domains=None, sensitivity_allowed=None)
         assert [event["target_id"] for event in events] == [middle]
-        every = store.list_resume_memory_events(statuses=("active",), limit=10)
+        every = store.list_resume_memory_events(statuses=("active",), limit=10, domains=None, sensitivity_allowed=None)
         assert gone not in {event["target_id"] for event in every}
 
 
@@ -415,7 +415,7 @@ def _postgres_statements() -> dict[str, tuple[str, tuple[object, ...]]]:
         ("rollup_list", lambda: store.list_rollup_input_memories(limit=3, **rollup_arguments)),
         ("rollup_count", lambda: store.count_rollup_input_memories(**rollup_arguments)),
         ("cards", lambda: _accepted_cards(store)),
-        ("events", lambda: store.list_resume_memory_events(statuses=("active",), limit=3)),
+        ("events", lambda: store.list_resume_memory_events(statuses=("active",), limit=3, domains=None, sensitivity_allowed=None)),
     )
     statements: dict[str, tuple[str, tuple[object, ...]]] = {}
     for name, call in calls:
