@@ -25,7 +25,7 @@ from types import SimpleNamespace
 from uuid import UUID, uuid4
 
 import pytest
-from psycopg.errors import CheckViolation
+from psycopg.errors import CheckViolation, ForeignKeyViolation
 
 from alicebot_api import mcp_server
 from alicebot_api.continuity_brief import ContinuityBriefValidationError
@@ -61,7 +61,7 @@ from alicebot_api.memory_mutations import MemoryMutationValidationError
 from alicebot_api.onramp import bootstrap_database, resolve_db_path, sqlite_url_for_path
 from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
 from alicebot_api.task_briefing import TaskBriefNotFoundError, TaskBriefValidationError
-from alicebot_api.temporal_state import TemporalStateValidationError
+from alicebot_api.temporal_state import TemporalStateNotFoundError, TemporalStateValidationError
 from alicebot_api.vnext_agent_control import AgentIdentity, AgentPolicyBlockedError, PolicyDecision
 from alicebot_api.vnext_agent_keys import AgentKeyAuthenticationError
 from alicebot_api.vnext_lifecycle import LifecycleTransitionError
@@ -330,11 +330,17 @@ _DISPATCH_TABLE: tuple[tuple[str, Callable[[], Exception], str], ...] = (
     ("evidence not found", lambda: ContinuityEvidenceNotFoundError(_SENTINEL), "not_found"),
     ("task brief not found", lambda: TaskBriefNotFoundError(_SENTINEL), "not_found"),
     ("memory not found", lambda: MemoryNotFoundError(_SENTINEL), "not_found"),
+    # A LookupError, not a ValueError, so the argument clause never saw it. Raised by the temporal functions behind
+    # alice_explain (entity_id), alice_state_at and alice_timeline.
+    ("temporal state not found", lambda: TemporalStateNotFoundError(_SENTINEL), "not_found"),
     ("memory state", lambda: MemoryStateError(_SENTINEL), "precondition_failed"),
     ("review state", lambda: ContinuityReviewStateError(_SENTINEL), "precondition_failed"),
     ("lifecycle transition", lambda: LifecycleTransitionError(_SENTINEL), "precondition_failed"),
     ("sqlite check", lambda: _real_integrity_error("check"), "invalid_request"),
     ("sqlite foreign key", lambda: _real_integrity_error("foreign_key"), "precondition_failed"),
+    # The PostgreSQL twin of the row above, from the driver's own class (SQLSTATE 23503), so one write that names a
+    # row the vault does not hold answers the same code on both backends.
+    ("postgres foreign key violation", lambda: ForeignKeyViolation("provenance_links_source_fkey"), "precondition_failed"),
     # One class for two meanings, a rejected argument and a missing candidate: not typed, so not coded.
     ("memory mutation validation", lambda: MemoryMutationValidationError(_SENTINEL), "tool_request_failed"),
     ("commit validation, plain", lambda: VNextMemoryCommitValidationError(_SENTINEL), "tool_request_failed"),
@@ -363,7 +369,9 @@ def test_the_dispatcher_picks_the_code_from_the_class_of_the_exception(
     sentinel on the wire; the next test is the one that proves the text never decides.
 
     Mutations, each one alone, in ``mcp/registry.py``: drop one class from the tuple of its ``except`` clause (its
-    row fails); move ``MemoryNotFoundError`` into the ``MCPPreconditionFailedError`` clause; move the
+    row fails; ``TemporalStateNotFoundError`` is the ``temporal state not found`` row); delete the
+    ``except ForeignKeyViolation`` clause (the ``postgres foreign key violation`` row answers
+    ``tool_execution_failed``); move ``MemoryNotFoundError`` into the ``MCPPreconditionFailedError`` clause; move the
     ``MCPPreconditionFailedError`` clause below the argument clause (the ``review state`` row fails, because
     ``ContinuityReviewStateError`` is a ``ContinuityReviewValidationError``); make ``CheckViolation``
     or a SQLite constraint answer a neighbour class; delete the ``except MCPToolError: raise`` clause, after which the
@@ -914,8 +922,10 @@ def test_a_key_bound_agent_can_tell_a_refused_id_from_a_missing_one_except_on_ex
     ``not_found``, on review, correct and manage; ``alice_explain`` answers ``tool_request_failed`` for both.
 
     This is the ruling of the second review of PR 528, recorded here because it is a choice and not an accident: the
-    codes exist so an agent can tell "not allowed" from "broken", the HTTP memory routes already answer 403 and 404
-    the same way, and an id is a random UUID, so a caller learns something only about an id it already holds.
+    codes exist so an agent can tell "not allowed" from "broken", the HTTP memory routes also tell a refusal (403)
+    from a missing id (404 from review, redact and audit, 400 from the other routes), and an id is a random UUID, so a
+    caller learns something only about an id it already holds. What a refused caller must not learn is the state of
+    the row, and ``test_mcp_refusal_is_independent_of_state.py`` pins that for every state.
     ``alice_explain`` keeps its one uniform answer. If the owner rules the other way, this test is the one to change,
     together with the docs paragraph that says so.
 
@@ -1012,6 +1022,80 @@ def test_a_key_bound_explain_of_a_missing_continuity_target_stays_uniform(
     for arguments in ({"entity_id": str(uuid4())}, {"continuity_object_id": str(uuid4())}):
         assert _code(keyed, "alice_explain", arguments) == "tool_request_failed", arguments
         assert _code(postgres_url_context, "alice_explain", {**arguments, **_TRUSTED}) == "not_found", arguments
+
+
+def test_a_missing_entity_is_not_found_through_the_real_temporal_functions(
+    postgres_url_context: MCPRuntimeContext,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The real ``get_temporal_explain``, ``get_temporal_state_at`` and ``get_temporal_timeline`` raise
+    ``TemporalStateNotFoundError`` for an entity the store does not hold, or one created after the instant asked for.
+
+    The store is a stub with the one method the loader calls, so the real function raises the real class. A keyless
+    caller gets ``not_found`` for every one of them, with a declared identity too. A key-bound ``alice_explain`` caller
+    stays on the one opaque answer by decision. The test above replaces the explain function with one that raises a
+    different class, so it could not see this.
+
+    Mutation: delete ``TemporalStateNotFoundError`` from the ``MCPReferenceNotFoundError`` tuple in
+    ``mcp/registry.py`` (every keyless row answers ``tool_execution_failed``); in ``_handle_alice_explain``
+    (``mcp/evidence_artifacts.py``) delete the key-bound check in the ``except LookupError`` of the entity path (the
+    key-bound row answers ``not_found``).
+    """
+
+    from contextlib import contextmanager
+    from datetime import UTC, datetime
+
+    from alicebot_api.mcp import retrieval
+
+    class _EntityStore:
+        """The one store method ``temporal_state._load_entity`` calls."""
+
+        def __init__(self, entity: dict[str, object] | None) -> None:
+            self.entity = entity
+
+        def get_entity_optional(self, _entity_id: UUID) -> dict[str, object] | None:
+            return self.entity
+
+    def serve(entity: dict[str, object] | None) -> None:
+        @contextmanager
+        def fake_store(_context: object):
+            yield _EntityStore(entity)
+
+        monkeypatch.setattr(evidence_artifacts, "_store_context", fake_store)
+        monkeypatch.setattr(retrieval, "_store_context", fake_store)
+
+    monkeypatch.setenv("ALICE_MCP_LEGACY_TOOLS", "1")
+    monkeypatch.setenv("ALICE_LEGACY_SURFACES", "1")
+    monkeypatch.setattr(evidence_artifacts, "_authorize_entity_explain_target", lambda *_a, **_k: None)
+    entity_id = str(uuid4())
+    later = {"id": entity_id, "created_at": datetime(2030, 1, 1, tzinfo=UTC)}
+    key_bound = AgentIdentity(
+        agent_id="keyed-typed-codes", permission_profile="trusted_local_agent", auth="agent_api_key"
+    )
+    keyed = MCPRuntimeContext(
+        database_url=postgres_url_context.database_url,
+        user_id=postgres_url_context.user_id,
+        agent_identity=key_bound,
+        agent_identity_resolved=True,
+    )
+    long_ago = "2020-01-01T00:00:00Z"
+
+    serve(None)
+    for tool, arguments in (
+        ("alice_explain", {"entity_id": entity_id}),
+        ("alice_state_at", {"entity_id": entity_id}),
+        ("alice_timeline", {"entity_id": entity_id}),
+    ):
+        assert _code(postgres_url_context, tool, arguments) == "not_found", tool
+    # Only alice_explain takes an identity; the declared one changes nothing.
+    assert _code(postgres_url_context, "alice_explain", {"entity_id": entity_id, **_TRUSTED}) == "not_found"
+    assert _code(keyed, "alice_explain", {"entity_id": entity_id}) == "tool_request_failed"
+
+    serve(later)
+    for tool in ("alice_explain", "alice_state_at"):
+        arguments = {"entity_id": entity_id, "at": long_ago}
+        assert _code(postgres_url_context, tool, arguments) == "not_found", tool
+    assert _code(keyed, "alice_explain", {"entity_id": entity_id, "at": long_ago}) == "tool_request_failed"
 
 
 def test_a_state_that_forbids_the_call_answers_precondition_failed(
