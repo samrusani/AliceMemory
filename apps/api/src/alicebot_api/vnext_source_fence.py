@@ -33,10 +33,36 @@ domain changed, its project moved, or the source archived. The check at write
 time then no longer holds, so every reader of a saved quote asks the fence again,
 with the caller's current permission on the linked source, before it returns the
 quote.
+
+One quote has several copies, and they are all withheld together. The commit route
+saves one ``conversation_excerpt`` as the quote of the link it makes and as
+``agentic_memory.conversation_excerpt``; an edit-and-approve review saves its
+``provenance.quote`` as the quote of its link and as ``metadata_json.provenance.quote``;
+a supersede review does the same with ``replacement_provenance``. The match between a
+link's quote and a copy was derived by running each of those writers on SQLite
+(``tests/unit/test_saved_quote_every_copy.py`` keeps the run as a test): the two strings
+are the same string. The commit door collapses the whitespace of the excerpt once
+(``_optional_text``, which every door into it shares) and then stores that one string
+as the quote of every link it makes and as the copy, and the review doors store the
+quote as sent in both places. Nothing cuts a quote to a length on the way into a link
+or a copy: a 4,000 character excerpt arrives whole on both sides. So the rule is
+equality of the words, the whitespace between them ignored (``_quote_text``). A link
+whose quote is a part of a copy, or the other way round, is a different quote and is
+not matched, because no writer makes that relation (a reviewer who types a part of an
+excerpt as the quote has chosen to attribute that part to the source).
+
+Which sources a memory cites is read from its copies in every shape a writer stores,
+not only the shapes the link writer reads (``cited_source_ids``). A key that names a
+source (``source_id``, ``source_ids``, ``source_refs``, ``source_references``,
+``selected_source_ids`` and the like, at any depth) holds ids that must name a stored
+source the caller may read; an id anywhere else in a ref is judged only when it names a
+stored source, because it may be a chunk id or a session id, which no source has.
 """
 
 from __future__ import annotations
 
+import json
+import re
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from uuid import UUID
@@ -51,6 +77,14 @@ MEMORY_REF_NOT_FOUND_MESSAGE = "the cited memory was not found in the current us
 # under. It is a read action, so the engine adds no write-side rule to it. The
 # explain tool and this fence both read it from here, so they cannot drift apart.
 EXPLAIN_DISCLOSURE_ACTION = "memory.audit"
+
+# The keys that name a source in a ref or in the metadata of an open loop. The open-loop reverse lookup of a source
+# (``list_open_loops_referencing_source``) reads these, the open-loop reader withholds an id under one of them, and the
+# saved-quote reader (``cited_source_ids``) reads every id under one of them as a cited source, so a loop or a memory
+# that names a source under one of them is found by the id and withheld by the same words.
+SOURCE_REFERENCE_KEYS = frozenset(
+    {"source_id", "source_ids", "source_ref", "source_refs", "source_references", "selected_source_ids"}
+)
 
 
 class SourceRefNotFoundError(ValueError):
@@ -154,7 +188,10 @@ def source_uuids_in_ref(value: object) -> list[str]:
     """Every source id a ref names, in order: ``source:`` prefix removed, lower-cased, deduplicated.
 
     A ref that names no UUID (a URL, a free-form label) is not a reference to a
-    stored source and yields nothing.
+    stored source and yields nothing. This is what the link writer and the write
+    fence read, and it reads fewer shapes than are ever stored (an upper case
+    ``SOURCE:``, ``selected_source_ids``, an id under another key). The readers of a
+    saved quote judge what is stored with ``cited_source_ids``, in every shape.
     """
 
     found: list[str] = []
@@ -302,43 +339,217 @@ def _canonical_source_id(value: object) -> str | None:
         return None
 
 
-def _without_refused_refs(refs: object, refused: frozenset[str]) -> object:
-    """``refs`` without the entries that name a refused source. The same list when nothing is dropped."""
+# -- the ids a copy names --------------------------------------------------------------------------------------------
 
-    if not refused or not isinstance(refs, list):
-        return refs
-    kept = [ref for ref in refs if refused.isdisjoint(source_uuids_in_ref(ref))]
-    return refs if len(kept) == len(refs) else kept
+# The two things a position in a ref can be. ``_REF`` holds a reference to a source, so every id under it names one.
+# ``_OTHER`` is anything else in the ref (a chunk id, a page, a free-form note), where an id may name no source at all.
+_REF = "ref"
+_OTHER = "other"
+# The keys that hold a source reference wherever they appear. ``sources`` is the key the link writer also reads.
+_REFERENCE_KEYS = SOURCE_REFERENCE_KEYS | {"sources"}
+# Inside a ref object (an entry of a ref list, or a provenance object) the two keys the link writer reads for the
+# object's own id are references as well.
+_OWN_ID_KEYS = frozenset({"id", "ref"})
+# Keys whose value is text taken from a source, never a reference, so an id inside it is not read.
+_TEXT_KEYS = frozenset({"quote", _EXCERPT_KEY})
+_ID_IN_TEXT = re.compile(
+    r"(?<![0-9a-fA-F])"
+    r"(?:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|[0-9a-fA-F]{32})"
+    r"(?![0-9a-fA-F])"
+)
+_SOURCE_MARKER = re.compile(r"(?:source:|sources/)\s*$", re.IGNORECASE)
+# A ``memory:`` ref (the rollups and the consolidation write them into ``source_refs``) names a memory, so its id is
+# not read as a source id at all.
+_MEMORY_MARKER = re.compile(r"memory:$", re.IGNORECASE)
+# A SQLite build from before 3.32 allows 999 bound variables, so sources are looked up in slices.
+_LOOKUP_BATCH = 500
+_TOKEN_BREAK = re.compile(r"[\s,;|]+")
 
 
-def _source_ids_named_by_memory_copies(row: Mapping[str, object]) -> set[str]:
-    """Every source id the memory's own copies of its provenance name."""
+@dataclass(frozen=True, slots=True)
+class CitedSourceIds:
+    """The ids a ref names, in two groups that are judged differently.
+
+    ``named`` are ids at a position that holds a source reference: the value of ``source_id``, ``source_ids``,
+    ``source_refs``, ``source_references``, ``selected_source_ids`` or ``sources`` (at any depth), an entry of a ref
+    list, an id spelled the way the link writer reads one (any case, no hyphens, braces, ``urn:uuid:``, a ``source:``
+    prefix in any case), and an id that follows ``source:`` or ``sources/`` inside longer text. An id there that names
+    no stored source counts as a missing source does, so it is refused. An id that follows ``memory:`` names a memory
+    and is not read.
+
+    ``incidental`` are the other ids in a ref (under a key such as ``origin`` or ``chunk_id``, or inside a note). Such
+    an id may be a chunk id or a session id and name no source, so it is refused only when it names a stored source
+    the caller may not read. A source that was archived or deleted cannot be told from an id that names none, so an
+    id of this kind that names one is not judged.
+    """
+
+    named: frozenset[str] = frozenset()
+    incidental: frozenset[str] = frozenset()
+
+    @property
+    def every(self) -> frozenset[str]:
+        return self.named | self.incidental
+
+    def __or__(self, other: CitedSourceIds) -> CitedSourceIds:
+        named = self.named | other.named
+        return CitedSourceIds(named=named, incidental=(self.incidental | other.incidental) - named)
+
+
+_NO_CITED_IDS = CitedSourceIds()
+
+
+def _whole_id(text: str) -> str | None:
+    """The id ``text`` is, as the link writer reads one and more: whitespace and any number of ``source:`` prefixes
+    (in any case) removed, then a UUID in any spelling ``uuid.UUID`` accepts, in canonical lower case form."""
+
+    candidate = text.strip()
+    while candidate[:7].lower() == "source:":
+        candidate = candidate[7:].strip()
+    try:
+        return str(UUID(candidate.lower()))
+    except ValueError:
+        return None
+
+
+def _ids_in_text(text: str, *, as_ref: bool) -> tuple[set[str], set[str]]:
+    """The ids in ``text``, as ``(named, incidental)``. Outside a ref position every id is incidental."""
 
     named: set[str] = set()
+    incidental: set[str] = set()
+    if as_ref:
+        for token in _TOKEN_BREAK.split(text.strip()):
+            whole = _whole_id(token)
+            if whole is not None:
+                named.add(whole)
+    else:
+        whole = _whole_id(text)
+        if whole is not None:
+            incidental.add(whole)
+    for match in _ID_IN_TEXT.finditer(text):
+        if _MEMORY_MARKER.search(text, 0, match.start()):
+            continue
+        found = str(UUID(match.group(0)))
+        if as_ref and _SOURCE_MARKER.search(text, 0, match.start()):
+            named.add(found)
+        else:
+            incidental.add(found)
+    return named, incidental - named
+
+
+def _json_container(text: str) -> object | None:
+    """The list or object a string ref holds when it is JSON text, else None."""
+
+    stripped = text.strip()
+    if stripped[:1] not in ("{", "["):
+        return None
+    try:
+        parsed = json.loads(stripped)
+    except (ValueError, RecursionError):
+        return None
+    return parsed if isinstance(parsed, (dict, list)) else None
+
+
+def cited_source_ids(value: object) -> CitedSourceIds:
+    """Every source id ``value`` (a ref, a list of refs, or a provenance object) names, as ``CitedSourceIds``.
+
+    ``value`` is read as a reference. A string is read for ids in every spelling above, a list entry by entry, and an
+    object key by key: a reference key makes everything under it a reference, any other key is read for ids that name
+    stored sources only, and a key whose value is a quote is skipped. A string that is itself JSON is read as the JSON.
+    The walk keeps its own stack, so a ref nested to any depth is read to the end.
+    """
+
+    named: set[str] = set()
+    incidental: set[str] = set()
+    pending: list[tuple[object, str]] = [(value, _REF)]
+    while pending:
+        node, state = pending.pop()
+        if isinstance(node, str) or (state == _REF and isinstance(node, int) and not isinstance(node, bool)):
+            text = node if isinstance(node, str) else str(node)
+            found_named, found_incidental = _ids_in_text(text, as_ref=state == _REF)
+            named |= found_named
+            incidental |= found_incidental
+            if state == _REF:
+                nested = _json_container(text)
+                if nested is not None:
+                    pending.append((nested, _REF))
+        elif isinstance(node, Mapping):
+            for key, child in node.items():
+                key_text = key.lower() if isinstance(key, str) else None
+                if key_text in _TEXT_KEYS:
+                    continue
+                if isinstance(key, str):
+                    key_named, key_incidental = _ids_in_text(key, as_ref=state == _REF)
+                    named |= key_named
+                    incidental |= key_incidental
+                is_reference = key_text in _REFERENCE_KEYS or (state == _REF and key_text in _OWN_ID_KEYS)
+                pending.append((child, _REF if is_reference else _OTHER))
+        elif isinstance(node, (list, tuple)):
+            pending.extend((child, state) for child in node)
+    return CitedSourceIds(named=frozenset(named), incidental=frozenset(incidental - named))
+
+
+# What a writer was given as a provenance object or a list of refs is read with ``cited_source_ids``. The write fence
+# and the link writer keep ``source_uuids_in_ref``, which reads fewer shapes (see its docstring): the reader judges
+# what is stored, in every shape, whatever the writer did with it.
+
+
+_DROPPED = object()
+
+
+def _without_refused_refs(refs: object, refused: frozenset[str]) -> object:
+    """``refs`` without the entries that name a refused source. The same list when nothing is dropped.
+
+    A value that is not a list and names a refused source is returned as ``_DROPPED``, and the caller removes its key.
+    """
+
+    if not refused:
+        return refs
+    if isinstance(refs, list):
+        kept = [ref for ref in refs if refused.isdisjoint(cited_source_ids(ref).every)]
+        return refs if len(kept) == len(refs) else kept
+    return refs if refused.isdisjoint(cited_source_ids(refs).every) else _DROPPED
+
+
+def _scrub_refs_key(container: dict[str, object], refused: frozenset[str]) -> None:
+    """Drop the entries of ``container["source_refs"]`` that name a refused source, in place, on a copy the caller made."""
+
+    if _SOURCE_REFS_KEY not in container:
+        return
+    scrubbed = _without_refused_refs(container[_SOURCE_REFS_KEY], refused)
+    if scrubbed is _DROPPED:
+        del container[_SOURCE_REFS_KEY]
+    else:
+        container[_SOURCE_REFS_KEY] = scrubbed
+
+
+def _source_ids_named_by_memory_copies(row: Mapping[str, object]) -> CitedSourceIds:
+    """Every source id the memory's own copies of its provenance name."""
+
+    cited = _NO_CITED_IDS
     metadata = row.get("metadata_json")
     if isinstance(metadata, Mapping):
         for key in _PROVENANCE_OBJECT_KEYS:
-            named.update(source_uuids_in_ref(metadata.get(key)))
-        named.update(source_uuids_in_ref(metadata.get(_SOURCE_REFS_KEY)))
+            cited |= cited_source_ids(metadata.get(key))
+        cited |= cited_source_ids(metadata.get(_SOURCE_REFS_KEY))
         agentic = metadata.get(_AGENTIC_MEMORY_KEY)
         if isinstance(agentic, Mapping):
-            named.update(source_uuids_in_ref(agentic.get(_SOURCE_REFS_KEY)))
+            cited |= cited_source_ids(agentic.get(_SOURCE_REFS_KEY))
     value = row.get("value")
     if isinstance(value, Mapping):
-        named.update(source_uuids_in_ref(value.get(_SOURCE_REFS_KEY)))
-    return named
+        cited |= cited_source_ids(value.get(_SOURCE_REFS_KEY))
+    return cited
 
 
-def _source_ids_named_by_revision(row: Mapping[str, object]) -> set[str]:
-    named: set[str] = set()
+def _source_ids_named_by_revision(row: Mapping[str, object]) -> CitedSourceIds:
+    cited = _NO_CITED_IDS
     for key in _REVISION_VALUE_KEYS:
         value = row.get(key)
         if isinstance(value, Mapping):
-            named.update(source_uuids_in_ref(value.get(_SOURCE_REFS_KEY)))
-    return named
+            cited |= cited_source_ids(value.get(_SOURCE_REFS_KEY))
+    return cited
 
 
-def source_ids_named_by_memory_audit(audit: Mapping[str, object]) -> set[str]:
+def cited_source_ids_in_memory_audit(audit: Mapping[str, object]) -> CitedSourceIds:
     """Every source id the copies in a memory audit name, other than through a provenance link.
 
     The audit (``VNextMemoryCommitService.audit``) holds the memory row, its revisions and the payload of its events,
@@ -347,24 +558,71 @@ def source_ids_named_by_memory_audit(audit: Mapping[str, object]) -> set[str]:
     every source named anywhere in it is readable, so the caller asks this for what a link does not say.
     """
 
-    named: set[str] = set()
+    cited = _NO_CITED_IDS
     memory = audit.get("memory")
     if isinstance(memory, Mapping):
-        named.update(_source_ids_named_by_memory_copies(memory))
+        cited |= _source_ids_named_by_memory_copies(memory)
     revisions = audit.get("revisions")
     for revision in revisions if isinstance(revisions, list) else []:
         if isinstance(revision, Mapping):
-            named.update(_source_ids_named_by_revision(revision))
+            cited |= _source_ids_named_by_revision(revision)
     events = audit.get("events")
     for event in events if isinstance(events, list) else []:
         payload = event.get("payload_json") if isinstance(event, Mapping) else None
         if not isinstance(payload, Mapping):
             continue
-        named.update(_source_ids_named_by_memory_copies(payload))
+        cited |= _source_ids_named_by_memory_copies(payload)
         changes = payload.get("changes")
         if isinstance(changes, Mapping):
-            named.update(_source_ids_named_by_memory_copies(changes))
-    return named
+            cited |= _source_ids_named_by_memory_copies(changes)
+    return cited
+
+
+def source_ids_named_by_memory_audit(audit: Mapping[str, object]) -> set[str]:
+    """The ids ``cited_source_ids_in_memory_audit`` finds at a position that holds a source reference."""
+
+    return set(cited_source_ids_in_memory_audit(audit).named)
+
+
+# -- the quote copies ------------------------------------------------------------------------------------------------
+
+
+def _copy_quote_texts(container: Mapping[str, object]) -> set[str]:
+    """The text of every saved copy of a quote in ``container`` (a memory's metadata, or a revision's value), as
+    ``_quote_text`` reads it: the quote of ``provenance`` and ``replacement_provenance``, and the excerpt of
+    ``agentic_memory``. These are the copies ``_without_quote_copies`` removes."""
+
+    texts: set[str] = set()
+    for key in _PROVENANCE_OBJECT_KEYS:
+        copy = container.get(key)
+        text = _quote_text(copy.get(_QUOTE_KEY) if isinstance(copy, Mapping) else copy)
+        if text is not None:
+            texts.add(text)
+    agentic = container.get(_AGENTIC_MEMORY_KEY)
+    if isinstance(agentic, Mapping):
+        excerpt = _quote_text(agentic.get(_EXCERPT_KEY))
+        if excerpt is not None:
+            texts.add(excerpt)
+    excerpt = _quote_text(container.get(_EXCERPT_KEY))
+    if excerpt is not None:
+        texts.add(excerpt)
+    return texts
+
+
+def _without_quote_copies(container: dict[str, object]) -> None:
+    """Remove the saved copies of a quote from ``container``, in place, on a copy the caller made."""
+
+    for key in _PROVENANCE_OBJECT_KEYS:
+        container.pop(key, None)
+    container.pop(_EXCERPT_KEY, None)
+    agentic = container.get(_AGENTIC_MEMORY_KEY)
+    if isinstance(agentic, Mapping) and _EXCERPT_KEY in agentic:
+        container[_AGENTIC_MEMORY_KEY] = {key: item for key, item in agentic.items() if key != _EXCERPT_KEY}
+
+
+def _memory_copy_quote_texts(row: Mapping[str, object]) -> set[str]:
+    metadata = row.get("metadata_json")
+    return _copy_quote_texts(metadata) if isinstance(metadata, Mapping) else set()
 
 
 def _memory_without_refused_provenance(
@@ -375,31 +633,40 @@ def _memory_without_refused_provenance(
     if isinstance(metadata, Mapping):
         copy = dict(metadata)
         if withhold_quotes:
-            for key in _PROVENANCE_OBJECT_KEYS:
-                copy.pop(key, None)
-        if _SOURCE_REFS_KEY in copy:
-            copy[_SOURCE_REFS_KEY] = _without_refused_refs(copy[_SOURCE_REFS_KEY], refused)
+            _without_quote_copies(copy)
+        _scrub_refs_key(copy, refused)
         agentic = copy.get(_AGENTIC_MEMORY_KEY)
         if isinstance(agentic, Mapping):
             inner = dict(agentic)
-            if withhold_quotes:
-                inner.pop(_EXCERPT_KEY, None)
-            if _SOURCE_REFS_KEY in inner:
-                inner[_SOURCE_REFS_KEY] = _without_refused_refs(inner[_SOURCE_REFS_KEY], refused)
+            _scrub_refs_key(inner, refused)
             copy[_AGENTIC_MEMORY_KEY] = inner
         out["metadata_json"] = copy
     value = row.get("value")
     if isinstance(value, Mapping) and _SOURCE_REFS_KEY in value:
-        out["value"] = {**value, _SOURCE_REFS_KEY: _without_refused_refs(value[_SOURCE_REFS_KEY], refused)}
+        scrubbed_value = dict(value)
+        _scrub_refs_key(scrubbed_value, refused)
+        out["value"] = scrubbed_value
     return out
 
 
-def _revision_without_refused_refs(row: Mapping[str, object], *, refused: frozenset[str]) -> dict[str, object]:
+def _revision_without_refused_refs(
+    row: Mapping[str, object], *, refused: frozenset[str], withhold_quotes: bool
+) -> dict[str, object]:
     out = dict(row)
     for key in _REVISION_VALUE_KEYS:
         value = row.get(key)
-        if isinstance(value, Mapping) and _SOURCE_REFS_KEY in value:
-            out[key] = {**value, _SOURCE_REFS_KEY: _without_refused_refs(value[_SOURCE_REFS_KEY], refused)}
+        if not isinstance(value, Mapping):
+            continue
+        scrubbed = dict(value)
+        if withhold_quotes:
+            _without_quote_copies(scrubbed)
+        _scrub_refs_key(scrubbed, refused)
+        agentic = scrubbed.get(_AGENTIC_MEMORY_KEY)
+        if isinstance(agentic, Mapping):
+            inner = dict(agentic)
+            _scrub_refs_key(inner, refused)
+            scrubbed[_AGENTIC_MEMORY_KEY] = inner
+        out[key] = scrubbed
     return out
 
 
@@ -409,6 +676,16 @@ def _is_memory_row(value: Mapping[str, object]) -> bool:
 
 def _is_revision_row(value: Mapping[str, object]) -> bool:
     return "memory_id" in value and "revision_number" in value and "revision_type" in value
+
+
+@dataclass(frozen=True, slots=True)
+class _Verdict:
+    """What the reader decided about one memory: the sources it cites that the caller may not read, whether its saved
+    quotes are withheld, and the text of every quote that is withheld (so a copy of it elsewhere is withheld too)."""
+
+    refused: frozenset[str]
+    withhold_quotes: bool
+    texts: frozenset[str]
 
 
 class SavedProvenanceReader:
@@ -421,21 +698,30 @@ class SavedProvenanceReader:
 
     * a link whose source is missing, archived or outside the fence, and a link that names no source at all, is left
       out, as a link that was never stored would be;
-    * when a memory has such a link, or its own copies name such a source, its copies of the quote
-      (``metadata_json.provenance``, ``metadata_json.replacement_provenance`` and
-      ``metadata_json.agentic_memory.conversation_excerpt``) are removed, and the entries of the ref lists that name
-      the source (``source_refs`` in the metadata, in ``agentic_memory`` and in ``value``, and the same list in a
+    * when a memory has such a link, or its own copies name such a source (``cited_source_ids``: every id any ref of
+      the memory names, in every shape), its copies of the quote (``metadata_json.provenance``,
+      ``metadata_json.replacement_provenance`` and ``metadata_json.agentic_memory.conversation_excerpt``, and the same
+      copies in a revision's ``previous_value`` and ``new_value``) are removed, and the entries of the ref lists that
+      name the source (``source_refs`` in the metadata, in ``agentic_memory`` and in ``value``, and the same list in a
       revision's ``previous_value`` and ``new_value``) are dropped;
-    * when a link of a memory is left out, the quote of any other link of that memory that says the same text (ignoring
-      whitespace) is withheld too. The commit route saves one ``conversation_excerpt`` as the quote of each link it
-      makes, so the quote left on a link to a readable source can be the bytes of the source the caller may not read.
-      A link whose quote is different text (the link from a captured candidate to its own source, or a review's own
-      quote) keeps it.
+    * every text that is withheld in either way (the quote of a link that is left out, and every copy that is removed)
+      is withheld from the other links of the same memory too: a link whose quote says the same text (ignoring
+      whitespace) is shown without its quote. The commit route saves one ``conversation_excerpt`` as the quote of the
+      link it makes and as the memory's own copy, and it links only the first id of a reference that names several
+      sources, so the quote left on a link to a readable source can be the bytes of a source the caller may not read,
+      and the only sign of it is the memory's own copy. The match is equality of the words, which is the relation the
+      writers make (see the module docstring); a link whose quote is different text (the link from a captured
+      candidate to its own source, or a review's own quote) keeps it.
 
     A memory with no link at all (a commit held for review or confirmed inline, then approved) keeps the sources it
     cited only in the ref lists of its own copies, so the reader judges a row by those copies as well. It must be asked
     about a row as the store holds it: a scrub that drops the refs of a row first (the context pack's scope pass does
     this for a pack with a project scope) leaves nothing here to judge, and the quote stays.
+
+    The links of a memory are judged against the memory's own row, the one the reader was last asked about
+    (``memory``, ``memories``, ``tree``) and, for a memory it was not asked about, the row the store holds for the id.
+    Ask for the memory, then its revisions, then its links: a copy of a quote that only a revision holds is added to
+    the withheld texts when the revision is read.
 
     The owner (``fence.fenced`` is false) is shown what was stored: every method returns its input unchanged and reads
     nothing it was not asked to. A memory whose sources are all admitted is returned as the same object.
@@ -448,6 +734,11 @@ class SavedProvenanceReader:
         self._fence = fence
         self._links: dict[str, list[dict[str, object]]] = {}
         self._admitted: dict[str, bool] = {}
+        self._exists: dict[str, bool] = {}
+        self._rows: dict[str, Mapping[str, object]] = {}
+        self._looked_up: set[str] = set()
+        self._cited: dict[int, tuple[Mapping[str, object], CitedSourceIds]] = {}
+        self._revision_texts: dict[str, set[str]] = {}
 
     @property
     def fenced(self) -> bool:
@@ -495,8 +786,8 @@ class SavedProvenanceReader:
 
     def shown_link(self, link: Mapping[str, object]) -> dict[str, object] | None:
         """``link`` as the caller is shown it: ``None`` when it is left out (``admits_link`` is false), the link with
-        its ``quote`` withheld when a link of the same memory that is left out says the same text, the link itself
-        otherwise."""
+        its ``quote`` withheld when the memory withholds that text (a link that is left out says it, or a copy on the
+        memory that names a source the caller may not read does), the link itself otherwise."""
 
         if not self.fenced:
             return link  # type: ignore[return-value]
@@ -527,7 +818,8 @@ class SavedProvenanceReader:
         return [self._memory(row) for row in rows]
 
     def revision(self, row: Mapping[str, object]) -> dict[str, object]:
-        """``row`` (a memory revision) with the refs of a refused source dropped."""
+        """``row`` (a memory revision) with the refs of a refused source dropped, and its copies of a quote removed
+        when the revision or its memory cites such a source."""
 
         if not self.fenced:
             return row  # type: ignore[return-value]
@@ -556,30 +848,101 @@ class SavedProvenanceReader:
         if not self.admits_link(link):
             return None
         quote = _quote_text(link.get(_QUOTE_KEY))
-        if quote is not None and any(
-            _quote_text(other.get(_QUOTE_KEY)) == quote for other in siblings if not self.admits_link(other)
-        ):
+        if quote is None:
+            return link  # type: ignore[return-value]
+        memory_id = str(link.get("target_id") or "")
+        if quote in self._verdict(memory_id, self._row_for(memory_id), siblings).texts:
             return {**link, _QUOTE_KEY: None}
         return link  # type: ignore[return-value]
 
+    def _verdict(
+        self, memory_id: str, row: Mapping[str, object] | None, links: Sequence[Mapping[str, object]]
+    ) -> _Verdict:
+        """Judge the memory by its links and, when ``row`` is known, by every source its own copies name."""
+
+        cited = self._cited_by(row) if row is not None else _NO_CITED_IDS
+        link_ids = {
+            source_id for link in links if (source_id := _canonical_source_id(link.get("source_id"))) is not None
+        }
+        self._judge([*link_ids, *cited.every])
+        refused = frozenset(
+            {source_id for source_id in link_ids | cited.named if not self._admitted.get(source_id, False)}
+            | {
+                source_id
+                for source_id in cited.incidental
+                if self._exists.get(source_id, False) and not self._admitted.get(source_id, False)
+            }
+        )
+        withhold_quotes = bool(refused) or any(_canonical_source_id(link.get("source_id")) is None for link in links)
+        # A copy a revision lost because the revision cites a refused source is withheld whatever the memory cites.
+        texts = set(self._revision_texts.get(memory_id, ()))
+        if withhold_quotes:
+            texts |= {
+                text
+                for link in links
+                if not self.admits_link(link) and (text := _quote_text(link.get(_QUOTE_KEY))) is not None
+            }
+            if row is not None:
+                texts |= _memory_copy_quote_texts(row)
+        return _Verdict(refused=refused, withhold_quotes=withhold_quotes, texts=frozenset(texts))
+
     def _memory(self, row: Mapping[str, object]) -> dict[str, object]:
         memory_id = str(row.get("id") or "")
-        links = self._links.get(memory_id, [])
-        named = {
-            source_id for link in links if (source_id := _canonical_source_id(link.get("source_id"))) is not None
-        } | _source_ids_named_by_memory_copies(row)
-        refused = frozenset(source_id for source_id in named if not self._admitted.get(source_id, False))
-        withhold_quotes = bool(refused) or any(_canonical_source_id(link.get("source_id")) is None for link in links)
-        if not withhold_quotes:
+        verdict = self._verdict(memory_id, row, self._links.get(memory_id, []))
+        if not verdict.withhold_quotes:
             return row  # type: ignore[return-value]
-        return _memory_without_refused_provenance(row, refused=refused, withhold_quotes=withhold_quotes)
+        return _memory_without_refused_provenance(row, refused=verdict.refused, withhold_quotes=True)
 
     def _revision(self, row: Mapping[str, object]) -> dict[str, object]:
-        named = _source_ids_named_by_revision(row)
-        refused = frozenset(source_id for source_id in named if not self._admitted.get(source_id, False))
-        if not refused:
+        memory_id = str(row.get("memory_id") or "")
+        cited = _source_ids_named_by_revision(row)
+        self._judge(cited.every)
+        refused = frozenset(
+            {source_id for source_id in cited.named if not self._admitted.get(source_id, False)}
+            | {
+                source_id
+                for source_id in cited.incidental
+                if self._exists.get(source_id, False) and not self._admitted.get(source_id, False)
+            }
+        )
+        known = self._rows.get(memory_id)
+        memory_withholds = known is not None and self._verdict(memory_id, known, self._links.get(memory_id, [])).withhold_quotes
+        withhold_quotes = bool(refused) or memory_withholds
+        texts: set[str] = set()
+        for key in _REVISION_VALUE_KEYS:
+            value = row.get(key)
+            if withhold_quotes and isinstance(value, Mapping):
+                texts |= _copy_quote_texts(value)
+        if not refused and not texts:
             return row  # type: ignore[return-value]
-        return _revision_without_refused_refs(row, refused=refused)
+        if texts:
+            self._revision_texts.setdefault(memory_id, set()).update(texts)
+        return _revision_without_refused_refs(row, refused=refused, withhold_quotes=withhold_quotes)
+
+    def _cited_by(self, row: Mapping[str, object]) -> CitedSourceIds:
+        cached = self._cited.get(id(row))
+        if cached is not None and cached[0] is row:
+            return cached[1]
+        cited = _source_ids_named_by_memory_copies(row)
+        self._cited[id(row)] = (row, cited)
+        return cited
+
+    def _row_for(self, memory_id: str) -> Mapping[str, object] | None:
+        """The row of ``memory_id`` the reader was asked about, else the one the store holds, else None."""
+
+        known = self._rows.get(memory_id)
+        if known is not None or not memory_id or memory_id in self._looked_up:
+            return known
+        self._looked_up.add(memory_id)
+        if _canonical_source_id(memory_id) is None:
+            return None
+        getter = getattr(self._store, "get_memory", None)
+        found = getter(memory_id) if callable(getter) else None
+        if not isinstance(found, Mapping):
+            return None
+        self._rows[memory_id] = found
+        self._judge(self._cited_by(found).every)
+        return found
 
     def _prefetch(
         self, *, memories: Sequence[Mapping[str, object]], revisions: Sequence[Mapping[str, object]]
@@ -589,13 +952,16 @@ class SavedProvenanceReader:
         self._load_links([str(row.get("id") or "") for row in memories])
         wanted: list[str] = []
         for row in memories:
-            wanted.extend(_source_ids_named_by_memory_copies(row))
-            for link in self._links.get(str(row.get("id") or ""), []):
+            memory_id = str(row.get("id") or "")
+            if memory_id:
+                self._rows[memory_id] = row
+            wanted.extend(self._cited_by(row).every)
+            for link in self._links.get(memory_id, []):
                 source_id = _canonical_source_id(link.get("source_id"))
                 if source_id is not None:
                     wanted.append(source_id)
         for row in revisions:
-            wanted.extend(_source_ids_named_by_revision(row))
+            wanted.extend(_source_ids_named_by_revision(row).every)
         self._judge(wanted)
 
     def _load_links(self, memory_ids: Sequence[str]) -> None:
@@ -618,9 +984,12 @@ class SavedProvenanceReader:
         unknown = [source_id for source_id in dict.fromkeys(source_ids) if source_id not in self._admitted]
         if not unknown:
             return
-        rows = _rows_by_id(self._store, unknown)
+        rows: dict[str, Mapping[str, object]] = {}
+        for start in range(0, len(unknown), _LOOKUP_BATCH):
+            rows.update(_rows_by_id(self._store, unknown[start : start + _LOOKUP_BATCH]))
         for source_id in unknown:
             row = rows.get(source_id)
+            self._exists[source_id] = row is not None
             self._admitted[source_id] = row is not None and self._fence.admits(row)
 
     def _rebuild(self, value: object) -> object:
@@ -663,13 +1032,17 @@ def _collect_rows(
 
 __all__ = [
     "AttachableSources",
+    "CitedSourceIds",
     "EXPLAIN_DISCLOSURE_ACTION",
     "MEMORY_REF_NOT_FOUND_MESSAGE",
     "MemoryRefNotFoundError",
+    "SOURCE_REFERENCE_KEYS",
     "SOURCE_REF_NOT_FOUND_MESSAGE",
     "SavedProvenanceReader",
     "SourceReadFence",
     "SourceRefNotFoundError",
+    "cited_source_ids",
+    "cited_source_ids_in_memory_audit",
     "resolve_attachable_memory_id",
     "resolve_attachable_source_id",
     "resolve_attachable_sources",
