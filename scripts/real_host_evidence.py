@@ -643,7 +643,11 @@ class _McpStub:
         self.record: dict[str, Any] = {
             "host": host,
             "started": True,
+            # ``complete`` means this record is final, so the stub API stops holding the host. It is true
+            # when the client leaves or the server fails as well as when the probe ends. ``probe_finished``
+            # is true only when the roots/list probe reached an end: an answer, an error, or the whole wait.
             "complete": False,
+            "probe_finished": False,
             "cwd": cwd_record(_current_directory(), ctx),
             "env": env_record(os.environ, ctx),
             "probes": probe_record(os.environ, server=True),
@@ -718,6 +722,12 @@ class _McpStub:
 
     def _roots_answer(self, message: dict[str, Any]) -> None:
         roots: dict[str, Any] = self.record["roots_list"]
+        if self.roots_sent_at is None:
+            # The stub has not sent the probe, so this answers nothing it asked. It must not end the probe,
+            # which would also release the host before the real question was put. It is recorded, and the
+            # check reports it: a client that answers a request nobody made is not one to trust an answer from.
+            roots["unrequested_answer"] = True
+            return
         if isinstance(message.get("error"), dict):
             error = message["error"]
             code = error.get("code")
@@ -735,6 +745,7 @@ class _McpStub:
         roots: dict[str, Any] = self.record["roots_list"]
         if self.roots_sent_at is not None:
             roots["waited_seconds"] = round(time.monotonic() - self.roots_sent_at, 2)
+        self.record["probe_finished"] = True
         self.record["complete"] = True
 
     # --- timers ---
@@ -978,8 +989,10 @@ def _numbered_paths(artifacts: Path, host: str, kind: str) -> list[Path]:
 
 
 def _mcp_complete(artifacts: Path, host: str) -> bool:
-    """True once a server has started and every server start has finished its roots probe.
+    """True once a server has started and every server start's record is final.
 
+    A record is final when the probe ended or the client left or the server failed, so this
+    only says the host may be released. Whether the probe ended is ``_server_problems``'s question.
     A record that cannot be read yet counts as unfinished, so the host is not released early.
     """
 
@@ -1244,10 +1257,38 @@ def _finish_host(
     for number, server in enumerate(servers, start=1):
         # Every start is held to the same bar, and says which one missed it when there is more than one.
         which = f" (start {number} of {len(servers)})" if len(servers) > 1 else ""
-        if not server.get("initialize", {}).get("received"):
-            problems.append("the MCP server never received initialize" + which)
-        if server.get("complete") is not True:
-            problems.append("the roots/list probe did not finish" + which)
+        problems.extend(_server_problems(server, which))
+
+
+def _server_problems(server: dict[str, Any], which: str) -> list[str]:
+    """What is wrong with one MCP server record, as at most one problem.
+
+    The probe counts only when it reached an end: an answer, an error, or the whole wait with no reply.
+    A client that left first, a server that stopped on an error, and a client that never sent
+    ``notifications/initialized`` all leave ``probe_finished`` false. A client that declared roots
+    and answered ``roots/list`` with an error is a problem too. A client that declared nothing is
+    asked anyway, and any end it reaches is a finding, not a problem. An answer that carried the stub's
+    request id before the stub had sent the probe is a problem, and it never counts as the probe's end.
+    An error that stops the server after the probe ended is not a problem, on purpose: the check is
+    about the probe, not the process, and the error name stays in the record.
+    """
+
+    initialize = server.get("initialize")
+    if not isinstance(initialize, dict) or not initialize.get("received"):
+        return ["the MCP server never received initialize" + which]
+    roots = server.get("roots_list")
+    roots = roots if isinstance(roots, dict) else {}
+    if roots.get("unrequested_answer") is True:
+        return ["the client answered roots/list before the stub asked" + which]
+    if server.get("probe_finished") is not True:
+        reason = roots.get("reason")
+        error = server.get("error")
+        detail = f": {reason}" if reason else f": the MCP server stopped on {error}" if error else ""
+        return [f"the roots/list probe did not finish{detail}{which}"]
+    declares = initialize.get("declares")
+    if isinstance(declares, dict) and declares.get("roots") is True and roots.get("outcome") == "error":
+        return ["the client declared roots and answered roots/list with an error" + which]
+    return []
 
 
 def _which(name: str, env: Mapping[str, str]) -> str | None:
