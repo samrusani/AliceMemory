@@ -3,8 +3,8 @@
 Unreleased (on main, not in v0.20.0). v0.20.0 checked only that a cited source existed for the acting user. A key
 bound to one project could attach a source of another project, a source above its sensitivity ceiling, a source in a
 domain its profile may not read, a global source or a deleted one, through ``alice_memory_commit`` ``source_refs`` and
-through the ``provenance`` of ``alice_memory_correct``, while an id that did not exist answered ``precondition_failed``
-(SQLite) or ``tool_execution_failed`` (Postgres). So a source id was an existence oracle, and the attached link then
+through the ``provenance`` of ``alice_memory_correct``, while an id that did not exist failed (``tool_request_failed``
+on v0.20.0, ``precondition_failed`` on SQLite on main). So a source id was an existence oracle, and the attached link then
 made the key's own ``alice_explain`` of the memory fail closed and showed the foreign id to anyone in the project who
 reviewed the memory by id.
 

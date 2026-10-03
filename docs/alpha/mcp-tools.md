@@ -748,8 +748,7 @@ without reading the sources again. A ref that names no id (a URL, a label) is
 stored as before. `POST /v0/vnext/memories/commit` answers the same refusal
 with 404 and the public `not_found` error. In v0.20.0 a key bound to one
 project could attach a source of another project, and a source id that did not
-exist answered `precondition_failed` on SQLite and `tool_execution_failed` on
-Postgres.
+exist answered `tool_request_failed` where one that existed was stored.
 
 ## Size bounds
 
