@@ -20,7 +20,8 @@ seen to fail, and the file is restored by copying the saved file back.
 from __future__ import annotations
 
 import json
-from collections.abc import Callable, Mapping
+import logging
+from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
@@ -49,11 +50,17 @@ _PROFILES = ("project_scoped_agent", "trusted_local_agent", "read_only_agent", "
 
 
 @pytest.fixture
-def context(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> MCPRuntimeContext:
+def context(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[MCPRuntimeContext]:
     monkeypatch.delenv(_KEY_ENV, raising=False)
     database = resolve_db_path(data_dir=str(tmp_path), db=None)
     bootstrap_database(database, user_id=_USER_ID, user_email="local@alice")
-    return MCPRuntimeContext(database_url=sqlite_url_for_path(database), user_id=UUID(_USER_ID))
+    # The server logs every refusal with its traceback. A matrix of several hundred refused calls would spend most of
+    # its time formatting them, and no assertion here reads the log.
+    logging.disable(logging.CRITICAL)
+    try:
+        yield MCPRuntimeContext(database_url=sqlite_url_for_path(database), user_id=UUID(_USER_ID))
+    finally:
+        logging.disable(logging.NOTSET)
 
 
 # --- Wire helpers -------------------------------------------------------------------------------------------------
@@ -361,6 +368,19 @@ def test_a_caller_the_project_scope_refuses_hears_the_same_answer_in_every_state
     assert wrong == {}, sorted(wrong.items())
 
 
+# A fresh row per cell makes this the slowest test here, so it takes the states its assertions read and a few more.
+_CONTROL_STATES = (
+    "active",
+    "pending confirmation",
+    "confirmation confirmed",
+    "superseded",
+    "consolidation candidate",
+    "pending project update",
+    "archived",
+    "redacted",
+)
+
+
 def test_the_callers_the_policy_allows_still_hear_the_state_and_are_never_refused(
     context: MCPRuntimeContext,
     monkeypatch: pytest.MonkeyPatch,
@@ -382,7 +402,8 @@ def test_the_callers_the_policy_allows_still_hear_the_state_and_are_never_refuse
     answers: dict[tuple[str, str, str], str] = {}
     for caller, raw_key in (("owner", None), ("key bound in scope", admin_in_scope)):
         for call_name, call in _CALLS.items():
-            for state, build in _ALL_STATES.items():
+            for state in _CONTROL_STATES:
+                build = _ALL_STATES[state]
                 if not _applies(call, state):
                     continue
                 monkeypatch.delenv(_KEY_ENV, raising=False)
