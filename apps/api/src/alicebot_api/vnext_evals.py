@@ -95,6 +95,7 @@ from alicebot_api.vnext_retrieval import (
     VNextRetrievalStore,
 )
 from alicebot_api.vnext_store import PostgresVNextStore
+from alicebot_api.vnext_source_fence import SourceReadFence
 
 logger = logging.getLogger(__name__)
 EVAL_CASE_ERROR_CODE = "eval_case_failed"
@@ -869,7 +870,10 @@ def production_retrieval_fn(store: object) -> RetrievalFn:
     service = VNextRetrievalService(cast(VNextRetrievalStore, store))
 
     def _retrieve(query: str, *, limit: int) -> JsonObject:
-        pack = service.compile_context_pack(_eval_retrieval_request(query, max_items=limit))
+        pack = service.compile_context_pack(
+            _eval_retrieval_request(query, max_items=limit),
+            source_fence=SourceReadFence.unfenced(),
+        )
         relevant = cast(list[JsonObject], pack.get("relevant_memories", []))
         trace = cast(JsonObject, pack.get("trace", {}))
         stages = trace.get("stages")
@@ -1348,7 +1352,8 @@ def filtered_retrieval_fn(store: object, memory_types: tuple[str, ...]) -> Retri
 
     def _retrieve(query: str, *, limit: int) -> JsonObject:
         pack = service.compile_context_pack(
-            _eval_retrieval_request(query, max_items=limit, memory_types=memory_types)
+            _eval_retrieval_request(query, max_items=limit, memory_types=memory_types),
+            source_fence=SourceReadFence.unfenced()
         )
         relevant = cast(list[JsonObject], pack.get("relevant_memories", []))
         trace = cast(JsonObject, pack.get("trace", {}))
@@ -2663,7 +2668,8 @@ def _graph_hop_retrieval_fn(store: object) -> Callable[[str], JsonObject]:
 
     def _retrieve(query: str) -> JsonObject:
         pack = service.compile_context_pack(
-            _eval_retrieval_request(query, max_items=RETRIEVAL_QUALITY_RECALL_LIMIT)
+            _eval_retrieval_request(query, max_items=RETRIEVAL_QUALITY_RECALL_LIMIT),
+            source_fence=SourceReadFence.unfenced()
         )
         relevant = cast(list[JsonObject], pack.get("relevant_memories", []))
         trace = cast(JsonObject, pack.get("trace", {}))

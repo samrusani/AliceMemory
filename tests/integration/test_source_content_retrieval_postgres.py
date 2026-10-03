@@ -18,6 +18,7 @@ from alicebot_api.db import user_connection
 from alicebot_api.store import ContinuityStore
 from alicebot_api.vnext_retrieval import VNextRetrievalRequest, VNextRetrievalService
 from alicebot_api.vnext_store import PostgresVNextStore
+from alicebot_api.vnext_source_fence import SourceReadFence
 
 
 def _seed_early_answer_and_late_decoys(store: PostgresVNextStore) -> dict[str, object]:
@@ -80,7 +81,8 @@ def test_source_content_beats_recency_on_postgres(migrated_database_urls, monkey
         # End to end: RRF over chunk-content + provenance + title/recency
         # puts the answer session first despite six newer decoys.
         pack = VNextRetrievalService(store).compile_context_pack(
-            VNextRetrievalRequest(query="golden retriever Biscuit")
+            VNextRetrievalRequest(query="golden retriever Biscuit"),
+            source_fence=SourceReadFence.unfenced()
         )
         assert str(pack["sources"][0]["id"]) == str(early["id"])
         stage = pack["trace"]["stages"]["sources"]
@@ -125,7 +127,7 @@ def test_source_chunk_or_fallback_recovers_natural_language_questions_on_postgre
 
         # End to end: the fused stage retries once with OR semantics and
         # the trace reports the relaxed chunk pass honestly.
-        pack = VNextRetrievalService(store).compile_context_pack(VNextRetrievalRequest(query=question))
+        pack = VNextRetrievalService(store).compile_context_pack(VNextRetrievalRequest(query=question), source_fence=SourceReadFence.unfenced())
         assert str(pack["sources"][0]["id"]) == str(source["id"])
         assert pack["trace"]["stages"]["sources"]["chunk_fts_source"] == "postgres_fts_or_fallback"
 
@@ -210,7 +212,8 @@ def test_provenance_fusion_pulls_evidence_source_on_postgres(migrated_database_u
         # anywhere the lexical or chunk passes look; only the winning
         # memory's provenance can pull it into the pack.
         pack = VNextRetrievalService(store).compile_context_pack(
-            VNextRetrievalRequest(query="quarterly board deck dark mode")
+            VNextRetrievalRequest(query="quarterly board deck dark mode"),
+            source_fence=SourceReadFence.unfenced()
         )
         assert [str(item["id"]) for item in pack["relevant_memories"]] == [str(memory["id"])]
         assert str(evidence["id"]) in {str(item["id"]) for item in pack["sources"]}

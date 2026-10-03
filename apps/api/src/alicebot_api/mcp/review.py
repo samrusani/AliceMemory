@@ -83,6 +83,7 @@ from alicebot_api.vnext_project_update_guard import (
 from alicebot_api.vnext_repositories import JsonObject as VNextJsonObject
 from alicebot_api.vnext_json import json_safe
 from alicebot_api.vnext_source_fence import (
+    SavedProvenanceReader,
     SourceReadFence,
     SourceRefNotFoundError,
     resolve_attachable_sources,
@@ -161,17 +162,19 @@ def _vnext_memory_review(context: MCPRuntimeContext, arguments: Mapping[str, obj
             ):
                 raise MCPReferenceNotFoundError("memory review item is outside the effective review filters")
             else:
-                framed_memory = frame_disclosed_tree(memory)
+                # What the memory saved of its sources is held to the caller's read fence now, not as it was when the
+                # link was written: a source reclassified or archived since then is withheld, with every copy of its
+                # quote, the same way a link that was never stored would be.
+                saved = SavedProvenanceReader(store, fence=SourceReadFence.for_identity(identity))
+                framed_memory = frame_disclosed_tree(saved.memory(memory))
                 if isinstance(framed_memory, dict):
                     framed_memory["writer"] = memory_writer(store, memory)
                 payload = {
                     "mode": "vnext_detail",
                     "review": {
                         "memory": framed_memory,
-                        "revisions": frame_disclosed_tree(store.list_revisions(memory_id)),
-                        "provenance_links": frame_disclosed_tree(
-                            store.list_provenance_links(target_type="memory", target_id=memory_id)
-                        ),
+                        "revisions": frame_disclosed_tree([saved.revision(row) for row in store.list_revisions(memory_id)]),
+                        "provenance_links": frame_disclosed_tree(saved.links(memory_id)),
                     },
                 }
         if blocked_decision is not None:
@@ -865,6 +868,14 @@ def _vnext_memory_correct(context: MCPRuntimeContext, arguments: Mapping[str, ob
             target_id=memory_id,
             payload=event_payload,
         )
+        # The rows the call hands back are held to the caller's read fence, as a review by id is: a memory that cites
+        # an archived source (or one above the caller's ceiling) is not returned with the quote it saved.
+        shown = cast(
+            dict[str, VNextJsonObject | None],
+            SavedProvenanceReader(store, fence=SourceReadFence.for_identity(identity)).tree(
+                {"memory": updated, "replacement_object": replacement_object}
+            ),
+        )
 
     _persist_vnext_deferred_embedding_inputs(
         context,
@@ -879,8 +890,8 @@ def _vnext_memory_correct(context: MCPRuntimeContext, arguments: Mapping[str, ob
                 "resolved_action": resolved_action,
                 "memory_id": memory_id,
             },
-            "memory": updated,
-            "replacement_object": replacement_object,
+            "memory": shown["memory"],
+            "replacement_object": shown["replacement_object"],
             "mode": "vnext",
             **({"rationale_withheld": rationale_withheld} if resolved_action == "delete" else {}),
         }

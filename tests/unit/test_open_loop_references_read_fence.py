@@ -1426,9 +1426,9 @@ def test_the_legacy_tools_that_return_whole_loops_take_no_identity_so_they_are_t
 
 def test_the_docs_say_what_the_readers_do_and_name_the_two_limits_that_remain() -> None:
     """The limitation of PR 534 named ``alice_open_loops`` beside the context pack's ``supporting_evidence`` and
-    ``alice_memory_review`` by id. The first is fixed here and the other two are not, so the sentence is narrowed in
-    the three places that carry it and not deleted, and the fix is stated once where a user reads the tool contract and
-    once in the release notes.
+    ``alice_memory_review`` by id. This change fixes the first and the saved-quotes change fixes the other two, so
+    none of the three places that carried the sentence may still state it as a limit, and the open-loop fix is stated
+    once where a user reads the tool contract and once in the release notes.
 
     Mutation: put the old sentence back in any one of the CHANGELOG, ``docs/alpha/known-limitations.md`` or
     ``docs/alpha/mcp-tools.md``, or delete the new paragraph of ``mcp-tools.md``.
@@ -1444,11 +1444,11 @@ def test_the_docs_say_what_the_readers_do_and_name_the_two_limits_that_remain() 
         "and, for an open loop, in `alice_open_loops`",
         "and `alice_open_loops` still returns a foreign id",
         "in `alice_memory_review` by id and in `alice_open_loops`",
+        "`supporting_evidence` and in `alice_memory_review` by id",
     )
     for name, text in (("CHANGELOG.md", changelog), ("known-limitations.md", limitations), ("mcp-tools.md", tools)):
         for clause in old_clauses:
             assert clause not in text, (name, clause)
-        assert text.count("`supporting_evidence` and in `alice_memory_review` by id") == 1, name
     assert changelog.count("- An open loop no longer shows its reader the id of a source or memory the reader may not read.") == 1
     assert (
         tools.count(

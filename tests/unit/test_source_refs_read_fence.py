@@ -1385,22 +1385,24 @@ def test_the_foreign_source_id_never_reaches_a_review_by_id(vault: _Vault) -> No
 def test_a_link_that_passes_for_a_writer_still_shows_its_id_to_keys_with_a_lower_ceiling(
     vault: _Vault, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Pins the limitation the release notes state, so the words and the behaviour cannot drift apart. The fence on a
-    write is the writer's own read fence, not the fence of whoever reads later. An ``admin_agent`` key may cite a
-    confidential source of its own project, and then a ``trusted_local_agent`` key and a ``project_scoped_agent`` key of
-    the same project (both with a lower ceiling) see that source's id in ``alice_memory_review`` by id and in the
-    context pack's ``supporting_evidence``, and ``alice_explain`` of the memory fails for them. They are shown no text
-    of the source. An open loop is not on that list any more: its readers check each reference against the reader's own
-    fence, so the same keys get the loop with ``source_id`` ``null`` (and the admin key gets the id).
+    """The fence at write time is the writer's own read fence, not the fence of whoever reads later. An ``admin_agent``
+    key may cite a confidential source of its own project, and then a ``trusted_local_agent`` key and a
+    ``project_scoped_agent`` key of the same project (both with a lower ceiling) read the memory and an open loop that
+    names the source. Each reader of the link now asks the reader's own fence again (``SavedProvenanceReader``,
+    ``tests/unit/test_saved_quotes_follow_the_source_fence.py``), so ``alice_memory_review`` by id lists no link and
+    names the source's id nowhere, and the context pack's ``supporting_evidence`` is empty, for those keys.
+    ``alice_explain`` of the memory still fails for them. The open-loop readers check each reference against the
+    reader's own fence too, so the same keys get the loop with ``source_id`` ``null``. The admin key still reads the
+    link, the id, the explanation and the loop's ``source_id``.
 
-    Delete the memory half of this test when a read-side filter lands for those two, and change the
-    known-limitations line with it.
+    The name of this test is the old limit, kept so that the pin changes in place: until these changes a lower ceiling
+    saw the id in the review, in the pack and in the open loop.
 
-    Mutations: make ``_admits`` refuse an ``admin_agent`` identity (the admin commit then answers ``not_found``), or
-    rename the ``source_id`` key of the rows ``_supporting_evidence`` builds in ``vnext_retrieval.py`` (the id then
-    still appears somewhere in the pack, so a check that only looks for it in the whole pack passes, and the
-    ``supporting_evidence`` check fails), or drop the ``withhold_unreadable_references`` call in
-    ``_handle_alice_vnext_open_loops`` (the open-loop assertion then fails).
+    Mutations: make ``_admits`` refuse an ``admin_agent`` identity (the admin commit then answers ``not_found``);
+    return the stored links in ``_vnext_memory_review`` (``mcp/review.py``), which fails the review assertion; remove
+    the ``admits_link`` test in ``_supporting_evidence`` (``vnext_retrieval.py``), which fails the pack assertion; or
+    drop the ``withhold_unreadable_references`` call in ``_handle_alice_vnext_open_loops`` (the open-loop assertion
+    then fails).
     """
 
     confidential = vault.sources["confidential"]
@@ -1414,17 +1416,24 @@ def test_a_link_that_passes_for_a_writer_still_shows_its_id_to_keys_with_a_lower
     status, body = _post_open_loop(vault, monkeypatch)("alpha_admin", source_id=confidential)
     assert status == 201
     loop_id = str(body["open_loop"]["id"])  # type: ignore[index]
+    admin = vault.wire("alice_memory_review", {"review_item_id": memory_id}, key=vault.keys["alpha_admin"])
+    assert [link["source_id"] for link in admin["payload"]["review"]["provenance_links"]] == [confidential]  # type: ignore[index]
+    assert vault.wire("alice_explain", {"memory_id": memory_id}, key=vault.keys["alpha_admin"])["is_error"] is False
+    admin_pack = vault.wire(
+        "alice_context_pack", {"query": "saltwhite-glaze-12 kiln firing", "max_tokens": 2000}, key=vault.keys["alpha_admin"]
+    )["payload"]
+    assert [row["source_id"] for row in admin_pack["supporting_evidence"]] == [confidential]  # type: ignore[index]
     for reader in ("alpha_trusted", "alpha_project"):
         key = vault.keys[reader]
         reviewed = vault.wire("alice_memory_review", {"review_item_id": memory_id}, key=key)
-        links = reviewed["payload"]["review"]["provenance_links"]  # type: ignore[index]
-        assert [link["source_id"] for link in links] == [confidential], reader
+        assert reviewed["payload"]["review"]["provenance_links"] == [], reader  # type: ignore[index]
+        assert confidential not in json.dumps(reviewed["payload"]), reader
         assert vault.wire("alice_explain", {"memory_id": memory_id}, key=key)["is_error"] is True, reader
         pack = vault.wire(
             "alice_context_pack", {"query": "saltwhite-glaze-12 kiln firing", "max_tokens": 2000}, key=key
         )["payload"]
-        # The id is in the pack's ``supporting_evidence`` rows, the section the release notes name.
-        assert [row["source_id"] for row in pack["supporting_evidence"]] == [confidential], reader  # type: ignore[index]
+        assert pack["supporting_evidence"] == [], reader  # type: ignore[index]
+        assert confidential not in json.dumps(pack), reader
         assert "cedar-ledger-55" not in json.dumps(pack), reader
         listed = vault.wire("alice_open_loops", {"status": "all"}, key=key)["payload"]["items"]  # type: ignore[index]
         assert [(row["id"], row["source_id"]) for row in listed] == [(loop_id, None)], reader

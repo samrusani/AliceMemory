@@ -105,6 +105,7 @@ from longmemeval.pack_formats import (
     excerpt_record,
     memory_record,
 )
+from alicebot_api.vnext_source_fence import SourceReadFence
 
 
 LME_USER_ID = UUID("22222222-2222-4222-8222-222222222222")
@@ -1032,7 +1033,7 @@ class QuestionRun:
             reference_time=parse_event_datetime(self.question.question_date),
         )
         started = time.monotonic()
-        pack = service.compile_context_pack(request)
+        pack = service.compile_context_pack(request, source_fence=SourceReadFence.unfenced())
         retrieval_seconds = time.monotonic() - started
         if pack_format == PACK_FORMAT_JSON:
             context_block, excerpt_count = self._render_context_json(pack, budget=budget)

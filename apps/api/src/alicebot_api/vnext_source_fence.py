@@ -24,11 +24,20 @@ apart.
 resolves ids, with no default. ``SourceReadFence.unfenced()`` is the owner's
 fence (a call with no agent identity) and is written at the call site, where a
 reviewer sees it.
+
+The same fence also decides what a reader is shown of a link that was stored
+earlier (``SavedProvenanceReader``, at the end of this module). A link keeps a
+copy of the quote it was made with, and so does the memory's own metadata, and a
+source can be reclassified after the link was made: its sensitivity raised, its
+domain changed, its project moved, or the source archived. The check at write
+time then no longer holds, so every reader of a saved quote asks the fence again,
+with the caller's current permission on the linked source, before it returns the
+quote.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from uuid import UUID
 
@@ -83,6 +92,12 @@ class SourceReadFence:
         """The owner's fence: no agent identity, so only a deleted source is refused."""
 
         return cls(identity=None)
+
+    @property
+    def fenced(self) -> bool:
+        """True for a caller with an agent identity; False for the owner, who is shown what was stored."""
+
+        return self.identity is not None
 
     def admits(self, source: Mapping[str, object]) -> bool:
         """True when this caller may be shown ``source``."""
@@ -252,16 +267,412 @@ def _rows_by_id(store: object, source_ids: Sequence[str]) -> dict[str, Mapping[s
     return found
 
 
+# -- reading what a link saved ---------------------------------------------------------------------------------------
+
+# Where a memory keeps its own copy of what a link holds. ``provenance`` is written by an edit-and-approve review,
+# ``replacement_provenance`` by a supersede review, and ``agentic_memory.conversation_excerpt`` by the commit route
+# (which also stores it as the quote of each link). Each is a copy of text taken from a source, so each is withheld
+# whenever the memory cites a source the caller may not read.
+_PROVENANCE_OBJECT_KEYS = ("provenance", "replacement_provenance")
+_AGENTIC_MEMORY_KEY = "agentic_memory"
+_EXCERPT_KEY = "conversation_excerpt"
+# The refs a commit (and a memory proposal) was given, kept on the row as sent. An entry that names a source the
+# caller may not read is dropped from the list.
+_SOURCE_REFS_KEY = "source_refs"
+_REVISION_VALUE_KEYS = ("previous_value", "new_value")
+# The column of a link that holds the quote it was made with.
+_QUOTE_KEY = "quote"
+
+
+def _quote_text(value: object) -> str | None:
+    """A quote as text to compare: its words with the whitespace between them collapsed, or None when it has none."""
+
+    if value is None:
+        return None
+    text = " ".join(str(value).split())
+    return text or None
+
+
+def _canonical_source_id(value: object) -> str | None:
+    if value is None:
+        return None
+    try:
+        return str(UUID(str(value).strip()))
+    except ValueError:
+        return None
+
+
+def _without_refused_refs(refs: object, refused: frozenset[str]) -> object:
+    """``refs`` without the entries that name a refused source. The same list when nothing is dropped."""
+
+    if not refused or not isinstance(refs, list):
+        return refs
+    kept = [ref for ref in refs if refused.isdisjoint(source_uuids_in_ref(ref))]
+    return refs if len(kept) == len(refs) else kept
+
+
+def _source_ids_named_by_memory_copies(row: Mapping[str, object]) -> set[str]:
+    """Every source id the memory's own copies of its provenance name."""
+
+    named: set[str] = set()
+    metadata = row.get("metadata_json")
+    if isinstance(metadata, Mapping):
+        for key in _PROVENANCE_OBJECT_KEYS:
+            named.update(source_uuids_in_ref(metadata.get(key)))
+        named.update(source_uuids_in_ref(metadata.get(_SOURCE_REFS_KEY)))
+        agentic = metadata.get(_AGENTIC_MEMORY_KEY)
+        if isinstance(agentic, Mapping):
+            named.update(source_uuids_in_ref(agentic.get(_SOURCE_REFS_KEY)))
+    value = row.get("value")
+    if isinstance(value, Mapping):
+        named.update(source_uuids_in_ref(value.get(_SOURCE_REFS_KEY)))
+    return named
+
+
+def _source_ids_named_by_revision(row: Mapping[str, object]) -> set[str]:
+    named: set[str] = set()
+    for key in _REVISION_VALUE_KEYS:
+        value = row.get(key)
+        if isinstance(value, Mapping):
+            named.update(source_uuids_in_ref(value.get(_SOURCE_REFS_KEY)))
+    return named
+
+
+def source_ids_named_by_memory_audit(audit: Mapping[str, object]) -> set[str]:
+    """Every source id the copies in a memory audit name, other than through a provenance link.
+
+    The audit (``VNextMemoryCommitService.audit``) holds the memory row, its revisions and the payload of its events,
+    and each keeps the refs and the quote the memory was written with. A memory with no link (a commit held for
+    review or confirmed inline, then approved) names its sources only there. The audit of a key is allowed only when
+    every source named anywhere in it is readable, so the caller asks this for what a link does not say.
+    """
+
+    named: set[str] = set()
+    memory = audit.get("memory")
+    if isinstance(memory, Mapping):
+        named.update(_source_ids_named_by_memory_copies(memory))
+    revisions = audit.get("revisions")
+    for revision in revisions if isinstance(revisions, list) else []:
+        if isinstance(revision, Mapping):
+            named.update(_source_ids_named_by_revision(revision))
+    events = audit.get("events")
+    for event in events if isinstance(events, list) else []:
+        payload = event.get("payload_json") if isinstance(event, Mapping) else None
+        if not isinstance(payload, Mapping):
+            continue
+        named.update(_source_ids_named_by_memory_copies(payload))
+        changes = payload.get("changes")
+        if isinstance(changes, Mapping):
+            named.update(_source_ids_named_by_memory_copies(changes))
+    return named
+
+
+def _memory_without_refused_provenance(
+    row: Mapping[str, object], *, refused: frozenset[str], withhold_quotes: bool
+) -> dict[str, object]:
+    out = dict(row)
+    metadata = row.get("metadata_json")
+    if isinstance(metadata, Mapping):
+        copy = dict(metadata)
+        if withhold_quotes:
+            for key in _PROVENANCE_OBJECT_KEYS:
+                copy.pop(key, None)
+        if _SOURCE_REFS_KEY in copy:
+            copy[_SOURCE_REFS_KEY] = _without_refused_refs(copy[_SOURCE_REFS_KEY], refused)
+        agentic = copy.get(_AGENTIC_MEMORY_KEY)
+        if isinstance(agentic, Mapping):
+            inner = dict(agentic)
+            if withhold_quotes:
+                inner.pop(_EXCERPT_KEY, None)
+            if _SOURCE_REFS_KEY in inner:
+                inner[_SOURCE_REFS_KEY] = _without_refused_refs(inner[_SOURCE_REFS_KEY], refused)
+            copy[_AGENTIC_MEMORY_KEY] = inner
+        out["metadata_json"] = copy
+    value = row.get("value")
+    if isinstance(value, Mapping) and _SOURCE_REFS_KEY in value:
+        out["value"] = {**value, _SOURCE_REFS_KEY: _without_refused_refs(value[_SOURCE_REFS_KEY], refused)}
+    return out
+
+
+def _revision_without_refused_refs(row: Mapping[str, object], *, refused: frozenset[str]) -> dict[str, object]:
+    out = dict(row)
+    for key in _REVISION_VALUE_KEYS:
+        value = row.get(key)
+        if isinstance(value, Mapping) and _SOURCE_REFS_KEY in value:
+            out[key] = {**value, _SOURCE_REFS_KEY: _without_refused_refs(value[_SOURCE_REFS_KEY], refused)}
+    return out
+
+
+def _is_memory_row(value: Mapping[str, object]) -> bool:
+    return "id" in value and "memory_key" in value and isinstance(value.get("metadata_json"), Mapping)
+
+
+def _is_revision_row(value: Mapping[str, object]) -> bool:
+    return "memory_id" in value and "revision_number" in value and "revision_type" in value
+
+
+class SavedProvenanceReader:
+    """What one caller may be shown of the provenance saved on memories, asked once per read.
+
+    A link stores the quote it was made with, and a memory keeps copies of that quote in its metadata. The source the
+    link names can be reclassified (sensitivity raised, domain changed, project moved) or archived after that, so the
+    fence that admitted the link when it was written says nothing about the next reader. This object asks ``fence``
+    again, with the source as it is now, and withholds what the caller may not read:
+
+    * a link whose source is missing, archived or outside the fence, and a link that names no source at all, is left
+      out, as a link that was never stored would be;
+    * when a memory has such a link, or its own copies name such a source, its copies of the quote
+      (``metadata_json.provenance``, ``metadata_json.replacement_provenance`` and
+      ``metadata_json.agentic_memory.conversation_excerpt``) are removed, and the entries of the ref lists that name
+      the source (``source_refs`` in the metadata, in ``agentic_memory`` and in ``value``, and the same list in a
+      revision's ``previous_value`` and ``new_value``) are dropped;
+    * when a link of a memory is left out, the quote of any other link of that memory that says the same text (ignoring
+      whitespace) is withheld too. The commit route saves one ``conversation_excerpt`` as the quote of each link it
+      makes, so the quote left on a link to a readable source can be the bytes of the source the caller may not read.
+      A link whose quote is different text (the link from a captured candidate to its own source, or a review's own
+      quote) keeps it.
+
+    A memory with no link at all (a commit held for review or confirmed inline, then approved) keeps the sources it
+    cited only in the ref lists of its own copies, so the reader judges a row by those copies as well. It must be asked
+    about a row as the store holds it: a scrub that drops the refs of a row first (the context pack's scope pass does
+    this for a pack with a project scope) leaves nothing here to judge, and the quote stays.
+
+    The owner (``fence.fenced`` is false) is shown what was stored: every method returns its input unchanged and reads
+    nothing it was not asked to. A memory whose sources are all admitted is returned as the same object.
+
+    ``fence`` is a required keyword-only argument, with no default.
+    """
+
+    def __init__(self, store: object, *, fence: SourceReadFence) -> None:
+        self._store = store
+        self._fence = fence
+        self._links: dict[str, list[dict[str, object]]] = {}
+        self._admitted: dict[str, bool] = {}
+
+    @property
+    def fenced(self) -> bool:
+        return self._fence.fenced
+
+    # -- links ---------------------------------------------------------------------------------------------------
+
+    def links(self, memory_id: object) -> list[dict[str, object]]:
+        """The links of ``memory_id`` that the fence admits, in the order the store lists them."""
+
+        key = str(memory_id)
+        self._load_links([key])
+        raw = self._links[key]
+        if not self.fenced:
+            return list(raw)
+        self.judge_links(raw)
+        shown = (self._shown(link, siblings=raw) for link in raw)
+        return [link for link in shown if link is not None]
+
+    def judge_links(self, links: Iterable[Mapping[str, object]]) -> None:
+        """Look up the sources of ``links`` and of the other links of the same memories in one read, so
+        ``admits_link`` and ``shown_link`` do not read one at a time."""
+
+        if not self.fenced:
+            return
+        given = list(links)
+        self._load_links([str(link.get("target_id") or "") for link in given])
+        every = [*given]
+        for target_id in dict.fromkeys(str(link.get("target_id") or "") for link in given):
+            every.extend(self._links.get(target_id, []))
+        self._judge(
+            source_id for link in every if (source_id := _canonical_source_id(link.get("source_id"))) is not None
+        )
+
+    def admits_link(self, link: Mapping[str, object]) -> bool:
+        """True when the caller may be shown ``link``: its source exists and the fence admits it."""
+
+        if not self.fenced:
+            return True
+        source_id = _canonical_source_id(link.get("source_id"))
+        if source_id is None:
+            return False
+        self._judge([source_id])
+        return self._admitted.get(source_id, False)
+
+    def shown_link(self, link: Mapping[str, object]) -> dict[str, object] | None:
+        """``link`` as the caller is shown it: ``None`` when it is left out (``admits_link`` is false), the link with
+        its ``quote`` withheld when a link of the same memory that is left out says the same text, the link itself
+        otherwise."""
+
+        if not self.fenced:
+            return link  # type: ignore[return-value]
+        target_id = str(link.get("target_id") or "")
+        self._load_links([target_id])
+        return self._shown(link, siblings=self._links.get(target_id, []))
+
+    # -- memories and revisions ----------------------------------------------------------------------------------
+
+    def memory(self, row: Mapping[str, object]) -> dict[str, object]:
+        """``row`` with the saved provenance the caller may not read withheld."""
+
+        if not self.fenced:
+            return row  # type: ignore[return-value]
+        self._prefetch(memories=[row], revisions=[])
+        return self._memory(row)
+
+    def memories(self, rows: Sequence[Mapping[str, object]]) -> list[dict[str, object]]:
+        """Every row of ``rows`` passed through ``memory``, with one read for all of them.
+
+        Each row is taken to be a memory row whatever its shape, so a row that lacks a field a stored memory always
+        has is still held to the fence.
+        """
+
+        if not self.fenced:
+            return list(rows)  # type: ignore[arg-type]
+        self._prefetch(memories=rows, revisions=[])
+        return [self._memory(row) for row in rows]
+
+    def revision(self, row: Mapping[str, object]) -> dict[str, object]:
+        """``row`` (a memory revision) with the refs of a refused source dropped."""
+
+        if not self.fenced:
+            return row  # type: ignore[return-value]
+        self._prefetch(memories=[], revisions=[row])
+        return self._revision(row)
+
+    def tree(self, payload: object) -> object:
+        """``payload`` with every memory row and revision row inside it passed through ``memory`` and ``revision``."""
+
+        if not self.fenced:
+            return payload
+        memories: list[Mapping[str, object]] = []
+        revisions: list[Mapping[str, object]] = []
+        _collect_rows(payload, memories, revisions)
+        if not memories and not revisions:
+            return payload
+        self._prefetch(memories=memories, revisions=revisions)
+        return self._rebuild(payload)
+
+    # -- internals -----------------------------------------------------------------------------------------------
+
+    def _shown(self, link: Mapping[str, object], *, siblings: Sequence[Mapping[str, object]]) -> dict[str, object] | None:
+        self._judge(
+            source_id for other in (link, *siblings) if (source_id := _canonical_source_id(other.get("source_id"))) is not None
+        )
+        if not self.admits_link(link):
+            return None
+        quote = _quote_text(link.get(_QUOTE_KEY))
+        if quote is not None and any(
+            _quote_text(other.get(_QUOTE_KEY)) == quote for other in siblings if not self.admits_link(other)
+        ):
+            return {**link, _QUOTE_KEY: None}
+        return link  # type: ignore[return-value]
+
+    def _memory(self, row: Mapping[str, object]) -> dict[str, object]:
+        memory_id = str(row.get("id") or "")
+        links = self._links.get(memory_id, [])
+        named = {
+            source_id for link in links if (source_id := _canonical_source_id(link.get("source_id"))) is not None
+        } | _source_ids_named_by_memory_copies(row)
+        refused = frozenset(source_id for source_id in named if not self._admitted.get(source_id, False))
+        withhold_quotes = bool(refused) or any(_canonical_source_id(link.get("source_id")) is None for link in links)
+        if not withhold_quotes:
+            return row  # type: ignore[return-value]
+        return _memory_without_refused_provenance(row, refused=refused, withhold_quotes=withhold_quotes)
+
+    def _revision(self, row: Mapping[str, object]) -> dict[str, object]:
+        named = _source_ids_named_by_revision(row)
+        refused = frozenset(source_id for source_id in named if not self._admitted.get(source_id, False))
+        if not refused:
+            return row  # type: ignore[return-value]
+        return _revision_without_refused_refs(row, refused=refused)
+
+    def _prefetch(
+        self, *, memories: Sequence[Mapping[str, object]], revisions: Sequence[Mapping[str, object]]
+    ) -> None:
+        """Read the links of every memory row and the sources they and the rows' own copies name, once."""
+
+        self._load_links([str(row.get("id") or "") for row in memories])
+        wanted: list[str] = []
+        for row in memories:
+            wanted.extend(_source_ids_named_by_memory_copies(row))
+            for link in self._links.get(str(row.get("id") or ""), []):
+                source_id = _canonical_source_id(link.get("source_id"))
+                if source_id is not None:
+                    wanted.append(source_id)
+        for row in revisions:
+            wanted.extend(_source_ids_named_by_revision(row))
+        self._judge(wanted)
+
+    def _load_links(self, memory_ids: Sequence[str]) -> None:
+        missing = [memory_id for memory_id in dict.fromkeys(memory_ids) if memory_id and memory_id not in self._links]
+        if not missing:
+            return
+        grouped: dict[str, list[dict[str, object]]] = {memory_id: [] for memory_id in missing}
+        bulk = getattr(self._store, "list_provenance_links_for_targets", None)
+        if callable(bulk):
+            for link in bulk(target_type="memory", target_ids=missing):
+                grouped.setdefault(str(link.get("target_id")), []).append(link)
+        else:
+            single = getattr(self._store, "list_provenance_links", None)
+            if callable(single):
+                for memory_id in missing:
+                    grouped[memory_id] = list(single(target_type="memory", target_id=memory_id))
+        self._links.update(grouped)
+
+    def _judge(self, source_ids: Iterable[str]) -> None:
+        unknown = [source_id for source_id in dict.fromkeys(source_ids) if source_id not in self._admitted]
+        if not unknown:
+            return
+        rows = _rows_by_id(self._store, unknown)
+        for source_id in unknown:
+            row = rows.get(source_id)
+            self._admitted[source_id] = row is not None and self._fence.admits(row)
+
+    def _rebuild(self, value: object) -> object:
+        if isinstance(value, Mapping):
+            if _is_memory_row(value):
+                return self._memory(value)
+            if _is_revision_row(value):
+                return self._revision(value)
+            changed = False
+            rebuilt: dict[object, object] = {}
+            for key, child in value.items():
+                new_child = self._rebuild(child)
+                changed = changed or new_child is not child
+                rebuilt[key] = new_child
+            return rebuilt if changed else value
+        if isinstance(value, (list, tuple)):
+            items = [self._rebuild(child) for child in value]
+            if all(new is old for new, old in zip(items, value, strict=True)):
+                return value
+            return items if isinstance(value, list) else tuple(items)
+        return value
+
+
+def _collect_rows(
+    value: object, memories: list[Mapping[str, object]], revisions: list[Mapping[str, object]]
+) -> None:
+    if isinstance(value, Mapping):
+        if _is_memory_row(value):
+            memories.append(value)
+            return
+        if _is_revision_row(value):
+            revisions.append(value)
+            return
+        for child in value.values():
+            _collect_rows(child, memories, revisions)
+    elif isinstance(value, (list, tuple)):
+        for child in value:
+            _collect_rows(child, memories, revisions)
+
+
 __all__ = [
     "AttachableSources",
     "EXPLAIN_DISCLOSURE_ACTION",
     "MEMORY_REF_NOT_FOUND_MESSAGE",
     "MemoryRefNotFoundError",
     "SOURCE_REF_NOT_FOUND_MESSAGE",
+    "SavedProvenanceReader",
     "SourceReadFence",
     "SourceRefNotFoundError",
     "resolve_attachable_memory_id",
     "resolve_attachable_source_id",
     "resolve_attachable_sources",
+    "source_ids_named_by_memory_audit",
     "source_uuids_in_ref",
 ]

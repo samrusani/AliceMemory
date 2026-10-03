@@ -31,6 +31,7 @@ from alicebot_api.vnext_grounding import (
 )
 from alicebot_api.vnext_retrieval import VNextRetrievalRequest, VNextRetrievalService
 from alicebot_api.vnext_store import PostgresVNextStore
+from alicebot_api.vnext_source_fence import SourceReadFence
 
 
 # -- salience: conservatism first ---------------------------------------------------
@@ -494,7 +495,8 @@ def test_ungated_query_adds_no_grounding_and_runs_no_probes(conn) -> None:
     _seed_decision(store._inner)
 
     pack = VNextRetrievalService(store).compile_context_pack(
-        VNextRetrievalRequest(query="what did we decide about the launch?")
+        VNextRetrievalRequest(query="what did we decide about the launch?"),
+        source_fence=SourceReadFence.unfenced()
     )
 
     assert "grounding" not in pack
@@ -507,7 +509,8 @@ def test_unsupported_entity_adds_pack_field_and_trace_mirror(conn) -> None:
     _seed_decision(store)
 
     pack = VNextRetrievalService(store).compile_context_pack(
-        VNextRetrievalRequest(query="Did Marcus Chen approve the launch?")
+        VNextRetrievalRequest(query="Did Marcus Chen approve the launch?"),
+        source_fence=SourceReadFence.unfenced()
     )
 
     assert pack["grounding"] == {"unsupported_entities": ["Marcus Chen"], "checked": 1}
@@ -520,7 +523,8 @@ def test_supported_entity_leaves_pack_schema_unchanged(conn) -> None:
     _seed_chunk(store, "Marcus Chen approved the launch plan yesterday")
 
     pack = VNextRetrievalService(store).compile_context_pack(
-        VNextRetrievalRequest(query="Did Marcus Chen approve the launch?")
+        VNextRetrievalRequest(query="Did Marcus Chen approve the launch?"),
+        source_fence=SourceReadFence.unfenced()
     )
 
     assert "grounding" not in pack
@@ -532,7 +536,8 @@ def test_minimal_depth_skips_grounding_entirely(conn) -> None:
     _seed_decision(store._inner)
 
     pack = VNextRetrievalService(store).compile_context_pack(
-        VNextRetrievalRequest(query="Did Marcus Chen approve the launch?", context_depth="minimal")
+        VNextRetrievalRequest(query="Did Marcus Chen approve the launch?", context_depth="minimal"),
+        source_fence=SourceReadFence.unfenced()
     )
 
     assert "grounding" not in pack
@@ -546,7 +551,8 @@ def test_grounding_probe_is_read_only(conn) -> None:
     before = len(store.list_events())
 
     VNextRetrievalService(store).compile_context_pack(
-        VNextRetrievalRequest(query="Did Marcus Chen approve the launch?")
+        VNextRetrievalRequest(query="Did Marcus Chen approve the launch?"),
+        source_fence=SourceReadFence.unfenced()
     )
 
     events = store.list_events()[: len(store.list_events()) - before]

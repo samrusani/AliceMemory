@@ -30,6 +30,7 @@ from alicebot_api.vnext_rollups import (
     _instance_record,
     _label_junk_reason,
 )
+from alicebot_api.vnext_source_fence import SourceReadFence
 
 
 # -- fakes ---------------------------------------------------------------------
@@ -1352,7 +1353,8 @@ def _compile_pack(store: SQLiteVNextStore, query: str) -> JsonObject:
     from alicebot_api.vnext_retrieval import VNextRetrievalRequest, VNextRetrievalService
 
     return VNextRetrievalService(store).compile_context_pack(
-        VNextRetrievalRequest(query=query, max_items=8, actor_type="system")
+        VNextRetrievalRequest(query=query, max_items=8, actor_type="system"),
+        source_fence=SourceReadFence.unfenced()
     )
 
 

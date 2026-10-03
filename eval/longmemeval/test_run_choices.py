@@ -693,7 +693,7 @@ def spy(monkeypatch: pytest.MonkeyPatch) -> _Spy:
         spy.source_searches += 1
         return real_search(self, **kwargs)
 
-    def compile_pack(self, request):  # type: ignore[no-untyped-def]
+    def compile_pack(self, request, **_kwargs):  # type: ignore[no-untyped-def]
         spy.pack_compiles += 1
         raise AssertionError("the recall surface compiled a context pack")
 

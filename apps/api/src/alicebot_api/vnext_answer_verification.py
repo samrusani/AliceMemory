@@ -31,7 +31,9 @@ Design constraints carried over from the harness (and asserted by
 
 Typical opt-in wiring (integrator code, not Alice code)::
 
-    pack = VNextRetrievalService(store).compile_context_pack(request)
+    pack = VNextRetrievalService(store).compile_context_pack(
+        request, source_fence=SourceReadFence.for_identity(identity)
+    )
     answer = my_chat_layer.answer(question, pack)
     verdict = verify_answer_grounding(answer, pack, provider)
     final, gated = apply_answer_grounding_gate(answer, verdict)

@@ -33,6 +33,7 @@ from alicebot_api.vnext_retrieval import (
 from alicebot_api.project_view import ProjectView
 
 from tests.unit.test_vnext_retrieval import InMemoryVNextRetrievalStore, _memory_row
+from alicebot_api.vnext_source_fence import SourceReadFence
 
 USER_ID = "00000000-0000-0000-0000-000000000001"
 CANARY = "indigo-lighthouse-42"
@@ -125,7 +126,8 @@ def _compile_view_pack(
             projects=projects,
             max_tokens=max_tokens,
             budget_strategy=budget_strategy,
-        )
+        ),
+        source_fence=SourceReadFence.unfenced()
     )
 
 
@@ -449,7 +451,8 @@ def test_a_capture_candidate_stays_unsearchable_as_a_memory(
     with sqlite_user_connection(database, USER_ID) as connection:
         store = SQLiteVNextStore(connection, USER_ID)
         pack = VNextRetrievalService(store).compile_context_pack(
-            VNextRetrievalRequest(query=WRITE_QUERY)
+            VNextRetrievalRequest(query=WRITE_QUERY),
+            source_fence=SourceReadFence.unfenced()
         )
         brief = compile_session_brief(store, **UNSCOPED_FENCES, query=WRITE_QUERY)
 

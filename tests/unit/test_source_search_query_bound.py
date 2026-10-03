@@ -43,6 +43,7 @@ from alicebot_api.vnext_embeddings import (
     EMBEDDINGS_MODEL_ENV,
 )
 from alicebot_api.vnext_retrieval import VNextRetrievalRequest, VNextRetrievalService
+from alicebot_api.vnext_source_fence import SourceReadFence
 
 USER_ID = "00000000-0000-0000-0000-000000000001"
 SOURCE_SENTENCE = "The indigo-lighthouse-42 canary stays in the vault."
@@ -566,7 +567,8 @@ def test_the_finders_the_retrieval_service_and_the_context_tree_get_the_typed_er
             )
         with pytest.raises(SourceSearchQueryTooLarge):
             VNextRetrievalService(store).compile_context_pack(  # type: ignore[arg-type]
-                VNextRetrievalRequest(query=query)
+                VNextRetrievalRequest(query=query),
+                source_fence=SourceReadFence.unfenced()
             )
 
 

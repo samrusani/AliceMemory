@@ -75,6 +75,7 @@ from longmemeval.runner import (
     _cleanup_store,
     _sha256_prefix,
 )
+from alicebot_api.vnext_source_fence import SourceReadFence
 
 
 COUNT_PROBE_SCHEMA = "longmemeval_count_probe_v2"
@@ -397,7 +398,7 @@ def probe_question(
             reference_time=parse_event_datetime(question.question_date),
         )
         retrieval_started = time.monotonic()
-        pack = VNextRetrievalService(run.store).compile_context_pack(request)
+        pack = VNextRetrievalService(run.store).compile_context_pack(request, source_fence=SourceReadFence.unfenced())
         retrieval_seconds = time.monotonic() - retrieval_started
     if not reuse:
         marker_path.write_text(

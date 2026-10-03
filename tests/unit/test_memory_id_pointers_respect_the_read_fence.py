@@ -51,6 +51,7 @@ from tests.unit.test_correction_label_respects_the_read_fence import (
     _store,
     _supersede,
 )
+from alicebot_api.vnext_source_fence import SourceReadFence
 
 CONFIDENTIAL_TOO = ("public", "internal", "private", "confidential", "unknown")
 DEAD = "00000000-0000-4000-8000-00000000dead"
@@ -371,9 +372,9 @@ def test_recent_changes_keep_an_event_for_no_row_unless_the_pack_is_scoped() -> 
         seeded_events=[event],
     )
     service = VNextRetrievalService(store)  # type: ignore[arg-type]
-    unscoped = service.compile_context_pack(VNextRetrievalRequest(query="Alice ghost event"))
+    unscoped = service.compile_context_pack(VNextRetrievalRequest(query="Alice ghost event"), source_fence=SourceReadFence.unfenced())
     assert _change_targets(unscoped) == ["memory-ghost"]
-    scoped = service.compile_context_pack(VNextRetrievalRequest(query="Alice ghost event", projects=("alicebot",)))
+    scoped = service.compile_context_pack(VNextRetrievalRequest(query="Alice ghost event", projects=("alicebot",)), source_fence=SourceReadFence.unfenced())
     assert _change_targets(scoped) == []
 
 
@@ -859,7 +860,7 @@ def test_a_pack_on_a_store_without_scoped_events_keeps_the_visible_changes_found
     service = _fake_service(events, memories)
 
     try:
-        pack = service.compile_context_pack(VNextRetrievalRequest(query="kettle fact"))
+        pack = service.compile_context_pack(VNextRetrievalRequest(query="kettle fact"), source_fence=SourceReadFence.unfenced())
     except VNextRetrievalCompletenessError as error:
         raise AssertionError(f"the pack raised instead of listing what it found: {error}") from error
     assert _change_targets(pack) == ["m-new-b", "m-new-a"]

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Set
 from uuid import UUID
 from alicebot_api.continuity_evidence import (
     build_continuity_explain,
@@ -31,7 +31,7 @@ from alicebot_api.vnext_project_scope import (
 )
 from alicebot_api.vnext_repositories import JsonObject as VNextJsonObject
 from alicebot_api.vnext_retrieval import MEMORY_ENTITY_EDGE_TYPES
-from alicebot_api.vnext_source_fence import EXPLAIN_DISCLOSURE_ACTION
+from alicebot_api.vnext_source_fence import EXPLAIN_DISCLOSURE_ACTION, source_ids_named_by_memory_audit
 from alicebot_api.vnext_json import json_safe
 from alicebot_api.vnext_store import PostgresVNextStore
 
@@ -324,8 +324,15 @@ def _authorize_memory_audit_provenance(
     *,
     identity: AgentIdentity | None,
     provenance_links: object,
+    copied_source_ids: Set[str],
 ) -> set[str]:
-    """Authorize every persisted source disclosed by a memory audit."""
+    """Authorize every persisted source disclosed by a memory audit.
+
+    A source is disclosed by a provenance link and by the copies of its id and quote that the memory, its revisions
+    and its events keep (``copied_source_ids``, from ``source_ids_named_by_memory_audit``). A memory with no link
+    names its sources only in those copies, so both are authorized the same way: a source that is missing, deleted or
+    outside what the caller may read refuses the whole call.
+    """
 
     # Keyless local operator calls retain their historical tolerance for old
     # or incomplete provenance rows. Authenticated callers fail closed.
@@ -369,6 +376,19 @@ def _authorize_memory_audit_provenance(
             target_id=source_id,
         )
         authorized_source_ids.add(source_id)
+    for copied_source_id in sorted(copied_source_ids - authorized_source_ids):
+        source = get_source(copied_source_id)
+        if not isinstance(source, Mapping):
+            raise _ExplainAuthorizationError()
+        _authorize_explain_resource(
+            store,
+            identity=identity,
+            resource=source,
+            project_scope=source_project_scope(source),
+            target_type="source",
+            target_id=copied_source_id,
+        )
+        authorized_source_ids.add(copied_source_id)
     return authorized_source_ids
 
 
@@ -616,6 +636,7 @@ def _handle_alice_vnext_memory_audit(context: MCPRuntimeContext, arguments: Mapp
                 store,
                 identity=identity,
                 provenance_links=audit.get("provenance_links"),
+                copied_source_ids=source_ids_named_by_memory_audit(audit),
             )
             allowed_entity_ids = _authorized_memory_audit_entity_ids(
                 store,

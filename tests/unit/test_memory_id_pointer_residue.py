@@ -29,6 +29,7 @@ from alicebot_api.onramp import bootstrap_database, resolve_db_path, sqlite_url_
 from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
 from alicebot_api.surface_flags import MCP_FULL_TOOLS_ENV
 from alicebot_api.vnext_agent_keys import create_agent_key
+from alicebot_api.vnext_source_fence import SourceReadFence
 
 USER_ID = "00000000-0000-0000-0000-000000000001"
 OLD = "The kettle is stored on the third shelf."
@@ -319,7 +320,8 @@ def _pack(context, query: str, **request_fields) -> dict:
     return _store(
         context,
         lambda s: VNextRetrievalService(s).compile_context_pack(
-            VNextRetrievalRequest(query=query, **request_fields)
+            VNextRetrievalRequest(query=query, **request_fields),
+            source_fence=SourceReadFence.unfenced()
         ),
     )
 

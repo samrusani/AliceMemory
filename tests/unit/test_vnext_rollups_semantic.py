@@ -31,6 +31,7 @@ from alicebot_api.vnext_rollups import (
     VNextRollupService,
     _topic_tokens,
 )
+from alicebot_api.vnext_source_fence import SourceReadFence
 
 
 # -- fakes -----------------------------------------------------------------------
@@ -820,7 +821,8 @@ def test_accepted_semantic_card_enters_aggregation_recall(monkeypatch) -> None:
     pack = VNextRetrievalService(store).compile_context_pack(
         VNextRetrievalRequest(
             query="How many kitchen items did I replace or fix?", max_items=8, actor_type="system"
-        )
+        ),
+        source_fence=SourceReadFence.unfenced()
     )
     ranked_ids = [str(memory.get("id")) for memory in pack.get("relevant_memories") or []]
     assert candidate_id in ranked_ids
