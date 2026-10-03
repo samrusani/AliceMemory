@@ -722,6 +722,12 @@ class _McpStub:
 
     def _roots_answer(self, message: dict[str, Any]) -> None:
         roots: dict[str, Any] = self.record["roots_list"]
+        if self.roots_sent_at is None:
+            # The stub has not sent the probe, so this answers nothing it asked. It must not end the probe,
+            # which would also release the host before the real question was put. It is recorded, and the
+            # check reports it: a client that answers a request nobody made is not one to trust an answer from.
+            roots["unrequested_answer"] = True
+            return
         if isinstance(message.get("error"), dict):
             error = message["error"]
             code = error.get("code")
@@ -1261,7 +1267,10 @@ def _server_problems(server: dict[str, Any], which: str) -> list[str]:
     A client that left first, a server that stopped on an error, and a client that never sent
     ``notifications/initialized`` all leave ``probe_finished`` false. A client that declared roots
     and answered ``roots/list`` with an error is a problem too. A client that declared nothing is
-    asked anyway, and any end it reaches is a finding, not a problem.
+    asked anyway, and any end it reaches is a finding, not a problem. An answer that carried the stub's
+    request id before the stub had sent the probe is a problem, and it never counts as the probe's end.
+    An error that stops the server after the probe ended is not a problem, on purpose: the check is
+    about the probe, not the process, and the error name stays in the record.
     """
 
     initialize = server.get("initialize")
@@ -1269,6 +1278,8 @@ def _server_problems(server: dict[str, Any], which: str) -> list[str]:
         return ["the MCP server never received initialize" + which]
     roots = server.get("roots_list")
     roots = roots if isinstance(roots, dict) else {}
+    if roots.get("unrequested_answer") is True:
+        return ["the client answered roots/list before the stub asked" + which]
     if server.get("probe_finished") is not True:
         reason = roots.get("reason")
         error = server.get("error")

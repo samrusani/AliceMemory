@@ -921,6 +921,141 @@ def test_each_end_the_probe_can_reach_is_judged_from_a_real_record(tmp_path: Pat
     assert evidence._server_problems(never, "") == ["the MCP server never received initialize"]
 
 
+def test_an_answer_to_a_probe_the_stub_never_sent_does_not_end_the_probe(tmp_path: Path) -> None:
+    """A message with the stub's request id that arrives before the stub has asked is not the probe's answer.
+
+    It leaves ``probe_finished`` false and ``roots_list`` as not sent, it does not make the record
+    complete (the host would be released before the real question), and the check reports it
+    whatever follows: a client that then leaves, a client that declared roots and sent an error, and a
+    client that goes on to answer the real probe. Mutation: drop the ``roots_sent_at is None`` guard
+    in ``_roots_answer`` (accept any answer), set ``probe_finished`` or ``complete`` where the guard
+    returns, or drop the ``unrequested_answer`` check in ``_server_problems``. This test fails.
+    """
+
+    problem = ["the client answered roots/list before the stub asked"]
+    ident = evidence._ROOTS_REQUEST_ID
+
+    # A result, then the client leaves. (_INITIALIZE_LINE declares roots.)
+    early = _Mcp(tmp_path / "early-result", wait=30)
+    early.send(json.loads(_INITIALIZE_LINE))
+    early.read()
+    early.send({"jsonrpc": "2.0", "id": ident, "result": {"roots": []}})
+    result_record = early.finish()
+    assert result_record["probe_finished"] is False
+    assert result_record["roots_list"]["sent"] is False and result_record["roots_list"]["outcome"] == "not_sent"
+    assert result_record["roots_list"]["unrequested_answer"] is True
+    assert "waited_seconds" not in result_record["roots_list"] and "roots" not in result_record["roots_list"]
+    assert evidence._server_problems(result_record, "") == problem
+
+    # An error from a client that declared roots is named for what it is, not as a declared-roots error.
+    refused = _Mcp(tmp_path / "early-error", wait=30)
+    refused.send(json.loads(_INITIALIZE_LINE))
+    refused.read()
+    refused.send({"jsonrpc": "2.0", "id": ident, "error": {"code": -32601, "message": "no"}})
+    error_record = refused.finish()
+    assert error_record["initialize"]["declares"]["roots"] is True
+    assert error_record["probe_finished"] is False and error_record["roots_list"]["outcome"] == "not_sent"
+    assert evidence._server_problems(error_record, " (start 1 of 2)") == [problem[0] + " (start 1 of 2)"]
+
+    # The early answer, then the handshake and the real probe: the probe is still sent, is not released
+    # early, and its real answer finishes it, but the early answer is still a problem.
+    both = _Mcp(tmp_path / "early-then-real", wait=30)
+    both.send(json.loads(_INITIALIZE_LINE))
+    both.read()
+    both.send({"jsonrpc": "2.0", "id": ident, "result": {"roots": []}})
+    both.send({"jsonrpc": "2.0", "method": "notifications/initialized"})
+    both.send({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
+    assert both.read()["id"] == 2
+    probe = both.read()
+    assert probe["method"] == "roots/list" and probe["id"] == ident
+    waiting = both.record()
+    assert waiting["complete"] is False and waiting["probe_finished"] is False
+    assert waiting["roots_list"]["unrequested_answer"] is True
+    both.send({"jsonrpc": "2.0", "id": probe["id"], "result": {"roots": []}})
+    answered = both.finish()
+    assert answered["probe_finished"] is True and answered["roots_list"]["outcome"] == "answered"
+    assert answered["roots_list"]["unrequested_answer"] is True
+    assert evidence._server_problems(answered, "") == problem
+
+    # A record that never had one is judged as before.
+    clean = {k: v for k, v in answered.items() if k != "roots_list"} | {"roots_list": {"outcome": "answered"}}
+    assert evidence._server_problems(clean, "") == []
+
+
+class _OutputThatBreaksAfterTheProbe:
+    """A stdout that takes every write up to the ``roots/list`` request, then fails like a closed pipe."""
+
+    def __init__(self) -> None:
+        self.sent: list[bytes] = []
+        self.broken = False
+
+    def write(self, data: bytes) -> int:
+        if self.broken:
+            raise BrokenPipeError
+        self.sent.append(bytes(data))
+        return len(data)
+
+    def flush(self) -> None:
+        if self.broken:
+            raise BrokenPipeError
+        if any(b"roots/list" in chunk for chunk in self.sent):
+            self.broken = True
+
+
+def test_a_server_that_stops_on_an_error_after_the_probe_ended_is_not_a_problem(tmp_path: Path) -> None:
+    """The check is about the probe, not the process: an error after the probe ended is only recorded.
+
+    The client declares roots, answers ``roots/list``, then pings, and the reply to the ping hits a
+    closed pipe. The server stops on ``BrokenPipeError``, which stays in the record as ``error``, and
+    the probe stays finished, so the record passes. The same error before the probe ends is a problem
+    (``test_a_server_that_stops_before_its_probe_ends_has_an_unfinished_probe``). Mutation: flag a
+    record that has an ``error`` whatever its ``probe_finished`` in ``_server_problems``, or have
+    ``mcp_main`` clear ``probe_finished`` when it catches the error. This test fails.
+    """
+
+    root = tmp_path / "work"
+    context = _write_context(root, ["HOME", "PATH"])
+    art = root / "art"
+    lines = [
+        json.loads(_INITIALIZE_LINE),
+        {"jsonrpc": "2.0", "method": "notifications/initialized"},
+        {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
+        {"jsonrpc": "2.0", "id": evidence._ROOTS_REQUEST_ID, "result": {"roots": []}},
+        {"jsonrpc": "2.0", "id": 3, "method": "ping"},
+    ]
+    stdin = io.BytesIO(b"".join((json.dumps(line) + "\n").encode() for line in lines))
+    output = _OutputThatBreaksAfterTheProbe()
+    assert evidence.mcp_main("claude-code", art, context, 5.0, stdin=stdin, stdout=output) == 0
+    record = json.loads((art / "claude-code-mcp-1.json").read_text(encoding="utf-8"))
+    assert record["client_requests"] == ["initialize", "notifications/initialized", "tools/list", "ping"]
+    assert record["error"] == "BrokenPipeError" and record["complete"] is True
+    assert record["probe_finished"] is True and record["roots_list"]["outcome"] == "answered"
+    assert "unrequested_answer" not in record["roots_list"]
+    assert record["initialize"]["declares"]["roots"] is True
+    assert evidence._server_problems(record, "") == []
+
+
+def test_the_changelog_entry_states_what_this_check_now_fails_that_main_passed() -> None:
+    """The entry says plainly where the check differs from main, in the three places a reader could miss.
+
+    A client that declared roots and answered with an error passed on main and now fails. An answer
+    sent before the stub asked was taken as the probe's answer on main and no longer is. An error
+    after the probe ended stays a pass, on purpose. Mutation: delete or reword any of the three
+    sentences in the CHANGELOG entry. This test fails.
+    """
+
+    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    entries = [line for line in changelog.splitlines() if line.startswith("- The `host-evidence` job (the dispatch-only")]
+    assert len(entries) == 1
+    entry = entries[0]
+    for sentence in (
+        "now fails the run; on main that run passed with no problem",
+        "on main it was recorded as `answered`, finished the probe and released the host",
+        "is not a problem, on purpose, because the check is about the probe and not the process",
+    ):
+        assert entry.count(sentence) == 1, sentence
+
+
 # --- a whole run against stand-ins for the hosts ---------------------------------------------
 
 
@@ -1154,6 +1289,8 @@ def test_run_fails_when_a_client_that_declared_roots_answers_with_an_error(
 ) -> None:
     """A host that declares roots and cannot answer ``roots/list`` is a problem, unlike one that declares nothing.
 
+    On main this run passed with no problem, so this is a change of what passes, decided on purpose: a
+    capability the client declared and then could not use is the anomaly the evidence exists to show.
     Mutation: drop the declared-roots check, or flag every error answer (then the run that declares
     nothing and answers with an error fails too). This test fails.
     """
@@ -1166,6 +1303,30 @@ def test_run_fails_when_a_client_that_declared_roots_answers_with_an_error(
         assert server["initialize"]["declares"]["roots"] is True
         assert server["roots_list"]["outcome"] == "error" and server["probe_finished"] is True
         assert info["problems"] == ["the client declared roots and answered roots/list with an error"]
+    _assert_nothing_raw(tmp_path, artifacts)
+
+
+def test_run_fails_when_a_client_answers_roots_before_the_stub_asked(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stand_ins: dict[str, Path]
+) -> None:
+    """A host that sends a ``roots/list`` answer before it was asked is a failed run, even if it then answers properly.
+
+    The stand-ins send a result with the stub's request id right after the initialize reply, then
+    carry on and answer the real probe. The real probe is still sent and finishes, and the run
+    reports the early answer. Mutation: drop the ``roots_sent_at is None`` guard in ``_roots_answer``
+    (accept any answer: the early one releases the host and the probe is never sent, so the run
+    passes), or drop the ``unrequested_answer`` check in ``_server_problems``. This test fails.
+    """
+
+    monkeypatch.setenv("FAKE_EARLY_ANSWER", "1")
+    code, artifacts, report = _run(tmp_path, monkeypatch)
+    assert code == 1
+    for host in ("claude-code", "codex"):
+        info = report["hosts"][host]
+        server = info["mcp"]["records"][0]
+        assert server["probe_finished"] is True and server["roots_list"]["outcome"] == "answered"
+        assert server["roots_list"]["sent"] is True and server["roots_list"]["unrequested_answer"] is True
+        assert info["problems"] == ["the client answered roots/list before the stub asked"]
     _assert_nothing_raw(tmp_path, artifacts)
 
 
