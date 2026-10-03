@@ -60,6 +60,7 @@ from alicebot_api.vnext_memory_commit import (
     MemoryNotFoundError,
     MemoryStateError,
 )
+from alicebot_api.vnext_source_fence import SourceRefNotFoundError
 
 from .capture_automation import (
     _handle_alice_vnext_capture,
@@ -591,6 +592,7 @@ def call_mcp_tool(
         ContinuityEvidenceNotFoundError,
         TaskBriefNotFoundError,
         MemoryNotFoundError,
+        SourceRefNotFoundError,
     ) as exc:
         raise MCPReferenceNotFoundError(str(exc)) from exc
     except CheckViolation as exc:

@@ -51,6 +51,11 @@ from alicebot_api.vnext_lifecycle import (
     supersession_would_cycle,
 )
 from alicebot_api.vnext_memory_version import memory_matches_snapshot
+from alicebot_api.vnext_source_fence import (
+    AttachableSources,
+    SourceReadFence,
+    resolve_attachable_sources,
+)
 from alicebot_api.write_bounds import (
     MAX_COMMIT_CANONICAL_TEXT_CHARS as _MAX_COMMIT_CANONICAL_TEXT_CHARS,
     MAX_COMMIT_SOURCE_REF_CHARS as _MAX_COMMIT_SOURCE_REF_CHARS,
@@ -623,34 +628,6 @@ def _withheld_history(entries: list[object]) -> tuple[list[object], bool]:
                 withheld_any = True
         carried.append(entry)
     return carried, withheld_any
-
-
-def _source_ref_values(value: object) -> list[str]:
-    refs: list[str] = []
-    if isinstance(value, str):
-        if value.strip():
-            refs.append(value.strip())
-    elif isinstance(value, Mapping):
-        for key in ("source_id", "id", "ref", "source_ref"):
-            candidate = value.get(key)
-            if isinstance(candidate, (str, int)):
-                refs.append(str(candidate))
-        for nested_key in ("source_ids", "source_refs", "sources"):
-            refs.extend(_source_ref_values(value.get(nested_key)))
-    elif isinstance(value, (list, tuple)):
-        for item in value:
-            refs.extend(_source_ref_values(item))
-    return refs
-
-
-def _source_uuid(value: object) -> str | None:
-    for ref in _source_ref_values(value):
-        normalized = ref.removeprefix("source:")
-        try:
-            return str(UUID(normalized))
-        except ValueError:
-            continue
-    return None
 
 
 def _scope_columns(
@@ -1330,6 +1307,17 @@ class VNextMemoryCommitService:
                     "policy_decision": decision.to_record(),
                 }
             )
+        # Every source id the request names is checked against the caller's
+        # read fence before anything is written, in every write mode: a
+        # pending write stores the ref on the row just as a committed one does.
+        # A missing, deleted or out-of-fence source raises one error. It comes
+        # after the rejection above, so a refused caller is told nothing about
+        # which ids exist.
+        attachable = resolve_attachable_sources(
+            self.store,
+            request.source_refs,
+            fence=SourceReadFence.for_identity(identity),
+        )
         try:
             if decision.write_mode == "confirm_inline":
                 return _with_commit_receipt(
@@ -1345,6 +1333,7 @@ class VNextMemoryCommitService:
                     request=request,
                     decision=decision,
                     confirmed_inline=False,
+                    attachable_sources=attachable,
                 )
             )
         except _IdempotentReplaySignal as replay:
@@ -2996,6 +2985,7 @@ class VNextMemoryCommitService:
         request: MemoryCommitRequest,
         decision: MemoryCommitPolicyDecision,
         confirmed_inline: bool,
+        attachable_sources: AttachableSources,
     ) -> JsonObject:
         actor_type = "agent" if identity is not None else "user"
         actor_id = identity.agent_id if identity is not None else None
@@ -3052,7 +3042,12 @@ class VNextMemoryCommitService:
             actor_type=actor_type,
             actor_id=actor_id,
         )
-        self._create_provenance_links(memory=memory, request=request, actor_type=actor_type)
+        self._create_provenance_links(
+            memory=memory,
+            request=request,
+            actor_type=actor_type,
+            attachable_sources=attachable_sources,
+        )
         self._link_memory_entities(
             memory=memory,
             identity=identity,
@@ -3534,14 +3529,14 @@ class VNextMemoryCommitService:
             raise ContinuityStoreInvariantError("content mutation could not expire obsolete entity links") from exc
 
     def _create_provenance_links(
-        self, *, memory: Mapping[str, object], request: MemoryCommitRequest, actor_type: str
+        self,
+        *,
+        memory: Mapping[str, object],
+        request: MemoryCommitRequest,
+        actor_type: str,
+        attachable_sources: AttachableSources,
     ) -> None:
-        seen: set[str] = set()
-        for source_ref in request.source_refs:
-            source_id = _source_uuid(source_ref)
-            if source_id is None or source_id in seen:
-                continue
-            seen.add(source_id)
+        for source_id in attachable_sources.ids:
             self.store.create_provenance_link(
                 {
                     "target_type": "memory",

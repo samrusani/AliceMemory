@@ -82,6 +82,11 @@ from alicebot_api.vnext_project_update_guard import (
 )
 from alicebot_api.vnext_repositories import JsonObject as VNextJsonObject
 from alicebot_api.vnext_json import json_safe
+from alicebot_api.vnext_source_fence import (
+    SourceReadFence,
+    SourceRefNotFoundError,
+    resolve_attachable_sources,
+)
 
 from .retrieval_shared import (
     _compact_vnext_memory,
@@ -258,15 +263,19 @@ def _validated_review_provenance(
     provenance: Mapping[str, object],
     *,
     fallback_confidence: float | None,
+    source_fence: SourceReadFence,
 ) -> JsonObject:
-    """Resolve one user-owned source reference before a review mutates anything.
+    """Resolve one source reference of the caller before a review mutates anything.
 
     Both backends scope ``get_source`` and ``list_source_chunks`` to the acting
-    user (Postgres through RLS, SQLite through the store's ``user_id``).  The
-    returned normalized object is therefore safe to persist as metadata and to
-    use for the provenance link.  Validation happens before activation or
-    replacement creation so an invalid source, chunk, role, or confidence
-    leaves the reviewed candidate unchanged.
+    user (Postgres through RLS, SQLite through the store's ``user_id``), and
+    ``source_fence`` then holds the source to the caller's own read fence:
+    project scope, domains, sensitivity ceiling, deleted. A source outside the
+    fence is refused exactly as a missing one is, with the same error and the
+    same message. The returned normalized object is therefore safe to persist
+    as metadata and to use for the provenance link.  Validation happens before
+    activation or replacement creation so an invalid source, chunk, role, or
+    confidence leaves the reviewed candidate unchanged.
     """
     raw_source_id = provenance.get("source_id")
     if not isinstance(raw_source_id, str) or raw_source_id.strip() == "":
@@ -277,9 +286,10 @@ def _validated_review_provenance(
     except ValueError as exc:
         raise MCPArgumentError("provenance.source_id must be a valid UUID") from exc
 
-    get_source = getattr(store, "get_source", None)
-    if not callable(get_source) or get_source(source_id) is None:
-        raise MCPReferenceNotFoundError(f"provenance source {source_id} was not found in the current user scope")
+    try:
+        resolve_attachable_sources(store, [source_id], fence=source_fence)
+    except SourceRefNotFoundError as exc:
+        raise MCPReferenceNotFoundError(str(exc)) from None
 
     raw_chunk_id = provenance.get("source_chunk_id")
     source_chunk_id: str | None = None
@@ -643,6 +653,7 @@ def _vnext_memory_correct(context: MCPRuntimeContext, arguments: Mapping[str, ob
                     store,
                     provenance,
                     fallback_confidence=confidence,
+                    source_fence=SourceReadFence.for_identity(identity),
                 )
                 if provenance is not None
                 else None
@@ -734,6 +745,7 @@ def _vnext_memory_correct(context: MCPRuntimeContext, arguments: Mapping[str, ob
                     store,
                     replacement_provenance,
                     fallback_confidence=replacement_confidence,
+                    source_fence=SourceReadFence.for_identity(identity),
                 )
                 if replacement_provenance is not None
                 else None
