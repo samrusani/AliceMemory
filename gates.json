@@ -121,8 +121,8 @@
     "rule": "The tests of the search-quality release add at most new_test_budget_seconds to this job. The on-mode job is a separate job and runs in parallel. If the job passes split_threshold_minutes, the first pull request to cross the line splits the unit tests by directory before another test lands."
   },
   "hashes": {
-    "_comment": "Left empty on purpose. The tower fills each field before the first held-out run: the sha256 of the tower's own stdlib scorer, of each prompt text, and of each held-out question set. Builders never see the questions or the prompt texts, only these hashes.",
-    "scorer_sha256": null,
+    "_comment": "The tower fills each field before the run that needs it. Filled 2026-10-03, before the first held-out run: scorer_sha256 is the sha256 of a frozen copy of scripts/alice_bench.py at 72c70e14, kept by the tower outside the repository so no pull request can change how a verdict is computed; question_sets are the sha256 of the two held-out question files. The prompt hashes are filled before the first Tier 2 run. Builders never see the questions or the prompt texts, only these hashes.",
+    "scorer_sha256": "9af3e9232f4ae7dacabe6c9c4f00ab7093f466063ed486c68e9a6458d1a526bb",
     "prompts": {
       "alice_arm": null,
       "grep_arm": null,
@@ -130,8 +130,8 @@
       "judge": null
     },
     "question_sets": {
-      "heldout_wiki": null,
-      "heldout_docs": null
+      "heldout_wiki": "78522e85d421cfaf2e8c98853240ecc07c5b6e1756075bf1a5074eea36011dbc",
+      "heldout_docs": "375687a5532d100a43ac6bf52447a76d2f57c5102e6b8809da1bd181eb6f3544"
     }
   }
 }

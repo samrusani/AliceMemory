@@ -139,21 +139,29 @@ def test_the_thresholds_are_the_ones_the_spec_locks() -> None:
     assert counts["baseline"]["judge_calls"] == counts["candidate"]["judge_calls"] == 184
 
 
-def test_the_hash_fields_are_empty_on_purpose_and_say_who_fills_them() -> None:
-    """The prompt, scorer and question-set hashes are the tower's to fill, with a comment saying so.
+def test_the_hash_fields_are_filled_by_the_tower_or_empty_and_say_so() -> None:
+    """The scorer and question-set hashes are filled, well formed, and dated; the prompt hashes stay empty until filled.
 
-    Mutation: put a made-up hash in one of these fields, or remove the comment. A hash nobody
-    computed would look like a lock.
+    The tower fills each field before the run that needs it and records when and from what in the
+    comment. A filled field must be a sha256 (64 lowercase hex characters); an unfilled one must be
+    empty, never a placeholder.
+
+    Mutation: put a non-hex or short value in one field, fill a prompt hash with a placeholder,
+    empty a question-set hash, or remove the date from the comment.
     """
 
     hashes = _thresholds()["hashes"]
     assert isinstance(hashes, dict)
-    assert "tower fills each field" in hashes["_comment"]
-    assert hashes["scorer_sha256"] is None
-    assert set(hashes["prompts"]) == {"alice_arm", "grep_arm", "no_search", "judge"}
-    assert all(value is None for value in hashes["prompts"].values())
+    comment = hashes["_comment"]
+    assert "tower fills each field" in comment
+    assert "Filled 2026-10-03, before the first held-out run" in comment
+    sha256 = re.compile(r"[0-9a-f]{64}")
+    assert sha256.fullmatch(hashes["scorer_sha256"])
     assert set(hashes["question_sets"]) == {"heldout_wiki", "heldout_docs"}
-    assert all(value is None for value in hashes["question_sets"].values())
+    assert all(sha256.fullmatch(value) for value in hashes["question_sets"].values())
+    assert len(set(hashes["question_sets"].values())) == 2
+    assert set(hashes["prompts"]) == {"alice_arm", "grep_arm", "no_search", "judge"}
+    assert all(value is None or sha256.fullmatch(value) for value in hashes["prompts"].values())
     assert "holds no question" in _thresholds()["_comment"]
 
     def keys(node: object) -> set[str]:
