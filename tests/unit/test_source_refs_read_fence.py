@@ -11,6 +11,10 @@ reviewed the memory by id.
 The fence is the one ``alice_explain`` applies to each source it discloses. Every refusal (missing, deleted, other
 project, above the ceiling, restricted domain, global) is one answer: ``not_found`` with the fixed message.
 
+``POST /v0/vnext/open-loops`` is the third door: an open loop keeps the ``source_id`` and ``memory_id`` it is given in
+columns of its own, and the open-loop list returns them. Section 3c holds that door to the same fence, for a source and
+for a memory, and answers 404 for every refusal.
+
 Each test names the mutation that must fail it. The mutations were made by hand in a scratch edit and the file was
 restored by copying the saved copy back.
 """
@@ -41,9 +45,14 @@ from alicebot_api.vnext_memory_commit import (
     memory_commit_request_from_payload,
 )
 from alicebot_api.vnext_source_fence import (
+    EXPLAIN_DISCLOSURE_ACTION,
+    MEMORY_REF_NOT_FOUND_MESSAGE,
     SOURCE_REF_NOT_FOUND_MESSAGE,
+    MemoryRefNotFoundError,
     SourceReadFence,
     SourceRefNotFoundError,
+    resolve_attachable_memory_id,
+    resolve_attachable_source_id,
     resolve_attachable_sources,
 )
 
@@ -216,7 +225,7 @@ def test_a_key_bound_commit_cites_only_what_its_key_may_read(vault: _Vault, writ
     refused rows are compared as one set: one code, one message, nothing that tells a missing id from a held-back
     one. A refused call leaves no memory and no link behind.
 
-    Mutations, each alone, in ``vnext_source_fence.py`` (``SourceReadFence.admits`` and the resolver) or in
+    Mutations, each alone, in ``vnext_source_fence.py`` (``SourceReadFence._admits`` and the resolver) or in
     ``commit()``: pass ``project_scope=()`` and ``require_explicit_project_scope=False`` to the policy call (the
     project control: ``beta`` and ``global`` are stored); only ``require_explicit_project_scope=False`` (the global
     row); ``domains=()`` (the restricted-domain row of the project scoped key); ``sensitivity_allowed=()`` (the
@@ -348,6 +357,25 @@ def test_every_id_in_a_nested_ref_is_checked_not_only_the_one_that_gets_the_link
     assert both.ids == (own,)
 
 
+def test_a_nested_ref_with_two_admitted_ids_is_accepted_and_links_only_the_first() -> None:
+    """The other half of the nested-ref rule: every id is checked, and the link still goes to the first id of each
+    ref. A nested ref naming two ids the key may read is accepted, links the first, and a second ref of its own links
+    its own first id.
+
+    Mutations: in ``resolve_attachable_sources`` return ``wanted`` instead of ``linked`` (the second id is linked too,
+    so the first assertion fails), or look rows up for ``linked`` only (the second admitted id is then missing from
+    the rows and the call is refused).
+    """
+
+    first, second = str(uuid4()), str(uuid4())
+    store = _StubStore({first: _source(first, scope=["alpha"]), second: _source(second, scope=["alpha"])})
+    fence = SourceReadFence.for_identity(_bound_identity("trusted_local_agent", "alpha"))
+    assert resolve_attachable_sources(store, [{"source_ids": [first, second]}], fence=fence).ids == (first,)
+    assert resolve_attachable_sources(
+        store, [{"source_ids": [first, second]}, {"source_id": second}], fence=fence
+    ).ids == (first, second)
+
+
 # -- 2. what the fence admits, by direct call, one control at a time ---------------------------------------------
 
 
@@ -401,7 +429,7 @@ def test_a_deleted_source_is_refused_by_the_fence_itself_and_not_only_by_the_sto
     anyway when a store hands it over. Either layer alone leaves the end-to-end answer right, so each has its own
     test (this one and ``test_the_store_leaves_a_deleted_source_out``).
 
-    Mutation: remove the ``deleted_at`` check in ``SourceReadFence.admits``.
+    Mutation: remove the ``deleted_at`` check in ``SourceReadFence._admits``.
     """
 
     deleted = _source(str(uuid4()), scope=["alpha"], deleted_at="2026-01-01T00:00:00Z")
@@ -473,7 +501,7 @@ def test_the_owner_is_not_fenced_and_a_keyless_declaration_is_not_a_key(vault: _
     owner's own vault. A keyless call that only declares a profile and a project is held to the profile's ceiling and
     domains, but its declared project is not enforced, exactly as for every other read and write on a keyless install.
 
-    Mutations: make ``admits`` also refuse a source outside ``identity.project_scope`` for an identity that is not
+    Mutations: make ``_admits`` also refuse a source outside ``identity.project_scope`` for an identity that is not
     locked (the declared project then refuses the other project's source, and the keyless row fails), and make
     ``SourceReadFence.unfenced()`` return a fence built from a locked identity bound to a project (the owner then
     cannot cite the other project's source, and the owner row fails).
@@ -581,6 +609,195 @@ def test_one_message_for_every_refusal() -> None:
             resolve_attachable_sources(store, [source_id], fence=fence)
         messages.add(str(caught.value))
     assert messages == {SOURCE_REF_NOT_FOUND_MESSAGE}
+
+
+class _StubMemoryStore:
+    """Returns the memory rows it holds, deleted or not, and records every id it was asked for."""
+
+    def __init__(self, rows: dict[str, dict[str, object]]) -> None:
+        self._rows = rows
+        self.asked: list[str] = []
+
+    def get_memory(self, memory_id: str) -> dict[str, object] | None:
+        self.asked.append(memory_id)
+        return self._rows.get(memory_id)
+
+
+def _memory_row(
+    memory_id: str,
+    *,
+    scope: list[str],
+    domain: str = "project",
+    sensitivity: str = "internal",
+    deleted_at: str | None = None,
+) -> dict[str, object]:
+    return {
+        "id": memory_id,
+        "domain": domain,
+        "sensitivity": sensitivity,
+        "deleted_at": deleted_at,
+        "metadata_json": {"project_scope": scope},
+    }
+
+
+def test_a_deleted_memory_is_refused_by_the_fence_itself_and_not_only_by_the_store() -> None:
+    """The stores leave a deleted memory out of ``get_memory``, and the fence refuses one anyway when a store hands it
+    over. Either layer alone leaves the end-to-end answer right, so this test covers the fence and
+    ``test_the_store_leaves_a_deleted_memory_out`` covers the store.
+
+    Mutation: remove the ``deleted_at`` check in ``SourceReadFence._admits``.
+    """
+
+    deleted = _memory_row(str(uuid4()), scope=["alpha"], deleted_at="2026-01-01T00:00:00Z")
+    live = _memory_row(str(uuid4()), scope=["alpha"])
+    for fence in (
+        SourceReadFence.unfenced(),
+        SourceReadFence.for_identity(_bound_identity("admin_agent", "alpha")),
+    ):
+        assert fence.admits_memory(live) is True
+        assert fence.admits_memory(deleted) is False
+        store = _StubMemoryStore({str(deleted["id"]): deleted})
+        with pytest.raises(MemoryRefNotFoundError):
+            resolve_attachable_memory_id(store, str(deleted["id"]), fence=fence)
+
+
+def test_the_store_leaves_a_deleted_memory_out(vault: _Vault) -> None:
+    """``get_memory`` does not return a soft-deleted memory, so the open-loop door refuses one as missing before the
+    fence runs. Pinned because the fence's own deleted check is then a second layer.
+
+    Mutation: remove ``AND deleted_at IS NULL`` from ``get_memory`` in ``vnext_stores/sqlite/memory_access.py``.
+    """
+
+    ids = _memories(vault)
+    path = _sqlite_path_from_url(vault.context.database_url)
+    with sqlite_user_connection(path, _USER_ID) as conn:
+        store = SQLiteVNextStore(conn, _USER_ID)
+        assert store.get_memory(ids["deleted"]) is None
+        assert store.get_memory(ids["own"]) is not None
+
+
+@pytest.mark.parametrize(
+    ("label", "profile", "memory", "admitted"),
+    [
+        ("own project", "trusted_local_agent", dict(scope=["alpha"]), True),
+        ("other project", "trusted_local_agent", dict(scope=["beta"]), False),
+        ("global", "trusted_local_agent", dict(scope=[]), False),
+        ("shared with another project", "trusted_local_agent", dict(scope=["alpha", "beta"]), False),
+        ("restricted domain, trusted", "trusted_local_agent", dict(scope=["alpha"], domain="health"), True),
+        ("restricted domain, project scoped", "project_scoped_agent", dict(scope=["alpha"], domain="health"), False),
+        ("above the ceiling", "trusted_local_agent", dict(scope=["alpha"], sensitivity="confidential"), False),
+        ("at the ceiling", "trusted_local_agent", dict(scope=["alpha"], sensitivity="private"), True),
+        ("admin above the default ceiling", "admin_agent", dict(scope=["alpha"], sensitivity="confidential"), True),
+        ("read only profile, private", "read_only_agent", dict(scope=["alpha"], sensitivity="private"), False),
+    ],
+)
+def test_the_fence_admits_a_memory_by_the_same_controls_it_applies_to_a_source(
+    label: str, profile: str, memory: dict[str, object], admitted: bool
+) -> None:
+    """The memory side of the fence, one control at a time on a key bound to ``alpha``: project scope, domain and
+    sensitivity ceiling. The own-project and at-the-ceiling rows are the controls that keep a blanket refusal from
+    passing.
+
+    Mutations: ``admits_memory`` returns True, returns False, or ignores the row's scope (passes ``("alpha",)``).
+    """
+
+    fence = SourceReadFence.for_identity(_bound_identity(profile, "alpha"))
+    row = _memory_row(str(uuid4()), **memory)  # type: ignore[arg-type]
+    assert fence.admits_memory(row) is admitted, label
+
+
+def test_a_memory_scope_is_read_the_way_explain_reads_it() -> None:
+    """``alice_explain`` reads the scope of a memory it is given with ``resource_project_scope``, where a root
+    ``project_scope`` key beats the metadata envelope. The fence reads it the same way, so a row whose root scope is
+    ``alpha`` and whose envelope says ``beta`` is admitted to a key bound to ``alpha`` and the reverse is refused. A
+    source is read the other way round (the envelope first), so this is not the source rule.
+
+    Mutation: use ``source_project_scope(memory)`` in ``admits_memory``.
+    """
+
+    fence = SourceReadFence.for_identity(_bound_identity("trusted_local_agent", "alpha"))
+    root_alpha = {**_memory_row(str(uuid4()), scope=["beta"]), "project_scope": ["alpha"]}
+    root_beta = {**_memory_row(str(uuid4()), scope=["alpha"]), "project_scope": ["beta"]}
+    assert fence.admits_memory(root_alpha) is True
+    assert fence.admits_memory(root_beta) is False
+
+
+def test_the_single_id_resolvers_check_the_value_before_the_store_sees_it_and_return_the_canonical_id() -> None:
+    """The open-loop route passes one id per column. A value that is not a UUID is refused without a store call (the
+    Postgres store casts the id and would fail with a 500), and a UUID in another spelling is looked up and returned
+    in canonical form, which is what the route then stores. Every refusal of a kind carries its one fixed message.
+
+    Mutations: in ``resolve_attachable_memory_id`` pass the raw value to ``get_memory`` or skip the UUID parse; in
+    ``resolve_attachable_source_id`` return the raw value, or return an empty id when the value names none.
+    """
+
+    memory_id, source_id = str(uuid4()), str(uuid4())
+    memories = _StubMemoryStore({memory_id: _memory_row(memory_id, scope=["alpha"])})
+    sources = _StubStore({source_id: _source(source_id, scope=["alpha"])})
+    fence = SourceReadFence.for_identity(_bound_identity("trusted_local_agent", "alpha"))
+
+    for bad in ("not-a-uuid", "", "   ", "12345"):
+        with pytest.raises(MemoryRefNotFoundError) as caught_memory:
+            resolve_attachable_memory_id(memories, bad, fence=fence)
+        assert str(caught_memory.value) == MEMORY_REF_NOT_FOUND_MESSAGE
+        with pytest.raises(SourceRefNotFoundError) as caught_source:
+            resolve_attachable_source_id(sources, bad, fence=fence)
+        assert str(caught_source.value) == SOURCE_REF_NOT_FOUND_MESSAGE
+    assert memories.asked == [], "a value that is not a UUID never reaches the store"
+
+    assert resolve_attachable_memory_id(memories, memory_id.upper(), fence=fence) == memory_id
+    assert memories.asked == [memory_id]
+    assert resolve_attachable_memory_id(memories, f"  {memory_id}  ", fence=fence) == memory_id
+    assert resolve_attachable_source_id(sources, source_id.replace("-", ""), fence=fence) == source_id
+
+    other = str(uuid4())
+    with pytest.raises(MemoryRefNotFoundError):
+        resolve_attachable_memory_id(memories, other, fence=fence)
+    with pytest.raises(MemoryRefNotFoundError):
+        resolve_attachable_memory_id(object(), memory_id, fence=SourceReadFence.unfenced())
+    with pytest.raises(SourceRefNotFoundError):
+        resolve_attachable_source_id(object(), source_id, fence=SourceReadFence.unfenced())
+
+
+def test_the_fence_and_explain_authorize_under_one_action(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The fence is the test ``alice_explain`` applies, so both read the action from one constant. Pinned from three
+    sides: the fence asks the policy engine with that constant, ``_authorize_explain_resource`` names the constant and
+    no string literal, and the constant is the read action the engine knows.
+
+    Mutations: put ``"memory.recall"`` (or any other literal) in ``_admits``, or put the literal ``"memory.audit"``
+    back in ``_authorize_explain_resource``.
+    """
+
+    from alicebot_api import vnext_source_fence
+    from alicebot_api.vnext_agent_control import evaluate_agent_policy as real_evaluate
+
+    asked: list[str] = []
+
+    def recording(**kwargs: object):  # type: ignore[no-untyped-def]
+        asked.append(str(kwargs["action"]))
+        return real_evaluate(**kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(vnext_source_fence, "evaluate_agent_policy", recording)
+    fence = SourceReadFence.for_identity(_bound_identity("trusted_local_agent", "alpha"))
+    fence.admits(_source(str(uuid4()), scope=["alpha"]))
+    fence.admits_memory(_memory_row(str(uuid4()), scope=["alpha"]))
+    assert asked == [EXPLAIN_DISCLOSURE_ACTION, EXPLAIN_DISCLOSURE_ACTION]
+    assert EXPLAIN_DISCLOSURE_ACTION == "memory.audit"
+
+    tree = ast.parse((_SRC / "mcp" / "evidence_artifacts.py").read_text(encoding="utf-8"))
+    function = next(
+        node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == "_authorize_explain_resource"
+    )
+    literals = [node.value for node in ast.walk(function) if isinstance(node, ast.Constant) and isinstance(node.value, str)]
+    assert not [text for text in literals if text.startswith("memory.")], literals
+    actions = [
+        keyword.value
+        for node in ast.walk(function)
+        if isinstance(node, ast.Call)
+        for keyword in node.keywords
+        if keyword.arg == "action"
+    ]
+    assert [ast.unparse(action) for action in actions] == ["EXPLAIN_DISCLOSURE_ACTION"]
 
 
 # -- 3. the review door -----------------------------------------------------------------------------------------
@@ -807,6 +1024,286 @@ def test_the_http_commit_route_answers_one_404_for_every_refusal(vault: _Vault, 
     assert vault.count("memories") == memories_before + 1, "only the own-project call stored a memory"
 
 
+# -- 3c. the HTTP open-loop route -------------------------------------------------------------------------------
+
+
+_LOOP_AGENT_IDS = {
+    "alpha_trusted": "trusted_local_agent-alpha",
+    "alpha_project": "project_scoped_agent-alpha",
+    "alpha_admin": "admin_agent-alpha",
+    "alpha_read_only": "read_only_agent-alpha",
+    "beta_trusted": "trusted_local_agent-beta",
+}
+
+
+class _OwnerVault(_Vault):
+    """A throwaway SQLite vault with no agent key at all, so a keyless call is the owner's."""
+
+    def __init__(self, context: MCPRuntimeContext) -> None:
+        self.context = context
+        self.keys = {}
+
+
+def _post_open_loop(vault: _Vault, monkeypatch: pytest.MonkeyPatch):  # type: ignore[no-untyped-def]
+    """``POST /v0/vnext/open-loops`` with the real SQLite store behind the route, as the commit-route test does.
+
+    The route is Postgres only, so the router module's settings, connection and store are swapped for the vault's.
+    The returned function posts one loop as a key of the vault (or as the owner with ``None``) and returns the status
+    and the decoded body.
+    """
+
+    from contextlib import contextmanager
+
+    from alicebot_api.config import Settings
+    from alicebot_api.routers import vnext_projects as router
+
+    path = _sqlite_path_from_url(vault.context.database_url)
+
+    @contextmanager
+    def connection(_database_url: object, current_user_id: object):  # type: ignore[no-untyped-def]
+        with sqlite_user_connection(path, str(current_user_id)) as conn:
+            yield conn
+
+    monkeypatch.setattr(router, "get_settings", lambda: Settings(database_url="postgresql://db"))
+    monkeypatch.setattr(router, "user_connection", connection)
+    monkeypatch.setattr(router, "PostgresVNextStore", lambda conn: SQLiteVNextStore(conn, _USER_ID))
+
+    def post(who: str | None, **fields: object) -> tuple[int, dict[str, object]]:
+        response = router.create_vnext_open_loop(
+            router.VNextOpenLoopCreateRequest(
+                user_id=UUID(_USER_ID),
+                title=f"Loop {uuid4().hex[:8]}",
+                agent_id=_LOOP_AGENT_IDS[who] if who else None,
+                **fields,  # type: ignore[arg-type]
+            ),
+            authorization=f"Bearer {vault.keys[who]}" if who else None,
+        )
+        return response.status_code, json.loads(response.body)
+
+    return post
+
+
+def _memories(vault: _Vault) -> dict[str, str]:
+    """One memory of each state the source fence is tested with, under the same kind names as ``vault.sources``."""
+
+    def committed(who: str | None) -> str:
+        made = vault.commit(who, [])
+        assert made["is_error"] is False, made
+        return str(made["payload"]["memory"]["id"])  # type: ignore[index]
+
+    ids = {
+        "own": committed("alpha_trusted"),
+        "health": committed("alpha_trusted"),
+        "confidential": committed("alpha_trusted"),
+        "deleted": committed("alpha_trusted"),
+        "beta": committed("beta_trusted"),
+        "global": committed(None),
+        "unknown": str(uuid4()),
+    }
+    vault.sql("UPDATE memories SET domain = 'health' WHERE id = ?", (ids["health"],))
+    vault.sql("UPDATE memories SET sensitivity = 'confidential' WHERE id = ?", (ids["confidential"],))
+    vault.sql("UPDATE memories SET deleted_at = '2026-01-01T00:00:00Z' WHERE id = ?", (ids["deleted"],))
+    return ids
+
+
+def _row_counts(vault: _Vault) -> dict[str, int]:
+    """The row count of every table, so a refused call can be shown to have written nothing anywhere."""
+
+    tables = [str(row["name"]) for row in vault.sql("SELECT name FROM sqlite_master WHERE type = 'table'")]
+    return {name: vault.count(f'"{name}"') for name in sorted(tables) if not name.endswith(("_data", "_idx", "_config", "_docsize", "_content"))}
+
+
+@pytest.mark.parametrize("field", ["source_id", "memory_id"])
+@pytest.mark.parametrize("writer", sorted(_ADMITTED))
+def test_a_key_bound_open_loop_names_only_a_source_or_memory_its_key_may_read(
+    vault: _Vault, monkeypatch: pytest.MonkeyPatch, writer: str, field: str
+) -> None:
+    """The loop keeps the id it is given and ``alice_open_loops`` returns it, so the id must be one the key could be
+    shown. Each key tries every state of a source and of a memory: its own project (the control that must succeed),
+    a restricted domain, above its ceiling, another project, global, deleted and unknown. What is admitted is stored
+    and answers 201. Everything else answers one 404 body, and the call writes nothing in any table.
+
+    On v0.20.0 and on main every one of these answered 201 and stored the id, and an unknown id raised the foreign key
+    error out of the route, so the id was an existence oracle and the loop attached another project's row.
+
+    Mutations: drop the ``resolve_attachable_source_id`` call (or the ``resolve_attachable_memory_id`` call) in
+    ``create_vnext_open_loop`` and store the id as it came; make ``admits`` or ``admits_memory`` return True (a refused
+    row is stored); make ``admits_memory`` return False for a bound key (the own row fails); move the
+    ``except (SourceRefNotFoundError, MemoryRefNotFoundError)`` clause inside the ``with user_connection`` block (the
+    refused call then commits the policy rows it wrote).
+    """
+
+    post = _post_open_loop(vault, monkeypatch)
+    ids = vault.sources if field == "source_id" else _memories(vault)
+    refused_bodies: set[str] = set()
+    stored = 0
+    for kind, value in ids.items():
+        before = _row_counts(vault)
+        status, body = post(writer, **{field: value})
+        if kind in _ADMITTED[writer]:
+            assert status == 201, (writer, kind, body)
+            assert body["open_loop"][field] == value  # type: ignore[index]
+            stored += 1
+            continue
+        assert status == 404, (writer, kind, status, body)
+        refused_bodies.add(json.dumps(body, sort_keys=True))
+        assert _row_counts(vault) == before, (writer, kind, "a refused call wrote something")
+    assert len(refused_bodies) == 1, refused_bodies
+    assert json.loads(next(iter(refused_bodies)))["detail"]["code"] == "not_found"
+    assert stored == len(_ADMITTED[writer])
+    kept = [row[field] for row in vault.sql(f"SELECT {field} FROM open_loops WHERE {field} IS NOT NULL")]
+    assert sorted(kept) == sorted(ids[kind] for kind in _ADMITTED[writer])
+
+
+def test_the_owner_may_name_any_live_source_and_memory_in_an_open_loop(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With no agent key in the vault a keyless call is the owner's, and the owner is not fenced: a source and a
+    memory of another project and a global one are stored. A deleted row and an unknown id still answer 404, as for
+    every caller, and a missing id no longer raises out of the route.
+
+    Mutation: make ``SourceReadFence.for_identity(None)`` return a fence built from a bound identity (the owner then
+    gets 404 for the other project's rows), or make ``admits`` skip the deleted check.
+    """
+
+    database = resolve_db_path(data_dir=str(tmp_path / "owner"), db=None)
+    bootstrap_database(database, user_id=_USER_ID, user_email="local@alice")
+    owner = _OwnerVault(MCPRuntimeContext(database_url=sqlite_url_for_path(database), user_id=UUID(_USER_ID)))
+    post = _post_open_loop(owner, monkeypatch)
+    other_project = owner.wire(
+        "alice_capture",
+        {"raw_text": "Beta kiln log: firing at cone-six-914.", "title": "Beta log", "domain": "project",
+         "sensitivity": "internal", "project_scope": ["beta"]},
+        key=None,
+    )
+    assert other_project["is_error"] is False, other_project
+    sources = {
+        "other_project": str(other_project["payload"]["source_id"]),  # type: ignore[index]
+        "global": owner._capture("Global note: the studio closes for the holiday, bell-48.", None),
+        "deleted": owner._capture("Deleted note: the old log said ember-chart-91.", None),
+    }
+    owner.sql("UPDATE sources SET deleted_at = '2026-01-01T00:00:00Z' WHERE id = ?", (sources["deleted"],))
+    memories = {kind: str(owner.commit(None, [])["payload"]["memory"]["id"]) for kind in ("one", "deleted")}  # type: ignore[index]
+    owner.sql("UPDATE memories SET deleted_at = '2026-01-01T00:00:00Z' WHERE id = ?", (memories["deleted"],))
+
+    for kind in ("other_project", "global"):
+        status, body = post(None, source_id=sources[kind])
+        assert status == 201, (kind, body)
+        assert body["open_loop"]["source_id"] == sources[kind]  # type: ignore[index]
+    status, body = post(None, memory_id=memories["one"])
+    assert status == 201, body
+    assert body["open_loop"]["memory_id"] == memories["one"]  # type: ignore[index]
+    for refused in (
+        {"source_id": sources["deleted"]},
+        {"source_id": str(uuid4())},
+        {"memory_id": memories["deleted"]},
+        {"memory_id": str(uuid4())},
+    ):
+        status, body = post(None, **refused)
+        assert status == 404, (refused, status, body)
+
+
+def test_a_malformed_id_answers_like_a_missing_one_and_the_stored_id_is_the_one_that_was_checked(
+    vault: _Vault, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A value that is not a UUID answers the same 404 as an unknown id, where the Postgres cast would have failed with
+    a 500. A value that is one in a spelling the database also reads (upper case, no hyphens) is stored in canonical
+    form, so what the fence looked up is what the loop keeps.
+
+    Mutation: store ``request.source_id`` or ``request.memory_id`` instead of the id the resolver returned (the
+    canonical-form rows fail), or let the resolver pass a value that is not a UUID.
+    """
+
+    post = _post_open_loop(vault, monkeypatch)
+    memories = _memories(vault)
+    reference = json.dumps(post("alpha_trusted", source_id=vault.sources["unknown"])[1], sort_keys=True)
+    for field in ("source_id", "memory_id"):
+        for bad in ("not-a-uuid", "12345", "   ", "00000000-0000-0000-0000-00000000000g"):
+            status, body = post("alpha_trusted", **{field: bad})
+            assert status == 404, (field, bad, body)
+            assert json.dumps(body, sort_keys=True) == reference
+    for field, own in (("source_id", vault.sources["own"]), ("memory_id", memories["own"])):
+        for spelling in (own.upper(), own.replace("-", ""), f"  {own}  "):
+            status, body = post("alpha_trusted", **{field: spelling})
+            assert status == 201, (field, spelling, body)
+            assert body["open_loop"][field] == own  # type: ignore[index]
+
+
+def test_the_policy_refusal_comes_before_any_id_is_looked_at(vault: _Vault, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A read only key may not create a loop. It gets the same 403 for an id of its own project, one of another
+    project and one that does not exist, so a refused caller learns nothing about which ids exist. A key that may
+    create a loop and names a foreign id gets the 404, so the two refusals are told apart by the caller's own right and
+    not by the id.
+
+    Mutation: move the ``read_fence``/``resolve_attachable_*`` block of ``create_vnext_open_loop`` above the
+    ``_vnext_policy_checked`` call (the read only key then gets 403 for its own source and 404 for the others).
+    """
+
+    post = _post_open_loop(vault, monkeypatch)
+    memories = _memories(vault)
+    answers = set()
+    for field, ids in (("source_id", vault.sources), ("memory_id", memories)):
+        for kind in ("own", "beta", "unknown"):
+            status, body = post("alpha_read_only", **{field: ids[kind]})
+            assert status == 403, (field, kind, body)
+            answers.add(json.dumps(_without_trace_ids(body), sort_keys=True))
+    assert len(answers) == 1, answers
+    assert post("alpha_trusted", source_id=vault.sources["beta"])[0] == 404
+
+
+def test_one_refused_id_refuses_the_whole_call_and_a_loop_with_no_ids_is_unchanged(
+    vault: _Vault, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A loop may name a source and a memory. If either is refused the loop is not created, and the answer is the one
+    404. A loop with neither (the common case) and a loop with both of its own are stored as before.
+
+    Mutation: resolve only the source id (the foreign memory row is stored), or resolve the memory id only when no
+    source id is given.
+    """
+
+    post = _post_open_loop(vault, monkeypatch)
+    memories = _memories(vault)
+    before = _row_counts(vault)
+    for refused in (
+        {"source_id": vault.sources["own"], "memory_id": memories["beta"]},
+        {"source_id": vault.sources["beta"], "memory_id": memories["own"]},
+        {"source_id": vault.sources["beta"], "memory_id": memories["beta"]},
+    ):
+        status, body = post("alpha_trusted", **refused)
+        assert status == 404, (refused, body)
+    assert _row_counts(vault) == before
+    status, body = post("alpha_trusted")
+    assert status == 201, body
+    assert body["open_loop"]["source_id"] is None and body["open_loop"]["memory_id"] is None  # type: ignore[index]
+    status, body = post("alpha_trusted", source_id=vault.sources["own"], memory_id=memories["own"])
+    assert status == 201, body
+    assert body["open_loop"]["source_id"] == vault.sources["own"]  # type: ignore[index]
+    assert body["open_loop"]["memory_id"] == memories["own"]  # type: ignore[index]
+
+
+def test_a_refused_open_loop_id_never_reaches_the_open_loop_list(vault: _Vault, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The reason the door matters: ``alice_open_loops`` returns ``source_id`` and ``memory_id`` of each loop to every
+    key that may read the loop. After the refused calls no loop holds the id of another project's source or memory,
+    and the loop that names the key's own source is listed with it, so the list is shown to carry the field at all.
+
+    Mutation: any mutation of the matrix test above that stores a foreign id.
+    """
+
+    post = _post_open_loop(vault, monkeypatch)
+    memories = _memories(vault)
+    foreign = [vault.sources["beta"], vault.sources["global"], memories["beta"], memories["global"]]
+    for field, ids in (("source_id", [vault.sources["beta"], vault.sources["global"]]), ("memory_id", [memories["beta"], memories["global"]])):
+        for value in ids:
+            assert post("alpha_trusted", **{field: value})[0] == 404
+    assert post("alpha_trusted", source_id=vault.sources["own"])[0] == 201
+    listed = vault.wire("alice_open_loops", {"status": "all"}, key=vault.keys["alpha_project"])
+    assert listed["is_error"] is False, listed
+    text = json.dumps(listed["payload"])
+    assert vault.sources["own"] in text
+    for value in foreign:
+        assert value not in text
+
+
 # -- 4. what the attached link did to the key's own reads -------------------------------------------------------
 
 
@@ -820,7 +1317,7 @@ def test_what_a_key_may_attach_it_may_also_explain(vault: _Vault) -> None:
     straight into the store, past the door, and shows the explain does fail closed then, so the assertion is not
     vacuous. At least one commit of each key is stored, so the loop is not empty.
 
-    Mutations: make ``admits`` accept ``allowed_with_filtering`` (the confidential source is then stored for the
+    Mutations: make ``_admits`` accept ``allowed_with_filtering`` (the confidential source is then stored for the
     trusted and project scoped keys, and their explain fails), drop the domains control (the health source is stored
     for the project scoped key and its explain fails), or any mutation of the matrix test that lets a foreign source
     through.
@@ -881,6 +1378,47 @@ def test_the_foreign_source_id_never_reaches_a_review_by_id(vault: _Vault) -> No
         )
     ]
     assert linked_from_commits == [vault.sources["own"]]
+
+
+def test_a_link_that_passes_for_a_writer_still_shows_its_id_to_keys_with_a_lower_ceiling(
+    vault: _Vault, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Pins the limitation the release notes state, so the words and the behaviour cannot drift apart. The fence is the
+    writer's own read fence, not the fence of whoever reads later. An ``admin_agent`` key may cite a confidential
+    source of its own project, and then a ``trusted_local_agent`` key and a ``project_scoped_agent`` key of the same
+    project (both with a lower ceiling) see that source's id in ``alice_memory_review`` by id, in the context pack and,
+    for an open loop, in ``alice_open_loops``, and ``alice_explain`` of the memory fails for them. They are shown no
+    text of the source.
+
+    Delete this test when a read-side filter lands, and change the known-limitations line with it.
+
+    Mutation: make ``_admits`` refuse an ``admin_agent`` identity (the admin commit then answers ``not_found``).
+    """
+
+    confidential = vault.sources["confidential"]
+    made = vault.commit(
+        "alpha_admin",
+        [confidential],
+        canonical_text="Pottery kiln schedule entry for the saltwhite-glaze-12 cone firing.",
+    )
+    assert made["is_error"] is False, made
+    memory_id = str(made["payload"]["memory"]["id"])  # type: ignore[index]
+    status, _body = _post_open_loop(vault, monkeypatch)("alpha_admin", source_id=confidential)
+    assert status == 201
+    for reader in ("alpha_trusted", "alpha_project"):
+        key = vault.keys[reader]
+        reviewed = vault.wire("alice_memory_review", {"review_item_id": memory_id}, key=key)
+        links = reviewed["payload"]["review"]["provenance_links"]  # type: ignore[index]
+        assert [link["source_id"] for link in links] == [confidential], reader
+        assert vault.wire("alice_explain", {"memory_id": memory_id}, key=key)["is_error"] is True, reader
+        pack = json.dumps(
+            vault.wire("alice_context_pack", {"query": "saltwhite-glaze-12 kiln firing", "max_tokens": 2000}, key=key)[
+                "payload"
+            ]
+        )
+        assert confidential in pack, reader
+        assert "cedar-ledger-55" not in pack, reader
+        assert confidential in json.dumps(vault.wire("alice_open_loops", {"status": "all"}, key=key)["payload"]), reader
 
 
 # -- 5. an idempotent replay is not a new attach ----------------------------------------------------------------
@@ -1018,3 +1556,279 @@ def test_the_named_source_sites_take_checked_ids_only() -> None:
     for call in validator_calls:
         fence = next(keyword.value for keyword in call.keywords if keyword.arg == "source_fence")
         assert ast.unparse(fence) == "SourceReadFence.for_identity(identity)"
+
+
+def _function_sites(call_name: str) -> set[tuple[str, str]]:
+    """Every ``<anything>.<call_name>(...)`` call under ``alicebot_api``, as (file, enclosing function)."""
+
+    sites: set[tuple[str, str]] = set()
+    for path in sorted(_SRC.rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        parents: dict[ast.AST, ast.AST] = {}
+        for node in ast.walk(tree):
+            for child in ast.iter_child_nodes(node):
+                parents[child] = node
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == call_name:
+                scope: ast.AST = node
+                while scope in parents and not isinstance(scope, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    scope = parents[scope]
+                name = scope.name if isinstance(scope, (ast.FunctionDef, ast.AsyncFunctionDef)) else "<module>"
+                sites.add((path.relative_to(_SRC).as_posix(), name))
+    return sites
+
+
+def test_attachable_sources_are_built_only_by_the_resolver() -> None:
+    """``AttachableSources`` is the type that says "these ids were checked", and it is a plain public dataclass, so
+    nothing but convention stops a new caller from building one out of unchecked ids. This finds every construction
+    under ``alicebot_api``: exactly one, inside ``resolve_attachable_sources``.
+
+    Mutation: build ``AttachableSources(ids=...)`` from unparsed ids in ``commit()`` or anywhere else outside the
+    resolver (the set then has a second site).
+    """
+
+    constructions: set[tuple[str, str]] = set()
+    for path in sorted(_SRC.rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for function in (n for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))):
+            for node in ast.walk(function):
+                if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "AttachableSources":
+                    constructions.add((path.relative_to(_SRC).as_posix(), function.name))
+    assert constructions == {("vnext_source_fence.py", "resolve_attachable_sources")}, constructions
+
+
+# Every place that creates an open loop, and where the loop's source and memory ids come from. A new site fails the
+# test below until it is read and classified here.
+_OWN_LOOP_SITES = {
+    # No id is named by a caller: the source or memory is one the call itself read or made, or the route has no agent
+    # identity at all (the legacy ``POST /v0/open-loops`` of the owner's own vault).
+    ("cli/capture.py", "_run_vnext_demo_load"),
+    ("cli/smokes.py", "_seed_local_runtime_smoke_inputs"),
+    ("cli/smokes.py", "_run_vnext_smoke_operator_console"),
+    ("cli/smokes.py", "_run_vnext_smoke_agent_integration_pack"),
+    ("continuity_task_eval.py", "_seed_fixture"),
+    ("explicit_commitments.py", "_resolve_open_loop_outcome"),
+    ("memory.py", "create_open_loop_record"),
+    ("memory.py", "_create_open_loop_for_memory"),
+    ("vnext_brain.py", "_create_candidate_open_loops"),
+    ("vnext_projects.py", "extract_open_loops"),
+    ("vnext_scheduler.py", "_publish_mutation"),
+    ("vnext_stores/postgres/graph_open_loops.py", "upsert_open_loop_by_automation_digest"),
+    ("vnext_stores/sqlite/graph_open_loops.py", "upsert_open_loop_by_automation_digest"),
+}
+_NAMED_LOOP_SITES = {
+    # The caller named the ids. Behind the resolvers and the caller's ``SourceReadFence``.
+    ("routers/vnext_projects.py", "create_vnext_open_loop"),
+}
+
+
+def test_every_open_loop_create_site_is_classified() -> None:
+    """The open-loop twin of the provenance-link site test: a loop keeps the ``source_id`` and ``memory_id`` it is
+    given in columns of its own, so a new ``create_open_loop`` call fails here until it is classified as one whose ids
+    the call made itself or one whose ids a caller named (and then it must go through the fence).
+
+    Mutation: add ``store.create_open_loop({...})`` to any function not listed, or rename a listed function.
+    """
+
+    found = _function_sites("create_open_loop")
+    expected = _OWN_LOOP_SITES | _NAMED_LOOP_SITES
+    assert found == expected, {"new": sorted(found - expected), "gone": sorted(expected - found)}
+
+
+def test_the_open_loop_route_stores_only_what_the_resolvers_returned() -> None:
+    """Read from the syntax tree of ``create_vnext_open_loop``. ``request.source_id`` and ``request.memory_id`` appear
+    only as the argument of their resolver or in the ``is not None`` guard before it, never as a value that is stored;
+    each resolver call carries ``fence=``; both come after the policy check and before ``create_open_loop``; and the
+    loop payload takes ``source_id`` and ``memory_id`` from the variables the resolvers filled.
+
+    Mutations: put ``request.source_id`` (or ``request.memory_id``) back in the payload, drop ``fence=`` from a
+    resolver call, or move the resolver block above ``_vnext_policy_checked``.
+    """
+
+    tree = ast.parse((_SRC / "routers" / "vnext_projects.py").read_text(encoding="utf-8"))
+    route = next(
+        node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == "create_vnext_open_loop"
+    )
+    parents: dict[ast.AST, ast.AST] = {}
+    for node in ast.walk(route):
+        for child in ast.iter_child_nodes(node):
+            parents[child] = node
+
+    resolvers = {"source_id": "resolve_attachable_source_id", "memory_id": "resolve_attachable_memory_id"}
+    for field, resolver in resolvers.items():
+        uses = [
+            node
+            for node in ast.walk(route)
+            if isinstance(node, ast.Attribute) and node.attr == field and ast.unparse(node.value) == "request"
+        ]
+        assert uses, field
+        for use in uses:
+            parent = parents[use]
+            as_argument = (
+                isinstance(parent, ast.Call) and isinstance(parent.func, ast.Name) and parent.func.id == resolver
+            )
+            as_guard = (
+                isinstance(parent, ast.Compare)
+                and [type(op) for op in parent.ops] == [ast.IsNot]
+                and ast.unparse(parent.comparators[0]) == "None"
+            )
+            assert as_argument or as_guard, (field, ast.unparse(parent))
+
+    calls = {
+        name: [
+            node
+            for node in ast.walk(route)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == name
+        ]
+        for name in (*resolvers.values(), "_vnext_policy_checked")
+    }
+    create = next(
+        node
+        for node in ast.walk(route)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "create_open_loop"
+    )
+    policy_line = calls["_vnext_policy_checked"][0].lineno
+    for resolver in resolvers.values():
+        assert len(calls[resolver]) == 1, resolver
+        assert [keyword.arg for keyword in calls[resolver][0].keywords] == ["fence"], resolver
+        assert policy_line < calls[resolver][0].lineno < create.lineno, resolver
+
+    payload = create.args[0]
+    assert isinstance(payload, ast.Dict)
+    stored = {
+        key.value: ast.unparse(value)
+        for key, value in zip(payload.keys, payload.values)
+        if isinstance(key, ast.Constant) and key.value in resolvers
+    }
+    assert stored == {"source_id": "source_id", "memory_id": "memory_id"}, stored
+
+
+_INTAKE_FIELD_NAMES = {
+    "source_id",
+    "source_ids",
+    "source_refs",
+    "source_chunk_id",
+    "source_event_ids",
+    "source_memory_ids",
+    "memory_id",
+    "memory_ids",
+    "provenance",
+    "replacement_provenance",
+}
+
+# Every HTTP body a key-bound caller can send (a ``VNextAgentRequest``) that has a field naming a source, a memory or a
+# provenance object, and what happens to the value. The legacy routes of ``routers/memories_legacy.py`` and
+# ``routers/continuity.py`` carry no agent identity and are not here.
+_HTTP_INTAKES = {
+    "vnext_memories.py:VNextMemoryCommitRequest.source_refs": "fenced: VNextMemoryCommitService.commit resolves every id",
+    "vnext_projects.py:VNextOpenLoopCreateRequest.source_id": "fenced: create_vnext_open_loop resolves it",
+    "vnext_projects.py:VNextOpenLoopCreateRequest.memory_id": "fenced: create_vnext_open_loop resolves it",
+    "vnext_memories.py:VNextMemoryProposalRequest.source_refs": "stored as given: a proposal keeps the refs and no reader resolves them",
+    "vnext_memories.py:VNextAgentOutputIngestRequest.source_refs": "stored as given: the new source keeps the refs in its metadata and no reader resolves them",
+    "vnext_memories.py:VNextMemoryUndoRequest.memory_id": "by-id verb: the memory service refuses it by the policy rules of the typed codes",
+    "vnext_memories.py:VNextMemoryCorrectRequest.memory_id": "by-id verb: the memory service refuses it by the policy rules of the typed codes",
+    "vnext_memories.py:VNextMemoryForgetRequest.memory_id": "by-id verb: the memory service refuses it by the policy rules of the typed codes",
+    "vnext_memories.py:VNextMemoryExpireRequest.memory_id": "by-id verb: the memory service refuses it by the policy rules of the typed codes",
+    "vnext_memories.py:VNextMemoryUnexpireRequest.memory_id": "by-id verb: the memory service refuses it by the policy rules of the typed codes",
+    "vnext_memories.py:VNextMemoryAcceptConsolidationRequest.memory_id": "by-id verb: the memory service refuses it by the policy rules of the typed codes",
+    "vnext_memories.py:VNextMemoryRedactRequest.memory_id": "by-id verb: the memory service refuses it by the policy rules of the typed codes",
+}
+
+# The same for the MCP tool schemas, core and legacy. A key-bound caller reaches only the core tools: the legacy tools
+# are off whenever ``ALICE_AGENT_API_KEY`` is set.
+_MCP_INTAKES = {
+    "alice_memory_commit.source_refs": "fenced: VNextMemoryCommitService.commit resolves every id",
+    "alice_vnext_commit_memory.source_refs": "fenced: the legacy alias of alice_memory_commit, one handler",
+    "alice_memory_correct.provenance": "fenced: _validated_review_provenance resolves the source id",
+    "alice_memory_correct.provenance.source_id": "fenced: _validated_review_provenance resolves the source id",
+    "alice_memory_correct.provenance.source_chunk_id": "fenced: checked against the fenced source",
+    "alice_memory_correct.replacement_provenance": "fenced: _validated_review_provenance resolves the source id",
+    "alice_memory_correct.replacement_provenance.source_id": "fenced: _validated_review_provenance resolves the source id",
+    "alice_memory_correct.replacement_provenance.source_chunk_id": "fenced: checked against the fenced source",
+    "alice_vnext_propose_memory.source_refs": "stored as given: a proposal keeps the refs and no reader resolves them",
+    "alice_vnext_ingest_agent_output.source_refs": "stored as given: the new source keeps the refs in its metadata and no reader resolves them",
+    "alice_vnext_open_loops.source_id": "listed in the schema and read by no handler: the tool only lists loops",
+    "alice_review_apply.provenance": "stored as given: a continuity object keeps it as JSON and no source row is read",
+    "alice_review_apply.provenance.source_event_ids": "stored as given: a continuity object keeps it as JSON and no source row is read",
+    "alice_review_apply.replacement_provenance": "stored as given: a continuity object keeps it as JSON and no source row is read",
+    "alice_review_apply.replacement_provenance.source_event_ids": "stored as given: a continuity object keeps it as JSON and no source row is read",
+    "alice_memory_manage.memory_id": "by-id verb: the memory service refuses it by the policy rules of the typed codes",
+    "alice_explain.memory_id": "by-id verb: explain fences every row it discloses",
+    "alice_vnext_undo_memory.memory_id": "by-id verb: the memory service refuses it by the policy rules of the typed codes",
+    "alice_vnext_correct_memory.memory_id": "by-id verb: the memory service refuses it by the policy rules of the typed codes",
+    "alice_vnext_forget_memory.memory_id": "by-id verb: the memory service refuses it by the policy rules of the typed codes",
+    "alice_vnext_memory_audit.memory_id": "by-id verb: explain fences every row it discloses",
+}
+_INTAKE_KINDS = ("fenced: ", "stored as given: ", "by-id verb: ", "listed in the schema and read by no handler: ")
+
+
+def _agent_request_classes() -> dict[str, tuple[str, ast.ClassDef]]:
+    classes: dict[str, tuple[str, ast.ClassDef]] = {}
+    for path in sorted((_SRC / "routers").glob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in tree.body:
+            if isinstance(node, ast.ClassDef):
+                classes[node.name] = (path.name, node)
+
+    def is_agent_request(name: str, seen: frozenset[str] = frozenset()) -> bool:
+        if name == "VNextAgentRequest":
+            return True
+        if name in seen or name not in classes:
+            return False
+        bases = [base.id for base in classes[name][1].bases if isinstance(base, ast.Name)]
+        return any(is_agent_request(base, seen | {name}) for base in bases)
+
+    return {name: item for name, item in classes.items() if name != "VNextAgentRequest" and is_agent_request(name)}
+
+
+def _mcp_schema_intakes() -> set[str]:
+    from alicebot_api.mcp.definitions import _CORE_TOOL_DEFINITIONS, _LEGACY_TOOL_DEFINITIONS
+
+    found: set[str] = set()
+
+    def walk(schema: object, prefix: str) -> None:
+        if isinstance(schema, dict):
+            properties = schema.get("properties")
+            if isinstance(properties, dict):
+                for key, value in properties.items():
+                    if key in _INTAKE_FIELD_NAMES:
+                        found.add(f"{prefix}.{key}")
+                    walk(value, f"{prefix}.{key}")
+            for key in ("items", "oneOf", "anyOf", "allOf"):
+                if key in schema:
+                    walk(schema[key], prefix)
+        elif isinstance(schema, list):
+            for item in schema:
+                walk(item, prefix)
+
+    for tool in (*_CORE_TOOL_DEFINITIONS, *_LEGACY_TOOL_DEFINITIONS):
+        walk(tool["inputSchema"], str(tool["name"]))
+    return found
+
+
+def test_every_intake_that_names_a_source_or_memory_is_classified() -> None:
+    """The test that finds a door by its input: every HTTP body a key-bound caller can send and every MCP tool schema
+    is scanned for a field that names a source, a memory or a provenance object, and each one found must be
+    classified here as fenced, stored as given (and resolved by no reader), a by-id verb, or not read at all. A new
+    field fails the test until it is read and classified, so a door like the open-loop route cannot be added, or
+    missed, without a line in this table. The scan finds the fields; each ``fenced`` line is pinned by the behavioural
+    tests above.
+
+    Mutation: add ``source_id: str | None = None`` to any ``VNextAgentRequest`` body, or a ``source_id`` property to
+    any tool schema, that is not listed.
+    """
+
+    http = {
+        f"{file}:{name}.{statement.target.id}"
+        for name, (file, node) in _agent_request_classes().items()
+        for statement in node.body
+        if isinstance(statement, ast.AnnAssign)
+        and isinstance(statement.target, ast.Name)
+        and statement.target.id in _INTAKE_FIELD_NAMES
+    }
+    assert http == set(_HTTP_INTAKES), {"new": sorted(http - set(_HTTP_INTAKES)), "gone": sorted(set(_HTTP_INTAKES) - http)}
+    mcp = _mcp_schema_intakes()
+    assert mcp == set(_MCP_INTAKES), {"new": sorted(mcp - set(_MCP_INTAKES)), "gone": sorted(set(_MCP_INTAKES) - mcp)}
+    for table in (_HTTP_INTAKES, _MCP_INTAKES):
+        for key, disposition in table.items():
+            assert disposition.startswith(_INTAKE_KINDS), (key, disposition)

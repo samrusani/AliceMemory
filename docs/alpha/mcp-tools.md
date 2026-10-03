@@ -750,6 +750,24 @@ with 404 and the public `not_found` error. In v0.20.0 a key bound to one
 project could attach a source of another project, and a source id that did not
 exist answered `tool_request_failed` where one that existed was stored.
 
+Unreleased (on main, not in v0.20.0): `POST /v0/vnext/open-loops`, which is HTTP
+only and takes a `source_id` and a `memory_id` for the loop to keep, holds both
+to the same test. The memory is held to the test `alice_explain` applies to a
+memory (its project scope, its domain, the profile's ceiling and deletion). An
+id that is missing, deleted, malformed or outside the fence answers 404 with the
+public `not_found` error, the same for each, after a policy refusal (a key that
+may not create a loop gets the same refusal whatever id it names) and before
+anything is written. The loop stores the id in canonical form. The owner, a call
+with no agent key, may name any live source and memory of the vault.
+
+Two limits. The test is the writer's own read fence, not the fence of whoever
+reads later: a source an `admin_agent` key could cite (a confidential source of
+its own project) stays citable, and the keys of that project with a lower
+ceiling then see its id in the context pack's `supporting_evidence`, in
+`alice_memory_review` by id and in `alice_open_loops`, and `alice_explain` of
+that memory fails for them. They are shown no text of the source. And a memory
+or open loop saved before the fix keeps the link or id it has.
+
 ## Size bounds
 
 A memory commit accepts at most 64 `source_refs`. Each string ref is at
