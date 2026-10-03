@@ -5,6 +5,8 @@ new files (`eval/longmemeval/`, `scripts/run_longmemeval.py`, this page);
 no existing module was touched. What remains for a scored number is exactly
 two things: fetch the dataset and point the harness at a chat endpoint.
 
+Status update, 2026-10-04: historical implementation record. `v0.8.0` shipped this harness with the first scored run; scored runs and their evidence are in `docs/benchmarks/longmemeval/README.md`. The environment variable contract below still applies. The section "What remains for a scored number" describes the state before that run.
+
 ## Why
 
 LongMemEval (Wu et al., ICLR 2025) is the long-term-memory benchmark the
