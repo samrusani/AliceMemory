@@ -15,6 +15,7 @@ from __future__ import annotations
 import contextlib
 import io
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -860,7 +861,9 @@ def test_outputs_are_compared_only_when_one_checkout_switch_and_corpus_made_them
 
     document = {"fingerprint": _fingerprint("sorted")}
     bench.require_comparable_outputs([("a.json", document), ("b.json", {"fingerprint": _fingerprint("reverse")})])
-    bench.require_comparable_outputs([("only.json", {"outputs": {}})])
+    bench.require_comparable_outputs([("only.json", document)])
+    with pytest.raises(bench.BenchError, match="only.json has no fingerprint"):
+        bench.require_comparable_outputs([("only.json", {"outputs": {}})])
     for key in bench.SAME_ACROSS_ORDERS:
         other = {"fingerprint": _fingerprint("reverse", **{key: "something else"})}
         with pytest.raises(bench.BenchError, match=rf"did not measure the same thing \({key} differ\)"):
@@ -952,6 +955,86 @@ def test_outputs_whose_vault_was_built_by_another_checkout_than_the_one_that_ran
         bench.require_comparable_outputs([("a.json", clean), ("b.json", absent)])
 
 
+def test_one_outputs_file_is_held_to_its_own_vault_build_like_each_of_two(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Outside review of #532. ``score`` given one outputs file used to return before it checked the file against itself.
+
+    A fingerprint holds the build record of the vault the run read (``vault_build``) and the identity of the run, and
+    the two must agree on every key of the checkout identity, whatever the number of files. Each key is changed in the
+    build record of a lone file in turn and the file is refused with that key named; so is a file whose build record
+    is missing, is not a record or lacks a key, a file with no fingerprint and a file whose fingerprint lacks a key.
+    Through the command line the refusal prints no table. The control is the same file without the contradiction,
+    which scores. With two or more files the comparison across them stays.
+
+    Mutation: return before the per-file checks when there are fewer than two files (the first lines of
+    ``require_comparable_outputs``), or run the per-file checks on the files after the first only.
+    """
+
+    lone = {"fingerprint": _fingerprint("sorted")}
+    bench.require_comparable_outputs([("lone.json", lone)])
+    for key in bench.CHECKOUT_IDENTITY_KEYS:
+        build = {**lone["fingerprint"]["vault_build"], key: "another"}
+        bad = {"fingerprint": _fingerprint("sorted", vault_build=build)}
+        with pytest.raises(bench.BenchError, match=rf"lone\.json ran on a vault that another checkout built \({key} differ"):
+            bench.require_comparable_outputs([("lone.json", bad)])
+    for unusable in (None, "text", {}, {"git_sha": "same-git_sha"}):
+        with pytest.raises(bench.BenchError, match="does not say which checkout built the vault it ran on"):
+            bench.require_comparable_outputs([("lone.json", {"fingerprint": _fingerprint("sorted", vault_build=unusable)})])
+    absent = {"fingerprint": {key: value for key, value in _fingerprint("sorted").items() if key != "vault_build"}}
+    with pytest.raises(bench.BenchError, match="lacks vault_build"):
+        bench.require_comparable_outputs([("lone.json", absent)])
+    with pytest.raises(bench.BenchError, match="has no fingerprint"):
+        bench.require_comparable_outputs([("lone.json", {"outputs": {}})])
+    with pytest.raises(bench.BenchError, match="lacks git_sha"):
+        bench.require_comparable_outputs([("lone.json", {"fingerprint": {"import_order": "sorted"}})])
+
+    good = _write_outputs(tmp_path / "good.json", "sorted")
+    moved_build = {**lone["fingerprint"]["vault_build"], "checkout_source_sha256": "the source that built the vault"}
+    contradicting = _write_outputs(tmp_path / "contradicting.json", "sorted", vault_build=moved_build)
+    assert bench.main(["score", "--questions", str(QUESTIONS), "--outputs", good]) == 0
+    assert "Tier 1, order sorted" in capsys.readouterr().out
+    assert bench.main(["score", "--questions", str(QUESTIONS), "--outputs", contradicting]) == bench.EXIT_REFUSED
+    captured = capsys.readouterr()
+    assert captured.out == "", "a refused file prints no table"
+    assert "contradicting.json ran on a vault that another checkout built (checkout_source_sha256 differ" in captured.err
+
+    other = _write_outputs(tmp_path / "other.json", "reverse")
+    assert bench.main(["score", "--questions", str(QUESTIONS), "--outputs", good, other]) == 0
+    capsys.readouterr()
+    assert bench.main(["score", "--questions", str(QUESTIONS), "--outputs", contradicting, other]) == bench.EXIT_REFUSED
+    assert "contradicting.json ran on a vault that another checkout built" in capsys.readouterr().err
+
+
+def test_the_vault_build_record_holds_the_harness_hash_and_score_compares_it(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """Recheck of #532, minor. A harness edited during a batch on an export was invisible to ``score``.
+
+    The outputs of such a batch named the edited script in ``harness_sha256`` while the code that ran was the old
+    one, and the build record of the vault did not hold the hash, so nothing could disagree. The hash is a key of the
+    checkout identity now: the build record carries it, and a file whose record names another harness than the
+    run, or no harness, is refused, as a lone file and next to a second one.
+
+    Mutation: leave ``harness_sha256`` out of ``CHECKOUT_IDENTITY_KEYS`` (the build record would not hold it and
+    ``score`` would accept both files below).
+    """
+
+    assert "harness_sha256" in bench.CHECKOUT_IDENTITY_KEYS and "harness_sha256" in bench.SAME_ACROSS_ORDERS
+    lone = {"fingerprint": _fingerprint("sorted")}
+    moved = {**lone["fingerprint"]["vault_build"], "harness_sha256": "the harness that built the vault"}
+    older = {key: value for key, value in lone["fingerprint"]["vault_build"].items() if key != "harness_sha256"}
+    for name, build, message in (
+        ("moved", moved, r"another checkout built \(harness_sha256 differ"),
+        ("older", older, "does not say which checkout built the vault it ran on"),
+    ):
+        path = _write_outputs(tmp_path / f"{name}.json", "sorted", vault_build=build)
+        assert bench.main(["score", "--questions", str(QUESTIONS), "--outputs", path]) == bench.EXIT_REFUSED
+        captured = capsys.readouterr()
+        assert captured.out == "" and re.search(message, captured.err), (name, captured.err)
+        other = _write_outputs(tmp_path / "other.json", "reverse")
+        assert bench.main(["score", "--questions", str(QUESTIONS), "--outputs", other, path]) == bench.EXIT_REFUSED
+        assert re.search(message, capsys.readouterr().err), name
+
+
 def test_score_json_leaves_out_per_question_results_unless_they_are_asked_for(tmp_path: Path) -> None:
     """``--per-question`` is the dev only opt in, so the JSON never carries a hit or miss per question without it.
 
@@ -1037,6 +1120,7 @@ def test_the_printed_table_has_its_columns_in_order_and_names_the_dev_only_view(
         json.dumps(
             {
                 "schema": bench.OUTPUTS_SCHEMA,
+                "fingerprint": _fingerprint("sorted"),
                 "outputs": {"q1": {"verbatim": late}, "q2": {"verbatim": never}},
             }
         ),
