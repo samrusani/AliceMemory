@@ -2601,6 +2601,7 @@ class VNextMemoryCommitService:
             allow_above_ceiling=allow_above_ceiling,
         )
         if decision.decision == "blocked":
+            # Records the refusal, then raises AgentPolicyBlockedError for a blocked decision.
             self._record_write_decision(identity=identity, decision=decision, memory=memory)
 
     def authorize_memory_action(

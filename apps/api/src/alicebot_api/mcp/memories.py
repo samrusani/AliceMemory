@@ -421,7 +421,8 @@ def redact_memory_flow(
     # to replay, so a refused caller is told "not found" for a deleted row here
     # too, or it could tell a deleted row from an id the vault never held.
     # Nothing is written for an authorized caller; the policy row of a redaction
-    # that goes on is written below.
+    # that goes on is written below, and the replay branch there checks the policy
+    # again, so this call is not the only guard of a replay.
     try:
         memory_service.refuse_unauthorized_write(identity=identity, action="memory.redact", memory=memory)
     except AgentPolicyBlockedError:
