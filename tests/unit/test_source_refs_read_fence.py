@@ -541,6 +541,24 @@ def test_a_store_that_cannot_look_a_source_up_refuses_every_id_and_one_that_can_
         assert resolve_attachable_sources(object(), ["https://example.org/x"], fence=any_fence).ids == ()
 
 
+def test_rows_whose_id_is_a_uuid_object_are_matched_as_the_postgres_store_returns_them() -> None:
+    """The Postgres store hands back ``id`` as a ``UUID`` object and the SQLite store as text. The lookup keys the rows
+    by the text of the id, so both answer a request that names the id as text. No Postgres runs here, so this stub
+    stands in for the one thing the two stores do differently.
+
+    Mutation: drop the ``str(...)`` around ``row.get("id")`` in ``_rows_by_id``. The row is then never found and the own
+    source is refused as missing.
+    """
+
+    source_id = uuid4()
+    row = _source(str(source_id), scope=["alpha"])
+    row["id"] = source_id
+    fence = SourceReadFence.for_identity(_bound_identity("trusted_local_agent", "alpha"))
+    assert resolve_attachable_sources(_StubStore({str(source_id): row}), [str(source_id)], fence=fence).ids == (
+        str(source_id),
+    )
+
+
 def test_one_message_for_every_refusal() -> None:
     """Missing, deleted and outside the fence raise one class with one message, so the text cannot tell them apart
     even in a log line that reaches a client by mistake.
