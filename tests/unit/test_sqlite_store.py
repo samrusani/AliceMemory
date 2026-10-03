@@ -759,14 +759,18 @@ def test_memory_queries_use_ascii_case_insensitive_literal_substrings() -> None:
     }
     for query, expected_ids in expectations.items():
         memories = store.list_memories(query=query, order_by_created_at=True, limit=50)
-        resume_events = store.list_resume_memory_events(statuses=("active",), query=query, limit=100)
+        resume_events = store.list_resume_memory_events(
+            statuses=("active",), query=query, limit=100, domains=None, sensitivity_allowed=None
+        )
         assert {str(row["id"]) for row in memories} == expected_ids
         assert {str(event["target_id"]) for event in resume_events} == expected_ids
 
     assert len(store.list_memories(query="   ", limit=50)) == len(rows)
     assert {
         str(event["target_id"])
-        for event in store.list_resume_memory_events(statuses=("active",), query="   ", limit=100)
+        for event in store.list_resume_memory_events(
+            statuses=("active",), query="   ", limit=100, domains=None, sensitivity_allowed=None
+        )
     } == {str(row["id"]) for row in rows.values()}
     conn.close()
 

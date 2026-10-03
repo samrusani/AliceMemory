@@ -1072,10 +1072,13 @@ def _vnext_resume(
             # and join loop events to authoritative loop scope before LIMIT.
             # The loop join deliberately has no opened-at bound: an older
             # active loop can have a newer event inside the requested event
-            # window. list_resume_memory_events and list_open_loop_events
-            # still omit domain/sensitivity, so targets outside those fences
-            # are dropped after the join. Events that are not a memory or
-            # open_loop target are dropped; they are not claimed as fenced.
+            # window. In the project view both event readers also take domain
+            # and sensitivity, so a target outside those fences is dropped in
+            # the join, before any place is given. The unscoped branch is the
+            # v0.20.0 read: the readers get None for both, and the targets
+            # outside those fences are dropped after the join. Events that are
+            # not a memory or open_loop target are dropped; they are not
+            # claimed as fenced.
             event_rows: list[JsonObject] = []
             if project_view.mode == "project":
                 # One list of max_recent_changes rows, so one fill (spec 6.2): the
@@ -1084,6 +1087,12 @@ def _vnext_resume(
                 # by time afterwards, would let global events take far more than
                 # the reserve (every place when the project has events of one kind
                 # only) and push a project event out of the list.
+                #
+                # Every filter of the request goes into the two reads, before the
+                # cut to ``count`` and before the fill gives out its places: a row
+                # the caller may not see, left to the by-id fence after the cut,
+                # would take a place and then be dropped, and a newer one of those
+                # could push out every older row the caller may see.
                 def read_events(scope: tuple[str, ...], excluded: frozenset[str], count: int) -> list[JsonObject]:
                     """One side of the fill: both event kinds, newest first, at most ``count`` rows."""
 
@@ -1096,6 +1105,8 @@ def _vnext_resume(
                             occurred_at_end=until,
                             limit=count,
                             exclude_global_domains=tuple(sorted(excluded)),
+                            domains=domain_filter,
+                            sensitivity_allowed=sensitivity_filter,
                         ),
                         *store.list_open_loop_events(
                             statuses=tuple(_SQLITE_OPEN_LOOP_ACTIVE_STATUSES),
@@ -1105,6 +1116,8 @@ def _vnext_resume(
                             occurred_at_end=until,
                             limit=count,
                             exclude_global_domains=tuple(sorted(excluded)),
+                            domains=domain_filter,
+                            sensitivity_allowed=sensitivity_filter,
                         ),
                     ]
                     events.sort(key=_event_recency, reverse=True)
@@ -1127,6 +1140,8 @@ def _vnext_resume(
                     occurred_at_start=since,
                     occurred_at_end=until,
                     limit=max_recent_changes,
+                    domains=None,
+                    sensitivity_allowed=None,
                 ):
                     event_id = str(event.get("id") or "")
                     if event_id:
@@ -1139,6 +1154,8 @@ def _vnext_resume(
                     occurred_at_start=since,
                     occurred_at_end=until,
                     limit=max_recent_changes,
+                    domains=None,
+                    sensitivity_allowed=None,
                 ):
                     event_id = str(event.get("id") or "")
                     if event_id and event_id in seen_event_ids:

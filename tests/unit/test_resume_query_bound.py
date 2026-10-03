@@ -588,11 +588,15 @@ READS = {
         "checklist",
     ),
     "list_open_loop_events": (
-        lambda store, query: store.list_open_loop_events(statuses=("open",), query=query),
+        lambda store, query: store.list_open_loop_events(
+            statuses=("open",), query=query, domains=None, sensitivity_allowed=None
+        ),
         "checklist",
     ),
     "list_resume_memory_events": (
-        lambda store, query: store.list_resume_memory_events(statuses=("active",), query=query),
+        lambda store, query: store.list_resume_memory_events(
+            statuses=("active",), query=query, domains=None, sensitivity_allowed=None
+        ),
         "launch",
     ),
 }

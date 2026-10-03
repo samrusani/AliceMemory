@@ -1119,9 +1119,19 @@ def list_open_loop_events(
     occurred_at_start: datetime | None = None,
     occurred_at_end: datetime | None = None,
     limit: int = 20,
+    domains: list[str] | None,
+    sensitivity_allowed: list[str] | None,
 ) -> list[VNextRow]:
-    """Return scoped events for active loops without bounding loop age."""
+    """Return scoped events for active loops without bounding loop age.
 
+    ``domains`` and ``sensitivity_allowed`` have no defaults, as on the SQLite store,
+    where they fence the read before ``LIMIT``. The Postgres runtime resolves no
+    project view and has no such read, so only ``None`` is accepted and anything
+    else raises instead of being ignored.
+    """
+
+    if domains is not None or sensitivity_allowed is not None:
+        raise ValueError("the Postgres event reads take no domain or sensitivity fence; pass None")
     if limit < 1:
         raise ValueError("limit must be positive")
     normalized_statuses = list(dict.fromkeys(str(value) for value in statuses if str(value)))
