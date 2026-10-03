@@ -677,7 +677,9 @@ def test_the_pack_sources_section_is_a_separate_reader(vault: _Vault, variant: s
     limit.
 
     Mutation: make ``_filtered_domains`` in ``vnext_agent_control.py`` return the request unchanged when it names no
-    domains (the behaviour of v0.20.0); the ``health`` row then fails.
+    domains, and skip the ``no_permitted_domains`` block in ``evaluate_agent_policy`` (together, the behaviour of
+    v0.20.0); the ``health`` row then fails on the excerpt and the confidential row passes. The first change alone
+    blocks the call, so both rows fail for another reason.
     """
 
     source_id = vault.capture_source()
