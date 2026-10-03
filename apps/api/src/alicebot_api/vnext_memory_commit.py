@@ -312,6 +312,19 @@ class MemoryNotFoundError(VNextMemoryCommitValidationError):
     """
 
 
+class RefusedOnDeletedMemoryError(AgentPolicyBlockedError):
+    """The policy refused a redact of an archived or redacted row, which the caller must hear as "not found".
+
+    Redact reads such a row on purpose, to scrub and to replay it, while every other verb reads it as absent. A
+    refused caller is told "not found" for it, as for an id the vault never held, or redact would tell it which ids
+    were deleted. The refusal itself is still a refusal: the decision was recorded and is audited like any other, and
+    a surface that catches ``AgentPolicyBlockedError`` leaves its transaction normally so that audit row is
+    committed. Raising a plain ``MemoryNotFoundError`` there would roll the audit row back with the call. The surface
+    then turns this class into its own "not found" (``not_found`` over MCP, 404 over HTTP) instead of its refusal
+    (``not_permitted``, 403). A surface that does not know the class, the command line, answers the refusal.
+    """
+
+
 class MemoryStateError(VNextMemoryCommitValidationError):
     """The row exists and the caller may act on it, but its state forbids the call.
 

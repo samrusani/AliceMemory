@@ -726,6 +726,15 @@ routes, 400 from the others), and an id is a random UUID, so the answer only
 tells a caller about an id it already has. A review item the caller's own
 filters hide answers `not_found`, the same as a missing one.
 
+A refused caller hears `not_permitted` for a live row and `not_found` for an
+archived or redacted row, the same as for an id the vault never held. That is
+the rule on every verb, `alice_memory_manage` with `action: redact` included.
+So an id a caller holds in another project answers `not_permitted` while the
+row is live, and `not_found` once the row is archived or redacted. A caller
+that asks with an id it has never seen cannot tell a deleted row from one that
+never existed. A caller that held the id can see the answer change, and learns
+only that the row is gone.
+
 Authorization comes before state. A caller the policy refuses (its project
 scope, its permission profile, its sensitivity ceiling, or, for a pending
 write, who may resolve it) gets `not_permitted` whatever state the row is in:

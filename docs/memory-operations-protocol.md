@@ -424,7 +424,8 @@ never that the row is a pending project update, has an open project-update
 artifact, or is already redacted; for an archived or redacted row it hears
 not found (`not_found` over stdio, 404 over HTTP), the same as for an id the
 vault never held. In v0.20.0 such a caller was refused (403 over HTTP) for the
-row and told not found only for an unknown id.
+row and told not found only for an unknown id. The refusal is recorded in the
+audit trail whichever answer the caller hears.
 
 ---
 

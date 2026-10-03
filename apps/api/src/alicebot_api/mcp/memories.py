@@ -17,6 +17,7 @@ from alicebot_api.vnext_memory_commit import (
     IdempotencyKeyConflictError,
     MemoryNotFoundError,
     MemoryStateError,
+    RefusedOnDeletedMemoryError,
     VNextMemoryCommitService,
     VNextMemoryCommitValidationError,
     _brain_charter_row,
@@ -422,12 +423,15 @@ def redact_memory_flow(
     # too, or it could tell a deleted row from an id the vault never held.
     # Nothing is written for an authorized caller; the policy row of a redaction
     # that goes on is written below, and the replay branch there checks the policy
-    # again, so this call is not the only guard of a replay.
+    # again, so this call is not the only guard of a replay. A refusal is recorded
+    # before it is raised, and for a deleted row it is raised as a refusal the
+    # surface answers "not found" (RefusedOnDeletedMemoryError): a plain not-found
+    # error here would roll the audit row back with the call.
     try:
         memory_service.refuse_unauthorized_write(identity=identity, action="memory.redact", memory=memory)
-    except AgentPolicyBlockedError:
+    except AgentPolicyBlockedError as exc:
         if memory.get("deleted_at") is not None:
-            raise MemoryNotFoundError("memory was not found") from None
+            raise RefusedOnDeletedMemoryError(exc.decision) from None
         raise
     if is_pending_project_update_memory(memory):
         raise MemoryStateError(PENDING_PROJECT_UPDATE_MEMORY_MUTATION_MESSAGE)
@@ -446,6 +450,13 @@ def redact_memory_flow(
         # ordinary policy adapter upserts the identity and appends a policy
         # event.  A replay still evaluates the same authorization, but does not
         # create new durable rows.
+        # This is a second guard, kept on purpose. The pre-check above already
+        # refuses every caller this evaluation refuses (the same action on the
+        # same row, plus the sensitivity ceiling), so with both in place the
+        # raise below is never the one that fires. A replay answers with the
+        # row's redaction receipt and writes nothing, so its authorization
+        # should not depend on a call made earlier in the function. A test
+        # takes the pre-check away and checks the replay is still refused.
         decision = evaluate_agent_policy(
             identity=identity,
             action="memory.redact",
@@ -567,6 +578,7 @@ def _handle_alice_vnext_accept_consolidation(context: MCPRuntimeContext, argumen
 def _handle_alice_vnext_redact_memory(context: MCPRuntimeContext, arguments: Mapping[str, object]) -> JsonObject:
     identity = _agent_identity_from_arguments(context, arguments)
     blocked_decision: PolicyDecision | None = None
+    hide_the_row = False
     payload: VNextJsonObject | None = None
     with _vnext_store_context(context) as store:
         try:
@@ -577,8 +589,13 @@ def _handle_alice_vnext_redact_memory(context: MCPRuntimeContext, arguments: Map
                 identity=identity,
             )
         except AgentPolicyBlockedError as exc:
+            # Leave the store context normally so the refusal's audit rows commit, then answer.
             blocked_decision = exc.decision
+            hide_the_row = isinstance(exc, RefusedOnDeletedMemoryError)
     if blocked_decision is not None:
+        if hide_the_row:
+            # An archived or redacted row is "not found" to a caller the policy refuses, as for every other verb.
+            raise MemoryNotFoundError("memory was not found")
         _raise_mcp_policy_blocked(blocked_decision)
     if payload is None:
         raise MCPToolError("vNext memory redaction did not complete")

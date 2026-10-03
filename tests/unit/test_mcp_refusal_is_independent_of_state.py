@@ -31,6 +31,7 @@ import pytest
 
 from alicebot_api import mcp_server
 from alicebot_api.mcp import registry
+from alicebot_api.mcp.memories import redact_memory_flow
 from alicebot_api.mcp.runtime import _sqlite_path_from_url, _vnext_store_context
 from alicebot_api.mcp.types import MCPRuntimeContext
 from alicebot_api.onramp import bootstrap_database, resolve_db_path, sqlite_url_for_path
@@ -583,4 +584,448 @@ def test_a_refused_call_on_a_pending_project_update_is_audited_like_any_other_re
         return before, after
 
     before, after = _store_do(context, state_refusal_writes)  # type: ignore[misc]
+    assert after == before
+
+
+# --- A refusal is audited whatever the row's state, and says what it was asked ----------------------------------------
+
+
+def _blocked_events(ctx: MCPRuntimeContext, memory_id: str) -> list[dict[str, object]]:
+    events = _store_do(ctx, lambda store: store.list_events(target_type="memory", target_id=memory_id))
+    return [dict(event) for event in events if event["event_type"] == "agent.policy_blocked"]  # type: ignore[attr-defined]
+
+
+def _blocked_decision(event: Mapping[str, object]) -> Mapping[str, object]:
+    payload = event["payload_json"]
+    assert isinstance(payload, Mapping)
+    decision = payload["policy_decision"]
+    assert isinstance(decision, Mapping)
+    return decision
+
+
+def test_a_refused_redact_of_an_archived_or_redacted_row_is_audited_and_answered_not_found(
+    context: MCPRuntimeContext,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A refused ``redact`` leaves one ``agent.policy_blocked`` row for every state of the row, deleted ones included.
+
+    Redact reads an archived or redacted row on purpose, and a refused caller is answered ``not_found`` for it. The
+    answer is raised after the refusal is recorded, and the whole call used to roll back with it: v0.20.0 recorded the
+    refusal of a live and of an archived row (answered ``not_permitted``) and the first version of the follow-up wrote
+    no row for an archived one. A refused replay of a redacted row wrote none in v0.20.0 either, and now writes one, so
+    each of the three states here has exactly one row naming the caller, the action and the reason, whatever the
+    answer. Two refusals are read: a key bound to another project (scope) and a trusted agent bound to the row's own
+    project (permission profile, which refuses redact).
+
+    Mutations, each one alone, in ``mcp/memories.py``: in ``redact_memory_flow`` raise ``MemoryNotFoundError`` in place
+    of ``RefusedOnDeletedMemoryError`` (the archived and redacted cells of both callers have no audit row); in
+    ``_handle_alice_vnext_redact_memory`` set ``hide_the_row`` false always (the deleted cells answer ``not_permitted``)
+    or true always (the live cell answers ``not_found``).
+    """
+
+    targets = {
+        "live": _VISIBLE_STATES["active"],
+        "archived": _DELETED_STATES["archived"],
+        "redacted": _DELETED_STATES["redacted"],
+    }
+    callers = (
+        # (label, profile, key bound to, project of the rows, reason the policy gives)
+        ("scope", "admin_agent", _OWN_PROJECT, _OTHER_PROJECT, "project_scope_binding_violation"),
+        ("profile", "trusted_local_agent", _OTHER_PROJECT, _OTHER_PROJECT, "human_or_admin_review_required"),
+    )
+    cells: dict[tuple[str, str], tuple[str, list[dict[str, object]], str]] = {}
+    for label, profile, bound_to, rows_in, _reason in callers:
+        rows = {state: build(context, rows_in, "internal") for state, build in targets.items()}
+        key = _mint_key(context, profile=profile, project=bound_to, agent_id=f"audited-{label}")
+        monkeypatch.setenv(_KEY_ENV, key)
+        for state, row in rows.items():
+            answer = _answer(
+                context, "alice_memory_manage", {"action": "redact", "memory_id": row.memory_id, "reason": "no"}
+            )
+            cells[(label, state)] = (answer, _blocked_events(context, row.memory_id), row.memory_id)
+        monkeypatch.delenv(_KEY_ENV)
+
+    for label, _profile, _bound_to, _rows_in, reason in callers:
+        for state in targets:
+            answer, events, _memory_id = cells[(label, state)]
+            assert answer == ("not_permitted" if state == "live" else "not_found"), (label, state, answer)
+            assert len(events) == 1, (label, state, events)
+            assert events[0]["actor_id"] == f"audited-{label}", (label, state)
+            decision = _blocked_decision(events[0])
+            assert decision["action"] == "memory.redact", (label, state)
+            assert decision["decision"] == "blocked", (label, state)
+            assert reason in decision["reasons"], (label, state, decision["reasons"])  # type: ignore[operator]
+
+    # The control: a caller the policy allows redacts the deleted row and is never audited as refused.
+    admin = _mint_key(context, profile="admin_agent", project=_OTHER_PROJECT, agent_id="audited-in-scope")
+    archived = _DELETED_STATES["archived"](context, _OTHER_PROJECT, "internal")
+    monkeypatch.setenv(_KEY_ENV, admin)
+    assert _answer(
+        context, "alice_memory_manage", {"action": "redact", "memory_id": archived.memory_id, "reason": "ok"}
+    ) == "ok"
+    monkeypatch.delenv(_KEY_ENV)
+    assert _blocked_events(context, archived.memory_id) == []
+
+
+def test_the_http_redact_route_audits_a_refusal_and_answers_404_for_a_deleted_row(
+    context: MCPRuntimeContext,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The route twin of the MCP test, on the SQLite store through the real route function and a real key.
+
+    The route's connection is the SQLite one, which commits on a clean exit and rolls back on an exception, as the
+    Postgres one does. A refused redact answers 403 for a live row and 404 for an archived or a redacted row, the
+    answer for an id the vault never held, and each of the three leaves its ``agent.policy_blocked`` row. A plain
+    not-found error would answer the same 404 and roll that row back, so the rows are read after the call.
+
+    Mutations, each one alone: in ``routers/vnext_memories.py`` delete the ``except RefusedOnDeletedMemoryError``
+    clause of ``redact_vnext_memory`` (the archived and redacted rows answer 403); in ``redact_memory_flow``
+    (``mcp/memories.py``) raise ``MemoryNotFoundError`` in place of ``RefusedOnDeletedMemoryError`` (those rows answer 404
+    and have no audit row); in the route, answer 404 for every refusal (the live row answers 404).
+    """
+
+    from contextlib import contextmanager
+
+    from alicebot_api.config import Settings
+    from alicebot_api.routers import vnext_memories as router
+
+    path = _sqlite_path_from_url(context.database_url)
+
+    @contextmanager
+    def connection(_database_url: str, user_id: UUID) -> Iterator[object]:
+        with sqlite_user_connection(path, user_id) as conn:
+            yield conn
+
+    monkeypatch.setattr(router, "get_settings", lambda: Settings(database_url="postgresql://stand-in"))
+    monkeypatch.setattr(router, "user_connection", connection)
+    monkeypatch.setattr(router, "PostgresVNextStore", lambda conn: SQLiteVNextStore(conn, _USER_ID))
+
+    rows = {
+        "live": _VISIBLE_STATES["active"](context, _OTHER_PROJECT, "internal"),
+        "archived": _DELETED_STATES["archived"](context, _OTHER_PROJECT, "internal"),
+        "redacted": _DELETED_STATES["redacted"](context, _OTHER_PROJECT, "internal"),
+    }
+    key = _mint_key(context, profile="admin_agent", project=_OWN_PROJECT, agent_id="http-scoped-admin")
+    missing = str(uuid4())
+
+    def post(memory_id: str) -> int:
+        response = router.redact_vnext_memory(
+            router.VNextMemoryRedactRequest(user_id=UUID(_USER_ID), memory_id=UUID(memory_id), reason="no"),
+            authorization=f"Bearer {key}",
+        )
+        return response.status_code
+
+    statuses = {state: post(row.memory_id) for state, row in rows.items()}
+    statuses["missing"] = post(missing)
+
+    assert statuses == {"live": 403, "archived": 404, "redacted": 404, "missing": 404}
+    for state, row in rows.items():
+        assert len(_blocked_events(context, row.memory_id)) == 1, state
+    assert _blocked_events(context, missing) == []
+
+
+# --- The permission profile is a refusal dimension too --------------------------------------------------------------
+
+_WRITE_VERBS = (
+    "manage forget",
+    "manage undo",
+    _REPLACEMENT_CALL,
+    "manage redact",
+    "manage expire",
+    "manage unexpire",
+    "manage accept_consolidation",
+)
+# What each profile refuses on its own account, for a row of the key's own project (scope does not refuse it). A
+# read-only agent and a proposal agent refuse every write; a trusted and a project-scoped agent refuse the two verbs only
+# a human or an admin may run; an admin key refuses none.
+_PROFILE_REFUSES: dict[str, tuple[str, ...]] = {
+    "read_only_agent": _WRITE_VERBS,
+    "memory_proposal_agent": _WRITE_VERBS,
+    "trusted_local_agent": ("manage redact", "manage accept_consolidation"),
+    "project_scoped_agent": ("manage redact", "manage accept_consolidation"),
+    "admin_agent": (),
+}
+
+
+def test_a_caller_the_permission_profile_refuses_hears_the_same_answer_in_every_state(
+    context: MCPRuntimeContext,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The third refusal dimension, read inside the key's own project so that scope refuses nothing.
+
+    Every profile, bound to the project the rows are in, calls each write verb on rows in six states. A profile that
+    refuses a verb hears ``not_permitted`` for a row it can see in every state (a pending project update included, the
+    state that used to answer ``precondition_failed`` first), and ``not_found`` for an archived or redacted row. The
+    control is the other half: a profile the policy allows hears the state, so a pending project update is
+    ``precondition_failed`` to a trusted agent that forgets or undoes it and to an admin key that redacts it. Without
+    the control a pre-check that refused everything would pass.
+
+    Mutations, each one alone, in ``vnext_memory_commit.py`` and ``mcp/memories.py``: change the action of the
+    ``refuse_unauthorized_write`` call in ``redact_memory_flow`` from ``memory.redact`` to ``memory.forget`` (the trusted
+    and project-scoped agents hear ``precondition_failed`` for the pending project update); change the action of the
+    call in ``forget`` or in ``undo`` to ``memory.redact`` (the trusted agent hears ``not_permitted`` where the control
+    says ``precondition_failed``); change the action of the call for the successor in ``undo`` to ``memory.redact`` (the
+    replacement cell of the trusted agent fails); change the action of the ``forget`` or ``undo`` call to ``memory.recall``
+    (the read-only agent hears ``precondition_failed`` for the pending project update).
+    """
+
+    anchor = _active(context, _OWN_PROJECT, "internal").memory_id
+    states = ("active", "pending project update", "superseded", "consolidation candidate", "archived", "redacted")
+    targets = {state: _ALL_STATES[state](context, _OWN_PROJECT, "internal") for state in states}
+    keys = {profile: _mint_key(context, profile=profile, project=_OWN_PROJECT) for profile in _PROFILE_REFUSES}
+
+    seen: dict[tuple[str, str, str], str] = {}
+    for profile, raw_key in keys.items():
+        monkeypatch.setenv(_KEY_ENV, raw_key)
+        for call_name in _WRITE_VERBS:
+            call = _CALLS[call_name]
+            refused = call_name in _PROFILE_REFUSES[profile]
+            for state in states:
+                if refused:
+                    seen[(profile, call_name, state)] = _answer(
+                        context, call.tool, call.arguments(targets[state], anchor)
+                    )
+                elif state == "pending project update" and call_name in {
+                    "manage forget",
+                    "manage undo",
+                    _REPLACEMENT_CALL,
+                    "manage redact",
+                }:
+                    # The control. The row stays a pending project update and the call changes nothing.
+                    seen[(profile, call_name, state)] = _answer(
+                        context, call.tool, call.arguments(targets[state], anchor)
+                    )
+    monkeypatch.delenv(_KEY_ENV)
+
+    expected: dict[tuple[str, str, str], str] = {}
+    for profile in _PROFILE_REFUSES:
+        for call_name in _WRITE_VERBS:
+            for state in states:
+                if call_name in _PROFILE_REFUSES[profile]:
+                    # The replacement call is refused on the anchor, which the profile reads first, in every state.
+                    deleted = state in _DELETED_STATES and call_name != _REPLACEMENT_CALL
+                    expected[(profile, call_name, state)] = "not_found" if deleted else "not_permitted"
+                elif state == "pending project update" and call_name in {
+                    "manage forget",
+                    "manage undo",
+                    _REPLACEMENT_CALL,
+                    "manage redact",
+                }:
+                    expected[(profile, call_name, state)] = "precondition_failed"
+    assert set(seen) == set(expected)
+    assert len(seen) > 100, len(seen)
+    wrong = {key: answer for key, answer in seen.items() if answer != expected[key]}
+    assert wrong == {}, sorted(wrong.items())
+
+
+def test_a_reject_stays_allowed_above_the_ceiling_and_a_confirm_does_not(
+    context: MCPRuntimeContext,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The ``allow_above_ceiling`` flag of the confirm pre-check, read by the author of a row above its own ceiling.
+
+    The author of a pending write is a trusted agent whose ceiling stops at ``private``. The row is then raised to
+    ``confidential`` (the ceiling was lowered, or the row relabelled), so only the author gets as far as the ceiling.
+    A confirm stores the text and is refused by the ceiling, so it is ``not_permitted`` for a pending row and for an
+    answered one. A reject stores nothing and stays allowed above the ceiling: the pending row is rejected, and the
+    answered one answers the state (``precondition_failed``), because the policy let the reject through. The answered
+    row is the cell that separates the flag from the later real check, which refuses a confirm of a pending row anyway.
+
+    Mutations, each one alone, on the ``refuse_unauthorized_write`` call in ``confirm`` (``vnext_memory_commit.py``):
+    change ``allow_above_ceiling=normalized_action == "reject"`` to ``True`` (the answered row's confirm answers
+    ``precondition_failed``), to ``False`` (the pending row's reject answers ``not_permitted``), or to
+    ``normalized_action == "confirm"`` (both of those).
+    """
+
+    key = _mint_key(context, profile="trusted_local_agent", project=_OWN_PROJECT, agent_id="ceiling-author")
+    monkeypatch.setenv(_KEY_ENV, key)
+
+    def author_row(*, answered: bool) -> _Target:
+        row = _commit(context, _OWN_PROJECT, "private", 0.7)
+        assert row["status"] == "confirmation_required", row
+        target = _Target(str(row["memory"]["id"]), str(row["confirmation_id"]))  # type: ignore[index]
+        if answered:
+            done = _owner(
+                context, "alice_memory_commit", confirmation_id=target.confirmation_id, confirmation_action="confirm"
+            )
+            assert done["status"] == "committed", done
+        _store_do(
+            context,
+            lambda store: store.conn.execute(  # type: ignore[attr-defined]
+                "UPDATE memories SET sensitivity = ? WHERE id = ?", ("confidential", target.memory_id)
+            ),
+        )
+        return target
+
+    rows = {"pending": author_row(answered=False), "answered": author_row(answered=True)}
+
+    def decide(state: str, verb: str) -> str:
+        return _answer(
+            context,
+            "alice_memory_commit",
+            {"confirmation_id": rows[state].confirmation_id, "confirmation_action": verb},
+        )
+
+    # A confirm first, so the pending row is still pending when the reject reaches it.
+    answers = {(state, "confirm"): decide(state, "confirm") for state in rows}
+    answers[("pending", "manage confirm")] = _answer(
+        context,
+        "alice_memory_manage",
+        {"action": "confirm", "confirmation_id": rows["pending"].confirmation_id},
+    )
+    answers.update({(state, "reject"): decide(state, "reject") for state in rows})
+    monkeypatch.delenv(_KEY_ENV)
+
+    assert answers == {
+        ("pending", "confirm"): "not_permitted",
+        ("answered", "confirm"): "not_permitted",
+        ("pending", "manage confirm"): "not_permitted",
+        ("pending", "reject"): "ok",
+        ("answered", "reject"): "precondition_failed",
+    }
+
+
+# --- The audit row names the action that was asked ------------------------------------------------------------------
+
+
+def test_each_refusal_audit_row_names_the_action_that_was_asked(
+    context: MCPRuntimeContext,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The row of a refused call says which action it refused, at every pre-check, so a wrong action string is seen.
+
+    The answer does not separate every wrong string (``memory.forget`` and ``memory.expire`` are the same rule to the
+    policy), but the ``agent.policy_blocked`` row carries the action the pre-check evaluated. An admin key bound to
+    one project aims each verb at a row of another project. Each of the eight calls leaves one row on its own target
+    and it names the verb: forget, undo (the memory, then the replacement, whose row is the one refused), redact,
+    confirm over the manage tool and over the commit tool (a confirm and a reject), and correct through the service
+    (an MCP caller cannot reach it with a key, the HTTP route does).
+
+    Mutations, each one alone: change the action string of the ``refuse_unauthorized_write`` call in ``forget``,
+    in ``undo`` (the memory or the replacement), in ``correct`` or in ``confirm`` (``vnext_memory_commit.py``), or in
+    ``redact_memory_flow`` (``mcp/memories.py``), to any other write action such as ``memory.expire``; the row of that
+    call names the wrong action and one assertion fails.
+    """
+
+    anchor_key = _mint_key(context, profile="admin_agent", project=_OWN_PROJECT, agent_id="audit-anchor")
+    monkeypatch.setenv(_KEY_ENV, anchor_key)
+    anchor = _active(context, _OWN_PROJECT, "internal").memory_id
+    monkeypatch.delenv(_KEY_ENV)
+    rows = {
+        "forget": _active(context, _OTHER_PROJECT, "internal"),
+        "undo": _active(context, _OTHER_PROJECT, "internal"),
+        "replacement": _active(context, _OTHER_PROJECT, "internal"),
+        "redact": _active(context, _OTHER_PROJECT, "internal"),
+        "manage confirm": _pending(context, _OTHER_PROJECT, "internal"),
+        "commit confirm": _pending(context, _OTHER_PROJECT, "internal"),
+        "commit reject": _pending(context, _OTHER_PROJECT, "internal"),
+        "correct": _active(context, _OTHER_PROJECT, "internal"),
+    }
+    calls: dict[str, tuple[str, dict[str, object]]] = {
+        "forget": ("alice_memory_manage", {"action": "forget", "memory_id": rows["forget"].memory_id}),
+        "undo": ("alice_memory_manage", {"action": "undo", "memory_id": rows["undo"].memory_id}),
+        "replacement": (
+            "alice_memory_manage",
+            {"action": "undo", "memory_id": anchor, "superseded_by": rows["replacement"].memory_id},
+        ),
+        "redact": ("alice_memory_manage", {"action": "redact", "memory_id": rows["redact"].memory_id, "reason": "no"}),
+        "manage confirm": (
+            "alice_memory_manage",
+            {"action": "confirm", "confirmation_id": rows["manage confirm"].confirmation_id},
+        ),
+        "commit confirm": (
+            "alice_memory_commit",
+            {"confirmation_id": rows["commit confirm"].confirmation_id, "confirmation_action": "confirm"},
+        ),
+        "commit reject": (
+            "alice_memory_commit",
+            {"confirmation_id": rows["commit reject"].confirmation_id, "confirmation_action": "reject"},
+        ),
+    }
+    outsider = _mint_key(context, profile="admin_agent", project=_OWN_PROJECT, agent_id="audit-outsider")
+    monkeypatch.setenv(_KEY_ENV, outsider)
+    answers = {name: _answer(context, tool, arguments) for name, (tool, arguments) in calls.items()}
+    monkeypatch.delenv(_KEY_ENV)
+    assert set(answers.values()) == {"not_permitted"}, answers
+
+    def refuse_correct(store: SQLiteVNextStore) -> str:
+        identity = AgentIdentity(
+            agent_id="audit-outsider",
+            agent_type="coding_agent",
+            permission_profile="admin_agent",
+            project_scope=(_OWN_PROJECT,),
+            auth="agent_api_key",
+            project_scope_locked=True,
+        )
+        try:
+            VNextMemoryCommitService(store).correct(
+                identity=identity, memory_id=rows["correct"].memory_id, canonical_text="A corrected fact."
+            )
+        except AgentPolicyBlockedError:
+            return "refused"
+        return "ok"
+
+    assert _store_do(context, refuse_correct) == "refused"
+
+    asked = {
+        "forget": "memory.forget",
+        "undo": "memory.undo",
+        "replacement": "memory.undo",
+        "redact": "memory.redact",
+        "manage confirm": "memory.confirm",
+        "commit confirm": "memory.confirm",
+        "commit reject": "memory.confirm",
+        "correct": "memory.correct",
+    }
+    named = {}
+    for name, row in rows.items():
+        events = _blocked_events(context, row.memory_id)
+        assert len(events) == 1, (name, events)
+        named[name] = _blocked_decision(events[0])["action"]
+    assert named == asked
+
+
+# --- The replay branch is a guard of its own ------------------------------------------------------------------------
+
+
+def test_a_replay_of_a_redaction_is_refused_by_its_own_policy_check_if_the_pre_check_is_gone(
+    context: MCPRuntimeContext,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The exact-replay branch of ``redact_memory_flow`` evaluates the policy itself, and this proves it can stand alone.
+
+    The pre-check refuses every caller this branch refuses, so with both in place no test can tell the branch is
+    there. It is kept on purpose, as a second guard: a replay is the one path that writes nothing and answers with the
+    row's redaction receipt, so its authorization should not depend on a call made earlier in the function. Here the
+    pre-check is replaced by a function that does nothing, and a key bound to another project that replays the
+    redaction of an already redacted row is still refused, with no write at all.
+
+    Mutation, in ``redact_memory_flow`` (``mcp/memories.py``): delete the ``if decision.decision == "blocked"`` raise of
+    the replay branch (the replay succeeds for the outsider).
+    """
+
+    redacted = _DELETED_STATES["redacted"](context, _OTHER_PROJECT, "internal")
+    monkeypatch.setattr(VNextMemoryCommitService, "refuse_unauthorized_write", lambda self, **kwargs: None)
+    outsider = AgentIdentity(
+        agent_id="replay-outsider",
+        agent_type="coding_agent",
+        permission_profile="admin_agent",
+        project_scope=(_OWN_PROJECT,),
+        auth="agent_api_key",
+        project_scope_locked=True,
+    )
+
+    def replay(store: SQLiteVNextStore) -> tuple[str, int, int]:
+        before = len(store.list_events(target_type="memory", target_id=redacted.memory_id))
+        try:
+            redact_memory_flow(store, memory_id=redacted.memory_id, reason="replay", identity=outsider)
+        except AgentPolicyBlockedError:
+            outcome = "refused"
+        else:
+            outcome = "replayed"
+        after = len(store.list_events(target_type="memory", target_id=redacted.memory_id))
+        return outcome, before, after
+
+    outcome, before, after = _store_do(context, replay)  # type: ignore[misc]
+    assert outcome == "refused"
     assert after == before
