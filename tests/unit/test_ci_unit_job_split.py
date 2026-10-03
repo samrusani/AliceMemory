@@ -527,6 +527,20 @@ def test_the_exact_sha_check_reads_only_the_summary_and_the_extra_check_runs_do_
     assert not set(extra) & set(release_checks.BRANCH_PROTECTION_REQUIRED_CHECKS)
 
 
+def test_the_release_guide_names_the_summary_job_and_the_rule_for_the_shards() -> None:
+    """RELEASING.md tells the next maintainer which job carries the required name and what not to do.
+
+    Mutation: delete the paragraph, rename the job in it, or drop the sentence that says to keep
+    ``if: always()`` or the one that says not to require the shard jobs one by one.
+    """
+
+    text = " ".join((REPO_ROOT / "RELEASING.md").read_text(encoding="utf-8").split())
+    assert f"The required check named `{REQUIRED_NAME}` is the summary job of the unit tests in `tests.yml`." in text
+    assert "Keep its name and its `if: always()`" in text
+    assert "do not require the shard jobs one by one" in text
+    assert "a skipped required check counts as passing" in text
+
+
 @pytest.mark.parametrize("job_id", UNIT_JOBS)
 def test_every_unit_job_has_a_timeout_under_the_limit_of_the_old_job(job_id: str) -> None:
     """A hung shard stops at the limit the old job had, never later.
