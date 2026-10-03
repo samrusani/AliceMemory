@@ -1392,7 +1392,10 @@ def test_a_link_that_passes_for_a_writer_still_shows_its_id_to_keys_with_a_lower
 
     Delete this test when a read-side filter lands, and change the known-limitations line with it.
 
-    Mutation: make ``_admits`` refuse an ``admin_agent`` identity (the admin commit then answers ``not_found``).
+    Mutations: make ``_admits`` refuse an ``admin_agent`` identity (the admin commit then answers ``not_found``), or
+    rename the ``source_id`` key of the rows ``_supporting_evidence`` builds in ``vnext_retrieval.py`` (the id then
+    still appears somewhere in the pack, so a check that only looks for it in the whole pack passes, and the
+    ``supporting_evidence`` check fails).
     """
 
     confidential = vault.sources["confidential"]
@@ -1411,13 +1414,12 @@ def test_a_link_that_passes_for_a_writer_still_shows_its_id_to_keys_with_a_lower
         links = reviewed["payload"]["review"]["provenance_links"]  # type: ignore[index]
         assert [link["source_id"] for link in links] == [confidential], reader
         assert vault.wire("alice_explain", {"memory_id": memory_id}, key=key)["is_error"] is True, reader
-        pack = json.dumps(
-            vault.wire("alice_context_pack", {"query": "saltwhite-glaze-12 kiln firing", "max_tokens": 2000}, key=key)[
-                "payload"
-            ]
-        )
-        assert confidential in pack, reader
-        assert "cedar-ledger-55" not in pack, reader
+        pack = vault.wire(
+            "alice_context_pack", {"query": "saltwhite-glaze-12 kiln firing", "max_tokens": 2000}, key=key
+        )["payload"]
+        # The id is in the pack's ``supporting_evidence`` rows, the section the release notes name.
+        assert [row["source_id"] for row in pack["supporting_evidence"]] == [confidential], reader  # type: ignore[index]
+        assert "cedar-ledger-55" not in json.dumps(pack), reader
         assert confidential in json.dumps(vault.wire("alice_open_loops", {"status": "all"}, key=key)["payload"]), reader
 
 
@@ -1578,23 +1580,92 @@ def _function_sites(call_name: str) -> set[tuple[str, str]]:
     return sites
 
 
+# Where Python that ships or runs outside the tests lives. The unit tests are left out on purpose: no test builds the
+# type, and the test of the type's rules may name it freely.
+_NON_TEST_PYTHON_ROOTS = ("apps/api", "docs", "eval", "scripts", "workers")
+
+
+def _non_test_python_sources() -> list[Path]:
+    paths = set(_ROOT.glob("*.py"))
+    for root_name in _NON_TEST_PYTHON_ROOTS:
+        paths.update((_ROOT / root_name).rglob("*.py"))
+    return sorted(paths)
+
+
+def _attachable_source_constructions() -> set[tuple[str, str]]:
+    """Every place in the non-test sources that builds an ``AttachableSources`` or makes a type that can, as
+    (repository path, enclosing function or ``<module>``).
+
+    A construction is a call that names the type: plainly, through a module (``fence.AttachableSources(...)``),
+    through an ``import ... as`` alias or through a name assigned from it, at module level or inside a function. A
+    subclass is a site too, and so is ``replace(x, ids=...)``, which copies an instance with ids that were never
+    checked. What it cannot see is a name built at run time (``getattr``, ``type(x)(...)``).
+    """
+
+    sites: set[tuple[str, str]] = set()
+    for path in _non_test_python_sources():
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        names = {"AttachableSources"}
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom):
+                names.update(alias.asname or alias.name for alias in node.names if alias.name == "AttachableSources")
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Assign) and _names_the_type(node.value, names):
+                names.update(target.id for target in node.targets if isinstance(target, ast.Name))
+        parents: dict[ast.AST, ast.AST] = {}
+        for node in ast.walk(tree):
+            for child in ast.iter_child_nodes(node):
+                parents[child] = node
+        for node in ast.walk(tree):
+            site = None
+            if isinstance(node, ast.Call):
+                copies_with_ids = any(keyword.arg == "ids" for keyword in node.keywords) and (
+                    (isinstance(node.func, ast.Name) and node.func.id == "replace")
+                    or (isinstance(node.func, ast.Attribute) and node.func.attr == "replace")
+                )
+                if _names_the_type(node.func, names) or copies_with_ids:
+                    scope: ast.AST = node
+                    while scope in parents and not isinstance(scope, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                        scope = parents[scope]
+                    site = scope.name if isinstance(scope, (ast.FunctionDef, ast.AsyncFunctionDef)) else "<module>"
+            elif isinstance(node, ast.ClassDef) and any(_names_the_type(base, names) for base in node.bases):
+                site = f"class {node.name}"
+            if site is not None:
+                sites.add((path.relative_to(_ROOT).as_posix(), site))
+    return sites
+
+
+def _names_the_type(node: ast.AST, names: set[str]) -> bool:
+    return (isinstance(node, ast.Name) and node.id in names) or (
+        isinstance(node, ast.Attribute) and node.attr in names
+    )
+
+
 def test_attachable_sources_are_built_only_by_the_resolver() -> None:
     """``AttachableSources`` is the type that says "these ids were checked", and it is a plain public dataclass, so
     nothing but convention stops a new caller from building one out of unchecked ids. This finds every construction
-    under ``alicebot_api``: exactly one, inside ``resolve_attachable_sources``.
+    in every Python file outside the tests (the package, the scripts, the workers, the eval harness, the examples):
+    exactly one, inside ``resolve_attachable_sources``.
 
-    Mutation: build ``AttachableSources(ids=...)`` from unparsed ids in ``commit()`` or anywhere else outside the
-    resolver (the set then has a second site).
+    Mutations (each made in a scratch edit and the file restored by copying the saved copy back): build
+    ``AttachableSources(ids=...)`` in a function of another file, at module level of another file, through
+    ``import alicebot_api.vnext_source_fence as m`` and ``m.AttachableSources(...)``, through
+    ``from ... import AttachableSources as X``, through ``X = AttachableSources`` and ``X(...)``, in a file under
+    ``scripts/``, as a second construction inside ``vnext_source_fence.py``, as ``class X(AttachableSources)``, or as
+    ``replace(attachable, ids=...)``. The control is a use of the name that is no construction
+    (``isinstance(x, AttachableSources)``), which must pass.
     """
 
-    constructions: set[tuple[str, str]] = set()
-    for path in sorted(_SRC.rglob("*.py")):
-        tree = ast.parse(path.read_text(encoding="utf-8"))
-        for function in (n for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))):
-            for node in ast.walk(function):
-                if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "AttachableSources":
-                    constructions.add((path.relative_to(_SRC).as_posix(), function.name))
-    assert constructions == {("vnext_source_fence.py", "resolve_attachable_sources")}, constructions
+    scanned = {path.relative_to(_ROOT).as_posix() for path in _non_test_python_sources()}
+    assert "apps/api/src/alicebot_api/vnext_source_fence.py" in scanned
+    assert "scripts/release_check.py" in scanned
+    assert any(path.startswith("workers/") for path in scanned)
+    assert any(path.startswith("eval/") for path in scanned)
+    assert not any(path.startswith("tests/") for path in scanned)
+
+    assert _attachable_source_constructions() == {
+        ("apps/api/src/alicebot_api/vnext_source_fence.py", "resolve_attachable_sources")
+    }
 
 
 # Every place that creates an open loop, and where the loop's source and memory ids come from. A new site fails the
