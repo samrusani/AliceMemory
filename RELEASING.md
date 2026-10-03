@@ -70,6 +70,15 @@ readback:
      --repo OWNER/REPOSITORY --sha RELEASE_SHA --check-rulesets
    ```
 
+   The required check named `Unit tests + live eval battery (SQLite)` is the
+   summary job of the unit tests in `tests.yml`. The unit tests run as three
+   shard jobs, the model-free eval battery runs in its own job, and a coverage
+   job combines the shard data and enforces the coverage threshold. The summary
+   needs all of them, runs whatever they did, and fails unless each one
+   succeeded. Keep its name and its `if: always()`, and do not require the shard
+   jobs one by one: a skipped required check counts as passing, and the shard
+   check runs are not in the ruleset or in the exact-SHA check by design.
+
    If that readback reports drift in `MainProtect`, an authorized repository
    administrator can prepare and inspect an update that preserves every
    current condition, bypass actor, and non-status rule while replacing only

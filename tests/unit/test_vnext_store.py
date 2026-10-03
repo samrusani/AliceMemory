@@ -1106,6 +1106,8 @@ def test_resume_store_queries_apply_admission_predicates_before_limit() -> None:
         occurred_at_start=since,
         occurred_at_end=until,
         limit=2,
+        domains=None,
+        sensitivity_allowed=None,
     )
     store.list_open_loop_events(
         statuses=("open", "waiting"),
@@ -1114,6 +1116,8 @@ def test_resume_store_queries_apply_admission_predicates_before_limit() -> None:
         occurred_at_start=since,
         occurred_at_end=until,
         limit=2,
+        domains=None,
+        sensitivity_allowed=None,
     )
     # Established context-tree consumers retain the original method contract.
     store.list_memory_events(

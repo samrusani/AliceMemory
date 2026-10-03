@@ -408,7 +408,7 @@ def test_release_gates_run_normal_cross_module_mypy() -> None:
         "scripts/normalize_sdist.py scripts/render_release_body.py "
         "scripts/decode_github_release_body.py "
         "scripts/prepare_mainprotect_update.py "
-        "scripts/check_python_coverage.py "
+        "scripts/check_python_coverage.py scripts/combine_python_coverage.py "
         "scripts/check_control_doc_truth.py scripts/check_github_release_checks.py "
         "scripts/check_release_controls_attestation.py"
     )
@@ -479,18 +479,21 @@ def test_ci_action_dependency_carrier_uses_exact_atomic_pins() -> None:
         workflows,
     )
 
-    # 26 since real-host-ci.yml checks out once for the pinned job, once
+    # 28 since real-host-ci.yml checks out once for the pinned job, once
     # for the weekly canary, once for the dispatch-only hook trial, once
     # for the dispatch-only plugin hook trial, once for the
     # dispatch-only marketplace check, and once for the dispatch-only
     # host evidence job, and
-    # commit-author-check.yml checks out once.
+    # commit-author-check.yml checks out once, and tests.yml checks out
+    # once each for the unit shards (one job, three matrix legs), the
+    # eval battery job and the combined coverage job, where the single
+    # unit job checked out once.
     # Each uses the checkout SHA already reviewed on the other workflows.
     # The count is the point: it forces a new action usage to be reviewed
     # rather than absorbed.
     assert checkout_refs == [
         "3d3c42e5aac5ba805825da76410c181273ba90b1"
-    ] * 26
+    ] * 28
     assert codeql_refs == [
         "ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd"
     ] * 3

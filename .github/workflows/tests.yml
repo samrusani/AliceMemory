@@ -13,10 +13,30 @@ permissions:
   contents: read
 
 jobs:
-  python-unit:
-    name: Unit tests + live eval battery (SQLite)
+  # The unit tests run as parallel shards, the model-free eval battery runs once
+  # in its own job, the shard coverage data is combined and gated once, and the
+  # job named below stays the required status check of the main ruleset by
+  # failing unless every one of those jobs succeeded.
+  python-unit-shards:
+    name: Unit tests, shard ${{ matrix.shard }} of 3 (SQLite)
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    strategy:
+      # Every shard reports, so one failure does not hide another.
+      fail-fast: false
+      matrix:
+        # Each selection is a set of file patterns that bash expands. Together
+        # they cover every file of tests/unit exactly once, and a unit test
+        # (tests/unit/test_ci_unit_job_split.py) fails if a file matches none.
+        include:
+          - shard: 1
+            selection: "tests/unit/test_[0-9a-h]*.py"
+          - shard: 2
+            selection: "tests/unit/test_[i-q]*.py tests/unit/test_r[!e]*.py tests/unit/test_re[!a]*.py"
+          - shard: 3
+            selection: "tests/unit/test_rea*.py tests/unit/test_[s-z]*.py"
+    env:
+      COVERAGE_FILE: ${{ github.workspace }}/coverage-data/shard-${{ matrix.shard }}.coverage
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -29,10 +49,31 @@ jobs:
           cache: pip
       - name: Install
         run: python -m pip install -e '.[dev]'
-      - name: Unit tests with coverage baseline
-        run: |
-          python -m pytest tests/unit -q --cov=alicebot_api --cov-report=term --cov-report=xml --cov-report=json:/tmp/alicebot-python-coverage.json --cov-fail-under=50
-          python scripts/check_python_coverage.py --coverage-json /tmp/alicebot-python-coverage.json --path apps/api/src/alicebot_api/main.py --path apps/api/src/alicebot_api/routers/_api_shared.py --path apps/api/src/alicebot_api/routers/_vnext_automation.py --path apps/api/src/alicebot_api/routers/_vnext_embeddings.py --path apps/api/src/alicebot_api/routers/_vnext_shared.py --path apps/api/src/alicebot_api/routers/continuity.py --path apps/api/src/alicebot_api/routers/legacy_gated.py --path apps/api/src/alicebot_api/routers/memories_legacy.py --path apps/api/src/alicebot_api/routers/providers.py --path apps/api/src/alicebot_api/routers/vnext_memories.py --path apps/api/src/alicebot_api/routers/vnext_projects.py --path apps/api/src/alicebot_api/routers/vnext_retrieval.py --path apps/api/src/alicebot_api/routers/vnext_review.py --path apps/api/src/alicebot_api/routers/workspaces.py --min-percent 45
+      - name: Unit tests of this shard with coverage data
+        # No threshold here: one shard sees only part of the code. The combined
+        # data is gated in the coverage job.
+        run: python -m pytest ${{ matrix.selection }} -q --cov=alicebot_api --cov-report=
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: python-unit-coverage-shard-${{ matrix.shard }}
+          path: coverage-data/shard-${{ matrix.shard }}.coverage
+          if-no-files-found: error
+          retention-days: 1
+
+  python-eval-battery:
+    name: Live eval battery and LongMemEval checks (SQLite)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install
+        run: python -m pip install -e '.[dev]'
       - name: All model-free LongMemEval tests and dataset-manifest consistency
         run: python -m pytest eval/longmemeval -q
       - name: Replay committed LongMemEval evidence
@@ -96,6 +137,64 @@ jobs:
           assert retrieval["metrics"]["paraphrase_targets_enforced"] is False
           EOF
 
+  python-unit-coverage:
+    name: Combined unit test coverage (SQLite)
+    needs: python-unit-shards
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install
+        run: python -m pip install -e '.[dev]'
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: python-unit-coverage-shard-*
+          merge-multiple: true
+          path: coverage-data
+      - name: Combine the shard coverage data (every shard must have written some)
+        run: python scripts/combine_python_coverage.py --data-dir coverage-data --shards 3
+      - name: Combined coverage baseline
+        # The same threshold, configuration and per-file floor that the single
+        # unit job enforced, now on the combined data of all shards.
+        run: |
+          python -m coverage report --fail-under=50
+          python -m coverage xml
+          python -m coverage json -o /tmp/alicebot-python-coverage.json
+          python scripts/check_python_coverage.py --coverage-json /tmp/alicebot-python-coverage.json --path apps/api/src/alicebot_api/main.py --path apps/api/src/alicebot_api/routers/_api_shared.py --path apps/api/src/alicebot_api/routers/_vnext_automation.py --path apps/api/src/alicebot_api/routers/_vnext_embeddings.py --path apps/api/src/alicebot_api/routers/_vnext_shared.py --path apps/api/src/alicebot_api/routers/continuity.py --path apps/api/src/alicebot_api/routers/legacy_gated.py --path apps/api/src/alicebot_api/routers/memories_legacy.py --path apps/api/src/alicebot_api/routers/providers.py --path apps/api/src/alicebot_api/routers/vnext_memories.py --path apps/api/src/alicebot_api/routers/vnext_projects.py --path apps/api/src/alicebot_api/routers/vnext_retrieval.py --path apps/api/src/alicebot_api/routers/vnext_review.py --path apps/api/src/alicebot_api/routers/workspaces.py --min-percent 45
+
+  python-unit:
+    # This exact name is a required status check of the main ruleset and of the
+    # exact-SHA release check, so it must not change. The job is the verdict of
+    # the jobs above: it runs whatever they did (a skipped required check would
+    # count as passing) and fails unless each of them succeeded.
+    name: Unit tests + live eval battery (SQLite)
+    if: always()
+    needs: [python-unit-shards, python-eval-battery, python-unit-coverage]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      SHARDS_RESULT: ${{ needs.python-unit-shards.result }}
+      EVAL_RESULT: ${{ needs.python-eval-battery.result }}
+      COVERAGE_RESULT: ${{ needs.python-unit-coverage.result }}
+    steps:
+      - name: Require every unit job to have succeeded
+        run: |
+          status=0
+          for entry in "python-unit-shards=$SHARDS_RESULT" "python-eval-battery=$EVAL_RESULT" "python-unit-coverage=$COVERAGE_RESULT"; do
+            job="${entry%%=*}"
+            result="${entry#*=}"
+            echo "$job: ${result:-no result}"
+            if [ "$result" != "success" ]; then
+              echo "::error::$job finished as '${result:-no result}', not 'success'"
+              status=1
+            fi
+          done
+          exit "$status"
+
   python-quality:
     name: Python correctness lint, types, and release truth
     runs-on: ubuntu-latest
@@ -122,7 +221,7 @@ jobs:
           scripts/normalize_sdist.py scripts/render_release_body.py
           scripts/decode_github_release_body.py
           scripts/prepare_mainprotect_update.py
-          scripts/check_python_coverage.py
+          scripts/check_python_coverage.py scripts/combine_python_coverage.py
           scripts/check_control_doc_truth.py scripts/check_github_release_checks.py
           scripts/check_release_controls_attestation.py
       - name: Compile Python sources

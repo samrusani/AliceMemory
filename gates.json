@@ -106,19 +106,29 @@
     }
   },
   "ci_time": {
-    "job": "python-unit (Unit tests + live eval battery, SQLite)",
-    "measured_on": "2026-10-02",
-    "measured_runs": 30,
-    "measured_scope": "every successful push run of tests.yml on main created on 2026-10-01 and 2026-10-02 (UTC), job start to job finish",
-    "measured_seconds": {"min": 444, "median": 693.5, "max": 904},
+    "job": "python-unit-shards (Unit tests, shard N of 3, SQLite)",
+    "required_check": "Unit tests + live eval battery (SQLite)",
+    "shard_count": 3,
+    "measured_on": "2026-10-03",
+    "measured_runs": 2,
+    "measured_scope": "every successful attempt of tests.yml on the pull request that split the job up to its first complete head (the run and one re-run of it), the longest of the three shard jobs in each attempt, job start to job finish",
+    "measured_seconds": {"min": 437, "median": 458.5, "max": 480},
     "timeout_minutes": 20,
     "split_threshold_minutes": 17,
     "new_test_budget_seconds": 90,
+    "before_split": {
+      "job": "python-unit (Unit tests + live eval battery, SQLite)",
+      "measured_on": "2026-10-03",
+      "measured_runs": 70,
+      "measured_scope": "every run of tests.yml, push and pull request, created from 2026-10-02 02:47 UTC to 2026-10-03 04:37 UTC in which the job succeeded, job start to job finish",
+      "measured_seconds": {"min": 482, "median": 836, "max": 1070},
+      "note": "The single job crossed the split line of 17 minutes (1020 seconds) in its longest run of 1070 seconds, which is why the unit tests were split into shards."
+    },
     "p0a_tests": {
       "seconds_measured_locally": 24,
-      "note": "The measured duration of the tests of the harness pull request, run alone on a laptop. It holds no count of tests or files, because a count goes stale with the next test. The budget is new_test_budget_seconds, and the CI cost is read from the python-unit job of that pull request against the measured range above."
+      "note": "The measured duration of the tests of the harness pull request, run alone on a laptop. It holds no count of tests or files, because a count goes stale with the next test. The budget is new_test_budget_seconds, and the CI cost is read from the shard job that runs the new test files against the measured range above."
     },
-    "rule": "The tests of the search-quality release add at most new_test_budget_seconds to this job. The on-mode job is a separate job and runs in parallel. If the job passes split_threshold_minutes, the first pull request to cross the line splits the unit tests by directory before another test lands."
+    "rule": "The tests of the search-quality release add at most new_test_budget_seconds to the unit shards. The on-mode job is a separate job and runs in parallel. If any shard passes split_threshold_minutes, the first pull request to cross the line splits the unit tests again (another shard, or file patterns moved between shards) before another test lands. The required check is the summary job that keeps the name in required_check, and it fails unless every shard, the eval job and the coverage job succeeded."
   },
   "hashes": {
     "_comment": "The tower fills each field before the run that needs it. Filled 2026-10-03, before the first held-out run: scorer_sha256 is the sha256 of a frozen copy of scripts/alice_bench.py at 72c70e14, kept by the tower outside the repository so no pull request can change how a verdict is computed; question_sets are the sha256 of the two held-out question files. The prompt hashes are filled before the first Tier 2 run. Builders never see the questions or the prompt texts, only these hashes.",
