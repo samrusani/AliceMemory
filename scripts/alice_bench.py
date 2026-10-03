@@ -455,11 +455,36 @@ def checkout_source_sha256(repo: Path) -> str:
     return digest.hexdigest()
 
 
-# What says that two processes ran the same checkout: whether it has a git history and, if so,
-# its commit and whether it differs from that commit; a hash of the source it imports; the
-# real path ``alicebot_api`` was imported from; and the Python and SQLite it ran on, because the
-# full-text ranking of a recall comes from SQLite. The hash is the one that cannot be fooled by a
-# second edit on a dirty tree or by the absence of git.
+def harness_sha256() -> str:
+    """The hash of this script as it is on disk now. It chooses what is imported and how a result is scored."""
+
+    return sha256_file(Path(__file__))
+
+
+# The hash of this script as Python loaded it, which is the code that every command of this process runs. A
+# command is one process, so this is the hash at the start of the command, read before any of its work and
+# before ``main`` parses a flag. A harness edited while a command runs, or after the script was loaded and
+# before a build began, differs from it on disk.
+LOADED_HARNESS_SHA256 = harness_sha256()
+
+
+def require_harness_unchanged(current: str | None = None) -> None:
+    """Refuse when the harness on disk is not the one this process loaded. ``current`` is a hash already read."""
+
+    if (harness_sha256() if current is None else current) != LOADED_HARNESS_SHA256:
+        raise BenchError(
+            "the harness script changed after this process loaded it (harness_sha256 differs), "
+            "so what the command did is not the work of one version of it; run it again"
+        )
+
+
+# What says that two processes ran the same code: whether the checkout has a git history and, if so,
+# its commit and whether it differs from that commit; a hash of the source it imports; the real path
+# ``alicebot_api`` was imported from; the Python and SQLite it ran on, because the full-text ranking of
+# a recall comes from SQLite; and the hash of this harness, which decides what a build imports and what a
+# batch asks. The source hash is the one that cannot be fooled by a second edit on a dirty tree or by the
+# absence of git. The harness hash is part of the record of a build so that a number can be held to the
+# harness that made it, which a file cannot be if only the outputs name it.
 CHECKOUT_IDENTITY_KEYS = (
     "git",
     "git_sha",
@@ -468,11 +493,12 @@ CHECKOUT_IDENTITY_KEYS = (
     "alicebot_api_file",
     "python_version",
     "sqlite_version",
+    "harness_sha256",
 )
 
 
 def checkout_identity(repo: Path) -> dict[str, object]:
-    """The identity of the checkout this process runs, in the keys of ``CHECKOUT_IDENTITY_KEYS``."""
+    """The identity of the checkout and the harness this process runs, in the keys of ``CHECKOUT_IDENTITY_KEYS``."""
 
     import alicebot_api
 
@@ -485,6 +511,7 @@ def checkout_identity(repo: Path) -> dict[str, object]:
         "alicebot_api_file": str(Path(os.path.realpath(alicebot_api.__file__))),
         "python_version": platform.python_version(),
         "sqlite_version": sqlite3.sqlite_version,
+        "harness_sha256": harness_sha256(),
     }
 
 
@@ -502,7 +529,8 @@ def require_matching_build(manifest: Mapping[str, Any] | None, repo: Path) -> Ma
     and a command that reads it has to be running the same one: the same source content,
     the same commit and dirty state when there is a git history, the same ``alicebot_api``
     on disk, and the same Python and SQLite. It also records the hash of the harness that
-    built it, and a different harness (it chooses what is imported and how) is refused too.
+    built it (in the build record, and as ``harness_sha256`` of the manifest), and a different
+    harness, which chooses what is imported and how, is refused too.
     """
 
     if manifest is None:
@@ -513,17 +541,17 @@ def require_matching_build(manifest: Mapping[str, Any] | None, repo: Path) -> Ma
             "the manifest does not say which checkout built this vault (it may come from an older harness); "
             "build it again with --rebuild"
         )
+    if manifest.get("harness_sha256") != harness_sha256():
+        raise CheckoutError(
+            "this vault was built by a different version of the harness (harness_sha256 differs); "
+            "build it again with --rebuild"
+        )
     differing = differing_identity_keys(recorded, checkout_identity(repo))
     if differing:
         raise CheckoutError(
             "this vault was built by a different checkout ("
             + ", ".join(differing)
             + " differ); a vault is rebuilt for every checkout, so build it again with --rebuild"
-        )
-    if manifest.get("harness_sha256") != sha256_file(Path(__file__)):
-        raise CheckoutError(
-            "this vault was built by a different version of the harness (harness_sha256 differs); "
-            "build it again with --rebuild"
         )
     return manifest
 
@@ -755,21 +783,52 @@ def vault_chunks_sha256(db_path: Path) -> str:
     return sha256_bytes("\n".join(lines).encode("utf-8"))
 
 
+def vault_sources_sha256(db_path: Path) -> str:
+    """One hash over every column of every live source: its labels, its type, its dates, its metadata, all of it.
+
+    A recall filters on a source's ``domain`` and ``sensitivity`` (a source above the ceiling, or in a held back
+    domain, is never returned) and shows its title, type, capture date and metadata, so a vault built with other
+    labels, or a column edited in place, returns other text from the same chunks. Which columns matter is not
+    a short list (``metadata_json`` is free form), so no column is picked: each live row is written out whole,
+    its columns by name, and the lines are sorted, so the value depends on what is stored and not on the order
+    rows came back in. It reads the vault without writing to it. A source the vault has deleted is not live and is
+    not read, as in every other record here; marking one deleted moves the count of sources.
+    """
+
+    conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    try:
+        selected = conn.execute("SELECT * FROM sources WHERE deleted_at IS NULL")
+        names = [column[0] for column in selected.description]
+        rows = selected.fetchall()
+    finally:
+        conn.close()
+    lines = sorted(json.dumps(dict(zip(names, row, strict=True)), sort_keys=True, default=repr) for row in rows)
+    return sha256_bytes("\n".join(lines).encode("utf-8"))
+
+
 # What a vault is held to at read time. Each is a record of the manifest and a value that
 # ``vault_identity`` reads from the vault alone.
-VAULT_IDENTITY_KEYS = ("sources", "chunks", "vault_text_sha256", "vault_chunks_sha256", "vault_row_counts")
+VAULT_IDENTITY_KEYS = (
+    "sources",
+    "chunks",
+    "vault_text_sha256",
+    "vault_sources_sha256",
+    "vault_chunks_sha256",
+    "vault_row_counts",
+)
 
 
 def vault_identity(db_path: Path) -> dict[str, Any]:
     """What the vault holds, read from the vault alone and without writing to it.
 
     The count of live sources, the count of chunks, a hash over the live sources in the order they
-    were captured (each as its corpus path, its title and a hash of its stored text), a hash over
-    every stored chunk (its source, its index and its text), and the row count of every table. A vault
-    built from another corpus, in another import order, or by a chunker that cut it differently gives
-    another value, and so does a vault that has had a chunk edited in place or a memory, a graph row
-    or an event added, which the manifest of the build can then be held to. A recall writes no row, so
-    none of these moves while a vault is read.
+    were captured (each as its corpus path, its title and a hash of its stored text), a hash over every
+    column of every live source (its labels included), a hash over every stored chunk (its source, its
+    index and its text), and the row count of every table. A vault built from another corpus, in another
+    import order, with other labels, or by a chunker that cut it differently gives another value, and so
+    does a vault that has had a source column or a chunk edited in place or a memory, a graph row or an
+    event added, which the manifest of the build can then be held to. A recall writes no row, so none of
+    these moves while a vault is read.
     """
 
     sources = read_vault_sources(db_path)
@@ -784,6 +843,7 @@ def vault_identity(db_path: Path) -> dict[str, Any]:
         "sources": len(sources),
         "chunks": counts.get("source_chunks", 0),
         "vault_text_sha256": sha256_bytes("\n".join(lines).encode("utf-8")),
+        "vault_sources_sha256": vault_sources_sha256(db_path),
         "vault_chunks_sha256": vault_chunks_sha256(db_path),
         "vault_row_counts": counts,
     }
@@ -795,7 +855,8 @@ def require_matching_vault(manifest: Mapping[str, Any], run_dir: Path, data_dir:
     The manifest records the folder the vault was built into, what that vault holds and what the
     snapshot holds. A command that reads either has to find exactly that: the same folder (a rebuild
     into another ``--data-dir`` leaves the old folder on disk), the same sources in the same capture
-    order, the same chunks with the same text, the same number of rows in every table (a vault copied
+    order, the same columns in every source (the labels that decide what recall may return among them),
+    the same chunks with the same text, the same number of rows in every table (a vault copied
     over another one under the same name, or one that has been edited or added to), and the same
     snapshot files, all of them, whatever their names. Each is a refusal and none is repaired,
     because the two arms must read the text the manifest names.
@@ -892,8 +953,16 @@ def build_vault(
     vault and the snapshot hold, and every later command refuses to read it from another
     checkout or to read a folder or a snapshot that does not match
     (``require_matching_build``, ``require_matching_vault``).
+
+    The identity of the checkout and the harness is read twice, here before anything is imported and again
+    after the last file is, and a build whose two readings differ is refused and records nothing. Read once,
+    after the loop, it would name the tree as it ended up, and a source edited while the build ran would be
+    recorded for a vault that the code before the edit had cut. The first reading also has to give the
+    harness this process loaded, so a script edited before the build began is not recorded under its new hash.
     """
 
+    identity = checkout_identity(repo)
+    require_harness_unchanged(str(identity["harness_sha256"]))
     data_dir = check_vault_location(run_dir, data_dir)
     require_visible_labels(domain=domain, sensitivity=sensitivity)
     folder, files = read_corpus(corpus_dir)
@@ -921,10 +990,17 @@ def build_vault(
             withheld.append({"file": item.relative_path, "items": labels})
     snapshot_files = export_snapshot(db_path, snapshot_dir, corpus_root=folder if folder.is_dir() else folder.parent)
     held = vault_identity(db_path)
+    moved = differing_identity_keys(identity, checkout_identity(repo))
+    if moved:
+        raise CheckoutError(
+            "the checkout changed while the vault was being built (" + ", ".join(moved) + " differ), "
+            "so the vault may have been cut by code that the record would not name; nothing was recorded, "
+            "so build again with --rebuild"
+        )
     manifest: dict[str, Any] = {
         "schema": MANIFEST_SCHEMA,
         "built_at": utc_now(),
-        "build": {**checkout_identity(repo), "search_quality": search_quality if search_quality is not None else "unset"},
+        "build": {**identity, "search_quality": search_quality if search_quality is not None else "unset"},
         "order": order,
         "vault_dir": data_dir.relative_to(run_dir).as_posix(),
         "capture_order": [entry["relative_path"] for entry in snapshot_files],
@@ -936,7 +1012,7 @@ def build_vault(
         **{key: held[key] for key in VAULT_IDENTITY_KEYS},
         "withheld": withheld,
         "duplicates": sum(1 for record in receipts if int(record.get("imported_count", 0)) == 0),
-        "harness_sha256": sha256_file(Path(__file__)),
+        "harness_sha256": identity["harness_sha256"],
     }
     manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return manifest
@@ -1389,37 +1465,47 @@ SAME_ACROSS_ORDERS = (
 )
 
 
-def require_comparable_outputs(documents: Sequence[tuple[str, Mapping[str, Any]]]) -> None:
-    """Refuse to take a minimum over outputs that did not measure the same thing.
+def require_own_build_identity(name: str, document: Mapping[str, Any]) -> Mapping[str, Any]:
+    """Refuse an outputs file that contradicts itself. Returns its fingerprint.
 
-    The minimum over import orders is only meaningful across one checkout, one switch,
-    one corpus and one question set. Two outputs files from different commits, or from
-    one order twice, would give a number that names neither. A single file has nothing
-    to be compared with. Each file is also held to itself: the checkout that built its
-    vault (``vault_build``) has to be the checkout that ran it, key for key.
+    A fingerprint holds the build record of the vault the run read (``vault_build``) and the identity of the
+    run itself, and every key of the checkout identity, the harness hash included, has to be the same in both:
+    the checkout and the harness that built the vault have to be the ones that ran it. This is a property of one
+    file, so it is checked for each file whatever the number of files.
     """
 
-    if len(documents) < 2:
+    fp = document.get("fingerprint")
+    if not isinstance(fp, dict):
+        raise BenchError(f"{name} has no fingerprint, so what it measured cannot be checked")
+    needed = dict.fromkeys((*SAME_ACROSS_ORDERS, *CHECKOUT_IDENTITY_KEYS, "import_order", "vault_build"))
+    missing = [key for key in needed if key not in fp]
+    if missing:
+        raise BenchError(f"the fingerprint of {name} lacks {', '.join(missing)}")
+    built = fp["vault_build"]
+    if not isinstance(built, dict) or any(key not in built for key in CHECKOUT_IDENTITY_KEYS):
+        raise BenchError(f"the fingerprint of {name} does not say which checkout built the vault it ran on")
+    moved = differing_identity_keys(built, fp)
+    if moved:
+        raise BenchError(
+            f"{name} ran on a vault that another checkout built ({', '.join(moved)} differ between the build "
+            "record and the run), so its numbers name two checkouts"
+        )
+    return fp
+
+
+def require_comparable_outputs(documents: Sequence[tuple[str, Mapping[str, Any]]]) -> None:
+    """Refuse outputs that contradict themselves, and refuse to take a minimum over outputs that did not measure the same thing.
+
+    Each file is held to itself first, however many there are (``require_own_build_identity``): the checkout
+    that built its vault has to be the checkout that ran it, key for key. The minimum over import orders is
+    only meaningful across one checkout, one switch, one corpus and one question set, so two or more files
+    are then compared with each other. Two outputs files from different commits, or from one order twice,
+    would give a number that names neither. A single file has nothing to be compared with.
+    """
+
+    fingerprints = [(name, require_own_build_identity(name, document)) for name, document in documents]
+    if len(fingerprints) < 2:
         return
-    fingerprints: list[tuple[str, Mapping[str, Any]]] = []
-    for name, document in documents:
-        fp = document.get("fingerprint")
-        if not isinstance(fp, dict):
-            raise BenchError(f"{name} has no fingerprint, so it cannot be compared with the other outputs")
-        needed = dict.fromkeys((*SAME_ACROSS_ORDERS, *CHECKOUT_IDENTITY_KEYS, "import_order", "vault_build"))
-        missing = [key for key in needed if key not in fp]
-        if missing:
-            raise BenchError(f"the fingerprint of {name} lacks {', '.join(missing)}")
-        built = fp["vault_build"]
-        if not isinstance(built, dict) or any(key not in built for key in CHECKOUT_IDENTITY_KEYS):
-            raise BenchError(f"the fingerprint of {name} does not say which checkout built the vault it ran on")
-        moved = differing_identity_keys(built, fp)
-        if moved:
-            raise BenchError(
-                f"{name} ran on a vault that another checkout built ({', '.join(moved)} differ between the build "
-                "record and the run), so its numbers name two checkouts"
-            )
-        fingerprints.append((name, fp))
     first_name, first = fingerprints[0]
     for name, fp in fingerprints[1:]:
         differing = [key for key in SAME_ACROSS_ORDERS if fp[key] != first[key]]
@@ -1623,7 +1709,7 @@ def fingerprint(
         "judge_model": judge_model,
         "prompt_hashes": gates.prompt_hashes,
         "gates_sha256": gates.sha256,
-        "harness_sha256": sha256_file(Path(__file__)),
+        "harness_sha256": identity["harness_sha256"],
     }
 
 
@@ -2088,7 +2174,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     allow = arm_environment(getattr(args, "search_quality", None))
     try:
         with scoped_environment(allow):
-            return _COMMANDS[args.command](args)
+            code = _COMMANDS[args.command](args)
+            require_harness_unchanged()
+            return code
     except BudgetExhausted as exc:
         print(f"refused: {exc}", file=sys.stderr)
         return EXIT_BUDGET
