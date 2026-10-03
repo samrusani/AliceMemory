@@ -46,8 +46,10 @@ from alicebot_api.vnext_context_tree import (
     VNextContextTreeStore,
     VNextContextTreeValidationError,
 )
+from alicebot_api.vnext_open_loop_references import withhold_unreadable_references_from_pack
 from alicebot_api.vnext_queue import VNextQueueNotFoundError
 from alicebot_api.vnext_retrieval import VNextRetrievalRequest, VNextRetrievalService, VNextRetrievalValidationError
+from alicebot_api.vnext_source_fence import SourceReadFence
 from alicebot_api.vnext_store import PostgresVNextStore
 
 
@@ -266,9 +268,7 @@ def create_vnext_context_pack(
             if decision.decision == "blocked":
                 return _vnext_permission_response(decision)
             actor_type, actor_id = _vnext_agent_actor(identity, fallback="system")
-            payload = annotate_http_context_pack(
-                store,
-                VNextRetrievalService(store).compile_context_pack(
+            compiled = VNextRetrievalService(store).compile_context_pack(
                 VNextRetrievalRequest(
                     query=retrieval_request.query,
                     domains=decision.effective_domains,
@@ -289,6 +289,13 @@ def create_vnext_context_pack(
                     trace_id=request.trace_id or decision.trace_id,
                     run_id=identity.agent_run_id if identity is not None else None,
                 )
+            )
+            # The pack's open loops are whole rows. The loop is the caller's to read, the source and memory it points
+            # at are checked against the caller's own read fence.
+            payload = annotate_http_context_pack(
+                store,
+                withhold_unreadable_references_from_pack(
+                    store, compiled, fence=SourceReadFence.for_identity(identity)
                 ),
             )
     except VNextRetrievalValidationError:

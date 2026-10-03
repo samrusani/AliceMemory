@@ -33,6 +33,7 @@ from alicebot_api.vnext_model_intelligence import (
     build_model_backed_artifact,
     resolve_model_route,
 )
+from alicebot_api.vnext_open_loop_references import withhold_unreadable_references
 from alicebot_api.vnext_projects import (
     ProjectAutomationRequest,
     VNextProjectService,
@@ -45,6 +46,7 @@ from alicebot_api.vnext_project_scope import (
     refuse_global_marker,
 )
 from alicebot_api.vnext_repositories import JsonObject
+from alicebot_api.vnext_source_fence import SourceReadFence
 
 
 WORKFLOW_TYPES = (
@@ -1562,6 +1564,11 @@ class VNextSchedulerService:
         )
         if any(not _row_matches_projects(loop, projects) for loop in loops):
             raise VNextSchedulerValidationError("open-loop store returned rows outside the requested project scope")
+        # The report copies the id of each loop's source into its text and its ``source_refs``, and a later reader of
+        # the artifact is shown them, so a source the run's own identity may not read is left out.
+        loops = withhold_unreadable_references(
+            self.store, loops, fence=SourceReadFence.for_identity(request.agent_identity)
+        )
         generation_kwargs = self._generation_kwargs(request)
         workflow_digest = _workflow_digest(
             {
