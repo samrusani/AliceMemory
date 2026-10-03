@@ -109,7 +109,7 @@ release-static:
 	$(PYTHON) scripts/check_control_doc_truth.py
 	$(PYTHON) scripts/release_check.py
 	$(PYTHON) -m ruff check apps/api/src/alicebot_api scripts tests eval/longmemeval
-	$(PYTHON) -m mypy --ignore-missing-imports apps/api/src/alicebot_api scripts/alice_bench.py scripts/alice_bench_gates.py scripts/alice_bench_audit.py scripts/release_check.py scripts/test_distribution_artifact.py scripts/normalize_sdist.py scripts/render_release_body.py scripts/decode_github_release_body.py scripts/prepare_mainprotect_update.py scripts/check_python_coverage.py scripts/check_control_doc_truth.py scripts/check_github_release_checks.py scripts/check_release_controls_attestation.py scripts/run_phase5_ops_evidence.py scripts/_phase5_ops_seed.py scripts/run_single_tenant_deployment_smoke.py
+	$(PYTHON) -m mypy --ignore-missing-imports apps/api/src/alicebot_api scripts/alice_bench.py scripts/alice_bench_gates.py scripts/alice_bench_audit.py scripts/release_check.py scripts/test_distribution_artifact.py scripts/normalize_sdist.py scripts/render_release_body.py scripts/decode_github_release_body.py scripts/prepare_mainprotect_update.py scripts/check_python_coverage.py scripts/combine_python_coverage.py scripts/check_control_doc_truth.py scripts/check_github_release_checks.py scripts/check_release_controls_attestation.py scripts/run_phase5_ops_evidence.py scripts/_phase5_ops_seed.py scripts/run_single_tenant_deployment_smoke.py
 
 release-identity:
 	git fetch --no-tags origin main
