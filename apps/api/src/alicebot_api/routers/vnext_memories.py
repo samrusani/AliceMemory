@@ -75,6 +75,7 @@ from alicebot_api.vnext_doctor import VNextDoctorService
 from alicebot_api.vnext_event_log import append_event
 from alicebot_api.vnext_memory_commit import (
     IdempotencyKeyConflictError,
+    RefusedOnDeletedMemoryError,
     VNextMemoryCommitService,
     VNextMemoryCommitValidationError,
     _brain_charter_row,
@@ -1718,6 +1719,10 @@ def redact_vnext_memory(
                     reason=request.reason,
                     identity=identity,
                 )
+            except RefusedOnDeletedMemoryError:
+                # Returned inside the connection, so the refusal's audit rows commit. An archived or redacted
+                # row is "not found" to a caller the policy refuses, as for an id the vault never held.
+                return _vnext_public_error_response(status_code=404, detail="vNext memory was not found")
             except AgentPolicyBlockedError as exc:
                 return _vnext_permission_response(exc.decision)
     except AgentKeyAuthenticationError as exc:
