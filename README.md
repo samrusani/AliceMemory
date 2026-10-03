@@ -268,7 +268,7 @@ What that means in practice:
 
 ## How it is built
 
-Most of the code is written by AI coding agents (Codex, Claude Code and Cursor's agent). One agent builds each change and another reviews it. A new test only counts once breaking the code on purpose makes it fail, and CI runs the installer against real, pinned versions of Claude Code, Hermes, OpenCode and Codex. Claude Desktop, Cursor and OpenClaw are not run in CI. The maintainer sets the direction and publishes each release.
+Most of the code is written by AI coding agents (Codex, Claude Code and Cursor's agent). One agent builds each change and another reviews it. A new test only counts once breaking the code on purpose makes it fail, and CI runs the installer against real, pinned versions of four of the seven agent hosts it writes config for. Claude Desktop, Cursor and OpenClaw are not run against a real host in CI. The maintainer sets the direction and publishes each release.
 
 ## Contributing
 

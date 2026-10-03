@@ -22,7 +22,11 @@ distinction auditable.
 > superseded and the repaired carrier needs fresh evidence describe 2026-07-22.
 > v0.14.0 was published on 2026-07-24 after the owner recorded the real-host
 > receipt (29 of 29 checks), so the release no longer waits on fresh Stage A
-> receipts. The public security claim is: automated security scanning and internal adversarial review, findings triaged and fixed. No one outside the project has audited the code.
+> receipts.
+>
+> The public security claim is: automated security scanning and internal
+> adversarial review, findings triaged and fixed. No one outside the project
+> has audited the code.
 
 ## Surface Closure
 

@@ -16,7 +16,11 @@ and green committed-SHA CI remain separate release gates.
 
 > **Correction (2026-10-04):** the last sentence above describes 2026-07-22.
 > v0.14.0 was published on 2026-07-24 after the owner recorded the real-host
-> receipt (29 of 29 checks), so neither gate is open for that release. The public security claim is: automated security scanning and internal adversarial review, findings triaged and fixed. No one outside the project has audited the code.
+> receipt (29 of 29 checks), so neither gate is open for that release.
+>
+> The public security claim is: automated security scanning and internal
+> adversarial review, findings triaged and fixed. No one outside the project
+> has audited the code.
 
 ## Retained Stage B Review Target
 

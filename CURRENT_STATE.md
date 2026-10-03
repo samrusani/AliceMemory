@@ -99,8 +99,8 @@ document.
 Five tags exist that were never published and never will be, because stable
 tags are immutable and the numbers are retired rather than reused: `v0.9.3`, a
 withdrawn security candidate; `v0.10.0`, whose protected release gate failed;
-`v0.13.0`, superseded by `v0.13.1`; `v0.15.0`, whose commit carried a release-gate step that
-could not run on a CI runner; and `v0.19.1`, whose publish run failed at the
+`v0.13.0`, superseded by `v0.13.1`; `v0.15.0`, whose commit carried a
+release-gate step that could not run on a CI runner; and `v0.19.1`, whose publish run failed at the
 draft readback because a release script imported the package in a job that does
 not install it, so it has no PyPI artifact and no published GitHub Release.
 

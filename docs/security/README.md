@@ -24,7 +24,11 @@ evidence into an external audit or certification.
 > superseded, the repaired carrier needs fresh evidence, or the 5.4 real-host
 > receipt and committed-SHA CI are still open describe 2026-07-22. v0.14.0 was
 > published on 2026-07-24 after the owner recorded the real-host receipt (29 of
-> 29 checks), so neither gate is open for that release. The public security claim is: automated security scanning and internal adversarial review, findings triaged and fixed. No one outside the project has audited the code.
+> 29 checks), so neither gate is open for that release.
+>
+> The public security claim is: automated security scanning and internal
+> adversarial review, findings triaged and fixed. No one outside the project
+> has audited the code.
 
 The Stage A baseline is `main` at
 `c9d24243920a694eaf00ad595da392a1478710dd`. The browser-clipper remediation
