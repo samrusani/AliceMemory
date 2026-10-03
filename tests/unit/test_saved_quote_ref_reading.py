@@ -38,6 +38,7 @@ from alicebot_api.vnext_source_fence import (
     cited_source_ids,
     cited_source_ids_in_memory_audit,
     source_rows_including_archived,
+    source_uuids_in_ref,
 )
 from tests.unit.test_saved_provenance_reader import (
     _ExplainStore,
@@ -357,6 +358,60 @@ def test_the_fast_reading_of_a_string_is_the_slow_rule_on_random_strings() -> No
     for text in _random_texts(3_000, seed=541):
         for as_ref in (True, False):
             assert _ids_in_text(text, as_ref=as_ref) == _slow_rule(text, as_ref), (text, as_ref)
+
+
+# -- 3b. every id the link writer reads ------------------------------------------------------------------------------
+
+
+def _random_ref(rng: random.Random, pool: list[str], depth: int = 0) -> object:
+    """A ref value in the shapes the link writer reads (strings, lists, objects under ``source_id``, ``id``, ``ref``,
+    ``source_ref``, ``source_ids``, ``source_refs`` and ``sources``) and in shapes it ignores (other keys, labels, ints)."""
+
+    def spelled(source_id: str) -> str:
+        return rng.choice(
+            (
+                source_id,
+                source_id.upper(),
+                source_id.replace("-", ""),
+                "{" + source_id + "}",
+                "urn:uuid:" + source_id,
+                "uuid:" + source_id,
+                "  " + source_id + "  ",
+                "source:" + source_id,
+                "source:" + source_id.upper(),
+                "source:" + source_id.replace("-", ""),
+            )
+        )
+
+    roll = rng.random()
+    if depth > 3 or roll < 0.35:
+        leaf = rng.random()
+        if leaf < 0.7:
+            return spelled(rng.choice(pool))
+        if leaf < 0.8:
+            return rng.choice(("notes", "https://x.test/y", "memory:" + rng.choice(pool), "chunk-1", 7, None, True))
+        return f"{spelled(rng.choice(pool))} {spelled(rng.choice(pool))}"
+    if roll < 0.6:
+        return [_random_ref(rng, pool, depth + 1) for _ in range(rng.randint(0, 4))]
+    keys = ("source_id", "id", "ref", "source_ref", "source_ids", "source_refs", "sources", "origin", "other", "chunk_id")
+    return {rng.choice(keys): _random_ref(rng, pool, depth + 1) for _ in range(rng.randint(1, 3))}
+
+
+def test_every_id_the_link_writer_reads_is_named_by_the_reader() -> None:
+    """The commit route makes its link, and the write fence checks its source, from the ids ``source_uuids_in_ref`` reads. The
+    reader must name every one of them, in whatever shape the ref was stored, or a link could exist for a source the reader
+    does not judge as a reference. 6,000 random refs built from the shapes the writer reads (nested lists and objects under
+    the keys it reads, padding, braces, ``urn:uuid:``, ``uuid:``, ``source:`` in either case) and from shapes it ignores.
+
+    Mutations, each alone, in ``vnext_source_fence.py``: read a whole-string id as incidental when it is read as a ref
+    (``incidental.add(whole)`` in ``_ids_in_text``); skip the second entry of a list in ``cited_source_ids`` (``node[:1]``).
+    """
+
+    rng = random.Random(544)
+    pool = _new_ids(30)
+    for _ in range(6_000):
+        value = _random_ref(rng, pool)
+        assert set(source_uuids_in_ref(value)) <= set(cited_source_ids(value).named), value
 
 
 # -- 4. archived sources ---------------------------------------------------------------------------------------------

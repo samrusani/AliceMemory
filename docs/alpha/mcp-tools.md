@@ -839,8 +839,9 @@ copies name such a source, the three copies of the quote are removed from the
 row and the entries of its `source_refs` lists that name the source (in the
 metadata, in `agentic_memory` and in `value`, and in the `previous_value`,
 `new_value` and `metadata_json` of a revision, where a memory proposal keeps the
-refs it was given) are dropped, so the id of the source goes with its quote. The memory is still returned, with its text. A memory with no link at all
-(a commit held for review or waiting for its author's confirmation, then
+refs it was given) are dropped, so the id of the source goes with its quote.
+The memory is still returned, with its text. A memory with no link at all (a
+commit held for review or waiting for its author's confirmation, then
 approved or confirmed, stores none) is judged by the source ids its own copies
 name, in the context pack as well, and `alice_explain` refuses a key that may
 not read a source the memory row, its revisions or its event payloads name, as it
@@ -866,8 +867,8 @@ for it, an archived source's row included: an id that names a stored source the
 caller may not read, or an archived one, is refused, and an id that names no
 source changes nothing, so such a ref does not take the quote from a caller who
 may read what the memory cites. A ref is read in time that grows with its length,
-as the proposal door stores `source_refs` as sent. A source
-with no project (a source the owner captured has none) is outside the fence of
+as the proposal door stores `source_refs` as sent. A source with no project (a
+source the owner captured has none) is outside the fence of
 every key bound to a project, the admin key included, so review by id returns
 none of the link, the quote or the id of a memory that cites it to those keys, as
 `alice_explain` already did; a key bound to no project keeps them. A caller that

@@ -32,14 +32,13 @@ from tests.unit.test_saved_quotes_follow_the_source_fence import (
     _AUTHORIZED_AFTER,
     _KEY_SPECS,
     _USER_ID,
-    _WORD_A,
     _Vault,
     _holds_quote,
     _readers,
     vault,  # noqa: F401  (a fixture of the sibling module)
 )
 
-# The ids a ref holds in the first two groups below name no source: they stand in for a chunk id or a session id.
+# A linear reader takes a few hundredths of a second on the huge ref below and a quadratic one takes seconds.
 _TIME_LIMIT_SECONDS = 2.0
 
 
