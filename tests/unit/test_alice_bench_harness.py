@@ -589,10 +589,10 @@ def test_a_directory_that_is_not_a_harness_run_directory_is_refused(fixture_run:
 def test_the_fingerprint_names_what_a_number_measured_and_not_the_version_string(
     fixture_run: Path, tmp_path: Path
 ) -> None:
-    """TH9. Sha, dirty flag, the import path, the tools digest, the switch, the order and every hash.
+    """TH9. Sha, dirty flag, the source hash, the import path, the tools digest, the switch, the order and every hash.
 
     Mutation: record ``alicebot_api.__version__`` (it reads installed metadata and can name another
-    build), or leave one hash out of the fingerprint.
+    build), or leave one hash out of the fingerprint (the source hash included).
     """
 
     gates_data = json.loads((REPO_ROOT / "gates.json").read_text())
@@ -621,7 +621,9 @@ def test_the_fingerprint_names_what_a_number_measured_and_not_the_version_string
         )
     git = bench.git_state(REPO_ROOT)
     assert print_["git_sha"] == git["git_sha"] and len(str(print_["git_sha"])) == 40
-    assert isinstance(print_["dirty"], bool)
+    assert print_["git"] == "present" and isinstance(print_["dirty"], bool)
+    assert print_["checkout_source_sha256"] == bench.checkout_source_sha256(REPO_ROOT)
+    assert print_["vault_build"]["checkout_source_sha256"] == print_["checkout_source_sha256"]
     real_file = Path(str(print_["alicebot_api_file"]))
     assert real_file == real_file.resolve()
     assert real_file.is_relative_to(REPO_ROOT / "apps" / "api" / "src")

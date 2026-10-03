@@ -10,6 +10,7 @@ Every test names the mutation that must fail it.
 
 from __future__ import annotations
 
+import json
 import re
 import shlex
 from pathlib import Path
@@ -148,6 +149,32 @@ def test_every_command_the_note_shows_parses_against_the_real_command_line() -> 
         else:
             raise AssertionError(f"the note shows a command for an unknown script: {script}")
     assert seen_commands == {"build", "batch", "score", "recall", "anchors", "fingerprint", "search"}
+
+
+def test_the_note_names_what_a_vault_is_held_to_and_each_name_is_a_real_manifest_key(tmp_path: Path) -> None:
+    """The note says how a vault is tied to its checkout, folder, contents and snapshot, in the keys the harness writes.
+
+    It also says that git is read only when there is a ``.git``, because the first version of the note said a run
+    needs git and an exported copy of a commit has none.
+
+    Mutation: rename ``vault_dir``, ``vault_text_sha256`` or ``checkout_source_sha256`` in the harness without the
+    note, delete the ``no git`` sentence, put back the sentence that a run needs git, or drop the source hash, the
+    ``no git`` statement or the vault folder from the CHANGELOG entry.
+    """
+
+    text = _note()
+    run_dir = tmp_path / "run"
+    corpus = REPO_ROOT / "tests" / "fixtures" / "search_quality" / "corpus"
+    assert bench.main(["build", "--run-dir", str(run_dir), "--corpus", str(corpus)]) == 0
+    manifest = json.loads((run_dir / bench.MANIFEST_FILENAME).read_text(encoding="utf-8"))
+    for key in ("vault_dir", "vault_text_sha256", "snapshot_hash", "sources", "chunks"):
+        assert key in manifest and f"`{key}`" in text, key
+    assert "checkout_source_sha256" in manifest["build"] and "`checkout_source_sha256`" in text
+    assert "`no git`" in text and "reads git only when the checkout has a `.git` of its own" in text
+    assert "and git, because a run reads the commit of its checkout" not in text
+    entry = _changelog_entry()
+    assert "a hash of the source under `apps/api/src`" in entry and "recorded as `no git`" in entry
+    assert "the folder it was built into and what it holds" in entry
 
 
 def test_the_note_names_the_files_a_reader_needs() -> None:

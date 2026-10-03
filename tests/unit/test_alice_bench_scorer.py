@@ -880,6 +880,30 @@ def test_outputs_are_compared_only_when_one_checkout_switch_and_corpus_made_them
     assert bench.main(["score", "--questions", str(QUESTIONS), "--outputs", first, first]) == bench.EXIT_REFUSED
 
 
+def test_outputs_that_differ_only_in_the_source_hash_are_not_compared() -> None:
+    """Two outputs of one commit and one dirty flag whose source differs are not one comparison.
+
+    Once a checkout is dirty, a second edit leaves the commit and the flag as they were, so the hash of the
+    source under ``apps/api/src`` is what says the code changed. An outputs file from before the hash existed
+    cannot be compared either, because its fingerprint does not say.
+
+    Mutation: drop ``checkout_source_sha256`` from ``SAME_ACROSS_ORDERS``. ``score`` would take the minimum
+    over outputs that two different edits of the code produced.
+    """
+
+    assert "checkout_source_sha256" in bench.SAME_ACROSS_ORDERS
+    shared: dict[str, object] = {"git": "present", "git_sha": "abc", "dirty": True}
+    first = {"fingerprint": _fingerprint("sorted", checkout_source_sha256="hash-of-the-first-edit", **shared)}
+    second = {"fingerprint": _fingerprint("reverse", checkout_source_sha256="hash-of-the-second-edit", **shared)}
+    with pytest.raises(bench.BenchError, match=r"did not measure the same thing \(checkout_source_sha256 differ\)"):
+        bench.require_comparable_outputs([("a.json", first), ("b.json", second)])
+    same = {"fingerprint": _fingerprint("reverse", checkout_source_sha256="hash-of-the-first-edit", **shared)}
+    bench.require_comparable_outputs([("a.json", first), ("b.json", same)])
+    older = {"fingerprint": {key: value for key, value in _fingerprint("reverse").items() if key != "checkout_source_sha256"}}
+    with pytest.raises(bench.BenchError, match="lacks checkout_source_sha256"):
+        bench.require_comparable_outputs([("a.json", first), ("b.json", older)])
+
+
 def test_score_json_leaves_out_per_question_results_unless_they_are_asked_for(tmp_path: Path) -> None:
     """``--per-question`` is the dev only opt in, so the JSON never carries a hit or miss per question without it.
 

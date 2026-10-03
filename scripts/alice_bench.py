@@ -344,35 +344,110 @@ def activate_checkout(repo: Path) -> Path:
 
 def _git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
     env = {name: value for name, value in os.environ.items() if not name.startswith("GIT_")}
-    return subprocess.run(
-        ["git", "--no-optional-locks", "-C", str(repo), *args],
-        capture_output=True,
-        text=True,
-        check=False,
-        env=env,
-        timeout=60,
-    )
+    try:
+        return subprocess.run(
+            ["git", "--no-optional-locks", "-C", str(repo), *args],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+            timeout=60,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise CheckoutError(f"the checkout has a .git and git could not be run on it ({type(exc).__name__})") from exc
+
+
+# What the manifest and the fingerprint say when a checkout has no .git of its own, as an exported
+# copy of a commit does. It is a plain statement, never a failure: the content hash identifies the code.
+NO_GIT = "no git"
+WITH_GIT = "present"
 
 
 def git_state(repo: Path) -> dict[str, object]:
-    """The commit of the checkout and whether it differs from that commit.
+    """The commit of the checkout and whether it differs from that commit, when it has a .git.
 
     Dirty means a tracked file differs from HEAD, or an untracked file sits under
     apps/ or workers/, because either changes what the product code does.
+
+    A ``.git`` is looked for at the root of the checkout itself, as a folder or as the file a git
+    worktree has, and nowhere above it: ``git -C`` would walk up into any repository that happens
+    to contain an exported copy and report that repository's commit as the copy's own. A checkout
+    with no ``.git`` there is reported as ``no git`` with no commit and no dirty flag. A ``.git``
+    that git cannot read a commit from is a refusal, because a commit that cannot be read is a
+    commit that is silently missing from the record.
     """
 
+    if not os.path.lexists(repo / ".git"):
+        return {"git": NO_GIT, "git_sha": None, "dirty": None}
     head = _git(repo, "rev-parse", "HEAD")
     if head.returncode != 0:
-        return {"git_sha": None, "dirty": None}
+        raise CheckoutError("the checkout has a .git that git cannot read a commit from")
     tracked = _git(repo, "diff", "--quiet", "HEAD")
     untracked = _git(repo, "ls-files", "--others", "--exclude-standard", "--", "apps", "workers")
     dirty = tracked.returncode != 0 or bool(untracked.stdout.strip())
-    return {"git_sha": head.stdout.strip(), "dirty": dirty}
+    return {"git": WITH_GIT, "git_sha": head.stdout.strip(), "dirty": dirty}
 
 
-# What says that two processes ran the same checkout: its commit, whether it differs from
-# that commit, and the real path ``alicebot_api`` was imported from.
-CHECKOUT_IDENTITY_KEYS = ("git_sha", "dirty", "alicebot_api_file")
+# The only parts of the source tree that are not hashed. A ``__pycache__`` folder is where the
+# interpreter writes compiled copies of the files beside it, and a harness run writes some, so a
+# hash that read it would differ between the build and the next command. A compiled file that
+# sits outside a ``__pycache__`` folder is importable on its own, so it is hashed like any other.
+_SOURCE_HASH_SKIPPED_DIRS = frozenset({"__pycache__"})
+_SOURCE_HASH_SKIPPED_FILES = frozenset({".DS_Store"})
+
+
+def checkout_source_sha256(repo: Path) -> str:
+    """A hash of the code a run imports: every file under ``apps/api/src``, in a stable order.
+
+    The hash covers each file's path (POSIX, relative to ``apps/api/src``) and its bytes, each
+    written after its length so that no two trees can give the same stream. It needs no git, so an
+    exported copy of a commit and a worktree of the same commit give the same value, and it moves
+    with every edit, which a commit and a dirty flag cannot do once the checkout is dirty. A symlink
+    in the tree is refused, because its target is not part of the tree. Installed dependencies
+    and the files outside ``apps/api/src`` are not covered.
+    """
+
+    root = src_dir(repo.resolve())
+    if not root.is_dir():
+        raise CheckoutError("the checkout has no apps/api/src to hash")
+    found: dict[str, Path] = {}
+    for current, dirnames, filenames in os.walk(root):
+        base = Path(current)
+        kept: list[str] = []
+        for name in dirnames:
+            if base.joinpath(name).is_symlink():
+                raise CheckoutError(f"apps/api/src holds a symlink ({name}), which the source hash cannot follow")
+            if name not in _SOURCE_HASH_SKIPPED_DIRS:
+                kept.append(name)
+        dirnames[:] = kept
+        for name in filenames:
+            path = base / name
+            if name in _SOURCE_HASH_SKIPPED_FILES:
+                continue
+            if path.is_symlink():
+                raise CheckoutError(f"apps/api/src holds a symlink ({name}), which the source hash cannot follow")
+            if not path.is_file():
+                raise CheckoutError(f"apps/api/src holds {name}, which is not a plain file the source hash can read")
+            found[path.relative_to(root).as_posix()] = path
+    digest = hashlib.sha256()
+    for relative in sorted(found):
+        try:
+            data = found[relative].read_bytes()
+        except OSError as exc:
+            raise CheckoutError(f"apps/api/src/{relative} cannot be read ({type(exc).__name__})") from exc
+        name_bytes = relative.encode("utf-8")
+        digest.update(len(name_bytes).to_bytes(8, "big"))
+        digest.update(name_bytes)
+        digest.update(len(data).to_bytes(8, "big"))
+        digest.update(data)
+    return digest.hexdigest()
+
+
+# What says that two processes ran the same checkout: whether it has a git history and, if so,
+# its commit and whether it differs from that commit; a hash of the source it imports; and the
+# real path ``alicebot_api`` was imported from. The hash is the one that cannot be fooled by a
+# second edit on a dirty tree or by the absence of git.
+CHECKOUT_IDENTITY_KEYS = ("git", "git_sha", "dirty", "checkout_source_sha256", "alicebot_api_file")
 
 
 def checkout_identity(repo: Path) -> dict[str, object]:
@@ -382,26 +457,32 @@ def checkout_identity(repo: Path) -> dict[str, object]:
 
     state = git_state(repo)
     return {
+        "git": state["git"],
         "git_sha": state["git_sha"],
         "dirty": state["dirty"],
+        "checkout_source_sha256": checkout_source_sha256(repo),
         "alicebot_api_file": str(Path(os.path.realpath(alicebot_api.__file__))),
     }
 
 
-def require_matching_build(manifest: Mapping[str, Any] | None, repo: Path) -> None:
-    """Refuse to read a vault that another checkout built.
+def require_matching_build(manifest: Mapping[str, Any] | None, repo: Path) -> Mapping[str, Any]:
+    """Refuse to read a vault that another checkout built. Returns the manifest it checked.
 
     A vault is rebuilt for every checkout and never cached, because the chunker is one of
     the things a release can change. The manifest records which checkout built the vault,
-    and a command that reads it has to be running the same one: the same commit, the same
-    dirty state and the same ``alicebot_api`` on disk.
+    and a command that reads it has to be running the same one: the same source content,
+    the same commit and dirty state when there is a git history, and the same
+    ``alicebot_api`` on disk.
     """
 
     if manifest is None:
         raise RunDirError("the run directory holds no build; run build first")
     recorded = manifest.get("build")
     if not isinstance(recorded, dict) or any(key not in recorded for key in CHECKOUT_IDENTITY_KEYS):
-        raise CheckoutError("the manifest does not say which checkout built this vault; build it again with --rebuild")
+        raise CheckoutError(
+            "the manifest does not say which checkout built this vault (it may come from an older harness); "
+            "build it again with --rebuild"
+        )
     current = checkout_identity(repo)
     differing = [key for key in CHECKOUT_IDENTITY_KEYS if recorded[key] != current[key]]
     if differing:
@@ -410,6 +491,7 @@ def require_matching_build(manifest: Mapping[str, Any] | None, repo: Path) -> No
             + ", ".join(differing)
             + " differ); a vault is rebuilt for every checkout, so build it again with --rebuild"
         )
+    return manifest
 
 
 # --------------------------------------------------------------------------
@@ -615,6 +697,73 @@ def vault_row_counts(db_path: Path) -> dict[str, int]:
     return counts
 
 
+def vault_identity(db_path: Path) -> dict[str, Any]:
+    """What the vault holds, read from the vault alone and without writing to it.
+
+    The count of live sources, the count of chunks, and one hash over the live sources in the order
+    they were captured, each as its corpus path, its title and a hash of its stored text. A vault
+    built from another corpus, in another import order, or by a chunker that cut it differently gives
+    another value, which the manifest of the build can then be held to.
+    """
+
+    sources = read_vault_sources(db_path)
+    lines: list[str] = []
+    for source in sources:
+        text = source["metadata"].get("raw_text")
+        if not isinstance(text, str):
+            raise BenchError("a stored source holds no raw_text; the vault cannot be identified")
+        lines.append(f"{source['external_id']}\0{source['title']}\0{sha256_bytes(text.encode('utf-8'))}")
+    return {
+        "sources": len(sources),
+        "chunks": vault_row_counts(db_path).get("source_chunks", 0),
+        "vault_text_sha256": sha256_bytes("\n".join(lines).encode("utf-8")),
+    }
+
+
+def require_matching_vault(manifest: Mapping[str, Any], run_dir: Path, data_dir: Path) -> None:
+    """Refuse to read a vault, or a grep snapshot, that the manifest does not describe.
+
+    The manifest records the folder the vault was built into, what that vault holds and what the
+    snapshot holds. A command that reads either has to find exactly that: the same folder (a rebuild
+    into another ``--data-dir`` leaves the old folder on disk), the same sources in the same capture
+    order with the same chunk count (a vault copied over another one under the same name), and the
+    same snapshot files. Each is a refusal and none is repaired, because the two arms must read the
+    text the manifest names.
+    """
+
+    recorded_dir = manifest.get("vault_dir")
+    if not isinstance(recorded_dir, str) or any(
+        key not in manifest for key in ("sources", "chunks", "vault_text_sha256", "snapshot_hash")
+    ):
+        raise RunDirError(
+            "the manifest does not say which vault folder it describes or what that vault holds "
+            "(it may come from an older harness); build again with --rebuild"
+        )
+    current_dir = data_dir.relative_to(run_dir).as_posix()
+    if recorded_dir != current_dir:
+        raise RunDirError(
+            f"this run was built into the vault folder {recorded_dir!r} and not {current_dir!r}; "
+            "point --data-dir at the folder the manifest names, or build again with --rebuild"
+        )
+    db_path = vault_path(data_dir)
+    if not db_path.is_file():
+        raise RunDirError(f"the vault folder {current_dir!r} holds no {VAULT_FILENAME}; build again with --rebuild")
+    actual = vault_identity(db_path)
+    differing = [key for key in ("sources", "chunks", "vault_text_sha256") if actual[key] != manifest[key]]
+    if differing:
+        raise RunDirError(
+            "the vault does not hold what the manifest says it was built with ("
+            + ", ".join(differing)
+            + " differ); it was replaced or changed after the build, so build again with --rebuild"
+        )
+    snapshot_dir = run_dir / SNAPSHOT_DIRNAME
+    if not snapshot_dir.is_dir() or snapshot_folder_hash(snapshot_dir) != manifest["snapshot_hash"]:
+        raise RunDirError(
+            "the grep snapshot does not hold what the manifest says it was built with; "
+            "it was replaced or changed after the build, so build again with --rebuild"
+        )
+
+
 def require_visible_labels(*, domain: str, sensitivity: str) -> None:
     """Refuse labels that would hide the corpus from recall while grep still reads it.
 
@@ -660,8 +809,10 @@ def build_vault(
     The vault is never cached: the chunker is one of the things a release can
     change. Files are imported one at a time in the requested order, each by the
     same ``alice-memory import-markdown`` code a person would run. The manifest
-    records which checkout built the vault, and every later command refuses to read
-    it from another one (``require_matching_build``).
+    records which checkout built the vault, the folder it was built into and what the
+    vault and the snapshot hold, and every later command refuses to read it from another
+    checkout or to read a folder or a snapshot that does not match
+    (``require_matching_build``, ``require_matching_vault``).
     """
 
     data_dir = check_vault_location(run_dir, data_dir)
@@ -690,21 +841,22 @@ def build_vault(
         if labels:
             withheld.append({"file": item.relative_path, "items": labels})
     snapshot_files = export_snapshot(db_path, snapshot_dir, corpus_root=folder if folder.is_dir() else folder.parent)
-    sources = read_vault_sources(db_path)
-    counts = vault_row_counts(db_path)
+    held = vault_identity(db_path)
     manifest: dict[str, Any] = {
         "schema": MANIFEST_SCHEMA,
         "built_at": utc_now(),
         "build": {**checkout_identity(repo), "search_quality": search_quality if search_quality is not None else "unset"},
         "order": order,
+        "vault_dir": data_dir.relative_to(run_dir).as_posix(),
         "capture_order": [entry["relative_path"] for entry in snapshot_files],
         "domain": domain,
         "sensitivity": sensitivity,
         "corpus_hash": corpus_hash(files),
         "corpus_file_count": len(files),
         "snapshot_hash": snapshot_hash({entry["relative_path"]: entry["text"] for entry in snapshot_files}),
-        "sources": len(sources),
-        "chunks": counts.get("source_chunks", 0),
+        "sources": held["sources"],
+        "chunks": held["chunks"],
+        "vault_text_sha256": held["vault_text_sha256"],
         "withheld": withheld,
         "duplicates": sum(1 for record in receipts if int(record.get("imported_count", 0)) == 0),
         "harness_sha256": sha256_file(Path(__file__)),
@@ -741,9 +893,29 @@ def export_snapshot(db_path: Path, snapshot_dir: Path, *, corpus_root: Path) -> 
     return written
 
 
-def snapshot_hash(files: Mapping[str, str]) -> str:
-    lines = [f"{name}\0{sha256_bytes(text.encode('utf-8'))}" for name, text in sorted(files.items())]
+def _snapshot_digest(file_hashes: Mapping[str, str]) -> str:
+    lines = [f"{name}\0{digest}" for name, digest in sorted(file_hashes.items())]
     return sha256_bytes("\n".join(lines).encode("utf-8"))
+
+
+def snapshot_hash(files: Mapping[str, str]) -> str:
+    return _snapshot_digest({name: sha256_bytes(text.encode("utf-8")) for name, text in files.items()})
+
+
+def snapshot_folder_hash(snapshot_dir: Path) -> str:
+    """``snapshot_hash`` of the files as they are on disk now, read as bytes.
+
+    Bytes and not text, so that the hash never depends on how a reader treats line endings or
+    encodings. For the folder a build wrote this is equal to the ``snapshot_hash`` the build recorded.
+    """
+
+    return _snapshot_digest(
+        {
+            path.relative_to(snapshot_dir).as_posix(): sha256_bytes(path.read_bytes())
+            for path in snapshot_dir.rglob("*")
+            if path.is_file()
+        }
+    )
 
 
 def read_snapshot(snapshot_dir: Path) -> dict[str, str]:
@@ -1116,12 +1288,14 @@ def minimum_across_orders(reports: Sequence[tuple[str, Mapping[str, Any]]], gate
 
 
 # Fingerprint keys that must be equal in every outputs file of one comparison: the same
-# checkout, switch, corpus, snapshot, question set, gates and harness. Only the import
+# checkout (its commit when it has one, and the hash of its source in any case), switch,
+# corpus, snapshot, question set, gates and harness. Only the import
 # order may differ, and it has to.
 SAME_ACROSS_ORDERS = (
     "git_sha",
     "dirty",
     "alicebot_api_file",
+    "checkout_source_sha256",
     "tools_list_digest",
     "search_quality",
     "recall_arguments",
@@ -1312,10 +1486,8 @@ def fingerprint(
     that has sent none yet sends one probe call first, so the fields always describe a real call.
     """
 
-    import alicebot_api
-
-    real_file = Path(os.path.realpath(alicebot_api.__file__))
-    state = git_state(repo)
+    identity = checkout_identity(repo)
+    real_file = Path(str(identity["alicebot_api_file"]))
     tools = session.tools_list() if session is not None else None
     recall: dict[str, Any] | None = None
     if session is not None:
@@ -1323,8 +1495,10 @@ def fingerprint(
             session.recall(FINGERPRINT_PROBE_QUERY)
         recall = recall_settings(session.recall_calls)
     return {
-        "git_sha": state["git_sha"],
-        "dirty": state["dirty"],
+        "git": identity["git"],
+        "git_sha": identity["git_sha"],
+        "dirty": identity["dirty"],
+        "checkout_source_sha256": identity["checkout_source_sha256"],
         "alicebot_api_file": str(real_file),
         "alicebot_api_inside_checkout": real_file.is_relative_to(src_dir(repo.resolve()).resolve()),
         "vault_build": None if manifest is None else manifest.get("build"),
@@ -1582,7 +1756,8 @@ def _context(args: argparse.Namespace, *, create: bool = False) -> tuple[Path, P
     gates = load_gates(Path(args.gates) if args.gates else None)
     activate_checkout(repo)
     if not create:
-        require_matching_build(_read_manifest(run_dir), repo)
+        manifest = require_matching_build(_read_manifest(run_dir), repo)
+        require_matching_vault(manifest, run_dir, data_dir)
     return run_dir, data_dir, repo, gates
 
 
