@@ -901,6 +901,12 @@ def _vnext_recent_decisions(
     return _json_object(with_result_framing(payload))
 
 
+def _event_recency(row: Mapping[str, object]) -> tuple[str, str]:
+    """Sort key for event rows, newest first when reversed: time, then id."""
+
+    return (str(row.get("occurred_at") or ""), str(row.get("id") or ""))
+
+
 def _vnext_resume(
     context: MCPRuntimeContext,
     arguments: Mapping[str, object],
@@ -1070,15 +1076,19 @@ def _vnext_resume(
             # still omit domain/sensitivity, so targets outside those fences
             # are dropped after the join. Events that are not a memory or
             # open_loop target are dropped; they are not claimed as fenced.
-            event_rows = []
-            seen_event_ids: set[str] = set()
+            event_rows: list[JsonObject] = []
             if project_view.mode == "project":
-                memory_events: Sequence[JsonObject] = project_first_fill(
-                    limit=max_recent_changes,
-                    view=project_view,
-                    exclude_global_domains=held_back,
-                    fetch=fetch_in_two_queries(
-                        lambda scope, excluded, count: store.list_resume_memory_events(
+                # One list of max_recent_changes rows, so one fill (spec 6.2): the
+                # project's events first and limit // 4 places held for global
+                # ones, across both event kinds. A fill per kind, merged and cut
+                # by time afterwards, would let global events take far more than
+                # the reserve (every place when the project has events of one kind
+                # only) and push a project event out of the list.
+                def read_events(scope: tuple[str, ...], excluded: frozenset[str], count: int) -> list[JsonObject]:
+                    """One side of the fill: both event kinds, newest first, at most ``count`` rows."""
+
+                    events: list[JsonObject] = [
+                        *store.list_resume_memory_events(
                             statuses=tuple(_CONTEXT_MEMORY_STATUSES),
                             projects=scope,
                             query=query,
@@ -1086,30 +1096,8 @@ def _vnext_resume(
                             occurred_at_end=until,
                             limit=count,
                             exclude_global_domains=tuple(sorted(excluded)),
-                        )
-                    ),
-                )
-            else:
-                memory_events = store.list_resume_memory_events(
-                    statuses=tuple(_CONTEXT_MEMORY_STATUSES),
-                    projects=effective_project_scope,
-                    query=query,
-                    occurred_at_start=since,
-                    occurred_at_end=until,
-                    limit=max_recent_changes,
-                )
-            for event in memory_events:
-                event_id = str(event.get("id") or "")
-                if event_id:
-                    seen_event_ids.add(event_id)
-                event_rows.append(event)
-            if project_view.mode == "project":
-                loop_events: Sequence[JsonObject] = project_first_fill(
-                    limit=max_recent_changes,
-                    view=project_view,
-                    exclude_global_domains=held_back,
-                    fetch=fetch_in_two_queries(
-                        lambda scope, excluded, count: store.list_open_loop_events(
+                        ),
+                        *store.list_open_loop_events(
                             statuses=tuple(_SQLITE_OPEN_LOOP_ACTIVE_STATUSES),
                             scope_projects=scope,
                             query=query,
@@ -1117,25 +1105,47 @@ def _vnext_resume(
                             occurred_at_end=until,
                             limit=count,
                             exclude_global_domains=tuple(sorted(excluded)),
-                        )
-                    ),
+                        ),
+                    ]
+                    events.sort(key=_event_recency, reverse=True)
+                    return events[:count]
+
+                event_rows.extend(
+                    project_first_fill(
+                        limit=max_recent_changes,
+                        view=project_view,
+                        exclude_global_domains=held_back,
+                        fetch=fetch_in_two_queries(read_events),
+                    )
                 )
             else:
-                loop_events = store.list_open_loop_events(
+                seen_event_ids: set[str] = set()
+                for event in store.list_resume_memory_events(
+                    statuses=tuple(_CONTEXT_MEMORY_STATUSES),
+                    projects=effective_project_scope,
+                    query=query,
+                    occurred_at_start=since,
+                    occurred_at_end=until,
+                    limit=max_recent_changes,
+                ):
+                    event_id = str(event.get("id") or "")
+                    if event_id:
+                        seen_event_ids.add(event_id)
+                    event_rows.append(event)
+                for event in store.list_open_loop_events(
                     statuses=tuple(_SQLITE_OPEN_LOOP_ACTIVE_STATUSES),
                     scope_projects=effective_project_scope,
                     query=query,
                     occurred_at_start=since,
                     occurred_at_end=until,
                     limit=max_recent_changes,
-                )
-            for event in loop_events:
-                event_id = str(event.get("id") or "")
-                if event_id and event_id in seen_event_ids:
-                    continue
-                if event_id:
-                    seen_event_ids.add(event_id)
-                event_rows.append(event)
+                ):
+                    event_id = str(event.get("id") or "")
+                    if event_id and event_id in seen_event_ids:
+                        continue
+                    if event_id:
+                        seen_event_ids.add(event_id)
+                    event_rows.append(event)
             event_rows = [
                 event
                 for event in event_rows
@@ -1147,10 +1157,7 @@ def _vnext_resume(
                     exclude_global_domains=held_back,
                 )
             ]
-            event_rows.sort(
-                key=lambda row: (str(row.get("occurred_at") or ""), str(row.get("id") or "")),
-                reverse=True,
-            )
+            event_rows.sort(key=_event_recency, reverse=True)
             recent_changes = [
                 present_model_item(
                     _compact_vnext_event(row),
