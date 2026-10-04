@@ -93,14 +93,25 @@ def close_mention_edges(self, from_type, from_id, now):
     return len(edges)
 
 
-def retire_dependents(self, source_id, *, now):
+def retire_dependents(self, source_id, *, now, scrub_candidates=False):
     memories = [row for row in citing_memories(self, source_id) if not is_redacted_memory(row)]
-    pending = [row for row in memories if row['status'] in {'candidate', 'needs_review'}]
-    retained = [str(row['id']) for row in memories]
+    pending = [row for row in memories if row['status'] in ({'candidate', 'needs_review', 'rejected'}
+               if scrub_candidates else {'candidate', 'needs_review'})]
+    pending_ids = {str(row['id']) for row in pending}
+    retained = [str(row['id']) for row in memories if not scrub_candidates or str(row['id']) not in pending_ids]
     for memory in pending:
         mid = str(memory['id'])
-        self.update_memory(memory_id=mid, patch={'status': 'rejected'}, actor_type='user')
-        close_mention_edges(self, 'memory', mid, now)
+        if scrub_candidates:
+            try:
+                self.redact_memory_bundle(memory_id=mid, project_update_artifacts=[], actor_type='user')
+                if not self.memory_redaction_bundle_is_exact(mid, []):
+                    raise ValueError('Candidate bundle is incomplete')
+            except Exception as exc:
+                raise CandidateScrubRefused([str(row['id']) for row in pending]) from exc
+            close_mention_edges(self, 'memory', mid, now)
+        else:
+            self.update_memory(memory_id=mid, patch={'status': 'rejected'}, actor_type='user')
+            close_mention_edges(self, 'memory', mid, now)
     edges = close_mention_edges(self, 'source', source_id, now)
     loops = self._execute(
         """UPDATE open_loops SET title = ?, description = ?, status = 'dismissed',
@@ -136,4 +147,87 @@ def supersede_source(self, source_id, *, superseded_by, allow_looser_classificat
                       (now, json.dumps(metadata), source_id, self.user_id))
         self._append_mutation_event(event_type='source.superseded', target_type='source', target_id=source_id,
                                     actor_type='user', payload={'superseded_by': superseded_by, **counts})
+        return counts
+
+
+class CandidateScrubRefused(ValueError):
+    def __init__(self, candidate_ids):
+        super().__init__("Candidate memories could not be scrubbed")
+        self.candidate_ids = candidate_ids
+
+
+def source_inventory(self, *, query=None, superseded=False, all_sources=False, limit=50):
+    if not 1 <= limit <= 1000:
+        raise ValueError('Source list limit must be between 1 and 1000')
+    view = "replaced" if superseded else "all" if all_sources else "live"
+    rows = self._fetch_all(
+        """SELECT s.*, (SELECT count(*) FROM source_chunks c
+        WHERE c.user_id = s.user_id AND c.source_id = s.id) AS chunk_count
+        FROM sources s WHERE s.user_id = ?
+        AND ((s.deleted_at IS NULL AND ? != 'replaced')
+          OR (s.deleted_at IS NOT NULL AND ? != 'live'
+              AND json_extract(s.metadata_json, '$.superseded_by') IS NOT NULL))
+        AND COALESCE(json_extract(s.metadata_json, '$.scrubbed'), 0) != 1
+        ORDER BY s.captured_at DESC, s.id""",
+        (self.user_id, view, view))
+    if query:
+        query = query.casefold()
+        rows = [row for row in rows if any(query in str(value or '').casefold() for value in (
+            row['id'], row['title'], row['external_id'], row['metadata_json'].get('relative_path')))]
+    return rows[:limit]
+
+
+def prunable_sources(self, *, older_than=None):
+    if older_than is not None and not 0 <= older_than <= 2**63 - 1:
+        raise ValueError('Source age must be between 0 and 9223372036854775807 days')
+    return self._fetch_all(
+        "SELECT * FROM sources WHERE user_id = ? AND deleted_at IS NOT NULL "
+        "AND json_extract(metadata_json, '$.superseded_by') IS NOT NULL "
+        "AND COALESCE(json_extract(metadata_json, '$.scrubbed'), 0) != 1 "
+        "AND (? IS NULL OR julianday(json_extract(metadata_json, '$.superseded_at')) <= julianday(?) - ?) "
+        "ORDER BY deleted_at, id", (self.user_id, older_than, _utc_now_iso(), older_than))
+
+
+def count_prunable_sources(self):
+    row = self._fetch_one('count replaced sources',
+        "SELECT count(*) AS count FROM sources WHERE user_id = ? AND deleted_at IS NOT NULL "
+        "AND json_extract(metadata_json, '$.superseded_by') IS NOT NULL "
+        "AND COALESCE(json_extract(metadata_json, '$.scrubbed'), 0) != 1", (self.user_id,))
+    return int(row['count'])
+
+
+def optimize_scrub_indexes(self):
+    # FTS5 deletion postings keep old terms until segments merge. Ordinary
+    # row updates and VACUUM do not remove those terms from live index pages.
+    self._execute("INSERT INTO source_chunks_fts(source_chunks_fts) VALUES('optimize')")
+    self._execute("INSERT INTO memories_fts(memories_fts) VALUES('optimize')")
+
+
+def scrub_source(self, source_id, *, optimize=True):
+    with self.savepoint():
+        self._execute("PRAGMA secure_delete=ON")
+        rows = self.get_sources_by_ids([source_id], include_deleted=True)
+        if not rows or rows[0]['metadata_json'].get('scrubbed'):
+            raise ValueError('Source is unknown or already scrubbed')
+        now = _utc_now_iso()
+        sleep_count = prune_sleep_rows(self, {source_id})
+        self._execute(
+            """UPDATE sources SET deleted_at = COALESCE(deleted_at, ?), title = NULL, author = NULL,
+            uri = NULL, raw_path = NULL, external_id = NULL, metadata_json = ?
+            WHERE id = ? AND user_id = ?""",
+            (now, json.dumps({'scrubbed': True, 'scrubbed_at': now}), source_id, self.user_id))
+        chunks = self._execute(
+            "UPDATE source_chunks SET text = ?, metadata_json = '{}' WHERE source_id = ? AND user_id = ?",
+            (REMOVAL_MARKER, source_id, self.user_id)).rowcount
+        quotes = self._execute(
+            """UPDATE provenance_links SET quote = ? WHERE user_id = ? AND (source_id = ?
+            OR EXISTS (SELECT 1 FROM source_chunks c WHERE c.user_id = provenance_links.user_id
+                       AND c.id = provenance_links.source_chunk_id AND c.source_id = ?))""",
+            (REMOVAL_MARKER, self.user_id, source_id, source_id)).rowcount
+        counts = retire_dependents(self, source_id, now=now, scrub_candidates=True)
+        counts.update({'chunks':chunks, 'provenance_quotes':quotes, 'sleep_proposals':sleep_count})
+        self._append_mutation_event(event_type='source.deleted', target_type='source', target_id=source_id,
+            actor_type='user', payload={'operation':'scrub', **counts})
+        if optimize:
+            optimize_scrub_indexes(self)
         return counts
