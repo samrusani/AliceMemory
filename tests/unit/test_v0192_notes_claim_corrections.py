@@ -29,17 +29,19 @@ def _released_changelog() -> str:
 
 
 def test_resume_fails_on_a_long_query_once_any_active_memory_exists() -> None:
-    """Mutation: say "stored decision" alone, at any one of the four sites.
+    """Mutation: say "stored decision" alone, at any one of the three sites.
 
     alice_resume fails at about 50,000 bytes once the vault holds an active
     memory of any type. alice_recent_decisions fails only with a stored decision.
+    The known limitations page lists what is limited now and no longer retells this v0.19.2 failure
+    (v0.20.0 refuses such a query with ``invalid_request``); the dated records and the size bounds
+    section of the tools page hold it.
     """
 
     for site, text in (
         ("notes", _flat(NOTES)),
         ("changelog", _released_changelog()),
         ("mcp-tools", _flat("docs/alpha/mcp-tools.md")),
-        ("known-limitations", _flat("docs/alpha/known-limitations.md")),
     ):
         assert "an active memory of any type" in text, site
         assert "once it holds a stored decision" in text or "once the vault holds a stored decision" in text, site
@@ -77,7 +79,6 @@ def test_the_nesting_claim_names_the_carrier_keys_and_the_generic_error() -> Non
         ("notes", _flat(NOTES)),
         ("changelog", _released_changelog()),
         ("backup-and-restore", _flat("docs/alpha/backup-and-restore.md")),
-        ("known-limitations", _flat("docs/alpha/known-limitations.md")),
     ):
         assert "`alice_memory_failed`" in text, site
     for site, text in (
@@ -161,36 +162,43 @@ def test_the_upgrade_steps_cover_the_data_directory_variable() -> None:
 
 
 def test_the_metadata_copy_limitation_names_the_debug_pack_and_the_owner() -> None:
-    """Mutation: say "the full pack" or that only key-bound agents see the copy."""
+    """Mutation: say "the full pack" or that only key-bound agents see the copy.
+
+    The known limitations page states what the pack does now (it removes the id of a memory the caller cannot
+    read, whichever section holds it) and does not retell that v0.19.2 returned the copy to the keyless owner and a
+    read-only key on a ``debug: true`` call. That history is pinned on the notes, the changelog and the threat
+    model below, and the keyless owner on the notes and the threat model.
+    """
 
     for site, text in (
         ("notes", _flat(NOTES)),
         ("changelog", _released_changelog()),
-        ("known-limitations", _flat("docs/alpha/known-limitations.md")),
         ("threat-model", _flat("docs/security/threat-model.md")),
     ):
         assert "`debug: true`" in text, site
         assert "only for key-bound agents" not in text, site
         assert "which the full pack returns" not in text, site
+    assert "only for key-bound agents" not in _flat("docs/alpha/known-limitations.md")
+    assert "which the full pack returns" not in _flat("docs/alpha/known-limitations.md")
     for site, text in (
         ("notes", _flat(NOTES)),
-        ("known-limitations", _flat("docs/alpha/known-limitations.md")),
         ("threat-model", _flat("docs/security/threat-model.md")),
     ):
         assert "keyless owner" in text, site
 
 
 def test_the_pack_loses_validity_superseded_for_a_hidden_pointer_and_says_so() -> None:
-    """Mutation: delete the asymmetry from the notes, the changelog or the limitations."""
+    """Mutation: delete the asymmetry from the notes or the changelog.
+
+    v0.20.0 fixed it, so the known limitations page no longer lists it; the notes and the changelog hold the v0.19.2
+    behaviour.
+    """
 
     notes = _flat(NOTES)
     assert "also loses `validity.superseded` in the pack, which recall keeps" in notes
     assert "**The pack can lose `validity.superseded` for a hidden pointer.**" in notes
     assert "A pack memory can lose `validity.superseded` along with a pointer it drops." in notes
     assert "also loses `validity.superseded` in the pack, which recall keeps" in _released_changelog()
-    assert "the context pack drops `validity.superseded` together with a `superseded_by` pointer" in _flat(
-        "docs/alpha/known-limitations.md"
-    )
 
 
 def test_two_scheduled_ci_jobs_hold_issue_write_authority_in_the_notes_and_threat_model() -> None:
@@ -205,7 +213,10 @@ def test_two_scheduled_ci_jobs_hold_issue_write_authority_in_the_notes_and_threa
 
 
 def test_the_lone_surrogate_turn_is_still_not_saved_and_the_notes_say_so() -> None:
-    """Mutation: drop the HTTP 500 sentence from the notes, the changelog or the limitations."""
+    """Mutation: drop the HTTP 500 sentence from the notes or the changelog.
+
+    v0.20.0 fixed it, so the known limitations page no longer lists it (see ``test_lone_surrogate_docs.py``).
+    """
 
     notes = _flat(NOTES)
     assert "That turn is still not saved: the server answers a request body that carries one with HTTP 500" in notes
@@ -213,17 +224,20 @@ def test_the_lone_surrogate_turn_is_still_not_saved_and_the_notes_say_so() -> No
     assert "That turn is still not saved: the server answers a request body that carries a lone surrogate with HTTP 500" in (
         _released_changelog()
     )
-    assert "so a Hermes turn that carries one is not saved" in _flat("docs/alpha/known-limitations.md")
 
 
 def test_a_long_query_inside_the_limit_can_still_take_seconds() -> None:
-    """Mutation: say the time at the limits was not measured, or drop the large vault."""
+    """Mutation: say the time at the limits was not measured, or drop the large vault.
+
+    The known limitations page keeps the claim without the measurement (a query inside the limit can still take
+    several seconds on a vault with thousands of sources); the numbers are on the notes and the tools page.
+    """
 
     notes = _flat(NOTES)
     assert "3.7 seconds at 499 distinct terms and 0.30 seconds for a two-word query" in notes
     assert "The time at the limits on a large vault was not measured" not in notes
     assert "3.7 seconds at 499 distinct terms, against 0.30 seconds for two words" in _flat("docs/alpha/mcp-tools.md")
-    assert "3.7 seconds at 499 distinct terms, against 0.30 seconds for two words" in _flat(
+    assert "can still take several seconds on a vault with thousands of sources" in _flat(
         "docs/alpha/known-limitations.md"
     )
 

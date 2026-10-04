@@ -92,6 +92,13 @@ string as stored and stripped, with the ``source:`` prefixes (any case, any numb
 removed from each, and reads each result with ``uuid.UUID`` as it stands first and
 stripped second (``_whole_id``, ``_uuid_text``).
 
+A ref that is JSON text is read as the value it decodes to. A string in a reference position that, with its whitespace
+stripped, starts with ``{`` or ``[`` and decodes to an object or a list is walked by the rules that read the same value
+stored as an object or a list, and its raw text is not scanned, so an id in a ``quote`` of it names nothing, as it names
+nothing in an object (``tests/unit/test_saved_quote_json_refs.py``). A key that is repeated in the text keeps every value.
+A text that does not decode, or is nested past the recursion limit of the decoder, is scanned as text. The link writer
+never decodes JSON and no JSON text is an id it reads, so the reader stays a superset of the writer.
+
 A ref string is stored as sent and the proposal door bounds only the size of the
 request, so every parser here is linear in the length of what it reads: a string is
 walked once, and a marker is tested at the position of an id and not by rescanning
@@ -570,14 +577,34 @@ def _ids_in_text(text: str, *, as_ref: bool) -> tuple[set[str], set[str]]:
     return named, incidental - named
 
 
+def _keep_every_value(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    """An object of a JSON text with every value of a repeated key kept, as a list under that key.
+
+    ``json.loads`` keeps the last value of a key that is written twice, and a source id written under the first one would
+    then go unread. Under a key that names a reference the list is read entry by entry, and under ``quote`` the whole
+    list is skipped, so a repeated key is read as every one of its values would be read alone.
+    """
+
+    values: dict[str, list[object]] = {}
+    for key, value in pairs:
+        values.setdefault(key, []).append(value)
+    return {key: found[0] if len(found) == 1 else found for key, found in values.items()}
+
+
 def _json_container(text: str) -> object | None:
-    """The list or object a string ref holds when it is JSON text, else None."""
+    """The list or object a string ref holds when it is JSON text, else None.
+
+    The text is decoded as far as ``json.loads`` goes, with raw control characters (a newline or a tab typed inside a
+    string, as a multi-line excerpt has) accepted: a text nested beyond the recursion limit of the interpreter is not
+    decoded (``RecursionError``), and neither is a text that is not JSON, or JSON that is not an object or a list. The
+    caller scans such a text as it stands. The decode and the merge of repeated keys are linear in the length of the text.
+    """
 
     stripped = text.strip()
     if stripped[:1] not in ("{", "["):
         return None
     try:
-        parsed = json.loads(stripped)
+        parsed = json.loads(stripped, object_pairs_hook=_keep_every_value, strict=False)
     except (ValueError, RecursionError):
         return None
     return parsed if isinstance(parsed, (dict, list)) else None
@@ -588,8 +615,10 @@ def cited_source_ids(value: object) -> CitedSourceIds:
 
     ``value`` is read as a reference. A string is read for ids in every spelling above, a list entry by entry, and an
     object key by key: a reference key makes everything under it a reference, any other key is read for ids that name
-    stored sources only, and a key whose value is a quote is skipped. A string that is itself JSON is read as the JSON.
-    The walk keeps its own stack, so a ref nested to any depth is read to the end.
+    stored sources only, and a key whose value is a quote is skipped. A string that is a reference and is itself JSON (an
+    object or a list) is read as the value it decodes to, by these same rules, and its text is not scanned: a quote inside
+    it names nothing, as it names nothing in an object. A string that does not decode is scanned as text. The walk keeps its
+    own stack, so a ref nested to any depth is read to the end.
     """
 
     named: set[str] = set()
@@ -599,13 +628,17 @@ def cited_source_ids(value: object) -> CitedSourceIds:
         node, state = pending.pop()
         if isinstance(node, str) or (state == _REF and isinstance(node, int) and not isinstance(node, bool)):
             text = node if isinstance(node, str) else str(node)
+            nested = _json_container(text) if state == _REF else None
+            if nested is not None:
+                # JSON text is read as the value it decodes to, as the same value stored as an object or a list is read:
+                # its quote is text taken from a source and names nothing. Its raw text is not scanned as well, which would
+                # read the ids of a quote. The link writer never decodes JSON and no JSON text is an id it reads, so the
+                # reader stays a superset of the writer.
+                pending.append((nested, _REF))
+                continue
             found_named, found_incidental = _ids_in_text(text, as_ref=state == _REF)
             named |= found_named
             incidental |= found_incidental
-            if state == _REF:
-                nested = _json_container(text)
-                if nested is not None:
-                    pending.append((nested, _REF))
         elif isinstance(node, Mapping):
             for key, child in node.items():
                 key_text = key.lower() if isinstance(key, str) else None

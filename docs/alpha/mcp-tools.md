@@ -488,52 +488,28 @@ Alice decides the outcome, never the caller:
   check, project fence, revision and events. The same call reads
   credential material: a confirm whose pending text or rationale carries
   it is refused and the write stays pending, and a reject stores such a
-  rationale as a fixed placeholder and returns `rationale_withheld: true`
-  (see [Memory Operations Protocol](../memory-operations-protocol.md#confirm)).
-  The project fence binds a
-  key-bound scope; a keyless server trusts whatever `project_scope` the
-  caller declares. Forget, expire, undo, confirm and open-loop updates
-  of a target above the caller's sensitivity ceiling are blocked in that
-  service, reason `sensitivity_above_agent_ceiling`, and the policy
-  event names the target. An agent committing above its ceiling is
-  rejected at commit time with no pending row. The receipt says: This
-  was not saved. Do not retry with a lower sensitivity label. Tell the
-  user. The owner can raise this agent's clearance or store the memory
-  themselves. The owner (a keyless call with no agent identity), an
+  rationale as a fixed placeholder and returns `rationale_withheld: true`.
+  The rules for answering a pending write are written once, in
+  [Confirm and reject rules](../memory-operations-protocol.md#confirm-and-reject-rules)
+  of the Memory Operations Protocol. In short: only the author of the
+  pending write, an `admin_agent` key, or the owner can confirm or reject
+  it, and on a keyless install that limit is not protection, because the
+  caller can declare the author's agent_id. A confirm above the caller's
+  sensitivity ceiling is blocked, an agent commit above it is rejected with
+  no pending row, and the owner (a keyless call with no agent identity), an
   `admin_agent` key, and a keyless call that declares
-  `permission_profile: admin_agent` are not held to that ceiling. A
-  keyless server does not verify a declared profile. That is keyless
-  owner mode. Only the author of a
-  pending write, an `admin_agent` key, or the owner can confirm or
-  reject it. On a keyless install that limit is not protection: the
-  caller can declare the author's agent_id. The author can still reject
-  their own pending write above the ceiling. Confirming a row that is
-  not pending is refused and writes nothing. Unreleased (on main, not in
-  v0.20.0): the caller's project scope, permission profile and ceiling are
-  checked before the pending check too, so a caller refused for any of them
-  is never told whether the row is pending, answered or expired. In v0.20.0
-  only the check of who may resolve the write came first.
-  Over the stdio server, a refused confirm or reject, and a credential
-  refusal on confirm, comes back as `tool_request_failed` with the message
-  `The tool request could not be processed` and no reason code. An
-  author refusal and a ceiling refusal record the reason on the policy
-  events (`policy.decision` and `agent.policy_blocked`). A credential
-  refusal on confirm leaves the row pending and does not keep a policy
-  event for that refusal. Unreleased (on main, not in v0.20.0): an author
-  refusal and a ceiling refusal come back as `not_permitted`, a
-  confirmation id that does not exist as `not_found`, and a confirmation
-  that is not pending as `precondition_failed`, each with the same
-  message. A credential refusal stays `tool_request_failed`.
-  A pending write stays out of recall until it is answered, and nothing
-  expires it in the background. Only `VNextMemoryCommitService.confirm`
-  reads its 24 hour `expires_at`. After that time, a confirm or reject
-  through `alice_memory_commit`, `alice_memory_manage` `confirm`, or
-  `POST /v0/vnext/memories/confirm` that passes the policy check resolves
-  it to `rejected` with reason `confirmation_expired` instead of acting
-  on it. The review paths do not read `expires_at`: `alice_memory_correct`
-  `approve` (owner or `admin_agent`) and a correction through
-  `POST /v0/vnext/memories/correct` can still make the row active after
-  24 hours.
+  `permission_profile: admin_agent` are not held to that ceiling. A pending
+  write expires after 24 hours: after that, a confirm or reject that passes
+  the policy check resolves it to `rejected` with reason
+  `confirmation_expired`. Over the stdio server, a refused confirm or reject,
+  and a credential refusal on confirm, comes back as `tool_request_failed`
+  with the message `The tool request could not be processed` and no reason
+  code. Unreleased (on main, not in v0.20.0): an author refusal and a
+  ceiling refusal come back as `not_permitted`, a confirmation id that does
+  not exist as `not_found`, and a confirmation that is not pending as
+  `precondition_failed`, each with the same message. A credential refusal
+  stays `tool_request_failed`. A pending write stays out of recall until it
+  is answered, and nothing expires it in the background.
 - `review_required`: external, generated, or low-confidence memory waits
   for human review in the console.
 - `rejected`: out-of-scope, unsafe, or policy-bypass attempts are blocked.
@@ -918,7 +894,12 @@ every source id its refs name, in the shape they were stored in: under
 entry of a ref list, in a list or an object under any other key, with a
 `source:` prefix in any case, `urn:uuid:`, braces, no hyphens or upper case, as
 an `alice://sources/<id>` URL, and as several ids in one string or in a JSON
-string. Every spelling the link writer reads is read, an id that starts with `0`
+string. A string in a reference position that is JSON text (an object or a list,
+raw newlines and tabs inside its strings allowed) is read as the value it
+decodes to, by the rules above, and its own text is not scanned, so an id inside
+its `quote` or `conversation_excerpt` names nothing, as it names nothing in the
+same ref stored as an object; a key repeated in the text keeps every value, and a
+text that does not decode is scanned as text. Every spelling the link writer reads is read, an id that starts with `0`
 and is written with a space, a tab or another whitespace character in the place
 of the zero included (`source: ` and the other 31 digits, say): the writer reads
 it as that id, links it and checks it, so the reader names it too. An id in one
@@ -955,7 +936,13 @@ missing, an archived and an unreadable source are refused alike there); the
 check at write time reads only the ref shapes the link writer reads, so a ref in
 another shape (`selected_source_ids`, an upper case `SOURCE:`, several ids in
 one string, an id under another key) is stored without it and is judged only
-when it is read; the operator routes `GET /v0/vnext/memories/{id}/audit`,
+when it is read; memory proposals (`alice_vnext_propose_memory`,
+`POST /v0/vnext/memory-proposals`) and the agent-output ingest
+(`alice_vnext_ingest_agent_output`, `POST /v0/vnext/agents/ingest-output`) store
+the `source_refs` they are given and check none of them; the legacy tool
+`alice_vnext_recent_memory_commits` lists commit rows with no row-level fence;
+the provenance links of artifacts are not held to this fence; the operator
+routes `GET /v0/vnext/memories/{id}/audit`,
 `GET /v0/vnext/memories/recent-commits` and `GET /v0/vnext/sources/{id}`, which
 only the owner and a `trusted_local_agent` or `admin_agent` key bound to no
 project reach, return what was stored; and on an install with no agent keys, a

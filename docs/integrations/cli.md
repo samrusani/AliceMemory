@@ -114,6 +114,8 @@ Model-backed generation arguments are available on daily brief, weekly synthesis
 
 Live capture connector commands preserve the same trust model as manual capture: raw source text is archived, domain/sensitivity defaults are explicit, source material is treated as untrusted, agent output produces review-only artifacts/proposals, and capture-to-brief promotion still requires human review. Connector settings and state now persist outside the event log, while settings/state changes still write audit events. Secret values are never printed; the CLI stores or resolves only `secret_ref` values.
 
+`alicebot vnext connectors local-folder sync` and `watch` print `refused_count` and `truncated` with the sync result. `refused_count` is the number of files the scan skipped on its own (a file over the size limit, one that is not UTF-8 text or cannot be read, or one swapped for a link), and `truncated` is true when a limit stopped the scan. `ignored_count` counts the files the scan listed and then ignored: the scan does not enter a folder named like a default ignore, such as `node_modules` or `.git`, so the files inside one are not counted.
+
 `alicebot vnext alpha check` is the public-preview readiness gate. It summarizes migrations, doctor, scheduler posture, connector settings/state storage, core vNext smokes, agent integration pack smoke, and the eval command expected for release evidence.
 
 `alicebot vnext demo load --reset` loads the safe synthetic public-preview dataset from `fixtures/vnext/demo_dataset.json`; `alicebot vnext demo reset` archives rows from that dataset.
