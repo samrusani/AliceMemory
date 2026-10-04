@@ -29,7 +29,7 @@ paid API call can occur. Run from the repository root:
 
     .venv/bin/python eval/longmemeval/count_probe.py \
       --dataset-file eval/longmemeval/data/longmemeval_s_cleaned.json \
-      --work-dir /private/tmp/alice-sprint4-stage1-work \
+      --work-dir <scratch dir>/count-probe-work \
       --max-items 16 --workers 8
 """
 

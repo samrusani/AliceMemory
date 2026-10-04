@@ -126,8 +126,9 @@ corepack prepare pnpm@10.23.0 --activate
 pnpm --dir apps/web install --frozen-lockfile
 ```
 
-The example uses an editable checkout so Alembic resources and scripts stay
-available. Pin and inventory the host packages in the operator's own image or
+The example installs the package from the checkout and keeps the checkout in
+place, because the migration script, the seed helper and the evidence scripts
+run from it. Pin and inventory the host packages in the operator's own image or
 configuration-management layer.
 
 ## 2. Inject configuration and secrets

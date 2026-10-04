@@ -40,9 +40,23 @@ endpoint. The wrapper:
 6. fails closed on network, HTTP, JSON, schema, or configured-threshold failure.
 
 CI runs both production-only and full-tree audits at `high`, so High and
-Critical matches block. Lower-severity matches remain visible but do not fail
+Critical matches block, except a disclosed exception in the full audit (next
+paragraph). Lower-severity matches remain visible but do not fail
 that job. The validator's malformed/empty-response behavior is covered by
 `apps/web/scripts/npm-advisory-audit.test.mjs`.
+
+The full audit, and only the full audit, also reads disclosed exceptions from
+`apps/web/security-advisory-exceptions.json`. An entry names one advisory URL
+and one package, carries a written justification and an expiry date, and
+applies only until that date; after it the match blocks again. Every applied
+entry is printed on each run. The production audit never reads the file, so a
+match that reaches a shipped build always blocks. v0.20.0 ships the mechanism
+with no entries.
+
+Unreleased (on main, not in v0.20.0): the file holds one entry, for `braces`
+(GHSA-vfj7-8cjw-p6xm, high, stack exhaustion on a deeply nested brace pattern).
+No released version fixes it. It is reached only through development lint
+tooling, is not in the production dependency tree, and expires on 2026-11-03.
 
 ```bash
 cd apps/web

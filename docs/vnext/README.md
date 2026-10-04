@@ -29,7 +29,7 @@ Alice vNext has three functional layers:
 ## Current Surfaces
 
 - Source capture: manual text, local text/Markdown files, Markdown folders, ChatGPT exports.
-- Retrieval: hybrid Postgres full-text + pgvector semantic search with reciprocal-rank fusion, domain/sensitivity filters, and provenance; without a configured embedding endpoint (`ALICE_EMBEDDINGS_BASE_URL`/`ALICE_EMBEDDINGS_MODEL`) it runs full-text-only and says so in traces.
+- Retrieval: hybrid full-text plus vector search fused with reciprocal-rank fusion (on SQLite, FTS5 and cosine similarity; on Postgres, full-text search and pgvector), with domain/sensitivity filters and provenance; without a configured embedding endpoint (`ALICE_EMBEDDINGS_BASE_URL`/`ALICE_EMBEDDINGS_MODEL`) it runs full-text-only and says so in traces.
 - Synthesis workflows: daily brief, weekly synthesis, connection report, contradiction report, project update, open-loop review, review-only memory consolidation, and a review-first staleness sweep that marks expired or long-unconfirmed working-state memories `stale` without deleting anything.
 - Procedural memory: typed end to end. Capture recognizes `Procedure:`/`Playbook:`/`How to` lines as `procedure` candidates (and `Happened:`/`Log:` lines as `episode`), retrieval accepts a `memory_type` filter so agents can recall procedures directly, and context packs include a procedures section. Procedures keep the same review, provenance, correction, supersession, and revision model as all other memory; there is no procedure-specific ranking or auto-classification beyond these typed rules.
 - Model-backed intelligence: provider/routing abstraction, local-first model policy, source-grounded sections, prompt hashes, context hashes, model metadata, and deterministic-vs-model comparison mode.
@@ -44,7 +44,7 @@ Alice vNext has three functional layers:
   payload ingestion. Alice does not execute OCR or transcription.
 - UI: the local `/vnext` review workspace plus memory, continuity, trace,
   entity, and artifact views. Hosted onboarding/admin, channel, chat,
-  chief-of-staff, model-pack, and response pages are not part of v0.11.
+  chief-of-staff, model-pack, and response pages are not part of the current product.
 - Evals: six production-path suites — `retrieval_quality`,
   `correction_suppression`, `decision_recovery`, `provenance_explanation`,
   `entity_resolution`, and `graph_hop_retrieval`. They run against the backend

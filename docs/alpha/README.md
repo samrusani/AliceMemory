@@ -23,6 +23,7 @@ Start here:
 - [Demo mode](demo-mode.md)
 - [Review dashboard demo](review-dashboard-demo.md)
 - [Headless Ubuntu install](headless-ubuntu-install.md)
+- [Single-tenant self-hosted deployment](../deployment/single-tenant-self-hosted.md)
 - [Agent integration](agent-integration.md)
 - [MCP tools](mcp-tools.md)
 - [CLI integration](../integrations/cli.md)

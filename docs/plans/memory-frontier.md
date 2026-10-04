@@ -5,6 +5,8 @@ eight-area code audit on 2026-07-04. Inspired by external 2026 research input
 (MAG taxonomy survey, CoMem, AgeMem, Mem0/Zep architectures), filtered to what
 Alice can honestly build next.
 
+Status update, 2026-10-04: historical plan. `v0.8.0`, the memory-frontier release, shipped from it; see `docs/release/v0.8.0-release-notes.md` for what shipped.
+
 ## The audit's one-line conclusion
 
 Across all eight proposed areas the pattern is identical: **schema

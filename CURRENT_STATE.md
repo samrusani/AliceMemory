@@ -11,9 +11,12 @@
   reference integrations**, and `v0.12.0` shipped the Phase 3 structural
   refactor as **Structure only. Zero behavior change.** Records for both remain
   under `docs/release/`.
-- Three tags exist that were never published: `v0.13.0`, superseded by
+- Five tags exist that were never published: `v0.9.3`, a withdrawn security
+  candidate; `v0.10.0`, which failed its release gate; `v0.13.0`, superseded by
   `v0.13.1`; `v0.15.0`; and `v0.19.1`, superseded by `v0.19.2`. None has a PyPI
-  artifact or a published GitHub Release.
+  artifact or a published GitHub Release. `v0.10.1` has a GitHub Release with no
+  files and no PyPI artifact, because its publish failed; `v0.10.2` superseded
+  it.
 - LongMemEval_s is 81.2%, a mean of three runs on `v0.12.0` `store_chunks`.
   It is not the product path and not a measurement of the current release.
   Known issue: the harness showed the reader model each session's id, and in
@@ -72,9 +75,10 @@ authoritative description; Phase 3 does not rewrite that history.
 - The web carrier passed 217 unit tests, core and vNext coverage floors,
   typecheck, lint, build, bundle budgets, and the 17+1+1+1 browser matrix.
 - Final-carrier package reproduction and installed-artifact evidence is owned
-  by the Phase 3 `BUILD_REPORT.md`. The builder matrix ran before the version
-  cut; its locally produced artifacts were verification inputs only and were
-  never uploaded anywhere.
+  by
+  `docs/handoff/2026-07-18-v0.12.0-phase3-structural-refactor/BUILD_REPORT.md`.
+  The builder matrix ran before the version cut; its locally produced artifacts
+  were verification inputs only and were never uploaded anywhere.
 - No security or cybersecurity audit was performed in Phase 3.
 
 ## Release Boundary
@@ -92,10 +96,11 @@ Every earlier release remains published and immutable, with its own
 `v0.13.1`, `v0.12.0` and `v0.11.1`, which are referenced elsewhere in this
 document.
 
-Three tags exist that were never published and never will be, because stable
-tags are immutable and the numbers are retired rather than reused: `v0.13.0`,
-superseded by `v0.13.1`; `v0.15.0`, whose commit carried a release-gate step that
-could not run on a CI runner; and `v0.19.1`, whose publish run failed at the
+Five tags exist that were never published and never will be, because stable
+tags are immutable and the numbers are retired rather than reused: `v0.9.3`, a
+withdrawn security candidate; `v0.10.0`, whose protected release gate failed;
+`v0.13.0`, superseded by `v0.13.1`; `v0.15.0`, whose commit carried a
+release-gate step that could not run on a CI runner; and `v0.19.1`, whose publish run failed at the
 draft readback because a release script imported the package in a job that does
 not install it, so it has no PyPI artifact and no published GitHub Release.
 
@@ -148,15 +153,18 @@ no schema. It adds the `--max-file-mib` option and four settings:
   the pack removes the id of a memory the caller cannot read from `metadata_json`.
 - LongMemEval harness 1.1 hides session ids from the reader. The published
   numbers carry a known issue and no number changed.
-- Still open, listed in the release notes: the session brief, `alice_resume`
-  and `alice_recent_decisions` show an expired active memory, consolidation and
-  roll-ups can embed one, artifact promotion leaves a memory without a vector
-  until reindex, and the `max_tokens` budget prices the full stored row.
+- Still open, among the known limitations in the release notes: five limits of
+  the security fixes (DB-005, DB-006, DB-007, DB-009 and DB-010), the session
+  brief, `alice_resume` and `alice_recent_decisions` show an expired active
+  memory, consolidation and roll-ups can embed one, artifact promotion leaves a
+  memory without a vector until reindex, and the `max_tokens` budget prices the
+  full stored row.
 - Unreleased (on main, not in v0.20.0): the brief, `alice_resume` and
   `alice_recent_decisions` leave out an expired memory, consolidation and
   roll-ups neither send its text nor group it, an expired roll-up card is not the
   accepted card for its topic, and artifact promotion embeds the memory it makes.
-  The `max_tokens` budget still prices the full stored row.
+  The `max_tokens` budget still prices the full stored row. The rest of what is
+  on main since `v0.20.0` is listed under Unreleased in `CHANGELOG.md`.
 
 ## What `v0.19.2` Shipped
 

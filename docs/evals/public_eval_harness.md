@@ -29,7 +29,7 @@ The fixture catalog is the current branch contract for suite definitions, case o
   - `python -m alicebot_api evals run --report-path eval/baselines/public_eval_harness_v1.json`
   - `python -m alicebot_api evals runs --limit 10`
   - `python -m alicebot_api evals show <eval_run_id>`
-- API, pending Control Tower confirmation that `P12-S4` should expose `/v1/evals/*` rather than remain CLI-first:
+- API (the local `/v1` surface):
   - `GET /v1/evals/suites`
   - `POST /v1/evals/runs`
   - `GET /v1/evals/runs`
@@ -45,7 +45,7 @@ The current branch JSON report contains:
 - `summary`
 - `suites`
 
-The report intentionally excludes run-specific timestamps and ids so the checked-in baseline stays stable across repeated local runs. Persisted run records keep ids, timestamps, and the report digest separately in the database. Control Tower still owns whether this JSON shape remains the canonical committed artifact format for `P12-S4`.
+The report intentionally excludes run-specific timestamps and ids so the checked-in baseline stays stable across repeated local runs. Persisted run records keep ids, timestamps, and the report digest separately in the database.
 
 ## Metrics
 

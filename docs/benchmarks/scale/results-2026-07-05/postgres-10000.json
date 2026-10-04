@@ -1,0 +1,172 @@
+{
+  "benchmark": "alice-scale-envelope",
+  "generated_at": "2026-07-05T20:02:42.809968Z",
+  "backend": "postgres",
+  "scale": 10000,
+  "seed": 42,
+  "store": "postgresql://alicebot_app@127.0.0.1:55433/scale_42_10000",
+  "store_size_bytes": 242940951,
+  "environment": {
+    "platform": "macOS-26.5.1-arm64-arm-64bit",
+    "python": "3.12.11",
+    "commit": "7e53ecc",
+    "cpu": "Apple M3 Max",
+    "ram_gb": 128,
+    "cores": "16",
+    "postgres_image": "pgvector/pgvector:pg16",
+    "embedding_model": "det-mix-256 (deterministic local; no API latency included)"
+  },
+  "ingest": {
+    "memories": 10000,
+    "sources": 2000,
+    "entities": 200,
+    "edges": 2544,
+    "provenance_links": 10000,
+    "entities_seconds": 0.22,
+    "sources_seconds": 2.16,
+    "memories_seconds": 103.24,
+    "total_seconds": 105.62,
+    "memories_per_second": 96.9,
+    "embed_on_write": true
+  },
+  "operations": {
+    "recall_context_pack": {
+      "iterations": 50,
+      "warmup_iterations": 3,
+      "p50_ms": 98.367,
+      "p95_ms": 146.86,
+      "mean_ms": 100.693,
+      "min_ms": 33.772,
+      "max_ms": 152.706,
+      "total_seconds": 5.03,
+      "notes": {
+        "queries": 8,
+        "stages_entity_query": {
+          "fts": [
+            "postgres_fts",
+            0
+          ],
+          "vector": [
+            "enabled",
+            16
+          ],
+          "graph": [
+            "enabled",
+            16
+          ],
+          "sources": [
+            "store_lexical",
+            8
+          ],
+          "open_loops": [
+            null,
+            0
+          ],
+          "contradictions": [
+            "disabled: not requested",
+            0
+          ],
+          "recent_changes": [
+            null,
+            5
+          ]
+        }
+      }
+    },
+    "capture_text_single": {
+      "iterations": 50,
+      "warmup_iterations": 3,
+      "p50_ms": 9.231,
+      "p95_ms": 11.637,
+      "mean_ms": 9.482,
+      "min_ms": 8.328,
+      "max_ms": 11.848,
+      "total_seconds": 0.47,
+      "notes": {}
+    },
+    "memory_commit": {
+      "iterations": 50,
+      "warmup_iterations": 3,
+      "p50_ms": 17.675,
+      "p95_ms": 20.098,
+      "mean_ms": 17.947,
+      "min_ms": 15.87,
+      "max_ms": 21.1,
+      "total_seconds": 0.9,
+      "notes": {
+        "write_mode_last": "commit",
+        "status_last": "committed"
+      }
+    },
+    "review_queue_list": {
+      "iterations": 50,
+      "warmup_iterations": 3,
+      "p50_ms": 6.386,
+      "p95_ms": 8.787,
+      "mean_ms": 6.576,
+      "min_ms": 5.234,
+      "max_ms": 12.914,
+      "total_seconds": 0.33,
+      "notes": {
+        "returned_rows_last": 20
+      }
+    },
+    "entity_find_by_names": {
+      "iterations": 50,
+      "warmup_iterations": 3,
+      "p50_ms": 0.386,
+      "p95_ms": 0.465,
+      "mean_ms": 0.409,
+      "min_ms": 0.36,
+      "max_ms": 1.169,
+      "total_seconds": 0.02,
+      "notes": {
+        "lookup_names": 5,
+        "entities_matched_last": 2
+      }
+    },
+    "graph_one_hop_hot_entity": {
+      "iterations": 50,
+      "warmup_iterations": 3,
+      "p50_ms": 1.667,
+      "p95_ms": 2.36,
+      "mean_ms": 1.744,
+      "min_ms": 1.548,
+      "max_ms": 2.77,
+      "total_seconds": 0.09,
+      "notes": {
+        "hot_entity_edges": 111
+      }
+    },
+    "staleness_sweep_pass": {
+      "iterations": 50,
+      "warmup_iterations": 1,
+      "p50_ms": 179.841,
+      "p95_ms": 191.899,
+      "mean_ms": 160.195,
+      "min_ms": 116.899,
+      "max_ms": 192.637,
+      "total_seconds": 8.01,
+      "notes": {
+        "first_pass_ms": 357.5,
+        "artifact_persisted": true
+      }
+    },
+    "consolidation_pass": {
+      "iterations": 50,
+      "warmup_iterations": 0,
+      "p50_ms": 1348.403,
+      "p95_ms": 1505.996,
+      "mean_ms": 1390.299,
+      "min_ms": 1278.818,
+      "max_ms": 3153.662,
+      "total_seconds": 69.51,
+      "notes": {
+        "embedded_memory_hard_cap": 5000,
+        "artifact_persisted": false,
+        "artifact_write_bug": "CheckViolation: new row for relation \"generated_artifacts\" violates check constraint \"generated_artifacts_type_check\" -- generated_artifacts_type_check lacks 'memory_consolidation'"
+      }
+    }
+  },
+  "combo_seconds": 194.9
+}

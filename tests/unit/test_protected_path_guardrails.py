@@ -55,7 +55,7 @@ def test_categorize_files_protects_split_mcp_modules_as_continuity_apis() -> Non
 
 def test_categorize_files_protects_split_cli_modules_as_continuity_apis() -> None:
     cli_paths = [
-        "apps/api/src/alicebot_api/cli.py",
+        "apps/api/src/alicebot_api/cli/__init__.py",
         "apps/api/src/alicebot_api/cli/runner.py",
     ]
 
