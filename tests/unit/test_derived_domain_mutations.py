@@ -97,6 +97,14 @@ def test_derived_domain_guard_mutations():
          lambda: review.test_promoted_artifact_memory_follows_repaired_artifact("metadata")),
         (backfill, "plan_relabels", "if remaining_changes < 0:", "if False:",
          lambda: fresh(lambda directory, patch: review.test_nonsettling_cycles_are_bounded_and_not_published(patch))),
+        (backfill, "plan_relabels", "sorted(row for row, count in changes.items() if count > 1)", "[]",
+         unsettled_message),
+        (backfill, "plan_relabels", "raise DerivedDomainRepairError(", "raise ValueError(",
+         unsettled_message),
+        (backfill, "_unsettled_message", "Remove the circular input references from those rows, ", "",
+         unsettled_message),
+        (onramp, "_run_import_snapshot", 'raise _ImportError("the restored derived labels could not be settled") from exc', "raise",
+         lambda: fresh(lambda directory, patch: review.test_import_of_a_backup_holding_a_cycle_stops_before_publication(directory, patch))),
         (backfill, "relabel_sqlite", "if not restoring and conn.execute", "if conn.execute",
          lambda: fresh(restore)),
         (onramp, "_run_import_snapshot", "relabel_sqlite(conn, restoring=True)", "None",
@@ -136,6 +144,10 @@ def test_derived_domain_guard_mutations():
             checks.test_sqlite_upgrade_relabels_existing_derived_memory_only(Path(directory))
     print('KILLED SQLite upgrade wiring')
     print(f'{len(mutations) + len(pairs) + 3} guard mutations killed')
+
+
+def unsettled_message():
+    fresh(lambda directory, patch: review.test_a_nonsettling_cycle_fails_with_a_message_that_names_the_rows_and_the_way_out(patch))
 
 
 def promoted_metadata_only():

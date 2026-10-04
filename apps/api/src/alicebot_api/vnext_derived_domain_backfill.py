@@ -7,7 +7,7 @@ inputs are not inferred from text. Already restricted rows remain restricted.
 from __future__ import annotations
 
 import json
-from collections import deque
+from collections import Counter, deque
 from collections.abc import Mapping, Sequence
 from uuid import UUID
 
@@ -16,6 +16,7 @@ from alicebot_api.vnext_derived_domain import derived_domain
 from alicebot_api.vnext_event_log import build_event_log_record
 
 REPAIR_STATE_KEY = "derived_restricted_domains_v2"
+_UNSETTLED_ROWS_SHOWN = 5
 
 INPUT_SELECTS = {
     "sources": "SELECT id, user_id, domain FROM sources",
@@ -41,6 +42,25 @@ _ID_KEYS = {
     "source_artifact_id": "generated_artifacts",
 }
 _REF_TYPES = {"source": "sources", "memory": "memories", "open_loop": "open_loops", "artifact": "generated_artifacts"}
+
+
+class DerivedDomainRepairError(ValueError):
+    """Derived rows keep relabeling each other, so there are no settled labels to publish.
+
+    Still a ``ValueError``: the upgrade and the restore abort on it as before.
+    """
+
+
+def _unsettled_message(rows: Sequence[tuple[str, str, str]]) -> str:
+    shown = ", ".join(f"{table} {row_id}" for table, _user, row_id in rows[:_UNSETTLED_ROWS_SHOWN])
+    if len(rows) > _UNSETTLED_ROWS_SHOWN:
+        shown += f" and {len(rows) - _UNSETTLED_ROWS_SHOWN} more"
+    return (
+        "derived domain repair did not settle: derived rows record each other as inputs in a cycle, "
+        f"so their restricted labels kept changing (rows: {shown}). "
+        "The repair stopped before it changed any row. Remove the circular input references from those rows, "
+        "or restore a backup made before they were added, then run the upgrade or open the database again."
+    )
 
 
 def _object(value: object) -> Mapping[str, object]:
@@ -143,6 +163,7 @@ def plan_relabels(tables: Mapping[str, Sequence[Mapping[str, object]]]) -> list[
     pending = deque(sorted(inputs))
     queued = set(inputs)
     remaining_changes = max(1, len(inputs)) * (len(RESTRICTED_DOMAINS) + 1)
+    changes: Counter[tuple[str, str, str]] = Counter()
     while pending:
         key = pending.popleft()
         queued.remove(key)
@@ -153,8 +174,9 @@ def plan_relabels(tables: Mapping[str, Sequence[Mapping[str, object]]]) -> list[
         if domain not in RESTRICTED_DOMAINS or domain == labels[key]:
             continue
         remaining_changes -= 1
+        changes[key] += 1
         if remaining_changes < 0:
-            raise ValueError("derived domain repair did not settle")
+            raise DerivedDomainRepairError(_unsettled_message(sorted(row for row, count in changes.items() if count > 1)))
         labels[key] = domain
         for dependant in sorted(dependants.get(key, ())):
             if dependant not in queued:

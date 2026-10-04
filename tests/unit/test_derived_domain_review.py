@@ -200,6 +200,124 @@ def test_nonsettling_cycles_are_bounded_and_not_published(monkeypatch):
     assert [row["domain"] for row in tables["generated_artifacts"]] == ["health", "legal", "health"]
 
 
+def _bounded_selector(monkeypatch, limit=200):
+    """Fail, rather than hang, if the repair ever stops bounding its own work."""
+    from alicebot_api import vnext_derived_domain_backfill as repair
+
+    selector = repair.derived_domain
+    calls = 0
+
+    def counted_selector(rows, *, fallback):
+        nonlocal calls
+        calls += 1
+        assert calls < limit, "repair exceeded the bounded change budget"
+        return selector(rows, fallback=fallback)
+
+    monkeypatch.setattr(repair, "derived_domain", counted_selector)
+
+
+def _odd_cycle(size):
+    """Each row copies the next one and the labels alternate, so an odd cycle never settles."""
+    keys = [chr(ord("a") + index) for index in range(size)]
+    return {
+        "generated_artifacts": [
+            {
+                "id": key,
+                "user_id": "u",
+                "domain": "health" if index % 2 == 0 else "legal",
+                "metadata_json": {"input_summary": {"artifact_ids": [keys[(index + 1) % size]]}},
+            }
+            for index, key in enumerate(keys)
+        ]
+    }
+
+
+def test_a_nonsettling_cycle_fails_with_a_message_that_names_the_rows_and_the_way_out(monkeypatch):
+    from alicebot_api.vnext_derived_domain_backfill import DerivedDomainRepairError
+
+    _bounded_selector(monkeypatch)
+    with pytest.raises(ValueError) as caught:
+        plan_relabels(_odd_cycle(3))
+    assert isinstance(caught.value, DerivedDomainRepairError)
+    message = str(caught.value)
+    for expected in (
+        "derived domain repair did not settle: derived rows record each other as inputs in a cycle",
+        "(rows: generated_artifacts a, generated_artifacts b, generated_artifacts c)",
+        "The repair stopped before it changed any row.",
+        "Remove the circular input references from those rows, or restore a backup made before they were added",
+    ):
+        assert expected in message, expected
+    # A long cycle names five rows and counts the rest, so the message stays one readable line.
+    _bounded_selector(monkeypatch)
+    with pytest.raises(DerivedDomainRepairError) as long_cycle:
+        plan_relabels(_odd_cycle(9))
+    named = long_cycle.value.args[0].partition("(rows: ")[2].partition(")")[0]
+    assert named.count("generated_artifacts ") == 5 and named.endswith(" and 4 more"), named
+    assert "\n" not in long_cycle.value.args[0]
+
+
+def test_every_open_of_a_vault_holding_a_cycle_raises_the_clear_error_and_changes_nothing(tmp_path, monkeypatch):
+    from alicebot_api.vnext_derived_domain_backfill import REPAIR_STATE_KEY, DerivedDomainRepairError
+
+    path = tmp_path / "cycle.sqlite3"
+    bootstrap_database(path, user_id=USER, user_email="local@alice")
+    with sqlite_user_connection(path, USER) as conn:
+        store = SQLiteVNextStore(conn, USER)
+        ids = sorted(add_memory(store, key=name, text=f"Row {name}")["id"] for name in "abc")
+        # Each memory records the next as its consolidation input, and the labels alternate around the cycle.
+        # The ids are sorted so the repair meets them in the order that oscillates.
+        for index, (row_id, domain) in enumerate(zip(ids, ("health", "legal", "health"))):
+            parent = ids[(index + 1) % 3]
+            conn.execute(
+                "UPDATE memories SET domain = ?, metadata_json = ? WHERE id = ?",
+                (domain, json.dumps({"consolidation": {"cluster_member_ids": [parent]}}), row_id),
+            )
+        # A vault from before the repair has no stamp, so every open runs it again.
+        conn.execute("DELETE FROM alice_schema_state WHERE key = ?", (REPAIR_STATE_KEY,))
+    _bounded_selector(monkeypatch)
+    for _ in range(2):
+        with pytest.raises(DerivedDomainRepairError, match="did not settle") as caught:
+            bootstrap_database(path, user_id=USER, user_email="local@alice")
+        assert all(f"memories {row_id}" in str(caught.value) for row_id in ids)
+    with pytest.raises(DerivedDomainRepairError, match="did not settle"):
+        with sqlite_user_connection(path, USER):
+            pass
+    with sqlite3.connect(path) as raw:
+        assert [row[0] for row in raw.execute("SELECT domain FROM memories ORDER BY id")] == ["health", "legal", "health"]
+        assert raw.execute("SELECT count(*) FROM event_log WHERE event_type LIKE '%.domain_relabelled'").fetchone()[0] == 0
+        assert raw.execute("SELECT count(*) FROM alice_schema_state WHERE key = ?", (REPAIR_STATE_KEY,)).fetchone()[0] == 0
+
+
+def test_import_of_a_backup_holding_a_cycle_stops_before_publication(tmp_path, monkeypatch):
+    from contextlib import redirect_stderr, redirect_stdout
+    from io import StringIO
+
+    source = tmp_path / "source.sqlite3"
+    destination = tmp_path / "restored.sqlite3"
+    backup = tmp_path / "backup.jsonl"
+    bootstrap_database(source, user_id=USER, user_email="local@alice")
+    with sqlite_user_connection(source, USER) as conn:
+        store = SQLiteVNextStore(conn, USER)
+        ids = sorted(add_memory(store, key=name, text=f"Row {name}")["id"] for name in "abc")
+        # The vault is stamped as repaired, so it opens and exports. Its rows still form the cycle that
+        # oscillates, and only the restore repair meets it.
+        for index, (row_id, domain) in enumerate(zip(ids, ("health", "legal", "health"))):
+            conn.execute(
+                "UPDATE memories SET domain = ?, metadata_json = ? WHERE id = ?",
+                (domain, json.dumps({"consolidation": {"cluster_member_ids": [ids[(index + 1) % 3]]}}), row_id),
+            )
+    assert onramp_main(["export", "--db", str(source), "--user-id", USER, "--out", str(backup)]) == 0
+    _bounded_selector(monkeypatch)
+    argv = ["import", "--in", str(backup), "--db", str(destination), "--user-id", USER]
+    output = StringIO()
+    with redirect_stdout(output), redirect_stderr(output):
+        assert onramp_main(argv) == 1
+    assert "restore_failed" in output.getvalue()
+    assert "no records were written" in output.getvalue()
+    # Nothing is published and no staged file is left beside the destination.
+    assert sorted(path.name for path in tmp_path.iterdir()) == ["backup.jsonl", "source.sqlite3"]
+
+
 def test_sqlite_repair_follows_available_artifact_and_leaves_missing_inputs(tmp_path):
     from alicebot_api.vnext_derived_domain_backfill import relabel_sqlite
 

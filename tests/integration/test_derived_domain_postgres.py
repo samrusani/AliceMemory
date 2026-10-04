@@ -127,6 +127,53 @@ def test_postgres_repair_as_documented_nobypassrls_owner(database_urls, monkeypa
                 "metadata_json": {"source_artifact_id": str(artifact["id"])},
             }
         )
+        # One input of each remaining kind the migration reads under FORCE RLS,
+        # each with its own restricted label, and one derived report built only
+        # from it. Reading a table the owner cannot see leaves its report
+        # unknown, so a missing NO FORCE line on that table fails by name.
+        legal_source = store.create_source(
+            {
+                "source_type": "note",
+                "title": "Counsel note",
+                "content_hash": "sha256:" + uuid4().hex,
+                "domain": "legal",
+                "sensitivity": "public",
+            }
+        )
+        financial_loop = store.create_open_loop(
+            {"title": "Settle the loan", "domain": "financial", "sensitivity": "public"}, actor_type="user"
+        )
+        family_memory = store.create_memory(
+            {
+                "memory_key": "family",
+                "canonical_text": "Family observation",
+                "domain": "family",
+                "sensitivity": "public",
+                "status": "active",
+                "memory_type": "belief",
+            }
+        )
+        family_belief = store.create_belief(
+            {"memory_id": str(family_memory["id"]), "claim": "Family claim", "status": "active", "confidence": 0.8},
+            actor_type="user",
+        )
+        from_source, from_open_loop, from_belief = (
+            store.create_artifact(
+                {
+                    "artifact_type": artifact_type,
+                    "title": title,
+                    "content_markdown": "Derived text",
+                    "status": "needs_review",
+                    "domain": "unknown",
+                    "metadata_json": metadata,
+                }
+            )
+            for artifact_type, title, metadata in (
+                ("daily_brief", "Brief of a source", {"input_summary": {"source_ids": [str(legal_source["id"])]}}),
+                ("daily_brief", "Brief of a loop", {"input_summary": {"open_loop_ids": [str(financial_loop["id"])]}}),
+                ("contradiction_report", "Report on a belief", {"belief_ids": [str(family_belief["id"])]}),
+            )
+        )
     role = "repair_owner_" + uuid4().hex
     tables = ("sources", "memories", "open_loops", "generated_artifacts", "beliefs", "event_log")
     parsed = urlsplit(database_urls["admin"])
@@ -176,10 +223,16 @@ def test_postgres_repair_as_documented_nobypassrls_owner(database_urls, monkeypa
                 assert store.get_memory(str(derived["id"]))["domain"] == expected, "migration must relabel derived memory"
                 assert store.get_artifact(str(artifact["id"]))["domain"] == expected
                 assert store.get_memory(str(promoted["id"]))["domain"] == expected
+                for report, label, message in (
+                    (from_source, "legal", "migration must relabel a report derived from a source"),
+                    (from_open_loop, "financial", "migration must relabel a report derived from an open loop"),
+                    (from_belief, "family", "migration must relabel a report derived from a belief"),
+                ):
+                    assert store.get_artifact(str(report["id"]))["domain"] == ("unknown" if fail_after_write else label), message
                 rows = conn.execute(
                     "SELECT target_id FROM event_log WHERE event_type IN ('memory.domain_relabelled', 'artifact.domain_relabelled')"
                 ).fetchall()
-                assert len(rows) == (0 if fail_after_write else 3)
+                assert len(rows) == (0 if fail_after_write else 6)
         finally:
             for table in tables:
                 admin.execute(
@@ -189,7 +242,14 @@ def test_postgres_repair_as_documented_nobypassrls_owner(database_urls, monkeypa
             admin.execute(sql.SQL("DROP ROLE {}").format(sql.Identifier(role)))
 
 
-@pytest.mark.parametrize("guard", ("relax", "restore", "planner"))
+_SINGLE_TABLE_RELAX_GUARDS = {
+    "relax_sources": ("sources", "migration must relabel a report derived from a source"),
+    "relax_open_loops": ("open_loops", "migration must relabel a report derived from an open loop"),
+    "relax_beliefs": ("beliefs", "migration must relabel a report derived from a belief"),
+}
+
+
+@pytest.mark.parametrize("guard", ("relax", "restore", "planner", *_SINGLE_TABLE_RELAX_GUARDS))
 def test_postgres_repair_guard_mutations(database_urls, monkeypatch, guard):
     from alembic import op
     from alicebot_api import vnext_derived_domain_backfill as repair
@@ -207,12 +267,19 @@ def test_postgres_repair_guard_mutations(database_urls, monkeypatch, guard):
             text = str(statement)
             if guard == "relax" and " NO FORCE " in text:
                 return None
+            if guard in _SINGLE_TABLE_RELAX_GUARDS and text == (
+                f"ALTER TABLE {_SINGLE_TABLE_RELAX_GUARDS[guard][0]} NO FORCE ROW LEVEL SECURITY"
+            ):
+                return None
             if guard == "restore" and " FORCE " in text and " NO FORCE " not in text:
                 return None
             return execute(statement, *args, **kwargs)
 
         monkeypatch.setattr(op, "execute", omit_guard)
-    expected = "migration must restore FORCE RLS" if guard == "restore" else "migration must relabel derived memory"
+    expected = {
+        "restore": "migration must restore FORCE RLS",
+        **{name: message for name, (_table, message) in _SINGLE_TABLE_RELAX_GUARDS.items()},
+    }.get(guard, "migration must relabel derived memory")
     with pytest.raises(AssertionError, match=expected):
         test_postgres_repair_as_documented_nobypassrls_owner(database_urls, monkeypatch, False)
 
