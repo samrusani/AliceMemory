@@ -42,7 +42,6 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 # for and are meant to keep naming it.
 CONTROL_DOCS = (
     "CURRENT_STATE.md",
-    ".ai/handoff/CURRENT_STATE.md",
     "ARCHITECTURE.md",
     "PRODUCT_BRIEF.md",
     "README.md",

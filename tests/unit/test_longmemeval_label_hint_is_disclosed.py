@@ -87,7 +87,6 @@ MUST_BE_SCANNED = (
     "PRODUCT_BRIEF.md",
     "ROADMAP.md",
     "CURRENT_STATE.md",
-    ".ai/handoff/CURRENT_STATE.md",
     "ARCHITECTURE.md",
     "docs/benchmarks/longmemeval/README.md",
     "docs/benchmarks/longmemeval/HONESTY-KIT.md",

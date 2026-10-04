@@ -157,7 +157,7 @@ OpenClaw does not need a plugin. Either:
 ## Check
 
 ```bash
-alice-memory brief --data-dir /tmp/alice-brief-check
+alice-memory brief --data-dir "$(mktemp -d)"
 ```
 
 An empty directory prints one quiet line and exits 0.

@@ -166,15 +166,21 @@ def _vnext_memory_review(context: MCPRuntimeContext, arguments: Mapping[str, obj
                 # link was written: a source reclassified or archived since then is withheld, with every copy of its
                 # quote, the same way a link that was never stored would be.
                 saved = SavedProvenanceReader(store, fence=SourceReadFence.for_identity(identity))
-                framed_memory = frame_disclosed_tree(saved.memory(memory))
+                # In this order: the memory, then its revisions, then its links. A link's quote is withheld when the
+                # same text is withheld anywhere else on the memory, and the reader learns that text from the row
+                # and the revisions it has been given.
+                shown_memory = saved.memory(memory)
+                shown_revisions = [saved.revision(row) for row in store.list_revisions(memory_id)]
+                shown_links = saved.links(memory_id)
+                framed_memory = frame_disclosed_tree(shown_memory)
                 if isinstance(framed_memory, dict):
                     framed_memory["writer"] = memory_writer(store, memory)
                 payload = {
                     "mode": "vnext_detail",
                     "review": {
                         "memory": framed_memory,
-                        "revisions": frame_disclosed_tree([saved.revision(row) for row in store.list_revisions(memory_id)]),
-                        "provenance_links": frame_disclosed_tree(saved.links(memory_id)),
+                        "revisions": frame_disclosed_tree(shown_revisions),
+                        "provenance_links": frame_disclosed_tree(shown_links),
                     },
                 }
         if blocked_decision is not None:
