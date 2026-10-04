@@ -1370,7 +1370,8 @@ def test_quarantine_import_runs_credential_verdict_on_text_it_did_not_replace(tm
         ("sources", source_id, "title"),
         ("sources", source_id, "metadata_json"),
     ):
-        assert f"quarantine report: {table} {row_id} {column}\nno command removes this today" in captured.out
+        remedy = f"alice-memory sources delete {row_id}" if table == "sources" else "no command removes this today"
+        assert f"quarantine report: {table} {row_id} {column}\n{remedy}" in captured.out
     assert f"quarantine report: memories {secret_id} " not in captured.out
     assert f"quarantine report: provenance_links " not in captured.out
     with sqlite_user_connection(fresh, USER_ID) as conn:

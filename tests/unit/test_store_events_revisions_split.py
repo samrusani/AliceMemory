@@ -139,6 +139,7 @@ EXPECTED_PRIMITIVE_METADATA = {
     },
 }
 EXPECTED_CLASS_KEY_SHA256 = {
+    # Source owner methods are additive; the existing member order is unchanged.
     # Re-minted for the paired browser-clip capability façade methods.
     # The sqlite hash is re-minted again for ``check_source_search_query``. It is
     # SQLite only on purpose: the Postgres source search has no expression-depth
@@ -154,7 +155,7 @@ EXPECTED_CLASS_KEY_SHA256 = {
     # (the Postgres runtime resolves no project view).
     # Re-minted again for the per-file importer savepoint (2026-10-02), the same appended method.
     # Previous receipt: 365b7a01acf7a8b5... Proof: as for postgres, one added key and no other change.
-    "sqlite": "e837e40125b4aeb2a135d93cc510b8dbe4c9be397500c971bcbec951ffb561b0",
+    "sqlite": "65301a20344d20bd6e20e6717f1f3db3fd4b16611964425d1d3f98736326f393",
 }
 EXPECTED_SUPPORT_AST_SHA256 = {
     "postgres_columns": {
@@ -367,7 +368,8 @@ def test_event_revision_methods_are_moved_once_at_the_original_class_positions()
         sqlite_names.index("list_resume_memory_events") + 1 : sqlite_names.index("list_memory_events")
     ] == ["list_project_update_events"]
     assert sqlite_names[sqlite_names.index("list_memory_events") + 1 : sqlite_names.index("create_source")] == [
-        "count_events"
+        "count_events", "markdown_sources_by_path", "supersede_source",
+        "scrub_source", "source_inventory", "prunable_sources"
     ]
     assert sqlite_names[
         sqlite_names.index("list_memories_missing_fact_keys") + 1 : sqlite_names.index("_redaction_mode")
