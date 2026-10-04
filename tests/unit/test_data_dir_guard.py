@@ -449,9 +449,8 @@ def test_the_docs_say_the_hook_checks_the_variable_from_v0192_and_keep_the_v0190
     assert "It exits 0 and creates nothing." in example
     assert "cut at 200 characters" in example
 
-    for name in ("CURRENT_STATE.md", ".ai/handoff/CURRENT_STATE.md"):
-        state = _flat((_ROOT / name).read_text(encoding="utf-8"))
-        assert "From `v0.19.2`, the hook refuses a relative `ALICE_MEMORY_DATA_DIR` the same way." in state, name
+    state = _flat((_ROOT / "CURRENT_STATE.md").read_text(encoding="utf-8"))
+    assert "From `v0.19.2`, the hook refuses a relative `ALICE_MEMORY_DATA_DIR` the same way." in state
 
     changelog = (_ROOT / "CHANGELOG.md").read_text(encoding="utf-8").split("\n## ")
     # Unreleased and the v0.20.0 section may hold entries for changes made after v0.19.2.

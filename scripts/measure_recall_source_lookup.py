@@ -9,9 +9,9 @@ statements a call runs.
 Two steps, both offline, no network, no model, no embeddings:
 
     PYTHONPATH=apps/api/src python scripts/measure_recall_source_lookup.py build \
-        --data-dir /tmp/recall-vault
+        --data-dir ./recall-vault
     PYTHONPATH=apps/api/src python scripts/measure_recall_source_lookup.py measure \
-        --data-dir /tmp/recall-vault --label branch
+        --data-dir ./recall-vault --label branch
 
 Point PYTHONPATH at another checkout's apps/api/src to time that version on the
 same vault. ``measure`` copies the vault before it runs, so repeated runs and

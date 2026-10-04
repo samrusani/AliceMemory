@@ -895,18 +895,45 @@ the caller's fence is left out whole, as a link that was never stored would be,
 and so is a link that names no source. When a memory has such a link, or its own
 copies name such a source, the three copies of the quote are removed from the
 row and the entries of its `source_refs` lists that name the source (in the
-metadata, in `agentic_memory` and in `value`, and in the `previous_value` and
-`new_value` of a revision) are dropped, so the id of the source goes with its
-quote. The memory is still returned, with its text. A memory with no link at all
-(a commit held for review or waiting for its author's confirmation, then
+metadata, in `agentic_memory` and in `value`, and in the `previous_value`,
+`new_value` and `metadata_json` of a revision, where a memory proposal keeps the
+refs it was given) are dropped, so the id of the source goes with its quote.
+The memory is still returned, with its text. A memory with no link at all (a
+commit held for review or waiting for its author's confirmation, then
 approved or confirmed, stores none) is judged by the source ids its own copies
 name, in the context pack as well, and `alice_explain` refuses a key that may
 not read a source the memory row, its revisions or its event payloads name, as it
-does for a linked one. When a link is left out, another link of the same memory
-whose quote says the same text (ignoring the whitespace between words) is shown
-without its quote, because the commit route saves one excerpt as the quote of
-every link it makes. A link whose quote says something else keeps it. A source
-with no project (a source the owner captured has none) is outside the fence of
+does for a linked one. The text of every quote that is withheld (the quote of
+a link that is left out, and each copy removed from the row or from a revision)
+is withheld from the memory's other links as well: a link whose quote says the
+same text (ignoring the whitespace between words) is shown without its quote.
+This matters for a ref that names several sources in one entry, such as
+`{"source_ids": [A, B]}`: the commit route links only the first id, and it
+saves the excerpt both as the quote of that link and as the memory's own copy,
+so when B is refused the copy goes and the link to A would still hold the same
+bytes. A link whose quote says something else keeps it. A memory is judged by
+every source id its refs name, in the shape they were stored in: under
+`source_id`, `source_ids`, `source_ref`, `source_refs`, `source_references`,
+`selected_source_ids` or `sources` at any depth, under `id` or `ref` inside an
+entry of a ref list, in a list or an object under any other key, with a
+`source:` prefix in any case, `urn:uuid:`, braces, no hyphens or upper case, as
+an `alice://sources/<id>` URL, and as several ids in one string or in a JSON
+string. Every spelling the link writer reads is read, an id that starts with `0`
+and is written with a space, a tab or another whitespace character in the place
+of the zero included (`source: ` and the other 31 digits, say): the writer reads
+it as that id, links it and checks it, so the reader names it too. An id in one
+of those positions must name a stored source the caller may read, and one that
+does not is refused as a missing source is. An id anywhere else (under a key
+such as `origin` or `chunk_id`, in a sentence such as
+`copied from source: <id>`, in an outside URL such as
+`https://host/projects/1/sources/<id>`, or with punctuation around it)
+may be a chunk id or a session id, so it counts only when the store holds a row
+for it, an archived source's row included: an id that names a stored source the
+caller may not read, or an archived one, is refused, and an id that names no
+source changes nothing, so such a ref does not take the quote from a caller who
+may read what the memory cites. A ref is read in time that grows with its length,
+as the proposal door stores `source_refs` as sent. A source with no project (a
+source the owner captured has none) is outside the fence of
 every key bound to a project, the admin key included, so review by id returns
 none of the link, the quote or the id of a memory that cites it to those keys, as
 `alice_explain` already did; a key bound to no project keeps them. A caller that
@@ -917,7 +944,18 @@ memory with no link returned it. The pack's `sources` section and `alice_recall`
 are a different reader, the source's own excerpt, held to the domains of a key
 that names none (see [Domains a profile may read](#domains-a-profile-may-read)).
 Not covered: a memory that `alice_capture` derived from a source holds that text
-as its own; the operator routes `GET /v0/vnext/memories/{id}/audit`,
+as its own; an id found where it could be a chunk id (the second group above)
+that names a source removed from the database, which no door of the product
+does (sources are archived), cannot be told from a chunk id and is not judged;
+because such an id changes the answer only when it names a stored source the
+caller may not read (the quote is withheld and `alice_explain` refuses), a
+caller that can store a memory can learn, by reading it back, whether an id it
+already holds names such a source, one bit that a named id does not give (a
+missing, an archived and an unreadable source are refused alike there); the
+check at write time reads only the ref shapes the link writer reads, so a ref in
+another shape (`selected_source_ids`, an upper case `SOURCE:`, several ids in
+one string, an id under another key) is stored without it and is judged only
+when it is read; the operator routes `GET /v0/vnext/memories/{id}/audit`,
 `GET /v0/vnext/memories/recent-commits` and `GET /v0/vnext/sources/{id}`, which
 only the owner and a `trusted_local_agent` or `admin_agent` key bound to no
 project reach, return what was stored; and on an install with no agent keys, a

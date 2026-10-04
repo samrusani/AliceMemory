@@ -1,5 +1,7 @@
 # Alice v0.11.0 Phase 1 Periphery-Cut Handoff
 
+> **Correction (2026-10-04):** the reviews named here were internal adversarial review and automated security scanning. No one outside the project has audited the code.
+
 This directory is the control-tower handoff for Phase 1 of the post-v0.10.4
 work brief. The implementation is based on `main` at
 `8520f29d3812aa95a75d192fdaf897e5d099a29a` and targets the unpublished

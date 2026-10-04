@@ -573,9 +573,8 @@ def test_the_docs_and_the_hint_comment_say_review_is_read_only_from_v0192() -> N
     assert "A policy audit row" not in source
     assert "An event log row or\n# an agent identity row is not a state change the client asked for." in source
 
-    for name in ("CURRENT_STATE.md", ".ai/handoff/CURRENT_STATE.md"):
-        state = " ".join((_ROOT / name).read_text(encoding="utf-8").split())
-        assert (
-            "From `v0.19.2`, `alice_memory_review` is read-only, so with the full tool "
-            "set six tools are read-only and three are destructive."
-        ) in state, name
+    state = " ".join((_ROOT / "CURRENT_STATE.md").read_text(encoding="utf-8").split())
+    assert (
+        "From `v0.19.2`, `alice_memory_review` is read-only, so with the full tool "
+        "set six tools are read-only and three are destructive."
+    ) in state

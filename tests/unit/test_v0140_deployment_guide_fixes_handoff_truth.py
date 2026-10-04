@@ -12,6 +12,8 @@ import tomllib
 
 import pytest
 
+from tests.unit.frozen_handoff_support import handoff_drift_problems
+
 
 ROOT = Path(__file__).resolve().parents[2]
 BASE = "b383f6e69896717dfb60b887747e304c33f70d5b"
@@ -284,17 +286,10 @@ def _assert_integrated_handoff_immutable(
     *,
     head: str = "HEAD",
 ) -> None:
-    handoff_diff = _git(
-        "diff",
-        "--quiet",
-        carrier,
-        head,
-        "--",
-        HANDOFF_REL,
-        check=False,
-    )
-    assert handoff_diff.returncode == 0, (
-        "the integrated deployment-fixes handoff changed after its receipt-trailed carrier commit"
+    # The README may gain the dated correction of 2026-10-04 and nothing else.
+    drift = handoff_drift_problems(_git, carrier, head, HANDOFF_REL)
+    assert not drift, (
+        f"the integrated deployment-fixes handoff changed after its receipt-trailed carrier commit: {drift}"
     )
     for filename in ("BUILD_REPORT.md", "REVIEW_REPORT.md"):
         relative_path = f"{HANDOFF_REL}/{filename}"
@@ -519,4 +514,4 @@ def test_deployment_fixes_allows_later_source_edits_but_rejects_handoff_drift(
     monkeypatch.setattr(f"{__name__}._git", fake_git)
     with pytest.raises(AssertionError, match="handoff changed"):
         _assert_integrated_handoff_immutable("carrier")
-    assert observed == [("diff", "--quiet", "carrier", "HEAD", "--", HANDOFF_REL)]
+    assert observed[0] == ("diff", "--quiet", "carrier", "HEAD", "--", HANDOFF_REL)
