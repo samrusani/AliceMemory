@@ -266,7 +266,7 @@ def test_retirement_derived_state_and_committed_memory(tmp_path):
             store.create_provenance_link({'target_type':'memory','target_id':memory['id'],'source_id':sid,'quote':'cobalt'})
     (folder/'note.md').write_text('The orange lantern is stored downstairs.')
     result = run_import(db, folder, supersede=True)
-    assert result.failed_count == 0 and result.memories_citing_replaced == (ids[1],)
+    assert result.failed_count == 0 and set(result.memories_citing_replaced) == set(ids)
     assert count_sleep_proposals(sidecar,user_id=USER_ID) == 0
     assert sidecar.stat().st_mode & 0o777 == 0o600
     with sqlite_user_connection(db, USER_ID) as conn:
@@ -275,8 +275,9 @@ def test_retirement_derived_state_and_committed_memory(tmp_path):
         assert store.get_memory(ids[1])['canonical_text'] == 'cobalt memory'
         assert store.get_memory(ids[1])['status'] == 'active'
         assert store.list_provenance_links(target_type='memory',target_id=ids[1])[0]['source_id'] == sid
-        assert all(row['valid_to'] and not row['explanation'] and row['metadata_json'] == {}
-                   for row in store.list_edges(from_id=sid))
+        edges = store._fetch_all('SELECT * FROM graph_edges WHERE from_id=?', (sid,))
+        assert len(edges) > 0
+        assert all(row['valid_to'] and not row['explanation'] and row['metadata_json'] == {} for row in edges)
         rows = conn.execute('SELECT name, normalized_name, mention_count, deleted_at FROM vnext_entities').fetchall()
         assert rows and all(row['mention_count'] == 0 and row['deleted_at'] and row['normalized_name'].startswith('removed:') for row in rows)
         loop = conn.execute('SELECT title,description,status FROM open_loops').fetchone()

@@ -247,7 +247,7 @@ class BatchImportResult:
         if self.classification_changes:
             record["classification_changes"] = list(self.classification_changes[:10])
         if self.memories_citing_replaced:
-            record["memories_citing_replaced"] = list(self.memories_citing_replaced[:20])
+            record["memories_citing_replaced"] = list(self.memories_citing_replaced)
         if self.changed_files_count:
             record["changed_files_count"] = self.changed_files_count
             record["replacement_hint"] = "Use --supersede --dry-run to preview replacement, then --supersede to apply it."
@@ -1891,7 +1891,7 @@ class VNextCaptureService:
         failed_count = 0
         skipped_count = 0
         credential_items: list[str] = []
-        run_hashes: set[str] = set()
+        run_hashes: set[tuple[str, str, str]] = set()
         deferred_embedding_inputs: list[DeferredMemoryEmbedding] = []
 
         for file_index, source_file in enumerate(snapshot, start=1):
@@ -1904,7 +1904,17 @@ class VNextCaptureService:
             credential_items.extend(file_skips)
             try:
                 content_hash = content_hash_for_text(raw_text)
-                if policy.mode == "off" and content_hash in run_hashes:
+                # One file is one unit. A failure part way rolls the file back
+                # to nothing, the failure is logged after that rollback, and
+                # the next file imports in the same transaction.
+                matches = self._markdown_path_index.get(("markdown_folder", str(file_path)), [])
+                prior = matches[-1] if matches else {}
+                file_domain = domain if domain is not None else str(prior.get("domain") or "unknown")
+                file_sensitivity = sensitivity if sensitivity is not None else str(prior.get("sensitivity") or "unknown")
+                if policy.mode == "off" and matches and all(row['content_hash'] != content_hash for row in matches):
+                    changed_files_count += 1
+                batch_key = (content_hash, file_domain, file_sensitivity)
+                if policy.mode == "off" and batch_key in run_hashes:
                     duplicate_count += 1
                     self._log_event(
                         event_type="source.duplicate_skipped",
@@ -1916,17 +1926,8 @@ class VNextCaptureService:
                         },
                     )
                     continue
-                run_hashes.add(content_hash)
+                run_hashes.add(batch_key)
 
-                # One file is one unit. A failure part way rolls the file back
-                # to nothing, the failure is logged after that rollback, and
-                # the next file imports in the same transaction.
-                matches = self._markdown_path_index.get(("markdown_folder", str(file_path)), [])
-                prior = matches[-1] if matches else {}
-                file_domain = domain if domain is not None else str(prior.get("domain") or "unknown")
-                file_sensitivity = sensitivity if sensitivity is not None else str(prior.get("sensitivity") or "unknown")
-                if policy.mode == "off" and matches and all(row['content_hash'] != content_hash for row in matches):
-                    changed_files_count += 1
                 changes = [{"domain": row['domain'], "sensitivity": row['sensitivity']} for row in matches
                            if (row['domain'], row['sensitivity']) != (file_domain, file_sensitivity)]
                 if policy.mode != "off" and changes:
