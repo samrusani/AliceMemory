@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from contextlib import nullcontext
+from uuid import UUID
 
 from alicebot_api.vault_file_lock import vault_file_lock
 from alicebot_api.vnext_stores.memory_lifecycle_common import is_redacted_memory
@@ -11,6 +12,7 @@ from alicebot_api.vnext_stores.memory_lifecycle_common import is_redacted_memory
 from alicebot_api.source_supersede import classification_refusal, eligible_source
 from alicebot_api.vnext_entities import ENTITY_MENTION_EDGE_TYPE
 from alicebot_api.vnext_project_scope import source_project_scope
+from alicebot_api.vnext_source_fence import memory_cited_source_ids
 from alicebot_api.vnext_stores.sqlite.primitives import _utc_now_iso
 
 REMOVAL_MARKER = "[removed by the owner]"
@@ -47,23 +49,61 @@ def prune_sleep_rows(self, source_ids, *, dry_run=False):
 
 
 
+# The stored text of a memory (its metadata and its value), lower cased, and the same text with what ``uuid.UUID``
+# ignores inside an id taken out: ``urn:``, ``uuid:``, hyphens and underscores. An id written with hyphens in other
+# places, in capitals or without hyphens is then the same run of digits as the id the store holds.
+_MEMORY_TEXT = "lower(coalesce(m.metadata_json, '') || char(10) || coalesce(m.value, ''))"
+_MEMORY_DIGITS = f"replace(replace(replace(replace({_MEMORY_TEXT}, 'urn:', ''), 'uuid:', ''), '-', ''), '_', '')"
+# An ASCII character written as a JSON escape (``\u0061``). A ref that is JSON text can hide any character of an id this
+# way, and the reader decodes it. Escapes of control characters and of letters outside ASCII are what ordinary text has.
+_ESCAPED_ASCII = "*\\u00[2-7][0-9a-f]*"
+
+
+def _citation_probe(source_id):
+    """``(canonical id, digits the stored text must hold)`` for a source id, or ``(None, None)`` for a string that is
+    no id. The digits drop the leading zeros: ``uuid.UUID`` reads a string of 32 characters where whitespace, ``0x``, a
+    sign or an underscore stands in the place of those zeros."""
+
+    try:
+        parsed = UUID(str(source_id))
+    except ValueError:
+        return None, None
+    return str(parsed), parsed.hex.lstrip('0')
+
+
 def citing_memories(self, source_id):
+    """Every memory of the user that cites ``source_id``: by a provenance link to the source or to one of its chunks,
+    by ``source_event_ids``, or by a reference the shared reference reader names (``memory_cited_source_ids``: every
+    spelling of the id, in refs that are text, lists, objects or JSON text).
+
+    The text is first narrowed in SQL to the memories that could hold the id in some spelling, and each of those is then
+    read by the reader, so the narrowing may keep a memory the reader rejects and never drops one it accepts. It looks
+    for the digits of the id with the characters ``uuid.UUID`` ignores removed, and for the ASCII escapes a JSON text can
+    use to hide them. It does not look for an id written with decimal digits of another script (``int(..., 16)`` reads
+    those too), so a memory that spells its source that way is not found.
+    """
+
     # No bounded list: a scrub must cover every candidate, including old rows
     # whose only reference is in value or metadata rather than a provenance link.
-    return self._fetch_all(
+    found = {str(row['id']): row for row in self._fetch_all(
         """SELECT m.* FROM memories m WHERE m.user_id = ? AND (
         EXISTS (SELECT 1 FROM provenance_links p WHERE p.user_id = m.user_id
                 AND p.target_type = 'memory' AND p.target_id = m.id
                 AND (p.source_id = ? OR EXISTS (
                     SELECT 1 FROM source_chunks c WHERE c.user_id = p.user_id
                     AND c.id = p.source_chunk_id AND c.source_id = ?)))
-        OR EXISTS (SELECT 1 FROM json_tree(m.metadata_json) j WHERE j.type = 'text'
-                   AND j.value IN (?, ?))
-        OR EXISTS (SELECT 1 FROM json_tree(m.value) j WHERE j.type = 'text' AND j.value IN (?, ?))
         OR EXISTS (SELECT 1 FROM json_each(m.source_event_ids) j WHERE j.value = ?)
-        ) ORDER BY m.id""",
-        (self.user_id, source_id, source_id, source_id, 'source:' + source_id,
-         source_id, 'source:' + source_id, source_id))
+        )""",
+        (self.user_id, source_id, source_id, source_id))}
+    canonical, digits = _citation_probe(source_id)
+    if canonical is not None:
+        for row in self._fetch_all(
+                f"SELECT m.* FROM memories m WHERE m.user_id = ? AND "
+                f"(instr({_MEMORY_DIGITS}, ?) > 0 OR {_MEMORY_TEXT} GLOB ?)",
+                (self.user_id, digits, _ESCAPED_ASCII)):
+            if str(row['id']) not in found and canonical in memory_cited_source_ids(row):
+                found[str(row['id'])] = row
+    return [found[key] for key in sorted(found)]
 
 
 def close_mention_edges(self, from_type, from_id, now):

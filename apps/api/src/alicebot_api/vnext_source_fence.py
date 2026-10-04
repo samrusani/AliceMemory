@@ -748,6 +748,29 @@ def cited_source_ids_in_memory_audit(audit: Mapping[str, object]) -> CitedSource
     return cited
 
 
+def memory_cited_source_ids(row: Mapping[str, object]) -> frozenset[str]:
+    """Every source id a memory row cites, read by the rules the saved-quote reader reads a memory with.
+
+    The reference fields the reader judges (``_source_ids_named_by_memory_copies``) are read first. The rest of
+    ``metadata_json`` and of ``value`` is read with ``cited_source_ids`` as well, because other code in the product stores
+    the source of a memory under ``source_id``, ``source_ids`` or ``selected_source_ids`` at the top of its metadata, and
+    a retirement that looked only at the reader's own fields would leave such a memory behind. The rules are the reader's:
+    an id is read in every spelling the link writer reads and in the ones ``uuid.UUID`` accepts, a ref that is JSON text
+    is read as the value it decodes to, a ``quote`` or a ``conversation_excerpt`` at any depth names nothing, and a
+    ``memory:`` ref names a memory.
+
+    The answer holds the named ids and the incidental ones. A caller asks about a source that is stored, and the reader
+    treats an incidental id of a stored source as a citation of it (it withholds the quote and refuses the explanation),
+    so the retirement of that source treats it the same way. Provenance links and ``source_event_ids`` are not read here;
+    they are columns, and the store matches them by id.
+    """
+
+    cited = _source_ids_named_by_memory_copies(row)
+    for key in ("metadata_json", "value"):
+        cited |= cited_source_ids(row.get(key))
+    return cited.every
+
+
 # -- the quote copies ------------------------------------------------------------------------------------------------
 
 
@@ -1213,6 +1236,7 @@ __all__ = [
     "SourceRefNotFoundError",
     "cited_source_ids",
     "cited_source_ids_in_memory_audit",
+    "memory_cited_source_ids",
     "resolve_attachable_memory_id",
     "resolve_attachable_source_id",
     "resolve_attachable_sources",

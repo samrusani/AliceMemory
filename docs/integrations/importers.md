@@ -311,6 +311,21 @@ review the listed memory ids separately, including rejected, stale, superseded
 and archived memories. A key-bound `alice_explain` remains unavailable
 when its audit cites a retired source. The keyless owner can still read the audit.
 
+A memory counts as citing a source when it has a provenance link to the source
+or to one of its chunks, when its `source_event_ids` hold the source id, or when
+its references name the source. References are read the way saved quotes read
+them, so every spelling counts: an id in upper or lower case, with or without
+hyphens, in braces, as `urn:uuid:<id>`, as `source:<id>` with or without a
+`#chunk-0` suffix, as `alice://sources/<id>`, in a list, under `source_refs`,
+`sources`, `source_id`, `source_ids` or `selected_source_ids` at any depth,
+inside a reference that is JSON text, and in free text elsewhere in the memory's
+metadata or value. An id inside a `quote` or
+`conversation_excerpt` field names nothing, and a `memory:` reference names a
+memory. Replacement, `sources delete` and `sources prune` all use this rule, so
+a pending proposal that cites the source in any of those spellings is rejected
+or scrubbed and is counted in the receipt and the preview. One spelling is not
+found: an id written with decimal digits of another script.
+
 There is no restore command for sources. Import the old text with `--supersede`
 to make it live again. A pre-deletion export can conflict with rows in the same
 vault in both restore modes; restore into a fresh vault instead. An export made
