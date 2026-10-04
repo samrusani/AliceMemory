@@ -155,7 +155,7 @@ EXPECTED_CLASS_KEY_SHA256 = {
     # (the Postgres runtime resolves no project view).
     # Re-minted again for the per-file importer savepoint (2026-10-02), the same appended method.
     # Previous receipt: 365b7a01acf7a8b5... Proof: as for postgres, one added key and no other change.
-    "sqlite": "145afe192da441ca0a224369c477a4c844c876df6af859c9fead8fe5ade73f2c",
+    "sqlite": "65301a20344d20bd6e20e6717f1f3db3fd4b16611964425d1d3f98736326f393",
 }
 EXPECTED_SUPPORT_AST_SHA256 = {
     "postgres_columns": {
@@ -368,7 +368,8 @@ def test_event_revision_methods_are_moved_once_at_the_original_class_positions()
         sqlite_names.index("list_resume_memory_events") + 1 : sqlite_names.index("list_memory_events")
     ] == ["list_project_update_events"]
     assert sqlite_names[sqlite_names.index("list_memory_events") + 1 : sqlite_names.index("create_source")] == [
-        "count_events", "markdown_sources_by_path", "supersede_source"
+        "count_events", "markdown_sources_by_path", "supersede_source",
+        "scrub_source", "source_inventory", "prunable_sources"
     ]
     assert sqlite_names[
         sqlite_names.index("list_memories_missing_fact_keys") + 1 : sqlite_names.index("_redaction_mode")
