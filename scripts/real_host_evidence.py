@@ -152,7 +152,7 @@ _NAMEISH = re.compile(r"^[A-Za-z0-9_.-]{1,80}$")
 
 
 def _forms(path_text: str) -> list[str]:
-    """The lexical and the real form of a folder, so /tmp and /private/tmp both match."""
+    """The lexical and the real form of a folder, so a folder reached through a symlink matches under both."""
 
     found: list[str] = []
     candidates = [path_text]

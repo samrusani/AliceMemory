@@ -1,7 +1,7 @@
 """The tool counts the living docs state are the counts the registry lists.
 
 The default three, the eleven core tools, the legacy long tail and the totals under each flag combination are written
-by hand into `docs/integrations/mcp.md` and into `CURRENT_STATE.md` (and its mirror). Nothing derived them from the
+by hand into `docs/integrations/mcp.md` and into `CURRENT_STATE.md`. Nothing derived them from the
 registry, so a new tool definition or a moved tool would leave every page agreeing with itself and wrong.
 
 This guard lists the tools the way a server does, under each flag combination, and reads the figures out of the pages:
@@ -126,14 +126,13 @@ def test_the_counts_in_the_guide_are_the_counts_the_registry_lists(monkeypatch: 
     ) in tools_page
 
 
-@pytest.mark.parametrize("relative", ("CURRENT_STATE.md", ".ai/handoff/CURRENT_STATE.md"))
-def test_the_state_file_states_the_core_legacy_and_total_counts(monkeypatch: pytest.MonkeyPatch, relative: str) -> None:
+def test_the_state_file_states_the_core_legacy_and_total_counts(monkeypatch: pytest.MonkeyPatch) -> None:
     counts = _counts(monkeypatch)
     core = len(_CORE_TOOL_DEFINITIONS)
     legacy = len(_LEGACY_TOOL_DEFINITIONS)
 
     assert core + legacy == counts["all_three"]
-    assert f"{core}-core/{legacy}-legacy/{counts['all_three']}-total" in _flat(relative)
+    assert f"{core}-core/{legacy}-legacy/{counts['all_three']}-total" in _flat("CURRENT_STATE.md")
 
 
 def _the_part_that_lists_the_tools(relative: str, names: list[str]) -> tuple[str, str]:

@@ -439,7 +439,7 @@ Stated so nobody reads the table above as "every surface".
   tail such as a Slack `C04...` id is refused. `gpg_key` over a GPG key id
   is refused. The signing-key exemption
   is only the name `signingkey`, in any case, with or without `_` or `-`. An object path with `/` segments, such as
-  `/tmp/openai_key/export`, is not refused. The grammar, including the
+  `/data/openai_key/export`, is not refused. The grammar, including the
   ALL-CAPS env-style rule and the weak tier, is unchanged. There is no dead
   weak-tier branch. MCP review provenance is still read by value:
   `_REVIEW_PROVENANCE_SCHEMA` allows only `source_id`, `source_chunk_id`,

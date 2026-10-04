@@ -85,14 +85,15 @@ readback:
    RULESET_ID="$(gh api "repos/${REPOSITORY}/rulesets" \
      --jq '.[] | select(.name == "MainProtect" and .target == "branch") | .id')"
    test -n "$RULESET_ID"
+   ruleset_dir="$(mktemp -d "${TMPDIR:-/tmp}/alice-mainprotect.XXXXXX")"
    gh api "repos/${REPOSITORY}/rulesets/${RULESET_ID}" \
-     > /tmp/alice-mainprotect-current.json
+     > "$ruleset_dir/current.json"
    python -m scripts.prepare_mainprotect_update \
-     --input /tmp/alice-mainprotect-current.json \
-     --output /tmp/alice-mainprotect-update.json
-   python -m json.tool /tmp/alice-mainprotect-update.json
+     --input "$ruleset_dir/current.json" \
+     --output "$ruleset_dir/update.json"
+   python -m json.tool "$ruleset_dir/update.json"
    gh api --method PUT "repos/${REPOSITORY}/rulesets/${RULESET_ID}" \
-     --input /tmp/alice-mainprotect-update.json
+     --input "$ruleset_dir/update.json"
    GITHUB_TOKEN="$(gh auth token)" python scripts/check_github_release_checks.py \
      --repo "$REPOSITORY" --sha RELEASE_SHA --check-rulesets
    ```
@@ -176,7 +177,7 @@ make setup
 make setup-browser
 make migrate
 
-release_run_root="$(mktemp -d /tmp/alice-release-check.XXXXXX)"
+release_run_root="$(mktemp -d "${TMPDIR:-/tmp}/alice-release-check.XXXXXX")"
 dist_dir="$release_run_root/dist"
 repro_dist_dir="$release_run_root/reproducibility-check"
 semantic_dir="$release_run_root/semantic"

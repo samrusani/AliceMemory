@@ -22,9 +22,9 @@ store read that is handed the marker must state it).
 Two steps, both offline, no network, no model, no embeddings, no host binary:
 
     PYTHONPATH=apps/api/src python scripts/measure_project_view.py build \\
-        --data-dir /tmp/pv-vault --notes 5000
+        --data-dir ./pv-vault --notes 5000
     PYTHONPATH=apps/api/src python scripts/measure_project_view.py measure \\
-        --data-dir /tmp/pv-vault --label branch
+        --data-dir ./pv-vault --label branch
 
 ``build`` makes a scratch git repository beside the vault (``<data-dir>-repo``,
 hand-written ``.git``, no ``git`` process) and stamps three project ids on 15
@@ -90,6 +90,9 @@ def build_vault(data_dir: Path, *, notes: int, scoped_share: float = 0.15) -> di
     from alicebot_api.project_identity import detect_project
     from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
 
+    # A relative --data-dir (the form the usage text shows) must name the same repository
+    # beside the vault that ``measure`` reads back, so make both absolute here.
+    data_dir = data_dir.resolve()
     repo = data_dir.parent / (data_dir.name + "-repo")
     _make_repo(repo)
     detection = detect_project(argument=str(repo), env_project_dir=None, hook_cwd=None, process_cwd=None)

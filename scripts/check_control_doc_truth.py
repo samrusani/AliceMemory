@@ -270,14 +270,6 @@ CONTROL_DOC_TRUTH_RULES: tuple[ControlDocTruthRule, ...] = (
         ),
     ),
     ControlDocTruthRule(
-        relative_path=".ai/handoff/CURRENT_STATE.md",
-        required_markers=(
-            "## Snapshot",
-            "## Release Boundary",
-            "## Product Boundaries",
-        ),
-    ),
-    ControlDocTruthRule(
         relative_path="PRODUCT_BRIEF.md",
         required_markers=(
             "Alice is the continuity layer for AI agents",
@@ -363,17 +355,6 @@ CONTROL_DOC_TRUTH_RULES: tuple[ControlDocTruthRule, ...] = (
 VERSION_ALIGNED_DOC_RULES: tuple[VersionAlignedDocRule, ...] = (
     VersionAlignedDocRule(
         relative_path="CURRENT_STATE.md",
-        candidate_pattern_templates=(
-            r"`v{version}`[^\n]*\bcandidate\b",
-            r"^## What `v{version}` (?:Targets|Changes|Adds)$",
-        ),
-        published_pattern_templates=(
-            r"`v{version}`[^\n]*\blatest published release\b",
-            r"^## What `v{version}` Shipped$",
-        ),
-    ),
-    VersionAlignedDocRule(
-        relative_path=".ai/handoff/CURRENT_STATE.md",
         candidate_pattern_templates=(
             r"`v{version}`[^\n]*\bcandidate\b",
             r"^## What `v{version}` (?:Targets|Changes|Adds)$",
@@ -819,11 +800,6 @@ def run_control_doc_truth_check(
         path = root_dir / relative_path
         if path.is_file() and stale_pattern.search(path.read_text(encoding="utf-8")):
             issues.append(f"{relative_path}: contains stale present-tense v0.10.0 closure wording")
-
-    mirror = root_dir / ".ai" / "handoff" / "CURRENT_STATE.md"
-    current = root_dir / "CURRENT_STATE.md"
-    if mirror.exists() and current.exists() and mirror.read_bytes() != current.read_bytes():
-        issues.append(".ai/handoff/CURRENT_STATE.md: must exactly mirror CURRENT_STATE.md")
 
     return issues
 
