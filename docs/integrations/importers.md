@@ -113,7 +113,7 @@ name skips that file and the receipt uses `file K (name withheld)`. A token
 in the folder name refuses the import, writes nothing, and does not print
 the path. Encoding is all or nothing: one markdown file that is not valid
 UTF-8 refuses the folder, and the error names that file, or says withheld
-when the file name is flagged. Exit code 1 means the batch status is
+when the file name is flagged. In v0.20.0, exit code 1 means the batch status is
 `failed`, and it also covers path errors. Replay of the same file is
 `duplicate`. OpenClaw stays on the loader scripts above. `alice-memory
 doctor` counts stored sources the commit door still flags and prints their ids.
@@ -260,3 +260,75 @@ Evidence paths:
 ## Scope Guard
 
 No additional importer families are currently shipped.
+
+## Replacement on re-import
+
+Unreleased (on main, not in v0.20.0): `alice-memory import-markdown` accepts
+`--supersede`, `--no-supersede`, `--dry-run` and `--allow-looser-classification`.
+Replacement is off by default. In v0.20.0, importing an edited file adds another
+live source. The default still does that, and now counts changed paths in the
+receipt with a command to preview replacement. Unchanged default imports keep
+their existing receipt shape.
+
+```bash
+alice-memory import-markdown --from notes --supersede --dry-run
+alice-memory import-markdown --from notes --supersede
+```
+
+Replacement matches the resolved absolute path and the Markdown importer
+connector within one user. The receipt prints file labels, not absolute paths.
+Moving a folder, or restoring on another machine, starts new path identities.
+Import once at the new location before later edits can replace those versions.
+Manual captures, ChatGPT exports, connector sources and agent captures are
+never retired by this command. Postgres import commands accept no new flags.
+
+An omitted domain or sensitivity keeps the known path's most recent live label;
+a first import uses `unknown`. With replacement enabled, every live match is
+checked before capture: sensitivity may stay equal or rise, and a domain may
+stay equal or move from `unknown` to a named domain. Other domain changes and
+lower sensitivity need `--allow-looser-classification`. A project-scope change
+is always refused. A refusal creates and retires nothing. The dry run uses the
+same decision and rolls back its database writes; it leaves sleep proposals
+unchanged.
+
+A new version and retirement share one savepoint. An unchanged same-path
+duplicate is kept, retiring any other stale versions of that path. If the new
+text instead matches another path's live source, nothing is retired or added:
+`kept` reports `matches_other_live_source`. New versions count as imports and
+the batch is `ok`; an unchanged batch is `duplicate`. A batch that only retires
+stale same-path duplicates is `ok`, with zero imports. Nonzero replacement
+receipts include `superseded_count` and up to ten titles and ids, refusal reasons,
+and every retained memory id in `memories_citing_replaced`, without a silent cap.
+
+Replacement keeps old source text inside the live vault file, but exports omit
+it. It closes and blanks source-backed open loops, rejects pending candidates,
+removes source mention edges from live entity counts, scrubs unsupported linker
+entities and removes sleep proposals. Entity observation windows only widen.
+Every memory whose text was not redacted keeps its own text and provenance;
+review the listed memory ids separately, including rejected, stale, superseded
+and archived memories. A key-bound `alice_explain` remains unavailable
+when its audit cites a retired source. The keyless owner can still read the audit.
+
+There is no restore command for sources. Import the old text with `--supersede`
+to make it live again. A pre-deletion export can conflict with rows in the same
+vault in both restore modes; restore into a fresh vault instead. An export made
+after replacement does not contain the replaced versions.
+
+Unreleased (on main, not in v0.20.0): a refused replacement reports `refused`
+when no file imported or duplicated, or `partial` when another file did.
+Either receipt exits 1 when any file was refused. A batch with status `failed`
+or a path error also exits 1. Successful `ok` and `duplicate` receipts exit 0;
+a partial batch caused only by ordinary per-file failures keeps its existing
+exit code 0 and reports the failures in `failed_count`.
+
+Unreleased (on main, not in v0.20.0): a preview does not change database content,
+but SQLite can create empty `memory.db-wal` and `memory.db-shm` coordination files
+beside a cleanly closed vault. Sleep publication and source retirement share a
+file lock; publication also rechecks source liveness under the database writer
+lock, so an overlapping sleep run cannot put a retired excerpt back.
+
+Unreleased (on main, not in v0.20.0): the keyless owner can still see a saved quote
+and the replaced source id through a retained memory in review by id, context
+packs and explain; keyed callers remain fenced. A bare `--supersede` on a path
+with several live copies inherits the newest copy's labels and refuses if an
+older copy is stricter, unless the owner explicitly allows looser classification.

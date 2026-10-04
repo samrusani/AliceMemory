@@ -27,6 +27,7 @@ import os
 from pathlib import Path
 from uuid import UUID
 
+from alicebot_api.vault_file_lock import vault_file_lock
 from alicebot_api.legacy_credential_check import commit_door_secret_verdict
 from alicebot_api.project_view import ProjectView
 from alicebot_api.session_briefing import (
@@ -189,17 +190,12 @@ def run_local_vault_sleep(
                 }
             )
 
-    dropped = len(existing) - len(kept_rows)
-    if written_rows or dropped:
-        try:
-            _write_jsonl(sidecar, [*kept_rows, *written_rows])
-        except OSError as exc:
-            raise SleepError("sidecar could not be written") from exc
-    else:
-        try:
-            _restrict_sidecar_mode(sidecar)
-        except OSError as exc:
-            raise SleepError("sidecar could not be written") from exc
+    # Preparation uses no file lock. Publication takes the database writer
+    # lock first, then the sidecar lock, in the same order as retirement.
+    try:
+        written_rows, existing_rows_removed = _publish_sleep_rows(resolved, user_id, written_rows)
+    except OSError as exc:
+        raise SleepError("sidecar could not be written") from exc
 
     return format_sleep_receipt(
         written=len(written_rows),
@@ -211,6 +207,42 @@ def run_local_vault_sleep(
         sources_not_proposed=sources_not_proposed,
         sidecar=sidecar,
     )
+
+
+def _proposal_source_is_live(store, row):
+    return bool(store.conn.execute(
+        "SELECT 1 FROM sources WHERE user_id=? AND id=? AND deleted_at IS NULL",
+        (str(row.get('user_id') or ''), str(row.get('source_id') or ''))).fetchone())
+
+
+def _publish_sleep_rows(db_path, user_id, prepared):
+    sidecar = sleep_proposals_path(db_path)
+    with sqlite_user_connection(db_path, user_id) as connection:
+        store = SQLiteVNextStore(connection, user_id)
+        with store.savepoint(), vault_file_lock(sidecar):
+            current = load_sleep_proposals(sidecar)
+            kept = [row for row in current if not _row_refused(store, row, caller_id=store.user_id)
+                    and _proposal_source_is_live(store, row)]
+            present = {(str(row.get('user_id')), str(row.get('source_id'))) for row in kept}
+            counting = sum(str(row.get('user_id')) == store.user_id
+                           and not _has_committed_fact(store, str(row.get('source_id'))) for row in kept)
+            written = []
+            for row in prepared:
+                key = (str(row.get('user_id')), str(row.get('source_id')))
+                if (key in present or not _proposal_source_is_live(store, row)
+                        or _row_refused(store, row, caller_id=store.user_id)
+                        or _has_committed_fact(store, str(row['source_id']))
+                        or counting + len(written) >= SLEEP_PROPOSAL_CAP):
+                    continue
+                written.append(row)
+                present.add(key)
+            removed = sum(str(row.get('user_id')) == store.user_id for row in current) - sum(
+                str(row.get('user_id')) == store.user_id for row in kept)
+            if written or len(kept) != len(current):
+                _write_jsonl(sidecar, [*kept, *written])
+            else:
+                _restrict_sidecar_mode(sidecar)
+            return written, removed
 
 
 def _list_source_ids(store: SQLiteVNextStore) -> list[str]:
@@ -414,6 +446,11 @@ def compile_sleep_proposal_listing(
 
 
 def _write_jsonl(path: Path, rows: list[dict[str, object]]) -> None:
+    with vault_file_lock(path):
+        _write_jsonl_locked(path, rows)
+
+
+def _write_jsonl_locked(path: Path, rows: list[dict[str, object]]) -> None:
     payload = "".join(
         json.dumps(row, ensure_ascii=True, separators=(",", ":"), sort_keys=True) + "\n"
         for row in rows
