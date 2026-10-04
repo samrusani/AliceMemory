@@ -1,8 +1,14 @@
-# P12-S2 Automated Memory Operations
+# Automated Memory Operations
+
+## Requirements and status
+
+- Support status: legacy surface. Its MCP tools are off the default handshake, and the legacy MCP surface is frozen: it gets no new capabilities. The commands, routes and tools on this page are kept working: CI runs their tests against Postgres. New integrations use the core tools.
+- Backend: Postgres, for the CLI, the HTTP API and the MCP tools alike. The `alicebot` CLI refuses a SQLite URL and the HTTP API runs only on Postgres. The four MCP tools below read the continuity store, which exists only on Postgres: on the SQLite `alice-memory` vault they are listed but their calls fail. See [Full stack](../../README.md#full-stack-postgres--review-console).
+- Settings: the MCP tools need `ALICE_MCP_LEGACY_TOOLS=1` in the server environment, on a keyless server. A server bound with `ALICE_AGENT_API_KEY` never lists or accepts them. The CLI commands and the HTTP routes need no flag.
 
 ## Scope
 
-This sprint adds an explicit mutation layer for post-turn continuity handling. The new flow separates:
+The mutation layer is an explicit step for post-turn continuity handling. The flow separates:
 
 - candidate generation
 - operation classification
@@ -20,7 +26,7 @@ The shipped mutation operation types are:
 
 ## Policy
 
-Current branch behavior routes `DELETE` through the existing continuity correction path as a logical tombstone.
+`DELETE` goes through the existing continuity correction path as a logical tombstone.
 
 Policy decisions are stored on each mutation candidate:
 
@@ -39,7 +45,7 @@ From v0.19.2, `assist` and `auto` modes can `auto_apply` only a candidate that c
 
 ## Storage
 
-Two new audit tables back the flow:
+Two audit tables back the flow:
 
 - `memory_operation_candidates`
 - `memory_operations`
@@ -59,7 +65,7 @@ Endpoints:
 
 ### CLI
 
-New commands:
+Commands:
 
 - `alicebot mutations generate`
 - `alicebot mutations candidates`
@@ -68,9 +74,9 @@ New commands:
 
 ### MCP
 
-These are legacy MCP tools. They are listed only with `ALICE_MCP_LEGACY_TOOLS=1` on a keyless local server, never on a server bound with `ALICE_AGENT_API_KEY`, and they run only on Postgres: on SQLite they are listed but their calls fail. See [Legacy tool surface](../alpha/mcp-tools.md#legacy-tool-surface).
+These are legacy MCP tools. Their requirements are at the top of this page. See also [Legacy tool surface](../alpha/mcp-tools.md#legacy-tool-surface).
 
-New tools:
+Tools:
 
 - `alice_memory_mutations_generate`
 - `alice_memory_mutations_list_candidates`

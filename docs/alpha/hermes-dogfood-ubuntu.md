@@ -95,7 +95,7 @@ Expected Alice behavior:
 - Hermes proposes memory as a candidate only.
 - `/vnext` Agent Activity shows the Hermes run.
 - `/vnext` Inbox or Memory Review shows the proposal.
-- The submitted output and the proposal create nothing active without review.
+- The submitted output and the proposal create nothing active without review. This setup is keyless, so Hermes's identity is declared and no issued key backs it, and Alice never auto-promotes a write from a declared identity, whatever `ALICE_MEMORY_PERSONA` says. A deployment that opts in and issues an agent key follows [memory promotion personas](../memory/promotion-personas.md).
 
 ## Context Pack Recipe
 

@@ -1,8 +1,14 @@
 # Task-Adaptive Briefing (Legacy Compatibility)
 
+## Requirements and status
+
+- Support status: legacy surface. Its MCP tools are off the default handshake, and the HTTP routes and the CLI command do not exist unless the flag below is set. The surface is deprecated for removal before `1.0`, and until then it is kept working: CI runs its tests against Postgres with the flag set. New integrations use the core tools.
+- Backend: Postgres, for the CLI, the HTTP API and the MCP tools alike. The `alicebot` CLI refuses a SQLite URL and the HTTP API runs only on Postgres. The three MCP tools below read the continuity store, which exists only on Postgres: on the SQLite `alice-memory` vault they are listed but their calls fail. See [Full stack](../../README.md#full-stack-postgres--review-console).
+- Settings: `ALICE_LEGACY_SURFACES=1` at process start for the HTTP routes and the CLI command. The three MCP tools need `ALICE_LEGACY_SURFACES=1` and `ALICE_MCP_LEGACY_TOOLS=1` in the server environment, on a keyless server. A server bound with `ALICE_AGENT_API_KEY` never lists or accepts them.
+
 Task briefs compile deterministic, explainable context packs for `user_recall`,
 `resume`, `worker_subtask`, and `agent_handoff`. The feature is not part of the
-default v0.11 surface.
+default surface.
 
 ## Mount contract
 
