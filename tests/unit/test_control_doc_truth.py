@@ -1350,7 +1350,7 @@ def test_living_doc_files_skip_dated_records_and_folders_that_hold_no_docs(tmp_p
         "docs/examples/demo.py",
         "plugins/p/README.md",
         "agent-skills/s/SKILL.md",
-        ".ai/handoff/CURRENT_STATE.md",
+        ".ai/active/SPRINT_PACKET.md",
         ".github/pull_request_template.md",
         "CHANGELOG.md",
         "docs/release/v1-release-notes.md",
@@ -1372,7 +1372,7 @@ def test_living_doc_files_skip_dated_records_and_folders_that_hold_no_docs(tmp_p
     ]
 
     assert sorted(markdown) == [
-        ".ai/handoff/CURRENT_STATE.md",
+        ".ai/active/SPRINT_PACKET.md",
         ".github/pull_request_template.md",
         "README.md",
         "agent-skills/s/SKILL.md",

@@ -8,8 +8,9 @@ This guard lists the tools the way a server does, under each flag combination, a
 those two, and the long-tail figures of `docs/alpha/mcp-tools.md`. The default three and the eleven are also stated
 again, as a sentence, on many other living pages, so it reads the sentences of the living docs that give the default
 count, the full count, or the count of core tools the default leaves out. Each of those numbers must be the one the
-registry gives. A number it cannot place is a failure too when it sits beside a tool noun, or follows
-`ALICE_MCP_FULL_TOOLS` and a verb.
+registry gives. A number it cannot place is a failure too when it sits beside a tool noun. A number that follows
+`ALICE_MCP_FULL_TOOLS` within three words (digits only after `all`) is read as the full count and checked as one; a
+number further from the flag, or digits without `all`, is not read there.
 
 The scan reads the shapes the docs use and their near variants. It is not a proof that no copy can pass: a count
 written with no tool noun, no mention of the flag and none of the other cues ("gives you all twelve") is not read,
