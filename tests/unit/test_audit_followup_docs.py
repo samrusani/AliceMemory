@@ -298,8 +298,9 @@ def test_write_mcpb_is_documented_in_the_cli_reference_and_not_the_quickstart(
         "replaced."
     ) in lines
     assert (
-        "- When the bundle is not written, the bundle's block of the receipt reads `action: failed`, and install "
-        "exits non-zero after it has written the host entries. The reason is one of these four:"
+        "- When the bundle is not written, the bundle's block of the receipt reads `action: failed` and install "
+        "exits non-zero. Outside a dry run the host entries are written first; a dry run writes none. The reason is "
+        "one of these four:"
     ) in lines
     reason_lines = [line for line in lines if line.startswith("  - `")]
     assert reason_lines == [
@@ -307,8 +308,8 @@ def test_write_mcpb_is_documented_in_the_cli_reference_and_not_the_quickstart(
         f"  - `{reasons[1]}`: a directory is already at PATH.",
         f"  - `{reasons[2]}`: the parent exists and the zip could not be created in it, for example because the "
         "parent is a file or the folder is read-only.",
-        f"  - `{reasons[3]}`: a missing parent folder could not be created, for example because a folder above it "
-        "is a file.",
+        f"  - `{reasons[3]}`: any other file-system error, for example a missing parent folder that could not be "
+        "created, a parent folder that cannot be searched, or a file name that is too long.",
     ]
 
     # The flag adds to the host entries: without --host the default hosts are still written, and no other.

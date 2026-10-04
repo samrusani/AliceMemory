@@ -55,11 +55,11 @@ The raw key is printed exactly once at creation and stored hashed. Agents send i
 - The bundle's `data_dir` setting is a directory choice that defaults to `${HOME}/.alice`. `--data-dir` does not change it.
 - The flag adds to the host entries and does not replace them. Without `--host`, install still writes the default hosts (Claude Desktop, Claude Code, Cursor and OpenClaw).
 - PATH must end in `.mcpb`, in lower case and with a name before it (a file named only `.mcpb` is refused), and must not be a directory. A missing parent folder is created with mode 0700. A file already at PATH is replaced.
-- When the bundle is not written, the bundle's block of the receipt reads `action: failed`, and install exits non-zero after it has written the host entries. The reason is one of these four:
+- When the bundle is not written, the bundle's block of the receipt reads `action: failed` and install exits non-zero. Outside a dry run the host entries are written first; a dry run writes none. The reason is one of these four:
   - `mcpb path must end in .mcpb`: PATH breaks the rule above.
   - `mcpb path is a directory`: a directory is already at PATH.
   - `mcpb zip could not be written`: the parent exists and the zip could not be created in it, for example because the parent is a file or the folder is read-only.
-  - `the file could not be read or written`: a missing parent folder could not be created, for example because a folder above it is a file.
+  - `the file could not be read or written`: any other file-system error, for example a missing parent folder that could not be created, a parent folder that cannot be searched, or a file name that is too long.
 - With `--dry-run`, install prints the manifest and writes no bundle.
 
 No release builds or attaches a `.mcpb`. Installing one in Claude Desktop has no verified real-host support: real-host CI runs Claude Code, Hermes, OpenCode and Codex, and the bundle is covered by unit tests only.
