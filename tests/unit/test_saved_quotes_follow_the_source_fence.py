@@ -623,7 +623,7 @@ def test_the_id_of_a_source_the_caller_may_not_read_is_withheld_with_its_quote(v
     and the pack row are withheld, the same way a link that was never stored would be, and the memory is still returned.
     The admin key (confidential) keeps the id wherever it was.
 
-    Mutations, each alone, in ``vnext_source_fence.py``: drop the ``_SOURCE_REFS_KEY`` filter of ``_memory_without_refused_provenance``
+    Mutations, each alone, in ``vnext_source_fence.py``: drop the ``_scrub_refs_key`` calls of ``_memory_without_refused_provenance``
     (the id stays in ``agentic_memory.source_refs`` and ``value.source_refs``); drop the ``revision`` method's filter or
     stop calling ``saved.revision`` in ``_vnext_memory_review`` (the id stays in the revision's ``new_value``).
     """
@@ -964,9 +964,9 @@ def test_the_copies_of_a_memory_with_no_link_follow_its_source_when_the_source_i
 
     Mutations, each alone: in ``compile_context_pack`` (``vnext_retrieval.py``) move the ``saved_provenance.memories(...)``
     line below the ``_sanitize_memory_scope_references`` call (the HTTP rows keep the quote for every key bound to a
-    project); in ``SavedProvenanceReader._memory`` drop ``| _source_ids_named_by_memory_copies(row)`` from ``named``
-    (the review and the HTTP rows keep the quote for every key); make ``source_ids_named_by_memory_audit`` return an
-    empty set (explain succeeds for every key).
+    project); in ``SavedProvenanceReader._verdict`` ignore the ids the row's copies name (``cited = _NO_CITED_IDS``)
+    (the review and the HTTP rows keep the quote for every key); make ``cited_source_ids_in_memory_audit`` return an
+    empty ``CitedSourceIds`` (explain succeeds for every key).
     """
 
     source_id = vault.capture_source()
@@ -1010,7 +1010,7 @@ def test_a_reader_who_may_read_the_source_is_shown_the_same_rows_for_a_memory_wi
     HTTP pack of a key bound to ``alpha`` are those of the other keys bound to ``alpha``, and carry the copies; after the
     source is made confidential the admin key (which may read it) still gets the same rows.
 
-    Mutation: in ``SavedProvenanceReader._memory`` return ``_memory_without_refused_provenance(row, refused=refused,
+    Mutation: in ``SavedProvenanceReader._memory`` return ``_memory_without_refused_provenance(row, refused=verdict.refused,
     withhold_quotes=True)`` even when nothing is refused (it must hand back the row itself): every key's rows lose the
     copies, and the rows no longer carry the quote before the change.
     """

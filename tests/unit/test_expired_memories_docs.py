@@ -127,14 +127,13 @@ def test_the_v0200_notes_are_unchanged_and_carry_no_main_only_marker() -> None:
 
 
 def test_the_control_documents_and_the_protocol_say_what_main_changes() -> None:
-    """Both copies of ``CURRENT_STATE.md`` carry the same line, and the protocol doc says which doors leave an expired memory out.
+    """``CURRENT_STATE.md`` carries the line, and the protocol doc says which doors leave an expired memory out.
 
-    Mutations, each one alone: edit one copy of ``CURRENT_STATE.md`` and not the other, delete the line from
-    both, or delete the sentence from the protocol doc.
+    Mutations, each one alone: delete the line from ``CURRENT_STATE.md``, or delete the sentence from the
+    protocol doc.
     """
 
     state = (ROOT / "CURRENT_STATE.md").read_text(encoding="utf-8")
-    assert state == (ROOT / ".ai/handoff/CURRENT_STATE.md").read_text(encoding="utf-8")
     flat = _flat(state)
     assert f"- {MARK} the brief, `alice_resume` and `alice_recent_decisions` leave out an expired memory" in flat
     assert "artifact promotion embeds the memory it makes" in flat

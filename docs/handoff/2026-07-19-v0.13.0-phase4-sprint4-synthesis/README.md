@@ -1,5 +1,7 @@
 # Alice Phase 4 Sprint 4 Multi-Session Synthesis Handoff
 
+> **Correction (2026-10-04):** the reviews named here were internal adversarial review and automated security scanning. No one outside the project has audited the code.
+
 ## Verdict
 
 The bounded implementation carrier is ready for independent code review, but

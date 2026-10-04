@@ -1728,7 +1728,7 @@ def test_the_marketplace_pins_the_latest_published_release_and_the_docs_name_tha
     control documents. A release PR leaves both at the old release and the
     post-publication PR moves both, so at every merged state the pin equals the
     latest published release, which the release records decide. The README, the
-    plugin page, the plugin README and both CURRENT_STATE copies each say which
+    plugin page, the plugin README and CURRENT_STATE.md each say which
     tag commit the file pins, and each must name the file's tag, so a doc that
     keeps the old tag after the pin moves fails. The sentences about the tag that
     has no marketplace file and about the tag whose copy still pins an older
@@ -1736,7 +1736,7 @@ def test_the_marketplace_pins_the_latest_published_release_and_the_docs_name_tha
     the pin wording.
 
     Mutations, each one alone: set ``ref`` and ``sha`` back to the v0.19.0 tag
-    and its commit; put v0.19.0 back into the pin sentence of any one of the five
+    and its commit; put v0.19.0 back into the pin sentence of any one of the four
     files; delete the pin sentence from one of them.
     """
 
@@ -1758,7 +1758,6 @@ def test_the_marketplace_pins_the_latest_published_release_and_the_docs_name_tha
         ),
         "plugins/alice-memory/README.md": (rf"pins this plugin to the {tag} tag commit",),
         "CURRENT_STATE.md": (rf"pins the plugin to the `{tag}` tag commit",),
-        ".ai/handoff/CURRENT_STATE.md": (rf"pins the plugin to the `{tag}` tag commit",),
     }
     for name, patterns in sites.items():
         text = " ".join((ROOT / name).read_text(encoding="utf-8").split())
