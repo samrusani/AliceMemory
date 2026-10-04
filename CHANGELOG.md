@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Docs and tests only, plus one measurement script: nine frozen handoff folders gained one dated correction line in their README (the reviews they name were internal adversarial review and automated security scanning), the hygiene test now rejects temporary-folder paths in living files, code, tests and workflows except in the dated records and a closed list of made-up or runner paths, `RELEASING.md` makes its temporary folders with `mktemp -d`, and `scripts/measure_project_view.py` accepts the relative `--data-dir` its usage text shows.
+- Docs only, no behaviour change: seven legacy pages state their backend and support status, `--write-mcpb` is documented, and four pages now say that auto-promotion of trusted memory is opt-in.
 - Docs checks, no behaviour change: template headings, install tags, default and full tool counts and the SQLite legacy tool lists are now tested against their sources.
 - Internal change, no behaviour change: the 24-hour expiry of an inline confirmation is now the named constant `CONFIRMATION_EXPIRY_HOURS` in `vnext_memory_commit.py`, so the skill packs and the memory operations protocol, which tell agents that number, can be checked against it. `tests/unit/test_confirmation_expiry_constant.py` pins the value and that a confirmation is written with it.
 - Internal change, no behaviour change: the unused copy of `CURRENT_STATE.md` under `.ai/handoff` is deleted, with the checks that held it equal to the real file. Every check on `CURRENT_STATE.md` itself is unchanged, and a test keeps the copy from coming back.
