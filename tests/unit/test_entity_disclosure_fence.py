@@ -33,12 +33,11 @@ def entity_vault(tmp_path_factory):
         conn.execute('PRAGMA synchronous=OFF')
         store = SQLiteVNextStore(conn, USER)
         anchor = add_memory(store, key='anchor', text='Anchor shared context', scope=('alpha',))
-        for index, (domain, sensitivity, project) in enumerate(LABELS):
-            entity = store.create_entity({'name': f'Cedar{index}', 'entity_type': 'person', 'mention_count': 999})
-            memory = add_memory(store, key=f'case{index}', text=f'Fixture number {index}', domain=domain,
-                                sensitivity=sensitivity, scope=(project,) if project else None)
-            store.create_graph_edge({'from_type': 'memory', 'from_id': memory['id'], 'to_type': 'entity',
-                                     'to_id': entity['id'], 'edge_type': 'mentions'})
+        entity = store.create_entity({'name': 'Cedar', 'entity_type': 'person', 'mention_count': 999})
+        memory = add_memory(store, key='case', text='Fixture observation')
+        case_id = str(memory['id'])
+        store.create_graph_edge({'from_type': 'memory', 'from_id': memory['id'], 'to_type': 'entity',
+                                 'to_id': entity['id'], 'edge_type': 'mentions'})
         entity = store.create_entity({'name': 'Anchor', 'entity_type': 'person', 'mention_count': 1})
         store.create_graph_edge({'from_type': 'memory', 'from_id': anchor['id'], 'to_type': 'entity',
                                  'to_id': entity['id'], 'edge_type': 'mentions'})
@@ -53,7 +52,7 @@ def entity_vault(tmp_path_factory):
                 store, user_id=USER, agent_id=f'{profile}-{project}',
                 permission_profile=profile, project_scope=project,
             )
-    return path, keyless, keys
+    return path, keyless, keys, case_id
 
 
 def oracle(profile, binding, domain, sensitivity, project):
@@ -71,7 +70,7 @@ def oracle(profile, binding, domain, sensitivity, project):
 @pytest.mark.parametrize('mode,profile,binding', CALLERS)
 @pytest.mark.parametrize('door', ('recall', 'pack', 'http'))
 def test_entity_matrix(entity_vault, monkeypatch, request, mode, profile, binding, door):
-    path, keyless, keys = entity_vault
+    path, keyless, keys, case_id = entity_vault
     if mode != "key":
         path = keyless
     # The real schema is bootstrapped once above; avoid rerunning all unrelated
@@ -119,7 +118,14 @@ def test_entity_matrix(entity_vault, monkeypatch, request, mode, profile, bindin
     errors = []
     for index, (domain, sensitivity, project) in enumerate(LABELS):
         with isolated_case():
-            query = f'Anchor Cedar{index}'
+            # Reuse the synthetic input's ID while changing its persisted labels.
+            # This keeps the complete policy cross-product small and independent.
+            SQLiteVNextStore(shared_conn, USER).update_memory(memory_id=case_id, patch={
+                'domain': domain, 'sensitivity': sensitivity, 'project_id': project,
+                'project_scope': [project] if project else [],
+                'metadata_json': {'project_scope': [project] if project else []},
+            })
+            query = 'Anchor Cedar' 
             if door == 'http':
                 response = router.create_vnext_context_pack(router.VNextContextPackRequest(
                     user_id=UUID(USER), query=query, options={'max_items': 10, 'sensitivity_allowed': list(ALL_SENSITIVITY)},
@@ -140,7 +146,7 @@ def test_entity_matrix(entity_vault, monkeypatch, request, mode, profile, bindin
         # Every copy in a debug trace and the outward list is checked.
         def entities(value):
             if isinstance(value, dict):
-                if value.get('name') == f'Cedar{index}' and value.get('entity_type') == 'person':
+                if value.get('name') == 'Cedar' and value.get('entity_type') == 'person':
                     yield value
                 for nested in value.values():
                     yield from entities(nested)
@@ -258,3 +264,55 @@ def test_source_entity_obeys_an_until_only_filter():
     store.edges = [{'from_type': 'source', 'from_id': 'source', 'to_type': 'entity', 'to_id': 'entity', 'edge_type': 'mentions'}]
     assert not _graph(store, scope_window_end=datetime(2026, 10, 1, tzinfo=UTC))[2]
     assert _graph(store, scope_window_end=datetime(2026, 10, 5, tzinfo=UTC))[2]
+
+
+def test_source_only_entities_do_not_bypass_memory_specific_filters():
+    store = _graph_fixture()
+    store.memories = []
+    store.sources = [{'id': 'source', 'domain': 'project', 'sensitivity': 'private'}]
+    store.edges = [{'from_type': 'source', 'from_id': 'source', 'to_type': 'entity', 'to_id': 'entity', 'edge_type': 'mentions'}]
+    for restriction in ({'memory_types': ('semantic',)}, {'created_by_agent_ids': ('reader',)},
+                        {'run_id': 'run'}, {'scope_thread_id': 'thread'}, {'scope_task_id': 'task'}):
+        assert not _graph(store, **restriction)[2]
+    store.edges[0]['valid_to'] = '2026-10-01T00:00:00Z'
+    store.list_edges = lambda **kwargs: store.edges
+    assert not _graph(store)[2]
+
+
+def test_explain_real_key_count_fence(entity_vault, monkeypatch):
+    path, keyless, keys, memory_id = entity_vault
+    monkeypatch.setenv('ALICE_PROJECT_SCOPING', 'off')
+    monkeypatch.setenv('ALICE_MCP_FULL_TOOLS', '1')
+    for profile in (None, 'read_only_agent', 'admin_agent'):
+        if profile:
+            monkeypatch.setenv('ALICE_AGENT_API_KEY', keys[profile, None])
+        else:
+            monkeypatch.delenv('ALICE_AGENT_API_KEY', raising=False)
+        context = MCPRuntimeContext(database_url=sqlite_url_for_path(path if profile else keyless), user_id=UUID(USER))
+        payload = call_mcp_tool(context, name='alice_explain', arguments={'memory_id': memory_id})
+        def counts(value):
+            if isinstance(value, dict):
+                if value.get('name') == 'Cedar':
+                    yield 'mention_count' in value
+                for nested in value.values():
+                    yield from counts(nested)
+            elif isinstance(value, list):
+                for nested in value:
+                    yield from counts(nested)
+        found = list(counts(payload))
+        assert found and all(item == (profile != 'read_only_agent') for item in found)
+
+
+def test_context_pack_passes_the_entity_fence_to_grounding(tmp_path):
+    from alicebot_api.vnext_retrieval import VNextRetrievalRequest, VNextRetrievalService
+    from alicebot_api.vnext_source_fence import SourceReadFence
+    path = tmp_path / 'grounding.sqlite3'
+    bootstrap_database(path, user_id=USER, user_email='fixture@example.invalid')
+    with sqlite_user_connection(path, USER) as conn:
+        store = SQLiteVNextStore(conn, USER)
+        memory = add_memory(store, key='private', text='Private observation', domain='health')
+        entity = store.create_entity({'name': 'Marcus Chen', 'entity_type': 'person'})
+        store.create_graph_edge({'from_type': 'memory', 'from_id': memory['id'], 'to_type': 'entity', 'to_id': entity['id'], 'edge_type': 'mentions'})
+        pack = VNextRetrievalService(store).compile_context_pack(VNextRetrievalRequest(
+            query='Did Marcus Chen approve the launch?', domains=('project',)), source_fence=SourceReadFence.unfenced())
+        assert pack.get('grounding', {}).get('unsupported_entities') == ['Marcus Chen']

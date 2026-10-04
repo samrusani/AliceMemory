@@ -8,6 +8,11 @@ from __future__ import annotations
 
 import inspect
 import textwrap
+import tempfile
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
 
 from alicebot_api import vnext_retrieval as retrieval, vnext_grounding as grounding
 from alicebot_api.mcp import evidence_artifacts as audit
@@ -32,9 +37,23 @@ def kill(owner, name, before, after, check):
         setattr(owner, name, original)
 
 
+def temporary_check(check, *, vault=False):
+    with tempfile.TemporaryDirectory() as directory, pytest.MonkeyPatch.context() as patch:
+        root = Path(directory)
+        if vault:
+            fixture = checks.entity_vault.__wrapped__(SimpleNamespace(mktemp=lambda name: root))
+            check(fixture, patch)
+        else:
+            check(root)
+
+
 def main():
     graph = retrieval.VNextRetrievalService
     mutations = [
+        (graph, '_memory_graph_rows', 'and not (memory_types or created_by_agent_ids or run_id or scope_thread_id or scope_task_id)', '', checks.test_source_only_entities_do_not_bypass_memory_specific_filters),
+        (graph, '_memory_graph_rows', 'or edge.get("valid_to") is not None', '', checks.test_source_only_entities_do_not_bypass_memory_specific_filters),
+        (audit, '_handle_alice_vnext_memory_audit', 'identity is None or (identity.permission_profile == "admin_agent" and not identity.project_scope)', 'True', lambda: temporary_check(checks.test_explain_real_key_count_fence, vault=True)),
+        (graph, 'compile_context_pack', 'allow_entity_lookup=(not domains or set(VNEXT_DOMAINS).issubset(domains))\n                and set(ALL_SENSITIVITY).issubset(sensitivity_allowed)', 'allow_entity_lookup=True', lambda: temporary_check(checks.test_context_pack_passes_the_entity_fence_to_grounding)),
         (graph, '_memory_graph_rows', 'entities = [entity for entity in entities if str(entity.get("id")) in visible_entity_ids]', 'entities = list(entities)', checks.test_hidden_entity_matches_absent_entity_including_debug_status),
         (graph, '_memory_graph_rows', 'include_count=not restricted', 'include_count=True', checks.test_fenced_count_is_omitted_but_unrestricted_count_survives),
         (graph, '_memory_graph_rows', 'if not restricted:\n        entities = entities[:GRAPH_ENTITY_MATCH_LIMIT]', 'if True:\n        entities = entities[:GRAPH_ENTITY_MATCH_LIMIT]', checks.test_fenced_selection_ignores_hidden_counts_and_filters_before_limit),
