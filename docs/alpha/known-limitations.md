@@ -94,8 +94,11 @@ older export into a fresh vault to avoid same-id conflicts.
 
 Unreleased (on main, not in v0.20.0): SQLite `sources delete` and
 `sources prune --superseded` overwrite logical source text and pending candidate
-copies. They do not erase append-only source events, hash columns, committed
-memory text, free pages, the write-ahead log or earlier backups. Postgres source
+copies, merge obsolete full-text postings and enable secure deletion for freed
+space. They do not erase append-only source events, hash columns, unredacted
+memory text or earlier backups. Previously unused space and the write-ahead log
+can retain text until the owner stops every vault program and runs the
+[VACUUM and checkpoint command](../integrations/importers.md#list-delete-and-prune-sqlite-sources). Postgres source
 delete and review archive continue to soft-delete only and retain their text
 and chunks. A failed database transaction can remove sleep proposals first;
 those proposals can regenerate.

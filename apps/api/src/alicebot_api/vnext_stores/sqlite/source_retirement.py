@@ -97,7 +97,8 @@ def retire_dependents(self, source_id, *, now, scrub_candidates=False):
     memories = [row for row in citing_memories(self, source_id) if not is_redacted_memory(row)]
     pending = [row for row in memories if row['status'] in ({'candidate', 'needs_review', 'rejected'}
                if scrub_candidates else {'candidate', 'needs_review'})]
-    retained = [str(row['id']) for row in memories if not scrub_candidates or row['status'] in {'active', 'accepted', 'private_only'}]
+    pending_ids = {str(row['id']) for row in pending}
+    retained = [str(row['id']) for row in memories if not scrub_candidates or str(row['id']) not in pending_ids]
     for memory in pending:
         mid = str(memory['id'])
         if scrub_candidates:
@@ -177,8 +178,8 @@ def source_inventory(self, *, query=None, superseded=False, all_sources=False, l
 
 
 def prunable_sources(self, *, older_than=None):
-    if older_than is not None and older_than < 0:
-        raise ValueError('Source age must be zero or more days')
+    if older_than is not None and not 0 <= older_than <= 2**63 - 1:
+        raise ValueError('Source age must be between 0 and 9223372036854775807 days')
     return self._fetch_all(
         "SELECT * FROM sources WHERE user_id = ? AND deleted_at IS NOT NULL "
         "AND json_extract(metadata_json, '$.superseded_by') IS NOT NULL "
@@ -187,8 +188,24 @@ def prunable_sources(self, *, older_than=None):
         "ORDER BY deleted_at, id", (self.user_id, older_than, _utc_now_iso(), older_than))
 
 
-def scrub_source(self, source_id):
+def count_prunable_sources(self):
+    row = self._fetch_one('count replaced sources',
+        "SELECT count(*) AS count FROM sources WHERE user_id = ? AND deleted_at IS NOT NULL "
+        "AND json_extract(metadata_json, '$.superseded_by') IS NOT NULL "
+        "AND COALESCE(json_extract(metadata_json, '$.scrubbed'), 0) != 1", (self.user_id,))
+    return int(row['count'])
+
+
+def optimize_scrub_indexes(self):
+    # FTS5 deletion postings keep old terms until segments merge. Ordinary
+    # row updates and VACUUM do not remove those terms from live index pages.
+    self._execute("INSERT INTO source_chunks_fts(source_chunks_fts) VALUES('optimize')")
+    self._execute("INSERT INTO memories_fts(memories_fts) VALUES('optimize')")
+
+
+def scrub_source(self, source_id, *, optimize=True):
     with self.savepoint():
+        self._execute("PRAGMA secure_delete=ON")
         rows = self.get_sources_by_ids([source_id], include_deleted=True)
         if not rows or rows[0]['metadata_json'].get('scrubbed'):
             raise ValueError('Source is unknown or already scrubbed')
@@ -203,10 +220,14 @@ def scrub_source(self, source_id):
             "UPDATE source_chunks SET text = ?, metadata_json = '{}' WHERE source_id = ? AND user_id = ?",
             (REMOVAL_MARKER, source_id, self.user_id)).rowcount
         quotes = self._execute(
-            "UPDATE provenance_links SET quote = ? WHERE source_id = ? AND user_id = ?",
-            (REMOVAL_MARKER, source_id, self.user_id)).rowcount
+            """UPDATE provenance_links SET quote = ? WHERE user_id = ? AND (source_id = ?
+            OR EXISTS (SELECT 1 FROM source_chunks c WHERE c.user_id = provenance_links.user_id
+                       AND c.id = provenance_links.source_chunk_id AND c.source_id = ?))""",
+            (REMOVAL_MARKER, self.user_id, source_id, source_id)).rowcount
         counts = retire_dependents(self, source_id, now=now, scrub_candidates=True)
         counts.update({'chunks':chunks, 'provenance_quotes':quotes, 'sleep_proposals':sleep_count})
         self._append_mutation_event(event_type='source.deleted', target_type='source', target_id=source_id,
             actor_type='user', payload={'operation':'scrub', **counts})
+        if optimize:
+            optimize_scrub_indexes(self)
         return counts

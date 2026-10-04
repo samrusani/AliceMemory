@@ -358,7 +358,7 @@ help locate a partial import left by v0.20.0. Scrubbed rows are omitted.
 
 Delete accepts either a live or replaced id. Unknown and already scrubbed ids
 are refused. Prune selects only replaced versions; `--older-than DAYS` accepts
-zero or more days since replacement. Neither destructive command writes without
+an integer from 0 through 9223372036854775807 days since replacement. Neither destructive command writes without
 `--yes`: it prints the targets and counts and exits 2. With `--yes`, the command
 selects its targets again under the writer lock and applies one transaction.
 
@@ -368,16 +368,38 @@ candidates and their revisions, blanks mention edges, updates entity counts,
 scrubs unsupported linker entities, and closes and blanks source-backed loops.
 A candidate the existing redaction path cannot cover refuses the database
 transaction and names its id. A later failure may remove sleep proposals; they
-can regenerate. Committed and accepted memories keep their text and are listed
-for separate review. Use `alice_memory_manage` with action `forget` to remove a
+can regenerate with `alice-memory sleep`. Every citing memory that was not
+redacted keeps its text and is listed in both preview and receipt without a cap,
+including active, accepted, private_only, stale, superseded and archived rows. Use `alice_memory_manage` with action `forget` to remove a
 listed memory from recall, or the owner's memory redaction command to overwrite
 its own text. Source deletion alone does neither to committed memories.
 
-This overwrites logical text; it does not rewrite the vault file. Append-only
-source events retain old titles and hashes, import events retain folder paths,
-and source rows retain hash columns. Free pages, the write-ahead log and earlier
-backups are not erased. Postgres source deletion and review archive remain soft
-deletes: their source text and chunks are not scrubbed by those routes.
+Each scrub enables SQLite secure deletion to zero freed space, and each delete
+or prune transaction merges both full-text indexes to remove obsolete postings.
+Append-only source events retain old titles and hashes, import events retain
+folder paths, and source rows retain hash columns. Postgres source deletion and
+review archive remain soft deletes: their source text and chunks are not
+scrubbed by those routes.
+
+Removed text can remain in the vault file's unused space and write-ahead log
+until the file is rebuilt. To remove that leftover text, stop every program
+that uses the vault, including MCP servers and the session hook, replace
+`<data-dir>` with the vault directory, and run:
+
+```bash
+sqlite3 <data-dir>/memory.db "VACUUM; PRAGMA wal_checkpoint(TRUNCATE);"
+```
+
+Earlier backups and copies still hold the text. This command does not remove
+text deliberately retained in audit events or unredacted memories.
+
+A corrupt `sleep_proposals.jsonl` refuses deletion. Stop every program using the
+vault, move that file aside, retry deletion, then run `alice-memory sleep` to
+regenerate proposals. Do not restore the moved file after deleting sources.
+A candidate redaction failure rolls back database changes and names the affected
+candidates; sleep proposals may already have been removed and can regenerate.
+Invalid source UUIDs and out-of-range ages exit 1. CLI syntax errors exit 2;
+a valid deletion preview also exits 2 and includes `requires_yes: true`.
 
 Prune reduces retained source text in the full-text index. It offers no restore
 verb. Import old text again to make it a new live source. Exports omit retired

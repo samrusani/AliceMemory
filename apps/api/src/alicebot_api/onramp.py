@@ -1249,7 +1249,7 @@ def build_parser() -> argparse.ArgumentParser:
     source_list.add_argument("--limit", type=int, default=50, help="Maximum rows, from 1 to 1000; default 50.")
     source_delete = sources_commands.add_parser("delete", help="Scrub one live or replaced source.")
     _add_database_arguments(source_delete)
-    source_delete.add_argument("source_id", type=UUID, help="Source id from sources list.")
+    source_delete.add_argument("source_id", help="Source id from sources list.")
     source_delete.add_argument("--yes", action="store_true", help="Apply the scrub. Without it, preview and exit 2.")
     source_prune = sources_commands.add_parser("prune", help="Scrub replaced source versions.")
     _add_database_arguments(source_prune)

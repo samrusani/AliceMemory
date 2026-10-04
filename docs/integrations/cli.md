@@ -181,8 +181,22 @@ live and replaced rows. List prints labels with control characters escaped and
 never prints an absolute source path.
 
 Delete accepts a live or replaced UUID. Prune selects only replaced versions,
-optionally at least `DAYS` old, with zero or greater accepted. Without `--yes`,
-each command prints what would go and exits 2 without writing. With it, the
-command scrubs those sources and prints counts, retained-memory ids and the
-data it cannot erase. Errors exit 1. See [scrub limits](importers.md#list-delete-and-prune-sqlite-sources).
+optionally at least `DAYS` old, with an integer from 0 through
+9223372036854775807 accepted. Without `--yes`, each command prints what would go
+and exits 2 without writing, with `requires_yes: true`. With it, the command
+scrubs those sources and prints counts, every retained-memory id without a cap,
+and the data it cannot erase. Invalid UUIDs, out-of-range ages and other request
+errors exit 1. CLI syntax errors exit 2. See [scrub limits](importers.md#list-delete-and-prune-sqlite-sources).
 There is no source restore verb and no new source deletion MCP or HTTP surface.
+
+Removed text can remain in the vault file's unused space and write-ahead log
+until the file is rebuilt. To remove that leftover text, stop every program
+that uses the vault, including MCP servers and the session hook, replace
+`<data-dir>` with the vault directory, and run:
+
+```bash
+sqlite3 <data-dir>/memory.db "VACUUM; PRAGMA wal_checkpoint(TRUNCATE);"
+```
+
+Earlier backups and copies still hold the text. This command does not remove
+text deliberately retained in audit events or unredacted memories.

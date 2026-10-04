@@ -27,6 +27,7 @@ from alicebot_api.session_briefing import (
     brief_char_len,
     compile_local_session_brief,
 )
+from alicebot_api.vnext_stores.sqlite.source_retirement import count_prunable_sources
 from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
 from alicebot_api.vault_sleep import SleepError, count_sleep_proposals, sleep_proposals_path
 from alicebot_api.vnext_embeddings import (
@@ -111,7 +112,7 @@ def compile_local_vault_doctor(
         )
         missing_vector_line = _missing_vector_line(store)
         flagged_ids = _flagged_source_ids(store)
-        superseded_count = len(store.prunable_sources())
+        superseded_count = count_prunable_sources(store)
         try:
             proposal_count = count_sleep_proposals(sleep_proposals_path(resolved), user_id=uid)
             proposal_line = f"sleep proposals: {proposal_count}"

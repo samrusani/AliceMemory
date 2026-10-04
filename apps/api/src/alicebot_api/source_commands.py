@@ -2,17 +2,22 @@
 from __future__ import annotations
 
 import json
+from uuid import UUID
 
 from alicebot_api.source_supersede import printed_source_label
 from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
-from alicebot_api.vnext_stores.sqlite.source_retirement import CandidateScrubRefused, citing_memories
+from alicebot_api.vault_sleep import SleepError
+from alicebot_api.vnext_stores.memory_lifecycle_common import is_redacted_memory
+from alicebot_api.vnext_stores.sqlite.source_retirement import CandidateScrubRefused, citing_memories, optimize_scrub_indexes
 
 RETAINED_DATA = (
     "Source and import events keep prior titles, hashes and import folder paths. "
-    "Source hash columns, earlier backups, free pages and the write-ahead log are not erased. "
-    "Committed or accepted memories keep their text. Review the listed memory ids; "
+    "Source hash columns and earlier backups are not erased. Unused space and the write-ahead log can retain old text. "
+    "Committed memories and all other unredacted memories keep their text. Review every listed memory id; "
     "use alice_memory_manage with action forget for each memory that should leave recall, "
-    "or the owner's memory redaction command to overwrite its text."
+    "or the owner's memory redaction command to overwrite its text. "
+    "For file cleanup, stop every program using the vault and follow the VACUUM and checkpoint steps in "
+    "docs/integrations/importers.md#list-delete-and-prune-sqlite-sources."
 )
 
 
@@ -39,13 +44,15 @@ def _preview(store, rows):
         sid=str(row['id'])
         counts=store._fetch_one('source deletion preview',
             "SELECT (SELECT count(*) FROM source_chunks WHERE user_id=? AND source_id=?) AS chunks, "
-            "(SELECT count(*) FROM provenance_links WHERE user_id=? AND source_id=?) AS provenance_quotes, "
+            "(SELECT count(*) FROM provenance_links p WHERE p.user_id=? AND (p.source_id=? OR EXISTS "
+            "(SELECT 1 FROM source_chunks c WHERE c.user_id=p.user_id AND c.id=p.source_chunk_id "
+            "AND c.source_id=?))) AS provenance_quotes, "
             "(SELECT count(*) FROM open_loops WHERE user_id=? AND source_id=?) AS open_loops",
-            (store.user_id,sid,store.user_id,sid,store.user_id,sid))
-        memories=citing_memories(store,sid)
+            (store.user_id,sid,store.user_id,sid,sid,store.user_id,sid))
+        memories=[row for row in citing_memories(store,sid) if not is_redacted_memory(row)]
         counts['candidate_memories']=sum(memory['status'] in {'candidate','needs_review','rejected'} for memory in memories)
         counts['memories_citing_replaced']=[str(memory['id']) for memory in memories
-            if memory['status'] in {'active','accepted','private_only'}][:20]
+            if memory['status'] not in {'candidate','needs_review','rejected'}]
         result.append({'id':sid,'title':printed_source_label(row['title']), **counts})
     return result
 
@@ -57,6 +64,11 @@ def run_sources(args):
         print(json.dumps({'error':{'code':'vault_not_found','message':'No vault exists at the selected location'}}))
         return 1
     try:
+        if args.sources_command == 'delete':
+            try:
+                args.source_id = UUID(str(args.source_id))
+            except ValueError as exc:
+                raise ValueError('Source id must be a valid UUID') from exc
         # Lists and confirmation previews use a private read-only snapshot.
         # An explicit --yes reselects under the vault's writer lock below.
         if args.sources_command == 'list' or not args.yes:
@@ -74,12 +86,21 @@ def run_sources(args):
             store=SQLiteVNextStore(conn,args.user_id)
             with store.savepoint():
                 rows=_targets(store,args)
-                receipts=[{'id':str(row['id']),**store.scrub_source(str(row['id']))} for row in rows]
+                receipts=[{'id':str(row['id']),**store.scrub_source(str(row['id']), optimize=False)} for row in rows]
+                if receipts:
+                    optimize_scrub_indexes(store)
         print(json.dumps({'deleted_count':len(receipts),'deleted':receipts,'retained_data':RETAINED_DATA},sort_keys=True))
         return 0
     except CandidateScrubRefused as exc:
         print(json.dumps({'error':{'code':'candidate_scrub_refused','candidate_ids':exc.candidate_ids,
-                                 'message':'Candidate memories could not be scrubbed; nothing was deleted'}}))
+                                 'message':'Candidate memories could not be scrubbed; database changes were rolled back. '
+                                           'Sleep proposals may have been removed; run alice-memory sleep to regenerate them.'}}))
+        return 1
+    except SleepError:
+        print(json.dumps({'error':{'code':'sleep_sidecar_refused',
+            'message':'Sleep proposals could not be read. Stop every program using the vault, move '
+                      'sleep_proposals.jsonl aside, and retry. Run alice-memory sleep to regenerate proposals; '
+                      'do not restore the moved file after deleting sources.'}}))
         return 1
     except ValueError as exc:
         print(json.dumps({'error':{'code':'source_request_refused','message':str(exc)}}))
