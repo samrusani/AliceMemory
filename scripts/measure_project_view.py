@@ -22,9 +22,9 @@ store read that is handed the marker must state it).
 Two steps, both offline, no network, no model, no embeddings, no host binary:
 
     PYTHONPATH=apps/api/src python scripts/measure_project_view.py build \\
-        --data-dir /tmp/pv-vault --notes 5000
+        --data-dir ./pv-vault --notes 5000
     PYTHONPATH=apps/api/src python scripts/measure_project_view.py measure \\
-        --data-dir /tmp/pv-vault --label branch
+        --data-dir ./pv-vault --label branch
 
 ``build`` makes a scratch git repository beside the vault (``<data-dir>-repo``,
 hand-written ``.git``, no ``git`` process) and stamps three project ids on 15

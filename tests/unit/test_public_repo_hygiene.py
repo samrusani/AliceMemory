@@ -17,6 +17,33 @@ pair, so this file never contains them. Allowed on purpose:
   byline);
 - placeholder home directories that name no one (``/Users/me``, ``/Users/x``,
   ``/home/alice`` and the others in ``_PLACEHOLDER_USERS``).
+
+Scratch paths are the second kind of local path checked. A builder's working
+folder (``/private/tmp/...`` on macOS, ``/tmp/claude-...`` on Linux) written
+into a living document or into code is a leak of how the work was done, and
+the frozen handoff records of July 2026 hold several. Those records stay as
+they are. Living files and code may not name a ``/private/tmp`` or ``/tmp``
+path, with these explicit exceptions, each with its reason beside it:
+
+- ``_RECORD_PREFIXES`` and the released sections of ``CHANGELOG.md`` are dated
+  records, frozen on purpose, and are not read;
+- ``_TMP_ALLOWED_AREAS`` and ``_TMP_ALLOWED_FILES`` name where ``/tmp`` is a
+  made-up test input or a real temporary folder in a command or a default;
+- ``_PRIVATE_TMP_ALLOWED`` names the two tests that plant a leaked path to
+  prove it gets redacted;
+- a ``/tmp/claude-...`` or ``/private/tmp/claude-...`` path is never allowed
+  in anything that is read, tests included.
+
+Every exception must still be needed, or ``test_the_scratch_path_exceptions_are_all_still_needed``
+fails until it is deleted.
+
+Mutations that must fail the scratch-path tests, each alone: name a scratch path
+in a living doc, in a code docstring, in the Unreleased changelog section or as a
+session folder in a test file (``test_no_scratch_paths_in_living_files_and_code``);
+drop a record folder from ``_RECORD_PREFIXES`` (the same test, on the records' own
+paths); read the released changelog sections; lose the ``/private`` prefix in the
+pattern; list an exception no file uses. A path in a dated record or in a released
+changelog section must not fail anything.
 """
 
 from __future__ import annotations
@@ -94,6 +121,104 @@ def _home_path_users(text: str) -> set[str]:
     return {match.group(1) for match in _HOME_PATH.finditer(text)} - _PLACEHOLDER_USERS
 
 
+# --- scratch paths -----------------------------------------------------------
+
+# Dated records, frozen on purpose: a scratch path in them is history, not a leak.
+# Folder prefixes, matched whole, so ``docs/handoff-notes/`` is not excluded.
+# ``docs/release/`` holds the release notes, checksums, checklists and tag plans.
+# The released sections of CHANGELOG.md are excluded by _living_text.
+_RECORD_PREFIXES = (
+    "docs/handoff/",
+    "docs/archive/",
+    "docs/release/",
+    "docs/reports/",
+    "docs/plans/",
+)
+
+# Where a plain ``/tmp`` path is allowed: a made-up input in a test, or a real
+# throwaway folder on a CI runner. Matched against the start (or the end, for the
+# test-file suffixes) of the path.
+_TMP_ALLOWED_AREAS: dict[str, str] = {
+    "tests/": "test code: made-up inputs and expected values, not notes about anyone's machine",
+    ".test.ts": "web test code: made-up inputs and expected values",
+    ".test.tsx": "web test code: made-up inputs and expected values",
+    ".github/workflows/": "CI jobs write throwaway files to the runner's /tmp",
+}
+
+# Single files where a plain ``/tmp`` path is a real runtime location or a made-up input.
+_TMP_ALLOWED_FILES: dict[str, str] = {
+    ".bandit-baseline.json": "generated scanner baseline that quotes the two source defaults below",
+    ".env.example": "template that shows the TASK_WORKSPACE_ROOT default",
+    "Makefile": "default output file of the local coverage check",
+    "RELEASING.md": "the release procedure's own commands make throwaway files; test_control_doc_truth pins one",
+    "apps/api/src/alicebot_api/config.py": "DEFAULT_TASK_WORKSPACE_ROOT, a runtime default",
+    "apps/api/src/alicebot_api/vnext_queue.py": "DEFAULT_VNEXT_ARTIFACT_EXPORT_ROOT, a runtime default",
+    "scripts/fuzz_codex_config_writer.py": "made-up project path inside a fuzzed config fixture",
+    "scripts/record_demo_vault_gif.py": "makes a throwaway demo data folder under /tmp",
+    "scripts/run_hermes_memory_provider_smoke.py": "stand-in Hermes home returned by a fake module",
+}
+
+# Single files where a ``/private/tmp`` path is deliberate.
+_PRIVATE_TMP_ALLOWED: dict[str, str] = {
+    "tests/unit/test_archive_maintenance.py": "plants a leaked path in an error to prove it is redacted",
+    "tests/unit/test_hermes_memory_provider.py": "plants a leaked path in an error to prove it is redacted",
+}
+
+# A path under /tmp or /private/tmp, whole. The lookbehind skips a name that merely
+# ends in a word, such as ``docs/tmp/x``, ``~/tmp``, ``$TMPDIR/tmp`` or ``./tmp``.
+_SCRATCH_PATH = re.compile(r"(?<![\w.~$}-])(?P<path>(?:/private)?/tmp(?![\w.-])(?:/[^\s\"'`<>()\[\]{},;:|&*?]*)?)")
+_SESSION_SCRATCH = re.compile(r"(?:/private)?/tmp/claude-")
+# This file's own made-up example paths exist to test the matchers.
+_SCRATCH_SELF = "tests/unit/test_public_repo_hygiene.py"
+_UNRELEASED_END = re.compile(r"(?m)^## v\d")
+
+
+def _living_text(relative: str, text: str) -> str | None:
+    """The part of a tracked file the scratch-path check reads, or None for a dated record."""
+
+    if relative == _SCRATCH_SELF or relative.startswith(_RECORD_PREFIXES):
+        return None
+    if relative == "CHANGELOG.md":
+        return _UNRELEASED_END.split(text, maxsplit=1)[0]  # released sections are records
+    return text
+
+
+def _scratch_hits(relative: str, text: str) -> list[tuple[str, str]]:
+    """Every scratch path a living file names, as (kind, path). Kind is session, private or tmp."""
+
+    living = _living_text(relative, text)
+    if living is None:
+        return []
+    hits: list[tuple[str, str]] = []
+    for match in _SCRATCH_PATH.finditer(living):
+        path = match.group("path")
+        kind = "session" if _SESSION_SCRATCH.match(path) else "private" if path.startswith("/private") else "tmp"
+        hits.append((kind, path))
+    return hits
+
+
+def _in_tmp_area(relative: str) -> str | None:
+    """The allowed area a path falls in, else None."""
+
+    for area in _TMP_ALLOWED_AREAS:
+        if relative.startswith(area) if area.endswith("/") else relative.endswith(area):
+            return area
+    return None
+
+
+def _scratch_problems(relative: str, text: str) -> list[str]:
+    """Scratch paths in a living file that no exception covers."""
+
+    problems: list[str] = []
+    for kind, path in sorted(set(_scratch_hits(relative, text))):
+        if kind == "private" and relative in _PRIVATE_TMP_ALLOWED:
+            continue
+        if kind == "tmp" and (relative in _TMP_ALLOWED_FILES or _in_tmp_area(relative)):
+            continue
+        problems.append(f"{relative}: scratch path {path!r} ({kind})")
+    return problems
+
+
 def _tracked_text_files() -> list[str]:
     listed = subprocess.run(
         ["git", "ls-files", "-z"], cwd=REPO_ROOT, capture_output=True, check=True
@@ -160,3 +285,147 @@ def test_known_name_leftovers_are_still_present() -> None:
 
     stale = [path for path, digest in sorted(_KNOWN_NAME_LEFTOVERS) if digest not in _digests(_read(path) or "")]
     assert not stale, "Remove these entries from _KNOWN_NAME_LEFTOVERS:\n" + "\n".join(stale)
+
+
+# --- scratch path tests ---------------------------------------------------------
+
+
+def test_the_scratch_matcher_catches_what_it_guards() -> None:
+    """Mutation: stop reading a living doc or a docstring, drop /tmp or /private/tmp from the pattern."""
+
+    doc = "docs/alpha/getting-started.md"
+    code = "apps/api/src/alicebot_api/example.py"
+    # A living document and a code docstring, in both spellings.
+    assert _scratch_problems(doc, "Run it in /private/tmp/alice-run/out and read the log.")
+    assert _scratch_problems(doc, "Run it in /tmp/alice-run/out and read the log.")
+    assert _scratch_problems(code, '"""Writes its report to /private/tmp/alice-report.json."""')
+    assert _scratch_problems(code, '"""Writes its report to /tmp/alice-report.json."""')
+    assert _scratch_problems(code, "# scratch: /tmp")  # the bare folder is a path too
+    assert _scratch_problems("scripts/tool.sh", 'cd "/private/tmp/x"')
+    assert [path for _, path in _scratch_hits(doc, "see `/tmp/a/b.json`, then (/private/tmp/c).")] == [
+        "/tmp/a/b.json",
+        "/private/tmp/c",
+    ]
+    assert _scratch_hits(doc, "db sqlite:///tmp/test.db") == [("tmp", "/tmp/test.db")]
+    # A session scratch folder is never allowed, whatever the area or file.
+    for relative in ("tests/unit/test_x.py", ".github/workflows/tests.yml", "Makefile", "docs/alpha/a.md"):
+        assert _scratch_problems(relative, 'x = "/tmp/claude-1000/work"'), relative
+        assert _scratch_problems(relative, 'x = "/private/tmp/claude-123/work"'), relative
+    # Names that only contain "tmp" are not scratch paths.
+    for text in (
+        "docs/tmp/x.md and apps/tmp/y",
+        "see ~/tmp/notes and ./tmp/out and $TMPDIR/tmp/z and ${HOME}/tmp",
+        "/tmpfile /tmp.json /tmp-old/x /usr/tmp/x https://example.test/tmp/x",
+        "the /private/tmpdir folder",
+    ):
+        assert _scratch_hits(doc, text) == [], text
+
+
+def test_the_exceptions_for_tmp_and_private_tmp_are_exactly_what_they_say() -> None:
+    """Mutation: let an area or a file excuse /private/tmp, or let a test or workflow excuse a session folder."""
+
+    plain = 'x = "/tmp/fixture"'
+    private = 'x = "/private/tmp/fixture"'
+    # A plain /tmp is excused in the named areas and files only.
+    for relative in (
+        "tests/unit/test_config.py",
+        "apps/web/lib/api.test.ts",
+        "apps/web/components/a.test.tsx",
+        ".github/workflows/tests.yml",
+        "Makefile",
+        "apps/api/src/alicebot_api/config.py",
+    ):
+        assert _scratch_problems(relative, plain) == [], relative
+    for relative in ("docs/alpha/a.md", "apps/api/src/alicebot_api/example.py", "scripts/measure_x.py", "README.md"):
+        assert _scratch_problems(relative, plain), relative
+    # /private/tmp is excused for the two named tests and for nothing else, areas and files included.
+    assert _scratch_problems("tests/unit/test_archive_maintenance.py", private) == []
+    assert _scratch_problems("tests/unit/test_hermes_memory_provider.py", private) == []
+    for relative in ("tests/unit/test_config.py", ".github/workflows/tests.yml", "Makefile", "RELEASING.md"):
+        assert _scratch_problems(relative, private), relative
+    # The two tests are excused for /private/tmp only, not for a session folder.
+    assert _scratch_problems("tests/unit/test_archive_maintenance.py", "/private/tmp/claude-123/x")
+
+
+def test_dated_records_are_excluded_by_the_explicit_list_and_nothing_else_is() -> None:
+    """Mutation: drop a record folder from the list, match it by a loose prefix, or read released changelog sections."""
+
+    leak = "built in /private/tmp/alice-p2-package-final and /tmp/alice-batch16-package"
+    for prefix in _RECORD_PREFIXES:
+        assert _scratch_problems(f"{prefix}2026-07-16-example/BUILD_REPORT.md", leak) == [], prefix
+        assert _scratch_problems(f"{prefix}example.md", "x /tmp/claude-1000/y") == [], prefix
+    # The list is exact: a folder that only starts the same way, and the living docs, are read.
+    for relative in (
+        "docs/handoff-notes/a.md",
+        "docs/archived/a.md",
+        "docs/releases/a.md",
+        "docs/adr/ADR-001.md",
+        "docs/security/README.md",
+        "docs/alpha/known-limitations.md",
+        "README.md",
+    ):
+        assert _scratch_problems(relative, leak), relative
+
+    changelog = (
+        "# Changelog\n\n## Unreleased\n\n- A living entry.\n\n"
+        "## v0.20.0 \u2014 2026-10-02\n\n- Built in /private/tmp/alice-old.\n"
+    )
+    assert _scratch_problems("CHANGELOG.md", changelog) == []  # the leak is in a released section
+    assert _scratch_problems("CHANGELOG.md", changelog.replace("A living entry.", "Ran in /tmp/alice-x.")), (
+        "an Unreleased entry is living text"
+    )
+    assert _scratch_problems("CHANGELOG.md", "## Unreleased\n\n- Ran in /private/tmp/alice-x.\n")
+    # This file's own example paths are not read.
+    assert _scratch_problems(_SCRATCH_SELF, leak) == []
+
+
+def test_the_record_prefixes_are_real_tracked_folders() -> None:
+    """A prefix that matches nothing would excuse nothing and hide a typo."""
+
+    tracked = _tracked_text_files()
+    for prefix in _RECORD_PREFIXES:
+        assert any(name.startswith(prefix) for name in tracked), prefix
+    assert (REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8").count("\n## Unreleased\n") == 1
+
+
+def test_no_scratch_paths_in_living_files_and_code() -> None:
+    problems: list[str] = []
+    for relative in _tracked_text_files():
+        text = _read(relative)
+        if text is not None:
+            problems.extend(_scratch_problems(relative, text))
+    assert not problems, (
+        "Scratch paths in living files or code. Use a placeholder, `$(mktemp -d)` or a relative path, or add a\n"
+        "documented exception at the top of the scratch section of this test:\n" + "\n".join(problems)
+    )
+
+
+def test_the_scratch_path_exceptions_are_all_still_needed() -> None:
+    """An exception no file uses any more must be deleted, so the lists never grow stale."""
+
+    kinds_by_file: dict[str, set[str]] = {}
+    for relative in _tracked_text_files():
+        text = _read(relative)
+        if text is not None:
+            kinds_by_file[relative] = {kind for kind, _ in _scratch_hits(relative, text)}
+    stale = [
+        f"{path}: no /tmp path left" for path in sorted(_TMP_ALLOWED_FILES) if "tmp" not in kinds_by_file.get(path, ())
+    ]
+    stale += [
+        f"{path}: no /private/tmp path left"
+        for path in sorted(_PRIVATE_TMP_ALLOWED)
+        if "private" not in kinds_by_file.get(path, ())
+    ]
+    stale += [
+        f"{area}: no file in this area names /tmp"
+        for area in sorted(_TMP_ALLOWED_AREAS)
+        if not any("tmp" in kinds and _in_tmp_area(path) == area for path, kinds in kinds_by_file.items())
+    ]
+    assert not stale, "Delete these scratch-path exceptions:\n" + "\n".join(stale)
+    # One reason each, and no file listed twice over.
+    reasons = (*_TMP_ALLOWED_AREAS.values(), *_TMP_ALLOWED_FILES.values(), *_PRIVATE_TMP_ALLOWED.values())
+    assert all(reason.strip() for reason in reasons)
+    assert not [path for path in _TMP_ALLOWED_FILES if _in_tmp_area(path)], "a file is both listed and in an area"
+    assert not {*_TMP_ALLOWED_FILES, *_PRIVATE_TMP_ALLOWED} & {
+        name for name in _tracked_text_files() if name.startswith(_RECORD_PREFIXES)
+    }
