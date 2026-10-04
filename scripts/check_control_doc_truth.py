@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+from collections.abc import Iterator
 from dataclasses import dataclass
 import json
+import os
 from pathlib import Path
 import re
 import tomllib
@@ -21,7 +23,30 @@ _PACKAGE_DESCRIPTION_STATE_PATTERN = re.compile(
 )
 _LATEST_RELEASE_NOTES_DOCS = ("README.md", "docs/vnext/README.md")
 _LATEST_CHECKSUM_DOCS = ("ARCHITECTURE.md", "PRODUCT_BRIEF.md", "ROADMAP.md")
-_LITERAL_INSTALL_TAG_PATTERN = re.compile(r"--tag\s+v(?P<version>\d+\.\d+\.\d+)\b")
+# An install line that names a release tag by hand: `git checkout vX.Y.Z`,
+# `git clone --branch vX.Y.Z` or `--tag vX.Y.Z`. A tag in any of these forms is
+# the version a reader installs, so it must be the latest published release.
+_LITERAL_INSTALL_TAG_PATTERN = re.compile(
+    r"(?:--tag|--branch|\bgit\s+checkout(?:\s+--detach)?)\s+[\"']?v(?P<version>\d+\.\d+\.\d+)\b"
+)
+# Where the living docs are. The root-level Markdown files are living docs too.
+# Everything else in the repository (code, tests, fixtures) is not documentation.
+LIVING_DOC_ROOTS: tuple[str, ...] = ("docs", "agent-skills", "plugins", ".ai", ".github")
+# Dated records. They say what was true on their date, quote the install line
+# and the tool counts of their own release, and are never rewritten, so no check
+# of current behaviour reads them. This is the one list of the deliberately
+# historical examples; a path is a file, or a folder and everything under it.
+DATED_RECORD_PATHS: tuple[str, ...] = (
+    "CHANGELOG.md",  # released sections quote the install line of their release
+    "docs/release",  # release notes, tag plans and checklists, frozen at publication
+    "docs/handoff",  # build handoffs, frozen when the work shipped
+    "docs/archive",  # superseded pages, which say they describe nothing current
+    "docs/plans",  # plans, each describing the surface of the day it was written
+    "docs/adr",  # decision records
+    "docs/reports",  # research reports
+    "docs/issues",  # an issue write-up from one install
+    "docs/roadmap-friction-first.md",  # a plan dated 2026-07-29
+)
 _PUBLISHED_FUTURE_STATE_PATTERN = re.compile(
     r"\b(?:will\s+be\s+(?:published|recorded|uploaded|created)|"
     r"after\s+publication|once\s+published)\b",
@@ -431,6 +456,35 @@ def _markdown_section(text: str, heading: str) -> str:
     return match.group("body") if match is not None else ""
 
 
+def _is_dated_record(relative_path: str) -> bool:
+    return any(
+        relative_path == record or relative_path.startswith(record + "/") for record in DATED_RECORD_PATHS
+    )
+
+
+def living_doc_files(root_dir: Path = ROOT_DIR, *, suffixes: tuple[str, ...] = (".md",)) -> Iterator[Path]:
+    """The living documentation files under ``root_dir``, in a stable order.
+
+    A living doc is a file with one of ``suffixes`` that is a root-level file or sits under a folder of
+    ``LIVING_DOC_ROOTS``, and is not one of the ``DATED_RECORD_PATHS``.
+    """
+
+    found: list[Path] = [path for path in sorted(root_dir.iterdir()) if path.is_file() and path.suffix in suffixes]
+    for root_name in LIVING_DOC_ROOTS:
+        base = root_dir / root_name
+        if not base.is_dir():
+            continue
+        for directory, directory_names, file_names in os.walk(base):
+            directory_names.sort()
+            for file_name in sorted(file_names):
+                path = Path(directory) / file_name
+                if path.suffix in suffixes:
+                    found.append(path)
+    for path in found:
+        if not _is_dated_record(path.relative_to(root_dir).as_posix()):
+            yield path
+
+
 def _validate_package_description(root_dir: Path, project: object) -> list[str]:
     issues: list[str] = []
     configured_readme = project.get("readme") if isinstance(project, dict) else None
@@ -739,13 +793,11 @@ def run_control_doc_truth_check(
             if expected_checksums not in release_boundary:
                 issues.append(f"CURRENT_STATE.md: Release Boundary checksum pointer must target {expected_checksums}")
 
-        install_guide = root_dir / "docs" / "alpha" / "headless-ubuntu-install.md"
-        if install_guide.is_file():
-            install_text = install_guide.read_text(encoding="utf-8")
-            for match in _LITERAL_INSTALL_TAG_PATTERN.finditer(install_text):
+        for living_doc in living_doc_files(root_dir):
+            for match in _LITERAL_INSTALL_TAG_PATTERN.finditer(living_doc.read_text(encoding="utf-8", errors="replace")):
                 if match.group("version") != latest_published_version:
                     issues.append(
-                        "docs/alpha/headless-ubuntu-install.md: literal install tag "
+                        f"{living_doc.relative_to(root_dir).as_posix()}: literal install tag "
                         f"v{match.group('version')} must match latest published "
                         f"v{latest_published_version}"
                     )
