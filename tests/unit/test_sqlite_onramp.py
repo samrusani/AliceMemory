@@ -387,6 +387,7 @@ def test_recall_graph_stage_finds_entity_connected_memory_fts_misses(sqlite_cont
             "id": str(entity["id"]),
             "name": "Meridian Bank",
             "entity_type": "organization",
+            "mention_count": 3,
         }
     ]
     assert recall["entities"] == graph_stage["matched_entities"]

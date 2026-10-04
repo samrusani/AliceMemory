@@ -1,23 +1,19 @@
-"""Compare full owner/admin read responses against another checkout.
+"""Frozen full-response controls for ordinary owner and unbound-admin reads.
 
-Usage: PYTHONPATH=apps/api/src:workers:. python scripts/check_unrestricted_read_parity.py --baseline /path/to/checkout
-Uses synthetic SQLite copies, real admin keys and both context-pack entry points.
-Only UUIDs, wall-clock timestamps and measured durations are normalized.
+The JSON fixture was recorded on main at 55b78515 with default and all
+sensitivity selections. Every named entity has a readable linked row.
+Only generated IDs, timestamps and measured durations are normalized.
 """
 from __future__ import annotations
 
 import argparse
 from contextlib import contextmanager
 from datetime import UTC, datetime
-import difflib
 import json
-import os
 from pathlib import Path
 import re
 import shutil
-import subprocess
 import sys
-import tempfile
 from uuid import UUID
 
 USER = '00000000-0000-0000-0000-000000000001'
@@ -59,7 +55,7 @@ def worker(database, key_file, output):
         patch.setenv('ALICE_PROJECT_SCOPING', 'off')
         patch.setenv('ALICE_MCP_FULL_TOOLS', '1')
         patch.delenv('ALICE_EMBEDDINGS_BASE_URL', raising=False)
-        for mode in ('owner', 'declared_admin', 'key_admin'):
+        for mode, sensitivity in __import__('itertools').product(('owner', 'declared_admin', 'key_admin'), ('default', 'all')):
             path = Path(database + ('.keyless' if mode != 'key_admin' else ''))
             identity = {'agent_id': 'admin', 'permission_profile': 'admin_agent'} if mode == 'declared_admin' else {}
             if mode == 'key_admin':
@@ -67,9 +63,10 @@ def worker(database, key_file, output):
             else:
                 patch.delenv('ALICE_AGENT_API_KEY', raising=False)
             context = MCPRuntimeContext(database_url=sqlite_url_for_path(path), user_id=UUID(USER))
+            options = {'sensitivity_allowed': list(ALL_SENSITIVITY)} if sensitivity == 'all' else {}
             for name in ('alice_recall', 'alice_context_pack'):
-                result[mode + '/' + name] = call_mcp_tool(context, name=name, arguments={
-                    'query': 'Meridian Cedar Briar', 'debug': True, 'sensitivity_allowed': list(ALL_SENSITIVITY), **identity})
+                result[mode + '/' + sensitivity + '/' + name] = call_mcp_tool(context, name=name, arguments={
+                    'query': 'Meridian Cedar Briar', 'debug': True, **options, **identity})
             @contextmanager
             def connection(_url, user_id):
                 with sqlite_user_connection(path, USER) as conn:
@@ -78,55 +75,43 @@ def worker(database, key_file, output):
             patch.setattr(router, 'user_connection', connection)
             patch.setattr(router, 'PostgresVNextStore', lambda conn: SQLiteVNextStore(conn, USER))
             response = router.create_vnext_context_pack(router.VNextContextPackRequest(user_id=UUID(USER),
-                query='Meridian Cedar Briar', options={'sensitivity_allowed': list(ALL_SENSITIVITY)}, **identity),
+                query='Meridian Cedar Briar', options=options, **identity),
                 authorization=f'Bearer {raw}' if mode == 'key_admin' else None)
             assert response.status_code == 201, response.body
-            result[mode + '/http'] = json.loads(response.body)
+            result[mode + '/' + sensitivity + '/http'] = json.loads(response.body)
     Path(output).write_text(json.dumps(normalize(result), sort_keys=True, indent=2) + '\n')
 
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--baseline', type=Path)
-    parser.add_argument('--worker', nargs=3)
-    args = parser.parse_args()
-    if args.worker:
-        worker(*args.worker)
-        return
-    assert args.baseline
+def seed(root: Path):
     from alicebot_api.onramp import bootstrap_database
     from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
     from alicebot_api.vnext_agent_keys import create_agent_key
     from tests.unit.per_project_s2_support import add_memory
-    with tempfile.TemporaryDirectory() as directory:
-        root = Path(directory)
-        seed = root / 'seed.sqlite3'
-        bootstrap_database(seed, user_id=USER, user_email='fixture@example.invalid')
-        with sqlite_user_connection(seed, USER) as conn:
-            store = SQLiteVNextStore(conn, USER)
-            for name, domain, sensitivity in [('Meridian', 'project', 'public'), ('Cedar', 'health', 'private'), ('Briar', 'financial', 'confidential')]:
-                row = add_memory(store, key=name, text=name + ' observation', domain=domain, sensitivity=sensitivity)
-                entity = store.create_entity({'name': name, 'entity_type': 'person', 'mention_count': 999})
-                store.create_graph_edge({'from_type': 'memory', 'from_id': row['id'], 'to_type': 'entity', 'to_id': entity['id'], 'edge_type': 'mentions'})
-        shutil.copyfile(seed, str(seed) + '.keyless')
-        with sqlite_user_connection(seed, USER) as conn:
-            _, raw = create_agent_key(SQLiteVNextStore(conn, USER), user_id=USER, agent_id='admin', permission_profile='admin_agent')
-        key_file = root / 'key'
-        key_file.write_text(raw)
-        outputs = []
-        for label, checkout in [('before', args.baseline.resolve()), ('after', Path.cwd())]:
-            database = root / (label + '.sqlite3')
-            shutil.copyfile(seed, database)
-            shutil.copyfile(str(seed) + '.keyless', str(database) + '.keyless')
-            output = root / (label + '.json')
-            env = dict(os.environ, PYTHONPATH=str(checkout / 'apps/api/src') + ':' + str(checkout / 'workers') + ':' + str(checkout))
-            subprocess.run([sys.executable, str(Path(__file__).resolve()), '--worker', str(database), str(key_file), str(output)], cwd=checkout, env=env, check=True)
-            outputs.append(output.read_text())
-        if outputs[0] != outputs[1]:
-            print(''.join(difflib.unified_diff(outputs[0].splitlines(True), outputs[1].splitlines(True), fromfile='before', tofile='after')))
-            raise SystemExit(1)
-        print('9/9 full unrestricted read responses are byte-equal after UUID, timestamp and duration normalization')
+    seed = root / 'seed.sqlite3'
+    bootstrap_database(seed, user_id=USER, user_email='fixture@example.invalid')
+    with sqlite_user_connection(seed, USER) as conn:
+        store = SQLiteVNextStore(conn, USER)
+        for name, domain, sensitivity in [('Meridian', 'project', 'public'), ('Cedar', 'health', 'private'), ('Briar', 'financial', 'private')]:
+            row = add_memory(store, key=name, text=name + ' observation', domain=domain, sensitivity=sensitivity)
+            entity = store.create_entity({'name': name, 'entity_type': 'person', 'mention_count': 999})
+            store.create_graph_edge({'from_type': 'memory', 'from_id': row['id'], 'to_type': 'entity', 'to_id': entity['id'], 'edge_type': 'mentions'})
+    shutil.copyfile(seed, str(seed) + '.keyless')
+    with sqlite_user_connection(seed, USER) as conn:
+        _, raw = create_agent_key(SQLiteVNextStore(conn, USER), user_id=USER, agent_id='admin', permission_profile='admin_agent')
+    key_file = root / 'key'
+    key_file.write_text(raw)
+    return seed, key_file
 
 
-if __name__ == '__main__':
-    main()
+def record(root: Path, output: Path):
+    root.mkdir(parents=True, exist_ok=True)
+    database, key_file = seed(root)
+    worker(str(database), str(key_file), str(output))
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("root", type=Path)
+    parser.add_argument("output", type=Path)
+    args = parser.parse_args()
+    record(args.root, args.output)

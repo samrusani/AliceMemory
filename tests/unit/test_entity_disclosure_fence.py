@@ -178,7 +178,8 @@ def _graph_fixture(*, hidden=False, count=17):
 
 def _graph(store, **overrides):
     from alicebot_api.vnext_retrieval import VNextRetrievalService
-    kwargs = {'query': 'Meridian', 'domains': ['project'], 'sensitivity_allowed': ['private'], 'limit': 8}
+    kwargs = {'query': 'Meridian', 'domains': ['project'], 'sensitivity_allowed': ['private'], 'limit': 8,
+              'entity_read_fenced': True}
     return VNextRetrievalService(store)._memory_graph_rows(**(kwargs | overrides))
 
 
@@ -192,7 +193,7 @@ def test_hidden_entity_matches_absent_entity_including_debug_status():
 def test_fenced_count_is_omitted_but_unrestricted_count_survives():
     store = _graph_fixture()
     assert _graph(store)[2] == [{'id': 'entity', 'name': 'Meridian', 'entity_type': 'organization'}]
-    assert _graph(store, domains=[], sensitivity_allowed=list(ALL_SENSITIVITY))[2][0]['mention_count'] == 17
+    assert _graph(store, domains=[], sensitivity_allowed=list(ALL_SENSITIVITY), entity_read_fenced=False)[2][0]['mention_count'] == 17
 
 
 def test_fenced_selection_ignores_hidden_counts_and_filters_before_limit():
@@ -314,5 +315,6 @@ def test_context_pack_passes_the_entity_fence_to_grounding(tmp_path):
         entity = store.create_entity({'name': 'Marcus Chen', 'entity_type': 'person'})
         store.create_graph_edge({'from_type': 'memory', 'from_id': memory['id'], 'to_type': 'entity', 'to_id': entity['id'], 'edge_type': 'mentions'})
         pack = VNextRetrievalService(store).compile_context_pack(VNextRetrievalRequest(
-            query='Did Marcus Chen approve the launch?', domains=('project',)), source_fence=SourceReadFence.unfenced())
+            query='Did Marcus Chen approve the launch?', domains=('project',)),
+            source_fence=SourceReadFence.for_identity(AgentIdentity(agent_id='reader', permission_profile='read_only_agent')))
         assert pack.get('grounding', {}).get('unsupported_entities') == ['Marcus Chen']

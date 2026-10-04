@@ -33,6 +33,7 @@ from alicebot_api.vnext_repositories import JsonObject as VNextJsonObject
 from alicebot_api.vnext_retrieval import MEMORY_ENTITY_EDGE_TYPES
 from alicebot_api.vnext_source_fence import (
     EXPLAIN_DISCLOSURE_ACTION,
+    SourceReadFence,
     cited_source_ids_in_memory_audit,
     source_rows_including_archived,
 )
@@ -687,7 +688,7 @@ def _handle_alice_vnext_memory_audit(context: MCPRuntimeContext, arguments: Mapp
                 store,
                 audit,
                 allowed_entity_ids=allowed_entity_ids,
-                include_entity_counts=identity is None or (identity.permission_profile == "admin_agent" and not identity.project_scope),
+                include_entity_counts=not SourceReadFence.for_identity(identity).entity_read_fenced,
             )
             # Quote the stored notes a model reads. The result states the
             # framing sentence once. Timeline summaries and event payloads

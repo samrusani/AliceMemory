@@ -108,7 +108,13 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from uuid import UUID
 
-from alicebot_api.vnext_agent_control import AgentIdentity, evaluate_agent_policy, resource_project_scope
+from alicebot_api.vnext_agent_control import (
+    ALL_SENSITIVITY,
+    VNEXT_DOMAINS,
+    AgentIdentity,
+    evaluate_agent_policy,
+    resource_project_scope,
+)
 from alicebot_api.vnext_project_scope import source_project_scope
 
 SOURCE_REF_NOT_FOUND_MESSAGE = "the cited source was not found in the current user scope"
@@ -173,6 +179,28 @@ class SourceReadFence:
         """True for a caller with an agent identity; False for the owner, who is shown what was stored."""
 
         return self.identity is not None
+
+    @property
+    def entity_read_fenced(self) -> bool:
+        """Whether policy limits this identity's view of vault-wide entity metadata.
+
+        Request filters are a selection, not an authorization boundary. An
+        unbound admin can read every label and keeps the owner's stored counts.
+        The existing ``fenced`` flag still controls saved-provenance checks.
+        """
+        decision = evaluate_agent_policy(
+            identity=self.identity,
+            action=EXPLAIN_DISCLOSURE_ACTION,
+            domains=VNEXT_DOMAINS,
+            sensitivity_allowed=ALL_SENSITIVITY,
+            project_scope=(),
+            require_explicit_project_scope=True,
+        )
+        return (
+            decision.decision != "allowed"
+            or set(decision.effective_domains) != set(VNEXT_DOMAINS)
+            or set(decision.effective_sensitivity_allowed) != set(ALL_SENSITIVITY)
+        )
 
     def admits(self, source: Mapping[str, object]) -> bool:
         """True when this caller may be shown ``source``."""

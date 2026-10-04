@@ -2940,7 +2940,7 @@ def test_graph_stage_finds_entity_connected_memory_that_fts_misses() -> None:
     assert graph_trace == {
         "status": GRAPH_STAGE_ENABLED,
         "matched_entities": [
-            {"id": "entity-meridian", "name": "Meridian", "entity_type": "organization"}
+            {"id": "entity-meridian", "name": "Meridian", "entity_type": "organization", "mention_count": 7}
         ],
         "candidate_count": 1,
     }
@@ -3000,6 +3000,7 @@ def test_graph_candidates_are_ordered_by_edge_observed_at_then_memory_recency() 
     )
 
     rows, stage, _entities = VNextRetrievalService(store)._memory_graph_rows(
+        entity_read_fenced=False,
         query="Meridian", domains=[], sensitivity_allowed=["private"], limit=8
     )
 
@@ -3035,6 +3036,7 @@ def test_graph_stage_walks_edges_in_both_directions_and_ignores_other_edge_types
     )
 
     rows, stage, _entities = VNextRetrievalService(store)._memory_graph_rows(
+        entity_read_fenced=False,
         query="Meridian", domains=[], sensitivity_allowed=["private"], limit=8
     )
 
@@ -3061,6 +3063,7 @@ def test_graph_candidates_respect_status_expiry_and_scope_filters() -> None:
     )
 
     rows, stage, _entities = VNextRetrievalService(store)._memory_graph_rows(
+        entity_read_fenced=False,
         query="Meridian",
         domains=["project"],
         sensitivity_allowed=["private"],
@@ -3130,6 +3133,7 @@ def test_graph_stage_caps_matched_entities_at_five_by_mention_count() -> None:
 
     query = " ".join(f"Meridian{index}" for index in range(1, 8))
     _rows, stage, matched = VNextRetrievalService(store)._memory_graph_rows(
+        entity_read_fenced=False,
         query=query, domains=[], sensitivity_allowed=list(ALL_SENSITIVITY), limit=8
     )
 
@@ -3172,6 +3176,7 @@ def test_graph_stage_bulk_reads_all_edges_beyond_200_in_constant_queries() -> No
     )
 
     rows, stage, _entities = VNextRetrievalService(store)._memory_graph_rows(
+        entity_read_fenced=False,
         query="Meridian", domains=[], sensitivity_allowed=["private"], limit=300
     )
 

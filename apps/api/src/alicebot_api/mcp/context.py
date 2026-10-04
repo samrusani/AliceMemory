@@ -224,8 +224,8 @@ def _frame_context_pack_tool(
     # every compact memory row already carries memory_type.
     entities = pack.get("entities")
     if isinstance(entities, list) and entities:
-        # Already compact ({id, name, entity_type, mention_count}): the
-        # entities the query resolved to, i.e. who the pack is about.
+        # Already compact: id, name and entity_type, plus mention_count only
+        # when the caller's policy permits vault-wide entity metadata.
         payload["entities"] = entities
     contradictions = pack.get("contradicting_evidence")
     if isinstance(contradictions, list) and contradictions:
