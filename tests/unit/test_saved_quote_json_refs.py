@@ -754,3 +754,26 @@ def test_a_memory_whose_ref_holds_a_marker_in_a_quote_is_the_stored_row_for_a_ca
     audit = cited_source_ids_in_memory_audit({"memory": row, "revisions": [revision]})
     assert audit.named == frozenset({readable})
     assert audit.incidental == frozenset()
+
+
+
+def test_json_text_with_a_raw_newline_in_its_quote_is_decoded_and_the_quote_names_nothing() -> None:
+    """A multi-line excerpt typed into a JSON-text ref holds a raw newline inside its quote string, which strict JSON
+    refuses. The decode accepts it, so a ``source:<id>`` inside that quote names nothing, as in the same ref stored as an
+    object; only the ref's ``source_id`` is named.
+
+    Mutation: decode with ``strict=True`` (the default). The text no longer decodes, the raw scan reads the marker in
+    the quote as a named source, and this test fails.
+    """
+
+    from uuid import uuid4
+
+    from alicebot_api.vnext_source_fence import cited_source_ids
+
+    cited, missing = str(uuid4()), str(uuid4())
+    text = '{"source_id": "%s", "quote": "line one\nsource:%s line two\tend"}' % (cited, missing)
+    assert "\n" in text and "\t" in text
+    found = cited_source_ids([text])
+    assert found.named == frozenset({cited})
+    assert missing not in found.named and missing not in found.incidental
+    assert found == cited_source_ids([{"source_id": cited, "quote": f"line one\nsource:{missing} line two\tend"}])

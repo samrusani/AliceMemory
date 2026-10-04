@@ -918,7 +918,8 @@ every source id its refs name, in the shape they were stored in: under
 entry of a ref list, in a list or an object under any other key, with a
 `source:` prefix in any case, `urn:uuid:`, braces, no hyphens or upper case, as
 an `alice://sources/<id>` URL, and as several ids in one string or in a JSON
-string. A string that is JSON text (an object or a list) is read as the value it
+string. A string in a reference position that is JSON text (an object or a list,
+raw newlines and tabs inside its strings allowed) is read as the value it
 decodes to, by the rules above, and its own text is not scanned, so an id inside
 its `quote` or `conversation_excerpt` names nothing, as it names nothing in the
 same ref stored as an object; a key repeated in the text keeps every value, and a

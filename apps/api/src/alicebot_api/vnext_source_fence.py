@@ -594,7 +594,8 @@ def _keep_every_value(pairs: list[tuple[str, object]]) -> dict[str, object]:
 def _json_container(text: str) -> object | None:
     """The list or object a string ref holds when it is JSON text, else None.
 
-    The text is decoded as far as ``json.loads`` goes: a text nested beyond the recursion limit of the interpreter is not
+    The text is decoded as far as ``json.loads`` goes, with raw control characters (a newline or a tab typed inside a
+    string, as a multi-line excerpt has) accepted: a text nested beyond the recursion limit of the interpreter is not
     decoded (``RecursionError``), and neither is a text that is not JSON, or JSON that is not an object or a list. The
     caller scans such a text as it stands. The decode and the merge of repeated keys are linear in the length of the text.
     """
@@ -603,7 +604,7 @@ def _json_container(text: str) -> object | None:
     if stripped[:1] not in ("{", "["):
         return None
     try:
-        parsed = json.loads(stripped, object_pairs_hook=_keep_every_value)
+        parsed = json.loads(stripped, object_pairs_hook=_keep_every_value, strict=False)
     except (ValueError, RecursionError):
         return None
     return parsed if isinstance(parsed, (dict, list)) else None
