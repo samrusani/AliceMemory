@@ -11,7 +11,16 @@ from collections.abc import Mapping, Sequence
 from alicebot_api.vnext_agent_control import RESTRICTED_DOMAINS
 from alicebot_api.vnext_derived_domain import derived_domain
 
-INPUT_TABLES = ('sources', 'memories', 'open_loops', 'generated_artifacts')
+INPUT_SELECTS = {
+    'sources': 'SELECT id, user_id, domain FROM sources',
+    'memories': 'SELECT id, user_id, domain, metadata_json, value FROM memories',
+    'open_loops': 'SELECT id, user_id, domain FROM open_loops',
+    'generated_artifacts': 'SELECT id, user_id, domain, metadata_json FROM generated_artifacts',
+}
+_SQLITE_UPDATES = {
+    'memories': 'UPDATE memories SET domain = ? WHERE user_id = ? AND id = ?',
+    'generated_artifacts': 'UPDATE generated_artifacts SET domain = ? WHERE user_id = ? AND id = ?',
+}
 _ID_KEYS = {
     'source_ids': 'sources', 'memory_ids': 'memories', 'open_loop_ids': 'open_loops',
     'artifact_ids': 'generated_artifacts', 'member_ids': 'memories',
@@ -120,17 +129,12 @@ def relabel_sqlite(conn) -> None:
         return
     tables = {}
     available = {row[0] if not isinstance(row, dict) else row['name'] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
-    for table in INPUT_TABLES:
+    for table, statement in INPUT_SELECTS.items():
         if table not in available:
             continue
-        columns = 'id, user_id, domain'
-        if table in ('memories', 'generated_artifacts'):
-            columns += ', metadata_json'
-        if table == 'memories':
-            columns += ', value'
-        cursor = conn.execute(f'SELECT {columns} FROM {table}')
+        cursor = conn.execute(statement)
         names = [column[0] for column in cursor.description]
         tables[table] = [row if isinstance(row, dict) else dict(zip(names, row)) for row in cursor.fetchall()]
     for table, user, row_id, domain in plan_relabels(tables):
-        conn.execute(f'UPDATE {table} SET domain = ? WHERE user_id = ? AND id = ?', (domain, user, row_id))
+        conn.execute(_SQLITE_UPDATES[table], (domain, user, row_id))
     conn.execute('INSERT INTO alice_schema_state (key, value) VALUES (?, ?)', (state_key, '1'))
