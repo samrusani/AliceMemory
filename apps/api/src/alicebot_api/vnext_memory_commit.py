@@ -229,6 +229,9 @@ EXPLICIT_MEMORY_INTENTS = {
     "add_to_memory",
     "commit_memory",
 }
+# How long an inline confirmation stays open before ``confirm`` resolves it to rejected. The skill packs and the
+# memory operations protocol tell agents this number, so a change here is a change to what they promise.
+CONFIRMATION_EXPIRY_HOURS = 24
 # Statuses a consolidation candidate may hold when it is accepted.
 CONSOLIDATION_ACCEPTABLE_STATUSES = ("candidate", "needs_review")
 DERIVED_CONSOLIDATION_CANDIDATE_KINDS = frozenset({"memory_consolidation", "memory_rollup"})
@@ -3266,7 +3269,7 @@ class VNextMemoryCommitService:
             "policy_reason": decision.reason,
             "agent_id": identity.agent_id if identity is not None else None,
             "created_at": _utc_iso(now),
-            "expires_at": _utc_iso(now + timedelta(hours=24)),
+            "expires_at": _utc_iso(now + timedelta(hours=CONFIRMATION_EXPIRY_HOURS)),
             "status": "pending",
         }
         metadata = self._base_metadata(
@@ -3954,6 +3957,7 @@ def memory_commit_request_from_payload(payload: Mapping[str, object], *, user_id
 
 
 __all__ = [
+    "CONFIRMATION_EXPIRY_HOURS",
     "CONSOLIDATION_ACCEPTABLE_STATUSES",
     "EXPIRE_BLOCKED_STATUSES",
     "MEMORY_COMMIT_STATUSES",
