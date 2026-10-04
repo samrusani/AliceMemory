@@ -162,3 +162,26 @@ project-scope change. Omitted `--domain` and `--sensitivity` keep a known path's
 labels; new files default to `unknown`. See [importer details](importers.md#replacement-on-re-import)
 for duplicate outcomes, receipts, derived-state cleanup and recovery limits.
 These flags are absent from the Postgres `alice vnext sources` commands.
+
+## SQLite source inventory and removal
+
+Unreleased (on main, not in v0.20.0):
+
+```bash
+alice-memory sources list [--query TEXT] [--superseded | --all] [--limit N]
+alice-memory sources delete SOURCE_ID [--yes]
+alice-memory sources prune --superseded [--older-than DAYS] [--yes]
+```
+
+Each command accepts the existing database and user selection options. List
+defaults to live sources and 50 rows; the limit range is 1 to 1000. Query matches
+an id, title or file label. `--superseded` selects replaced rows; `--all` lists
+live and replaced rows. List prints labels with control characters escaped and
+never prints an absolute source path.
+
+Delete accepts a live or replaced UUID. Prune selects only replaced versions,
+optionally at least `DAYS` old, with zero or greater accepted. Without `--yes`,
+each command prints what would go and exits 2 without writing. With it, the
+command scrubs those sources and prints counts, retained-memory ids and the
+data it cannot erase. Errors exit 1. See [scrub limits](importers.md#list-delete-and-prune-sqlite-sources).
+There is no source restore verb and no new source deletion MCP or HTTP surface.

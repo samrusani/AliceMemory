@@ -91,3 +91,11 @@ Replacement closes source-backed open loops and removes pending sleep proposals.
 Committed memories keep their text. Key-bound explain remains unavailable when
 the audit cites a retired source; the keyless owner can inspect it. Restore an
 older export into a fresh vault to avoid same-id conflicts.
+
+Unreleased (on main, not in v0.20.0): SQLite `sources delete` and
+`sources prune --superseded` overwrite logical source text and pending candidate
+copies. They do not erase append-only source events, hash columns, committed
+memory text, free pages, the write-ahead log or earlier backups. Postgres source
+delete and review archive continue to soft-delete only and retain their text
+and chunks. A failed database transaction can remove sleep proposals first;
+those proposals can regenerate.

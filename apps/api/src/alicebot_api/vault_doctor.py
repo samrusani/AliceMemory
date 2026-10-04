@@ -111,6 +111,7 @@ def compile_local_vault_doctor(
         )
         missing_vector_line = _missing_vector_line(store)
         flagged_ids = _flagged_source_ids(store)
+        superseded_count = len(store.prunable_sources())
         try:
             proposal_count = count_sleep_proposals(sleep_proposals_path(resolved), user_id=uid)
             proposal_line = f"sleep proposals: {proposal_count}"
@@ -139,6 +140,8 @@ def compile_local_vault_doctor(
             f"last brief: {character_count} / {SESSION_BRIEF_CHAR_CAP} characters",
             f"candidates waiting: {candidate_count}",
             proposal_line,
+            *([f"superseded sources: {superseded_count}"] if superseded_count else []),
+            *(["Remove flagged sources with alice-memory sources delete <id>."] if flagged_ids else []),
             f"flagged sources: {len(flagged_ids)}",
             "flagged source ids: " + ", ".join(flagged_ids),
         )

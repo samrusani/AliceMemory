@@ -123,7 +123,9 @@ and named, and the rest of the file or conversation is imported. The
 doctor flags a stored source that still contains a low-entropy
 AKIA-shaped key. In v0.18.0 the line filter misses that key, capture
 stores it inside the file, and the doctor does not flag it.
-SQLite has no way to delete a source yet. On Postgres, delete each listed
+In v0.20.0, SQLite has no way to delete a source. Unreleased (on main, not in v0.20.0):
+use `alice-memory sources list` and `alice-memory sources delete <id>` for SQLite.
+On Postgres, soft-delete each listed
 source with `DELETE /v0/vnext/sources/{id}`. The doctor scans up to 10,000 sources
 on a workspace dashboard load and says when that scan stopped early. A
 SQLite URL on `alicebot vnext sources import-markdown` or `import-chatgpt`
@@ -312,3 +314,53 @@ There is no restore command for sources. Import the old text with `--supersede`
 to make it live again. A pre-deletion export can conflict with rows in the same
 vault in both restore modes; restore into a fresh vault instead. An export made
 after replacement does not contain the replaced versions.
+
+## List, delete and prune SQLite sources
+
+Unreleased (on main, not in v0.20.0): the owner CLI lists source ids and scrubs
+one source or old replaced versions. No MCP tool, installer action or SQLite
+HTTP route exposes deletion.
+
+```bash
+alice-memory sources list --all --limit 50
+alice-memory sources list --query lantern --superseded
+alice-memory sources delete SOURCE_ID
+alice-memory sources delete SOURCE_ID --yes
+alice-memory sources prune --superseded --older-than 30
+alice-memory sources prune --superseded --older-than 30 --yes
+```
+
+List is read-only. It shows id, printed title, type, a relative path or external
+id, chunk count, domain, sensitivity, capture date and live or replaced state.
+`--all` includes live and replaced versions; `--superseded` shows replaced
+versions only. `--limit` accepts 1 to 1000, default 50. A low chunk count can
+help locate a partial import left by v0.20.0. Scrubbed rows are omitted.
+
+Delete accepts either a live or replaced id. Unknown and already scrubbed ids
+are refused. Prune selects only replaced versions; `--older-than DAYS` accepts
+zero or more days since replacement. Neither destructive command writes without
+`--yes`: it prints the targets and counts and exits 2. With `--yes`, the command
+selects its targets again under the writer lock and applies one transaction.
+
+Scrub first removes the source's sleep proposals, then clears source labels and
+metadata, overwrites chunks and provenance quotes, redacts pending or rejected
+candidates and their revisions, blanks mention edges, updates entity counts,
+scrubs unsupported linker entities, and closes and blanks source-backed loops.
+A candidate the existing redaction path cannot cover refuses the database
+transaction and names its id. A later failure may remove sleep proposals; they
+can regenerate. Committed and accepted memories keep their text and are listed
+for separate review. Use `alice_memory_manage` with action `forget` to remove a
+listed memory from recall, or the owner's memory redaction command to overwrite
+its own text. Source deletion alone does neither to committed memories.
+
+This overwrites logical text; it does not rewrite the vault file. Append-only
+source events retain old titles and hashes, import events retain folder paths,
+and source rows retain hash columns. Free pages, the write-ahead log and earlier
+backups are not erased. Postgres source deletion and review archive remain soft
+deletes: their source text and chunks are not scrubbed by those routes.
+
+Prune reduces retained source text in the full-text index. It offers no restore
+verb. Import old text again to make it a new live source. Exports omit retired
+sources; restoring an older export over changed ids can fail in either restore
+mode, so restore into a fresh vault. The doctor reports a nonzero replaced-source
+count and gives the SQLite source deletion command for flagged source rows.

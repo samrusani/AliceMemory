@@ -77,6 +77,9 @@ from alicebot_api.vnext_stores.retrieval_common import (
 from alicebot_api.vnext_stores.sqlite.source_retirement import (
     markdown_sources_by_path as _markdown_sources_by_path,
     supersede_source as _supersede_source,
+    scrub_source as _scrub_source,
+    source_inventory as _source_inventory,
+    prunable_sources as _prunable_sources,
 )
 from alicebot_api.vnext_stores.sqlite.columns import (
     ENTITY_COLUMNS as ENTITY_COLUMNS,
@@ -667,6 +670,9 @@ class SQLiteVNextStore:
 
     markdown_sources_by_path = _markdown_sources_by_path
     supersede_source = _supersede_source
+    scrub_source = _scrub_source
+    source_inventory = _source_inventory
+    prunable_sources = _prunable_sources
 
     def create_source(self, source: JsonObject, *, actor_type: str = "system") -> VNextRow:
         source_id = _new_id(source.get("id"))

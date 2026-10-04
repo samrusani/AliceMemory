@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- The SQLite owner CLI gains `sources list`, `sources delete` and `sources prune --superseded`. Destructive commands preview and exit 2 unless `--yes` is given. Scrub clears source text and labels, provenance quotes, pending candidate copies and revisions, source-backed loops and unsupported entity text; it retains audit events, hashes, committed memory text and physical-file history. The doctor names the SQLite command and reports nonzero replaced-source counts. v0.20.0 has no SQLite source list or deletion command and can leave partial imports after a failed file. No schema or Postgres deletion behavior changes.
+
 - SQLite Markdown imports can opt into replacement by resolved path with `--supersede`, preview with `--dry-run`, and explicitly allow lower labels with `--allow-looser-classification`. Replacement stays off by default. Omitted labels keep a known path's labels; replacement checks every live match and never changes project scope. Retired sources leave live reads, source-backed open loops close, pending candidates are rejected, orphan entity text is scrubbed and sleep proposals are removed. Committed memories keep their text and are listed in the receipt. In v0.20.0 an edited file adds another live source. No schema, capture identity or Postgres import flag changes.
 
 - Internal change, no behaviour change: the 24-hour expiry of an inline confirmation is now the named constant `CONFIRMATION_EXPIRY_HOURS` in `vnext_memory_commit.py`, so the skill packs and the memory operations protocol, which tell agents that number, can be checked against it. `tests/unit/test_confirmation_expiry_constant.py` pins the value and that a confirmation is written with it.
