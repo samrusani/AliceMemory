@@ -1,11 +1,14 @@
-"""Four documentation follow-ups from the docs audit, each pinned to the code it describes.
+"""Three documentation follow-ups from the docs audit, each pinned to the code it describes.
 
 1. The Hermes capture folder carries a dated notice naming what the four capture files no
    longer show.
 2. `alice-memory install --write-mcpb` is documented in the CLI reference, with the
-   launcher, the refusals and the support status read off the code.
+   launcher, the four refusal reasons and the support status read off the code.
 3. Seven sprint-era pages open with the backend, the settings and the support status they
    need, and the CLI reference links them under "Legacy surfaces".
+
+The other two follow-ups of the same audit are pinned elsewhere: the plugin pin history in
+`test_claude_code_plugin.py` and the trusted-memory sentences in `test_vnext_release_polish.py`.
 
 The sentences name behaviour of the code, so each test reads the behaviour from the code and
 compares it with the page. A page that goes back to the old wording fails, and so does code
@@ -15,18 +18,23 @@ import the host modules, so it is not one of the tests that the real-host workfl
 its pull request paths (`test_real_host_ci_workflow.py` keeps that list).
 
 Mutations, each one alone: change a character of any one capture file; drop one of the nine
-tool names from the capture notice; change `uvx` to `npx` in `build_mcpb_manifest`; change
-`.mcpb` to `.zip` in `MCPB_SUFFIX`; delete the directory refusal in `write_mcpb_bundle`; change
-the manifest's data directory default; put `--write-mcpb` into the quickstart; remove a link
-from the "Legacy surfaces" section of the CLI reference; move a page's "Requirements and
-status" section below another heading; put "This sprint" back into one of the seven pages;
-move one named tool out of `_LEGACY_TOOL_NAMES`; make one named tool's handler open
-`_vnext_store_context` instead of `_store_context`; add `alice_task_brief` to the default
+tool names from the capture notice; change "That list is retired." to "That list is current.";
+delete "They do not show the current Hermes setup."; delete "These four files are a record.";
+change the sentence about the `.png` files; change `uvx` to `npx` in `build_mcpb_manifest`;
+change `.mcpb` to `.zip` in `MCPB_SUFFIX`; delete the directory refusal in `write_mcpb_bundle`;
+change one of the four reason texts in the code or on the page; delete the intro sentence of the
+`--write-mcpb` section; change the manifest's data directory default; put `--write-mcpb` into
+the quickstart; name `mcpb` in a script or a build file; remove a link or change a description in
+the "Legacy surfaces" section of the CLI reference; rename `evals runs` on the evals page; move a
+page's "Requirements and status" section below another heading; put "This sprint" back into one
+of the seven pages; move one named tool out of `_LEGACY_TOOL_NAMES`; make one named tool's handler
+open `_vnext_store_context` instead of `_store_context`; add `alice_task_brief` to the default
 handshake. Each fails one of the tests below.
 """
 
 from __future__ import annotations
 
+import argparse
 import ast
 import hashlib
 import json
@@ -107,12 +115,18 @@ def test_the_hermes_captures_stay_unchanged_and_carry_a_dated_notice(
     flat = " ".join(notice.split())
     assert notice.startswith("# Hermes captures\n\nNotice, 2026-10-04. ")
     assert (
-        "They were added on 2026-04-09 and record the first run against a real Hermes install."
+        "Notice, 2026-10-04. These four files are a record. They do not show the current Hermes setup."
+    ) in flat
+    assert (
+        "They were added on 2026-04-09 and record the first run against a real Hermes install. "
+        "The `.png` files render the text of the `.txt` files. They are kept unchanged."
     ) in flat
     for name in HERMES_CAPTURE_HASHES:
         assert f"`{name}`" in flat, name
     for tool in captured_tools:
         assert f"`{tool}`" in flat, tool
+    listed_tools = ", ".join(f"`{name}`" for name in captured_tools[:-1]) + f" and `{captured_tools[-1]}`"
+    assert f"The nine tools were {listed_tools}. That list is retired." in flat
     assert "Hermes testing a server named `alice_core`, which reports nine tools" in flat
     registered = json.loads(smoke)["registered_tools"]
     assert len(registered) == 3 and all(name.startswith("mcp_alice_core_alice_") for name in registered)
@@ -177,7 +191,7 @@ def test_write_mcpb_is_documented_in_the_cli_reference_and_not_the_quickstart(
     """The CLI reference says what the flag writes, what it needs and when it refuses, as the code does.
 
     Read from running install: the launcher line, the one-file zip, the data-dir default that
-    `--data-dir` does not change, the two refusal reasons, the warning when `uvx` is missing,
+    `--data-dir` does not change, the four refusal reasons, the warning when `uvx` is missing,
     the non-zero exit after the host entries are written, the dry run, the parent folder mode,
     the replaced file and the default hosts. Read from the repository: nothing builds a `.mcpb`
     and the real-host workflow runs four other hosts. The quickstart does not mention the flag.
@@ -219,6 +233,10 @@ def test_write_mcpb_is_documented_in_the_cli_reference_and_not_the_quickstart(
     assert str(vault) not in json.dumps(manifest)
     assert f"The bundle's `data_dir` setting is a directory choice that defaults to `{default_dir}`." in section
     assert "`--data-dir` does not change it." in section
+    assert (
+        "`alice-memory install` writes host MCP config. The [quickstart](../alpha/quickstart.md#install-with-alice-memory) "
+        "covers it. This section covers one flag the quickstart leaves out."
+    ) in section
     assert "`alice-memory install --write-mcpb PATH` also writes a `.mcpb` bundle for Claude Desktop at PATH." in section
     assert "The bundle is a zip that holds one file, `manifest.json`. It holds no copy of Alice." in section
     assert (bundle.parent.stat().st_mode & 0o777) == 0o700 == (bundle.parent.parent.stat().st_mode & 0o777)
@@ -231,24 +249,67 @@ def test_write_mcpb_is_documented_in_the_cli_reference_and_not_the_quickstart(
     manifest_of(bundle)
     assert "A file already at PATH is replaced." in section
 
-    # The two refusals, and what a refusal does to the run: the host entry is written and the exit is non-zero.
+    # The refusals, and what a refusal does to the run: the host entry is written and the exit is non-zero.
+    # Four reasons, each from a real install: a bad name (a wrong suffix, a bare `.mcpb`, an upper-case suffix),
+    # a directory at PATH, a parent that is a plain file (the zip cannot be created), and a folder above a
+    # missing parent that is a plain file (the parent cannot be created).
     folder = tmp_path / "folder.mcpb"
     folder.mkdir()
-    reasons = []
-    for target in (tmp_path / "alice.zip", folder):
+    plain_file = tmp_path / "plain-file"
+    plain_file.write_text("not a folder", encoding="utf-8")
+    refusals = (
+        (tmp_path / "alice.zip", "mcpb path must end in .mcpb"),
+        (tmp_path / "somewhere" / ".mcpb", "mcpb path must end in .mcpb"),
+        (tmp_path / "ALICE.MCPB", "mcpb path must end in .mcpb"),
+        (folder, "mcpb path is a directory"),
+        (plain_file / "alice.mcpb", "mcpb zip could not be written"),
+        (plain_file / "missing" / "alice.mcpb", "the file could not be read or written"),
+    )
+    for target, reason in refusals:
         code, output = _install(capsys, tmp_path / "refused", "--host", "cursor", "--write-mcpb", str(target))
-        assert code != 0
+        assert code != 0, target
         block = _blocks(output)[-1]
-        assert block.splitlines()[0] == f"mcpb: {target}"
-        assert block.splitlines()[1] == "action: failed"
-        reasons.append(block.splitlines()[2].removeprefix("reason: "))
+        assert block.splitlines() == [f"mcpb: {target}", "action: failed", f"reason: {reason}"], (target, block)
         assert _host_path(output, "cursor").is_file()
-    assert reasons == ["mcpb path must end in .mcpb", "mcpb path is a directory"]
+    reasons = list(dict.fromkeys(reason for _, reason in refusals))
+    assert len(reasons) == 4
+    # The code names three of them in `write_mcpb_bundle` and the fourth is the install-wide failure reason
+    # the bundle step falls back to for any other OSError. A fifth reason added to either fails here.
+    host_install = ast.parse(_text("apps/api/src/alicebot_api/host_install.py"))
+    writer = next(
+        node for node in host_install.body if isinstance(node, ast.FunctionDef) and node.name == "write_mcpb_bundle"
+    )
+    raised = sorted(
+        call.args[0].value
+        for call in ast.walk(writer)
+        if isinstance(call, ast.Call)
+        and isinstance(call.func, ast.Name)
+        and call.func.id == "InstallError"
+        and call.args
+        and isinstance(call.args[0], ast.Constant)
+    )
+    assert raised == sorted(reasons[:3])
+    assert 'reason = _FAILED_REASON' in _text("apps/api/src/alicebot_api/host_install.py")
+    assert f'_FAILED_REASON = "{reasons[3]}"' in _text("apps/api/src/alicebot_api/host_install.py")
+    lines = _section(CLI_REFERENCE, MCPB_SECTION).splitlines()
     assert (
-        "PATH must end in `.mcpb` and must not be a directory. Otherwise the bundle's block of the receipt reads "
-        f"`action: failed` with the reason `{reasons[0]}` or `{reasons[1]}`, and install exits non-zero after it has "
-        "written the host entries."
-    ) in section
+        "- PATH must end in `.mcpb`, in lower case and with a name before it (a file named only `.mcpb` is refused), "
+        "and must not be a directory. A missing parent folder is created with mode 0700. A file already at PATH is "
+        "replaced."
+    ) in lines
+    assert (
+        "- When the bundle is not written, the bundle's block of the receipt reads `action: failed`, and install "
+        "exits non-zero after it has written the host entries. The reason is one of these four:"
+    ) in lines
+    reason_lines = [line for line in lines if line.startswith("  - `")]
+    assert reason_lines == [
+        f"  - `{reasons[0]}`: PATH breaks the rule above.",
+        f"  - `{reasons[1]}`: a directory is already at PATH.",
+        f"  - `{reasons[2]}`: the parent exists and the zip could not be created in it, for example because the "
+        "parent is a file or the folder is read-only.",
+        f"  - `{reasons[3]}`: a missing parent folder could not be created, for example because a folder above it "
+        "is a file.",
+    ]
 
     # The flag adds to the host entries: without --host the default hosts are still written, and no other.
     code, output = _install(capsys, tmp_path / "shared", "--write-mcpb", str(tmp_path / "all.mcpb"))
@@ -288,6 +349,25 @@ def test_write_mcpb_is_documented_in_the_cli_reference_and_not_the_quickstart(
         body = workflow.read_text(encoding="utf-8").casefold()
         assert "mcpb" not in body, workflow.name
         assert "desktop" not in body, workflow.name
+    # Nothing else that could build or attach a release file names a bundle either: no file under `.github`,
+    # `scripts` or `packaging`, and none of the build files at the root. The one mention is the release check
+    # keeping the version of the committed `packaging/mcpb/manifest.json` equal to the package version.
+    build_files = [ROOT / name for name in ("Makefile", "pyproject.toml", "setup.py", "MANIFEST.in")]
+    for folder in (".github", "scripts", "packaging"):
+        build_files += [
+            path
+            for path in sorted((ROOT / folder).rglob("*"))
+            if path.is_file() and "__pycache__" not in path.parts
+        ]
+    mentions = [
+        str(path.relative_to(ROOT))
+        for path in build_files
+        if "mcpb" in path.read_text(encoding="utf-8", errors="ignore").casefold()
+    ]
+    assert mentions == ["scripts/release_check.py"]
+    for line in _text("scripts/release_check.py").splitlines():
+        if "mcpb" in line.casefold():
+            assert re.search(r'_mcpb_manifest_issues|MCPB manifest|"mcpb"|packaging/mcpb/manifest\.json', line), line
     real_host = _text(".github/workflows/real-host-ci.yml")
     assert "Pinned claude, hermes, opencode, and codex" in real_host
     assert (
@@ -588,6 +668,31 @@ def test_the_legacy_pages_no_longer_describe_current_behaviour_in_sprint_voice(p
         assert sentence in flat, (page, sentence)
 
 
+def _subparser(parser: argparse.ArgumentParser, command: tuple[str, ...]) -> argparse.ArgumentParser:
+    """The parser a command path such as `("evals", "runs")` leads to; each word must be a real subcommand."""
+
+    current = parser
+    for name in command:
+        actions = [a for a in current._actions if isinstance(a, argparse._SubParsersAction)]
+        assert len(actions) == 1, command
+        assert name in actions[0].choices, (command, name)
+        current = actions[0].choices[name]
+    return current
+
+
+def _subcommands(parser: argparse.ArgumentParser) -> set[str]:
+    return {
+        choice
+        for action in parser._actions
+        if isinstance(action, argparse._SubParsersAction)
+        for choice in action.choices
+    }
+
+
+def _options(parser: argparse.ArgumentParser) -> set[str]:
+    return {option for action in parser._actions for option in action.option_strings}
+
+
 def _handlers_reaching(name: str, module_paths: list[Path]) -> set[str]:
     """Every function name reachable from a handler through names the MCP package defines."""
 
@@ -686,28 +791,36 @@ def test_the_cli_commands_and_http_routes_a_legacy_page_names_exist_and_are_gate
     monkeypatch.delenv(LEGACY_SURFACES_ENV, raising=False)
     parser = build_parser()
 
-    def subcommands(command: tuple[str, ...]) -> set[str]:
-        current = parser  # the enclosing name, read at call time
-        for name in command:
-            actions = [a for a in current._actions if a.__class__.__name__ == "_SubParsersAction"]
-            assert len(actions) == 1, command
-            assert name in actions[0].choices, (command, name)
-            current = actions[0].choices[name]
-        return {
-            choice
-            for action in current._actions
-            if action.__class__.__name__ == "_SubParsersAction"
-            for choice in action.choices
-        }
-
-    for commands in CLI_COMMANDS.values():
+    # Every command a page lists exists, and the page names it: a command that is renamed in the parser
+    # fails, and so does a page that names one the parser no longer has (or stops naming one it has).
+    for page, commands in CLI_COMMANDS.items():
+        flat = _flat(page)
         for command in commands:
-            subcommands(command)
-    assert "task-briefs" not in subcommands(())
+            _subparser(parser, command)
+            words = " ".join(command)
+            named = (f"`alicebot {words}`", f"`python -m alicebot_api {words}", f"`{words} --debug`")
+            assert any(form in flat for form in named), (page, words)
+    assert "task-briefs" not in _subcommands(parser)
+    # The tracing page says the CLI takes `recall --debug` and `resume --debug`.
+    for command in (("recall",), ("resume",)):
+        assert "--debug" in _options(_subparser(parser, command)), command
+    # The evals page lists four commands, each with the option it shows, so the page and the parser agree.
+    assert [line for line in _text(EVALS_PAGE).splitlines() if line.startswith("  - `python -m alicebot_api evals")] == [
+        "  - `python -m alicebot_api evals suites`",
+        "  - `python -m alicebot_api evals run --report-path eval/baselines/public_eval_harness_v1.json`",
+        "  - `python -m alicebot_api evals runs --limit 10`",
+        "  - `python -m alicebot_api evals show <eval_run_id>`",
+    ]
+    assert "--report-path" in _options(_subparser(parser, ("evals", "run")))
+    assert "--limit" in _options(_subparser(parser, ("evals", "runs")))
+    show_parser = _subparser(parser, ("evals", "show"))
+    assert [action.dest for action in show_parser._actions if not action.option_strings and action.dest != "help"] == [
+        "eval_run_id"
+    ]
     # The parser reads the flag when it is built, so build it again with the flag set.
     monkeypatch.setenv(LEGACY_SURFACES_ENV, "1")
     parser = build_parser()
-    assert "task-briefs" in subcommands(())
+    assert "task-briefs" in _subcommands(parser)
     monkeypatch.delenv(LEGACY_SURFACES_ENV, raising=False)
 
     schema_paths = api_main.app.openapi()["paths"]
@@ -759,13 +872,43 @@ def test_ci_keeps_each_legacy_surface_working() -> None:
 
 LEGACY_SECTION = "Legacy surfaces"
 LEGACY_LINKS = (
-    ("Automated memory operations", "../memory/p12-s2-automated-memory-operations.md", MUTATIONS_PAGE),
-    ("Contradictions and trust calibration", "../memory/p12-s3-contradictions-trust-calibration.md", CONTRADICTIONS_PAGE),
-    ("Memory hygiene and conversation health", "../memory/p13-s3-memory-hygiene-conversation-health.md", HYGIENE_PAGE),
-    ("Hybrid retrieval tracing", "../retrieval/hybrid_tracing.md", TRACING_PAGE),
-    ("Public eval harness", "../evals/public_eval_harness.md", EVALS_PAGE),
-    ("Task-adaptive briefing", "../briefing/task-adaptive-briefing.md", BRIEFING_PAGE),
-    ("Local command walkthrough", "../examples/phase9-command-walkthrough.md", WALKTHROUGH_PAGE),
+    (
+        "Automated memory operations",
+        "../memory/p12-s2-automated-memory-operations.md",
+        MUTATIONS_PAGE,
+        "`alicebot mutations`, candidates and operations.",
+    ),
+    (
+        "Contradictions and trust calibration",
+        "../memory/p12-s3-contradictions-trust-calibration.md",
+        CONTRADICTIONS_PAGE,
+        "`alicebot contradictions` and `alicebot trust signals`.",
+    ),
+    (
+        "Memory hygiene and conversation health",
+        "../memory/p13-s3-memory-hygiene-conversation-health.md",
+        HYGIENE_PAGE,
+        "the two dashboards and the extra `alicebot status` fields.",
+    ),
+    (
+        "Hybrid retrieval tracing",
+        "../retrieval/hybrid_tracing.md",
+        TRACING_PAGE,
+        "`recall --debug`, `resume --debug` and stored retrieval runs.",
+    ),
+    ("Public eval harness", "../evals/public_eval_harness.md", EVALS_PAGE, "`alicebot evals`."),
+    (
+        "Task-adaptive briefing",
+        "../briefing/task-adaptive-briefing.md",
+        BRIEFING_PAGE,
+        f"`alicebot task-briefs`, which needs `{LEGACY_SURFACES_ENV}=1`.",
+    ),
+    (
+        "Local command walkthrough",
+        "../examples/phase9-command-walkthrough.md",
+        WALKTHROUGH_PAGE,
+        "Docker, the OpenClaw demo and the Phase 9 evaluation.",
+    ),
 )
 
 
@@ -779,10 +922,23 @@ def test_the_cli_reference_links_all_seven_legacy_pages_under_legacy_surfaces() 
     section = _section(CLI_REFERENCE, LEGACY_SECTION)
     bullets = [line for line in section.splitlines() if line.startswith("- [")]
     assert len(bullets) == len(LEGACY_LINKS) == 7
-    for (label, link, page), bullet in zip(LEGACY_LINKS, bullets, strict=True):
-        assert bullet.startswith(f"- [{label}]({link}): "), bullet
+    for (label, link, page, description), bullet in zip(LEGACY_LINKS, bullets, strict=True):
+        assert bullet == f"- [{label}]({link}): {description}", bullet
         assert ((ROOT / CLI_REFERENCE).parent / link).resolve() == (ROOT / page).resolve()
         assert (ROOT / page).is_file()
+    # What each description says, read from the code and the pages. The commands and the `--debug` options are
+    # read from the parser in the CLI test above, the dashboards and retrieval runs from its route list, and
+    # the walkthrough is checked here, along with the extra `alicebot status` fields.
+    status_source = _text("apps/api/src/alicebot_api/cli/continuity.py")
+    for field in ("memory_hygiene_posture", "thread_health_posture"):
+        assert f'"{field}"' in status_source, field
+    assert "- CLI `alicebot status` extensions for hygiene and thread-health posture" in _text(HYGIENE_PAGE)
+    walkthrough = _text(WALKTHROUGH_PAGE)
+    for command in ("docker compose up -d", "./scripts/use_alice_with_openclaw.sh", "./scripts/run_phase9_eval.sh"):
+        assert command in walkthrough, command
+    for script in ("scripts/use_alice_with_openclaw.sh", "scripts/run_phase9_eval.sh"):
+        assert (ROOT / script).is_file(), script
+    assert "`alicebot task-briefs`" in bullets[5] and LEGACY_SURFACES_ENV == "ALICE_LEGACY_SURFACES"
     flat = " ".join(section.split())
     assert (
         "These seven pages describe commands, routes and tools of the Postgres stack. Each opens with the backend it "

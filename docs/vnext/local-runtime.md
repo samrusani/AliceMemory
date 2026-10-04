@@ -59,7 +59,7 @@ Useful options:
 - Scheduled artifacts include scheduler trace metadata: `generated_by`, `workflow_type`, `scheduler_run_id`, `trace_id`, `source_refs`, `domain`, `sensitivity`, and `review_status`.
 - Scheduled workflows can run with `--generation-mode deterministic` or `--generation-mode model_backed`. Model-backed scheduled runs store prompt hashes, input context hashes, provider/model metadata, source-grounded sections, and routing policy.
 - Generated artifacts are never auto-promoted into trusted memory.
-- An agent memory proposal waits for review by default. A deployment that opts in with `ALICE_MEMORY_PERSONA` can promote one from an agent whose identity comes from an issued key, unless a hard-floor rule or an escalation filter fires. See [memory promotion personas](../memory/promotion-personas.md).
+- An agent memory proposal waits for review by default. A deployment that opts in with `ALICE_MEMORY_PERSONA` set to `personal` or `team` can promote one from an agent whose identity comes from an issued key, unless a hard-floor rule or an escalation filter fires. See [memory promotion personas](../memory/promotion-personas.md).
 
 ## Operator Visibility
 

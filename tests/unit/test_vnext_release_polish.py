@@ -22,14 +22,14 @@ ALPHA_PROPOSALS_BULLET = (
 )
 ALPHA_PROMOTION_BULLETS = (
     "- trusted memory is not auto-promoted by default. A deployment opts in with `ALICE_MEMORY_PERSONA` set to "
-    "`personal` or `team`, or with a persona in the owner's Brain Charter. See " + PERSONAS_LINK,
-    "- with a persona set, auto-promotion only lifts a write that was waiting for review or confirmation, and only "
-    "from a writer the server established: an agent whose identity an issued agent key resolved, or the owner "
-    "through the HTTP memory commit route once a key has been issued. It never lifts a write whose identity the "
-    "caller only declared, a rejected write, a write from a `memory_proposal_agent`, or a write that hits a "
-    "hard-floor rule (credential material, instructions aimed at the agent, an agent's own output stored as fact) "
-    "or an enabled escalation filter. Source evidence, generated artifacts, scheduler output and connector "
-    "captures are never auto-promoted",
+    "`personal` or `team`, or with one of those two personas in the owner's Brain Charter. See " + PERSONAS_LINK,
+    "- with the `personal` or `team` persona set, auto-promotion only lifts a write that was waiting for review or "
+    "confirmation, and only from a writer the server established: an agent whose identity an issued agent key "
+    "resolved, or the owner through the HTTP memory commit route once a key has been issued. It never lifts a "
+    "write whose identity the caller only declared, a rejected write, a write from a `memory_proposal_agent`, or a "
+    "write that hits a hard-floor rule (credential material, instructions aimed at the agent, an agent's own "
+    "output stored as fact) or an enabled escalation filter. Source evidence, generated artifacts, scheduler "
+    "output and connector captures are never auto-promoted",
 )
 HERMES_DOGFOOD_BULLET = (
     "- The submitted output and the proposal create nothing active without review. This setup is keyless, so "
@@ -40,16 +40,18 @@ HERMES_DOGFOOD_BULLET = (
 LOCAL_RUNTIME_BULLETS = (
     "- Generated artifacts are never auto-promoted into trusted memory.",
     "- An agent memory proposal waits for review by default. A deployment that opts in with "
-    "`ALICE_MEMORY_PERSONA` can promote one from an agent whose identity comes from an issued key, unless a "
-    "hard-floor rule or an escalation filter fires. See " + PERSONAS_LINK + ".",
+    "`ALICE_MEMORY_PERSONA` set to `personal` or `team` can promote one from an agent whose identity comes from an "
+    "issued key, unless a hard-floor rule or an escalation filter fires. See " + PERSONAS_LINK + ".",
 )
 VNEXT_PRIVACY_BULLET = (
     "- Agent memory proposals wait for review by default. An explicit agent commit is written at once only when the "
-    "commit policy allows it, and otherwise waits for confirmation or review. A deployment can opt in to "
-    "auto-promotion with `ALICE_MEMORY_PERSONA` set to `personal` or `team`; it then lifts only a write from a "
-    "writer the server established (an agent whose identity an issued agent key resolved, or the owner through the "
-    "HTTP memory commit route), never a write that hits a hard-floor rule or an enabled escalation filter, and "
-    "never generated artifacts, connector captures or source evidence. See " + PERSONAS_LINK + "."
+    "commit policy allows it. Otherwise it waits for confirmation or review, or the policy refuses it. A "
+    "deployment can opt in to auto-promotion with `ALICE_MEMORY_PERSONA` set to `personal` or `team`; it then "
+    "lifts only a write from a writer the server established (an agent whose identity an issued agent key "
+    "resolved, or the owner through the HTTP memory commit route), never a write that hits a hard-floor rule or "
+    "an enabled escalation filter, and never generated artifacts, connector captures or source evidence. See "
+    + PERSONAS_LINK
+    + "."
 )
 
 
@@ -702,10 +704,13 @@ def test_the_trusted_memory_sentences_say_what_the_promotion_code_does() -> None
     `team` from `AUTO_PROMOTING_PERSONAS`; make `load_promotion_settings` return a persona
     with nothing configured; move `credential_material` out of `HARD_FLOOR_RULES`; add
     `memory_proposal_agent` to `PROMOTABLE_PERMISSION_PROFILES`; let promotion lift a rejection
-    in `evaluate_memory_commit_policy`; make the MCP door pass `owner_verified` from
+    in `evaluate_memory_commit_policy`; make a rejection ask for confirmation or review; put "and
+    otherwise waits for confirmation or review" back in the vNext security page, or drop "or the
+    policy refuses it"; make the MCP door pass `owner_verified` from
     `agent_api_keys_provisioned`; make a connector module call `load_promotion_settings`; put
     "trusted memory is not auto-promoted" back as a whole line; change `personal` or `team` in
-    any of the four pages; delete the Hermes page's keyless reason.
+    any of the four pages, or remove "set to `personal` or `team`" from the local runtime page or "with
+    the `personal` or `team` persona set" from the alpha page; delete the Hermes page's keyless reason.
     """
 
     from alicebot_api.vnext_agent_control import AgentIdentity
@@ -874,6 +879,11 @@ def test_the_trusted_memory_sentences_say_what_the_promotion_code_does() -> None
     assert "project_scoped_agent_domain_out_of_scope" in out_of_scope.reasons
     assert out_of_scope.promotion is not None and out_of_scope.promotion.auto_promote
     assert (out_of_scope.write_mode, out_of_scope.promoted_from) == ("reject", None)
+    # The security page says a commit the policy refuses is neither written nor waiting: a rejection asks for
+    # no confirmation and no review, so "otherwise it waits" is not the whole of what else can happen.
+    for refused in (secret, out_of_scope):
+        assert refused.status == "rejected"
+        assert not refused.requires_confirmation and not refused.requires_dashboard_review
 
     # Only the owner's route says "the owner": the HTTP API passes `owner_verified` from the keys that
     # exist, and the CLI and the MCP door always pass False, so nobody there is the owner. Every place
