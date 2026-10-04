@@ -437,3 +437,33 @@ print("RELEASE_FINGERPRINT="+_export_schema()["fingerprint"])
                              cwd=release,env=env,capture_output=True,text=True,timeout=90)
     assert completed.returncode == 0,completed.stdout+completed.stderr
     assert 'RELEASE_FINGERPRINT='+_export_schema()['fingerprint'] in completed.stdout
+
+
+def test_receipt_escapes_old_titles_and_withholds_flagged_labels(tmp_path):
+    from tests.unit.test_sqlite_source_import import _token
+    db = _vault(tmp_path)
+    folder = _folder(tmp_path, note='The first cobalt statement.')
+    run_import(db, folder)
+    with sqlite_user_connection(db, USER_ID) as conn:
+        conn.execute('UPDATE sources SET title=?', ('title\n\x1b[31m',))
+    (folder/'note.md').write_text('The second cobalt statement.')
+    result = run_import(db, folder, supersede=True)
+    assert result.superseded[0]['title'] == r'title\u000a\u001b[31m'
+    with sqlite_user_connection(db, USER_ID) as conn:
+        conn.execute('UPDATE sources SET title=? WHERE deleted_at IS NULL', (_token(),))
+    (folder/'note.md').write_text('The third cobalt statement.')
+    result = run_import(db, folder, supersede=True)
+    assert result.superseded[0]['title'] == 'withheld'
+
+
+def test_retirement_clamps_preexisting_zero_counts(tmp_path):
+    db = _vault(tmp_path)
+    folder = _folder(tmp_path, note='Alice Marlow carries the cobalt lantern.')
+    run_import(db, folder)
+    assert _read(db, 'SELECT id FROM vnext_entities')
+    with sqlite_user_connection(db, USER_ID) as conn:
+        conn.execute('UPDATE vnext_entities SET mention_count=0')
+    (folder/'note.md').write_text('The plain orange lantern is downstairs.')
+    result = run_import(db, folder, supersede=True)
+    assert len(result.superseded) == 1
+    assert all(row[0] == 0 for row in _read(db, 'SELECT mention_count FROM vnext_entities'))
