@@ -411,6 +411,7 @@ def corpus_support(
     *,
     domains: Sequence[str] | None = None,
     sensitivity_allowed: Sequence[str] | None = None,
+    allow_entity_lookup: bool = True,
 ) -> dict[str, bool] | None:
     """Per-entity corpus support; ``None`` when the store cannot be checked.
 
@@ -427,7 +428,7 @@ def corpus_support(
     support: dict[str, bool] = dict.fromkeys(names, False)
     checked_any = False
 
-    if store_supports_entity_linking(store):
+    if allow_entity_lookup and store_supports_entity_linking(store):
         normalized_by_name = {name: normalize_entity_name(name) for name in names}
         lookup_keys = tuple(dict.fromkeys(key for key in normalized_by_name.values() if key))
         known: set[str] = set()
@@ -472,6 +473,7 @@ def compute_query_grounding(
     *,
     domains: Sequence[str] | None = None,
     sensitivity_allowed: Sequence[str] | None = None,
+    allow_entity_lookup: bool = True,
 ) -> JsonObject | None:
     """The ``pack["grounding"]`` payload, or ``None`` (the common case).
 
@@ -488,7 +490,7 @@ def compute_query_grounding(
     if not names:
         return None
     support = corpus_support(
-        names, store, domains=domains, sensitivity_allowed=sensitivity_allowed
+        names, store, domains=domains, sensitivity_allowed=sensitivity_allowed, allow_entity_lookup=allow_entity_lookup
     )
     if not support:
         return None

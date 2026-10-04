@@ -501,6 +501,7 @@ def _memory_linked_entities(
     memory_id: str,
     *,
     allowed_entity_ids: set[str] | None = None,
+    include_entity_counts: bool = True,
 ) -> list[VNextJsonObject]:
     """Entities connected to one memory via mentions/about graph edges.
 
@@ -521,7 +522,7 @@ def _memory_linked_entities(
                 "id": str(row.get("id")),
                 "name": row.get("name"),
                 "entity_type": row.get("entity_type"),
-                "mention_count": row.get("mention_count"),
+                **({"mention_count": row.get("mention_count")} if include_entity_counts else {}),
             }
         )
     return entities
@@ -588,6 +589,7 @@ def _extend_memory_audit(
     payload: VNextJsonObject,
     *,
     allowed_entity_ids: set[str] | None = None,
+    include_entity_counts: bool = True,
 ) -> VNextJsonObject:
     """Add entity links and the evolution timeline to an audit payload.
 
@@ -608,6 +610,7 @@ def _extend_memory_audit(
                 store,
                 str(node.get("id")),
                 allowed_entity_ids=allowed_entity_ids,
+                include_entity_counts=include_entity_counts,
             )
     payload["timeline"] = _memory_evolution_timeline(chain, revisions)
     return payload
@@ -647,6 +650,7 @@ def _handle_alice_vnext_memory_audit(context: MCPRuntimeContext, arguments: Mapp
                 store,
                 audit,
                 allowed_entity_ids=allowed_entity_ids,
+                include_entity_counts=identity is None or (identity.permission_profile == "admin_agent" and not identity.project_scope),
             )
             # Quote the stored notes a model reads. The result states the
             # framing sentence once. Timeline summaries and event payloads

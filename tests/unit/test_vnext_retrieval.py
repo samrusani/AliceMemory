@@ -16,6 +16,7 @@ from alicebot_api.sqlite_schema import bootstrap_sqlite_schema
 from alicebot_api.sqlite_store import SQLiteVNextStore, ensure_sqlite_user
 from alicebot_api.vnext_embeddings import VNextEmbeddingProviderError
 from alicebot_api.vnext_project_scope import memory_project_scope
+from alicebot_api.vnext_agent_control import ALL_SENSITIVITY
 from alicebot_api.vnext_retrieval import (
     BUDGET_STRATEGIES,
     CONTEXT_DEPTHS,
@@ -2939,7 +2940,7 @@ def test_graph_stage_finds_entity_connected_memory_that_fts_misses() -> None:
     assert graph_trace == {
         "status": GRAPH_STAGE_ENABLED,
         "matched_entities": [
-            {"id": "entity-meridian", "name": "Meridian", "entity_type": "organization", "mention_count": 7}
+            {"id": "entity-meridian", "name": "Meridian", "entity_type": "organization"}
         ],
         "candidate_count": 1,
     }
@@ -3121,15 +3122,15 @@ def test_graph_stage_caps_matched_entities_at_five_by_mention_count() -> None:
         _entity_row(f"entity-{index}", f"Meridian{index}", mention_count=index) for index in range(1, 8)
     ]
     store = InMemoryVNextRetrievalStore(
-        memories=[],
+        memories=[_memory_row(f"memory-{i}", "Note") for i in range(1, 8)],
         sources=[],
         entities=entities,
-        edges=[],
+        edges=[_mention_edge(f"memory-{i}", f"entity-{i}") for i in range(1, 8)],
     )
 
     query = " ".join(f"Meridian{index}" for index in range(1, 8))
     _rows, stage, matched = VNextRetrievalService(store)._memory_graph_rows(
-        query=query, domains=[], sensitivity_allowed=["private"], limit=8
+        query=query, domains=[], sensitivity_allowed=list(ALL_SENSITIVITY), limit=8
     )
 
     assert stage == GRAPH_STAGE_ENABLED

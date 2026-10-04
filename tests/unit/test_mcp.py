@@ -4562,7 +4562,7 @@ def test_alice_recall_graph_stage_finds_entity_connected_memory(
 
     assert "memory-meridian" in [result["id"] for result in payload["results"]]
     assert payload["entities"] == [
-        {"id": "entity-meridian", "name": "Meridian", "entity_type": "organization", "mention_count": 4}
+        {"id": "entity-meridian", "name": "Meridian", "entity_type": "organization"}
     ]
     graph_stage = payload["retrieval"]["stages"]["graph"]
     assert graph_stage["status"] == "enabled"
@@ -4597,7 +4597,7 @@ def test_alice_context_pack_lists_the_entities_the_query_resolved_to(
     )
 
     assert pack["entities"] == [
-        {"id": "entity-meridian", "name": "Meridian", "entity_type": "organization", "mention_count": 4}
+        {"id": "entity-meridian", "name": "Meridian", "entity_type": "organization"}
     ]
     assert "memory-meridian" in [memory["id"] for memory in pack["memories"]]
 

@@ -83,3 +83,12 @@ Open in v0.20.0, with the detail in the [v0.20.0 release notes](../release/v0.20
 See [Backup and restore](backup-and-restore.md) before upgrading or moving a store.
 
 Do not describe this alpha as hosted SaaS, production-ready, or automatic memory autopilot.
+
+
+## Entity disclosure follows the read fence
+
+Unreleased (on main, not in v0.20.0): `alice_recall`, both context-pack doors and their graph traces return an entity only when an active linked memory passes this call's memory filters, or an active linked source passes its domain, sensitivity and project/person/time filters. Hidden-only matches have the same graph status as absent matches. Filtered calls admit entities before the five-name limit and order them by visible name and type, so stored counts cannot crowd out readable names.
+
+Filtered calls omit `mention_count`; the stored total includes mentions outside their read fence. An unrestricted request, including the owner or an unbound admin requesting every sensitivity and no narrower scope, keeps the stored count and ordering. Memory audit annotations also omit counts for restricted profiles or bound keys. Scoped context packs retain their existing suppression of entity annotations. Grounding on filtered context packs uses readable text probes instead of an unfenced entity-table existence check.
+
+In v0.20.0, matching entities and their vault-wide counts could be returned even when their backing rows were unreadable. This change does not rewrite entities or stored counts. No migration is required.
