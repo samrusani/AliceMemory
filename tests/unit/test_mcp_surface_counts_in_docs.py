@@ -45,7 +45,6 @@ _PAGES_THAT_NAME_THE_OTHER_CORE_TOOLS = (
     "ARCHITECTURE.md",
     "docs/integrations/mcp.md",
     "docs/alpha/mcp-tools.md",
-    "docs/alpha/known-limitations.md",
 )
 
 

@@ -661,7 +661,8 @@ store implements only part of what they call. `alice_vnext_context_tree`,
 `alice_vnext_generate_artifact`, `alice_vnext_project_dashboard`,
 `alice_vnext_find_connections`, `alice_vnext_find_contradictions`,
 `alice_vnext_artifact_get` and `alice_vnext_artifact_review` fail with
-`tool_execution_failed`. `alice_vnext_recent_changes` and the five
+`tool_execution_failed` for a caller the profile lets run them (a caller it
+refuses gets `not_permitted` first). `alice_vnext_recent_changes` and the five
 `alice_vnext_scheduler_*` tools need Postgres and refuse the call. Thirteen
 `alice_vnext_*` tools run on SQLite: the memory-commit family
 (`alice_vnext_propose_memory`, `alice_vnext_commit_memory`,
