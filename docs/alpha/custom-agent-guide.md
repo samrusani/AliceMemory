@@ -75,7 +75,7 @@ Alice returns one of four outcomes:
 
 Repair, on the full surface: `alice_memory_manage` takes `undo`, `forget` and `expire`, `alice_memory_review` lists what waits, and `alice_memory_correct` approves, edits, rejects or supersedes.
 
-The `alice_vnext_*` names, such as `alice_vnext_context_tree` for the read-only context tree, are the frozen legacy surface. They need a keyless server with `ALICE_MCP_LEGACY_TOOLS=1` and are hidden and rejected when `ALICE_AGENT_API_KEY` is set. On the SQLite backend most legacy tools fail, `alice_vnext_context_tree` among them. Of the `alice_vnext_*` tools, only the memory-commit family and a few reads and captures run; see [Legacy tool surface](mcp-tools.md#legacy-tool-surface) for the list.
+The `alice_vnext_*` names, such as `alice_vnext_context_tree` for the read-only context tree, are the frozen legacy surface. They need a keyless server with `ALICE_MCP_LEGACY_TOOLS=1` and are hidden and rejected when `ALICE_AGENT_API_KEY` is set. On the SQLite backend most legacy tools fail, `alice_vnext_context_tree` among them. Of the `alice_vnext_*` tools, only thirteen run, the memory-commit family and four reads and captures; see [Legacy tool surface](mcp-tools.md#legacy-tool-surface) for the list.
 
 ## Agent Examples
 
