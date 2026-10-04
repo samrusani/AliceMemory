@@ -46,7 +46,7 @@ def test_derived_label_matrix(domain_vault, domain, sensitivity, project):
     request = SimpleNamespace(domains=())
     labels = (_artifact_domain(request, rows), _domain(request, rows), _dominant_domain(tuple(rows)))
     expected = domain if domain in RESTRICTED_DOMAINS or domain == 'project' else 'unknown'
-    assert labels == (expected,) * 3
+    violations = []
     # Persist the production roll-up selector's result into a real SQLite row.
     derived = add_memory(store, key=f'derived.{domain}.{sensitivity}.{project}', text='Cedar summary',
                          domain=labels[2], sensitivity=sensitivity, scope=(project,) if project else None)
@@ -56,7 +56,11 @@ def test_derived_label_matrix(domain_vault, domain, sensitivity, project):
                 sensitivity_allowed=(sensitivity,), project_scope=(project,) if project else (),
                 require_explicit_project_scope=True)
             return decision.decision == 'allowed'
-        assert not readable(str(derived['domain'])) or readable(domain), (identity, domain, sensitivity, project)
+        if readable(str(derived['domain'])) and not readable(domain):
+            violations.append(identity.permission_profile)
+    print(f'derived-matrix {domain} {sensitivity} {project}: {len(identities)} callers, {len(violations)} access widenings')
+    assert labels == (expected,) * 3
+    assert not violations, violations
 
 
 def test_restricted_majority_ties_and_explicit_request():

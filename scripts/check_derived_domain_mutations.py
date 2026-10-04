@@ -6,6 +6,10 @@ Production files are not written. A surviving mutation is a failing run.
 from __future__ import annotations
 
 import inspect
+import contextlib
+import io
+import os
+import sys
 import tempfile
 import textwrap
 from pathlib import Path
@@ -91,6 +95,14 @@ def main():
             checks.test_sqlite_upgrade_relabels_existing_derived_memory_only(Path(directory))
     print('KILLED SQLite upgrade wiring')
     print(f'{len(mutations) + len(pairs) + 3} guard mutations killed')
+    if '--postgres' in sys.argv:
+        assert os.getenv('DATABASE_ADMIN_URL') and os.getenv('DATABASE_URL'), 'Set explicit disposable PostgreSQL URLs'
+        output = io.StringIO()
+        with pytest.MonkeyPatch.context() as patch, contextlib.redirect_stdout(output):
+            patch.setattr(backfill, 'plan_relabels', lambda tables: [])
+            code = pytest.main(['tests/integration/test_derived_domain_postgres.py', '-q', '--tb=short'])
+        assert code == 1 and "assert 'unknown' == 'health'" in output.getvalue(), output.getvalue()
+        print('KILLED PostgreSQL migration planner wiring')
 
 
 if __name__ == '__main__':
