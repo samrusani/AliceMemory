@@ -183,6 +183,7 @@ _KNOWN_COMMANDS = (
     "mcp",
     "export",
     "import",
+    "sources",
     "import-markdown",
     "import-chatgpt",
     "reindex-embeddings",
@@ -1236,6 +1237,25 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Write a Claude Desktop .mcpb zip that launches uvx alice-memory mcp.",
     )
+
+    sources_parser = subparsers.add_parser("sources", help="List and remove SQLite source material as the owner.")
+    sources_commands = sources_parser.add_subparsers(dest="sources_command", required=True)
+    source_list = sources_commands.add_parser("list", help="List live sources, with optional replaced versions.")
+    _add_database_arguments(source_list)
+    source_list.add_argument("--query", default=None, help="Match an id, title or relative file label.")
+    source_states = source_list.add_mutually_exclusive_group()
+    source_states.add_argument("--superseded", action="store_true", help="List replaced sources only.")
+    source_states.add_argument("--all", action="store_true", help="List live and replaced sources.")
+    source_list.add_argument("--limit", type=int, default=50, help="Maximum rows, from 1 to 1000; default 50.")
+    source_delete = sources_commands.add_parser("delete", help="Scrub one live or replaced source.")
+    _add_database_arguments(source_delete)
+    source_delete.add_argument("source_id", help="Source id from sources list.")
+    source_delete.add_argument("--yes", action="store_true", help="Apply the scrub. Without it, preview and exit 2.")
+    source_prune = sources_commands.add_parser("prune", help="Scrub replaced source versions.")
+    _add_database_arguments(source_prune)
+    source_prune.add_argument("--superseded", action="store_true", required=True, help="Select replaced versions only.")
+    source_prune.add_argument("--older-than", type=int, default=None, metavar="DAYS", help="Only versions replaced at least this many days ago.")
+    source_prune.add_argument("--yes", action="store_true", help="Apply the scrub. Without it, preview and exit 2.")
 
     import_markdown_parser = subparsers.add_parser(
         "import-markdown",
@@ -3796,6 +3816,8 @@ def _quarantine_removal_line(table: str, row_id: str) -> str:
     """
     if table == "memories":
         return f"alicebot vnext memories redact {row_id}"
+    if table == "sources":
+        return f"alice-memory sources delete {row_id}"
     return _NO_QUARANTINE_REMOVAL_COMMAND
 
 
@@ -4309,6 +4331,9 @@ def main(argv: list[str] | None = None) -> int:
             return _run_export(args)
         if args.command == "import":
             return _run_import(args)
+        if args.command == "sources":
+            from alicebot_api.source_commands import run_sources
+            return run_sources(args)
         if args.command == "import-markdown":
             return _run_import_markdown(args)
         if args.command == "import-chatgpt":

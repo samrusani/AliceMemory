@@ -307,10 +307,12 @@ class VNextDoctorService:
 
 
 def _flagged_source_remedy(store: object) -> str:
-    """Postgres can delete a source. SQLite cannot."""
+    """Keep the backend-specific owner remedy."""
 
     if callable(getattr(store, "delete_source", None)):
         return "Delete each listed source with DELETE /v0/vnext/sources/{id}."
+    if callable(getattr(store, "scrub_source", None)):
+        return "Scrub each listed source with alice-memory sources delete <id>."
     return "SQLite has no delete_source."
 
 

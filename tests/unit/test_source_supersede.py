@@ -416,7 +416,14 @@ def test_downgrade_to_release_tag(tmp_path):
     (folder/'note.md').write_text('The current cobalt statement.')
     run_import(db,folder,supersede=True)
     assert len(_read(db, 'SELECT id FROM sources')) == 2
-    # PR 2 extends this same rehearsal with scrub and prune.
+    old_ids=[row[0] for row in _read(db,"SELECT id FROM sources WHERE deleted_at IS NOT NULL")]
+    assert len(old_ids) == 1
+    spare=folder/'spare.md';spare.write_text('A spare source to scrub.')
+    spare_id=run_import(db,spare).source_ids[0]
+    assert cli(['sources','delete',spare_id,'--yes','--db',str(db)]) == 0
+    assert cli(['sources','prune','--superseded','--yes','--db',str(db)]) == 0
+    assert len(_read(db,'SELECT id FROM sources')) == 3
+    assert len(live(db)) == 1
     export=tmp_path/'export.jsonl';restored=tmp_path/'restored'
     code='''
 import io,json,sys
