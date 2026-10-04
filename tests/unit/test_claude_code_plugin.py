@@ -1584,9 +1584,12 @@ def test_the_docs_say_what_v0190_ships_and_keep_the_option_rules() -> None:
     section or back under Unreleased;
     put "once v0.19.0 is published" back into the README, the quickstart, the
     plugin page or the plugin README; drop either marketplace command from one
-    of those four files; change the README's tag history sentences (the v0.19.0
-    tag has no marketplace file, the v0.19.2 tag still pins v0.19.0, the v0.20.0
-    tag still pins v0.19.2).
+    of those four files; change the README's pin sentence or its add-from-main
+    sentence; put the tag-by-tag history (the v0.19.0 tag has no marketplace
+    file, the v0.19.2 tag still pins v0.19.0, the v0.20.0 tag still pins
+    v0.19.2) back into the README or the plugin README; drop it from the plugin
+    page, which is the one place that keeps it; drop the link to the plugin page
+    from the README or the plugin README.
     """
 
     relative = (
@@ -1662,10 +1665,33 @@ def test_the_docs_say_what_v0190_ships_and_keep_the_option_rules() -> None:
         "claude plugin install alice-memory@alicememory\n"
         "```\n\n"
         "The marketplace file is on `main` and pins the plugin to the v0.20.0 tag commit. "
-        "The v0.19.0 tag has no marketplace file. The v0.19.2 tag has one that still pins "
-        "the v0.19.0 tag commit, and the v0.20.0 tag has one that still pins the v0.19.2 tag "
-        "commit, so add the marketplace from `main`, not from a checkout of a tag."
+        "Add the marketplace from `main`, not from a checkout of a tag: a tag's file is "
+        "missing or pins an earlier release."
     ) in readme
+    guide_url = "https://github.com/samrusani/AliceMemory/blob/main/docs/integrations/claude-code-plugin.md"
+    assert f"See [Claude Code plugin]({guide_url}), which lists what each tag pins." in readme
+
+    plugin_readme_text = " ".join((ROOT / "plugins" / "alice-memory" / "README.md").read_text(encoding="utf-8").split())
+    assert (
+        "The file pins this plugin to the v0.20.0 tag commit. Add the marketplace from `main`, "
+        "not from a checkout of a tag: a tag's file is missing or pins an earlier release, "
+        f"and the [Claude Code plugin guide]({guide_url}) lists what each tag pins."
+    ) in plugin_readme_text
+
+    # The tag-by-tag history lives in the plugin page only. The README and the
+    # plugin README keep the current pin and the link, and say nothing about
+    # what an older tag pins.
+    readme_flat = " ".join(readme.split())
+    page_flat = " ".join((ROOT / "docs" / "integrations" / "claude-code-plugin.md").read_text(encoding="utf-8").split())
+    for text in (readme_flat, plugin_readme_text):
+        assert "tag has no marketplace file" not in text
+        assert "still pins" not in text
+    for history in (
+        "The v0.19.0 tag has no marketplace file either.",
+        "The v0.19.2 tag carries the file too, and it still pins the v0.19.0 tag commit.",
+        "The v0.20.0 tag carries it, still pinned to the v0.19.2 tag commit.",
+    ):
+        assert history in page_flat, history
 
     quickstart = (ROOT / "docs" / "alpha" / "quickstart.md").read_text(encoding="utf-8")
     assert (
@@ -1706,7 +1732,8 @@ def test_the_marketplace_pins_the_latest_published_release_and_the_docs_name_tha
     tag commit the file pins, and each must name the file's tag, so a doc that
     keeps the old tag after the pin moves fails. The sentences about the tag that
     has no marketplace file and about the tag whose copy still pins an older
-    commit are history, and they do not use the pin wording.
+    commit are history, they live in the plugin page only, and they do not use
+    the pin wording.
 
     Mutations, each one alone: set ``ref`` and ``sha`` back to the v0.19.0 tag
     and its commit; put v0.19.0 back into the pin sentence of any one of the five
