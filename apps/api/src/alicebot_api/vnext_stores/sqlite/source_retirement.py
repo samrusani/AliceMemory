@@ -49,13 +49,20 @@ def prune_sleep_rows(self, source_ids, *, dry_run=False):
 
 
 
-# The stored text of a memory (its metadata and its value), lower cased, and the same text with what ``uuid.UUID``
-# ignores inside an id taken out: ``urn:``, ``uuid:``, hyphens and underscores. An id written with hyphens in other
-# places, in capitals or without hyphens is then the same run of digits as the id the store holds.
-_MEMORY_TEXT = "lower(coalesce(m.metadata_json, '') || char(10) || coalesce(m.value, ''))"
-_MEMORY_DIGITS = f"replace(replace(replace(replace({_MEMORY_TEXT}, 'urn:', ''), 'uuid:', ''), '-', ''), '_', '')"
-# An ASCII character written as a JSON escape (``\u0061``). A ref that is JSON text can hide any character of an id this
-# way, and the reader decodes it. Escapes of control characters and of letters outside ASCII are what ordinary text has.
+# The text of a memory that the lookup narrows on: its metadata and its value, lower cased. It is searched with what
+# ``uuid.UUID`` ignores inside an id taken out (``urn:``, ``uuid:``, hyphens and underscores), so an id written with
+# hyphens in other places, in capitals or without hyphens is the same run of digits as the id the store holds. It is
+# also matched for an ASCII character written as a JSON escape (``\u0061``): a ref that is JSON text can hide any
+# character of an id this way and the reader decodes it. Escapes of control characters and of letters outside ASCII
+# are what ordinary text has, so they do not match. The query is one literal, with no text joined into it.
+_TEXT_CANDIDATES = """
+WITH stored(id, text) AS (
+    SELECT m.id, lower(coalesce(m.metadata_json, '') || char(10) || coalesce(m.value, ''))
+    FROM memories m WHERE m.user_id = ?)
+SELECT m.* FROM stored s JOIN memories m ON m.id = s.id AND m.user_id = ?
+WHERE instr(replace(replace(replace(replace(s.text, 'urn:', ''), 'uuid:', ''), '-', ''), '_', ''), ?) > 0
+   OR s.text GLOB ?
+"""
 _ESCAPED_ASCII = "*\\u00[2-7][0-9a-f]*"
 
 
@@ -97,10 +104,7 @@ def citing_memories(self, source_id):
         (self.user_id, source_id, source_id, source_id))}
     canonical, digits = _citation_probe(source_id)
     if canonical is not None:
-        for row in self._fetch_all(
-                f"SELECT m.* FROM memories m WHERE m.user_id = ? AND "
-                f"(instr({_MEMORY_DIGITS}, ?) > 0 OR {_MEMORY_TEXT} GLOB ?)",
-                (self.user_id, digits, _ESCAPED_ASCII)):
+        for row in self._fetch_all(_TEXT_CANDIDATES, (self.user_id, self.user_id, digits, _ESCAPED_ASCII)):
             if str(row['id']) not in found and canonical in memory_cited_source_ids(row):
                 found[str(row['id'])] = row
     return [found[key] for key in sorted(found)]
