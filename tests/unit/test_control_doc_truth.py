@@ -525,9 +525,12 @@ def test_release_gate_requires_fresh_isolated_artifact_directories() -> None:
 
     assert "make release-check DIST_DIR=dist" not in releasing
     assert "`dist/SHA256SUMS`" not in releasing
+    # The handoff is a frozen record and keeps the folder the 2026-07 gate used. RELEASING.md names no fixed
+    # temporary folder (the hygiene test would refuse one) and makes the root with ``mktemp -d``.
+    assert 'release_run_root="$(mktemp -d "${TMPDIR:-/tmp}/alice-release-check.XXXXXX")"' in releasing
+    assert 'release_run_root="$(mktemp -d /tmp/alice-release-check.XXXXXX)"' in engineer_handoff
     for document in (releasing, engineer_handoff):
         for marker in (
-            'release_run_root="$(mktemp -d /tmp/alice-release-check.XXXXXX)"',
             'DIST_DIR="$dist_dir"',
             'REPRO_DIST_DIR="$repro_dist_dir"',
             'test -z "$(find "$directory" -mindepth 1 -maxdepth 1 -print -quit)"',

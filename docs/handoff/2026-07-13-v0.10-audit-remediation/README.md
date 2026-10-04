@@ -1,5 +1,7 @@
 # Alice v0.10.0 Audit-Remediation Handoff
 
+> **Correction (2026-10-04):** the reviews named here were internal adversarial review and automated security scanning. No one outside the project has audited the code.
+
 This directory is the review and release handoff for the remediation branch
 based on `68d6bf2`. It does not approve publication.
 

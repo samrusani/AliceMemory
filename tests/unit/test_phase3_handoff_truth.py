@@ -8,6 +8,8 @@ import tomllib
 
 import pytest
 
+from tests.unit.frozen_handoff_support import correction_only_problems
+
 
 _ROOT = Path(__file__).resolve().parents[2]
 _BASE = "f342d45dabe127acca6231f29830ff11d98a340e"
@@ -168,15 +170,21 @@ def test_phase3_carrier_does_not_edit_immutable_v010_v011_records() -> None:
 
     # The only edit allowed is an added, dated correction of old wording,
     # such as an audit a release note called external. Nothing may be
-    # removed or rewritten, and the handoff folders stay untouched.
+    # removed or rewritten. A handoff folder may gain one thing: the dated
+    # correction line in its README.md (docs/handoff correction, 2026-10-04),
+    # matched whole by correction_only_problems. Any other file of a handoff
+    # folder stays byte for byte as it was.
     for path in result.stdout.splitlines():
-        assert path.startswith(("docs/release/v0.10", "docs/release/v0.11")), path
         diff = subprocess.run(
             ("git", "-C", str(_ROOT), "diff", "-U0", _BASE, "--", path),
             check=True,
             capture_output=True,
             text=True,
         ).stdout
+        if path.startswith("docs/handoff/"):
+            assert correction_only_problems(path, diff) == [], path
+            continue
+        assert path.startswith(("docs/release/v0.10", "docs/release/v0.11")), path
         for line in diff.splitlines():
             if line.startswith(("---", "+++", "@@", "diff ", "index ")):
                 continue

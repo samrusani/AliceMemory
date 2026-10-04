@@ -1,5 +1,7 @@
 # Alice v0.12.0 Phase 3 Structural-Refactor Handoff
 
+> **Correction (2026-10-04):** the reviews named here were internal adversarial review and automated security scanning. No one outside the project has audited the code.
+
 **Structure only. Zero behavior change.**
 
 This directory is the control-tower handoff for the bounded Phase 3 structural
