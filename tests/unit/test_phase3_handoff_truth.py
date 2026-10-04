@@ -58,7 +58,6 @@ def test_phase3_handoff_builder_files_exist_and_pin_structure_only_headline() ->
 
     for relative_path in (
         "CURRENT_STATE.md",
-        ".ai/handoff/CURRENT_STATE.md",
         "docs/release/v0.12.0-release-notes.md",
     ):
         document = (_ROOT / relative_path).read_text(encoding="utf-8")
@@ -105,12 +104,10 @@ def test_v0120_release_notes_are_published_with_recorded_checksum_receipt() -> N
     ) in checksums
 
 
-def test_phase3_current_state_is_exact_mirror_and_phase4_is_out_of_scope() -> None:
+def test_phase3_current_state_keeps_the_headline_and_phase4_is_out_of_scope() -> None:
     current = (_ROOT / "CURRENT_STATE.md").read_bytes()
-    mirror = (_ROOT / ".ai/handoff/CURRENT_STATE.md").read_bytes()
     sprint = (_ROOT / ".ai/active/SPRINT_PACKET.md").read_text(encoding="utf-8")
 
-    assert current == mirror
     assert _HEADLINE.encode() in current
     assert "<!-- alice-sprint-scope: phase-3-complete -->" in sprint
     assert "Phase 4 is out of scope for this packet." in sprint
@@ -224,7 +221,6 @@ def test_phase3_included_docs_do_not_predict_live_final_review_state() -> None:
     relative_paths = (
         ".ai/active/SPRINT_PACKET.md",
         "CURRENT_STATE.md",
-        ".ai/handoff/CURRENT_STATE.md",
         "README.md",
         "ROADMAP.md",
         "ARCHITECTURE.md",

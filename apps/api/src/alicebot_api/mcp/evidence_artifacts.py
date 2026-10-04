@@ -31,7 +31,11 @@ from alicebot_api.vnext_project_scope import (
 )
 from alicebot_api.vnext_repositories import JsonObject as VNextJsonObject
 from alicebot_api.vnext_retrieval import MEMORY_ENTITY_EDGE_TYPES
-from alicebot_api.vnext_source_fence import EXPLAIN_DISCLOSURE_ACTION, source_ids_named_by_memory_audit
+from alicebot_api.vnext_source_fence import (
+    EXPLAIN_DISCLOSURE_ACTION,
+    cited_source_ids_in_memory_audit,
+    source_rows_including_archived,
+)
 from alicebot_api.vnext_json import json_safe
 from alicebot_api.vnext_store import PostgresVNextStore
 
@@ -231,6 +235,9 @@ _MEMORY_TIMELINE_MAX_ENTRIES = 50
 
 
 _EXPLAIN_UNAVAILABLE_MESSAGE = "requested explanation is unavailable"
+# Ids found where a chunk id could be are looked up this many at a time (a SQLite build from before 3.32 allows 999
+# bound variables).
+_INCIDENTAL_LOOKUP_BATCH = 500
 
 
 class _ExplainAuthorizationError(RuntimeError):
@@ -325,13 +332,19 @@ def _authorize_memory_audit_provenance(
     identity: AgentIdentity | None,
     provenance_links: object,
     copied_source_ids: Set[str],
+    incidental_source_ids: Set[str] = frozenset(),
 ) -> set[str]:
     """Authorize every persisted source disclosed by a memory audit.
 
     A source is disclosed by a provenance link and by the copies of its id and quote that the memory, its revisions
-    and its events keep (``copied_source_ids``, from ``source_ids_named_by_memory_audit``). A memory with no link
+    and its events keep (``copied_source_ids``, from ``cited_source_ids_in_memory_audit``). A memory with no link
     names its sources only in those copies, so both are authorized the same way: a source that is missing, deleted or
     outside what the caller may read refuses the whole call.
+
+    ``incidental_source_ids`` are the other ids the copies hold (under a key that does not name a source, or inside a
+    sentence or a URL, where an id may be a chunk id or a session id): one that names a stored source, an archived one
+    included, is authorized like the rest (an archived source is refused), and one that names no source row is not a
+    reference and is left alone.
     """
 
     # Keyless local operator calls retain their historical tolerance for old
@@ -389,6 +402,28 @@ def _authorize_memory_audit_provenance(
             target_id=copied_source_id,
         )
         authorized_source_ids.add(copied_source_id)
+    # An id found where a chunk id could be is looked up in slices, archived sources included (``get_source`` leaves an
+    # archived source out), so a ref full of such ids costs a few reads and not one per id. An id that names an archived
+    # source names a source nobody may read, and refuses the call. An id that names no source row is not a reference.
+    incidental = sorted(incidental_source_ids - authorized_source_ids - set(copied_source_ids))
+    incidental_rows: dict[str, Mapping[str, object]] = {}
+    for start in range(0, len(incidental), _INCIDENTAL_LOOKUP_BATCH):
+        incidental_rows.update(source_rows_including_archived(store, incidental[start : start + _INCIDENTAL_LOOKUP_BATCH]))
+    for incidental_source_id in incidental:
+        source = incidental_rows.get(incidental_source_id)
+        if source is None:
+            continue
+        if source.get("deleted_at") is not None:
+            raise _ExplainAuthorizationError()
+        _authorize_explain_resource(
+            store,
+            identity=identity,
+            resource=source,
+            project_scope=source_project_scope(source),
+            target_type="source",
+            target_id=incidental_source_id,
+        )
+        authorized_source_ids.add(incidental_source_id)
     return authorized_source_ids
 
 
@@ -632,11 +667,13 @@ def _handle_alice_vnext_memory_audit(context: MCPRuntimeContext, arguments: Mapp
                     target_id=str(memory.get("id") or ""),
                 ),
             )
+            cited = cited_source_ids_in_memory_audit(audit)
             _authorize_memory_audit_provenance(
                 store,
                 identity=identity,
                 provenance_links=audit.get("provenance_links"),
-                copied_source_ids=source_ids_named_by_memory_audit(audit),
+                copied_source_ids=cited.named,
+                incidental_source_ids=cited.incidental,
             )
             allowed_entity_ids = _authorized_memory_audit_entity_ids(
                 store,

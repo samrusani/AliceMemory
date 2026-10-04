@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import re
 import subprocess
 import tomllib
 
@@ -119,15 +120,14 @@ def _seed_truth_docs(
                 + f"\ndocs/release/v{documented_published_version}-checksums.txt\n",
                 encoding="utf-8",
             )
-        for relative_path in ("CURRENT_STATE.md", ".ai/handoff/CURRENT_STATE.md"):
-            target = tmp_path / relative_path
-            target.write_text(
-                target.read_text(encoding="utf-8").replace(
-                    "## Release Boundary\n",
-                    f"## Release Boundary\ndocs/release/v{documented_published_version}-checksums.txt\n",
-                ),
-                encoding="utf-8",
-            )
+        target = tmp_path / "CURRENT_STATE.md"
+        target.write_text(
+            target.read_text(encoding="utf-8").replace(
+                "## Release Boundary\n",
+                f"## Release Boundary\ndocs/release/v{documented_published_version}-checksums.txt\n",
+            ),
+            encoding="utf-8",
+        )
         install = tmp_path / "docs" / "alpha" / "headless-ubuntu-install.md"
         install.write_text(
             install.read_text(encoding="utf-8") + f"\nUse --tag v{documented_published_version}.\n",
@@ -262,7 +262,6 @@ def test_phase2_docs_scope_ascii_query_parity_and_public_error_vocabularies_exac
     relative_paths = (
         "CHANGELOG.md",
         "CURRENT_STATE.md",
-        ".ai/handoff/CURRENT_STATE.md",
         "docs/alpha/mcp-tools.md",
         "docs/release/v0.11.1-release-notes.md",
         "docs/handoff/2026-07-16-v0.11.1-phase2-debt-sweep/README.md",
@@ -300,7 +299,6 @@ def test_phase3_active_docs_record_published_v0120_boundary() -> None:
         "ARCHITECTURE.md",
         "ROADMAP.md",
         "CURRENT_STATE.md",
-        ".ai/handoff/CURRENT_STATE.md",
         "PRODUCT_BRIEF.md",
         ".ai/active/SPRINT_PACKET.md",
         "docs/vnext/README.md",
@@ -314,7 +312,6 @@ def test_phase3_active_docs_record_published_v0120_boundary() -> None:
 
     for relative_path in (
         "CURRENT_STATE.md",
-        ".ai/handoff/CURRENT_STATE.md",
         "docs/release/v0.12.0-release-notes.md",
     ):
         document = (repo_root / relative_path).read_text(encoding="utf-8")
@@ -397,7 +394,6 @@ def test_phase2_error_docs_scope_dynamic_diagnostic_claims_to_migrated_carriers(
     repo_root = Path(__file__).resolve().parents[2]
     relative_paths = (
         "CURRENT_STATE.md",
-        ".ai/handoff/CURRENT_STATE.md",
         "CHANGELOG.md",
         "docs/release/v0.11.1-release-notes.md",
         "docs/handoff/2026-07-16-v0.11.1-phase2-debt-sweep/README.md",
@@ -1025,14 +1021,138 @@ def test_control_doc_truth_requires_checksum_receipt_after_publication(tmp_path:
     assert any("missing for recorded publication" in issue for issue in issues)
 
 
-def test_control_doc_truth_requires_exact_current_state_mirror(tmp_path: Path) -> None:
+def test_the_current_state_copy_stays_gone() -> None:
+    """No second copy of ``CURRENT_STATE.md`` lives under ``.ai/handoff``.
+
+    Nothing read that copy, and keeping it equal to the real file took a script comparison and two rule
+    entries. It was deleted. A copy that came back would drift unseen, because the check no longer looks at it.
+
+    Mutation: copy ``CURRENT_STATE.md`` to ``.ai/handoff/CURRENT_STATE.md``.
+    """
+
+    repo_root = Path(__file__).resolve().parents[2]
+
+    assert (repo_root / "CURRENT_STATE.md").is_file()
+    assert not (repo_root / ".ai" / "handoff" / "CURRENT_STATE.md").exists()
+
+
+def test_git_ignores_a_current_state_copy_under_ai_handoff() -> None:
+    """``.gitignore`` has no exception that tracks ``.ai/handoff/CURRENT_STATE.md``.
+
+    The exception existed only to keep the copy in the repository. With it gone, the rest of ``.ai/handoff``
+    stays local, so a copy recreated by hand is not committed by an ordinary ``git add``.
+
+    Mutation: put ``!.ai/handoff/CURRENT_STATE.md`` back into ``.gitignore``.
+    """
+
+    repo_root = Path(__file__).resolve().parents[2]
+    result = subprocess.run(
+        ("git", "-C", str(repo_root), "check-ignore", "--no-index", "--quiet", ".ai/handoff/CURRENT_STATE.md"),
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_control_doc_truth_does_not_name_a_current_state_copy() -> None:
+    """The check script keeps no rule and no comparison for a ``CURRENT_STATE.md`` under ``.ai/handoff``.
+
+    Mutations, each one alone: put the ``ControlDocTruthRule`` entry for ``.ai/handoff/CURRENT_STATE.md``
+    back into the script; put the ``VersionAlignedDocRule`` entry back; put the byte comparison back.
+    """
+
+    source = Path(control_doc_truth.__file__).read_text(encoding="utf-8")
+    assert re.search(r"\.ai\W+handoff", source) is None
+
+    for rules in (control_doc_truth.CONTROL_DOC_TRUTH_RULES, control_doc_truth.VERSION_ALIGNED_DOC_RULES):
+        state_paths = [rule.relative_path for rule in rules if rule.relative_path.endswith("CURRENT_STATE.md")]
+        assert state_paths == ["CURRENT_STATE.md"]
+
+
+def test_control_doc_truth_does_not_read_a_current_state_copy(tmp_path: Path) -> None:
+    """A file at ``.ai/handoff/CURRENT_STATE.md`` changes nothing in the check, whatever it holds.
+
+    The repository test above is what keeps the file out of the tree. This one shows the script does not
+    read it: no required marker, no version line and no equality with ``CURRENT_STATE.md`` is asked of it.
+
+    Mutation: put the byte comparison, or a rule for the path, back into the script.
+    """
+
     _seed_truth_docs(tmp_path)
-    mirror = tmp_path / ".ai" / "handoff" / "CURRENT_STATE.md"
-    mirror.write_text(mirror.read_text(encoding="utf-8") + "drift\n", encoding="utf-8")
+    copy = tmp_path / ".ai" / "handoff" / "CURRENT_STATE.md"
+    copy.parent.mkdir(parents=True, exist_ok=True)
+    copy.write_text("a copy that holds none of the markers and is not equal\n", encoding="utf-8")
+
+    assert control_doc_truth.run_control_doc_truth_check(root_dir=tmp_path) == []
+
+
+@pytest.mark.parametrize("marker", ("## Snapshot", "## Release Boundary", "## Product Boundaries"))
+def test_control_doc_truth_still_requires_each_current_state_marker(tmp_path: Path, marker: str) -> None:
+    """``CURRENT_STATE.md`` keeps all of its required headings after the copy's rules were removed.
+
+    Mutation: delete one marker from the ``CURRENT_STATE.md`` rule in the script.
+    """
+
+    _seed_truth_docs(tmp_path)
+    target = tmp_path / "CURRENT_STATE.md"
+    target.write_text(target.read_text(encoding="utf-8").replace(marker, "## Renamed"), encoding="utf-8")
 
     issues = control_doc_truth.run_control_doc_truth_check(root_dir=tmp_path)
 
-    assert any("must exactly mirror CURRENT_STATE.md" in issue for issue in issues)
+    assert f"CURRENT_STATE.md: missing required marker '{marker}'" in issues
+
+
+def test_control_doc_truth_still_rejects_a_disallowed_marker_in_current_state(tmp_path: Path) -> None:
+    """A phrase on the disallowed list still fails when it is in ``CURRENT_STATE.md``.
+
+    Mutation: skip ``CURRENT_STATE.md`` in the disallowed-marker loop.
+    """
+
+    _seed_truth_docs(tmp_path)
+    target = tmp_path / "CURRENT_STATE.md"
+    target.write_text(target.read_text(encoding="utf-8") + "\nThe control tower decides.\n", encoding="utf-8")
+
+    issues = control_doc_truth.run_control_doc_truth_check(root_dir=tmp_path)
+
+    assert "CURRENT_STATE.md: contains disallowed marker 'control tower'" in issues
+
+
+def test_control_doc_truth_still_rejects_a_stale_latest_claim_in_current_state(tmp_path: Path) -> None:
+    """``CURRENT_STATE.md`` naming an older release as the latest published one still fails.
+
+    Mutation: remove the ``CURRENT_STATE.md`` entry from ``VERSION_ALIGNED_DOC_RULES``.
+    """
+
+    _seed_truth_docs(tmp_path, latest_published_version="9.8.6")
+    target = tmp_path / "CURRENT_STATE.md"
+    target.write_text(
+        target.read_text(encoding="utf-8") + "\n`v9.8.5` is the latest published release.\n",
+        encoding="utf-8",
+    )
+
+    issues = control_doc_truth.run_control_doc_truth_check(root_dir=tmp_path)
+
+    assert "CURRENT_STATE.md: names v9.8.5 as latest published instead of v9.8.6" in issues
+
+
+def test_control_doc_truth_still_rejects_a_candidate_claim_in_published_current_state(tmp_path: Path) -> None:
+    """``CURRENT_STATE.md`` calling a published version a candidate still fails.
+
+    Mutation: remove the ``CURRENT_STATE.md`` entry from ``VERSION_ALIGNED_DOC_RULES``.
+    """
+
+    _seed_truth_docs(tmp_path, published=True)
+    target = tmp_path / "CURRENT_STATE.md"
+    target.write_text(
+        target.read_text(encoding="utf-8") + "\n`v9.8.7` is still an unpublished candidate.\n",
+        encoding="utf-8",
+    )
+
+    issues = control_doc_truth.run_control_doc_truth_check(root_dir=tmp_path)
+
+    assert "CURRENT_STATE.md: describes published v9.8.7 as unpublished or a candidate" in issues
 
 
 @pytest.mark.parametrize(
@@ -1096,12 +1216,11 @@ def test_control_doc_truth_aligns_release_boundary_and_install_tag(
     tmp_path: Path,
 ) -> None:
     _seed_truth_docs(tmp_path, published=True)
-    for relative_path in ("CURRENT_STATE.md", ".ai/handoff/CURRENT_STATE.md"):
-        target = tmp_path / relative_path
-        target.write_text(
-            target.read_text(encoding="utf-8").replace("v9.8.7-checksums.txt", "v9.8.6-checksums.txt"),
-            encoding="utf-8",
-        )
+    target = tmp_path / "CURRENT_STATE.md"
+    target.write_text(
+        target.read_text(encoding="utf-8").replace("v9.8.7-checksums.txt", "v9.8.6-checksums.txt"),
+        encoding="utf-8",
+    )
     install = tmp_path / "docs" / "alpha" / "headless-ubuntu-install.md"
     install.write_text(
         install.read_text(encoding="utf-8").replace("--tag v9.8.7", "--tag v9.8.6"),
@@ -1343,7 +1462,6 @@ def test_redaction_docs_do_not_overclaim_source_evidence_erasure() -> None:
             "docs/alpha/mcp-tools.md",
             "docs/release/v0.11.1-release-notes.md",
             "CURRENT_STATE.md",
-            ".ai/handoff/CURRENT_STATE.md",
         )
     ]
 
