@@ -1,5 +1,7 @@
 # Alice v0.11.1 Phase 2 Debt-Sweep Handoff
 
+> **Correction (2026-10-04):** the reviews named here were internal adversarial review and automated security scanning. No one outside the project has audited the code.
+
 This directory is the control-tower handoff for the bounded Phase 2 debt
 sweep. The candidate is based on the published v0.11.0 `main` commit
 `5f0a92d77d02b0699af3054fced7427929808aa8` (tree

@@ -1,5 +1,7 @@
 # Alice v0.10.2 Post-Release Audit Remediation Handoff
 
+> **Correction (2026-10-04):** the reviews named here were internal adversarial review and automated security scanning. No one outside the project has audited the code.
+
 This directory is the main-engineer handoff for the non-security audit and
 remediation performed after the published `v0.10.2` release. It includes the
 builder corrections requested by the independent review passes, the final
