@@ -154,3 +154,9 @@ def test_alias_grounding_never_admits_an_unreadable_entity(tmp_path):
             sensitivity_allowed=("public",), allow_entity_lookup=False,
             admitted_entity_names=("Briar Visible",), admitted_entity_ids=(str(visible["id"]),))
         assert support == {"Marcus Hidden": False}
+
+
+def test_declared_project_scope_is_part_of_entity_policy():
+    identity = AgentIdentity(agent_id="reader", permission_profile="admin_agent",
+                             project_scope=("alpha",), project_scope_locked=False)
+    assert SourceReadFence.for_identity(identity).entity_read_fenced

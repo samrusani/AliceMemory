@@ -24,9 +24,10 @@ from alicebot_api.mcp import registry
 
 def kill(owner, name, before, after, check):
     original = getattr(owner, name)
-    source = textwrap.dedent(inspect.getsource(original))
+    function = original.fget if isinstance(original, property) else original
+    source = textwrap.dedent(inspect.getsource(function))
     assert before in source, f'mutation no longer matches: {name}: {before}'
-    namespace = dict(original.__globals__)
+    namespace = dict(function.__globals__)
     exec(compile(source.replace(before, after, 1), '<guard mutation>', 'exec'), namespace)
     aliases = [(module, key) for module in (retrieval, grounding, audit, recall, registry)
                for key, value in vars(module).items() if value is original]
@@ -97,6 +98,9 @@ def test_entity_guard_mutations():
         (grounding, "corpus_support", 'if not allow_entity_lookup and str(row.get("id")) not in admitted_entity_ids:', "if False:",
          lambda: temporary_check(review_checks.test_alias_grounding_never_admits_an_unreadable_entity)),
     ])
+    from alicebot_api.vnext_source_fence import SourceReadFence
+    mutations.append((SourceReadFence, "entity_read_fenced", "or bool(decision.effective_project_scope)", "or False",
+                      review_checks.test_declared_project_scope_is_part_of_entity_policy))
     for mutation in mutations:
         kill(*mutation)
     print(f'{len(mutations)}/{len(mutations)} guard mutations killed')

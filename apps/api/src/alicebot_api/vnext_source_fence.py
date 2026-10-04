@@ -198,6 +198,7 @@ class SourceReadFence:
         )
         return (
             decision.decision != "allowed"
+            or bool(decision.effective_project_scope)
             or set(decision.effective_domains) != set(VNEXT_DOMAINS)
             or set(decision.effective_sensitivity_allowed) != set(ALL_SENSITIVITY)
         )
