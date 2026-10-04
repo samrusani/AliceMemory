@@ -95,7 +95,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-from contextlib import contextmanager, redirect_stderr
+from contextlib import closing, contextmanager, redirect_stderr
 from io import StringIO
 import json
 import logging
@@ -1450,8 +1450,8 @@ def _markdown_import_database(db_path: Path, args: argparse.Namespace):
     with tempfile.TemporaryDirectory(prefix="alice-import-preview-") as directory:
         selected = Path(directory) / "memory.db"
         if db_path.exists():
-            with sqlite3.connect(db_path.resolve().as_uri() + "?mode=ro", uri=True) as source:
-                with sqlite3.connect(selected) as destination:
+            with closing(sqlite3.connect(db_path.resolve().as_uri() + "?mode=ro", uri=True)) as source:
+                with closing(sqlite3.connect(selected)) as destination:
                     source.backup(destination)
             sidecar = sleep_proposals_path(db_path)
             if sidecar.exists():
