@@ -1043,3 +1043,14 @@ changed.
   reason. The reason is on the policy events (`policy.decision` and
   `agent.policy_blocked`). Unreleased (on main, not in v0.20.0): it
   returns `not_permitted` with the same message and still no reason.
+
+
+## Derived rows retain restricted input domains
+
+Unreleased (on main, not in v0.20.0): a derived memory or report with inputs in restricted domains keeps a restricted label from those inputs. The most frequent restricted domain wins; ties use alphabetical order. An explicit request domain cannot override this rule. The shared helper imports `RESTRICTED_DOMAINS` from the policy module. With no restricted inputs, each producer retains its prior rule.
+
+This applies to daily briefs, weekly synthesis and its candidate memories, roll-ups, consolidation candidates and reports, connection and contradiction reports, staleness reports, open-loop reviews and project-update candidates and reports. Consolidation reports include their roll-up inputs when choosing the label. Sleep proposals and discovered open loops already copy one input's domain.
+
+In v0.20.0, mixed inputs could produce `unknown` or a less restricted request/project domain. The upgrade relabels existing derived rows from recorded input IDs, scoped to the same user, and propagates through derived-row chains. Deleted inputs still count where their retained rows resolve the reference. The repair changes only domain labels and is idempotent. It leaves already restricted rows, redacted records and rows with no recorded or resolvable inputs unchanged. Old weekly candidates can be resolved through a parent report that recorded its input summary and candidate IDs. SQLite repairs derived memories on the next open; its local schema has no generated-artifact table. PostgreSQL migration `20261004_0095` repairs memories and generated artifacts. Downgrade retains the repaired labels because undoing them would reopen access.
+
+Project scope is unchanged. Roll-ups group by exact normalized project scope and keep that scope in metadata, even when `project_id` is null for multiple identifiers. Brain reports and weekly candidates can combine scopes; a reader matching one scope can potentially read a summary of inputs from other scopes. This domain change does not resolve that separate scope question.

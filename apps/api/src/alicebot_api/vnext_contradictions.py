@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from alicebot_api.vnext_derived_domain import derived_domain
+
 from dataclasses import dataclass, field
 import inspect
 import re
@@ -655,7 +657,7 @@ class VNextContradictionService:
             "title": "Contradiction Report",
             "content_markdown": content,
             "status": "needs_review",
-            "domain": request.domains[0] if len(request.domains) == 1 else "unknown",
+            "domain": derived_domain([*sources, *memories, *beliefs], fallback=request.domains[0] if len(request.domains) == 1 else "unknown"),
             "sensitivity": self._highest_sensitivity([*sources, *memories, *beliefs]),
             "generated_by": request.generated_by if request.generated_by != "system" else "vnext_contradiction_finder",
             "prompt_hash": prompt_hash,

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from alicebot_api.vnext_derived_domain import derived_domain
+
 from dataclasses import dataclass, field
 import hashlib
 import json
@@ -585,7 +587,7 @@ class VNextProjectService:
                 "confidence": 0.72,
                 "canonical_text": suggested_current_state,
                 "summary": suggested_current_state,
-                "domain": project.get("domain", "project"),
+                "domain": derived_domain([project, *sources, *memories], fallback=str(project.get("domain", "project"))),
                 "sensitivity": _highest_sensitivity([project, *sources, *memories]),
                 "project_id": project_id,
                 "metadata_json": {
@@ -621,7 +623,7 @@ class VNextProjectService:
             "title": f"Project Update Candidate - {_title(project)}",
             "content_markdown": content,
             "status": "needs_review",
-            "domain": project.get("domain", "project"),
+            "domain": derived_domain([project, *sources, *memories], fallback=str(project.get("domain", "project"))),
             "sensitivity": _highest_sensitivity([project, *sources, *memories]),
             "generated_by": request.generated_by if request.generated_by != "system" else "vnext_project_auto_updater",
             "prompt_hash": prompt_hash,

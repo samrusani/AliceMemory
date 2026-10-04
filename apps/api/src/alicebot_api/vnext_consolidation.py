@@ -30,6 +30,8 @@ provider, clustering is skipped with an explicit reason in the artifact.
 
 from __future__ import annotations
 
+from alicebot_api.vnext_derived_domain import derived_domain
+
 from collections.abc import Mapping, Sequence
 from collections import Counter
 from dataclasses import dataclass, field
@@ -392,11 +394,11 @@ def _highest_sensitivity(rows: list[JsonObject]) -> str:
 
 def _domain(request: MemoryConsolidationRequest, rows: list[JsonObject]) -> str:
     if len(request.domains) == 1:
-        return request.domains[0]
+        return derived_domain(rows, fallback=request.domains[0])
     domains = {row.get("domain") for row in rows if isinstance(row.get("domain"), str)}
     if len(domains) == 1:
         return str(next(iter(domains)))
-    return "unknown"
+    return derived_domain(rows, fallback="unknown")
 
 
 def _text(row: JsonObject) -> str:
@@ -1441,13 +1443,16 @@ class VNextConsolidationService:
             metadata = {**metadata, **model_artifact.metadata}
 
         all_cluster_rows = [row for members in clustering.clusters for row in members]
+        # Include roll-up inputs only in the restricted-domain override. The
+        # existing fallback and sensitivity selection keep their own inputs.
+        domain_rows = [*all_cluster_rows, *(rollups.input_rows if rollups is not None else [])]
         artifact = self.store.create_artifact(
             {
                 "artifact_type": "memory_consolidation",
                 "title": self._title(request),
                 "content_markdown": content,
                 "status": "needs_review",
-                "domain": _domain(request, all_cluster_rows),
+                "domain": derived_domain(domain_rows, fallback=_domain(request, all_cluster_rows)),
                 "sensitivity": _highest_sensitivity(all_cluster_rows),
                 "generated_by": request.generated_by,
                 "prompt_hash": prompt_hash,

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from alicebot_api.vnext_derived_domain import derived_domain
+
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 import inspect
@@ -620,7 +622,7 @@ class VNextConnectionService:
             "title": "Connection Report",
             "content_markdown": content,
             "status": "needs_review",
-            "domain": request.domains[0] if len(request.domains) == 1 else "unknown",
+            "domain": derived_domain([*sources, *memories], fallback=request.domains[0] if len(request.domains) == 1 else "unknown"),
             "sensitivity": self._highest_sensitivity([*sources, *memories]),
             "generated_by": request.generated_by if request.generated_by != "system" else "vnext_connection_finder",
             "prompt_hash": prompt_hash,
