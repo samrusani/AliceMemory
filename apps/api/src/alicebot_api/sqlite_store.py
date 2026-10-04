@@ -74,6 +74,10 @@ from alicebot_api.vnext_stores.retrieval_common import (
     _search_patterns as _search_patterns,
     fts_fallback_tokens as fts_fallback_tokens,
 )
+from alicebot_api.vnext_stores.sqlite.source_retirement import (
+    markdown_sources_by_path as _markdown_sources_by_path,
+    supersede_source as _supersede_source,
+)
 from alicebot_api.vnext_stores.sqlite.columns import (
     ENTITY_COLUMNS as ENTITY_COLUMNS,
     ENTITY_RELATIONSHIP_EVENT_COLUMNS as ENTITY_RELATIONSHIP_EVENT_COLUMNS,
@@ -660,6 +664,9 @@ class SQLiteVNextStore:
     count_events = _events_count_events
 
     # -- sources -------------------------------------------------------------
+
+    markdown_sources_by_path = _markdown_sources_by_path
+    supersede_source = _supersede_source
 
     def create_source(self, source: JsonObject, *, actor_type: str = "system") -> VNextRow:
         source_id = _new_id(source.get("id"))
