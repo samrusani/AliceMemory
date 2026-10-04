@@ -27,7 +27,7 @@ Start the MCP server. It lists three tools by default. Set
 
 ```bash
 alicebot-mcp
-# or, with all eleven core tools:
+# or, with the full tool surface:
 ALICE_MCP_FULL_TOOLS=1 alicebot-mcp
 ```
 
