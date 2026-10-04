@@ -71,15 +71,13 @@ import re
 from collections.abc import Callable, Mapping, Sequence
 from uuid import UUID
 
-from alicebot_api.vnext_source_fence import SourceReadFence
+from alicebot_api.vnext_source_fence import SOURCE_REFERENCE_KEYS, SourceReadFence
 
 JsonObject = dict[str, object]
 
-# The keys the open-loop reverse lookup of a source reads (``list_open_loops_referencing_source``), so a loop that
-# names a source under one of them is found by the id and withheld by the same words.
-SOURCE_REFERENCE_KEYS = frozenset(
-    {"source_id", "source_ids", "source_ref", "source_refs", "source_references", "selected_source_ids"}
-)
+# ``SOURCE_REFERENCE_KEYS`` (defined in ``vnext_source_fence``, which the saved-quote reader also reads) holds the keys
+# the open-loop reverse lookup of a source reads (``list_open_loops_referencing_source``), so a loop that names a
+# source under one of them is found by the id and withheld by the same words.
 # No writer in the product puts a memory id into the metadata of a loop. The keys are the spellings a writer would
 # reach for, and the scan for any id that names a refused row is the net for the rest.
 MEMORY_REFERENCE_KEYS = frozenset({"memory_id", "memory_ids", "memory_ref", "memory_refs", "source_memory_ids"})

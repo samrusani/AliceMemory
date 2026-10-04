@@ -1,5 +1,7 @@
 # Alice v0.10.4 Fifth-Audit Remediation Handoff
 
+> **Correction (2026-10-04):** the reviews named here were internal adversarial review and automated security scanning. No one outside the project has audited the code.
+
 This directory is the control-tower handoff for the v0.10.4 candidate. Code
 remediation commit `41641fbfa5dc8198bf47bad8849c828dbb519617` already set
 both governed version sources to `0.10.4`. The follow-up npm advisory endpoint
