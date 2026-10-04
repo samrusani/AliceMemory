@@ -1,6 +1,12 @@
-# P13-S3 Memory Hygiene + Conversation Health
+# Memory Hygiene and Conversation Health
 
-This sprint adds bounded visibility surfaces for memory hygiene and conversation health without changing storage shape or continuity semantics.
+## Requirements and status
+
+- Support status: legacy surface of the Postgres stack. It is not part of the default SQLite install. It is kept working: CI runs its unit and web tests. New integrations use the core MCP tools.
+- Backend: Postgres. The two HTTP routes belong to the HTTP API, which runs only on Postgres, and the two web panels read those routes, so they need the API on port 8000 and the web console (see [Full stack](../../README.md#full-stack-postgres--review-console)). `alicebot status` refuses a SQLite URL.
+- Settings: none beyond the Postgres setup. This page names no MCP tool, so `ALICE_MCP_LEGACY_TOOLS` plays no part.
+
+Two bounded visibility surfaces cover memory hygiene and conversation health. They aggregate existing data and have no storage of their own.
 
 ## Shipped Surfaces
 
@@ -45,13 +51,12 @@ Overall thread posture is:
 
 ## Scope Notes
 
-- No new connector, runtime, persistence, or retrieval substrate was introduced.
+- The dashboards add no connector, runtime, persistence, or retrieval substrate.
 - The dashboard builders aggregate existing thread, event, continuity, contradiction, trust-signal, and review-queue data.
-- The first shipped thread-health surface is both API-visible and UI-visible.
+- Thread health is visible through both the API and the web panel.
 
 ## Verification
 
-- targeted unit coverage for memory hygiene aggregation
-- targeted unit coverage for thread-health aggregation
-- page coverage for the memory and continuity workspace panels
-- control-doc truth verification remains green
+- unit tests for memory hygiene aggregation
+- unit tests for thread-health aggregation
+- page tests for the memory and continuity workspace panels

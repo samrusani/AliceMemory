@@ -45,6 +45,25 @@ alicebot agent keys revoke <key-prefix-or-id>
 
 The raw key is printed exactly once at creation and stored hashed. Agents send it as `Authorization: Bearer $ALICE_AGENT_API_KEY`; MCP binds a key through the `ALICE_AGENT_API_KEY` environment variable. The key record overrides any payload-supplied agent identity, payloads may only downgrade the granted permission profile, and keyless agent calls work only while zero active keys exist.
 
+## Install and the Claude Desktop bundle
+
+`alice-memory install` writes host MCP config. The [quickstart](../alpha/quickstart.md#install-with-alice-memory) covers it. This section covers one flag the quickstart leaves out.
+
+`alice-memory install --write-mcpb PATH` also writes a `.mcpb` bundle for Claude Desktop at PATH.
+
+- The bundle is a zip that holds one file, `manifest.json`. It holds no copy of Alice. The manifest's launcher runs `uvx alice-memory mcp --data-dir ${user_config.data_dir}`, so `uvx` (from [uv](https://docs.astral.sh/uv/)) is required on the machine that opens the bundle. When `uvx` is not on `PATH` where install runs, the receipt adds a warning and the bundle is still written.
+- The bundle's `data_dir` setting is a directory choice that defaults to `${HOME}/.alice`. `--data-dir` does not change it.
+- The flag adds to the host entries and does not replace them. Without `--host`, install still writes the default hosts (Claude Desktop, Claude Code, Cursor and OpenClaw).
+- PATH must end in `.mcpb`, in lower case and with a name before it (a file named only `.mcpb` is refused), and must not be a directory. A missing parent folder is created with mode 0700. A file already at PATH is replaced.
+- When the bundle is not written, the bundle's block of the receipt reads `action: failed` and install exits non-zero. Outside a dry run the host entries are written first; a dry run writes none. The reason is one of these four:
+  - `mcpb path must end in .mcpb`: PATH breaks the rule above.
+  - `mcpb path is a directory`: a directory is already at PATH.
+  - `mcpb zip could not be written`: the parent exists and the zip could not be created in it, for example because the parent is a file or the folder is read-only.
+  - `the file could not be read or written`: any other file-system error, for example a missing parent folder that could not be created, a parent folder that cannot be searched, or a file name that is too long.
+- With `--dry-run`, install prints the manifest and writes no bundle.
+
+No release builds or attaches a `.mcpb`. Installing one in Claude Desktop has no verified real-host support: real-host CI runs Claude Code, Hermes, OpenCode and Codex, and the bundle is covered by unit tests only.
+
 ## vNext Agentic Commands
 
 ```bash
@@ -114,6 +133,18 @@ The `operator-console` smoke is the broadest local go/no-go check for daily `/vn
 ./.venv/bin/python -m alicebot_api review show <continuity_object_id>
 ./.venv/bin/python -m alicebot_api review apply <continuity_object_id> --action supersede --replacement-title "Decision: Updated title" --replacement-body-json '{"decision_text":"Updated title"}' --replacement-provenance-json '{"thread_id":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"}' --replacement-confidence 0.97
 ```
+
+## Legacy surfaces
+
+These seven pages describe commands, routes and tools of the Postgres stack. Each opens with the backend it needs, the settings it needs and its support status. They are legacy surfaces: kept working and not part of the default install.
+
+- [Automated memory operations](../memory/p12-s2-automated-memory-operations.md): `alicebot mutations`, candidates and operations.
+- [Contradictions and trust calibration](../memory/p12-s3-contradictions-trust-calibration.md): `alicebot contradictions` and `alicebot trust signals`.
+- [Memory hygiene and conversation health](../memory/p13-s3-memory-hygiene-conversation-health.md): the two dashboards and the extra `alicebot status` fields.
+- [Hybrid retrieval tracing](../retrieval/hybrid_tracing.md): `recall --debug`, `resume --debug` and stored retrieval runs.
+- [Public eval harness](../evals/public_eval_harness.md): `alicebot evals`.
+- [Task-adaptive briefing](../briefing/task-adaptive-briefing.md): `alicebot task-briefs`, which needs `ALICE_LEGACY_SURFACES=1`.
+- [Local command walkthrough](../examples/phase9-command-walkthrough.md): Docker, the OpenClaw demo and the Phase 9 evaluation.
 
 ## Determinism Contract
 

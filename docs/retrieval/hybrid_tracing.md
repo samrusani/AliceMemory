@@ -1,6 +1,12 @@
 # Hybrid Retrieval Tracing
 
-The Phase 12 /v0/continuity retrieval now runs as an explicit hybrid pipeline instead of a single opaque ranking pass.
+## Requirements and status
+
+- Support status: legacy surface. Its MCP tools are off the default handshake, and the legacy MCP surface is frozen: it gets no new capabilities. The commands, routes and tools on this page are kept working: CI runs their tests against Postgres. New integrations use the core tools.
+- Backend: Postgres, for the CLI, the HTTP API and the MCP tools alike. The `alicebot` CLI refuses a SQLite URL and the HTTP API runs only on Postgres. The three MCP tools below read the continuity store, which exists only on Postgres: on the SQLite `alice-memory` vault they are listed but their calls fail. See [Full stack](../../README.md#full-stack-postgres--review-console).
+- Settings: the MCP tools need `ALICE_MCP_LEGACY_TOOLS=1` in the server environment, on a keyless server. A server bound with `ALICE_AGENT_API_KEY` never lists or accepts them. `RETRIEVAL_TRACE_RETENTION_DAYS` sets how long stored traces are kept. The CLI flags and the HTTP routes need no other flag.
+
+The `/v0/continuity` retrieval runs as an explicit hybrid pipeline, not a single opaque ranking pass.
 
 ## Retrieval stages
 
@@ -13,7 +19,7 @@ The Phase 12 /v0/continuity retrieval now runs as an explicit hybrid pipeline in
 ## Ranking behavior
 
 - Hybrid retrieval is the default recall path of this pipeline. The core MCP `alice_recall` runs a different, vNext pipeline (see [MCP tools](../alpha/mcp-tools.md)).
-- Existing non-debug recall and resumption payloads stay compatible.
+- Recall and resumption payloads carry the trace only when `debug` is requested.
 - Stale or superseded candidates remain eligible for inspection, but trust-aware reranking lowers their chance of outranking current truth.
 
 ## Debug visibility
@@ -22,9 +28,9 @@ The Phase 12 /v0/continuity retrieval now runs as an explicit hybrid pipeline in
 - `GET /v0/continuity/resumption-brief?debug=true` returns the same retrieval trace under `debug.retrieval`.
 - `GET /v0/continuity/retrieval-runs` lists recent persisted runs.
 - `GET /v0/continuity/retrieval-runs/{retrieval_run_id}` returns one stored trace.
-- CLI adds `recall --debug` and `resume --debug`.
-- MCP adds `alice_recall_debug`, `alice_resume_debug`, and `alice_retrieval_trace`.
-  These are legacy MCP tools. They are listed only with `ALICE_MCP_LEGACY_TOOLS=1` on a keyless local server, never on a server bound with `ALICE_AGENT_API_KEY`, and they run only on Postgres: on SQLite they are listed but their calls fail. See [Legacy tool surface](../alpha/mcp-tools.md#legacy-tool-surface).
+- The CLI takes `recall --debug` and `resume --debug`.
+- MCP has `alice_recall_debug`, `alice_resume_debug`, and `alice_retrieval_trace`.
+  These are legacy MCP tools. Their requirements are at the top of this page. See also [Legacy tool surface](../alpha/mcp-tools.md#legacy-tool-surface).
 
 ## Persistence and retention
 
