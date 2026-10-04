@@ -17,10 +17,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 PAGE = ROOT / "docs/alpha/known-limitations.md"
 
-# The page is about 16,000 characters. The old page was 30,000, with single bullets of 4,000 to 6,000. The caps
-# leave room to word a limit better and not to retell it.
-MAX_PAGE_CHARS = 19_000
-MAX_BULLET_CHARS = 2_000
+# The page is about 14,300 characters and its longest bullet about 760. The old page was 30,000, with single bullets of
+# 4,000 to 6,000, and the first short version was 16,300 with eight bullets of 630 to 1,090 characters and three to
+# eight sentences each. The caps sit just above the page as it is, so a limit can be reworded and a new one added, and
+# nothing grows back into a record without this test failing. A bullet is one or two sentences, and a closing
+# "See ..." pointer to the page that explains it does not count as one.
+MAX_PAGE_CHARS = 14_600
+MAX_BULLET_CHARS = 800
+MAX_BULLET_SENTENCES = 2
 
 
 def _text() -> str:
@@ -28,7 +32,24 @@ def _text() -> str:
 
 
 def _bullets(text: str) -> list[str]:
-    return [" ".join(chunk.split()) for chunk in re.split(r"\n(?=- )", text) if chunk.startswith("- ")]
+    """Each bullet of the list, whitespace collapsed. A bullet ends at the next bullet or at a blank line, so the
+    paragraphs that follow the last bullet are not counted as part of it."""
+
+    found: list[str] = []
+    for block in re.split(r"\n\s*\n", text):
+        if block.startswith("- "):
+            found.extend(" ".join(chunk.split()) for chunk in re.split(r"\n(?=- )", block))
+    return found
+
+
+def _sentences(bullet: str) -> int:
+    """The sentences of a bullet, not counting a closing pointer (``See ...``): code spans and link targets are
+    removed first, so a full stop inside ``v0.20.0`` or ``mcp-tools.md`` does not end one."""
+
+    plain = re.sub(r"`[^`]*`", "X", bullet)
+    plain = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", plain)
+    sentences = re.split(r"[.!?]\s+(?=[A-Z])", plain.rstrip("."))
+    return len([sentence for sentence in sentences if not sentence.startswith("See ")])
 
 
 def _slug(heading: str) -> str:
@@ -97,15 +118,22 @@ def test_the_pages_the_limits_point_at_are_the_ones_that_explain_them() -> None:
 
 
 def test_the_page_is_short_and_no_bullet_is_a_record() -> None:
-    """The page and each bullet stay under a size that a reader can scan.
+    """The page and each bullet stay under a size that a reader can scan, and a bullet is one or two sentences.
 
-    Mutation: put the old 4,000 character query bounds bullet, or the old open loop fence paragraph, back.
+    Mutations, each one alone: put the old 4,000 character query bounds bullet, the old open loop fence paragraph or the
+    1,090 character key-bound source bullet back; add two sentences to any bullet; add a 1,000 character paragraph of
+    history to the page.
     """
 
     text = _text()
     assert len(text) <= MAX_PAGE_CHARS, len(text)
-    for bullet in _bullets(text):
+    bullets = _bullets(text)
+    assert len(bullets) >= 40, "the list of limits was not read"
+    for bullet in bullets:
         assert len(bullet) <= MAX_BULLET_CHARS, (len(bullet), bullet[:80])
+        assert _sentences(bullet) <= MAX_BULLET_SENTENCES, (_sentences(bullet), bullet[:80])
+    # The last bullet is not stretched over the paragraphs after the list: a bullet ends at the blank line.
+    assert not any("What v0.19.0 and v0.19.2 limited" in bullet for bullet in bullets)
 
 
 def test_the_page_does_not_retell_a_limit_an_earlier_release_had() -> None:

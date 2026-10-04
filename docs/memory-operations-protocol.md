@@ -228,9 +228,12 @@ This is the one place the rules for answering a pending write are written
 out. The agent skill packs (`agent-skills/hermes/alice-memory/SKILL.md` and
 `agent-skills/openclaw/alice-project-memory/SKILL.md`) and their pages carry
 the part an agent needs and nothing more, and the tool reference and the
-agent integration guide carry a short summary and a link here.
-`tests/unit/test_confirm_rules_agree_across_copies.py` reads every copy and
-fails when one of them says something else.
+agent integration guide carry a short summary and a link here. The
+descriptions of `alice_memory_commit` and `alice_memory_manage` that `tools/list`
+serves repeat what an agent needs to act on.
+`tests/unit/test_confirm_rules_agree_across_copies.py` reads every copy,
+the tool descriptions included, and fails when one of them says something else,
+or says something the server does not do.
 
 Who may answer. Only the author of the pending write, an `admin_agent` key,
 or the owner (a keyless call with no agent identity) can confirm or reject

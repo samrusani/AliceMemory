@@ -1305,14 +1305,16 @@ def test_the_docs_state_the_spellings_the_per_response_rule_and_the_residual() -
     ``mcp-tools.md`` carries the rule: every spelling, a deleted row withheld, the per-response collection, the hex
     boundary, the readable id that has hyphen separated hex after it, and what remains (the free-text columns, an id
     with its hyphens in other places inside text, the glued digits that cut part of a readable id, and an id of a row
-    removed outright that nothing links). ``known-limitations.md`` lists what is limited now and keeps one short
-    statement of the rule (every spelling, and after the source or memory is deleted); the residuals are the canonical
-    page's. None of them may claim that hyphens are read anywhere among the digits inside text, or that the
-    context pack and the review by id keep their limit (the saved-quotes change on main holds those two).
+    removed outright that nothing links). ``known-limitations.md`` lists what is limited now and links the canonical
+    page: it no longer states the rule (every spelling, and after the source or memory is deleted) or the residuals,
+    which the canonical page states and this test pins there. None of them may claim that hyphens are read anywhere
+    among the digits inside text, or that the context pack and the review by id keep their limit (the saved-quotes
+    change on main holds those two).
 
     Mutation: delete any one of the sentences below from the file that carries it, or put the odd-hyphen claim back.
     The two residual sentences that used to be pinned on the limitations page (the glued digits and the id of a row
-    removed outright) are pinned on ``mcp-tools.md`` now: delete either from it and this test fails.
+    removed outright) and the two halves of the rule that the page used to state (every spelling, and a deleted source
+    or memory) are pinned on ``mcp-tools.md`` now: delete any one of them from it and this test fails.
     """
 
     def squashed(path: str) -> str:
@@ -1347,12 +1349,17 @@ def test_the_docs_state_the_spellings_the_per_response_rule_and_the_residual() -
         # Moved here from the limitations page, which keeps one short statement of the rule.
         "read as a hyphenated id that names no row, so part of an id the reader may read is withheld there and wherever the same response repeats it.",
         "and so is the id of a row that was removed outright and that nothing in the response links.",
+        # Moved here from the limitations page, which no longer repeats the rule (every spelling, and after the source or
+        # memory is deleted): the canonical page states both halves.
+        "a deleted source or memory included (the lookup reads deleted rows)",
+        "An id is read whole or inside longer text, in upper or lower case, hyphenated or as 32 hex digits in a row, in "
+        "braces, and after `urn:uuid:`, `uuid:`, `source:` or `memory:`.",
     ):
         assert tools.count(sentence) == 1, sentence
-    # The limitations page keeps one short statement of the rule. The three residuals it used to repeat live on
-    # mcp-tools.md, where all three are pinned above (the longer-text residual was already, the glued digits and
-    # the removed-row sentences were added).
-    assert limitations.count("in every spelling and after the source or memory is deleted") == 1
+    # The limitations page no longer states the rule or the three residuals it used to repeat. They live on
+    # mcp-tools.md, where all three residuals and both halves of the rule (every spelling, and after the source or
+    # memory is deleted) are pinned above. The page keeps a link to the sections that hold them.
+    assert "[Cited sources](mcp-tools.md#cited-sources)" in limitations
     for name, text in (("CHANGELOG.md", changelog), ("mcp-tools.md", tools), ("known-limitations.md", limitations)):
         assert "in other places or nowhere" not in text, name
         assert "keep the limit stated in the entry on cited sources" not in text, name

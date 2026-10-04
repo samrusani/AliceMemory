@@ -248,18 +248,22 @@ def test_the_threat_model_names_dns_rebinding_and_the_host_rule_and_marks_v0200(
 
 
 def test_known_limitations_states_the_edge_rules_and_what_they_leave_open() -> None:
-    """The bullet states what the HTTP API refuses now and the limits that remain; v0.19.2 is on the dated records.
+    """The bullet states what the HTTP API refuses now and the limits that remain; the detail is in the threat model.
 
     The known limitations page lists what is limited now, so it no longer opens with what v0.19.2 did (parsed a body of any
     size before it authenticated, and did not check ``Host``). That is pinned on the dated records:
     the v0.19.2 notes (``test_the_v0192_release_notes_still_list_the_findings_as_open``), the changelog
     entry above and the threat model sentence "does not check the ``Host`` header of a keyless loopback
     request. From v0.20.0, ..." in ``test_the_threat_model_names_dns_rebinding_and_the_host_rule_and_marks_v0200``.
+    The bullet is two sentences and a link. It no longer lists the accepted ``Host`` values or spells out the ``Origin``
+    rule, which the threat model holds and pins here (the list of accepted values and the ``Origin`` rule below).
 
-    Mutations, each one alone: change 4 MiB, 32 MiB or 256 in the bullet; delete the ``ALICEBOT_ALLOWED_HOSTS``
-    clause or the ``Origin`` clause; delete the sentence that says an agent key is not checked or the clause that
-    says the legacy ``/v0`` routes get the rule; delete the no rate limit clause; delete the sentence that says
-    the rule was not checked from a real browser or that an allowed name is trusted as this machine.
+    Mutations, each one alone: change 4 MiB, 32 MiB or 256 in the bullet; delete the ``Host`` or ``Origin`` clause from
+    the first sentence; delete the clause that says an agent key is not checked, the clause that says the legacy ``/v0``
+    routes get the rule, or the no rate limit clause; delete the clause that says the rule was not checked from a real
+    browser or the one that says an allowed name is trusted as this machine; in the threat model, change ``localhost``
+    in the list of accepted values, delete the ``ALICEBOT_ALLOWED_HOSTS`` clause of that sentence or change ``an exact
+    entry of `CORS_ALLOWED_ORIGINS` `` in the ``Origin`` rule.
     """
 
     bullets = [
@@ -270,22 +274,27 @@ def test_known_limitations_states_the_edge_rules_and_what_they_leave_open() -> N
     assert len(bullets) == 1
     bullet = bullets[0]
     assert (
-        "- the HTTP API refuses a request body over 4 MiB (32 MiB for the connector sync routes) with HTTP 413 before "
-        "any layer reads it, a JSON body nested more than 256 levels deep with HTTP 422 (DB-006), and a keyless request "
-        "unless its `Host` is `localhost`, `127.0.0.1`, `::1` or a name listed in `ALICEBOT_ALLOWED_HOSTS`, and an "
-        "`Origin` header, if one is sent, is a configured `CORS_ALLOWED_ORIGINS` entry or the request's own origin "
-        "(DB-005)."
+        "- the HTTP API refuses a request body over 4 MiB (32 MiB for the connector sync routes) with HTTP 413, a JSON "
+        "body nested more than 256 levels deep with HTTP 422 (DB-006), and a keyless request whose `Host` or `Origin` "
+        "is not this machine's (DB-005)."
     ) in bullet
     assert (
-        "A request with an agent key on `/v0/vnext` or `/v1` is not checked for `Host` and `Origin`, and the legacy "
-        "`/v0` routes apply the rule to every request, because they check no key. A request inside the cap still "
-        "costs memory and time, and the cap is no rate limit."
+        "The cap is no rate limit, a request with an agent key is not checked for `Host` and `Origin`, the legacy "
+        "`/v0` routes apply the rule to every request, and the rule was checked with raw requests and in process, not "
+        "from a real browser; a name listed in `ALICEBOT_ALLOWED_HOSTS` is trusted as this machine"
     ) in bullet
-    assert bullet.endswith(
-        "The Host and Origin rule was checked with raw requests and in process, not from a real browser, and a name "
-        "listed in `ALICEBOT_ALLOWED_HOSTS` is trusted as this machine"
-    )
+    assert bullet.endswith("(see the [threat model](../security/threat-model.md))")
     assert "in v0.19.2" not in bullet
+    model = _flat(_read("docs/security/threat-model.md"))
+    assert (
+        "refuse a request that carries no agent key unless its `Host` is `localhost`, `127.0.0.1` or `::1` (any port, "
+        "case-insensitive, an IPv6 literal in brackets, one trailing dot allowed) or an exact name the operator lists "
+        "in `ALICEBOT_ALLOWED_HOSTS`"
+    ) in model
+    assert (
+        "If an `Origin` header is present it must be an exact entry of `CORS_ALLOWED_ORIGINS` or the request's own "
+        "origin (the same host and port as the validated `Host`), and `null` is refused"
+    ) in model
 
 
 def test_security_policy_deployment_guide_and_env_example_mark_the_edge_rules_from_v0200() -> None:
