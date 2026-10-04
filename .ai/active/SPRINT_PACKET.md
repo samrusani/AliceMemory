@@ -1,5 +1,7 @@
 # Active Sprint Packet
 
+> Historical record: the Phase 3 packet for v0.12.0, closed when v0.12.0 shipped on 2026-07-18. It is not a current sprint. Current state is in `CURRENT_STATE.md`.
+
 <!-- alice-sprint-scope: phase-3-complete -->
 
 ## Objective

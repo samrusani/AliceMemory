@@ -60,7 +60,7 @@ Agent-originated HTTP calls authenticate with per-agent API keys. Create one wit
 1. Raw input arrives from manual capture, import, or connector payload.
 2. The kernel stores the raw evidence, content hash, connector metadata, domain, sensitivity, and timestamps.
 3. Capture splits text into chunks and proposes candidate memories.
-4. Synthesis workflows retrieve allowed evidence and generate reviewable deterministic or model-backed artifacts. Retrieval is hybrid: Postgres full-text search plus pgvector semantic search fused with reciprocal-rank fusion. Without a configured embedding endpoint (`ALICE_EMBEDDINGS_BASE_URL`/`ALICE_EMBEDDINGS_MODEL`), retrieval runs full-text-only and states that in traces.
+4. Synthesis workflows retrieve allowed evidence and generate reviewable deterministic or model-backed artifacts. Retrieval is hybrid: full-text plus vector search fused with reciprocal-rank fusion (SQLite FTS5 and cosine similarity on the default install, Postgres full-text search and pgvector on the full stack). Without a configured embedding endpoint (`ALICE_EMBEDDINGS_BASE_URL`/`ALICE_EMBEDDINGS_MODEL`), retrieval runs full-text-only and states that in traces.
 5. Review actions accept, edit, reject, supersede, close, snooze, or promote.
 6. Quality review actions rate artifacts for usefulness, accuracy, source grounding, novelty, actionability, hallucination risk, verbosity, missed context, and comments.
 7. Event log records write paths for audit. The vNext event log is an append-only audit trail, not a temporal query surface: vNext does not yet answer as-of or history questions over memory state.
@@ -115,7 +115,7 @@ Initial permission profiles are:
 
 The policy layer evaluates the requested action, project scope, domain scope, sensitivity scope, workflow type, and write policy. Decisions are `allowed`, `allowed_with_filtering`, `requires_review`, or `blocked`; filtered and blocked outcomes are logged.
 
-Agent proposals remain candidate/review items. Agent and scheduler output cannot auto-promote into trusted memory.
+Agent memory proposals stay candidate and review items. An explicit agent commit becomes durable only when the configured policy permits it: with a persona of `personal` or `team` configured (`ALICE_MEMORY_PERSONA` or the Brain Charter) and an issued agent key, a commit that nothing escalates is promoted (see [promotion personas](../memory/promotion-personas.md)), and the default is review. Scheduler output and generated artifacts stay review items.
 
 ## Governed Scheduler
 
@@ -165,7 +165,7 @@ Each connector preserves raw evidence in source metadata, applies conservative d
 - Prompt-injection content from sources is treated as data, not policy, and cannot trigger tool writes. Model prompts mark source content as untrusted context and instruct providers not to execute embedded source instructions.
 - Sensitive domains and sensitivities are filtered before context-pack assembly.
 - Generated artifacts inherit the highest selected source sensitivity.
-- Agents cannot bypass domain/sensitivity filters, review-required workflows, scheduler policy checks, Brain Charter constraints, or the no-auto-promotion rule.
+- Agents cannot bypass domain/sensitivity filters, review-required workflows, scheduler policy checks, Brain Charter constraints, or the promotion rules.
 
 ## Current Production Gap
 

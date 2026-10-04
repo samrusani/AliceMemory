@@ -61,6 +61,8 @@ DOCUMENTED_PAYLOADS: dict[tuple[str, int], str] = {
     ("docs/alpha/openclaw-skill.md", 1): "alice_context_pack",
     ("docs/alpha/openclaw-skill.md", 2): "alice_capture",
     ("docs/alpha/openclaw-skill.md", 3): "alice_memory_commit",
+    ("docs/alpha/custom-agent-guide.md", 0): NOT_A_TOOL_PAYLOAD,  # body of POST /v0/vnext/context-packs
+    ("docs/alpha/custom-agent-guide.md", 1): "alice_memory_commit",
     ("docs/alpha/mcp-tools.md", 0): NOT_A_TOOL_PAYLOAD,
     ("docs/alpha/mcp-tools.md", 1): NOT_A_TOOL_PAYLOAD,
     ("docs/alpha/mcp-tools.md", 2): NOT_A_TOOL_PAYLOAD,  # response fragment, not a request

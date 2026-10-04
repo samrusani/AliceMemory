@@ -125,7 +125,7 @@ alicebot vnext smoke dogfood-doctor
 alicebot vnext smoke operator-console
 ```
 
-It seeds a small local-runtime fixture, marks all seven scheduler workflows due (including `memory_consolidation`), runs the foreground daemon once, and checks that each workflow produces a reviewable artifact with scheduler metadata.
+It seeds a small local-runtime fixture, marks all eight scheduler workflows due (including `memory_consolidation` and `staleness_sweep`), runs the foreground daemon once, and checks that each workflow produces a reviewable artifact with scheduler metadata.
 
 The model-backed smoke seeds a scheduled model-backed workflow and verifies that the due scan creates a reviewable artifact with local-only routing, provider metadata, source references, and the required grounded output sections.
 

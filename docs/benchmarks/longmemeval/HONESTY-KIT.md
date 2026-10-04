@@ -172,7 +172,10 @@ answer path; `test_stale_pick_module_is_posthoc_only` pins that.
 ## 6. Reproduction pledge
 
 - **Full run:** the exact commands, environment variables, and models are in
-  the [README's Reproduce section](README.md#reproduce). Expected variance:
+  the [README's Reproduce section](README.md#reproduce). That command hides
+  session ids; the flags that rerun the older configurations are in
+  [REPRODUCTION-NOTES.md](REPRODUCTION-NOTES.md#reproducing-the-older-configurations).
+  Expected variance:
   ±2 points on the 500-question headline for a fixed config (empirical
   three-run band 63.0–64.6 on the old config); paired deltas should be
   assessed with `eval/longmemeval/compare_runs.py` (exact McNemar), not by
@@ -188,10 +191,13 @@ answer path; `test_stale_pick_module_is_posthoc_only` pins that.
 
 ## Protocol-sensitivity working artifacts
 
-Two JSON summaries record an earlier replay of the published answers through
-alternative graders. The repository does not contain the replay script,
-model/prompt manifest, source-answer digest, or raw grader responses needed
-to audit those summaries independently. They are listed for transparency,
+Two JSON summaries
+([`saturation-evidence/rejudge-gpt41.json`](saturation-evidence/rejudge-gpt41.json)
+and [`saturation-evidence/rejudge-generic.json`](saturation-evidence/rejudge-generic.json))
+record an earlier replay of the published answers through alternative graders.
+The repository does not contain the replay script, model/prompt manifest,
+source-answer digest, or raw grader responses needed to audit those summaries
+independently. They are listed for transparency,
 but are not release evidence and support no protocol-robustness claim.
 
 | Grading protocol | Score |

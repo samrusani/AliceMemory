@@ -623,8 +623,8 @@ def call_mcp_tool(
             ) from exc
         if error_code == sqlite3.SQLITE_CONSTRAINT_FOREIGNKEY:
             raise MCPPreconditionFailedError(
-                "a row this write references does not exist in the SQLite database (most often the "
-                "acting user row); bootstrap it with 'alice-memory init' or verify the referenced ids."
+                "a row this write references does not exist in the SQLite database; verify the "
+                "referenced ids."
             ) from exc
         raise MCPToolError(str(exc)) from exc
     except SourceSearchQueryTooLarge as exc:

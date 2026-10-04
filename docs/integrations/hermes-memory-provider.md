@@ -136,7 +136,9 @@ Operational split:
 - MCP: `alice_capture` / `alice_memory_commit` (core) for explicit capture and user-directed "remember/save this" instructions. The older `alice_vnext_commit_memory` example is keyless-local legacy compatibility only.
 - `/vnext`: review, confirmation, audit, undo, correction, and forget
 
-If a tester sees no memory after normal chat, first verify MCP access to a capture/commit tool (core `alice_capture`, or `alice_vnext_commit_memory` with `ALICE_MCP_LEGACY_TOOLS=1`) and check `/vnext` Memory Review before treating it as a storage bug.
+The provider and the MCP tools do not share a store. The provider reads and writes the continuity store behind `/v0/continuity`: prefetch, `sync_turn` capture, and the provider tools `alice_recall`, `alice_resumption_brief` and `alice_open_loops`. The MCP tools `alice_recall`, `alice_resume`, `alice_open_loops` and `alice_memory_commit` read and write the vNext store. A turn that `sync_turn` captured does not appear in MCP `alice_recall`, and a memory committed over MCP is not in the provider prefetch brief.
+
+If a tester sees no memory after normal chat, first check which store they are reading, because MCP recall does not read provider captures; then verify MCP access to a capture/commit tool (core `alice_capture`, or `alice_vnext_commit_memory` with `ALICE_MCP_LEGACY_TOOLS=1`) and check `/vnext` Memory Review before treating it as a storage bug.
 
 ## Single-External-Provider Model
 
@@ -209,3 +211,5 @@ Legacy compatibility keys still accepted for shipped configs:
 - `auto_capture`
 - `mirror_memory_writes`
 - `capture_mode`
+
+Environment defaults. The plugin reads these names as defaults, and a key in `alice_memory_provider.json` wins over them: `ALICE_API_BASE_URL` (`base_url`), `ALICE_MEMORY_USER_ID`, falling back to `ALICEBOT_AUTH_USER_ID` (`user_id`), `ALICE_MEMORY_TIMEOUT_SECONDS` (`timeout_seconds`), `ALICE_MEMORY_PREFETCH_RECALL_LIMIT` (`prefetch_recall_limit`), `ALICE_MEMORY_PREFETCH_MAX_RECENT_CHANGES` (`prefetch_max_recent_changes`), `ALICE_MEMORY_PREFETCH_MAX_OPEN_LOOPS` (`prefetch_max_open_loops`), `ALICE_MEMORY_PREFETCH_INCLUDE_NON_PROMOTABLE` (`prefetch_include_non_promotable_facts`), `ALICE_MEMORY_SYNC_TURN_CAPTURE_ENABLED` (`sync_turn_capture_enabled`), `ALICE_MEMORY_MEMORY_WRITE_CAPTURE_ENABLED` (`memory_write_capture_enabled`), `ALICE_MEMORY_BRIDGE_MODE` (`bridge_mode`) and `ALICE_MEMORY_SESSION_END_FLUSH_TIMEOUT_SECONDS` (`session_end_flush_timeout_seconds`).

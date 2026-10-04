@@ -307,7 +307,7 @@ adversarial shapes of its linear-time test, and four times the input cost
 
 ### What is covered
 
-Rows and bullets marked (main) changed after v0.17.0. From v0.18.0, those
+Rows and bullets marked (v0.18.0) changed after v0.17.0. From v0.18.0, those
 rows read provenance, the legacy admission `value` and the import `value`
 column with their keys, and `POST /v0/continuity/captures` refuses
 credential material.
@@ -318,7 +318,7 @@ a plain password is not caught there. In v0.17.0,
 `POST /v0/continuity/captures` stores text in the capture inbox without the
 credential check.
 
-Verified by execution on 2026-09-23 for v0.17.0. Rows marked (main) describe
+Verified by execution on 2026-09-23 for v0.17.0. Rows marked (v0.18.0) describe
 v0.18.0 code. Each row names the tests that pin it.
 
 | Write | Surfaces | Result | Pinned by |
@@ -333,9 +333,9 @@ v0.18.0 code. Each row names the tests that pin it.
 | Artifact promotion | `POST /v0/vnext/artifacts/{id}/review` action `promote`, `alice_vnext_artifact_review`, `alicebot vnext artifacts review` | refused, no memory created | door 5 tests |
 | `/v1` memory operations | `/v1/memory/operations/candidates/generate` and `/commit`, `alice_memory_mutations_generate` and `_commit` | refused, transaction rolled back | door 4 tests |
 | Legacy continuity writes | `/v0/continuity/captures` when it derives an object, `/v0/continuity/captures/commit`, `/v0/continuity/review-queue/{id}/corrections`, `alice_commit_captures`, `alice_review_apply`. The Hermes plugin used to route a commit HTTP 400 into `POST /v0/continuity/captures`. It no longer does that | refused, transaction rolled back | door 4 tests |
-| Legacy memory admission (main) | `POST /v0/memories/admit`, `/v0/memories/extract-explicit-preferences`, `/v0/open-loops/extract-explicit-commitments`, `/v0/memories/capture-explicit-signals`, including the open-loop title these write. The candidate `value` mapping is read with its keys | refused before any branch, request rolled back | integration `test_round2_r1_*`, `test_admit_memory_candidate_refuses_a_secret_name_in_the_value` |
-| Backup restore (main) | `alice-memory import`, every memory record whatever its status: title, text, a summary that is not a copy of the text, the `value` column keyed, `metadata_json` keyed (correction history included). Import unwraps `rollup_key` only in `metadata_json` and at `value.rollup.rollup_key`, and only when the value is an optional `scope:<16 hex>:`, then `topic:`, `entity:`, or `semantic:`, then a label. A label passes when it has at least one letter or digit, no uppercase or titlecase character, no control, format, surrogate, private-use, or unassigned character, and no whitespace other than a plain space. A 64-hex scope is not this shape. The label is still read by value. `memory_key` and `project_id` are read too | refused with `import_credential_material`, no records written; stderr lists the line and memory id of every offender, never the text. Rollup cards the product's own extraction makes restore, scoped or unscoped. A scoped entity card whose label breaks one of the four rules still blocks the restore; only an entity row written outside the product can have such a label. A `rollup_key` anywhere else is read as a keyed pair under a weak name, so an opaque value, or a scoped value with no space in its label, is refused. An `sk-` or `xoxb-` anchor is refused. `rollupKey`, `ROLLUP_KEY`, `rollup-key`, and `Rollup-Key` are still secret names. The weak tier is still live | door 6 tests, `test_round2_import_*`, `test_private_key_recall.py` |
-| Markdown, ChatGPT, and OpenClaw import (main; from v0.19.0 the Markdown and ChatGPT imports check each unit with the commit door's verdict, `commit_door_fields_verdict`, and the OpenClaw import keeps the floor alone) | `import_markdown_source`, `import_chatgpt_source`, `import_openclaw_source` | the item is skipped and the rest of the file is imported. The receipt counts `skipped_credentials` and names each skip in `skipped_credential_items` by id or line, never the matched text. Fields checked: title, the body with its keys, provenance with its keys, raw content, and the segment text. An OpenClaw raw entry is passed by value, and pair detection reads the segment's canonical JSON. A dashed private-key block in markdown is one skipped item when the BEGIN line and the END line stand alone, share a label, every line between them is key body, and at least one of those lines is radix-64 text of 40 or more characters. Key body is base64 or radix-64 text, a `=` checksum line, a blank line, or a `Name: value` armor header. A `Name: value` line counts only as a run directly after the BEGIN line, before the first blank line or radix-64 line. A code fence, another BEGIN line, or any other line stops the scan, and that BEGIN line is one item on its own. The receipt names the block's line range. Receipt line numbers count from 1 on the first line after frontmatter. Placeholder password examples are skipped at import | `test_importer_credential_check.py` |
+| Legacy memory admission (v0.18.0) | `POST /v0/memories/admit`, `/v0/memories/extract-explicit-preferences`, `/v0/open-loops/extract-explicit-commitments`, `/v0/memories/capture-explicit-signals`, including the open-loop title these write. The candidate `value` mapping is read with its keys | refused before any branch, request rolled back | integration `test_round2_r1_*`, `test_admit_memory_candidate_refuses_a_secret_name_in_the_value` |
+| Backup restore (v0.18.0) | `alice-memory import`, every memory record whatever its status: title, text, a summary that is not a copy of the text, the `value` column keyed, `metadata_json` keyed (correction history included). Import unwraps `rollup_key` only in `metadata_json` and at `value.rollup.rollup_key`, and only when the value is an optional `scope:<16 hex>:`, then `topic:`, `entity:`, or `semantic:`, then a label. A label passes when it has at least one letter or digit, no uppercase or titlecase character, no control, format, surrogate, private-use, or unassigned character, and no whitespace other than a plain space. A 64-hex scope is not this shape. The label is still read by value. `memory_key` and `project_id` are read too | refused with `import_credential_material`, no records written; stderr lists the line and memory id of every offender, never the text. Rollup cards the product's own extraction makes restore, scoped or unscoped. A scoped entity card whose label breaks one of the four rules still blocks the restore; only an entity row written outside the product can have such a label. A `rollup_key` anywhere else is read as a keyed pair under a weak name, so an opaque value, or a scoped value with no space in its label, is refused. An `sk-` or `xoxb-` anchor is refused. `rollupKey`, `ROLLUP_KEY`, `rollup-key`, and `Rollup-Key` are still secret names. The weak tier is still live | door 6 tests, `test_round2_import_*`, `test_private_key_recall.py` |
+| Markdown, ChatGPT, and OpenClaw import (v0.18.0; from v0.19.0 the Markdown and ChatGPT imports check each unit with the commit door's verdict, `commit_door_fields_verdict`, and the OpenClaw import keeps the floor alone) | `import_markdown_source`, `import_chatgpt_source`, `import_openclaw_source` | the item is skipped and the rest of the file is imported. The receipt counts `skipped_credentials` and names each skip in `skipped_credential_items` by id or line, never the matched text. Fields checked: title, the body with its keys, provenance with its keys, raw content, and the segment text. An OpenClaw raw entry is passed by value, and pair detection reads the segment's canonical JSON. A dashed private-key block in markdown is one skipped item when the BEGIN line and the END line stand alone, share a label, every line between them is key body, and at least one of those lines is radix-64 text of 40 or more characters. Key body is base64 or radix-64 text, a `=` checksum line, a blank line, or a `Name: value` armor header. A `Name: value` line counts only as a run directly after the BEGIN line, before the first blank line or radix-64 line. A code fence, another BEGIN line, or any other line stops the scan, and that BEGIN line is one item on its own. The receipt names the block's line range. Receipt line numbers count from 1 on the first line after frontmatter. Placeholder password examples are skipped at import | `test_importer_credential_check.py` |
 
 ### What is not covered
 
@@ -381,7 +381,7 @@ Stated so nobody reads the table above as "every surface".
   - In v0.17.0, the capture inbox text is not checked, so credential
     material sent to this route is stored. This gap was
     listed here on 2026-09-23 and is open in v0.17.0.
-  - (main) From v0.18.0, `capture_continuity_input`
+  - From v0.18.0, `capture_continuity_input`
     runs `commit_door_secret_verdict` on that text after the empty check
     and returns HTTP 400 when the check refuses, so the memory-write
     mirror, the HTTP 404 fallback, and a client that sends `user_id` in
@@ -411,7 +411,7 @@ Stated so nobody reads the table above as "every surface".
   as a secret name, is a follow-up ticket; once it lands, key and value
   reading returns on provenance and the value column. That follow-up ships in
   v0.18.0. The next bullet describes it.
-- **(main) Provenance, legacy admission `value`, and the import `value` column are read with their keys.**
+- **Provenance, legacy admission `value`, and the import `value` column are read with their keys.**
   From v0.18.0, a secret name over a secret-shaped
   value is refused there, including an AWS secret access key or a plain
   password that does not identify itself.

@@ -13,13 +13,14 @@ Start with the narrowest path that solves the integration need:
 |---|---|---|
 | Generic external agent needs continuity in one call | `POST /v1/continuity/brief`; key-bound MCP integrations use core `alice_recall` / `alice_resume` (`alice_brief` is keyless-local legacy compatibility only) | `docs/examples/reference-agent-examples.md` |
 | MCP client (Claude Desktop, Claude Code, any stdio MCP host) needs zero-setup local memory | `uvx alice-memory mcp` serving the default three tools over stdio | `docs/examples/mcp_quickstart.py` |
+| An agent host needs the Alice MCP entry written for it | `alice-memory install` (Claude Desktop, Claude Code, Cursor and OpenClaw by default; Hermes, OpenCode and Codex with `--host`) | `docs/alpha/quickstart.md` |
 | Agent-framework tooling (OpenAI Agents SDK style function tools) with per-agent API keys | HTTP function tools over `/v0/vnext` with `Authorization: Bearer alice_sk_...` | `docs/examples/openai_agents_sdk_tool.py` |
 | Hermes owns orchestration and Alice supplies continuity workflows | provider plus MCP | `./.venv/bin/python scripts/run_hermes_bridge_demo.py` |
 | Existing OpenClaw workspace data must become queryable in Alice | import, then use normal brief/recall/resume surfaces | `./scripts/use_alice_with_openclaw.sh` |
 | Alice must target a non-default runtime provider | supporting Alice-side configuration for the paths above | `docs/integrations/phase14-provider-configuration.md` |
 
-The three major adoption paths are Generic Agent, Hermes, and OpenClaw. Provider
-controls support those paths; they are not presented as a fourth standalone
+The adoption paths are Generic Agent, MCP Quickstart, Agent-Framework Function Tools, Hermes, and OpenClaw. Provider
+controls support those paths; they are not presented as a standalone
 demo path.
 
 ## Path Details
@@ -32,6 +33,7 @@ Use this when you are integrating Alice into a Python or TypeScript agent withou
 - use `alice_recall` or `alice_resume` only when your agent truly needs narrower output
 - examples: `docs/examples/generic_python_agent.py` and `docs/examples/generic_typescript_agent.ts`
 - reproducible demo: `./.venv/bin/python scripts/run_reference_agent_examples_demo.py`
+- CLI reference: `docs/integrations/cli.md`
 
 ### MCP Quickstart
 
@@ -43,7 +45,7 @@ a local SQLite file with no server to operate.
   server, checks the default three-tool surface over live `tools/list`, and
   round-trips a commit and a recall over stdio
 - CI smoke: `tests/integration/test_mcp_quickstart.py`
-- client configuration snippets: `docs/integrations/mcp.md`
+- client configuration snippets: `docs/alpha/mcp-tools.md` (Start the server: the packaged `uvx` entry and the Postgres entry); `alice-memory install --dry-run` prints the entry for each host
 
 ### Agent-Framework Function Tools
 
@@ -73,7 +75,7 @@ Use Hermes when another runtime owns planning and execution, and Alice should st
 Use OpenClaw when the main requirement is importing existing workspace memory into Alice and then querying it through the normal Alice surfaces.
 
 - imported data augments Alice continuity objects with explicit `OpenClaw` provenance
-- after import, keep using the same brief, recall, resume, CLI, and MCP paths
+- after import, keep using the same brief, recall and resume CLI commands and `POST /v1/continuity/brief`; the core MCP tools do not read imported items (see `docs/integrations/importers.md`)
 - docs: `docs/integrations/openclaw.md`
 - reproducible demo: `./scripts/use_alice_with_openclaw.sh`
 
@@ -83,7 +85,7 @@ Use the provider docs when Alice itself owns runtime selection.
 
 - provider registration and capability discovery: `docs/integrations/phase14-provider-configuration.md`
 - keep these controls in Alice rather than cloning them into Hermes or importer flows
-- treat these controls as supporting configuration for the three major adoption paths above, not as a separate reference integration path
+- treat these controls as supporting configuration for the paths above, not as a separate reference integration path
 
 ## Scope Guard
 

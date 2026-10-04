@@ -20,7 +20,7 @@ The shipped mutation operation types are:
 
 ## Policy
 
-Current branch behavior routes `DELETE` through the existing continuity correction path as a logical tombstone. Control Tower still owns whether that remains the settled product contract for Phase 12.
+Current branch behavior routes `DELETE` through the existing continuity correction path as a logical tombstone.
 
 Policy decisions are stored on each mutation candidate:
 
@@ -50,7 +50,7 @@ The candidate row stores the classified operation, policy decision, scope, targe
 
 ### API
 
-Current branch endpoints, pending Control Tower confirmation of the final Phase 12 API shape:
+Endpoints:
 
 - `POST /v1/memory/operations/candidates/generate`
 - `GET /v1/memory/operations/candidates`
@@ -67,6 +67,8 @@ New commands:
 - `alicebot mutations operations`
 
 ### MCP
+
+These are legacy MCP tools. They are listed only with `ALICE_MCP_LEGACY_TOOLS=1` on a keyless local server, never on a server bound with `ALICE_AGENT_API_KEY`, and they run only on Postgres: on SQLite they are listed but their calls fail. See [Legacy tool surface](../alpha/mcp-tools.md#legacy-tool-surface).
 
 New tools:
 

@@ -1256,9 +1256,10 @@ def test_call_mcp_tool_maps_sqlite_integrity_errors_by_constraint_kind(monkeypat
 
     # FOREIGN KEY violations point at the missing referenced row, not enum vocabulary.
     _install_raiser("foreign_key")
-    with pytest.raises(MCPToolError, match="alice-memory init") as excinfo:
+    with pytest.raises(MCPToolError, match="verify the referenced ids") as excinfo:
         call_mcp_tool(context, name="alice_recall", arguments={})
     assert "enum values" not in str(excinfo.value)
+    assert "alice-memory init" not in str(excinfo.value)
 
     # Anything else surfaces the SQLite message verbatim.
     _install_raiser("unique")

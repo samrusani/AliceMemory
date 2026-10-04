@@ -1,7 +1,7 @@
 # Hermes Bridge Operator Guide
 
-This is the canonical operator guide for the Hermes bridge bundled with the
-Alice `v0.9.x` line. The embedded Hermes provider plugin keeps its own `0.5.3`
+This is the canonical operator guide for the Hermes bridge bundled in this
+repository. The embedded Hermes provider plugin keeps its own `0.5.3`
 integration-contract version in `plugin.yaml` (`0.5.1` in v0.18.0 and v0.19.0,
 `0.5.2` in v0.19.2). These numbers are not the Alice
 application release and do not imply `v1.0.0` guarantees.
@@ -10,6 +10,8 @@ Recommended deployment shape: **provider plus MCP**.
 
 - Provider handles always-on prefetch and post-turn lifecycle hooks.
 - MCP handles explicit deep workflows (review, correction, explainability, targeted recall).
+
+The provider and the MCP tools use separate stores; see the operational split in hermes-memory-provider.md.
 
 Use MCP-only as a fallback when provider install is temporarily blocked.
 
@@ -25,36 +27,16 @@ Use MCP-only as a fallback when provider install is temporarily blocked.
 - Recommended mode: `docs/integrations/examples/hermes-config.provider-plus-mcp.yaml`
 - Fallback mode: `docs/integrations/examples/hermes-config.mcp-only.yaml`
 
-Both examples turn on the full eleven-tool core surface with
-`ALICE_MCP_FULL_TOOLS=1` and use its canonical
-`alice_memory_review` / `alice_memory_correct` review flow. For a key-bound
+Both example files set `ALICE_MCP_FULL_TOOLS=1`, so the server offers the full
+eleven-tool core surface. Each lists in `tools.include` the tools Hermes may
+call, and both use the canonical `alice_memory_review` /
+`alice_memory_correct` review flow. For a key-bound
 Hermes server, set `ALICE_AGENT_API_KEY` to an issued key; do not enable the
 legacy flag, because authenticated MCP runs deliberately hide and reject the
 partially authorized legacy surface (see `docs/integrations/mcp.md`).
 
-### Recommended snippet (provider + MCP)
-
-```yaml
-memory:
-  provider: alice
-
-mcp_servers:
-  alice_core:
-    command: "/path/to/alicebot/.venv/bin/python"
-    args: ["-m", "alicebot_api.mcp_server"]
-```
-
-### Fallback snippet (MCP-only)
-
-```yaml
-memory:
-  provider: builtin
-
-mcp_servers:
-  alice_core:
-    command: "/path/to/alicebot/.venv/bin/python"
-    args: ["-m", "alicebot_api.mcp_server"]
-```
+The two files differ in `memory.provider` (`alice` for provider plus MCP,
+`builtin` for MCP only). Copy a whole file; do not copy a fragment.
 
 ## One-Command Local Demo
 
@@ -110,5 +92,3 @@ hermes memory setup
 - `docs/integrations/hermes-memory-provider.md`
 - `docs/integrations/hermes.md`
 - `docs/integrations/hermes-skill-pack.md`
-- `docs/release/v0.9.2-release-notes.md`
-- `RELEASING.md`

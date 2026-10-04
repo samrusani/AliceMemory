@@ -1,0 +1,171 @@
+{
+  "benchmark": "alice-scale-envelope",
+  "generated_at": "2026-07-05T19:57:25.685974Z",
+  "backend": "sqlite",
+  "scale": 1000,
+  "seed": 42,
+  "store": "eval/scale/data/scale_42_1000.db",
+  "store_size_bytes": 14897152,
+  "environment": {
+    "platform": "macOS-26.5.1-arm64-arm-64bit",
+    "python": "3.12.11",
+    "commit": "7e53ecc",
+    "cpu": "Apple M3 Max",
+    "ram_gb": 128,
+    "cores": "16",
+    "postgres_image": "pgvector/pgvector:pg16",
+    "embedding_model": "det-mix-256 (deterministic local; no API latency included)"
+  },
+  "ingest": {
+    "memories": 1000,
+    "sources": 200,
+    "entities": 40,
+    "edges": 254,
+    "provenance_links": 1000,
+    "entities_seconds": 0.0,
+    "sources_seconds": 0.02,
+    "memories_seconds": 0.75,
+    "total_seconds": 0.77,
+    "memories_per_second": 1325.9,
+    "embed_on_write": true
+  },
+  "operations": {
+    "recall_context_pack": {
+      "iterations": 50,
+      "warmup_iterations": 3,
+      "p50_ms": 18.351,
+      "p95_ms": 21.865,
+      "mean_ms": 17.018,
+      "min_ms": 4.755,
+      "max_ms": 29.665,
+      "total_seconds": 0.85,
+      "notes": {
+        "queries": 8,
+        "stages_entity_query": {
+          "fts": [
+            "postgres_fts",
+            0
+          ],
+          "vector": [
+            "enabled",
+            16
+          ],
+          "graph": [
+            "enabled",
+            8
+          ],
+          "sources": [
+            "store_lexical",
+            8
+          ],
+          "open_loops": [
+            null,
+            0
+          ],
+          "contradictions": [
+            "disabled: not requested",
+            0
+          ],
+          "recent_changes": [
+            null,
+            5
+          ]
+        }
+      }
+    },
+    "capture_text_single": {
+      "iterations": 50,
+      "warmup_iterations": 3,
+      "p50_ms": 1.279,
+      "p95_ms": 4.183,
+      "mean_ms": 1.513,
+      "min_ms": 1.151,
+      "max_ms": 6.686,
+      "total_seconds": 0.08,
+      "notes": {}
+    },
+    "memory_commit": {
+      "iterations": 50,
+      "warmup_iterations": 3,
+      "p50_ms": 2.3,
+      "p95_ms": 7.152,
+      "mean_ms": 2.885,
+      "min_ms": 2.01,
+      "max_ms": 8.982,
+      "total_seconds": 0.14,
+      "notes": {
+        "write_mode_last": "commit",
+        "status_last": "committed"
+      }
+    },
+    "review_queue_list": {
+      "iterations": 50,
+      "warmup_iterations": 3,
+      "p50_ms": 0.512,
+      "p95_ms": 0.529,
+      "mean_ms": 0.513,
+      "min_ms": 0.5,
+      "max_ms": 0.548,
+      "total_seconds": 0.03,
+      "notes": {
+        "returned_rows_last": 20
+      }
+    },
+    "entity_find_by_names": {
+      "iterations": 50,
+      "warmup_iterations": 3,
+      "p50_ms": 0.098,
+      "p95_ms": 0.11,
+      "mean_ms": 0.1,
+      "min_ms": 0.094,
+      "max_ms": 0.113,
+      "total_seconds": 0.0,
+      "notes": {
+        "lookup_names": 5,
+        "entities_matched_last": 2
+      }
+    },
+    "graph_one_hop_hot_entity": {
+      "iterations": 50,
+      "warmup_iterations": 3,
+      "p50_ms": 0.32,
+      "p95_ms": 0.343,
+      "mean_ms": 0.322,
+      "min_ms": 0.313,
+      "max_ms": 0.359,
+      "total_seconds": 0.02,
+      "notes": {
+        "hot_entity_edges": 21
+      }
+    },
+    "staleness_sweep_pass": {
+      "iterations": 50,
+      "warmup_iterations": 1,
+      "p50_ms": 12.899,
+      "p95_ms": 16.104,
+      "mean_ms": 13.563,
+      "min_ms": 12.543,
+      "max_ms": 23.14,
+      "total_seconds": 0.68,
+      "notes": {
+        "first_pass_ms": 27.0,
+        "artifact_persisted": false
+      }
+    },
+    "consolidation_pass": {
+      "iterations": 50,
+      "warmup_iterations": 0,
+      "p50_ms": 154.412,
+      "p95_ms": 166.327,
+      "mean_ms": 156.229,
+      "min_ms": 152.663,
+      "max_ms": 175.096,
+      "total_seconds": 7.81,
+      "notes": {
+        "embedded_memory_hard_cap": 5000,
+        "artifact_persisted": false
+      }
+    }
+  },
+  "combo_seconds": 10.8
+}

@@ -13,8 +13,8 @@ The code path and unit tests prove hash-only store input. The Phase 5 carrier
 adds HTTP and role-separated database sentinels for invalid/foreign keys, public
 responses, logs, events, and cross-user visibility; existing escalation tests
 also inspect audit payloads. Final acceptance requires those tests to pass on
-the exact carrier. Stage B should still probe successful, escalation, and
-internal-error paths end to end rather than infer universal non-disclosure from
+the exact carrier. A future external review should still probe successful,
+escalation, and internal-error paths end to end rather than infer universal non-disclosure from
 the bounded sentinels.
 
 ## Browser Clipper Capability
@@ -53,16 +53,16 @@ The Phase 5 carrier extends the live provider integration test so the exact
 configured credential is observed at the stub transport and proven absent from
 successful public payloads, durable telemetry, and captured logs. Final
 acceptance requires that test and the provider failure-family sanitization tests
-to pass on the exact carrier; Stage B should still test unexpected exception
-paths.
+to pass on the exact carrier; a future external review should still test
+unexpected exception paths.
 
 ## Public Error Boundary
 
 `public_exception_response` maps exceptions to a fixed public vocabulary and
 keeps exception type/text out of the serialized body. An AST gate scans
 `main.py` and every router, detects direct and delayed `str(exc)` response
-patterns, and pins a per-module call manifest. The carrier is expected to retain
-298 direct calls; this count must be reproduced rather than edited by rote.
+patterns, and pins a per-module call manifest in
+`tests/unit/test_public_errors.py`.
 
 Private logs can still contain exception detail for operator diagnosis. Protect
 log files as sensitive data, restrict access and retention, and never rely on

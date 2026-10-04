@@ -77,9 +77,10 @@ both versions.
 
 Unreleased (on main, not in v0.20.0): `ALICE_PROJECT_DIR` and
 `ALICE_PROJECT_SCOPING` (see [Projects](../alpha/projects.md)) are also
-documented host env keys, carried on the same terms. Only `alice-memory project`
-reads them so far. In v0.20.0 an entry that holds either one is refused on this
-path.
+documented host env keys, carried on the same terms. `alice-memory project`,
+`alice-memory brief`, `alice-memory sleep-proposals`, the SessionStart hook and
+`alice_resume` read them. While scoping is off, the default on main, they change
+nothing. In v0.20.0 an entry that holds either one is refused on this path.
 
 Unreleased (on main, not in v0.20.0): `ALICE_MCP_COMMIT_RESULT` (`compact` or
 `full`, see [The commit result](../alpha/mcp-tools.md#the-commit-result)) is also

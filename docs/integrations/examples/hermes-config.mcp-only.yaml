@@ -23,5 +23,8 @@ mcp_servers:
         - alice_open_loops
         - alice_memory_review
         - alice_memory_correct
+        - alice_explain
+        - alice_context_pack
+        - alice_recent_decisions
       resources: false
       prompts: false

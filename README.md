@@ -225,9 +225,9 @@ Known issue with this number. In the LongMemEval_s data, the id of every session
 ## Status
 
 `v0.20.0` is the latest published release and remains the install, checksum,
-and release-note baseline (the `v0.13.0` tag was never published;
-superseded). Its tag, release record, and published artifacts
-are immutable. `v0.19.2` is the immediately prior published release.
+and release-note baseline (the `v0.9.3`, `v0.10.0`, `v0.13.0`, `v0.15.0` and
+`v0.19.1` tags were never published). Its tag, release record, and published
+artifacts are immutable. `v0.19.2` is the immediately prior published release.
 `v0.12.0` was the structural refactor release. Structure only. Zero behavior change.
 Alice is a public-alpha, pre-1.0 project.
 What that means in practice:
@@ -254,6 +254,7 @@ What that means in practice:
 - [Custom agent guide](https://github.com/samrusani/AliceMemory/blob/main/docs/alpha/custom-agent-guide.md)
 - [Known limitations](https://github.com/samrusani/AliceMemory/blob/main/docs/alpha/known-limitations.md)
 - [Backup and restore](https://github.com/samrusani/AliceMemory/blob/main/docs/alpha/backup-and-restore.md)
+- [Single-tenant deployment](https://github.com/samrusani/AliceMemory/blob/main/docs/deployment/single-tenant-self-hosted.md)
 - [Disaster recovery](https://github.com/samrusani/AliceMemory/blob/main/docs/runbooks/disaster-recovery.md)
 - [Health and monitoring](https://github.com/samrusani/AliceMemory/blob/main/docs/runbooks/health-and-monitoring.md)
 - [Upgrade v0.12.0 to current](https://github.com/samrusani/AliceMemory/blob/main/docs/runbooks/upgrade-v0.12-to-current.md)
@@ -267,7 +268,7 @@ What that means in practice:
 
 ## How it is built
 
-Most of the code is written by AI coding agents (Codex, Claude Code and Cursor's agent). One agent builds each change and another reviews it. A new test only counts once breaking the code on purpose makes it fail, and CI runs the installer against real, pinned versions of the agent hosts it writes config for. The maintainer sets the direction and publishes each release.
+Most of the code is written by AI coding agents (Codex, Claude Code and Cursor's agent). One agent builds each change and another reviews it. A new test only counts once breaking the code on purpose makes it fail, and CI runs the installer against real, pinned versions of four of the seven agent hosts it writes config for. Claude Desktop, Cursor and OpenClaw are not run against a real host in CI. The maintainer sets the direction and publishes each release.
 
 ## Contributing
 

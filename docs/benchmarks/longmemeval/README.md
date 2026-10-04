@@ -183,6 +183,8 @@ python scripts/run_longmemeval.py --variant s --workers 3 --resume \
        --cot --max-items 16 --context-char-budget 24000
 ```
 
+This runs harness 1.1, which hides the dataset session ids behind keyed-hash labels. The published 81.2%, 79.4% and 64.6% were produced with the ids shown to the reader, so this command does not reproduce them. To rerun the older configurations add `--raw-session-labels` and a new checkpoint; see [REPRODUCTION-NOTES.md](REPRODUCTION-NOTES.md#reproducing-the-older-configurations). That page also describes the harness 1.1 flags.
+
 The 24k-char context roughly doubles the token spend of the baseline
 configuration; budget accordingly.
 

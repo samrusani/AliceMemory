@@ -39,7 +39,7 @@ Default identity:
 {"agent_id":"hermes","agent_type":"personal_assistant","permission_profile":"trusted_local_agent","project_scope":[]}
 ```
 
-Default scope is broad but policy-filtered. Avoid `health`, `family`, `spiritual`, `legal`, `financial`, and `regulated` unless the user explicitly enables that scope.
+Default scope is broad but policy-filtered. Avoid `health`, `family`, `spiritual`, `legal` and `financial` unless the user explicitly enables that scope. `regulated` is a sensitivity level, not a domain; the profile's `private` ceiling holds it.
 
 Good ambient commit, nobody asked for this one. At 0.84 it comes back `confirmation_required`, so it is not stored until the user answers:
 

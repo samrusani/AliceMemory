@@ -7,17 +7,28 @@ evidence into an external audit or certification.
 
 ## Status
 
-- Stage A threat model and evidence package: **prepared; the prior local
-  receipts are superseded after committed-SHA CI failed, so the repaired
-  carrier needs fresh receipts**.
+- Stage A threat model and evidence package: **prepared, and carried by the
+  v0.14.0 release, published on 2026-07-24. The receipts and counts in this
+  folder describe the Stage A carrier as it stood on 2026-07-22; the
+  repository tests are the current check**.
 - Phase 5.1.c owner disposition: **accepted** at the claim bar "automated
-  security scanning under OpenAI Trusted Access on the repository, plus
-  internal adversarial review."
+  security scanning and internal adversarial review, findings triaged and
+  fixed."
 - Stage B history: **retained as provenance, not evidence of an external
   assessment**. No external auditor is required under the owner's disposition,
   and no external audit occurred.
 - Security certification or assurance claim: **none**.
 - Version change or release approval: **not granted by these documents**.
+
+> **Correction (2026-10-04):** the lines in this folder that say a receipt is
+> superseded, the repaired carrier needs fresh evidence, or the 5.4 real-host
+> receipt and committed-SHA CI are still open describe 2026-07-22. v0.14.0 was
+> published on 2026-07-24 after the owner recorded the real-host receipt (29 of
+> 29 checks), so neither gate is open for that release.
+>
+> The public security claim is: automated security scanning and internal
+> adversarial review, findings triaged and fixed. No one outside the project
+> has audited the code.
 
 The Stage A baseline is `main` at
 `c9d24243920a694eaf00ad595da392a1478710dd`. The browser-clipper remediation
@@ -46,7 +57,7 @@ carrier; the repaired carrier must reproduce them again. The base counts were
 - [Authentication and authorization](auth-authorization.md) — HTTP, MCP, agent
   key, project-scope, RLS, SQLite, and legacy-gating boundaries.
 - [Input validation](input-validation.md) — request models, SQL/JSON/FTS
-  construction, import paths, and the deferred directory-import gap.
+  construction, import paths, and the two directory-import residuals.
 - [Secrets and redaction](secrets-redaction.md) — key storage, provider secrets,
   public errors, logging evidence, and RAM-hygiene limits.
 - [Dependency posture](dependency-posture.md) — pinning, advisory tooling,
@@ -70,6 +81,6 @@ clean bill of health, external assessment, or proof that untested paths are
 safe. Three confirmed issues from that cycle were merged in PRs #310, #311, and
 #312; the browser-clipper credential-context remediation belongs to the Phase 5
 carrier and must pass its final acceptance tests. The owner's Stage B
-disposition accepts Trusted Access automated scanning plus internal adversarial
+disposition accepts automated security scanning plus internal adversarial
 review; it does not turn the historical scan into an exact-candidate external
 assessment or an independently audited claim.

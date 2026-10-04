@@ -18,18 +18,7 @@ onboarding program.
 
 ## Install
 
-The clone checks out `main`, which can be ahead of the latest release. To run
-v0.20.0, run `git checkout v0.20.0` before `make setup`.
-
-```bash
-git clone https://github.com/samrusani/AliceMemory.git
-cd AliceMemory
-cp .env.example .env
-make setup
-make migrate
-make doctor
-make dev
-```
+Follow Setup and Start Alice in [docs/alpha/quickstart.md](quickstart.md#setup).
 
 ## Connect An Agent
 
