@@ -24,7 +24,7 @@ The Phase 12 /v0/continuity retrieval now runs as an explicit hybrid pipeline in
 - `GET /v0/continuity/retrieval-runs/{retrieval_run_id}` returns one stored trace.
 - CLI adds `recall --debug` and `resume --debug`.
 - MCP adds `alice_recall_debug`, `alice_resume_debug`, and `alice_retrieval_trace`.
-  These are legacy MCP tools. They are listed and callable only with `ALICE_MCP_LEGACY_TOOLS=1` on a keyless local server on Postgres, and never on a server bound with `ALICE_AGENT_API_KEY`. See [Legacy tool surface](../alpha/mcp-tools.md#legacy-tool-surface).
+  These are legacy MCP tools. They are listed only with `ALICE_MCP_LEGACY_TOOLS=1` on a keyless local server, never on a server bound with `ALICE_AGENT_API_KEY`, and they run only on Postgres: on SQLite they are listed but their calls fail. See [Legacy tool surface](../alpha/mcp-tools.md#legacy-tool-surface).
 
 ## Persistence and retention
 

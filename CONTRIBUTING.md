@@ -36,7 +36,8 @@ dataset manifest even when the ignored 277 MB benchmark dataset is absent.
 bundle-budget, real-browser, and accessibility checks.
 
 `make test-web` needs Node 22.22.2, which CI runs. The web test toolchain
-(jsdom 30 and jest-dom 7) declares `^22.22.2 || ^24.15.0 || >=26`. Running the
+needs `^22.22.2 || ^24.15.0 || >=26`: jsdom 30 declares that range (jest-dom 7
+declares `>=22`). Running the
 stack needs Node 20 or later, as in the README.
 
 Changes that advertise Python 3.13 or 3.14 compatibility must also pass the

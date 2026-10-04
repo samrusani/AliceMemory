@@ -87,7 +87,7 @@ New commands:
 
 ### MCP
 
-These are legacy MCP tools. They are listed and callable only with `ALICE_MCP_LEGACY_TOOLS=1` on a keyless local server on Postgres, and never on a server bound with `ALICE_AGENT_API_KEY`. See [Legacy tool surface](../alpha/mcp-tools.md#legacy-tool-surface).
+These are legacy MCP tools. They are listed only with `ALICE_MCP_LEGACY_TOOLS=1` on a keyless local server, never on a server bound with `ALICE_AGENT_API_KEY`, and they run only on Postgres: on SQLite they are listed but their calls fail. See [Legacy tool surface](../alpha/mcp-tools.md#legacy-tool-surface).
 
 New tools:
 
