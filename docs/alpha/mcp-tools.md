@@ -931,7 +931,13 @@ missing, an archived and an unreadable source are refused alike there); the
 check at write time reads only the ref shapes the link writer reads, so a ref in
 another shape (`selected_source_ids`, an upper case `SOURCE:`, several ids in
 one string, an id under another key) is stored without it and is judged only
-when it is read; the operator routes `GET /v0/vnext/memories/{id}/audit`,
+when it is read; memory proposals (`alice_vnext_propose_memory`,
+`POST /v0/vnext/memory-proposals`) and the agent-output ingest
+(`alice_vnext_ingest_agent_output`, `POST /v0/vnext/agents/ingest-output`) store
+the `source_refs` they are given and check none of them; the legacy tool
+`alice_vnext_recent_memory_commits` lists commit rows with no row-level fence;
+the provenance links of artifacts are not held to this fence; the operator
+routes `GET /v0/vnext/memories/{id}/audit`,
 `GET /v0/vnext/memories/recent-commits` and `GET /v0/vnext/sources/{id}`, which
 only the owner and a `trusted_local_agent` or `admin_agent` key bound to no
 project reach, return what was stored; and on an install with no agent keys, a

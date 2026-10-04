@@ -10,7 +10,9 @@ the ones that had no pin at all, because no other page repeats them or the page 
 * the cited-source doors that answer `not_found`, and the residuals of the fence (the owner dependency trace reading
   the first id only, `provenance_count`, a link or id saved before the fix, the write-time fence of an `admin_agent`
   writer);
-* the Postgres doctor reading no chunk text.
+* the Postgres doctor reading no chunk text;
+* the doors the cited-source fence does not reach, on the ``Not covered`` list of "Saved quotes" in ``mcp-tools.md``
+  (memory proposals, the agent-output ingest, the legacy recent-commits tool and the provenance links of artifacts).
 
 A number is read from the code that enforces it (the importer limits, the search limits, the coded error set), so a
 change of the limit that leaves the page behind fails here.
@@ -183,3 +185,51 @@ def test_the_doctor_bullet_says_the_postgres_doctor_reads_no_chunk_text() -> Non
     assert "(`alicebot vnext doctor`) reads source rows and `raw_text` only, not chunk text" in bullet
     assert "a credential that sits only in a source chunk is not found there" in bullet
     assert "where `alice-memory doctor` on SQLite reads chunk text" in bullet
+
+
+def _saved_quotes_not_covered() -> str:
+    """The ``Not covered:`` paragraph that ends "Saved quotes" in ``mcp-tools.md``, whitespace collapsed.
+
+    "Saved quotes" is a ``###`` section of "Cited sources"; it ends at the next ``##`` heading.
+    """
+
+    raw = (ROOT / "docs/alpha/mcp-tools.md").read_text(encoding="utf-8")
+    start = raw.index("### Saved quotes\n")
+    end = raw.index("\n## ", start)
+    section = raw[start:end]
+    assert section.count("Not covered:") == 1
+    return _flat(section[section.index("Not covered:") :])
+
+
+def test_the_saved_quotes_not_covered_list_names_the_doors_the_fence_does_not_reach() -> None:
+    """Proposals, the agent-output ingest, the legacy recent-commits tool and artifact links are on the page that says what is covered.
+
+    These were only in the changelog entry (a dated record), while the limitations page sends a reader to "Saved quotes"
+    for the rest of the residuals. Each is named in the ``Not covered`` list, with the tool or route it is reached by,
+    and each tool and route named is one the server has, so a rename that leaves the page behind fails here. That the
+    proposal route stores ``source_refs`` as sent is run by ``test_saved_quote_ref_reading_vault.py``.
+
+    Mutations, each one alone, in ``mcp-tools.md``: delete ``POST /v0/vnext/memory-proposals`` or ``POST
+    /v0/vnext/agents/ingest-output`` from the list; delete the sentence about ``alice_vnext_recent_memory_commits``;
+    delete ``the provenance links of artifacts are not held to this fence``; move any of the three out of the
+    ``Not covered`` list (above it). In the registry, rename ``alice_vnext_propose_memory``.
+    """
+
+    from alicebot_api.mcp.registry import _TOOL_DEFINITIONS_BY_NAME
+    from alicebot_api.openapi_operation_contracts import OPENAPI_OPERATION_RESPONSE_SCHEMAS
+
+    covered = _saved_quotes_not_covered()
+    assert (
+        "memory proposals (`alice_vnext_propose_memory`, `POST /v0/vnext/memory-proposals`) and the agent-output ingest "
+        "(`alice_vnext_ingest_agent_output`, `POST /v0/vnext/agents/ingest-output`) store the `source_refs` they are "
+        "given and check none of them"
+    ) in covered
+    assert (
+        "the legacy tool `alice_vnext_recent_memory_commits` lists commit rows with no row-level fence"
+    ) in covered
+    assert "the provenance links of artifacts are not held to this fence" in covered
+
+    for tool in ("alice_vnext_propose_memory", "alice_vnext_ingest_agent_output", "alice_vnext_recent_memory_commits"):
+        assert tool in _TOOL_DEFINITIONS_BY_NAME, tool
+    for route in (("POST", "/v0/vnext/memory-proposals"), ("POST", "/v0/vnext/agents/ingest-output")):
+        assert route in OPENAPI_OPERATION_RESPONSE_SCHEMAS, route

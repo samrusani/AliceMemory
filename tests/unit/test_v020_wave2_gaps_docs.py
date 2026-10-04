@@ -250,8 +250,11 @@ def test_the_threat_model_and_the_v0200_notes_say_ignored_folders_are_not_entere
     The limitations page states what the scan still does not do (the bounds, the link rule and the hard link) and
     leaves the ignored folders and the two printed numbers to the pages that already say them: the threat model for
     what the 100,000 counts, and the release notes of v0.20.0, which the page links to, for ``ignored_count`` and the
-    two numbers the commands print. The changelog entry pins the same two facts in
-    ``test_the_entry_states_the_v0192_local_folder_behaviour`` above.
+    two numbers the commands print. The notes and the changelog entry are dated records: the pins on them keep what
+    they said (``test_the_entry_states_the_v0192_local_folder_behaviour`` above pins the entry). What the commands print
+    and what ``ignored_count`` counts now is stated on ``docs/integrations/cli.md`` and pinned in
+    ``test_the_cli_page_says_what_sync_and_watch_print_and_what_ignored_count_counts`` in
+    ``test_local_folder_connector_docs.py``.
 
     Mutations, each one alone: delete the sentence about ignored folders from the threat model; in the v0.20.0 notes,
     change ``so its files stop counting in `ignored_count` `` to ``so its files still count in `ignored_count` ``, or

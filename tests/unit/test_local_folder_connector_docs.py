@@ -11,6 +11,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[2]
 FROM_V0200 = "From v0.20.0,"
 
@@ -139,3 +141,47 @@ def test_the_threat_model_and_limitations_mark_the_bounds_from_v0200_and_keep_v0
     assert "the local-folder scan opens the watched folder" in limitations
     assert "It reads at most 2 MiB of a file, stops at 10,000 files or 64 MiB in all" in limitations
     assert "and lists at most 100,000 directory entries, and sets `truncated` when a limit stopped it" in limitations
+
+
+def test_the_cli_page_says_what_sync_and_watch_print_and_what_ignored_count_counts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The CLI integration page, a page about the latest state of the commands, states the two numbers and ``ignored_count``.
+
+    Both facts were pinned only on dated records (the v0.20.0 changelog entry and release notes), so a correction to the
+    current docs would not have been caught. The page says that ``sync`` and ``watch`` print ``refused_count`` and
+    ``truncated``, and what ``ignored_count`` counts. The printing is run by ``test_sync_prints_what_the_scan_refused_and_whether_it_stopped``
+    and ``test_watch_prints_what_each_scan_refused_and_whether_it_stopped`` in ``test_local_folder_scan_gaps.py``; the
+    count is run here against a real scan, so the page and the code cannot drift together.
+
+    Mutations, each one alone: on the page, change ``print `refused_count` and `truncated` `` to ``print `refused_count` ``,
+    ``so the files inside one are not counted`` to ``so the files inside one are counted``, or delete the sentence about
+    ``refused_count``; in ``_walk_local_folder``, stop pruning ignored folders (``ignored_count`` then counts the
+    note inside ``node_modules``).
+    """
+
+    page = _read("docs/integrations/cli.md")
+    assert (
+        "`alicebot vnext connectors local-folder sync` and `watch` print `refused_count` and `truncated` with the sync "
+        "result."
+    ) in page
+    assert (
+        "`refused_count` is the number of files the scan skipped on its own (a file over the size limit, one that is not "
+        "UTF-8 text or cannot be read, or one swapped for a link), and `truncated` is true when a limit stopped the scan."
+    ) in page
+    assert (
+        "`ignored_count` counts the files the scan listed and then ignored: the scan does not enter a folder named like a "
+        "default ignore, such as `node_modules` or `.git`, so the files inside one are not counted."
+    ) in page
+
+    from alicebot_api import vnext_connectors as connectors
+
+    monkeypatch.setenv(connectors.LOCAL_FOLDER_ROOTS_ENV, str(tmp_path))
+    root = tmp_path / "watched"
+    (root / "node_modules").mkdir(parents=True)
+    (root / "keep.md").write_text("keep", encoding="utf-8")
+    (root / "drop.skip.md").write_text("drop", encoding="utf-8")
+    (root / "node_modules" / "dep.md").write_text("dep", encoding="utf-8")
+    scan = connectors.scan_local_folder([root], ignore_patterns=["*.skip.md"])
+    assert [item["relative_path"] for item in scan.items] == ["keep.md"]
+    assert scan.ignored_count == 1, "the pattern drops one note; the note inside node_modules was never listed"

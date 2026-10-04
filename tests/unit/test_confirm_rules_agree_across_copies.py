@@ -7,6 +7,13 @@ files state some of them, because an agent is given only the skill pack (`agent-
 agent integration guide (`docs/alpha/agent-integration.md`). Two tool descriptions in the registry say it too, and
 those are what an agent reads in `tools/list`.
 
+The protocol page is read in two places and the rest of it must not state the rules. The canonical section is read
+by itself, from its heading to the next heading of the same level, so a sentence elsewhere on the page cannot stand
+in for one that drifted inside it, and each rule is required there positively (a rule that is reworded away fails;
+it does not just stop being checked). The commit-outcomes list of the same page ("What routes where") states the
+ceiling rejection and the exemption a second time, and is read the same way. A third statement on the page fails
+until it is registered here.
+
 This test reads every copy and compares what it says with the canonical section and with the server:
 
 * who may confirm or reject: the author, an `admin_agent` key, the owner, and nobody else; and that on a keyless
@@ -38,6 +45,11 @@ Mutations, each one alone (every one fails a test below):
 * set `CONFIRMATION_EXPIRY_HOURS` to 12 in `vnext_memory_commit.py` (the docs then disagree with it);
 * in the protocol page, change `not_permitted` to `not_found` in the stdio sentence, or drop the keyless caveat
   from any one copy;
+* in the canonical section of the protocol page, change `are not held to that ceiling` to `are held to that
+  ceiling`, or rewrite the exemption sentence to name the owner only; in the commit-outcomes list of the same page,
+  change `and no pending row` to `and a pending row`; add a heading of the section's level inside the section;
+* in `agent-skills/openclaw/alice-project-memory/SKILL.md` or `docs/alpha/openclaw-skill.md`, change `Keep project
+  facts at `private` or below` to `internal`;
 * in `vnext_memory_commit.py`, let any caller confirm (the server then disagrees with every doc), or let a keyless
   call that declares `admin_agent` answer (drop the `auth == "agent_api_key"` condition of
   `caller_may_resolve_pending_write`).
@@ -59,6 +71,7 @@ from tests.unit.test_default_surface_can_finish_confirmation_required import (  
     _commit_pending,
     _context,
     _mint_key,
+    _store_read,
     default_surface,
 )
 
@@ -98,7 +111,7 @@ DOCS: dict[str, tuple[str, frozenset[str]]] = {
     ),
     "openclaw skill pack": (
         "agent-skills/openclaw/alice-project-memory/SKILL.md",
-        frozenset({WHO, KEYLESS, EXPIRY}) | _CEILING_RULES,
+        frozenset({WHO, KEYLESS, EXPIRY, CEILING_LEVEL}) | _CEILING_RULES,
     ),
     "hermes skill page": (
         "docs/alpha/hermes-skill.md",
@@ -106,7 +119,7 @@ DOCS: dict[str, tuple[str, frozenset[str]]] = {
     ),
     "openclaw skill page": (
         "docs/alpha/openclaw-skill.md",
-        frozenset({WHO, KEYLESS, EXPIRY}) | _CEILING_RULES,
+        frozenset({WHO, KEYLESS, EXPIRY, CEILING_LEVEL}) | _CEILING_RULES,
     ),
 }
 # What an agent reads in `tools/list`: (tool name, property or None for the tool description) and the rules it states.
@@ -144,12 +157,68 @@ FIXED_MESSAGE = "The tool request could not be processed"
 MARK = "Unreleased (on main, not in v0.20.0):"
 
 
+PROTOCOL = "docs/memory-operations-protocol.md"
+CANONICAL_HEADING = "### Confirm and reject rules"
+# The first words of each paragraph of the canonical section; the section must hold all of them.
+SECTION_LEADS = (
+    "Who may answer. ",
+    "The sensitivity ceiling. ",
+    "Expiry. ",
+    "Credential material, on every route above. ",
+    "What a refused caller gets. ",
+)
+# The commit-outcomes list item of the protocol page that states the ceiling rejection and the exemption.
+COMMIT_LIST_ITEM = "An agent (keyed, or keyless with a declared agent identity) committing"
+
+
 def _flat(text: str) -> str:
     return " ".join(text.split())
 
 
+def _section(raw: str, heading: str) -> str:
+    """The lines under ``heading`` up to the next heading of the same level or a higher one.
+
+    A line inside a code fence is not a heading. The heading must be there exactly once.
+    """
+
+    level = len(heading) - len(heading.lstrip("#"))
+    lines = raw.splitlines()
+    starts = [index for index, line in enumerate(lines) if line.strip() == heading]
+    assert len(starts) == 1, f"{heading!r} is on the page {len(starts)} times, not once"
+    body: list[str] = []
+    fenced = False
+    for line in lines[starts[0] + 1 :]:
+        if line.lstrip().startswith("```"):
+            fenced = not fenced
+        elif not fenced and re.match(rf"#{{1,{level}}} ", line):
+            break
+        body.append(line)
+    return "\n".join(body)
+
+
+def _list_item(raw: str, start: str) -> str:
+    """The list item that starts with ``start``: its first line, then every line up to the next item or blank line."""
+
+    lines = raw.splitlines()
+    first = [index for index, line in enumerate(lines) if line.startswith("- " + start)]
+    assert len(first) == 1, f"{start!r} starts {len(first)} list items, not one"
+    end = first[0] + 1
+    while end < len(lines) and lines[end].strip() and not lines[end].startswith("- "):
+        end += 1
+    return "\n".join(lines[first[0] : end])
+
+
+def _protocol_raw() -> str:
+    return (REPO_ROOT / PROTOCOL).read_text(encoding="utf-8")
+
+
 def _doc_text(label: str) -> str:
-    return _flat((REPO_ROOT / DOCS[label][0]).read_text(encoding="utf-8"))
+    """A copy's text, flattened. The protocol page is read as its canonical section only: see the module docstring."""
+
+    raw = (REPO_ROOT / DOCS[label][0]).read_text(encoding="utf-8")
+    if label == "protocol":
+        return _flat(_section(raw, CANONICAL_HEADING))
+    return _flat(raw)
 
 
 def _tool_text(label: str) -> str:
@@ -162,10 +231,16 @@ def _tool_text(label: str) -> str:
     return _flat(str(tool["inputSchema"]["properties"][prop]["description"]))  # type: ignore[index]
 
 
-def _copies() -> list[tuple[str, str, frozenset[str]]]:
-    found = [(label, _doc_text(label), DOCS[label][1]) for label in DOCS]
-    found += [(label, _tool_text(label), TOOL_COPIES[label][2]) for label in TOOL_COPIES]
-    return found
+def _labels(rule: str) -> list[str]:
+    """The copies (pages and tool descriptions) that must state ``rule``."""
+
+    return [label for label, (_path, rules) in DOCS.items() if rule in rules] + [
+        label for label, (_name, _prop, rules) in TOOL_COPIES.items() if rule in rules
+    ]
+
+
+def _copy_text(label: str) -> str:
+    return _doc_text(label) if label in DOCS else _tool_text(label)
 
 
 # --- reading the rules out of a copy -----------------------------------------------------------------------------
@@ -196,13 +271,19 @@ def _who_may_answer(text: str) -> list[frozenset[str]]:
     return said
 
 
-def _exemptions(text: str) -> list[frozenset[str]]:
+# How a sentence ends that lists the callers not held to the ceiling. The canonical section and the copies say `are not
+# held to that ceiling`; the commit-outcomes list of the protocol page says `still get `confirmation_required` for a
+# confidential write`. Each place is read with its own ending below, so a sentence reworded away fails there.
+_HELD_ENDING = r"are not held to that ceiling"
+_CONFIRM_ENDING = r"still get `confirmation_required`"
+_EXEMPT_ENDINGS = rf"(?:{_HELD_ENDING}|{_CONFIRM_ENDING})"
+
+
+def _exemptions(text: str, ending: str = _EXEMPT_ENDINGS) -> list[frozenset[str]]:
     """Every sentence that lists who is not held to the ceiling, as the set of callers it names."""
 
     said: list[frozenset[str]] = []
-    for match in re.finditer(
-        r"(?P<who>[Tt]he owner[^.]*?)\s+(?:are not held to that ceiling|still get `confirmation_required`)", text
-    ):
+    for match in re.finditer(rf"(?P<who>[Tt]he owner[^.]*?)\s+{ending}", text):
         fragment = match.group("who")
         named: set[str] = set()
         if re.search(r"\bowner\b", fragment):
@@ -246,13 +327,16 @@ _IS_REJECTED = re.compile(r"[^.]{0,80}?\bis rejected\b")
 _NOT_SAVED = re.compile(r"not saved|nothing is saved|no pending row")
 _NO_RETRY = re.compile(r"[Dd]o not retry (?:it )?with a lower sensitivity label[.,] ?[Tt]ell the user")
 _OWNER_REMEDY = re.compile(r"[Tt]he owner can raise this agent's clearance or store the memory themselves")
+# Three ways the level is put: the Hermes copies (`anything above private for trusted_local_agent`), the `sensitivity`
+# property (`levels above private`) and the OpenClaw copies (`Keep project facts at private or below`).
 _CEILING_LEVEL = re.compile(
     r"anything above `?(?P<a>[a-z_]+)`? for `?trusted_local_agent`?|\blevels above (?P<b>[a-z_]+)\b"
+    r"|\bKeep project facts at `?(?P<c>[a-z_]+)`? or below\b"
 )
 
 
 def _ceiling_levels(text: str) -> list[str]:
-    return [m.group("a") or m.group("b") for m in _CEILING_LEVEL.finditer(text)]
+    return [m.group("a") or m.group("b") or m.group("c") for m in _CEILING_LEVEL.finditer(text)]
 
 
 def _expiry_hours(text: str) -> list[int]:
@@ -269,7 +353,7 @@ def _expiry_hours(text: str) -> list[int]:
 # --- the copies agree with one another and with the constant ---------------------------------------------------
 
 
-@pytest.mark.parametrize("label", [label for label, _text, rules in _copies() if WHO in rules])
+@pytest.mark.parametrize("label", _labels(WHO))
 def test_every_copy_names_the_same_callers_for_who_may_answer(label: str) -> None:
     """The author, an `admin_agent` key and the owner, and nobody else, in every copy that says who may answer.
 
@@ -277,48 +361,48 @@ def test_every_copy_names_the_same_callers_for_who_may_answer(label: str) -> Non
     sentence from one copy.
     """
 
-    text = dict((l, t) for l, t, _r in _copies())[label]
+    text = _copy_text(label)
     said = _who_may_answer(text)
     assert said, f"{label} no longer says who may confirm or reject a pending write"
     for named in said:
         assert named == WHO_MAY_ANSWER, (label, sorted(named))
 
 
-@pytest.mark.parametrize("label", [label for label, _text, rules in _copies() if KEYLESS in rules])
+@pytest.mark.parametrize("label", _labels(KEYLESS))
 def test_every_copy_says_the_author_limit_is_not_protection_on_a_keyless_install(label: str) -> None:
     """On a keyless install the caller can declare the author's agent_id, so the limit protects nothing.
 
     Mutation: delete the sentence from one copy, or say a keyless server verifies the author.
     """
 
-    text = dict((l, t) for l, t, _r in _copies())[label]
+    text = _copy_text(label)
     assert re.search(r"[Oo]n a keyless install,? that limit is not protection", text), label
     assert "declare the author's agent_id" in text, label
     assert "a keyless server verifies" not in text, label
 
 
-@pytest.mark.parametrize("label", [label for label, _text, rules in _copies() if EXEMPT in rules])
+@pytest.mark.parametrize("label", _labels(EXEMPT))
 def test_every_copy_names_the_same_callers_as_exempt_from_the_ceiling(label: str) -> None:
     """The owner, an `admin_agent` key and a keyless call that declares `permission_profile: admin_agent`.
 
     Mutations: delete one of the three from one copy, or add `trusted_local_agent` to the list.
     """
 
-    text = dict((l, t) for l, t, _r in _copies())[label]
+    text = _copy_text(label)
     said = _exemptions(text)
     assert said, f"{label} no longer says who is not held to the sensitivity ceiling"
     for named in said:
         assert named == EXEMPT_FROM_CEILING, (label, sorted(named))
 
 
-@pytest.mark.parametrize("label", [label for label, _text, rules in _copies() if REJECT_ABOVE in rules])
+@pytest.mark.parametrize("label", _labels(REJECT_ABOVE))
 def test_every_copy_that_says_it_lets_the_author_reject_above_the_ceiling(label: str) -> None:
     """The author can still reject its own pending write above the ceiling, and no copy says it cannot.
 
     Mutation: delete the sentence from one copy, or say the author cannot reject it.
     """
 
-    text = dict((l, t) for l, t, _r in _copies())[label]
+    text = _copy_text(label)
     assert re.search(
         r"can (?:still )?reject (?:their|your|its) own pending write(?: even when it is)? above (?:the|that|their)"
         r"(?: sensitivity)? ceiling",
@@ -327,7 +411,7 @@ def test_every_copy_that_says_it_lets_the_author_reject_above_the_ceiling(label:
     assert not re.search(r"cannot reject (?:their|your|its) own", text), label
 
 
-@pytest.mark.parametrize("label", [label for label, _text, rules in _copies() if EXEMPT_PARTIAL in rules])
+@pytest.mark.parametrize("label", _labels(EXEMPT_PARTIAL))
 def test_a_short_exemption_names_the_owner_and_an_admin_key_and_nobody_else(label: str) -> None:
     """The `sensitivity` property of `alice_memory_commit` names the owner and an admin key, and no other caller.
 
@@ -338,14 +422,14 @@ def test_a_short_exemption_names_the_owner_and_an_admin_key_and_nobody_else(labe
     ``The owner and a trusted agent still confirm``; delete the sentence.
     """
 
-    text = dict((l, t) for l, t, _r in _copies())[label]
+    text = _copy_text(label)
     said = _partial_exemptions(text)
     assert said, f"{label} no longer says who still confirms a level above the ceiling"
     for named in said:
         assert {"owner", "admin_agent key"} <= named <= EXEMPT_FROM_CEILING, (label, sorted(named))
 
 
-@pytest.mark.parametrize("label", [label for label, _text, rules in _copies() if CEILING_REJECT in rules])
+@pytest.mark.parametrize("label", _labels(CEILING_REJECT))
 def test_every_copy_says_an_agent_write_above_the_ceiling_is_rejected_and_not_saved(label: str) -> None:
     """A write above the agent's ceiling is rejected, and nothing is saved, in every copy that says what it gets.
 
@@ -356,7 +440,7 @@ def test_every_copy_says_an_agent_write_above_the_ceiling_is_rejected_and_not_sa
     to ``This was saved``; delete the sentence from one copy.
     """
 
-    text = dict((l, t) for l, t, _r in _copies())[label]
+    text = _copy_text(label)
     tails = [text[m.end() : m.end() + 160] for m in (*_CEILING_WRITE.finditer(text), *_CEILING_SHORT.finditer(text))]
     assert tails, f"{label} no longer says what a write above the ceiling gets"
     for tail in tails:
@@ -365,36 +449,36 @@ def test_every_copy_says_an_agent_write_above_the_ceiling_is_rejected_and_not_sa
     assert any(_NOT_SAVED.search(words) for words in after), (label, after)
 
 
-@pytest.mark.parametrize("label", [label for label, _text, rules in _copies() if NO_RETRY in rules])
+@pytest.mark.parametrize("label", _labels(NO_RETRY))
 def test_every_copy_tells_the_agent_not_to_retry_with_a_lower_label_and_to_tell_the_user(label: str) -> None:
     """After a ceiling rejection the agent does not retry with a lower sensitivity label, and tells the user.
 
     Mutations: change ``Do not retry`` to ``Retry`` in one copy; delete ``Tell the user.`` from one copy.
     """
 
-    text = dict((l, t) for l, t, _r in _copies())[label]
+    text = _copy_text(label)
     assert _NO_RETRY.search(text), label
 
 
-@pytest.mark.parametrize("label", [label for label, _text, rules in _copies() if OWNER_REMEDY in rules])
+@pytest.mark.parametrize("label", _labels(OWNER_REMEDY))
 def test_every_copy_that_names_the_remedy_says_the_owner_can_raise_the_clearance_or_store_it(label: str) -> None:
     """The owner can raise this agent's clearance or store the memory themselves, in every copy that gives a remedy.
 
     Mutations: change ``the owner can raise`` to ``the agent can raise`` in one copy; delete the sentence.
     """
 
-    text = dict((l, t) for l, t, _r in _copies())[label]
+    text = _copy_text(label)
     assert _OWNER_REMEDY.search(text), label
 
 
-@pytest.mark.parametrize("label", [label for label, _text, rules in _copies() if EXPIRY in rules])
+@pytest.mark.parametrize("label", _labels(EXPIRY))
 def test_every_copy_gives_the_expiry_the_constant_gives(label: str) -> None:
     """A pending confirmation lasts `CONFIRMATION_EXPIRY_HOURS` hours, and every copy that says so says that number.
 
     Mutations: change 24 to 12 in one copy; set the constant to 12 (every copy then fails).
     """
 
-    text = dict((l, t) for l, t, _r in _copies())[label]
+    text = _copy_text(label)
     hours = _expiry_hours(text)
     assert hours, f"{label} no longer says how long a pending confirmation lasts"
     assert set(hours) == {CONFIRMATION_EXPIRY_HOURS}, (label, hours, CONFIRMATION_EXPIRY_HOURS)
@@ -410,6 +494,110 @@ def test_the_protocol_names_the_constant_and_its_value() -> None:
     match = re.search(r"lasts (\d+) hours, the value of `CONFIRMATION_EXPIRY_HOURS` in `vnext_memory_commit.py`", text)
     assert match is not None
     assert int(match.group(1)) == CONFIRMATION_EXPIRY_HOURS
+
+
+# --- the protocol page states the rules in two places, and only there ---------------------------------------------
+
+
+def test_the_canonical_section_is_the_whole_section_and_holds_every_paragraph_of_the_rules() -> None:
+    """Reading from the heading to the next heading of its level takes in all five paragraphs and ends on the refusal.
+
+    The section is what every protocol check above reads, so a heading added inside it, or a paragraph moved out of it,
+    must fail here and not shrink what the checks see.
+
+    Mutations, each one alone: add ``### Expiry`` on a line of its own before the ``Expiry.`` paragraph; move the
+    ``What a refused caller gets.`` paragraph under another heading; rename the heading (the page then holds no
+    ``### Confirm and reject rules``).
+    """
+
+    section = _doc_text("protocol")
+    assert section.startswith("This is the one place the rules for answering a pending write are written out."), section[:80]
+    positions = [section.find(lead) for lead in SECTION_LEADS]
+    assert all(position >= 0 for position in positions), dict(zip(SECTION_LEADS, positions, strict=True))
+    assert positions == sorted(positions), positions
+    assert section.endswith("a credential refusal stays `tool_request_failed`."), section[-80:]
+
+
+def test_the_canonical_section_states_who_may_answer_and_who_is_exempt_once_each_and_in_full() -> None:
+    """The section says who may answer, and who is not held to the ceiling, in one sentence each, naming the right callers.
+
+    The callers are compared with the sets the server applies (``WHO_MAY_ANSWER`` and ``EXEMPT_FROM_CEILING``, which
+    two tests below derive by running real callers). The exemption sentence must end ``are not held to that ceiling``:
+    a rewrite that says the opposite, or one that names fewer callers, fails here and is not rescued by another
+    sentence on the page.
+
+    Mutations, each one alone, in the canonical section: change ``are not held to that ceiling`` to ``are held to that
+    ceiling``; rewrite the exemption list to ``The owner (a keyless call with no agent identity) is not held to that
+    ceiling``; delete ``an `admin_agent` key,`` from the exemption list; delete ``or the owner (a keyless call with no
+    agent identity)`` from the sentence on who may answer; change ``can confirm or reject it`` to ``can confirm it``.
+    """
+
+    section = _doc_text("protocol")
+    assert _who_may_answer(section) == [WHO_MAY_ANSWER], _who_may_answer(section)
+    assert _exemptions(section, _HELD_ENDING) == [EXEMPT_FROM_CEILING], _exemptions(section, _HELD_ENDING)
+    assert not re.search(r"(?<!not )held to that ceiling", section), "the section says someone is held to the ceiling"
+    assert "A keyless server does not verify a declared profile. That is keyless owner mode." in section
+
+
+def test_the_canonical_section_states_the_expiry_and_what_an_expired_answer_resolves_to() -> None:
+    """The section ties the expiry to the constant and says an answer after it resolves the row to ``rejected``.
+
+    The hours are compared with ``CONFIRMATION_EXPIRY_HOURS`` by the parametrised expiry test, which now reads this
+    section alone; here the sentence that says what the expiry does is required as well.
+
+    Mutations, each one alone, in the canonical section: change ``resolves the row to `rejected` with reason
+    `confirmation_expired` `` to ``resolves the row to `committed` with reason `confirmation_expired` ``; delete
+    ``instead of acting on it``; change one ``24 hour`` to ``12 hour``.
+    """
+
+    section = _doc_text("protocol")
+    assert "resolves the row to `rejected` with reason `confirmation_expired` instead of acting on it" in section
+    assert set(_expiry_hours(section)) == {CONFIRMATION_EXPIRY_HOURS}, _expiry_hours(section)
+    assert len(_expiry_hours(section)) >= 4, _expiry_hours(section)
+
+
+def test_the_commit_outcomes_list_states_the_ceiling_rejection_and_the_same_exemptions() -> None:
+    """The list of what routes where says an agent above its ceiling is rejected with no pending row, and who is exempt.
+
+    The list is the second place the page states the ceiling rule, and it is read by itself: the item is cut out of the
+    page and each statement is required in it. The exemption names the same three callers as the canonical section and
+    the server, and the item says no pending row is written, which ``test_the_server_exempts_exactly_the_documented_callers_from_the_ceiling``
+    checks against the store.
+
+    Mutations, each one alone, in the commit-outcomes list: change ``and no pending row`` to ``and a pending row``;
+    change ``is `rejected` `` to ``is `held` ``; change ``still get `confirmation_required` `` to ``still get
+    `review_required` ``; delete ``an `admin_agent` key,`` from the exemption; delete the sentence about a keyless
+    server.
+    """
+
+    item = _flat(_list_item(_protocol_raw(), COMMIT_LIST_ITEM))
+    assert (
+        "committing above its sensitivity ceiling is `rejected` with reason `sensitivity_above_agent_ceiling` and no "
+        "pending row"
+    ) in item, item
+    assert "including when the checks above would have returned `confirmation_required` or `review_required`" in item
+    assert _exemptions(item, _CONFIRM_ENDING) == [EXEMPT_FROM_CEILING], _exemptions(item, _CONFIRM_ENDING)
+    assert "still get `confirmation_required` for a confidential write" in item
+    assert "A keyless server does not verify a declared profile. That is keyless owner mode." in item
+
+
+def test_the_protocol_page_states_the_rules_nowhere_but_those_two_places() -> None:
+    """Everything on the protocol page outside the canonical section and the commit-outcomes item states none of the rules.
+
+    The sweep that finds a page stating the rules registers the whole file, so a third statement on the same page would
+    be read by no check. This cuts the two places out and runs the sweep pattern over the rest.
+
+    Mutation: add ``Only the author can confirm or reject a pending write.`` to the ``## confirm`` section of the
+    protocol page, outside ``### Confirm and reject rules``.
+    """
+
+    raw = _protocol_raw()
+    section, item = _section(raw, CANONICAL_HEADING), _list_item(raw, COMMIT_LIST_ITEM)
+    assert section in raw and item in raw
+    rest = _flat(raw.replace(section, "", 1).replace(item, "", 1))
+    assert len(rest) > 5000, "the rest of the protocol page is missing"
+    found = STATES_THE_RULES.search(rest)
+    assert found is None, rest[max(0, found.start() - 80) : found.end() + 80]
 
 
 @pytest.mark.parametrize("label", ["protocol", "tool reference"])
@@ -521,9 +709,12 @@ def test_the_server_exempts_exactly_the_documented_callers_from_the_ceiling(
 
     The owner, a keyless call that declares `admin_agent` and an `admin_agent` key get `confirmation_required`;
     a keyless call that declares a trusted agent gets `rejected` with `sensitivity_above_agent_ceiling`. The set that
-    was held for confirmation is the set every copy names.
+    was held for confirmation is the set every copy names. Each exempt caller leaves one pending row, and the rejected
+    agent leaves none: that is the `no pending row` of the commit-outcomes list on the protocol page.
 
-    Mutation: in the policy engine, stop exempting a keyless call that declares `admin_agent`; this test fails.
+    Mutations: in the policy engine, stop exempting a keyless call that declares `admin_agent`; in
+    `VNextMemoryCommitService.commit`, create the confirmation before returning `rejected` for a write above the
+    ceiling. Each fails this test.
     """
 
     confidential = {
@@ -534,6 +725,7 @@ def test_the_server_exempts_exactly_the_documented_callers_from_the_ceiling(
     }
     exempt: set[str] = set()
     held: dict[str, str] = {}
+    pending_rows: dict[str, int] = {}
     callers = {
         "owner": {},
         "keyless call that declares admin_agent": {
@@ -551,6 +743,7 @@ def test_the_server_exempts_exactly_the_documented_callers_from_the_ceiling(
             exempt.add(label)
         else:
             held[label] = str(payload.get("reason"))
+        pending_rows[label] = len(_store_read(ctx, lambda store: store.list_memories(status="needs_review")))
 
     ctx = _context(tmp_path / "admin-key")
     _mint_key(ctx, monkeypatch, agent_id="operator-key", permission_profile="admin_agent")
@@ -558,9 +751,16 @@ def test_the_server_exempts_exactly_the_documented_callers_from_the_ceiling(
     assert not is_error, payload
     if payload["status"] == "confirmation_required":
         exempt.add("admin_agent key")
+    pending_rows["admin_agent key"] = len(_store_read(ctx, lambda store: store.list_memories(status="needs_review")))
 
     assert exempt == set(EXEMPT_FROM_CEILING), (sorted(exempt), held)
     assert held == {"trusted agent": "sensitivity_above_agent_ceiling"}, held
+    assert pending_rows == {
+        "owner": 1,
+        "keyless call that declares admin_agent": 1,
+        "trusted agent": 0,
+        "admin_agent key": 1,
+    }, pending_rows
 
 
 def test_the_ceiling_level_every_copy_gives_is_the_one_the_server_applies(
@@ -568,13 +768,15 @@ def test_the_ceiling_level_every_copy_gives_is_the_one_the_server_applies(
 ) -> None:
     """Commit at each level as a trusted agent and read where the ceiling sits; every copy that names it agrees.
 
-    The levels the server lets through form a prefix of the list, and the last of them is the ceiling. The skill pages
-    and the `sensitivity` property name that level, so a change of the ceiling that leaves a copy behind fails here.
+    The levels the server lets through form a prefix of the list, and the last of them is the ceiling. The skill packs
+    and pages and the `sensitivity` property name that level, so a change of the ceiling that leaves a copy behind
+    fails here.
 
-    Mutation: change ``anything above `private` for `trusted_local_agent` `` to ``anything above `internal` for
-    `trusted_local_agent` `` in the Hermes skill page, or ``levels above private`` to ``levels above internal`` in
-    the `sensitivity` property; or give the trusted agent a different ceiling in the policy, which moves the derived
-    level and fails every copy.
+    Mutations, each one alone: change ``anything above `private` for `trusted_local_agent` `` to ``anything above
+    `internal` for `trusted_local_agent` `` in the Hermes skill page, ``levels above private`` to ``levels above
+    internal`` in the `sensitivity` property, or ``Keep project facts at `private` or below`` to ``Keep project facts
+    at `internal` or below`` in the OpenClaw skill pack or its page; or give the trusted agent a different ceiling in
+    the policy, which moves the derived level and fails every copy.
     """
 
     levels = [level for level in VNEXT_SENSITIVITY_LEVELS if level != "unknown"]
@@ -598,7 +800,7 @@ def test_the_ceiling_level_every_copy_gives_is_the_one_the_server_applies(
     assert let_through == levels[: len(let_through)] and let_through, let_through
     ceiling = let_through[-1]
 
-    named = [(label, _ceiling_levels(text)) for label, text, rules in _copies() if CEILING_LEVEL in rules]
+    named = [(label, _ceiling_levels(_copy_text(label))) for label in _labels(CEILING_LEVEL)]
     assert named, "no copy names the level the ceiling sits at"
     for label, found in named:
         assert found, f"{label} no longer says where the ceiling sits"
@@ -653,16 +855,31 @@ _RECORD_PREFIXES = (
     "docs/benchmarks/",
 )
 
-# A sentence that states a rule for answering a pending write: who may confirm or reject (in any of the ways it can be
-# put), who the author is, who is exempt from the ceiling, the constant or the reason code of an expiry, or the hours a
-# pending write lasts. Each alternative matches nothing on any tracked page outside the copies today.
+# A sentence that states a rule for answering a pending write: who may confirm or reject it, or approve, accept, decline,
+# deny, release, resolve, answer or sign off on it (in any of the ways it can be put), who the author is, who is exempt
+# from the ceiling, the constant or the reason code of an expiry, or the hours a pending write lasts. Each alternative
+# matches nothing on any tracked page outside the copies today.
+#
+# Two choices keep the wider verb list from catching other pages. `accept` is left out of the author alternative,
+# because "the commit author check accepts exact addresses only" is not a rule about a pending write. For the verbs that
+# are not `confirm` or `reject`, the object must be a pending write, a pending confirmation or a pending commit, not
+# "pending" alone: a reviewer approving a pending candidate in the review queue is another page's business, and `confirm`
+# and `reject` keep the wider tail they always had. The event name `agent.memory_confirmation_expired` is not a
+# statement of the reason code.
+_OTHER_ANSWERS = (
+    r"(?:approv(?:e|es|ed)|accept(?:s|ed)?|declin(?:e|es|ed)|den(?:y|ies|ied)|releas(?:e|es|ed)|resolv(?:e|es|ed)"
+    r"|answer(?:s|ed)?|sign(?:s|ed)? off)"
+)
+_PENDING_WRITE = r"pending (?:write|confirmation|commit)s?"
 STATES_THE_RULES = re.compile(
     r"can confirm or reject|not held to (?:that|the) ceiling|limited to its author"
     r"|\b(?:can|may|could|must|only)\b[^.]{0,60}\b(?:confirm|reject)(?:s|ed)?\b[^.]{0,40}\b(?:pending|confirmation)"
-    r"|\bauthor\b[^.]{0,80}\b(?:confirm|reject|answer|resolve)"
+    rf"|\b(?:can|may|could|must|only)\b[^.]{{0,60}}\b{_OTHER_ANSWERS}\b[^.]{{0,40}}\b(?:{_PENDING_WRITE}|confirmation)"
+    r"|\bauthor\b[^.]{0,80}\b(?:confirm|reject|answer|resolve|approve|decline|deny)"
     r"|\bexempt(?:ed)?\b[^.]{0,40}\bceiling"
     r"|\bpending\b[^.]{0,60}\b(?:confirmed|rejected|answered) by\b"
-    r"|CONFIRMATION_EXPIRY_HOURS|confirmation_expired"
+    rf"|\b{_PENDING_WRITE}\b[^.]{{0,60}}\b(?:approved|accepted|declined|denied|released|resolved) by\b"
+    r"|CONFIRMATION_EXPIRY_HOURS|(?<!memory_)confirmation_expired"
     r"|\b\d+[ -]hours?\b[^.]{0,80}\b(?:pending|confirm)|\b(?:pending|confirm)[^.]{0,80}\b\d+[ -]hours?\b"
 )
 
@@ -697,14 +914,29 @@ def _tracked_markdown_paths() -> list[str]:
         "After 48 hours the confirm is refused.",
         "The expiry is CONFIRMATION_EXPIRY_HOURS in the commit service.",
         "A late confirm resolves to rejected with reason confirmation_expired.",
+        "Only the author may approve a pending write.",
+        "A pending write can be approved by its author or by the owner.",
+        "Only the owner can accept a pending confirmation.",
+        "Any agent may decline a pending write it did not author.",
+        "An admin key may release a pending commit.",
+        "The owner must sign off on a pending write.",
+        "The author can deny a pending confirmation.",
+        "The author of a pending write can approve it.",
+        "The author may decline it.",
+        "A pending confirmation is resolved by the owner.",
     ],
 )
 def test_the_sweep_recognises_each_wording_of_the_rules(sentence: str) -> None:
     """The pattern that finds a page stating the rules matches the ways the rules are put, not three phrasings.
 
-    Mutation: narrow ``STATES_THE_RULES`` to the three phrases it used to hold (``can confirm or reject``,
-    ``not held to that ceiling``, ``limited to its author``); every sentence here that does not use one of those
-    phrases then fails.
+    The sentences with ``approve``, ``accept``, ``decline``, ``deny``, ``release`` and ``sign off`` are the same rules in
+    other verbs: a page that says the author may approve a pending write states who may answer it.
+
+    Mutations, each one alone: narrow ``STATES_THE_RULES`` to the three phrases it used to hold (``can confirm or
+    reject``, ``not held to that ceiling``, ``limited to its author``); every sentence here that does not use one of
+    those phrases then fails. Delete the ``_OTHER_ANSWERS`` alternative, the ``approve``, ``decline`` and ``deny`` verbs
+    of the author alternative, or the alternative that reads ``pending write ... approved by``: the sentences with those
+    verbs fail.
     """
 
     assert STATES_THE_RULES.search(_flat(sentence)), sentence
@@ -719,12 +951,20 @@ def test_the_sweep_recognises_each_wording_of_the_rules(sentence: str) -> None:
         "The token lasts 24 hours.",
         "A sensitivity ceiling holds a profile to a level.",
         "Reviewers confirm or reject memories in the console.",
+        "A reviewer can approve a pending candidate in the review queue.",
+        "Approve the release notes before you tag.",
+        "The commit author check accepts exact addresses only.",
+        "Only the maintainer may release the package.",
+        "The agent writes `agent.memory_confirmation_expired` when a row expires.",
     ],
 )
 def test_the_sweep_does_not_match_a_sentence_that_states_no_rule(sentence: str) -> None:
     """Ordinary sentences with the same words do not fail the sweep.
 
-    Mutation: widen ``STATES_THE_RULES`` to match ``confirm`` or ``ceiling`` alone; these sentences then match.
+    Mutations, each one alone: widen ``STATES_THE_RULES`` to match ``confirm`` or ``ceiling`` alone; add ``accept`` to
+    the verbs of the author alternative (``The commit author check accepts exact addresses only`` then matches); let
+    the new verbs take ``pending`` alone as their object (``A reviewer can approve a pending candidate`` then
+    matches); drop the ``(?<!memory_)`` before ``confirmation_expired`` (the event name then matches).
     """
 
     assert not STATES_THE_RULES.search(_flat(sentence)), sentence
