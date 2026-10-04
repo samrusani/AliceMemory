@@ -1,5 +1,7 @@
 # Phase 5 Enterprise Track Handoff
 
+> **Correction (2026-10-04):** the reviews named here were internal adversarial review and automated security scanning. No one outside the project has audited the code.
+
 ## Verdict boundary
 
 - **Code carrier: NO-GO pending a fresh receipt and independent control-tower

@@ -257,13 +257,13 @@ def test_the_retired_v0191_number_is_explained_and_recorded() -> None:
 
     The notes explain why the number moved, the changelog has no v0.19.1 section
     (v0.15.0 has none either) and still says v0.19.1 was never published, and
-    both copies of the current-state document list the tag next to v0.13.0 and
-    v0.15.0 with the reason.
+    the current-state document lists the tag next to v0.13.0 and v0.15.0 with
+    the reason.
 
     Mutations, each one alone: delete the "Why 0.19.2 and not 0.19.1" section or
     its "no PyPI artifact and no published GitHub Release" sentence from the
     notes; add a "## v0.19.1" heading to the changelog; drop v0.19.1 from the
-    never-published list or its reason in either current-state copy.
+    never-published list or its reason in the current-state document.
     """
 
     notes = _flat(NOTES)
@@ -277,12 +277,11 @@ def test_the_retired_v0191_number_is_explained_and_recorded() -> None:
     assert "\n## v0.19.1" not in changelog
     assert "and v0.19.1 was never published." in _released_changelog()
 
-    for name in ("CURRENT_STATE.md", ".ai/handoff/CURRENT_STATE.md"):
-        state = _flat(name)
-        assert "Five tags exist that were never published: `v0.9.3`, a withdrawn security candidate; `v0.10.0`, which failed its release gate; `v0.13.0`, superseded by `v0.13.1`; `v0.15.0`; and `v0.19.1`, superseded by `v0.19.2`." in state, name
-        assert "None has a PyPI artifact or a published GitHub Release." in state, name
-        assert (
-            "and `v0.19.1`, whose publish run failed at the draft readback because a release script "
-            "imported the package in a job that does not install it, so it has no PyPI artifact and "
-            "no published GitHub Release."
-        ) in state, name
+    state = _flat("CURRENT_STATE.md")
+    assert "Five tags exist that were never published: `v0.9.3`, a withdrawn security candidate; `v0.10.0`, which failed its release gate; `v0.13.0`, superseded by `v0.13.1`; `v0.15.0`; and `v0.19.1`, superseded by `v0.19.2`." in state
+    assert "None has a PyPI artifact or a published GitHub Release." in state
+    assert (
+        "and `v0.19.1`, whose publish run failed at the draft readback because a release script "
+        "imported the package in a job that does not install it, so it has no PyPI artifact and "
+        "no published GitHub Release."
+    ) in state

@@ -113,7 +113,7 @@ name skips that file and the receipt uses `file K (name withheld)`. A token
 in the folder name refuses the import, writes nothing, and does not print
 the path. Encoding is all or nothing: one markdown file that is not valid
 UTF-8 refuses the folder, and the error names that file, or says withheld
-when the file name is flagged. Exit code 1 means the batch status is
+when the file name is flagged. In v0.20.0, exit code 1 means the batch status is
 `failed`, and it also covers path errors. Replay of the same file is
 `duplicate`. OpenClaw stays on the loader scripts above. `alice-memory
 doctor` counts stored sources the commit door still flags and prints their ids.
@@ -300,20 +300,40 @@ text instead matches another path's live source, nothing is retired or added:
 the batch is `ok`; an unchanged batch is `duplicate`. A batch that only retires
 stale same-path duplicates is `ok`, with zero imports. Nonzero replacement
 receipts include `superseded_count` and up to ten titles and ids, refusal reasons,
-and up to twenty ids in `memories_citing_replaced`.
+and every retained memory id in `memories_citing_replaced`, without a silent cap.
 
 Replacement keeps old source text inside the live vault file, but exports omit
 it. It closes and blanks source-backed open loops, rejects pending candidates,
 removes source mention edges from live entity counts, scrubs unsupported linker
 entities and removes sleep proposals. Entity observation windows only widen.
-Committed or accepted memories keep their own text and provenance; review the
-listed memory ids separately. A key-bound `alice_explain` remains unavailable
+Every memory whose text was not redacted keeps its own text and provenance;
+review the listed memory ids separately, including rejected, stale, superseded
+and archived memories. A key-bound `alice_explain` remains unavailable
 when its audit cites a retired source. The keyless owner can still read the audit.
 
 There is no restore command for sources. Import the old text with `--supersede`
 to make it live again. A pre-deletion export can conflict with rows in the same
 vault in both restore modes; restore into a fresh vault instead. An export made
 after replacement does not contain the replaced versions.
+
+Unreleased (on main, not in v0.20.0): a refused replacement reports `refused`
+when no file imported or duplicated, or `partial` when another file did.
+Either receipt exits 1 when any file was refused. A batch with status `failed`
+or a path error also exits 1. Successful `ok` and `duplicate` receipts exit 0;
+a partial batch caused only by ordinary per-file failures keeps its existing
+exit code 0 and reports the failures in `failed_count`.
+
+Unreleased (on main, not in v0.20.0): a preview does not change database content,
+but SQLite can create empty `memory.db-wal` and `memory.db-shm` coordination files
+beside a cleanly closed vault. Sleep publication and source retirement share a
+file lock; publication also rechecks source liveness under the database writer
+lock, so an overlapping sleep run cannot put a retired excerpt back.
+
+Unreleased (on main, not in v0.20.0): the keyless owner can still see a saved quote
+and the replaced source id through a retained memory in review by id, context
+packs and explain; keyed callers remain fenced. A bare `--supersede` on a path
+with several live copies inherits the newest copy's labels and refuses if an
+older copy is stricter, unless the owner explicitly allows looser classification.
 
 ## List, delete and prune SQLite sources
 

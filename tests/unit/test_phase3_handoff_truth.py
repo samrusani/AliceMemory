@@ -8,6 +8,8 @@ import tomllib
 
 import pytest
 
+from tests.unit.frozen_handoff_support import correction_only_problems
+
 
 _ROOT = Path(__file__).resolve().parents[2]
 _BASE = "f342d45dabe127acca6231f29830ff11d98a340e"
@@ -56,7 +58,6 @@ def test_phase3_handoff_builder_files_exist_and_pin_structure_only_headline() ->
 
     for relative_path in (
         "CURRENT_STATE.md",
-        ".ai/handoff/CURRENT_STATE.md",
         "docs/release/v0.12.0-release-notes.md",
     ):
         document = (_ROOT / relative_path).read_text(encoding="utf-8")
@@ -103,12 +104,10 @@ def test_v0120_release_notes_are_published_with_recorded_checksum_receipt() -> N
     ) in checksums
 
 
-def test_phase3_current_state_is_exact_mirror_and_phase4_is_out_of_scope() -> None:
+def test_phase3_current_state_keeps_the_headline_and_phase4_is_out_of_scope() -> None:
     current = (_ROOT / "CURRENT_STATE.md").read_bytes()
-    mirror = (_ROOT / ".ai/handoff/CURRENT_STATE.md").read_bytes()
     sprint = (_ROOT / ".ai/active/SPRINT_PACKET.md").read_text(encoding="utf-8")
 
-    assert current == mirror
     assert _HEADLINE.encode() in current
     assert "<!-- alice-sprint-scope: phase-3-complete -->" in sprint
     assert "Phase 4 is out of scope for this packet." in sprint
@@ -171,15 +170,21 @@ def test_phase3_carrier_does_not_edit_immutable_v010_v011_records() -> None:
 
     # The only edit allowed is an added, dated correction of old wording,
     # such as an audit a release note called external. Nothing may be
-    # removed or rewritten, and the handoff folders stay untouched.
+    # removed or rewritten. A handoff folder may gain one thing: the dated
+    # correction line in its README.md (docs/handoff correction, 2026-10-04),
+    # matched whole by correction_only_problems. Any other file of a handoff
+    # folder stays byte for byte as it was.
     for path in result.stdout.splitlines():
-        assert path.startswith(("docs/release/v0.10", "docs/release/v0.11")), path
         diff = subprocess.run(
             ("git", "-C", str(_ROOT), "diff", "-U0", _BASE, "--", path),
             check=True,
             capture_output=True,
             text=True,
         ).stdout
+        if path.startswith("docs/handoff/"):
+            assert correction_only_problems(path, diff) == [], path
+            continue
+        assert path.startswith(("docs/release/v0.10", "docs/release/v0.11")), path
         for line in diff.splitlines():
             if line.startswith(("---", "+++", "@@", "diff ", "index ")):
                 continue
@@ -216,7 +221,6 @@ def test_phase3_included_docs_do_not_predict_live_final_review_state() -> None:
     relative_paths = (
         ".ai/active/SPRINT_PACKET.md",
         "CURRENT_STATE.md",
-        ".ai/handoff/CURRENT_STATE.md",
         "README.md",
         "ROADMAP.md",
         "ARCHITECTURE.md",

@@ -3,6 +3,10 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from contextlib import nullcontext
+
+from alicebot_api.vault_file_lock import vault_file_lock
+from alicebot_api.vnext_stores.memory_lifecycle_common import is_redacted_memory
 
 from alicebot_api.source_supersede import classification_refusal, eligible_source
 from alicebot_api.vnext_entities import ENTITY_MENTION_EDGE_TYPE
@@ -30,28 +34,35 @@ def prune_sleep_rows(self, source_ids, *, dry_run=False):
     if not database:
         return 0
     sidecar = sleep_proposals_path(Path(database))
-    rows = load_sleep_proposals(sidecar)
-    kept = [row for row in rows if not (
-        str(row.get("user_id")) == self.user_id and str(row.get("source_id")) in source_ids)]
-    removed = len(rows) - len(kept)
-    if removed and not dry_run:
-        _write_jsonl(sidecar, kept)
-    return removed
+    # Writers take the SQLite writer lock before the sidecar lock. Sleep's
+    # publisher takes the same locks and rechecks liveness after this commits.
+    with nullcontext() if dry_run else vault_file_lock(sidecar):
+        rows = load_sleep_proposals(sidecar)
+        kept = [row for row in rows if not (
+            str(row.get("user_id")) == self.user_id and str(row.get("source_id")) in source_ids)]
+        removed = len(rows) - len(kept)
+        if removed and not dry_run:
+            _write_jsonl(sidecar, kept)
+        return removed
+
 
 
 def citing_memories(self, source_id):
     # No bounded list: a scrub must cover every candidate, including old rows
     # whose only reference is in value or metadata rather than a provenance link.
     return self._fetch_all(
-        """SELECT m.* FROM memories m WHERE m.user_id = ? AND m.deleted_at IS NULL AND (
+        """SELECT m.* FROM memories m WHERE m.user_id = ? AND (
         EXISTS (SELECT 1 FROM provenance_links p WHERE p.user_id = m.user_id
-                AND p.target_type = 'memory' AND p.target_id = m.id AND p.source_id = ?)
+                AND p.target_type = 'memory' AND p.target_id = m.id
+                AND (p.source_id = ? OR EXISTS (
+                    SELECT 1 FROM source_chunks c WHERE c.user_id = p.user_id
+                    AND c.id = p.source_chunk_id AND c.source_id = ?)))
         OR EXISTS (SELECT 1 FROM json_tree(m.metadata_json) j WHERE j.type = 'text'
                    AND j.value IN (?, ?))
         OR EXISTS (SELECT 1 FROM json_tree(m.value) j WHERE j.type = 'text' AND j.value IN (?, ?))
         OR EXISTS (SELECT 1 FROM json_each(m.source_event_ids) j WHERE j.value = ?)
         ) ORDER BY m.id""",
-        (self.user_id, source_id, source_id, 'source:' + source_id,
+        (self.user_id, source_id, source_id, source_id, 'source:' + source_id,
          source_id, 'source:' + source_id, source_id))
 
 
@@ -83,10 +94,10 @@ def close_mention_edges(self, from_type, from_id, now):
 
 
 def retire_dependents(self, source_id, *, now, scrub_candidates=False):
-    memories = citing_memories(self, source_id)
+    memories = [row for row in citing_memories(self, source_id) if not is_redacted_memory(row)]
     pending = [row for row in memories if row['status'] in ({'candidate', 'needs_review', 'rejected'}
                if scrub_candidates else {'candidate', 'needs_review'})]
-    committed = [str(row['id']) for row in memories if row['status'] in {'active', 'accepted', 'private_only'}]
+    retained = [str(row['id']) for row in memories if not scrub_candidates or row['status'] in {'active', 'accepted', 'private_only'}]
     for memory in pending:
         mid = str(memory['id'])
         if scrub_candidates:
@@ -107,7 +118,7 @@ def retire_dependents(self, source_id, *, now, scrub_candidates=False):
         WHERE source_id = ? AND user_id = ?""",
         (REMOVAL_MARKER, REMOVAL_MARKER, now, now, REMOVAL_MARKER, now, source_id, self.user_id)).rowcount
     return {'candidate_memories': len(pending), 'mention_edges': edges, 'open_loops': loops,
-            'memories_citing_replaced': committed}
+            'memories_citing_replaced': retained}
 
 
 def supersede_source(self, source_id, *, superseded_by, allow_looser_classification=False, dry_run=False):

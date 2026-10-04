@@ -156,7 +156,8 @@ alice-memory import-markdown --from PATH [--supersede | --no-supersede] [--dry-r
 
 `--no-supersede` is the default. `--supersede` replaces earlier Markdown imports
 of the resolved path in one transaction per file. `--dry-run` reports the
-planned result and rolls back database writes. `--allow-looser-classification`
+planned result and rolls back database writes. SQLite can create empty WAL
+and SHM coordination files during this preview. `--allow-looser-classification`
 allows a lower sensitivity or a changed domain during replacement, never a
 project-scope change. Omitted `--domain` and `--sensitivity` keep a known path's
 labels; new files default to `unknown`. See [importer details](importers.md#replacement-on-re-import)

@@ -1,5 +1,7 @@
 # v0.14.0 Deployment Guide Fixes Handoff
 
+> **Correction (2026-10-04):** the reviews named here were internal adversarial review and automated security scanning. No one outside the project has audited the code.
+
 ## Verdict boundary
 
 - **Code carrier:** independent review **GO**.
