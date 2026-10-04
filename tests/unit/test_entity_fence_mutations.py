@@ -18,6 +18,7 @@ from alicebot_api import vnext_retrieval as retrieval, vnext_grounding as ground
 from alicebot_api.mcp import evidence_artifacts as audit
 from tests.unit import test_entity_disclosure_fence as checks
 from tests.unit import test_entity_fence_review as review_checks
+from tests.unit import test_entity_owner_parity as parity_checks
 from alicebot_api.mcp import retrieval as recall
 from alicebot_api.mcp import registry
 
@@ -101,6 +102,17 @@ def test_entity_guard_mutations():
     from alicebot_api.vnext_source_fence import SourceReadFence
     mutations.append((SourceReadFence, "entity_read_fenced", "or bool(decision.effective_project_scope)", "or False",
                       review_checks.test_declared_project_scope_is_part_of_entity_policy))
+    def unlinked_names():
+        temporary_check(parity_checks.test_owner_and_unbound_admin_keep_main_grounding_for_unlinked_entities)
+
+    mutations.extend([
+        (graph, 'compile_context_pack', 'allow_entity_lookup=not source_fence.entity_read_fenced', 'allow_entity_lookup=False', unlinked_names),
+        (SourceReadFence, 'entity_read_fenced', 'decision.decision != "allowed"', 'True', unlinked_names),
+        (graph, '_memory_graph_rows', 'entity_read_fenced: bool,', 'entity_read_fenced: bool = False,', review_checks.test_the_entity_fence_argument_is_required_and_keyword_only),
+        (graph, '_memory_graph_rows', '*,\n    query: str,', 'query: str,', review_checks.test_the_entity_fence_argument_is_required_and_keyword_only),
+        (graph, '_memory_graph_rows', 'entities = entities[:GRAPH_ENTITY_MATCH_LIMIT]\n        selected_entity_ids', 'entities = entities[:GRAPH_ENTITY_MATCH_LIMIT + 1]\n        selected_entity_ids', review_checks.test_fenced_cap_keeps_five_names_and_drops_graph_rows_linked_only_to_the_rest),
+        (graph, '_memory_graph_rows', 'ranked = [entry for entry in ranked if entities_by_memory[entry[2]] & selected_entity_ids]', 'pass', review_checks.test_fenced_cap_keeps_five_names_and_drops_graph_rows_linked_only_to_the_rest),
+    ])
     for mutation in mutations:
         kill(*mutation)
     print(f'{len(mutations)}/{len(mutations)} guard mutations killed')

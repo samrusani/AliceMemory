@@ -31,6 +31,7 @@ This alpha is intentionally limited. This page lists what is limited now, in sho
 - `/vnext` is the operator console, not the main agent interface
 - after any active agent key exists, the full `/vnext` console requires a dedicated unbound `admin_agent` key entered again for each mounted browser session; `trusted_local_agent` is not full admin-review parity
 - generic thread, approval, task, and trace histories are client-bounded, but their list endpoints do not yet provide cursor pagination
+- Unreleased (on main, not in v0.20.0): a fenced agent key gets an entity name from `alice_recall` or a context pack only when a memory or source it can read links to it, and gets no `mention_count`. See [Entity disclosure follows the read fence](mcp-tools.md#entity-disclosure-follows-the-read-fence).
 - team accounts, billing, cloud sync, mobile app, and hosted deployment are out of scope
 
 SQLite mode (`alice-memory install`, `alice-memory mcp`) is the default single-user path and carries extra boundaries:
@@ -78,15 +79,5 @@ Open in v0.20.0, with the detail in the [v0.20.0 release notes](../release/v0.20
 What v0.19.0 and v0.19.2 limited and v0.20.0 fixed or narrowed (request body size, the `Host` check, provider redirects, local-folder reads, the memory id fence, deep backup JSON, the lone surrogate turn, the query size bounds and the data directory variable) is recorded in the [v0.19.2 release notes](../release/v0.19.2-release-notes.md), the [v0.20.0 release notes](../release/v0.20.0-release-notes.md) and the [CHANGELOG](../../CHANGELOG.md).
 
 See [Backup and restore](backup-and-restore.md) before upgrading or moving a store.
-
-## Entity disclosure follows the read fence
-
-Unreleased (on main, not in v0.20.0): an entity is returned by recall, both context-pack doors and their graph traces only when an active linked memory passes this call's memory filters, or an active linked source passes its domain, sensitivity, project, person and time filters. Hidden-only matches have the same graph status as absent matches. Deleted or expired rows and expired links cannot admit a name.
-
-Unreleased (on main, not in v0.20.0): whether entity output is fenced comes from the caller's identity and policy, not from request filters. Fenced calls omit `mention_count`, because its stored total includes unreadable mentions. They rank entities and graph seeds by the number of distinct readable linked memories and sources, then by name, type and id, and admit names before the five-name cap. The keyless owner and an admin bound to no project keep stored counts, stored-count ordering and the cap before admission, including ordinary calls with omitted sensitivity filters. Admission by a readable linked row still applies to them.
-
-Unreleased (on main, not in v0.20.0): explain's entity annotations also omit stored counts for fenced identities. Scoped context packs retain their existing suppression of entity annotations. Grounding treats already admitted entity names and aliases as supported even when their linked text does not repeat the name. For remaining names, fenced calls use readable text probes instead of an unfenced entity-table lookup.
-
-Unreleased (on main, not in v0.20.0): an until-only request also checks the upper time bound when recall considers a validity pointer to another memory. A later target outside that window is not disclosed through the pointer. In v0.20.0, that shared scope check applied the upper bound only when a lower bound was present. No migration or stored entity/count rewrite is required.
 
 Do not describe this alpha as hosted SaaS, production-ready, or automatic memory autopilot.

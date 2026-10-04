@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import inspect
 from datetime import UTC, datetime
+from pathlib import Path
 from uuid import UUID
 
 import pytest
@@ -160,3 +162,45 @@ def test_declared_project_scope_is_part_of_entity_policy():
     identity = AgentIdentity(agent_id="reader", permission_profile="admin_agent",
                              project_scope=("alpha",), project_scope_locked=False)
     assert SourceReadFence.for_identity(identity).entity_read_fenced
+
+
+def test_the_entity_fence_argument_is_required_and_keyword_only():
+    """A defaulted fence is "no fence" for the next caller that forgets it.
+
+    Mutations, each one alone: give ``entity_read_fenced`` the default ``False`` on ``_memory_graph_rows``; delete
+    the ``*`` that makes the arguments of ``_memory_graph_rows`` keyword-only.
+    """
+    parameter = inspect.signature(VNextRetrievalService._memory_graph_rows).parameters["entity_read_fenced"]
+    assert parameter.default is inspect.Parameter.empty
+    assert parameter.kind is inspect.Parameter.KEYWORD_ONLY
+
+
+def test_fenced_cap_keeps_five_names_and_drops_graph_rows_linked_only_to_the_rest():
+    """The five-name cap the docs state applies after admission and ranking, and it also bounds the graph seeds.
+
+    Seven readable entities match. Cedar and Dahlia rank below the cap by readable mentions although their stored
+    counts are the largest, and each owns a readable memory that no capped entity links.
+
+    Mutations, each one alone: raise the fenced cap by one; delete the line that drops graph rows linked only to
+    entities outside the cap.
+    """
+    from tests.unit.test_vnext_retrieval import InMemoryVNextRetrievalStore, _entity_row, _memory_row, _mention_edge
+
+    mentions = {"Gorse": 3, "Elm": 2, "Fern": 2, "Alder": 1, "Briar": 1, "Cedar": 1, "Dahlia": 1}
+    stored = {"Cedar": 9000, "Dahlia": 8000}
+    entities, memories, edges = [], [], []
+    for name, count in mentions.items():
+        entities.append(_entity_row(name.lower(), name, mention_count=stored.get(name, 1)))
+        for index in range(count):
+            memory_id = f"{name.lower()}-{index}"
+            memories.append(_memory_row(memory_id, "A readable observation"))
+            edges.append(_mention_edge(memory_id, name.lower()))
+    store = InMemoryVNextRetrievalStore(memories=memories, sources=[], entities=entities, edges=edges)
+    rows, _status, matched = _graph(store, query=" ".join(mentions), limit=50)
+    docs = (Path(__file__).resolve().parents[2] / "docs/alpha/mcp-tools.md").read_text(encoding="utf-8")
+    assert "before the five-name cap" in " ".join(docs.split())
+    assert [row["name"] for row in matched] == ["Gorse", "Elm", "Fern", "Alder", "Briar"]
+    assert {row["id"] for row in rows} == {
+        "gorse-0", "gorse-1", "gorse-2", "elm-0", "elm-1", "fern-0", "fern-1", "alder-0", "briar-0",
+    }
+
