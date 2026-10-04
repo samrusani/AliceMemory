@@ -220,6 +220,7 @@ def _handle_alice_recall(context: MCPRuntimeContext, arguments: Mapping[str, obj
     if decision.effective_project_scope:
         retrieval_filters["projects"] = decision.effective_project_scope
     candidate_limit = max(limit * 2, limit)
+    source_fence = SourceReadFence.for_identity(_agent_identity_from_arguments(context, arguments))
 
     with _vnext_store_context(context) as store:
         # Reuse the hybrid retrieval stages (Postgres FTS + pgvector) that back
@@ -257,6 +258,7 @@ def _handle_alice_recall(context: MCPRuntimeContext, arguments: Mapping[str, obj
                 domains=domains,
                 sensitivity_allowed=sensitivity_allowed,
                 limit=candidate_limit,
+                entity_read_fenced=source_fence.entity_read_fenced,
                 **retrieval_filters,
             )
         ranked_lists: dict[str, list[VNextJsonObject]] = {"fts": fts_rows}

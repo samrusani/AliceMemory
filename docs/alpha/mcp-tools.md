@@ -1069,6 +1069,16 @@ changed.
   `agent.policy_blocked`). Unreleased (on main, not in v0.20.0): it
   returns `not_permitted` with the same message and still no reason.
 
+## Entity disclosure follows the read fence
+
+Unreleased (on main, not in v0.20.0): an entity is returned by recall, both context-pack doors and their graph traces only when an active linked memory passes this call's memory filters, or an active linked source passes its domain, sensitivity, project, person and time filters. Hidden-only matches have the same graph status as absent matches. Deleted or expired rows and expired links cannot admit a name.
+
+Unreleased (on main, not in v0.20.0): whether entity output is fenced comes from the caller's identity and policy, not from request filters. Fenced calls omit `mention_count`, because its stored total includes unreadable mentions. They rank entities and graph seeds by the number of distinct readable linked memories and sources, then by name, type and id, and admit names before the five-name cap. The keyless owner and an admin bound to no project keep stored counts, stored-count ordering and the cap before admission, including ordinary calls with omitted sensitivity filters. Admission by a readable linked row still applies to them.
+
+Unreleased (on main, not in v0.20.0): explain's entity annotations also omit stored counts for fenced identities. Scoped context packs retain their existing suppression of entity annotations. Grounding treats already admitted entity names and aliases as supported even when their linked text does not repeat the name. For remaining names, fenced calls use readable text probes instead of an unfenced entity-table lookup.
+
+Unreleased (on main, not in v0.20.0): an until-only request also checks the upper time bound when recall considers a validity pointer to another memory. A later target outside that window is not disclosed through the pointer. In v0.20.0, that shared scope check applied the upper bound only when a lower bound was present. No migration or stored entity/count rewrite is required.
+
 ## Derived row domains
 
 Unreleased (on main, not in v0.20.0): a derived memory or report with restricted-domain inputs keeps the most frequent restricted input label, with alphabetical ties. An explicit request domain cannot override it. With no restricted inputs, each producer retains its prior selection. This covers briefs, weekly synthesis and its candidates, roll-ups, consolidation, connection and contradiction reports, staleness reports, open-loop reviews and project updates. Consolidation reports include their roll-up inputs. New staleness reports also inherit the highest sensitivity of the memories whose titles they include.

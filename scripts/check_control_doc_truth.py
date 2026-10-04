@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import re
+import subprocess
 import tomllib
 
 
@@ -454,7 +455,9 @@ def living_doc_files(root_dir: Path = ROOT_DIR, *, suffixes: tuple[str, ...] = (
     """The living documentation files under ``root_dir``, in a stable order.
 
     A living doc is a file with one of ``suffixes`` that is a root-level file or sits under a folder of
-    ``LIVING_DOC_ROOTS``, and is not one of the ``DATED_RECORD_PATHS``.
+    ``LIVING_DOC_ROOTS``, is not one of the ``DATED_RECORD_PATHS``, and is not a file git ignores (``.gitignore``,
+    ``.git/info/exclude`` and the user's global excludes), such as a private note under ``.ai``. A tracked file is read
+    even when a pattern would ignore it, so the published sprint packet stays in the scan.
     """
 
     found: list[Path] = [path for path in sorted(root_dir.iterdir()) if path.is_file() and path.suffix in suffixes]
@@ -468,9 +471,35 @@ def living_doc_files(root_dir: Path = ROOT_DIR, *, suffixes: tuple[str, ...] = (
                 path = Path(directory) / file_name
                 if path.suffix in suffixes:
                     found.append(path)
+    ignored = _git_ignored(root_dir, [path.relative_to(root_dir).as_posix() for path in found])
     for path in found:
-        if not _is_dated_record(path.relative_to(root_dir).as_posix()):
+        relative = path.relative_to(root_dir).as_posix()
+        if relative not in ignored and not _is_dated_record(relative):
             yield path
+
+
+def _git_ignored(root_dir: Path, relative_paths: list[str]) -> set[str]:
+    """The paths of ``relative_paths`` that git ignores in the work tree at ``root_dir``.
+
+    Asks ``git check-ignore``, which reads ``.gitignore``, ``.git/info/exclude`` and the global excludes file and never
+    reports a tracked file. Outside a git work tree, or without git, nothing is ignored.
+    """
+
+    if not relative_paths:
+        return set()
+    try:
+        completed = subprocess.run(
+            ["git", "-C", str(root_dir), "check-ignore", "--stdin", "-z"],
+            input="\0".join(relative_paths) + "\0",
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError:
+        return set()
+    if completed.returncode not in (0, 1):
+        return set()
+    return {item for item in completed.stdout.split("\0") if item}
 
 
 def _validate_package_description(root_dir: Path, project: object) -> list[str]:
