@@ -37,10 +37,11 @@ SQLite mode (`alice-memory install`, `alice-memory mcp`) is the default single-u
 
 - the default three MCP tools, or all eleven core tools with
   `ALICE_MCP_FULL_TOOLS=1`; optional long-tail memory tools need
-  `ALICE_MCP_LEGACY_TOOLS=1`, and most of them fail on SQLite: the ones that
-  read the continuity store (for example `alice_brief` and `alice_timeline`)
-  and every `alice_vnext_*` tool except the memory-commit family and a few
-  reads and captures (the list that runs is under
+  `ALICE_MCP_LEGACY_TOOLS=1`, and most of them fail or refuse on SQLite: the
+  ones that read the continuity store (for example `alice_brief` and
+  `alice_timeline`) and every `alice_vnext_*` tool except the thirteen that
+  run, which are the memory-commit family and four reads and captures (the
+  list that runs is under
   [Legacy tool surface](mcp-tools.md#legacy-tool-surface))
 - no web console review — review runs through `alice_memory_review` / `alice_memory_correct`
 - no scheduler

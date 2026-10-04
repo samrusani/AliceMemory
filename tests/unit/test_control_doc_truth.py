@@ -1233,6 +1233,157 @@ def test_control_doc_truth_aligns_release_boundary_and_install_tag(
     assert any("literal install tag v9.8.6" in issue for issue in issues)
 
 
+def _install_line_issues(tmp_path: Path) -> list[str]:
+    return [
+        issue
+        for issue in control_doc_truth.run_control_doc_truth_check(root_dir=tmp_path)
+        if "literal install tag" in issue
+    ]
+
+
+def test_every_living_doc_install_line_must_name_the_latest_published_release(tmp_path: Path) -> None:
+    """A `git checkout`, `git clone --branch` or `--tag` line in any living doc is held to the published release.
+
+    The check used to read one page. A page the check did not name could keep an old tag for a release or more.
+    """
+
+    _seed_truth_docs(tmp_path, published=True)
+    assert _install_line_issues(tmp_path) == []
+
+    lines = {
+        "README.md": "To run it, run `git checkout v9.8.6` before `make setup`.\n",
+        "docs/alpha/quickstart.md": "Run `git checkout --detach v9.8.6` first.\n",
+        "docs/integrations/example.md": "git clone --branch v9.8.6 https://example.invalid/repo.git\n",
+        "docs/deployment/example.md": "Install with `--tag v9.8.6`.\n",
+        "plugins/example/README.md": "git checkout 'v9.8.6'\n",
+        "docs/integrations/switch.md": "git switch --detach v9.8.6\n",
+        "docs/integrations/tags-prefix.md": "git checkout tags/v9.8.6\n",
+        "docs/integrations/short-flag.md": "git clone --depth 1 -b v9.8.6 https://example.invalid/repo.git\n",
+        "docs/integrations/pip-url.md": "pip install git+https://example.invalid/repo.git@v9.8.6\n",
+        ".github/example.md": "git checkout v9.8.6\n",
+    }
+    for relative_path, line in lines.items():
+        path = tmp_path / relative_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(line)
+
+    issues = _install_line_issues(tmp_path)
+
+    assert sorted(issues) == sorted(
+        f"{relative_path}: literal install tag v9.8.6 must match latest published v9.8.7" for relative_path in lines
+    )
+
+
+def test_an_install_line_naming_the_published_release_or_no_tag_passes(tmp_path: Path) -> None:
+    _seed_truth_docs(tmp_path, published=True)
+    page = tmp_path / "docs" / "alpha" / "quickstart.md"
+    page.parent.mkdir(parents=True, exist_ok=True)
+    page.write_text(
+        "git checkout v9.8.7\ngit checkout main\ngit clone --branch main https://example.invalid/repo.git\n"
+        "git switch --detach v9.8.7\ngit checkout tags/v9.8.7\ngit clone -b main https://example.invalid/repo.git\n"
+        "pip install git+https://example.invalid/repo.git@v9.8.7\ngit checkout -b v9.8.6 origin/main\n"
+        "uses: actions/checkout@v4\n"
+        "The v9.8.6 release changed this. Run git checkout of the tag you want.\n",
+        encoding="utf-8",
+    )
+
+    assert _install_line_issues(tmp_path) == []
+
+
+def test_install_lines_in_dated_records_are_not_checked(tmp_path: Path) -> None:
+    """A release note, a handoff, an archived page or a CHANGELOG section quotes its own release's install line."""
+
+    _seed_truth_docs(tmp_path, published=True)
+    for record in control_doc_truth.DATED_RECORD_PATHS:
+        path = tmp_path / record
+        if path.suffix == ".md":
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("git checkout v9.8.6\n", encoding="utf-8")
+        else:
+            (path / "nested").mkdir(parents=True, exist_ok=True)
+            (path / "nested" / "page.md").write_text("git clone --branch v9.8.6 x\n", encoding="utf-8")
+    assert _install_line_issues(tmp_path) == []
+
+    # A page that only looks like a record is still a living doc.
+    lookalike = tmp_path / "docs" / "alpha" / "release-notes.md"
+    lookalike.parent.mkdir(parents=True, exist_ok=True)
+    lookalike.write_text("git checkout v9.8.6\n", encoding="utf-8")
+    assert _install_line_issues(tmp_path) == [
+        "docs/alpha/release-notes.md: literal install tag v9.8.6 must match latest published v9.8.7"
+    ]
+
+
+def test_the_dated_record_list_names_only_paths_that_exist() -> None:
+    """A path that no longer exists would exempt whatever is later written at that name."""
+
+    repo_root = Path(__file__).resolve().parents[2]
+
+    assert control_doc_truth.DATED_RECORD_PATHS
+    for record in control_doc_truth.DATED_RECORD_PATHS:
+        assert (repo_root / record).exists(), record
+
+
+def test_the_scan_reads_the_install_lines_this_repository_has() -> None:
+    """The scan is not vacuous: it reaches the three pages that carry a literal tag, and every page it reaches names
+    the release. A correct line on a fourth living page is welcome and does not fail this test."""
+
+    repo_root = Path(__file__).resolve().parents[2]
+    latest = control_doc_truth._latest_structured_published_version(root_dir=repo_root)
+    assert latest is not None
+
+    found: dict[str, set[str]] = {}
+    for path in control_doc_truth.living_doc_files(repo_root):
+        for match in control_doc_truth._LITERAL_INSTALL_TAG_PATTERN.finditer(path.read_text(encoding="utf-8")):
+            found.setdefault(path.relative_to(repo_root).as_posix(), set()).add(match.group("version"))
+
+    for relative_path in ("README.md", "docs/alpha/headless-ubuntu-install.md", "docs/alpha/quickstart.md"):
+        assert relative_path in found, f"the scan no longer reads the install line of {relative_path}"
+    assert {relative_path: versions for relative_path, versions in found.items() if versions != {latest}} == {}
+
+
+def test_living_doc_files_skip_dated_records_and_folders_that_hold_no_docs(tmp_path: Path) -> None:
+    for relative_path in (
+        "README.md",
+        "docs/alpha/quickstart.md",
+        "docs/integrations/hermes-skill-pack/skills/a/SKILL.md",
+        "docs/examples/demo.py",
+        "plugins/p/README.md",
+        "agent-skills/s/SKILL.md",
+        ".ai/active/SPRINT_PACKET.md",
+        ".github/pull_request_template.md",
+        "CHANGELOG.md",
+        "docs/release/v1-release-notes.md",
+        "docs/handoff/x/README.md",
+        "docs/archive/y.md",
+        "docs/plans/z.md",
+        "docs/roadmap-friction-first.md",
+        "tests/unit/fixture.md",
+        "apps/web/node_modules/pkg/README.md",
+    ):
+        path = tmp_path / relative_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("x\n", encoding="utf-8")
+
+    markdown = [path.relative_to(tmp_path).as_posix() for path in control_doc_truth.living_doc_files(tmp_path)]
+    with_python = [
+        path.relative_to(tmp_path).as_posix()
+        for path in control_doc_truth.living_doc_files(tmp_path, suffixes=(".md", ".py"))
+    ]
+
+    assert sorted(markdown) == [
+        ".ai/active/SPRINT_PACKET.md",
+        ".github/pull_request_template.md",
+        "README.md",
+        "agent-skills/s/SKILL.md",
+        "docs/alpha/quickstart.md",
+        "docs/integrations/hermes-skill-pack/skills/a/SKILL.md",
+        "plugins/p/README.md",
+    ]
+    assert "docs/examples/demo.py" in with_python
+    assert "docs/examples/demo.py" not in markdown
+
+
 def test_control_doc_truth_rejects_future_state_in_new_published_notes(
     tmp_path: Path,
 ) -> None:
