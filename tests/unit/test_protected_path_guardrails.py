@@ -280,3 +280,78 @@ def test_repair_batch_9_handoff_upgrade_overview_passes_representative_guard(
     assert guardrails.main() == 0
     assert observed_range == [("63397ab^", "63397ab")]
     assert "Protected-path upgrade metadata is present." in capsys.readouterr().out
+
+
+# The two Upgrade Overview templates. CI parses the pull request body that the first one seeds, and the second is the
+# copy a contributor reads at the repository root. Their prose may differ. Their structure may not: a label or a
+# heading that exists in one and not in the other would give a contributor a template that CI then rejects.
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def _pull_request_template() -> str:
+    return (_REPO_ROOT / ".github" / "pull_request_template.md").read_text(encoding="utf-8")
+
+
+def _root_template_overview() -> str:
+    """The Upgrade Overview that `UPGRADE_OVERVIEW_TEMPLATE.md` offers, which sits inside one fenced block."""
+
+    text = (_REPO_ROOT / "UPGRADE_OVERVIEW_TEMPLATE.md").read_text(encoding="utf-8")
+    fence = "```md\n"
+    start = text.index(fence) + len(fence)
+    end = text.index("\n```", start)
+    return text[start:end] + "\n"
+
+
+def _template_structure(overview: str) -> tuple[list[str], list[str], set[str]]:
+    """The required headings in order, the protected-area labels in order and the labels already checked."""
+
+    sections = guardrails.extract_upgrade_sections(overview)
+    areas = sections.get("protected areas", "")
+    labels = [guardrails._normalize_heading(match.group("label")) for match in guardrails._CHECKBOX_RE.finditer(areas)]
+    return list(sections), labels, guardrails.parse_checked_areas(areas)
+
+
+def test_the_two_upgrade_overview_templates_have_the_same_required_headings() -> None:
+    pull_request_headings, _, _ = _template_structure(_pull_request_template())
+    root_headings, _, _ = _template_structure(_root_template_overview())
+
+    assert pull_request_headings == root_headings
+    # The headings CI looks for are all there, so the shared list is the list CI needs.
+    assert pull_request_headings[0] == "protected areas"
+    assert set(guardrails.REQUIRED_NARRATIVE_SECTIONS) <= set(pull_request_headings)
+
+
+def test_the_two_upgrade_overview_templates_list_the_same_protected_areas_as_the_guardrail() -> None:
+    expected = [guardrails._normalize_heading(area.label) for area in guardrails.PROTECTED_AREAS]
+    _, pull_request_labels, pull_request_checked = _template_structure(_pull_request_template())
+    _, root_labels, root_checked = _template_structure(_root_template_overview())
+
+    assert expected, "the guardrail has no protected areas, so this test checks nothing"
+    assert pull_request_labels == expected
+    assert root_labels == expected
+    # A box that ships ticked would count as the contributor's answer.
+    assert pull_request_checked == set()
+    assert root_checked == set()
+
+
+def test_each_upgrade_overview_template_has_exactly_one_overview_heading() -> None:
+    assert _pull_request_template().count("\n## Upgrade Overview\n") == 1
+    assert _root_template_overview().startswith("## Upgrade Overview\n")
+    assert _root_template_overview().count("\n## Upgrade Overview\n") == 0
+
+
+def test_the_template_comparison_notices_a_renamed_label_a_missing_heading_and_a_ticked_box() -> None:
+    """The comparison above can fail: each edit below changes the structure it reads."""
+
+    overview = _root_template_overview()
+    original = _template_structure(overview)
+
+    def edited(old: str, new: str) -> tuple[list[str], list[str], set[str]]:
+        assert old in overview, f"the template no longer holds {old!r}, so this edit would change nothing"
+        return _template_structure(overview.replace(old, new))
+
+    assert edited("- [ ] trust rules", "- [ ] trust rule")[1] != original[1]
+    assert edited("### Rollback", "### Roll back")[0] != original[0]
+    assert edited("### Rollback", "### Rollback\n\nDone.\n\n### Sign Off")[0] != original[0]
+    assert edited("- [ ] memory schema", "- [x] memory schema")[2] != original[2]

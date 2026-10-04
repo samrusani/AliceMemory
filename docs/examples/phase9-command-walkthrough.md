@@ -1,5 +1,11 @@
 # Local Command Walkthrough
 
+## Requirements and status
+
+- Support status: legacy walkthrough of the Postgres stack. It is not part of the default SQLite install. The scripts it runs are kept working: CI runs the integration tests of the Phase 9 evaluation against Postgres. New integrations use the core MCP tools.
+- Backend: Postgres from `docker compose`, the repo's `.venv` from `make setup`, and the API on port 8000 for the health check (see [Full stack](../../README.md#full-stack-postgres--review-console)). The OpenClaw demo and the evaluation script write to that database. The SQLite `alice-memory` vault does not take part.
+- Settings: none beyond `DATABASE_URL`, which the scripts default to the local Docker Postgres. No MCP tool is involved, so `ALICE_MCP_LEGACY_TOOLS` plays no part.
+
 This page provides one reproducible command walkthrough using only shipped local paths.
 
 ## Scenario

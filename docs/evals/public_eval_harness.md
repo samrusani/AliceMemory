@@ -1,10 +1,16 @@
 # Public Eval Harness
 
-`P12-S4` turns Alice quality into a reproducible local eval surface.
+## Requirements and status
+
+- Support status: legacy surface of the Postgres stack. It is not part of the default SQLite install. It is kept working: CI runs `evals run` against Postgres and compares the report with the checked-in baseline. New integrations use the core MCP tools.
+- Backend: Postgres. The `alicebot` CLI refuses a SQLite URL and the HTTP API runs only on Postgres. The harness needs a migrated database and a valid Alice user id (see [Full stack](../../README.md#full-stack-postgres--review-console)). `evals run` also writes its run and result rows to that database.
+- Settings: none. This page names no MCP tool, so `ALICE_MCP_LEGACY_TOOLS` plays no part, and no `ALICE_LEGACY_SURFACES` flag is needed.
+
+The public harness is a reproducible local eval surface for Alice's quality.
 
 ## Scope
 
-The public harness measures the shipped Phase 12 continuity behaviors that this sprint is allowed to inspect:
+The public harness measures these continuity behaviors:
 
 - recall quality
 - resumption quality
@@ -12,14 +18,14 @@ The public harness measures the shipped Phase 12 continuity behaviors that this 
 - contradiction handling
 - open-loop usefulness
 
-It does not reopen retrieval, mutation, or contradiction implementations. It runs fixture-backed cases against the shipped surfaces and records the result.
+It does not change retrieval, mutation, or contradiction behavior. It runs fixture-backed cases against the shipped surfaces and records the result.
 
 ## Canonical Inputs
 
 - Fixture catalog: `eval/fixtures/public_eval_suites.json`
-- Current branch baseline report artifact: `eval/baselines/public_eval_harness_v1.json`
+- Baseline report artifact: `eval/baselines/public_eval_harness_v1.json`
 
-The fixture catalog is the current branch contract for suite definitions, case ordering, and expectations used by the harness.
+The fixture catalog is the contract for suite definitions, case ordering, and expectations used by the harness.
 `evals suites` reads directly from that checked-in catalog. `evals run` syncs the persisted suite/case tables to the current catalog before storing the run and result rows, so renamed or removed catalog entries do not survive as hidden runtime state.
 
 ## Surfaces
@@ -37,7 +43,7 @@ The fixture catalog is the current branch contract for suite definitions, case o
 
 ## Report Format
 
-The current branch JSON report contains:
+The JSON report contains:
 
 - `schema_version`
 - `fixture_schema_version`
@@ -81,4 +87,4 @@ python -m alicebot_api \
   --report-path eval/baselines/public_eval_harness_v1.json
 ```
 
-That command uses the checked-in fixture catalog and emits the canonical report artifact used by the sprint verification.
+That command uses the checked-in fixture catalog and emits the canonical report artifact.
