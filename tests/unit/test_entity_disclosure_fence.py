@@ -125,7 +125,7 @@ def test_entity_matrix(entity_vault, monkeypatch, request, mode, profile, bindin
                 'project_scope': [project] if project else [],
                 'metadata_json': {'project_scope': [project] if project else []},
             })
-            query = 'Anchor Cedar' 
+            query = 'Anchor Cedar'
             if door == 'http':
                 response = router.create_vnext_context_pack(router.VNextContextPackRequest(
                     user_id=UUID(USER), query=query, options={'max_items': 10, 'sensitivity_allowed': list(ALL_SENSITIVITY)},
