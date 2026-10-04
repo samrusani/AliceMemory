@@ -240,6 +240,20 @@ _NOT_A_SURFACE_COUNT: tuple[tuple[str, str], ...] = (
         r"\bsuperseded carrier reproduced\b",
         "a measurement of a frozen release candidate in the security evidence package, true on its date",
     ),
+    (
+        r"\bMCP tools below read the continuity store\b",
+        "how many legacy tools a legacy page lists below its header; test_audit_followup_docs.py checks each count "
+        "against that page's own list",
+    ),
+    (
+        r"\bMCP tools need `ALICE_LEGACY_SURFACES=1`",
+        "how many task-brief tools the briefing page lists; test_audit_followup_docs.py checks that count",
+    ),
+    (
+        r"\b(?:which reports nine tools|The nine tools were)\b",
+        "the retired nine-tool surface the 2026-04-09 Hermes captures record; test_audit_followup_docs.py checks the "
+        "count against the capture files",
+    ),
 )
 
 
