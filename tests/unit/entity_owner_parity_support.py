@@ -186,8 +186,11 @@ def drop_documented_delta(value, priced=False):
 
     A name needs a readable linked row to be listed, so the rows of ``UNADMITTED_ENTITIES`` leave every entity list,
     and the token counters inside the ``COUNTER_BLOCKS`` that price those rows change with them. Everything else,
-    grounding included, must match.
+    grounding included, must match. A float is compared to 12 significant digits: full-text scores are computed by
+    the SQLite build, and the macOS and Linux builds can differ in the last digit of a very small score.
     """
+    if isinstance(value, float):
+        return float(f"{value:.12g}")
     if isinstance(value, dict):
         return {k: drop_documented_delta(v, priced or k in COUNTER_BLOCKS) for k, v in value.items()
                 if not (priced and (k.endswith('token_estimate') or (k == 'entities' and isinstance(v, int))))}
