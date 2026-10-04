@@ -1625,3 +1625,31 @@ def test_redaction_docs_do_not_overclaim_source_evidence_erasure() -> None:
         "scrubs Alice's persisted copies",
     )
     assert all(claim not in document for document in documents for claim in false_erasure_claims)
+
+
+
+@pytest.mark.parametrize(
+    "relative", [".ai/active/private-build-notes.md", ".ai/handoff/old-release-review.md", "LOCAL_NOTES.md"]
+)
+def test_files_git_ignores_are_not_read_by_the_living_doc_scan(tmp_path: Path, relative: str) -> None:
+    """A private note that git ignores (the repository's ``.ai`` rules, or a root file in ``.git/info/exclude``) is not
+    a living doc, so an old install line in it cannot fail the check; the tracked sprint packet is still read.
+
+    Mutation: make ``_git_ignored`` return an empty set. The ignored note is scanned and its stale tag fails the check.
+    """
+
+    _seed_truth_docs(tmp_path, published=True)
+    assert control_doc_truth.run_control_doc_truth_check(root_dir=tmp_path) == []
+    repo_root = Path(control_doc_truth.__file__).resolve().parents[1]
+    (tmp_path / ".gitignore").write_text((repo_root / ".gitignore").read_text(encoding="utf-8"), encoding="utf-8")
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    (tmp_path / ".git" / "info").mkdir(parents=True, exist_ok=True)
+    (tmp_path / ".git" / "info" / "exclude").write_text("/LOCAL_NOTES.md\n", encoding="utf-8")
+    assert (tmp_path / ".ai" / "active" / "SPRINT_PACKET.md").is_file(), "the seed writes the sprint packet"
+    note = tmp_path / relative
+    note.parent.mkdir(parents=True, exist_ok=True)
+    note.write_text("# Historical internal review\n\nReproduced using git checkout v9.8.6\n", encoding="utf-8")
+    scanned = {path.relative_to(tmp_path).as_posix() for path in control_doc_truth.living_doc_files(tmp_path)}
+    assert relative not in scanned
+    assert ".ai/active/SPRINT_PACKET.md" in scanned
+    assert control_doc_truth.run_control_doc_truth_check(root_dir=tmp_path) == []
