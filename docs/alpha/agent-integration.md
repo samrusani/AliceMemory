@@ -337,26 +337,24 @@ then calls `alice_memory_commit` again with only the returned
 identity fields and an optional `rationale`. That works on the default three
 tools. It runs the same service call as `alice_memory_manage` action
 `confirm`, with the same policy check, project fence and audit trail. The
-project fence binds a key-bound scope; a keyless server trusts whatever
-`project_scope` the caller declares. An agent write above that agent's
-sensitivity ceiling is rejected and not saved. Do not retry it with a
-lower sensitivity label. Tell the user. The owner can raise this agent's
-clearance or store the memory themselves. The owner (a keyless call
-with no agent identity), an `admin_agent` key, and a keyless call that
-declares `permission_profile: admin_agent` are not held to that ceiling.
-A keyless server does not verify a declared profile. That is keyless
-owner mode. Only the author, an
-`admin_agent` key, or the owner can confirm or reject a pending write.
-On a keyless install that limit is not protection: the caller can declare
-the author's agent_id. The author can still reject their own pending
-write above the ceiling. Alice cannot tell whether the user was asked. The
-revision, the policy events and the `agent.memory_confirmed` or
-`agent.memory_confirmation_rejected` event name the key's `agent_id` when
-`ALICE_AGENT_API_KEY` is set, and the declared, unverified `agent_id` on a
-keyless server; the `memory.updated` and `memory_revision.created` events
-carry no `actor_id`. A keyless call without an `agent_id` names no agent
-on any row (`actor_type: user`). Other follow-up lifecycle verbs (`undo`,
-`forget`) live on `alice_memory_manage`, which is full-surface.
+rules for answering a pending write are written once, in
+[Confirm and reject rules](../memory-operations-protocol.md#confirm-and-reject-rules)
+of the Memory Operations Protocol. In short: only the author, an
+`admin_agent` key, or the owner can confirm or reject a pending write, and on
+a keyless install that limit is not protection: the caller can declare the
+author's agent_id. An agent write above that agent's sensitivity ceiling is
+rejected and not saved. Do not retry it with a lower sensitivity label. Tell
+the user. The owner (a keyless call with no agent identity), an `admin_agent`
+key, and a keyless call that declares `permission_profile: admin_agent` are
+not held to that ceiling. A pending write expires after 24 hours. Alice cannot
+tell whether the user was asked. The revision, the policy events and the
+`agent.memory_confirmed` or `agent.memory_confirmation_rejected` event name the
+key's `agent_id` when `ALICE_AGENT_API_KEY` is set, and the declared,
+unverified `agent_id` on a keyless server; the `memory.updated` and
+`memory_revision.created` events carry no `actor_id`. A keyless call without an
+`agent_id` names no agent on any row (`actor_type: user`). Other follow-up
+lifecycle verbs (`undo`, `forget`) live on `alice_memory_manage`, which is
+full-surface.
 
 Identity requirements:
 

@@ -488,52 +488,28 @@ Alice decides the outcome, never the caller:
   check, project fence, revision and events. The same call reads
   credential material: a confirm whose pending text or rationale carries
   it is refused and the write stays pending, and a reject stores such a
-  rationale as a fixed placeholder and returns `rationale_withheld: true`
-  (see [Memory Operations Protocol](../memory-operations-protocol.md#confirm)).
-  The project fence binds a
-  key-bound scope; a keyless server trusts whatever `project_scope` the
-  caller declares. Forget, expire, undo, confirm and open-loop updates
-  of a target above the caller's sensitivity ceiling are blocked in that
-  service, reason `sensitivity_above_agent_ceiling`, and the policy
-  event names the target. An agent committing above its ceiling is
-  rejected at commit time with no pending row. The receipt says: This
-  was not saved. Do not retry with a lower sensitivity label. Tell the
-  user. The owner can raise this agent's clearance or store the memory
-  themselves. The owner (a keyless call with no agent identity), an
+  rationale as a fixed placeholder and returns `rationale_withheld: true`.
+  The rules for answering a pending write are written once, in
+  [Confirm and reject rules](../memory-operations-protocol.md#confirm-and-reject-rules)
+  of the Memory Operations Protocol. In short: only the author of the
+  pending write, an `admin_agent` key, or the owner can confirm or reject
+  it, and on a keyless install that limit is not protection, because the
+  caller can declare the author's agent_id. A confirm above the caller's
+  sensitivity ceiling is blocked, an agent commit above it is rejected with
+  no pending row, and the owner (a keyless call with no agent identity), an
   `admin_agent` key, and a keyless call that declares
-  `permission_profile: admin_agent` are not held to that ceiling. A
-  keyless server does not verify a declared profile. That is keyless
-  owner mode. Only the author of a
-  pending write, an `admin_agent` key, or the owner can confirm or
-  reject it. On a keyless install that limit is not protection: the
-  caller can declare the author's agent_id. The author can still reject
-  their own pending write above the ceiling. Confirming a row that is
-  not pending is refused and writes nothing. Unreleased (on main, not in
-  v0.20.0): the caller's project scope, permission profile and ceiling are
-  checked before the pending check too, so a caller refused for any of them
-  is never told whether the row is pending, answered or expired. In v0.20.0
-  only the check of who may resolve the write came first.
-  Over the stdio server, a refused confirm or reject, and a credential
-  refusal on confirm, comes back as `tool_request_failed` with the message
-  `The tool request could not be processed` and no reason code. An
-  author refusal and a ceiling refusal record the reason on the policy
-  events (`policy.decision` and `agent.policy_blocked`). A credential
-  refusal on confirm leaves the row pending and does not keep a policy
-  event for that refusal. Unreleased (on main, not in v0.20.0): an author
-  refusal and a ceiling refusal come back as `not_permitted`, a
-  confirmation id that does not exist as `not_found`, and a confirmation
-  that is not pending as `precondition_failed`, each with the same
-  message. A credential refusal stays `tool_request_failed`.
-  A pending write stays out of recall until it is answered, and nothing
-  expires it in the background. Only `VNextMemoryCommitService.confirm`
-  reads its 24 hour `expires_at`. After that time, a confirm or reject
-  through `alice_memory_commit`, `alice_memory_manage` `confirm`, or
-  `POST /v0/vnext/memories/confirm` that passes the policy check resolves
-  it to `rejected` with reason `confirmation_expired` instead of acting
-  on it. The review paths do not read `expires_at`: `alice_memory_correct`
-  `approve` (owner or `admin_agent`) and a correction through
-  `POST /v0/vnext/memories/correct` can still make the row active after
-  24 hours.
+  `permission_profile: admin_agent` are not held to that ceiling. A pending
+  write expires after 24 hours: after that, a confirm or reject that passes
+  the policy check resolves it to `rejected` with reason
+  `confirmation_expired`. Over the stdio server, a refused confirm or reject,
+  and a credential refusal on confirm, comes back as `tool_request_failed`
+  with the message `The tool request could not be processed` and no reason
+  code. Unreleased (on main, not in v0.20.0): an author refusal and a
+  ceiling refusal come back as `not_permitted`, a confirmation id that does
+  not exist as `not_found`, and a confirmation that is not pending as
+  `precondition_failed`, each with the same message. A credential refusal
+  stays `tool_request_failed`. A pending write stays out of recall until it
+  is answered, and nothing expires it in the background.
 - `review_required`: external, generated, or low-confidence memory waits
   for human review in the console.
 - `rejected`: out-of-scope, unsafe, or policy-bypass attempts are blocked.

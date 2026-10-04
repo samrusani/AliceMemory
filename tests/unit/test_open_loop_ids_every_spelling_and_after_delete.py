@@ -1302,13 +1302,17 @@ def test_the_owner_is_shown_no_id_of_a_deleted_row_in_any_spelling(world: _World
 
 def test_the_docs_state_the_spellings_the_per_response_rule_and_the_residual() -> None:
     """The CHANGELOG entry of the read fence is amended in place (one entry, not two) and describes the end behaviour, and
-    ``mcp-tools.md`` and ``known-limitations.md`` carry the rule: every spelling, a deleted row withheld, the
-    per-response collection, the hex boundary, the readable id that has hyphen separated hex after it, and what remains
-    (the free-text columns, an id with its hyphens in other places inside text, and an id of a row removed outright that
-    nothing links). None of them may claim that hyphens are read anywhere among the digits inside text, or that the
+    ``mcp-tools.md`` carries the rule: every spelling, a deleted row withheld, the per-response collection, the hex
+    boundary, the readable id that has hyphen separated hex after it, and what remains (the free-text columns, an id
+    with its hyphens in other places inside text, the glued digits that cut part of a readable id, and an id of a row
+    removed outright that nothing links). ``known-limitations.md`` lists what is limited now and keeps one short
+    statement of the rule (every spelling, and after the source or memory is deleted); the residuals are the canonical
+    page's. None of them may claim that hyphens are read anywhere among the digits inside text, or that the
     context pack and the review by id keep their limit (the saved-quotes change on main holds those two).
 
     Mutation: delete any one of the sentences below from the file that carries it, or put the odd-hyphen claim back.
+    The two residual sentences that used to be pinned on the limitations page (the glued digits and the id of a row
+    removed outright) are pinned on ``mcp-tools.md`` now: delete either from it and this test fails.
     """
 
     def squashed(path: str) -> str:
@@ -1340,15 +1344,15 @@ def test_the_docs_state_the_spellings_the_per_response_rule_and_the_residual() -
         "Inside longer text an id with its hyphens in other places, a split id and an encoded id are not recognised.",
         "The free-text columns of a loop (`title`, `description`, `resolution_note`) are returned as stored and are not scanned.",
         "The extractor of candidate loops no longer writes the id of a source with no title into the `description`",
+        # Moved here from the limitations page, which keeps one short statement of the rule.
+        "read as a hyphenated id that names no row, so part of an id the reader may read is withheld there and wherever the same response repeats it.",
+        "and so is the id of a row that was removed outright and that nothing in the response links.",
     ):
         assert tools.count(sentence) == 1, sentence
-    for sentence in (
-        "in every spelling and after the source or memory is deleted",
-        "inside longer text an id with its hyphens in other places, a split id and an encoded id are not recognised;",
-        "read as an id that names no row and cut part of the readable id;",
-        "the id of a row that was removed outright, under a key that names no reference and linked nowhere in the response, reads like a trace id and is kept.",
-    ):
-        assert limitations.count(sentence) == 1, sentence
+    # The limitations page keeps one short statement of the rule. The three residuals it used to repeat live on
+    # mcp-tools.md, where all three are pinned above (the longer-text residual was already, the glued digits and
+    # the removed-row sentences were added).
+    assert limitations.count("in every spelling and after the source or memory is deleted") == 1
     for name, text in (("CHANGELOG.md", changelog), ("mcp-tools.md", tools), ("known-limitations.md", limitations)):
         assert "in other places or nowhere" not in text, name
         assert "keep the limit stated in the entry on cited sources" not in text, name

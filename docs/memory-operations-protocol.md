@@ -201,26 +201,12 @@ memory is not searchable until confirmed).
 
 Both MCP routes call `VNextMemoryCommitService.confirm` through the same
 handler code, so identity, the policy check on the pending row's domain,
-sensitivity and project scope, and the audit below are the same. The
-project scope check binds a key-bound scope; a keyless server trusts
-whatever `project_scope` the caller declares. Both routes use the
-service ceiling: a mutation of a target above the caller's sensitivity
-ceiling is blocked, including confirm, forget, expire and undo. An agent
-commit above that ceiling is rejected with no pending row. The receipt
-says this was not saved, do not retry with a lower sensitivity label,
-tell the user, and the owner can raise this agent's clearance or store
-the memory themselves. The owner (a keyless call with no agent identity),
-an `admin_agent` key, and a keyless call that declares
-`permission_profile: admin_agent` are not held to that ceiling. A keyless
-server does not verify a declared profile. That is keyless owner mode.
-Only the author, an `admin_agent` key, or the
-owner (a keyless call with no agent identity) can confirm or reject a
-pending write. On a keyless install that limit is not protection: the
-caller can declare the author's agent_id. The author can still reject
-their own pending write above the ceiling. Confirming a row that is not
-pending is refused and writes nothing. Neither route can
-tell whether the user was asked; the tool description tells the agent to
-ask. The revision, the policy events and the `agent.memory_confirmed` or
+sensitivity and project scope, and the audit below are the same. Who may
+confirm or reject, the sensitivity ceiling, the expiry and what a refused
+caller gets are one set of rules for every route, in
+[Confirm and reject rules](#confirm-and-reject-rules) below.
+
+The revision, the policy events and the `agent.memory_confirmed` or
 `agent.memory_confirmation_rejected` event name the caller as
 `actor_id`: the key's `agent_id` when `ALICE_AGENT_API_KEY` is set, the
 declared and unverified `agent_id` on a keyless server. The
@@ -230,18 +216,58 @@ declared and unverified `agent_id` on a keyless server. The
 
 Outcomes: `committed` (memory becomes active) or `rejected`. A pending
 confirmation stays out of recall until it is answered, and nothing
-expires it in the background. Only `VNextMemoryCommitService.confirm`
-reads the 24 hour `expires_at`: after it, a confirm or reject through
-either MCP route above, the HTTP confirm route or the CLI confirm that
-passes the policy check resolves the row to `rejected` with reason
-`confirmation_expired` instead of acting on it. The review paths do not
-read it: `alice_memory_correct` `approve` and a correction through
-`POST /v0/vnext/memories/correct` or `alicebot vnext memories correct`
-can still make the row active after 24 hours. Audit: a `promoted`
-revision (`corrected` when text was edited, `rejected` for a reject or an
-expiry) and an `agent.memory_confirmed`,
+expires it in the background; the expiry is in the rules below. Audit: a
+`promoted` revision (`corrected` when text was edited, `rejected` for a
+reject or an expiry) and an `agent.memory_confirmed`,
 `agent.memory_confirmation_rejected` or
 `agent.memory_confirmation_expired` event.
+
+### Confirm and reject rules
+
+This is the one place the rules for answering a pending write are written
+out. The agent skill packs (`agent-skills/hermes/alice-memory/SKILL.md` and
+`agent-skills/openclaw/alice-project-memory/SKILL.md`) and their pages carry
+the part an agent needs and nothing more, and the tool reference and the
+agent integration guide carry a short summary and a link here.
+`tests/unit/test_confirm_rules_agree_across_copies.py` reads every copy and
+fails when one of them says something else.
+
+Who may answer. Only the author of the pending write, an `admin_agent` key,
+or the owner (a keyless call with no agent identity) can confirm or reject
+it. On a keyless install that limit is not protection: the caller can declare
+the author's agent_id. The call is policy-checked like a write: a read-only
+identity and a key bound to another project are refused. The project scope
+check binds a key-bound scope; a keyless server trusts whatever
+`project_scope` the caller declares. Neither route can tell whether the user
+was asked; the tool description tells the agent to ask. Confirming a row that
+is not pending is refused and writes nothing. Unreleased (on main, not in
+v0.20.0): the caller's project scope, permission profile and ceiling are
+checked before the pending check too, so a caller refused for any of them is
+never told whether the row is pending, answered or expired. In v0.20.0 only
+the check of who may resolve the write came first.
+
+The sensitivity ceiling. Both MCP routes use the service ceiling: a mutation
+of a target above the caller's sensitivity ceiling is blocked, including
+confirm, forget, expire, undo and open-loop updates, with the reason
+`sensitivity_above_agent_ceiling`, and the policy event names the target. An
+agent commit above that ceiling is rejected with no pending row. The receipt
+says this was not saved, do not retry with a lower sensitivity label, tell the
+user, and the owner can raise this agent's clearance or store the memory
+themselves. The owner (a keyless call with no agent identity), an
+`admin_agent` key, and a keyless call that declares
+`permission_profile: admin_agent` are not held to that ceiling. A keyless
+server does not verify a declared profile. That is keyless owner mode. The
+author can still reject their own pending write above the ceiling.
+
+Expiry. A pending confirmation lasts 24 hours, the value of
+`CONFIRMATION_EXPIRY_HOURS` in `vnext_memory_commit.py`. Only
+`VNextMemoryCommitService.confirm` reads the 24 hour `expires_at`: after it, a
+confirm or reject through either MCP route above, the HTTP confirm route or
+the CLI confirm that passes the policy check resolves the row to `rejected`
+with reason `confirmation_expired` instead of acting on it. The review paths
+do not read it: `alice_memory_correct` `approve` and a correction through
+`POST /v0/vnext/memories/correct` or `alicebot vnext memories correct` can
+still make the row active after 24 hours.
 
 Credential material, on every route above. Before the 24 hours, a confirm
 whose new text, whose pending text, or whose rationale carries credential
@@ -254,8 +280,9 @@ the 24 hours, the call resolves the row to `rejected` as described above
 whatever its text or rationale: the revision stores a fixed expiry reason,
 not the caller's rationale, and the response carries neither flag.
 
-Over the stdio server, a refused confirm or reject, and a credential
-refusal on confirm, comes back as `tool_request_failed` with the message
+What a refused caller gets. Over the stdio server, a refused confirm or
+reject, and a credential refusal on confirm, comes back as
+`tool_request_failed` with the message
 `The tool request could not be processed` and no reason code. An author
 refusal and a ceiling refusal record the reason on the policy events
 (`policy.decision` and `agent.policy_blocked`). HTTP returns 403 with
