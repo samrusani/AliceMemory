@@ -918,7 +918,11 @@ every source id its refs name, in the shape they were stored in: under
 entry of a ref list, in a list or an object under any other key, with a
 `source:` prefix in any case, `urn:uuid:`, braces, no hyphens or upper case, as
 an `alice://sources/<id>` URL, and as several ids in one string or in a JSON
-string. Every spelling the link writer reads is read, an id that starts with `0`
+string. A string that is JSON text (an object or a list) is read as the value it
+decodes to, by the rules above, and its own text is not scanned, so an id inside
+its `quote` or `conversation_excerpt` names nothing, as it names nothing in the
+same ref stored as an object; a key repeated in the text keeps every value, and a
+text that does not decode is scanned as text. Every spelling the link writer reads is read, an id that starts with `0`
 and is written with a space, a tab or another whitespace character in the place
 of the zero included (`source: ` and the other 31 digits, say): the writer reads
 it as that id, links it and checks it, so the reader names it too. An id in one
