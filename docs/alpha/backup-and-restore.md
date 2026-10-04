@@ -288,6 +288,21 @@ the file gives with a value is compared as before, so a row that really differs 
 still refused, and `--mode fail` still stops on any existing id. In v0.19.2 the
 second `--mode skip` import of such a file stopped with `restore_failed`.
 
+Unreleased (on main, not in v0.20.0): before it publishes the restored database,
+import also repairs the labels of derived memories in the complete staged copy,
+whether the destination is new or was already upgraded. A derived memory whose
+recorded inputs include a restricted domain takes the most frequent restricted
+label among them, and each memory the repair changes gets one audit event with
+its old and new domain. Repeating `--mode skip` accepts a memory whose label that
+repair changed, and still refuses any other field that differs. A vault that is
+upgraded without a restore gets the same repair once, the next time it opens. A
+portable backup carries no generated artifacts and the SQLite schema has no
+table for them, so a promoted copy whose only recorded input is a missing
+artifact cannot be repaired from that reference and keeps its label. Derived
+rows that record each other in a cycle whose labels never settle stop the import
+with `restore_failed` before publication, and nothing is written. What counts as
+a recorded input is under [Derived row domains](mcp-tools.md#derived-row-domains).
+
 This command restores a SQLite database. It is not a PostgreSQL import.
 
 Portable backups include active sources and chunks, memories and fact keys,
@@ -422,6 +437,19 @@ step reconstructs the public-schema privileges for admin, app, and backup on
 the fresh target. Table, sequence, and non-public schema ACL entries remain in
 the restore list. Do not replace it with `--no-acl`; that would discard the
 migration-defined application privileges the restored service needs.
+
+Unreleased (on main, not in v0.20.0): migration `20261004_0095` repairs the
+labels of derived memories and artifacts, including promoted copies and an
+alternate spelling of a recorded UUID. Run it before serving requests. A database
+restored at an older revision gets it from the release upgrade; one restored at
+or past it is not repaired again, so that backup must already hold the repaired
+labels. The documented table owner, `alicebot_admin`, is
+`NOSUPERUSER NOBYPASSRLS`, so the migration turns FORCE row level security off
+on the tables it reads and writes (`sources`, `memories`, `open_loops`,
+`generated_artifacts`, `beliefs` and `event_log`) inside its own transaction and
+turns it back on before it commits. A failure, including derived rows in a cycle
+whose labels never settle, rolls the relabels, their audit events and the FORCE
+change back together. The downgrade keeps the repaired labels.
 
 ## Upgrade checkpoint
 

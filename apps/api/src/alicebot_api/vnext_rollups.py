@@ -155,6 +155,7 @@ from typing import Protocol
 
 import numpy as np
 
+from alicebot_api.vnext_derived_domain import derived_domain
 from alicebot_api.vnext_embeddings import (
     MAX_EMBEDDINGS_BATCH_SIZE,
     EmbeddingProvider,
@@ -541,6 +542,8 @@ class RollupOutcome:
 
     options: JsonObject = field(default_factory=dict)
     groups: list[JsonObject] = field(default_factory=list)
+    # Internal evidence for the parent report label, never serialized.
+    input_rows: list[JsonObject] = field(default_factory=list)
     proposals: list[JsonObject] = field(default_factory=list)
     skipped: list[str] = field(default_factory=list)
     candidate_ids: list[str] = field(default_factory=list)
@@ -1580,7 +1583,7 @@ def _dominant_domain(rows: tuple[JsonObject, ...]) -> str:
     domains = {row.get("domain") for row in rows if isinstance(row.get("domain"), str)}
     if len(domains) == 1:
         return str(next(iter(domains)))
-    return "unknown"
+    return derived_domain(rows, fallback="unknown")
 
 
 def _dominant_memory_type(rows: tuple[JsonObject, ...]) -> str:
@@ -2794,6 +2797,7 @@ class VNextRollupService:
 
         prepared_groups: list[_PreparedRollupGroup] = []
         for group in groups:
+            outcome.input_rows.extend(group.members)
             member_ids = tuple(str(row.get("id")) for row in group.members)
             current_member_snapshots = tuple(
                 memory_version_snapshot(row)

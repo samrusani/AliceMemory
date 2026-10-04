@@ -2008,6 +2008,12 @@ def _drop_outdated_fts_tables(conn: sqlite3.Connection) -> None:
         conn.execute(f"DROP TABLE {name}")
 
 
+def _relabel_derived_domains(conn: sqlite3.Connection) -> None:
+    from alicebot_api.vnext_derived_domain_backfill import relabel_sqlite
+
+    relabel_sqlite(conn)
+
+
 def bootstrap_sqlite_schema(conn: sqlite3.Connection) -> None:
     """Create or upgrade the vNext SQLite schema. Safe to call repeatedly."""
     conn.execute("PRAGMA journal_mode=WAL")
@@ -2030,6 +2036,7 @@ def bootstrap_sqlite_schema(conn: sqlite3.Connection) -> None:
     # Corrective pass for files a buggy v0.9.2 dedup already stranded an
     # identifier on a tombstone (audit P1 #3); a no-op on healthy files.
     _repair_tombstone_lookup_value_holders(conn)
+    _relabel_derived_domains(conn)
     # The redaction flag row must exist before the append-only triggers
     # reference it, and it must be OFF: a crashed process must never leave
     # a database file with redaction mode stuck open.
