@@ -6,10 +6,14 @@ registry, so a new tool definition or a moved tool would leave every page agreei
 
 This guard lists the tools the way a server does, under each flag combination, and reads the figures out of the pages:
 those two, and the long-tail figures of `docs/alpha/mcp-tools.md`. The default three and the eleven are also stated
-again, as a sentence, on about fifty other living pages, so it reads every sentence in a living doc that gives the
-default count, the full count, or the count of core tools the default leaves out. Each of those numbers must be the one
-the registry gives. A sentence that gives a count in a shape the scan does not know is a failure too, so a new copy
-cannot slip past unchecked.
+again, as a sentence, on many other living pages, so it reads the sentences of the living docs that give the default
+count, the full count, or the count of core tools the default leaves out. Each of those numbers must be the one the
+registry gives. A number it cannot place is a failure too when it sits beside a tool noun, or follows
+`ALICE_MCP_FULL_TOOLS` and a verb.
+
+The scan reads the shapes the docs use and their near variants. It is not a proof that no copy can pass: a count
+written with no tool noun, no mention of the flag and none of the other cues ("gives you all twelve") is not read,
+because a bare "all twelve" more often names the things a sentence just listed.
 
 Mutations, each one alone: add a twelfth core tool definition to `_CORE_TOOL_DEFINITIONS`; change `62` to `63` in
 `docs/integrations/mcp.md`; delete `alice_explain` from the list in `ARCHITECTURE.md` while the name stays elsewhere
@@ -19,8 +23,9 @@ to `default four tools` in `docs/alpha/hermes-skill.md`; change `all eleven core
 `docs/alpha/onboarding.md`; change `The other eight core tools` to `The other seven core tools` in
 `docs/integrations/hermes.md`; write `The server lists twelve core tools.` into any living page; change `(65)` to
 `(66)` in `docs/alpha/mcp-tools.md`; change `exposes all eleven` to `exposes all twelve` in
-`docs/security/auth-authorization.md`; add an entry to `_NOT_A_SURFACE_COUNT` that no sentence matches. Each fails one
-of the tests below.
+`docs/security/auth-authorization.md`; write `ALICE_MCP_FULL_TOOLS=1 offers all twelve.` or `The full surface has
+twelve.` into any living page; add an entry to `_NOT_A_SURFACE_COUNT` that no sentence matches. Each fails one of the
+tests below.
 """
 
 from __future__ import annotations
@@ -170,7 +175,9 @@ _NUMBER = "(?:" + "|".join(_COUNT_WORDS) + r"|\d{1,2})"
 # A number written as a word, or as one or two digits, that is not part of a longer token such as a version, a flag
 # value (`ALICE_MCP_FULL_TOOLS=1`) or a path.
 _COUNT_TOKEN = re.compile(rf"(?<![\w`/=.-])(?P<number>{_NUMBER})(?![\w`/=]|\.\d)", re.IGNORECASE)
-_ABOUT_THE_SURFACE = re.compile(r"\btools?\b|ALICE_MCP_FULL_TOOLS|\bhandshake\b|\bsurface\b", re.IGNORECASE)
+_ABOUT_THE_SURFACE = re.compile(
+    r"\btools?\b|ALICE_MCP_FULL_TOOLS|\bhandshake\b|\bsurface\b|\bregistry\b", re.IGNORECASE
+)
 
 # What may follow a number that is a count of tools: the noun, a connective, or the end of the clause. "all three
 # doors" and "the other seven verbs" count something else.
@@ -197,15 +204,23 @@ _DEFAULT_AFTER = re.compile(
     re.IGNORECASE,
 )
 _FULL_BEFORE = re.compile(r"\b(?:full|existing|past)\s+$", re.IGNORECASE)
+# "The full surface has eleven." names the full count with no noun after it, and for digits too ("exposes all 11").
+_FULL_SURFACE_VERB = re.compile(
+    r"\bfull\s+(?:(?:core|MCP|tool)\s+)*(?:surface|set|registry|handshake|list)\s+"
+    r"(?:is|are|has|have|exposes|lists|offers|serves|holds|gives|stays\s+at)\s+(?:all\s+)?$",
+    re.IGNORECASE,
+)
 # "all seven" and "all three" name the things a sentence just listed, so `all` counts the surface only before a noun.
 _ALL_BEFORE = re.compile(r"\ball\s+$", re.IGNORECASE)
 _FULL_AFTER = re.compile(
     r"^(?:\s+with\s+`?ALICE_MCP_FULL_TOOLS\b|\s+plus\s+the\s+long\s+tail\b|-tool\s+core\b)",
     re.IGNORECASE,
 )
-# "`ALICE_MCP_FULL_TOOLS=1` exposes all eleven." names the full surface with no noun after the number.
+# "`ALICE_MCP_FULL_TOOLS=1` exposes all eleven." names the full surface with no noun after the number. Up to three
+# words may stand between the flag and the number ("`ALICE_MCP_FULL_TOOLS=1` also gives you all eleven"). The cues for
+# the default and for the other tools are tried first.
 _FULL_AFTER_THE_FLAG = re.compile(
-    r"ALICE_MCP_FULL_TOOLS(?:=1)?`?\s+(?:also\s+)?(?:exposes|advertises|lists|adds|enables)\s+(?:all\s+)?$",
+    r"ALICE_MCP_FULL_TOOLS(?:=1)?`?\s+(?:[A-Za-z]+\s+){1,3}(?:all\s+)?$",
     re.IGNORECASE,
 )
 
@@ -237,12 +252,20 @@ def _role(token: str, left: str, right: str) -> str | None:
     """Which count a number is, read from the words around it: `others`, `default` or `full`; None when no cue.
 
     A cue that comes before the number is not enough for digits, which the pages use for parameter defaults
-    (`max_items` has a default of 8). Digits count the surface only beside a tool noun or after a cue that follows them.
+    (`max_items` has a default of 8). Digits count the surface only beside a tool noun, after a cue that follows them,
+    after `full surface` and a verb, or after the flag and `all`.
     """
 
-    continues = _THEN_A_TOOL_COUNT_ENDS.search(right) is not None
+    clause_ends = _THEN_A_TOOL_COUNT_ENDS.search(right) is not None
+    continues = clause_ends
     if token.isdigit():
         continues = continues and _BESIDE_A_TOOL_NOUN.search(right) is not None
+    # Digits after the flag count the surface only as "all 11", never as a parameter ("lowers it to 5").
+    after_the_flag = (
+        clause_ends
+        and _FULL_AFTER_THE_FLAG.search(left) is not None
+        and (not token.isdigit() or _ALL_BEFORE.search(left) is not None)
+    )
     if (continues and _OTHERS_BEFORE.search(left)) or _OTHERS_AFTER.search(right):
         return "others"
     if (continues and _DEFAULT_BEFORE.search(left)) or _DEFAULT_AFTER.search(right):
@@ -251,7 +274,8 @@ def _role(token: str, left: str, right: str) -> str | None:
     if (
         (continues and _FULL_BEFORE.search(left))
         or (beside_noun and _ALL_BEFORE.search(left))
-        or (continues and _FULL_AFTER_THE_FLAG.search(left))
+        or after_the_flag
+        or (clause_ends and _FULL_SURFACE_VERB.search(left) is not None)
         or _FULL_AFTER.search(right)
     ):
         return "full"
@@ -398,10 +422,18 @@ def test_the_scan_reaches_the_pages_that_must_state_every_count() -> None:
         ("New tools need a reason the existing eleven cannot cover.", [("full", 11)]),
         ("The default loop has a three-tool MCP handshake.", [("default", 3)]),
         ("The full eleven-tool core surface.", [("full", 11)]),
+        ("`ALICE_MCP_FULL_TOOLS=1` offers all twelve.", [("full", 12)]),
+        ("`ALICE_MCP_FULL_TOOLS=1` also gives you all twelve.", [("full", 12)]),
+        ("With `ALICE_MCP_FULL_TOOLS=1` the server lists all 11.", [("full", 11)]),
+        ("The full surface has twelve.", [("full", 12)]),
+        ("The full core registry exposes all eleven.", [("full", 11)]),
+        ("The full core registry exposes all 12.", [("full", 12)]),
         ("# default three plus the long tail (65), or 68 with ALICE_LEGACY_SURFACES=1 to the tools", [("default", 3)]),
         # A number beside a tool noun that no cue explains is reported, not skipped.
         ("The server lists twelve core tools.", [("unclassified", 12)]),
         ("It lists four tools.", [("unclassified", 4)]),
+        # The words "full tool set" before a count of something else do not make it the full count.
+        ("With the full tool set six tools are read-only.", [("unclassified", 6)]),
         # A count of something else is not read as a count of the surface.
         ("Tools: all three doors hold a cited source.", []),
         ("Tools: the commit text, and the other seven verbs, need `ALICE_MCP_FULL_TOOLS=1`.", []),
@@ -409,6 +441,8 @@ def test_the_scan_reaches_the_pages_that_must_state_every_count() -> None:
         ("Tools: the table lists all seven. The hook keeps all three, and the tool is read-only.", []),
         ("The default retention of the tool is 14 days.", []),
         ("`ALICE_MCP_FULL_TOOLS=1` turns the tools on in v0.20.0.", []),
+        ("`ALICE_MCP_FULL_TOOLS=1` lowers it to 5.", []),
+        ("With `ALICE_MCP_FULL_TOOLS=1` the default three become the full set.", []),
     ],
 )
 def test_the_scan_classifies_the_shapes_the_docs_use(text: str, expected: list[tuple[str, int]]) -> None:

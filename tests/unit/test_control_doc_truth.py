@@ -1134,6 +1134,11 @@ def test_every_living_doc_install_line_must_name_the_latest_published_release(tm
         "docs/integrations/example.md": "git clone --branch v9.8.6 https://example.invalid/repo.git\n",
         "docs/deployment/example.md": "Install with `--tag v9.8.6`.\n",
         "plugins/example/README.md": "git checkout 'v9.8.6'\n",
+        "docs/integrations/switch.md": "git switch --detach v9.8.6\n",
+        "docs/integrations/tags-prefix.md": "git checkout tags/v9.8.6\n",
+        "docs/integrations/short-flag.md": "git clone --depth 1 -b v9.8.6 https://example.invalid/repo.git\n",
+        "docs/integrations/pip-url.md": "pip install git+https://example.invalid/repo.git@v9.8.6\n",
+        ".github/example.md": "git checkout v9.8.6\n",
     }
     for relative_path, line in lines.items():
         path = tmp_path / relative_path
@@ -1154,6 +1159,9 @@ def test_an_install_line_naming_the_published_release_or_no_tag_passes(tmp_path:
     page.parent.mkdir(parents=True, exist_ok=True)
     page.write_text(
         "git checkout v9.8.7\ngit checkout main\ngit clone --branch main https://example.invalid/repo.git\n"
+        "git switch --detach v9.8.7\ngit checkout tags/v9.8.7\ngit clone -b main https://example.invalid/repo.git\n"
+        "pip install git+https://example.invalid/repo.git@v9.8.7\ngit checkout -b v9.8.6 origin/main\n"
+        "uses: actions/checkout@v4\n"
         "The v9.8.6 release changed this. Run git checkout of the tag you want.\n",
         encoding="utf-8",
     )
@@ -1195,7 +1203,8 @@ def test_the_dated_record_list_names_only_paths_that_exist() -> None:
 
 
 def test_the_scan_reads_the_install_lines_this_repository_has() -> None:
-    """The scan is not vacuous: it reaches the three pages that carry a literal tag, and each names the release."""
+    """The scan is not vacuous: it reaches the three pages that carry a literal tag, and every page it reaches names
+    the release. A correct line on a fourth living page is welcome and does not fail this test."""
 
     repo_root = Path(__file__).resolve().parents[2]
     latest = control_doc_truth._latest_structured_published_version(root_dir=repo_root)
@@ -1206,11 +1215,9 @@ def test_the_scan_reads_the_install_lines_this_repository_has() -> None:
         for match in control_doc_truth._LITERAL_INSTALL_TAG_PATTERN.finditer(path.read_text(encoding="utf-8")):
             found.setdefault(path.relative_to(repo_root).as_posix(), set()).add(match.group("version"))
 
-    assert found == {
-        "README.md": {latest},
-        "docs/alpha/headless-ubuntu-install.md": {latest},
-        "docs/alpha/quickstart.md": {latest},
-    }
+    for relative_path in ("README.md", "docs/alpha/headless-ubuntu-install.md", "docs/alpha/quickstart.md"):
+        assert relative_path in found, f"the scan no longer reads the install line of {relative_path}"
+    assert {relative_path: versions for relative_path, versions in found.items() if versions != {latest}} == {}
 
 
 def test_living_doc_files_skip_dated_records_and_folders_that_hold_no_docs(tmp_path: Path) -> None:
@@ -1222,6 +1229,7 @@ def test_living_doc_files_skip_dated_records_and_folders_that_hold_no_docs(tmp_p
         "plugins/p/README.md",
         "agent-skills/s/SKILL.md",
         ".ai/handoff/CURRENT_STATE.md",
+        ".github/pull_request_template.md",
         "CHANGELOG.md",
         "docs/release/v1-release-notes.md",
         "docs/handoff/x/README.md",
@@ -1243,6 +1251,7 @@ def test_living_doc_files_skip_dated_records_and_folders_that_hold_no_docs(tmp_p
 
     assert sorted(markdown) == [
         ".ai/handoff/CURRENT_STATE.md",
+        ".github/pull_request_template.md",
         "README.md",
         "agent-skills/s/SKILL.md",
         "docs/alpha/quickstart.md",

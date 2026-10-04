@@ -23,11 +23,18 @@ _PACKAGE_DESCRIPTION_STATE_PATTERN = re.compile(
 )
 _LATEST_RELEASE_NOTES_DOCS = ("README.md", "docs/vnext/README.md")
 _LATEST_CHECKSUM_DOCS = ("ARCHITECTURE.md", "PRODUCT_BRIEF.md", "ROADMAP.md")
-# An install line that names a release tag by hand: `git checkout vX.Y.Z`,
-# `git clone --branch vX.Y.Z` or `--tag vX.Y.Z`. A tag in any of these forms is
-# the version a reader installs, so it must be the latest published release.
+# An install line that names a release tag by hand: `git checkout vX.Y.Z` (also
+# `--detach`, or `tags/vX.Y.Z`), `git switch --detach vX.Y.Z`, `git clone
+# --branch vX.Y.Z` (also `-b`), `--tag vX.Y.Z` or `git+<url>@vX.Y.Z`. A tag in
+# any of these forms is the version a reader installs, so it must be the latest
+# published release.
 _LITERAL_INSTALL_TAG_PATTERN = re.compile(
-    r"(?:--tag|--branch|\bgit\s+checkout(?:\s+--detach)?)\s+[\"']?v(?P<version>\d+\.\d+\.\d+)\b"
+    r"(?:"
+    r"(?:--tag|--branch)(?:\s+|=)"
+    r"|\bgit\s+clone\b[^\n]*?\s-b(?:\s+|=)"
+    r"|\bgit\s+(?:checkout|switch)(?:\s+--detach)?\s+"
+    r"|\bgit\+[^\s@\"'`]+@"
+    r")[\"']?(?:refs/)?(?:tags/)?v(?P<version>\d+\.\d+\.\d+)\b"
 )
 # Where the living docs are. The root-level Markdown files are living docs too.
 # Everything else in the repository (code, tests, fixtures) is not documentation.
