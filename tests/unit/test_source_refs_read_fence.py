@@ -1507,7 +1507,7 @@ def _provenance_link_call_sites() -> set[tuple[str, str]]:
 # is read, classified and added here.
 _OWN_SOURCE_SITES = {
     # The source was captured or ingested by this very call, so the caller named no id.
-    ("vnext_capture.py", "capture_source"),
+    ("vnext_capture.py", "_capture_source"),
     ("vnext_connectors.py", "ingest_agent_output"),
 }
 _NAMED_SOURCE_SITES = {

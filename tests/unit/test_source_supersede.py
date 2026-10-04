@@ -120,6 +120,15 @@ def test_policy_uses_canonical_classification_objects(monkeypatch):
     monkeypatch.setitem(vnext_brain.SENSITIVITY_RANK, 'internal', 99)
     assert classification_refusal([{'domain':'personal','sensitivity':'internal'}],
         domain='personal', sensitivity='private', project_scope=()) == 'looser_classification'
+    seen = []
+    class TrackedDomains(set):
+        def __contains__(self, value):
+            seen.append(value)
+            return super().__contains__(value)
+    monkeypatch.setattr(vnext_memory_commit, 'SENSITIVE_DOMAINS', TrackedDomains({'personal'}))
+    classification_refusal([{'domain':'personal','sensitivity':'internal'}],
+        domain='unknown', sensitivity='internal', project_scope=())
+    assert seen == ['personal']
     tree = ast.parse(Path(source_supersede.__file__).read_text())
     assert any(isinstance(node, ast.ImportFrom) and node.module == 'alicebot_api.vnext_memory_commit'
                and any(alias.name == 'SENSITIVE_DOMAINS' for alias in node.names) for node in ast.walk(tree))
@@ -264,6 +273,7 @@ def test_retirement_derived_state_and_committed_memory(tmp_path):
         store = SQLiteVNextStore(conn, USER_ID)
         assert store.get_memory(ids[0])['status'] == 'rejected'
         assert store.get_memory(ids[1])['canonical_text'] == 'cobalt memory'
+        assert store.get_memory(ids[1])['status'] == 'active'
         assert store.list_provenance_links(target_type='memory',target_id=ids[1])[0]['source_id'] == sid
         assert all(row['valid_to'] and not row['explanation'] and row['metadata_json'] == {}
                    for row in store.list_edges(from_id=sid))
@@ -404,6 +414,7 @@ def test_downgrade_to_release_tag(tmp_path):
     run_import(db,folder)
     (folder/'note.md').write_text('The current cobalt statement.')
     run_import(db,folder,supersede=True)
+    assert len(_read(db, 'SELECT id FROM sources')) == 2
     # PR 2 extends this same rehearsal with scrub and prune.
     export=tmp_path/'export.jsonl';restored=tmp_path/'restored'
     code='''
