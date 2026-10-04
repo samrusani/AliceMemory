@@ -26,3 +26,9 @@ Provider credentials are stored as secret references and never returned in
 plaintext. Test with `POST /v1/providers/test`; invoke with
 `POST /v1/runtime/invoke` plus one stable `Idempotency-Key` per logical call.
 The removed `/v0/responses` endpoint is not an AutoGen chat backend.
+
+To send one AutoGen-style turn through `POST /v1/runtime/invoke` for a registered provider, run the command below. The script reads `ALICEBOT_AUTH_USER_ID`, or takes `--user-id`.
+
+```bash
+./.venv/bin/python scripts/run_phase11_autogen_runtime_bridge.py --provider-id <id> --thread-id <thread> --user-message "<text>"
+```

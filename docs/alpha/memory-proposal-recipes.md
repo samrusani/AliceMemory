@@ -92,4 +92,4 @@ Review behavior:
 - proposals appear in `alice_memory_review`, and are acted on with `alice_memory_correct`
 - confidence explains how strongly the agent believes the proposal
 - provenance links proposal to source or artifact evidence
-- trusted memory changes only after human review
+- a commit that returns `committed` is active at once. Only `review_required` rows wait for human review, and `confirmation_required` rows wait for the user's answer.

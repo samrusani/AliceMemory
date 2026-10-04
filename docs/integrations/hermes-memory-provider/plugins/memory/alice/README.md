@@ -28,17 +28,19 @@ The provider reads and writes:
 ## Optional Keys
 
 - `timeout_seconds` (float, default `8.0`)
-- `prefetch_limit` (int, default `5`)
-- `max_recent_changes` (int, default `5`)
-- `max_open_loops` (int, default `5`)
-- `include_non_promotable_facts` (bool, default `false`)
+- `prefetch_recall_limit` (int, default `5`)
+- `prefetch_max_recent_changes` (int, default `5`)
+- `prefetch_max_open_loops` (int, default `5`)
+- `prefetch_include_non_promotable_facts` (bool, default `false`)
 - `sync_turn_capture_enabled` (bool, default `false`; when omitted, an explicit `bridge_mode` of `assist` or `auto` enables turn capture)
 - `bridge_mode` (string enum: `manual`, `assist`, `auto`; default `assist`)
-- `mirror_memory_writes` (bool, default `false`)
+- `memory_write_capture_enabled` (bool, default `false`)
+- `session_end_flush_timeout_seconds` (float, default `5.0`)
 
-Legacy `auto_capture` and `capture_mode` keys are still accepted. Explicit
-`sync_turn_capture_enabled: false` disables turn capture even when `bridge_mode`
-is `assist` or `auto`.
+The older names `prefetch_limit`, `max_recent_changes`, `max_open_loops`,
+`include_non_promotable_facts`, `mirror_memory_writes`, `auto_capture` and
+`capture_mode` are still accepted. Explicit `sync_turn_capture_enabled: false`
+disables turn capture even when `bridge_mode` is `assist` or `auto`.
 
 ## Transport and Identity Safety
 

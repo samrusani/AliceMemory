@@ -2,7 +2,7 @@
 
 Use this instruction block in Hermes when Alice is available.
 
-Note: the explicit `alice_vnext_*` MCP tools referenced below (commit, confirm, ingest) are keyless-local legacy compatibility only and require `ALICE_MCP_LEGACY_TOOLS=1`. A server bound with `ALICE_AGENT_API_KEY` hides and rejects them. Authenticated integrations use the default three tools in [mcp-tools.md](mcp-tools.md): `alice_memory_commit`, `alice_recall`, `alice_resume`. Capture and the pack are on the full surface (`ALICE_MCP_FULL_TOOLS=1`).
+Note: this page uses the default three tools in [mcp-tools.md](mcp-tools.md): `alice_memory_commit`, `alice_recall`, `alice_resume`. Capture and the pack are on the full surface (`ALICE_MCP_FULL_TOOLS=1`).
 
 ```text
 You are connected to Alice, the user's local-first memory and continuity layer.
@@ -40,9 +40,9 @@ Default identity:
 
 Default permissions:
 
-- scope: broad but policy-filtered
-- allowed domains: `professional`, `project`, `personal` where configured
-- restricted by default: `health`, `family`, `spiritual`, `legal`, `financial`, `regulated`
+- scope: every domain. `trusted_local_agent` is not held back from `family`, `health`, `spiritual`, `legal` or `financial`; see [Domains a profile may read](mcp-tools.md#domains-a-profile-may-read)
+- sensitivity ceiling: `private`. Material above it (`confidential`, `highly_sensitive`, `sacred`, `regulated`) is not readable, and a write above it is rejected
+- to hold an agent back from those five domains when its request names them, give it `project_scoped_agent`, `read_only_agent` or `memory_proposal_agent`. Unreleased (on main, not in v0.20.0): those profiles are held back also when the request names no domain; see [Domains a profile may read](mcp-tools.md#domains-a-profile-may-read)
 
 Recipes:
 
