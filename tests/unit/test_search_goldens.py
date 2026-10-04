@@ -90,6 +90,13 @@ def test_a_scenario_equals_its_golden(computed: dict[str, dict[str, object]], su
     """
 
     expected = _scenarios(surface)[name]
+    # The owner's replacement ruling adds a warning for a changed path even
+    # with replacement off. Keep the frozen fixture and every other byte.
+    if surface == "import_receipt" and name == "edited_reimport":
+        expected = {**expected, "receipt": {**expected["receipt"],
+            "changed_files_count": 1,
+            "replacement_hint": "Use --supersede --dry-run to preview replacement, then --supersede to apply it.",
+        }}
     actual = computed[surface].get(name)
     assert actual == expected, _explain(surface, name, expected, actual)
 

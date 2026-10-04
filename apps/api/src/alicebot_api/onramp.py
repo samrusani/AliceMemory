@@ -1248,8 +1248,13 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
         help="Markdown file or folder to import.",
     )
-    import_markdown_parser.add_argument("--domain", default="unknown", help="Source domain.")
-    import_markdown_parser.add_argument("--sensitivity", default="unknown", help="Source sensitivity.")
+    import_markdown_parser.add_argument("--domain", default=None, help="Source domain. Omission keeps the existing label.")
+    import_markdown_parser.add_argument("--sensitivity", default=None, help="Source sensitivity. Omission keeps the existing label.")
+    replacement = import_markdown_parser.add_mutually_exclusive_group()
+    replacement.add_argument("--supersede", action="store_true", default=False, help="Replace earlier imports of the same path.")
+    replacement.add_argument("--no-supersede", action="store_false", dest="supersede", help="Keep earlier versions (default).")
+    import_markdown_parser.add_argument("--dry-run", action="store_true", help="Preview the import and roll back every database write.")
+    import_markdown_parser.add_argument("--allow-looser-classification", action="store_true", help="Allow replacement to loosen labels; project scope must still match.")
     import_markdown_parser.add_argument(
         "--max-file-mib",
         type=parse_max_file_mib,
@@ -1414,6 +1419,27 @@ def _too_large_message(message: str) -> str:
     return f"{message}. Raise the limit with --max-file-mib, or import a smaller file."
 
 
+@contextmanager
+def _markdown_import_database(db_path: Path, args: argparse.Namespace):
+    """Preview against a private snapshot, including bootstrap and the sidecar."""
+    if not args.dry_run:
+        bootstrap_database(db_path, user_id=args.user_id, user_email=args.user_email, secure_parent=args.db is None)
+        yield db_path
+        return
+    from alicebot_api.vault_sleep import sleep_proposals_path
+    with tempfile.TemporaryDirectory(prefix="alice-import-preview-") as directory:
+        selected = Path(directory) / "memory.db"
+        if db_path.exists():
+            with sqlite3.connect(db_path.resolve().as_uri() + "?mode=ro", uri=True) as source:
+                with sqlite3.connect(selected) as destination:
+                    source.backup(destination)
+            sidecar = sleep_proposals_path(db_path)
+            if sidecar.exists():
+                shutil.copyfile(sidecar, sleep_proposals_path(selected))
+        bootstrap_database(selected, user_id=args.user_id, user_email=args.user_email)
+        yield selected
+
+
 def _run_import_markdown(args: argparse.Namespace) -> int:
     from alicebot_api.vnext_capture import (
         ImportFileTooLargeRefused,
@@ -1422,21 +1448,19 @@ def _run_import_markdown(args: argparse.Namespace) -> int:
     )
 
     db_path = resolve_db_path(data_dir=args.data_dir, db=args.db)
-    bootstrap_database(
-        db_path,
-        user_id=args.user_id,
-        user_email=args.user_email,
-        secure_parent=args.db is None,
-    )
     try:
-        with sqlite_user_connection(db_path, args.user_id) as conn:
-            store = SQLiteVNextStore(conn, args.user_id)
-            result = VNextCaptureService(store).import_markdown_folder(
-                args.from_path,
-                domain=args.domain,
-                sensitivity=args.sensitivity,
-                max_file_bytes=_file_limit_bytes(args, DEFAULT_MAX_TEXT_FILE_BYTES),
-            )
+        with _markdown_import_database(db_path, args) as selected:
+            with sqlite_user_connection(selected, args.user_id) as conn:
+                store = SQLiteVNextStore(conn, args.user_id)
+                result = VNextCaptureService(store).import_markdown_folder(
+                    args.from_path,
+                    supersede=args.supersede,
+                    allow_looser_classification=args.allow_looser_classification,
+                    dry_run=args.dry_run,
+                    domain=args.domain,
+                    sensitivity=args.sensitivity,
+                    max_file_bytes=_file_limit_bytes(args, DEFAULT_MAX_TEXT_FILE_BYTES),
+                )
     except ImportFileTooLargeRefused as exc:
         _emit_import_path_error(_too_large_message(str(exc)), code=exc.reason_code)
         return 1
@@ -1444,7 +1468,7 @@ def _run_import_markdown(args: argparse.Namespace) -> int:
         _emit_import_path_error(str(exc))
         return 1
     _print_batch_record(result.to_record())
-    return 1 if result.status == "failed" else 0
+    return 1 if result.status in {"failed", "refused"} or result.refused else 0
 
 
 def _run_import_chatgpt(args: argparse.Namespace) -> int:

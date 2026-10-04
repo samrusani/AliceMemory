@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from contextlib import AbstractContextManager
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from hashlib import md5, sha256
@@ -32,6 +32,9 @@ from alicebot_api.memory_provenance import (
     derive_speaker_role,
     order_by_provenance,
     provenance_promotion_rank,
+)
+from alicebot_api.source_supersede import (
+    SupersedePolicy, UNSUPPORTED_SUPERSEDE, classification_refusal, printed_source_label,
 )
 from alicebot_api.store import ContinuityStoreInvariantError
 from alicebot_api.vnext_embeddings import (
@@ -151,6 +154,11 @@ class CaptureResult:
     # enabling deferred persistence does not change the public capture API.
     deferred_embedding_inputs: tuple[DeferredMemoryEmbedding, ...] = ()
 
+    superseded: tuple[JsonObject, ...] = ()
+    refused_reason: str | None = None
+    kept_reason: str | None = None
+    memories_citing_replaced: tuple[str, ...] = ()
+
     def _receipt_line(self) -> str:
         """One line a host can print. Import is a source, not a fact."""
 
@@ -208,9 +216,16 @@ class BatchImportResult:
     skipped_count: int = 0
     skipped_credentials: int = 0
     skipped_credential_items: tuple[str, ...] = ()
+    superseded: tuple[JsonObject, ...] = ()
+    refused: tuple[JsonObject, ...] = ()
+    kept: tuple[JsonObject, ...] = ()
+    memories_citing_replaced: tuple[str, ...] = ()
+    classification_changes: tuple[JsonObject, ...] = ()
+    changed_files_count: int = 0
+    dry_run: bool = False
 
     def to_record(self) -> JsonObject:
-        return {
+        record = {
             "status": self.status,
             "imported_count": self.imported_count,
             "duplicate_count": self.duplicate_count,
@@ -222,6 +237,23 @@ class BatchImportResult:
             "errors": list(self.errors),
             "error_code": self.error_code,
         }
+
+        for name in ("superseded", "refused", "kept"):
+            rows = getattr(self, name)
+            if rows:
+                record[name] = list(rows[:10])
+                if name != "kept":
+                    record[name + "_count"] = len(rows)
+        if self.classification_changes:
+            record["classification_changes"] = list(self.classification_changes[:10])
+        if self.memories_citing_replaced:
+            record["memories_citing_replaced"] = list(self.memories_citing_replaced[:20])
+        if self.changed_files_count:
+            record["changed_files_count"] = self.changed_files_count
+            record["replacement_hint"] = "Use --supersede --dry-run to preview replacement, then --supersede to apply it."
+        if self.dry_run:
+            record["dry_run"] = True
+        return record
 
 
 def _batch_status(
@@ -268,6 +300,7 @@ class SourceCaptureInput:
     # Imports pass False. A capture still proposes candidates unless the
     # caller says this source is material to read, not a fact to review.
     extract_candidates: bool = True
+    supersede: SupersedePolicy = field(default_factory=SupersedePolicy.off, kw_only=True)
 
 
 def normalize_text(raw_text: str) -> str:
@@ -1287,6 +1320,42 @@ class VNextCaptureService:
         )
 
     def capture_source(self, source_input: SourceCaptureInput) -> CaptureResult:
+        policy = source_input.supersede
+        if policy.mode == "off":
+            return self._capture_source(source_input)
+        if not callable(getattr(self.store, "supersede_source", None)):
+            raise VNextCaptureValidationError(UNSUPPORTED_SUPERSEDE)
+        if (source_input.source_type != "markdown" or source_input.connector_name != "markdown_folder"
+                or not source_input.raw_path or self.actor_type == "agent"):
+            raise VNextCaptureValidationError(UNSUPPORTED_SUPERSEDE)
+        with self.store.savepoint():
+            index = getattr(self, "_markdown_path_index", None)
+            if index is None:
+                index = getattr(self.store, "markdown_sources_by_path")()
+            matches = index.get((source_input.connector_name, source_input.raw_path), [])
+            scope = normalize_project_scope(source_input.project_scope if source_input.project_scope is not None
+                                            else source_input.metadata_json.get("project_scope"))
+            refusal = classification_refusal(matches, domain=source_input.domain, sensitivity=source_input.sensitivity,
+                                             project_scope=scope, allow_looser=policy.allow_looser_classification)
+            if refusal:
+                return CaptureResult(status="refused", source_id=None,
+                                     content_hash=content_hash_for_text(source_input.raw_text, scope),
+                                     refused_reason=refusal)
+            result = self._capture_source(source_input)
+            if result.duplicate and str(result.source_id) not in {str(row['id']) for row in matches}:
+                return replace(result, kept_reason="matches_other_live_source")
+            retired = []
+            citing = []
+            for row in matches:
+                if str(row['id']) == str(result.source_id):
+                    continue
+                counts = getattr(self.store, "supersede_source")(str(row['id']), superseded_by=result.source_id,
+                    allow_looser_classification=policy.allow_looser_classification, dry_run=policy.dry_run)
+                retired.append({"id": str(row['id']), "title": printed_source_label(row.get('title'))})
+                citing.extend(counts['memories_citing_replaced'])
+            return replace(result, superseded=tuple(retired), memories_citing_replaced=tuple(dict.fromkeys(citing)))
+
+    def _capture_source(self, source_input: SourceCaptureInput) -> CaptureResult:
         # Before dedupe and before the try that logs a failure. A refusal
         # must not look up an existing row and must not persist the fields.
         # The commit door, not the floor alone: a low-entropy AKIA-shaped
@@ -1762,12 +1831,38 @@ class VNextCaptureService:
             )
 
     def import_markdown_folder(
+        self, folder: str | Path, *, domain: str | None = None, sensitivity: str | None = None,
+        max_file_bytes: int = DEFAULT_MAX_TEXT_FILE_BYTES, supersede: bool = False,
+        allow_looser_classification: bool = False, dry_run: bool = False,
+    ) -> BatchImportResult:
+        policy = (SupersedePolicy.by_path(allow_looser_classification=allow_looser_classification, dry_run=dry_run)
+                  if supersede else SupersedePolicy.off())
+        if supersede and not callable(getattr(self.store, "supersede_source", None)):
+            raise VNextCaptureValidationError(UNSUPPORTED_SUPERSEDE)
+        class PreviewRollback(Exception):
+            pass
+        try:
+            scan = getattr(self.store, "markdown_sources_by_path", None)
+            with self.store.savepoint() if callable(scan) or dry_run else nullcontext():
+                self._markdown_path_index = scan() if callable(scan) else {}
+                result = self._import_markdown_folder(folder, domain=domain, sensitivity=sensitivity,
+                    max_file_bytes=max_file_bytes, policy=policy)
+                if dry_run:
+                    raise PreviewRollback()
+        except PreviewRollback:
+            return replace(result, dry_run=True)
+        finally:
+            self._markdown_path_index = None
+        return result
+
+    def _import_markdown_folder(
         self,
         folder: str | Path,
         *,
-        domain: str = "unknown",
-        sensitivity: str = "unknown",
+        domain: str | None = None,
+        sensitivity: str | None = None,
         max_file_bytes: int = DEFAULT_MAX_TEXT_FILE_BYTES,
+        policy: SupersedePolicy = SupersedePolicy.off(),
     ) -> BatchImportResult:
         # Same selection and one-shot read as the legacy markdown importer:
         # no symlink outside the root, and a single file is allowed.
@@ -1784,6 +1879,12 @@ class VNextCaptureService:
         except MarkdownImportValidationError as exc:
             raise _public_markdown_import_error(exc) from exc
 
+        superseded_rows: list[JsonObject] = []
+        refused_rows = []
+        kept_rows = []
+        citing_ids: list[str] = []
+        classification_changes = []
+        changed_files_count = 0
         source_ids: list[str] = []
         errors: list[str] = []
         duplicate_count = 0
@@ -1803,7 +1904,7 @@ class VNextCaptureService:
             credential_items.extend(file_skips)
             try:
                 content_hash = content_hash_for_text(raw_text)
-                if content_hash in run_hashes:
+                if policy.mode == "off" and content_hash in run_hashes:
                     duplicate_count += 1
                     self._log_event(
                         event_type="source.duplicate_skipped",
@@ -1820,6 +1921,18 @@ class VNextCaptureService:
                 # One file is one unit. A failure part way rolls the file back
                 # to nothing, the failure is logged after that rollback, and
                 # the next file imports in the same transaction.
+                matches = self._markdown_path_index.get(("markdown_folder", str(file_path)), [])
+                prior = matches[-1] if matches else {}
+                file_domain = domain if domain is not None else str(prior.get("domain") or "unknown")
+                file_sensitivity = sensitivity if sensitivity is not None else str(prior.get("sensitivity") or "unknown")
+                if policy.mode == "off" and matches and all(row['content_hash'] != content_hash for row in matches):
+                    changed_files_count += 1
+                changes = [{"domain": row['domain'], "sensitivity": row['sensitivity']} for row in matches
+                           if (row['domain'], row['sensitivity']) != (file_domain, file_sensitivity)]
+                if policy.mode != "off" and changes:
+                    classification_changes.append({"file": printed_source_label(source_file.relative_path),
+                        "from": changes, "to": {"domain": file_domain, "sensitivity": file_sensitivity},
+                        "allow_looser_classification": policy.allow_looser_classification})
                 with self.store.savepoint():
                     result = self.capture_source(
                         SourceCaptureInput(
@@ -1829,8 +1942,9 @@ class VNextCaptureService:
                             raw_path=str(file_path),
                             connector_name="markdown_folder",
                             external_id=source_file.relative_path,
-                            domain=domain,
-                            sensitivity=sensitivity,
+                            domain=file_domain,
+                            sensitivity=file_sensitivity,
+                            supersede=policy,
                             extract_candidates=False,
                             metadata_json={
                                 "folder": str(folder_path),
@@ -1838,6 +1952,17 @@ class VNextCaptureService:
                             },
                         )
                     )
+                superseded_rows.extend(result.superseded)
+                citing_ids.extend(result.memories_citing_replaced)
+                if result.refused_reason:
+                    refused_rows.append({"file": printed_source_label(source_file.relative_path), "reason": result.refused_reason})
+                    continue
+                if result.kept_reason:
+                    kept_rows.append({"file": printed_source_label(source_file.relative_path), "reason": result.kept_reason})
+                if result.source_id and not result.kept_reason:
+                    get_source = getattr(self.store, "get_source", None)
+                    if callable(get_source) and (row := get_source(result.source_id)) is not None:
+                        self._markdown_path_index[("markdown_folder", str(file_path))] = [row]
                 deferred_embedding_inputs.extend(result.deferred_embedding_inputs)
                 if result.duplicate:
                     duplicate_count += 1
@@ -1875,6 +2000,10 @@ class VNextCaptureService:
             skipped_count=skipped_count,
         )
 
+        if superseded_rows and status == "duplicate":
+            status = "ok"
+        if refused_rows:
+            status = "partial" if imported_count or duplicate_count else "refused"
         self._log_event(
             event_type="source.batch_import_completed",
             target_type="source",
@@ -1889,6 +2018,9 @@ class VNextCaptureService:
         )
         return BatchImportResult(
             status=status,
+            superseded=tuple(superseded_rows), refused=tuple(refused_rows), kept=tuple(kept_rows),
+            classification_changes=tuple(classification_changes),
+            memories_citing_replaced=tuple(dict.fromkeys(citing_ids)), changed_files_count=changed_files_count,
             imported_count=imported_count,
             duplicate_count=duplicate_count,
             failed_count=failed_count,

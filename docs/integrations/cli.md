@@ -145,3 +145,20 @@ See tests:
 - `tests/integration/test_mcp_server.py`
 - `tests/integration/test_temporal_state_mcp_cli.py`
 - `docs/integrations/one-call-continuity.md`
+
+## SQLite Markdown replacement
+
+Unreleased (on main, not in v0.20.0):
+
+```bash
+alice-memory import-markdown --from PATH [--supersede | --no-supersede] [--dry-run] [--allow-looser-classification]
+```
+
+`--no-supersede` is the default. `--supersede` replaces earlier Markdown imports
+of the resolved path in one transaction per file. `--dry-run` reports the
+planned result and rolls back database writes. `--allow-looser-classification`
+allows a lower sensitivity or a changed domain during replacement, never a
+project-scope change. Omitted `--domain` and `--sensitivity` keep a known path's
+labels; new files default to `unknown`. See [importer details](importers.md#replacement-on-re-import)
+for duplicate outcomes, receipts, derived-state cleanup and recovery limits.
+These flags are absent from the Postgres `alice vnext sources` commands.

@@ -83,3 +83,11 @@ Open in v0.20.0, with the detail in the [v0.20.0 release notes](../release/v0.20
 See [Backup and restore](backup-and-restore.md) before upgrading or moving a store.
 
 Do not describe this alpha as hosted SaaS, production-ready, or automatic memory autopilot.
+
+Unreleased (on main, not in v0.20.0): Markdown replacement is opt-in and uses
+resolved paths. Moves and restores on another machine do not identify the old
+path. Replaced text remains in the vault file but is omitted from exports.
+Replacement closes source-backed open loops and removes pending sleep proposals.
+Committed memories keep their text. Key-bound explain remains unavailable when
+the audit cites a retired source; the keyless owner can inspect it. Restore an
+older export into a fresh vault to avoid same-id conflicts.
