@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from alicebot_api.vnext_derived_domain import derived_domain
-
 from collections.abc import Sequence
 from copy import deepcopy
 from dataclasses import dataclass, field
@@ -14,6 +12,7 @@ from typing import Protocol, TypedDict, cast
 from uuid import uuid4
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from alicebot_api.vnext_derived_domain import derived_domain
 from alicebot_api.vnext_agent_control import (
     AgentIdentity,
     PolicyDecision,
@@ -1469,7 +1468,7 @@ class VNextSchedulerService:
                 "content_markdown": content,
                 "status": "needs_review",
                 "domain": derived_domain(marked, fallback=request.domains[0] if len(request.domains) == 1 else "unknown"),
-                "sensitivity": "unknown",
+                "sensitivity": self._highest_sensitivity(marked),
                 "generated_by": "scheduler",
                 "metadata_json": {
                     **metadata,

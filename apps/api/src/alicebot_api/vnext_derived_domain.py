@@ -1,4 +1,5 @@
 """Keep derived rows behind the most restrictive input domain boundary."""
+
 from __future__ import annotations
 
 from collections import Counter
@@ -13,5 +14,5 @@ def derived_domain(rows: Iterable[Mapping[str, object]], *, fallback: str) -> st
     An explicit request domain cannot declassify an input. With no restricted
     inputs, each producer retains its existing domain selection.
     """
-    counts = Counter(str(row.get('domain')) for row in rows if row.get('domain') in RESTRICTED_DOMAINS)
+    counts = Counter(str(row.get("domain")) for row in rows if row.get("domain") in RESTRICTED_DOMAINS)
     return min(counts, key=lambda domain: (-counts[domain], domain)) if counts else fallback

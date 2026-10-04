@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-from alicebot_api.vnext_derived_domain import derived_domain
-
 from dataclasses import dataclass, field
 import inspect
 import re
 from typing import Callable, Protocol, Sequence, cast
 
+from alicebot_api.vnext_derived_domain import derived_domain
 from alicebot_api.vnext_agent_control import resource_project_scope
 from alicebot_api.vnext_event_log import append_event
 from alicebot_api.vnext_model_intelligence import (

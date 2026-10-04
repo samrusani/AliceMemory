@@ -87,7 +87,7 @@ def test_sqlite_upgrade_relabels_existing_derived_memory_only(tmp_path):
             'domain': 'unknown', 'metadata_json': {'candidate_kind': 'memory_consolidation'}})
         # Retained deleted inputs still contributed to the stored text.
         conn.execute('UPDATE memories SET deleted_at = ? WHERE id = ?', ('2026-10-01T00:00:00Z', source['id']))
-        conn.execute("DELETE FROM alice_schema_state WHERE key = 'derived_restricted_domains_v1'")
+        conn.execute("DELETE FROM alice_schema_state WHERE key LIKE 'derived_restricted_domains_%'")
         conn.commit()
         bootstrap_sqlite_schema(conn)
         after = store.get_memory(str(candidate['id']))

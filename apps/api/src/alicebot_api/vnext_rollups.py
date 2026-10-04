@@ -143,8 +143,6 @@ Storage: no new tables or columns. Cards reuse the memories table
 
 from __future__ import annotations
 
-from alicebot_api.vnext_derived_domain import derived_domain
-
 from collections import Counter
 from dataclasses import dataclass, field, replace
 from datetime import UTC, date, datetime
@@ -157,6 +155,7 @@ from typing import Protocol
 
 import numpy as np
 
+from alicebot_api.vnext_derived_domain import derived_domain
 from alicebot_api.vnext_embeddings import (
     MAX_EMBEDDINGS_BATCH_SIZE,
     EmbeddingProvider,

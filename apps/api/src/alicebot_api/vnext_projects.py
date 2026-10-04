@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from alicebot_api.vnext_derived_domain import derived_domain
-
 from dataclasses import dataclass, field
 import hashlib
 import json
@@ -9,6 +7,7 @@ import re
 from collections.abc import Mapping, Sequence
 from typing import Protocol, cast
 
+from alicebot_api.vnext_derived_domain import derived_domain
 from alicebot_api.credential_floor import refuse_credential_activation
 from alicebot_api.vnext_agent_control import resource_project_scope
 from alicebot_api.vnext_embeddings import DeferredMemoryEmbedding
