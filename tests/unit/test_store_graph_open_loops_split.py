@@ -160,7 +160,9 @@ EXPECTED_CLASS_ORDERS = {
     # Per-file importer savepoint (2026-10-02): the same paired method, ``savepoint``, appended last.
     # Previous receipt: (128, fae6bee37a2b06541...). Proof: the member list equals the list at origin/main
     # 040a2a10 with ``savepoint`` added at the end and nothing else moved (reviewed change, not drift).
-    "SQLiteVNextStore": (131, "1c4e6fa13ca9de28f2f8ca54176cdebb7522e6f44dc8c66396dcf78105580c0c"),
+    # Proof: the replacement branch gains only scrub_source, source_inventory and
+    # prunable_sources here; every pre-existing class member keeps its order.
+    "SQLiteVNextStore": (134, "1301272026897057cf071009cc21787543ddc326f1e06f1a75a763f3e344767e"),
 }
 EXPECTED_COLUMN_AST = {
     POSTGRES_COLUMNS_PATH: {
