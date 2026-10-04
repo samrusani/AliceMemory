@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from contextlib import nullcontext
 from uuid import UUID
@@ -49,12 +50,15 @@ def prune_sleep_rows(self, source_ids, *, dry_run=False):
 
 
 
-# The text of a memory that the lookup narrows on: its metadata and its value, lower cased. It is searched with what
-# ``uuid.UUID`` ignores inside an id taken out (``urn:``, ``uuid:``, hyphens and underscores), so an id written with
-# hyphens in other places, in capitals or without hyphens is the same run of digits as the id the store holds. It is
-# also matched for an ASCII character written as a JSON escape (``\u0061``): a ref that is JSON text can hide any
-# character of an id this way and the reader decodes it. Escapes of control characters and of letters outside ASCII
-# are what ordinary text has, so they do not match. The query is one literal, with no text joined into it.
+# The text of a memory that the lookup narrows on: its metadata and its value, lower cased. It is kept when any of
+# three things holds. (1) It holds the digits of the id once what ``uuid.UUID`` ignores inside an id is taken out
+# (``urn:``, ``uuid:``, hyphens and underscores), so an id written with hyphens in other places, in capitals or without
+# hyphens is the same run of digits as the id the store holds. (2) It holds an ASCII character written as a JSON escape
+# (``\u0061``): a ref that is JSON text can hide any character of an id this way and the reader decodes it. Escapes of
+# control characters and of letters outside ASCII are what ordinary text has, so they do not match. (3) It holds the
+# digits of the id once the decimal digits of other scripts are read as the digits 0 to 9 they stand for
+# (``alice_other_script_digits``, below): ``int(..., 16)`` reads them so, and an id written with them holds no run of
+# the ASCII digits of (1). The query is one literal, with no text joined into it.
 _TEXT_CANDIDATES = """
 WITH stored(id, text) AS (
     SELECT m.id, lower(coalesce(m.metadata_json, '') || char(10) || coalesce(m.value, ''))
@@ -62,8 +66,60 @@ WITH stored(id, text) AS (
 SELECT m.* FROM stored s JOIN memories m ON m.id = s.id AND m.user_id = ?
 WHERE instr(replace(replace(replace(replace(s.text, 'urn:', ''), 'uuid:', ''), '-', ''), '_', ''), ?) > 0
    OR s.text GLOB ?
+   OR alice_other_script_digits(s.text, ?)
 """
 _ESCAPED_ASCII = "*\\u00[2-7][0-9a-f]*"
+
+# Every character that is not 0 to 9 and that ``int(..., 16)`` reads as one of those digits: the decimal digits
+# (category Nd) of the other scripts, as the Unicode tables of this interpreter name them.
+_OTHER_SCRIPT_DIGIT = re.compile(r"[^\D0-9]")
+# A JSON escape of one character: ``\uXXXX``, and the pair of escapes ``json`` writes for a character beyond the first
+# 65,536 (the mathematical digits are such characters). A JSON text inside a JSON text doubles each backslash of the
+# inner one, so a run of backslashes is read as one before the escapes are.
+_JSON_ESCAPE = re.compile(r"\\u(d[89ab][0-9a-f]{2})\\u(d[c-f][0-9a-f]{2})|\\u([0-9a-f]{4})", re.IGNORECASE)
+_BACKSLASH_RUN = re.compile(r"\\+")
+
+
+def _unescaped(match):
+    if match.group(3) is not None:
+        return chr(int(match.group(3), 16))
+    return chr(0x10000 + ((int(match.group(1), 16) - 0xD800) << 10) + (int(match.group(2), 16) - 0xDC00))
+
+
+def _holds_digits_in_other_script(text, digits):
+    """1 when ``text`` holds a decimal digit of another script, written as the character or as a JSON escape of it
+    (``\\u0661`` or ``\\ud835\\udfce``), and holds ``digits`` once each such digit is read as the digit it stands for
+    and what ``uuid.UUID`` ignores inside an id is taken out, else 0. A JSON escape is read wherever it stands, inside a
+    string or not: a text that holds one it should not has only made the candidate list longer, and the reader decides.
+    A text of ASCII characters with no escape holds no such digit and is not read further."""
+
+    if not isinstance(text, str) or not isinstance(digits, str):
+        return 0
+    escaped = "\\u" in text
+    if not escaped and text.isascii():
+        return 0
+    if escaped:
+        text = _JSON_ESCAPE.sub(_unescaped, _BACKSLASH_RUN.sub("\\\\", text))
+    if not _OTHER_SCRIPT_DIGIT.search(text):
+        return 0
+    text = _OTHER_SCRIPT_DIGIT.sub(lambda match: str(int(match.group())), text)
+    for ignored in ("urn:", "uuid:", "-", "_"):
+        text = text.replace(ignored, "")
+    return 1 if digits in text else 0
+
+
+def _ensure_other_script_digits_sqlite(conn):
+    """Register ``alice_other_script_digits`` once per SQLite connection. It is registered by the lookup that reads it, not
+    when the store is opened, so every other use of a store connection is unchanged."""
+
+    cursor = conn.execute(
+        "SELECT 1 FROM pragma_function_list WHERE name = 'alice_other_script_digits' AND narg = 2 LIMIT 1")
+    try:
+        registered = cursor.fetchone() is not None
+    finally:
+        cursor.close()
+    if not registered:
+        conn.create_function("alice_other_script_digits", 2, _holds_digits_in_other_script, deterministic=True)
 
 
 def _citation_probe(source_id):
@@ -85,9 +141,9 @@ def citing_memories(self, source_id):
 
     The text is first narrowed in SQL to the memories that could hold the id in some spelling, and each of those is then
     read by the reader, so the narrowing may keep a memory the reader rejects and never drops one it accepts. It looks
-    for the digits of the id with the characters ``uuid.UUID`` ignores removed, and for the ASCII escapes a JSON text can
-    use to hide them. It does not look for an id written with decimal digits of another script (``int(..., 16)`` reads
-    those too), so a memory that spells its source that way is not found.
+    for the digits of the id with the characters ``uuid.UUID`` ignores removed, for the ASCII escapes a JSON text can
+    use to hide them, and for the digits again with the decimal digits of other scripts read as the digits 0 to 9 they stand
+    for, which is how ``int(..., 16)`` reads them.
     """
 
     # No bounded list: a scrub must cover every candidate, including old rows
@@ -104,7 +160,8 @@ def citing_memories(self, source_id):
         (self.user_id, source_id, source_id, source_id))}
     canonical, digits = _citation_probe(source_id)
     if canonical is not None:
-        for row in self._fetch_all(_TEXT_CANDIDATES, (self.user_id, self.user_id, digits, _ESCAPED_ASCII)):
+        _ensure_other_script_digits_sqlite(self.conn)
+        for row in self._fetch_all(_TEXT_CANDIDATES, (self.user_id, self.user_id, digits, _ESCAPED_ASCII, digits)):
             if str(row['id']) not in found and canonical in memory_cited_source_ids(row):
                 found[str(row['id'])] = row
     return [found[key] for key in sorted(found)]

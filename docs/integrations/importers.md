@@ -318,13 +318,17 @@ them, so every spelling counts: an id in upper or lower case, with or without
 hyphens, in braces, as `urn:uuid:<id>`, as `source:<id>` with or without a
 `#chunk-0` suffix, as `alice://sources/<id>`, in a list, under `source_refs`,
 `sources`, `source_id`, `source_ids` or `selected_source_ids` at any depth,
-inside a reference that is JSON text, and in free text elsewhere in the memory's
-metadata or value. An id inside a `quote` or
-`conversation_excerpt` field names nothing, and a `memory:` reference names a
-memory. Replacement, `sources delete` and `sources prune` all use this rule, so
-a pending proposal that cites the source in any of those spellings is rejected
-or scrubbed and is counted in the receipt and the preview. One spelling is not
-found: an id written with decimal digits of another script.
+inside a reference that is JSON text, written with the decimal digits of
+another script (Arabic-Indic, Devanagari or fullwidth digits, for example) in
+place of 0 to 9, and in free text elsewhere in the memory's metadata or value.
+An id inside a `quote` or `conversation_excerpt` field names nothing, and a
+`memory:` reference names a memory. Replacement, `sources delete` and
+`sources prune` all use this rule, so a pending proposal that cites the source
+in any of those spellings is rejected or scrubbed and is counted in the receipt
+and the preview. An id in the digits of another script is read as a whole value,
+a whole word, or right after `source:` or `alice://sources/`. It is not found
+inside a URL, inside parentheses or before a `#chunk-0` suffix, because the
+saved-quote reader does not read it there.
 
 There is no restore command for sources. Import the old text with `--supersede`
 to make it live again. A pre-deletion export can conflict with rows in the same
