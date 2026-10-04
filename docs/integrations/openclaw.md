@@ -40,7 +40,7 @@ After import, these surfaces will include OpenClaw-backed continuity when it is 
 
 - API: `POST /v1/continuity/brief`
 - CLI: `alice brief`, `alice recall`, `alice resume`
-- MCP: only the legacy `alice_brief`, on a deliberately keyless local server with `ALICE_MCP_LEGACY_TOOLS=1`. The core `alice_recall` and `alice_resume` do not return these items.
+- MCP: only the legacy continuity tools, such as `alice_brief`, on a deliberately keyless local server with `ALICE_MCP_LEGACY_TOOLS=1`. The core `alice_recall` and `alice_resume` do not return these items.
 
 ## Import Commands
 
@@ -80,7 +80,7 @@ OpenClaw is usually paired with the generic API integration path.
 Typical flow:
 
 1. Import OpenClaw data into Alice.
-2. Query Alice through `POST /v1/continuity/brief` or the CLI. Over MCP only the legacy `alice_brief` (deliberately keyless local server, `ALICE_MCP_LEGACY_TOOLS=1`) reads the imported items.
+2. Query Alice through `POST /v1/continuity/brief` or the CLI. Over MCP only the legacy continuity tools, such as `alice_brief` (deliberately keyless local server, `ALICE_MCP_LEGACY_TOOLS=1`), read the imported items.
 3. Let the agent act on Alice output while preserving OpenClaw provenance in the response.
 
 Generic starter examples:

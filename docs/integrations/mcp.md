@@ -87,12 +87,21 @@ Details and examples: [docs/alpha/mcp-tools.md](../alpha/mcp-tools.md).
 With `ALICE_MCP_LEGACY_TOOLS=1`, 62 retained legacy memory tools are listed
 alongside whatever core set is enabled (65 with the default three, 73 with
 the full eleven). With the task-brief flag as well, the counts are 68 and
-76. On the SQLite backend the legacy tools that read the continuity store
-(for example `alice_brief`, `alice_timeline`, `alice_state_at` and the
-task-brief tools) are listed but their calls fail, while most of the
-`alice_vnext_*` tools, which use the vNext store, run. The legacy surface
-also requires `ALICE_AGENT_API_KEY` to be unset. Key-bound servers list and
-accept only the enabled core set.
+76. On the SQLite backend most legacy tools are listed but their calls fail:
+the ones that read the continuity store (for example `alice_brief`,
+`alice_timeline`, `alice_state_at` and the task-brief tools) and most of the
+`alice_vnext_*` tools, because the SQLite store implements only part of what
+they call. Thirteen `alice_vnext_*` tools run there: the memory-commit family
+(`alice_vnext_propose_memory`, `alice_vnext_commit_memory`,
+`alice_vnext_confirm_memory`, `alice_vnext_undo_memory`,
+`alice_vnext_correct_memory`, `alice_vnext_forget_memory`,
+`alice_vnext_recent_memory_commits`, `alice_vnext_memory_audit` and
+`alice_vnext_review_items`) and `alice_vnext_context_pack`,
+`alice_vnext_capture`, `alice_vnext_open_loops` and
+`alice_vnext_recent_decisions`. The full list, with the ones that fail, is
+under [Legacy tool surface](../alpha/mcp-tools.md#legacy-tool-surface). The
+legacy surface also requires `ALICE_AGENT_API_KEY` to be unset. Key-bound
+servers list and accept only the enabled core set.
 The long tail covers briefs, timeline, state-at-time, capture pipelines,
 queue/graph/belief/scheduler controls, provider runtime tools, and the
 `alice_vnext_*` agentic control-plane contract, including

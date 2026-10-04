@@ -42,7 +42,7 @@ Default permissions:
 
 - scope: every domain. `trusted_local_agent` is not held back from `family`, `health`, `spiritual`, `legal` or `financial`; see [Domains a profile may read](mcp-tools.md#domains-a-profile-may-read)
 - sensitivity ceiling: `private`. Material above it (`confidential`, `highly_sensitive`, `sacred`, `regulated`) is not readable, and a write above it is rejected
-- to hold an agent back from those five domains, give it `project_scoped_agent`, `read_only_agent` or `memory_proposal_agent`
+- to hold an agent back from those five domains when its request names them, give it `project_scoped_agent`, `read_only_agent` or `memory_proposal_agent`. Unreleased (on main, not in v0.20.0): those profiles are held back also when the request names no domain; see [Domains a profile may read](mcp-tools.md#domains-a-profile-may-read)
 
 Recipes:
 

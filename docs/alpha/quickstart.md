@@ -65,7 +65,7 @@ This is the same SQLite path, for one user: three MCP tools by default (`alice_m
 
 ## Sleep proposals (SQLite)
 
-`alice-memory sleep` writes proposals for sources that have no memory yet, oldest first, to `sleep_proposals.jsonl` next to `memory.db`. At most eight proposals count toward the cap at a time. It creates no memory and changes no source or fact. A proposal stops counting once its source has an active or accepted memory; the row stays in the file. A source whose excerpt holds credential material is not proposed.
+`alice-memory sleep` writes proposals for sources that have no active or accepted memory, oldest first, to `sleep_proposals.jsonl` next to `memory.db`. A source that has only a candidate memory is still proposed. At most eight proposals count toward the cap at a time. It creates no memory and changes no source or fact. A proposal stops counting once its source has an active or accepted memory; the row stays in the file. A source whose excerpt holds credential material is not proposed.
 
 `alice-memory sleep-proposals` lists the proposals oldest first, framed and JSON-quoted like the session brief, each with the `alice_memory_commit` arguments that accept it, including the source's domain, sensitivity and project scope. It skips a source that already has an active or accepted memory and writes nothing. To accept one, an agent or you calls `alice_memory_commit` with those arguments; the sidecar is not edited.
 

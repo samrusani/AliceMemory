@@ -7,12 +7,15 @@ registry, so a new tool definition or a moved tool would leave every page agreei
 This guard lists the tools the way a server does, under each flag combination, and reads the figures out of the pages.
 
 Mutations, each one alone: add a twelfth core tool definition to `_CORE_TOOL_DEFINITIONS`; change `62` to `63` in
-`docs/integrations/mcp.md`; delete `alice_explain` from the list in `ARCHITECTURE.md`; change `76-total` to `75-total`
-in `CURRENT_STATE.md`. Each fails one of the tests below.
+`docs/integrations/mcp.md`; delete `alice_explain` from the list in `ARCHITECTURE.md` while the name stays elsewhere
+on that page; delete the `alice_explain` bullet under "The full core surface" in `docs/alpha/mcp-tools.md` while the
+name stays elsewhere on that page; change `76-total` to `75-total` in `CURRENT_STATE.md`. Each fails one of the tests
+below.
 """
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -106,6 +109,23 @@ def test_the_state_file_states_the_core_legacy_and_total_counts(monkeypatch: pyt
     assert f"{core}-core/{legacy}-legacy/{counts['all_three']}-total" in _flat(relative)
 
 
+def _the_part_that_lists_the_tools(relative: str, names: list[str]) -> tuple[str, str]:
+    """The text that has to name every tool, and how a name must sit in it.
+
+    A name that appears somewhere else on a page does not prove the list on that page is whole, so the check reads one
+    place. `mcp-tools.md` lists one bullet per tool under its full core surface heading. Every other page lists the
+    tools in a single paragraph, so the paragraph that names the most of them is the list.
+    """
+
+    text = (ROOT / relative).read_text(encoding="utf-8")
+    if relative == "docs/alpha/mcp-tools.md":
+        start = text.index("\n## The full core surface\n")
+        end = text.index("\n## ", start + 1)
+        return text[start:end], "bullet"
+    paragraphs = re.split(r"\n\s*\n", text)
+    return max(paragraphs, key=lambda block: sum(name in block for name in names)), "name"
+
+
 @pytest.mark.parametrize("relative", _PAGES_THAT_NAME_THE_OTHER_CORE_TOOLS)
 def test_the_pages_that_list_the_core_tools_name_every_tool_the_default_three_leave_out(relative: str) -> None:
     others = sorted(
@@ -113,6 +133,6 @@ def test_the_pages_that_list_the_core_tools_name_every_tool_the_default_three_le
     )
     assert others, "every core tool is on the default surface, so this guard checks nothing"
 
-    text = (ROOT / relative).read_text(encoding="utf-8")
-    missing = [name for name in others if name not in text]
-    assert missing == [], f"{relative} does not name {missing}"
+    scope, shape = _the_part_that_lists_the_tools(relative, others)
+    missing = [name for name in others if (f"- `{name}`" if shape == "bullet" else name) not in scope]
+    assert missing == [], f"{relative} does not list {missing} where it lists the core tools"

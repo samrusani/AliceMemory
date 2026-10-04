@@ -652,12 +652,25 @@ This compatibility mode is local-operator-only and requires
 `ALICE_AGENT_API_KEY` to be unset. If a key is configured, legacy tools are
 omitted from `tools/list` and direct legacy calls are rejected.
 
-On the SQLite backend the legacy tools that read the continuity store (for
-example `alice_brief`, `alice_timeline`, `alice_state_at`,
-`alice_recall_debug` and the task-brief tools) are listed but their calls
-fail. Most of the `alice_vnext_*` tools use the vNext store and run, among
-them `alice_vnext_commit_memory`, `alice_vnext_propose_memory` and
-`alice_vnext_ingest_agent_output`.
+On the SQLite backend most legacy tools are listed but their calls fail. The
+legacy tools that read the continuity store (for example `alice_brief`,
+`alice_timeline`, `alice_state_at`, `alice_recall_debug` and the task-brief
+tools) fail, and so do most of the `alice_vnext_*` tools, because the SQLite
+store implements only part of what they call. `alice_vnext_context_tree`,
+`alice_vnext_ingest_agent_output`, `alice_vnext_queue_task`,
+`alice_vnext_generate_artifact`, `alice_vnext_project_dashboard`,
+`alice_vnext_find_connections`, `alice_vnext_find_contradictions`,
+`alice_vnext_artifact_get` and `alice_vnext_artifact_review` fail with
+`tool_execution_failed`. `alice_vnext_recent_changes` and the five
+`alice_vnext_scheduler_*` tools need Postgres and refuse the call. Thirteen
+`alice_vnext_*` tools run on SQLite: the memory-commit family
+(`alice_vnext_propose_memory`, `alice_vnext_commit_memory`,
+`alice_vnext_confirm_memory`, `alice_vnext_undo_memory`,
+`alice_vnext_correct_memory`, `alice_vnext_forget_memory`,
+`alice_vnext_recent_memory_commits`, `alice_vnext_memory_audit` and
+`alice_vnext_review_items`) and four reads and captures
+(`alice_vnext_context_pack`, `alice_vnext_capture`, `alice_vnext_open_loops`
+and `alice_vnext_recent_decisions`). On SQLite, use the core tools.
 
 With the flag set, `tools/list` includes the full long tail — for example
 `alice_vnext_ingest_agent_output` for structured agent-output ingestion,
