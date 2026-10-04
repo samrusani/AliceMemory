@@ -387,29 +387,32 @@ def test_the_changelog_and_the_notes_claim_nothing_that_v0192_never_had_or_did()
 
 def test_a_failed_export_to_standard_output_is_not_said_to_leave_nothing() -> None:
     """Mutations, each one alone: write "to a file and to standard output, and leaves no output file" back;
-    drop the sentence about standard output from the notes, the changelog, the backup guide or the limits.
+    drop the sentence about standard output from the notes, the changelog or the backup guide.
 
     `--out` leaves no file. A redirect of standard output holds the records written before the failure and
-    no footer, in v0.19.2 and in this release, and `alice-memory import` refuses that file.
+    no footer, in v0.19.2 and in this release, and `alice-memory import` refuses that file. The limitations page
+    states the export failure and links the backup guide, which holds the standard output half, so this test pins
+    that half on the guide (the page that explains export) and on the dated records, not on the page.
     """
 
     notes = _flat(NOTES_PATH)
     changelog = " ".join(_changelog_section().split())
     backup = _flat("docs/alpha/backup-and-restore.md")
-    limits = _flat("docs/alpha/known-limitations.md")
     for name, text in (("notes", notes), ("changelog", changelog), ("backup guide", backup)):
         assert "to a file and to standard output, and leaves no output file" not in text, name
         assert "to a file or to standard output, then prints" not in text, name
         assert "To standard output it has already written records by then and stops with no footer" in text, name
         assert "a shell redirect keeps a partial file that import refuses" in text, name
         assert "With `--out` it leaves no output file" in text, name
+    limits = _flat("docs/alpha/known-limitations.md")
+    assert "to a file and to standard output, and leaves no output file" not in limits
+    assert "to a file or to standard output, then prints" not in limits
     assert "and its standard output was partial in the same way" in notes
     assert "Its standard output was partial in the same way." in changelog
     assert "The standard output of v0.19.2 was partial in the same way." in backup
     assert "which `alice-memory import` refused with `import_validation_failed`" in notes
     assert "and writes no file" not in notes
     assert "With `--out` it writes no file, and to standard output it leaves a partial stream that import refuses" in notes
-    assert "and with `--out` it writes no file; an export to standard output that fails has already written part" in limits
     limitations = _section(_text(NOTES_PATH), "Known limitations")
     assert "An export to standard output that fails has already written part of the stream, with no footer" in limitations
 

@@ -177,15 +177,18 @@ def test_the_section_says_authorization_comes_before_state() -> None:
 
 
 def test_the_confirm_paragraph_says_the_scope_is_checked_before_the_pending_check() -> None:
-    """The confirm paragraph says, after one marker, that scope, profile and ceiling now come before the pending check.
+    """The confirm and reject rules say, after one marker, that scope, profile and ceiling now come before the pending check.
 
     v0.20.0 checked only who may resolve the write first, so the sentence is main-only and says what v0.20.0 did.
+    The sentence lives in the one canonical section of the protocol page, "Confirm and reject rules"; the tool
+    reference keeps a short summary and a link to it and no longer repeats this sentence, so the pin moved with the text.
 
     Mutations, each one alone: delete the marker from the sentence; delete ``checked before the pending check too``;
     delete the sentence that says only the check of who may resolve the write came first in v0.20.0. Each fails.
     """
 
-    page = _flat((ROOT / "docs/alpha/mcp-tools.md").read_text(encoding="utf-8"))
+    page = _flat((ROOT / "docs/memory-operations-protocol.md").read_text(encoding="utf-8"))
+    assert page.count("Confirming a row that is not pending is refused and writes nothing.") == 1
     anchor = "Confirming a row that is not pending is refused and writes nothing."
     start = page.index(anchor) + len(anchor)
     sentence_block = page[start : start + 520]

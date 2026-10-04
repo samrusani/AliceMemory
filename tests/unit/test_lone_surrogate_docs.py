@@ -90,30 +90,24 @@ def test_no_added_line_uses_an_em_dash_or_an_en_dash() -> None:
         assert "\u2013" not in text
 
 
-def test_the_known_limitation_keeps_v0192_and_marks_v0200() -> None:
-    """The bullet still says what v0.19.2 does and adds what v0.20.0 does, marked.
+def test_the_known_limitations_page_no_longer_lists_the_fixed_surrogate_limit() -> None:
+    """The dropped Hermes turn is fixed in v0.20.0, so the limitations page does not list it as open.
 
-    Mutations: delete the v0.19.2 half of the bullet; drop the marker; claim the
-    turn is saved without saying it is main; say every route without the scope.
+    The page lists what is limited now. What v0.19.2 did (HTTP 500 on a body with a lone surrogate, so the
+    turn was not saved) is pinned on the dated records: the v0.20.0 changelog entry in
+    ``test_the_changelog_entry_sits_under_v0200_and_states_v0192`` and the v0.19.2 notes in
+    ``test_v0192_notes_claim_corrections.py``. What v0.20.0 does (HTTP 422 on every route that takes a body,
+    plugin 0.5.3 replaces the surrogate) is pinned on the Hermes provider guide below.
+
+    Mutation: put the v0.19.2 bullet back on the limitations page ("in v0.19.2 the server answers a
+    ``POST /v0/continuity/captures/candidates`` body that carries a lone surrogate with HTTP 500, so a Hermes turn
+    that carries one is not saved"). This test fails.
     """
 
-    bullets = [
-        _flat(line)
-        for line in _read("docs/alpha/known-limitations.md").splitlines()
-        if "lone surrogate" in line
-    ]
-    assert len(bullets) == 1
-    bullet = bullets[0]
-    assert bullet.startswith(
-        "- in v0.19.2 the server answers a `POST /v0/continuity/captures/candidates` body that carries a lone surrogate "
-        "with HTTP 500, so a Hermes turn that carries one is not saved."
-    )
-    assert bullet.endswith(
-        "From v0.20.0, every route that takes a POST, PUT, PATCH or DELETE answers a JSON "
-        "body that carries one with HTTP 422 when the decoder can parse the body (a body nested more than 256 "
-        "levels deep answers HTTP 422 with the error type `json_too_deep`), and Hermes provider 0.5.3 replaces it "
-        "with U+FFFD, so the turn is saved"
-    )
+    limits = _flat(_read("docs/alpha/known-limitations.md"))
+    assert "/v0/continuity/captures/candidates" not in limits
+    assert "Hermes turn that carries one is not saved" not in limits
+    assert "HTTP 500" not in limits
 
 
 def test_the_provider_guide_marks_plugin_053_from_v0200_and_keeps_052_as_v0192() -> None:

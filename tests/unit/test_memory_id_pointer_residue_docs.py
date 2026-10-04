@@ -56,25 +56,30 @@ def test_the_changelog_entry_sits_under_v0200_and_states_v0192() -> None:
     assert "Postgres was not timed." in entry
 
 
-def test_the_known_limitations_keep_v0192_and_mark_the_fix() -> None:
-    """Both entries keep the v0.19.2 sentence and add the marked fix after it.
+def test_the_known_limitations_state_what_the_pack_does_now_and_leave_the_fixed_gaps_to_the_records() -> None:
+    """The page states what the pack does now and the one thing it does not cover; the fixed gaps are not on it.
 
-    Mutations: delete the v0.19.2 half of either entry; delete the marker; say the
-    fix is in v0.19.2.
+    Both gaps are fixed in v0.20.0, so the limitations page lists what is limited now: the pack
+    removes the id of a memory the caller cannot read from ``metadata_json``, and looks only for a
+    36-character UUID there. What v0.19.2 did is pinned on the dated records: the changelog entry
+    (``test_the_changelog_entry_sits_under_v0200_and_states_v0192`` above) holds the debug pack gap for
+    decision, procedure and belief memories and the ``validity.superseded`` gap, and the published v0.19.2
+    notes still list both as open (``test_the_published_v0192_notes_are_not_changed``).
+
+    Mutations: delete the 36-character UUID sentence or the sentence that says what the pack removes
+    from the page; put either v0.19.2 bullet back on the page (``in v0.19.2 a memory id copied into a stored
+    memory's `metadata_json` is returned without the read fence``, ``in v0.19.2 the context pack drops
+    `validity.superseded` ``).
     """
     text = _read("docs/alpha/known-limitations.md")
     assert (
-        "in v0.19.2 a memory id copied into a stored memory's `metadata_json` is returned without the read fence by an "
-        "`alice_context_pack` call with `debug: true`"
-    ) in text
-    assert (
-        "to the keyless owner under the default sensitivity ceiling and to a read-only key. From v0.20.0 it is fixed."
-    ) in text
-    assert (
-        "where recall keeps it; this needs a row whose status is still active. From v0.20.0 it is fixed. The pack "
-        "keeps `validity.superseded: true` and names no id, as recall does"
+        "`alice_context_pack` removes the id of a memory the caller cannot read from the `metadata_json` of the "
+        "memories it returns, in every section that holds them"
     ) in text
     assert "Only a 36-character UUID in `metadata_json` is looked for" in text
+    assert "an id in another column of a stored row or in another spelling is not" in text
+    assert "is returned without the read fence by an `alice_context_pack` call" not in text
+    assert "the context pack drops `validity.superseded`" not in text
 
 
 def test_the_threat_model_and_the_tools_doc_mark_what_v0200_changed() -> None:
