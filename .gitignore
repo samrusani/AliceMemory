@@ -28,7 +28,6 @@ artifacts/
 .ai/active/*
 !.ai/active/SPRINT_PACKET.md
 .ai/handoff/*
-!.ai/handoff/CURRENT_STATE.md
 BUILD_REPORT.md
 REVIEW_REPORT.md
 !docs/archive/process/BUILD_REPORT.md
