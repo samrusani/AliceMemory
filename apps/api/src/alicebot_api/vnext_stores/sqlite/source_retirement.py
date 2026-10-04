@@ -147,17 +147,17 @@ class CandidateScrubRefused(ValueError):
 def source_inventory(self, *, query=None, superseded=False, all_sources=False, limit=50):
     if not 1 <= limit <= 1000:
         raise ValueError('Source list limit must be between 1 and 1000')
-    if superseded:
-        state = "s.deleted_at IS NOT NULL AND json_extract(s.metadata_json, '$.superseded_by') IS NOT NULL"
-    elif all_sources:
-        state = "(s.deleted_at IS NULL OR json_extract(s.metadata_json, '$.superseded_by') IS NOT NULL)"
-    else:
-        state = 's.deleted_at IS NULL'
+    view = "replaced" if superseded else "all" if all_sources else "live"
     rows = self._fetch_all(
-        "SELECT s.*, (SELECT count(*) FROM source_chunks c WHERE c.user_id=s.user_id AND c.source_id=s.id) "
-        "AS chunk_count FROM sources s WHERE s.user_id = ? AND " + state +
-        " AND COALESCE(json_extract(s.metadata_json, '$.scrubbed'), 0) != 1 ORDER BY s.captured_at DESC, s.id",
-        (self.user_id,))
+        """SELECT s.*, (SELECT count(*) FROM source_chunks c
+        WHERE c.user_id = s.user_id AND c.source_id = s.id) AS chunk_count
+        FROM sources s WHERE s.user_id = ?
+        AND ((s.deleted_at IS NULL AND ? != 'replaced')
+          OR (s.deleted_at IS NOT NULL AND ? != 'live'
+              AND json_extract(s.metadata_json, '$.superseded_by') IS NOT NULL))
+        AND COALESCE(json_extract(s.metadata_json, '$.scrubbed'), 0) != 1
+        ORDER BY s.captured_at DESC, s.id""",
+        (self.user_id, view, view))
     if query:
         query = query.casefold()
         rows = [row for row in rows if any(query in str(value or '').casefold() for value in (
