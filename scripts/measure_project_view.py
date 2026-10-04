@@ -90,6 +90,9 @@ def build_vault(data_dir: Path, *, notes: int, scoped_share: float = 0.15) -> di
     from alicebot_api.project_identity import detect_project
     from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
 
+    # A relative --data-dir (the form the usage text shows) must name the same repository
+    # beside the vault that ``measure`` reads back, so make both absolute here.
+    data_dir = data_dir.resolve()
     repo = data_dir.parent / (data_dir.name + "-repo")
     _make_repo(repo)
     detection = detect_project(argument=str(repo), env_project_dir=None, hook_cwd=None, process_cwd=None)
