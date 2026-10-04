@@ -413,34 +413,24 @@ def _flat(text: str) -> str:
 def test_the_docs_say_the_hook_checks_the_variable_from_v0192_and_keep_the_v0190_gap(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """The docs say what v0.19.2 does and what v0.19.0 still does.
+    """The docs say what v0.19.2 does and what v0.19.0 did.
 
     v0.19.0 creates a vault under the current directory for a relative
-    ``ALICE_MEMORY_DATA_DIR``, so the known limitation stays as v0.19.0's gap,
-    followed by what v0.19.2 changed. The changelog's v0.19.2 section holds the
-    change and names v0.19.0's behaviour, the README carries it in a ``From
-    v0.19.2`` paragraph, and ``--help`` states the rule.
+    ``ALICE_MEMORY_DATA_DIR``. The known limitations page no longer retells that gap, because
+    v0.19.2 fixed it: the history is the changelog's v0.19.2 section, which holds the change and
+    names v0.19.0's behaviour, and the v0.19.0 release notes. The example page, the README (in a
+    ``From v0.19.2`` paragraph) and the control documents carry what the hook does now, and
+    ``--help`` states the rule.
 
-    Mutations, each one alone: drop the ``From v0.19.2`` wording from the known
-    limitation, the example page or the control documents; delete the
-    ``In v0.19.0`` clause from the changelog entry; move the entry out of the
-    v0.19.2 section; put the rule into a ``From v0.19.0`` README line; drop
-    the variable from the ``--data-dir`` help; change the changelog's ``exits 0``
-    or the example page's ``It exits 0 and creates nothing``; drop the escape and
-    cut sentence from either. This test fails.
+    Mutations, each one alone: drop the ``From v0.19.2`` wording from the example page or the
+    control documents; delete the ``In v0.19.0`` clause from the changelog entry; move the entry
+    out of the v0.19.2 section; put the rule into a ``From v0.19.0`` README line; drop the
+    variable from the ``--data-dir`` help; change the changelog's ``exits 0`` or the example
+    page's ``It exits 0 and creates nothing``; drop the escape and cut sentence from either. This
+    test fails.
     """
 
     from alicebot_api.session_start_hook import _parse_args
-
-    bullets = [
-        line
-        for line in (_ROOT / "docs" / "alpha" / "known-limitations.md").read_text(encoding="utf-8").splitlines()
-        if "relative `ALICE_MEMORY_DATA_DIR`" in line
-    ]
-    assert len(bullets) == 1
-    assert bullets[0].startswith("- in v0.19.0 a relative `ALICE_MEMORY_DATA_DIR` is not checked")
-    assert "From v0.19.2, the hook refuses a non-empty value of the variable" in bullets[0]
-    assert "Unreleased" not in bullets[0]
 
     example = _flat((_ROOT / "docs" / "examples" / "alice-memory-session-start.md").read_text(encoding="utf-8"))
     assert "in v0.19.0 it does not check this variable" in example

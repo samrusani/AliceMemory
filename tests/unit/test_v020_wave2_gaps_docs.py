@@ -144,22 +144,32 @@ def test_the_backup_doc_marks_the_revision_cap_the_header_and_the_export() -> No
 
 
 def test_the_known_limitation_for_deep_backup_json_names_the_export_line() -> None:
-    """The known limitation keeps the v0.19.2 sentence and adds the marked change after it.
+    """The limitations page states what export does with such a vault; the backup guide holds the import rule.
 
-    Mutations: delete the v0.19.2 half, the marker, the export line, or the memory and entity
-    columns from the last sentence.
+    The known limitations page lists what is limited now, so it no longer retells that v0.19.2 ended this export with the
+    generic ``alice_memory_failed``: that history is pinned on the changelog entry (``ends with `export_failed`.
+    In v0.19.2 it ended with `alice_memory_failed`.``, in ``test_the_entry_states_the_v0192_backup_behaviour`` above) and on
+    the backup guide. The seven columns held to 256 levels are a current rule, so their pin lives on the backup guide,
+    the page that explains import and export, and not on the limitations page.
+
+    Mutations, each one alone: delete the export line or ``export_failed`` from the limitations bullet or from
+    the backup guide; delete the sentence that names the seven columns from the backup guide; change 256 in it.
     """
     text = _read("docs/alpha/known-limitations.md")
-    assert (
-        "still ends with the generic `alice_memory_failed`. " + MARK + " that export ends with `export_failed` after one "
-        "line that names the table and the column"
-    ) in text
+    assert "`alice-memory export` ends with `export_failed` after one line that names the table and the column" in text
     assert "`alice-memory: memory_revisions column previous_value is nested too deeply for export to write`" in text
+    assert "Import refuses such text with `restore_failed`" in text
+    assert "ends with the generic `alice_memory_failed`" not in text
+    guide = _read("docs/alpha/backup-and-restore.md")
     assert (
-        "text nested more than 256 levels in `previous_value`, `new_value`, `source_event_ids` or `candidate` of a "
-        "revision, in `value` or `source_event_ids` of a memory, or in `aliases` of an entity is refused with "
-        "`restore_failed`"
-    ) in text
+        "From v0.20.0, JSON text nested more than 256 levels in the `previous_value`, `new_value`, "
+        "`source_event_ids` or `candidate` column of a memory revision is refused with `restore_failed`"
+    ) in guide
+    assert (
+        "and so is such text in the `value` or `source_event_ids` column of a memory and the `aliases` column of an "
+        "entity."
+    ) in guide
+    assert "`alice-memory: memory_revisions column previous_value is nested too deeply for export to write`" in guide
 
 
 def test_the_entry_states_the_v0192_behaviour_of_the_three_file_commands() -> None:
@@ -200,14 +210,17 @@ def test_the_importers_doc_covers_the_file_commands_and_the_log_line() -> None:
 
 
 def test_the_known_limitation_and_the_readme_name_the_three_commands() -> None:
-    """Both say the three commands take the limit now, and the limitation keeps the v0.19.2 sentence.
+    """Both say the three commands take the limit now; the v0.19.2 half is on the changelog entry.
 
-    Mutations: put ``capture-file has no limit`` back, or delete the v0.19.2 half.
+    The known limitations page lists what is limited now, so it no longer says that v0.19.2 read the whole file with no
+    limit: ``test_the_entry_states_the_v0192_behaviour_of_the_three_file_commands`` pins that on the changelog entry.
+
+    Mutations: put ``capture-file has no limit`` back, or delete the limit sentence from the page or the README.
     """
     limits = _read("docs/alpha/known-limitations.md")
     assert "`alicebot vnext sources capture-file` has no limit" not in limits
     assert "take the same 16 MiB limit and `--max-file-mib N`" in limits
-    assert "in v0.19.2 they read the whole file with no limit." in limits
+    assert "in v0.19.2 they read the whole file with no limit." not in limits
     readme = _read("README.md")
     assert (
         "`alicebot vnext sources capture-file` and the `--file` options of `alicebot vnext connectors browser-clipper "
@@ -231,26 +244,44 @@ def test_the_entry_states_the_v0192_local_folder_behaviour() -> None:
     assert "come from the descriptor that was read, whether the file changes before the read or after it." in entry
 
 
-def test_the_known_limitation_and_the_threat_model_say_ignored_folders_are_not_entered() -> None:
-    """Both keep the 100,000 figure and say what it counts, and the limitation names the printed numbers.
+def test_the_threat_model_and_the_v0200_notes_say_ignored_folders_are_not_entered() -> None:
+    """The threat model keeps the 100,000 figure and says what it counts; the v0.20.0 notes keep ``ignored_count`` and the printed numbers.
 
-    Mutations: delete either sentence, or the marker the limitation's paragraph sits under.
+    The limitations page states what the scan still does not do (the bounds, the link rule and the hard link) and
+    leaves the ignored folders and the two printed numbers to the pages that already say them: the threat model for
+    what the 100,000 counts, and the release notes of v0.20.0, which the page links to, for ``ignored_count`` and the
+    two numbers the commands print. The notes and the changelog entry are dated records: the pins on them keep what
+    they said (``test_the_entry_states_the_v0192_local_folder_behaviour`` above pins the entry). What the commands print
+    and what ``ignored_count`` counts now is stated on ``docs/integrations/cli.md`` and pinned in
+    ``test_the_cli_page_says_what_sync_and_watch_print_and_what_ignored_count_counts`` in
+    ``test_local_folder_connector_docs.py``.
+
+    Mutations, each one alone: delete the sentence about ignored folders from the threat model; in the v0.20.0 notes,
+    change ``so its files stop counting in `ignored_count` `` to ``so its files still count in `ignored_count` ``, or
+    change ``print them`` to ``print neither``; put the ignored folder sentence back on the limitations page with the
+    v0.19.2 half (a ``v0.19.2`` on the page fails the first check).
     """
     raw = (ROOT / "docs/alpha/known-limitations.md").read_text(encoding="utf-8")
-    (bullet,) = [item for item in raw.split("\n- ") if item.startswith("in v0.19.2 the local-folder scan reads each matching file whole")]
-    assert bullet.index(MARK) < bullet.index("It does not enter a folder named like a default ignore")
+    (bullet,) = [item for item in raw.split("\n- ") if item.startswith("the local-folder scan opens the watched folder")]
     limits = _flat(bullet)
-    assert (
-        "It does not enter a folder named like a default ignore (`node_modules`, `.git`, `.venv` and the rest of the "
-        "list, compared without regard to case), so the inside of one neither costs time nor counts toward the "
-        "100,000, and its files are not in `ignored_count`."
-    ) in limits
-    assert "`alicebot vnext connectors local-folder sync` and `watch` print `refused_count` and `truncated`." in limits
+    assert "v0.19.2" not in limits
+    assert "lists at most 100,000 directory entries" in limits
     threat = _read("docs/security/threat-model.md")
     assert (
         "lists at most 100,000 directory entries without entering a folder named like a default ignore such as "
         "`node_modules` or `.git`"
     ) in threat
+    notes = _read("docs/release/v0.20.0-release-notes.md")
+    assert (
+        "A folder named like a default ignore (`node_modules`, `.git`, `.venv` and the rest of the list, without regard "
+        "to case) is no longer entered, so its files stop counting in `ignored_count`."
+    ) in notes
+    assert (
+        "`refused_count` and `truncated` are written to the `connector.local_folder_scan` event and shown as "
+        "`last_scan` in the health output of the connector, and `alicebot vnext connectors local-folder sync` and "
+        "`watch` print them"
+    ) in notes
+    assert "`ignored_count` no longer counts files inside an ignored folder." in notes
 
 
 def test_the_security_docs_say_what_the_importers_do_not_what_they_did_before_v0152() -> None:

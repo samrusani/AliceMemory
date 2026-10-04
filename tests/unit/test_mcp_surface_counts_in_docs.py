@@ -233,8 +233,6 @@ _NOT_A_SURFACE_COUNT: tuple[tuple[str, str], ...] = (
         "how many core tools are read-only and how many are destructive; the hints come from the registry and "
         "test_mcp_readonly_hints.py pins that sentence",
     ),
-    (r"\bThese two tools did not\b", "two named tools of the known-limitations list, `alice_recall` and the pack"),
-    (r"\bThe two tools match the query\b", "the two search tools, `alice_recall` and `alice_context_pack`"),
     (r"\bThese two tools match the query\b", "the two search tools, `alice_recall` and `alice_context_pack`"),
     (
         r"\bsuperseded carrier reproduced\b",

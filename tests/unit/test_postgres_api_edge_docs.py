@@ -134,12 +134,18 @@ def test_the_changelog_entry_states_the_provider_redirect_change_with_v0192_besi
 
 
 def test_the_provider_change_is_marked_from_v0200_in_the_threat_model_limitations_and_review_brief() -> None:
-    """Each document says what v0.20.0 does, marked, and keeps what is still open.
+    """The threat model and the review brief say what v0.20.0 does, marked, and the limitations page states it as it is now.
+
+    The known limitations page lists what is limited now, so it no longer retells that v0.19.2 used the
+    standard library opener and followed redirects. That history is pinned on the dated records: the
+    changelog entry in ``test_the_changelog_entry_states_the_provider_redirect_change_with_v0192_beside_it`` and the threat
+    model here.
 
     Mutations, each one alone: delete the marker from the trust-boundary row, the
-    abuse-case row, the open-items sentence, the known-limitations bullet or the
-    review brief; delete the residual that names the proxy and the four clients
-    that do not check the address.
+    abuse-case row, the open-items sentence or the review brief; delete the
+    residual that names the proxy and the four clients that do not check the
+    address, from the abuse-case row or from the limitations bullet; delete
+    the clause that tells an operator to use the final URL from the limitations bullet.
     """
 
     raw = _read("docs/security/threat-model.md")
@@ -164,12 +170,19 @@ def test_the_provider_change_is_marked_from_v0200_in_the_threat_model_limitation
     bullets = [
         _flat(line)
         for line in _read("docs/alpha/known-limitations.md").splitlines()
-        if line.startswith("- in v0.19.2 calls to a configured provider, embeddings, reranker or fact-key endpoint")
+        if line.startswith("- no call to a configured provider, embeddings, reranker or fact-key endpoint follows a redirect")
     ]
     assert len(bullets) == 1
-    assert "use the standard library opener, which follows redirects" in bullets[0]
-    assert f"{MARKER} none of those clients follows a redirect" in bullets[0]
+    assert "(a provider that redirects must be configured with its final URL)" in bullets[0]
+    assert (
+        "the provider helpers, Gmail and Calendar dial only an address the outbound policy allows (DB-009)"
+    ) in bullets[0]
+    assert (
+        "The embeddings, reranker, fact-key and brain clients can still reach a loopback or private address, a request "
+        "carried by a proxy is not held to the address rule"
+    ) in bullets[0]
     assert bullets[0].endswith("and a provider response is read whole")
+    assert "standard library opener" not in bullets[0]
 
     brief = _flat(_read("docs/security/external-review-brief.md"))
     assert f"{MARKER} provider calls go through one function that follows no redirect" in brief
@@ -234,40 +247,54 @@ def test_the_threat_model_names_dns_rebinding_and_the_host_rule_and_marks_v0200(
     assert "does not check the `Host` header of a keyless loopback request. From v0.20.0, the `Host` and `Origin` rules above are in (DB-005)" in model
 
 
-def test_known_limitations_keeps_v0192_and_marks_v0200_for_host_and_origin() -> None:
-    """The bullet still says v0.19.2 does not check Host, then says what v0.20.0 does, marked.
+def test_known_limitations_states_the_edge_rules_and_what_they_leave_open() -> None:
+    """The bullet states what the HTTP API refuses now and the limits that remain; the detail is in the threat model.
 
-    Mutations: delete the v0.19.2 half; drop the marker; claim the check without
-    the marker; drop the sentence that says the legacy ``/v0`` routes get the rule.
+    The known limitations page lists what is limited now, so it no longer opens with what v0.19.2 did (parsed a body of any
+    size before it authenticated, and did not check ``Host``). That is pinned on the dated records:
+    the v0.19.2 notes (``test_the_v0192_release_notes_still_list_the_findings_as_open``), the changelog
+    entry above and the threat model sentence "does not check the ``Host`` header of a keyless loopback
+    request. From v0.20.0, ..." in ``test_the_threat_model_names_dns_rebinding_and_the_host_rule_and_marks_v0200``.
+    The bullet is two sentences and a link. It no longer lists the accepted ``Host`` values or spells out the ``Origin``
+    rule, which the threat model holds and pins here (the list of accepted values and the ``Origin`` rule below).
+
+    Mutations, each one alone: change 4 MiB, 32 MiB or 256 in the bullet; delete the ``Host`` or ``Origin`` clause from
+    the first sentence; delete the clause that says an agent key is not checked, the clause that says the legacy ``/v0``
+    routes get the rule, or the no rate limit clause; delete the clause that says the rule was not checked from a real
+    browser or the one that says an allowed name is trusted as this machine; in the threat model, change ``localhost``
+    in the list of accepted values, delete the ``ALICEBOT_ALLOWED_HOSTS`` clause of that sentence or change ``an exact
+    entry of `CORS_ALLOWED_ORIGINS` `` in the ``Origin`` rule.
     """
 
     bullets = [
         _flat(line)
         for line in _read("docs/alpha/known-limitations.md").splitlines()
-        if "does not check the `Host` header" in line
+        if line.startswith("- the HTTP API refuses a request body over 4 MiB")
     ]
     assert len(bullets) == 1
     bullet = bullets[0]
-    assert bullet.startswith(
-        "- in v0.19.2 the Postgres stack's HTTP API parses a JSON request body of any size before it authenticates"
-    )
     assert (
-        f"it does not check the `Host` header of a keyless loopback request. {MARKER} a request body over 4 MiB "
-        "(32 MiB for the connector sync routes) is refused with HTTP 413 before any layer reads it, a keyless request "
-        "from another peer is refused before its body is read, a JSON body nested more than 256 levels deep is refused "
-        "with HTTP 422 (DB-006), and a keyless request is refused unless its `Host` is `localhost`, `127.0.0.1`, `::1` "
-        "or a name listed in `ALICEBOT_ALLOWED_HOSTS`"
+        "- the HTTP API refuses a request body over 4 MiB (32 MiB for the connector sync routes) with HTTP 413, a JSON "
+        "body nested more than 256 levels deep with HTTP 422 (DB-006), and a keyless request whose `Host` or `Origin` "
+        "is not this machine's (DB-005)."
     ) in bullet
-    assert "(DB-005)" in bullet
     assert (
-        "A request with an agent key on `/v0/vnext` or `/v1` is not checked, and the legacy `/v0` routes apply the same "
-        "Host and Origin rule to every request, because they check no key. A request inside the cap still costs memory "
-        "and time, and the cap is no rate limit."
+        "The cap is no rate limit, a request with an agent key is not checked for `Host` and `Origin`, the legacy "
+        "`/v0` routes apply the rule to every request, and the rule was checked with raw requests and in process, not "
+        "from a real browser; a name listed in `ALICEBOT_ALLOWED_HOSTS` is trusted as this machine"
     ) in bullet
-    assert bullet.endswith(
-        "The Host and Origin rule was checked with raw requests and in process, not from a real browser, and a name "
-        "listed in `ALICEBOT_ALLOWED_HOSTS` is trusted as this machine"
-    )
+    assert bullet.endswith("(see the [threat model](../security/threat-model.md))")
+    assert "in v0.19.2" not in bullet
+    model = _flat(_read("docs/security/threat-model.md"))
+    assert (
+        "refuse a request that carries no agent key unless its `Host` is `localhost`, `127.0.0.1` or `::1` (any port, "
+        "case-insensitive, an IPv6 literal in brackets, one trailing dot allowed) or an exact name the operator lists "
+        "in `ALICEBOT_ALLOWED_HOSTS`"
+    ) in model
+    assert (
+        "If an `Origin` header is present it must be an exact entry of `CORS_ALLOWED_ORIGINS` or the request's own "
+        "origin (the same host and port as the validated `Host`), and `null` is refused"
+    ) in model
 
 
 def test_security_policy_deployment_guide_and_env_example_mark_the_edge_rules_from_v0200() -> None:
@@ -333,7 +360,7 @@ def test_no_added_text_uses_an_em_dash_or_an_en_dash() -> None:
         _read("apps/api/src/alicebot_api/keyless_edge.py"),
         _read("apps/api/src/alicebot_api/request_limits.py"),
         _read("packaging/cloud/Caddyfile.example"),
-        _read("docs/alpha/known-limitations.md").split("Items from the internal security review")[1],
+        _read("docs/alpha/known-limitations.md"),
         _read("docs/security/external-review-brief.md"),
         _read("apps/api/src/alicebot_api/provider_http.py"),
     ):
