@@ -31,7 +31,6 @@ This alpha is intentionally limited. This page lists what is limited now, in sho
 - `/vnext` is the operator console, not the main agent interface
 - after any active agent key exists, the full `/vnext` console requires a dedicated unbound `admin_agent` key entered again for each mounted browser session; `trusted_local_agent` is not full admin-review parity
 - generic thread, approval, task, and trace histories are client-bounded, but their list endpoints do not yet provide cursor pagination
-- Unreleased (on main, not in v0.20.0): a fenced agent key gets an entity name from `alice_recall` or a context pack only when a memory or source it can read links to it, and gets no `mention_count`. See [Entity disclosure follows the read fence](mcp-tools.md#entity-disclosure-follows-the-read-fence).
 - team accounts, billing, cloud sync, mobile app, and hosted deployment are out of scope
 
 SQLite mode (`alice-memory install`, `alice-memory mcp`) is the default single-user path and carries extra boundaries:
