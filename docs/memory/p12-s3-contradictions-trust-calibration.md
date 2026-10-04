@@ -1,10 +1,16 @@
-# P12-S3 Contradictions and Trust Calibration
+# Contradictions and Trust Calibration
+
+## Requirements and status
+
+- Support status: legacy surface. Its MCP tools are off the default handshake, and the legacy MCP surface is frozen: it gets no new capabilities. The commands, routes and tools on this page are kept working: CI runs their tests against Postgres. New integrations use the core tools.
+- Backend: Postgres, for the CLI, the HTTP API and the MCP tools alike. The `alicebot` CLI refuses a SQLite URL and the HTTP API runs only on Postgres. The four MCP tools below read the continuity store, which exists only on Postgres: on the SQLite `alice-memory` vault they are listed but their calls fail. See [Full stack](../../README.md#full-stack-postgres--review-console).
+- Settings: the MCP tools need `ALICE_MCP_LEGACY_TOOLS=1` in the server environment, on a keyless server. A server bound with `ALICE_AGENT_API_KEY` never lists or accepts them. The CLI commands and the HTTP routes need no flag.
 
 ## Scope
 
-This sprint makes contradiction state and trust adjustments explicit across continuity review, explain, recall, CLI, API, and MCP surfaces.
+Contradiction state and trust adjustments are explicit across continuity review, explain, recall, CLI, API, and MCP surfaces.
 
-The shipped branch behavior adds:
+The behavior:
 
 - contradiction detection for direct fact, preference, temporal, and source-hierarchy conflicts
 - persisted contradiction case records with status and resolution fields
@@ -19,9 +25,9 @@ The detector compares active continuity objects and extracts candidate claims fr
 - structured keys such as `fact_key`, `fact_value`, `preference_key`, `preference_value`, and temporal bounds
 - fallback text patterns from decision, fact, commitment, waiting-for, blocker, and preference text
 
-Only live continuity objects participate in contradiction detection. Current branch behavior treats `active` and `stale` objects as live candidates, while `superseded` and `deleted` objects keep audit visibility without reopening contradiction penalties.
+Only live continuity objects participate in contradiction detection. `active` and `stale` objects are live candidates, while `superseded` and `deleted` objects keep audit visibility without reopening contradiction penalties.
 
-Detected conflicts are stored as contradiction cases with current branch linkage to continuity objects:
+Detected conflicts are stored as contradiction cases with linkage to continuity objects:
 
 - `canonical_key`
 - participating continuity object ids
@@ -34,9 +40,9 @@ Temporal bounds are normalized to UTC during detection so date-only or naive ISO
 
 ## Trust Calibration
 
-Current branch behavior stores trust signals as ledger rows in `trust_signals`.
+Trust signals are ledger rows in `trust_signals`.
 
-Current branch signal types:
+Signal types:
 
 - `contradiction`
 - `correction`
@@ -56,7 +62,7 @@ Open contradiction cases apply a negative trust adjustment and a retrieval penal
 
 ## Storage
 
-This sprint adds two tables:
+Two tables back this:
 
 - `contradiction_cases`
 - `trust_signals`
@@ -77,7 +83,7 @@ Endpoints:
 
 ### CLI
 
-New commands:
+Commands:
 
 - `alicebot contradictions detect`
 - `alicebot contradictions list`
@@ -87,9 +93,9 @@ New commands:
 
 ### MCP
 
-These are legacy MCP tools. They are listed only with `ALICE_MCP_LEGACY_TOOLS=1` on a keyless local server, never on a server bound with `ALICE_AGENT_API_KEY`, and they run only on Postgres: on SQLite they are listed but their calls fail. See [Legacy tool surface](../alpha/mcp-tools.md#legacy-tool-surface).
+These are legacy MCP tools. Their requirements are at the top of this page. See also [Legacy tool surface](../alpha/mcp-tools.md#legacy-tool-surface).
 
-New tools:
+Tools:
 
 - `alice_contradictions_detect`
 - `alice_contradictions_list`
@@ -98,9 +104,9 @@ New tools:
 
 ## Retrieval and Explainability
 
-Recall now syncs contradiction state for in-scope candidates before ranking. Open contradiction counts and penalty scores are attached to ordering metadata and reduce trust contribution during ranking.
+Recall syncs contradiction state for in-scope candidates before ranking. Open contradiction counts and penalty scores are attached to ordering metadata and reduce trust contribution during ranking.
 
-Explain output now includes:
+Explain output includes:
 
 - open and resolved contradiction counts
 - contradiction kinds
@@ -110,7 +116,7 @@ Explain output now includes:
 
 ## Verification
 
-Sprint verification covers:
+Tests cover:
 
 - unit tests for contradiction detection, trust signal persistence, and resolution handling
 - migration shape tests for contradiction and trust schema
