@@ -72,6 +72,22 @@ def test_each_frozen_handoff_readme_holds_the_correction_once_right_after_its_ti
     assert text.count("Correction (2026-10-04)") == 1, folder
 
 
+
+def test_the_v0104_repair_batch_history_holds_the_correction_once_right_after_its_title() -> None:
+    """``docs/handoff/history`` has no README, so its one dated record that calls a review independent,
+    ``v0.10.4-repair-batches.md``, carries the same correction line right after its title. The file is not a
+    frozen-folder byte guard target; its required markers are held by ``check_control_doc_truth.py``.
+
+    Mutation: delete, reword or redate the line, or add a second copy.
+    """
+
+    text = (HANDOFF_ROOT / "history" / "v0.10.4-repair-batches.md").read_text(encoding="utf-8")
+    lines = text.splitlines()
+    assert lines[0] == "# v0.10.4 Repair-Batch History"
+    assert lines[1:4] == ["", CORRECTION, ""]
+    assert text.count(CORRECTION) == 1
+    assert text.count("Correction (2026-10-04)") == 1
+
 def _diff(*body: str, header: tuple[str, ...] | None = None) -> str:
     head = (
         header
