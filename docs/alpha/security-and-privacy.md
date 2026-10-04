@@ -20,8 +20,9 @@ Security posture:
 
 - source evidence is review-only
 - generated artifacts are review-only
-- agent memory proposals are review-only; explicit agent commits may become durable only when the configured policy permits it
-- trusted memory is not auto-promoted
+- agent memory proposals are review-only by default; explicit agent commits may become durable only when the configured policy permits it
+- trusted memory is not auto-promoted by default. A deployment opts in with `ALICE_MEMORY_PERSONA` set to `personal` or `team`, or with one of those two personas in the owner's Brain Charter. See [memory promotion personas](../memory/promotion-personas.md)
+- with the `personal` or `team` persona set, auto-promotion only lifts a write that was waiting for review or confirmation, and only from a writer the server established: an agent whose identity an issued agent key resolved, or the owner through the HTTP memory commit route once a key has been issued. It never lifts a write whose identity the caller only declared, a rejected write, a write from a `memory_proposal_agent`, or a write that hits a hard-floor rule (credential material, instructions aimed at the agent, an agent's own output stored as fact) or an enabled escalation filter. Source evidence, generated artifacts, scheduler output and connector captures are never auto-promoted
 - connector secrets should be stored as secret refs
 - CLI/API/UI/event/source/artifact output should not print secret values
 - prompt-injection source text is data, not policy

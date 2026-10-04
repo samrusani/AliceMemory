@@ -66,7 +66,7 @@ claude plugin marketplace add samrusani/AliceMemory
 claude plugin install alice-memory@alicememory
 ```
 
-The marketplace file is on `main` and pins the plugin to the v0.20.0 tag commit. The v0.19.0 tag has no marketplace file. The v0.19.2 tag has one that still pins the v0.19.0 tag commit, and the v0.20.0 tag has one that still pins the v0.19.2 tag commit, so add the marketplace from `main`, not from a checkout of a tag. If git on your machine is set to use SSH for GitHub and you have no key there, add `https://github.com/samrusani/AliceMemory.git` instead. If you already have a clone, `claude plugin marketplace add <path to the clone>` works too. Use the plugin or `--host claude-code`, not both. See [Claude Code plugin](https://github.com/samrusani/AliceMemory/blob/main/docs/integrations/claude-code-plugin.md).
+The marketplace file is on `main` and pins the plugin to the v0.20.0 tag commit. Add the marketplace from `main`, not from a checkout of a tag: a tag's file is missing or pins an earlier release. If git on your machine is set to use SSH for GitHub and you have no key there, add `https://github.com/samrusani/AliceMemory.git` instead. If you already have a clone, `claude plugin marketplace add <path to the clone>` works too. Use the plugin or `--host claude-code`, not both. See [Claude Code plugin](https://github.com/samrusani/AliceMemory/blob/main/docs/integrations/claude-code-plugin.md), which lists what each tag pins.
 
 OpenClaw can also add the server in one line, which probes before saving:
 

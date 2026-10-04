@@ -51,8 +51,8 @@ For the full Postgres stack from a checkout:
 }
 ```
 
-> **No Postgres?** The packaged runtime above serves the same default three
-> tools against a local SQLite file. No `DATABASE_URL` needed. Install it
+> **No Postgres?** The packaged runtime above serves the same tools against a
+> local SQLite file. No `DATABASE_URL` needed. Install it
 > with `uvx alice-memory` or `pip install alice-memory`. SQLite-mode
 > boundaries are listed in [known limitations](known-limitations.md).
 
