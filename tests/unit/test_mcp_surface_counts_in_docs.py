@@ -1,14 +1,15 @@
 """The tool counts the living docs state are the counts the registry lists.
 
 The default three, the eleven core tools, the legacy long tail and the totals under each flag combination are written
-by hand into `docs/integrations/mcp.md`, `docs/alpha/mcp-tools.md` and `CURRENT_STATE.md` (and its mirror), and the
-default three and the eleven are stated again, as a sentence, on about fifty other living pages. Nothing derived them
-from the registry, so a new tool definition or a moved tool would leave every page agreeing with itself and wrong.
+by hand into `docs/integrations/mcp.md` and into `CURRENT_STATE.md` (and its mirror). Nothing derived them from the
+registry, so a new tool definition or a moved tool would leave every page agreeing with itself and wrong.
 
-This guard lists the tools the way a server does, under each flag combination, reads the figures out of the pages, and
-reads every other sentence in a living doc that gives the default count, the full count, or the count of core tools
-the default leaves out. Each of those numbers must be the one the registry gives. A sentence that gives a count in a
-shape the scan does not know is a failure too, so a new copy cannot slip past unchecked.
+This guard lists the tools the way a server does, under each flag combination, and reads the figures out of the pages:
+those two, and the long-tail figures of `docs/alpha/mcp-tools.md`. The default three and the eleven are also stated
+again, as a sentence, on about fifty other living pages, so it reads every sentence in a living doc that gives the
+default count, the full count, or the count of core tools the default leaves out. Each of those numbers must be the one
+the registry gives. A sentence that gives a count in a shape the scan does not know is a failure too, so a new copy
+cannot slip past unchecked.
 
 Mutations, each one alone: add a twelfth core tool definition to `_CORE_TOOL_DEFINITIONS`; change `62` to `63` in
 `docs/integrations/mcp.md`; delete `alice_explain` from the list in `ARCHITECTURE.md` while the name stays elsewhere
@@ -17,8 +18,9 @@ name stays elsewhere on that page; change `76-total` to `75-total` in `CURRENT_S
 to `default four tools` in `docs/alpha/hermes-skill.md`; change `all eleven core tools` to `all twelve core tools` in
 `docs/alpha/onboarding.md`; change `The other eight core tools` to `The other seven core tools` in
 `docs/integrations/hermes.md`; write `The server lists twelve core tools.` into any living page; change `(65)` to
-`(66)` in `docs/alpha/mcp-tools.md`; add an entry to `_NOT_A_SURFACE_COUNT` that no sentence matches. Each fails one of
-the tests below.
+`(66)` in `docs/alpha/mcp-tools.md`; change `exposes all eleven` to `exposes all twelve` in
+`docs/security/auth-authorization.md`; add an entry to `_NOT_A_SURFACE_COUNT` that no sentence matches. Each fails one
+of the tests below.
 """
 
 from __future__ import annotations
@@ -201,6 +203,11 @@ _FULL_AFTER = re.compile(
     r"^(?:\s+with\s+`?ALICE_MCP_FULL_TOOLS\b|\s+plus\s+the\s+long\s+tail\b|-tool\s+core\b)",
     re.IGNORECASE,
 )
+# "`ALICE_MCP_FULL_TOOLS=1` exposes all eleven." names the full surface with no noun after the number.
+_FULL_AFTER_THE_FLAG = re.compile(
+    r"ALICE_MCP_FULL_TOOLS(?:=1)?`?\s+(?:also\s+)?(?:exposes|advertises|lists|adds|enables)\s+(?:all\s+)?$",
+    re.IGNORECASE,
+)
 
 # Sentences that put a number beside a tool noun and count something other than the surface. Each entry is a pattern
 # for the sentence and the reason it is not a surface count. `test_the_list_of_other_counts_holds_no_stale_entry` fails
@@ -244,6 +251,7 @@ def _role(token: str, left: str, right: str) -> str | None:
     if (
         (continues and _FULL_BEFORE.search(left))
         or (beside_noun and _ALL_BEFORE.search(left))
+        or (continues and _FULL_AFTER_THE_FLAG.search(left))
         or _FULL_AFTER.search(right)
     ):
         return "full"
@@ -372,6 +380,8 @@ def test_the_scan_reaches_the_pages_that_must_state_every_count() -> None:
         ("Alice advertises three MCP tools by default.", [("default", 3)]),
         ("The default MCP handshake exposes three tools: a, b and c.", [("default", 3)]),
         ("Set `ALICE_MCP_FULL_TOOLS=1` to expose all eleven core tools.", [("full", 11)]),
+        ("The default registry exposes three core MCP tools. `ALICE_MCP_FULL_TOOLS=1` exposes all eleven.", [("default", 3), ("full", 11)]),
+        ("`ALICE_MCP_FULL_TOOLS=1` exposes all of them.", []),
         ("The other eight core tools stay defined.", [("others", 8)]),
         ("Set the flag to expose all eleven core tools. The other eight are `alice_capture`.", [("full", 11), ("others", 8)]),
         ("It does not imply the eight extra core tools.", [("others", 8)]),
