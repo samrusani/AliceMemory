@@ -169,11 +169,11 @@ def test_postgres_repair_as_documented_nobypassrls_owner(database_urls, monkeypa
                 for row in admin.execute(
                     "SELECT relforcerowsecurity FROM pg_class WHERE relname = ANY(%s)", (list(tables),)
                 ).fetchall()
-            )
+            ), "migration must restore FORCE RLS"
             with user_connection(database_urls["app"], user) as conn:
                 store = PostgresVNextStore(conn)
                 expected = "unknown" if fail_after_write else "health"
-                assert store.get_memory(str(derived["id"]))["domain"] == expected
+                assert store.get_memory(str(derived["id"]))["domain"] == expected, "migration must relabel derived memory"
                 assert store.get_artifact(str(artifact["id"]))["domain"] == expected
                 assert store.get_memory(str(promoted["id"]))["domain"] == expected
                 rows = conn.execute(
@@ -200,6 +200,10 @@ def test_postgres_repair_guard_mutations(database_urls, monkeypatch, guard):
     else:
 
         def omit_guard(statement, *args, **kwargs):
+            # Earlier migrations establish the precondition and must stay
+            # intact. Only mutate 0095, while its predecessor is still stamped.
+            if op.get_context().get_current_revision() != "20260721_0094":
+                return execute(statement, *args, **kwargs)
             text = str(statement)
             if guard == "relax" and " NO FORCE " in text:
                 return None
@@ -208,7 +212,8 @@ def test_postgres_repair_guard_mutations(database_urls, monkeypatch, guard):
             return execute(statement, *args, **kwargs)
 
         monkeypatch.setattr(op, "execute", omit_guard)
-    with pytest.raises(AssertionError):
+    expected = "migration must restore FORCE RLS" if guard == "restore" else "migration must relabel derived memory"
+    with pytest.raises(AssertionError, match=expected):
         test_postgres_repair_as_documented_nobypassrls_owner(database_urls, monkeypatch, False)
 
 
