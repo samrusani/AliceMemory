@@ -251,6 +251,11 @@ def test_the_pages_that_describe_the_old_answer_carry_the_marker_in_the_right_pl
             "come back as `not_permitted`",
         ),
         ("docs/alpha/known-limitations.md", "tool failures over stdio return a generic code", "`not_permitted`"),
+        (
+            "docs/alpha/mcp-tools.md",
+            "A request that names only those domains is refused",
+            "`not_permitted`",
+        ),
     )
     for relative, anchor, new_text in places:
         page = _flat((ROOT / relative).read_text(encoding="utf-8"))

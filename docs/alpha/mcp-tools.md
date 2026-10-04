@@ -302,9 +302,13 @@ is a CLI verb, not a fourth always-on agent tool.
   and the next is tried, and when nothing fits whole the first item that can
   fit has its text cut to the budget and ending in `…`, with
   `token_report.cut_item_count` set to 1.
-  The `budget` object reports the charged estimate, truncation, dropped
-  items, complete serialized-envelope estimate, and the diagnostic or
-  duplicate navigation views excluded from the unique-content budget.
+  The `token_report` object reports the charged estimate (`token_estimate`),
+  truncation (`truncated`), dropped items (`dropped_item_count`), the estimate
+  for this compact result (`serialized_token_estimate`), the complete
+  serialized-envelope estimate of the full pack
+  (`full_pack_serialized_token_estimate`), and the diagnostic or duplicate
+  navigation views excluded from the unique-content budget
+  (`excluded_sections`).
   `context_depth` picks the cost/coverage tier
   (`minimal` | `low` | `medium` | `high`) and `budget_strategy` decides how
   a tight token budget is spent (`balanced` | `facts_first` |
@@ -648,8 +652,26 @@ This compatibility mode is local-operator-only and requires
 `ALICE_AGENT_API_KEY` to be unset. If a key is configured, legacy tools are
 omitted from `tools/list` and direct legacy calls are rejected.
 
-The legacy surface requires Postgres: on the SQLite backend the legacy
-tools are listed but their calls fail.
+On the SQLite backend most legacy tools are listed but their calls fail. The
+legacy tools that read the continuity store (for example `alice_brief`,
+`alice_timeline`, `alice_state_at`, `alice_recall_debug` and the task-brief
+tools) fail, and so do most of the `alice_vnext_*` tools, because the SQLite
+store implements only part of what they call. `alice_vnext_context_tree`,
+`alice_vnext_ingest_agent_output`, `alice_vnext_queue_task`,
+`alice_vnext_generate_artifact`, `alice_vnext_project_dashboard`,
+`alice_vnext_find_connections`, `alice_vnext_find_contradictions`,
+`alice_vnext_artifact_get` and `alice_vnext_artifact_review` fail with
+`tool_execution_failed` for a caller the profile lets run them (a caller it
+refuses gets `not_permitted` first). `alice_vnext_recent_changes` and the five
+`alice_vnext_scheduler_*` tools need Postgres and refuse the call. Thirteen
+`alice_vnext_*` tools run on SQLite: the memory-commit family
+(`alice_vnext_propose_memory`, `alice_vnext_commit_memory`,
+`alice_vnext_confirm_memory`, `alice_vnext_undo_memory`,
+`alice_vnext_correct_memory`, `alice_vnext_forget_memory`,
+`alice_vnext_recent_memory_commits`, `alice_vnext_memory_audit` and
+`alice_vnext_review_items`) and four reads and captures
+(`alice_vnext_context_pack`, `alice_vnext_capture`, `alice_vnext_open_loops`
+and `alice_vnext_recent_decisions`). On SQLite, use the core tools.
 
 With the flag set, `tools/list` includes the full long tail — for example
 `alice_vnext_ingest_agent_output` for structured agent-output ingestion,
@@ -663,6 +685,8 @@ whose lifecycle actions the core `alice_memory_manage` tool covers through
 its own dispatching handler.
 Calling a legacy tool without the flag returns the stable `tool_not_found`
 wire code; server logs retain the flag-specific diagnostic for operators.
+A task-brief tool called without `ALICE_MCP_LEGACY_TOOLS` logs only that flag;
+with that flag set and `ALICE_LEGACY_SURFACES` unset, the log names both.
 
 At the MCP wire boundary, tool failures are deliberately stable and do not
 echo that internal diagnostic. The response retains `isError: true`, and
@@ -681,8 +705,8 @@ Unreleased (on main, not in v0.20.0): three more codes, `not_permitted`,
 `not_found` and `precondition_failed`, tell a refusal from a failure, and
 `invalid_request` also answers a rejected argument. The table under
 [Error codes](#error-codes) lists all seven.
-The task-brief tools name both flags when either one is missing. Permanently
-deleted hosted, channel, chat, chief-of-staff, and model-pack tools never list.
+Permanently deleted hosted, channel, chat, chief-of-staff, and model-pack tools
+never list.
 New integrations should stay on the default three tools; the legacy surface
 is frozen and will not gain new capabilities. Set `ALICE_MCP_FULL_TOOLS=1`
 only when capture, the pack, or review must be in the handshake.
@@ -697,7 +721,7 @@ size limits that v0.19.2 and v0.20.0 already answered with `invalid_request`.
 
 | Code | It means | What an agent should do |
 | --- | --- | --- |
-| `invalid_request` | The arguments were rejected: a property the tool does not take, a missing or mistyped value, a value out of range, an action the tool does not know, or text over a size limit. | Fix the call and retry. |
+| `invalid_request` | The arguments were rejected: a property the tool does not take, a missing or mistyped value, a value out of range, an action the tool does not know, text over a size limit, or the reserved project name `~global`. | Fix the call and retry. |
 | `not_permitted` | A policy, the agent's permission profile, its key or its project scope refused the call, or the call asked for something the server forbids, such as raw content outside development. | Do not retry. Ask the owner. |
 | `not_found` | An id the call names does not exist for this caller: a memory, a pending confirmation, an open loop, an artifact, a review item, an entity (for a caller with no agent key) or a provenance source. A review item outside the caller's own filters answers the same, and so do a memory that has been archived or redacted and a cited source that is deleted or outside the caller's read fence (see [Cited sources](#cited-sources)). | Check the id, or stop. |
 | `precondition_failed` | The call is well formed and allowed, but the state forbids it: a confirmation that was already answered, a memory or review item whose status does not allow the action, a tool the SQLite backend does not serve, or a write that refers to a row the vault does not hold (a foreign key failure, the same answer on SQLite and on PostgreSQL). | Change the state first, or use another route. The same call will not work until the state changes. |
@@ -708,11 +732,12 @@ size limits that v0.19.2 and v0.20.0 already answered with `invalid_request`.
 The message is the same fixed sentence for every code, `The tool request
 could not be processed` (`The tool could not be executed` for
 `tool_execution_failed`, `The requested tool is not available` for
-`tool_not_found`). The one exception is `invalid_request` for a size limit,
-which names the limit and the measured size and never repeats the text. The
-reason for a refusal stays in the server log and, for a policy refusal, in the
-policy events. A code comes from the class of the error that was raised, never
-from its message text.
+`tool_not_found`). There are two exceptions, both `invalid_request`: a size
+limit, which names the limit and the measured size, and the reserved project
+name `~global`, which says the name is reserved. Neither repeats the text of
+the request. The reason for a refusal stays in the server log and, for a
+policy refusal, in the policy events. A code comes from the class of the error
+that was raised, never from its message text.
 
 What an id tells a caller. A caller that authenticates with an agent key gets
 `tool_request_failed` from `alice_explain` whether the target is missing or
@@ -808,7 +833,8 @@ deleted row is withheld from them too. A loop that an automation made over a
 global source shows no `source_id` to a key bound to a project. In v0.20.0 every
 one of these returned the ids as stored to any key that could read the loop.
 
-The rule for ids inside `metadata_json`. Under a reference key (`source_id`,
+Unreleased (on main, not in v0.20.0): The rule for ids inside `metadata_json`.
+Under a reference key (`source_id`,
 `source_ids`, `source_ref`, `source_refs`, `source_references`,
 `selected_source_ids`, `memory_id`, `memory_ids`, `memory_ref`, `memory_refs`,
 `source_memory_ids`, at any depth) an id stays only if it names a row the reader
@@ -839,7 +865,8 @@ scanned. The extractor of candidate loops no longer writes the id of a source
 with no title into the `description` (it says the source has no title), and a
 loop saved before keeps the text it holds.
 
-Two limits. The test at write time is the writer's own read fence, not the
+Unreleased (on main, not in v0.20.0): two limits.
+The test at write time is the writer's own read fence, not the
 fence of whoever reads later: a source an `admin_agent` key could cite (a
 confidential source of its own project) stays citable, and `alice_explain` of
 that memory then fails for the keys of that project with a lower ceiling. They
@@ -901,10 +928,12 @@ id but not by `alice_explain`.
 
 Every permission profile except `trusted_local_agent` and `admin_agent` is held
 back from five domains: family, health, spiritual, legal and financial. A
-request that names only those domains is refused (`not_permitted`), and a
-request that names them with others has them removed. `personal` and
-`professional` are not held back, and `regulated` is a sensitivity level, so the
-profile's sensitivity ceiling is what holds it.
+request that names only those domains is refused, and a request that names them
+with others has them removed. The refusal reaches the caller as
+`tool_request_failed` in v0.20.0. Unreleased (on main, not in v0.20.0): it
+reaches the caller as `not_permitted`. `personal` and `professional` are not
+held back, and `regulated` is a sensitivity level, so the profile's sensitivity
+ceiling is what holds it.
 
 Unreleased (on main, not in v0.20.0): a request that names no domain, with
 `domains` left out or sent as an empty list, is held to the same set. A
@@ -923,23 +952,24 @@ under `unknown` by default. Unclassified material is held by the sensitivity
 ceiling and the project scope, not by its domain. The held-back set is read from
 the stored label, so a health note filed as `personal` is not held back.
 
-A keyless call that declares one of those profiles, or only an `agent_id` (which
-defaults to `read_only_agent`, except `hermes`, which defaults to
-`trusted_local_agent`, and `openclaw`, which defaults to `project_scoped_agent`),
-is held the same way, as it already was when it named a held-back domain. The
-owner (a call with no key and no declared identity), a declared
-`trusted_local_agent` or `admin_agent`, and a key of either profile read every
-domain with or without naming them, as before. In v0.20.0 a restricted caller
-that named no domain read all of them, health included, and the same caller got
-`not_permitted` when it named `health`.
+Unreleased (on main, not in v0.20.0): a keyless call that declares one of those
+profiles, or only an `agent_id` (which defaults to `read_only_agent`, except
+`hermes`, which defaults to `trusted_local_agent`, and `openclaw`, which
+defaults to `project_scoped_agent`), is held the same way, as it already was
+when it named a held-back domain. The owner (a call with no key and no declared
+identity), a declared `trusted_local_agent` or `admin_agent`, and a key of
+either profile read every domain with or without naming them, as before. In
+v0.20.0 a restricted caller that named no domain read all of them, health
+included, and the same caller got the tool error `tool_request_failed` when it
+named `health`.
 
-With per-project scoping on, the project's own notes in a held-back domain are
-left out for a restricted caller too (the project view holds back global notes
-in those domains for every caller and leaves the project's own). With scoping
-off, `alice_resume` reads the newest events before it applies the domain list, as
-it does when a caller names domains, so a run of newer events in held-back domains
-can leave `recent_changes` shorter than `max_recent_changes` for a restricted
-caller.
+Unreleased (on main, not in v0.20.0): with per-project scoping on, the project's
+own notes in a held-back domain are left out for a restricted caller too (the
+project view holds back global notes in those domains for every caller and
+leaves the project's own). With scoping off, `alice_resume` reads the newest
+events before it applies the domain list, as it does when a caller names
+domains, so a run of newer events in held-back domains can leave
+`recent_changes` shorter than `max_recent_changes` for a restricted caller.
 
 ## Size bounds
 

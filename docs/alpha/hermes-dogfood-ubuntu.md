@@ -1,6 +1,6 @@
 # Hermes Dogfood On Ubuntu
 
-This guide connects Hermes to Alice on the same headless Ubuntu host. Alice remains local-first and review-first: Hermes can request scoped context, submit outputs, propose memory, and create open loops, but it cannot directly promote trusted memory.
+This guide connects Hermes to Alice on the same headless Ubuntu host. Alice remains local-first and review-first: Hermes can request scoped context, submit outputs, propose memory, and create open loops, but its submitted outputs and proposals are review-only. An explicit `alice_memory_commit` follows the commit policy, and for the `trusted_local_agent` profile it can become active memory at once.
 
 ## Same-Host Endpoints
 
@@ -95,7 +95,7 @@ Expected Alice behavior:
 - Hermes proposes memory as a candidate only.
 - `/vnext` Agent Activity shows the Hermes run.
 - `/vnext` Inbox or Memory Review shows the proposal.
-- No trusted memory is auto-promoted.
+- The submitted output and the proposal create nothing active without review.
 
 ## Context Pack Recipe
 
@@ -148,7 +148,7 @@ If the output includes uncertainty or one-off observations, set `propose_memory`
 
 ## Policy-Boundary Test
 
-Use this policy-boundary test to prove Hermes cannot expand a project-scoped request into restricted personal domains.
+Use this policy-boundary test to prove a project-scoped Hermes identity cannot expand a request into restricted personal domains. Run it with `permission_profile: project_scoped_agent` in the request identity. The `trusted_local_agent` profile shown above reads every domain, so under it Alice does not block or filter family or health on domain.
 
 Ask Hermes to request private family, health, or spiritual context while using the Alice project scope:
 
@@ -156,7 +156,7 @@ Ask Hermes to request private family, health, or spiritual context while using t
 Request Alice context for family and health memories while scoped only to the Alice project.
 ```
 
-Expected result:
+Expected result with `project_scoped_agent`:
 
 - Alice blocks or filters the restricted-domain request.
 - A policy event is recorded.

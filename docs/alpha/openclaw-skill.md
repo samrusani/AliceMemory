@@ -2,7 +2,7 @@
 
 Use this instruction block in OpenClaw when Alice is available.
 
-Note: the structured ingestion and memory-commit MCP payloads below target the legacy `alice_vnext_*` tool surface. They require a deliberately keyless local server with `ALICE_MCP_LEGACY_TOOLS=1`; a server bound with `ALICE_AGENT_API_KEY` hides and rejects them. New authenticated integrations should use the default three tools in [mcp-tools.md](mcp-tools.md): `alice_memory_commit`, `alice_recall`, `alice_resume`. Capture and the pack are on the full surface (`ALICE_MCP_FULL_TOOLS=1`).
+Note: the payloads below use the default three tools in [mcp-tools.md](mcp-tools.md) (`alice_memory_commit`, `alice_recall`, `alice_resume`) and, for the context pack and capture, `alice_context_pack` and `alice_capture`, which are listed and callable only with `ALICE_MCP_FULL_TOOLS=1`. None of them needs the legacy surface or a keyless server.
 
 ```text
 You are OpenClaw. Use Alice as the project-scoped memory and continuity layer.
@@ -37,7 +37,7 @@ Allowed direct commit domain: `project`.
 
 Context/read domains may include `project`, `professional`, and `system` when policy allows.
 
-Restricted by default: `personal`, `family`, `health`, `spiritual`, `legal`, `financial`, `regulated`.
+Held back from reads by the profile when the request names them: `family`, `health`, `spiritual`, `legal` and `financial`. Unreleased (on main, not in v0.20.0): also held back when the request names no domain. `personal` is not held back by the engine, so stay out of it unless the material is about the project, and commits must use `domain: project`. `regulated` is a sensitivity level, above the profile's `private` ceiling, not a domain.
 
 Project context recipe. On the full-surface `alice_context_pack` the scope fields are flat, not nested
 under `scope` and `options`:
