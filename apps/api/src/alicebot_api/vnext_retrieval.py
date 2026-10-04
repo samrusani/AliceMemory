@@ -995,9 +995,9 @@ def _row_matches_scope(
         linked = str(row.get("id")) in person_linked_memory_ids
         if not linked and not (direct_people & scope.people):
             return False
-    if scope.window_start is not None:
+    if scope.window_start is not None or scope.window_end is not None:
         event_time = _row_scope_event_time(row)
-        if event_time is None or event_time < scope.window_start:
+        if event_time is None or (scope.window_start is not None and event_time < scope.window_start):
             return False
         if scope.window_end is not None and event_time > scope.window_end:
             return False
@@ -1184,13 +1184,15 @@ def _supports_explicit_parameters(method: object, names: Sequence[str]) -> bool:
 _GRAPH_EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 
 
-def _compact_entity(entity: JsonObject) -> JsonObject:
-    return {
+def _compact_entity(entity: JsonObject, *, include_count: bool = True) -> JsonObject:
+    compact = {
         "id": str(entity.get("id")),
         "name": entity.get("name"),
         "entity_type": entity.get("entity_type"),
-        "mention_count": entity.get("mention_count"),
     }
+    if include_count:
+        compact["mention_count"] = entity.get("mention_count")
+    return compact
 
 
 def _graph_memory_admissible(
@@ -3202,6 +3204,7 @@ class VNextRetrievalService:
         domains: list[str],
         sensitivity_allowed: list[str],
         limit: int,
+        entity_read_fenced: bool,
         memory_types: tuple[str, ...] = (),
         projects: tuple[str, ...] = (),
         created_by_agent_ids: tuple[str, ...] = (),
@@ -3239,12 +3242,15 @@ class VNextRetrievalService:
             return [], GRAPH_STAGE_DISABLED_NO_STORE_SUPPORT, []
         candidate_names = entity_name_candidates(query)
         entities = list(find_entities_by_names(tuple(candidate_names))) if candidate_names else []
-        entities = entities[:GRAPH_ENTITY_MATCH_LIMIT]
+        restricted = entity_read_fenced
+        if not restricted:
+            entities = entities[:GRAPH_ENTITY_MATCH_LIMIT]
         if not entities:
             return [], GRAPH_STAGE_DISABLED_NO_ENTITY_MATCH, []
 
         # One hop: newest edge observed_at per connected memory.
         observed_at_by_memory: dict[str, datetime] = {}
+        entities_by_memory: dict[str, set[str]] = {}
         entity_ids = {str(entity.get("id")) for entity in entities}
         for edge in self._memory_entity_edges(tuple(entity_ids)):
             if edge.get("edge_type") not in MEMORY_ENTITY_EDGE_TYPES:
@@ -3255,14 +3261,17 @@ class VNextRetrievalService:
                 and str(edge.get("to_id")) in entity_ids
             ):
                 memory_id = str(edge.get("from_id"))
+                entity_id = str(edge.get("to_id"))
             elif (
                 str(edge.get("from_type")) == "entity"
                 and str(edge.get("to_type")) == "memory"
                 and str(edge.get("from_id")) in entity_ids
             ):
                 memory_id = str(edge.get("to_id"))
+                entity_id = str(edge.get("from_id"))
             else:
                 continue
+            entities_by_memory.setdefault(memory_id, set()).add(entity_id)
             observed_at = _parse_timestamp(edge.get("observed_at")) or _GRAPH_EPOCH
             previous = observed_at_by_memory.get(memory_id)
             if previous is None or observed_at > previous:
@@ -3270,6 +3279,8 @@ class VNextRetrievalService:
 
         now = datetime.now(UTC)
         ranked: list[tuple[datetime, datetime, str, JsonObject]] = []
+        visible_entity_ids: set[str] = set()
+        readable_mentions: dict[str, set[tuple[str, str]]] = {entity_id: set() for entity_id in entity_ids}
         memories_by_id = self._memories_by_ids(tuple(observed_at_by_memory))
         for memory_id, observed_at in observed_at_by_memory.items():
             row = memories_by_id.get(memory_id)
@@ -3298,14 +3309,51 @@ class VNextRetrievalService:
                 or _GRAPH_EPOCH
             )
             ranked.append((observed_at, recency, str(row.get("id")), row))
+            visible_entity_ids.update(entities_by_memory[memory_id])
+            for entity_id in entities_by_memory[memory_id]:
+                readable_mentions[entity_id].add(("memory", memory_id))
         # Deterministic order: edge observed_at DESC, memory recency DESC,
         # then the content-stable cascade with id ASC as the final key (the
         # ascending pre-sort survives the stable reverse timestamp sort).
         ranked.sort(key=lambda entry: (*content_stable_tiebreak(entry[3]), entry[2]))
         ranked.sort(key=lambda entry: (entry[0], entry[1]), reverse=True)
+        # A source-only mention is enough, but it must pass this call's labels
+        # and scope too. The store returns active edges in both directions.
+        list_edges = getattr(self.store, "list_edges", None)
+        source_links: dict[str, set[str]] = {}
+        if callable(list_edges) and not (memory_types or created_by_agent_ids or run_id or scope_thread_id or scope_task_id):
+            for entity_id in entity_ids:
+                for edge in [*list_edges(from_id=entity_id), *list_edges(to_id=entity_id)]:
+                    if edge.get("edge_type") not in MEMORY_ENTITY_EDGE_TYPES or edge.get("valid_to") is not None:
+                        continue
+                    if edge.get("from_type") == "source" and edge.get("to_type") == "entity" and str(edge.get("to_id")) == entity_id:
+                        source_links.setdefault(str(edge.get("from_id")), set()).add(entity_id)
+                    elif edge.get("to_type") == "source" and edge.get("from_type") == "entity" and str(edge.get("from_id")) == entity_id:
+                        source_links.setdefault(str(edge.get("to_id")), set()).add(entity_id)
+        source_scope = _ResolvedRetrievalScope(
+            projects=frozenset(projects), people=frozenset(scope_people),
+            window_start=scope_window_start, window_end=scope_window_end,
+            exclude_global_domains=frozenset(),
+        )
+        for source_id, source in self._sources_by_ids(tuple(source_links)).items():
+            if (source.get("deleted_at") is None
+                    and _allowed(source, domains=domains, sensitivity_allowed=sensitivity_allowed) is None
+                    and _row_matches_scope(source, source_scope, source_scope_envelope=True)):
+                visible_entity_ids.update(source_links[source_id])
+                for entity_id in source_links[source_id]:
+                    readable_mentions[entity_id].add(("source", source_id))
+        entities = [entity for entity in entities if str(entity.get("id")) in visible_entity_ids]
+        if restricted:
+            # Count distinct readable linked rows, not stored vault-wide counts
+            # or duplicate edges pointing to the same memory or source.
+            entities.sort(key=lambda entity: (-len(readable_mentions[str(entity.get("id"))]),
+                str(entity.get("name")), str(entity.get("entity_type")), str(entity.get("id"))))
+            entities = entities[:GRAPH_ENTITY_MATCH_LIMIT]
+            selected_entity_ids = {str(entity.get("id")) for entity in entities}
+            ranked = [entry for entry in ranked if entities_by_memory[entry[2]] & selected_entity_ids]
         rows = [entry[3] for entry in ranked[:limit]]
-        matched_entities = [_compact_entity(entity) for entity in entities]
-        return rows, GRAPH_STAGE_ENABLED, matched_entities
+        matched_entities = [_compact_entity(entity, include_count=not restricted) for entity in entities]
+        return rows, GRAPH_STAGE_ENABLED if entities else GRAPH_STAGE_DISABLED_NO_ENTITY_MATCH, matched_entities
 
     def _memory_temporal_rows(
         self,
@@ -4043,6 +4091,7 @@ class VNextRetrievalService:
                 domains=domains,
                 sensitivity_allowed=sensitivity_allowed,
                 limit=memory_candidate_limit,
+                entity_read_fenced=source_fence.entity_read_fenced,
                 memory_types=memory_types,
                 projects=projects,
                 created_by_agent_ids=created_by_agent_ids,
@@ -4848,6 +4897,9 @@ class VNextRetrievalService:
                     request.query,
                     domains=domains,
                     sensitivity_allowed=sensitivity_allowed,
+                    allow_entity_lookup=not source_fence.entity_read_fenced,
+                    admitted_entity_names=tuple(str(entity["name"]) for entity in matched_entities),
+                    admitted_entity_ids=tuple(str(entity["id"]) for entity in matched_entities),
                 )
             except Exception:
                 # Final best-effort boundary: operational probe failures must

@@ -213,6 +213,7 @@ class _GraphTieStore:
 def test_graph_stage_timestamp_ties_resolve_by_content_not_id() -> None:
     store = _GraphTieStore()
     rows, stage, _entities = VNextRetrievalService(store, embedding_provider=None)._memory_graph_rows(
+        entity_read_fenced=False,
         query="meridian",
         domains=[],
         sensitivity_allowed=["public", "internal", "private", "unknown"],
