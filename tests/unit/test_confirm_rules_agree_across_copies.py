@@ -11,8 +11,10 @@ The protocol page is read in two places and the rest of it must not state the ru
 by itself, from its heading to the next heading of the same level, so a sentence elsewhere on the page cannot stand
 in for one that drifted inside it, and each rule is required there positively (a rule that is reworded away fails;
 it does not just stop being checked). The commit-outcomes list of the same page ("What routes where") states the
-ceiling rejection and the exemption a second time, and is read the same way. A third statement on the page fails
-until it is registered here.
+ceiling rejection and the exemption a second time, and is read the same way. A third statement on the page, in a
+shape the sweep recognises, fails until it is registered here. The sweep is a list of patterns and does not see every
+wording ("still get `confirmation_required`", a sentence that starts "Pending writes are approved by", or one where the
+pending write comes before the verb), so a reviewer still reads the page.
 
 This test reads every copy and compares what it says with the canonical section and with the server:
 
@@ -555,6 +557,22 @@ def test_the_canonical_section_states_the_expiry_and_what_an_expired_answer_reso
     assert set(_expiry_hours(section)) == {CONFIRMATION_EXPIRY_HOURS}, _expiry_hours(section)
     assert len(_expiry_hours(section)) >= 4, _expiry_hours(section)
 
+
+
+def test_the_canonical_section_states_the_receipt_and_the_routes_the_expiry_applies_to() -> None:
+    """Two statements of the section that the rule checks above do not reach on their own: the receipt an agent gets
+    when a write above its ceiling is rejected, and the routes on which an expired answer resolves the row.
+
+    Mutations, each one alone, in the canonical section: change ``says this was not saved`` to ``says this was saved``;
+    cut ``either MCP route above, the HTTP confirm route or the CLI confirm`` down to ``the HTTP confirm route``.
+    """
+
+    section = _doc_text("protocol")
+    assert "The receipt says this was not saved, do not retry with a lower sensitivity label" in section
+    assert (
+        "a confirm or reject through either MCP route above, the HTTP confirm route or the CLI confirm that passes "
+        "the policy check resolves the row to `rejected`"
+    ) in section
 
 def test_the_commit_outcomes_list_states_the_ceiling_rejection_and_the_same_exemptions() -> None:
     """The list of what routes where says an agent above its ceiling is rejected with no pending row, and who is exempt.
