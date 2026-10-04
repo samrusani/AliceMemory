@@ -60,8 +60,6 @@ from typing import (
 )
 from uuid import uuid4
 
-from alicebot_api.vnext_agent_control import VNEXT_DOMAINS
-
 # Read-only reuse of the contradiction-detection machinery that backs
 # VNextContradictionService. compile_context_pack must not mutate state,
 # so it calls the pure candidate finder directly instead of
