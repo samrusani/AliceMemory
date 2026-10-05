@@ -491,6 +491,7 @@ class VNextContradictionService:
             domains=domains,
             sensitivity_allowed=sensitivity_allowed,
             projects=request.projects,
+            all_of=all_of,
         )
         memories = admit_loaded(
             self.store,
@@ -499,9 +500,10 @@ class VNextContradictionService:
             domains=domains,
             sensitivity_allowed=sensitivity_allowed,
             projects=request.projects,
+            all_of=all_of,
         )
         beliefs = LabelGuard.for_filters(
-            self.store, domains, sensitivity_allowed, request.projects
+            self.store, domains, sensitivity_allowed, request.projects, all_of=all_of
         ).admit_beliefs(beliefs)
         candidates = _find_candidates(
             new_items=[*sources, *memories],

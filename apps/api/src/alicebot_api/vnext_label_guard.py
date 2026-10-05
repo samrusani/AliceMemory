@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
-from typing import Any
+from typing import Any, TypeVar
 
 from alicebot_api.vnext_agent_control import (
     ALL_SENSITIVITY,
@@ -22,6 +22,7 @@ from alicebot_api.vnext_derived_labels import (
     NODE_BOUND,
     canon_kind,
     is_derived,
+    input_admitted,
     settle_labels,
 )
 from alicebot_api.vnext_label_closure import collect_label_rows
@@ -29,6 +30,7 @@ from alicebot_api.vnext_project_scope import project_floor_shape, project_scopes
 
 
 _GUARD_USER = "label-guard"
+_Row = TypeVar("_Row", bound=Mapping[str, object])
 
 
 def _filters_admit_every(
@@ -52,6 +54,7 @@ class LabelGuard:
     domains: tuple[str, ...] = ()
     sensitivity_allowed: tuple[str, ...] = ()
     projects: tuple[str, ...] = ()
+    all_of: tuple[str, ...] | None = None
     _nodes: dict[tuple[str, str], list[dict[str, object]]] | None = None
 
     @classmethod
@@ -69,6 +72,8 @@ class LabelGuard:
         sensitivity_allowed: Sequence[str] | None,
         projects: Sequence[str] | None = (),
         exclude_global_domains: Sequence[str] | None = None,
+        *,
+        all_of: tuple[str, ...] | None = None,
     ) -> LabelGuard:
         """List doors. Inactive when the filters admit every label."""
 
@@ -78,10 +83,11 @@ class LabelGuard:
         project_list = tuple(projects or ())
         return cls(
             store=store,
-            active=not _filters_admit_every(domain_list, sensitivity_list, project_list),
+            active=all_of is not None or not _filters_admit_every(domain_list, sensitivity_list, project_list),
             domains=domain_list,
             sensitivity_allowed=sensitivity_list,
             projects=project_list,
+            all_of=all_of,
         )
 
     def effective_row(self, kind: str, row: Mapping[str, object] | None) -> Mapping[str, object] | None:
@@ -112,12 +118,12 @@ class LabelGuard:
         copy["metadata_json"] = metadata
         return copy
 
-    def admit_rows(self, kind: str, rows: Sequence[Mapping[str, object]]) -> list[Mapping[str, object]]:
+    def admit_rows(self, kind: str, rows: Sequence[_Row]) -> list[_Row]:
         """Rows whose effective labels pass this guard's filters. Originals of the rows, not copies."""
 
         if not self.active:
             return [row for row in rows if isinstance(row, Mapping)]
-        kept: list[Mapping[str, object]] = []
+        kept: list[_Row] = []
         for row in rows:
             if not isinstance(row, Mapping):
                 continue
@@ -126,7 +132,7 @@ class LabelGuard:
                 kept.append(row)
         return kept
 
-    def admit_beliefs(self, beliefs: Sequence[Mapping[str, object]]) -> list[Mapping[str, object]]:
+    def admit_beliefs(self, beliefs: Sequence[_Row]) -> list[_Row]:
         """Beliefs whose backing memory the filters admit. One batched read."""
 
         if not self.active:
@@ -134,7 +140,7 @@ class LabelGuard:
         ids = [str(row.get("memory_id")) for row in beliefs if isinstance(row, Mapping) and row.get("memory_id")]
         reader = getattr(self.store, "read_label_rows", None)
         if not callable(reader):
-            return [row for row in beliefs if isinstance(row, Mapping)]
+            return [] if self.all_of is not None else [row for row in beliefs if isinstance(row, Mapping)]
         found: dict[str, Mapping[str, object]] = {}
         if callable(reader) and ids:
             for row in reader("memory", ids):
@@ -148,6 +154,8 @@ class LabelGuard:
         ]
 
     def _admits_effective(self, row: Mapping[str, object], *, kind: str) -> bool:
+        if self.all_of is not None and (row.get("unverified") or not input_admitted(kind, row, self.all_of)):
+            return False
         domain = str(row.get("domain") or "unknown")
         if self.domains and domain not in self.domains and domain != "unknown":
             return False
@@ -177,14 +185,15 @@ def admit_loaded(
     store: Any,
     *,
     kind: str,
-    rows: Sequence[Mapping[str, object]],
+    rows: Sequence[_Row],
     domains: Sequence[str] | None,
     sensitivity_allowed: Sequence[str] | None,
     projects: Sequence[str] | None = (),
-) -> list[Mapping[str, object]]:
+    all_of: tuple[str, ...] | None = None,
+) -> list[_Row]:
     """Drop loaded inputs whose effective labels miss the request filters."""
 
-    guard = LabelGuard.for_filters(store, domains, sensitivity_allowed, projects)
+    guard = LabelGuard.for_filters(store, domains, sensitivity_allowed, projects, all_of=all_of)
     return guard.admit_rows(kind, rows)
 
 

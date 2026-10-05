@@ -453,6 +453,7 @@ class VNextConnectionService:
             domains=domains,
             sensitivity_allowed=sensitivity_allowed,
             projects=request.projects,
+            all_of=all_of,
         )
         memories = admit_loaded(
             self.store,
@@ -461,6 +462,7 @@ class VNextConnectionService:
             domains=domains,
             sensitivity_allowed=sensitivity_allowed,
             projects=request.projects,
+            all_of=all_of,
         )
         candidates = _find_candidates(
             sources=sources,

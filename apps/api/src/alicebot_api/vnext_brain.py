@@ -986,16 +986,20 @@ class VNextBrainService:
         from alicebot_api.vnext_label_guard import admit_loaded
 
         sources = admit_loaded(
-            self.store, kind="source", rows=sources, domains=domains, sensitivity_allowed=sensitivity_allowed, projects=request.projects
+            self.store, kind="source", rows=sources, domains=domains, sensitivity_allowed=sensitivity_allowed, projects=request.projects,
+            all_of=all_of,
         )
         memories = admit_loaded(
-            self.store, kind="memory", rows=memories, domains=domains, sensitivity_allowed=sensitivity_allowed, projects=request.projects
+            self.store, kind="memory", rows=memories, domains=domains, sensitivity_allowed=sensitivity_allowed, projects=request.projects,
+            all_of=all_of,
         )
         open_loops = admit_loaded(
-            self.store, kind="open_loop", rows=open_loops, domains=domains, sensitivity_allowed=sensitivity_allowed, projects=request.projects
+            self.store, kind="open_loop", rows=open_loops, domains=domains, sensitivity_allowed=sensitivity_allowed, projects=request.projects,
+            all_of=all_of,
         )
         artifacts = admit_loaded(
-            self.store, kind="artifact", rows=artifacts, domains=domains, sensitivity_allowed=sensitivity_allowed, projects=request.projects
+            self.store, kind="artifact", rows=artifacts, domains=domains, sensitivity_allowed=sensitivity_allowed, projects=request.projects,
+            all_of=all_of,
         )
         return sources, memories, open_loops, artifacts
 

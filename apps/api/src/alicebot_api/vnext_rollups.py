@@ -1834,6 +1834,7 @@ class VNextRollupService:
             domains=domains,
             sensitivity_allowed=sensitivity_allowed,
             projects=projects,
+            all_of=all_of,
         )
         rows = [row for row in rows if not _is_rollup_card(row)]
         # The same parity for validity: the bundled stores leave an expired
@@ -2470,13 +2471,17 @@ class VNextRollupService:
                 raise VNextRollupValidationError(
                     "roll-up candidate/card lookup returned rows outside the requested project scope"
                 )
-        if all_of is not None:
-            pending = {
-                key: row for key, row in pending.items() if admit_when_locked("memory", [row], all_of)
-            }
-            accepted = {
-                key: row for key, row in accepted.items() if admit_when_locked("memory", [row], all_of)
-            }
+        from alicebot_api.vnext_label_guard import admit_loaded
+        admitted_pending = {str(row.get("id")) for row in admit_loaded(
+            self.store, kind="memory", rows=list(pending.values()), domains=domains,
+            sensitivity_allowed=sensitivity_allowed, projects=projects, all_of=all_of,
+        )}
+        admitted_accepted = {str(row.get("id")) for row in admit_loaded(
+            self.store, kind="memory", rows=list(accepted.values()), domains=domains,
+            sensitivity_allowed=sensitivity_allowed, projects=projects, all_of=all_of,
+        )}
+        pending = {key: row for key, row in pending.items() if str(row.get("id")) in admitted_pending}
+        accepted = {key: row for key, row in accepted.items() if str(row.get("id")) in admitted_accepted}
         return pending, accepted
 
     def _expired_card_for_digest(
