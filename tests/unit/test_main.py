@@ -5416,6 +5416,7 @@ def test_vnext_project_review_defers_embedding_and_preserves_human_attribution(m
     user_id = uuid4()
     transaction_depth = 0
     calls: list[str] = []
+    lock_calls: list[str] = []
     review_kwargs: dict[str, object] = {}
     deferred_input = object()
     decision = main_module.PolicyDecision(
@@ -5433,6 +5434,48 @@ def test_vnext_project_review_defers_embedding_and_preserves_human_attribution(m
             yield object()
         finally:
             transaction_depth -= 1
+
+    class FakeLockCursor:
+        def execute(self, query: str, params=None) -> None:
+            assert transaction_depth == 1
+            assert query in {
+                "SELECT current_setting('lock_timeout') AS lock_timeout",
+                "SET LOCAL lock_timeout = '3s'",
+                "SELECT set_config('lock_timeout', %s, true)",
+            }
+            if query.startswith("SELECT set_config"):
+                assert params == ("0",)
+
+        def fetchone(self):
+            return {"lock_timeout": "0"}
+
+    class FakeLockConnection:
+        @contextmanager
+        def cursor(self):
+            yield FakeLockCursor()
+
+    class FakeStore:
+        conn = FakeLockConnection()
+
+        def lock_graph_mutation(self) -> None:
+            assert transaction_depth == 1
+            assert lock_calls == []
+            lock_calls.append("graph")
+
+        def lock_label_writes(self, *, exclusive: bool = False) -> None:
+            assert transaction_depth == 1
+            assert exclusive is True
+            assert lock_calls == ["graph"]
+            lock_calls.append("exclusive_labels")
+
+    store = FakeStore()
+
+    def fake_authorized_artifact(**_kwargs):
+        assert transaction_depth == 1
+        assert lock_calls == ["graph", "exclusive_labels"]
+        assert _kwargs["store"] is store
+        lock_calls.append("authorize")
+        return {"id": "artifact-1", "status": "needs_review"}, decision
 
     class FakeProjectService:
         def __init__(self, _store, *, defer_embeddings: bool = False) -> None:
@@ -5456,12 +5499,12 @@ def test_vnext_project_review_defers_embedding_and_preserves_human_attribution(m
 
     monkeypatch.setattr(vnext_review_router, "get_settings", lambda: Settings(database_url="postgresql://db"))
     monkeypatch.setattr(vnext_review_router, "user_connection", fake_user_connection)
-    monkeypatch.setattr(vnext_review_router, "PostgresVNextStore", lambda _conn: object())
+    monkeypatch.setattr(vnext_review_router, "PostgresVNextStore", lambda _conn: store)
     monkeypatch.setattr(vnext_review_router, "_vnext_authenticated_agent_identity", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(
         vnext_review_router,
         "_vnext_authorized_artifact",
-        lambda **_kwargs: ({"id": "artifact-1", "status": "needs_review"}, decision),
+        fake_authorized_artifact,
     )
     monkeypatch.setattr(vnext_review_router, "VNextProjectService", FakeProjectService)
     monkeypatch.setattr(vnext_review_router, "_persist_vnext_deferred_embeddings", fake_persist)
@@ -5477,6 +5520,7 @@ def test_vnext_project_review_defers_embedding_and_preserves_human_attribution(m
 
     assert response.status_code == 200
     assert calls == ["review", "embedding"]
+    assert lock_calls == ["graph", "exclusive_labels", "authorize"]
     assert review_kwargs["actor_type"] == "user"
     assert review_kwargs["actor_id"] == str(user_id)
     assert review_kwargs["trace_id"] == "request-trace-1"
