@@ -133,6 +133,20 @@ def test_a_bound_key_generates_from_admitted_inputs_only(migrated_database_urls,
             conn.execute("UPDATE memories SET valid_to='2026-10-04T12:00:00Z'")
     artifact, body = generate(producer, user_id, alpha, key)
     assert_canonical_printed_inputs(artifact, rows)
+    expected_kinds = {
+        "daily": ("sources", "memories", "open_loops", "artifacts"),
+        "weekly": ("sources", "memories", "open_loops", "artifacts"),
+        "connections": ("sources", "memories"),
+        "contradictions": ("sources", "beliefs"),
+        "open_loop_review": ("open_loops",),
+        "project_update": ("sources", "memories"),
+        "consolidation": ("memories", "artifacts"),
+        "staleness": ("memories",),
+    }
+    record = artifact["metadata_json"]["derived_from"]
+    for kind in expected_kinds[producer]:
+        assert any(str(row["id"]) in record[kind] for label, row_kind, row in rows
+                   if label == "alpha" and row_kind == kind), (producer, "missing positive input kind", kind, record)
     artifact_id = str(artifact["id"])
     surfaces = [body]
     with user_connection(app_url, user_id) as conn:
