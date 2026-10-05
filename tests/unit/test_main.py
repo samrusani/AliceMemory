@@ -5279,6 +5279,7 @@ def test_vnext_memory_review_defers_embedding_until_primary_transaction_closes(m
     memory_id = uuid4()
     transaction_depth = 0
     calls: list[str] = []
+    lock_calls: list[str] = []
     deferred_input = object()
     memory = {
         "id": str(memory_id),
@@ -5300,11 +5301,41 @@ def test_vnext_memory_review_defers_embedding_until_primary_transaction_closes(m
         finally:
             transaction_depth -= 1
 
+    class FakeLockCursor:
+        def execute(self, query: str, params=None) -> None:
+            assert transaction_depth == 1
+            assert query in {
+                "SELECT current_setting('lock_timeout') AS lock_timeout",
+                "SET LOCAL lock_timeout = '3s'",
+                "SELECT set_config('lock_timeout', %s, true)",
+            }
+            if query.startswith("SELECT set_config"):
+                assert params == ("0",)
+
+        def fetchone(self):
+            return {"lock_timeout": "0"}
+
+    class FakeLockConnection:
+        @contextmanager
+        def cursor(self):
+            yield FakeLockCursor()
+
     class FakeStore:
+        conn = FakeLockConnection()
+
+        def lock_label_writes(self, *, exclusive: bool = False) -> None:
+            assert transaction_depth == 1
+            assert exclusive is True
+            assert lock_calls == ["graph"]
+            lock_calls.append("exclusive_labels")
+
         def get_memory(self, _memory_id: str):
             return memory
 
         def get_memory_for_update(self, _memory_id: str):
+            assert transaction_depth == 1
+            assert lock_calls == ["graph", "exclusive_labels"]
+            lock_calls.append("row")
             return memory
 
         def update_memory(self, *, memory_id: str, patch: dict[str, object], **_kwargs):
@@ -5329,7 +5360,9 @@ def test_vnext_memory_review_defers_embedding_until_primary_transaction_closes(m
             self.deferred_embedding_inputs = (deferred_input,)
 
         def lock_supersession_graph(self) -> None:
-            pass
+            assert transaction_depth == 1
+            assert lock_calls == []
+            lock_calls.append("graph")
 
         def refresh_memory_derived_state(self, _memory, **_kwargs) -> None:
             assert transaction_depth == 1
@@ -5356,6 +5389,7 @@ def test_vnext_memory_review_defers_embedding_until_primary_transaction_closes(m
 
     assert response.status_code == 200
     assert calls == ["refresh", "embedding"]
+    assert lock_calls == ["graph", "exclusive_labels", "row"]
 
 
 def test_vnext_consolidation_defers_embedding_until_primary_transaction_closes(monkeypatch) -> None:
