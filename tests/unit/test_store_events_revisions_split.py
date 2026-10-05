@@ -139,6 +139,8 @@ EXPECTED_PRIMITIVE_METADATA = {
     },
 }
 EXPECTED_CLASS_KEY_SHA256 = {
+    # Reviewed additions: label/event enumeration, PG ratings, belief aliases and source recovery.
+    # Existing facade members retain their relative order.
     # Source owner methods are additive; the existing member order is unchanged.
     # Re-minted for the paired browser-clip capability façade methods.
     # The sqlite hash is re-minted again for ``check_source_search_query``. It is

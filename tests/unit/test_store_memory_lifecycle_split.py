@@ -97,17 +97,19 @@ SOURCE_RECEIPTS = {
     # back between two reads cannot fail memories_seen_range_check. Previous
     # sqlite receipt 67adaa61..., method AST 3f134ac9...; the metadata
     # manifests are unchanged.
-    SQLITE_CARRIER_PATH: "f893f1faeeb9a87135c108992aa91ff036c5f5dccb1bbdaf315ae5afe1b89b73",
+    SQLITE_CARRIER_PATH: "759cf44762c388e599b4e8c377fa3415ca2fdf9ba7884698259171ef3d2b8138",
 }
 EXPECTED_METHOD_AST_MANIFESTS = {
     "postgres": "827c4f391a1efe50dcb265b7bb50a5b191d2bae32c3f817dcc237d51bfb10d29",
-    "sqlite": "d0b6024f0803ca9d3c6f6ea7f5022a28453b2b8b83833f0f05343cb3eff89a57",
+    "sqlite": "3577659fcf9e583bdb957bb1a959ac1d8cae07ce8b50321bc36697dec47acec4",
 }
 EXPECTED_METADATA_MANIFESTS = {
     "postgres": "07a567e26d0f7c4f51ae2a1910d059397b513a575d85f06c2f8c0396ac1bb2ef",
     "sqlite": "1270ef0115988552418349aa9e94a7442ba04be41443f278f68a1fa81857903a",
 }
 EXPECTED_CLASS_ORDERS = {
+    # Reviewed additions: label/event enumeration, PG ratings, belief aliases and source recovery.
+    # Existing facade members retain their relative order.
     # Two paired browser-clip capability methods extend both façades, and one
     # more paired method, ``list_memories_referencing_sources``.
     # Per-file importer savepoint (2026-10-02): one paired method more, ``savepoint``, appended last.

@@ -209,6 +209,8 @@ SQLITE_QUERY_EXPORTS = (
 )
 
 EXPECTED_CLASS_ORDERS = {
+    # Reviewed additions: label/event enumeration, PG ratings, belief aliases and source recovery.
+    # Existing facade members retain their relative order.
     # Two paired browser-clip capability methods extend both façades. One more
     # paired method, ``list_memories_referencing_sources``, is the batched form
     # of ``list_memories_referencing_source``; both carrier receipts above were
