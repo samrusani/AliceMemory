@@ -451,6 +451,47 @@ def test_labels_repair_cannot_overwrite_a_relabel(migrated_database_urls, monkey
         repaired.result(timeout=10)
         relabelled.result(timeout=10)
     rows, _events = stored(urls, user, targets)
-    assert all(row["sensitivity"] == "regulated" for values in rows.values() for row in values)
+    assert all(row["sensitivity"] == "regulated" for values in rows.values() for row in values), [
+        (table, row["metadata_json"], row["sensitivity"])
+        for table, values in rows.items()
+        for row in values
+        if row["sensitivity"] != "regulated"
+    ]
+    restricted_reads(urls, user, targets, monkeypatch, guard_off=True)
+    restricted_reads(urls, user, targets, monkeypatch)
+
+
+def test_repair_takes_ordered_row_locks_and_preserves_nonlabel_fields(migrated_database_urls, monkeypatch):
+    urls = migrated_database_urls
+    user, targets = seed_stale(urls)
+    with user_connection(urls["app"], user) as conn:
+        before = conn.execute("SELECT * FROM memories ORDER BY id").fetchall()
+    original = psycopg.Cursor.execute
+    locks = []
+
+    def record(cursor, query, *args, **kwargs):
+        text = query.as_string(cursor.connection) if hasattr(query, "as_string") else str(query)
+        normalized = " ".join(text.split())
+        if normalized.startswith("SELECT id FROM ") and "ORDER BY id FOR UPDATE" in normalized:
+            locks.append(normalized.split()[3])
+        return original(cursor, query, *args, **kwargs)
+
+    monkeypatch.setattr(psycopg.Cursor, "execute", record)
+    labels._run_vnext_labels_repair(cli_context(urls, user), None)
+    assert locks == ["generated_artifacts", "projects", "open_loops", "memories"]
+    with user_connection(urls["app"], user) as conn:
+        after = conn.execute("SELECT * FROM memories ORDER BY id").fetchall()
+    for previous, new in zip(before, after, strict=True):
+        assert {
+            key: value
+            for key, value in previous.items()
+            if key not in {"domain", "sensitivity", "metadata_json", "project_id"}
+        } == {
+            key: value
+            for key, value in new.items()
+            if key not in {"domain", "sensitivity", "metadata_json", "project_id"}
+        }
+        assert new["metadata_json"]["source_id"] == previous["metadata_json"]["source_id"]
+    assert_repaired(urls, user, targets)
     restricted_reads(urls, user, targets, monkeypatch, guard_off=True)
     restricted_reads(urls, user, targets, monkeypatch)
