@@ -8,7 +8,8 @@ from alicebot_api.source_supersede import printed_source_label
 from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
 from alicebot_api.vault_sleep import SleepError
 from alicebot_api.vnext_stores.memory_lifecycle_common import is_redacted_memory
-from alicebot_api.vnext_stores.sqlite.source_retirement import CandidateScrubRefused, citing_memories_by_source, optimize_scrub_indexes
+from alicebot_api.vnext_stores.sqlite.source_retirement import (
+    CandidateScrubRefused, citing_memories_by_source, optimize_scrub_indexes, source_open_loop_count)
 
 RETAINED_DATA = (
     "Source and import events keep prior titles, hashes and import folder paths. "
@@ -48,9 +49,10 @@ def _preview(store, rows):
             "SELECT (SELECT count(*) FROM source_chunks WHERE user_id=? AND source_id=?) AS chunks, "
             "(SELECT count(*) FROM provenance_links p WHERE p.user_id=? AND (p.source_id=? OR EXISTS "
             "(SELECT 1 FROM source_chunks c WHERE c.user_id=p.user_id AND c.id=p.source_chunk_id "
-            "AND c.source_id=?))) AS provenance_quotes, "
-            "(SELECT count(*) FROM open_loops WHERE user_id=? AND source_id=?) AS open_loops",
-            (store.user_id,sid,store.user_id,sid,sid,store.user_id,sid))
+            "AND c.source_id=?))) AS provenance_quotes",
+            (store.user_id,sid,store.user_id,sid,sid))
+        # The loops the scrub blanks: the one rule of the source reverse lookup, not the column alone.
+        counts['open_loops']=source_open_loop_count(store,sid)
         memories=[memory for memory in citing[sid] if not is_redacted_memory(memory)]
         counts['candidate_memories']=sum(memory['status'] in {'candidate','needs_review','rejected'} for memory in memories)
         counts['memories_citing_replaced']=[str(memory['id']) for memory in memories

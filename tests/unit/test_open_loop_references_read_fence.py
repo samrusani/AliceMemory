@@ -1106,19 +1106,20 @@ def test_the_fence_is_a_required_keyword_only_argument_of_every_function_with_no
 def test_the_reference_keys_include_every_key_the_reverse_lookup_of_a_source_reads() -> None:
     """``list_open_loops_referencing_source`` finds the loops that name a source under six metadata keys. A loop found
     by a source id must lose that id by the same words, so the keys the output rule treats as references are a
-    superset of the keys the lookup reads. Read from the SQL text of the SQLite store.
+    superset of the keys the lookup reads. Read from the shared SQL text of the SQLite store
+    (``OPEN_LOOP_SOURCE_REFERENCE_SQL``, which the lookup, the delete preview and the scrub all use).
 
     Mutation: remove a key from ``SOURCE_REFERENCE_KEYS``, or add a seventh to the SQL.
     """
 
     from alicebot_api.vnext_open_loop_references import SOURCE_REFERENCE_KEYS
+    from alicebot_api.vnext_stores.sqlite.open_loop_source_reference import OPEN_LOOP_SOURCE_REFERENCE_SQL
 
-    text = (_SRC / "vnext_stores" / "sqlite" / "graph_open_loops.py").read_text(encoding="utf-8")
-    start = text.index("def list_open_loops_referencing_source")
-    block = text[start : text.index("def list_open_loops(", start)]
+    # The rule the lookup, the delete preview and the scrub share lives in one statement (the lookup reads it from there).
+    text = OPEN_LOOP_SOURCE_REFERENCE_SQL
     keys_in_sql = {
         part.strip().strip("'")
-        for part in block[block.index("ref.key IN (") + len("ref.key IN (") : block.index(")", block.index("ref.key IN ("))].split(",")
+        for part in text[text.index("ref.key IN (") + len("ref.key IN (") : text.index(")", text.index("ref.key IN ("))].split(",")
     }
     assert keys_in_sql and keys_in_sql <= SOURCE_REFERENCE_KEYS, keys_in_sql
 
