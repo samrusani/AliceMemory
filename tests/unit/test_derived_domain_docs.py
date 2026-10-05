@@ -150,6 +150,8 @@ def test_the_mcp_tools_section_states_the_label_rule_the_repair_and_the_changes_
     assert "or repair historical sensitivity values" not in readers
     assert "apply the caller's sensitivity ceiling" in readers
     assert "rows the caller may read" in readers
+    assert "The filtered workspace skips content diagnostics" in readers
+    assert "run doctor for the full derived-label and flagged-source report" in readers
     assert "apply no label" not in readers
 
     assert "every project of every input" in scope
