@@ -31,3 +31,38 @@ def test_pg_copy_and_summary_keep_tenant_and_ancestry(migrated_database_urls, do
         assert artifact["sensitivity"] == sensitivity
         if domain == "health":
             assert artifact["domain"] == domain
+
+
+def test_checked_project_review_moves_scope_and_propagates_labels(migrated_database_urls, monkeypatch):
+    from alicebot_api.config import Settings
+    from alicebot_api.routers import vnext_memories as router
+    from alicebot_api.vnext_agent_keys import create_agent_key
+    from uuid import UUID
+    user_id = uuid4()
+    alpha, beta = "prj_" + "a" * 16, "prj_" + "b" * 16
+    app_url = migrated_database_urls["app"]
+    with user_connection(app_url, user_id) as conn:
+        ContinuityStore(conn).create_user(user_id, f"review-labels-{user_id}@example.invalid", "Labels")
+        store = PostgresVNextStore(conn)
+        original = store.create_memory({"memory_key": "original", "canonical_text": "original", "status": "active", "domain": "project", "sensitivity": "public", "metadata_json": {"project_scope": [alpha]}})
+        summary = store.create_memory({"memory_key": "summary", "canonical_text": "summary", "status": "active", "domain": "project", "sensitivity": "public", "metadata_json": {"consolidation": {"cluster_member_ids": [str(original["id"])]}, "project_scope": [alpha]}})
+        _key, raw_key = create_agent_key(store, user_id=user_id, agent_id="alpha-only", permission_profile="admin_agent", project_scope=alpha)
+        _admin, admin_key = create_agent_key(store, user_id=user_id, agent_id="unbound-admin", permission_profile="admin_agent")
+    monkeypatch.setattr(router, "get_settings", lambda: Settings(database_url=app_url))
+    request = router.VNextMemoryReviewRequest(user_id=user_id, action="assign_project", project_id=beta, domain="health", sensitivity="confidential")
+    denied = router.review_vnext_memory(UUID(str(original["id"])), request, authorization=f"Bearer {raw_key}")
+    assert denied.status_code == 403
+    with user_connection(app_url, user_id) as conn:
+        store = PostgresVNextStore(conn)
+        assert store.get_memory(str(original["id"]))["metadata_json"]["project_scope"] == [alpha]
+        assert store.get_memory(str(summary["id"]))["sensitivity"] == "public"
+    moved = router.review_vnext_memory(UUID(str(original["id"])), request, authorization=f"Bearer {admin_key}")
+    assert moved.status_code == 200
+    with user_connection(app_url, user_id) as conn:
+        store = PostgresVNextStore(conn)
+        original_after = store.get_memory(str(original["id"]))
+        summary_after = store.get_memory(str(summary["id"]))
+        assert original_after["metadata_json"]["project_scope"] == [beta]
+        assert summary_after["domain"] == "health"
+        assert summary_after["sensitivity"] == "confidential"
+        assert beta in summary_after["metadata_json"]["project_floor"]
