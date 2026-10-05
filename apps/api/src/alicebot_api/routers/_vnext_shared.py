@@ -25,7 +25,9 @@ from alicebot_api.vnext_agent_keys import (
     agent_key_from_authorization,
     resolve_protected_agent_identity,
 )
+from alicebot_api.vnext_label_guard import LabelGuard, apply_unverified_rule, policy_labels
 from alicebot_api.vnext_project_scope import source_project_scope
+from alicebot_api.vnext_source_fence import SourceReadFence
 from alicebot_api.vnext_queue import VNextQueueNotFoundError
 from alicebot_api.vnext_store import PostgresVNextStore, is_redacted_project_update_artifact
 
@@ -461,14 +463,16 @@ def _vnext_exact_resource_policy(
     resource: dict[str, object],
     source_resource: bool = False,
 ) -> PolicyDecision:
-    domain = " ".join(str(resource.get("domain") or "unknown").split()).strip() or "unknown"
-    sensitivity = " ".join(str(resource.get("sensitivity") or "unknown").split()).strip() or "unknown"
+    domains, sensitivity_allowed, project_scope, project_floor = policy_labels(resource)
+    if source_resource:
+        project_scope = source_project_scope(resource)
     decision = evaluate_agent_policy(
         identity=identity,
         action=action,
-        domains=(domain,),
-        sensitivity_allowed=(sensitivity,),
-        project_scope=source_project_scope(resource) if source_resource else resource_project_scope(resource),
+        domains=domains,
+        sensitivity_allowed=sensitivity_allowed,
+        project_scope=project_scope,
+        project_floor=project_floor,
         require_explicit_project_scope=bool(identity is not None and identity.project_scope_locked),
     )
     if decision.decision == "allowed_with_filtering":
@@ -504,11 +508,14 @@ def _vnext_authorized_artifact(
         raise ValueError("feedback cannot be added to a redacted artifact")
 
     _vnext_agent_record(store, identity)
+    guard = LabelGuard.for_fence(store, SourceReadFence.for_identity(identity))
+    effective = guard.effective_row("artifact", artifact)
     decision = _vnext_exact_resource_policy(
         identity=identity,
         action=action,
-        resource=artifact,
+        resource=effective if isinstance(effective, dict) else artifact,
     )
+    decision = apply_unverified_rule(decision, effective if isinstance(effective, Mapping) else None, identity)
     append_policy_events(
         store,
         identity=identity,
