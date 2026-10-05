@@ -1,5 +1,6 @@
 """Restricted-domain generation and migration on the role-separated database."""
 
+import os
 from uuid import uuid4
 from urllib.parse import urlsplit, urlunsplit
 
@@ -183,8 +184,11 @@ def test_postgres_repair_as_documented_nobypassrls_owner(database_urls, monkeypa
     role_url = urlunsplit(
         parsed._replace(netloc=f"{role}:fixture-role-password@{parsed.hostname}:{parsed.port or 5432}")
     )
-    with psycopg.connect(database_urls["admin"], autocommit=True) as admin:
-        owner = admin.execute("SELECT current_user").fetchone()[0]
+    lifecycle = urlsplit(os.getenv("DATABASE_LIFECYCLE_URL", database_urls["admin"]))
+    lifecycle_url = urlunsplit(lifecycle._replace(path=parsed.path))
+    with psycopg.connect(lifecycle_url, autocommit=True) as admin:
+        owner = parsed.username
+        assert owner is not None
         admin.execute(
             sql.SQL("CREATE ROLE {} LOGIN NOSUPERUSER NOBYPASSRLS PASSWORD {}").format(
                 sql.Identifier(role), sql.Literal("fixture-role-password")
@@ -210,10 +214,11 @@ def test_postgres_repair_as_documented_nobypassrls_owner(database_urls, monkeypa
                 with monkeypatch.context() as patch:
                     patch.setattr(repair, "relabel_event", injected_failure)
                     with pytest.raises(RuntimeError, match="injected audit failure"):
-                        command.upgrade(make_alembic_config(role_url), "head")
+                        command.upgrade(make_alembic_config(role_url), "20261004_0095")
                 assert admin.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "20260721_0094"
             else:
-                command.upgrade(make_alembic_config(role_url), "head")
+                # Keep this v2 guard proof independent of the later v3 repair.
+                command.upgrade(make_alembic_config(role_url), "20261004_0095")
             assert all(
                 row[0]
                 for row in admin.execute(
