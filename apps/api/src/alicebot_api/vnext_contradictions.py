@@ -764,10 +764,15 @@ class VNextContradictionService:
         )
         return belief
 
-    def belief_state(self, *, belief_id: str) -> JsonObject:
+    def belief_state(self, *, belief_id: str, sensitivity_allowed: tuple[str, ...] | None = None) -> JsonObject:
         belief = self.store.get_belief(belief_id)
         if belief is None:
             raise VNextContradictionValidationError(f"belief {belief_id} was not found")
+        if sensitivity_allowed is not None:
+            from alicebot_api.vnext_label_guard import LabelGuard
+
+            if not LabelGuard.for_filters(self.store, (), sensitivity_allowed, ()).admit_beliefs([belief]):
+                raise VNextContradictionValidationError(f"belief {belief_id} was not found")
         events = self.store.list_events(target_type="belief", target_id=belief_id)
         previous_statuses: list[object] = []
         for event in events:

@@ -571,16 +571,34 @@ def list_vnext_artifacts(
     artifact_type: str | None = None,
     limit: int = 30,
     project: str | None = None,
+    authorization: str | None = Header(default=None),
 ) -> JSONResponse:
+    from alicebot_api.vnext_label_guard import apply_sensitivity_ceiling
+
     settings = get_settings()
     scope_projects = (project,) if isinstance(project, str) and project.strip() else ()
 
-    with user_connection(settings.database_url, user_id) as conn:
-        payload = PostgresVNextStore(conn).list_artifacts(
-            artifact_type=artifact_type,
-            limit=limit,
-            scope_projects=scope_projects,
-        )
+    try:
+        with user_connection(settings.database_url, user_id) as conn:
+            store = PostgresVNextStore(conn)
+            identity = resolve_protected_agent_identity(
+                store,
+                user_id=user_id,
+                raw_key=agent_key_from_authorization(authorization),
+                payload={},
+            )
+            payload = apply_sensitivity_ceiling(
+                store,
+                kind="artifact",
+                rows=store.list_artifacts(
+                    artifact_type=artifact_type,
+                    limit=limit,
+                    scope_projects=scope_projects,
+                ),
+                identity=identity,
+            )
+    except AgentKeyAuthenticationError as exc:
+        return _vnext_agent_auth_error_response(exc)
 
     return JSONResponse(
         status_code=200,
@@ -897,12 +915,30 @@ def review_vnext_belief(belief_id: str, request: VNextBeliefReviewRequest) -> JS
     )
 
 @review_router.get("/v0/vnext/beliefs/{belief_id}/state")
-def get_vnext_belief_state(belief_id: str, user_id: UUID) -> JSONResponse:
+def get_vnext_belief_state(
+    belief_id: str,
+    user_id: UUID,
+    authorization: str | None = Header(default=None),
+) -> JSONResponse:
+    from alicebot_api.vnext_label_guard import sensitivity_ceiling
+
     settings = get_settings()
 
     try:
         with user_connection(settings.database_url, user_id) as conn:
-            payload = VNextContradictionService(PostgresVNextStore(conn)).belief_state(belief_id=belief_id)
+            store = PostgresVNextStore(conn)
+            identity = resolve_protected_agent_identity(
+                store,
+                user_id=user_id,
+                raw_key=agent_key_from_authorization(authorization),
+                payload={},
+            )
+            payload = VNextContradictionService(store).belief_state(
+                belief_id=belief_id,
+                sensitivity_allowed=sensitivity_ceiling(identity),
+            )
+    except AgentKeyAuthenticationError as exc:
+        return _vnext_agent_auth_error_response(exc)
     except VNextContradictionValidationError:
         return _vnext_public_error_response(status_code=404, detail="vNext belief was not found")
 

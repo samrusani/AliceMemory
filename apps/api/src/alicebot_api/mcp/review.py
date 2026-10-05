@@ -251,7 +251,17 @@ def _vnext_memory_review(context: MCPRuntimeContext, arguments: Mapping[str, obj
             if _resource_matches_project_scope(row, decision.effective_project_scope)
             and str(row.get("domain") or "unknown") in decision.effective_domains
             and str(row.get("sensitivity") or "unknown") in decision.effective_sensitivity_allowed
-        ][:limit]
+        ]
+        from alicebot_api.vnext_label_guard import admit_loaded
+
+        rows = admit_loaded(
+            store,
+            kind="memory",
+            rows=rows,
+            domains=decision.effective_domains,
+            sensitivity_allowed=decision.effective_sensitivity_allowed,
+            projects=decision.effective_project_scope,
+        )[:limit]
         items = [
             present_model_item(
                 _compact_vnext_memory(row, provenance_count=_provenance_count(store, row.get("id"))),

@@ -350,6 +350,7 @@ def compile_session_brief(
             for row in facts
             if _memory_honours_fence(
                 row,
+                store=store,
                 effective_domains=effective_domains,
                 effective_sensitivity_allowed=effective_sensitivity_allowed,
                 effective_project_scope=effective_project_scope,
@@ -381,6 +382,16 @@ def compile_session_brief(
                 scope_projects=effective_project_scope,
                 exclude_global_domains=tuple(sorted(held_back)),
             )
+        from alicebot_api.vnext_label_guard import admit_loaded
+
+        open_loops = admit_loaded(
+            store,
+            kind="open_loop",
+            rows=open_loops,
+            domains=effective_domains,
+            sensitivity_allowed=effective_sensitivity_allowed,
+            projects=effective_project_scope,
+        )
         _merge_recent_change_targets(
             store,
             facts=facts,
@@ -588,6 +599,18 @@ def _event_target_honours_fence(
         row = store.get_open_loop(target_id)
     if row is None:
         return False
+    from alicebot_api.vnext_label_guard import admit_loaded
+
+    kind = "open_loop" if target_type == "open_loop" else "memory"
+    if not admit_loaded(
+        store,
+        kind=kind,
+        rows=[row],
+        domains=effective_domains,
+        sensitivity_allowed=effective_sensitivity_allowed,
+        projects=effective_project_scope,
+    ):
+        return False
     return _memory_honours_fence(
         row,
         effective_domains=effective_domains,
@@ -616,11 +639,24 @@ def _brief_omits_memory(row: Mapping[str, object]) -> bool:
 def _memory_honours_fence(
     row: Mapping[str, object],
     *,
+    store: object | None = None,
     effective_domains: tuple[str, ...],
     effective_sensitivity_allowed: tuple[str, ...],
     effective_project_scope: tuple[str, ...],
     exclude_global_domains: frozenset[str],
 ) -> bool:
+    if store is not None:
+        from alicebot_api.vnext_label_guard import admit_loaded
+
+        if not admit_loaded(
+            store,
+            kind="memory",
+            rows=[row],
+            domains=effective_domains,
+            sensitivity_allowed=effective_sensitivity_allowed,
+            projects=effective_project_scope,
+        ):
+            return False
     resource_scope = resource_project_scope(row)
     return (
         _matches_domains(row, effective_domains)

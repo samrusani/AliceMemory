@@ -284,9 +284,20 @@ def _vnext_load_source_trace(
     *,
     store: PostgresVNextStore,
     source: dict[str, object],
-) -> dict[str, object]:
-    """Load one bounded source trace and disclose per-collection truncation."""
+    identity: object | None = None,
+) -> dict[str, object] | None:
+    """Load one bounded source trace and disclose per-collection truncation.
 
+    Returns None when the caller's sensitivity ceiling hides the source, so
+    the response carries neither its title nor its id.
+    """
+
+    from alicebot_api.vnext_agent_control import AgentIdentity
+    from alicebot_api.vnext_label_guard import apply_sensitivity_ceiling
+
+    caller = identity if isinstance(identity, AgentIdentity) else None
+    if not apply_sensitivity_ceiling(store, kind="source", rows=[source], identity=caller):
+        return None
     source_id = str(source["id"])
     memories, memories_complete = _vnext_bounded_trace_rows(
         store.list_memories_referencing_source(
@@ -306,6 +317,11 @@ def _vnext_load_source_trace(
             limit=_VNEXT_SOURCE_TRACE_COLLECTION_LIMIT + 1,
         )
     )
+    memories = apply_sensitivity_ceiling(store, kind="memory", rows=memories, identity=caller)
+    artifacts = apply_sensitivity_ceiling(store, kind="artifact", rows=artifacts, identity=caller)
+    open_loops = apply_sensitivity_ceiling(store, kind="open_loop", rows=open_loops, identity=caller)
+    kept_ids = {str(row.get("id")) for row in (*memories, *artifacts, *open_loops)}
+    kept_ids.add(source_id)
     events, direct_events_complete = _vnext_bounded_trace_rows(
         store.list_events_for_source_trace(
             source_id=source_id,
@@ -315,6 +331,7 @@ def _vnext_load_source_trace(
             limit=_VNEXT_SOURCE_TRACE_COLLECTION_LIMIT + 1,
         )
     )
+    events = [event for event in events if str(event.get("target_id") or "") in kept_ids]
     events_complete = direct_events_complete and memories_complete and artifacts_complete and open_loops_complete
     return _vnext_source_trace(
         store=store,

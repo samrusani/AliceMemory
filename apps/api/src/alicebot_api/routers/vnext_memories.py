@@ -59,6 +59,8 @@ from alicebot_api.vnext_agent_control import (
 )
 from alicebot_api.vnext_agent_keys import (
     AgentKeyAuthenticationError,
+    agent_key_from_authorization,
+    resolve_protected_agent_identity,
 )
 from alicebot_api.vnext_capture import (
     VNextCaptureService,
@@ -717,10 +719,25 @@ def ingest_vnext_agent_output(
 
 
 @connectors_router.get("/v0/vnext/dogfooding")
-def get_vnext_dogfooding_dashboard(user_id: UUID) -> JSONResponse:
+def get_vnext_dogfooding_dashboard(
+    user_id: UUID,
+    authorization: str | None = Header(default=None),
+) -> JSONResponse:
+    from alicebot_api.vnext_label_guard import sensitivity_ceiling
+
     settings = get_settings()
-    with user_connection(settings.database_url, user_id) as conn:
-        payload = VNextDogfoodingService(PostgresVNextStore(conn)).dashboard()
+    try:
+        with user_connection(settings.database_url, user_id) as conn:
+            store = PostgresVNextStore(conn)
+            identity = resolve_protected_agent_identity(
+                store,
+                user_id=user_id,
+                raw_key=agent_key_from_authorization(authorization),
+                payload={},
+            )
+            payload = VNextDogfoodingService(store).dashboard(sensitivity_allowed=sensitivity_ceiling(identity))
+    except AgentKeyAuthenticationError as exc:
+        return _vnext_agent_auth_error_response(exc)
     return JSONResponse(status_code=200, content=jsonable_encoder(payload))
 
 

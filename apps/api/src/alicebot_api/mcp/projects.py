@@ -226,6 +226,16 @@ def _handle_alice_vnext_open_loops(context: MCPRuntimeContext, arguments: Mappin
         )
         if decision.effective_project_scope:
             loops = [loop for loop in loops if _resource_matches_project_scope(loop, decision.effective_project_scope)]
+        from alicebot_api.vnext_label_guard import admit_loaded
+
+        loops = admit_loaded(
+            store,
+            kind="open_loop",
+            rows=loops,
+            domains=decision.effective_domains,
+            sensitivity_allowed=decision.effective_sensitivity_allowed,
+            projects=decision.effective_project_scope,
+        )
         # The loop is the caller's to read, the source and memory it points at are checked on their own: a reference
         # the caller's fence does not admit is returned as ``null``, the way a reference to a missing row is.
         loops = withhold_unreadable_references(

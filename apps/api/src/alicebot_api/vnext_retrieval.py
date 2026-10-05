@@ -102,6 +102,7 @@ from alicebot_api.vnext_embeddings import (
 from alicebot_api.vnext_event_log import append_event
 from alicebot_api.vnext_grounding import compute_query_grounding
 from alicebot_api.vnext_json import json_safe
+from alicebot_api.vnext_label_guard import LabelGuard, admit_loaded
 from alicebot_api.vnext_lifecycle import RETIRED_STATUSES
 from alicebot_api.vnext_promotion_policy import memory_write_provenance
 from alicebot_api.vnext_project_scope import (
@@ -2530,6 +2531,7 @@ def expand_provenance_once(
     selected = set(already_selected_ids)
     admitted: list[JsonObject] = []
     used_tokens = 0
+    candidates: list[JsonObject] = []
     for row in list_refs(source_id=source_id):
         if not isinstance(row, Mapping):
             continue
@@ -2553,7 +2555,16 @@ def expand_provenance_once(
             scope_window_end=scope_window_end,
         ):
             continue
-        item = dict(row)
+        candidates.append(dict(row))
+    for item in admit_loaded(
+        store,
+        kind="memory",
+        rows=candidates,
+        domains=effective_domains,
+        sensitivity_allowed=effective_sensitivity_allowed,
+        projects=effective_project_scope,
+    ):
+        row_id = str(item.get("id") or "")
         cost = estimate_item_tokens(item)
         if used_tokens + cost > token_cap:
             break
@@ -2692,7 +2703,14 @@ class VNextRetrievalService:
             edges.extend(list_edges(from_id=entity_id))
         return edges
 
-    def _memories_by_ids(self, memory_ids: Sequence[str]) -> dict[str, JsonObject]:
+    def _memories_by_ids(
+        self,
+        memory_ids: Sequence[str],
+        *,
+        domains: Sequence[str] | None = None,
+        sensitivity_allowed: Sequence[str] | None = None,
+        projects: Sequence[str] | None = None,
+    ) -> dict[str, JsonObject]:
         normalized_ids = tuple(dict.fromkeys(str(memory_id) for memory_id in memory_ids if memory_id))
         if not normalized_ids:
             return {}
@@ -2710,6 +2728,14 @@ class VNextRetrievalService:
                 if callable(get_memory)
                 else []
             )
+        rows = admit_loaded(
+            self.store,
+            kind="memory",
+            rows=rows,
+            domains=domains,
+            sensitivity_allowed=sensitivity_allowed,
+            projects=projects,
+        )
         return {str(row.get("id")): row for row in rows}
 
     def _sources_by_ids(self, source_ids: Sequence[str]) -> dict[str, JsonObject]:
@@ -3104,7 +3130,23 @@ class VNextRetrievalService:
                     # Store predates the match_any kwarg; keep the strict
                     # (empty) result rather than guessing.
                     return [], fts_source
+                rows = admit_loaded(
+                    self.store,
+                    kind="memory",
+                    rows=rows,
+                    domains=domains,
+                    sensitivity_allowed=sensitivity_allowed,
+                    projects=projects,
+                )
                 return _stabilize_scored_rows(rows), f"{fts_source}_or_fallback"
+            rows = admit_loaded(
+                self.store,
+                kind="memory",
+                rows=rows,
+                domains=domains,
+                sensitivity_allowed=sensitivity_allowed,
+                projects=projects,
+            )
             return _stabilize_scored_rows(rows), fts_source
         legacy_search = cast(
             Callable[..., list[JsonObject]],
@@ -3117,6 +3159,14 @@ class VNextRetrievalService:
             limit=limit,
             **filters,
             **scope_filters,
+        )
+        rows = admit_loaded(
+            self.store,
+            kind="memory",
+            rows=rows,
+            domains=domains,
+            sensitivity_allowed=sensitivity_allowed,
+            projects=projects,
         )
         return list(rows), "store_lexical"
 
@@ -3219,6 +3269,14 @@ class VNextRetrievalService:
             return [], VECTOR_STAGE_DISABLED_QUERY_EMBEDDING_FAILED
         # Ascending stage: smaller distance ranks first. Equal distances
         # (identical texts embed identically) stabilize content-first.
+        rows = admit_loaded(
+            self.store,
+            kind="memory",
+            rows=rows,
+            domains=domains,
+            sensitivity_allowed=sensitivity_allowed,
+            projects=projects,
+        )
         return _stabilize_scored_rows(rows, score_key="vector_distance", descending=False), VECTOR_STAGE_ENABLED
 
     def _memory_graph_rows(
@@ -3305,7 +3363,14 @@ class VNextRetrievalService:
         ranked: list[tuple[datetime, datetime, str, JsonObject]] = []
         visible_entity_ids: set[str] = set()
         readable_mentions: dict[str, set[tuple[str, str]]] = {entity_id: set() for entity_id in entity_ids}
-        memories_by_id = self._memories_by_ids(tuple(observed_at_by_memory))
+        memories_by_id = self._memories_by_ids(
+            tuple(observed_at_by_memory),
+            domains=domains,
+            sensitivity_allowed=sensitivity_allowed,
+            projects=projects,
+        )
+        graph_candidates: list[JsonObject] = []
+        graph_observed: list[datetime] = []
         for memory_id, observed_at in observed_at_by_memory.items():
             row = memories_by_id.get(memory_id)
             if row is None:
@@ -3327,12 +3392,29 @@ class VNextRetrievalService:
                 scope_window_end=scope_window_end,
             ):
                 continue
+            graph_candidates.append(row)
+            graph_observed.append(observed_at)
+        admitted_graph_ids = {
+            str(row.get("id"))
+            for row in admit_loaded(
+                self.store,
+                kind="memory",
+                rows=graph_candidates,
+                domains=domains,
+                sensitivity_allowed=sensitivity_allowed,
+                projects=projects,
+            )
+        }
+        for row, observed_at in zip(graph_candidates, graph_observed, strict=True):
+            memory_id = str(row.get("id"))
+            if memory_id not in admitted_graph_ids:
+                continue
             recency = (
                 _parse_timestamp(row.get("updated_at"))
                 or _parse_timestamp(row.get("created_at"))
                 or _GRAPH_EPOCH
             )
-            ranked.append((observed_at, recency, str(row.get("id")), row))
+            ranked.append((observed_at, recency, memory_id, row))
             visible_entity_ids.update(entities_by_memory[memory_id])
             for entity_id in entities_by_memory[memory_id]:
                 readable_mentions[entity_id].add(("memory", memory_id))
@@ -3411,6 +3493,14 @@ class VNextRetrievalService:
             sensitivity_allowed=sensitivity_allowed,
             limit=limit,
             **_optional_search_filters(memory_types, projects, created_by_agent_ids, run_id),
+        )
+        rows = admit_loaded(
+            self.store,
+            kind="memory",
+            rows=rows,
+            domains=domains,
+            sensitivity_allowed=sensitivity_allowed,
+            projects=projects,
         )
         return list(rows), TEMPORAL_STAGE_ENABLED
 
@@ -3801,7 +3891,7 @@ class VNextRetrievalService:
         entity graph here, once, like the memory stages do.
         """
 
-        return _memory_visibility_predicate(
+        base = _memory_visibility_predicate(
             domains=domains,
             sensitivity_allowed=sensitivity_allowed,
             scope=scope,
@@ -3809,6 +3899,23 @@ class VNextRetrievalService:
                 self._person_linked_memory_ids(scope.people) if scope is not None else frozenset()
             ),
         )
+        project_filter = tuple(scope.projects) if scope is not None else ()
+
+        def visible(row: Mapping[str, object]) -> bool:
+            if not base(row):
+                return False
+            return bool(
+                admit_loaded(
+                    self.store,
+                    kind="memory",
+                    rows=[row],
+                    domains=domains,
+                    sensitivity_allowed=sensitivity_allowed,
+                    projects=project_filter,
+                )
+            )
+
+        return visible
 
     def fence_validity_memory_ids(
         self,
@@ -4389,6 +4496,14 @@ class VNextRetrievalService:
             person_linked_memory_ids=frozenset(),
             target=DEFAULT_OPEN_LOOP_LIMIT,
             store_scope_complete=bool(open_loop_scope_filters),
+        )
+        open_loop_rows = admit_loaded(
+            self.store,
+            kind="open_loop",
+            rows=open_loop_rows,
+            domains=domains,
+            sensitivity_allowed=sensitivity_allowed,
+            projects=tuple(scope.projects),
         )
         open_loop_rows = open_loop_rows[:DEFAULT_OPEN_LOOP_LIMIT]
 
@@ -5200,6 +5315,12 @@ class VNextRetrievalService:
                 sensitivity_allowed=sensitivity_allowed,
                 limit=belief_target,
             )
+        beliefs = LabelGuard.for_filters(
+            self.store,
+            domains,
+            sensitivity_allowed,
+            tuple(scope.projects),
+        ).admit_beliefs(list(beliefs))
         candidates = vnext_contradictions._find_candidates(  # noqa: SLF001 - deliberate read-only reuse
             new_items=new_items,
             beliefs=list(beliefs),
@@ -5261,6 +5382,17 @@ class VNextRetrievalService:
             targets = self._memories_by_ids(
                 [str(event.get("target_id") or "") for event in eligible]
             )
+            admitted_targets = {
+                str(row.get("id"))
+                for row in admit_loaded(
+                    self.store,
+                    kind="memory",
+                    rows=list(targets.values()),
+                    domains=domains,
+                    sensitivity_allowed=sensitivity_allowed,
+                    projects=tuple(scope.projects),
+                )
+            }
 
             def _target_visible(event: JsonObject) -> bool:
                 target = targets.get(str(event.get("target_id") or ""))
@@ -5268,6 +5400,8 @@ class VNextRetrievalService:
                     # No such row is not a hidden row: the lookup applies no
                     # fence. A scoped pack fails closed on it, as it always has.
                     return not identity_scope.active
+                if str(target.get("id")) not in admitted_targets:
+                    return False
                 return memory_visible(target)
 
             return [event for event in eligible if _target_visible(event)]

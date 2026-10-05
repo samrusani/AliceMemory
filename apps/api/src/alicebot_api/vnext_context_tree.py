@@ -162,6 +162,32 @@ def _label(row: JsonObject, *keys: str, fallback: str) -> str:
     return fallback
 
 
+def _tree_event_visible(store: object, event: JsonObject, domains: list[str], sensitivity: list[str], projects: tuple[str, ...]) -> bool:
+    from alicebot_api.vnext_label_guard import admit_loaded
+
+    kind = str(event.get("target_type") or "")
+    target_id = event.get("target_id")
+    getters = {
+        "memory": "get_memory",
+        "open_loop": "get_open_loop",
+        "artifact": "get_artifact",
+        "project": "get_project",
+        "source": "get_source",
+    }
+    getter_name = getters.get(kind)
+    if getter_name is None or not isinstance(target_id, str) or target_id == "":
+        return True
+    getter = getattr(store, getter_name, None)
+    if not callable(getter):
+        return True
+    row = getter(target_id)
+    if not isinstance(row, dict) and not hasattr(row, "get"):
+        return True
+    return bool(
+        admit_loaded(store, kind=kind, rows=[row], domains=domains, sensitivity_allowed=sensitivity, projects=projects)
+    )
+
+
 def _row_node(prefix: str, row: JsonObject, *, label_keys: tuple[str, ...], fallback: str) -> JsonObject:
     row_id = str(row.get("id", "unknown"))
     return _node(
@@ -291,6 +317,33 @@ class VNextContextTreeService:
         sources = _admitted_rows(sources, project_scope, source=True)
         open_loops = _admitted_rows(open_loops, project_scope)
         artifacts = _admitted_rows(artifacts, project_scope)
+        from alicebot_api.vnext_label_guard import admit_loaded
+
+        projects = admit_loaded(
+            self.store, kind="project", rows=projects, domains=domains, sensitivity_allowed=sensitivity, projects=project_scope
+        )
+        memories = admit_loaded(
+            self.store, kind="memory", rows=memories, domains=domains, sensitivity_allowed=sensitivity, projects=project_scope
+        )
+        sources = admit_loaded(
+            self.store, kind="source", rows=sources, domains=domains, sensitivity_allowed=sensitivity, projects=project_scope
+        )
+        open_loops = admit_loaded(
+            self.store,
+            kind="open_loop",
+            rows=open_loops,
+            domains=domains,
+            sensitivity_allowed=sensitivity,
+            projects=project_scope,
+        )
+        artifacts = admit_loaded(
+            self.store,
+            kind="artifact",
+            rows=artifacts,
+            domains=domains,
+            sensitivity_allowed=sensitivity,
+            projects=project_scope,
+        )
         if not request.include_events:
             events = []
         elif project_scope:
@@ -303,7 +356,11 @@ class VNextContextTreeService:
                 limit=request.limit,
             )
         else:
-            events = self.store.list_events(limit=request.limit)
+            events = [
+                event
+                for event in self.store.list_events(limit=request.limit)
+                if _tree_event_visible(self.store, event, domains, sensitivity, project_scope)
+            ]
 
         roots = [
             _node(
