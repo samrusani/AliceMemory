@@ -482,7 +482,12 @@ def _postgres_dependants(store: Any, table: str, kind: str, compacts: Sequence[s
         extra = ", NULL::jsonb AS value"
     # Normalize each column once per row, rather than once per frontier id.
     # This remains only a superset lookup; the canonical parser selects exact edges.
-    pattern = "(?:" + "|".join(re.escape(item) for item in compacts) + ")"
+    if len(compacts) >= 32 and all(re.fullmatch(r"[0-9a-f]{32}", item) for item in compacts):
+        # A constant pattern avoids constructing a large automaton for UUID
+        # frontiers. More candidates are safe because exact edges are parsed below.
+        pattern = r"[0-9a-f]{32}"
+    else:
+        pattern = "(?:" + "|".join(re.escape(item) for item in compacts) + ")"
 
     def candidate_clause(column: str) -> str:
         return (
@@ -538,8 +543,9 @@ def walk_dependants(store: Any, roots: Sequence[str]) -> list[dict[str, object]]
     while pending:
         if len(seen) > PROPAGATION_BOUND:
             raise LabelPropagationTooLarge(f"label propagation stopped after {PROPAGATION_BOUND} rows")
-        batch = pending[:200]
-        pending = pending[200:]
+        batch_size = 200 if _sqlite(store) else 2000
+        batch = pending[:batch_size]
+        pending = pending[batch_size:]
         belief_aliases = getattr(store, "list_belief_ids_for_memories", None)
         if callable(belief_aliases):
             for belief_id in belief_aliases(batch):
