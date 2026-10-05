@@ -82,6 +82,8 @@ SQLITE_METHODS = (
 # mutators take the label lock. Metadata receipts include the label_write
 # keyword and lock wrappers. Facades add only lock_label_writes/read_label_rows;
 # removing those two names reproduces each previous class-order receipt.
+# Reviewed SQLite owner clamp: update_memory settles an edit at its inputs
+# and records whether the clamp applied; its signature and metadata stay fixed.
 # Reviewed strict lock change: the graph lock reads live advisory grants,
 # and the memory update checks exclusive L before changing labels.
 SOURCE_RECEIPTS = {
@@ -97,23 +99,25 @@ SOURCE_RECEIPTS = {
     # back between two reads cannot fail memories_seen_range_check. Previous
     # sqlite receipt 67adaa61..., method AST 3f134ac9...; the metadata
     # manifests are unchanged.
-    SQLITE_CARRIER_PATH: "f893f1faeeb9a87135c108992aa91ff036c5f5dccb1bbdaf315ae5afe1b89b73",
+    SQLITE_CARRIER_PATH: "759cf44762c388e599b4e8c377fa3415ca2fdf9ba7884698259171ef3d2b8138",
 }
 EXPECTED_METHOD_AST_MANIFESTS = {
     "postgres": "827c4f391a1efe50dcb265b7bb50a5b191d2bae32c3f817dcc237d51bfb10d29",
-    "sqlite": "d0b6024f0803ca9d3c6f6ea7f5022a28453b2b8b83833f0f05343cb3eff89a57",
+    "sqlite": "3577659fcf9e583bdb957bb1a959ac1d8cae07ce8b50321bc36697dec47acec4",
 }
 EXPECTED_METADATA_MANIFESTS = {
     "postgres": "07a567e26d0f7c4f51ae2a1910d059397b513a575d85f06c2f8c0396ac1bb2ef",
     "sqlite": "1270ef0115988552418349aa9e94a7442ba04be41443f278f68a1fa81857903a",
 }
 EXPECTED_CLASS_ORDERS = {
+    # Reviewed source recovery and belief propagation add only two Postgres
+    # methods. The SQLite facade and every existing member retain their order.
     # Two paired browser-clip capability methods extend both façades, and one
     # more paired method, ``list_memories_referencing_sources``.
     # Per-file importer savepoint (2026-10-02): one paired method more, ``savepoint``, appended last.
     # Previous receipt: (171, 526374782104a2a1...). Proof: the member list equals the list at origin/main
     # 040a2a10 with ``savepoint`` added at the end and nothing else moved (reviewed change, not drift).
-    "PostgresVNextStore": (174, "095250b8a77d6c0a32d2783343916b947bcae8ae86e3a1693e47c2fb11802211"),
+    "PostgresVNextStore": (176, "3549d6ea179f4ebc2341f1c251f139dfb747d56700a4554aef114150efed5c3f"),
     # One SQLite-only method more, ``check_source_search_query``: the Postgres
     # source search has no expression-depth or LIKE-length limit to check.
     # Merge of #500 and #502 (2026-10-01): one more SQLite-only method,

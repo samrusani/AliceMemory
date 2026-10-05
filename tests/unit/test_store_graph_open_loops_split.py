@@ -149,12 +149,14 @@ EXPECTED_COMMENT_MANIFESTS = {
     SQLITE_CARRIER_PATH: (6, "970028b5c929f0e749d8b40bdee571c872600de7a713e58d60e0da86f022af8a"),
 }
 EXPECTED_CLASS_ORDERS = {
+    # Reviewed source recovery and belief propagation add only two Postgres
+    # methods. The SQLite facade and every existing member retain their order.
     # Two paired browser-clip capability methods extend both façades, and one
     # more paired method, ``list_memories_referencing_sources``.
     # Per-file importer savepoint (2026-10-02): one paired method more, ``savepoint``, appended last.
     # Previous receipt: (171, 526374782104a2a1...). Proof: the member list equals the list at origin/main
     # 040a2a10 with ``savepoint`` added at the end and nothing else moved (reviewed change, not drift).
-    "PostgresVNextStore": (172, "6f1a459fcf4319cf4281f6cc0d4e81679c3e05d851fd0a874a2d90298d7c2569"),
+    "PostgresVNextStore": (176, "3549d6ea179f4ebc2341f1c251f139dfb747d56700a4554aef114150efed5c3f"),
     # One SQLite-only method more, ``check_source_search_query``: the Postgres
     # source search has no expression-depth or LIKE-length limit to check.
     # Merge of #500 and #502 (2026-10-01): one more SQLite-only method,
@@ -169,7 +171,7 @@ EXPECTED_CLASS_ORDERS = {
     # 040a2a10 with ``savepoint`` added at the end and nothing else moved (reviewed change, not drift).
     # Proof: the replacement branch gains only scrub_source, source_inventory and
     # prunable_sources here; every pre-existing class member keeps its order.
-    "SQLiteVNextStore": (134, "1301272026897057cf071009cc21787543ddc326f1e06f1a75a763f3e344767e"),
+    "SQLiteVNextStore": (136, "1d99dbaf69e4ea888ca7beb2389ac176650a2e573c067bf0686adc9e609132f5"),
 }
 EXPECTED_COLUMN_AST = {
     POSTGRES_COLUMNS_PATH: {
