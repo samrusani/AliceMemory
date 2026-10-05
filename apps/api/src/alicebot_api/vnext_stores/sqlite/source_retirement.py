@@ -1,9 +1,12 @@
 """SQLite source retirement and the derived state owned by a source."""
 from __future__ import annotations
 
+import itertools
 import json
+import re
 from pathlib import Path
 from contextlib import nullcontext
+from uuid import UUID
 
 from alicebot_api.vault_file_lock import vault_file_lock
 from alicebot_api.vnext_stores.memory_lifecycle_common import is_redacted_memory
@@ -11,6 +14,7 @@ from alicebot_api.vnext_stores.memory_lifecycle_common import is_redacted_memory
 from alicebot_api.source_supersede import classification_refusal, eligible_source
 from alicebot_api.vnext_entities import ENTITY_MENTION_EDGE_TYPE
 from alicebot_api.vnext_project_scope import source_project_scope
+from alicebot_api.vnext_source_fence import memory_cited_source_ids
 from alicebot_api.vnext_stores.sqlite.primitives import _utc_now_iso
 
 REMOVAL_MARKER = "[removed by the owner]"
@@ -47,23 +51,263 @@ def prune_sleep_rows(self, source_ids, *, dry_run=False):
 
 
 
-def citing_memories(self, source_id):
+# -- finding the memories that cite a source ---------------------------------------------------------------------------
+#
+# A memory cites a source when it has a provenance link to the source or to one of its chunks, when its
+# ``source_event_ids`` hold the source id, or when the shared reference reader names the id in its metadata or value
+# (``memory_cited_source_ids``: every spelling of the id, in refs that are text, lists, objects or JSON text). The
+# reader is exact and slow, so it reads only the memories that one pass over the user's memories keeps. The pass is one
+# registered SQLite function, ``alice_citation_hits``: it reads each memory once and answers, for every source asked
+# about at once, which of them the memory may cite. It may keep a memory the reader rejects and never drops one the
+# reader accepts. A memory is kept for a source in three ways. (1) Its text (metadata and value, lower cased) holds the
+# digits of the id once what ``uuid.UUID`` ignores inside an id is taken out (``urn:``, ``uuid:``, hyphens and
+# underscores), so an id written with hyphens in other places, in capitals or without hyphens is the same run of digits
+# as the id the store holds. (2) Its text holds an ASCII character written as a JSON escape (``\u0061``): a ref that is
+# JSON text can hide any character of an id this way and the reader decodes it. Escapes of control characters and of
+# letters outside ASCII are what ordinary text has, so they do not count. (3) Its text holds the digits of the id once
+# the decimal digits of other scripts are read as the digits 0 to 9 they stand for: ``int(..., 16)`` reads them so, and
+# an id written with them holds no run of the ASCII digits of (1). The source event ids are searched for the id as
+# written. Each query is one literal, with no text joined into it.
+_CITATION_FUNCTION = "alice_citation_hits"
+_SCAN_FOR_CITATIONS = """
+SELECT m.id AS id, alice_citation_hits(m.metadata_json, m.value, m.source_event_ids, ?) AS hits
+FROM memories m WHERE m.user_id = ?
+"""
+_LINKED_MEMORIES = """
+SELECT p.target_id AS memory_id, p.source_id AS source_id FROM provenance_links p
+WHERE p.user_id = ? AND p.target_type = 'memory' AND p.source_id IN (SELECT value FROM json_each(?))
+UNION
+SELECT p.target_id, c.source_id FROM provenance_links p
+JOIN source_chunks c ON c.user_id = p.user_id AND c.id = p.source_chunk_id
+WHERE p.user_id = ? AND p.target_type = 'memory' AND c.source_id IN (SELECT value FROM json_each(?))
+"""
+_MEMORIES_BY_ID = "SELECT m.* FROM memories m WHERE m.user_id = ? AND m.id IN (SELECT value FROM json_each(?)) ORDER BY m.id"
+
+# What ``uuid.UUID`` ignores inside an id, in the order it takes them out.
+_IGNORED_IN_AN_ID = ("urn:", "uuid:", "-", "_")
+# An ASCII character written as a JSON escape, in the lower case text the function reads. A quote, a backslash and the
+# control characters are what ordinary JSON writes escaped, so they are left out.
+_ESCAPED_ASCII = re.compile(r"\\u00[2-7][0-9a-f]")
+# Every character that is not 0 to 9 and that ``int(..., 16)`` reads as one of those digits: the decimal digits
+# (category Nd) of the other scripts, as the Unicode tables of this interpreter name them.
+_OTHER_SCRIPT_DIGIT = re.compile(r"[^\D0-9]")
+# A JSON escape of one character: ``\uXXXX``, and the pair of escapes ``json`` writes for a character beyond the first
+# 65,536 (the mathematical digits are such characters). The single escape is matched only where the code point starts
+# with 0, 1, a or f, because every decimal digit of the Basic Multilingual Plane lies in such a block. A JSON text
+# inside a JSON text doubles each backslash of the inner one, so a run of backslashes is read as one. A match starts only
+# at the first backslash of a run: a start at each of them would read the rest of the run again, and a text of many
+# backslashes would cost the square of its length. Only an escape that stands for such a digit is replaced
+# (``_digit_escape``): any other escape stands for a character that is neither a digit nor ignored, so no run of an id
+# goes through it.
+_DIGIT_ESCAPE = re.compile(r"(?<!\\)\\+u(?:(d[89ab][0-9a-f]{2})\\+u(d[c-f][0-9a-f]{2})|([01af][0-9a-f]{3}))")
+
+
+class _AsciiDigits(dict):
+    """The digit 0 to 9 that each decimal digit of another script stands for, as the text of it, learned on first use."""
+
+    def __missing__(self, char):
+        digit = self[char] = str(int(char))
+        return digit
+
+
+_ASCII_DIGIT = _AsciiDigits()
+
+
+class _Probes:
+    """What one pass looks for. ``sources`` lists ``(source id, digits or None)`` in the order the caller numbers them:
+    the digits are what a text must hold to cite the source (``_citation_probe``), and ``None`` is for a string that
+    is no id, which no text can cite."""
+
+    def __init__(self, sources):
+        self.ids = tuple(source_id for source_id, _ in sources)
+        self.digits = tuple((index, digits) for index, (_, digits) in enumerate(sources) if digits is not None)
+        self.every = frozenset(range(len(sources)))
+        self.every_text = frozenset(index for index, _ in self.digits)
+        self.everything = ",".join(str(index) for index in range(len(sources)))
+
+
+def _digit_escape(match):
+    high, low, single = match.groups()
+    code = int(single, 16) if single is not None else (
+        0x10000 + ((int(high, 16) - 0xD800) << 10) + (int(low, 16) - 0xDC00))
+    char = chr(code)
+    return char if char.isdecimal() and not char.isascii() else match.group()
+
+
+def _in_ascii_digits(text):
+    """``text`` with each decimal digit of another script, written as the character or as a JSON escape of it
+    (``\\u0661`` or ``\\ud835\\udfce``), written as the digit 0 to 9 it stands for, or ``None`` when it holds none. An
+    escape is read wherever it stands, inside a string or not: a text that holds one it should not has only made the
+    candidate list longer, and the reader decides."""
+
+    if "\\u" in text:
+        text = _DIGIT_ESCAPE.sub(_digit_escape, text)
+    # No decimal digit of another script has a code point below U+0660, so a text of Latin-1 characters (French, German,
+    # Spanish, Portuguese, Italian) holds none, and ``encode`` tells it at a fraction of the cost of the search.
+    if text.isascii() or len(text.encode("latin-1", "ignore")) == len(text) or not _OTHER_SCRIPT_DIGIT.search(text):
+        return None
+    return _OTHER_SCRIPT_DIGIT.sub(lambda match: _ASCII_DIGIT[match[0]], text)
+
+
+def _without_ignored(text):
+    for ignored in _IGNORED_IN_AN_ID:
+        text = text.replace(ignored, "")
+    return text
+
+
+def _add_text_hits(text, probes, hits):
+    """Add to ``hits`` the numbers of the sources that this lower case text may cite."""
+
+    escaped = "\\u" in text
+    if escaped and _ESCAPED_ASCII.search(text):
+        hits |= probes.every_text
+        return
+    stripped = _without_ignored(text)
+    for index, digits in probes.digits:
+        if digits in stripped:
+            hits.add(index)
+    if len(hits) < len(probes.every) and (escaped or not text.isascii()):
+        read = _in_ascii_digits(text)
+        if read is not None:
+            stripped = _without_ignored(read)
+            for index, digits in probes.digits:
+                if digits in stripped:
+                    hits.add(index)
+
+
+def _text_of(column):
+    return column if isinstance(column, str) else "" if column is None else str(column)
+
+
+def _citation_hits(metadata_json, value, source_event_ids, probes):
+    """The body of ``alice_citation_hits``: the numbers of the sources a memory may cite, separated by commas, or an
+    empty string. The metadata and the value are read as one text, once for all the sources (a newline stands between
+    them, so no run of digits crosses from one to the other). The source event ids are searched for each id as it is
+    written (the store then reads the decoded list), and a list that holds a backslash may hide an id behind an escape,
+    so it keeps every source."""
+
+    hits = set()
+    events = _text_of(source_event_ids)
+    if events and events != "[]":
+        if "\\" in events:
+            return probes.everything
+        hits.update(index for index, source_id in enumerate(probes.ids) if source_id in events)
+    if len(hits) < len(probes.every):
+        _add_text_hits((_text_of(metadata_json) + "\n" + _text_of(value)).lower(), probes, hits)
+    return ",".join(str(index) for index in sorted(hits)) if hits else ""
+
+
+def _citation_probe(source_id):
+    """``(canonical id, digits the stored text must hold)`` for a source id, or ``(None, None)`` for a string that is
+    no id. The digits drop the leading zeros: ``uuid.UUID`` reads a string of 32 characters where whitespace, ``0x``, a
+    sign or an underscore stands in the place of those zeros."""
+
+    try:
+        parsed = UUID(str(source_id))
+    except ValueError:
+        return None, None
+    return str(parsed), parsed.hex.lstrip('0')
+
+
+# What each running pass looks for, by the number the pass hands to the function. The function is registered once per
+# connection and a registered function cannot be replaced while any statement of the connection is active, so the
+# sources are not part of the function: the pass states its number, which is never used twice.
+_RUNNING_PASSES: dict[int, _Probes] = {}
+_PASS_NUMBERS = itertools.count(1)
+
+
+def _citation_function(metadata_json, value, source_event_ids, pass_number):
+    return _citation_hits(metadata_json, value, source_event_ids, _RUNNING_PASSES[pass_number])
+
+
+def _ensure_citation_function(conn):
+    """Register ``alice_citation_hits`` once per SQLite connection. It is registered by the lookup that reads it, not
+    when the store is opened, so every other use of a store connection is unchanged."""
+
+    cursor = conn.execute("SELECT 1 FROM pragma_function_list WHERE name = ? AND narg = 4 LIMIT 1", (_CITATION_FUNCTION,))
+    try:
+        registered = cursor.fetchone() is not None
+    finally:
+        cursor.close()
+    if not registered:
+        conn.create_function(_CITATION_FUNCTION, 4, _citation_function, deterministic=True)
+
+
+def _citation_candidates(self, probes):
+    """``{memory id: [number of each source it may cite]}`` for the user's memories, from one pass."""
+
+    _ensure_citation_function(self.conn)
+    pass_number = next(_PASS_NUMBERS)
+    _RUNNING_PASSES[pass_number] = probes
+    try:
+        cursor = self._execute(_SCAN_FOR_CITATIONS, (pass_number, self.user_id))
+        try:
+            # Plain tuples: the pass answers for every memory of the user, and a dict for each of them costs more than
+            # the pass itself reads.
+            cursor.row_factory = None
+            return {str(memory_id): [int(index) for index in kept.split(',')] for memory_id, kept in cursor if kept}
+        finally:
+            cursor.close()
+    finally:
+        del _RUNNING_PASSES[pass_number]
+
+
+def _memories_by_id(self, memory_ids):
+    """The user's memories among ``memory_ids``, in id order, as they are stored now."""
+
+    memory_ids = list(memory_ids)
+    return self._fetch_all(_MEMORIES_BY_ID, (self.user_id, json.dumps(memory_ids))) if memory_ids else []
+
+
+def citing_memories_by_source(self, source_ids):
+    """``{source id: [memory rows]}``: every memory of the user that cites each source, by a provenance link to the
+    source or to one of its chunks, by ``source_event_ids``, or by a reference the shared reference reader names
+    (``memory_cited_source_ids``: every spelling of the id, in refs that are text, lists, objects or JSON text). Each
+    list is in id order.
+
+    One pass over the memories answers for every source asked about, so a caller that retires many sources asks once
+    for all of them. The pass keeps the memories that could hold an id in some spelling, and the reader reads each of
+    those once, however many sources it may cite.
+    """
+
     # No bounded list: a scrub must cover every candidate, including old rows
     # whose only reference is in value or metadata rather than a provenance link.
-    return self._fetch_all(
-        """SELECT m.* FROM memories m WHERE m.user_id = ? AND (
-        EXISTS (SELECT 1 FROM provenance_links p WHERE p.user_id = m.user_id
-                AND p.target_type = 'memory' AND p.target_id = m.id
-                AND (p.source_id = ? OR EXISTS (
-                    SELECT 1 FROM source_chunks c WHERE c.user_id = p.user_id
-                    AND c.id = p.source_chunk_id AND c.source_id = ?)))
-        OR EXISTS (SELECT 1 FROM json_tree(m.metadata_json) j WHERE j.type = 'text'
-                   AND j.value IN (?, ?))
-        OR EXISTS (SELECT 1 FROM json_tree(m.value) j WHERE j.type = 'text' AND j.value IN (?, ?))
-        OR EXISTS (SELECT 1 FROM json_each(m.source_event_ids) j WHERE j.value = ?)
-        ) ORDER BY m.id""",
-        (self.user_id, source_id, source_id, source_id, 'source:' + source_id,
-         source_id, 'source:' + source_id, source_id))
+    ids = list(dict.fromkeys(str(source_id) for source_id in source_ids))
+    if not ids:
+        return {}
+    canonical = {}
+    sources = []
+    for source_id in ids:
+        canonical[source_id], digits = _citation_probe(source_id)
+        sources.append((source_id, digits))
+    linked = {}
+    for row in self._fetch_all(_LINKED_MEMORIES, (self.user_id, json.dumps(ids), self.user_id, json.dumps(ids))):
+        linked.setdefault(str(row['memory_id']), set()).add(str(row['source_id']))
+    kept = {memory_id: {ids[index] for index in indexes}
+            for memory_id, indexes in _citation_candidates(self, _Probes(sources)).items()}
+    found = {source_id: [] for source_id in ids}
+    for row in _memories_by_id(self, sorted(linked.keys() | kept.keys())):
+        memory_id = str(row['id'])
+        cited = set(linked.get(memory_id, ()))
+        events = row['source_event_ids'] if isinstance(row['source_event_ids'], list) else []
+        named = None
+        for source_id in sorted(kept.get(memory_id, set()) - cited):
+            if source_id in events:
+                cited.add(source_id)
+            elif canonical[source_id] is not None:
+                if named is None:
+                    named = memory_cited_source_ids(row)
+                if canonical[source_id] in named:
+                    cited.add(source_id)
+        for source_id in sorted(cited):
+            found[source_id].append(row)
+    return found
+
+
+def citing_memories(self, source_id):
+    """Every memory of the user that cites ``source_id``: see ``citing_memories_by_source``."""
+
+    return citing_memories_by_source(self, [source_id])[str(source_id)]
 
 
 def close_mention_edges(self, from_type, from_id, now):
@@ -93,8 +337,14 @@ def close_mention_edges(self, from_type, from_id, now):
     return len(edges)
 
 
-def retire_dependents(self, source_id, *, now, scrub_candidates=False):
-    memories = [row for row in citing_memories(self, source_id) if not is_redacted_memory(row)]
+def retire_dependents(self, source_id, *, now, scrub_candidates=False, citing_ids=None):
+    """Retire what a source owns. ``citing_ids`` are the ids of the memories an earlier lookup of this transaction found
+    for the source (``citing_memories_by_source``): a caller that retires many sources looks once for all of them, and the
+    memories are read again here as they are stored now, so one that an earlier retirement redacted is left alone, as it
+    is when each source is looked up on its own. Without them the memories are looked up here."""
+
+    memories = [row for row in (citing_memories(self, source_id) if citing_ids is None
+                                else _memories_by_id(self, citing_ids)) if not is_redacted_memory(row)]
     pending = [row for row in memories if row['status'] in ({'candidate', 'needs_review', 'rejected'}
                if scrub_candidates else {'candidate', 'needs_review'})]
     pending_ids = {str(row['id']) for row in pending}
@@ -203,7 +453,7 @@ def optimize_scrub_indexes(self):
     self._execute("INSERT INTO memories_fts(memories_fts) VALUES('optimize')")
 
 
-def scrub_source(self, source_id, *, optimize=True):
+def scrub_source(self, source_id, *, optimize=True, citing_ids=None):
     with self.savepoint():
         self._execute("PRAGMA secure_delete=ON")
         rows = self.get_sources_by_ids([source_id], include_deleted=True)
@@ -224,7 +474,7 @@ def scrub_source(self, source_id, *, optimize=True):
             OR EXISTS (SELECT 1 FROM source_chunks c WHERE c.user_id = provenance_links.user_id
                        AND c.id = provenance_links.source_chunk_id AND c.source_id = ?))""",
             (REMOVAL_MARKER, self.user_id, source_id, source_id)).rowcount
-        counts = retire_dependents(self, source_id, now=now, scrub_candidates=True)
+        counts = retire_dependents(self, source_id, now=now, scrub_candidates=True, citing_ids=citing_ids)
         counts.update({'chunks':chunks, 'provenance_quotes':quotes, 'sleep_proposals':sleep_count})
         self._append_mutation_event(event_type='source.deleted', target_type='source', target_id=source_id,
             actor_type='user', payload={'operation':'scrub', **counts})
