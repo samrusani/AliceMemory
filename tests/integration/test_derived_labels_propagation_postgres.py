@@ -200,6 +200,11 @@ def test_a_source_relabel_reaches_the_extracted_memories_the_loop_every_report_a
         for kind, row_id in rows:
             row = _read_row(store, kind, row_id)
             assert_raised(row)
-            assert beta in row["metadata_json"]["project_floor"]
+            if kind == "project":
+                # A project state has domain and sensitivity but carries no project scope.
+                assert not row["metadata_json"].get("project_scope")
+                assert not row["metadata_json"].get("project_floor")
+            else:
+                assert {str(project["id"]), beta}.issubset(row["metadata_json"]["project_floor"]), (kind, row)
             if kind == "artifact":
                 assert h.request("GET", f"/v0/vnext/artifacts/{row_id}", key=bound)[0] == 403
