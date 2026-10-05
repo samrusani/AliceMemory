@@ -11,6 +11,7 @@ import re
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from functools import wraps
+from dataclasses import replace
 from typing import Any
 
 from alicebot_api.vnext_agent_control import RESTRICTED_DOMAINS
@@ -481,7 +482,18 @@ def propagate(store: Any, changed: Sequence[tuple[str, str]], *, cause: str) -> 
     for row in affected:
         label = settled.by_stored(str(row.get("kind")), str(row.get("id")))
         if label.unverified:
-            continue
+            ancestry, exceeded = collect_label_rows(store, [row], max_nodes=PROPAGATION_BOUND)
+            if exceeded:
+                raise LabelPropagationTooLarge(f"label propagation stopped after {PROPAGATION_BOUND} rows")
+            label = replace(
+                label,
+                domain=generation_domain(label.domain, [str(node.get("domain") or "unknown") for node in ancestry]),
+                sensitivity="regulated",
+                project_floor=union_floor(label.project_floor, [
+                    *(stored_scope(str(node["kind"]), node) for node in ancestry),
+                    *(project_floor_shape(node)[1] for node in ancestry),
+                ]),
+            )
         previous = _label_fields(row)
         current = (label.domain, label.sensitivity, tuple(label.project_scope), tuple(label.project_floor))
         if (

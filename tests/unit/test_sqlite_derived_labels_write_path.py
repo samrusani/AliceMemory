@@ -291,3 +291,17 @@ def test_alias_twins_cannot_choose_a_public_source(tmp_path: Path) -> None:
         conn.execute("UPDATE sources SET id = ? WHERE id = ?", (str(restricted["id"]).replace("-", "").upper(), public["id"]))
         copy = store.create_memory({"memory_key": "twins-copy", "canonical_text": "copy", "status": "active", "domain": "unknown", "sensitivity": "public", "metadata_json": {"source_id": str(restricted["id"])}})
     assert copy["sensitivity"] == "regulated"
+
+
+def test_relabel_regulates_legacy_summary_with_missing_ancestry(tmp_path: Path) -> None:
+    with _vault(tmp_path / "missing-branch.sqlite3") as conn:
+        store = SQLiteVNextStore(conn, USER)
+        source = store.create_source({"source_type": "note", "title": "input", "content_hash": "missing-branch", "domain": "unknown", "sensitivity": "public", "metadata_json": {"project_scope": [ALPHA]}})
+        copy = store.create_memory({"memory_key": "copy", "canonical_text": "copy", "status": "active", "domain": "unknown", "sensitivity": "public", "metadata_json": {"source_id": source["id"]}})
+        with without_insert_floor():
+            summary = store.create_memory({"memory_key": "summary", "canonical_text": "summary", "status": "active", "domain": "unknown", "sensitivity": "public", "metadata_json": {"consolidation": {"cluster_member_ids": [copy["id"], "missing"]}}})
+        store.update_source(source_id=str(source["id"]), patch={"domain": "health", "sensitivity": "confidential"}, actor_type="user")
+        row = store.get_memory(str(summary["id"]))
+    assert row["domain"] == "health"
+    assert row["sensitivity"] == "regulated"
+    assert ALPHA in row["metadata_json"]["project_floor"]
