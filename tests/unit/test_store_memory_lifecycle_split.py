@@ -82,9 +82,11 @@ SQLITE_METHODS = (
 # mutators take the label lock. Metadata receipts include the label_write
 # keyword and lock wrappers. Facades add only lock_label_writes/read_label_rows;
 # removing those two names reproduces each previous class-order receipt.
+# Reviewed strict lock change: the graph lock reads live advisory grants,
+# and the memory update checks exclusive L before changing labels.
 SOURCE_RECEIPTS = {
     COMMON_PATH: "8fc077dc71f0e631a2df81de2ebeec1fb6c768f341c2e7891309e4753eef7bb5",
-    POSTGRES_CARRIER_PATH: "371f92595d2f72f0cfa225a49c03aa39498caf094df4f26f4f9ac4cd926e0de1",
+    POSTGRES_CARRIER_PATH: "23ab87cde159a285bf8c71dbc6d2eb4e0e15035ce0f509bef38ba799f3f92de3",
     # SQLite carrier re-minted for the Phase 4 Stage 2 resident vector cache
     # (reviewed change): redaction paths that NULL a live embedding now bump
     # the embedding_stamp token in the same transaction (prompt eviction).
@@ -98,7 +100,7 @@ SOURCE_RECEIPTS = {
     SQLITE_CARRIER_PATH: "f893f1faeeb9a87135c108992aa91ff036c5f5dccb1bbdaf315ae5afe1b89b73",
 }
 EXPECTED_METHOD_AST_MANIFESTS = {
-    "postgres": "d4969140e86b136b29708dc3bb6b4bca635b73b4016c4e633c4d5d3da841e784",
+    "postgres": "827c4f391a1efe50dcb265b7bb50a5b191d2bae32c3f817dcc237d51bfb10d29",
     "sqlite": "d0b6024f0803ca9d3c6f6ea7f5022a28453b2b8b83833f0f05343cb3eff89a57",
 }
 EXPECTED_METADATA_MANIFESTS = {

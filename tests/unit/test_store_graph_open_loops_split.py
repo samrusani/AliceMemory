@@ -104,13 +104,15 @@ SQLITE_COLUMN_NAMES = (
     "OPEN_LOOP_COLUMNS",
 )
 
+# Reviewed label hooks: both open-loop updaters preserve protected metadata,
+# clamp derived labels and propagate a stricter label to later rows.
 SOURCE_RECEIPTS = {
     # Re-minted for the filter-before-cut fix (2026-10-03): ``list_open_loop_events`` takes ``domains`` and
     # ``sensitivity_allowed`` as required arguments, and the SQLite one applies them in the join before ``LIMIT``
     # (an empty ceiling returns no rows without a query). The Postgres reader takes the same two arguments so that
     # the shared unscoped call site can state ``None`` for both, and it refuses anything else, since the Postgres
     # runtime resolves no project view (reviewed change, not drift).
-    POSTGRES_CARRIER_PATH: "e4724ba1ec3b8917c5be74b619259ddf1c282825b8e938ce4fa9947491a90a6f",
+    POSTGRES_CARRIER_PATH: "a9fecb0462324a46610f01134146fa73a2ab63692c7a6daa44ff56760840a812",
     # The SQLite carrier is re-minted, with its method AST manifest below, for
     # ``list_open_loops`` and ``list_open_loop_events``: they bind a query through
     # ``literal_match_operand`` and so refuse one past the LIKE operand limit.
@@ -128,13 +130,13 @@ SOURCE_RECEIPTS = {
     # delete preview and the scrub count and blank the same loops. The rule text moved unchanged to
     # ``vnext_stores/sqlite/open_loop_source_reference.py``; only the reader function and the receipt of the file
     # change (reviewed change, not drift).
-    SQLITE_CARRIER_PATH: "9a2634bef621d32262b845c046820d8b19c64801ec9f9b462e978f364f16f643",
+    SQLITE_CARRIER_PATH: "ea8a177e5037cfe40682def81b4cc1d6116b754b01e942d08a4367e5e54c8d2b",
     POSTGRES_COLUMNS_PATH: "5b0d972a55abf8590ce14394a37fd71b9b88ba7ab3de82d61efc1bddfc022b71",
     SQLITE_COLUMNS_PATH: "be81b8628d0831d3d02b280b5455fb02333db5740ebef8d85d58024384ae6556",
 }
 EXPECTED_METHOD_AST_MANIFESTS = {
-    POSTGRES_CARRIER_PATH: "2558088459f1b9a565e1b366ffe0b7c4025c623a9e2ea78007d06a46793ce1b8",
-    SQLITE_CARRIER_PATH: "2850ba6057b1510759613aaa3798a226808a42470ee11cfb9c6e3afbf3e98e66",
+    POSTGRES_CARRIER_PATH: "69d4776f91829f5dc96f751c7d513c13149f851d878476c1c2c17c245d8cf0a3",
+    SQLITE_CARRIER_PATH: "2d29f3668f52984f860b25fb6db5b37b04a2e4395631e584f70c93fa016540a1",
 }
 EXPECTED_METADATA_MANIFESTS = {
     POSTGRES_CARRIER_PATH: "6edb6a10e7a37dbbbbde97e5550422718a0112257666de8e23d49c60490fa13f",

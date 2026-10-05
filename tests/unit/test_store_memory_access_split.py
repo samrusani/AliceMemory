@@ -23,6 +23,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 POSTGRES_FACADE_PATH = REPO_ROOT / "apps/api/src/alicebot_api/vnext_store.py"
 SQLITE_FACADE_PATH = REPO_ROOT / "apps/api/src/alicebot_api/sqlite_store.py"
 
+# Reviewed lock boundary: the pending-candidate row locker takes L first.
 SOURCE_RECEIPTS = {
     "apps/api/src/alicebot_api/vnext_stores/retrieval_common.py": (
         "fa1a3a90511b5c61754ba29560e91b7b3058a48d47c143b09d8505d52025b8cc"
@@ -37,7 +38,7 @@ SOURCE_RECEIPTS = {
     # which takes a keyword-only ``include_deleted`` (false by default, so every caller reads what it read before)
     # and drops the ``deleted_at IS NULL`` clause only when it is true. Previous Postgres receipt f642880f...
     "apps/api/src/alicebot_api/vnext_stores/postgres/memory_access.py": (
-        "46946cc087de35f54474adf47cadcd67b862685bfa67a38be277d8e58a00c47e"
+        "9d42ac3a44b33f067306e7903f711cddf7ba538529cf03c16baf00473d861839"
     ),
     # Re-minted for per-project memory S2 (2026-10-02): the project fence builders read the reserved global
     # marker and take the domains to leave out, and the single-scan partition SQL and the materialized-CTE hint
