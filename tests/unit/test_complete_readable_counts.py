@@ -1,0 +1,162 @@
+"""Totals and trace completeness use the full effectively readable population."""
+
+from __future__ import annotations
+
+from types import SimpleNamespace
+
+import pytest
+
+from alicebot_api.routers import _vnext_shared, workspaces
+from alicebot_api.vnext_agent_control import ALL_SENSITIVITY, AgentIdentity
+from alicebot_api.vnext_dogfooding import VNextDogfoodingService
+from alicebot_api.vnext_label_guard import LabelGuard
+
+
+class PopulationStore:
+    def __init__(self):
+        self.rows = {kind: [] for kind in ("source", "memory", "artifact", "project", "open_loop")}
+        self.events = []
+
+    def read_label_rows(self, kind, ids):
+        return [row for row in self.rows[kind] if row["id"] in ids]
+
+    def iter_label_rows(self, kind, *, batch_size=200):
+        for start in range(0, len(self.rows[kind]), batch_size):
+            yield self.rows[kind][start:start + batch_size]
+
+    def iter_label_events(self, *, batch_size=200):
+        for start in range(0, len(self.events), batch_size):
+            yield self.events[start:start + batch_size]
+
+    def iter_label_ratings(self):
+        return iter(())
+
+    def list_memories(self, *, status=None, limit=None, **kwargs):
+        return self.rows["memory"][:limit]
+
+    def list_memories_by_statuses(self, *, statuses, sensitivity_allowed, limit):
+        return [row for row in self.rows["memory"] if row["status"] in statuses and row["sensitivity"] in sensitivity_allowed][:limit]
+
+    def count_memories_by_status(self, **kwargs):
+        return {"candidate": len(self.rows["memory"])}
+
+    def list_events(self, **kwargs):
+        return self.events[:kwargs.get("limit")]
+
+    def __getattr__(self, name):
+        kinds = {"sources": "source", "artifacts": "artifact", "projects": "project", "open_loops": "open_loop"}
+        suffix = name.removeprefix("list_")
+        if suffix in kinds:
+            def listed(**kwargs):
+                rows = self.rows[kinds[suffix]]
+                sensitivities = kwargs.get("sensitivity_allowed")
+                if sensitivities:
+                    rows = [row for row in rows if row["sensitivity"] in sensitivities]
+                return rows[:kwargs.get("limit")]
+            return listed
+        if name.startswith("list_"):
+            return lambda *args, **kwargs: []
+        if name.startswith("count_"):
+            return lambda **kwargs: len(self.rows[kinds[name.removeprefix("count_")]]) if name.removeprefix("count_") in kinds else 0
+        if name == "get_brain_charter":
+            return lambda: {}
+        raise AttributeError(name)
+
+
+def _row(identifier, sensitivity="public", **kwargs):
+    return {"id": identifier, "domain": "project", "sensitivity": sensitivity, "status": "candidate", "metadata_json": {}, **kwargs}
+
+
+def _quiet_services(monkeypatch):
+    for name in ("VNextSchedulerService", "VNextConnectorService", "VNextDoctorService", "VNextProjectService", "VNextMemoryCommitService"):
+        monkeypatch.setattr(workspaces, name, lambda store: SimpleNamespace(
+            status=lambda: {}, connector_health_all=lambda: [], run=lambda **kwargs: {},
+            project_dashboard=lambda **kwargs: {}, recent_commits=lambda **kwargs: {"recent_commits": []},
+            inline_confirmations=lambda **kwargs: []))
+    monkeypatch.setattr(workspaces, "daemon_status", lambda: {})
+    monkeypatch.setattr("alicebot_api.vnext_dogfooding.VNextConnectorService.connector_health_all", lambda self: [])
+
+
+def test_workspace_counts_sql_hidden_and_beyond_display_page(monkeypatch):
+    _quiet_services(monkeypatch)
+    store = PopulationStore()
+    for kind in store.rows:
+        store.rows[kind] = [_row(f"{kind}-{index}") for index in range(35)]
+        store.rows[kind] += [_row(f"{kind}-hidden-{index}", "confidential") for index in range(205)]
+    store.rows["open_loop"] = [{**row, "status": "open"} for row in store.rows["open_loop"]]
+    store.events = [{"id": str(index), "target_type": "memory", "target_id": row["id"], "event_type": "memory.labels_raised"} for index, row in enumerate(store.rows["memory"])]
+    body = workspaces._vnext_workspace_payload(store)
+    summary = body["summary"]
+    for field in ("source_count", "artifact_count", "project_count", "open_loop_count", "event_count", "candidate_memory_count"):
+        assert summary[field] == 35, (field, summary[field])
+    assert summary["memory_status_counts"] == {"candidate": 35}
+    assert summary["artifact_status_counts"] == {"candidate": 35}
+    assert summary["open_loop_status_counts"] == {"open": 35}
+    assert body["samples"]["sources"]["has_more"] is True
+    assert "hidden" not in str(body)
+
+
+def test_all_sql_prefiltered_rows_leave_zero_totals(monkeypatch):
+    _quiet_services(monkeypatch)
+    store = PopulationStore()
+    for kind in store.rows:
+        store.rows[kind] = [_row(f"{kind}-hidden", "confidential")]
+    body = workspaces._vnext_workspace_payload(store)
+    for field in ("source_count", "artifact_count", "project_count", "open_loop_count", "candidate_memory_count"):
+        assert body["summary"][field] == 0
+    assert all(not sample["has_more"] for sample in body["samples"].values())
+
+
+def test_dogfooding_counts_hidden_rows_beyond_500(monkeypatch):
+    _quiet_services(monkeypatch)
+    store = PopulationStore()
+    store.rows["memory"] = [_row(str(index)) for index in range(500)] + [_row("hidden", "confidential")]
+    trusted = VNextDogfoodingService(store).dashboard(sensitivity_allowed=("public", "internal", "private", "unknown"))
+    owner = VNextDogfoodingService(store).dashboard()
+    assert trusted["memory_status_counts"] == {"candidate": 500}
+    assert trusted["sample_scope"]["memories"]["total_count"] == 500
+    assert owner["memory_status_counts"] == {"candidate": 501}
+
+
+def test_count_rejects_a_store_without_complete_enumeration():
+    with pytest.raises(TypeError, match="complete label enumeration"):
+        LabelGuard.for_filters(object(), (), ("public",)).readable_status_counts("memory")
+
+
+def test_derived_totals_use_effective_labels_and_keep_owner_control():
+    store = PopulationStore()
+    store.rows["source"] = [_row("11111111-1111-4111-8111-111111111111", "confidential")]
+    store.rows["memory"] = [_row("22222222-2222-4222-8222-222222222222", metadata_json={"source_id": store.rows["source"][0]["id"]})]
+    trusted = LabelGuard.for_filters(store, (), ("public", "internal", "private", "unknown"))
+    owner = LabelGuard.for_filters(store, (), ALL_SENSITIVITY)
+    assert trusted.readable_status_counts("memory") == {}
+    assert owner.readable_status_counts("memory") == {"candidate": 1}
+
+
+def test_trace_completeness_does_not_reveal_hidden_501st_row(monkeypatch):
+    monkeypatch.setattr(_vnext_shared, "_VNEXT_SOURCE_TRACE_COLLECTION_LIMIT", 2)
+    store = PopulationStore()
+    rows = [_row(str(index)) for index in range(2)] + [_row("hidden", "confidential")]
+    fetches = []
+    def fetch(limit):
+        fetches.append(limit)
+        return rows[:limit]
+    trusted = AgentIdentity(agent_id="reader", permission_profile="trusted_local_agent", agent_type="unknown")
+    admitted, complete = _vnext_shared._vnext_readable_trace_rows(store, "memory", fetch, trusted)
+    assert [row["id"] for row in admitted] == ["0", "1"]
+    assert complete is True
+    assert fetches == [3, 6]
+    owner, complete = _vnext_shared._vnext_readable_trace_rows(store, "memory", fetch, None)
+    assert len(owner) == 2
+    assert complete is False
+
+
+def test_trace_event_completeness_uses_admitted_targets(monkeypatch):
+    monkeypatch.setattr(_vnext_shared, "_VNEXT_SOURCE_TRACE_COLLECTION_LIMIT", 2)
+    events = [{"id": str(index), "target_id": "visible"} for index in range(2)] + [{"id": "hidden-event", "target_id": "hidden"}]
+    admitted, complete = _vnext_shared._vnext_readable_trace_rows(
+        PopulationStore(), "event", lambda limit: events[:limit], None,
+        admit=lambda rows: [row for row in rows if row["target_id"] == "visible"],
+    )
+    assert [row["id"] for row in admitted] == ["0", "1"]
+    assert complete is True

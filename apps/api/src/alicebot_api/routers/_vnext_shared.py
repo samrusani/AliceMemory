@@ -280,6 +280,21 @@ def _vnext_source_trace(
     }
 
 
+def _vnext_readable_trace_rows(store, kind, fetch, identity, *, admit=None):
+    """Deepen the prefix until readable truncation can be answered."""
+
+    from alicebot_api.vnext_label_guard import apply_sensitivity_ceiling
+
+    limit = _VNEXT_SOURCE_TRACE_COLLECTION_LIMIT
+    prefix = limit + 1
+    while True:
+        fetched = list(fetch(prefix))
+        admitted = list(admit(fetched)) if admit is not None else apply_sensitivity_ceiling(store, kind=kind, rows=fetched, identity=identity)
+        if len(admitted) > limit or len(fetched) < prefix:
+            return _vnext_bounded_trace_rows(admitted)
+        prefix *= 2
+
+
 def _vnext_load_source_trace(
     *,
     store: PostgresVNextStore,
@@ -299,39 +314,27 @@ def _vnext_load_source_trace(
     if not apply_sensitivity_ceiling(store, kind="source", rows=[source], identity=caller):
         return None
     source_id = str(source["id"])
-    memories, memories_complete = _vnext_bounded_trace_rows(
-        store.list_memories_referencing_source(
-            source_id=source_id,
-            limit=_VNEXT_SOURCE_TRACE_COLLECTION_LIMIT + 1,
-        )
+    memories, memories_complete = _vnext_readable_trace_rows(
+        store, "memory", lambda limit: store.list_memories_referencing_source(source_id=source_id, limit=limit), caller
     )
-    artifacts, artifacts_complete = _vnext_bounded_trace_rows(
-        store.list_artifacts_referencing_source(
-            source_id=source_id,
-            limit=_VNEXT_SOURCE_TRACE_COLLECTION_LIMIT + 1,
-        )
+    artifacts, artifacts_complete = _vnext_readable_trace_rows(
+        store, "artifact", lambda limit: store.list_artifacts_referencing_source(source_id=source_id, limit=limit), caller
     )
-    open_loops, open_loops_complete = _vnext_bounded_trace_rows(
-        store.list_open_loops_referencing_source(
-            source_id=source_id,
-            limit=_VNEXT_SOURCE_TRACE_COLLECTION_LIMIT + 1,
-        )
+    open_loops, open_loops_complete = _vnext_readable_trace_rows(
+        store, "open_loop", lambda limit: store.list_open_loops_referencing_source(source_id=source_id, limit=limit), caller
     )
-    memories = apply_sensitivity_ceiling(store, kind="memory", rows=memories, identity=caller)
-    artifacts = apply_sensitivity_ceiling(store, kind="artifact", rows=artifacts, identity=caller)
-    open_loops = apply_sensitivity_ceiling(store, kind="open_loop", rows=open_loops, identity=caller)
     kept_ids = {str(row.get("id")) for row in (*memories, *artifacts, *open_loops)}
     kept_ids.add(source_id)
-    events, direct_events_complete = _vnext_bounded_trace_rows(
-        store.list_events_for_source_trace(
+    events, direct_events_complete = _vnext_readable_trace_rows(
+        store, "event", lambda limit: store.list_events_for_source_trace(
             source_id=source_id,
             memory_ids=[str(memory["id"]) for memory in memories],
             artifact_ids=[str(artifact["id"]) for artifact in artifacts],
             open_loop_ids=[str(open_loop["id"]) for open_loop in open_loops],
-            limit=_VNEXT_SOURCE_TRACE_COLLECTION_LIMIT + 1,
-        )
+            limit=limit,
+        ), caller,
+        admit=lambda rows: [event for event in rows if str(event.get("target_id") or "") in kept_ids],
     )
-    events = [event for event in events if str(event.get("target_id") or "") in kept_ids]
     events_complete = direct_events_complete and memories_complete and artifacts_complete and open_loops_complete
     return _vnext_source_trace(
         store=store,
