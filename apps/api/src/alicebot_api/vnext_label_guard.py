@@ -121,7 +121,7 @@ class LabelGuard:
             if not isinstance(row, Mapping):
                 continue
             effective = self.effective_row(kind, row)
-            if isinstance(effective, Mapping) and self._admits_effective(effective):
+            if isinstance(effective, Mapping) and self._admits_effective(effective, kind=kind):
                 kept.append(row)
         return kept
 
@@ -132,6 +132,8 @@ class LabelGuard:
             return [row for row in beliefs if isinstance(row, Mapping)]
         ids = [str(row.get("memory_id")) for row in beliefs if isinstance(row, Mapping) and row.get("memory_id")]
         reader = getattr(self.store, "read_label_rows", None)
+        if not callable(reader):
+            return [row for row in beliefs if isinstance(row, Mapping)]
         found: dict[str, Mapping[str, object]] = {}
         if callable(reader) and ids:
             for row in reader("memory", ids):
@@ -144,7 +146,7 @@ class LabelGuard:
             if isinstance(row, Mapping) and str(row.get("memory_id") or "") in admitted
         ]
 
-    def _admits_effective(self, row: Mapping[str, object]) -> bool:
+    def _admits_effective(self, row: Mapping[str, object], *, kind: str) -> bool:
         domain = str(row.get("domain") or "unknown")
         if self.domains and domain not in self.domains and domain != "unknown":
             return False
@@ -152,7 +154,9 @@ class LabelGuard:
         if self.sensitivity_allowed and sensitivity not in self.sensitivity_allowed:
             return False
         if self.projects:
-            scope = resolve_project_scope(row).values
+            from alicebot_api.vnext_project_scope import source_project_scope
+
+            scope = source_project_scope(row) if canon_kind(kind) == "source" else resolve_project_scope(row).values
             _shape, floor = project_floor_shape(row)
             if not project_scopes_overlap(scope, self.projects, floor=floor):
                 return False
@@ -190,6 +194,21 @@ class LabelGuard:
                     if isinstance(found, Mapping):
                         pending.append((dep_kind, found))
         return list(self._nodes.values())
+
+
+def admit_loaded(
+    store: Any,
+    *,
+    kind: str,
+    rows: Sequence[Mapping[str, object]],
+    domains: Sequence[str] | None,
+    sensitivity_allowed: Sequence[str] | None,
+    projects: Sequence[str] | None = (),
+) -> list[Mapping[str, object]]:
+    """Drop loaded inputs whose effective labels miss the request filters."""
+
+    guard = LabelGuard.for_filters(store, domains, sensitivity_allowed, projects)
+    return guard.admit_rows(kind, rows)
 
 
 def effective_row_for_fence(

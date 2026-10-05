@@ -482,6 +482,27 @@ class VNextContradictionService:
             limit=input_limit,
             all_of=all_of,
         )
+        from alicebot_api.vnext_label_guard import LabelGuard, admit_loaded
+
+        sources = admit_loaded(
+            self.store,
+            kind="source",
+            rows=sources,
+            domains=domains,
+            sensitivity_allowed=sensitivity_allowed,
+            projects=request.projects,
+        )
+        memories = admit_loaded(
+            self.store,
+            kind="memory",
+            rows=memories,
+            domains=domains,
+            sensitivity_allowed=sensitivity_allowed,
+            projects=request.projects,
+        )
+        beliefs = LabelGuard.for_filters(
+            self.store, domains, sensitivity_allowed, request.projects
+        ).admit_beliefs(beliefs)
         candidates = _find_candidates(
             new_items=[*sources, *memories],
             beliefs=beliefs,

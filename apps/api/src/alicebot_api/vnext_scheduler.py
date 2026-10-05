@@ -1408,6 +1408,16 @@ class VNextSchedulerService:
             projects,
         )
         memories = admit_when_locked("memory", memories, bound)
+        from alicebot_api.vnext_label_guard import admit_loaded
+
+        memories = admit_loaded(
+            self.store,
+            kind="memory",
+            rows=memories,
+            domains=list(request.domains) if request.domains else None,
+            sensitivity_allowed=list(request.sensitivity_allowed),
+            projects=projects,
+        )
         for memory in memories:
             if len(expired_marked) + len(unconfirmed_marked) >= mark_limit:
                 break
@@ -1579,6 +1589,16 @@ class VNextSchedulerService:
             projects,
         )
         loops = admit_when_locked("open_loop", loops, bound)
+        from alicebot_api.vnext_label_guard import admit_loaded
+
+        loops = admit_loaded(
+            self.store,
+            kind="open_loop",
+            rows=loops,
+            domains=domains,
+            sensitivity_allowed=list(request.sensitivity_allowed),
+            projects=projects,
+        )
         # The report copies the id of each loop's source into its text and its ``source_refs``, and a later reader of
         # the artifact is shown them, so a source the run's own identity may not read is left out.
         loops = withhold_unreadable_references(

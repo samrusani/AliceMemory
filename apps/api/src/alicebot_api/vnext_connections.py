@@ -444,6 +444,24 @@ class VNextConnectionService:
             limit=input_limit,
             all_of=all_of,
         )
+        from alicebot_api.vnext_label_guard import admit_loaded
+
+        sources = admit_loaded(
+            self.store,
+            kind="source",
+            rows=sources,
+            domains=domains,
+            sensitivity_allowed=sensitivity_allowed,
+            projects=request.projects,
+        )
+        memories = admit_loaded(
+            self.store,
+            kind="memory",
+            rows=memories,
+            domains=domains,
+            sensitivity_allowed=sensitivity_allowed,
+            projects=request.projects,
+        )
         candidates = _find_candidates(
             sources=sources,
             memories=memories,

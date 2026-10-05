@@ -1825,6 +1825,16 @@ class VNextRollupService:
                 "roll-up input lookup returned rows outside the requested project scope"
             )
         rows = admit_when_locked("memory", scoped_rows, all_of)
+        from alicebot_api.vnext_label_guard import admit_loaded
+
+        rows = admit_loaded(
+            self.store,
+            kind="memory",
+            rows=rows,
+            domains=domains,
+            sensitivity_allowed=sensitivity_allowed,
+            projects=projects,
+        )
         rows = [row for row in rows if not _is_rollup_card(row)]
         # The same parity for validity: the bundled stores leave an expired
         # memory out in SQL, and every tier below (entity, topic and the

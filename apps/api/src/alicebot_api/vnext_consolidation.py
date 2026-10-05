@@ -765,6 +765,16 @@ class VNextConsolidationService:
             active_rows = admit_when_locked("memory", active_rows, all_of)
             outcome.active_count = len(active_rows)
             outcome.active_count_exact = not outcome.bounded
+        from alicebot_api.vnext_label_guard import admit_loaded
+
+        active_rows = admit_loaded(
+            self.store,
+            kind="memory",
+            rows=active_rows,
+            domains=domains,
+            sensitivity_allowed=sensitivity,
+            projects=projects,
+        )
         outcome.corpus_digest = _digest_payload(
             {
                 "memory_versions": [

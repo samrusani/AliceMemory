@@ -983,6 +983,20 @@ class VNextBrainService:
             store_scope_kwargs=artifact_store_scope,
             all_of=all_of,
         )
+        from alicebot_api.vnext_label_guard import admit_loaded
+
+        sources = admit_loaded(
+            self.store, kind="source", rows=sources, domains=domains, sensitivity_allowed=sensitivity_allowed, projects=request.projects
+        )
+        memories = admit_loaded(
+            self.store, kind="memory", rows=memories, domains=domains, sensitivity_allowed=sensitivity_allowed, projects=request.projects
+        )
+        open_loops = admit_loaded(
+            self.store, kind="open_loop", rows=open_loops, domains=domains, sensitivity_allowed=sensitivity_allowed, projects=request.projects
+        )
+        artifacts = admit_loaded(
+            self.store, kind="artifact", rows=artifacts, domains=domains, sensitivity_allowed=sensitivity_allowed, projects=request.projects
+        )
         return sources, memories, open_loops, artifacts
 
     def _create_candidate_open_loops(
