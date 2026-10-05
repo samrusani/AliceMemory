@@ -80,7 +80,10 @@ def test_the_mcp_tools_section_states_the_label_rule_the_repair_and_the_changes_
     ``or restore an earlier backup``, ``rows without resolvable recorded inputs are left alone``, ``text is never
     used to guess an input``, the link to the backup guide, ``unknown` previously matched every domain filter``,
     ``project scope is unchanged`` or ``covers only copies with recorded inputs that still resolve``; change ``up to
-    five`` to ``up to ten``; remove the marker from one paragraph; rename the heading.
+    five`` to ``up to ten``; remove the marker from one paragraph; rename the heading; delete ``take their domain and
+    their sensitivity over every row they name``, ``its label also covers the sources they name``, ``Open-loop
+    reviews do the same over the sources whose ids they print`` or ``The run digest of both covers those sources``;
+    put back a sentence that says a consolidation report's ``source_refs`` are not covered by its label.
     """
 
     section = _section(MCP_TOOLS, HEADING)
@@ -91,6 +94,13 @@ def test_the_mcp_tools_section_states_the_label_rule_the_repair_and_the_changes_
     assert "keeps the most frequent restricted input label, with alphabetical ties" in label
     assert "An explicit request domain cannot override it" in label
     assert "With no restricted inputs, each producer retains its prior selection" in label
+    assert "take their domain and their sensitivity over every row they name" in label
+    assert "the members of the groups that a skip line names by key, and the roll-up cards they name by id" in label
+    assert "The report keeps printing the `source_refs` it copies from its cluster members" in label
+    assert "its label also covers the sources they name, archived ones included" in label
+    assert "Open-loop reviews do the same over the sources whose ids they print" in label
+    assert "The run digest of both covers those sources, so a source that was reclassified makes a new report" in label
+    assert "not covered by its label" not in label
     for producer in (
         "briefs",
         "weekly synthesis and its candidates",

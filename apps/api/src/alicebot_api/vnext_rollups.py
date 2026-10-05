@@ -144,6 +144,7 @@ Storage: no new tables or columns. Cards reuse the memories table
 from __future__ import annotations
 
 from collections import Counter
+from collections.abc import Iterable
 from dataclasses import dataclass, field, replace
 from datetime import UTC, date, datetime
 from hashlib import sha256
@@ -542,8 +543,13 @@ class RollupOutcome:
 
     options: JsonObject = field(default_factory=dict)
     groups: list[JsonObject] = field(default_factory=list)
-    # Internal evidence for the parent report label, never serialized.
+    # Internal evidence for the parent report label, never serialized. Every row
+    # the pass writes into the report is listed here once: the members of the
+    # groups it proposes, the members of the groups a skip line names by key, and
+    # the cards an earlier pass made for the same topic. The report is read behind
+    # a label taken over these rows, so a row left out is a row the label ignores.
     input_rows: list[JsonObject] = field(default_factory=list)
+    _input_ids: set[str] = field(default_factory=set, repr=False)
     proposals: list[JsonObject] = field(default_factory=list)
     skipped: list[str] = field(default_factory=list)
     candidate_ids: list[str] = field(default_factory=list)
@@ -556,6 +562,19 @@ class RollupOutcome:
     # is dormant (no embedding provider), keeping the metadata below
     # byte-identical to the lexical/entity-only shape.
     semantic: JsonObject | None = None
+
+    def name_rows(self, rows: Iterable[JsonObject]) -> None:
+        """Record that the report names ``rows``. A row counts once, whatever number of lines name it."""
+
+        for row in rows:
+            if row.get("id") is None:
+                # A row with no id cannot be told from another, so it is kept rather than merged into one.
+                self.input_rows.append(row)
+                continue
+            row_id = str(row["id"])
+            if row_id not in self._input_ids:
+                self._input_ids.add(row_id)
+                self.input_rows.append(row)
 
     def to_metadata(self) -> JsonObject:
         metadata: JsonObject = {
@@ -1851,8 +1870,11 @@ class VNextRollupService:
         exclude_member_id_sets: list[set[str]],
         domains: list[str] | None = None,
         sensitivity_allowed: list[str] | None = None,
-    ) -> tuple[list[_RollupGroup], list[str], JsonObject, JsonObject | None]:
+    ) -> tuple[list[_RollupGroup], list[str], JsonObject, JsonObject | None, list[JsonObject]]:
         """Group only within exact project-scope partitions.
+
+        The fifth item is the rows the skip lines name: the members of every group the pass
+        looked at and did not propose, when a line prints a key made from them.
 
         A card scoped to project A must never aggregate a member also visible
         to project B with an A-only member. Exact partitioning is deliberately
@@ -1863,7 +1885,7 @@ class VNextRollupService:
         for row in rows:
             partitions.setdefault(_project_scope_key(row), []).append(row)
         if len(partitions) <= 1:
-            groups, skipped, gate, semantic = self._group_members_same_scope(
+            groups, skipped, gate, semantic, named = self._group_members_same_scope(
                 rows,
                 options=options,
                 exclude_member_id_sets=exclude_member_id_sets,
@@ -1877,20 +1899,22 @@ class VNextRollupService:
                     replace(group, rollup_key=f"scope:{scope_digest}:{group.rollup_key}")
                     for group in groups
                 ]
-            return groups, skipped, gate, semantic
+            return groups, skipped, gate, semantic, named
 
         all_groups: list[_RollupGroup] = []
         all_skipped: list[str] = []
+        all_named: list[JsonObject] = []
         gate_records: list[JsonObject] = []
         semantic_records: list[JsonObject] = []
         for scope_key in sorted(partitions):
-            groups, skipped, gate, semantic = self._group_members_same_scope(
+            groups, skipped, gate, semantic, named = self._group_members_same_scope(
                 partitions[scope_key],
                 options=options,
                 exclude_member_id_sets=exclude_member_id_sets,
                 domains=domains,
                 sensitivity_allowed=sensitivity_allowed,
             )
+            all_named.extend(named)
             scope_digest = _digest({"project_scope": scope_key})
             all_groups.extend(
                 replace(
@@ -1931,7 +1955,7 @@ class VNextRollupService:
                 "chosen_threshold": "per_project_scope",
                 "mean_silhouette": None,
             }
-        return all_groups, all_skipped, gate_record, semantic_record
+        return all_groups, all_skipped, gate_record, semantic_record, all_named
 
     def _group_members_same_scope(
         self,
@@ -1941,22 +1965,27 @@ class VNextRollupService:
         exclude_member_id_sets: list[set[str]],
         domains: list[str] | None = None,
         sensitivity_allowed: list[str] | None = None,
-    ) -> tuple[list[_RollupGroup], list[str], JsonObject, JsonObject | None]:
+    ) -> tuple[list[_RollupGroup], list[str], JsonObject, JsonObject | None, list[JsonObject]]:
         skipped: list[str] = []
         claimed: set[str] = set()
         groups: list[_RollupGroup] = []
         dropped: Counter[str] = Counter()
         dropped_examples: list[str] = []
+        # Rows a skip line names by a key made from their text or their id. A group
+        # that is not proposed still prints its key, so its members are named too.
+        named: list[JsonObject] = []
 
         profiles = _row_profiles(rows)
         stats = _CorpusStats(profiles)
 
-        def _drop(key: str, reason: str) -> None:
+        def _drop(key: str, reason: str, members: Iterable[JsonObject]) -> None:
             # Gate-dropped groups do NOT claim members and are reported as
-            # one aggregate skip line (not one line per junk anchor).
+            # one aggregate skip line (not one line per junk anchor). Only the
+            # examples the line prints name their members.
             dropped[reason] += 1
             if len(dropped_examples) < 6:
                 dropped_examples.append(f"{key} ({reason})")
+                named.extend(members)
 
         def _admit(
             key: str,
@@ -1969,12 +1998,14 @@ class VNextRollupService:
         ) -> None:
             if len(members) > MAX_ROLLUP_GROUP_MEMBERS:
                 skipped.append(f"group_too_large: {key} (members={len(members)})")
+                named.extend(members)
                 return
             member_ids = {str(member.get("id")) for member in members}
             # Groups fully covered by a near-duplicate cluster belong to the
             # dedup/merge pipeline; a roll-up aggregates distinct instances.
             if any(member_ids <= excluded for excluded in exclude_member_id_sets):
                 skipped.append(f"covered_by_near_duplicate_cluster: {key} (members={len(members)})")
+                named.extend(members)
                 return
             token_sets = [
                 _topic_tokens(_member_text(member)) for member in members[:JACCARD_SAMPLE_MEMBERS]
@@ -1985,6 +2016,7 @@ class VNextRollupService:
                     f"near_duplicate_group_left_to_dedup: {key} "
                     f"(mean_jaccard={jaccard:.2f}, members={len(members)})"
                 )
+                named.extend(members)
                 return
             # Label hygiene, then the group-utility gate; failing groups are
             # dropped and their members stay available to later groups. The
@@ -2002,10 +2034,10 @@ class VNextRollupService:
                 label, stats, label_amount_count=utility.distinct_amounts
             )
             if junk_reason is not None:
-                _drop(key, junk_reason)
+                _drop(key, junk_reason, members)
                 return
             if gate_reason is not None:
-                _drop(key, gate_reason)
+                _drop(key, gate_reason, members)
                 return
             claimed.update(member_ids)
             groups.append(
@@ -2058,7 +2090,7 @@ class VNextRollupService:
                 # store's sessions is plumbing, not a topic. Checked before
                 # claiming so real topics keep these members.
                 if len(anchor_members[anchor]) >= options.min_members:
-                    _drop(f"topic:{anchor}", "anchor_generic_for_store")
+                    _drop(f"topic:{anchor}", "anchor_generic_for_store", anchor_members[anchor])
                 continue
             members = [row for row in anchor_members[anchor] if str(row.get("id")) not in claimed]
             if len(members) < options.min_members:
@@ -2107,10 +2139,12 @@ class VNextRollupService:
                 if semantic_label is None:
                     # No noun spans even two members: the cluster has no
                     # recognizable topic to put on a card.
+                    # The key prints the smallest member id, so that row is the one named.
+                    printed = min(cluster_members, key=lambda row: str(row.get("id")))
                     _drop(
-                        "semantic:cluster-"
-                        + min(str(row.get("id")) for row in cluster_members),
+                        "semantic:cluster-" + str(printed.get("id")),
                         "semantic_no_dominant_label",
+                        (printed,),
                     )
                     continue
                 key = f"semantic:{semantic_label.casefold()}"
@@ -2119,6 +2153,7 @@ class VNextRollupService:
                     # run would collide on the rollup key; keep the first
                     # (larger, by cluster ordering) and disclose the rest.
                     skipped.append(f"semantic_label_collision: {key} (members={len(cluster_members)})")
+                    named.extend(cluster_members)
                     continue
                 seen_semantic_keys.add(key)
                 variants = _surface_variants(cluster_members, label_stems, semantic_label)
@@ -2159,7 +2194,7 @@ class VNextRollupService:
                 f"quality_gate_dropped: {sum(dropped.values())} group(s) not proposed "
                 f"({reasons}); e.g. {examples}"
             )
-        return groups, skipped, gate_record, semantic_record
+        return groups, skipped, gate_record, semantic_record, named
 
     def _semantic_clusters(
         self,
@@ -2348,9 +2383,9 @@ class VNextRollupService:
         domains: list[str] | None,
         sensitivity_allowed: list[str],
         projects: tuple[str, ...],
-    ) -> tuple[dict[str, str], dict[str, JsonObject]]:
+    ) -> tuple[dict[str, JsonObject], dict[str, JsonObject]]:
         """(pending candidate by rollup_digest, accepted card by rollup_key)."""
-        pending: dict[str, str] = {}
+        pending: dict[str, JsonObject] = {}
         unique_digests = tuple(sorted(set(rollup_digests)))
         pending_reader = self.store.list_pending_rollup_candidates
         accepted_reader = self.store.list_accepted_rollup_cards
@@ -2379,7 +2414,7 @@ class VNextRollupService:
                 continue
             digest = metadata.get("rollup_digest")
             if isinstance(digest, str) and digest:
-                pending.setdefault(digest, str(row["id"]))
+                pending.setdefault(digest, row)
         accepted: dict[str, JsonObject] = {}
         unique_keys = tuple(sorted(set(rollup_keys)))
         accepted_rows = (
@@ -2778,7 +2813,7 @@ class VNextRollupService:
             outcome.skipped.append("fewer_memories_than_min_members")
             return outcome
 
-        groups, group_skips, gate_record, semantic_record = self._group_members(
+        groups, group_skips, gate_record, semantic_record, skip_named_rows = self._group_members(
             rows,
             options=options,
             exclude_member_id_sets=exclude_member_id_sets or [],
@@ -2786,6 +2821,7 @@ class VNextRollupService:
             sensitivity_allowed=sensitivity,
         )
         outcome.skipped.extend(group_skips)
+        outcome.name_rows(skip_named_rows)
         outcome.quality_gate = gate_record
         outcome.semantic = semantic_record
         if len(groups) > options.max_rollups:
@@ -2797,7 +2833,7 @@ class VNextRollupService:
 
         prepared_groups: list[_PreparedRollupGroup] = []
         for group in groups:
-            outcome.input_rows.extend(group.members)
+            outcome.name_rows(group.members)
             member_ids = tuple(str(row.get("id")) for row in group.members)
             current_member_snapshots = tuple(
                 memory_version_snapshot(row)
@@ -2856,6 +2892,8 @@ class VNextRollupService:
             revises_memory_id: str | None = None
             proposed_supersede: list[str] = []
             if accepted_card is not None:
+                # The group record or the revision proposal prints the id of this card.
+                outcome.name_rows([accepted_card])
                 accepted_metadata = accepted_card.get("metadata_json")
                 accepted_consolidation = (
                     accepted_metadata.get("consolidation") if isinstance(accepted_metadata, dict) else None
@@ -2896,10 +2934,12 @@ class VNextRollupService:
                 proposed_supersede = [revises_memory_id]
 
             if rollup_digest in pending:
+                pending_card = pending[rollup_digest]
+                outcome.name_rows([pending_card])
                 group_record["state"] = "existing_candidate"
-                group_record["candidate_memory_id"] = pending[rollup_digest]
+                group_record["candidate_memory_id"] = str(pending_card["id"])
                 outcome.groups.append(group_record)
-                outcome.candidate_ids.append(pending[rollup_digest])
+                outcome.candidate_ids.append(str(pending_card["id"]))
                 continue
 
             expired_card = self._expired_card_for_digest(
@@ -2910,6 +2950,7 @@ class VNextRollupService:
                 projects=projects,
             )
             if expired_card is not None:
+                outcome.name_rows([expired_card])
                 group_record["state"] = "expired_card_members_unchanged"
                 group_record["expired_memory_id"] = str(expired_card.get("id"))
                 outcome.groups.append(group_record)
@@ -2924,6 +2965,7 @@ class VNextRollupService:
             )
             if held:
                 if held_card is not None:
+                    outcome.name_rows([held_card])
                     group_record["state"] = "existing_card_members_unchanged"
                     group_record["existing_memory_id"] = str(held_card.get("id"))
                     group_record["existing_status"] = str(held_card.get("status"))

@@ -176,7 +176,7 @@ def test_belief_reference_follows_a_repaired_derived_memory():
     assert {row[2]: row[3] for row in plan_relabels(tables)} == {'derived-belief': 'health', 'report': 'health'}
 
 
-def test_unrestricted_rollup_only_report_retains_previous_labels(monkeypatch):
+def test_unrestricted_rollup_only_report_keeps_its_domain_and_reads_the_same(monkeypatch, domain_vault):
     from tests.unit.test_vnext_consolidation import FakeConsolidationStore
     from tests.unit.test_vnext_rollups import _seed_game_memories
     from alicebot_api.vnext_consolidation import MemoryConsolidationRequest, VNextConsolidationService
@@ -185,7 +185,16 @@ def test_unrestricted_rollup_only_report_retains_previous_labels(monkeypatch):
     _seed_game_memories(store)
     artifact = VNextConsolidationService(store, embedding_provider=None).generate_memory_consolidation(MemoryConsolidationRequest())
     assert artifact['metadata_json']['rollups']['proposals']
-    assert (artifact['domain'], artifact['sensitivity']) == ('unknown', 'unknown')
+    # The domain is as before. The sensitivity is now the label of the internal inputs the report names. Every profile
+    # reads `internal` exactly as it reads the `unknown` the report carried before, so no reader gains or loses it.
+    assert (artifact['domain'], artifact['sensitivity']) == ('unknown', 'internal')
+    _vault, identities = domain_vault
+    for identity in identities:
+        outcomes = {label: evaluate_agent_policy(identity=identity, action='artifact.lookup', domains=('unknown',),
+                                                 sensitivity_allowed=(label,), project_scope=(),
+                                                 require_explicit_project_scope=False).decision
+                    for label in ('unknown', 'internal')}
+        assert outcomes['unknown'] == outcomes['internal'], identity
 
 
 @pytest.mark.parametrize('workflow', ('daily_brief', 'weekly_synthesis', 'connection_report', 'contradiction_report', 'project_update', 'staleness_sweep', 'open_loop_review'))
