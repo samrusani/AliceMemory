@@ -846,3 +846,16 @@ def test_weekly_parent_backfill_cannot_clear_ambiguous_identity() -> None:
     settled = settle_labels([_source("s"), one, two, parent])
     assert settled.by_stored("memory", canonical).unverified is True
     assert settled.by_stored("memory", "{" + canonical + "}").unverified is True
+
+
+@pytest.mark.parametrize("membership, expected", [([["member-a"], ["member-b"]], False), ([["member-a"], [42]], True), ([["member-a"], "member-b"], True)])
+def test_nested_consolidation_membership_is_strict(membership, expected):
+    rows = [
+        {"kind": "memory", "id": "member-a", "user_id": USER, "domain": "health", "sensitivity": "confidential"},
+        {"kind": "memory", "id": "member-b", "user_id": USER, "domain": "personal", "sensitivity": "public"},
+        {"kind": "artifact", "id": "report", "user_id": USER, "artifact_type": "memory_consolidation", "domain": "unknown", "sensitivity": "public", "metadata_json": {"consolidation": {"cluster_membership": membership}}},
+    ]
+    report = settle_labels(rows).by_stored("artifact", "report", user_id=USER)
+    assert report.unverified is expected
+    if not expected:
+        assert (report.domain, report.sensitivity) == ("health", "confidential")
