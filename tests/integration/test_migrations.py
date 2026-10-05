@@ -6,6 +6,7 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 import pytest
 from uuid import UUID
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from alicebot_api.db import user_connection
 from alicebot_api.migrations import make_alembic_config
@@ -13,6 +14,38 @@ from alicebot_api.provider_configuration import provider_config_fingerprint
 from alicebot_api.vnext_capture import VNextCaptureService, capture_dedupe_key_for_text
 from alicebot_api.vnext_project_scope import resolve_source_metadata_project_scope
 from alicebot_api.vnext_store import PostgresVNextStore
+
+
+def _fixture_migration_config(database_url, *, user_id=None, user_account_id=None):
+    """Migrate one declared historical fixture identity under unchanged RLS.
+
+    These data-bearing fixtures contain one user or one account. The empty
+    full-schema smoke and the multi-user 0096 acceptance keep their unbound
+    migrator connections.
+    """
+    parsed = urlsplit(database_url)
+    query = dict(parse_qsl(parsed.query, keep_blank_values=True))
+    options = [query.get("options", "")]
+    for setting, identity in (
+        ("app.current_user_id", user_id),
+        ("app.current_user_account_id", user_account_id),
+    ):
+        if identity is not None:
+            options.append(f"-c {setting}={UUID(str(identity))}")
+    query["options"] = " ".join(option for option in options if option)
+    config = make_alembic_config(database_url)
+    config.attributes["explicit_database_url"] = urlunsplit(parsed._replace(query=urlencode(query)))
+    return config
+
+
+def _set_fixture_identity(conn, *, user_id=None, user_account_id=None):
+    """Keep historical fixture reads and writes inside the existing RLS policy."""
+    for setting, identity in (
+        ("app.current_user_id", user_id),
+        ("app.current_user_account_id", user_account_id),
+    ):
+        if identity is not None:
+            conn.execute("SELECT set_config(%s, %s, %s)", (setting, str(identity), not conn.autocommit))
 
 
 def test_vnext_kernel_upgrade_backfills_data_bearing_append_only_revisions(database_urls):
@@ -23,13 +56,14 @@ def test_vnext_kernel_upgrade_backfills_data_bearing_append_only_revisions(datab
     data-bearing upgrade path that an empty-schema migration smoke cannot
     exercise.
     """
-    config = make_alembic_config(database_urls["admin"])
     user_id = "00000000-0000-0000-0000-000000000101"
+    config = _fixture_migration_config(database_urls["admin"], user_id=user_id)
     memory_id = "00000000-0000-0000-0000-000000000102"
     revision_id = "00000000-0000-0000-0000-000000000103"
 
     command.upgrade(config, "20260416_0066")
     with psycopg.connect(database_urls["admin"]) as conn:
+        _set_fixture_identity(conn, user_id=user_id)
         with conn.cursor() as cur:
             cur.execute(
                 "INSERT INTO users (id, email, display_name) VALUES (%s, %s, %s)",
@@ -62,6 +96,7 @@ def test_vnext_kernel_upgrade_backfills_data_bearing_append_only_revisions(datab
     command.upgrade(config, "20260510_0067")
 
     with psycopg.connect(database_urls["admin"]) as conn:
+        _set_fixture_identity(conn, user_id=user_id)
         with conn.cursor() as cur:
             cur.execute(
                 """
@@ -96,14 +131,15 @@ def test_vnext_kernel_upgrade_backfills_data_bearing_append_only_revisions(datab
 
 
 def test_lifecycle_invariant_upgrade_canonicalizes_retry_ids_and_installs_edge_trigger(database_urls):
-    config = make_alembic_config(database_urls["admin"])
     user_id = "00000000-0000-0000-0000-000000000111"
+    config = _fixture_migration_config(database_urls["admin"], user_id=user_id)
     first_id = "00000000-0000-0000-0000-000000000112"
     second_id = "00000000-0000-0000-0000-000000000113"
     edge_id = "00000000-0000-0000-0000-000000000114"
     command.upgrade(config, "20260707_0082")
 
     with psycopg.connect(database_urls["admin"]) as conn:
+        _set_fixture_identity(conn, user_id=user_id)
         with conn.cursor() as cur:
             cur.execute(
                 "INSERT INTO users (id, email, display_name) VALUES (%s, %s, %s)",
@@ -144,6 +180,7 @@ def test_lifecycle_invariant_upgrade_canonicalizes_retry_ids_and_installs_edge_t
     command.upgrade(config, "20260711_0083")
 
     with psycopg.connect(database_urls["admin"]) as conn:
+        _set_fixture_identity(conn, user_id=user_id)
         with conn.cursor() as cur:
             cur.execute(
                 """
@@ -205,18 +242,20 @@ def test_lifecycle_invariant_upgrade_keeps_identifiers_on_live_row_over_tombston
     row; stranding it on the tombstone makes replay return nothing while the
     partial unique index blocks re-insertion of the same key.
     """
-    config = make_alembic_config(database_urls["admin"])
     user_id = "00000000-0000-0000-0000-000000000131"
+    config = _fixture_migration_config(database_urls["admin"], user_id=user_id)
     tombstone_id = "00000000-0000-0000-0000-000000000132"
     live_id = "00000000-0000-0000-0000-000000000133"
     command.upgrade(config, "20260707_0082")
 
     with psycopg.connect(database_urls["admin"]) as conn:
+        _set_fixture_identity(conn, user_id=user_id)
         _seed_tombstone_and_live_duplicate(conn, user_id=user_id, tombstone_id=tombstone_id, live_id=live_id)
 
     command.upgrade(config, "head")
 
     with psycopg.connect(database_urls["admin"], row_factory=dict_row) as conn:
+        _set_fixture_identity(conn, user_id=user_id)
         with conn.cursor() as cur:
             cur.execute(
                 """
@@ -251,19 +290,21 @@ def test_lifecycle_identifier_repair_corrects_database_mis_upgraded_by_0083(data
     move it onto the oldest live row, and be safe to re-run on already-corrected
     data.
     """
-    config = make_alembic_config(database_urls["admin"])
     user_id = "00000000-0000-0000-0000-000000000141"
+    config = _fixture_migration_config(database_urls["admin"], user_id=user_id)
     tombstone_id = "00000000-0000-0000-0000-000000000142"
     live_id = "00000000-0000-0000-0000-000000000143"
     command.upgrade(config, "20260707_0082")
 
     with psycopg.connect(database_urls["admin"]) as conn:
+        _set_fixture_identity(conn, user_id=user_id)
         _seed_tombstone_and_live_duplicate(conn, user_id=user_id, tombstone_id=tombstone_id, live_id=live_id)
 
     # Apply only the shipped (buggy) 0083 and document the mis-assignment.
     command.upgrade(config, "20260711_0083")
 
     with psycopg.connect(database_urls["admin"], row_factory=dict_row) as conn:
+        _set_fixture_identity(conn, user_id=user_id)
         with conn.cursor() as cur:
             cur.execute(
                 """
@@ -284,6 +325,7 @@ def test_lifecycle_identifier_repair_corrects_database_mis_upgraded_by_0083(data
 
     def _assert_corrected() -> None:
         with psycopg.connect(database_urls["admin"], row_factory=dict_row) as conn:
+            _set_fixture_identity(conn, user_id=user_id)
             with conn.cursor() as cur:
                 cur.execute(
                     """
@@ -323,14 +365,15 @@ def test_released_0084_database_upgrades_through_current_head(database_urls):
     at the deleted former holder. Existing v0.9.4 databases will never rerun
     0084, so only the new 0086 revision may repair that stale pointer.
     """
-    config = make_alembic_config(database_urls["admin"])
     user_id = "00000000-0000-0000-0000-000000000151"
+    config = _fixture_migration_config(database_urls["admin"], user_id=user_id)
     tombstone_id = "00000000-0000-0000-0000-000000000152"
     canonical_live_id = "00000000-0000-0000-0000-000000000153"
     later_live_id = "00000000-0000-0000-0000-000000000154"
     command.upgrade(config, "20260707_0082")
 
     with psycopg.connect(database_urls["admin"]) as conn:
+        _set_fixture_identity(conn, user_id=user_id)
         _seed_tombstone_and_live_duplicate(
             conn,
             user_id=user_id,
@@ -362,6 +405,7 @@ def test_released_0084_database_upgrades_through_current_head(database_urls):
     command.upgrade(config, "20260712_0084")
 
     with psycopg.connect(database_urls["admin"], row_factory=dict_row) as conn:
+        _set_fixture_identity(conn, user_id=user_id)
         with conn.cursor() as cur:
             cur.execute("SELECT version_num FROM alembic_version")
             assert cur.fetchone()["version_num"] == "20260712_0084"
@@ -386,6 +430,7 @@ def test_released_0084_database_upgrades_through_current_head(database_urls):
 
     def _assert_all_pointers_truthful() -> None:
         with psycopg.connect(database_urls["admin"], row_factory=dict_row) as conn:
+            _set_fixture_identity(conn, user_id=user_id)
             with conn.cursor() as cur:
                 cur.execute(
                     """
@@ -412,6 +457,7 @@ def test_released_0084_database_upgrades_through_current_head(database_urls):
     _assert_all_pointers_truthful()
 
     with psycopg.connect(database_urls["admin"], row_factory=dict_row) as conn:
+        _set_fixture_identity(conn, user_id=user_id)
         with conn.cursor() as cur:
             cur.execute("SELECT version_num FROM alembic_version")
             assert cur.fetchone()["version_num"] == "20261005_0096"
@@ -428,13 +474,14 @@ def test_released_0084_database_upgrades_through_current_head(database_urls):
 def test_migration_0088_supports_rolling_provider_writes_and_rejects_token_rewind(
     database_urls,
 ):
-    config = make_alembic_config(database_urls["admin"])
     user_account_id = "00000000-0000-0000-0000-000000000131"
+    config = _fixture_migration_config(database_urls["admin"], user_account_id=user_account_id)
     workspace_id = "00000000-0000-0000-0000-000000000132"
     provider_id = "00000000-0000-0000-0000-000000000133"
 
     command.upgrade(config, "20260713_0087")
     with psycopg.connect(database_urls["admin"]) as conn:
+        _set_fixture_identity(conn, user_account_id=user_account_id)
         with conn.cursor() as cur:
             cur.execute(
                 """
@@ -449,6 +496,13 @@ def test_migration_0088_supports_rolling_provider_writes_and_rejects_token_rewin
                   id, owner_user_account_id, slug, name, bootstrap_status
                 )
                 VALUES (%s, %s, 'migration-0088', 'Migration 0088', 'ready')
+                """,
+                (workspace_id, user_account_id),
+            )
+            cur.execute(
+                """
+                INSERT INTO workspace_members (workspace_id, user_account_id, role)
+                VALUES (%s, %s, 'owner')
                 """,
                 (workspace_id, user_account_id),
             )
@@ -508,6 +562,7 @@ def test_migration_0088_supports_rolling_provider_writes_and_rejects_token_rewin
         autocommit=True,
         row_factory=dict_row,
     ) as conn:
+        _set_fixture_identity(conn, user_account_id=user_account_id)
         with conn.cursor() as cur:
             cur.execute(
                 """
@@ -734,13 +789,14 @@ def test_migration_0088_supports_rolling_provider_writes_and_rejects_token_rewin
 
 
 def test_lifecycle_upgrade_promotes_and_reads_legacy_nested_multi_project_scope(database_urls):
-    config = make_alembic_config(database_urls["admin"])
     user_id = "00000000-0000-0000-0000-000000000121"
+    config = _fixture_migration_config(database_urls["admin"], user_id=user_id)
     memory_id = "00000000-0000-0000-0000-000000000122"
     canonical_memory_id = "00000000-0000-0000-0000-000000000123"
     command.upgrade(config, "20260707_0082")
 
     with psycopg.connect(database_urls["admin"]) as conn:
+        _set_fixture_identity(conn, user_id=user_id)
         with conn.cursor() as cur:
             cur.execute(
                 "INSERT INTO users (id, email, display_name) VALUES (%s, %s, %s)",
@@ -779,6 +835,7 @@ def test_lifecycle_upgrade_promotes_and_reads_legacy_nested_multi_project_scope(
             )
 
     with psycopg.connect(database_urls["admin"], row_factory=dict_row) as conn:
+        _set_fixture_identity(conn, user_id=user_id)
         legacy_store = PostgresVNextStore(conn)
         legacy_row = legacy_store.get_memory(memory_id)
         assert legacy_row is not None
@@ -794,6 +851,7 @@ def test_lifecycle_upgrade_promotes_and_reads_legacy_nested_multi_project_scope(
     command.upgrade(config, "20260711_0083")
 
     with psycopg.connect(database_urls["admin"], row_factory=dict_row) as conn:
+        _set_fixture_identity(conn, user_id=user_id)
         with conn.cursor() as cur:
             cur.execute(
                 "SELECT project_id, metadata_json FROM memories WHERE id = %s",
@@ -836,8 +894,8 @@ def test_pre_lifecycle_upgrade_preserves_present_canonical_project_scope_to_head
 ):
     """0082 rows must not resurrect stale nested scope while upgrading to head."""
 
-    config = make_alembic_config(database_urls["admin"])
     user_id = "00000000-0000-0000-0000-000000000124"
+    config = _fixture_migration_config(database_urls["admin"], user_id=user_id)
     row_ids = {
         "empty": "00000000-0000-0000-0000-000000000125",
         "null": "00000000-0000-0000-0000-000000000126",
@@ -872,6 +930,7 @@ def test_pre_lifecycle_upgrade_preserves_present_canonical_project_scope_to_head
 
     command.upgrade(config, "20260707_0082")
     with psycopg.connect(database_urls["admin"]) as conn:
+        _set_fixture_identity(conn, user_id=user_id)
         with conn.cursor() as cur:
             cur.execute(
                 "INSERT INTO users (id, email, display_name) VALUES (%s, %s, %s)",
@@ -901,6 +960,7 @@ def test_pre_lifecycle_upgrade_preserves_present_canonical_project_scope_to_head
     command.upgrade(config, "head")
 
     with psycopg.connect(database_urls["admin"], row_factory=dict_row) as conn:
+        _set_fixture_identity(conn, user_id=user_id)
         with conn.cursor() as cur:
             cur.execute(
                 """
@@ -956,14 +1016,15 @@ def test_pre_lifecycle_upgrade_preserves_unicode_project_whitespace_exactly_to_h
 ):
     """0083 must not reinterpret Unicode whitespace as the ASCII contract."""
 
-    config = make_alembic_config(database_urls["admin"])
     user_id = "00000000-0000-0000-0000-000000000130"
+    config = _fixture_migration_config(database_urls["admin"], user_id=user_id)
     memory_id = "00000000-0000-0000-0000-000000000131"
     unicode_scope = "\u2003Alice\u2003"
     metadata = {"agentic_memory": {"project_scope": [unicode_scope]}}
 
     command.upgrade(config, "20260707_0082")
     with psycopg.connect(database_urls["admin"]) as conn:
+        _set_fixture_identity(conn, user_id=user_id)
         with conn.cursor() as cur:
             cur.execute(
                 "INSERT INTO users (id, email, display_name) VALUES (%s, %s, %s)",
@@ -986,6 +1047,7 @@ def test_pre_lifecycle_upgrade_preserves_unicode_project_whitespace_exactly_to_h
     command.upgrade(config, "head")
 
     with psycopg.connect(database_urls["admin"], row_factory=dict_row) as conn:
+        _set_fixture_identity(conn, user_id=user_id)
         with conn.cursor() as cur:
             cur.execute(
                 "SELECT project_id, metadata_json FROM memories WHERE id = %s",
@@ -999,8 +1061,8 @@ def test_pre_lifecycle_upgrade_preserves_unicode_project_whitespace_exactly_to_h
 
 
 def test_tool_execution_task_step_linkage_migration_backfills_existing_rows(database_urls):
-    config = make_alembic_config(database_urls["admin"])
     user_id = "00000000-0000-0000-0000-000000000001"
+    config = _fixture_migration_config(database_urls["admin"], user_id=user_id)
     thread_id = "00000000-0000-0000-0000-000000000002"
     trace_id = "00000000-0000-0000-0000-000000000003"
     tool_id = "00000000-0000-0000-0000-000000000004"
@@ -1012,6 +1074,7 @@ def test_tool_execution_task_step_linkage_migration_backfills_existing_rows(data
     command.upgrade(config, "20260313_0020")
 
     with psycopg.connect(database_urls["admin"]) as conn:
+        _set_fixture_identity(conn, user_id=user_id)
         with conn.cursor() as cur:
             cur.execute(
                 """
@@ -1216,6 +1279,7 @@ def test_tool_execution_task_step_linkage_migration_backfills_existing_rows(data
     command.upgrade(config, "head")
 
     with psycopg.connect(database_urls["admin"]) as conn:
+        _set_fixture_identity(conn, user_id=user_id)
         with conn.cursor() as cur:
             cur.execute(
                 """
@@ -1241,13 +1305,14 @@ def test_tool_execution_task_step_linkage_migration_backfills_existing_rows(data
 
 
 def test_gmail_account_credentials_migration_round_trip_preserves_tokens(database_urls):
-    config = make_alembic_config(database_urls["admin"])
     user_id = "00000000-0000-0000-0000-000000000101"
+    config = _fixture_migration_config(database_urls["admin"], user_id=user_id)
     gmail_account_id = "00000000-0000-0000-0000-000000000102"
 
     command.upgrade(config, "20260316_0026")
 
     with psycopg.connect(database_urls["admin"]) as conn:
+        _set_fixture_identity(conn, user_id=user_id)
         with conn.cursor() as cur:
             cur.execute(
                 """
@@ -1284,6 +1349,7 @@ def test_gmail_account_credentials_migration_round_trip_preserves_tokens(databas
     command.upgrade(config, "20260316_0027")
 
     with psycopg.connect(database_urls["admin"]) as conn:
+        _set_fixture_identity(conn, user_id=user_id)
         with conn.cursor() as cur:
             cur.execute(
                 """
@@ -1315,6 +1381,7 @@ def test_gmail_account_credentials_migration_round_trip_preserves_tokens(databas
     command.downgrade(config, "20260316_0026")
 
     with psycopg.connect(database_urls["admin"]) as conn:
+        _set_fixture_identity(conn, user_id=user_id)
         with conn.cursor() as cur:
             cur.execute(
                 """
@@ -1342,13 +1409,14 @@ def test_gmail_account_credentials_migration_round_trip_preserves_tokens(databas
 def test_gmail_refresh_token_lifecycle_migration_round_trip_preserves_downgrade_compatibility(
     database_urls,
 ):
-    config = make_alembic_config(database_urls["admin"])
     user_id = "00000000-0000-0000-0000-000000000201"
+    config = _fixture_migration_config(database_urls["admin"], user_id=user_id)
     gmail_account_id = "00000000-0000-0000-0000-000000000202"
 
     command.upgrade(config, "20260316_0027")
 
     with psycopg.connect(database_urls["admin"]) as conn:
+        _set_fixture_identity(conn, user_id=user_id)
         with conn.cursor() as cur:
             cur.execute(
                 """
@@ -1403,6 +1471,7 @@ def test_gmail_refresh_token_lifecycle_migration_round_trip_preserves_downgrade_
     command.upgrade(config, "20260316_0028")
 
     with psycopg.connect(database_urls["admin"]) as conn:
+        _set_fixture_identity(conn, user_id=user_id)
         with conn.cursor() as cur:
             cur.execute(
                 """
@@ -1440,6 +1509,7 @@ def test_gmail_refresh_token_lifecycle_migration_round_trip_preserves_downgrade_
     command.downgrade(config, "20260316_0027")
 
     with psycopg.connect(database_urls["admin"]) as conn:
+        _set_fixture_identity(conn, user_id=user_id)
         with conn.cursor() as cur:
             cur.execute(
                 """
@@ -1462,13 +1532,14 @@ def test_gmail_refresh_token_lifecycle_migration_round_trip_preserves_downgrade_
 def test_gmail_external_secret_manager_migration_round_trip_preserves_legacy_transition_rows(
     database_urls,
 ):
-    config = make_alembic_config(database_urls["admin"])
     user_id = "00000000-0000-0000-0000-000000000301"
+    config = _fixture_migration_config(database_urls["admin"], user_id=user_id)
     gmail_account_id = "00000000-0000-0000-0000-000000000302"
 
     command.upgrade(config, "20260316_0028")
 
     with psycopg.connect(database_urls["admin"]) as conn:
+        _set_fixture_identity(conn, user_id=user_id)
         with conn.cursor() as cur:
             cur.execute(
                 """
@@ -1527,6 +1598,7 @@ def test_gmail_external_secret_manager_migration_round_trip_preserves_legacy_tra
     command.upgrade(config, "20260316_0029")
 
     with psycopg.connect(database_urls["admin"]) as conn:
+        _set_fixture_identity(conn, user_id=user_id)
         with conn.cursor() as cur:
             cur.execute(
                 """
@@ -1550,6 +1622,7 @@ def test_gmail_external_secret_manager_migration_round_trip_preserves_legacy_tra
     command.downgrade(config, "20260316_0028")
 
     with psycopg.connect(database_urls["admin"]) as conn:
+        _set_fixture_identity(conn, user_id=user_id)
         with conn.cursor() as cur:
             cur.execute(
                 """
@@ -1570,14 +1643,15 @@ def test_gmail_external_secret_manager_migration_round_trip_preserves_legacy_tra
 
 
 def test_calendar_account_migration_round_trip_preserves_table_shape(database_urls):
-    config = make_alembic_config(database_urls["admin"])
     user_id = "00000000-0000-0000-0000-000000000401"
+    config = _fixture_migration_config(database_urls["admin"], user_id=user_id)
     calendar_account_id = "00000000-0000-0000-0000-000000000402"
 
     command.upgrade(config, "20260316_0029")
     command.upgrade(config, "20260319_0030")
 
     with psycopg.connect(database_urls["admin"]) as conn:
+        _set_fixture_identity(conn, user_id=user_id)
         with conn.cursor() as cur:
             cur.execute(
                 """
@@ -1633,6 +1707,7 @@ def test_calendar_account_migration_round_trip_preserves_table_shape(database_ur
         conn.commit()
 
     with psycopg.connect(database_urls["admin"]) as conn:
+        _set_fixture_identity(conn, user_id=user_id)
         with conn.cursor() as cur:
             cur.execute(
                 """
@@ -1658,6 +1733,7 @@ def test_calendar_account_migration_round_trip_preserves_table_shape(database_ur
     command.downgrade(config, "20260316_0029")
 
     with psycopg.connect(database_urls["admin"]) as conn:
+        _set_fixture_identity(conn, user_id=user_id)
         with conn.cursor() as cur:
             cur.execute("SELECT to_regclass('public.calendar_account_credentials')")
             assert cur.fetchone() == (None,)
@@ -2323,6 +2399,7 @@ def test_project_scope_identity_upgrade_repairs_dedupe_without_widening_empty_sc
     config = make_alembic_config(database_urls["admin"])
     command.upgrade(config, "20260713_0089")
     user_id = "00000000-0000-0000-0000-000000000301"
+    config = _fixture_migration_config(database_urls["admin"], user_id=user_id)
     source_a = "00000000-0000-0000-0000-000000000302"
     source_b = "00000000-0000-0000-0000-000000000303"
     memory_id = "00000000-0000-0000-0000-000000000304"
@@ -2348,6 +2425,7 @@ def test_project_scope_identity_upgrade_repairs_dedupe_without_widening_empty_sc
     )
 
     with psycopg.connect(database_urls["admin"]) as conn:
+        _set_fixture_identity(conn, user_id=user_id)
         with conn.cursor() as cur:
             cur.execute(
                 "INSERT INTO users (id, email, display_name) VALUES (%s, %s, %s)",
@@ -2450,6 +2528,7 @@ def test_project_scope_identity_upgrade_repairs_dedupe_without_widening_empty_sc
         sensitivity="private",
     )
     with psycopg.connect(database_urls["admin"], row_factory=dict_row) as conn:
+        _set_fixture_identity(conn, user_id=user_id)
         with conn.cursor() as cur:
             cur.execute(
                 """
@@ -2545,6 +2624,7 @@ def test_project_scope_identity_upgrade_resolves_all_legacy_source_forms_and_blo
     config = make_alembic_config(database_urls["admin"])
     command.upgrade(config, "20260713_0089")
     user_id = "00000000-0000-0000-0000-000000000331"
+    config = _fixture_migration_config(database_urls["admin"], user_id=user_id)
     target_scope = "Legacy Project"
     cases = {
         "root_canonical": {"project_scope": [f" {target_scope} "]},
@@ -2563,6 +2643,7 @@ def test_project_scope_identity_upgrade_resolves_all_legacy_source_forms_and_blo
     raw_texts = {name: f"Fact: {name} keeps its migrated source scope." for name in cases}
 
     with psycopg.connect(database_urls["admin"]) as conn:
+        _set_fixture_identity(conn, user_id=user_id)
         with conn.cursor() as cur:
             cur.execute(
                 "INSERT INTO users (id, email, display_name) VALUES (%s, %s, %s)",
@@ -2592,6 +2673,7 @@ def test_project_scope_identity_upgrade_resolves_all_legacy_source_forms_and_blo
     command.upgrade(config, "head")
 
     with psycopg.connect(database_urls["admin"], row_factory=dict_row) as conn:
+        _set_fixture_identity(conn, user_id=user_id)
         with conn.cursor() as cur:
             cur.execute(
                 """
@@ -2638,6 +2720,7 @@ def test_project_scope_identity_upgrade_keeps_present_empty_nested_source_scope_
     config = make_alembic_config(database_urls["admin"])
     command.upgrade(config, "20260713_0089")
     user_id = "00000000-0000-0000-0000-000000000351"
+    config = _fixture_migration_config(database_urls["admin"], user_id=user_id)
     stale_project = "Legacy Project"
     cases: dict[str, dict[str, object]] = {
         "nested_blank": {
@@ -2666,6 +2749,7 @@ def test_project_scope_identity_upgrade_keeps_present_empty_nested_source_scope_
     raw_texts = {name: f"Fact: migration {name} preserves nested scope presence." for name in cases}
 
     with psycopg.connect(database_urls["admin"]) as conn:
+        _set_fixture_identity(conn, user_id=user_id)
         with conn.cursor() as cur:
             cur.execute(
                 "INSERT INTO users (id, email, display_name) VALUES (%s, %s, %s)",
@@ -2695,6 +2779,7 @@ def test_project_scope_identity_upgrade_keeps_present_empty_nested_source_scope_
     command.upgrade(config, "20260714_0090")
 
     with psycopg.connect(database_urls["admin"], row_factory=dict_row) as conn:
+        _set_fixture_identity(conn, user_id=user_id)
         with conn.cursor() as cur:
             cur.execute(
                 """
@@ -2733,6 +2818,7 @@ def test_project_scope_identity_upgrade_matches_python_strip_and_blocks_unicode_
     config = make_alembic_config(database_urls["admin"])
     command.upgrade(config, "20260713_0089")
     user_id = "00000000-0000-0000-0000-000000000341"
+    config = _fixture_migration_config(database_urls["admin"], user_id=user_id)
     project_scope = ("Legacy Project",)
     raw_texts = {
         "nbsp": "\u00a0Fact: NBSP boundary\u00a0",
@@ -2742,6 +2828,7 @@ def test_project_scope_identity_upgrade_matches_python_strip_and_blocks_unicode_
     source_ids = {name: f"00000000-0000-0000-0005-{index:012d}" for index, name in enumerate(raw_texts, start=1)}
 
     with psycopg.connect(database_urls["admin"]) as conn:
+        _set_fixture_identity(conn, user_id=user_id)
         with conn.cursor() as cur:
             cur.execute(
                 "INSERT INTO users (id, email, display_name) VALUES (%s, %s, %s)",
@@ -2785,6 +2872,7 @@ def test_project_scope_identity_upgrade_matches_python_strip_and_blocks_unicode_
         for name, raw_text in raw_texts.items()
     }
     with psycopg.connect(database_urls["admin"], row_factory=dict_row) as conn:
+        _set_fixture_identity(conn, user_id=user_id)
         with conn.cursor() as cur:
             cur.execute(
                 """
@@ -2819,6 +2907,7 @@ def test_source_identity_0091_clears_only_live_whitespace_strings_and_installs_e
     config = make_alembic_config(database_urls["admin"])
     command.upgrade(config, "20260714_0090")
     user_id = "00000000-0000-0000-0007-000000000001"
+    config = _fixture_migration_config(database_urls["admin"], user_id=user_id)
     whitespace_cases = {
         "ascii": " \t\r\n",
         "unit_separator_control": "\u001c\u001f",
@@ -2835,6 +2924,7 @@ def test_source_identity_0091_clears_only_live_whitespace_strings_and_installs_e
     deleted_id = "00000000-0000-0000-0007-000000000023"
 
     with psycopg.connect(database_urls["admin"]) as conn:
+        _set_fixture_identity(conn, user_id=user_id)
         with conn.cursor() as cur:
             cur.execute(
                 "INSERT INTO users (id, email, display_name) VALUES (%s, %s, %s)",
@@ -2919,6 +3009,7 @@ def test_source_identity_0091_clears_only_live_whitespace_strings_and_installs_e
 
     def identity_snapshot() -> dict[str, str | None]:
         with psycopg.connect(database_urls["admin"], row_factory=dict_row) as conn:
+            _set_fixture_identity(conn, user_id=user_id)
             with conn.cursor() as cur:
                 cur.execute(
                     """
@@ -2943,6 +3034,7 @@ def test_source_identity_0091_clears_only_live_whitespace_strings_and_installs_e
     assert identity_snapshot() == expected
 
     with psycopg.connect(database_urls["admin"], row_factory=dict_row) as conn:
+        _set_fixture_identity(conn, user_id=user_id)
         with conn.cursor() as cur:
             cur.execute(
                 """
@@ -3018,6 +3110,7 @@ def test_source_identity_0091_clears_only_live_whitespace_strings_and_installs_e
     # Re-crossing the forward boundary is data-idempotent.
     command.downgrade(config, "20260714_0090")
     with psycopg.connect(database_urls["admin"], row_factory=dict_row) as conn:
+        _set_fixture_identity(conn, user_id=user_id)
         with conn.cursor() as cur:
             cur.execute(
                 """
@@ -3041,6 +3134,7 @@ def test_0092_backfills_prior_authorized_project_update_redaction(database_urls)
     config = make_alembic_config(database_urls["admin"])
     command.upgrade(config, "20260715_0091")
     user_id = "00000000-0000-0000-0092-000000000001"
+    config = _fixture_migration_config(database_urls["admin"], user_id=user_id)
     memory_id = "00000000-0000-0000-0092-000000000002"
     artifact_id = "00000000-0000-0000-0092-000000000003"
     revision_id = "00000000-0000-0000-0092-000000000004"
@@ -3051,6 +3145,7 @@ def test_0092_backfills_prior_authorized_project_update_redaction(database_urls)
     sentinel = "0092-OLD-REDACTION-SECRET"
 
     with psycopg.connect(database_urls["admin"]) as conn:
+        _set_fixture_identity(conn, user_id=user_id)
         with conn.cursor() as cur:
             cur.execute(
                 "INSERT INTO users (id, email, display_name) VALUES (%s, %s, %s)",
@@ -3212,6 +3307,7 @@ def test_0092_backfills_prior_authorized_project_update_redaction(database_urls)
     command.upgrade(config, "head")
 
     with psycopg.connect(database_urls["admin"], row_factory=dict_row) as conn:
+        _set_fixture_identity(conn, user_id=user_id)
         with conn.cursor() as cur:
             cur.execute(
                 """
@@ -3311,6 +3407,7 @@ def test_0092_backfills_prior_authorized_project_update_redaction(database_urls)
 
     command.downgrade(config, "20260715_0091")
     with psycopg.connect(database_urls["admin"], row_factory=dict_row) as conn:
+        _set_fixture_identity(conn, user_id=user_id)
         with conn.cursor() as cur:
             cur.execute(
                 """
@@ -3330,6 +3427,7 @@ def test_0092_backfills_prior_authorized_project_update_redaction(database_urls)
             assert cur.fetchone() == {"content_markdown": "[REDACTED]"}
     command.upgrade(config, "head")
     with psycopg.connect(database_urls["admin"], row_factory=dict_row) as conn:
+        _set_fixture_identity(conn, user_id=user_id)
         with conn.cursor() as cur:
             cur.execute(
                 """
@@ -3371,6 +3469,7 @@ def test_postgres_source_constraints_reject_noncanonical_classifications(databas
     command.upgrade(config, "head")
     user_id = "00000000-0000-0000-0007-000000000030"
     with psycopg.connect(database_urls["admin"]) as conn:
+        _set_fixture_identity(conn, user_id=user_id)
         with conn.cursor() as cur:
             cur.execute(
                 "INSERT INTO users (id, email, display_name) VALUES (%s, %s, %s)",
