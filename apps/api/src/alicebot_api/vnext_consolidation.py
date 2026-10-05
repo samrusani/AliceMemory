@@ -632,6 +632,13 @@ def _cohesive_pair_stats(normalized: np.ndarray, indices: list[int]) -> JsonObje
     }
 
 
+def _one_row_per_id(rows: list[JsonObject]) -> list[JsonObject]:
+    """``rows`` with each id kept once, in order. Every row must come from one table. A row with no id cannot be told
+    from another, so it is kept."""
+
+    return list({(str(row["id"]) if row.get("id") is not None else id(row)): row for row in rows}.values())
+
+
 class VNextConsolidationService:
     def __init__(
         self,
@@ -1458,17 +1465,13 @@ class VNextConsolidationService:
         # name (read above, after the run's own fence chose the members the refs are copied from). A run whose only
         # proposals are roll-ups has no cluster, and its label used to come from nothing. A row counts once, because
         # the domain is the most frequent restricted label among the rows, and a cluster member is named by its
-        # cluster and again by the roll-up line that leaves its group to the dedup proposal.
-        labelled_rows = list(
-            {
-                (str(row["id"]) if row.get("id") is not None else id(row)): row
-                for row in [
-                    *all_cluster_rows,
-                    *(rollups.input_rows if rollups is not None else []),
-                    *named_sources,
-                ]
-            }.values()
-        )
+        # cluster and again by the roll-up line that leaves its group to the dedup proposal. Memories and sources are
+        # counted apart: an id is unique only within its own table, so a source may carry the id of a memory, and
+        # one must never stand in for the other's label.
+        labelled_rows = [
+            *_one_row_per_id([*all_cluster_rows, *(rollups.input_rows if rollups is not None else [])]),
+            *_one_row_per_id(named_sources),
+        ]
         artifact = self.store.create_artifact(
             {
                 "artifact_type": "memory_consolidation",
