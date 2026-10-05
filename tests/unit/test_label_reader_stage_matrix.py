@@ -67,7 +67,7 @@ class StageStore(PopulationStore):
 def _scope(scoped=False):
     return _ResolvedRetrievalScope(projects=frozenset((ALPHA,)) if scoped else frozenset(), people=frozenset(), window_start=None, window_end=None, exclude_global_domains=frozenset())
 
-STAGES = ("by_ids", "by_ids_fallback", "vector", "graph", "temporal", "provenance", "visibility", "contradictions", "scoped_contradictions", "recent_changes", "scoped_recent_changes", "session", "pack_open_loops", "context_projects", "context_memories", "context_open_loops", "context_artifacts", "context_sources", "project_resolution", "dashboard_lists", "loop_memory_reference", "entity_explain", "entity_backing", "workspace_projects", "workspace_memories", "workspace_open_loops", "workspace_artifacts", "workspace_beliefs", "workspace_loop_refs", "dashboard_loop_refs")
+STAGES = ("by_ids", "by_ids_fallback", "vector", "graph", "temporal", "provenance", "visibility", "contradictions", "scoped_contradictions", "recent_changes", "scoped_recent_changes", "session", "pack_open_loops", "context_projects", "context_memories", "context_open_loops", "context_artifacts", "context_sources", "project_resolution", "dashboard_lists", "loop_memory_reference", "entity_explain", "entity_backing", "workspace_projects", "workspace_memories", "workspace_open_loops", "workspace_artifacts", "workspace_beliefs", "workspace_event_helper", "workspace_loop_refs", "dashboard_loop_refs")
 
 def _stage(stage, store):
     service = VNextRetrievalService(store, embedding_provider=SimpleNamespace(provider="synthetic", model="synthetic", base_url="http://synthetic.invalid"))
@@ -105,6 +105,8 @@ def _stage(stage, store):
         else:
             body = VNextProjectService(store).project_dashboard(project_id=ALPHA, identity=AgentIdentity(agent_id="trusted", permission_profile="trusted_local_agent"))
         return [body["open_loops"][0]["memory_id"]] if body["open_loops"][0]["memory_id"] else []
+    if stage == "workspace_event_helper":
+        return store.events if workspaces._workspace_event_visible(store, store.events[0], CEILING) else []
     if stage.startswith("workspace_"):
         field = stage.removeprefix("workspace_")
         if field == "memories":
@@ -155,3 +157,16 @@ def test_each_dogfooding_sample_counts_only_currently_readable_rows(kind, monkey
     store.rows["source"][0]["sensitivity"] = "public"
     visible = VNextDogfoodingService(store).dashboard(sensitivity_allowed=tuple(CEILING))
     assert visible["sample_scope"][kind]["returned_count"] == 1
+
+
+def test_dogfooding_rating_count_uses_the_current_artifact_label(monkeypatch):
+    _quiet_services(monkeypatch)
+    store = StageStore()
+    store.list_artifact_quality_ratings = lambda **kwargs: [{"id": str(UUID(int=109)), "artifact_id": ARTIFACT, "usefulness": 5}]
+    hidden = VNextDogfoodingService(store).dashboard(sensitivity_allowed=tuple(CEILING))
+    assert hidden["artifact_quality_rating_count"] == 0
+    assert hidden["artifact_quality_average"] is None
+    store.rows["source"][0]["sensitivity"] = "public"
+    visible = VNextDogfoodingService(store).dashboard(sensitivity_allowed=tuple(CEILING))
+    assert visible["artifact_quality_rating_count"] == 1
+    assert visible["artifact_quality_average"] == 5
