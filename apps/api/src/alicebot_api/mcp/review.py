@@ -542,6 +542,9 @@ def _vnext_memory_correct(context: MCPRuntimeContext, arguments: Mapping[str, ob
         # approval activates a memory too, so it must not be a row-first
         # exception to the lifecycle mutation boundary.
         memory_service.lock_supersession_graph()
+        from alicebot_api.vnext_label_writes import acquire_exclusive_label_lock
+
+        acquire_exclusive_label_lock(store)
         get_memory_for_update = getattr(store, "get_memory_for_update", None)
         memory = get_memory_for_update(memory_id) if callable(get_memory_for_update) else store.get_memory(memory_id)
         if memory is None:
