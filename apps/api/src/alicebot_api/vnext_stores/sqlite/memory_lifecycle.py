@@ -53,10 +53,13 @@ def _with_protected_metadata(self, memory_id: str, patch: JsonObject, *, label_w
     if current is None:
         return patch
     stored = current.get("metadata_json")
+    patch_metadata = patch["metadata_json"]
+    if not isinstance(patch_metadata, dict):
+        return patch
     merged = dict(patch)
     merged["metadata_json"] = merge_protected_metadata(
         stored if isinstance(stored, dict) else {},
-        patch["metadata_json"],
+        patch_metadata,
         label_write=label_write,
     )
     return merged
@@ -301,6 +304,10 @@ def update_memory(
     before_label = self.get_memory(str(memory_id))
     refuse_updated_credential_activation(patch, lambda: self.get_memory(str(memory_id)))
     patch = _with_protected_metadata(self, memory_id, patch, label_write=label_write)
+    if before_label is not None:
+        from alicebot_api.vnext_label_writes import clamp_owner_patch
+
+        patch = clamp_owner_patch(self, kind="memory", before=before_label, patch=patch)
     # One clock reading for the write: an archive sets ``updated_at`` and ``deleted_at`` together.
     now = _utc_now_iso()
     cursor = self._execute(

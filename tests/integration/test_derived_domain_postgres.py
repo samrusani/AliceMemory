@@ -14,13 +14,15 @@ from alicebot_api.store import ContinuityStore
 from alicebot_api.vnext_agent_control import ALL_SENSITIVITY
 from alicebot_api.vnext_brain import BrainArtifactRequest, VNextBrainService
 from alicebot_api.vnext_store import PostgresVNextStore
+from alicebot_api.vnext_label_writes import without_insert_floor
 
 
 def test_postgres_derived_domain_upgrade_and_generation(database_urls):
     config = make_alembic_config(database_urls["admin"])
     command.upgrade(config, "20260721_0094")
     user = uuid4()
-    with user_connection(database_urls["app"], user) as conn:
+    # Seed pre-floor rows so this still tests the migration, not the live insert path.
+    with without_insert_floor(), user_connection(database_urls["app"], user) as conn:
         ContinuityStore(conn).create_user(user, "derived-fence@example.invalid", "Derived fence")
         store = PostgresVNextStore(conn)
         source = store.create_memory(
@@ -86,7 +88,8 @@ def test_postgres_repair_as_documented_nobypassrls_owner(database_urls, monkeypa
     config = make_alembic_config(database_urls["admin"])
     command.upgrade(config, "20260721_0094")
     user = uuid4()
-    with user_connection(database_urls["app"], user) as conn:
+    # Seed pre-floor rows so this still tests the migration, not the live insert path.
+    with without_insert_floor(), user_connection(database_urls["app"], user) as conn:
         ContinuityStore(conn).create_user(user, "owner-repair@example.invalid", "Owner repair")
         store = PostgresVNextStore(conn)
         source = store.create_memory(
@@ -290,7 +293,8 @@ def test_promoted_artifact_uuid_alias_repaired(database_urls):
     config = make_alembic_config(database_urls["admin"])
     command.upgrade(config, "20260721_0094")
     user = uuid4()
-    with user_connection(database_urls["app"], user) as conn:
+    # Seed pre-floor rows so this still tests the migration, not the live insert path.
+    with without_insert_floor(), user_connection(database_urls["app"], user) as conn:
         ContinuityStore(conn).create_user(user, "alias@example.invalid", "Alias fixture")
         store = PostgresVNextStore(conn)
         memory = store.create_memory({"memory_key": "health", "canonical_text": "Private observation",
@@ -323,7 +327,8 @@ def test_postgres_repair_reads_every_spelling_of_a_recorded_id(database_urls, sp
     config = make_alembic_config(database_urls["admin"])
     command.upgrade(config, "20260721_0094")
     user = uuid4()
-    with user_connection(database_urls["app"], user) as conn:
+    # Seed pre-floor rows so this still tests the migration, not the live insert path.
+    with without_insert_floor(), user_connection(database_urls["app"], user) as conn:
         ContinuityStore(conn).create_user(user, "spelling@example.invalid", "Spelling fixture")
         store = PostgresVNextStore(conn)
         health = store.create_memory(
@@ -351,7 +356,8 @@ def test_postgres_repair_refuses_an_update_that_changes_no_row(database_urls, mo
     config = make_alembic_config(database_urls["admin"])
     command.upgrade(config, "20260721_0094")
     user = uuid4()
-    with user_connection(database_urls["app"], user) as conn:
+    # Seed pre-floor rows so this still tests the migration, not the live insert path.
+    with without_insert_floor(), user_connection(database_urls["app"], user) as conn:
         ContinuityStore(conn).create_user(user, "zero-row@example.invalid", "Zero row fixture")
         store = PostgresVNextStore(conn)
         health = store.create_memory(

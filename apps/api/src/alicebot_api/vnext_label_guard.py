@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
-from typing import Any
+from typing import Any, TypeVar
 
 from alicebot_api.vnext_agent_control import (
     ALL_SENSITIVITY,
@@ -21,14 +21,16 @@ from alicebot_api.vnext_derived_labels import (
     HOP_BOUND,
     NODE_BOUND,
     canon_kind,
-    dependencies_of,
     is_derived,
+    input_admitted,
     settle_labels,
 )
+from alicebot_api.vnext_label_closure import collect_label_rows
 from alicebot_api.vnext_project_scope import project_floor_shape, project_scopes_overlap, resolve_project_scope
 
 
 _GUARD_USER = "label-guard"
+_Row = TypeVar("_Row", bound=Mapping[str, object])
 
 
 def _filters_admit_every(
@@ -52,7 +54,8 @@ class LabelGuard:
     domains: tuple[str, ...] = ()
     sensitivity_allowed: tuple[str, ...] = ()
     projects: tuple[str, ...] = ()
-    _nodes: dict[tuple[str, str], dict[str, object]] | None = None
+    all_of: tuple[str, ...] | None = None
+    _nodes: dict[tuple[str, str], list[dict[str, object]]] | None = None
 
     @classmethod
     def for_fence(cls, store: Any, fence: Any) -> LabelGuard:
@@ -69,6 +72,8 @@ class LabelGuard:
         sensitivity_allowed: Sequence[str] | None,
         projects: Sequence[str] | None = (),
         exclude_global_domains: Sequence[str] | None = None,
+        *,
+        all_of: tuple[str, ...] | None = None,
     ) -> LabelGuard:
         """List doors. Inactive when the filters admit every label."""
 
@@ -78,10 +83,11 @@ class LabelGuard:
         project_list = tuple(projects or ())
         return cls(
             store=store,
-            active=not _filters_admit_every(domain_list, sensitivity_list, project_list),
+            active=all_of is not None or not _filters_admit_every(domain_list, sensitivity_list, project_list),
             domains=domain_list,
             sensitivity_allowed=sensitivity_list,
             projects=project_list,
+            all_of=all_of,
         )
 
     def effective_row(self, kind: str, row: Mapping[str, object] | None) -> Mapping[str, object] | None:
@@ -95,7 +101,8 @@ class LabelGuard:
         settled = settle_labels(nodes, on_cycle="unverified", max_hops=HOP_BOUND, max_nodes=NODE_BOUND)
         label = settled.by_stored(kind, str(row.get("id") or ""), user_id=_GUARD_USER)
         copy = dict(row)
-        metadata = dict(copy.get("metadata_json")) if isinstance(copy.get("metadata_json"), Mapping) else {}
+        raw_metadata = copy.get("metadata_json")
+        metadata = dict(raw_metadata) if isinstance(raw_metadata, Mapping) else {}
         if label.unverified:
             copy["domain"] = label.domain
             copy["sensitivity"] = "regulated"
@@ -111,17 +118,16 @@ class LabelGuard:
         copy["metadata_json"] = metadata
         return copy
 
-    def admit_rows(self, kind: str, rows: Sequence[Mapping[str, object]]) -> list[Mapping[str, object]]:
+    def admit_rows(self, kind: str, rows: Sequence[_Row]) -> list[_Row]:
         """Rows whose effective labels pass this guard's filters. Originals of the rows, not copies."""
 
         if not self.active:
             return [row for row in rows if isinstance(row, Mapping)]
-        # A store with no label reader cannot settle a derived row. Production
-        # stores have the reader. A stand-in without it keeps the rows the SQL
-        # filter already returned.
+        # Compatibility stores without an ancestry reader may retain SQL-filtered
+        # rows only when no locked all-of binding needs verification.
         if not callable(getattr(self.store, "read_label_rows", None)):
-            return [row for row in rows if isinstance(row, Mapping)]
-        kept: list[Mapping[str, object]] = []
+            return [] if self.all_of is not None else [row for row in rows if isinstance(row, Mapping)]
+        kept: list[_Row] = []
         for row in rows:
             if not isinstance(row, Mapping):
                 continue
@@ -130,7 +136,7 @@ class LabelGuard:
                 kept.append(row)
         return kept
 
-    def admit_beliefs(self, beliefs: Sequence[Mapping[str, object]]) -> list[Mapping[str, object]]:
+    def admit_beliefs(self, beliefs: Sequence[_Row]) -> list[_Row]:
         """Beliefs whose backing memory the filters admit. One batched read."""
 
         if not self.active:
@@ -138,7 +144,7 @@ class LabelGuard:
         ids = [str(row.get("memory_id")) for row in beliefs if isinstance(row, Mapping) and row.get("memory_id")]
         reader = getattr(self.store, "read_label_rows", None)
         if not callable(reader):
-            return [row for row in beliefs if isinstance(row, Mapping)]
+            return [] if self.all_of is not None else [row for row in beliefs if isinstance(row, Mapping)]
         found: dict[str, Mapping[str, object]] = {}
         if callable(reader) and ids:
             for row in reader("memory", ids):
@@ -152,6 +158,8 @@ class LabelGuard:
         ]
 
     def _admits_effective(self, row: Mapping[str, object], *, kind: str) -> bool:
+        if self.all_of is not None and (row.get("unverified") or not input_admitted(kind, row, self.all_of)):
+            return False
         domain = str(row.get("domain") or "unknown")
         if self.domains and domain not in self.domains and domain != "unknown":
             return False
@@ -170,49 +178,26 @@ class LabelGuard:
     def _collected(self, kind: str, row: Mapping[str, object]) -> list[dict[str, object]]:
         if self._nodes is None:
             self._nodes = {}
-        pending: list[tuple[str, Mapping[str, object]]] = [(canon_kind(kind), row)]
-        hops = 0
-        while pending and len(self._nodes) < NODE_BOUND and hops < HOP_BOUND:
-            hops += 1
-            name, current = pending.pop(0)
-            node_id = str(current.get("id") or "")
-            key = (name, node_id)
-            if key in self._nodes:
-                continue
-            node = dict(current)
-            node["kind"] = name
-            node["user_id"] = _GUARD_USER
-            self._nodes[key] = node
-            if not is_derived(name, node):
-                continue
-            grouped: dict[str, list[str]] = {}
-            for dep_kind, dep_id in dependencies_of(name, node):
-                grouped.setdefault(canon_kind(dep_kind), []).append(str(dep_id))
-            reader = getattr(self.store, "read_label_rows", None)
-            if not callable(reader):
-                continue
-            for dep_kind, ids in grouped.items():
-                missing = [item for item in ids if (dep_kind, item) not in self._nodes]
-                if not missing:
-                    continue
-                for found in reader(dep_kind, missing):
-                    if isinstance(found, Mapping):
-                        pending.append((dep_kind, found))
-        return list(self._nodes.values())
+        nodes, _exceeded = collect_label_rows(
+            self.store, [{**dict(row), "kind": canon_kind(kind)}],
+            max_nodes=NODE_BOUND, max_hops=HOP_BOUND, cache=self._nodes, user_id=_GUARD_USER,
+        )
+        return nodes
 
 
 def admit_loaded(
     store: Any,
     *,
     kind: str,
-    rows: Sequence[Mapping[str, object]],
+    rows: Sequence[_Row],
     domains: Sequence[str] | None,
     sensitivity_allowed: Sequence[str] | None,
     projects: Sequence[str] | None = (),
-) -> list[Mapping[str, object]]:
+    all_of: tuple[str, ...] | None = None,
+) -> list[_Row]:
     """Drop loaded inputs whose effective labels miss the request filters."""
 
-    guard = LabelGuard.for_filters(store, domains, sensitivity_allowed, projects)
+    guard = LabelGuard.for_filters(store, domains, sensitivity_allowed, projects, all_of=all_of)
     return guard.admit_rows(kind, rows)
 
 
@@ -265,9 +250,9 @@ def apply_sensitivity_ceiling(
     store: Any,
     *,
     kind: str,
-    rows: Sequence[Mapping[str, object]],
+    rows: Sequence[_Row],
     identity: AgentIdentity | None,
-) -> list[Mapping[str, object]]:
+) -> list[_Row]:
     """Rows whose effective sensitivity is inside the caller's ceiling.
 
     A missing identity and an admin key keep every row, including its title

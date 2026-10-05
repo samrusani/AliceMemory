@@ -12,6 +12,7 @@ from alicebot_api.store import JsonObject
 from alicebot_api.vnext_agent_control import resource_project_scope
 from alicebot_api.vnext_project_scope import (
     is_global_scope,
+    project_floor_shape,
     project_identifier_identity,
     project_scopes_overlap,
 )
@@ -160,7 +161,12 @@ def _provenance_count(store: SQLiteVNextStore, memory_id: object) -> int:
 def _resource_matches_project_scope(resource: Mapping[str, object], project_scope: tuple[str, ...]) -> bool:
     if not project_scope:
         return True
-    return project_scopes_overlap(resource_project_scope(resource), project_scope)
+    shape, floor = project_floor_shape(resource)
+    return project_scopes_overlap(
+        resource_project_scope(resource),
+        project_scope,
+        floor=floor if shape == "list" else (),
+    )
 
 
 def _resource_is_held_back_global(resource: Mapping[str, object], exclude_global_domains: frozenset[str]) -> bool:

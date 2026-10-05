@@ -109,7 +109,7 @@ def _supersede(context, memory_id: str, text: str = NEW) -> str:
 
 
 def _set(context, memory_id: str, **patch) -> None:
-    _store(context, lambda s: s.update_memory(memory_id=memory_id, patch=patch, actor_type="user"))
+    _store(context, lambda s: s.update_memory(memory_id=memory_id, patch=patch, actor_type="user", label_write=True))
 
 
 def _add_metadata(context, memory_id: str, **keys) -> None:
@@ -117,7 +117,7 @@ def _add_metadata(context, memory_id: str, **keys) -> None:
         row = store.get_memory(memory_id)
         metadata = dict(row["metadata_json"])
         metadata.update(keys)
-        store.update_memory(memory_id=memory_id, patch={"metadata_json": metadata}, actor_type="user")
+        store.update_memory(memory_id=memory_id, patch={"metadata_json": metadata}, actor_type="user", label_write=True)
 
     _store(context, merge)
 

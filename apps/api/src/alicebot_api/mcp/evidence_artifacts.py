@@ -283,7 +283,11 @@ def _authorize_explain_resource(
     if target_type in {"memory", "source", "artifact"}:
         judged = effective_row_for_fence(store, identity, target_type, resource)
         _domains, _sensitivity, judged_scope, judged_floor = policy_labels(judged)
-        if target_type == "source":
+        from alicebot_api.vnext_derived_labels import is_derived
+
+        if target_type == "source" or (target_type == "memory" and not is_derived("memory", resource)):
+            # Original legacy memories may keep scope in value. The caller
+            # already resolved that fallback; derived rows use effective labels.
             judged_scope = project_scope
     _actor_type, _actor_id, decision = _policy_checked(
         store,  # type: ignore[arg-type]

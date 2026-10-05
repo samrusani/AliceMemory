@@ -110,7 +110,8 @@ SOURCE_RECEIPTS = {
     # (an empty ceiling returns no rows without a query). The Postgres reader takes the same two arguments so that
     # the shared unscoped call site can state ``None`` for both, and it refuses anything else, since the Postgres
     # runtime resolves no project view (reviewed change, not drift).
-    POSTGRES_CARRIER_PATH: "e4724ba1ec3b8917c5be74b619259ddf1c282825b8e938ce4fa9947491a90a6f",
+    # The file hash now matches the carrier after the label lock. Previous receipt e4724ba1...
+    POSTGRES_CARRIER_PATH: "87aeac394e698a0b5709fd168abfa2a8a86af674ad42370f5a40decd773554df",
     # The SQLite carrier is re-minted, with its method AST manifest below, for
     # ``list_open_loops`` and ``list_open_loop_events``: they bind a query through
     # ``literal_match_operand`` and so refuse one past the LIKE operand limit.
@@ -128,13 +129,17 @@ SOURCE_RECEIPTS = {
     # delete preview and the scrub count and blank the same loops. The rule text moved unchanged to
     # ``vnext_stores/sqlite/open_loop_source_reference.py``; only the reader function and the receipt of the file
     # change (reviewed change, not drift).
-    SQLITE_CARRIER_PATH: "9a2634bef621d32262b845c046820d8b19c64801ec9f9b462e978f364f16f643",
+    # Re-minted so the open-loop partition read passes the floor identity.
+    # Previous receipt 9a2634be...
+    SQLITE_CARRIER_PATH: "c05ac13285a25bd59a2f22d12a7f56e2ac81f063af0949aa7adc82e43f643454",
     POSTGRES_COLUMNS_PATH: "5b0d972a55abf8590ce14394a37fd71b9b88ba7ab3de82d61efc1bddfc022b71",
     SQLITE_COLUMNS_PATH: "be81b8628d0831d3d02b280b5455fb02333db5740ebef8d85d58024384ae6556",
 }
 EXPECTED_METHOD_AST_MANIFESTS = {
-    POSTGRES_CARRIER_PATH: "2558088459f1b9a565e1b366ffe0b7c4025c623a9e2ea78007d06a46793ce1b8",
-    SQLITE_CARRIER_PATH: "2850ba6057b1510759613aaa3798a226808a42470ee11cfb9c6e3afbf3e98e66",
+    # Postgres manifest matches the carrier after the label lock. Previous 25580884...
+    POSTGRES_CARRIER_PATH: "48064a91179463a20147a8e02442f3259976752000d9aafcb51647851227c46c",
+    # SQLite manifest includes the floor identity on the partition read. Previous 2850ba60...
+    SQLITE_CARRIER_PATH: "54112e01f88e048b63731252d3fc0e34918db8575f70ab6b54b0a551699d1483",
 }
 EXPECTED_METADATA_MANIFESTS = {
     POSTGRES_CARRIER_PATH: "6edb6a10e7a37dbbbbde97e5550422718a0112257666de8e23d49c60490fa13f",
@@ -152,7 +157,8 @@ EXPECTED_CLASS_ORDERS = {
     # Per-file importer savepoint (2026-10-02): one paired method more, ``savepoint``, appended last.
     # Previous receipt: (171, 526374782104a2a1...). Proof: the member list equals the list at origin/main
     # 040a2a10 with ``savepoint`` added at the end and nothing else moved (reviewed change, not drift).
-    "PostgresVNextStore": (172, "6f1a459fcf4319cf4281f6cc0d4e81679c3e05d851fd0a874a2d90298d7c2569"),
+    # lock_label_writes and read_label_rows follow __init__. Previous receipt (172, 6f1a459f...).
+    "PostgresVNextStore": (174, "095250b8a77d6c0a32d2783343916b947bcae8ae86e3a1693e47c2fb11802211"),
     # One SQLite-only method more, ``check_source_search_query``: the Postgres
     # source search has no expression-depth or LIKE-length limit to check.
     # Merge of #500 and #502 (2026-10-01): one more SQLite-only method,
@@ -167,7 +173,8 @@ EXPECTED_CLASS_ORDERS = {
     # 040a2a10 with ``savepoint`` added at the end and nothing else moved (reviewed change, not drift).
     # Proof: the replacement branch gains only scrub_source, source_inventory and
     # prunable_sources here; every pre-existing class member keeps its order.
-    "SQLiteVNextStore": (134, "1301272026897057cf071009cc21787543ddc326f1e06f1a75a763f3e344767e"),
+    # lock_label_writes and read_label_rows follow __init__. Previous receipt (134, 13012720...).
+    "SQLiteVNextStore": (136, "1d99dbaf69e4ea888ca7beb2389ac176650a2e573c067bf0686adc9e609132f5"),
 }
 EXPECTED_COLUMN_AST = {
     POSTGRES_COLUMNS_PATH: {

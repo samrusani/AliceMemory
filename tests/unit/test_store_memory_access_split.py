@@ -51,8 +51,10 @@ SOURCE_RECEIPTS = {
     # global domains it leaves out raises (reviewed change, not drift).
     # Re-minted for alice_project_floor_identity, the fourth identity function,
     # used by the roll-up lookups. Previous receipt eab46f16...
+    # Re-minted so a global view also requires every Alice id in the floor.
+    # Previous receipt 8beae59c...
     "apps/api/src/alicebot_api/vnext_stores/sqlite/query_predicates.py": (
-        "8beae59c379c56033388a35b5a152f1f683f6b55c6e2fbd62925723566a12202"
+        "670fd096b461c72517f3791c1f6216778f26d68838307c11d07ffcf5e7b38e79"
     ),
     # Re-minted for the Phase 4 Stage 2 resident vector cache (reviewed
     # carrier change; the receipt guards unreviewed drift): the vector scan
@@ -84,8 +86,10 @@ SOURCE_RECEIPTS = {
     # takes a keyword-only ``include_deleted`` (false by default) and drops the ``deleted_at IS NULL`` clause only when
     # it is true. Previous SQLite receipt 91636de9...
     # Re-minted so the two roll-up lookups overlap scope or floor. Previous receipt 64f21989...
+    # Re-minted so the memory partition read passes the floor identity.
+    # Previous receipt 1580dca3...
     "apps/api/src/alicebot_api/vnext_stores/sqlite/memory_access.py": (
-        "1580dca3a31fbbcf98539e71e81bad13935f30c59e8a7c75b0fc0b4472a6d5fa"
+        "58e22342c6aaf4ed73aa78e5f2ee85af1d8deeb7cbad6a3abe06f78fb8f9a0ac"
     ),
 }
 

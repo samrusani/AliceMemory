@@ -137,26 +137,28 @@ def test_rollup_lookups_match_a_floor_when_the_scope_is_empty() -> None:
     user_id = str(uuid4())
     ensure_sqlite_user(conn, user_id, "group-scope@example.com", "Group Scope")
     store = SQLiteVNextStore(conn, user_id)
-    card = store.create_memory(
-        {
-            "memory_key": "vnext.rollup.floor-card",
-            "value": {"text": "card"},
-            "status": "candidate",
-            "memory_type": "semantic",
-            "title": "Floor card",
-            "canonical_text": "Floor card",
-            "summary": "Floor card",
-            "domain": "personal",
-            "sensitivity": "internal",
-            "metadata_json": {
-                "candidate_kind": ROLLUP_CANDIDATE_KIND,
-                "rollup_digest": "digest-floor",
-                "rollup_key": "topic:floor",
-                "project_scope": [],
-                "project_floor": [ALPHA, BETA],
-            },
-        }
-    )
+    from alicebot_api.vnext_label_writes import without_insert_floor
+    with without_insert_floor():
+        card = store.create_memory(
+            {
+                "memory_key": "vnext.rollup.floor-card",
+                "value": {"text": "card"},
+                "status": "candidate",
+                "memory_type": "semantic",
+                "title": "Floor card",
+                "canonical_text": "Floor card",
+                "summary": "Floor card",
+                "domain": "personal",
+                "sensitivity": "internal",
+                "metadata_json": {
+                    "candidate_kind": ROLLUP_CANDIDATE_KIND,
+                    "rollup_digest": "digest-floor",
+                    "rollup_key": "topic:floor",
+                    "project_scope": [],
+                    "project_floor": [ALPHA, BETA],
+                },
+            }
+        )
     pending = store.list_pending_rollup_candidates(
         rollup_digests=("digest-floor",),
         domains=["personal"],
@@ -175,25 +177,26 @@ def test_rollup_lookups_match_a_floor_when_the_scope_is_empty() -> None:
         projects=("prj_" + "c" * 16,),
     )
     assert missed == []
-    accepted = store.create_memory(
-        {
-            "memory_key": "vnext.rollup.floor-accepted",
-            "value": {"text": "accepted"},
-            "status": "active",
-            "memory_type": "semantic",
-            "title": "Accepted floor card",
-            "canonical_text": "Accepted floor card",
-            "summary": "Accepted floor card",
-            "domain": "personal",
-            "sensitivity": "internal",
-            "metadata_json": {
-                "candidate_kind": ROLLUP_CANDIDATE_KIND,
-                "rollup_key": "topic:floor-accepted",
-                "project_scope": [],
-                "project_floor": [ALPHA, BETA],
-            },
-        }
-    )
+    with without_insert_floor():
+        accepted = store.create_memory(
+            {
+                "memory_key": "vnext.rollup.floor-accepted",
+                "value": {"text": "accepted"},
+                "status": "active",
+                "memory_type": "semantic",
+                "title": "Accepted floor card",
+                "canonical_text": "Accepted floor card",
+                "summary": "Accepted floor card",
+                "domain": "personal",
+                "sensitivity": "internal",
+                "metadata_json": {
+                    "candidate_kind": ROLLUP_CANDIDATE_KIND,
+                    "rollup_key": "topic:floor-accepted",
+                    "project_scope": [],
+                    "project_floor": [ALPHA, BETA],
+                },
+            }
+        )
     cards = store.list_accepted_rollup_cards(
         rollup_keys=("topic:floor-accepted",),
         domains=["personal"],
@@ -254,6 +257,9 @@ class _SweepStore:
     ) -> list[dict[str, object]]:
         del reference_time, confirmation_before, review_memory_types, limit, projects
         return list(self.memories)
+
+    def read_label_rows(self, kind: str, ids: list[str]) -> list[dict[str, object]]:
+        return [dict(row) for row in self.memories if str(row.get("id")) in ids] if kind == "memory" else []
 
     def update_memory(self, *, memory_id: str, patch: dict[str, object], actor_type: str = "system") -> dict[str, object]:
         del actor_type

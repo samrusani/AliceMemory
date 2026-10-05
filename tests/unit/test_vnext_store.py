@@ -39,6 +39,11 @@ class RecordingCursor:
             assert query.count("%s") == len(params)
         self.executed.append((query, params))
 
+    @property
+    def statements(self) -> list[tuple[str, tuple[object, ...] | None]]:
+        """Business SQL, with transaction guards retained separately in executed."""
+        return [(query, params) for query, params in self.executed if "pg_advisory_xact_lock" not in query]
+
     def fetchone(self) -> dict[str, Any] | None:
         if not self.fetchone_results:
             return None
@@ -65,7 +70,7 @@ def _event_row(target_id: object | None = None) -> dict[str, object]:
 
 
 def _event_log_insert_count(cursor: RecordingCursor) -> int:
-    return sum(1 for query, _params in cursor.executed if "INSERT INTO event_log" in query)
+    return sum(1 for query, _params in cursor.statements if "INSERT INTO event_log" in query)
 
 
 def test_postgres_project_scope_sql_mirrors_conservative_python_identity() -> None:
@@ -144,19 +149,20 @@ def test_source_crud_and_chunks_write_audit_events() -> None:
     assert chunks == [{"id": chunk_id, "source_id": source_id}]
     assert _event_log_insert_count(cursor) == 4
 
-    source_insert_query, source_insert_params = cursor.executed[0]
+    assert "pg_advisory_xact_lock_shared" in cursor.executed[0][0]
+    source_insert_query, source_insert_params = cursor.statements[0]
     assert "INSERT INTO sources" in source_insert_query
     assert source_insert_params is not None
     assert isinstance(source_insert_params[-1], Jsonb)
     assert source_insert_params[-1].obj == {"path": "docs/spec.md"}
 
     source_update_query, source_update_params = next(
-        (query, params) for query, params in cursor.executed if "UPDATE sources" in query and "SET title" in query
+        (query, params) for query, params in cursor.statements if "UPDATE sources" in query and "SET title" in query
     )
     assert "UPDATE sources" in source_update_query
     assert source_update_params is not None
 
-    chunk_query, chunk_params = cursor.executed[-1]
+    chunk_query, chunk_params = cursor.statements[-1]
     assert "WHERE source_id = %s::uuid" in chunk_query
     assert chunk_query.index("WHERE source_id") < chunk_query.index("LIMIT %s")
     assert chunk_params == (source_id, 17)
@@ -164,7 +170,7 @@ def test_source_crud_and_chunks_write_audit_events() -> None:
     with pytest.raises(ValueError, match="limit must be positive"):
         store.list_source_chunks(source_id, limit=0)
     store.list_source_chunks(source_id, limit=10_000)
-    assert cursor.executed[-1][1] == (source_id, 501)
+    assert cursor.statements[-1][1] == (source_id, 501)
     assert isinstance(source_update_params[6], Jsonb)
     assert source_update_params[6].obj == {"rev": 2}
 
@@ -178,7 +184,7 @@ def test_get_source_by_content_hash_uses_dedupe_lookup() -> None:
 
     assert source is not None
     assert source["id"] == source_id
-    query, params = cursor.executed[0]
+    query, params = cursor.statements[0]
     assert "FROM sources" in query
     assert "content_hash = %s" in query
     assert "deleted_at IS NULL" in query
@@ -206,7 +212,7 @@ def test_get_or_create_source_uses_partial_unique_dedupe_claim() -> None:
 
     assert created is True
     assert source["id"] == source_id
-    query, _params = cursor.executed[0]
+    query, _params = cursor.statements[0]
     assert "ON CONFLICT (user_id, dedupe_key)" in query
     assert "WHERE deleted_at IS NULL AND dedupe_key IS NOT NULL" in query
     assert "DO NOTHING" in query
@@ -232,8 +238,8 @@ def test_get_or_create_source_returns_concurrent_winner_without_create_event() -
 
     assert created is False
     assert source["id"] == source_id
-    assert len(cursor.executed) == 2
-    assert "SELECT" in cursor.executed[1][0]
+    assert len(cursor.statements) == 2
+    assert "SELECT" in cursor.statements[1][0]
     assert _event_log_insert_count(cursor) == 0
 
 
@@ -304,7 +310,7 @@ def test_update_source_recomputes_postgres_dedupe_key_with_the_same_statement() 
     )
 
     update_query, update_params = next(
-        (query, params) for query, params in cursor.executed if "UPDATE sources" in query and "SET title" in query
+        (query, params) for query, params in cursor.statements if "UPDATE sources" in query and "SET title" in query
     )
     assert "metadata_json = COALESCE(%s, metadata_json)" in update_query
     assert "dedupe_key = %s" in update_query
@@ -342,7 +348,7 @@ def test_update_source_postgres_collision_fails_before_mutation_event() -> None:
             patch={"metadata_json": {"raw_text": raw_text, "project_scope": ["Beta"]}},
         )
 
-    assert not any("UPDATE sources" in query for query, _params in cursor.executed)
+    assert not any("UPDATE sources" in query for query, _params in cursor.statements)
     assert _event_log_insert_count(cursor) == 0
 
 
@@ -371,7 +377,7 @@ def test_update_source_postgres_releases_key_when_changed_identity_has_no_raw_te
     )
 
     update_params = next(
-        params for query, params in cursor.executed if "UPDATE sources" in query and "SET title" in query
+        params for query, params in cursor.statements if "UPDATE sources" in query and "SET title" in query
     )
     assert update_params is not None
     assert update_params[8] is None
@@ -435,9 +441,9 @@ def test_keyword_search_methods_apply_domain_sensitivity_and_limit_filters() -> 
     assert memories[0]["id"] == "matched-1"
     assert sources[0]["id"] == "matched-1"
     assert open_loops[0]["id"] == "matched-1"
-    memory_query, memory_params = cursor.executed[0]
-    source_query, source_params = cursor.executed[1]
-    open_loop_query, open_loop_params = cursor.executed[2]
+    memory_query, memory_params = cursor.statements[0]
+    source_query, source_params = cursor.statements[1]
+    open_loop_query, open_loop_params = cursor.statements[2]
     assert "FROM memories" in memory_query
     assert "status IN ('active', 'accepted')" in memory_query
     assert "domain = ANY" in memory_query
@@ -501,7 +507,7 @@ def test_project_scope_sql_uses_canonical_key_precedence_for_all_resources() -> 
     store.list_artifacts(scope_projects=(project,), limit=1)
     store.list_open_loops(scope_projects=(project,), limit=1)
 
-    memory_query, source_query, artifact_query, open_loop_query = [query for query, _ in cursor.executed]
+    memory_query, source_query, artifact_query, open_loop_query = [query for query, _ in cursor.statements]
     for query, metadata_expression in (
         (memory_query, "metadata_json"),
         (artifact_query, "metadata_json"),
@@ -572,7 +578,7 @@ def test_project_scope_sql_uses_canonical_key_precedence_for_all_resources() -> 
     assert "?| %s::text[]" in source_query
 
     assert "OR project_id::text = ANY" not in open_loop_query
-    for _query, params in cursor.executed:
+    for _query, params in cursor.statements:
         assert params is not None
         assert "canonical-project" in str(params)
         assert project not in str(params)
@@ -589,7 +595,7 @@ def test_exact_memory_scope_lookup_uses_conservative_order_insensitive_identity(
         project_scope=(" Beta ", "ALICE", "alice"),
     )
 
-    query, params = cursor.executed[0]
+    query, params = cursor.statements[0]
     assert "octet_length(normalized_scope.value) = char_length(normalized_scope.value)" in query
     assert 'COLLATE "C"' in query
     assert "metadata_json ? 'project_scope'" in query
@@ -617,7 +623,7 @@ def test_search_memories_by_time_builds_window_predicate_and_proximity_order() -
     )
 
     assert rows[0]["id"] == "memory-march"
-    query, params = cursor.executed[0]
+    query, params = cursor.statements[0]
     assert "FROM memories" in query
     assert "deleted_at IS NULL" in query
     assert "status IN ('active', 'accepted')" in query
@@ -658,7 +664,7 @@ def test_search_memories_by_time_treats_naive_windows_as_utc() -> None:
         window_end=datetime(2023, 4, 1),
     )
 
-    _query, params = cursor.executed[0]
+    _query, params = cursor.statements[0]
     assert params is not None
     assert params[13] == datetime(2023, 3, 1, tzinfo=UTC)
     assert params[14] == datetime(2023, 4, 1, tzinfo=UTC)
@@ -678,7 +684,7 @@ def test_search_memories_by_time_accepts_an_explicit_proximity_pivot() -> None:
         window_center=pivot,
     )
 
-    _query, params = cursor.executed[0]
+    _query, params = cursor.statements[0]
     assert params is not None
     assert params[17] == pivot
 
@@ -700,7 +706,7 @@ def test_list_artifacts_applies_type_domain_sensitivity_and_limit_filters() -> N
     )
 
     assert artifacts[0]["id"] == "artifact-1"
-    query, params = cursor.executed[0]
+    query, params = cursor.statements[0]
     assert "FROM generated_artifacts" in query
     assert "%s::text IS NULL OR artifact_type = %s" in query
     assert "domain = ANY" in query
@@ -713,6 +719,7 @@ def test_list_artifacts_applies_type_domain_sensitivity_and_limit_filters() -> N
         ["project"],
         ["public", "private"],
         ["public", "private"],
+        None,
         None,
         None,
         5,
@@ -754,13 +761,13 @@ def test_artifact_quality_ratings_insert_and_export_json_safe_payloads() -> None
     assert created["id"] == rating_id
     assert rows == [{"id": rating_id, "artifact_id": artifact_id, "usefulness": 5}]
     assert _event_log_insert_count(cursor) == 1
-    assert "FOR UPDATE" in cursor.executed[0][0]
-    insert_query, insert_params = cursor.executed[1]
+    assert "FOR UPDATE" in cursor.statements[0][0]
+    insert_query, insert_params = cursor.statements[1]
     assert "INSERT INTO artifact_quality_ratings" in insert_query
     assert insert_params is not None
     assert isinstance(insert_params[-1], Jsonb)
     assert insert_params[-1].obj == {"prompt_hash": "sha256:test"}
-    list_query, list_params = cursor.executed[3]
+    list_query, list_params = cursor.statements[3]
     assert "FROM artifact_quality_ratings" in list_query
     assert list_params == (artifact_id, artifact_id, None, None, 10)
 
@@ -788,7 +795,7 @@ def test_artifact_quality_ratings_upsert_on_artifact_reviewer_conflict() -> None
     )
 
     assert created["id"] == rating_id
-    upsert_query, _upsert_params = cursor.executed[1]
+    upsert_query, _upsert_params = cursor.statements[1]
     assert "ON CONFLICT (artifact_id, reviewer_id) DO UPDATE SET" in upsert_query
     assert "usefulness = EXCLUDED.usefulness" in upsert_query
     assert "metadata_json = EXCLUDED.metadata_json" in upsert_query
@@ -824,9 +831,9 @@ def test_quality_rating_rejects_exact_redacted_artifact_before_insert() -> None:
     with pytest.raises(ValueError, match="ratings cannot be added to a redacted artifact"):
         store.create_artifact_quality_rating({"artifact_id": artifact_id, "usefulness": 5})
 
-    assert len(cursor.executed) == 1
-    assert "FOR UPDATE" in cursor.executed[0][0]
-    assert not any("INSERT INTO artifact_quality_ratings" in query for query, _params in cursor.executed)
+    assert len(cursor.statements) == 1
+    assert "FOR UPDATE" in cursor.statements[0][0]
+    assert not any("INSERT INTO artifact_quality_ratings" in query for query, _params in cursor.statements)
 
 
 def test_list_beliefs_joins_memory_domain_sensitivity_filters() -> None:
@@ -854,7 +861,7 @@ def test_list_beliefs_joins_memory_domain_sensitivity_filters() -> None:
     )
 
     assert beliefs[0]["id"] == belief_id
-    query, params = cursor.executed[0]
+    query, params = cursor.statements[0]
     assert "FROM beliefs b" in query
     assert "JOIN memories m" in query
     assert "%s::text IS NULL OR b.status = %s" in query
@@ -890,9 +897,11 @@ def test_memory_revision_provenance_and_graph_methods_write_audit_events() -> No
             {"id": memory_id},
             _event_row(memory_id),
             {"id": memory_id},
+            {"id": memory_id},  # stored label read before any update
             # update_memory to a searchable status reads the stored row first,
             # for the credential activation check (S4.4 round 2, ruling C2).
             {"id": memory_id, "status": "candidate", "canonical_text": "Alice vNext is being built."},
+            {"metadata_json": {}},  # metadata reread inside the label lock
             {"id": memory_id},
             _event_row(memory_id),
             {"id": revision_id, "memory_id": memory_id},
@@ -962,7 +971,7 @@ def test_memory_revision_provenance_and_graph_methods_write_audit_events() -> No
     store.expire_edge(edge_id=edge_id)
 
     assert _event_log_insert_count(cursor) == 7
-    memory_insert_query = cursor.executed[0][0]
+    memory_insert_query = cursor.statements[0][0]
     assert "INSERT INTO memories" in memory_insert_query
     assert "canonical_text" in memory_insert_query
     assert "domain" in memory_insert_query
@@ -970,15 +979,15 @@ def test_memory_revision_provenance_and_graph_methods_write_audit_events() -> No
     assert "metadata_json" in memory_insert_query
     assert "ON CONFLICT DO NOTHING" in memory_insert_query
     assert "WHERE commit_digest IS NOT NULL" not in memory_insert_query
-    revision_queries = [query for query, _params in cursor.executed if "next_revision AS" in query]
+    revision_queries = [query for query, _params in cursor.statements if "next_revision AS" in query]
     assert len(revision_queries) == 1
     assert "locked_memory AS" in revision_queries[0]
     assert "FOR UPDATE" in revision_queries[0]
-    assert any("INSERT INTO provenance_links" in query for query, _params in cursor.executed)
-    assert any("INSERT INTO graph_edges" in query for query, _params in cursor.executed)
-    assert any("UPDATE graph_edges" in query for query, _params in cursor.executed)
-    assert any("%s::text IS NULL OR from_id = %s" in query for query, _params in cursor.executed)
-    update_edge_query, update_edge_params = cursor.executed[-4]
+    assert any("INSERT INTO provenance_links" in query for query, _params in cursor.statements)
+    assert any("INSERT INTO graph_edges" in query for query, _params in cursor.statements)
+    assert any("UPDATE graph_edges" in query for query, _params in cursor.statements)
+    assert any("%s::text IS NULL OR from_id = %s" in query for query, _params in cursor.statements)
+    update_edge_query, update_edge_params = cursor.statements[-4]
     assert "metadata_json = metadata_json || %s" in update_edge_query
     assert update_edge_params is not None
     assert update_edge_params[1] == "accepted"
@@ -1011,7 +1020,7 @@ def test_create_memory_persists_canonical_multi_project_scope_metadata() -> None
     )
 
     assert row["project_scope"] == ["alicebot", "hermes"]
-    insert_params = cursor.executed[0][1]
+    insert_params = cursor.statements[0][1]
     assert insert_params is not None
     metadata_values = [param.obj for param in insert_params if isinstance(param, Jsonb)]
     assert {"project_scope": ["alicebot", "hermes"]} in metadata_values
@@ -1023,7 +1032,7 @@ def test_get_memory_for_update_uses_a_row_lock() -> None:
     store = PostgresVNextStore(RecordingConnection(cursor))
 
     assert store.get_memory_for_update(memory_id) == {"id": memory_id}
-    query, params = cursor.executed[0]
+    query, params = cursor.statements[0]
     assert "FROM memories" in query
     assert "FOR UPDATE" in query
     assert params == (memory_id,)
@@ -1041,7 +1050,7 @@ def test_pending_derived_candidate_lookup_uses_snapshots_and_row_locks() -> None
         exclude_memory_id=excluded_id,
     ) == [{"id": candidate_id}]
 
-    query, params = cursor.executed[0]
+    query, params = cursor.statements[0]
     assert "status IN ('candidate', 'needs_review')" in query
     assert "member_snapshots" in query
     assert "jsonb_array_elements" in query
@@ -1063,7 +1072,7 @@ def test_list_memories_pushes_scope_and_limit_into_postgres_query() -> None:
         == []
     )
 
-    query, params = cursor.executed[-1]
+    query, params = cursor.statements[-1]
     assert "status = %s" in query
     assert "domain = ANY(%s::text[]) OR domain = 'unknown'" in query
     assert "COALESCE(sensitivity, 'unknown') = ANY(%s::text[])" in query
@@ -1128,12 +1137,12 @@ def test_resume_store_queries_apply_admission_predicates_before_limit() -> None:
     )
 
     memory_query, loop_query, memory_event_query, loop_event_query, shared_event_query = (
-        query for query, _params in cursor.executed
+        query for query, _params in cursor.statements
     )
-    memory_params = cursor.executed[0][1]
-    loop_params = cursor.executed[1][1]
-    memory_event_params = cursor.executed[2][1]
-    loop_event_params = cursor.executed[3][1]
+    memory_params = cursor.statements[0][1]
+    loop_params = cursor.statements[1][1]
+    memory_event_params = cursor.statements[2][1]
+    loop_event_params = cursor.statements[3][1]
     assert "status = ANY(%s::text[])" in memory_query
     assert "memory_type = ANY(%s::text[])" in memory_query
     assert "created_at >= %s::timestamptz" in memory_query
@@ -1222,8 +1231,8 @@ def test_project_update_event_lookup_is_one_bounded_target_and_payload_query() -
     )
 
     assert rows == []
-    assert len(cursor.executed) == 1
-    query, params = cursor.executed[0]
+    assert len(cursor.statements) == 1
+    query, params = cursor.statements[0]
     assert query.count("SELECT") == 5
     assert query.count("user_id = app.current_user_id()") == 5
     assert query.count("event_type IN (") == 5
@@ -1270,11 +1279,11 @@ def test_memory_and_rollup_counts_are_exact_scoped_database_reads() -> None:
         == 5
     )
 
-    memory_query, memory_params = cursor.executed[0]
+    memory_query, memory_params = cursor.statements[0]
     assert "SELECT COUNT(*) AS count" in memory_query
     assert "status = %s" in memory_query
     assert memory_params == ("active", ["project"], ["private"])
-    rollup_query, rollup_params = cursor.executed[1]
+    rollup_query, rollup_params = cursor.statements[1]
     assert "SELECT COUNT(*) AS count" in rollup_query
     assert "status IN ('active', 'accepted')" in rollup_query
     assert "candidate_kind" in rollup_query
@@ -1313,7 +1322,7 @@ def test_rollup_reads_push_status_scope_exact_keys_order_and_limits_into_postgre
         limit=99,
     )
 
-    input_query, input_params = cursor.executed[0]
+    input_query, input_params = cursor.statements[0]
     assert "status IN ('active', 'accepted')" in input_query
     assert "COALESCE(metadata_json ->> 'candidate_kind', '') <> %s" in input_query
     assert "domain = ANY(%s::text[]) OR domain = 'unknown'" in input_query
@@ -1330,7 +1339,7 @@ def test_rollup_reads_push_status_scope_exact_keys_order_and_limits_into_postgre
         501,
     )
 
-    pending_query, pending_params = cursor.executed[1]
+    pending_query, pending_params = cursor.statements[1]
     assert "DISTINCT ON (metadata_json ->> 'rollup_digest')" in pending_query
     assert "status = 'candidate'" in pending_query
     assert "metadata_json ->> 'rollup_digest' = ANY(%s::text[])" in pending_query
@@ -1347,7 +1356,7 @@ def test_rollup_reads_push_status_scope_exact_keys_order_and_limits_into_postgre
         2,
     )
 
-    accepted_query, accepted_params = cursor.executed[2]
+    accepted_query, accepted_params = cursor.statements[2]
     assert "DISTINCT ON (metadata_json ->> 'rollup_key')" in accepted_query
     assert "status IN ('active', 'accepted')" in accepted_query
     assert "metadata_json ->> 'rollup_key' = ANY(%s::text[])" in accepted_query
@@ -1370,7 +1379,7 @@ def test_rollup_reads_push_status_scope_exact_keys_order_and_limits_into_postgre
         excluded_candidate_kind="memory_rollup",
         limit=1,
     )
-    assert cursor.executed[3][1] == (
+    assert cursor.statements[3][1] == (
         "memory_rollup",
         None,
         None,
@@ -1439,10 +1448,10 @@ def test_project_people_belief_and_open_loop_methods_write_audit_events() -> Non
     store.update_open_loop(loop_id=loop_id, patch={"title": "Validate migration", "priority": "normal"})
 
     assert _event_log_insert_count(cursor) == 9
-    assert "INSERT INTO projects" in cursor.executed[0][0]
-    assert "FROM projects" in cursor.executed[3][0]
-    assert "%s::text IS NULL OR status = %s" in cursor.executed[3][0]
-    assert cursor.executed[3][1] == (
+    assert "INSERT INTO projects" in cursor.statements[0][0]
+    assert "FROM projects" in cursor.statements[3][0]
+    assert "%s::text IS NULL OR status = %s" in cursor.statements[3][0]
+    assert cursor.statements[3][1] == (
         "active",
         "active",
         ["project"],
@@ -1455,14 +1464,14 @@ def test_project_people_belief_and_open_loop_methods_write_audit_events() -> Non
         None,
         3,
     )
-    assert "UPDATE projects" in cursor.executed[4][0]
-    assert "INSERT INTO people" in cursor.executed[6][0]
-    assert "UPDATE people" in cursor.executed[9][0]
-    assert "INSERT INTO beliefs" in cursor.executed[11][0]
-    assert "UPDATE beliefs" in cursor.executed[14][0]
-    assert "INSERT INTO open_loops" in cursor.executed[16][0]
-    assert "UPDATE open_loops" in cursor.executed[19][0]
-    assert "UPDATE open_loops" in cursor.executed[21][0]
+    assert "UPDATE projects" in cursor.statements[4][0]
+    assert "INSERT INTO people" in cursor.statements[6][0]
+    assert "UPDATE people" in cursor.statements[9][0]
+    assert "INSERT INTO beliefs" in cursor.statements[11][0]
+    assert "UPDATE beliefs" in cursor.statements[14][0]
+    assert "INSERT INTO open_loops" in cursor.statements[16][0]
+    assert "UPDATE open_loops" in cursor.statements[19][0]
+    assert "UPDATE open_loops" in cursor.statements[21][0]
 
 
 def test_get_artifact_for_update_locks_the_persisted_authorization_target() -> None:
@@ -1473,7 +1482,7 @@ def test_get_artifact_for_update_locks_the_persisted_authorization_target() -> N
     artifact = store.get_artifact_for_update(artifact_id)
 
     assert artifact == {"id": artifact_id, "artifact_type": "daily_brief"}
-    query, params = cursor.executed[0]
+    query, params = cursor.statements[0]
     assert "FROM generated_artifacts" in query
     assert "FOR UPDATE" in query
     assert params == (artifact_id,)
@@ -1499,7 +1508,7 @@ def test_exact_open_loop_and_artifact_digest_lookups_scope_before_limit() -> Non
         scope_projects=(project_id,),
     ) == {"id": "artifact-1"}
 
-    loop_query, loop_params = cursor.executed[0]
+    loop_query, loop_params = cursor.statements[0]
     assert loop_query.index("automation_digest") < loop_query.index("LIMIT 1")
     assert "project_id = %s::uuid" in loop_query
     assert "person_id = %s::uuid" in loop_query
@@ -1510,7 +1519,7 @@ def test_exact_open_loop_and_artifact_digest_lookups_scope_before_limit() -> Non
         person_id,
         person_id,
     )
-    artifact_query, artifact_params = cursor.executed[1]
+    artifact_query, artifact_params = cursor.statements[1]
     assert artifact_query.index("automation_digest") < artifact_query.index("LIMIT 1")
     assert "consolidation_digest" in artifact_query
     assert artifact_params == (
@@ -1540,13 +1549,13 @@ def test_source_trace_and_policy_telemetry_queries_filter_before_limit() -> None
     store.list_agent_policy_artifacts(agent_id="hermes", limit=15)
     store.list_agent_policy_memories(agent_id="hermes", limit=16)
 
-    for query, _params in cursor.executed[:4]:
+    for query, _params in cursor.statements[:4]:
         assert query.index("source_id") < query.index("LIMIT %s")
-    assert "provenance_links" in cursor.executed[0][0]
-    assert "provenance_links" in cursor.executed[1][0]
-    assert "target_type = 'source'" in cursor.executed[3][0]
-    assert "generated_by' = 'agent'" in cursor.executed[4][0]
-    assert "agent_id' IS NOT NULL" in cursor.executed[5][0]
+    assert "provenance_links" in cursor.statements[0][0]
+    assert "provenance_links" in cursor.statements[1][0]
+    assert "target_type = 'source'" in cursor.statements[3][0]
+    assert "generated_by' = 'agent'" in cursor.statements[4][0]
+    assert "agent_id' IS NOT NULL" in cursor.statements[5][0]
 
 
 def test_artifact_task_and_brain_charter_methods_write_audit_events() -> None:
@@ -1608,12 +1617,12 @@ def test_artifact_task_and_brain_charter_methods_write_audit_events() -> None:
 
     assert claimed is not None
     assert _event_log_insert_count(cursor) == 6
-    assert "INSERT INTO generated_artifacts" in cursor.executed[0][0]
-    assert "UPDATE generated_artifacts" in cursor.executed[3][0]
-    assert "INSERT INTO task_queue" in cursor.executed[5][0]
-    assert "FOR UPDATE SKIP LOCKED" in cursor.executed[7][0]
-    assert "UPDATE task_queue" in cursor.executed[9][0]
-    assert "ON CONFLICT (user_id)" in cursor.executed[11][0]
+    assert "INSERT INTO generated_artifacts" in cursor.statements[0][0]
+    assert "UPDATE generated_artifacts" in cursor.statements[3][0]
+    assert "INSERT INTO task_queue" in cursor.statements[5][0]
+    assert "FOR UPDATE SKIP LOCKED" in cursor.statements[7][0]
+    assert "UPDATE task_queue" in cursor.statements[9][0]
+    assert "ON CONFLICT (user_id)" in cursor.statements[11][0]
 
 
 def test_append_and_list_event_log_records_use_integrity_payload() -> None:
@@ -1635,7 +1644,7 @@ def test_append_and_list_event_log_records_use_integrity_payload() -> None:
     assert appended["target_id"] == "memory-1"
     assert events[0]["target_id"] == "memory-1"
     assert all_events[0]["target_id"] == "memory-1"
-    event_insert_query, event_insert_params = cursor.executed[0]
+    event_insert_query, event_insert_params = cursor.statements[0]
     assert "INSERT INTO event_log" in event_insert_query
     assert event_insert_params is not None
     assert event_insert_params[1:6] == (
@@ -1648,7 +1657,7 @@ def test_append_and_list_event_log_records_use_integrity_payload() -> None:
     assert isinstance(event_insert_params[7], Jsonb)
     assert event_insert_params[7].obj == {"b": 2, "a": 1}
     assert event_insert_params[10] == event["integrity_hash"]
-    event_list_query = cursor.executed[1][0]
+    event_list_query = cursor.statements[1][0]
     assert "%s::text IS NULL OR target_type = %s" in event_list_query
     assert "%s::text IS NULL OR target_id = %s" in event_list_query
 
@@ -1734,7 +1743,7 @@ def test_connector_settings_and_state_methods_use_dedicated_tables_and_audit_eve
     assert fetched_state is not None
     assert storage_status["connector_settings_exists"] is True
     assert _event_log_insert_count(cursor) == 2
-    setting_query, setting_params = cursor.executed[0]
+    setting_query, setting_params = cursor.statements[0]
     assert "INSERT INTO connector_settings" in setting_query
     assert "ON CONFLICT (user_id, connector_name)" in setting_query
     assert setting_params is not None
@@ -1742,7 +1751,7 @@ def test_connector_settings_and_state_methods_use_dedicated_tables_and_audit_eve
     assert setting_params[8].obj == []
     assert isinstance(setting_params[9], Jsonb)
     assert setting_params[9].obj == {"config_json": {"allowed_origins": ["http://localhost:3000"]}}
-    state_query, state_params = cursor.executed[4]
+    state_query, state_params = cursor.statements[4]
     assert "INSERT INTO connector_state" in state_query
     assert "items_seen = connector_state.items_seen + EXCLUDED.items_seen" in state_query
     assert state_params is not None
@@ -1769,10 +1778,10 @@ def test_workspace_list_methods_apply_bounded_filters() -> None:
     assert tasks[0]["id"] == "workspace-row-1"
     assert events[0]["id"] == "workspace-row-1"
 
-    source_query, source_params = cursor.executed[0]
-    people_query, people_params = cursor.executed[1]
-    task_query, task_params = cursor.executed[2]
-    event_query, event_params = cursor.executed[3]
+    source_query, source_params = cursor.statements[0]
+    people_query, people_params = cursor.statements[1]
+    task_query, task_params = cursor.statements[2]
+    event_query, event_params = cursor.statements[3]
     assert "FROM sources" in source_query
     assert "deleted_at IS NULL" in source_query
     assert source_params == (["project"], ["project"], ["private"], ["private"], 7)
@@ -1821,7 +1830,7 @@ def test_jsonb_and_event_hash_normalize_postgres_scalar_values() -> None:
             "captured_at": "2026-05-10T12:30:00+00:00",
         },
     }
-    project_insert_params = cursor.executed[0][1]
+    project_insert_params = cursor.statements[0][1]
     assert project_insert_params is not None
     assert isinstance(project_insert_params[-1], Jsonb)
     assert project_insert_params[-1].obj == {
@@ -1845,7 +1854,7 @@ def test_fts_search_builds_websearch_tsquery_with_pushed_down_filters() -> None:
     )
 
     assert rows[0]["id"] == "memory-1"
-    query, params = cursor.executed[0]
+    query, params = cursor.statements[0]
     assert "FROM memories" in query
     assert "websearch_to_tsquery('english', %s)" in query
     assert "search_tsv @@ websearch_to_tsquery('english', %s)" in query
@@ -1911,7 +1920,7 @@ def test_fts_search_pushes_down_memory_type_project_agent_run_and_expiry_filters
         include_expired=True,
     )
 
-    _query, params = cursor.executed[0]
+    _query, params = cursor.statements[0]
     assert params == (
         "Alice provenance retrieval",
         ["project"],
@@ -1959,7 +1968,7 @@ def test_fts_search_pushes_people_and_time_scope_before_ranked_limit() -> None:
         limit=1,
     )
 
-    query, params = cursor.executed[0]
+    query, params = cursor.statements[0]
     assert "jsonb_path_query" in query
     assert "id::text = ANY" in query
     assert "COALESCE(valid_from, last_seen_at, updated_at, first_seen_at, created_at)" in query
@@ -1991,7 +2000,7 @@ def test_search_source_chunks_builds_websearch_tsquery_over_chunk_text() -> None
     )
 
     assert rows[0]["source_id"] == "source-1"
-    query, params = cursor.executed[0]
+    query, params = cursor.statements[0]
     assert "FROM source_chunks c" in query
     assert "JOIN sources s ON s.id = c.source_id AND s.user_id = c.user_id" in query
     assert "s.deleted_at IS NULL" in query
@@ -2031,7 +2040,7 @@ def test_search_source_chunks_match_any_ors_sanitized_lexemes() -> None:
         match_any=True,
     )
 
-    query, params = cursor.executed[0]
+    query, params = cursor.statements[0]
     assert "c.search_tsv @@ to_tsquery('english', %s)" in query
     # Stopwords and tsquery metacharacters are stripped; each surviving
     # token is individually quoted so nothing can inject query syntax.
@@ -2046,7 +2055,7 @@ def test_search_source_chunks_match_any_returns_empty_without_content_tokens() -
     # Stopword/metacharacter-only queries sanitize to no lexemes: no SQL runs.
     assert store.search_source_chunks(query="&|!():*<->", match_any=True) == []
     assert store.search_source_chunks(query="when was the", match_any=True) == []
-    assert cursor.executed == []
+    assert cursor.statements == []
 
 
 def test_vector_search_orders_by_cosine_distance_and_skips_null_embeddings() -> None:
@@ -2064,7 +2073,7 @@ def test_vector_search_orders_by_cosine_distance_and_skips_null_embeddings() -> 
     )
 
     assert rows[0]["id"] == "memory-1"
-    query, params = next((q, p) for q, p in cursor.executed if "vector_distance" in q)
+    query, params = next((q, p) for q, p in cursor.statements if "vector_distance" in q)
     assert "FROM memories" in query
     assert "embedding_vector IS NOT NULL" in query
     assert "status IN ('active', 'accepted')" in query
@@ -2119,7 +2128,7 @@ def test_postgres_vector_boundary_rejects_non_finite_values() -> None:
             vector=[1.0, float("inf")],
         )
 
-    assert cursor.executed == []
+    assert cursor.statements == []
 
 
 def test_vector_search_can_require_matching_embedding_signature() -> None:
@@ -2133,7 +2142,7 @@ def test_vector_search_can_require_matching_embedding_signature() -> None:
         embedding_signature_version=1,
     )
 
-    query, params = next((q, p) for q, p in cursor.executed if "vector_distance" in q)
+    query, params = next((q, p) for q, p in cursor.statements if "vector_distance" in q)
     assert "metadata_json -> '_alice_embedding' ->> 'provider' = %s" in query
     assert "metadata_json -> '_alice_embedding' ->> 'model' = %s" in query
     assert "->> 'version' = %s" in query
@@ -2149,7 +2158,7 @@ def test_vector_search_enables_iterative_hnsw_scan() -> None:
 
     store.search_memories_vector(query_vector=[1.0, 0.0], limit=20)
 
-    statements = [q for q, _ in cursor.executed]
+    statements = [q for q, _ in cursor.statements]
     assert any("hnsw.iterative_scan" in q and "strict_order" in q for q in statements), statements
     # The iterative-scan setting must precede the vector SELECT.
     set_index = next(i for i, q in enumerate(statements) if "hnsw.iterative_scan" in q)
@@ -2192,8 +2201,8 @@ def test_vector_search_discards_stale_content_signatures_after_database_read() -
     )
 
     assert [row["id"] for row in rows] == ["memory-current"]
-    _query, select_params = next((q, p) for q, p in cursor.executed if "vector_distance" in q)
-    vector_query = next(q for q, _p in cursor.executed if "vector_distance" in q)
+    _query, select_params = next((q, p) for q, p in cursor.statements if "vector_distance" in q)
+    vector_query = next(q for q, _p in cursor.statements if "vector_distance" in q)
     assert "content_sha256" in vector_query
     assert "digest(" in vector_query
     assert select_params[-1] == 4
@@ -2205,7 +2214,7 @@ def test_scheduler_lock_key_includes_current_rls_user() -> None:
 
     assert store.try_scheduler_workflow_lock("daily_brief") is True
 
-    query, params = cursor.executed[0]
+    query, params = cursor.statements[0]
     assert "app.current_user_id()::text" in query
     assert "concat_ws" in query
     assert params == ("daily_brief",)
@@ -2245,7 +2254,7 @@ def test_scheduler_workflow_updates_only_preserve_claim_for_run_bookkeeping(
         actor_type="test",
     )
 
-    query, params = cursor.executed[0]
+    query, params = cursor.statements[0]
     assert "claim_token = CASE WHEN %s THEN claim_token ELSE NULL END" in query
     assert "claim_version = claim_version + CASE WHEN %s THEN 0 ELSE 1 END" in query
     assert params is not None
@@ -2275,7 +2284,7 @@ def test_artifact_status_update_uses_expected_status_compare_and_set() -> None:
     )
 
     assert row is not None
-    query, params = cursor.executed[0]
+    query, params = cursor.statements[0]
     assert "AND (%s::text IS NULL OR status = %s)" in query
     assert "metadata_json || %s::jsonb" in query
     assert params is not None
@@ -2323,7 +2332,7 @@ def test_scheduler_claim_rechecks_due_state_and_persists_fence() -> None:
     assert claim is not None
     assert claim["claim_version"] == 1
     assert claim["scheduled_for"] == scheduled_for
-    statements = [query for query, _params in cursor.executed]
+    statements = [query for query, _params in cursor.statements]
     assert "FOR UPDATE SKIP LOCKED" in statements[0]
     assert "enabled = true" in statements[2]
     assert "claim_version = claim_version + 1" in statements[3]
@@ -2388,10 +2397,10 @@ def test_scheduler_heartbeat_finalize_and_reaper_are_fenced() -> None:
 
     assert finalized is not None
     assert reaped[0]["status"] == "failed"
-    heartbeat_query = cursor.executed[0][0]
-    publish_lock_query = cursor.executed[1][0]
-    finalize_query = cursor.executed[2][0]
-    reap_query = cursor.executed[4][0]
+    heartbeat_query = cursor.statements[0][0]
+    publish_lock_query = cursor.statements[1][0]
+    finalize_query = cursor.statements[2][0]
+    reap_query = cursor.statements[4][0]
     for query in (heartbeat_query, publish_lock_query, finalize_query):
         assert "claim_token = %s" in query
         assert "claim_version = %s" in query
@@ -2412,7 +2421,7 @@ def test_pending_confirmation_query_enforces_all_actionable_invariants_before_li
 
     store.list_pending_inline_confirmations(limit=3)
 
-    query, params = cursor.executed[0]
+    query, params = cursor.statements[0]
     assert "status = 'needs_review'" in query
     assert "confirmation_status = 'unconfirmed'" in query
     assert "confirmation,status" in query
@@ -2435,10 +2444,10 @@ def test_update_memory_embedding_and_missing_embedding_listing() -> None:
 
     assert updated == {"id": memory_id}
     assert missing[0]["id"] == memory_id
-    update_query, update_params = cursor.executed[0]
+    update_query, update_params = cursor.statements[0]
     assert "SET embedding_vector = %s::vector" in update_query
     assert update_params == ("[1.0,0.5]", memory_id)
-    missing_query, missing_params = cursor.executed[1]
+    missing_query, missing_params = cursor.statements[1]
     assert "embedding_vector IS NULL" in missing_query
     assert "%s::uuid IS NULL OR id > %s::uuid" in missing_query
     assert "ORDER BY id ASC" in missing_query
@@ -2464,7 +2473,7 @@ def test_signed_embedding_update_compares_current_memory_content_digest() -> Non
         is None
     )
 
-    query, params = cursor.executed[0]
+    query, params = cursor.statements[0]
     assert "digest(" in query
     assert "NULLIF(btrim(title, chr(9)" in query
     assert "[[:space:]]" not in query
@@ -2513,7 +2522,7 @@ def test_embedding_digest_sql_uses_exact_python_strip_table_at_every_cas_boundar
         embedding_model="embed-v1",
         embedding_signature_version=2,
     )
-    vector_query = next(query for query, _params in vector_cursor.executed if "vector_distance" in query)
+    vector_query = next(query for query, _params in vector_cursor.statements if "vector_distance" in query)
 
     update_cursor = RecordingCursor(fetchone_results=[])
     PostgresVNextStore(RecordingConnection(update_cursor)).update_memory_embedding(
@@ -2525,7 +2534,7 @@ def test_embedding_digest_sql_uses_exact_python_strip_table_at_every_cas_boundar
         content_sha256="a" * 64,
         signature_version=2,
     )
-    update_query = update_cursor.executed[0][0]
+    update_query = update_cursor.statements[0][0]
 
     missing_cursor = RecordingCursor(fetchone_results=[], fetchall_result=[])
     PostgresVNextStore(RecordingConnection(missing_cursor)).list_memories_missing_embeddings(
@@ -2534,7 +2543,7 @@ def test_embedding_digest_sql_uses_exact_python_strip_table_at_every_cas_boundar
         embedding_model="embed-v1",
         embedding_signature_version=2,
     )
-    missing_query = missing_cursor.executed[0][0]
+    missing_query = missing_cursor.statements[0][0]
 
     for query in (vector_query, update_query, missing_query):
         assert "[[:space:]]" not in query
@@ -2560,7 +2569,7 @@ def test_embedding_backfill_includes_unsigned_or_incompatible_vectors() -> None:
         embedding_signature_version=1,
     )
 
-    query, params = cursor.executed[0]
+    query, params = cursor.statements[0]
     assert "embedding_vector IS NULL" in query
     assert "IS DISTINCT FROM %s" in query
     assert "content_sha256" in query
@@ -2576,7 +2585,7 @@ def test_clear_memory_embedding_removes_signature_metadata() -> None:
     store = PostgresVNextStore(RecordingConnection(cursor))
 
     assert store.clear_memory_embedding(memory_id=memory_id) == {"id": memory_id}
-    query, _params = cursor.executed[0]
+    query, _params = cursor.statements[0]
     assert "embedding_vector = NULL" in query
     assert "metadata_json = metadata_json - '_alice_embedding'" in query
     assert "{EMBEDDING_SIGNATURE_METADATA_KEY}" not in query
@@ -2599,15 +2608,15 @@ def test_targeted_memory_lookups_use_indexed_columns() -> None:
     assert by_digest == {"id": "memory-digest"}
     assert by_confirmation == {"id": "memory-confirmation"}
     assert latest == {"id": "memory-latest"}
-    digest_query, digest_params = cursor.executed[0]
+    digest_query, digest_params = cursor.statements[0]
     assert "WHERE commit_digest = %s" in digest_query
     assert "LIMIT 1" in digest_query
     assert digest_params == ("digest-1",)
-    confirmation_query, confirmation_params = cursor.executed[1]
+    confirmation_query, confirmation_params = cursor.statements[1]
     assert "WHERE confirmation_id = %s" in confirmation_query
     assert "LIMIT 1" in confirmation_query
     assert confirmation_params == ("confirm-1",)
-    latest_query, latest_params = cursor.executed[2]
+    latest_query, latest_params = cursor.statements[2]
     assert "metadata_json #>> '{agentic_memory,kind}' = 'agentic_memory_commit'" in latest_query
     assert "status = 'active'" in latest_query
     assert "metadata_json #>> '{agentic_memory,agent_identity,agent_id}' = %s" in latest_query
@@ -2635,7 +2644,7 @@ def test_create_memory_persists_commit_digest_and_confirmation_id_columns() -> N
         }
     )
 
-    insert_query, insert_params = cursor.executed[0]
+    insert_query, insert_params = cursor.statements[0]
     assert "commit_digest" in insert_query
     assert "confirmation_id" in insert_query
     assert insert_params is not None
@@ -2665,7 +2674,7 @@ def test_create_memory_persists_first_class_scope_columns() -> None:
         }
     )
 
-    insert_query, insert_params = cursor.executed[0]
+    insert_query, insert_params = cursor.statements[0]
     assert "project_id" in insert_query
     assert "created_by_agent_id" in insert_query
     assert "run_id" in insert_query
@@ -2702,7 +2711,7 @@ def test_create_agent_api_key_persists_project_scope_binding() -> None:
     )
 
     assert row["project_scope"] == "alicebot"
-    insert_query, insert_params = cursor.executed[0]
+    insert_query, insert_params = cursor.statements[0]
     assert "INSERT INTO agent_api_keys" in insert_query
     assert "project_scope" in insert_query
     assert insert_params is not None
@@ -2729,7 +2738,7 @@ def test_create_agent_api_key_persists_project_scope_binding() -> None:
         }
     )
     assert unbound["project_scope"] is None
-    assert cursor.executed[0][1][3] is None
+    assert cursor.statements[0][1][3] is None
 
 
 # -- temporal slice: edge event time, as-of reads, supersession pointers -------
@@ -2758,7 +2767,7 @@ def test_create_edge_populates_observed_at_and_defaults_valid_from_to_event_time
         }
     )
 
-    insert_query, insert_params = cursor.executed[0]
+    insert_query, insert_params = cursor.statements[0]
     assert "observed_at" in insert_query
     # observed_at defaults to write time; valid_from defaults to observed_at
     # (then write time), so the validity interval starts at event time.
@@ -2797,7 +2806,7 @@ def test_create_edge_without_event_time_notes_the_write_time_fallback_in_metadat
         }
     )
 
-    _insert_query, insert_params = cursor.executed[0]
+    _insert_query, insert_params = cursor.statements[0]
     assert insert_params is not None
     metadata_param = insert_params[-1]
     assert isinstance(metadata_param, Jsonb)
@@ -2831,7 +2840,7 @@ def test_edge_digest_upsert_creates_once_and_replays_without_a_second_event() ->
 
     assert created["id"] == replayed["id"] == edge_id
     insert_query, insert_params = next(
-        (query, params) for query, params in cursor.executed if "INSERT INTO graph_edges" in query
+        (query, params) for query, params in cursor.statements if "INSERT INTO graph_edges" in query
     )
     assert "ON CONFLICT DO NOTHING" in insert_query
     assert insert_params is not None
@@ -2839,7 +2848,7 @@ def test_edge_digest_upsert_creates_once_and_replays_without_a_second_event() ->
     assert isinstance(metadata_param, Jsonb)
     assert metadata_param.obj["idempotency_digest"] == "edge-digest"
     assert _event_log_insert_count(cursor) == 1
-    assert sum("INSERT INTO graph_edges" in query for query, _params in cursor.executed) == 1
+    assert sum("INSERT INTO graph_edges" in query for query, _params in cursor.statements) == 1
 
 
 def test_list_edges_as_of_filters_on_the_validity_interval_with_limit() -> None:
@@ -2848,7 +2857,7 @@ def test_list_edges_as_of_filters_on_the_validity_interval_with_limit() -> None:
 
     store.list_edges_as_of("2026-07-01T00:00:00Z", limit=5)
 
-    query, params = cursor.executed[0]
+    query, params = cursor.statements[0]
     assert "FROM graph_edges" in query
     # Half-open interval: valid_from <= at < valid_to; NULL valid_from
     # (pre-slice edges with unrecorded event time) never matches.
@@ -2867,6 +2876,7 @@ def test_memory_writes_accept_supersession_pointer_columns() -> None:
         fetchone_results=[
             {"id": memory_id},
             _event_row(memory_id),
+            {"id": memory_id},  # prior label read
             {"id": memory_id},
             _event_row(memory_id),
         ]
@@ -2886,12 +2896,12 @@ def test_memory_writes_accept_supersession_pointer_columns() -> None:
         patch={"status": "superseded", "superseded_by": successor_id},
     )
 
-    insert_query, insert_params = cursor.executed[0]
+    insert_query, insert_params = cursor.statements[0]
     assert "supersedes" in insert_query
     assert insert_params is not None
     assert insert_params[-2:] == (None, predecessor_id)  # (superseded_by, supersedes)
 
-    update_query, update_params = cursor.executed[2]
+    update_query, update_params = next((query, params) for query, params in cursor.statements if "UPDATE memories" in query)
     assert "superseded_by = COALESCE(%s::uuid, superseded_by)" in update_query
     assert "supersedes = COALESCE(%s::uuid, supersedes)" in update_query
     assert update_params is not None
@@ -2902,6 +2912,8 @@ def test_update_memory_reassigns_first_class_and_canonical_project_scope_togethe
     memory_id = str(uuid4())
     cursor = RecordingCursor(
         fetchone_results=[
+            {"id": memory_id, "metadata_json": {"project_scope": ["project-old"]}},
+            {"metadata_json": {"project_scope": ["project-old"]}},
             {
                 "id": memory_id,
                 "memory_key": "project.release.scope",
@@ -2919,6 +2931,7 @@ def test_update_memory_reassigns_first_class_and_canonical_project_scope_togethe
 
     row = store.update_memory(
         memory_id=memory_id,
+        label_write=True,
         patch={
             "project_id": "project-new",
             "metadata_json": {
@@ -2928,7 +2941,7 @@ def test_update_memory_reassigns_first_class_and_canonical_project_scope_togethe
         },
     )
 
-    query, params = cursor.executed[0]
+    query, params = next((query, params) for query, params in cursor.statements if "UPDATE memories" in query)
     assert "project_id = COALESCE(%s, project_id)" in query
     assert params is not None
     metadata_param = next(param for param in params if isinstance(param, Jsonb))
@@ -2976,7 +2989,7 @@ def test_entity_crud_methods_normalize_names_and_write_audit_events() -> None:
     assert updated["id"] == entity_id
     assert _event_log_insert_count(cursor) == 2
 
-    insert_query, insert_params = cursor.executed[0]
+    insert_query, insert_params = cursor.statements[0]
     assert "INSERT INTO vnext_entities" in insert_query
     assert "app.current_user_id()" in insert_query
     assert insert_params is not None
@@ -2990,24 +3003,24 @@ def test_entity_crud_methods_normalize_names_and_write_audit_events() -> None:
     assert insert_params[5].obj == {"hq": "sf"}
     assert insert_params[8] == 0  # mention_count defaults to zero
 
-    get_query, get_params = cursor.executed[2]
+    get_query, get_params = cursor.statements[2]
     assert "FROM vnext_entities" in get_query
     assert "WHERE id = %s::uuid" in get_query
     assert "deleted_at IS NULL" in get_query
     assert get_params == (entity_id,)
 
-    by_name_query, by_name_params = cursor.executed[3]
+    by_name_query, by_name_params = cursor.statements[3]
     assert "entity_type = %s" in by_name_query
     assert "normalized_name = %s" in by_name_query
     assert "LIMIT 1" in by_name_query
     assert by_name_params == ("organization", "openai inc")
 
-    list_query, list_params = cursor.executed[4]
+    list_query, list_params = cursor.statements[4]
     assert "%s::text IS NULL OR entity_type = %s" in list_query
     assert "ORDER BY updated_at DESC, created_at DESC, id DESC" in list_query
     assert list_params == ("organization", "organization", 7)
 
-    update_query, update_params = cursor.executed[5]
+    update_query, update_params = cursor.statements[5]
     assert "UPDATE vnext_entities" in update_query
     assert "name = COALESCE(%s, name)" in update_query
     assert "aliases = COALESCE(%s, aliases)" in update_query
@@ -3031,7 +3044,7 @@ def test_update_entity_rejects_immutable_patch_fields_before_touching_sql() -> N
     ):
         with pytest.raises(ContinuityStoreInvariantError, match="immutable"):
             store.update_entity(entity_id=str(uuid4()), patch=immutable_patch)
-    assert cursor.executed == []
+    assert cursor.statements == []
 
 
 def test_find_entities_by_names_matches_normalized_names_and_aliases_in_one_query() -> None:
@@ -3044,8 +3057,8 @@ def test_find_entities_by_names_matches_normalized_names_and_aliases_in_one_quer
     rows = store.find_entities_by_names(("openai", "northwind.example"))
 
     assert rows[0]["id"] == "entity-1"
-    assert len(cursor.executed) == 1  # one round trip covers both match paths
-    query, params = cursor.executed[0]
+    assert len(cursor.statements) == 1  # one round trip covers both match paths
+    query, params = cursor.statements[0]
     assert "FROM vnext_entities" in query
     assert "normalized_name = ANY(%s::text[])" in query
     assert "aliases ?| %s::text[]" in query
@@ -3055,7 +3068,7 @@ def test_find_entities_by_names_matches_normalized_names_and_aliases_in_one_quer
 
     # An empty name tuple short-circuits without touching the database.
     assert store.find_entities_by_names(()) == []
-    assert len(cursor.executed) == 1
+    assert len(cursor.statements) == 1
 
 
 def test_record_entity_mention_increments_count_and_widens_window() -> None:
@@ -3072,7 +3085,7 @@ def test_record_entity_mention_increments_count_and_widens_window() -> None:
 
     assert row["id"] == entity_id
     assert _event_log_insert_count(cursor) == 1
-    query, params = cursor.executed[0]
+    query, params = cursor.statements[0]
     assert "mention_count = mention_count + 1" in query
     assert "LEAST(COALESCE(first_observed_at, %s::timestamptz), %s::timestamptz)" in query
     assert "GREATEST(COALESCE(last_observed_at, %s::timestamptz), %s::timestamptz)" in query
@@ -3090,7 +3103,7 @@ def test_record_entity_mention_increments_count_and_widens_window() -> None:
     fresh_store = PostgresVNextStore(RecordingConnection(fresh_cursor))
     with pytest.raises(ContinuityStoreInvariantError, match="observed_at"):
         fresh_store.record_entity_mention(entity_id=entity_id, observed_at=None)
-    assert fresh_cursor.executed == []
+    assert fresh_cursor.statements == []
 
 
 def test_record_relationship_change_appends_history_and_updates_current_pointer() -> None:
@@ -3118,12 +3131,12 @@ def test_record_relationship_change_appends_history_and_updates_current_pointer(
     assert row["id"] == event_id
     assert _event_log_insert_count(cursor) == 1
 
-    before_query, before_params = cursor.executed[0]
+    before_query, before_params = cursor.statements[0]
     assert "metadata_json ->> 'relationship_type'" in before_query
     assert "deleted_at IS NULL" in before_query
     assert before_params == (entity_id,)
 
-    insert_query, insert_params = cursor.executed[1]
+    insert_query, insert_params = cursor.statements[1]
     assert "INSERT INTO entity_relationship_events" in insert_query
     assert "app.current_user_id()" in insert_query
     assert insert_params is not None
@@ -3135,7 +3148,7 @@ def test_record_relationship_change_appends_history_and_updates_current_pointer(
     assert isinstance(insert_params[5], Jsonb)
     assert insert_params[5].obj == {"round": "seed"}
 
-    pointer_query, pointer_params = cursor.executed[2]
+    pointer_query, pointer_params = cursor.statements[2]
     assert "UPDATE vnext_entities" in pointer_query
     assert "metadata_json = metadata_json || %s" in pointer_query
     assert pointer_params is not None
@@ -3143,7 +3156,7 @@ def test_record_relationship_change_appends_history_and_updates_current_pointer(
     assert pointer_params[0].obj == {"relationship_type": "investor"}
     assert pointer_params[1] == entity_id
 
-    event_query, event_params = cursor.executed[3]
+    event_query, event_params = cursor.statements[3]
     assert "INSERT INTO event_log" in event_query
     assert event_params is not None
     assert isinstance(event_params[7], Jsonb)
@@ -3156,7 +3169,7 @@ def test_record_relationship_change_appends_history_and_updates_current_pointer(
     missing_store = PostgresVNextStore(RecordingConnection(missing_cursor))
     with pytest.raises(ContinuityStoreInvariantError, match="existing entity"):
         missing_store.record_relationship_change(entity_id=entity_id, relationship_type="advisor")
-    assert len(missing_cursor.executed) == 1
+    assert len(missing_cursor.statements) == 1
 
 
 def test_list_relationship_events_reads_history_most_recent_first() -> None:
@@ -3170,7 +3183,7 @@ def test_list_relationship_events_reads_history_most_recent_first() -> None:
     rows = store.list_relationship_events(entity_id)
 
     assert rows[0]["id"] == "event-1"
-    query, params = cursor.executed[0]
+    query, params = cursor.statements[0]
     assert "FROM entity_relationship_events" in query
     assert "WHERE entity_id = %s::uuid" in query
     assert "ORDER BY changed_at DESC, id DESC" in query
@@ -3194,7 +3207,7 @@ class FailingCursor(RecordingCursor):
 
 
 def _redaction_flag_statements(cursor: RecordingCursor) -> list[str]:
-    return [query for query, _params in cursor.executed if "app.redaction_in_progress" in query]
+    return [query for query, _params in cursor.statements if "app.redaction_in_progress" in query]
 
 
 def test_redaction_marker_constant() -> None:
@@ -3288,9 +3301,9 @@ def test_quoted_provenance_rejects_exact_redacted_target_before_insert(target_ty
             }
         )
 
-    assert len(cursor.executed) == 1
-    assert "FOR UPDATE" in cursor.executed[0][0]
-    assert not any("INSERT INTO provenance_links" in query for query, _params in cursor.executed)
+    assert len(cursor.statements) == 1
+    assert "FOR UPDATE" in cursor.statements[0][0]
+    assert not any("INSERT INTO provenance_links" in query for query, _params in cursor.statements)
 
 
 @pytest.mark.parametrize(
@@ -3340,8 +3353,8 @@ def test_redact_memory_bundle_rejects_malformed_terminal_artifact_provenance(
             ],
         )
 
-    assert len(cursor.executed) == 2
-    assert "FROM event_log" in cursor.executed[1][0]
+    assert len(cursor.statements) == 2
+    assert "FROM event_log" in cursor.statements[1][0]
     assert _redaction_flag_statements(cursor) == []
 
 
@@ -3399,7 +3412,7 @@ def test_redact_memory_bundle_only_reuses_authorized_prior_redaction_timestamp(
 
     update_query, update_params = next(
         (query, params)
-        for query, params in cursor.executed
+        for query, params in cursor.statements
         if "UPDATE memories" in query and "embedding_vector = NULL" in query
     )
     assert update_params is not None
@@ -3409,7 +3422,7 @@ def test_redact_memory_bundle_only_reuses_authorized_prior_redaction_timestamp(
 
     event_update_query = next(
         query
-        for query, _params in cursor.executed
+        for query, _params in cursor.statements
         if "UPDATE event_log" in query and "jsonb_build_object" in query
     )
     # PostgreSQL cannot infer a type for a bare bind used only as a
@@ -3434,14 +3447,14 @@ def test_redact_memory_content_wraps_marker_update_in_redaction_mode() -> None:
     row = store.redact_memory_content(memory_id=memory_id)
 
     assert row["id"] == memory_id
-    queries = [query for query, _params in cursor.executed]
+    queries = [query for query, _params in cursor.statements]
     assert "SELECT metadata_json" in queries[0]
     assert "set_config('app.redaction_in_progress', 'on', false)" in queries[1]
     assert "UPDATE memories" in queries[2]
     assert "set_config('app.redaction_in_progress', 'off', false)" in queries[3]
     assert "INSERT INTO event_log" in queries[4]
 
-    update_query, update_params = cursor.executed[2]
+    update_query, update_params = cursor.statements[2]
     # Content columns become the marker; skeleton and scope survive.
     assert "CASE WHEN title IS NULL THEN NULL ELSE %s END" in update_query
     assert "canonical_text = %s" in update_query
@@ -3464,7 +3477,7 @@ def test_redact_memory_content_wraps_marker_update_in_redaction_mode() -> None:
     assert "note" not in scrubbed
     assert update_params[6] == memory_id
 
-    event_query, event_params = cursor.executed[4]
+    event_query, event_params = cursor.statements[4]
     assert event_params is not None
     assert event_params[1] == "memory.redacted"
     payload = next(param for param in event_params if isinstance(param, Jsonb))
@@ -3496,7 +3509,7 @@ def test_redact_memory_revisions_scrubs_content_columns_only() -> None:
 
     assert result == {"memory_id": memory_id, "redacted_revisions": 2}
     update_query, update_params = next(
-        (query, params) for query, params in cursor.executed if "UPDATE memory_revisions" in query
+        (query, params) for query, params in cursor.statements if "UPDATE memory_revisions" in query
     )
     # NULL content stays NULL; non-NULL content becomes the marker shape.
     assert "CASE WHEN previous_value IS NULL THEN NULL ELSE %s END" in update_query
@@ -3518,7 +3531,7 @@ def test_redact_memory_revisions_scrubs_content_columns_only() -> None:
 
     flags = _redaction_flag_statements(cursor)
     assert "'on'" in flags[0] and "'off'" in flags[1]
-    event_query, event_params = cursor.executed[-1]
+    event_query, event_params = cursor.statements[-1]
     assert "INSERT INTO event_log" in event_query
     assert event_params is not None
     assert event_params[1] == "memory.redacted"
@@ -3538,7 +3551,7 @@ def test_redact_memory_events_scrubs_payloads_and_clears_integrity_hash() -> Non
 
     assert result == {"memory_id": memory_id, "redacted_events": 1}
     update_query, update_params = next(
-        (query, params) for query, params in cursor.executed if "UPDATE event_log" in query
+        (query, params) for query, params in cursor.statements if "UPDATE event_log" in query
     )
     assert "jsonb_build_object" in update_query
     assert "'redacted', true" in update_query
@@ -3557,7 +3570,7 @@ def test_redact_memory_events_scrubs_payloads_and_clears_integrity_hash() -> Non
 
     flags = _redaction_flag_statements(cursor)
     assert len(flags) == 2 and "'on'" in flags[0] and "'off'" in flags[1]
-    event_query, event_params = cursor.executed[-1]
+    event_query, event_params = cursor.statements[-1]
     assert "INSERT INTO event_log" in event_query
     assert event_params is not None
     assert event_params[1] == "memory.redacted"
@@ -3583,5 +3596,5 @@ def test_redaction_mode_resets_even_when_the_update_fails() -> None:
     assert "'off'" in flags[1]
     # The reset is the last statement issued; no event is appended after
     # a failed redaction.
-    assert "app.redaction_in_progress" in cursor.executed[-1][0]
-    assert not any("INSERT INTO event_log" in query for query, _params in cursor.executed)
+    assert "app.redaction_in_progress" in cursor.statements[-1][0]
+    assert not any("INSERT INTO event_log" in query for query, _params in cursor.statements)

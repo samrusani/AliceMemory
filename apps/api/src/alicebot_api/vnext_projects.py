@@ -576,6 +576,7 @@ class VNextProjectService:
             domains=domains,
             sensitivity_allowed=sensitivity_allowed,
             projects=(project_id,),
+            all_of=locked,
         )
         memories = admit_loaded(
             self.store,
@@ -584,6 +585,7 @@ class VNextProjectService:
             domains=domains,
             sensitivity_allowed=sensitivity_allowed,
             projects=(project_id,),
+            all_of=locked,
         )
         brain_charter = _brain_charter(self.store)
         automation_digest = _project_automation_digest(

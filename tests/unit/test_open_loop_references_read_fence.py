@@ -1379,6 +1379,13 @@ def test_the_scheduler_open_loop_report_copies_only_the_sources_its_identity_may
         def get_memories_by_ids(self, ids: list[str]) -> list[dict[str, object]]:
             return []
 
+        def read_label_rows(self, kind: str, ids: list[str]) -> list[dict[str, object]]:
+            if kind == "source":
+                return self.get_sources_by_ids(ids)
+            if kind == "open_loop":
+                return [dict(row) for row in self.open_loops if str(row.get("id")) in ids]
+            return []
+
     def run(identity) -> dict[str, object]:  # type: ignore[no-untyped-def]
         store = _Store()
         store.open_loops = [

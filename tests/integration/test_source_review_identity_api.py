@@ -110,6 +110,7 @@ def test_source_review_http_rotates_identity_and_recapture_uses_new_envelope(
         payload={
             "user_id": str(user_id),
             "action": "assign_project",
+            "confirm_label_hide": True,
             "project_id": "Beta",
             "domain": "professional",
             "sensitivity": "internal",
@@ -195,6 +196,7 @@ def test_source_review_http_collision_returns_409_after_full_transaction_rollbac
         payload={
             "user_id": str(user_id),
             "action": "assign_project",
+            "confirm_label_hide": True,
             "project_id": "Beta",
             "review_note": "This conflicts with Beta's live source.",
         },

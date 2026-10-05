@@ -774,6 +774,7 @@ class VNextConsolidationService:
             domains=domains,
             sensitivity_allowed=sensitivity,
             projects=projects,
+            all_of=all_of,
         )
         outcome.corpus_digest = _digest_payload(
             {
@@ -1196,6 +1197,11 @@ class VNextConsolidationService:
         events = admit_when_locked("memory", events, all_of)
         ratings = admit_when_locked("memory", ratings, all_of)
         artifacts = admit_when_locked("artifact", artifacts, all_of)
+        from alicebot_api.vnext_label_guard import admit_loaded
+        artifacts = admit_loaded(
+            self.store, kind="artifact", rows=artifacts, domains=domains,
+            sensitivity_allowed=sensitivity, projects=projects, all_of=all_of,
+        )
 
         clustering = self._cluster_memories(
             domains=domains,

@@ -48,6 +48,9 @@ class FakeRollupStore:
         self._counter = 0
         self.rollup_read_calls: list[tuple[str, JsonObject]] = []
 
+    def read_label_rows(self, kind: str, ids: list[str]) -> list[dict]:
+        return [dict(row) for row in self.memories if str(row.get("id")) in ids] if kind == "memory" else []
+
     def create_memory(self, memory: JsonObject, *, actor_type: str = "system") -> JsonObject:
         self._counter += 1
         row = {
@@ -1240,20 +1243,23 @@ def test_sqlite_rollup_reads_are_exact_deduplicated_and_bounded() -> None:
     conn, store = _live_store()
 
     def create_row(name: str, *, status: str, metadata: JsonObject) -> JsonObject:
-        return store.create_memory(
-            {
-                "memory_key": f"memory.{name}",
-                "value": {"text": name},
-                "status": status,
-                "memory_type": "semantic",
-                "title": name,
-                "canonical_text": name,
-                "summary": name,
-                "domain": "personal",
-                "sensitivity": "internal",
-                "metadata_json": metadata,
-            }
-        )
+        from alicebot_api.vnext_label_writes import without_insert_floor
+        # Query contract fixture: existing unstamped cards retain their stored labels.
+        with without_insert_floor():
+            return store.create_memory(
+                {
+                    "memory_key": f"memory.{name}",
+                    "value": {"text": name},
+                    "status": status,
+                    "memory_type": "semantic",
+                    "title": name,
+                    "canonical_text": name,
+                    "summary": name,
+                    "domain": "personal",
+                    "sensitivity": "internal",
+                    "metadata_json": metadata,
+                }
+            )
 
     ordinary_active = create_row("ordinary-active", status="active", metadata={})
     ordinary_accepted = create_row("ordinary-accepted", status="accepted", metadata={})

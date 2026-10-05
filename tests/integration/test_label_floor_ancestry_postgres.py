@@ -1,0 +1,68 @@
+"""Actual RLS-scoped PostgreSQL write-floor and belief ancestry controls."""
+from uuid import uuid4
+import pytest
+from alicebot_api.db import user_connection
+from alicebot_api.store import ContinuityStore
+from alicebot_api.vnext_store import PostgresVNextStore
+
+
+@pytest.mark.parametrize("domain,sensitivity", [("project", "public"), ("health", "confidential")])
+def test_pg_copy_and_summary_keep_tenant_and_ancestry(migrated_database_urls, domain, sensitivity):
+    user_id = uuid4()
+    with user_connection(migrated_database_urls["app"], user_id) as conn:
+        ContinuityStore(conn).create_user(user_id, f"labels-{user_id}@example.invalid", "Labels")
+        store = PostgresVNextStore(conn)
+        source = store.create_source({"source_type": "note", "title": "synthetic", "content_hash": str(uuid4()), "domain": domain, "sensitivity": sensitivity})
+        copy = store.create_memory({"memory_key": "copy", "canonical_text": "copy", "status": "active", "domain": "unknown", "sensitivity": "public", "metadata_json": {"source_id": str(source["id"])}})
+        summary = store.create_memory({"memory_key": "summary", "canonical_text": "summary", "status": "active", "domain": "unknown", "sensitivity": "public", "metadata_json": {"consolidation": {"cluster_member_ids": [str(copy["id"])]}}})
+        assert copy["sensitivity"] == sensitivity
+        assert summary["sensitivity"] == sensitivity
+        if domain == "health":
+            assert summary["domain"] == domain
+        belief_id = uuid4()
+        with conn.cursor() as cur:
+            cur.execute("INSERT INTO beliefs(id,user_id,memory_id,claim) VALUES (%s,%s,%s,%s)", (belief_id,user_id,copy["id"],"synthetic"))
+        belief = store.read_label_rows("belief", [str(belief_id)])[0]
+        assert belief["sensitivity"] == sensitivity
+        assert str(belief["memory_id"]) == str(copy["id"])
+
+        record = {"v": 1, "sources": [], "memories": [], "open_loops": [], "artifacts": [], "beliefs": [str(belief_id)], "counts": {"sources": 0, "memories": 0, "open_loops": 0, "artifacts": 0, "beliefs": 1}}
+        artifact = store.create_artifact({"artifact_type": "daily_brief", "title": "synthetic", "content_markdown": "synthetic", "domain": "unknown", "sensitivity": "public", "metadata_json": {"workflow": "daily_brief", "derived_from": record}})
+        assert artifact["sensitivity"] == sensitivity
+        if domain == "health":
+            assert artifact["domain"] == domain
+
+
+def test_checked_project_review_moves_scope_and_propagates_labels(migrated_database_urls, monkeypatch):
+    from alicebot_api.config import Settings
+    from alicebot_api.routers import vnext_memories as router
+    from alicebot_api.vnext_agent_keys import create_agent_key
+    from uuid import UUID
+    user_id = uuid4()
+    alpha, beta = "prj_" + "a" * 16, "prj_" + "b" * 16
+    app_url = migrated_database_urls["app"]
+    with user_connection(app_url, user_id) as conn:
+        ContinuityStore(conn).create_user(user_id, f"review-labels-{user_id}@example.invalid", "Labels")
+        store = PostgresVNextStore(conn)
+        original = store.create_memory({"memory_key": "original", "canonical_text": "original", "status": "active", "domain": "project", "sensitivity": "public", "metadata_json": {"project_scope": [alpha]}})
+        summary = store.create_memory({"memory_key": "summary", "canonical_text": "summary", "status": "active", "domain": "project", "sensitivity": "public", "metadata_json": {"consolidation": {"cluster_member_ids": [str(original["id"])]}, "project_scope": [alpha]}})
+        _key, raw_key = create_agent_key(store, user_id=user_id, agent_id="alpha-only", permission_profile="admin_agent", project_scope=alpha)
+        _admin, admin_key = create_agent_key(store, user_id=user_id, agent_id="unbound-admin", permission_profile="admin_agent")
+    monkeypatch.setattr(router, "get_settings", lambda: Settings(database_url=app_url))
+    request = router.VNextMemoryReviewRequest(user_id=user_id, action="assign_project", project_id=beta, domain="health", sensitivity="confidential")
+    denied = router.review_vnext_memory(UUID(str(original["id"])), request, authorization=f"Bearer {raw_key}")
+    assert denied.status_code == 403
+    with user_connection(app_url, user_id) as conn:
+        store = PostgresVNextStore(conn)
+        assert store.get_memory(str(original["id"]))["metadata_json"]["project_scope"] == [alpha]
+        assert store.get_memory(str(summary["id"]))["sensitivity"] == "public"
+    moved = router.review_vnext_memory(UUID(str(original["id"])), request, authorization=f"Bearer {admin_key}")
+    assert moved.status_code == 200
+    with user_connection(app_url, user_id) as conn:
+        store = PostgresVNextStore(conn)
+        original_after = store.get_memory(str(original["id"]))
+        summary_after = store.get_memory(str(summary["id"]))
+        assert original_after["metadata_json"]["project_scope"] == [beta]
+        assert summary_after["domain"] == "health"
+        assert summary_after["sensitivity"] == "confidential"
+        assert beta in summary_after["metadata_json"]["project_floor"]

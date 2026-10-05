@@ -817,3 +817,45 @@ def test_rank_table_matches_the_spec_order() -> None:
     assert SENSITIVITY_RANK["public"] < SENSITIVITY_RANK["unknown"] == SENSITIVITY_RANK["internal"]
     assert SENSITIVITY_RANK["sacred"] == SENSITIVITY_RANK["regulated"]
     assert "health" in RESTRICTED_DOMAINS
+
+
+def test_distinct_stored_aliases_are_unverified_but_single_alias_and_other_kind_are_valid() -> None:
+    canonical = str(UUID(SOURCE_UUID))
+    alias = "{" + canonical.upper() + "}"
+    source = _source(canonical, domain="health", sensitivity="confidential", scope=[ALPHA])
+    twin = _source(alias, domain="project", scope=[BETA])
+    report = _brief("ambiguous", sources=[canonical])
+    for rows in ([source, twin, report], [twin, source, report]):
+        result = settle_labels(rows).by_stored("artifact", "ambiguous")
+        assert result.unverified is True
+        assert result.reason == "dependency_unverified"
+    single = settle_labels([twin, report]).by_stored("artifact", "ambiguous")
+    assert single.unverified is False
+    other_kind = _memory(canonical, domain="project", sensitivity="public")
+    result = settle_labels([source, other_kind, report]).by_stored("artifact", "ambiguous")
+    assert result.unverified is False
+    assert result.domain == "health"
+
+
+def test_weekly_parent_backfill_cannot_clear_ambiguous_identity() -> None:
+    canonical = str(UUID(SOURCE_UUID))
+    one = _memory(canonical, metadata_json={"discovered_by": "vnext_weekly_synthesis"})
+    two = _memory("{" + canonical + "}", metadata_json={"discovered_by": "vnext_weekly_synthesis"})
+    parent = _brief("parent", sources=["s"])
+    _meta(parent, candidate_memory_ids=[canonical])
+    settled = settle_labels([_source("s"), one, two, parent])
+    assert settled.by_stored("memory", canonical).unverified is True
+    assert settled.by_stored("memory", "{" + canonical + "}").unverified is True
+
+
+@pytest.mark.parametrize("membership, expected", [([["member-a"], ["member-b"]], False), ([["member-a"], [42]], True), ([["member-a"], "member-b"], True)])
+def test_nested_consolidation_membership_is_strict(membership, expected):
+    rows = [
+        {"kind": "memory", "id": "member-a", "user_id": USER, "domain": "health", "sensitivity": "confidential"},
+        {"kind": "memory", "id": "member-b", "user_id": USER, "domain": "personal", "sensitivity": "public"},
+        {"kind": "artifact", "id": "report", "user_id": USER, "artifact_type": "memory_consolidation", "domain": "unknown", "sensitivity": "public", "metadata_json": {"consolidation": {"cluster_membership": membership}}},
+    ]
+    report = settle_labels(rows).by_stored("artifact", "report", user_id=USER)
+    assert report.unverified is expected
+    if not expected:
+        assert (report.domain, report.sensitivity) == ("health", "confidential")

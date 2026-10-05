@@ -100,7 +100,7 @@ def _supersede(context, memory_id: str, text: str = NEW) -> str:
 
 
 def _set(context, memory_id: str, **patch) -> None:
-    _store(context, lambda s: s.update_memory(memory_id=memory_id, patch=patch, actor_type="user"))
+    _store(context, lambda s: s.update_memory(memory_id=memory_id, patch=patch, actor_type="user", label_write=True))
 
 
 def _unquoted(value: object) -> str:

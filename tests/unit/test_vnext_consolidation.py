@@ -41,6 +41,10 @@ class FakeConsolidationStore:
         self.list_memory_calls: list[dict[str, object]] = []
         self._clock = datetime(2026, 7, 1, tzinfo=UTC)
 
+    def read_label_rows(self, kind: str, ids: list[str]) -> list[dict]:
+        rows = self.memories if kind == "memory" else self.artifacts if kind == "artifact" else []
+        return [dict(row) for row in rows if str(row.get("id")) in ids]
+
     def _next_timestamp(self) -> str:
         self._clock += timedelta(minutes=1)
         return self._clock.isoformat()

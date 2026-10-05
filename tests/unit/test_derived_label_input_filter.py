@@ -61,3 +61,51 @@ def test_stamp_derived_from_counts_match_the_lists() -> None:
     assert record["sources"] == ["s"]
     assert record["counts"]["sources"] == 1
     assert record["counts"]["memories"] == 1
+
+
+import pytest
+from uuid import UUID
+from alicebot_api.vnext_agent_control import AgentIdentity, AgentPolicyBlockedError
+from alicebot_api.routers._vnext_shared import _vnext_authorized_artifact
+
+def provenance(sources=(), memories=()):
+    refs = {'sources': list(sources), 'memories': list(memories), 'open_loops': [], 'artifacts': [], 'beliefs': []}
+    return {'v': 1, **refs, 'counts': {k: len(v) for k, v in refs.items()}}
+
+
+@pytest.mark.parametrize('source_project', [ALPHA, BETA])
+def test_locked_weekly_producer_rejects_effective_out_of_scope_artifact(source_project):
+    from alicebot_api.vnext_brain import BrainArtifactRequest, VNextBrainService
+    from tests.unit.test_vnext_brain import InMemoryVNextBrainStore
+    from alicebot_api.vnext_label_guard import LabelGuard
+    store = InMemoryVNextBrainStore()
+    source = {'id': str(UUID(int=500)), 'domain': 'project', 'sensitivity': 'public', 'metadata_json': {'project_scope': [source_project]}}
+    artifact = {'id': str(UUID(int=501)), 'artifact_type': 'connection_report', 'title': 'SENTINEL BETA PRIVATE PROJECT', 'domain': 'project', 'sensitivity': 'public', 'created_at': '2026-05-10T09:00:00Z', 'content_markdown': 'Synthetic restricted project title', 'metadata_json': {'workflow': 'connections', 'project_scope': [ALPHA], 'derived_from': provenance(sources=[source['id']])}}
+    store.artifacts[artifact['id']] = artifact
+    store.get_artifact = lambda artifact_id: store.artifacts.get(artifact_id)
+    store.read_label_rows = lambda kind, ids: [source] if kind == 'source' and source['id'] in ids else []
+    # Exact read denies the same input for the same locked identity.
+    identity = AgentIdentity(agent_id='alpha-key', permission_profile='trusted_local_agent', project_scope=(ALPHA,), project_scope_locked=True)
+    store.upsert_agent_identity = lambda *args, **kwargs: None
+    if source_project == BETA:
+        with pytest.raises(AgentPolicyBlockedError):
+            _vnext_authorized_artifact(store=store, identity=identity, artifact_id=artifact['id'], action='artifact.read', for_update=False)
+    else:
+        _vnext_authorized_artifact(store=store, identity=identity, artifact_id=artifact['id'], action='artifact.read', for_update=False)
+    effective = LabelGuard(store=store, active=True).effective_row('artifact', artifact)
+    assert source_project in effective['metadata_json']['project_floor']
+    generated = VNextBrainService(store).generate_weekly_synthesis(BrainArtifactRequest(generated_for='2026-05-10', domains=('project',), projects=(ALPHA,), agent_identity={'agent_id': 'alpha-key', 'permission_profile': 'trusted_local_agent', 'project_scope': [ALPHA], 'project_scope_locked': True}, discover_open_loops=False, create_candidate_memories=False))
+    assert ('SENTINEL BETA PRIVATE PROJECT' in generated['content_markdown']) == (source_project == ALPHA)
+
+
+def test_effective_all_of_keeps_ordinary_overlap_and_returns_originals() -> None:
+    from alicebot_api.vnext_label_guard import admit_loaded
+    class Store:
+        def read_label_rows(self, kind, ids):
+            return [{"id": "s", "domain": "project", "sensitivity": "public", "metadata_json": {"project_scope": [BETA]}}] if kind == "source" else []
+    row = {"id": "a", "domain": "project", "sensitivity": "public", "metadata_json": {"workflow": "daily_brief", "project_scope": [ALPHA], "derived_from": provenance(sources=["s"])}}
+    kwargs = dict(kind="artifact", rows=[row], domains=("project",), sensitivity_allowed=("public",), projects=(ALPHA,))
+    assert admit_loaded(Store(), **kwargs) == [row]
+    assert admit_loaded(Store(), **kwargs, all_of=(ALPHA,)) == []
+    kept = admit_loaded(Store(), **kwargs, all_of=(ALPHA, BETA))
+    assert kept[0] is row
