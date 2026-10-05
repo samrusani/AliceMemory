@@ -57,6 +57,7 @@ GUARD_CALLS = {
 DOORS = {
     "routers/_vnext_shared.py:_vnext_authorized_artifact": None,
     "vnext_source_fence.py:resolve_attachable_memory_id": None,
+    "vnext_open_loop_references.py:withhold_unreadable_references": None,
     "mcp/evidence_artifacts.py:_authorize_explain_resource": None,
     "mcp/evidence_artifacts.py:_authorize_entity_explain_target": "_authorize_explain_resource",
     "mcp/evidence_artifacts.py:_entity_backing_is_fully_authorized": "_authorize_explain_resource",
