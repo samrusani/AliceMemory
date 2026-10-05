@@ -1356,10 +1356,20 @@ class VNextProjectService:
         return self.store.update_open_loop(loop_id=loop_id, patch=patch)
 
     def project_dashboard(
-        self, *, project_id: str, sensitivity_allowed: tuple[str, ...] = DEFAULT_SENSITIVITY_ALLOWED
+        self,
+        *,
+        project_id: str,
+        sensitivity_allowed: tuple[str, ...] = DEFAULT_SENSITIVITY_ALLOWED,
+        identity: object | None = None,
     ) -> JsonObject:
+        from alicebot_api.vnext_agent_control import AgentIdentity
+        from alicebot_api.vnext_label_guard import admit_loaded, apply_sensitivity_ceiling
+
         project = self.store.get_project(project_id)
         if project is None:
+            raise VNextProjectValidationError(f"project {project_id} was not found")
+        caller = identity if isinstance(identity, AgentIdentity) or identity is None else None
+        if not apply_sensitivity_ceiling(self.store, kind="project", rows=[project], identity=caller):
             raise VNextProjectValidationError(f"project {project_id} was not found")
         domain = str(project.get("domain", "unknown"))
         memories = self.store.search_memories(
@@ -1387,6 +1397,30 @@ class VNextProjectService:
             scope_projects=(project_id,),
         )
         artifacts = [row for row in artifact_candidates if _is_in_project(row, project_id)][:DEFAULT_PROJECT_LIMIT]
+        memories = admit_loaded(
+            self.store,
+            kind="memory",
+            rows=memories,
+            domains=[domain],
+            sensitivity_allowed=sensitivity_allowed,
+            projects=(project_id,),
+        )
+        open_loops = admit_loaded(
+            self.store,
+            kind="open_loop",
+            rows=open_loops,
+            domains=[domain],
+            sensitivity_allowed=sensitivity_allowed,
+            projects=(project_id,),
+        )
+        artifacts = admit_loaded(
+            self.store,
+            kind="artifact",
+            rows=artifacts,
+            domains=[domain],
+            sensitivity_allowed=sensitivity_allowed,
+            projects=(project_id,),
+        )
         return {
             "project": project,
             "state": project.get("current_state"),
@@ -1407,6 +1441,16 @@ class VNextProjectService:
             domains=list(request.domains) if request.domains else None,
             sensitivity_allowed=list(request.sensitivity_allowed),
             limit=1,
+        )
+        from alicebot_api.vnext_label_guard import admit_loaded
+
+        projects = admit_loaded(
+            self.store,
+            kind="project",
+            rows=projects,
+            domains=list(request.domains) if request.domains else (),
+            sensitivity_allowed=request.sensitivity_allowed,
+            projects=(),
         )
         if not projects:
             raise VNextProjectValidationError("no active project was found for update candidate generation")

@@ -116,6 +116,11 @@ class LabelGuard:
 
         if not self.active:
             return [row for row in rows if isinstance(row, Mapping)]
+        # A store with no label reader cannot settle a derived row. Production
+        # stores have the reader. A stand-in without it keeps the rows the SQL
+        # filter already returned.
+        if not callable(getattr(self.store, "read_label_rows", None)):
+            return [row for row in rows if isinstance(row, Mapping)]
         kept: list[Mapping[str, object]] = []
         for row in rows:
             if not isinstance(row, Mapping):
@@ -236,6 +241,89 @@ def policy_labels(
     scope = resolve_project_scope(row).values
     _shape, floor = project_floor_shape(row)
     return (domain,), (sensitivity,), scope, floor
+
+
+def sensitivity_ceiling(identity: AgentIdentity | None) -> tuple[str, ...] | None:
+    """Sensitivities this caller may see, or None when the caller has no ceiling.
+
+    The owner (no identity) and an admin key have no ceiling. Every other
+    profile uses the sensitivity list the policy already gives that profile.
+    This ceiling does not add a domain or a project restriction.
+    """
+
+    if identity is None:
+        return None
+    from alicebot_api.vnext_agent_control import _profile_sensitivity
+
+    ceiling = _profile_sensitivity(str(identity.permission_profile))
+    if set(ceiling) >= set(ALL_SENSITIVITY):
+        return None
+    return ceiling
+
+
+def apply_sensitivity_ceiling(
+    store: Any,
+    *,
+    kind: str,
+    rows: Sequence[Mapping[str, object]],
+    identity: AgentIdentity | None,
+) -> list[Mapping[str, object]]:
+    """Rows whose effective sensitivity is inside the caller's ceiling.
+
+    A missing identity and an admin key keep every row, including its title
+    and id. Any other caller loses a row the ceiling does not admit, so a
+    count of the returned list does not reveal it.
+    """
+
+    ceiling = sensitivity_ceiling(identity)
+    if ceiling is None:
+        return [row for row in rows if isinstance(row, Mapping)]
+    return admit_loaded(
+        store,
+        kind=kind,
+        rows=rows,
+        domains=(),
+        sensitivity_allowed=ceiling,
+        projects=(),
+    )
+
+
+def readable_count(sql_count: int, fetched: int, admitted: int) -> int:
+    """A stored count, reduced only by rows this page's guard dropped.
+
+    When the guard drops nothing the stored count is returned unchanged.
+    When the fetched page is the whole set, the count is the admitted length.
+    """
+
+    dropped = fetched - admitted
+    if dropped <= 0:
+        return sql_count
+    if sql_count <= fetched:
+        return admitted
+    return max(0, sql_count - dropped)
+
+
+def readable_status_counts(
+    counts: Mapping[str, int],
+    fetched: Sequence[Mapping[str, object]],
+    admitted: Sequence[Mapping[str, object]],
+    *,
+    field: str = "status",
+) -> dict[str, int]:
+    """Status counts with one taken off for each row the guard dropped."""
+
+    if len(fetched) == len(admitted):
+        return dict(counts)
+    kept = {id(row) for row in admitted}
+    updated = dict(counts)
+    for row in fetched:
+        if id(row) in kept:
+            continue
+        status = str(row.get(field, "unknown"))
+        current = int(updated.get(status, 0))
+        if current > 0:
+            updated[status] = current - 1
+    return updated
 
 
 def apply_unverified_rule(

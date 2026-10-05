@@ -1040,10 +1040,30 @@ def test_keyword_query_that_and_matches_does_not_use_the_fallback_on_sqlite() ->
 
 def test_count_candidate_statistic_uses_real_sqlite_fts_mode_and_provenance_dedup() -> None:
     store = _sqlite_retrieval_store()
+    source_a = store.create_source(
+        {
+            "source_type": "note",
+            "title": "Bike service source A",
+            "content_hash": "sha256:bike-a",
+            "domain": "personal",
+            "sensitivity": "private",
+            "captured_at": "2026-01-05T00:00:00Z",
+        }
+    )
+    source_b = store.create_source(
+        {
+            "source_type": "note",
+            "title": "Bike service source B",
+            "content_hash": "sha256:bike-b",
+            "domain": "personal",
+            "sensitivity": "private",
+            "captured_at": "2026-01-06T00:00:00Z",
+        }
+    )
     provenance = (
-        ("record-1", "source-a", "chunk-a"),
-        ("record-2", "source-a", "chunk-a"),  # restatement of the same captured turn
-        ("record-3", "source-b", "chunk-b"),
+        ("record-1", source_a["id"], "chunk-a"),
+        ("record-2", source_a["id"], "chunk-a"),  # restatement of the same captured turn
+        ("record-3", source_b["id"], "chunk-b"),
     )
     for memory_key, source_id, chunk_id in provenance:
         store.create_memory(

@@ -170,7 +170,10 @@ class VNextDogfoodingService:
     def __init__(self, store: VNextDogfoodingStore) -> None:
         self.store = store
 
-    def dashboard(self) -> JsonObject:
+    def dashboard(self, *, sensitivity_allowed: tuple[str, ...] | None = None) -> JsonObject:
+        from alicebot_api.vnext_agent_control import ALL_SENSITIVITY
+        from alicebot_api.vnext_label_guard import admit_loaded, readable_status_counts
+
         sources = self.store.list_sources(limit=500)
         try:
             memories = self.store.list_memories(status=None, limit=500)
@@ -183,6 +186,21 @@ class VNextDogfoodingService:
         artifacts = self.store.list_artifacts(limit=500)
         ratings = self.store.list_artifact_quality_ratings(limit=500)
         open_loops = self.store.list_open_loops(status=None, limit=500)
+        # None is the owner and an admin key: every sensitivity, so the guard
+        # reads nothing and the lists stay as the store returned them.
+        ceiling = sensitivity_allowed if sensitivity_allowed is not None else ALL_SENSITIVITY
+        fetched_memories = memories
+        sources = admit_loaded(self.store, kind="source", rows=sources, domains=(), sensitivity_allowed=ceiling, projects=())
+        memories = admit_loaded(
+            self.store, kind="memory", rows=memories, domains=(), sensitivity_allowed=ceiling, projects=()
+        )
+        artifacts = admit_loaded(
+            self.store, kind="artifact", rows=artifacts, domains=(), sensitivity_allowed=ceiling, projects=()
+        )
+        open_loops = admit_loaded(
+            self.store, kind="open_loop", rows=open_loops, domains=(), sensitivity_allowed=ceiling, projects=()
+        )
+        memory_status_counts = readable_status_counts(memory_status_counts, fetched_memories, memories)
         try:
             events = self.store.list_events(limit=5_000)
         except TypeError:  # Compatibility for external/test stores on the old protocol.

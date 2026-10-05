@@ -122,17 +122,33 @@ def _vnext_artifact_trace(
 
 
 @trace_router.get("/v0/vnext/traces/sources/{source_id}")
-def get_vnext_source_trace(source_id: UUID, user_id: UUID) -> JSONResponse:
+def get_vnext_source_trace(
+    source_id: UUID,
+    user_id: UUID,
+    authorization: str | None = Header(default=None),
+) -> JSONResponse:
     settings = get_settings()
-    with user_connection(settings.database_url, user_id) as conn:
-        store = PostgresVNextStore(conn)
-        source = store.get_source(str(source_id))
-        if source is None:
-            return _vnext_public_error_response(status_code=404, detail="vNext source was not found")
-        payload = _vnext_load_source_trace(
-            store=store,
-            source=source,
-        )
+    try:
+        with user_connection(settings.database_url, user_id) as conn:
+            store = PostgresVNextStore(conn)
+            identity = resolve_protected_agent_identity(
+                store,
+                user_id=user_id,
+                raw_key=agent_key_from_authorization(authorization),
+                payload={},
+            )
+            source = store.get_source(str(source_id))
+            if source is None:
+                return _vnext_public_error_response(status_code=404, detail="vNext source was not found")
+            payload = _vnext_load_source_trace(
+                store=store,
+                source=source,
+                identity=identity,
+            )
+            if payload is None:
+                return _vnext_public_error_response(status_code=404, detail="vNext source was not found")
+    except AgentKeyAuthenticationError as exc:
+        return _vnext_agent_auth_error_response(exc)
     return JSONResponse(status_code=200, content=jsonable_encoder(payload))
 
 

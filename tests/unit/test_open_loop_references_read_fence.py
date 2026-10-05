@@ -1145,6 +1145,10 @@ _PRODUCER = "producer: hands the row to its caller, and every caller of it is in
 _NOT_RETURNED = "not returned: reads the row to decide something and returns no part of it"
 _ALLOWLIST = "allowlist: returns a fixed list of fields that holds no reference (pinned by the allowlist test)"
 _OWNER = "owner: no agent identity reaches this door, so the reader is the owner and is not fenced"
+_SENSITIVITY = (
+    "sensitivity ceiling: a caller identity hides a row above that caller's sensitivity, "
+    "and the domain and project fences stay as they were"
+)
 _OPERATOR = "operator: a local command or test harness, not a door a key-bound caller reaches"
 _SHARED = (
     "shared: one handler of it returns a fixed list of fields and the other takes no identity "
@@ -1183,10 +1187,10 @@ _LOOP_READERS: dict[tuple[str, str, str], str] = {
     ("list_open_loops", "vnext_dogfooding.py", "dashboard"): _OPERATOR,
     ("list_open_loops", "vnext_projects.py", "project_dashboard"): _PRODUCER,
     ("list_open_loops", "vnext_scheduler.py", "_generate_open_loop_review_artifact"): _FENCED,
-    ("list_open_loops_referencing_source", "routers/_vnext_shared.py", "_vnext_load_source_trace"): _OWNER,
+    ("list_open_loops_referencing_source", "routers/_vnext_shared.py", "_vnext_load_source_trace"): _SENSITIVITY,
     ("project_dashboard", "cli/automation.py", "_run_vnext_project_dashboard"): _OPERATOR,
     ("project_dashboard", "mcp/projects.py", "_handle_alice_project_dashboard"): _OWNER,
-    ("project_dashboard", "routers/vnext_projects.py", "get_vnext_project_dashboard"): _OWNER,
+    ("project_dashboard", "routers/vnext_projects.py", "get_vnext_project_dashboard"): _SENSITIVITY,
     ("project_dashboard", "routers/workspaces.py", "_vnext_workspace_payload"): _OWNER,
     ("review_open_loop", "cli/automation.py", "_run_vnext_open_loop_review"): _OPERATOR,
     ("review_open_loop", "mcp/projects.py", "_handle_alice_open_loop_review"): _OWNER,
