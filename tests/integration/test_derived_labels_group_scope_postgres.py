@@ -12,6 +12,7 @@ from alicebot_api.vnext_memory_commit import VNextMemoryCommitService, VNextMemo
 from alicebot_api.vnext_rollups import VNextRollupService
 from alicebot_api.vnext_store import PostgresVNextStore
 from tests.unit.test_group_scope_sqlite import ALPHA, seed_members, seed_promoted_members
+from tests.integration.conftest import lock_label_fixture
 
 
 @pytest.mark.parametrize("accept", (False, True))
@@ -22,6 +23,7 @@ def test_a_second_scoped_rollup_run_over_the_same_group_finds_its_card_and_inser
     with user_connection(migrated_database_urls["app"], user_id) as conn:
         ContinuityStore(conn).create_user(user_id, f"group-{user_id}@example.invalid", "Group")
         store = PostgresVNextStore(conn)
+        lock_label_fixture(store)
         members = seed_members(store)
         service = VNextRollupService(store)
         first = service.propose_rollups(projects=(ALPHA,))
@@ -53,6 +55,7 @@ def test_a_cluster_of_promoted_copies_with_different_floors_is_refused_as_crossi
     with user_connection(migrated_database_urls["app"], user_id) as conn:
         ContinuityStore(conn).create_user(user_id, f"group-{user_id}@example.invalid", "Group")
         store = PostgresVNextStore(conn)
+        lock_label_fixture(store)
         members = seed_promoted_members(store)
         first = VNextRollupService(store).propose_rollups()
         candidate_id = first.candidate_ids[0]

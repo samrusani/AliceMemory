@@ -171,3 +171,11 @@ def migrated_database_urls(migrated_template_database: str) -> Iterator[dict[str
         yield urls
     finally:
         _drop_database(database_name)
+
+
+def lock_label_fixture(store) -> None:
+    """Seed and mutate one transaction with the production lock order."""
+    from alicebot_api.vnext_label_writes import acquire_exclusive_label_lock
+
+    store.lock_graph_mutation()
+    acquire_exclusive_label_lock(store)
