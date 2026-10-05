@@ -1243,7 +1243,8 @@ def stamp_derived_from(payload: dict[str, object], rows_by_kind: Mapping[str, ob
     record: dict[str, object] = {"v": 1}
     counts: dict[str, int] = {}
     for key in ("sources", "memories", "open_loops", "artifacts", "beliefs"):
-        rows = rows_by_kind.get(key) or []
+        raw_rows = rows_by_kind.get(key)
+        rows = raw_rows if isinstance(raw_rows, (list, tuple)) else []
         ids = [str(row.get("id")) for row in rows if isinstance(row, Mapping) and row.get("id") is not None]
         record[key] = ids
         counts[key] = len(ids)
