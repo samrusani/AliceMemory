@@ -366,11 +366,14 @@ def _sqlite_dependants(store: Any, table: str, kind: str, compacts: Sequence[str
     if table == "memories":
         extra = ", value, project_id, NULL AS source_id, NULL AS memory_id"
     text_clause, _ = _like_clause("metadata_json", len(compacts), qmark=True)
+    # A nested JSON string may encode every character of an id. Keep all
+    # escaped candidates for the canonical dependency parser below.
+    text_clause += " OR instr(coalesce(metadata_json, ''), char(92)) > 0"
     params: list[object] = [store.user_id, *[f"%{item}%" for item in compacts]]
     value_sql = ""
     if with_value:
         value_clause, _ = _like_clause("value", len(compacts), qmark=True)
-        value_sql = f" OR {value_clause}"
+        value_sql = f" OR {value_clause} OR instr(coalesce(value, ''), char(92)) > 0"
         params.extend(f"%{item}%" for item in compacts)
     column_sql = ""
     if table == "open_loops":
@@ -396,23 +399,30 @@ def _postgres_dependants(store: Any, table: str, kind: str, compacts: Sequence[s
     if table == "memories":
         extra = ", value, project_id"
     elif table == "open_loops":
-        extra = ", NULL::jsonb AS value, project_id, source_id, memory_id"
+        extra = ", NULL::jsonb AS value, project_id, source_id::text AS source_id, memory_id::text AS memory_id"
     elif table == "generated_artifacts":
         extra = ", NULL::jsonb AS value, artifact_type"
     else:
         extra = ", NULL::jsonb AS value"
     text_clause, _ = _like_clause("metadata_json::text", len(compacts), qmark=False)
+    text_clause += " OR strpos(coalesce(metadata_json::text, ''), chr(92)) > 0"
     params: list[object] = [f"%{item}%" for item in compacts]
     value_sql = ""
     if with_value:
         value_clause, _ = _like_clause("value::text", len(compacts), qmark=False)
-        value_sql = f" OR {value_clause}"
+        value_sql = f" OR {value_clause} OR strpos(coalesce(value::text, ''), chr(92)) > 0"
         params.extend(f"%{item}%" for item in compacts)
+    column_sql = ""
+    if table == "open_loops":
+        for column in ("source_id", "memory_id"):
+            clause, _ = _like_clause(f"{column}::text", len(compacts), qmark=False)
+            column_sql += f" OR {clause}"
+            params.extend(f"%{item}%" for item in compacts)
     rows = store._fetch_all(
         f"""
             SELECT id::text AS id, user_id::text AS user_id, domain, sensitivity, metadata_json{extra}
             FROM {table}
-            WHERE ({text_clause}{value_sql})
+            WHERE ({text_clause}{value_sql}{column_sql})
             """,  # nosec B608 # internal literal table/columns; every external value is bound
         tuple(params),
     )
