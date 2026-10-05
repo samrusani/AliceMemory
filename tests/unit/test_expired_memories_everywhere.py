@@ -58,6 +58,7 @@ from alicebot_api.session_briefing import FACT_LIMIT, compile_local_session_brie
 from alicebot_api.sqlite_schema import bootstrap_sqlite_schema
 from alicebot_api.sqlite_store import SQLiteVNextStore, ensure_sqlite_user, sqlite_user_connection
 from alicebot_api.vnext_agent_control import PolicyDecision
+from alicebot_api.vnext_derived_labels import with_derived_from
 from alicebot_api.vnext_artifact_review import dispatch_vnext_artifact_review
 from alicebot_api.vnext_consolidation import MemoryConsolidationRequest, VNextConsolidationService
 from alicebot_api.vnext_embeddings import (
@@ -154,7 +155,7 @@ def _memory(
             "domain": domain,
             "sensitivity": sensitivity,
             "valid_to": valid_to,
-            "metadata_json": metadata or {},
+            "metadata_json": with_derived_from(metadata, {}) if metadata and metadata.get("candidate_kind") == ROLLUP_CANDIDATE_KIND else metadata or {},
         }
     )
     if embed:
@@ -1138,7 +1139,7 @@ def _digest_card(
     ``deleted_at`` empty, which is not a soft-deleted row and does not reach the read that skips them.
     """
 
-    metadata: dict[str, object] = {"candidate_kind": candidate_kind, "rollup_key": rollup_key, "rollup_digest": digest}
+    metadata: dict[str, object] = with_derived_from({"candidate_kind": candidate_kind, "rollup_key": rollup_key, "rollup_digest": digest}, {})
     if project is not None:
         metadata["project_scope"] = [project]
     card = store.create_memory(
