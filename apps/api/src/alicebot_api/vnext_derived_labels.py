@@ -15,6 +15,7 @@ from collections import deque
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from uuid import UUID
+from typing import TypeVar, overload
 
 from alicebot_api.vnext_agent_control import RESTRICTED_DOMAINS
 from alicebot_api.vnext_derived_domain import derived_domain
@@ -1260,6 +1261,17 @@ def with_derived_from(metadata: Mapping[str, object], rows_by_kind: Mapping[str,
     stamp_derived_from(payload, rows_by_kind)
     stamped = payload["metadata_json"]
     return dict(stamped) if isinstance(stamped, Mapping) else {}
+
+
+_InputRow = TypeVar("_InputRow", bound=Mapping[str, object])
+
+
+@overload
+def admit_when_locked(kind: str, rows: Sequence[_InputRow], projects: tuple[str, ...] | None) -> list[_InputRow]: ...
+
+
+@overload
+def admit_when_locked(kind: str, rows: object, projects: tuple[str, ...] | None) -> list[Mapping[str, object]]: ...
 
 
 def admit_when_locked(
