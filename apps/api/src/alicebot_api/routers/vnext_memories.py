@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Literal
 from uuid import UUID
@@ -42,6 +43,7 @@ from alicebot_api.routers._vnext_shared import (
     _vnext_agent_identity,
     _vnext_agent_record,
     _vnext_authenticated_agent_identity,
+    _vnext_exact_resource_policy,
     _vnext_load_source_trace,
     _vnext_metadata,
     _vnext_permission_response,
@@ -1855,12 +1857,35 @@ def list_vnext_recent_memory_commits(user_id: UUID, limit: int = Query(default=2
 
 
 @memory_router.get("/v0/vnext/memories/{memory_id}/audit")
-def get_vnext_memory_audit(memory_id: UUID, user_id: UUID) -> JSONResponse:
+def get_vnext_memory_audit(
+    memory_id: UUID,
+    user_id: UUID,
+    authorization: str | None = Header(default=None),
+) -> JSONResponse:
+    from alicebot_api.vnext_label_guard import apply_unverified_rule, effective_row_for_fence
+
     settings = get_settings()
     try:
         with user_connection(settings.database_url, user_id) as conn:
             store = PostgresVNextStore(conn)
-            payload = VNextMemoryCommitService(store).audit(memory_id=str(memory_id))
+            identity = resolve_protected_agent_identity(
+                store, user_id=user_id, raw_key=agent_key_from_authorization(authorization), payload={},
+            )
+
+            def authorize_memory(memory: Mapping[str, object]) -> None:
+                effective = effective_row_for_fence(store, identity, "memory", memory)
+                decision = _vnext_exact_resource_policy(identity=identity, action="memory.audit", resource=dict(effective))
+                decision = apply_unverified_rule(decision, effective, identity)
+                append_policy_events(store, identity=identity, decision=decision, target_type="memory", target_id=str(memory["id"]))
+                if decision.decision == "blocked":
+                    raise AgentPolicyBlockedError(decision)
+
+            try:
+                payload = VNextMemoryCommitService(store).audit(memory_id=str(memory_id), authorize_memory=authorize_memory)
+            except AgentPolicyBlockedError as exc:
+                return _vnext_permission_response(exc.decision)
+    except AgentKeyAuthenticationError as exc:
+        return _vnext_agent_auth_error_response(exc)
     except VNextMemoryCommitValidationError as exc:
         return public_exception_response(exc, status_code=404)
     return JSONResponse(status_code=200, content=jsonable_encoder(payload))

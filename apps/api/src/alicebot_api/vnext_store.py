@@ -514,7 +514,7 @@ class PostgresVNextStore:
             )
         extra = ""
         if table == "memories":
-            extra = ", value, project_id"
+            extra = ", value, project_id, source_event_ids, deleted_at, status"
         elif table == "open_loops":
             extra = ", project_id, source_id, memory_id"
         elif table == "beliefs":
