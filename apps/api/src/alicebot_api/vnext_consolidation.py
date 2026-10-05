@@ -1442,17 +1442,25 @@ class VNextConsolidationService:
             metadata = {**metadata, **model_artifact.metadata}
 
         all_cluster_rows = [row for members in clustering.clusters for row in members]
-        # Include roll-up inputs only in the restricted-domain override. The
-        # existing fallback and sensitivity selection keep their own inputs.
-        domain_rows = [*all_cluster_rows, *(rollups.input_rows if rollups is not None else [])]
+        # The report is read behind its domain and sensitivity, so both are taken over every row it names: the
+        # near-duplicate cluster members and every row the roll-up pass names. A run whose only proposals are roll-ups
+        # has no cluster, and its label used to come from nothing. A row counts once, because the domain is the most
+        # frequent restricted label among the rows, and a cluster member is named by its cluster and again by the
+        # roll-up line that leaves its group to the dedup proposal.
+        labelled_rows = list(
+            {
+                (str(row["id"]) if row.get("id") is not None else id(row)): row
+                for row in [*all_cluster_rows, *(rollups.input_rows if rollups is not None else [])]
+            }.values()
+        )
         artifact = self.store.create_artifact(
             {
                 "artifact_type": "memory_consolidation",
                 "title": self._title(request),
                 "content_markdown": content,
                 "status": "needs_review",
-                "domain": derived_domain(domain_rows, fallback=_domain(request, all_cluster_rows)),
-                "sensitivity": _highest_sensitivity(all_cluster_rows),
+                "domain": derived_domain(labelled_rows, fallback=_domain(request, all_cluster_rows)),
+                "sensitivity": _highest_sensitivity(labelled_rows),
                 "generated_by": request.generated_by,
                 "prompt_hash": prompt_hash,
                 "model_info_json": model_info_json,

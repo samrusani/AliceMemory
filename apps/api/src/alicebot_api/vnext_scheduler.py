@@ -34,7 +34,7 @@ from alicebot_api.vnext_model_intelligence import (
     build_model_backed_artifact,
     resolve_model_route,
 )
-from alicebot_api.vnext_open_loop_references import withhold_unreadable_references
+from alicebot_api.vnext_open_loop_references import sources_named_by_loops, withhold_unreadable_references
 from alicebot_api.vnext_projects import (
     ProjectAutomationRequest,
     VNextProjectService,
@@ -1570,24 +1570,36 @@ class VNextSchedulerService:
         loops = withhold_unreadable_references(
             self.store, loops, fence=SourceReadFence.for_identity(request.agent_identity)
         )
+        # The ids that are left are printed, and the artifact is read behind the label it is stored with. A source can
+        # be stricter than the loop that links it (it was reclassified, or the loop was made by a key that could read
+        # it), so the label is taken over those sources as well as the loops.
+        linked_sources = sources_named_by_loops(self.store, loops)
+        labelled_rows = [*loops, *linked_sources]
         generation_kwargs = self._generation_kwargs(request)
-        workflow_digest = _workflow_digest(
-            {
-                "workflow": "open_loop_review",
-                "generated_for": request.generated_for,
-                "scope": {
-                    "domains": request.domains,
-                    "projects": projects,
-                    "sensitivity_allowed": request.sensitivity_allowed,
-                },
-                "behavior": {
-                    "generation": generation_kwargs,
-                    "agent_identity": request.agent_identity.to_record() if request.agent_identity else None,
-                    "brain_charter": self._brain_charter(),
-                },
-                "open_loops": loops,
-            }
-        )
+        digest_inputs: JsonObject = {
+            "workflow": "open_loop_review",
+            "generated_for": request.generated_for,
+            "scope": {
+                "domains": request.domains,
+                "projects": projects,
+                "sensitivity_allowed": request.sensitivity_allowed,
+            },
+            "behavior": {
+                "generation": generation_kwargs,
+                "agent_identity": request.agent_identity.to_record() if request.agent_identity else None,
+                "brain_charter": self._brain_charter(),
+            },
+            "open_loops": loops,
+        }
+        if linked_sources:
+            # Part of the identity of the run, so a source that was reclassified since the last report makes a new one
+            # instead of handing back the report that carries the earlier label. A run that links no source has the
+            # digest it always had.
+            digest_inputs["linked_sources"] = [
+                {"id": str(row.get("id")), "domain": row.get("domain"), "sensitivity": row.get("sensitivity")}
+                for row in linked_sources
+            ]
+        workflow_digest = _workflow_digest(digest_inputs)
         find_existing = getattr(self.store, "find_artifact_by_workflow_digest", None)
         if callable(find_existing):
             existing = find_existing(
@@ -1671,8 +1683,10 @@ class VNextSchedulerService:
             "title": f"Open Loop Review - {request.generated_for or datetime.now(UTC).date().isoformat()}",
             "content_markdown": content,
             "status": "needs_review",
-            "domain": derived_domain(loops, fallback=request.domains[0] if len(request.domains) == 1 else "unknown"),
-            "sensitivity": self._highest_sensitivity(loops),
+            "domain": derived_domain(
+                labelled_rows, fallback=request.domains[0] if len(request.domains) == 1 else "unknown"
+            ),
+            "sensitivity": self._highest_sensitivity(labelled_rows),
             "generated_by": "scheduler",
             "prompt_hash": prompt_hash,
             "model_info_json": model_info_json,

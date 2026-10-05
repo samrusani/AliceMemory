@@ -157,6 +157,24 @@ def withhold_unreadable_references(
     return rows
 
 
+def sources_named_by_loops(store: object, loops: Sequence[Mapping[str, object]]) -> list[JsonObject]:
+    """The source rows that the ``source_id`` column of ``loops`` names, one row for each source.
+
+    A report that prints the id of each loop's source (the open-loop review does) is read behind a label, and the
+    label has to cover those sources as well as the loops. Pass the loops as ``withhold_unreadable_references`` returned
+    them: an id it withheld is ``None`` there, so only the sources the report really names are read. A store that cannot
+    look sources up by id, or an id that names no row, adds no row. No id means no store call.
+    """
+
+    wanted: set[str] = set()
+    for loop in loops:
+        source = _canonical_id(loop.get("source_id"))
+        if source is not None:
+            wanted.add(source)
+    rows = _rows_by_id(store, sorted(wanted), bulk="get_sources_by_ids", single="get_source")
+    return [dict(rows[source_id]) for source_id in sorted(wanted) if source_id in rows]
+
+
 def withhold_unreadable_references_from_loop(
     store: object,
     loop: Mapping[str, object],
@@ -343,6 +361,7 @@ def _scrub(value: object, *, depth: int, withheld: frozenset[str]) -> object:
 __all__ = [
     "MEMORY_REFERENCE_KEYS",
     "SOURCE_REFERENCE_KEYS",
+    "sources_named_by_loops",
     "withhold_unreadable_references",
     "withhold_unreadable_references_from_loop",
     "withhold_unreadable_references_from_pack",

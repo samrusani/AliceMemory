@@ -80,7 +80,9 @@ def test_the_mcp_tools_section_states_the_label_rule_the_repair_and_the_changes_
     ``or restore an earlier backup``, ``rows without resolvable recorded inputs are left alone``, ``text is never
     used to guess an input``, the link to the backup guide, ``unknown` previously matched every domain filter``,
     ``project scope is unchanged`` or ``covers only copies with recorded inputs that still resolve``; change ``up to
-    five`` to ``up to ten``; remove the marker from one paragraph; rename the heading.
+    five`` to ``up to ten``; remove the marker from one paragraph; rename the heading; delete ``take their domain and
+    their sensitivity over every row they name``, ``Open-loop reviews do the same over the sources whose ids they
+    print`` or the sentence that names the ``source_refs`` limit.
     """
 
     section = _section(MCP_TOOLS, HEADING)
@@ -91,6 +93,10 @@ def test_the_mcp_tools_section_states_the_label_rule_the_repair_and_the_changes_
     assert "keeps the most frequent restricted input label, with alphabetical ties" in label
     assert "An explicit request domain cannot override it" in label
     assert "With no restricted inputs, each producer retains its prior selection" in label
+    assert "take their domain and their sensitivity over every row they name" in label
+    assert "the members of the groups that a skip line names by key, and the roll-up cards they name by id" in label
+    assert "Open-loop reviews do the same over the sources whose ids they print" in label
+    assert "The `source_refs` that a consolidation report copies from its cluster members are not covered by its label" in label
     for producer in (
         "briefs",
         "weekly synthesis and its candidates",
