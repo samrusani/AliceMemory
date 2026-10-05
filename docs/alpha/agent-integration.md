@@ -315,6 +315,10 @@ loops, and artifacts) plus its separate event group use the caller's effective
 project set. Violations are blocked and audited with
 `project_scope_binding_violation`. Keys issued without `--project-scope` keep
 the prior behavior: the payload's explicit project scope is honored.
+Unreleased (on main, not in v0.20.0): a derived row (a report, summary or copy)
+carries every project of every row it was made from, so a bound key reads it
+only when all of them are inside its binding. See
+[Derived row domains](mcp-tools.md#derived-row-domains).
 
 `read_only_agent` cannot write. `memory_proposal_agent` can submit a
 review-only proposal but cannot approve, correct, forget, redact, or otherwise

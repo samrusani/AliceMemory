@@ -132,6 +132,7 @@ alice-memory export --db ~/.alice/memory.db \
 alice-memory import --db ~/alice-restore-test/memory.db \
   --in ~/alice-backups/alice.jsonl
 alice-memory reindex-embeddings --db ~/alice-restore-test/memory.db
+alice-memory labels check --db ~/alice-restore-test/memory.db
 ```
 
 If the backup holds a credential and the source vault is gone,
@@ -256,7 +257,8 @@ Against the restored database, verify:
 - a known FTS recall query returns its memory;
 - the memory still has `embedding_vector` and a content-matching embedding
   signature;
-- application-role access works with RLS enabled and forced.
+- application-role access works with RLS enabled and forced;
+- `alicebot vnext labels check` lists no derived row below its inputs.
 
 If the restore is from an older release, follow
 [Upgrade v0.12.0 to current](upgrade-v0.12-to-current.md) in the restored
