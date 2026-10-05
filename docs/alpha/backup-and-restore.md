@@ -296,9 +296,9 @@ whether the destination is new or was already upgraded. A derived row whose
 recorded inputs include a restricted domain takes the most frequent restricted
 label among them, the highest sensitivity and every project, and each row the
 repair changes gets one audit event with its old and new labels. Repeating
-`--mode skip` accepts a memory whose domain or sensitivity the repair changed
-when the file still holds the value recorded before that change, and still
-refuses any other field that differs. A vault that is upgraded without a restore
+`--mode skip` accepts a memory or open loop whose domain, sensitivity, project
+scope or project floor the repair changed when the file still holds the value
+recorded before that change, and still refuses any other field that differs. A vault that is upgraded without a restore
 gets the same repair once, the next time it opens. That open pass never stops a
 vault from opening, and a row the owner had lowered on purpose is raised again once.
 A portable backup carries no generated artifacts and the SQLite schema has

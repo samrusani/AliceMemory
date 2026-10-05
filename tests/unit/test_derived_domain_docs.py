@@ -178,6 +178,7 @@ def test_the_backup_guide_states_when_the_repair_runs_and_what_it_cannot_repair(
     assert "the highest sensitivity and every project" in restore
     assert "one audit event with its old and new labels" in restore
     assert "still refuses any other field that differs" in restore
+    assert "project scope or project floor" in restore
     assert "A vault that is upgraded without a restore gets the same repair once, the next time it opens" in restore
     assert "never stops a vault from opening" in restore
     assert "raised again once" in restore
