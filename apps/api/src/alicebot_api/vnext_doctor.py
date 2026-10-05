@@ -22,9 +22,7 @@ LOCAL_VNEXT_FRONTEND_ORIGINS = ("http://127.0.0.1:3000", "http://localhost:3000"
 # The workspace dashboard runs this doctor on every load. Stop and say so
 # rather than scanning the rest of a large source table in that request.
 _FLAGGED_SOURCE_SCAN_LIMIT = 10_000
-LOCAL_VNEXT_CORS_RECOMMENDED_FIX = (
-    "CORS_ALLOWED_ORIGINS=http://127.0.0.1:3000,http://localhost:3000"
-)
+LOCAL_VNEXT_CORS_RECOMMENDED_FIX = "CORS_ALLOWED_ORIGINS=http://127.0.0.1:3000,http://localhost:3000"
 PGVECTOR_MINIMUM_VERSION = (0, 8, 0)
 PGVECTOR_MINIMUM_VERSION_TEXT = ".".join(str(part) for part in PGVECTOR_MINIMUM_VERSION)
 
@@ -128,7 +126,7 @@ class VNextDoctorService:
     def local_live_cors_status(self, settings: Settings | None = None) -> JsonObject:
         return local_live_cors_status(settings=settings or get_settings(), env=self.env, cwd=self.cwd)
 
-    def run(self, *, fix_safe: bool = False, ci: bool = False) -> JsonObject:
+    def run(self, *, fix_safe: bool = False, ci: bool = False, include_content_diagnostics: bool = True) -> JsonObject:
         if fix_safe:
             VNextConnectorService(cast(Any, self.store), secret_provider=self.secret_provider).ensure_default_settings()
 
@@ -159,10 +157,7 @@ class VNextDoctorService:
                 f"pgvector {pgvector_version} satisfies the required "
                 f">= {PGVECTOR_MINIMUM_VERSION_TEXT} runtime contract."
             ),
-            message_fail=(
-                "pgvector is missing, unparseable, or older than "
-                f"{PGVECTOR_MINIMUM_VERSION_TEXT}."
-            ),
+            message_fail=(f"pgvector is missing, unparseable, or older than {PGVECTOR_MINIMUM_VERSION_TEXT}."),
             recommended_fix=(
                 "Install pgvector >= "
                 f"{PGVECTOR_MINIMUM_VERSION_TEXT}, run ALTER EXTENSION vector UPDATE, "
@@ -220,7 +215,9 @@ class VNextDoctorService:
         )
 
         scheduler = daemon_status()
-        scheduler_known = not bool(scheduler.get("stopped")) or "pid file" not in str(scheduler.get("message", "")).casefold()
+        scheduler_known = (
+            not bool(scheduler.get("stopped")) or "pid file" not in str(scheduler.get("message", "")).casefold()
+        )
         self._check(
             checks,
             name="scheduler_daemon",
@@ -232,7 +229,9 @@ class VNextDoctorService:
             details=cast(JsonObject, scheduler),
         )
 
-        health = VNextConnectorService(cast(Any, self.store), secret_provider=self.secret_provider).connector_health_all()
+        health = VNextConnectorService(
+            cast(Any, self.store), secret_provider=self.secret_provider
+        ).connector_health_all()
         failing_connectors = []
         for item in cast(list[JsonObject], health.get("items", [])):
             failed_value = item.get("items_failed", 0)
@@ -263,12 +262,38 @@ class VNextDoctorService:
             details=cast(JsonObject, local_cors),
         )
 
+        if include_content_diagnostics:
+            self._content_checks(checks)
+        else:
+            for name in ("flagged_sources", "derived_labels"):
+                checks.append(DoctorCheck(
+                    name=name, status="skipped", severity="info",
+                    message="Content diagnostics are omitted from this filtered workspace view. Run doctor for a full report.",
+                    details={"scope": "filtered_workspace", "evaluated": False},
+                ))
+
+        blocking = [check for check in checks if check.status == "fail" and check.severity == "blocking"]
+        warnings = [check for check in checks if check.status == "fail" and check.severity == "warning"]
+        payload = {
+            "status": "fail" if blocking else "warn" if warnings else "pass",
+            "fix_safe_applied": fix_safe,
+            "ci_mode": ci,
+            "blocking_failure_count": len(blocking),
+            "warning_count": len(warnings),
+            "checks": [check.to_record() for check in checks],
+            "recommended_fixes": [
+                check.recommended_fix for check in checks if check.status == "fail" and check.recommended_fix is not None
+            ],
+            "migration_status": migration_status,
+            "connector_health": health,
+        }
+        return cast(JsonObject, payload)
+
+    def _content_checks(self, checks: list[DoctorCheck]) -> None:
         flagged_ids, stopped_early = _flagged_source_scan(self.store)
         remedy = _flagged_source_remedy(self.store)
         if flagged_ids:
-            message = (
-                f"{len(flagged_ids)} stored sources carry credential material. {remedy}"
-            )
+            message = f"{len(flagged_ids)} stored sources carry credential material. {remedy}"
         else:
             message = "No stored source carries credential material."
         if stopped_early:
@@ -288,36 +313,25 @@ class VNextDoctorService:
             },
         )
 
-        from alicebot_api.vnext_label_repair import label_gap_counts
+        from alicebot_api.vnext_label_repair import LabelCheckUnavailable, label_gap_counts
 
-        below, unverified = label_gap_counts(self.store)
-        label_line = f"derived labels: {below} below their inputs, {unverified} unverified"
+        try:
+            below, unverified = label_gap_counts(self.store)
+            label_line = f"derived labels: {below} below their inputs, {unverified} unverified"
+            labels_available = True
+        except LabelCheckUnavailable:
+            below, unverified = 0, 0
+            labels_available = False
+            label_line = "derived labels: unavailable; run labels check"
         self._check(
             checks,
             name="derived_labels",
-            ok=below == 0 and unverified == 0,
+            ok=labels_available and below == 0 and unverified == 0,
             severity="warning",
             message_ok=label_line,
             message_fail=label_line,
             recommended_fix="alicebot vnext labels repair",
         )
-
-        blocking = [check for check in checks if check.status == "fail" and check.severity == "blocking"]
-        warnings = [check for check in checks if check.status == "fail" and check.severity == "warning"]
-        payload = {
-            "status": "fail" if blocking else "warn" if warnings else "pass",
-            "fix_safe_applied": fix_safe,
-            "ci_mode": ci,
-            "blocking_failure_count": len(blocking),
-            "warning_count": len(warnings),
-            "checks": [check.to_record() for check in checks],
-            "recommended_fixes": [
-                check.recommended_fix for check in checks if check.status == "fail" and check.recommended_fix is not None
-            ],
-            "migration_status": migration_status,
-            "connector_health": health,
-        }
-        return cast(JsonObject, payload)
 
 
 def _flagged_source_remedy(store: object) -> str:
@@ -394,9 +408,7 @@ def local_live_cors_status(
 ) -> JsonObject:
     merged_env = _merged_local_env(os.environ if env is None else env, cwd or Path.cwd())
     frontend_api_base_url = (
-        merged_env.get("NEXT_PUBLIC_ALICEBOT_API_BASE_URL")
-        or merged_env.get("ALICEBOT_API_BASE_URL")
-        or ""
+        merged_env.get("NEXT_PUBLIC_ALICEBOT_API_BASE_URL") or merged_env.get("ALICEBOT_API_BASE_URL") or ""
     ).strip()
     frontend_user_id = (
         merged_env.get("NEXT_PUBLIC_ALICEBOT_USER_ID") or merged_env.get("ALICEBOT_USER_ID") or ""

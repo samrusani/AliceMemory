@@ -82,9 +82,13 @@ SQLITE_METHODS = (
 # mutators take the label lock. Metadata receipts include the label_write
 # keyword and lock wrappers. Facades add only lock_label_writes/read_label_rows;
 # removing those two names reproduces each previous class-order receipt.
+# Reviewed SQLite owner clamp: update_memory settles an edit at its inputs
+# and records whether the clamp applied; its signature and metadata stay fixed.
+# Reviewed strict lock change: the graph lock reads live advisory grants,
+# and the memory update checks exclusive L before changing labels.
 SOURCE_RECEIPTS = {
     COMMON_PATH: "8fc077dc71f0e631a2df81de2ebeec1fb6c768f341c2e7891309e4753eef7bb5",
-    POSTGRES_CARRIER_PATH: "371f92595d2f72f0cfa225a49c03aa39498caf094df4f26f4f9ac4cd926e0de1",
+    POSTGRES_CARRIER_PATH: "23ab87cde159a285bf8c71dbc6d2eb4e0e15035ce0f509bef38ba799f3f92de3",
     # SQLite carrier re-minted for the Phase 4 Stage 2 resident vector cache
     # (reviewed change): redaction paths that NULL a live embedding now bump
     # the embedding_stamp token in the same transaction (prompt eviction).
@@ -95,23 +99,25 @@ SOURCE_RECEIPTS = {
     # back between two reads cannot fail memories_seen_range_check. Previous
     # sqlite receipt 67adaa61..., method AST 3f134ac9...; the metadata
     # manifests are unchanged.
-    SQLITE_CARRIER_PATH: "f893f1faeeb9a87135c108992aa91ff036c5f5dccb1bbdaf315ae5afe1b89b73",
+    SQLITE_CARRIER_PATH: "759cf44762c388e599b4e8c377fa3415ca2fdf9ba7884698259171ef3d2b8138",
 }
 EXPECTED_METHOD_AST_MANIFESTS = {
-    "postgres": "d4969140e86b136b29708dc3bb6b4bca635b73b4016c4e633c4d5d3da841e784",
-    "sqlite": "d0b6024f0803ca9d3c6f6ea7f5022a28453b2b8b83833f0f05343cb3eff89a57",
+    "postgres": "827c4f391a1efe50dcb265b7bb50a5b191d2bae32c3f817dcc237d51bfb10d29",
+    "sqlite": "3577659fcf9e583bdb957bb1a959ac1d8cae07ce8b50321bc36697dec47acec4",
 }
 EXPECTED_METADATA_MANIFESTS = {
     "postgres": "07a567e26d0f7c4f51ae2a1910d059397b513a575d85f06c2f8c0396ac1bb2ef",
     "sqlite": "1270ef0115988552418349aa9e94a7442ba04be41443f278f68a1fa81857903a",
 }
 EXPECTED_CLASS_ORDERS = {
+    # Reviewed additions: label/event enumeration, PG ratings, belief aliases and source recovery.
+    # Existing facade members retain their relative order.
     # Two paired browser-clip capability methods extend both façades, and one
     # more paired method, ``list_memories_referencing_sources``.
     # Per-file importer savepoint (2026-10-02): one paired method more, ``savepoint``, appended last.
     # Previous receipt: (171, 526374782104a2a1...). Proof: the member list equals the list at origin/main
     # 040a2a10 with ``savepoint`` added at the end and nothing else moved (reviewed change, not drift).
-    "PostgresVNextStore": (174, "095250b8a77d6c0a32d2783343916b947bcae8ae86e3a1693e47c2fb11802211"),
+    "PostgresVNextStore": (179, "71998141cd00c0639209285accbc29faa775b2e0250422c96101ee2f144df832"),
     # One SQLite-only method more, ``check_source_search_query``: the Postgres
     # source search has no expression-depth or LIKE-length limit to check.
     # Merge of #500 and #502 (2026-10-01): one more SQLite-only method,
@@ -126,7 +132,7 @@ EXPECTED_CLASS_ORDERS = {
     # 040a2a10 with ``savepoint`` added at the end and nothing else moved (reviewed change, not drift).
     # Proof: the replacement branch gains only scrub_source, source_inventory and
     # prunable_sources here; every pre-existing class member keeps its order.
-    "SQLiteVNextStore": (136, "1d99dbaf69e4ea888ca7beb2389ac176650a2e573c067bf0686adc9e609132f5"),
+    "SQLiteVNextStore": (138, "783c07140c4015bcf8e43a3c68f3c2837ad14ce3525f8bd56a6f9c319d38eada"),
 }
 EXPECTED_FACADE_COMMENT_DIGESTS = {
     POSTGRES_FACADE_PATH: "d8599a46ee26dc35a3ae52c1a98a416509add9ae4a42ece780c5c5ed7e132b93",

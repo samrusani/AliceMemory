@@ -662,6 +662,10 @@ def review_vnext_artifact(
             identity = _vnext_authenticated_agent_identity(
                 store, request, user_id=request.user_id, authorization=authorization
             )
+            store.lock_graph_mutation()
+            from alicebot_api.vnext_label_writes import acquire_exclusive_label_lock
+
+            acquire_exclusive_label_lock(store)
             _artifact, decision = _vnext_authorized_artifact(
                 store=store,
                 identity=identity,
@@ -788,14 +792,29 @@ def rate_vnext_artifact_quality(
     return JSONResponse(status_code=201, content=jsonable_encoder(payload))
 
 @review_router.get("/v0/vnext/quality-evals")
-def list_vnext_quality_evals(user_id: UUID, artifact_id: UUID | None = None, limit: int = 100) -> JSONResponse:
+def list_vnext_quality_evals(user_id: UUID, artifact_id: UUID | None = None, limit: int = 100, authorization: str | None = Header(default=None)) -> JSONResponse:
+    from alicebot_api.vnext_agent_control import ALL_SENSITIVITY
+    from alicebot_api.vnext_label_guard import LabelGuard, sensitivity_ceiling
+
     settings = get_settings()
     bounded_limit = max(1, min(limit, 200))
-    with user_connection(settings.database_url, user_id) as conn:
-        rows = PostgresVNextStore(conn).list_artifact_quality_ratings(
-            artifact_id=str(artifact_id) if artifact_id is not None else None,
-            limit=bounded_limit,
-        )
+    try:
+        with user_connection(settings.database_url, user_id) as conn:
+            store = PostgresVNextStore(conn)
+            identity = resolve_protected_agent_identity(
+                store, user_id=user_id, raw_key=agent_key_from_authorization(authorization), payload={},
+            )
+            projects = identity.project_scope if identity is not None else ()
+            guard = LabelGuard.for_filters(
+                store, (), sensitivity_ceiling(identity) or ALL_SENSITIVITY, projects,
+                all_of=projects if identity is not None and identity.project_scope_locked else None,
+            )
+            rows = guard.admit_related_rows(store.list_artifact_quality_ratings(
+                artifact_id=str(artifact_id) if artifact_id is not None else None,
+                limit=bounded_limit,
+            ), kind="artifact", field="artifact_id")
+    except AgentKeyAuthenticationError as exc:
+        return _vnext_agent_auth_error_response(exc)
     return JSONResponse(
         status_code=200,
         content=jsonable_encoder(

@@ -779,6 +779,7 @@ _VNEXT_CENTRAL_OPERATOR_ROUTES = frozenset(
         ("POST", "/v0/vnext/projects/update-candidates/{artifact_id}/review"),
         ("POST", "/v0/vnext/queue/process-next"),
         ("POST", "/v0/vnext/sources/{source_id}/review"),
+        ("POST", "/v0/vnext/sources/{source_id}/regenerate"),
         ("PUT", "/v0/vnext/settings/brain-charter"),
     }
 )

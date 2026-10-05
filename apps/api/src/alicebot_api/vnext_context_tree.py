@@ -163,29 +163,9 @@ def _label(row: JsonObject, *keys: str, fallback: str) -> str:
 
 
 def _tree_event_visible(store: object, event: JsonObject, domains: list[str] | None, sensitivity: list[str], projects: tuple[str, ...]) -> bool:
-    from alicebot_api.vnext_label_guard import admit_loaded
+    from alicebot_api.vnext_label_guard import LabelGuard
 
-    kind = str(event.get("target_type") or "")
-    target_id = event.get("target_id")
-    getters = {
-        "memory": "get_memory",
-        "open_loop": "get_open_loop",
-        "artifact": "get_artifact",
-        "project": "get_project",
-        "source": "get_source",
-    }
-    getter_name = getters.get(kind)
-    if getter_name is None or not isinstance(target_id, str) or target_id == "":
-        return True
-    getter = getattr(store, getter_name, None)
-    if not callable(getter):
-        return True
-    row = getter(target_id)
-    if not isinstance(row, dict) and not hasattr(row, "get"):
-        return True
-    return bool(
-        admit_loaded(store, kind=kind, rows=[row], domains=domains, sensitivity_allowed=sensitivity, projects=projects)
-    )
+    return bool(LabelGuard.for_filters(store, domains, sensitivity, projects).admit_events([event]))
 
 
 def _row_node(prefix: str, row: JsonObject, *, label_keys: tuple[str, ...], fallback: str) -> JsonObject:

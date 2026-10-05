@@ -535,16 +535,13 @@ def _derived_from_deps(record: object) -> tuple[str, set[tuple[str, str]]]:
         return "malformed", set()
     found: set[tuple[str, str]] = set()
     lists: dict[str, list[str]] = {}
-    repeated = False
     for key, kind in _DERIVED_FROM_KIND.items():
         if key not in record:
             lists[key] = []
             continue
         raw = record.get(key)
-        if not isinstance(raw, list) or any(not isinstance(item, str) for item in raw):
+        if not isinstance(raw, list) or any(not isinstance(item, str) or not item.strip() for item in raw):
             return "malformed", set()
-        if len(raw) != len(set(raw)):
-            repeated = True
         ids = _strings(raw)
         lists[key] = ids
         _add_ids(found, kind, ids)
@@ -555,8 +552,6 @@ def _derived_from_deps(record: object) -> tuple[str, set[tuple[str, str]]]:
         return "", found
     if not isinstance(counts, Mapping):
         return "malformed", found
-    if repeated:
-        return "", found
     for key, ids in lists.items():
         if key not in counts:
             if ids:
@@ -606,8 +601,10 @@ def _legacy_count_problem(kind: str, row: Mapping[str, object], meta: Mapping[st
 
 
 def _counts_against_lists(counts: object, lists: Mapping[str, object]) -> str:
-    if not isinstance(counts, Mapping):
+    if counts is None:
         return ""
+    if not isinstance(counts, Mapping):
+        return "malformed"
     present_lists: dict[str, list[object]] = {}
     for key, raw in lists.items():
         if raw is None:
@@ -617,11 +614,13 @@ def _counts_against_lists(counts: object, lists: Mapping[str, object]) -> str:
         present_lists[key] = list(raw)
     if any(len(values) != len(set(map(str, values))) for values in present_lists.values()):
         return ""
-    for key, values in present_lists.items():
+    for key in lists:
         if key not in counts:
             continue
         expected = counts.get(key)
-        if isinstance(expected, int) and not isinstance(expected, bool) and expected != len(values):
+        if not isinstance(expected, int) or isinstance(expected, bool) or expected < 0:
+            return "malformed"
+        if expected != len(present_lists.get(key, [])):
             return "counts_disagree"
     return ""
 
@@ -1301,6 +1300,12 @@ def scope_is_global(scope: object) -> bool:
     """True when a scope holds no Alice project id."""
 
     return is_global_scope(scope)
+
+
+
+
+
+
 
 
 __all__ = [

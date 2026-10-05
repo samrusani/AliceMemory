@@ -76,7 +76,7 @@ def test_an_update_that_omits_a_marker_keeps_it(tmp_path: Path) -> None:
     path = tmp_path / "vault.sqlite3"
     with _vault(path) as conn:
         store = SQLiteVNextStore(conn, USER)
-        health = add_memory(store, key="health", text="A restricted observation", domain="health")
+        health = add_memory(store, key="health", text="A restricted observation", domain="health", scope=(ALPHA,))
         with without_insert_floor():
             derived = store.create_memory(
                 {
@@ -230,6 +230,45 @@ def test_merge_protected_metadata_keeps_label_keys_unless_the_write_is_a_relabel
     relabel = merge_protected_metadata(stored, {"project_scope": [], "project_floor": [ALPHA]}, label_write=True)
     assert relabel["project_scope"] == []
     assert relabel["consolidation"] == {"cluster_member_ids": ["m"]}
+
+
+def test_a_replacement_memory_keeps_dependencies_and_floor(tmp_path: Path, monkeypatch) -> None:
+    from uuid import UUID
+
+    from alicebot_api.mcp.registry import call_mcp_tool
+    from alicebot_api.mcp.types import MCPRuntimeContext
+    from alicebot_api.onramp import sqlite_url_for_path
+    from alicebot_api.vnext_derived_labels import with_derived_from
+
+    monkeypatch.delenv("ALICE_AGENT_API_KEY", raising=False)
+    monkeypatch.delenv("ALICE_EMBEDDINGS_BASE_URL", raising=False)
+    monkeypatch.setenv("ALICE_MCP_FULL_TOOLS", "1")
+    path = tmp_path / "replacement.sqlite3"
+    with _vault(path) as conn:
+        store = SQLiteVNextStore(conn, USER)
+        source = store.create_source({"source_type": "note", "title": "Synthetic observation", "content_hash": "replacement", "domain": "health", "sensitivity": "confidential", "metadata_json": {"project_scope": [ALPHA]}})
+        metadata = with_derived_from({"source_id": str(source["id"]), "project_scope": [ALPHA]}, {"sources": [source]})
+        original = store.create_memory({"memory_key": "replacement-original", "canonical_text": "Synthetic original observation", "status": "active", "domain": "health", "sensitivity": "confidential", "metadata_json": metadata})
+        link = store.create_provenance_link({"target_type": "memory", "target_id": str(original["id"]), "source_id": str(source["id"]), "evidence_role": "supports", "confidence": 1.0})
+    result = call_mcp_tool(
+        MCPRuntimeContext(database_url=sqlite_url_for_path(path), user_id=UUID(USER)),
+        name="alice_memory_correct",
+        arguments={"review_item_id": str(original["id"]), "action": "supersede-existing", "replacement_title": "Synthetic corrected observation", "replacement_provenance": {"source_id": str(source["id"]), "evidence_role": "supports", "confidence": 1.0}},
+    )
+    replacement_id = str(result["replacement_object"]["id"])
+    with sqlite_user_connection(path, USER) as conn:
+        store = SQLiteVNextStore(conn, USER)
+        replacement = store.get_memory(replacement_id)
+        assert replacement["metadata_json"]["derived_from"] == metadata["derived_from"]
+        assert replacement["metadata_json"]["source_id"] == source["id"]
+        assert replacement["metadata_json"]["project_scope"] == [ALPHA]
+        assert replacement["metadata_json"]["project_floor"] == [ALPHA]
+        assert replacement["sensitivity"] == "confidential"
+        assert store.get_memory(str(original["id"]))["canonical_text"] == original["canonical_text"]
+        assert str(store.list_provenance_links(target_type="memory", target_id=str(original["id"]))[0]["id"]) == str(link["id"])
+        assert str(store.list_provenance_links(target_type="memory", target_id=replacement_id)[0]["source_id"]) == str(source["id"])
+        store.update_source(source_id=str(source["id"]), patch={"sensitivity": "regulated"})
+        assert store.get_memory(replacement_id)["sensitivity"] == "regulated"
 
 
 def test_insert_floor_survives_two_hops(tmp_path: Path):

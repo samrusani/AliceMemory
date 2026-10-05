@@ -23,6 +23,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 POSTGRES_FACADE_PATH = REPO_ROOT / "apps/api/src/alicebot_api/vnext_store.py"
 SQLITE_FACADE_PATH = REPO_ROOT / "apps/api/src/alicebot_api/sqlite_store.py"
 
+# Reviewed lock boundary: the pending-candidate row locker takes L first.
 SOURCE_RECEIPTS = {
     "apps/api/src/alicebot_api/vnext_stores/retrieval_common.py": (
         "fa1a3a90511b5c61754ba29560e91b7b3058a48d47c143b09d8505d52025b8cc"
@@ -42,7 +43,7 @@ SOURCE_RECEIPTS = {
     # Re-minted so the two roll-up lookups overlap scope united with floor.
     # Every other statement still uses the scope expression. Previous receipt 46946cc0...
     "apps/api/src/alicebot_api/vnext_stores/postgres/memory_access.py": (
-        "057f4f0c157223fc0d94ea3afe680b66200820533ddccab7211e211f29107157"
+        "ad6a1a81f077fbdaf13ec414558d43a8b6ad085350aec416e8a5e856a227d7c0"
     ),
     # Re-minted for per-project memory S2 (2026-10-02): the project fence builders read the reserved global
     # marker and take the domains to leave out, and the single-scan partition SQL and the materialized-CTE hint
@@ -208,6 +209,8 @@ SQLITE_QUERY_EXPORTS = (
 )
 
 EXPECTED_CLASS_ORDERS = {
+    # Reviewed additions: label/event enumeration, PG ratings, belief aliases and source recovery.
+    # Existing facade members retain their relative order.
     # Two paired browser-clip capability methods extend both façades. One more
     # paired method, ``list_memories_referencing_sources``, is the batched form
     # of ``list_memories_referencing_source``; both carrier receipts above were
@@ -217,7 +220,7 @@ EXPECTED_CLASS_ORDERS = {
     # 040a2a10 with ``savepoint`` added at the end and nothing else moved (reviewed change, not drift).
     # Label lock: lock_label_writes and read_label_rows follow __init__. Dropping
     # those two names restores the previous receipt (172, 6f1a459f...).
-    "PostgresVNextStore": (174, "095250b8a77d6c0a32d2783343916b947bcae8ae86e3a1693e47c2fb11802211"),
+    "PostgresVNextStore": (179, "71998141cd00c0639209285accbc29faa775b2e0250422c96101ee2f144df832"),
     # One SQLite-only method more, ``check_source_search_query``: the Postgres
     # source search has no expression-depth or LIKE-length limit to check.
     # Merge of #500 and #502 (2026-10-01): one more SQLite-only method,
@@ -234,7 +237,7 @@ EXPECTED_CLASS_ORDERS = {
     # prunable_sources here; every pre-existing class member keeps its order.
     # Label lock: lock_label_writes and read_label_rows follow __init__. Dropping
     # those two names restores the previous receipt (134, 13012720...).
-    "SQLiteVNextStore": (136, "1d99dbaf69e4ea888ca7beb2389ac176650a2e573c067bf0686adc9e609132f5"),
+    "SQLiteVNextStore": (138, "783c07140c4015bcf8e43a3c68f3c2837ad14ce3525f8bd56a6f9c319d38eada"),
 }
 
 
