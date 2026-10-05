@@ -280,6 +280,10 @@ def _collect_ids(value: object, found: set[str], referenced: set[str], *, at_ref
     if depth > _METADATA_MAX_DEPTH:
         return
     if isinstance(value, str):
+        decoded = _json_container(value)
+        if decoded is not None:
+            _collect_ids(decoded, found, referenced, at_reference=at_reference, depth=depth + 1)
+            return
         ids = _ids_in_text(value)
         if at_reference:
             ids |= set(cited_source_ids(value).named)
