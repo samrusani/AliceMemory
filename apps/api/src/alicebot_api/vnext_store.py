@@ -543,7 +543,7 @@ class PostgresVNextStore:
         if kind == "memory":
             extra = ", status, value, project_id, source_event_ids, deleted_at"
         elif kind == "open_loop":
-            extra = ", status, project_id, source_id, memory_id"
+            extra = ", status, project_id, source_id::text AS source_id, memory_id::text AS memory_id"
         elif kind == "artifact":
             extra = ", status, artifact_type"
         elif kind == "project":
