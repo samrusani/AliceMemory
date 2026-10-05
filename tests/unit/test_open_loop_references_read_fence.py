@@ -352,6 +352,41 @@ def test_encoded_json_references_are_withheld_on_the_real_key_list(world: _World
         assert "amber" in str(checked[reference_key])
 
 
+@pytest.mark.parametrize("case", ("memory_reference", "nested_source_reference", "duplicate_memory_key"))
+def test_encoded_memory_and_trace_references_are_collected_before_the_real_key_list(world: _World, case: str) -> None:
+    """The collection and removal walk the same decoded JSON, with admitted and owner controls.
+
+    Mutation: skip JSON decoding in ``_collect_ids``. Memory references and source references inside a trace then stay.
+    """
+
+    encode = lambda value: "".join("\\u%04x" % ord(char) for char in value)
+    if case == "nested_source_reference":
+        key, hidden, admitted = "trace", world.sources["beta"], world.sources["own"]
+        text = '{"source_ids": ["' + encode(hidden) + '", "' + encode(admitted) + '"], "kept": "cobalt"}'
+    else:
+        key, hidden, admitted = "memory_refs", world.memories["beta"], world.memories["own"]
+        if case == "duplicate_memory_key":
+            text = '{"memory_id": "memory:' + encode(hidden) + '", "memory_id": "memory:' + encode(admitted) + '", "kept": "cobalt"}'
+        else:
+            text = '["memory:' + encode(hidden) + '", "memory:' + encode(admitted) + '", "cobalt"]'
+    metadata = {"project_scope": ["alpha"], key: text, "kept": "control"}
+    world._plant("encoded_collection", metadata=metadata)
+    loop_id = world.loops["encoded_collection"]
+    world.vault.sql("DELETE FROM open_loops WHERE id != ?", (loop_id,))
+    owner = world.vault.wire("alice_open_loops", {"status": "all", "limit": 100}, key=None)
+    assert owner["is_error"] is False
+    assert len(owner["payload"]["items"]) == 1
+    assert owner["payload"]["items"][0]["metadata_json"] == metadata
+    items = world.list_items("alpha_project")
+    assert len(items) == 1 and str(items[0]["id"]) == loop_id
+    checked = items[0]["metadata_json"]
+    decoded = json.dumps(json.loads(checked[key]))
+    assert hidden not in decoded
+    assert admitted in decoded
+    assert "cobalt" in decoded
+    assert checked["kept"] == "control"
+
+
 @pytest.mark.parametrize("reader", _UPDATERS)
 @pytest.mark.parametrize("name", sorted(("own", "health", "confidential", "old_beta", "old_global", "old_deleted", "old_ghost", "old_upper", "old_metadata")))
 def test_the_open_loop_update_actions_withhold_what_the_reader_may_not_read(world: _World, reader: str, name: str) -> None:
