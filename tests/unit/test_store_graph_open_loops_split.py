@@ -123,13 +123,18 @@ SOURCE_RECEIPTS = {
     # Re-minted once more in the S2 review round (2026-10-02): the exclusion argument of the three readers defaults
     # to ``None`` ("not stated", which raises when the request holds the marker) and the single-scan reader takes the
     # domain filter and the sensitivity ceiling as required arguments (reviewed change, not drift).
-    SQLITE_CARRIER_PATH: "b34fae4bcbf1be2720e08b6a66705020d1792d8934ca98fffba6ff4e918913cc",
+    # Re-minted for the source scrub of open loops (2026-10-05): ``list_open_loops_referencing_source`` reads the rule
+    # "this loop names this source" from ``open_loop_source_reference_sql`` instead of holding its own copy, so the
+    # delete preview and the scrub count and blank the same loops. The rule text moved unchanged to
+    # ``vnext_stores/sqlite/open_loop_source_reference.py``; only the reader function and the receipt of the file
+    # change (reviewed change, not drift).
+    SQLITE_CARRIER_PATH: "9a2634bef621d32262b845c046820d8b19c64801ec9f9b462e978f364f16f643",
     POSTGRES_COLUMNS_PATH: "5b0d972a55abf8590ce14394a37fd71b9b88ba7ab3de82d61efc1bddfc022b71",
     SQLITE_COLUMNS_PATH: "be81b8628d0831d3d02b280b5455fb02333db5740ebef8d85d58024384ae6556",
 }
 EXPECTED_METHOD_AST_MANIFESTS = {
     POSTGRES_CARRIER_PATH: "2558088459f1b9a565e1b366ffe0b7c4025c623a9e2ea78007d06a46793ce1b8",
-    SQLITE_CARRIER_PATH: "581dc3785233e8dff8a4ab1a41a57d35407dab5cde3a87d06c24269fbf21b17a",
+    SQLITE_CARRIER_PATH: "2850ba6057b1510759613aaa3798a226808a42470ee11cfb9c6e3afbf3e98e66",
 }
 EXPECTED_METADATA_MANIFESTS = {
     POSTGRES_CARRIER_PATH: "6edb6a10e7a37dbbbbde97e5550422718a0112257666de8e23d49c60490fa13f",

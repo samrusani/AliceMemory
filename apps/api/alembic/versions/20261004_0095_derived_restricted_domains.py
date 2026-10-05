@@ -11,7 +11,7 @@ import json
 from alembic import op
 from sqlalchemy import text
 
-from alicebot_api.vnext_derived_domain_backfill import INPUT_SELECTS, plan_relabels, relabel_event
+from alicebot_api.vnext_derived_domain_backfill import INPUT_SELECTS, plan_relabels, relabel_event, require_changed
 
 revision = "20261004_0095"
 down_revision = "20260721_0094"
@@ -55,7 +55,11 @@ def upgrade() -> None:
         ),
     }
     for table, user, row_id, domain in plan_relabels(tables):
-        connection.execute(updates[table], {"domain": domain, "user": user, "id": row_id})
+        # The id columns are uuid, so the canonical text the plan names is the stored row whatever spelling a reference used.
+        # An update that still finds no row stops the migration before it records the change, and Alembic rolls it all back.
+        require_changed(
+            connection.execute(updates[table], {"domain": domain, "user": user, "id": row_id}).rowcount, table, row_id
+        )
         event = relabel_event(table, user, row_id, previous[table, user, row_id], domain)
         connection.execute(
             text("""

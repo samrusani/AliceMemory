@@ -307,3 +307,73 @@ def test_promoted_artifact_uuid_alias_repaired(database_urls):
         store = PostgresVNextStore(conn)
         assert store.get_artifact(str(artifact["id"]))["domain"] == "health"
         assert store.get_memory(promoted_id)["domain"] == "health"
+
+
+@pytest.mark.parametrize("spelling", ("upper", "compact", "compact_upper"))
+def test_postgres_repair_reads_every_spelling_of_a_recorded_id(database_urls, spelling):
+    """The id columns are uuid, so a derived row whose recorded inputs spell an id in capitals or without hyphens is
+    matched and updated as the row stored under the canonical text, and its event names that canonical id. The SQLite
+    repair needed the stored spelling of the id (``test_derived_domain_stored_ids``); this path has none to keep."""
+
+    spell = {
+        "upper": lambda text: text.upper(),
+        "compact": lambda text: text.replace("-", ""),
+        "compact_upper": lambda text: text.replace("-", "").upper(),
+    }[spelling]
+    config = make_alembic_config(database_urls["admin"])
+    command.upgrade(config, "20260721_0094")
+    user = uuid4()
+    with user_connection(database_urls["app"], user) as conn:
+        ContinuityStore(conn).create_user(user, "spelling@example.invalid", "Spelling fixture")
+        store = PostgresVNextStore(conn)
+        health = store.create_memory(
+            {"memory_key": "health", "canonical_text": "Private observation", "domain": "health",
+             "sensitivity": "public", "status": "active"}
+        )
+        derived = store.create_memory(
+            {"memory_key": "derived", "canonical_text": "Private summary", "domain": "unknown",
+             "status": "candidate", "metadata_json": {"consolidation": {"cluster_member_ids": [spell(str(health["id"]))]}}}
+        )
+    command.upgrade(config, "head")
+    with user_connection(database_urls["app"], user) as conn:
+        assert PostgresVNextStore(conn).get_memory(str(derived["id"]))["domain"] == "health"
+        targets = conn.execute(
+            "SELECT target_id FROM event_log WHERE event_type = 'memory.domain_relabelled'"
+        ).fetchall()
+        assert [str(row["target_id"]) for row in targets] == [str(derived["id"])]
+
+
+def test_postgres_repair_refuses_an_update_that_changes_no_row(database_urls, monkeypatch):
+    """A planned row that no update finds stops the migration: Alembic rolls back and no event or label is written."""
+
+    from alicebot_api import vnext_derived_domain_backfill as repair
+
+    config = make_alembic_config(database_urls["admin"])
+    command.upgrade(config, "20260721_0094")
+    user = uuid4()
+    with user_connection(database_urls["app"], user) as conn:
+        ContinuityStore(conn).create_user(user, "zero-row@example.invalid", "Zero row fixture")
+        store = PostgresVNextStore(conn)
+        health = store.create_memory(
+            {"memory_key": "health", "canonical_text": "Private observation", "domain": "health",
+             "sensitivity": "public", "status": "active"}
+        )
+        derived = store.create_memory(
+            {"memory_key": "derived", "canonical_text": "Private summary", "domain": "unknown",
+             "status": "candidate", "metadata_json": {"consolidation": {"cluster_member_ids": [str(health["id"])]}}}
+        )
+    absent = str(uuid4())
+    monkeypatch.setattr(
+        repair, "plan_relabels", lambda tables: [("memories", str(user), str(derived["id"]), "health"),
+                                                 ("memories", str(user), absent, "health")]
+    )
+    with pytest.raises(repair.DerivedDomainRepairError, match="changed no row") as caught:
+        command.upgrade(config, "head")
+    assert absent in str(caught.value)
+    with psycopg.connect(database_urls["admin"]) as admin:
+        assert admin.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "20260721_0094"
+    with user_connection(database_urls["app"], user) as conn:
+        assert PostgresVNextStore(conn).get_memory(str(derived["id"]))["domain"] == "unknown"
+        assert conn.execute(
+            "SELECT count(*) AS count FROM event_log WHERE event_type = 'memory.domain_relabelled'"
+        ).fetchone()["count"] == 0

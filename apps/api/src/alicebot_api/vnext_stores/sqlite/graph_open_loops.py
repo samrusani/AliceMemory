@@ -19,6 +19,7 @@ from alicebot_api.vnext_stores.sqlite.columns import (
     GRAPH_EDGE_COLUMNS,
     OPEN_LOOP_COLUMNS,
 )
+from alicebot_api.vnext_stores.sqlite.open_loop_source_reference import open_loop_source_reference_sql
 from alicebot_api.vnext_stores.sqlite.primitives import (
     _iso_or_none,
     _iso_or_now,
@@ -667,26 +668,17 @@ def list_open_loops_referencing_source(self, *, source_id: str, limit: int = 500
 
     if limit < 1:
         raise ValueError("limit must be positive")
+    reference, reference_params = open_loop_source_reference_sql(source_id)
     return self._fetch_all(
         f"""
                 SELECT {", ".join(OPEN_LOOP_COLUMNS)}
                 FROM open_loops
                 WHERE user_id = ?
-                  AND (
-                    source_id = ?
-                    OR EXISTS (
-                      SELECT 1 FROM json_tree(open_loops.metadata_json) AS ref
-                      WHERE ref.key IN (
-                        'source_id', 'source_ids', 'source_ref', 'source_refs',
-                        'source_references', 'selected_source_ids'
-                      )
-                        AND CAST(ref.value AS TEXT) IN (?, ?)
-                    )
-                  )
+                  AND {reference}
                 ORDER BY updated_at DESC, created_at DESC, id DESC
                 LIMIT ?
                 """,
-        (self.user_id, source_id, source_id, f"source:{source_id}", limit),
+        (self.user_id, *reference_params, limit),
     )
 
 def list_open_loops(

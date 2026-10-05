@@ -17,12 +17,13 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 PAGE = ROOT / "docs/alpha/known-limitations.md"
 
-# The page is about 14,900 characters and its longest bullet about 760. The old page was 30,000, with single bullets of
+# The page is about 15,060 characters and its longest bullet about 760. The old page was 30,000, with single bullets of
 # 4,000 to 6,000, and the first short version was 16,300 with eight bullets of 630 to 1,090 characters and three to
 # eight sentences each. The caps sit just above the page as it is, so a limit can be reworded and a new one added, and
 # nothing grows back into a record without this test failing. A bullet is one or two sentences, and a closing
 # "See ..." pointer to the page that explains it does not count as one.
-MAX_PAGE_CHARS = 14_950
+# Raised from 14,950 to 15,090 (2026-10-05) for the one clause on how far an open loop is scrubbed with its source.
+MAX_PAGE_CHARS = 15_090
 MAX_BULLET_CHARS = 800
 MAX_BULLET_SENTENCES = 2
 
