@@ -281,3 +281,13 @@ def test_sqlite_label_lookup_preserves_uuid_aliases_and_kinds(tmp_path: Path) ->
         copy = store.create_memory({"memory_key": "alias-copy", "canonical_text": "copy", "status": "active", "domain": "unknown", "sensitivity": "public", "metadata_json": {"source_id": str(UUID(raw))}})
     assert copy["domain"] == "health"
     assert copy["sensitivity"] == "confidential"
+
+
+def test_alias_twins_cannot_choose_a_public_source(tmp_path: Path) -> None:
+    with _vault(tmp_path / "twins.sqlite3") as conn:
+        store = SQLiteVNextStore(conn, USER)
+        restricted = store.create_source({"source_type": "note", "title": "restricted", "content_hash": "restricted", "domain": "health", "sensitivity": "confidential"})
+        public = store.create_source({"source_type": "note", "title": "public", "content_hash": "public", "domain": "project", "sensitivity": "public"})
+        conn.execute("UPDATE sources SET id = ? WHERE id = ?", (str(restricted["id"]).replace("-", "").upper(), public["id"]))
+        copy = store.create_memory({"memory_key": "twins-copy", "canonical_text": "copy", "status": "active", "domain": "unknown", "sensitivity": "public", "metadata_json": {"source_id": str(restricted["id"])}})
+    assert copy["sensitivity"] == "regulated"
