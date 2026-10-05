@@ -44,3 +44,13 @@ def test_canonical_counts_and_identifiers_do_not_use_the_legacy_duplicate_except
         "counts": {"sources": count, "memories": 0, "open_loops": 0, "artifacts": 0, "beliefs": 0},
     }}}
     assert settle_labels([source, row]).by_stored("artifact", "report").unverified is True
+
+
+@pytest.mark.parametrize("counts", (None, {}, {"sources": True}, {"sources": "1"}, []))
+def test_a_nonempty_canonical_record_requires_well_formed_complete_counts(counts):
+    source = {"kind": "source", "id": "source", "domain": "project", "sensitivity": "public", "metadata_json": {}}
+    row = {"kind": "artifact", "id": "report", "metadata_json": {"derived_from": {
+        "v": 1, "sources": ["source"], "memories": [], "open_loops": [], "artifacts": [], "beliefs": [],
+        "counts": counts,
+    }}}
+    assert settle_labels([source, row]).by_stored("artifact", "report").unverified is True
