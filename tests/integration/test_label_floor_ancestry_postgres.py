@@ -95,3 +95,38 @@ def test_a_relabel_traverses_the_belief_backing_memory(migrated_database_urls):
         store = PostgresVNextStore(conn)
         assert store.get_memory(str(copy["id"]))["sensitivity"] == "regulated"
         assert store.get_artifact(str(report["id"]))["sensitivity"] == "regulated"
+
+
+def test_postgres_owner_edit_is_clamped_in_response_event_and_storage(migrated_database_urls, monkeypatch):
+    import json
+    from uuid import UUID
+    from alicebot_api.config import Settings
+    from alicebot_api.routers import vnext_memories as router
+    from alicebot_api.vnext_label_writes import without_insert_floor
+
+    user_id = uuid4()
+    url = migrated_database_urls["app"]
+    with user_connection(url, user_id) as conn:
+        ContinuityStore(conn).create_user(user_id, f"owner-clamp-{user_id}@example.test", "Synthetic")
+        store = PostgresVNextStore(conn)
+        source = store.create_source({"source_type": "note", "title": "Synthetic private input", "content_hash": str(user_id), "domain": "health", "sensitivity": "confidential"})
+        with without_insert_floor():
+            memory = store.create_memory({"memory_key": "stale-copy", "canonical_text": "Synthetic private observation", "status": "active", "domain": "project", "sensitivity": "public", "metadata_json": {"source_id": str(source["id"])}})
+        assert memory["sensitivity"] == "public"
+    monkeypatch.setattr(router, "get_settings", lambda: Settings(database_url=url))
+    response = router.review_vnext_memory(UUID(str(memory["id"])), router.VNextMemoryReviewRequest(user_id=user_id, action="edit", domain="project", sensitivity="public"), authorization=None)
+    assert response.status_code == 200
+    payload = json.loads(response.body)
+    assert payload["label_floor_applied"] is True
+    assert payload["memory"]["domain"] == "health"
+    assert payload["memory"]["sensitivity"] == "confidential"
+    with user_connection(url, user_id) as conn:
+        store = PostgresVNextStore(conn)
+        stored = store.get_memory(str(memory["id"]))
+        assert stored["domain"] == "health" and stored["sensitivity"] == "confidential"
+        assert stored["metadata_json"]["source_id"] == str(source["id"])
+        event = conn.execute("SELECT payload_json FROM event_log WHERE event_type='memory.labels_raised' AND target_id=%s", (str(memory["id"]),)).fetchone()
+        assert event["payload_json"]["cause"] == "floor_clamped"
+        encoded = json.dumps(event["payload_json"])
+        assert "Synthetic private input" not in encoded
+        assert "Synthetic private observation" not in encoded
