@@ -68,6 +68,12 @@ def _build_chain(h, *, source=None, project=None, label=("project", "public")):
             source = store.get_source(str(capture.source_id))
         copies = store.list_memories_referencing_source(source_id=str(source["id"]))
         assert len(copies) >= 2
+        copies = [
+            store.update_memory(memory_id=str(row["id"]), patch={"status": "accepted"}, actor_type="user")
+            if row["status"] == "candidate"
+            else row
+            for row in copies
+        ]
         brain = VNextBrainService(store)
         request = BrainArtifactRequest(
             generated_for=today(),
@@ -75,6 +81,7 @@ def _build_chain(h, *, source=None, project=None, label=("project", "public")):
             sensitivity_allowed=("public", "internal", "private", "confidential", "regulated", "unknown"),
         )
         daily = brain.generate_daily_brief(request)
+        assert {str(row["id"]) for row in copies}.issubset(set(daily["metadata_json"]["derived_from"]["memories"]))
         weekly = brain.generate_weekly_synthesis(request)
         assert str(daily["id"]) in weekly["metadata_json"]["derived_from"]["artifacts"]
         promoted = VNextQueueService(store, defer_embeddings=True)._promote_artifact(
