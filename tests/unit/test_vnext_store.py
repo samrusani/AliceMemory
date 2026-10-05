@@ -739,6 +739,7 @@ def test_list_artifacts_applies_type_domain_sensitivity_and_limit_filters() -> N
         ["public", "private"],
         None,
         None,
+        None,
         5,
     )
 
