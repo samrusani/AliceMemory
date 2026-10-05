@@ -187,7 +187,8 @@ EXPECTED_COLUMN_AST = {
             "c333a0dacf8733a16fb86f3acc1bbf61bd25fa66ce96cc3bc25805c4a85d9203"
         ),
         "BELIEF_COLUMNS": "32bac57e9e38fead1af29b9324777978f3b03bfe20d5306695fae98079d82dc7",
-        "OPEN_LOOP_COLUMNS": "651275ee48d37e13228bf339ac4f260a50333fc7b86197ab16573cc099f912bf",
+        # Reviewed: normalize the two direct dependency UUID columns to text.
+        "OPEN_LOOP_COLUMNS": "44970b53460b10e1e414a9c1c7905f15ea7ecfed4570b1fcd5becf65952b3c64",
     },
     SQLITE_COLUMNS_PATH: {
         "GRAPH_EDGE_COLUMNS": "587b88564c446c03420441371a180e11618ea6bf192e5e20d2ad5d426ce890f2",
