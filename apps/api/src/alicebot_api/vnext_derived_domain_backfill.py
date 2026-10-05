@@ -45,7 +45,7 @@ _REF_TYPES = {"source": "sources", "memory": "memories", "open_loop": "open_loop
 
 
 class DerivedDomainRepairError(ValueError):
-    """Derived rows keep relabeling each other, so there are no settled labels to publish.
+    """The repair has no labels it can publish: derived rows keep relabeling each other, or an update changed no row.
 
     Still a ``ValueError``: the upgrade and the restore abort on it as before.
     """
@@ -61,6 +61,19 @@ def _unsettled_message(rows: Sequence[tuple[str, str, str]]) -> str:
         "The repair stopped before it changed any row. Remove the circular input references from those rows, "
         "or restore a backup made before they were added, then run the upgrade or open the database again."
     )
+
+
+def require_changed(changed: int, table: str, row_id: str) -> None:
+    """Refuse a relabel whose update changed no row, so no event or completion stamp describes a change that did not happen.
+
+    ``changed`` is the row count of the ``UPDATE``. Both stores call this after each update, before they record anything.
+    """
+    if changed == 0:
+        raise DerivedDomainRepairError(
+            f"derived domain repair changed no row for {table} {row_id}: the update found no row stored under that id. "
+            "The repair stopped before it recorded any change or marked the database as repaired, "
+            "and the upgrade or restore that ran it did not publish anything."
+        )
 
 
 def _object(value: object) -> Mapping[str, object]:
@@ -274,7 +287,14 @@ def recorded_sqlite_domain_repairs(conn, user_id: str) -> set[tuple[str, str, st
 
 
 def relabel_sqlite(conn, *, restoring: bool = False) -> None:
-    """Upgrade once, or repair a complete staged restore before publication."""
+    """Upgrade once, or repair a complete staged restore before publication.
+
+    The plan matches rows and recorded inputs by a normalised id, so it names a row as ``_identifier`` writes it. SQLite
+    keeps an id as the text it was given (capitals, no hyphens, braces and ``urn:uuid:`` all stand), so each planned row
+    is updated and recorded under the id it is stored with, and two stored spellings of one id both take the planned
+    label. An update that changes no row stops the repair with ``DerivedDomainRepairError`` before any event or the
+    completion stamp is written; the caller's transaction is then rolled back by the upgrade or the restore it aborts.
+    """
     state_key = REPAIR_STATE_KEY
     if not restoring and conn.execute("SELECT value FROM alice_schema_state WHERE key = ?", (state_key,)).fetchone():
         return
@@ -287,14 +307,24 @@ def relabel_sqlite(conn, *, restoring: bool = False) -> None:
         if table not in available:
             continue
         tables[table] = _fetch_dicts(conn.execute(statement))
-    previous = {
-        (table, str(row["user_id"]), _identifier(row["id"])): row.get("domain")
-        for table, rows in tables.items()
-        for row in rows
-    }
-    for table, user, row_id, domain in plan_relabels(tables):
-        conn.execute(_SQLITE_UPDATES[table], (domain, user, row_id))
-        event = relabel_event(table, user, row_id, previous[table, user, row_id], domain)
+    previous = {}
+    stored_ids: dict[tuple[str, str, str], list[str]] = {}
+    for table, rows in tables.items():
+        for row in rows:
+            user, stored = str(row["user_id"]), str(row["id"])
+            previous[table, user, stored] = row.get("domain")
+            stored_ids.setdefault((table, user, _identifier(stored)), []).append(stored)
+    changes = [
+        (table, user, stored, domain)
+        for table, user, row_id, domain in plan_relabels(tables)
+        for stored in stored_ids[table, user, row_id]
+        if previous[table, user, stored] != domain
+    ]
+    # Every update is made and checked before the first event is written.
+    for table, user, stored, domain in changes:
+        require_changed(conn.execute(_SQLITE_UPDATES[table], (domain, user, stored)).rowcount, table, stored)
+    for table, user, stored, domain in changes:
+        event = relabel_event(table, user, stored, previous[table, user, stored], domain)
         conn.execute(
             """INSERT INTO event_log (id, user_id, event_type, actor_type, target_type, target_id,
                occurred_at, payload_json, integrity_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
@@ -304,7 +334,7 @@ def relabel_sqlite(conn, *, restoring: bool = False) -> None:
                 event["event_type"],
                 event["actor_type"],
                 event["target_type"],
-                row_id,
+                stored,
                 event["occurred_at"],
                 json.dumps(event["payload_json"]),
                 event["integrity_hash"],

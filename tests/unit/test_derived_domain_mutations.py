@@ -20,6 +20,7 @@ from alicebot_api import vnext_projects as projects, vnext_scheduler as schedule
 from alicebot_api import vnext_derived_domain as domain, vnext_derived_domain_backfill as backfill
 from tests.unit import test_derived_domain_fence as checks
 from tests.unit import test_derived_domain_review as review
+from tests.unit import test_derived_domain_stored_ids as stored_ids
 from alicebot_api import onramp, sqlite_schema
 
 
@@ -139,6 +140,20 @@ def test_derived_domain_guard_mutations():
     ])
     mutations.append((backfill, "_identifier", "return str(UUID(str(value)))", "return str(value)",
                       lambda: review.test_promoted_artifact_uuid_aliases_resolve("value")))
+    # The SQLite repair updates and records a row under the id it is stored with.
+    mutations.extend([
+        (backfill, "relabel_sqlite", "(domain, user, stored)", "(domain, user, _identifier(stored))", stored_open),
+        (backfill, "relabel_sqlite", 'event["target_type"],\n                stored,',
+         'event["target_type"],\n                _identifier(stored),', stored_open),
+        (backfill, "relabel_sqlite", 'event["target_type"],\n                stored,',
+         'event["target_type"],\n                _identifier(stored),', stored_second_restore),
+        (backfill, "relabel_sqlite", "for stored in stored_ids[table, user, row_id]",
+         "for stored in stored_ids[table, user, row_id][:1]", stored_twins),
+        (backfill, "relabel_sqlite", "if previous[table, user, stored] != domain", "if True", stored_settled_twin),
+        (backfill, "require_changed", "if changed == 0:", "if changed < 0:", stored_zero_row),
+        (backfill, "require_changed", "raise DerivedDomainRepairError(", "raise ValueError(", stored_zero_row),
+        (backfill, "relabel_sqlite", "(domain, user, stored)", "(domain, user, _identifier(stored))", stored_restore),
+    ])
     for mutation in mutations:
         kill(*mutation)
     # Removing the shared selector independently at each producer must fail
@@ -165,6 +180,43 @@ def test_derived_domain_guard_mutations():
             checks.test_sqlite_upgrade_relabels_existing_derived_memory_only(Path(directory))
     print('KILLED SQLite upgrade wiring')
     print(f'{len(mutations) + len(pairs) + 3} guard mutations killed')
+
+
+def refusal_fails(check):
+    """A refusal that leaks out of the check (an update that changed no row, or the wrong class of error) counts as the
+    check failing."""
+
+    try:
+        check()
+    except ValueError as error:
+        raise AssertionError(str(error)) from error
+
+
+def stored_open():
+    refusal_fails(lambda: fresh(
+        lambda directory, patch: stored_ids.test_open_relabels_a_row_stored_under_another_spelling(directory, patch, "upper")))
+
+
+def stored_restore():
+    refusal_fails(lambda: fresh(
+        lambda directory, patch: stored_ids.test_restore_relabels_a_row_stored_under_another_spelling(directory, patch, "compact")))
+
+
+def stored_second_restore():
+    fresh(stored_ids.test_the_same_backup_restores_again_into_the_repaired_vault)
+
+
+def stored_twins():
+    refusal_fails(lambda: fresh(stored_ids.test_every_spelling_of_one_id_is_relabelled))
+
+
+def stored_settled_twin():
+    refusal_fails(lambda: fresh(stored_ids.test_a_spelling_already_at_the_planned_label_is_left_alone))
+
+
+def stored_zero_row():
+    refusal_fails(lambda: fresh(stored_ids.test_a_zero_row_update_refuses_without_an_event_or_stamp))
+    refusal_fails(lambda: fresh(stored_ids.test_a_refusal_writes_no_event_and_no_stamp_even_after_an_earlier_update))
 
 
 def unsettled_message():
