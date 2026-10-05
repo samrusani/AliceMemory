@@ -117,16 +117,27 @@ def test_postgres_owner_edit_is_clamped_in_response_event_and_storage(migrated_d
     response = router.review_vnext_memory(UUID(str(memory["id"])), router.VNextMemoryReviewRequest(user_id=user_id, action="edit", domain="project", sensitivity="public"), authorization=None)
     assert response.status_code == 200
     payload = json.loads(response.body)
-    assert payload["label_floor_applied"] is True
-    assert payload["memory"]["domain"] == "health"
-    assert payload["memory"]["sensitivity"] == "confidential"
     with user_connection(url, user_id) as conn:
         store = PostgresVNextStore(conn)
         stored = store.get_memory(str(memory["id"]))
-        assert stored["domain"] == "health" and stored["sensitivity"] == "confidential"
         assert stored["metadata_json"]["source_id"] == str(source["id"])
         event = conn.execute("SELECT payload_json FROM event_log WHERE event_type='memory.labels_raised' AND target_id=%s", (str(memory["id"]),)).fetchone()
-        assert event["payload_json"]["cause"] == "floor_clamped"
+        observed = {
+            "response_flag": payload.get("label_floor_applied", False),
+            "response_domain": payload["memory"]["domain"],
+            "response_sensitivity": payload["memory"]["sensitivity"],
+            "stored_domain": stored["domain"],
+            "stored_sensitivity": stored["sensitivity"],
+            "event_cause": event["payload_json"].get("cause") if event else None,
+        }
+        assert observed == {
+            "response_flag": True,
+            "response_domain": "health",
+            "response_sensitivity": "confidential",
+            "stored_domain": "health",
+            "stored_sensitivity": "confidential",
+            "event_cause": "floor_clamped",
+        }
         encoded = json.dumps(event["payload_json"])
         assert "Synthetic private input" not in encoded
         assert "Synthetic private observation" not in encoded
