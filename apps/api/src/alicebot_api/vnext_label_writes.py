@@ -404,20 +404,31 @@ def _postgres_dependants(store: Any, table: str, kind: str, compacts: Sequence[s
         extra = ", NULL::jsonb AS value, artifact_type"
     else:
         extra = ", NULL::jsonb AS value"
-    text_clause, _ = _like_clause("metadata_json::text", len(compacts), qmark=False)
+    # Normalize each column once per row, rather than once per frontier id.
+    # This remains only a superset lookup; the canonical parser selects exact edges.
+    pattern = "(?:" + "|".join(re.escape(item) for item in compacts) + ")"
+
+    def candidate_clause(column: str) -> str:
+        return (
+            "replace(replace(replace(replace(lower(coalesce("
+            + column
+            + ",'')),'-',''),'{',''),'}',''),' ','') ~ %s"
+        )
+
+    text_clause = candidate_clause("metadata_json::text")
     text_clause += " OR strpos(coalesce(metadata_json::text, ''), chr(92)) > 0"
-    params: list[object] = [f"%{item}%" for item in compacts]
+    params: list[object] = [pattern]
     value_sql = ""
     if with_value:
-        value_clause, _ = _like_clause("value::text", len(compacts), qmark=False)
+        value_clause = candidate_clause("value::text")
         value_sql = f" OR {value_clause} OR strpos(coalesce(value::text, ''), chr(92)) > 0"
-        params.extend(f"%{item}%" for item in compacts)
+        params.append(pattern)
     column_sql = ""
     if table == "open_loops":
         for column in ("source_id", "memory_id"):
-            clause, _ = _like_clause(f"{column}::text", len(compacts), qmark=False)
+            clause = candidate_clause(f"{column}::text")
             column_sql += f" OR {clause}"
-            params.extend(f"%{item}%" for item in compacts)
+            params.append(pattern)
     rows = store._fetch_all(
         f"""
             SELECT id::text AS id, user_id::text AS user_id, domain, sensitivity, metadata_json{extra}
