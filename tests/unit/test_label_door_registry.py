@@ -9,6 +9,7 @@ ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / "apps/api/src"
 
 READS = {
+    "get_source", "list_sources", "get_sources_by_ids",
     "get_memory",
     "get_memory_for_update",
     "get_memories_by_ids",
@@ -31,6 +32,10 @@ READS = {
     "list_projects",
     "get_project",
     "get_project_for_update",
+    "list_open_loops_referencing_source", "list_events", "list_memory_events", "list_open_loop_events",
+    "list_events_for_source_trace", "list_recent_agentic_commits", "list_pending_inline_confirmations",
+    "count_sources", "count_artifacts", "count_artifacts_by_status", "count_projects", "count_memories_by_status",
+    "count_open_loops", "count_open_loops_by_status", "count_events", "iter_label_rows", "iter_label_events", "iter_label_ratings",
 }
 
 GUARD_CALLS = {
@@ -43,6 +48,7 @@ GUARD_CALLS = {
     "admit_loaded",
     "apply_sensitivity_ceiling",
     "sensitivity_ceiling",
+    "admit_events", "admit_related_rows", "readable_status_counts", "readable_event_count",
 }
 
 # function -> helper that holds the guard call, or None when the function calls it
@@ -57,6 +63,7 @@ DOORS = {
     "mcp/review.py:_vnext_memory_review": None,
     "mcp/review.py:_vnext_memory_correct": None,
     "routers/vnext_memories.py:review_vnext_memory": None,
+    "routers/vnext_memories.py:get_vnext_memory_audit": None,
     "mcp/memories.py:redact_memory_flow": None,
     "routers/vnext_projects.py:review_vnext_open_loop": None,
     "mcp/retrieval.py:_handle_alice_open_loops": None,
@@ -91,6 +98,18 @@ DOORS = {
     "vnext_retrieval.py:VNextRetrievalService._contradicting_evidence": None,
     "vnext_retrieval.py:VNextRetrievalService._recent_changes": None,
     "vnext_retrieval.py:VNextRetrievalService.memory_visibility": None,
+    "vnext_brain.py:VNextBrainService._load_inputs": None,
+    "vnext_connections.py:VNextConnectionService.generate_connection_report": None,
+    "vnext_contradictions.py:VNextContradictionService.generate_contradiction_report": None,
+    "vnext_consolidation.py:VNextConsolidationService._cluster_memories": None,
+    "vnext_consolidation.py:VNextConsolidationService.generate_memory_consolidation": None,
+    "vnext_rollups.py:VNextRollupService._collect_rows": None,
+    "vnext_rollups.py:VNextRollupService._existing_rollup_state": None,
+    "vnext_scheduler.py:VNextSchedulerService._run_staleness_sweep": None,
+    "vnext_scheduler.py:VNextSchedulerService._generate_open_loop_review_artifact": None,
+    "vnext_context_tree.py:_tree_event_visible": None,
+    "routers/vnext_retrieval.py:get_vnext_source_trace": "routers/_vnext_shared.py:_vnext_load_source_trace",
+    "routers/vnext_retrieval.py:get_vnext_artifact_trace": "routers/_vnext_shared.py:_vnext_authorized_artifact",
 }
 
 NOT_A_DOOR = {
@@ -115,9 +134,40 @@ NOT_A_DOOR = {
     "vnext_queue.py:VNextQueueService.review_artifact": "the HTTP review route authorizes through _vnext_authorized_artifact first",
     "vnext_queue.py:VNextQueueService._promote_artifact": "the HTTP review route authorizes through _vnext_authorized_artifact first",
     "vnext_queue.py:VNextQueueService.export_artifact_markdown": "the HTTP export route authorizes through _vnext_authorized_artifact first",
+    "mcp/evidence_artifacts.py:_authorize_memory_audit_provenance": "original source pointers use SourceReadFence.admits before disclosure",
+    "routers/vnext_memories.py:get_vnext_source": "original source operator route; existing domain and project exemptions are preserved",
+    "routers/vnext_memories.py:get_vnext_connector_status": "operator connector telemetry; original-source labels retain existing behavior",
+    "routers/vnext_memories.py:review_vnext_source": "write path over an original source; existing exact policy applies",
+    "routers/vnext_memories.py:delete_vnext_source": "owner mutation of an original source",
+    "vnext_memory_commit.py:VNextMemoryCommitService.auto_promoted_by_agent": "write sweep; every target is authorized by expire before mutation",
+    "vnext_memory_commit.py:VNextMemoryCommitService._transition_memory": "writer checks source validity; no new read response",
+    "vnext_source_fence.py:_rows_by_id": "narrow loader; SavedProvenanceReader applies effective labels before presenting",
+    "vnext_source_fence.py:source_rows_including_archived": "original-source loader for provenance and producer label computation",
+    "vnext_source_fence.py:SavedProvenanceReader._row_for": "private loader; SavedProvenanceReader._admits settles each row",
+    "vnext_retrieval.py:_current_memory_id": "pointer loader; caller memory_visibility settles before exposing the pointer",
+    "vnext_retrieval.py:_memories_referencing_sources": "internal loader; expand_provenance_once applies effective admission",
+    "vnext_retrieval.py:VNextRetrievalService._sources_by_ids": "original-source lookup; SourceReadFence admits before formatting",
+    "vnext_retrieval.py:VNextRetrievalService._query_embedding": "store capability discovery only; does not execute a row reader",
+    "vnext_retrieval.py:VNextRetrievalService._source_stage_lists": "original-source stage; existing source admission remains",
+    "vnext_retrieval.py:VNextRetrievalService._supersession_context": "pointer metadata is fenced through memory_visibility at output",
+    "session_briefing.py:_merge_recent_change_targets": "private loader checks _event_target_honours_fence before adding a target",
+    "session_briefing.py:_resolve_excerpt_query": "original source lookup; source fence and withheld event targets constrain excerpts",
+    "vnext_context_tree.py:VNextContextTreeService._scoped_events": "build_tree filters every resulting event through _tree_event_visible",
+    "vnext_dogfooding.py:VNextDogfoodingService.record_insight_feedback": "write route authorizes artifact through _vnext_authorized_artifact",
+    "vnext_contradictions.py:_project_scoped_beliefs": "internal loader; generate_contradiction_report admits through backing memories",
+    "vnext_consolidation.py:_list_memories_bounded": "private loader; _cluster_memories applies effective admission",
+    "vnext_consolidation.py:_existing_cluster_candidates": "owner acceptance/idempotency lookup; group-scope consumers retain existing behavior",
+    "vnext_scheduler.py:_StagedSchedulerStore.update_memory": "staged write replay; returned row is not a disclosure door",
+    "vnext_scheduler.py:VNextSchedulerService.status": "scheduler telemetry; events are constrained to scheduler targets",
+    "vnext_scheduler.py:VNextSchedulerService._generate_project_update_scan_artifact": "internal project scan; generate_project_update_candidate applies effective admission",
+    "vnext_connectors.py:VNextConnectorService.get_cursor": "connector cursor events only; no labelled targets",
+    "vnext_connectors.py:VNextConnectorService.get_config": "connector configuration events only; no labelled targets",
+    "vnext_connectors.py:VNextConnectorService.connector_health": "connector state telemetry only; no labels_raised events",
+    "vnext_artifact_review.py:dispatch_vnext_artifact_review": "writer entry; calling route or MCP authorizes the artifact before dispatch",
+    "vnext_memory_commit.py:VNextMemoryCommitService._guard_supersession_acyclic": "write validation traverses pointers without exposing their content",
 }
 
-SCAN_MODULES = (
+SCAN_MODULES = tuple(sorted({
     "alicebot_api/routers/_vnext_shared.py",
     "alicebot_api/mcp/evidence_artifacts.py",
     "alicebot_api/mcp/review.py",
@@ -130,7 +180,13 @@ SCAN_MODULES = (
     "alicebot_api/vnext_open_loop_references.py",
     "alicebot_api/vnext_queue.py",
     "alicebot_api/mcp/retrieval.py",
-)
+    "alicebot_api/vnext_retrieval.py", "alicebot_api/session_briefing.py",
+    "alicebot_api/routers/workspaces.py", "alicebot_api/vnext_context_tree.py", "alicebot_api/vnext_dogfooding.py",
+    "alicebot_api/vnext_brain.py", "alicebot_api/vnext_connections.py", "alicebot_api/vnext_contradictions.py",
+    "alicebot_api/vnext_consolidation.py", "alicebot_api/vnext_rollups.py", "alicebot_api/vnext_scheduler.py",
+    "alicebot_api/vnext_connectors.py", "alicebot_api/vnext_artifact_review.py",
+    *(str(path.relative_to(SRC)) for directory in ("routers", "mcp") for path in (SRC / "alicebot_api" / directory).glob("*.py")),
+}))
 
 
 def _functions(tree: ast.AST) -> list[tuple[str, ast.FunctionDef]]:
@@ -157,6 +213,19 @@ def _called_names(node: ast.AST) -> set[str]:
     return names
 
 
+def _reader_names(node: ast.AST) -> set[str]:
+    """Actual AST calls, bound-method callbacks, and dynamic reader lookup."""
+
+    names = _called_names(node) & READS
+    for child in ast.walk(node):
+        if isinstance(child, ast.Attribute) and child.attr in READS:
+            names.add(child.attr)
+        elif isinstance(child, ast.Call) and isinstance(child.func, ast.Name) and child.func.id == "getattr":
+            if len(child.args) > 1 and isinstance(child.args[1], ast.Constant) and child.args[1].value in READS:
+                names.add(child.args[1].value)
+    return names
+
+
 def _has_guard(node: ast.AST) -> bool:
     return bool(_called_names(node) & GUARD_CALLS)
 
@@ -172,9 +241,13 @@ def test_every_exact_door_calls_the_guard() -> None:
         if helper is None:
             assert _has_guard(functions[name]), key
         else:
-            assert helper in _called_names(functions[name]), key
-            assert helper in functions, key
-            assert _has_guard(functions[helper]), helper
+            helper_path, helper_name = helper.split(":", 1) if ":" in helper else (path, helper)
+            assert helper_name in _called_names(functions[name]), key
+            if helper_path not in modules:
+                modules[helper_path] = ast.parse((SRC / "alicebot_api" / helper_path).read_text(encoding="utf-8"))
+            helper_functions = dict(_functions(modules[helper_path]))
+            assert helper_name in helper_functions, key
+            assert _has_guard(helper_functions[helper_name]), helper
 
 
 def test_every_scanned_reader_is_classified() -> None:
@@ -184,8 +257,15 @@ def test_every_scanned_reader_is_classified() -> None:
         tree = ast.parse((SRC / relative).read_text(encoding="utf-8"))
         short = relative.removeprefix("alicebot_api/")
         for name, node in _functions(tree):
-            if _called_names(node) & READS:
+            if _reader_names(node):
                 key = f"{short}:{name}"
                 if key not in classified:
                     missing.append(key)
     assert missing == []
+
+
+def test_discovery_catches_new_direct_and_dynamic_readers() -> None:
+    for source in ("def added(store): return store.list_events()", "def added(store): return getattr(store, 'list_memories')()", "def added(store): return invoke(store.list_beliefs)"):
+        node = ast.parse(source).body[0]
+        assert _reader_names(node)
+        assert "added" not in DOORS and "added" not in NOT_A_DOOR

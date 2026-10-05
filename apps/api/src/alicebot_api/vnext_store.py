@@ -530,6 +530,73 @@ class PostgresVNextStore:
             (wanted,),
         )
 
+    def iter_label_rows(self, kind: str, *, batch_size: int = 200) -> Iterator[list[VNextRow]]:
+        """Complete counted population, in narrow keyset batches under tenant RLS."""
+
+        if batch_size < 1:
+            raise ValueError("batch_size must be positive")
+        table = {"source": "sources", "memory": "memories", "open_loop": "open_loops",
+                 "artifact": "generated_artifacts", "project": "projects"}.get(kind)
+        if table is None:
+            raise ValueError("unsupported label kind")
+        extra = ""
+        if kind == "memory":
+            extra = ", status, value, project_id, source_event_ids, deleted_at"
+        elif kind == "open_loop":
+            extra = ", status, project_id, source_id, memory_id"
+        elif kind == "artifact":
+            extra = ", status, artifact_type"
+        elif kind == "project":
+            extra = ", status"
+        live = " AND deleted_at IS NULL" if kind in {"source", "memory"} else ""
+        after: str | None = None
+        while True:
+            rows = self._fetch_all(
+                f"""SELECT id, user_id, domain, sensitivity, metadata_json{extra}
+                    FROM {table}
+                    WHERE (%s::uuid IS NULL OR id > %s::uuid){live}
+                    ORDER BY id LIMIT %s""",
+                (after, after, batch_size),
+            )
+            if not rows:
+                return
+            yield rows
+            after = str(rows[-1]["id"])
+
+    def iter_label_events(self, *, batch_size: int = 200) -> Iterator[list[VNextRow]]:
+        """Complete event targets for readable counts, without event payloads."""
+
+        if batch_size < 1:
+            raise ValueError("batch_size must be positive")
+        after: str | None = None
+        while True:
+            rows = self._fetch_all(
+                """SELECT id, target_type, target_id, event_type FROM event_log
+                   WHERE (%s::uuid IS NULL OR id > %s::uuid) ORDER BY id LIMIT %s""",
+                (after, after, batch_size),
+            )
+            if not rows:
+                return
+            yield rows
+            after = str(rows[-1]["id"])
+
+    def iter_label_ratings(self, *, batch_size: int = 200) -> Iterator[list[VNextRow]]:
+        """Complete rating targets for counts, without feedback text."""
+
+        if batch_size < 1:
+            raise ValueError("batch_size must be positive")
+        after: str | None = None
+        while True:
+            rows = self._fetch_all(
+                """SELECT id, artifact_id FROM artifact_quality_ratings
+                   WHERE (%s::uuid IS NULL OR id > %s::uuid) ORDER BY id LIMIT %s""",
+                (after, after, batch_size),
+            )
+            if not rows:
+                return
+            yield rows
+            after = str(rows[-1]["id"])
+
     def _fetch_one(
         self,
         operation_name: str,

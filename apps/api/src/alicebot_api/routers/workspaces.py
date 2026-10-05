@@ -85,13 +85,14 @@ def _workspace_rows(store: PostgresVNextStore, kind: str, rows: Sequence[Mapping
 
 
 def _vnext_workspace_payload(store: PostgresVNextStore) -> dict[str, object]:
-    from alicebot_api.vnext_label_guard import LabelGuard, readable_count, readable_status_counts
+    from alicebot_api.vnext_label_guard import LabelGuard
 
     sensitivity_allowed = ["public", "internal", "private", "unknown"]
+    guard = LabelGuard.for_filters(store, (), sensitivity_allowed, ())
     review_statuses = ["candidate", "needs_review", "private_only", "accepted", "rejected"]
     fetched_sources = store.list_sources(sensitivity_allowed=sensitivity_allowed, limit=20)
     sources = _workspace_rows(store, "source", fetched_sources, sensitivity_allowed)
-    source_count = readable_count(store.count_sources(), len(fetched_sources), len(sources))
+    source_count = sum(guard.readable_status_counts("source").values())
     list_memories_by_statuses = getattr(store, "list_memories_by_statuses", None)
     if callable(list_memories_by_statuses):
         fetched_memories = list_memories_by_statuses(
@@ -104,53 +105,31 @@ def _vnext_workspace_payload(store: PostgresVNextStore) -> dict[str, object]:
             memory for memory in store.list_memories(status=None) if str(memory.get("status")) in set(review_statuses)
         ][:30]
     review_memories = _workspace_rows(store, "memory", fetched_memories, sensitivity_allowed)
-    count_memories_by_status = getattr(store, "count_memories_by_status", None)
-    memory_status_counts = (
-        count_memories_by_status(sensitivity_allowed=sensitivity_allowed)
-        if callable(count_memories_by_status)
-        else _vnext_status_counts(fetched_memories)
-    )
-    memory_status_counts = readable_status_counts(memory_status_counts, fetched_memories, review_memories)
+    memory_status_counts = guard.readable_status_counts("memory")
     review_memory_total = sum(memory_status_counts.get(status, 0) for status in review_statuses)
     fetched_artifacts = store.list_artifacts(sensitivity_allowed=sensitivity_allowed, limit=30)
     artifacts = _workspace_rows(store, "artifact", fetched_artifacts, sensitivity_allowed)
-    artifact_count = readable_count(store.count_artifacts(), len(fetched_artifacts), len(artifacts))
-    artifact_status_counts = readable_status_counts(
-        store.count_artifacts_by_status(),
-        fetched_artifacts,
-        artifacts,
+    artifact_status_counts = guard.readable_status_counts("artifact")
+    artifact_count = sum(artifact_status_counts.values())
+    quality_evals = guard.admit_related_rows(store.list_artifact_quality_ratings(limit=50), kind="artifact", field="artifact_id")
+    quality_eval_count = sum(
+        len(guard.admit_related_rows(batch, kind="artifact", field="artifact_id"))
+        for batch in store.iter_label_ratings()
     )
-    quality_evals = store.list_artifact_quality_ratings(limit=50)
-    quality_eval_count = store.count_artifact_quality_ratings()
     fetched_projects = store.list_projects(status=None, sensitivity_allowed=sensitivity_allowed, limit=20)
     projects = _workspace_rows(store, "project", fetched_projects, sensitivity_allowed)
-    project_count = readable_count(store.count_projects(), len(fetched_projects), len(projects))
+    project_count = sum(guard.readable_status_counts("project").values())
     fetched_loops = store.list_open_loops(status=None, sensitivity_allowed=sensitivity_allowed, limit=30)
     open_loops = _workspace_rows(store, "open_loop", fetched_loops, sensitivity_allowed)
-    open_loop_status_counts = readable_status_counts(
-        store.count_open_loops_by_status(),
-        fetched_loops,
-        open_loops,
-    )
-    stored_open_loop_count = store.count_open_loops(status="open")
-    open_loop_count = (
-        stored_open_loop_count
-        if len(fetched_loops) == len(open_loops)
-        else int(open_loop_status_counts.get("open", stored_open_loop_count))
-    )
+    open_loop_status_counts = guard.readable_status_counts("open_loop")
+    open_loop_count = open_loop_status_counts.get("open", 0)
     people = store.list_people(sensitivity_allowed=sensitivity_allowed, limit=12)
     fetched_beliefs = store.list_beliefs(status=None, sensitivity_allowed=sensitivity_allowed, limit=12)
     beliefs = LabelGuard.for_filters(store, (), sensitivity_allowed, ()).admit_beliefs(fetched_beliefs)
     tasks = store.list_tasks(status=None, limit=12)
     fetched_events = store.list_events(limit=20)
-    recent_events = [
-        event
-        for event in fetched_events
-        if _workspace_event_visible(store, event, sensitivity_allowed)
-    ]
-    count_events = getattr(store, "count_events", None)
-    stored_event_count = count_events() if callable(count_events) else len(fetched_events)
-    event_count = readable_count(stored_event_count, len(fetched_events), len(recent_events))
+    recent_events = guard.admit_events(fetched_events)
+    event_count = guard.readable_event_count()
     agent_identities = store.list_agent_identities(limit=20)
     agent_count = store.count_agent_identities()
     agent_events = store.list_agent_events(limit=50)

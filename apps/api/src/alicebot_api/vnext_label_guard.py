@@ -129,10 +129,6 @@ class LabelGuard:
 
         if not self.active:
             return [row for row in rows if isinstance(row, Mapping)]
-        # Compatibility stores without an ancestry reader may retain SQL-filtered
-        # rows only when no locked all-of binding needs verification.
-        if not callable(getattr(self.store, "read_label_rows", None)):
-            return [] if self.all_of is not None else [row for row in rows if isinstance(row, Mapping)]
         kept: list[_Row] = []
         for row in rows:
             if not isinstance(row, Mapping):
@@ -141,6 +137,61 @@ class LabelGuard:
             if isinstance(effective, Mapping) and self._admits_effective(effective, kind=kind):
                 kept.append(row)
         return kept
+
+    def readable_status_counts(self, kind: str) -> dict[str, int]:
+        """Count the complete population through the same effective admission.
+
+        Display pages and stored-label SQL counts cannot establish this total.
+        Stores must expose the complete narrow population rather than guessing
+        a restricted total from a sample.
+        """
+
+        iterator = getattr(self.store, "iter_label_rows", None)
+        if not callable(iterator):
+            raise TypeError("readable counts require complete label enumeration")
+        counts: dict[str, int] = {}
+        for batch in iterator(kind):
+            for row in self.admit_rows(kind, batch):
+                status = str(row.get("status", "unknown"))
+                counts[status] = counts.get(status, 0) + 1
+        return counts
+
+    def admit_related_rows(self, rows: Sequence[_Row], *, kind: str, field: str) -> list[_Row]:
+        """Admit an event or rating by its target's current effective label."""
+
+        if not self.active:
+            return [row for row in rows if isinstance(row, Mapping)]
+        reader = getattr(self.store, "read_label_rows", None)
+        if not callable(reader):
+            return []
+        ids = list(dict.fromkeys(str(row.get(field)) for row in rows if row.get(field)))
+        found = list(reader(kind, ids)) if ids else []
+        admitted = {str(row.get("id")) for row in (
+            self.admit_beliefs(found) if kind == "belief" else self.admit_rows(kind, found)
+        )}
+        return [row for row in rows if str(row.get(field) or "") in admitted]
+
+    def admit_events(self, rows: Sequence[_Row]) -> list[_Row]:
+        """Known label targets are admitted before an event exposes their IDs."""
+
+        if not self.active:
+            return [row for row in rows if isinstance(row, Mapping)]
+        admitted: set[int] = set()
+        kinds = {"source", "memory", "open_loop", "artifact", "project", "belief"}
+        for kind in kinds:
+            targets = [row for row in rows if str(row.get("target_type")) == kind]
+            admitted.update(id(row) for row in self.admit_related_rows(targets, kind=kind, field="target_id"))
+        return [row for row in rows if id(row) in admitted or (
+            str(row.get("target_type")) not in kinds and not str(row.get("event_type", "")).endswith(".labels_raised")
+        )]
+
+    def readable_event_count(self) -> int:
+        """Complete event count after current target admission."""
+
+        iterator = getattr(self.store, "iter_label_events", None)
+        if not callable(iterator):
+            raise TypeError("readable counts require complete event enumeration")
+        return sum(len(self.admit_events(batch)) for batch in iterator())
 
     def admit_beliefs(self, beliefs: Sequence[_Row]) -> list[_Row]:
         """Beliefs whose backing memory the filters admit. One batched read."""
@@ -277,44 +328,6 @@ def apply_sensitivity_ceiling(
         sensitivity_allowed=ceiling,
         projects=(),
     )
-
-
-def readable_count(sql_count: int, fetched: int, admitted: int) -> int:
-    """A stored count, reduced only by rows this page's guard dropped.
-
-    When the guard drops nothing the stored count is returned unchanged.
-    When the fetched page is the whole set, the count is the admitted length.
-    """
-
-    dropped = fetched - admitted
-    if dropped <= 0:
-        return sql_count
-    if sql_count <= fetched:
-        return admitted
-    return max(0, sql_count - dropped)
-
-
-def readable_status_counts(
-    counts: Mapping[str, int],
-    fetched: Sequence[Mapping[str, object]],
-    admitted: Sequence[Mapping[str, object]],
-    *,
-    field: str = "status",
-) -> dict[str, int]:
-    """Status counts with one taken off for each row the guard dropped."""
-
-    if len(fetched) == len(admitted):
-        return dict(counts)
-    kept = {id(row) for row in admitted}
-    updated = dict(counts)
-    for row in fetched:
-        if id(row) in kept:
-            continue
-        status = str(row.get(field, "unknown"))
-        current = int(updated.get(status, 0))
-        if current > 0:
-            updated[status] = current - 1
-    return updated
 
 
 def apply_unverified_rule(
