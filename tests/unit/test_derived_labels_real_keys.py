@@ -85,6 +85,29 @@ def test_sqlite_real_key_core_doors(tmp_path, monkeypatch, reader):
                 assert str(row["title"]) not in rendered
 
 
+@pytest.mark.parametrize("reader", READERS)
+def test_original_loop_holds_back_stale_backing_memory_reference(tmp_path, monkeypatch, reader):
+    user_id = uuid4()
+    path = tmp_path / "loop-refs.sqlite3"
+    bootstrap_database(path, user_id=str(user_id), user_email="synthetic@example.invalid")
+    monkeypatch.setenv("ALICE_MCP_FULL_TOOLS", "1")
+    monkeypatch.setenv("ALICE_PROJECT_SCOPING", "off")
+    monkeypatch.delenv("ALICE_AGENT_API_KEY", raising=False)
+    monkeypatch.delenv("ALICE_EMBEDDINGS_BASE_URL", raising=False)
+    with sqlite_user_connection(path, user_id) as conn:
+        store = SQLiteVNextStore(conn, user_id)
+        memory = seed_read_rows(store)["verified_confidential"]
+        loop = store.create_open_loop({"title": "Visible original loop", "memory_id": str(memory["id"]), "domain": "project", "sensitivity": "public", "metadata_json": {"project_scope": [ALPHA]}})
+        key = real_reader_key(store, user_id, reader)
+    if key:
+        monkeypatch.setenv("ALICE_AGENT_API_KEY", key)
+    result = call_mcp_tool(MCPRuntimeContext(database_url=sqlite_url_for_path(path), user_id=user_id), name="alice_open_loops", arguments={"sensitivity_allowed": list(ALL_SENSITIVITY)})
+    item = next(row for row in result["items"] if str(row["id"]) == str(loop["id"]))
+    admitted = expected_read(reader, "verified_confidential")
+    assert item["memory_id"] == (str(memory["id"]) if admitted else None)
+    assert (str(memory["id"]) in json.dumps(result, default=str)) is admitted
+
+
 def test_full_owner_doctor_keeps_true_counts_and_filtered_view_skips_content(tmp_path):
     user_id = uuid4()
     path = tmp_path / "doctor.sqlite3"

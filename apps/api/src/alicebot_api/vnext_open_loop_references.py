@@ -139,7 +139,13 @@ def withhold_unreadable_references(
     source_rows = _rows_by_id(store, sorted(source_ids | metadata_ids), bulk="get_sources_by_ids", single="get_source")
     memory_rows = _rows_by_id(store, sorted(memory_ids | metadata_ids), bulk="get_memories_by_ids", single="get_memory")
     admitted_sources = frozenset(key for key, row in source_rows.items() if fence.admits(row))
-    admitted_memories = frozenset(key for key, row in memory_rows.items() if fence.admits_memory(row))
+    from alicebot_api.vnext_label_guard import LabelGuard
+
+    guard = LabelGuard.for_fence(store, fence)
+    admitted_memories = frozenset(
+        key for key, row in memory_rows.items()
+        if isinstance(effective := guard.effective_row("memory", row), Mapping) and fence.admits_memory(effective)
+    )
     refused = (set(source_rows) - admitted_sources) | (set(memory_rows) - admitted_memories)
     # Every id of a row the fence refuses, and every id at a reference position that names no admitted row (a refused,
     # a deleted, a removed or a missing one), is withheld at every position of every row of the response, in every
