@@ -534,16 +534,13 @@ def _derived_from_deps(record: object) -> tuple[str, set[tuple[str, str]]]:
         return "malformed", set()
     found: set[tuple[str, str]] = set()
     lists: dict[str, list[str]] = {}
-    repeated = False
     for key, kind in _DERIVED_FROM_KIND.items():
         if key not in record:
             lists[key] = []
             continue
         raw = record.get(key)
-        if not isinstance(raw, list) or any(not isinstance(item, str) for item in raw):
+        if not isinstance(raw, list) or any(not isinstance(item, str) or not item.strip() for item in raw):
             return "malformed", set()
-        if len(raw) != len(set(raw)):
-            repeated = True
         ids = _strings(raw)
         lists[key] = ids
         _add_ids(found, kind, ids)
@@ -554,8 +551,6 @@ def _derived_from_deps(record: object) -> tuple[str, set[tuple[str, str]]]:
         return "", found
     if not isinstance(counts, Mapping):
         return "malformed", found
-    if repeated:
-        return "", found
     for key, ids in lists.items():
         if key not in counts:
             if ids:
