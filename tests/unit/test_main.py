@@ -645,7 +645,7 @@ def test_openapi_helper_backed_contracts_track_authoritative_response_types() ->
 
 def test_openapi_store_row_contracts_track_authoritative_column_sets() -> None:
     def column_fields(columns: str) -> set[str]:
-        return {column.strip() for column in columns.split(",") if column.strip()}
+        return {column.strip().rsplit(" AS ", 1)[-1] for column in columns.split(",") if column.strip()}
 
     row_contracts = {
         ("GET", "/v0/vnext/sources/{source_id}"): SOURCE_COLUMNS,
