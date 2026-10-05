@@ -40,9 +40,9 @@ INPUT_SELECTS_V3 = {
     "beliefs": "SELECT id, user_id, memory_id FROM beliefs",
 }
 _UPDATES = {
-    "memories": "UPDATE memories SET domain = ?, sensitivity = ?, metadata_json = ? WHERE user_id = ? AND id = ?",
+    "memories": "UPDATE memories SET domain = ?, sensitivity = ?, metadata_json = json_patch(metadata_json, ?), project_id = ? WHERE user_id = ? AND id = ? AND domain = ? AND sensitivity = ? AND metadata_json = ? AND project_id IS ?",
     "open_loops": (
-        "UPDATE open_loops SET domain = ?, sensitivity = ?, metadata_json = ? WHERE user_id = ? AND id = ?"
+        "UPDATE open_loops SET domain = ?, sensitivity = ?, metadata_json = json_patch(metadata_json, ?), project_id = ? WHERE user_id = ? AND id = ? AND domain = ? AND sensitivity = ? AND metadata_json = ? AND project_id IS ?"
     ),
 }
 
@@ -84,6 +84,7 @@ def plan_label_repairs(
         for row in rows:
             node = dict(row)
             node["kind"] = kind
+            node["_stored_metadata"] = row.get("metadata_json")
             node["metadata_json"] = _json_object(row.get("metadata_json"))
             if isinstance(row.get("value"), str):
                 node["value"] = _json_object(row.get("value"))
@@ -112,6 +113,18 @@ def plan_label_repairs(
     return changes
 
 
+def label_project_id(scope: Sequence[object]) -> str | None:
+    """Mirror a single UUID scope; named and global scopes use metadata only."""
+    from uuid import UUID
+
+    if len(scope) != 1:
+        return None
+    try:
+        return str(UUID(str(scope[0])))
+    except ValueError:
+        return None
+
+
 def _load_tables(conn) -> dict[str, list[dict[str, object]]]:
     available = {
         row[0] if not isinstance(row, dict) else row["name"]
@@ -131,8 +144,8 @@ def _stamped(conn) -> bool:
     return conn.execute("SELECT value FROM alice_schema_state WHERE key = ?", (REPAIR_STATE_KEY,)).fetchone() is not None
 
 
-def relabel_labels_sqlite(conn, *, restoring: bool = False) -> None:
-    """Raise stored derived labels once, or again on a restore.
+def relabel_labels_sqlite(conn, *, restoring: bool = False, explicit: bool = False) -> None:
+    """Raise stored derived labels once, or always for a restore or owner repair.
 
     When no transaction is open this begins one and reads the state key inside
     it. A caller that already has a transaction keeps it.
@@ -143,18 +156,19 @@ def relabel_labels_sqlite(conn, *, restoring: bool = False) -> None:
         conn.execute("BEGIN IMMEDIATE")
         owns = True
     try:
-        if not restoring and _stamped(conn):
+        if not restoring and not explicit and _stamped(conn):
             if owns:
                 conn.commit()
             return
         changes = plan_label_repairs(_load_tables(conn))
-        for table, user, stored, _previous, new, node in changes:
-            metadata = dict(node.get("metadata_json") or {})
-            metadata["project_scope"] = list(new["project_scope"])
-            metadata["project_floor"] = list(new["project_floor"])
+        for table, user, stored, previous, new, node in changes:
+            metadata = {"project_scope": list(new["project_scope"]), "project_floor": list(new["project_floor"])}
+            raw_metadata = node.get("_stored_metadata")
             changed = conn.execute(
                 _UPDATES[table],
-                (new["domain"], new["sensitivity"], json.dumps(metadata), user, stored),
+                (new["domain"], new["sensitivity"], json.dumps(metadata),
+                 label_project_id(new["project_scope"]), user, stored,
+                 previous["domain"], previous["sensitivity"], raw_metadata, node.get("project_id")),
             ).rowcount
             require_changed(changed, table, stored)
         for table, user, stored, previous, new, _node in changes:
@@ -205,6 +219,7 @@ def classify_stored_labels(
         for row in rows:
             node = dict(row)
             node["kind"] = kind
+            node["_stored_metadata"] = row.get("metadata_json")
             node["metadata_json"] = _json_object(row.get("metadata_json"))
             if isinstance(row.get("value"), str):
                 node["value"] = _json_object(row.get("value"))
@@ -258,23 +273,44 @@ def format_label_check(
     return "\n".join(lines)
 
 
-def label_gap_counts(store: object) -> tuple[int, int]:
-    """How many derived rows are below their inputs, and how many are unverified.
+class LabelCheckUnavailable(RuntimeError):
+    """The label planner could not read this store; no count is available."""
 
-    A store that cannot be read returns zeros so a doctor does not fail closed.
+
+def load_postgres_label_tables(conn) -> dict[str, list[dict[str, object]]]:
+    """Read every label input using PostgreSQL's current RLS identity."""
+
+    tables = {}
+    for table, statement in INPUT_SELECTS_V3.items():
+        cursor = conn.execute(statement)
+        names = [column[0] for column in cursor.description]
+        tables[table] = [row if isinstance(row, dict) else dict(zip(names, row)) for row in cursor.fetchall()]
+    return tables
+
+
+def label_gap_counts(store: object) -> tuple[int, int]:
+    """Counts from the real store, or an explicit unavailable result.
+
+    PostgreSQL reads use a savepoint so an unavailable table does not poison
+    the doctor's surrounding application transaction.
     """
 
     conn = getattr(store, "conn", None)
     module = type(conn).__module__ if conn is not None else ""
-    if conn is None or not (module.startswith("sqlite3") or module.startswith("psycopg")):
-        return (0, 0)
     try:
-        tables = _load_tables(conn)
+        if module.startswith("sqlite3"):
+            tables = _load_tables(conn)
+        elif module.startswith("psycopg"):
+            with conn.transaction():
+                tables = load_postgres_label_tables(conn)
+        else:
+            raise LabelCheckUnavailable("derived label counts are unavailable for this store")
         below, unverified = classify_stored_labels(tables)
-    except Exception:
-        return (0, 0)
-    unverified_count = sum(len(ids) for ids in unverified.values())
-    return (len(below), unverified_count)
+    except LabelCheckUnavailable:
+        raise
+    except Exception as exc:
+        raise LabelCheckUnavailable("derived label counts could not be read") from exc
+    return len(below), sum(len(ids) for ids in unverified.values())
 
 
 def recorded_sqlite_label_repairs(conn, user_id: str) -> dict[tuple[str, str, str], set[str]]:
@@ -330,6 +366,8 @@ def recorded_sqlite_label_repairs(conn, user_id: str) -> dict[tuple[str, str, st
 
 __all__ = [
     "INPUT_SELECTS_V3",
+    "LabelCheckUnavailable",
+    "load_postgres_label_tables",
     "REPAIR_STATE_KEY",
     "DerivedDomainRepairError",
     "classify_stored_labels",

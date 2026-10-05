@@ -14,7 +14,7 @@ from sqlalchemy import text
 from alicebot_api.vnext_derived_domain_backfill import require_changed
 from alicebot_api.vnext_derived_labels import labels_raised_payload
 from alicebot_api.vnext_event_log import build_event_log_record
-from alicebot_api.vnext_label_repair import INPUT_SELECTS_V3, plan_label_repairs
+from alicebot_api.vnext_label_repair import INPUT_SELECTS_V3, plan_label_repairs, label_project_id
 
 revision = "20261005_0096"
 down_revision = "20261004_0095"
@@ -47,15 +47,17 @@ def upgrade() -> None:
     for table, statement in INPUT_SELECTS_V3.items():
         tables[table] = list(connection.execute(text(statement)).mappings())
     for table, user, row_id, previous, new, node in plan_label_repairs(tables):
-        metadata = dict(node.get("metadata_json") or {})
-        metadata["project_scope"] = list(new["project_scope"])
-        metadata["project_floor"] = list(new["project_floor"])
+        metadata = {"project_scope": list(new["project_scope"]), "project_floor": list(new["project_floor"])}
+        project_sql = ", project_id = :project_id" if table in {"memories", "open_loops"} else ""
+        project_guard = " AND project_id IS NOT DISTINCT FROM :previous_project_id" if project_sql else ""
         require_changed(
             connection.execute(
                 text(
                     f"UPDATE {table} SET domain = :domain, sensitivity = :sensitivity, "
-                    "metadata_json = CAST(:metadata AS jsonb) "
-                    "WHERE user_id = CAST(:user AS uuid) AND id = CAST(:id AS uuid)"
+                    f"metadata_json = metadata_json || CAST(:metadata AS jsonb){project_sql} "
+                    "WHERE user_id = CAST(:user AS uuid) AND id = CAST(:id AS uuid) "
+                    "AND domain = :previous_domain AND sensitivity = :previous_sensitivity "
+                    f"AND metadata_json = CAST(:previous_metadata AS jsonb){project_guard}"
                 ),
                 {
                     "domain": new["domain"],
@@ -63,6 +65,11 @@ def upgrade() -> None:
                     "metadata": json.dumps(metadata),
                     "user": user,
                     "id": row_id,
+                    "previous_domain": previous["domain"],
+                    "previous_sensitivity": previous["sensitivity"],
+                    "previous_metadata": json.dumps(node.get("metadata_json") or {}),
+                    "project_id": label_project_id(new["project_scope"]),
+                    "previous_project_id": node.get("project_id"),
                 },
             ).rowcount,
             table,
