@@ -165,3 +165,42 @@ def test_workspace_activity_uses_actual_key_and_current_targets(migrated_databas
     assert len(body["agent_activity"]["recent_commits"]) == 1
     assert len(body["agent_activity"]["inline_confirmations"]) == 1
     assert body["dogfooding"]["sample_scope"]["memories"]["total_count"] == 1
+
+
+@pytest.mark.parametrize("reader", ("owner", "admin", "trusted"))
+def test_telemetry_and_quality_ratings_use_current_target_labels(migrated_database_urls, monkeypatch, reader):
+    app_url = migrated_database_urls["app"]
+    user_id = _user(app_url)
+    for module in (vnext_projects, vnext_review):
+        monkeypatch.setattr(module, "get_settings", lambda: Settings(database_url=app_url))
+    hidden_ids = []
+    with user_connection(app_url, user_id) as conn:
+        store = PostgresVNextStore(conn)
+        source = store.create_source({"source_type": "note", "title": "Cedar hidden parent", "content_hash": str(uuid4()), "domain": "project", "sensitivity": "confidential"})
+        for hidden in (False, True):
+            metadata = {"agent_id": "synthetic-reader"}
+            if hidden:
+                metadata["source_id"] = str(source["id"])
+            derived = {"v": 1, "sources": [str(source["id"])] if hidden else [], "memories": [], "open_loops": [], "artifacts": [], "beliefs": [], "counts": {"sources": int(hidden), "memories": 0, "open_loops": 0, "artifacts": 0, "beliefs": 0}}
+            with without_insert_floor():
+                memory = store.create_memory({"memory_key": f"telemetry-{hidden}", "canonical_text": "Cedar hidden telemetry" if hidden else "Public telemetry", "domain": "project", "sensitivity": "public", "metadata_json": metadata})
+                artifact = store.create_artifact({"artifact_type": "daily_brief", "title": "Cedar hidden artifact" if hidden else "Public artifact", "content_markdown": "Public stored copy", "domain": "project", "sensitivity": "public", "metadata_json": {"agent_id": "synthetic-reader", "generated_by": "agent", "derived_from": derived}})
+            rating = store.create_artifact_quality_rating({"artifact_id": str(artifact["id"]), "reviewer_id": "synthetic-reviewer", "verbosity": "right_sized", "comments": "Cedar hidden feedback" if hidden else "Public feedback"})
+            append_event(store, event_type="agent.policy_blocked", actor_type="agent", actor_id="synthetic-reader", target_type="memory", target_id=str(memory["id"]), payload={})
+            if hidden:
+                hidden_ids.extend((str(artifact["id"]), str(rating["id"])))
+        key = real_reader_key(store, user_id, reader)
+    auth = f"Bearer {key}" if key else None
+    telemetry = vnext_projects.get_vnext_agent_policy_telemetry(user_id, authorization=auth)
+    summary = json.loads(telemetry.body)["summary"]
+    admitted_count = 1 if reader == "trusted" else 2
+    assert summary["total_agent_events"] == admitted_count
+    assert summary["memory_proposals_by_agent"] == [{"agent_id": "synthetic-reader", "count": admitted_count}]
+    assert summary["artifact_generation_by_agent"] == [{"agent_id": "synthetic-reader", "count": admitted_count}]
+    ratings = vnext_review.list_vnext_quality_evals(user_id, authorization=auth)
+    assert json.loads(ratings.body)["count"] == admitted_count
+    if reader == "trusted":
+        assert all(identifier not in ratings.body.decode() for identifier in hidden_ids)
+        assert "Cedar hidden feedback" not in ratings.body.decode()
+    else:
+        assert all(identifier in ratings.body.decode() for identifier in hidden_ids)

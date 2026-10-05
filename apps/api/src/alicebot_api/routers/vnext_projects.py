@@ -382,17 +382,32 @@ def get_vnext_agent_policy_telemetry(
     user_id: UUID,
     agent_id: str | None = None,
     limit: Annotated[int, Query(ge=1, le=200)] = 200,
+    authorization: str | None = Header(default=None),
 ) -> JSONResponse:
+    from alicebot_api.vnext_agent_control import ALL_SENSITIVITY
+    from alicebot_api.vnext_label_guard import LabelGuard, sensitivity_ceiling
+
     settings = get_settings()
     bounded_limit = min(max(limit, 1), 200)
 
-    with user_connection(settings.database_url, user_id) as conn:
-        store = PostgresVNextStore(conn)
-        payload = summarize_agent_policy_telemetry(
-            agent_events=store.list_agent_events(agent_id=agent_id, limit=bounded_limit),
-            artifacts=store.list_agent_policy_artifacts(agent_id=agent_id, limit=bounded_limit),
-            memories=store.list_agent_policy_memories(agent_id=agent_id, limit=bounded_limit),
-        )
+    try:
+        with user_connection(settings.database_url, user_id) as conn:
+            store = PostgresVNextStore(conn)
+            identity = resolve_protected_agent_identity(
+                store, user_id=user_id, raw_key=agent_key_from_authorization(authorization), payload={},
+            )
+            projects = identity.project_scope if identity is not None else ()
+            guard = LabelGuard.for_filters(
+                store, (), sensitivity_ceiling(identity) or ALL_SENSITIVITY, projects,
+                all_of=projects if identity is not None and identity.project_scope_locked else None,
+            )
+            payload = summarize_agent_policy_telemetry(
+                agent_events=guard.admit_events(store.list_agent_events(agent_id=agent_id, limit=bounded_limit)),
+                artifacts=guard.admit_rows("artifact", store.list_agent_policy_artifacts(agent_id=agent_id, limit=bounded_limit)),
+                memories=guard.admit_rows("memory", store.list_agent_policy_memories(agent_id=agent_id, limit=bounded_limit)),
+            )
+    except AgentKeyAuthenticationError as exc:
+        return _vnext_agent_auth_error_response(exc)
 
     return JSONResponse(status_code=200, content=jsonable_encoder({"summary": payload}))
 
