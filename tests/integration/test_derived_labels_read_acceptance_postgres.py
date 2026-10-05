@@ -106,9 +106,6 @@ def test_all_five_operator_screens_with_real_keys(migrated_database_urls, monkey
 def test_workspace_counts_full_population_with_sql_hidden_and_stale_rows(migrated_database_urls, monkeypatch):
     app_url = migrated_database_urls["app"]
     user_id = _user(app_url)
-    # The doctor has its own store-specific repair acceptance test. Keep this
-    # count probe independent of that ancillary diagnostic implementation.
-    monkeypatch.setattr(workspaces.VNextDoctorService, "run", lambda self, **kwargs: {})
     with user_connection(app_url, user_id) as conn:
         store = PostgresVNextStore(conn)
         secret = store.create_source({"source_type": "note", "title": "Cedar hidden", "content_hash": str(uuid4()), "domain": "project", "sensitivity": "confidential"})
@@ -138,7 +135,6 @@ def test_workspace_activity_uses_actual_key_and_current_targets(migrated_databas
     app_url = migrated_database_urls["app"]
     user_id = _user(app_url)
     monkeypatch.setattr(workspaces, "get_settings", lambda: Settings(database_url=app_url))
-    monkeypatch.setattr(workspaces.VNextDoctorService, "run", lambda self, **kwargs: {})
     hidden_ids = []
     visible_ids = []
     with user_connection(app_url, user_id) as conn:
