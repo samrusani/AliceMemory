@@ -220,7 +220,7 @@ EXPECTED_CLASS_ORDERS = {
     # 040a2a10 with ``savepoint`` added at the end and nothing else moved (reviewed change, not drift).
     # Label lock: lock_label_writes and read_label_rows follow __init__. Dropping
     # those two names restores the previous receipt (172, 6f1a459f...).
-    "PostgresVNextStore": (174, "095250b8a77d6c0a32d2783343916b947bcae8ae86e3a1693e47c2fb11802211"),
+    "PostgresVNextStore": (176, "3549d6ea179f4ebc2341f1c251f139dfb747d56700a4554aef114150efed5c3f"),
     # One SQLite-only method more, ``check_source_search_query``: the Postgres
     # source search has no expression-depth or LIKE-length limit to check.
     # Merge of #500 and #502 (2026-10-01): one more SQLite-only method,
