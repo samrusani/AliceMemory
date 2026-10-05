@@ -11,7 +11,7 @@ from alicebot_api.db import user_connection
 from alicebot_api.mcp.registry import MCPToolNotFoundError, call_mcp_tool
 from alicebot_api.mcp.types import MCPRuntimeContext, MCPToolError
 from alicebot_api.routers import vnext_memories, vnext_projects, vnext_retrieval, vnext_review
-from alicebot_api.vnext_label_writes import without_insert_floor
+from alicebot_api.vnext_label_writes import held_label_locks, without_insert_floor
 from alicebot_api.vnext_store import PostgresVNextStore
 from tests.integration.test_derived_labels_read_acceptance_postgres import _user
 from tests.unit.test_derived_labels_real_keys import ALPHA, real_reader_key
@@ -59,6 +59,18 @@ def test_exact_entrypoint_checks_effective_floor(migrated_database_urls, monkeyp
     monkeypatch.setenv("ALICE_MCP_LEGACY_TOOLS", "1")
     monkeypatch.delenv("ALICE_AGENT_API_KEY", raising=False)
     monkeypatch.delenv("ALICE_EMBEDDINGS_BASE_URL", raising=False)
+    mutation_locks = []
+    if door in {"memory_review_http", "memory_correct_mcp", "memory_redact_mcp"}:
+        for method_name in ("get_memory_for_update", "get_memory_for_redaction"):
+            original = getattr(PostgresVNextStore, method_name)
+
+            def checked(store, *args, _original=original, **kwargs):
+                locks = held_label_locks(store)
+                assert locks == (True, True, True), (door, locks)
+                mutation_locks.append(locks)
+                return _original(store, *args, **kwargs)
+
+            monkeypatch.setattr(PostgresVNextStore, method_name, checked)
     with user_connection(app_url, user_id) as conn:
         store = PostgresVNextStore(conn)
         key = real_reader_key(store, user_id, reader)
@@ -78,6 +90,7 @@ def test_exact_entrypoint_checks_effective_floor(migrated_database_urls, monkeyp
                 else:
                     row = store.create_memory({"memory_key": str(uuid4()), "title": "Door sentinel", "canonical_text": "Door sentinel", "status": "candidate", "domain": "project", "sensitivity": "public", "metadata_json": metadata})
         blocked = hidden and reader == "bound_admin"
+        mutation_locks.clear()
         if door.startswith("legacy_") and key:
             with pytest.raises(MCPToolNotFoundError, match="disabled whenever"):
                 _invoke(door, app_url=app_url, user_id=user_id, target_id=str(row["id"]), key=key, tmp_path=tmp_path)
@@ -98,6 +111,18 @@ def test_exact_entrypoint_checks_effective_floor(migrated_database_urls, monkeyp
             else:
                 assert not blocked, (door, reader, hidden, json.dumps(result, default=str))
                 assert str(row["id"]) in json.dumps(result, default=str)
+        if door in {"memory_review_http", "memory_correct_mcp", "memory_redact_mcp"}:
+            if not blocked:
+                assert mutation_locks, (door, reader, hidden)
+            with user_connection(app_url, user_id) as conn:
+                stored = conn.execute("SELECT status, deleted_at FROM memories WHERE id=%s", (row["id"],)).fetchone()
+            if blocked:
+                assert stored["status"] == "candidate"
+                assert stored["deleted_at"] is None
+            elif door == "memory_redact_mcp":
+                assert stored["deleted_at"] is not None
+            else:
+                assert stored["status"] == "active"
 
 
 @pytest.mark.parametrize("reader", ("owner", "bound_admin"))

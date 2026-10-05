@@ -74,6 +74,7 @@ def test_existing_rollup_state_admits_effective_labels_for_pending_and_accepted_
     with user_connection(migrated_database_urls["app"], user_id) as conn:
         ContinuityStore(conn).create_user(user_id, f"existing-{user_id}@example.invalid", "Existing")
         store = PostgresVNextStore(conn)
+        lock_label_fixture(store)
         members = seed_members(store)
         service = VNextRollupService(store)
         proposal = service.propose_rollups(projects=(ALPHA,))
