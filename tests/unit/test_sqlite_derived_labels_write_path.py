@@ -76,7 +76,7 @@ def test_an_update_that_omits_a_marker_keeps_it(tmp_path: Path) -> None:
     path = tmp_path / "vault.sqlite3"
     with _vault(path) as conn:
         store = SQLiteVNextStore(conn, USER)
-        health = add_memory(store, key="health", text="A restricted observation", domain="health")
+        health = add_memory(store, key="health", text="A restricted observation", domain="health", scope=(ALPHA,))
         with without_insert_floor():
             derived = store.create_memory(
                 {

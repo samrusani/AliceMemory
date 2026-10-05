@@ -480,6 +480,10 @@ class PostgresVNextStore:
             cur.execute(
                 f"SELECT {mode}(hashtext('vnext_labels'), hashtext(app.current_user_id()::text))"
             )
+        from alicebot_api.vnext_label_writes import _in_transaction, LabelLockOrderError
+
+        if not _in_transaction(self):
+            raise LabelLockOrderError("label writes require an open transaction")
 
     def read_label_rows(self, kind: str, ids: Sequence[str]) -> list[VNextRow]:
         """Narrow label rows for the insert floor. No text columns."""
@@ -1250,6 +1254,9 @@ class PostgresVNextStore:
 
     @takes_label_lock
     def update_source(self, *, source_id: str, patch: JsonObject, actor_type: str = "system") -> VNextRow:
+        from alicebot_api.vnext_label_writes import prepare_label_patch
+
+        patch = prepare_label_patch(self, "source", self.get_source(source_id), patch)
         with self.conn.cursor() as cur:
             cur.execute(
                 f"""
@@ -1723,6 +1730,9 @@ class PostgresVNextStore:
 
     @takes_label_lock
     def create_project(self, project: JsonObject, *, actor_type: str = "system") -> VNextRow:
+        from alicebot_api.vnext_label_writes import apply_insert_floor, remember_floor_event
+
+        project, floor_event = apply_insert_floor(self, "project", project)
         row = self._fetch_one(
             "create_project",
             f"""
@@ -1771,6 +1781,7 @@ class PostgresVNextStore:
             target_id=row["id"],
             payload={"operation": "create", "fields": _sorted_field_names(project)},
         )
+        remember_floor_event(self, floor_event, row["id"])
         return row
 
     def get_project(self, project_id: str) -> VNextRow | None:
@@ -1843,6 +1854,26 @@ class PostgresVNextStore:
 
     @takes_label_lock
     def update_project(self, *, project_id: str, patch: JsonObject, actor_type: str = "system") -> VNextRow:
+        from alicebot_api.vnext_label_writes import (
+            apply_insert_floor, merge_protected_metadata, prepare_label_patch,
+            propagate_after_write, remember_floor_event,
+        )
+
+        before = self.get_project(project_id)
+        patch = dict(patch)
+        metadata = patch.get("metadata_json")
+        floor_event = None
+        if isinstance(metadata, dict) and before is not None:
+            patch["metadata_json"] = merge_protected_metadata(
+                before.get("metadata_json") if isinstance(before.get("metadata_json"), dict) else {},
+                metadata,
+                label_write="derived_from" in metadata,
+            )
+            if "derived_from" in metadata:
+                floored, floor_event = apply_insert_floor(self, "project", {**before, **patch})
+                for key in ("domain", "sensitivity", "metadata_json"):
+                    patch[key] = floored[key]
+        patch = prepare_label_patch(self, "project", before, patch)
         row = self._fetch_one(
             "update_project",
             f"""
@@ -1876,6 +1907,8 @@ class PostgresVNextStore:
             target_id=row["id"],
             payload={"operation": "update", "changes": patch},
         )
+        remember_floor_event(self, floor_event, row["id"])
+        propagate_after_write(self, kind="project", before=before, after=row)
         return row
 
     def create_person(self, person: JsonObject, *, actor_type: str = "system") -> VNextRow:

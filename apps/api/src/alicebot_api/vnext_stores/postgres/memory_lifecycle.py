@@ -362,6 +362,9 @@ def lock_graph_mutation(self) -> None:
         correction, forgetting, and transitions. Released automatically at
         commit/rollback.
         """
+    from alicebot_api.vnext_label_writes import before_graph_lock
+
+    before_graph_lock(self)
     with self.conn.cursor() as cur:
         cur.execute(
             "SELECT pg_advisory_xact_lock(hashtext('vnext_supersession'), hashtext(app.current_user_id()::text))"
@@ -451,8 +454,9 @@ def update_memory(
                 label_write=label_write,
             )
     if before_label is not None:
-        from alicebot_api.vnext_label_writes import clamp_owner_patch
+        from alicebot_api.vnext_label_writes import clamp_owner_patch, prepare_label_patch
 
+        patch = prepare_label_patch(self, "memory", before_label, patch)
         patch = clamp_owner_patch(self, kind="memory", before=before_label, patch=patch)
     row = self._fetch_one(
         "update_memory",
