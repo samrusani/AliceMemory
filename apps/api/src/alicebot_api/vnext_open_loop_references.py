@@ -67,11 +67,12 @@ statement each, at most ``_LOOKUP_BATCH`` ids at a time, and are skipped when th
 from __future__ import annotations
 
 import inspect
+import json
 import re
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from uuid import UUID
 
-from alicebot_api.vnext_source_fence import SOURCE_REFERENCE_KEYS, SourceReadFence, cited_source_ids
+from alicebot_api.vnext_source_fence import SOURCE_REFERENCE_KEYS, SourceReadFence, _json_container, cited_source_ids
 
 JsonObject = dict[str, object]
 
@@ -131,6 +132,9 @@ def withhold_unreadable_references(
         if memory is not None:
             memory_ids.add(memory)
             referenced.add(memory)
+        named = cited_source_ids(row.get("metadata_json")).named
+        metadata_ids.update(named)
+        referenced.update(named)
         _collect_ids(row.get("metadata_json"), metadata_ids, referenced, at_reference=False, depth=0)
     source_rows = _rows_by_id(store, sorted(source_ids | metadata_ids), bulk="get_sources_by_ids", single="get_source")
     memory_rows = _rows_by_id(store, sorted(memory_ids | metadata_ids), bulk="get_memories_by_ids", single="get_memory")
@@ -366,6 +370,12 @@ def _scrub(value: object, *, depth: int, withheld: frozenset[str]) -> object:
     if depth > _METADATA_MAX_DEPTH:
         return _DROPPED
     if isinstance(value, str):
+        decoded = _json_container(value)
+        if decoded is not None:
+            checked = _scrub(decoded, depth=depth + 1, withheld=withheld)
+            if checked is _DROPPED:
+                return _DROPPED
+            return value if checked == decoded else json.dumps(checked)
         return _scrub_text(value, withheld=withheld)
     if isinstance(value, Mapping):
         output: dict[object, object] = {}

@@ -313,6 +313,45 @@ def test_the_open_loop_list_withholds_what_the_reader_may_not_read(world: _World
     world.check_payload(reader, items, where="list")
 
 
+@pytest.mark.parametrize("reference_key", ("source_refs", "sources"))
+@pytest.mark.parametrize("layout", ("object", "duplicate_key", "nested_text"))
+def test_encoded_json_references_are_withheld_on_the_real_key_list(world: _World, reference_key: str, layout: str) -> None:
+    """A real key list removes decoded refused ids and keeps the admitted id and nearby values.
+
+    The owner receives the stored text unchanged. Mutations: stop decoding JSON in ``_scrub``, or stop adding the
+    canonical metadata names before lookup (the ``sources`` alias then leaves the refused id).
+    """
+
+    hidden, admitted = world.sources["beta"], world.sources["own"]
+    encode = lambda value: "".join("\\u%04x" % ord(char) for char in value)
+    refs = '["' + encode(hidden) + '", "' + encode(admitted) + '"]'
+    if layout == "object":
+        text = '{"source_ids": ' + refs + ', "kept": "cobalt"}'
+    elif layout == "duplicate_key":
+        text = '{"source_id": "' + encode(hidden) + '", "source_id": "' + encode(admitted) + '", "kept": "cobalt"}'
+    else:
+        text = json.dumps({"source_refs": '{"source_ids": ' + refs + ', "kept": "cobalt"}', "outer": "amber"})
+    metadata = {"project_scope": ["alpha"], reference_key: text, "kept": "control"}
+    world._plant("encoded", metadata=metadata)
+    loop_id = world.loops["encoded"]
+    # This is the only loop returned, so another loop's column cannot supply the encoded id to the shared lookup.
+    world.vault.sql("DELETE FROM open_loops WHERE id != ?", (loop_id,))
+    owner = world.vault.wire("alice_open_loops", {"status": "all", "limit": 100}, key=None)
+    assert owner["is_error"] is False
+    assert len(owner["payload"]["items"]) == 1
+    stored = next(item for item in owner["payload"]["items"] if str(item["id"]) == loop_id)
+    assert stored["metadata_json"] == metadata
+    item = next(item for item in world.list_items("alpha_project") if str(item["id"]) == loop_id)
+    checked = item["metadata_json"]
+    from alicebot_api.vnext_source_fence import cited_source_ids
+
+    assert cited_source_ids(checked).named == {admitted}
+    assert checked["kept"] == "control"
+    assert "cobalt" in str(checked[reference_key])
+    if layout == "nested_text":
+        assert "amber" in str(checked[reference_key])
+
+
 @pytest.mark.parametrize("reader", _UPDATERS)
 @pytest.mark.parametrize("name", sorted(("own", "health", "confidential", "old_beta", "old_global", "old_deleted", "old_ghost", "old_upper", "old_metadata")))
 def test_the_open_loop_update_actions_withhold_what_the_reader_may_not_read(world: _World, reader: str, name: str) -> None:
@@ -1033,6 +1072,19 @@ def test_metadata_nested_deeper_than_the_scan_reads_is_dropped_and_does_not_rais
     while isinstance(node, dict) and "k" in node:
         depth, node = depth + 1, node["k"]
     assert depth < 100 and "bottom" not in json.dumps(metadata)
+
+
+def test_json_text_at_the_metadata_depth_limit_is_dropped_without_raising() -> None:
+    """Decoded JSON obeys the same depth bound. Mutation: serialize ``_DROPPED`` instead of propagating it."""
+
+    from alicebot_api.vnext_open_loop_references import _METADATA_MAX_DEPTH
+
+    nested: object = json.dumps({"source_refs": [str(uuid4())], "note": "cobalt"})
+    for _ in range(_METADATA_MAX_DEPTH - 1):
+        nested = {"deep": nested}
+    out = withhold_unreadable_references(_Rows(), [_loop(metadata_json={"kept": "control", "deep": nested})], fence=_FENCE)
+    assert out[0]["metadata_json"]["kept"] == "control"
+    assert "cobalt" not in json.dumps(out)
 
 
 def test_the_owners_fence_admits_a_live_row_of_any_project_and_refuses_a_deleted_one() -> None:
