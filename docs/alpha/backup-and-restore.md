@@ -313,7 +313,11 @@ counts as a recorded input is under [Derived row domains](mcp-tools.md#derived-r
 
 Unreleased (on main, not in v0.20.0): `alice-memory labels check` prints how many
 derived rows are below their inputs or unverified, and `alice-memory labels repair`
-raises the rows that are below their inputs. Run check after a restore.
+raises the rows that are below their inputs. Check reads a private snapshot and
+does not upgrade the live vault. Explicit repair checks every time, including
+after the open pass has stamped completion, under `BEGIN IMMEDIATE`; a failure
+rolls back the whole repair. The open pass remains a one-time upgrade, and a
+restore always repairs its staged copy before publication. Run check after a restore.
 
 This command restores a SQLite database. It is not a PostgreSQL import.
 
@@ -466,7 +470,10 @@ inside its own transaction and turns it back on before it commits. A failure,
 including derived rows in a cycle whose labels do not settle within a bounded
 number of changes or an update that changes no row, rolls the relabels, their
 audit events and the FORCE change back together. The downgrade keeps the repaired
-labels.
+labels. `alicebot vnext labels check` uses one `REPEATABLE READ READ ONLY`
+snapshot, set before the acting user's row-security identity. Explicit repair
+takes the supersession lock, then the exclusive label lock, then ordered row
+locks; an update that changes no row rolls back the whole repair.
 
 ## Upgrade checkpoint
 
