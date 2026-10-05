@@ -162,7 +162,7 @@ def _label(row: JsonObject, *keys: str, fallback: str) -> str:
     return fallback
 
 
-def _tree_event_visible(store: object, event: JsonObject, domains: list[str], sensitivity: list[str], projects: tuple[str, ...]) -> bool:
+def _tree_event_visible(store: object, event: JsonObject, domains: list[str] | None, sensitivity: list[str], projects: tuple[str, ...]) -> bool:
     from alicebot_api.vnext_label_guard import admit_loaded
 
     kind = str(event.get("target_type") or "")

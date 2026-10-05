@@ -250,9 +250,9 @@ def apply_sensitivity_ceiling(
     store: Any,
     *,
     kind: str,
-    rows: Sequence[Mapping[str, object]],
+    rows: Sequence[_Row],
     identity: AgentIdentity | None,
-) -> list[Mapping[str, object]]:
+) -> list[_Row]:
     """Rows whose effective sensitivity is inside the caller's ceiling.
 
     A missing identity and an admin key keep every row, including its title
