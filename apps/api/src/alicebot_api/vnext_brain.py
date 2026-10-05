@@ -7,6 +7,7 @@ import inspect
 import json
 import re
 from typing import Callable, Protocol, Sequence, cast
+from uuid import UUID
 
 from alicebot_api.vnext_derived_domain import derived_domain
 from alicebot_api.vnext_agent_control import resource_project_scope
@@ -406,6 +407,21 @@ def _digest_payload(payload: object) -> str:
 
 def _canonical_project_scope(values: Sequence[object]) -> tuple[str, ...]:
     return normalize_project_scope(values)
+
+
+def _stored_open_loop_project_id(project_scope: Sequence[str]) -> str | None:
+    """Return a project id only when the single scope entry is a uuid.
+
+    ``open_loops.project_id`` is a uuid column. A free-form name stays in
+    ``metadata_json.project_scope``.
+    """
+
+    if len(project_scope) != 1:
+        return None
+    try:
+        return str(UUID(str(project_scope[0])))
+    except (ValueError, AttributeError, TypeError):
+        return None
 
 
 def _metadata_json(row: JsonObject) -> JsonObject:
@@ -988,7 +1004,7 @@ class VNextBrainService:
                 "status": "open",
                 "priority": "normal",
                 "source_id": source.get("id"),
-                "project_id": project_scope[0] if len(project_scope) == 1 else None,
+                "project_id": _stored_open_loop_project_id(project_scope),
                 "domain": source.get("domain", "unknown"),
                 "sensitivity": source.get("sensitivity", "unknown"),
                 "metadata_json": {

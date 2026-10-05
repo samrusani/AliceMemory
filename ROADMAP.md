@@ -35,6 +35,10 @@ OpenCode is an opt-in `alice-memory install` host, and from `v0.19.0` Codex is
 one too. The Claude Code plugin directory ships in `v0.19.0`. Host coverage is
 done, and the skill pack revisions are in design. Next is search quality: the
 next release is planned as a search-quality release, ahead of new features.
+Unreleased (on main, not in v0.20.0): a daily brief that discovers an open loop
+writes `open_loops.project_id` only when that single project is a UUID. A
+free-form name stays in `metadata_json.project_scope`. In v0.20.0 the name was
+written into the UUID column and the brief failed on Postgres.
 
 Of the former roadmap list, benchmark replication, multi-session synthesis
 measurement, reference integrations, SQLite vector scale, and the enterprise
