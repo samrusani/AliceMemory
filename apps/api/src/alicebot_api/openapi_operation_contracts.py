@@ -1148,6 +1148,10 @@ OPENAPI_OPERATION_RESPONSE_SCHEMAS: dict[tuple[str, str], tuple[str, dict[str, o
             closed=True,
         ),
     ),
+    ("POST", "/v0/vnext/sources/{source_id}/regenerate"): (
+        "RegenerateVnextSourceSuccessResponse",
+        _operation_schema("RegenerateVnextSourceSuccessResponse", ("source_id", "memory_ids", "open_loop_ids", "memory_count", "open_loop_count"), closed=True),
+    ),
     ("GET", "/v0/vnext/traces/sources/{source_id}"): (
         "GetVnextSourceTraceSuccessResponse",
         _operation_schema(
@@ -2081,6 +2085,9 @@ _OPENAPI_EXPLICIT_PROPERTY_SCHEMAS: dict[tuple[str, str], dict[str, dict[str, ob
     ),
     ("POST", "/v0/vnext/sources/{source_id}/review"): _typed_properties(
         objects=("source", "trace"), booleans=("archived",)
+    ),
+    ("POST", "/v0/vnext/sources/{source_id}/regenerate"): _typed_properties(
+        strings=("source_id",), string_arrays=("memory_ids", "open_loop_ids"), integers=("memory_count", "open_loop_count"),
     ),
     ("POST", "/v0/vnext/memories/{memory_id}/review"): _typed_properties(
         objects=("memory",), nullable_objects=("consolidation_acceptance",)

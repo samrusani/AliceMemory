@@ -791,6 +791,10 @@ def _handle_alice_vnext_artifact_review(context: MCPRuntimeContext, arguments: M
     actor_id: str | None = None
     trace_id: str | None = None
     with _vnext_store_context(context) as store:
+        store.lock_graph_mutation()
+        from alicebot_api.vnext_label_writes import acquire_exclusive_label_lock
+
+        acquire_exclusive_label_lock(store)
         _target, actor_type, actor_id, decision = _authorize_vnext_artifact_target(
             store,
             identity=identity,

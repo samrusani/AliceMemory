@@ -838,6 +838,12 @@ class VNextProjectService:
     ) -> JsonObject:
         if action not in PROJECT_UPDATE_ACTIONS:
             raise VNextProjectValidationError("project update action must be accept, edit, or reject")
+        lock_graph = getattr(self.store, "lock_graph_mutation", None)
+        if callable(lock_graph):
+            lock_graph()
+            from alicebot_api.vnext_label_writes import acquire_exclusive_label_lock
+
+            acquire_exclusive_label_lock(self.store)
         # The artifact is the review decision's serialization point.  Every
         # accept/edit/reject path must inspect and transition the same locked
         # row so stale reviewers cannot split project, memory, and artifact

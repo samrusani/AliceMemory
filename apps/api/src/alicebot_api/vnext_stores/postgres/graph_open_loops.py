@@ -1206,6 +1206,18 @@ def list_open_loop_events(
 
 @takes_label_lock
 def update_open_loop(self, *, loop_id: str, patch: JsonObject, actor_type: str = "system") -> VNextRow:
+    from alicebot_api.vnext_label_writes import clamp_owner_patch, merge_protected_metadata, prepare_label_patch, propagate_after_write
+
+    before = self.get_open_loop(loop_id)
+    patch = dict(patch)
+    metadata = patch.get("metadata_json")
+    if before is not None and isinstance(metadata, dict):
+        patch["metadata_json"] = merge_protected_metadata(
+            before.get("metadata_json") if isinstance(before.get("metadata_json"), dict) else {},
+            metadata, label_write=False,
+        )
+    patch = prepare_label_patch(self, "open_loop", before, patch)
+    patch = clamp_owner_patch(self, kind="open_loop", before=before, patch=patch)
     row = self._fetch_one(
         "update_open_loop",
         f"""
@@ -1243,6 +1255,7 @@ def update_open_loop(self, *, loop_id: str, patch: JsonObject, actor_type: str =
         target_id=row["id"],
         payload={"operation": "update", "changes": patch},
     )
+    propagate_after_write(self, kind="open_loop", before=before, after=row)
     return row
 
 @takes_label_lock

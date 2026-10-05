@@ -66,3 +66,32 @@ def test_checked_project_review_moves_scope_and_propagates_labels(migrated_datab
         assert summary_after["domain"] == "health"
         assert summary_after["sensitivity"] == "confidential"
         assert beta in summary_after["metadata_json"]["project_floor"]
+
+
+def test_a_relabel_traverses_the_belief_backing_memory(migrated_database_urls):
+    user_id = uuid4()
+    url = migrated_database_urls["app"]
+    with user_connection(url, user_id) as conn:
+        ContinuityStore(conn).create_user(user_id, f"belief-relabel-{user_id}@example.test", "Synthetic")
+        store = PostgresVNextStore(conn)
+        source = store.create_source({"source_type": "note", "title": "synthetic", "content_hash": str(uuid4()), "domain": "project", "sensitivity": "public"})
+        copy = store.create_memory({"memory_key": "copy", "canonical_text": "synthetic", "domain": "project", "sensitivity": "public", "metadata_json": {"source_id": str(source["id"])}})
+        belief = store.create_belief({"memory_id": str(copy["id"]), "claim": "Synthetic belief"})
+        report = store.create_artifact({"artifact_type": "contradiction_report", "title": "Synthetic", "content_markdown": "Synthetic", "domain": "project", "sensitivity": "public", "metadata_json": {"belief_ids": [str(belief["id"])]}})
+    other_user = uuid4()
+    with user_connection(url, other_user) as conn:
+        ContinuityStore(conn).create_user(other_user, f"other-belief-{other_user}@example.test", "Synthetic")
+        other_store = PostgresVNextStore(conn)
+        other_memory = other_store.create_memory({"memory_key": "other", "canonical_text": "synthetic", "domain": "project", "sensitivity": "public"})
+        other_store.create_belief({"memory_id": str(other_memory["id"]), "claim": "Other synthetic belief"})
+    with user_connection(url, user_id) as conn:
+        store = PostgresVNextStore(conn)
+        alias = "{" + str(copy["id"]).upper() + "}"
+        assert store.list_belief_ids_for_memories([alias, str(other_memory["id"])]) == [str(belief["id"])]
+        store.lock_graph_mutation()
+        store.lock_label_writes(exclusive=True)
+        store.update_source(source_id=str(source["id"]), patch={"sensitivity": "regulated"})
+    with user_connection(url, user_id) as conn:
+        store = PostgresVNextStore(conn)
+        assert store.get_memory(str(copy["id"]))["sensitivity"] == "regulated"
+        assert store.get_artifact(str(report["id"]))["sensitivity"] == "regulated"
