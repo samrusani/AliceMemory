@@ -387,6 +387,28 @@ def test_encoded_memory_and_trace_references_are_collected_before_the_real_key_l
     assert checked["kept"] == "control"
 
 
+def test_a_missing_encoded_sources_alias_is_withheld_for_the_key_and_owner(world: _World) -> None:
+    """The canonical alias keeps a missing source in a reference position after JSON decoding.
+
+    Mutation: stop adding canonical metadata names to the lookup. The generic scan then leaves the missing id.
+    """
+
+    missing, admitted = str(uuid4()), world.sources["own"]
+    encode = lambda value: "".join("\\u%04x" % ord(char) for char in value)
+    metadata = {"project_scope": ["alpha"], "sources": '["' + encode(missing) + '", "' + encode(admitted) + '"]', "kept": "control"}
+    world._plant("missing_encoded_alias", metadata=metadata)
+    loop_id = world.loops["missing_encoded_alias"]
+    world.vault.sql("DELETE FROM open_loops WHERE id != ?", (loop_id,))
+    for key in (world.vault.keys["alpha_project"], None):
+        response = world.vault.wire("alice_open_loops", {"status": "all", "limit": 100}, key=key)
+        assert response["is_error"] is False
+        assert len(response["payload"]["items"]) == 1
+        item = response["payload"]["items"][0]
+        assert str(item["id"]) == loop_id
+        assert item["metadata_json"]["kept"] == "control"
+        assert json.loads(item["metadata_json"]["sources"]) == [admitted]
+
+
 @pytest.mark.parametrize("reader", _UPDATERS)
 @pytest.mark.parametrize("name", sorted(("own", "health", "confidential", "old_beta", "old_global", "old_deleted", "old_ghost", "old_upper", "old_metadata")))
 def test_the_open_loop_update_actions_withhold_what_the_reader_may_not_read(world: _World, reader: str, name: str) -> None:
