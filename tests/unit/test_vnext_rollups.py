@@ -48,6 +48,9 @@ class FakeRollupStore:
         self._counter = 0
         self.rollup_read_calls: list[tuple[str, JsonObject]] = []
 
+    def read_label_rows(self, kind: str, ids: list[str]) -> list[dict]:
+        return [dict(row) for row in self.memories if str(row.get("id")) in ids] if kind == "memory" else []
+
     def create_memory(self, memory: JsonObject, *, actor_type: str = "system") -> JsonObject:
         self._counter += 1
         row = {
