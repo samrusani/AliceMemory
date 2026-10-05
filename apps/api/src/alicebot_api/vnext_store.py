@@ -497,6 +497,13 @@ class PostgresVNextStore:
         }.get(kind)
         if table is None:
             return []
+        if table == "beliefs":
+            return self._fetch_all(
+                """SELECT b.id, b.user_id, m.domain, m.sensitivity, b.metadata_json, b.memory_id
+                   FROM beliefs b JOIN memories m ON m.id = b.memory_id AND m.user_id = b.user_id
+                   WHERE b.id = ANY(%s::uuid[])""",
+                (wanted,),
+            )
         extra = ""
         if table == "memories":
             extra = ", value, project_id"

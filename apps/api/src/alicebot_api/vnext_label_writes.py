@@ -26,9 +26,12 @@ from alicebot_api.vnext_derived_labels import (
     is_derived,
     labels_raised_payload,
     settle_labels,
+    stored_scope,
+    union_floor,
 )
+from alicebot_api.vnext_label_closure import collect_label_rows
 from alicebot_api.vnext_event_log import build_event_log_record, integrity_hash_for_event
-from alicebot_api.vnext_project_scope import project_scope_identity, resolve_project_scope, source_project_scope
+from alicebot_api.vnext_project_scope import project_floor_shape, project_scope_identity, resolve_project_scope, source_project_scope
 from alicebot_api.vnext_repositories import JsonObject
 
 LABEL_METADATA_KEYS = ("project_scope", "project_floor", "derived_from")
@@ -151,38 +154,32 @@ def apply_insert_floor(store: Any, kind: str, payload: Mapping[str, object]) -> 
     if not _in_transaction(store):
         raise LabelLockOrderError("the insert floor requires an open transaction")
     user_id = str(getattr(store, "user_id", body.get("user_id") or ""))
-    nodes: list[dict[str, object]] = []
-    grouped: dict[str, list[str]] = {}
-    for dep_kind, dep_id in dependencies_of(kind, body):
-        grouped.setdefault(dep_kind, []).append(dep_id)
-    reader = getattr(store, "read_label_rows", None)
-    if callable(reader):
-        for dep_kind, ids in grouped.items():
-            for row in reader(dep_kind, ids):
-                copied = dict(row)
-                copied["kind"] = dep_kind
-                copied.setdefault("user_id", user_id)
-                nodes.append(copied)
-    if not user_id and nodes:
-        user_id = str(nodes[0].get("user_id") or "")
     own_id = str(body.get("id") or "new-derived-row")
     own = dict(body)
     own["kind"] = kind
     own["id"] = own_id
     own["user_id"] = user_id
-    nodes.append(own)
-    settled = settle_labels(nodes).by_stored(kind, own_id, user_id=user_id or None)
-    if settled.unverified:
-        return body, None
+    nodes, exceeded = collect_label_rows(store, [own], max_nodes=PROPAGATION_BOUND)
+    if exceeded:
+        raise LabelPropagationTooLarge(f"label propagation stopped after {PROPAGATION_BOUND} rows")
+    settled = settle_labels(nodes, on_cycle="unverified").by_stored(kind, own_id, user_id=user_id or None)
     domain = settled.domain
+    if settled.unverified:
+        domain = generation_domain(str(body.get("domain") or "unknown"), [str(node.get("domain") or "unknown") for node in nodes])
     if str(body.get("domain") or "unknown") in RESTRICTED_DOMAINS:
         domain = generation_domain(str(body.get("domain")), [settled.domain])
-    metadata = dict(body.get("metadata_json")) if isinstance(body.get("metadata_json"), Mapping) else {}
+    raw_metadata = body.get("metadata_json")
+    metadata = dict(raw_metadata) if isinstance(raw_metadata, Mapping) else {}
     metadata["project_scope"] = list(settled.project_scope)
     metadata["project_floor"] = list(settled.project_floor)
+    if settled.unverified:
+        metadata["project_floor"] = list(union_floor(settled.project_floor, [
+            *(stored_scope(str(node["kind"]), node) for node in nodes),
+            *(project_floor_shape(node)[1] for node in nodes),
+        ]))
     updated = dict(body)
     updated["domain"] = domain
-    updated["sensitivity"] = settled.sensitivity
+    updated["sensitivity"] = "regulated" if settled.unverified else settled.sensitivity
     updated["metadata_json"] = metadata
     if len(project_scope_identity(settled.project_scope)) != 1:
         updated["project_id"] = None
@@ -205,8 +202,8 @@ def apply_insert_floor(store: Any, kind: str, payload: Mapping[str, object]) -> 
             new={
                 "domain": after[0],
                 "sensitivity": after[1],
-                "project_scope": list(settled.project_scope),
-                "project_floor": list(settled.project_floor),
+                "project_scope": list(after[2]),
+                "project_floor": list(after[3]),
             },
         ),
     )
@@ -466,26 +463,14 @@ def propagate(store: Any, changed: Sequence[tuple[str, str]], *, cause: str) -> 
     affected = walk_dependants(store, roots)
     if not affected:
         return 0
-    nodes: list[dict[str, object]] = []
+    roots_rows = [dict(row) for row in affected]
     reader = getattr(store, "read_label_rows", None)
     if callable(reader):
         for kind, row_id in changed:
-            for row in reader(kind, [row_id]):
-                copied = dict(row)
-                copied["kind"] = kind
-                nodes.append(copied)
-    needed: dict[str, list[str]] = {}
-    for row in affected:
-        for dep_kind, dep_id in dependencies_of(str(row.get("kind")), row):
-            needed.setdefault(dep_kind, []).append(dep_id)
-    if callable(reader):
-        for dep_kind, dep_ids in needed.items():
-            for row in reader(dep_kind, dep_ids):
-                copied = dict(row)
-                copied["kind"] = dep_kind
-                nodes.append(copied)
-    for row in affected:
-        nodes.append(dict(row))
+            roots_rows.extend({**dict(row), "kind": kind} for row in reader(kind, [identifier(row_id)]))
+    nodes, exceeded = collect_label_rows(store, roots_rows, max_nodes=PROPAGATION_BOUND)
+    if exceeded:
+        raise LabelPropagationTooLarge(f"label propagation stopped after {PROPAGATION_BOUND} rows")
     settled = settle_labels(nodes)
     written = 0
     for row in affected:
@@ -501,7 +486,8 @@ def propagate(store: Any, changed: Sequence[tuple[str, str]], *, cause: str) -> 
             and project_scope_identity(previous[3]) == project_scope_identity(current[3])
         ):
             continue
-        metadata = dict(row.get("metadata_json")) if isinstance(row.get("metadata_json"), Mapping) else {}
+        raw_metadata = row.get("metadata_json")
+        metadata = dict(raw_metadata) if isinstance(raw_metadata, Mapping) else {}
         metadata["project_scope"] = list(label.project_scope)
         metadata["project_floor"] = list(label.project_floor)
         project_id = label.project_scope[0] if len(project_scope_identity(label.project_scope)) == 1 else None
@@ -570,7 +556,8 @@ def count_rows_hidden_by_scope_move(store: Any, source: Mapping[str, object], ne
     current["kind"] = "source"
     moved = dict(source)
     moved["kind"] = "source"
-    metadata = dict(source.get("metadata_json")) if isinstance(source.get("metadata_json"), Mapping) else {}
+    raw_metadata = source.get("metadata_json")
+    metadata = dict(raw_metadata) if isinstance(raw_metadata, Mapping) else {}
     metadata["project_scope"] = list(new_scope)
     moved["metadata_json"] = metadata
     before = settle_labels([current, *[dict(row) for row in affected]])

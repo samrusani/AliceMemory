@@ -230,3 +230,54 @@ def test_merge_protected_metadata_keeps_label_keys_unless_the_write_is_a_relabel
     relabel = merge_protected_metadata(stored, {"project_scope": [], "project_floor": [ALPHA]}, label_write=True)
     assert relabel["project_scope"] == []
     assert relabel["consolidation"] == {"cluster_member_ids": ["m"]}
+
+
+def test_insert_floor_survives_two_hops(tmp_path: Path):
+    db = tmp_path / 'labels.sqlite3'
+    bootstrap_database(db, user_id=USER, user_email='synthetic@example.test')
+    with sqlite_user_connection(db, USER) as conn:
+        store = SQLiteVNextStore(conn, USER)
+        source = store.create_source({'source_type': 'note', 'title': 'Synthetic restricted note', 'content_hash': 'review-two-hops', 'domain': 'health', 'sensitivity': 'confidential', 'metadata_json': {'project_scope': [ALPHA]}})
+        copied = store.create_memory({'memory_key': 'review-copy', 'canonical_text': 'Synthetic restricted observation', 'status': 'active', 'domain': 'unknown', 'sensitivity': 'public', 'metadata_json': {'source_id': str(source['id']), 'project_scope': [ALPHA]}})
+        summary = store.create_memory({'memory_key': 'review-summary', 'canonical_text': 'Summary of the synthetic restricted observation', 'status': 'active', 'domain': 'unknown', 'sensitivity': 'public', 'metadata_json': {'consolidation': {'cluster_member_ids': [str(copied['id'])]}, 'project_scope': [ALPHA]}})
+        assert copied['sensitivity'] == 'confidential'
+        assert summary['sensitivity'] == 'confidential', f"two-hop child persisted as {summary['domain']}/{summary['sensitivity']}"
+
+
+def test_unresolved_insert_still_succeeds_conservatively(tmp_path: Path) -> None:
+    with _vault(tmp_path / "missing.sqlite3") as conn:
+        store = SQLiteVNextStore(conn, USER)
+        row = store.create_memory({"memory_key": "missing", "canonical_text": "summary", "status": "active", "domain": "unknown", "sensitivity": "public", "metadata_json": {"consolidation": {"cluster_member_ids": ["missing"]}, "project_scope": [ALPHA]}})
+    assert row["sensitivity"] == "regulated"
+    assert row["metadata_json"]["project_floor"] == [ALPHA]
+
+
+def test_relabel_reads_the_other_branch_ancestry(tmp_path: Path) -> None:
+    with _vault(tmp_path / "branches.sqlite3") as conn:
+        store = SQLiteVNextStore(conn, USER)
+        copies = []
+        sources = []
+        for suffix in ("a", "b"):
+            source = store.create_source({"source_type": "note", "title": suffix, "content_hash": suffix, "domain": "unknown", "sensitivity": "public", "metadata_json": {"project_scope": [ALPHA]}})
+            sources.append(source)
+            copies.append(store.create_memory({"memory_key": suffix, "canonical_text": suffix, "status": "active", "domain": "unknown", "sensitivity": "public", "metadata_json": {"source_id": source["id"]}}))
+        summary = store.create_memory({"memory_key": "summary", "canonical_text": "summary", "status": "active", "domain": "unknown", "sensitivity": "public", "metadata_json": {"consolidation": {"cluster_member_ids": [row["id"] for row in copies]}}})
+        store.update_source(source_id=str(sources[0]["id"]), patch={"domain": "health", "sensitivity": "confidential"}, actor_type="user")
+        stored = store.get_memory(str(summary["id"]))
+    assert stored["domain"] == "health"
+    assert stored["sensitivity"] == "confidential"
+
+
+def test_sqlite_label_lookup_preserves_uuid_aliases_and_kinds(tmp_path: Path) -> None:
+    from uuid import UUID
+    with _vault(tmp_path / "aliases.sqlite3") as conn:
+        store = SQLiteVNextStore(conn, USER)
+        source = store.create_source({"source_type": "note", "title": "alias", "content_hash": "alias", "domain": "health", "sensitivity": "confidential"})
+        raw = "{" + str(source["id"]).upper() + "}"
+        conn.execute("UPDATE sources SET id = ? WHERE id = ?", (raw, source["id"]))
+        found = store.read_label_rows("source", [str(UUID(raw))])
+        assert [row["id"] for row in found] == [raw]
+        assert store.read_label_rows("memory", [str(UUID(raw))]) == []
+        copy = store.create_memory({"memory_key": "alias-copy", "canonical_text": "copy", "status": "active", "domain": "unknown", "sensitivity": "public", "metadata_json": {"source_id": str(UUID(raw))}})
+    assert copy["domain"] == "health"
+    assert copy["sensitivity"] == "confidential"
