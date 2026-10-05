@@ -2413,6 +2413,16 @@ def test_create_vnext_context_pack_endpoint_returns_structured_pack(monkeypatch)
 def test_create_vnext_context_pack_endpoint_keeps_uncorroborated_count_trace_only(monkeypatch) -> None:
     store = FakeVNextStore(None)
     for index, bike in enumerate(("commuter", "touring"), start=1):
+        # These copied notes have real original sources. Their labels settle,
+        # while no aggregate card corroborates the numeric answer.
+        store.sources[f"source-bike-{index}"] = {
+                "id": f"source-bike-{index}",
+                "source_type": "manual_text",
+                "title": "Maintenance note",
+                "domain": "personal",
+                "sensitivity": "private",
+                "metadata_json": {},
+        }
         store.memories.append(
             {
                 "id": f"memory-bike-{index}",

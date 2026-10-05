@@ -258,6 +258,9 @@ class _SweepStore:
         del reference_time, confirmation_before, review_memory_types, limit, projects
         return list(self.memories)
 
+    def read_label_rows(self, kind: str, ids: list[str]) -> list[dict[str, object]]:
+        return [dict(row) for row in self.memories if str(row.get("id")) in ids] if kind == "memory" else []
+
     def update_memory(self, *, memory_id: str, patch: dict[str, object], actor_type: str = "system") -> dict[str, object]:
         del actor_type
         for memory in self.memories:
