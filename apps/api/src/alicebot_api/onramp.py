@@ -138,6 +138,12 @@ from alicebot_api.project_scoping import (
     import_receipt_line,
 )
 from alicebot_api.project_view import VIEW_CHOICES, ProjectView
+from alicebot_api.snapshot_sweep import (
+    EXPORT_SNAPSHOT_PREFIX,
+    IMPORT_PREVIEW_PREFIX,
+    IMPORT_SNAPSHOT_PREFIX,
+    private_snapshot_directory,
+)
 from alicebot_api.sqlite_schema import ROW_BACKFILL_TABLES, apply_row_backfills, bootstrap_sqlite_schema
 from alicebot_api.store import ContinuityStoreInvariantError
 from alicebot_api.sqlite_store import (
@@ -677,6 +683,13 @@ def _copy_file_with_fingerprint(source: Path, destination: Path) -> _FileFingerp
     )
 
 
+def _copy_file_owner_only(source: Path, destination: Path) -> None:
+    """Copy one file into a snapshot, creating the copy with mode 0600."""
+    descriptor = os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with source.open("rb") as input_stream, os.fdopen(descriptor, "wb") as output_stream:
+        shutil.copyfileobj(input_stream, output_stream, length=_FILE_COPY_CHUNK_SIZE)
+
+
 def _snapshot_source_members(source_path: Path) -> tuple[Path, ...]:
     """Return the main DB plus WAL/rollback journal files that exist now."""
     return tuple(
@@ -855,9 +868,7 @@ def _prepared_export_connection(
     source_path: Path, user_id: UUID
 ) -> Iterator[sqlite3.Connection]:
     """Yield a current-schema private copy while leaving the source untouched."""
-    with tempfile.TemporaryDirectory(prefix="alice-memory-export-snapshot-") as raw_dir:
-        snapshot_dir = Path(raw_dir)
-        os.chmod(snapshot_dir, 0o700)
+    with private_snapshot_directory(EXPORT_SNAPSHOT_PREFIX) as snapshot_dir:
         fd, raw_snapshot = tempfile.mkstemp(
             prefix="snapshot-", suffix=".db", dir=snapshot_dir
         )
@@ -1447,15 +1458,17 @@ def _markdown_import_database(db_path: Path, args: argparse.Namespace):
         yield db_path
         return
     from alicebot_api.vault_sleep import sleep_proposals_path
-    with tempfile.TemporaryDirectory(prefix="alice-import-preview-") as directory:
-        selected = Path(directory) / "memory.db"
+    with private_snapshot_directory(IMPORT_PREVIEW_PREFIX) as directory:
+        selected = directory / "memory.db"
+        # Create the copies owner-only, so no file in the snapshot is ever readable by others.
+        os.close(os.open(selected, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600))
         if db_path.exists():
             with closing(sqlite3.connect(db_path.resolve().as_uri() + "?mode=ro", uri=True)) as source:
                 with closing(sqlite3.connect(selected)) as destination:
                     source.backup(destination)
             sidecar = sleep_proposals_path(db_path)
             if sidecar.exists():
-                shutil.copyfile(sidecar, sleep_proposals_path(selected))
+                _copy_file_owner_only(sidecar, sleep_proposals_path(selected))
         bootstrap_database(selected, user_id=args.user_id, user_email=args.user_email)
         yield selected
 
@@ -3885,9 +3898,7 @@ def _print_import_summary(
 @contextmanager
 def _immutable_import_copy(source_path: Path) -> Iterator[Path]:
     """Yield an owner-only snapshot read from one stable source handle."""
-    with tempfile.TemporaryDirectory(prefix="alice-memory-import-snapshot-") as raw_dir:
-        snapshot_dir = Path(raw_dir)
-        os.chmod(snapshot_dir, 0o700)
+    with private_snapshot_directory(IMPORT_SNAPSHOT_PREFIX) as snapshot_dir:
         snapshot_path = snapshot_dir / "import.jsonl"
         with source_path.open("rb") as source, snapshot_path.open("xb") as destination:
             before = os.fstat(source.fileno())

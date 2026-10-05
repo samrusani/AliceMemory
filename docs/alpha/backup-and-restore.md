@@ -19,6 +19,8 @@ unknown application table fails before any JSONL is published. This prevents
 an older Alice exporter from silently dropping user-owned state introduced by
 a newer schema.
 
+Unreleased (on main, not in v0.20.0): an interrupted command, such as one killed with SIGKILL, can leave its private snapshot in the temporary directory. That snapshot is a copy of the vault, or, for `alice-memory import`, a copy of the file being imported. The next `alice-memory` command that makes a snapshot removes it once the process that made it is gone.
+
 The versioned JSONL is written through a `0600` sibling temporary file,
 `fsync`, and atomic replacement:
 
