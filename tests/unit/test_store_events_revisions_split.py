@@ -148,7 +148,7 @@ EXPECTED_CLASS_KEY_SHA256 = {
     # Re-minted for the per-file importer savepoint (2026-10-02): ``savepoint`` is appended last on both façades.
     # Previous receipt: 650e2e0ff088d67c... Proof: the class key list equals the list at origin/main 040a2a10
     # plus ``savepoint`` before ``__dict__``, with every other key in the same order.
-    "postgres": "dda7be1a316b3c525195f4682a608d0bab24b57f635db2a7aebc0c7ea187fc68",
+    "postgres": "3751e3fd145562485233765a14ae4e7bc7f396e6e72356a079e266fd98025839",
     # Re-minted for the merge of #500 and #502: ``check_literal_match_query``.
     # Re-minted again for per-project memory S2 (2026-10-02): the two single-scan partition reads
     # ``list_memories_view_partitions`` and ``list_open_loops_view_partitions``, SQLite only on purpose
@@ -156,7 +156,7 @@ EXPECTED_CLASS_KEY_SHA256 = {
     # Re-minted again for the per-file importer savepoint (2026-10-02), the same appended method.
     # Previous receipt: 365b7a01acf7a8b5... Proof: as for postgres, one added key and no other change.
     # Re-minted for the derived-label lock: ``lock_label_writes`` and ``read_label_rows`` on both facades.
-    "sqlite": "3212a93f2011cecddb6b0002a3f9b3abe37819d3582b2a1173846871981a5ff9",
+    "sqlite": "265db9bfe184e712eb3bbb64356c7a9601b130c93ca847962697c35f68b84ecd",
 }
 EXPECTED_SUPPORT_AST_SHA256 = {
     "postgres_columns": {
