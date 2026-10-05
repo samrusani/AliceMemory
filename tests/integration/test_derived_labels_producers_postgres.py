@@ -179,36 +179,45 @@ def test_a_bound_key_generates_from_admitted_inputs_only(migrated_database_urls,
             assert f"SENTINEL_{label.upper()}" not in text
 
 
-def test_input_selection_uses_effective_labels_including_the_owner_default_ceiling(migrated_database_urls, monkeypatch):
+@pytest.mark.parametrize("producer", PRODUCERS)
+def test_input_selection_uses_effective_labels_including_the_owner_default_ceiling(migrated_database_urls, monkeypatch, producer):
     app_url = migrated_database_urls["app"]
     wire_database(monkeypatch, app_url)
     user_id, alpha, _beta, rows, _key, _beta_key, _unbound = seed_grid(app_url)
     with user_connection(app_url, user_id) as conn:
         store = PostgresVNextStore(conn)
         source = next(row for label, kind, row in rows if label == "alpha" and kind == "sources")
-        copy = store.create_memory({"memory_key": "stale.source.copy", "canonical_text": "STALE_SOURCE_COPY Atlas secret",
+        copy = store.create_memory({"memory_key": "stale.source.copy", "canonical_text": "Atlas played Hollow Knight for 25 hours. STALE_SOURCE_COPY Atlas secret",
             "title": "STALE_SOURCE_COPY", "status": "active", "domain": "project", "sensitivity": "public",
             "metadata_json": {"source_id": str(source["id"]), "project_scope": [alpha]}})
         promoted = next(row for label, kind, row in rows if label == "alpha" and kind == "memories"
                         and row["metadata_json"].get("source_artifact_id"))
+        derived_loop = store.create_open_loop({"title": "STALE_SOURCE_LOOP Atlas", "description": "STALE_SOURCE_LOOP secret",
+            "source_id": str(source["id"]), "status": "open", "domain": "project", "sensitivity": "public",
+            "due_at": "2026-10-04T12:00:00Z", "metadata_json": {"project_scope": [alpha],
+                "discovered_by": "vnext_daily_brief", "source_id": str(source["id"])}})
         conn.execute("UPDATE sources SET sensitivity='confidential' WHERE id=%s", (source["id"],))
         conn.execute("UPDATE memories SET created_at='2026-10-05T09:00:00Z' WHERE id=%s", (copy["id"],))
+        if producer == "staleness":
+            conn.execute("UPDATE memories SET valid_to='2026-10-04T12:00:00Z'")
         assert store.get_memory(str(copy["id"]))["sensitivity"] == "public"
         assert store.get_memory(str(promoted["id"]))["sensitivity"] == "public"
         _, trusted = create_agent_key(store, user_id=user_id, agent_id="trusted-alpha", permission_profile="trusted_local_agent", project_scope=alpha)
         owner = VNextBrainService(store).generate_daily_brief(BrainArtifactRequest(generated_for="2026-10-05",
             source_limit=50, memory_limit=50, artifact_limit=50, open_loop_limit=50, discover_open_loops=False,
             create_candidate_memories=False))
-    bound, _ = generate("daily", user_id, alpha, trusted)
+    bound, _ = generate(producer, user_id, alpha, trusted)
     for report in (owner, bound):
         text = json.dumps(report, default=str)
         assert str(copy["id"]) not in text
         assert copy["canonical_text"] not in text
         assert str(promoted["id"]) not in text
         assert str(source["id"]) not in text
+        assert str(derived_loop["id"]) not in text
+        assert "STALE_SOURCE_LOOP" not in text
         assert "SENTINEL_ALPHA prior report text" not in text
-        assert any(str(row["id"]) in text for label, kind, row in rows if label == "alpha" and kind == "memories"
-                   and row["memory_type"] == "episode")
+        assert any(str(row["id"]) in text for label, kind, row in rows if label == "alpha" and
+                   (kind == "open_loops" or (kind == "memories" and row["memory_type"] == "episode"))), (producer, report)
 
 
 def test_the_owner_keeps_the_cross_project_brief_and_bound_keys_cannot_read_it(migrated_database_urls, monkeypatch):
