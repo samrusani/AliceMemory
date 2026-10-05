@@ -20,7 +20,7 @@ from alicebot_api.store import ContinuityStore
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_HTTP_OPERATION_COUNT = 183
+DEFAULT_HTTP_OPERATION_COUNT = 184
 DEFAULT_MCP_TOOL_NAMES = [
     "alice_memory_commit",
     "alice_recall",
