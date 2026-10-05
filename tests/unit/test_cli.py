@@ -422,6 +422,25 @@ class FakeVNextCliStore:
         self.events.append(event)
         return event
 
+    def read_label_rows(self, kind: str, ids: list[str]) -> list[dict[str, object]]:
+        """Mirror narrow dependency reads for this fixture's stored rows."""
+
+        from alicebot_api.vnext_derived_labels import identifier
+
+        rows = {
+            "source": self.sources,
+            "memory": self.memories,
+            "open_loop": self.open_loops,
+            "artifact": list(self.artifacts.values()),
+            "project": list(self.projects.values()),
+        }.get(kind, [])
+        wanted = {identifier(value) for value in ids}
+        fields = ("id", "user_id", "domain", "sensitivity", "metadata_json", "value", "project_id", "source_id", "memory_id", "status", "memory_type", "artifact_type")
+        return [
+            {field: row[field] for field in fields if field in row}
+            for row in rows if identifier(row.get("id")) in wanted
+        ]
+
     def upsert_agent_identity(self, identity: dict[str, object], **_kwargs) -> dict[str, object]:
         row = {
             **identity,
@@ -1685,6 +1704,16 @@ def test_vnext_contradiction_and_belief_cli(monkeypatch) -> None:
         "memory_type": "belief",
     }
 
+    store.memories.append({
+        "id": "memory-belief-1",
+        "canonical_text": "Alice should auto-promote generated artifacts into memory.",
+        "memory_type": "belief",
+        "status": "active",
+        "domain": "project",
+        "sensitivity": "private",
+        "metadata_json": {},
+    })
+
     @contextmanager
     def fake_vnext_store_context(_ctx):
         yield store
@@ -1793,6 +1822,15 @@ def test_vnext_project_and_open_loop_cli(monkeypatch) -> None:
     assert store.projects["project-1"]["current_state"] == "Project automation reviewed."
     assert review_loop_payload["due_at"] == "2026-05-12T09:00:00Z"
     assert dashboard_payload["counts"]["open_loops"] == 1
+
+    # The CLI must keep the dashboard's current-input admission checks.
+    store.sources[0]["domain"] = "health"
+    store.sources[0]["sensitivity"] = "regulated"
+    restricted = json.loads(dashboard_args.handler(ctx, dashboard_args))
+    assert restricted["counts"]["open_loops"] == 0
+    store.sources.clear()
+    missing = json.loads(dashboard_args.handler(ctx, dashboard_args))
+    assert missing["counts"]["open_loops"] == 0
 
 
 def test_vnext_queue_cli_add_process_review_and_export(monkeypatch, tmp_path: Path) -> None:
