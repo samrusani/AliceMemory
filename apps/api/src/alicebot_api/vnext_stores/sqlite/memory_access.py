@@ -617,6 +617,7 @@ def list_memories_view_partitions(
         text_expressions=("metadata_json", "project_id"),
         domain_expression="domain",
         global_excluded_domains=tuple(sorted(exclude_global_domains)),
+        floor_expression="alice_project_floor_identity(metadata_json)",
     )
     ordering = ("created_at",) if order_by_created_at else ("updated_at", "created_at")
     order_columns = ", ".join(ordering)
