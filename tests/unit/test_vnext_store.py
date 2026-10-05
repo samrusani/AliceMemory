@@ -27,6 +27,10 @@ class RecordingCursor:
         self.executed: list[tuple[str, tuple[object, ...] | None]] = []
         self.fetchone_results = list(fetchone_results)
         self.fetchall_result = fetchall_result or []
+        self.current_query = ""
+        self.graph_locked = False
+        self.labels_locked = False
+        self.labels_exclusive = False
 
     def __enter__(self) -> "RecordingCursor":
         return self
@@ -38,13 +42,28 @@ class RecordingCursor:
         if params is not None:
             assert query.count("%s") == len(params)
         self.executed.append((query, params))
+        self.current_query = query
+        if "pg_advisory_xact_lock" in query:
+            if "vnext_supersession" in query:
+                self.graph_locked = True
+            elif "vnext_labels" in query:
+                self.labels_locked = True
+                self.labels_exclusive |= "pg_advisory_xact_lock_shared" not in query
 
     @property
     def statements(self) -> list[tuple[str, tuple[object, ...] | None]]:
         """Business SQL, with transaction guards retained separately in executed."""
-        return [(query, params) for query, params in self.executed if "pg_advisory_xact_lock" not in query]
+        return [(query, params) for query, params in self.executed if not any(marker in query for marker in (
+                    "pg_advisory_xact_lock", "FROM pg_locks", "current_setting('lock_timeout')",
+                    "SET LOCAL lock_timeout", "set_config('lock_timeout'",
+                ))]
 
     def fetchone(self) -> dict[str, Any] | None:
+        if "current_setting('lock_timeout')" in self.current_query:
+            return {"lock_timeout": "0"}
+        if "FROM pg_locks" in self.current_query:
+            return {"graph": self.graph_locked, "labels": self.labels_locked,
+                    "exclusive": self.labels_exclusive}
         if not self.fetchone_results:
             return None
         return self.fetchone_results.pop(0)
@@ -96,15 +115,12 @@ def test_source_crud_and_chunks_write_audit_events() -> None:
             {"id": source_id},
             _event_row(source_id),
             {"id": source_id},
-            {
-                "id": source_id,
-                "content_hash": "sha256:abc",
-                "dedupe_key": "capture-md5:legacy",
-                "domain": "project",
-                "sensitivity": "private",
-                "metadata_json": {"path": "docs/spec.md"},
-            },
-            {"id": source_id},
+            # The unlocked label pre-read precedes the source row lock.
+            {"id": source_id, "content_hash": "sha256:abc", "dedupe_key": "capture-md5:legacy",
+             "domain": "project", "sensitivity": "private", "metadata_json": {"path": "docs/spec.md"}},
+            {"id": source_id, "content_hash": "sha256:abc", "dedupe_key": "capture-md5:legacy",
+             "domain": "project", "sensitivity": "private", "metadata_json": {"path": "docs/spec.md"}},
+            {"id": source_id, "domain": "project", "sensitivity": "private", "metadata_json": {"rev": 2}},
             _event_row(source_id),
             {"id": source_id},
             _event_row(source_id),
@@ -293,7 +309,8 @@ def test_update_source_recomputes_postgres_dedupe_key_with_the_same_statement() 
     }
     cursor = RecordingCursor(
         fetchone_results=[
-            current,
+            current,  # label pre-read
+            current,  # locked capture identity
             None,
             {**current, "domain": "professional"},
             _event_row(source_id),
@@ -339,7 +356,7 @@ def test_update_source_postgres_collision_fails_before_mutation_event() -> None:
         "sensitivity": "private",
         "metadata_json": {"raw_text": raw_text, "project_scope": ["Alpha"]},
     }
-    cursor = RecordingCursor(fetchone_results=[current, {"id": str(uuid4())}])
+    cursor = RecordingCursor(fetchone_results=[current, current, {"id": str(uuid4())}])
     store = PostgresVNextStore(RecordingConnection(cursor))
 
     with pytest.raises(ContinuityStoreInvariantError, match="already belongs"):
@@ -364,7 +381,8 @@ def test_update_source_postgres_releases_key_when_changed_identity_has_no_raw_te
     }
     cursor = RecordingCursor(
         fetchone_results=[
-            current,
+            current,  # label pre-read
+            current,  # locked capture identity
             {**current, "dedupe_key": None, "metadata_json": {"project_scope": ["Beta"]}},
             _event_row(source_id),
         ]
@@ -719,7 +737,6 @@ def test_list_artifacts_applies_type_domain_sensitivity_and_limit_filters() -> N
         ["project"],
         ["public", "private"],
         ["public", "private"],
-        None,
         None,
         None,
         5,
@@ -1409,6 +1426,7 @@ def test_project_people_belief_and_open_loop_methods_write_audit_events() -> Non
             {"id": project_id},
             _event_row(project_id),
             {"id": project_id},
+            {"id": project_id},  # label pre-read before the update
             {"id": project_id},
             _event_row(project_id),
             {"id": person_id},
@@ -1426,6 +1444,7 @@ def test_project_people_belief_and_open_loop_methods_write_audit_events() -> Non
             {"id": loop_id},
             {"id": loop_id},
             _event_row(loop_id),
+            {"id": loop_id},  # label pre-read before the final update
             {"id": loop_id},
             _event_row(loop_id),
         ]
@@ -1464,14 +1483,14 @@ def test_project_people_belief_and_open_loop_methods_write_audit_events() -> Non
         None,
         3,
     )
-    assert "UPDATE projects" in cursor.statements[4][0]
-    assert "INSERT INTO people" in cursor.statements[6][0]
-    assert "UPDATE people" in cursor.statements[9][0]
-    assert "INSERT INTO beliefs" in cursor.statements[11][0]
-    assert "UPDATE beliefs" in cursor.statements[14][0]
-    assert "INSERT INTO open_loops" in cursor.statements[16][0]
-    assert "UPDATE open_loops" in cursor.statements[19][0]
-    assert "UPDATE open_loops" in cursor.statements[21][0]
+    assert "UPDATE projects" in cursor.statements[5][0]
+    assert "INSERT INTO people" in cursor.statements[7][0]
+    assert "UPDATE people" in cursor.statements[10][0]
+    assert "INSERT INTO beliefs" in cursor.statements[12][0]
+    assert "UPDATE beliefs" in cursor.statements[15][0]
+    assert "INSERT INTO open_loops" in cursor.statements[17][0]
+    assert "UPDATE open_loops" in cursor.statements[20][0]
+    assert "UPDATE open_loops" in cursor.statements[23][0]
 
 
 def test_get_artifact_for_update_locks_the_persisted_authorization_target() -> None:

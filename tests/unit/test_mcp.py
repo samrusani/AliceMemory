@@ -1277,8 +1277,48 @@ def _ascii_query_fold(value: str) -> str:
     return value.translate(_ASCII_QUERY_CASE_TRANSLATION)
 
 
+class FakeLabelCursor:
+    """SQL guard responses from the fake store's current lock state."""
+
+    def __init__(self, store) -> None:
+        self.store = store
+        self.query = ""
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return None
+
+    def execute(self, query, params=None):
+        assert any(marker in query for marker in (
+            "FROM pg_locks", "current_setting('lock_timeout')", "SET LOCAL lock_timeout", "set_config('lock_timeout'",
+        )), query
+        self.query = query
+
+    def fetchone(self):
+        if "FROM pg_locks" in self.query:
+            return {"graph": self.store.graph_locked, "labels": self.store.labels_locked,
+                    "exclusive": self.store.labels_exclusive}
+        if "current_setting('lock_timeout')" in self.query:
+            return {"lock_timeout": "0"}
+        raise AssertionError(self.query)
+
+
+class FakeLabelConnection:
+    def __init__(self, store) -> None:
+        self.store = store
+
+    def cursor(self):
+        return FakeLabelCursor(self.store)
+
+
 class FakeVNextMCPStore:
     def __init__(self) -> None:
+        self.graph_locked = False
+        self.labels_locked = False
+        self.labels_exclusive = False
+        self.conn = FakeLabelConnection(self)
         self.events: list[dict[str, object]] = []
         self.sources: list[dict[str, object]] = []
         self.chunks: list[dict[str, object]] = []
@@ -1316,6 +1356,13 @@ class FakeVNextMCPStore:
                 "memory_type": "belief",
             }
         }
+
+    def lock_graph_mutation(self) -> None:
+        self.graph_locked = True
+
+    def lock_label_writes(self, *, exclusive: bool = False) -> None:
+        self.labels_locked = True
+        self.labels_exclusive |= exclusive
 
     @staticmethod
     def _is_live(row: dict[str, object]) -> bool:
