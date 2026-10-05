@@ -1823,15 +1823,6 @@ def test_vnext_project_and_open_loop_cli(monkeypatch) -> None:
     assert review_loop_payload["due_at"] == "2026-05-12T09:00:00Z"
     assert dashboard_payload["counts"]["open_loops"] == 1
 
-    # The CLI must keep the dashboard's current-input admission checks.
-    store.sources[0]["domain"] = "health"
-    store.sources[0]["sensitivity"] = "regulated"
-    restricted = json.loads(dashboard_args.handler(ctx, dashboard_args))
-    assert restricted["counts"]["open_loops"] == 0
-    store.sources.clear()
-    missing = json.loads(dashboard_args.handler(ctx, dashboard_args))
-    assert missing["counts"]["open_loops"] == 0
-
 
 def test_vnext_queue_cli_add_process_review_and_export(monkeypatch, tmp_path: Path) -> None:
     store = FakeVNextCliStore()

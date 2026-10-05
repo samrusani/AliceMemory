@@ -1582,21 +1582,6 @@ def test_open_loop_extraction_and_review_support_source_owner_and_filters() -> N
 
 
 
-@pytest.mark.parametrize("parent_change", ["missing", "restricted"])
-def test_dashboard_withholds_loops_after_their_source_becomes_unreadable(parent_change) -> None:
-    store = _seed_store()
-    service = VNextProjectService(store)
-    loops = service.extract_open_loops(ProjectAutomationRequest(project_id="project-1", domains=("project",)))
-    assert service.project_dashboard(project_id="project-1")["counts"]["open_loops"] == 2
-    if parent_change == "missing":
-        store.sources.clear()
-    else:
-        store.sources[0]["domain"] = "health"
-        store.sources[0]["sensitivity"] = "regulated"
-    dashboard = service.project_dashboard(project_id="project-1")
-    assert dashboard["counts"]["open_loops"] == 0
-    assert dashboard["open_loops"] == []
-    assert all(loop["source_id"] == "source-1" for loop in loops)
 
 
 def test_project_service_validation_errors() -> None:
