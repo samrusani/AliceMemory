@@ -756,13 +756,16 @@ def _handle_alice_open_loops(context: MCPRuntimeContext, arguments: Mapping[str,
         target = store.get_open_loop(loop_id)
         if target is None:
             raise MCPReferenceNotFoundError(f"open loop {loop_id} was not found")
+        from alicebot_api.vnext_label_guard import effective_row_for_fence
+
+        judged = effective_row_for_fence(store, identity, "open_loop", target)
         # Same ceiling block as memory mutations. The policy event names
         # this loop; the previous check logged the decision with no target.
         try:
             VNextMemoryCommitService(store).authorize_memory_action(
                 identity=identity,
                 action="open_loop.update",
-                memory=target,
+                memory=judged,
                 target_type="open_loop",
             )
         except AgentPolicyBlockedError as exc:

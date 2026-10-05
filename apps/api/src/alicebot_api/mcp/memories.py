@@ -427,8 +427,11 @@ def redact_memory_flow(
     # before it is raised, and for a deleted row it is raised as a refusal the
     # surface answers "not found" (RefusedOnDeletedMemoryError): a plain not-found
     # error here would roll the audit row back with the call.
+    from alicebot_api.vnext_label_guard import effective_row_for_fence, policy_labels
+
+    judged = effective_row_for_fence(store, identity, "memory", memory)
     try:
-        memory_service.refuse_unauthorized_write(identity=identity, action="memory.redact", memory=memory)
+        memory_service.refuse_unauthorized_write(identity=identity, action="memory.redact", memory=judged)
     except AgentPolicyBlockedError as exc:
         if memory.get("deleted_at") is not None:
             raise RefusedOnDeletedMemoryError(exc.decision) from None
@@ -457,21 +460,26 @@ def redact_memory_flow(
         # row's redaction receipt and writes nothing, so its authorization
         # should not depend on a call made earlier in the function. A test
         # takes the pre-check away and checks the replay is still refused.
+        from alicebot_api.vnext_label_guard import apply_unverified_rule
+
+        domains, sensitivity_allowed, project_scope, project_floor = policy_labels(judged)
         decision = evaluate_agent_policy(
             identity=identity,
             action="memory.redact",
-            domains=(str(memory.get("domain") or "unknown"),),
-            sensitivity_allowed=(str(memory.get("sensitivity") or "unknown"),),
-            project_scope=resource_project_scope(memory),
+            domains=domains,
+            sensitivity_allowed=sensitivity_allowed,
+            project_scope=project_scope,
+            project_floor=project_floor,
             require_explicit_project_scope=True,
         )
+        decision = apply_unverified_rule(decision, judged, identity)
         if decision.decision == "blocked":
             raise AgentPolicyBlockedError(decision)
     else:
         memory_service.authorize_memory_action(
             identity=identity,
             action="memory.redact",
-            memory=memory,
+            memory=judged,
         )
     actor_type = "agent" if identity is not None else "user"
     forgotten_first = False

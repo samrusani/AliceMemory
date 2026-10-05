@@ -192,6 +192,21 @@ class LabelGuard:
         return list(self._nodes.values())
 
 
+def effective_row_for_fence(
+    store: Any,
+    identity: AgentIdentity | None,
+    kind: str,
+    row: Mapping[str, object],
+) -> Mapping[str, object]:
+    """The row an exact door should hand to the policy engine."""
+
+    from alicebot_api.vnext_source_fence import SourceReadFence
+
+    guard = LabelGuard.for_fence(store, SourceReadFence.for_identity(identity))
+    settled = guard.effective_row(kind, row)
+    return settled if isinstance(settled, Mapping) else row
+
+
 def policy_labels(
     row: Mapping[str, object],
 ) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...], tuple[str, ...]]:

@@ -138,9 +138,16 @@ def _vnext_memory_review(context: MCPRuntimeContext, arguments: Mapping[str, obj
             memory = store.get_memory(memory_id)
             if memory is None:
                 raise MCPReferenceNotFoundError(f"memory {memory_id} was not found")
-            target_domain = str(memory.get("domain") or "unknown")
-            target_sensitivity = str(memory.get("sensitivity") or "unknown")
-            target_projects = resource_project_scope(memory)
+            from alicebot_api.vnext_label_guard import (
+                apply_unverified_rule,
+                effective_row_for_fence,
+                policy_labels,
+            )
+
+            judged = effective_row_for_fence(store, identity, "memory", memory)
+            target_domains, target_sensitivity_allowed, target_projects, target_floor = policy_labels(judged)
+            target_domain = target_domains[0]
+            target_sensitivity = target_sensitivity_allowed[0]
             _actor_type, _actor_id, decision = _policy_checked(
                 store,
                 identity=identity,
@@ -148,9 +155,11 @@ def _vnext_memory_review(context: MCPRuntimeContext, arguments: Mapping[str, obj
                 domains=(target_domain,),
                 sensitivity_allowed=(target_sensitivity,),
                 project_scope=target_projects,
+                project_floor=target_floor,
                 require_explicit_project_scope=True,
                 project_view=ProjectView.unscoped(),
             )
+            decision = apply_unverified_rule(decision, judged, identity)
             if decision.decision == "blocked":
                 blocked_decision = decision
             elif (
@@ -483,16 +492,26 @@ def _vnext_memory_correct(context: MCPRuntimeContext, arguments: Mapping[str, ob
         target = store.get_memory(memory_id)
         if target is None:
             raise MCPReferenceNotFoundError(f"memory {memory_id} was not found")
+        from alicebot_api.vnext_label_guard import (
+            apply_unverified_rule,
+            effective_row_for_fence,
+            policy_labels,
+        )
+
+        judged = effective_row_for_fence(store, identity, "memory", target)
+        domains, sensitivity_allowed, project_scope, project_floor = policy_labels(judged)
         _checked_actor_type, _checked_actor_id, decision = _policy_checked(
             store,
             identity=identity,
             action="memory.review",
-            domains=(str(target.get("domain") or "unknown"),),
-            sensitivity_allowed=(str(target.get("sensitivity") or "unknown"),),
-            project_scope=resource_project_scope(target),
+            domains=domains,
+            sensitivity_allowed=sensitivity_allowed,
+            project_scope=project_scope,
+            project_floor=project_floor,
             require_explicit_project_scope=True,
             project_view=ProjectView.unscoped(),
         )
+        decision = apply_unverified_rule(decision, judged, identity)
         if decision.decision == "blocked":
             blocked_decision = decision
         elif is_pending_consolidation_candidate(target):
@@ -550,16 +569,20 @@ def _vnext_memory_correct(context: MCPRuntimeContext, arguments: Mapping[str, ob
         # check commits a durable policy audit event; this second check closes
         # the gap where a target could be reassigned between authorization and
         # update.
+        locked_judged = effective_row_for_fence(store, identity, "memory", memory)
+        locked_domains, locked_sensitivity, locked_scope, locked_floor = policy_labels(locked_judged)
         _locked_actor_type, _locked_actor_id, locked_decision = _policy_checked(
             store,
             identity=identity,
             action="memory.review",
-            domains=(str(memory.get("domain") or "unknown"),),
-            sensitivity_allowed=(str(memory.get("sensitivity") or "unknown"),),
-            project_scope=resource_project_scope(memory),
+            domains=locked_domains,
+            sensitivity_allowed=locked_sensitivity,
+            project_scope=locked_scope,
+            project_floor=locked_floor,
             require_explicit_project_scope=True,
             project_view=ProjectView.unscoped(),
         )
+        locked_decision = apply_unverified_rule(locked_decision, locked_judged, identity)
         if locked_decision.decision == "blocked":
             _raise_mcp_policy_blocked(locked_decision)
         # Route the retired-status guard through the central transition table so

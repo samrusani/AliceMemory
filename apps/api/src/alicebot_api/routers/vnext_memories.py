@@ -921,20 +921,29 @@ def review_vnext_memory(
             target = auth_store.get_memory(str(memory_id))
             if target is None:
                 return _vnext_public_error_response(status_code=404, detail="vNext memory was not found")
-            target_scope = resource_project_scope(target)
+            from alicebot_api.vnext_label_guard import (
+                apply_unverified_rule,
+                effective_row_for_fence,
+                policy_labels,
+            )
+
+            judged = effective_row_for_fence(auth_store, identity, "memory", target)
+            domains, sensitivity_allowed, target_scope, target_floor = policy_labels(judged)
             if action == "assign_project" and request.project_id is not None:
                 target_scope = tuple(dict.fromkeys((*target_scope, request.project_id)))
             decision = _vnext_policy_checked(
                 store=auth_store,
                 identity=identity,
                 action="memory.review",
-                domains=(str(target.get("domain") or "unknown"),),
-                sensitivity_allowed=(str(target.get("sensitivity") or "unknown"),),
+                domains=domains,
+                sensitivity_allowed=sensitivity_allowed,
                 project_scope=target_scope,
+                project_floor=target_floor,
                 target_type="memory",
                 target_id=str(memory_id),
                 require_explicit_project_scope=True,
             )
+            decision = apply_unverified_rule(decision, judged, identity)
             if decision.decision == "blocked":
                 return _vnext_permission_response(decision)
     except AgentIdentityValidationError as exc:
@@ -1061,20 +1070,23 @@ def review_vnext_memory(
             # Re-authorize the locked record so a concurrent reassignment cannot
             # move it outside the bound agent project between the first check and
             # this mutation.
-            locked_scope = resource_project_scope(existing)
+            locked_judged = effective_row_for_fence(store, identity, "memory", existing)
+            _locked_domains, _locked_sensitivity, locked_scope, locked_floor = policy_labels(locked_judged)
             if action == "assign_project" and request.project_id is not None:
                 locked_scope = tuple(dict.fromkeys((*locked_scope, request.project_id)))
             locked_decision = _vnext_policy_checked(
                 store=store,
                 identity=identity,
                 action="memory.review",
-                domains=(str(existing.get("domain") or "unknown"),),
-                sensitivity_allowed=(str(existing.get("sensitivity") or "unknown"),),
+                domains=_locked_domains,
+                sensitivity_allowed=_locked_sensitivity,
                 project_scope=locked_scope,
+                project_floor=locked_floor,
                 target_type="memory",
                 target_id=str(memory_id),
                 require_explicit_project_scope=True,
             )
+            locked_decision = apply_unverified_rule(locked_decision, locked_judged, identity)
             if locked_decision.decision == "blocked":
                 return _vnext_permission_response(locked_decision)
             if str(existing.get("status") or "") in {"archived", "rejected", "superseded"}:

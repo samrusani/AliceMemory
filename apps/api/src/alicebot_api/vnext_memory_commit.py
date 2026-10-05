@@ -2506,6 +2506,7 @@ class VNextMemoryCommitService:
         action: str,
         memory: Mapping[str, object],
         allow_above_ceiling: bool = False,
+        kind: str = "memory",
     ) -> PolicyDecision:
         """Decide one mutation of a stored target without writing anything.
 
@@ -2520,14 +2521,24 @@ class VNextMemoryCommitService:
         # memory.expire / memory.unexpire / memory.accept_consolidation are
         # in the agent-control WRITE_ACTIONS vocabulary, so
         # evaluate_agent_policy carries the read-only write block itself.
+        from alicebot_api.vnext_label_guard import (
+            apply_unverified_rule,
+            effective_row_for_fence,
+            policy_labels,
+        )
+
+        settled = effective_row_for_fence(self.store, identity, kind, memory)
+        domains, sensitivity_allowed, project_scope, project_floor = policy_labels(settled)
         decision = evaluate_agent_policy(
             identity=identity,
             action=action,
-            domains=(str(memory.get("domain") or "unknown"),),
-            sensitivity_allowed=(str(memory.get("sensitivity") or "unknown"),),
-            project_scope=resource_project_scope(memory),
+            domains=domains,
+            sensitivity_allowed=sensitivity_allowed,
+            project_scope=project_scope,
+            project_floor=project_floor,
             require_explicit_project_scope=True,
         )
+        decision = apply_unverified_rule(decision, settled, identity)
         if not allow_above_ceiling:
             decision = _block_mutation_above_sensitivity_ceiling(decision)
         if (
@@ -2594,6 +2605,7 @@ class VNextMemoryCommitService:
             action=action,
             memory=memory,
             allow_above_ceiling=allow_above_ceiling,
+            kind="open_loop" if target_type == "open_loop" else "memory",
         )
         return self._record_write_decision(
             identity=identity,
@@ -2644,6 +2656,10 @@ class VNextMemoryCommitService:
     ) -> PolicyDecision:
         """Authorize a persisted target for a cross-surface lifecycle adapter."""
 
+        from alicebot_api.vnext_label_guard import effective_row_for_fence
+
+        kind = "open_loop" if target_type == "open_loop" else "memory"
+        memory = effective_row_for_fence(self.store, identity, kind, memory)
         return self._policy_checked_write(
             identity=identity,
             action=action,

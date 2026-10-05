@@ -275,18 +275,30 @@ def _authorize_explain_resource(
 ) -> None:
     """Require an unfiltered policy decision for one expanded resource."""
 
+    from alicebot_api.vnext_label_guard import apply_unverified_rule, effective_row_for_fence, policy_labels
+
+    judged: Mapping[str, object] = resource
+    judged_scope = project_scope
+    judged_floor: tuple[str, ...] = ()
+    if target_type in {"memory", "source", "artifact"}:
+        judged = effective_row_for_fence(store, identity, target_type, resource)
+        _domains, _sensitivity, judged_scope, judged_floor = policy_labels(judged)
+        if target_type == "source":
+            judged_scope = project_scope
     _actor_type, _actor_id, decision = _policy_checked(
         store,  # type: ignore[arg-type]
         identity=identity,
         action=EXPLAIN_DISCLOSURE_ACTION,
-        domains=(str(resource.get("domain") or "unknown"),),
-        sensitivity_allowed=(str(resource.get("sensitivity") or "unknown"),),
-        project_scope=project_scope,
+        domains=(str(judged.get("domain") or "unknown"),),
+        sensitivity_allowed=(str(judged.get("sensitivity") or "unknown"),),
+        project_scope=judged_scope,
+        project_floor=judged_floor,
         require_explicit_project_scope=True,
         target_type=target_type,
         target_id=target_id,
         project_view=ProjectView.unscoped(),
     )
+    decision = apply_unverified_rule(decision, judged, identity)
     # ``allowed_with_filtering`` is not sufficient for an explain response:
     # the downstream services expand related rows and do not accept filters.
     if decision.decision != "allowed":
@@ -740,20 +752,25 @@ def _authorize_vnext_artifact_target(
     artifact = store.get_artifact_for_update(artifact_id) if for_update else store.get_artifact(artifact_id)
     if artifact is None:
         raise MCPReferenceNotFoundError(f"artifact {artifact_id} was not found")
+    from alicebot_api.vnext_label_guard import apply_unverified_rule, effective_row_for_fence, policy_labels
 
+    judged = effective_row_for_fence(store, identity, "artifact", artifact)
+    domains, sensitivity_allowed, project_scope, project_floor = policy_labels(judged)
     actor_type, actor_id, raw_decision = _policy_checked(
         store,
         identity=identity,
         action=action,
-        domains=(str(artifact.get("domain") or "unknown"),),
-        sensitivity_allowed=(str(artifact.get("sensitivity") or "unknown"),),
-        project_scope=resource_project_scope(artifact),
+        domains=domains,
+        sensitivity_allowed=sensitivity_allowed,
+        project_scope=project_scope,
+        project_floor=project_floor,
         require_explicit_project_scope=True,
         require_unfiltered_target=True,
         target_type="artifact",
         target_id=artifact_id,
         project_view=ProjectView.unscoped(),
     )
+    raw_decision = apply_unverified_rule(raw_decision, judged, identity)
     return artifact, actor_type, actor_id, raw_decision
 
 

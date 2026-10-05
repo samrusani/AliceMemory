@@ -605,13 +605,16 @@ def review_vnext_open_loop(
             target = store.get_open_loop(loop_id)
             if target is None:
                 return _vnext_public_error_response(status_code=404, detail="vNext open loop was not found")
+            from alicebot_api.vnext_label_guard import effective_row_for_fence
+
+            judged = effective_row_for_fence(store, identity, "open_loop", target)
             # Same ceiling as the MCP open-loop updates. Returning the 403
             # from inside the connection keeps the policy event committed.
             try:
                 VNextMemoryCommitService(store).authorize_memory_action(
                     identity=identity,
                     action="open_loop.update",
-                    memory=target,
+                    memory=judged,
                     target_type="open_loop",
                 )
             except AgentPolicyBlockedError as exc:

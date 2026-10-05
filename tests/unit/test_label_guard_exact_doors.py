@@ -151,6 +151,83 @@ def test_a_locked_key_is_refused_an_unverified_row() -> None:
     assert "derived_labels_unverified" in blocked.reasons
 
 
+def test_explain_refuses_a_public_copy_of_a_confidential_source() -> None:
+    from alicebot_api.mcp.evidence_artifacts import (
+        _ExplainAuthorizationError,
+        _authorize_explain_resource,
+    )
+
+    store = _LabelStore()
+    with pytest.raises(_ExplainAuthorizationError):
+        _authorize_explain_resource(
+            store,
+            identity=_trusted(),
+            resource=store.memory,
+            project_scope=(ALPHA,),
+            target_type="memory",
+            target_id=MEMORY_ID,
+        )
+
+
+def test_the_legacy_artifact_authorizer_uses_the_input_label() -> None:
+    from alicebot_api.mcp.evidence_artifacts import _authorize_vnext_artifact_target
+
+    store = _LabelStore()
+    _artifact, _actor_type, _actor_id, decision = _authorize_vnext_artifact_target(
+        store,  # type: ignore[arg-type]
+        identity=_trusted(),
+        artifact_id=ARTIFACT_ID,
+        action="artifact.lookup",
+        for_update=False,
+    )
+    assert decision.decision == "blocked"
+
+
+def test_a_memory_review_decision_uses_the_input_label() -> None:
+    from alicebot_api.vnext_memory_commit import VNextMemoryCommitService
+
+    store = _LabelStore()
+    decision = VNextMemoryCommitService(store)._write_policy_decision(  # noqa: SLF001
+        identity=_trusted(),
+        action="memory.review",
+        memory=store.memory,
+    )
+    assert decision.decision == "blocked"
+
+
+def test_an_open_loop_update_uses_the_input_label() -> None:
+    from alicebot_api.vnext_memory_commit import VNextMemoryCommitService
+
+    store = _LabelStore()
+    loop = {
+        "id": "44444444-4444-4444-4444-444444444444",
+        "title": "loop",
+        "domain": "unknown",
+        "sensitivity": "public",
+        "metadata_json": {
+            "discovered_by": "vnext_daily_brief",
+            "source_id": SOURCE_ID,
+            "project_scope": [ALPHA],
+            "derived_from": {
+                "v": 1,
+                "sources": [SOURCE_ID],
+                "memories": [],
+                "open_loops": [],
+                "artifacts": [],
+                "beliefs": [],
+                "counts": {"sources": 1, "memories": 0, "open_loops": 0, "artifacts": 0, "beliefs": 0},
+            },
+        },
+    }
+    with pytest.raises(AgentPolicyBlockedError):
+        VNextMemoryCommitService(store).authorize_memory_action(
+            identity=_trusted(),
+            action="open_loop.update",
+            memory=loop,
+            target_type="open_loop",
+        )
+
+
 def test_a_cited_memory_is_judged_by_its_source() -> None:
     store = _LabelStore()
     with pytest.raises(MemoryRefNotFoundError):
