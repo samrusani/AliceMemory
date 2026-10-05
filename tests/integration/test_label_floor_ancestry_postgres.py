@@ -25,3 +25,9 @@ def test_pg_copy_and_summary_keep_tenant_and_ancestry(migrated_database_urls, do
         belief = store.read_label_rows("belief", [str(belief_id)])[0]
         assert belief["sensitivity"] == sensitivity
         assert str(belief["memory_id"]) == str(copy["id"])
+
+        record = {"v": 1, "sources": [], "memories": [], "open_loops": [], "artifacts": [], "beliefs": [str(belief_id)], "counts": {"sources": 0, "memories": 0, "open_loops": 0, "artifacts": 0, "beliefs": 1}}
+        artifact = store.create_artifact({"artifact_type": "daily_brief", "title": "synthetic", "content_markdown": "synthetic", "domain": "unknown", "sensitivity": "public", "metadata_json": {"workflow": "daily_brief", "derived_from": record}})
+        assert artifact["sensitivity"] == sensitivity
+        if domain == "health":
+            assert artifact["domain"] == domain
