@@ -70,6 +70,12 @@ class FakeVNextStore:
                       "artifact": self.artifacts.values(), "belief": self.beliefs.values(), "project": self.projects.values()}.get(kind, [])
         return [dict(row) for row in collection if str(row.get("id")) in ids]
 
+    def iter_label_rows(self, kind: str):
+        collections = {"source": self.sources.values(), "memory": self.memories,
+                       "open_loop": self.open_loops, "artifact": self.artifacts.values(),
+                       "belief": self.beliefs.values(), "project": self.projects.values()}
+        yield [dict(row) for row in collections[kind]]
+
     def _fetch_all(self, query: str, _params: tuple[object, ...]) -> list[dict[str, object]]:
         # The label dependant walker performs its exact canonical reference filter after this prefilter.
         for table, kind in (("memories", "memory"), ("open_loops", "open_loop"), ("generated_artifacts", "artifact"), ("projects", "project")):
@@ -4476,6 +4482,9 @@ def test_dogfooding_dashboard_and_insight_feedback_api(monkeypatch) -> None:
             "sensitivity": "private",
         }
     )
+    from alicebot_api.vnext_derived_labels import stamp_derived_from
+
+    stamp_derived_from(artifact, {})
     store.create_artifact_quality_rating(
         {
             "artifact_id": artifact["id"],
