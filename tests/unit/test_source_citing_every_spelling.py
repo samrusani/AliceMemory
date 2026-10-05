@@ -37,6 +37,7 @@ from __future__ import annotations
 import json
 import random
 import sqlite3
+import time
 from contextlib import closing, contextmanager
 from uuid import uuid4
 
@@ -677,6 +678,45 @@ def test_the_digit_reader_reads_nested_escapes_and_leaves_other_text_alone():
     assert not text_hits("", "1")
 
 
+
+def test_a_long_run_of_backslashes_is_read_in_time_that_grows_with_its_length():
+    """Memory text is written by agents, and each memory is read by every lookup, so the reader of escapes must not cost
+    the square of a text's length. One escape and then 400,000 backslashes is read in well under five seconds (a
+    linear reader takes a few milliseconds; a reader that starts a match at each backslash of the run reads the rest of
+    the run from each, about a minute here). The whole pass over such a memory is held to the same bound.
+
+    Mutation: let a match start inside a run of backslashes (the ``(?<!\\\\)\\\\+u`` of ``_DIGIT_ESCAPE`` made the
+    ``\\\\\\\\*u`` it replaced: the read takes about a minute and fails the bound).
+    """
+
+    text = "\\u0000" + "\\" * 400_000
+    started = time.perf_counter()
+    assert _in_ascii_digits(text) is None
+    assert not text_hits(text, "1" * 9) and not text_hits(text, "1" * 9, in_value=True)
+    assert time.perf_counter() - started < 5
+
+
+def test_what_an_id_ignores_is_taken_out_in_the_order_the_reader_takes_it_out():
+    """``uuid.UUID`` takes ``urn:`` out of a string before ``uuid:``, so an id split by ``uurn:uid:`` is read as the id: the
+    ``urn:`` goes and leaves ``uuid:``, which goes next. The reader names such a ref, and the pass keeps it, in an id
+    with hyphens and without, after ``source:``, and in the value as in the metadata.
+
+    Mutation: take ``uuid:`` out before ``urn:`` (the first two entries of ``_IGNORED_IN_AN_ID`` swapped: ``urn:`` goes
+    last and leaves ``uuid:`` in the run of digits, so the pass drops the memory).
+    """
+
+    sid = str(uuid4())
+    plain = sid.replace("-", "")
+    for ref in (sid[:8] + "uurn:uid:" + sid[8:], "source:" + sid[:8] + "uurn:uid:" + sid[8:],
+                plain[:10] + "uurn:uid:" + plain[10:]):
+        row = {"id": str(uuid4()), "value": {"text": "x", "source_refs": [ref]}, "metadata_json": {"source_refs": [ref]},
+               "source_event_ids": []}
+        assert sid in cited_source_ids(row).every, ref
+        digits = plain.lstrip("0")
+        assert text_hits(json.dumps({"source_refs": [ref]}), digits), ref
+        assert text_hits(json.dumps({"source_refs": [ref]}), digits, in_value=True), ref
+
+
 def test_an_ascii_character_written_as_a_json_escape_keeps_every_source():
     """A ref that is JSON text can write any character of an id as an escape (``\\u0061``) and the reader decodes it, so a
     text with the escape of a printable ASCII character is kept for every source, whatever the digits. The escapes of
@@ -837,6 +877,52 @@ def test_a_prune_of_many_sources_reads_each_memory_once_for_the_preview_and_once
     # receipt counts it under the first, whose scrub redacts it before the last looks.
     assert sum(row["candidate_memories"] for row in preview) == 14 and sum(row["candidate_memories"] for row in receipt) == 13
     assert all(row["memories_citing_replaced"] == [] for row in preview + receipt)
+    for memory_id in planted:
+        assert_gone(db, memory_id)
+
+
+
+@pytest.mark.parametrize("cited", ["a delete of a source nobody cites", "a prune where no source is cited",
+                                   "a prune where some sources are cited"])
+def test_a_source_nobody_cites_is_not_looked_up_again(tmp_path, capsys, reads, cited):
+    """The common case: most sources a delete or prune removes are cited by no memory. Such a source has an empty list
+    of citing memories from the lookup for all of them, and an empty list is an answer: the scrub reads the memories
+    of the list (none) and does not look again. A delete of a source nobody cites, a prune of six replaced sources none
+    of which is cited, and a prune of six where two are cited each read every memory once for the preview and once for
+    the receipt, and the reader is asked about the citing memories and no others.
+
+    Mutations: treat an empty list as no list in the scrub (``citing_ids is None`` made ``not citing_ids`` in
+    ``retire_dependents``: each source nobody cites is looked up again, and the receipt takes one pass more for each);
+    hand the scrub no list for such a source (``citing_ids=[...]`` in ``run_sources`` made ``citing_ids=[...] or None``:
+    the same).
+    """
+
+    if cited.startswith("a delete"):
+        db, _folder_path, sid = seeded(tmp_path)
+        ids, cited_ids = [sid], []
+    else:
+        db, ids = replaced_sources(tmp_path, 6)
+        cited_ids = [ids[1], ids[4]] if cited.endswith("some sources are cited") else []
+    add_filler(db, 40)
+    planted = []
+    with sqlite_user_connection(db, USER_ID) as conn:
+        store = SQLiteVNextStore(conn, USER_ID)
+        for index, sid in enumerate(cited_ids):
+            planted.append(plant(store, ["source:" + sid.replace("-", "")], text=f"Pending proposal {index}."))
+    total = memory_count(db)
+    arguments = ("delete", ids[0]) if cited.startswith("a delete") else ("prune", "--superseded")
+    passes, readers = reads
+    assert command(db, *arguments) == 2
+    preview = json.loads(capsys.readouterr().out)["would_delete"]
+    assert len(passes) == total and sorted(readers) == sorted(planted)
+    passes.clear()
+    readers.clear()
+    assert command(db, *arguments, "--yes") == 0
+    receipt = json.loads(capsys.readouterr().out)["deleted"]
+    assert len(passes) == total and sorted(readers) == sorted(planted)
+    assert [row["id"] for row in preview] == [row["id"] for row in receipt] == ids
+    for rows in (preview, receipt):
+        assert [row["candidate_memories"] for row in rows] == [int(sid in cited_ids) for sid in ids]
     for memory_id in planted:
         assert_gone(db, memory_id)
 
@@ -1019,3 +1105,29 @@ def test_the_function_is_registered_once_and_survives_a_statement_that_is_still_
     registered = store.conn.execute("SELECT count(*) FROM pragma_function_list WHERE name = 'alice_citation_hits'").fetchone()
     assert registered[0] == 1
     half_read.close()
+
+
+def test_a_lookup_leaves_no_pass_behind_when_it_ends_or_fails(monkeypatch):
+    """Each lookup states what it looks for under a number that the registered function reads, and takes it out when it
+    ends, so the registry does not grow with every delete and prune a long running server makes. It is taken out when
+    the pass fails too.
+
+    Mutation: leave the entry in the registry (the ``del _RUNNING_PASSES[pass_number]`` of ``_citation_candidates``
+    removed: an entry stays after each lookup).
+    """
+
+    store = memory_store()
+    sid = str(uuid4())
+    cited = insert_memory(store, metadata={"source_refs": [sid]})
+    assert source_retirement._RUNNING_PASSES == {}
+    assert found(store, sid) == {cited}
+    assert citing_memories_by_source(store, [sid, str(uuid4())])[sid][0]["id"] == cited
+    assert source_retirement._RUNNING_PASSES == {}
+
+    def failing(*_args):
+        raise RuntimeError("the pass failed")
+
+    monkeypatch.setattr(source_retirement, "_citation_hits", failing)
+    with pytest.raises(sqlite3.OperationalError):
+        found(store, sid)
+    assert source_retirement._RUNNING_PASSES == {}

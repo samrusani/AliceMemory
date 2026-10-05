@@ -94,10 +94,12 @@ _OTHER_SCRIPT_DIGIT = re.compile(r"[^\D0-9]")
 # A JSON escape of one character: ``\uXXXX``, and the pair of escapes ``json`` writes for a character beyond the first
 # 65,536 (the mathematical digits are such characters). The single escape is matched only where the code point starts
 # with 0, 1, a or f, because every decimal digit of the Basic Multilingual Plane lies in such a block. A JSON text
-# inside a JSON text doubles each backslash of the inner one, so a run of backslashes is read as one. Only an escape
-# that stands for such a digit is replaced (``_digit_escape``): any other escape stands for a character that is neither
-# a digit nor ignored, so no run of an id goes through it.
-_DIGIT_ESCAPE = re.compile(r"\\\\*u(?:(d[89ab][0-9a-f]{2})\\\\*u(d[c-f][0-9a-f]{2})|([01af][0-9a-f]{3}))")
+# inside a JSON text doubles each backslash of the inner one, so a run of backslashes is read as one. A match starts only
+# at the first backslash of a run: a start at each of them would read the rest of the run again, and a text of many
+# backslashes would cost the square of its length. Only an escape that stands for such a digit is replaced
+# (``_digit_escape``): any other escape stands for a character that is neither a digit nor ignored, so no run of an id
+# goes through it.
+_DIGIT_ESCAPE = re.compile(r"(?<!\\)\\+u(?:(d[89ab][0-9a-f]{2})\\+u(d[c-f][0-9a-f]{2})|([01af][0-9a-f]{3}))")
 
 
 class _AsciiDigits(dict):
