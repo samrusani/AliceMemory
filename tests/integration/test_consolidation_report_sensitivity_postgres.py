@@ -22,6 +22,8 @@ from alicebot_api.config import Settings
 from alicebot_api.db import user_connection
 from alicebot_api.routers import vnext_review as vnext_review_router
 from alicebot_api.vnext_agent_keys import create_agent_key
+from alicebot_api.vnext_consolidation import MemoryConsolidationRequest, VNextConsolidationService
+from alicebot_api.vnext_embeddings import pad_embedding_vector
 from alicebot_api.vnext_scheduler import SchedulerRunRequest
 from alicebot_api.vnext_scheduler_runtime import run_now_durable
 from alicebot_api.vnext_store import PostgresVNextStore
@@ -227,3 +229,104 @@ def test_open_loop_review_naming_a_confidential_source_is_refused_to_a_trusted_a
     assert status == 200, body
     assert f"source:{source_id}" in body["content_markdown"]
     assert artifact["sensitivity"] == "confidential"
+
+
+class _OneVector:
+    """An embedding provider that puts every text at the same point, so identical memories form one cluster."""
+
+    provider = "test_embeddings"
+    model = "test-embed-1"
+
+    def embed_text(self, text: str) -> list[float]:
+        # The width the vector column holds: a shorter vector makes the probe search fail inside the transaction.
+        return list(pad_embedding_vector([0.5, 0.1, 0.2]))
+
+    def embed_batch(self, texts) -> list[list[float]]:
+        return [self.embed_text(text) for text in texts]
+
+
+def _consolidate_a_cluster_citing(database_url: str, user_id: UUID, *, source_fields: dict) -> tuple[dict, dict]:
+    """Three near-duplicate internal memories that each cite one source, clustered and reported on Postgres.
+
+    Returns the stored report and the source row. The members are ``personal`` and ``internal``: less sensitive than
+    the source they cite when ``source_fields`` raise it.
+    """
+
+    with user_connection(database_url, user_id) as conn:
+        store = PostgresVNextStore(conn)
+        source = store.create_source(
+            {
+                "source_type": "note",
+                "title": "Clinic letter",
+                "content_hash": "sha256:" + uuid4().hex,
+                "domain": "personal",
+                "sensitivity": "internal",
+                **source_fields,
+            }
+        )
+        for index in range(3):
+            member = store.create_memory(
+                {
+                    "memory_key": f"launch-window-{index}-{uuid4().hex[:8]}",
+                    "memory_type": "semantic",
+                    "title": f"Launch window fact {index}",
+                    "canonical_text": "The launch window moves to March after the review.",
+                    "status": "active",
+                    "value": {"text": "The launch window moves to March after the review."},
+                    "domain": "personal",
+                    "sensitivity": "internal",
+                    "metadata_json": {"source_refs": [f"source:{source['id']}"]},
+                }
+            )
+            store.update_memory_embedding(memory_id=str(member["id"]), vector=pad_embedding_vector([0.5, 0.1, 0.2]))
+        artifact = VNextConsolidationService(store, embedding_provider=_OneVector()).generate_memory_consolidation(
+            MemoryConsolidationRequest(sensitivity_allowed=list(ALLOWED_WITH_CONFIDENTIAL))
+        )
+    return artifact, source
+
+
+def test_cluster_member_citing_a_confidential_health_source_is_refused_to_a_trusted_agent(
+    migrated_database_urls, monkeypatch
+) -> None:
+    """The report copies the ``source_refs`` of each cluster member. The members are internal and the source they
+    cite is confidential and in the health domain, so the report is labelled over the source and a key below
+    confidential is refused it. The ref is still printed for a key that may read it."""
+    database_url = migrated_database_urls["app"]
+    _point_routes_at(monkeypatch, database_url)
+    user_id = seed_user(database_url, email="consolidation-cited-source-label@example.com")
+
+    artifact, source = _consolidate_a_cluster_citing(
+        database_url, user_id, source_fields={"domain": "health", "sensitivity": "confidential"}
+    )
+    trusted_key, admin_key = _keys(database_url, user_id)
+
+    source_id = str(source["id"])
+    assert artifact["metadata_json"]["consolidation"]["cluster_membership"], "the run must have a cluster"
+    assert f"source:{source_id}" in artifact["metadata_json"]["source_refs"]
+    assert (artifact["domain"], artifact["sensitivity"]) == ("health", "confidential")
+
+    status, body = _get_artifact(str(artifact["id"]), user_id, trusted_key)
+    assert status == 403, body
+    assert source_id not in json.dumps(body)
+
+    status, body = _get_artifact(str(artifact["id"]), user_id, admin_key)
+    assert status == 200, body
+    assert f"source:{source_id}" in body["metadata_json"]["source_refs"]
+
+
+def test_cluster_member_citing_an_internal_source_leaves_the_report_readable_to_a_trusted_agent(
+    migrated_database_urls, monkeypatch
+) -> None:
+    """The control: the label follows the source, so a source no stricter than the members changes nothing."""
+    database_url = migrated_database_urls["app"]
+    _point_routes_at(monkeypatch, database_url)
+    user_id = seed_user(database_url, email="consolidation-cited-source-control@example.com")
+
+    artifact, source = _consolidate_a_cluster_citing(database_url, user_id, source_fields={})
+    trusted_key, _admin_key = _keys(database_url, user_id)
+
+    assert artifact["metadata_json"]["consolidation"]["cluster_membership"]
+    assert artifact["sensitivity"] == "internal"
+    status, body = _get_artifact(str(artifact["id"]), user_id, trusted_key)
+    assert status == 200, body
+    assert f"source:{source['id']}" in body["metadata_json"]["source_refs"]

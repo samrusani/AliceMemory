@@ -7,8 +7,10 @@ The printed output is the judge, not the producer's own list of inputs, so a row
 out of its label fails here by name. Each producer must also print at least one of its inputs, so a sweep that
 prints nothing cannot pass.
 
-The consolidation report and the open-loop review have their own tests (``test_consolidation_report_label.py`` and
-``test_open_loop_review_label.py``); the producers here are the ones the sweep found already correct.
+The consolidation report and the open-loop review have their own tests (``test_consolidation_report_label.py``,
+``test_consolidation_report_names_sources.py`` and ``test_open_loop_review_label.py``); the producers here are the ones
+the sweep found already correct. The daily brief and the weekly synthesis read four kinds of input (sources, memories,
+open loops and stored artifacts), and the sweep raises each of them.
 """
 
 from __future__ import annotations
@@ -38,14 +40,31 @@ EVERYTHING = ("public", "internal", "private", "confidential", "unknown")
 Builder = Callable[[], tuple[object, Callable[[object], list[dict]], Callable[[object], dict]]]
 
 
+# A report the store already holds, which the daily brief and the weekly synthesis read as context and print by id
+# and title. It is an input row like the others, so the sweep raises it too. The reports a run writes are not inputs
+# and are told apart by their type.
+SEEDED_ARTIFACT_TYPE = "research_note"
+
+
 def _brain(workflow: str) -> Builder:
     def build():
         from tests.unit.test_vnext_brain import _seed_store
 
         store = _seed_store()
+        store.artifacts["seeded-note-1"] = {
+            "id": "seeded-note-1",
+            "artifact_type": SEEDED_ARTIFACT_TYPE,
+            "title": "Quarterly planning notes",
+            "status": "reviewed",
+            "domain": "project",
+            "sensitivity": "private",
+            "created_at": "2026-05-10T07:30:00Z",
+            "metadata_json": {},
+        }
 
         def rows(current) -> list[dict]:
-            return [*current.sources, *current.memories, *current.open_loops]
+            seeded = [row for row in current.artifacts.values() if row.get("artifact_type") == SEEDED_ARTIFACT_TYPE]
+            return [*current.sources, *current.memories, *current.open_loops, *seeded]
 
         def run(current) -> dict:
             service = VNextBrainService(current)
@@ -183,3 +202,16 @@ def test_a_row_the_report_prints_is_covered_by_its_label(producer: str) -> None:
                     f"under sensitivity {created.get('sensitivity')}",
                 )
     assert printed_any, f"{producer} printed none of its inputs, so the sweep proved nothing"
+
+
+@pytest.mark.parametrize("workflow", ("daily_brief", "weekly_synthesis"))
+def test_the_sweep_reaches_the_stored_artifact_the_brain_reports_read(workflow: str) -> None:
+    """The artifact input is only proved if the report prints it. If a change stops the brain reports printing the
+    stored artifact, this fails by name instead of the sweep passing over an input it never reads."""
+
+    store, rows, run = _brain(workflow)()
+    seeded = [row for row in rows(store) if row.get("artifact_type") == SEEDED_ARTIFACT_TYPE]
+    assert len(seeded) == 1
+    printed = _printed(run(store))
+    assert str(seeded[0]["id"]).casefold() in printed
+    assert str(seeded[0]["title"]).casefold() in printed

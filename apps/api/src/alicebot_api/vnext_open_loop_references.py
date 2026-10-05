@@ -68,10 +68,10 @@ from __future__ import annotations
 
 import inspect
 import re
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from uuid import UUID
 
-from alicebot_api.vnext_source_fence import SOURCE_REFERENCE_KEYS, SourceReadFence
+from alicebot_api.vnext_source_fence import SOURCE_REFERENCE_KEYS, SourceReadFence, cited_source_ids
 
 JsonObject = dict[str, object]
 
@@ -157,22 +157,48 @@ def withhold_unreadable_references(
     return rows
 
 
+def source_rows_by_ids(store: object, source_ids: Iterable[object]) -> list[JsonObject]:
+    """The stored rows of the sources ``source_ids`` name, in id order, one row for each source.
+
+    This is the one batched read a report producer uses to find out how strict the sources it prints are, so that its
+    label can cover them (see ``sources_named_by_loops`` and ``sources_named_by_refs``). An id is read in any spelling
+    the link writer reads and counted once. A source that was archived is returned too, with ``deleted_at`` set, because
+    an archived source is still printed and its label still counts. A store that cannot look sources up by id, or an id
+    that names no row, adds no row. No id means no store call.
+    """
+
+    wanted: set[str] = set()
+    for value in source_ids:
+        source = _canonical_id(value)
+        if source is not None:
+            wanted.add(source)
+    rows = _rows_by_id(store, sorted(wanted), bulk="get_sources_by_ids", single="get_source")
+    return [dict(rows[source_id]) for source_id in sorted(wanted) if source_id in rows]
+
+
 def sources_named_by_loops(store: object, loops: Sequence[Mapping[str, object]]) -> list[JsonObject]:
     """The source rows that the ``source_id`` column of ``loops`` names, one row for each source.
 
     A report that prints the id of each loop's source (the open-loop review does) is read behind a label, and the
     label has to cover those sources as well as the loops. Pass the loops as ``withhold_unreadable_references`` returned
-    them: an id it withheld is ``None`` there, so only the sources the report really names are read. A store that cannot
-    look sources up by id, or an id that names no row, adds no row. No id means no store call.
+    them: an id it withheld is ``None`` there, so only the sources the report really names are read.
     """
 
-    wanted: set[str] = set()
-    for loop in loops:
-        source = _canonical_id(loop.get("source_id"))
-        if source is not None:
-            wanted.add(source)
-    rows = _rows_by_id(store, sorted(wanted), bulk="get_sources_by_ids", single="get_source")
-    return [dict(rows[source_id]) for source_id in sorted(wanted) if source_id in rows]
+    return source_rows_by_ids(store, [loop.get("source_id") for loop in loops])
+
+
+def sources_named_by_refs(store: object, refs: Iterable[object]) -> list[JsonObject]:
+    """The source rows that ``refs`` name, one row for each source.
+
+    ``refs`` is what a report prints as references, copied from rows as they were stored (the consolidation report
+    copies ``metadata_json.source_refs`` of its cluster members). They are read the way a reader of a saved reference
+    reads them (``cited_source_ids``), in every spelling a stored value can have: ``source:<id>`` in any case, the bare
+    id, an id with no hyphens or in braces, ``alice://sources/<id>``, or an id inside longer text that names a stored
+    source. An id after ``memory:`` names a memory and is not read. The report keeps printing the refs, so its label has
+    to be at least as strict as every source they name.
+    """
+
+    return source_rows_by_ids(store, sorted(cited_source_ids(list(refs)).every))
 
 
 def withhold_unreadable_references_from_loop(
@@ -361,7 +387,9 @@ def _scrub(value: object, *, depth: int, withheld: frozenset[str]) -> object:
 __all__ = [
     "MEMORY_REFERENCE_KEYS",
     "SOURCE_REFERENCE_KEYS",
+    "source_rows_by_ids",
     "sources_named_by_loops",
+    "sources_named_by_refs",
     "withhold_unreadable_references",
     "withhold_unreadable_references_from_loop",
     "withhold_unreadable_references_from_pack",

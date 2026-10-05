@@ -64,6 +64,7 @@ from alicebot_api.vnext_model_intelligence import (
     generate_consolidation_merge,
     resolve_model_route,
 )
+from alicebot_api.vnext_open_loop_references import sources_named_by_refs
 from alicebot_api.vnext_project_scope import project_scope_identity, refuse_global_marker
 from alicebot_api.vnext_recall_visibility import drop_expired_memories
 from alicebot_api.vnext_repositories import JsonObject
@@ -1172,6 +1173,15 @@ class VNextConsolidationService:
             sorted(str(row.get("id")) for row in members) for members in clustering.clusters
         ]
         brain_charter = self._brain_charter()
+        clusters_for_proposals = clustering.clusters[: options.max_clusters]
+        # The report copies the ``source_refs`` of each proposed cluster member as stored, and the candidate memories
+        # copy them too. The refs are not dropped: they are the provenance. But the report is read behind its label
+        # alone, so the label has to be at least as strict as every source they name. The list printed is made here,
+        # once, and the rows it names are read here, once, because the run digest and the label both cover them.
+        report_source_refs = list(
+            dict.fromkeys(ref for members in clusters_for_proposals for ref in _member_source_refs(members))
+        )
+        named_sources = sources_named_by_refs(self.store, report_source_refs)
         run_digest = _digest_payload(
             {
                 "scope": {
@@ -1215,6 +1225,19 @@ class VNextConsolidationService:
                     "artifacts": _digest_payload(artifacts),
                     "ratings": _digest_payload(ratings),
                 },
+                # Part of the identity of the run: a source that was reclassified since the last report makes a new
+                # one, instead of returning the report that carries the earlier label. A run that names no source
+                # has the digest it always had.
+                **(
+                    {
+                        "named_sources": [
+                            {"id": str(row.get("id")), "domain": row.get("domain"), "sensitivity": row.get("sensitivity")}
+                            for row in named_sources
+                        ]
+                    }
+                    if named_sources
+                    else {}
+                ),
             }
         )
         find_existing = getattr(self.store, "find_artifact_by_workflow_digest", None)
@@ -1252,7 +1275,6 @@ class VNextConsolidationService:
         proposals: list[JsonObject] = []
         skipped: list[str] = list(clustering.skipped)
         candidate_ids: list[str] = []
-        clusters_for_proposals = clustering.clusters[: options.max_clusters]
         if len(clustering.clusters) > options.max_clusters:
             skipped.append(
                 f"cluster_bound: {len(clustering.clusters) - options.max_clusters} clusters beyond "
@@ -1351,17 +1373,6 @@ class VNextConsolidationService:
             }
             for proposal in proposals
         ]
-        report_source_refs: list[str] = []
-        seen_report_source_refs: set[str] = set()
-        for proposal_record in proposal_records:
-            source_refs_value = proposal_record.get("source_refs")
-            if not isinstance(source_refs_value, list):
-                continue
-            for source_ref in source_refs_value:
-                normalized_ref = str(source_ref)
-                if normalized_ref not in seen_report_source_refs:
-                    seen_report_source_refs.add(normalized_ref)
-                    report_source_refs.append(normalized_ref)
         metadata = {
             **request.metadata_json,
             "workflow": "memory_consolidation",
@@ -1443,14 +1454,19 @@ class VNextConsolidationService:
 
         all_cluster_rows = [row for members in clustering.clusters for row in members]
         # The report is read behind its domain and sensitivity, so both are taken over every row it names: the
-        # near-duplicate cluster members and every row the roll-up pass names. A run whose only proposals are roll-ups
-        # has no cluster, and its label used to come from nothing. A row counts once, because the domain is the most
-        # frequent restricted label among the rows, and a cluster member is named by its cluster and again by the
-        # roll-up line that leaves its group to the dedup proposal.
+        # near-duplicate cluster members, every row the roll-up pass names, and the sources that the refs it prints
+        # name (read above, after the run's own fence chose the members the refs are copied from). A run whose only
+        # proposals are roll-ups has no cluster, and its label used to come from nothing. A row counts once, because
+        # the domain is the most frequent restricted label among the rows, and a cluster member is named by its
+        # cluster and again by the roll-up line that leaves its group to the dedup proposal.
         labelled_rows = list(
             {
                 (str(row["id"]) if row.get("id") is not None else id(row)): row
-                for row in [*all_cluster_rows, *(rollups.input_rows if rollups is not None else [])]
+                for row in [
+                    *all_cluster_rows,
+                    *(rollups.input_rows if rollups is not None else []),
+                    *named_sources,
+                ]
             }.values()
         )
         artifact = self.store.create_artifact(

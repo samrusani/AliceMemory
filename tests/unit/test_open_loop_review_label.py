@@ -14,6 +14,7 @@ from uuid import uuid4
 
 import pytest
 
+import alicebot_api.vnext_scheduler as scheduler_module
 from alicebot_api.vnext_agent_control import AgentIdentity
 from alicebot_api.vnext_scheduler import SchedulerRunRequest, VNextSchedulerService
 from tests.unit.test_vnext_scheduler import InMemorySchedulerStore
@@ -49,8 +50,29 @@ class SourceReadingStore(InMemorySchedulerStore):
         return None
 
 
-def _store(*, source: dict, loop: dict | None = None) -> tuple[SourceReadingStore, dict, dict]:
-    store = SourceReadingStore()
+class SingleSourceStore(InMemorySchedulerStore):
+    """The scheduler fake with a one-source-at-a-time read and no bulk read (the fallback both the reference fence and
+    the label take when a store has no ``get_sources_by_ids``)."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.sources = []
+        self.single_reads: list[str] = []
+
+    def get_source(self, source_id):
+        self.single_reads.append(str(source_id))
+        for row in self.sources:
+            if str(row["id"]).lower() == str(source_id).lower():
+                return dict(row)
+        return None
+
+    find_artifact_by_workflow_digest = SourceReadingStore.find_artifact_by_workflow_digest
+
+
+def _store(
+    *, source: dict, loop: dict | None = None, store: InMemorySchedulerStore | None = None
+) -> tuple[SourceReadingStore | SingleSourceStore, dict, dict]:
+    store = store if store is not None else SourceReadingStore()
     source_row = {
         "id": str(uuid4()),
         "source_type": "manual_text",
@@ -163,6 +185,96 @@ def test_reclassifying_a_linked_source_makes_a_new_report() -> None:
     store, source, _loop = _store(source={"sensitivity": "internal"})
     first = _review(store)
     assert first["sensitivity"] == "internal"
+    source["sensitivity"] = "confidential"
+    second = _review(store)
+
+    assert second["id"] != first["id"]
+    assert second["sensitivity"] == "confidential"
+
+
+def test_moving_a_linked_source_to_a_restricted_domain_makes_a_new_report() -> None:
+    """Only the domain of the source changes, and its sensitivity stays where it was. A digest over the sensitivity
+    alone would hand back the earlier report, and with it a domain the source no longer has."""
+
+    store, source, _loop = _store(source={"domain": "personal", "sensitivity": "internal"})
+    first = _review(store)
+    assert first["domain"] == "unknown"
+    source["domain"] = "health"
+    second = _review(store)
+
+    assert second["id"] != first["id"]
+    assert second["metadata_json"]["workflow_digest"] != first["metadata_json"]["workflow_digest"]
+    assert second["domain"] == "health"
+    assert second["sensitivity"] == "internal"
+
+
+def _hashed_payloads(monkeypatch) -> list[dict]:
+    """The payloads the open-loop review hashed into its run digest."""
+
+    seen: list[dict] = []
+    real = scheduler_module._workflow_digest
+
+    def spy(payload):
+        if isinstance(payload, dict) and payload.get("workflow") == "open_loop_review":
+            seen.append(payload)
+        return real(payload)
+
+    monkeypatch.setattr(scheduler_module, "_workflow_digest", spy)
+    return seen
+
+
+@pytest.mark.parametrize("how", ("no_source_id", "withheld_by_the_run_fence"))
+def test_a_run_that_prints_no_source_keeps_the_digest_it_always_had(monkeypatch, how: str) -> None:
+    """With no source printed the payload has no ``linked_sources`` key (not an empty list), so the digest is the one
+    the review had before the key existed and the report an earlier run made is still found."""
+
+    seen = _hashed_payloads(monkeypatch)
+    if how == "no_source_id":
+        store, _source, _loop = _store(source={}, loop={"source_id": None})
+        request: dict = {}
+    else:
+        store, _source, _loop = _store(source={"sensitivity": "confidential"})
+        request = {
+            "agent_identity": AgentIdentity(agent_id="reader", permission_profile="trusted_local_agent"),
+            "sensitivity_allowed": ("public", "internal", "private", "unknown"),
+        }
+    first = _review(store, **request)
+    second = _review(store, **request)
+
+    assert len(seen) == 2
+    for payload in seen:
+        assert "linked_sources" not in payload
+    expected = scheduler_module._workflow_digest({key: value for key, value in seen[0].items() if key != "linked_sources"})
+    assert first["metadata_json"]["workflow_digest"] == expected
+    assert second["id"] == first["id"]
+
+
+def test_a_run_that_prints_a_source_hashes_its_id_domain_and_sensitivity(monkeypatch) -> None:
+    seen = _hashed_payloads(monkeypatch)
+    store, source, _loop = _store(source={"domain": "health", "sensitivity": "confidential"})
+    _review(store)
+
+    assert seen[0]["linked_sources"] == [
+        {"id": str(source["id"]), "domain": "health", "sensitivity": "confidential"}
+    ]
+
+
+def test_a_store_that_reads_one_source_at_a_time_labels_the_report_over_it() -> None:
+    single = SingleSourceStore()
+    store, source, _loop = _store(source={"sensitivity": "confidential", "domain": "health"}, store=single)
+    artifact = _review(store)
+
+    assert store.single_reads, "the label has to be taken from a read of the source"
+    assert f"source:{source['id']}" in artifact["content_markdown"]
+    assert artifact["metadata_json"]["source_refs"] == [f"source:{source['id']}"]
+    assert artifact["sensitivity"] == "confidential"
+    assert artifact["domain"] == "health"
+
+
+def test_a_store_that_reads_one_source_at_a_time_makes_a_new_report_for_a_reclassified_source() -> None:
+    single = SingleSourceStore()
+    store, source, _loop = _store(source={"sensitivity": "internal"}, store=single)
+    first = _review(store)
     source["sensitivity"] = "confidential"
     second = _review(store)
 
