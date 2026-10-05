@@ -200,6 +200,7 @@ _KNOWN_COMMANDS = (
     "sleep-proposals",
     "install",
     "project",
+    "labels",
 )
 
 _EXPORT_FORMAT = "alice-memory-jsonl"
@@ -1248,6 +1249,13 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Write a Claude Desktop .mcpb zip that launches uvx alice-memory mcp.",
     )
+
+    labels_parser = subparsers.add_parser("labels", help="Check and repair stored derived labels.")
+    labels_commands = labels_parser.add_subparsers(dest="labels_command", required=True)
+    labels_check = labels_commands.add_parser("check", help="Report derived rows below their inputs.")
+    _add_database_arguments(labels_check)
+    labels_repair = labels_commands.add_parser("repair", help="Raise stored derived labels.")
+    _add_database_arguments(labels_repair)
 
     sources_parser = subparsers.add_parser("sources", help="List and remove SQLite source material as the owner.")
     sources_commands = sources_parser.add_subparsers(dest="sources_command", required=True)
@@ -3729,9 +3737,11 @@ def _import_records(
     ``project_scoping.apply_imported_scoping``).
     """
     from alicebot_api.vnext_derived_domain_backfill import recorded_sqlite_domain_repairs
+    from alicebot_api.vnext_label_repair import recorded_sqlite_label_repairs
 
     quarantine_plan = plan if plan is not None else _EMPTY_QUARANTINE_PLAN
     domain_repairs = recorded_sqlite_domain_repairs(conn, str(store.user_id))
+    label_repairs = recorded_sqlite_label_repairs(conn, str(store.user_id))
     counts: dict[str, dict[str, int]] = {}
     probe = _BackfillProbe()
     try:
@@ -3775,6 +3785,24 @@ def _import_records(
                                 repaired = list(candidate)
                                 repaired[domain_index] = existing["domain"]
                                 candidates.append(tuple(repaired))
+                    if table in {"memories", "open_loops"}:
+                        for candidate in tuple(candidates):
+                            adjusted = list(candidate)
+                            changed_dimension = False
+                            for dimension, column in (("domain", "domain"), ("sensitivity", "sensitivity")):
+                                if column not in columns:
+                                    continue
+                                index = columns.index(column)
+                                file_value = str(adjusted[index] if adjusted[index] is not None else "unknown")
+                                stored_value = existing[column]
+                                stored_text = str(stored_value if stored_value is not None else "unknown")
+                                if file_value != stored_text and file_value in label_repairs.get(
+                                    (table, row_id, dimension), set()
+                                ):
+                                    adjusted[index] = stored_value
+                                    changed_dimension = True
+                            if changed_dimension:
+                                candidates.append(tuple(adjusted))
                     if not _stored_row_matches(
                         dict(existing),
                         columns,
@@ -4347,6 +4375,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "sources":
             from alicebot_api.source_commands import run_sources
             return run_sources(args)
+        if args.command == "labels":
+            from alicebot_api.label_commands import run_labels
+            return run_labels(args)
         if args.command == "import-markdown":
             return _run_import_markdown(args)
         if args.command == "import-chatgpt":

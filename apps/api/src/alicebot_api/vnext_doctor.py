@@ -288,6 +288,20 @@ class VNextDoctorService:
             },
         )
 
+        from alicebot_api.vnext_label_repair import label_gap_counts
+
+        below, unverified = label_gap_counts(self.store)
+        label_line = f"derived labels: {below} below their inputs, {unverified} unverified"
+        self._check(
+            checks,
+            name="derived_labels",
+            ok=below == 0 and unverified == 0,
+            severity="warning",
+            message_ok=label_line,
+            message_fail=label_line,
+            recommended_fix="alicebot vnext labels repair",
+        )
+
         blocking = [check for check in checks if check.status == "fail" and check.severity == "blocking"]
         warnings = [check for check in checks if check.status == "fail" and check.severity == "warning"]
         payload = {

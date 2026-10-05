@@ -111,6 +111,10 @@ def compile_local_vault_doctor(
             (uid, CANDIDATE_STATUS),
         )
         missing_vector_line = _missing_vector_line(store)
+        from alicebot_api.vnext_label_repair import label_gap_counts
+
+        below, unverified = label_gap_counts(store)
+        label_line = f"derived labels: {below} below their inputs, {unverified} unverified"
         flagged_ids = _flagged_source_ids(store)
         superseded_count = count_prunable_sources(store)
         try:
@@ -145,6 +149,7 @@ def compile_local_vault_doctor(
             *(["Remove flagged sources with alice-memory sources delete <id>."] if flagged_ids else []),
             f"flagged sources: {len(flagged_ids)}",
             "flagged source ids: " + ", ".join(flagged_ids),
+            label_line,
         )
     )
 

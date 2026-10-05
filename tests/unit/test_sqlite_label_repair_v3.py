@@ -63,6 +63,17 @@ def test_open_raises_a_public_copy_of_a_confidential_source(tmp_path, monkeypatc
     assert SOURCE_TEXT not in json.dumps(payload)
 
 
+def test_labels_check_names_the_rows_the_next_open_would_raise(tmp_path, monkeypatch, capsys) -> None:
+    from alicebot_api.onramp import main as onramp_main
+
+    path = tmp_path / "vault.db"
+    _vault_with_a_public_copy(path, monkeypatch)
+    code = onramp_main(["labels", "check", "--db", str(path), "--user-id", USER])
+    output = capsys.readouterr().out
+    assert code == 1
+    assert "next open would raise" in output
+
+
 def test_a_vault_that_cannot_be_repaired_still_opens(tmp_path, monkeypatch, caplog) -> None:
     path = tmp_path / "vault.db"
     _vault_with_a_public_copy(path, monkeypatch)

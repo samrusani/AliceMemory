@@ -35,6 +35,17 @@ def _as_int(value: object) -> int:
 USER_ID = UUID("00000000-0000-0000-0000-000000005001")
 MEMORY_ID = "00000000-0000-0000-0000-000000005101"
 ARTIFACT_ID = "00000000-0000-0000-0000-000000005201"
+CONFIDENTIAL_MEMORY_ID = "00000000-0000-0000-0000-000000005111"
+DERIVED_BRIEF_ID = "00000000-0000-0000-0000-000000005112"
+_EMPTY_DERIVED_FROM = {
+    "v": 1,
+    "sources": [],
+    "memories": [],
+    "open_loops": [],
+    "artifacts": [],
+    "beliefs": [],
+    "counts": {"sources": 0, "memories": 0, "open_loops": 0, "artifacts": 0, "beliefs": 0},
+}
 OLDER_RATING_ID = "00000000-0000-0000-0000-000000005301"
 NEWER_RATING_ID = "00000000-0000-0000-0000-000000005302"
 REVIEWER_ID = "phase5-ops-reviewer"
@@ -141,7 +152,65 @@ def _seed_postgres(
                     "domain": "project",
                     "sensitivity": "internal",
                     "generated_by": "system",
+                    "metadata_json": {
+                        "evidence_fixture": "phase5_ops_v1",
+                        "derived_from": _EMPTY_DERIVED_FROM,
+                    },
+                }
+            )
+            store.create_memory(
+                {
+                    "id": CONFIDENTIAL_MEMORY_ID,
+                    "memory_key": "phase5.ops.confidential",
+                    "value": {"text": "A confidential operations fact."},
+                    "status": "active",
+                    "memory_type": "decision",
+                    "confirmation_status": "confirmed",
+                    "trust_class": "human_curated",
+                    "title": "Confidential operations fact",
+                    "canonical_text": "A confidential operations fact.",
+                    "summary": "Stored above the brief that names it.",
+                    "domain": "project",
+                    "sensitivity": "confidential",
                     "metadata_json": {"evidence_fixture": "phase5_ops_v1"},
+                },
+                actor_type="system",
+            )
+            store.create_artifact(
+                {
+                    "id": DERIVED_BRIEF_ID,
+                    "artifact_type": "weekly_synthesis",
+                    "title": "Brief over a confidential memory",
+                    "content_markdown": "Names the confidential operations fact.",
+                    "status": "draft",
+                    "domain": "project",
+                    "sensitivity": "public",
+                    "generated_by": "system",
+                    "metadata_json": {
+                        "workflow": "weekly_synthesis",
+                        "input_summary": {
+                            "memory_ids": [CONFIDENTIAL_MEMORY_ID],
+                            "source_ids": [],
+                            "open_loop_ids": [],
+                            "artifact_ids": [],
+                            "counts": {"memories": 1, "sources": 0, "open_loops": 0, "artifacts": 0},
+                        },
+                        "derived_from": {
+                            "v": 1,
+                            "sources": [],
+                            "memories": [CONFIDENTIAL_MEMORY_ID],
+                            "open_loops": [],
+                            "artifacts": [],
+                            "beliefs": [],
+                            "counts": {
+                                "sources": 0,
+                                "memories": 1,
+                                "open_loops": 0,
+                                "artifacts": 0,
+                                "beliefs": 0,
+                            },
+                        },
+                    },
                 }
             )
             for rating_id, usefulness, created_at in (

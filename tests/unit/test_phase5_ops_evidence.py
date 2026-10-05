@@ -662,6 +662,7 @@ def _mock_successful_postgres_drill(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(ops, "_dynamic_alembic_head", lambda: "current_head")
     monkeypatch.setattr(ops, "_migrate_postgres", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(ops, "_verify_migration_0093", lambda _admin_url: None)
+    monkeypatch.setattr(ops, "_verify_derived_labels", lambda _admin_url: None)
     monkeypatch.setattr(
         ops,
         "_verify_postgres_store",
