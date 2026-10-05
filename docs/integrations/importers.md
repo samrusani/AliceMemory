@@ -336,15 +336,15 @@ over the memories for their preview and one for their receipt, however many
 replaced sources a prune removes.
 
 Unreleased (on main, not in v0.20.0): an open loop belongs to a source when its
-`source_id` column holds the id, or when the text under `source_id`, `source_ids`,
-`source_ref`, `source_refs`, `source_references` or `selected_source_ids`, at any
-depth of its metadata, is the id as stored or `source:<id>`. This is the rule of
-the lookup of the open loops that name a source. Replacement, `sources delete`,
-`sources prune` and the delete preview all use it, so a loop whose column is
-empty is closed and blanked too, and the preview counts the loops the receipt
-reports. Unlike the memory rule above, it reads the id only as stored or as
-`source:<id>`, so a loop that names the source in any spelling other than the id
-as stored or `source:<id>` keeps its text.
+`source_id` column or its metadata names that source in any spelling the
+saved-quote reader names (capitals, no hyphens, braces, `urn:uuid:`, a list, or
+JSON text) under `source_id`, `source_ids`, `source_ref`, `source_refs`,
+`source_references` or `selected_source_ids`. Replacement, `sources delete`,
+`sources prune` and the delete preview all use that rule, and the reader that
+withholds ids uses it too. One pass over the user's loops answers for every
+source of the command, and the preview counts the loops the receipt reports.
+In v0.20.0 the rule read the id only as stored or as `source:<id>`, so any other
+spelling kept the loop's text.
 
 There is no restore command for sources. Import the old text with `--supersede`
 to make it live again. A pre-deletion export can conflict with rows in the same

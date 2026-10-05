@@ -19,7 +19,7 @@ from alicebot_api.vnext_stores.sqlite.columns import (
     GRAPH_EDGE_COLUMNS,
     OPEN_LOOP_COLUMNS,
 )
-from alicebot_api.vnext_stores.sqlite.open_loop_source_reference import open_loop_source_reference_sql
+from alicebot_api.vnext_stores.sqlite.source_retirement import open_loops_naming_sources
 from alicebot_api.vnext_stores.sqlite.primitives import (
     _iso_or_none,
     _iso_or_now,
@@ -664,22 +664,11 @@ def find_open_loop_by_automation_digest(
     )
 
 def list_open_loops_referencing_source(self, *, source_id: str, limit: int = 500) -> list[VNextRow]:
-    """Bound open loops related to one source before LIMIT."""
+    """Open loops that name one source, by the spellings ``cited_source_ids`` names, before LIMIT."""
 
     if limit < 1:
         raise ValueError("limit must be positive")
-    reference, reference_params = open_loop_source_reference_sql(source_id)
-    return self._fetch_all(
-        f"""
-                SELECT {", ".join(OPEN_LOOP_COLUMNS)}
-                FROM open_loops
-                WHERE user_id = ?
-                  AND {reference}
-                ORDER BY updated_at DESC, created_at DESC, id DESC
-                LIMIT ?
-                """,
-        (self.user_id, *reference_params, limit),
-    )
+    return open_loops_naming_sources(self, [source_id]).get(str(source_id), [])[:limit]
 
 def list_open_loops(
     self,
