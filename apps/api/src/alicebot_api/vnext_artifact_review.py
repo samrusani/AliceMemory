@@ -37,6 +37,12 @@ def dispatch_vnext_artifact_review(
     mutating it, so no caller can route from a stale or forged preloaded row.
     """
 
+    lock_graph = getattr(store, "lock_graph_mutation", None)
+    if callable(lock_graph):
+        lock_graph()
+        from alicebot_api.vnext_label_writes import acquire_exclusive_label_lock
+
+        acquire_exclusive_label_lock(store)
     target = store.get_artifact_for_update(artifact_id)
     if target is None:
         raise VNextQueueNotFoundError(f"artifact {artifact_id} was not found")

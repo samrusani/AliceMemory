@@ -419,7 +419,7 @@ class SQLiteVNextStore:
             return []
         extra = ""
         if table == "memories":
-            extra = ", value, project_id"
+            extra = ", value, project_id, source_event_ids, deleted_at, status"
         elif table == "open_loops":
             extra = ", project_id, source_id, memory_id"
         from uuid import UUID
@@ -442,6 +442,50 @@ class SQLiteVNextStore:
                 """,
             (self.user_id, *wanted, *canonical),
         )
+
+    def iter_label_rows(self, kind: str, *, batch_size: int = 200) -> Iterator[list[VNextRow]]:
+        """Complete counted population, in narrow tenant-bound keyset batches."""
+
+        if batch_size < 1:
+            raise ValueError("batch_size must be positive")
+        table = {"source": "sources", "memory": "memories", "open_loop": "open_loops"}.get(kind)
+        if table is None:
+            raise ValueError("unsupported label kind")
+        extra = ""
+        if kind == "memory":
+            extra = ", status, value, project_id, source_event_ids, deleted_at"
+        elif kind == "open_loop":
+            extra = ", status, project_id, source_id, memory_id"
+        live = " AND deleted_at IS NULL" if kind in {"source", "memory"} else ""
+        after = ""
+        while True:
+            rows = self._fetch_all(
+                f"""SELECT id, user_id, domain, sensitivity, metadata_json{extra}
+                    FROM {table} WHERE user_id = ? AND id > ?{live}
+                    ORDER BY id LIMIT ?""",
+                (self.user_id, after, batch_size),
+            )
+            if not rows:
+                return
+            yield rows
+            after = str(rows[-1]["id"])
+
+    def iter_label_events(self, *, batch_size: int = 200) -> Iterator[list[VNextRow]]:
+        """Complete event targets for readable counts, without event payloads."""
+
+        if batch_size < 1:
+            raise ValueError("batch_size must be positive")
+        after = ""
+        while True:
+            rows = self._fetch_all(
+                """SELECT id, target_type, target_id, event_type FROM event_log
+                   WHERE user_id = ? AND id > ? ORDER BY id LIMIT ?""",
+                (self.user_id, after, batch_size),
+            )
+            if not rows:
+                return
+            yield rows
+            after = str(rows[-1]["id"])
 
     # -- fetch helpers (mirror PostgresVNextStore conventions) ------------
 

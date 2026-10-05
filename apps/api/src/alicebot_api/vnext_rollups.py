@@ -2474,11 +2474,11 @@ class VNextRollupService:
         from alicebot_api.vnext_label_guard import admit_loaded
         admitted_pending = {str(row.get("id")) for row in admit_loaded(
             self.store, kind="memory", rows=list(pending.values()), domains=domains,
-            sensitivity_allowed=sensitivity_allowed, projects=projects, all_of=all_of,
+            sensitivity_allowed=sensitivity_allowed, projects=(), all_of=all_of,
         )}
         admitted_accepted = {str(row.get("id")) for row in admit_loaded(
             self.store, kind="memory", rows=list(accepted.values()), domains=domains,
-            sensitivity_allowed=sensitivity_allowed, projects=projects, all_of=all_of,
+            sensitivity_allowed=sensitivity_allowed, projects=(), all_of=all_of,
         )}
         pending = {key: row for key, row in pending.items() if str(row.get("id")) in admitted_pending}
         accepted = {key: row for key, row in accepted.items() if str(row.get("id")) in admitted_accepted}

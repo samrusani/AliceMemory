@@ -809,6 +809,7 @@ def _resume_event_honours_policy_fence(
     # row it points at is the thing to test (the event queries leave them out in SQL
     # too, which keeps a held-back event from using up a place).
     exclude_global_domains: frozenset[str],
+    effective_project_scope: tuple[str, ...] = (),
 ) -> bool:
     target_type = event.get("target_type")
     target_id = event.get("target_id")
@@ -836,7 +837,7 @@ def _resume_event_honours_policy_fence(
         rows=[row],
         domains=effective_domains,
         sensitivity_allowed=effective_sensitivity_allowed,
-        projects=(),
+        projects=effective_project_scope,
     ):
         return False
     return _resource_matches_domains(row, effective_domains) and _resource_matches_sensitivity(
@@ -1226,6 +1227,7 @@ def _vnext_resume(
                     effective_domains=effective_domains,
                     effective_sensitivity_allowed=effective_sensitivity_allowed,
                     exclude_global_domains=held_back,
+                    effective_project_scope=effective_project_scope,
                 )
             ]
             event_rows.sort(key=_event_recency, reverse=True)
