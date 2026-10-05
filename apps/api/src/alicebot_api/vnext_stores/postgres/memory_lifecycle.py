@@ -450,6 +450,10 @@ def update_memory(
                 patch_metadata,
                 label_write=label_write,
             )
+    if before_label is not None:
+        from alicebot_api.vnext_label_writes import clamp_owner_patch
+
+        patch = clamp_owner_patch(self, kind="memory", before=before_label, patch=patch)
     row = self._fetch_one(
         "update_memory",
         f"""

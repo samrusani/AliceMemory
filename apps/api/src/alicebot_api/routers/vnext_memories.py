@@ -1361,6 +1361,9 @@ def review_vnext_memory(
         actor_id=actor_id,
     )
     review_payload: dict[str, object] = {"memory": updated}
+    if getattr(store, "_label_floor_applied", False):
+        review_payload["label_floor_applied"] = True
+        store._label_floor_applied = False
     if action == "reject":
         review_payload["rationale_withheld"] = rationale_withheld
         review_payload["text_withheld"] = text_withheld
