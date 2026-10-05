@@ -1219,7 +1219,54 @@ def scope_is_global(scope: object) -> bool:
     return is_global_scope(scope)
 
 
+def input_admitted(kind: str, row: Mapping[str, object], projects: object) -> bool:
+    """Exact-door project test: scope and floor are both inside ``projects``."""
+
+    if canon_kind(kind) == "source":
+        scope = source_project_scope(row)
+    else:
+        scope = resolve_project_scope(row).values
+    shape, floor = project_floor_shape(row)
+    if shape == "malformed":
+        return False
+    bound = set(project_scope_identity(projects))
+    scope_ids = set(project_scope_identity(scope))
+    if not scope_ids or not scope_ids <= bound:
+        return False
+    return set(project_scope_identity(floor)) <= bound
+
+
+def stamp_derived_from(payload: dict[str, object], rows_by_kind: Mapping[str, object]) -> None:
+    """Write the canonical dependency record onto ``payload['metadata_json']``."""
+
+    metadata = payload.get("metadata_json")
+    meta = dict(metadata) if isinstance(metadata, Mapping) else {}
+    record: dict[str, object] = {"v": 1}
+    counts: dict[str, int] = {}
+    for key in ("sources", "memories", "open_loops", "artifacts", "beliefs"):
+        raw_rows = rows_by_kind.get(key)
+        rows = raw_rows if isinstance(raw_rows, (list, tuple)) else []
+        ids = [str(row.get("id")) for row in rows if isinstance(row, Mapping) and row.get("id") is not None]
+        record[key] = ids
+        counts[key] = len(ids)
+    record["counts"] = counts
+    meta["derived_from"] = record
+    payload["metadata_json"] = meta
+
+
+def with_derived_from(metadata: Mapping[str, object], rows_by_kind: Mapping[str, object]) -> dict[str, object]:
+    """A copy of ``metadata`` with ``derived_from`` for the rows a producer used."""
+
+    payload: dict[str, object] = {"metadata_json": dict(metadata)}
+    stamp_derived_from(payload, rows_by_kind)
+    stamped = payload["metadata_json"]
+    return dict(stamped) if isinstance(stamped, Mapping) else {}
+
+
 __all__ = [
+    "input_admitted",
+    "stamp_derived_from",
+    "with_derived_from",
     "DERIVED_ARTIFACT_TYPES",
     "DERIVED_WORKFLOWS",
     "HOP_BOUND",
