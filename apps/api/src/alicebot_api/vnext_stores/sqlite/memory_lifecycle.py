@@ -53,10 +53,13 @@ def _with_protected_metadata(self, memory_id: str, patch: JsonObject, *, label_w
     if current is None:
         return patch
     stored = current.get("metadata_json")
+    patch_metadata = patch["metadata_json"]
+    if not isinstance(patch_metadata, dict):
+        return patch
     merged = dict(patch)
     merged["metadata_json"] = merge_protected_metadata(
         stored if isinstance(stored, dict) else {},
-        patch["metadata_json"],
+        patch_metadata,
         label_write=label_write,
     )
     return merged

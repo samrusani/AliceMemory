@@ -817,3 +817,21 @@ def test_rank_table_matches_the_spec_order() -> None:
     assert SENSITIVITY_RANK["public"] < SENSITIVITY_RANK["unknown"] == SENSITIVITY_RANK["internal"]
     assert SENSITIVITY_RANK["sacred"] == SENSITIVITY_RANK["regulated"]
     assert "health" in RESTRICTED_DOMAINS
+
+
+def test_distinct_stored_aliases_are_unverified_but_single_alias_and_other_kind_are_valid() -> None:
+    canonical = str(UUID(SOURCE_UUID))
+    alias = "{" + canonical.upper() + "}"
+    source = _source(canonical, domain="health", sensitivity="confidential", scope=[ALPHA])
+    twin = _source(alias, domain="project", scope=[BETA])
+    report = _brief("ambiguous", sources=[canonical])
+    for rows in ([source, twin, report], [twin, source, report]):
+        result = settle_labels(rows).by_stored("artifact", "ambiguous")
+        assert result.unverified is True
+        assert result.reason == "dependency_unverified"
+    single = settle_labels([twin, report]).by_stored("artifact", "ambiguous")
+    assert single.unverified is False
+    other_kind = _memory(canonical, domain="project", sensitivity="public")
+    result = settle_labels([source, other_kind, report]).by_stored("artifact", "ambiguous")
+    assert result.unverified is False
+    assert result.domain == "health"
