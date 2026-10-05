@@ -116,6 +116,12 @@ class LabelGuard:
             metadata["project_floor"] = list(label.project_floor)
             copy["unverified"] = False
         copy["metadata_json"] = metadata
+        # Store records expose scope and floor at the top level as well. The
+        # resolver reads those first, so both representations must agree.
+        copy["project_scope"] = list(metadata["project_scope"])
+        copy["project_floor"] = list(metadata["project_floor"])
+        if not copy["project_scope"]:
+            copy["project_id"] = None
         return copy
 
     def admit_rows(self, kind: str, rows: Sequence[_Row]) -> list[_Row]:
