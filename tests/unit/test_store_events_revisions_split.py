@@ -139,6 +139,8 @@ EXPECTED_PRIMITIVE_METADATA = {
     },
 }
 EXPECTED_CLASS_KEY_SHA256 = {
+    # Reviewed recovery and reverse propagation add only the two Postgres
+    # methods; all prior runtime class keys retain their order.
     # Source owner methods are additive; the existing member order is unchanged.
     # Re-minted for the paired browser-clip capability façade methods.
     # The sqlite hash is re-minted again for ``check_source_search_query``. It is
@@ -148,7 +150,7 @@ EXPECTED_CLASS_KEY_SHA256 = {
     # Re-minted for the per-file importer savepoint (2026-10-02): ``savepoint`` is appended last on both façades.
     # Previous receipt: 650e2e0ff088d67c... Proof: the class key list equals the list at origin/main 040a2a10
     # plus ``savepoint`` before ``__dict__``, with every other key in the same order.
-    "postgres": "dda7be1a316b3c525195f4682a608d0bab24b57f635db2a7aebc0c7ea187fc68",
+    "postgres": "e4a921e06bc707a362fb9c2b3050d292b119cd0b92b346ce5997a679b3bd61f0",
     # Re-minted for the merge of #500 and #502: ``check_literal_match_query``.
     # Re-minted again for per-project memory S2 (2026-10-02): the two single-scan partition reads
     # ``list_memories_view_partitions`` and ``list_open_loops_view_partitions``, SQLite only on purpose
