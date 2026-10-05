@@ -97,6 +97,16 @@ def test_a_scenario_equals_its_golden(computed: dict[str, dict[str, object]], su
             "changed_files_count": 1,
             "replacement_hint": "Use --supersede --dry-run to preview replacement, then --supersede to apply it.",
         }}
+    # Derived inserts now persist the empty project floor. The sources-first
+    # budget prices that stored metadata before compact projection, adding five
+    # tokens; every returned content field and the frozen fixture stay pinned.
+    if surface == "context_pack" and name == "sources_first":
+        result = expected["result"]
+        report = result["token_report"]
+        expected = {**expected, "result": {**result, "token_report": {**report,
+            "token_estimate": report["token_estimate"] + 5,
+            "full_pack_serialized_token_estimate": report["full_pack_serialized_token_estimate"] + 5,
+        }}}
     actual = computed[surface].get(name)
     assert actual == expected, _explain(surface, name, expected, actual)
 
