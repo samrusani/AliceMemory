@@ -10,6 +10,7 @@ from alicebot_api.vnext_derived_labels import group_scope
 from alicebot_api.vnext_memory_commit import VNextMemoryCommitService
 from alicebot_api.vnext_rollups import VNextRollupService
 from alicebot_api.vnext_store import PostgresVNextStore
+from tests.integration.conftest import lock_label_fixture
 from tests.unit.test_group_scope_sqlite import ALPHA, seed_members
 
 
@@ -19,6 +20,7 @@ def test_a_second_scoped_rollup_run_over_the_same_group_finds_its_card_and_inser
     with user_connection(migrated_database_urls["app"], user_id) as conn:
         ContinuityStore(conn).create_user(user_id, f"group-{user_id}@example.invalid", "Group")
         store = PostgresVNextStore(conn)
+        lock_label_fixture(store)
         members = seed_members(store)
         service = VNextRollupService(store)
         first = service.propose_rollups(projects=(ALPHA,))
