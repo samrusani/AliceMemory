@@ -18,6 +18,7 @@ from alicebot_api.onramp import bootstrap_database, sqlite_url_for_path
 from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
 from alicebot_api.vnext_agent_keys import create_agent_key
 from alicebot_api.vnext_brain import _artifact_domain
+from alicebot_api.vnext_derived_labels import with_derived_from
 from tests.unit.per_project_s2_support import add_memory
 from tests.unit.test_derived_domain_fence import USER
 
@@ -51,7 +52,7 @@ def test_unrestricted_derived_read_contract(tmp_path, monkeypatch, profile, tool
         store = SQLiteVNextStore(conn, USER)
         health = add_memory(store, key="health", text="Private input", domain="health")
         project = add_memory(store, key="project", text="Project input", domain="project")
-        metadata = {"discovered_by": "vnext_weekly_synthesis"}
+        metadata = with_derived_from({"discovered_by": "vnext_weekly_synthesis", "project_scope": [], "project_floor": []}, {})
         derived = store.create_memory(
             {
                 "memory_key": "synthesis",

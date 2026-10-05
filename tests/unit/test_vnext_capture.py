@@ -1433,5 +1433,6 @@ def test_capture_without_project_scope_keeps_empty_scope_metadata() -> None:
     source = store.get_source(result.source_id)
     memory = store.list_memories(status="candidate")[0]
     assert "project_scope" not in source["metadata_json"]
-    assert "project_scope" not in memory["metadata_json"]
+    assert memory["metadata_json"]["project_scope"] == []
+    assert memory["metadata_json"]["project_floor"] == []
     assert memory_project_scope(memory) == ()
