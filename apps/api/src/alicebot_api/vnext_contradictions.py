@@ -214,9 +214,15 @@ def _supports_parameter(method: object, name: str) -> bool:
         return False
 
 
-def _matches_projects(row: JsonObject, projects: tuple[str, ...], *, source_row: bool) -> bool:
+def _matches_projects(
+    row: JsonObject, projects: tuple[str, ...], *, source_row: bool, all_of: tuple[str, ...] | None = None
+) -> bool:
     if not projects:
         return True
+    if all_of is not None:
+        from alicebot_api.vnext_derived_labels import input_admitted
+
+        return input_admitted("source" if source_row else "memory", row, all_of)
     row_scope = source_project_scope(row) if source_row else resource_project_scope(row)
     return project_scopes_overlap(row_scope, projects)
 
@@ -229,16 +235,17 @@ def _project_scoped_search(
     project_parameter: str,
     limit: int,
     source_rows: bool = False,
+    all_of: tuple[str, ...] | None = None,
 ) -> list[JsonObject]:
     if not projects:
         return list(method(limit=limit, **kwargs))
     if _supports_parameter(method, project_parameter):
         rows = method(limit=limit, **kwargs, **{project_parameter: projects})
-        return [row for row in rows if _matches_projects(row, projects, source_row=source_rows)]
+        return [row for row in rows if _matches_projects(row, projects, source_row=source_rows, all_of=all_of)]
     rows = list(method(limit=MAX_LEGACY_PROJECT_SCOPE_ROWS + 1, **kwargs))
     if len(rows) > MAX_LEGACY_PROJECT_SCOPE_ROWS:
         raise VNextContradictionValidationError("legacy contradiction store could not prove complete project scope")
-    return [row for row in rows if _matches_projects(row, projects, source_row=source_rows)][:limit]
+    return [row for row in rows if _matches_projects(row, projects, source_row=source_rows, all_of=all_of)][:limit]
 
 
 def _project_scoped_beliefs(
@@ -248,6 +255,7 @@ def _project_scoped_beliefs(
     sensitivity_allowed: list[str],
     projects: tuple[str, ...],
     limit: int,
+    all_of: tuple[str, ...] | None = None,
 ) -> list[JsonObject]:
     if not projects:
         return list(
@@ -295,7 +303,7 @@ def _project_scoped_beliefs(
         belief
         for belief in rows
         if (backing := backing_by_id.get(str(belief.get("memory_id") or ""))) is not None
-        and _matches_projects(backing, projects, source_row=False)
+        and _matches_projects(backing, projects, source_row=False, all_of=all_of)
     ][:limit]
 
 
@@ -433,6 +441,9 @@ class VNextContradictionService:
         domains = list(request.domains) if request.domains else None
         sensitivity_allowed = list(request.sensitivity_allowed)
         input_limit = max(request.max_contradictions * 2, request.max_contradictions)
+        from alicebot_api.vnext_derived_labels import locked_projects
+
+        all_of = locked_projects(request.agent_identity, request.projects)
         sources = _project_scoped_search(
             self.store.search_sources,
             kwargs={
@@ -444,6 +455,7 @@ class VNextContradictionService:
             project_parameter="scope_projects",
             limit=input_limit,
             source_rows=True,
+            all_of=all_of,
         )
         memories = [
             memory
@@ -457,6 +469,7 @@ class VNextContradictionService:
                 projects=request.projects,
                 project_parameter="projects",
                 limit=input_limit,
+                all_of=all_of,
             )
             if memory.get("memory_type") not in {"belief", "thesis"}
         ]
@@ -466,6 +479,7 @@ class VNextContradictionService:
             sensitivity_allowed=sensitivity_allowed,
             projects=request.projects,
             limit=input_limit,
+            all_of=all_of,
         )
         candidates = _find_candidates(
             new_items=[*sources, *memories],

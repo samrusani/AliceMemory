@@ -1199,6 +1199,54 @@ def _iterate(
                     queued.add(dependant)
 
 
+def locked_projects(agent_identity: object, requested: object) -> tuple[str, ...] | None:
+    """The projects a locked key may read, or None when the caller is not locked."""
+
+    if not isinstance(agent_identity, Mapping) or not agent_identity.get("project_scope_locked"):
+        return None
+    binding = agent_identity.get("project_scope") or ()
+    requested_values = tuple(requested) if isinstance(requested, (list, tuple)) else ()
+    if requested_values:
+        return tuple(str(item) for item in requested_values)
+    if isinstance(binding, (list, tuple)):
+        return tuple(str(item) for item in binding)
+    return ()
+
+
+def input_admitted(kind: str, row: Mapping[str, object], projects: object) -> bool:
+    """Exact-door project test: scope and floor are both inside ``projects``."""
+
+    if canon_kind(kind) == "source":
+        scope = source_project_scope(row)
+    else:
+        scope = resolve_project_scope(row).values
+    shape, floor = project_floor_shape(row)
+    if shape == "malformed":
+        return False
+    bound = set(project_scope_identity(projects))
+    scope_ids = set(project_scope_identity(scope))
+    if not scope_ids or not scope_ids <= bound:
+        return False
+    return set(project_scope_identity(floor)) <= bound
+
+
+def stamp_derived_from(payload: dict[str, object], rows_by_kind: Mapping[str, object]) -> None:
+    """Write the canonical dependency record onto ``payload['metadata_json']``."""
+
+    metadata = payload.get("metadata_json")
+    meta = dict(metadata) if isinstance(metadata, Mapping) else {}
+    record: dict[str, object] = {"v": 1}
+    counts: dict[str, int] = {}
+    for key in ("sources", "memories", "open_loops", "artifacts", "beliefs"):
+        rows = rows_by_kind.get(key) or []
+        ids = [str(row.get("id")) for row in rows if isinstance(row, Mapping) and row.get("id") is not None]
+        record[key] = ids
+        counts[key] = len(ids)
+    record["counts"] = counts
+    meta["derived_from"] = record
+    payload["metadata_json"] = meta
+
+
 def scope_is_global(scope: object) -> bool:
     """True when a scope holds no Alice project id."""
 
@@ -1225,12 +1273,15 @@ __all__ = [
     "group_scope",
     "identifier",
     "infer_kind",
+    "input_admitted",
     "intersect_scope",
     "is_derived",
+    "locked_projects",
     "labels_raised_payload",
     "ordered_identifiers",
     "row_class",
     "scope_is_global",
+    "stamp_derived_from",
     "settle_labels",
     "stored_scope",
     "union_floor",

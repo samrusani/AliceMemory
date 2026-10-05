@@ -551,10 +551,23 @@ class VNextProjectService:
         # defensive check at the workflow boundary so legacy adapters cannot
         # widen a project-scoped report by ignoring optional query arguments.
         project_id = str(project["id"])
-        sources = [row for row in sources if _is_source_in_project(row, project_id)]
-        memories = [
-            row for row in memories if _is_in_project(row, project_id) and row.get("status") in {"active", "accepted"}
-        ]
+        from alicebot_api.vnext_derived_labels import input_admitted, locked_projects
+
+        locked = locked_projects(request.agent_identity, (project_id,))
+        if locked is not None:
+            sources = [row for row in sources if input_admitted("source", row, locked)]
+            memories = [
+                row
+                for row in memories
+                if input_admitted("memory", row, locked) and row.get("status") in {"active", "accepted"}
+            ]
+        else:
+            sources = [row for row in sources if _is_source_in_project(row, project_id)]
+            memories = [
+                row
+                for row in memories
+                if _is_in_project(row, project_id) and row.get("status") in {"active", "accepted"}
+            ]
         brain_charter = _brain_charter(self.store)
         automation_digest = _project_automation_digest(
             project=project,

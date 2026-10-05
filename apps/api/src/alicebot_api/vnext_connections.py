@@ -195,9 +195,15 @@ def _supports_parameter(method: object, name: str) -> bool:
         return False
 
 
-def _matches_projects(row: JsonObject, projects: tuple[str, ...], *, source_row: bool) -> bool:
+def _matches_projects(
+    row: JsonObject, projects: tuple[str, ...], *, source_row: bool, all_of: tuple[str, ...] | None = None
+) -> bool:
     if not projects:
         return True
+    if all_of is not None:
+        from alicebot_api.vnext_derived_labels import input_admitted
+
+        return input_admitted("source" if source_row else "memory", row, all_of)
     row_scope = source_project_scope(row) if source_row else resource_project_scope(row)
     return project_scopes_overlap(row_scope, projects)
 
@@ -210,16 +216,17 @@ def _project_scoped_search(
     project_parameter: str,
     limit: int,
     source_rows: bool = False,
+    all_of: tuple[str, ...] | None = None,
 ) -> list[JsonObject]:
     if not projects:
         return list(method(limit=limit, **kwargs))
     if _supports_parameter(method, project_parameter):
         rows = method(limit=limit, **kwargs, **{project_parameter: projects})
-        return [row for row in rows if _matches_projects(row, projects, source_row=source_rows)]
+        return [row for row in rows if _matches_projects(row, projects, source_row=source_rows, all_of=all_of)]
     rows = list(method(limit=MAX_LEGACY_PROJECT_SCOPE_ROWS + 1, **kwargs))
     if len(rows) > MAX_LEGACY_PROJECT_SCOPE_ROWS:
         raise VNextConnectionValidationError("legacy connection store could not prove complete project scope")
-    return [row for row in rows if _matches_projects(row, projects, source_row=source_rows)][:limit]
+    return [row for row in rows if _matches_projects(row, projects, source_row=source_rows, all_of=all_of)][:limit]
 
 
 def _record_text(row: JsonObject) -> str:
@@ -408,6 +415,9 @@ class VNextConnectionService:
         domains = list(request.domains) if request.domains else None
         sensitivity_allowed = list(request.sensitivity_allowed)
         input_limit = max(request.max_connections * 2, request.max_connections)
+        from alicebot_api.vnext_derived_labels import locked_projects
+
+        all_of = locked_projects(request.agent_identity, request.projects)
         sources = _project_scoped_search(
             self.store.search_sources,
             kwargs={
@@ -419,6 +429,7 @@ class VNextConnectionService:
             project_parameter="scope_projects",
             limit=input_limit,
             source_rows=True,
+            all_of=all_of,
         )
         memories = _project_scoped_search(
             self.store.search_memories,
@@ -430,6 +441,7 @@ class VNextConnectionService:
             projects=request.projects,
             project_parameter="projects",
             limit=input_limit,
+            all_of=all_of,
         )
         candidates = _find_candidates(
             sources=sources,

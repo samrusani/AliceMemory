@@ -237,11 +237,18 @@ def _matches_report_scope(
     projects: tuple[str, ...],
     window_start: datetime,
     window_end: datetime,
+    all_of: tuple[str, ...] | None = None,
 ) -> bool:
     if projects:
-        row_scope = source_project_scope(row) if kind == "source" else resource_project_scope(row)
-        if not project_scopes_overlap(row_scope, projects):
-            return False
+        if all_of is not None:
+            from alicebot_api.vnext_derived_labels import input_admitted
+
+            if not input_admitted(kind, row, all_of):
+                return False
+        else:
+            row_scope = source_project_scope(row) if kind == "source" else resource_project_scope(row)
+            if not project_scopes_overlap(row_scope, projects):
+                return False
     event_time = _row_event_time(row, kind=kind)
     return event_time is not None and window_start <= event_time < window_end
 
@@ -267,6 +274,7 @@ def _windowed_rows(
     limit: int,
     store_scope_kwargs: dict[str, object] | None = None,
     store_scope_complete: bool = False,
+    all_of: tuple[str, ...] | None = None,
 ) -> list[JsonObject]:
     scope_kwargs = store_scope_kwargs or {}
 
@@ -284,6 +292,7 @@ def _windowed_rows(
                 projects=projects,
                 window_start=window_start,
                 window_end=window_end,
+                all_of=all_of,
             ):
                 selected.append(_compact_row(row))
         return selected
@@ -872,6 +881,9 @@ class VNextBrainService:
     ) -> tuple[list[JsonObject], list[JsonObject], list[JsonObject], list[JsonObject]]:
         domains = _allowed_domains(request)
         sensitivity_allowed = _allowed_sensitivity(request)
+        from alicebot_api.vnext_derived_labels import locked_projects
+
+        all_of = locked_projects(request.agent_identity, request.projects)
         inclusive_window_end = window_end - timedelta(microseconds=1)
         source_scope_names = ("scope_projects", "scope_window_start", "scope_window_end")
         source_scope_supported = _supports_parameters(self.store.search_sources, source_scope_names)
@@ -894,7 +906,8 @@ class VNextBrainService:
             }
             if source_scope_supported
             else None,
-            store_scope_complete=source_scope_supported,
+            store_scope_complete=source_scope_supported and all_of is None,
+            all_of=all_of,
         )
         memory_store_scope: dict[str, object] | None = (
             {"projects": request.projects} if _supports_parameters(self.store.search_memories, ("projects",)) else None
@@ -912,6 +925,7 @@ class VNextBrainService:
             window_end=window_end,
             limit=request.memory_limit,
             store_scope_kwargs=memory_store_scope,
+            all_of=all_of,
         )
         open_loop_scope_names = ("scope_projects", "scope_window_start", "scope_window_end")
         open_loop_scope_supported = _supports_parameters(
@@ -937,7 +951,8 @@ class VNextBrainService:
             }
             if open_loop_scope_supported
             else None,
-            store_scope_complete=open_loop_scope_supported,
+            store_scope_complete=open_loop_scope_supported and all_of is None,
+            all_of=all_of,
         )
         artifact_store_scope: dict[str, object] | None = (
             {"scope_projects": request.projects}
@@ -957,6 +972,7 @@ class VNextBrainService:
             window_end=window_end,
             limit=request.artifact_limit,
             store_scope_kwargs=artifact_store_scope,
+            all_of=all_of,
         )
         return sources, memories, open_loops, artifacts
 
