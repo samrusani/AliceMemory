@@ -1,10 +1,22 @@
 """Execute the original stale-label behaviors even before the new kernel exists."""
 
+from importlib.util import find_spec
 from uuid import uuid4
+
+import pytest
 
 from alicebot_api.db import user_connection
 from alicebot_api.store import ContinuityStore
 from alicebot_api.vnext_store import PostgresVNextStore
+
+
+@pytest.fixture(autouse=True)
+def strict_when_the_label_writer_exists(monkeypatch):
+    # Archived main has no writer module; its real stale-row behavior still runs.
+    if find_spec("alicebot_api.vnext_label_writes") is not None:
+        from alicebot_api import vnext_label_writes
+
+        monkeypatch.setattr(vnext_label_writes, "STRICT_LOCK_ORDER", True)
 
 
 def test_source_relabel_reaches_an_existing_report_on_main(migrated_database_urls):
