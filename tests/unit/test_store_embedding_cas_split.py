@@ -47,10 +47,13 @@ METHOD_NAMES = (
 # whose ``valid_to`` has passed, with the test recall's own SQL uses
 # (``_expiry_clause`` on SQLite, ``POSTGRES_UNEXPIRED_SQL`` on Postgres), so the
 # text of an expired memory is never listed for embedding.
+# Re-minted for derived-label locking: update and clear now take the shared
+# label lock before their existing SQL. Only the decorator changes each AST;
+# PG query receipts below prepend that lock and retain the prior query hashes.
 EXPECTED_METHOD_AST_SHA256 = {
     "postgres": {
-        "update_memory_embedding": "0cd0f0ef6f7bcaa6328b6f586a711a10b011c77af3e49d65b96c27b77a657cd9",
-        "clear_memory_embedding": "4e9fe6955f3246b51998c6b547f48a659f947f8a8150e6c86d4e61a0cf46df6c",
+        "update_memory_embedding": "291a378fe61e93c43dd7a971de31a07601feaecb470dc578f6229ae123cdbec4",
+        "clear_memory_embedding": "0ce41174d08f8d515ef171253203af4e4115cc432c6b51eeced50cef1bf1dcd7",
         "list_memories_missing_embeddings": "cfdbde2bb409a2a6761fe31f116a9ebb73ba12d4e7994ae691f87e335a095a2d",
     },
     # SQLite update/clear re-minted for the Phase 4 Stage 2 resident vector
@@ -70,8 +73,8 @@ EXPECTED_METHOD_AST_SHA256 = {
     # byte what it was, which ``test_embedding_cas_generated_sql_is_byte_identical``
     # still pins.
     "sqlite": {
-        "update_memory_embedding": "1f4517352a0f7d6a9147f326bc96a6c1d61effa3f106add89546cd981ddd05fc",
-        "clear_memory_embedding": "51b583b250883911f0c5a068fec7ec4565f719c2bffafb1ed1c6b3dc980fa36c",
+        "update_memory_embedding": "a87ce54306b804ce87437ceeee55935f584bcce2a4a8ca36e20f5af3129c1de4",
+        "clear_memory_embedding": "ebd18c7058ab7be4610ed9eb4053f8ca115d44055ddcc550cd2a892dae5c78e1",
         "list_memories_missing_embeddings": "bea1d517cd3ad4d0af12c96d93a5b21671b84a4712d5172e718f5af5b43c4b05",
     },
 }
@@ -156,9 +159,18 @@ EXPECTED_SIGNATURES = {
 # They were re-minted again for the expiry test: each query holds the unexpired
 # test right after the status test (SQLite binds the time after the statuses).
 EXPECTED_QUERY_SHA256 = {
-    "postgres_unsigned_update": ("dcbf4bc29a7702e9c17d864f65e1c1f36d641927d3f31aa4ec80825646c030ef",),
-    "postgres_signed_update": ("1351db18168f7e23454736129e26a7c01039ca1bfdfcac235e3c666cf60d91db",),
-    "postgres_clear": ("a5a6952a93bd77b3bdf311fe2682b411263d18a2822a9617c6fb7524555123ca",),
+    "postgres_unsigned_update": (
+        "1f866e65df3baaa9d7790266ff6b90630fa472a974bfd217894292df72a25a7f",
+        "dcbf4bc29a7702e9c17d864f65e1c1f36d641927d3f31aa4ec80825646c030ef",
+    ),
+    "postgres_signed_update": (
+        "1f866e65df3baaa9d7790266ff6b90630fa472a974bfd217894292df72a25a7f",
+        "1351db18168f7e23454736129e26a7c01039ca1bfdfcac235e3c666cf60d91db",
+    ),
+    "postgres_clear": (
+        "1f866e65df3baaa9d7790266ff6b90630fa472a974bfd217894292df72a25a7f",
+        "a5a6952a93bd77b3bdf311fe2682b411263d18a2822a9617c6fb7524555123ca",
+    ),
     "postgres_unsigned_missing": ("866920a62d5650df8e229d0dffa43ac0a8ce18116e3cbb98376928f19b239534",),
     "postgres_signed_missing": ("8593736f07c1853635e8d3868e6a8b54a034ccd3de1a3519abf885a0ff23fa3e",),
     # SQLite update/clear sequences start with BEGIN IMMEDIATE (the capture

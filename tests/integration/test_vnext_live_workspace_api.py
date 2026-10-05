@@ -1158,6 +1158,7 @@ def test_vnext_live_workspace_happy_path_writes_reviewable_postgres_state(
                 ]
             ),
             "title": "Live workspace launch note",
+            "project_scope": [project_id],
             "domain": "project",
             "sensitivity": "private",
         },
@@ -1815,7 +1816,13 @@ def test_vnext_artifact_routes_enforce_persisted_scope_with_live_postgres(
                 "status": "needs_review",
                 "domain": "project",
                 "sensitivity": "private",
-                "metadata_json": {"project_id": "project-b"},
+                "metadata_json": {
+                    "project_id": "project-b",
+                    "derived_from": {
+                        "v": 1, "sources": [], "memories": [], "open_loops": [], "artifacts": [], "beliefs": [],
+                        "counts": {"sources": 0, "memories": 0, "open_loops": 0, "artifacts": 0, "beliefs": 0},
+                    },
+                },
             },
             actor_type="user",
         )
