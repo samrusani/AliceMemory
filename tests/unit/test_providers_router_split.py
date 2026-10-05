@@ -117,7 +117,10 @@ EXPECTED_CARRIER_NAMES_SHA256 = "2c109fc234a05dd8f44e4c34bee49e797fbb5e49e924133
 # lone_surrogates.py and main.py only registers it, so it adds no definition
 # here. Earlier re-pin (2026-09-26): _rewrite_user_id_json_body writes the
 # rewritten JSON into request._body before call_next.
-EXPECTED_CARRIER_AST_SHA256 = "ab3fc6d61cb81a1b9c1a6573adc8e1e297cbbcf01e230effd4a0824dee2d8e2b"
+
+# Re-pin 2026-10-06: source regeneration is a new protected write route in the
+# central vNext route policy; the app carrier keeps the same definitions.
+EXPECTED_CARRIER_AST_SHA256 = "fcd6d722e2d6c3be28b138449555e703f6930168f52b8e94b41dacbcb937b605"
 EXPECTED_ROUTE_NAME_MANIFEST_SHA256 = "1a438538e16120361f92d30375cc94679d598fe4b78ba5a58a7d8a4dda6af83c"
 EXPECTED_OPERATION_MANIFEST_SHA256 = "8b79ceaf996b8c51b5bb2f3f38a8c19a4e33796955d8b8f7a66e7ac01ea1732d"
 EXPECTED_IMPORT_MANIFEST_SHA256 = "17484ccdd460e42e2ad5c82a8ca867664694feaf871118c410a134996a532358"
