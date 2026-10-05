@@ -303,11 +303,12 @@ def test_cluster_member_citing_a_confidential_health_source_is_refused_to_a_trus
     source_id = str(source["id"])
     assert artifact["metadata_json"]["consolidation"]["cluster_membership"], "the run must have a cluster"
     assert f"source:{source_id}" in artifact["metadata_json"]["source_refs"]
-    assert (artifact["domain"], artifact["sensitivity"]) == ("health", "confidential")
 
+    # The read is the judge: the key below confidential is refused, and the id is nowhere in what it is told.
     status, body = _get_artifact(str(artifact["id"]), user_id, trusted_key)
     assert status == 403, body
     assert source_id not in json.dumps(body)
+    assert (artifact["domain"], artifact["sensitivity"]) == ("health", "confidential")
 
     status, body = _get_artifact(str(artifact["id"]), user_id, admin_key)
     assert status == 200, body
