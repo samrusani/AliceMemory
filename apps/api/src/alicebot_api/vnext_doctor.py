@@ -288,14 +288,20 @@ class VNextDoctorService:
             },
         )
 
-        from alicebot_api.vnext_label_repair import label_gap_counts
+        from alicebot_api.vnext_label_repair import LabelCheckUnavailable, label_gap_counts
 
-        below, unverified = label_gap_counts(self.store)
-        label_line = f"derived labels: {below} below their inputs, {unverified} unverified"
+        try:
+            below, unverified = label_gap_counts(self.store)
+            label_line = f"derived labels: {below} below their inputs, {unverified} unverified"
+            labels_available = True
+        except LabelCheckUnavailable:
+            below, unverified = 0, 0
+            labels_available = False
+            label_line = "derived labels: unavailable; run labels check"
         self._check(
             checks,
             name="derived_labels",
-            ok=below == 0 and unverified == 0,
+            ok=labels_available and below == 0 and unverified == 0,
             severity="warning",
             message_ok=label_line,
             message_fail=label_line,

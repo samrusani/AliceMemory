@@ -111,10 +111,16 @@ def compile_local_vault_doctor(
             (uid, CANDIDATE_STATUS),
         )
         missing_vector_line = _missing_vector_line(store)
-        from alicebot_api.vnext_label_repair import label_gap_counts
+        from alicebot_api.vnext_label_repair import LabelCheckUnavailable, label_gap_counts
 
-        below, unverified = label_gap_counts(store)
-        label_line = f"derived labels: {below} below their inputs, {unverified} unverified"
+        try:
+            below, unverified = label_gap_counts(store)
+            label_line = f"derived labels: {below} below their inputs, {unverified} unverified"
+            labels_available = True
+        except LabelCheckUnavailable:
+            below, unverified = 0, 0
+            labels_available = False
+            label_line = "derived labels: unavailable; run labels check"
         flagged_ids = _flagged_source_ids(store)
         superseded_count = count_prunable_sources(store)
         try:

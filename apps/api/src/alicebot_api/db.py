@@ -68,6 +68,20 @@ def direct_user_connection(database_url: str, user_id: UUID) -> Iterator[UserCon
             yield conn
 
 
+@contextmanager
+def user_read_snapshot_connection(database_url: str, user_id: UUID) -> Iterator[UserConnection]:
+    """One repeatable read, read-only snapshot with transaction-local RLS.
+
+    Set the transaction mode before the first query, including the identity
+    query, and clear that identity when the transaction ends.
+    """
+    with psycopg.connect(database_url, row_factory=dict_row) as conn:
+        with conn.transaction():
+            conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+            set_current_user(conn, user_id)
+            yield conn
+
+
 def _new_connection_pool(database_url: str) -> ConnectionPool[UserConnection]:
     pool = cast(
         ConnectionPool[UserConnection],
@@ -143,6 +157,7 @@ __all__ = [
     "set_current_user",
     "set_current_user_account",
     "user_connection",
+    "user_read_snapshot_connection",
 ]
 
 
