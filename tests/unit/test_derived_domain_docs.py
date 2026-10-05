@@ -166,5 +166,5 @@ def test_the_backup_guide_states_when_the_repair_runs_and_what_it_cannot_repair(
         assert f"`{table}`" in postgres, table
     assert "inside its own transaction and turns it back on before it commits" in postgres
     assert "rolls the relabels, their audit events and the FORCE change back together" in postgres
-    assert "including derived rows in a cycle whose labels never settle" in postgres
+    assert "including derived rows in a cycle whose labels do not settle within a bounded number of changes" in postgres
     assert "The downgrade keeps the repaired labels" in postgres

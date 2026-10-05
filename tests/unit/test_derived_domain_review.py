@@ -486,3 +486,166 @@ def test_a_backup_holding_a_long_chain_restores(tmp_path):
     assert onramp_main(["import", "--db", str(destination), "--user-id", USER, "--in", str(backup)]) == 0
     with sqlite3.connect(destination) as conn:
         assert {row[0] for row in conn.execute("SELECT domain FROM memories WHERE id IN (%s)" % ",".join("?" * len(ids)), ids)} == {"legal"}
+
+
+def _report(name, reads, sources=()):
+    refs = {"artifact_ids": list(reads)}
+    if sources:
+        refs["source_ids"] = list(sources)
+    return {"id": name, "user_id": "u", "domain": "unknown", "metadata_json": {"input_summary": refs}}
+
+
+def _keys(graph):
+    return {("generated_artifacts", "u", name): {("generated_artifacts", "u", ref) for ref in reads}
+            for name, reads in graph.items()}
+
+
+def test_one_cycle_with_two_back_edges_is_one_group_and_settles():
+    """r0 reads r1 and r2, r1 reads r2, and r2 reads r0 and a health source: one cycle with two edges back to r0. All three
+    rows are one group and all three settle on health.
+
+    Mutation: take the smaller of the two numbers out of the back-edge update (``lowest[key] = min(lowest[key],
+    index[ref])`` made ``lowest[key] = index[ref]``: the cycle is split and no row is labelled).
+    """
+
+    from alicebot_api import vnext_derived_domain_backfill as repair
+
+    graph = {"r0": ["r1", "r2"], "r1": ["r2"], "r2": ["r0"]}
+    assert repair._input_groups(_keys(graph)) == [sorted(_keys(graph))]
+    tables = {"sources": [{"id": "h", "user_id": "u", "domain": "health"}],
+              "generated_artifacts": [_report("r0", ["r1", "r2"]), _report("r1", ["r2"]), _report("r2", ["r0"], ["h"])]}
+    assert {item[2]: item[3] for item in repair.plan_relabels(tables)} == {"r0": "health", "r1": "health", "r2": "health"}
+
+
+def test_rows_that_share_inputs_are_each_read_once(monkeypatch):
+    """A ladder two rows wide and twelve deep, each row reading both rows below it, the bottom two reading a health
+    source: no cycle, and every row is reached by many paths. Each row is one group and is read once.
+
+    Mutation: count a row as new while it is off the stack (``if ref not in index:`` made ``if ref not in on_stack:``
+    in ``_input_groups``: a row is walked again for every path to it, the groups repeat and the time grows with the
+    number of paths).
+    """
+
+    from alicebot_api import vnext_derived_domain_backfill as repair
+
+    depth = 12
+    layers = [[f"L{level:02d}a", f"L{level:02d}b"] for level in range(depth)]
+    graph = {name: (layers[level + 1] if level + 1 < depth else []) for level, layer in enumerate(layers) for name in layer}
+    groups = repair._input_groups(_keys(graph))
+    assert sorted(groups) == sorted([key] for key in _keys(graph))
+    calls = 0
+    selector = repair.derived_domain
+
+    def counted(rows, *, fallback):
+        nonlocal calls
+        calls += 1
+        return selector(rows, fallback=fallback)
+
+    monkeypatch.setattr(repair, "derived_domain", counted)
+    tables = {"sources": [{"id": "h", "user_id": "u", "domain": "health"}],
+              "generated_artifacts": [_report(name, reads, [] if reads else ["h"]) for name, reads in graph.items()]}
+    assert {item[3] for item in repair.plan_relabels(tables)} == {"health"} and calls == len(graph)
+
+
+def _independent_groups(graph):
+    """Strongly connected components by Kosaraju's two passes, written apart from the code under test."""
+
+    order, seen = [], set()
+    for root in sorted(graph):
+        if root in seen:
+            continue
+        seen.add(root)
+        stack = [(root, iter(sorted(graph[root])))]
+        while stack:
+            node, refs = stack[-1]
+            for ref in refs:
+                if ref in graph and ref not in seen:
+                    seen.add(ref)
+                    stack.append((ref, iter(sorted(graph[ref]))))
+                    break
+            else:
+                stack.pop()
+                order.append(node)
+    readers = {node: set() for node in graph}
+    for node, refs in graph.items():
+        for ref in refs:
+            if ref in graph:
+                readers[ref].add(node)
+    groups, placed = [], set()
+    for root in reversed(order):
+        if root in placed:
+            continue
+        group, todo = [], [root]
+        placed.add(root)
+        while todo:
+            node = todo.pop()
+            group.append(node)
+            for reader in readers[node]:
+                if reader not in placed:
+                    placed.add(reader)
+                    todo.append(reader)
+        groups.append(sorted(group))
+    return groups
+
+
+def test_the_groups_match_an_independent_computation_on_random_graphs():
+    """On 3,000 seeded random graphs of up to 12 rows (self loops, several cycles, inputs that are not derived rows), the
+    groups are those of an independent computation, every row is in one group, and every group comes after each group
+    it reads.
+
+    Mutations: the two lowlink updates of ``_input_groups`` weakened or removed, and the visited check made
+    ``if ref not in on_stack:``, each fail here as well as in the named tests.
+    """
+
+    import random
+
+    from alicebot_api import vnext_derived_domain_backfill as repair
+
+    rng = random.Random(560)
+    for _ in range(3000):
+        names = [f"n{index:02d}" for index in range(rng.randint(1, 12))]
+        graph = {name: set(rng.sample(names + ["outside"], rng.randint(0, min(4, len(names) + 1)))) for name in names}
+        keyed = {key: {ref for ref in refs if ref[2] != "outside"} | ({("sources", "u", "outside")} if "outside" in graph[key[2]] else set())
+                 for key, refs in _keys(graph).items()}
+        groups = repair._input_groups(keyed)
+        assert sorted(sorted(key[2] for key in group) for group in groups) == sorted(_independent_groups(graph)), graph
+        position = {key: index for index, group in enumerate(groups) for key in group}
+        assert len(position) == len(graph)
+        for key, refs in keyed.items():
+            for ref in refs:
+                if ref in position:
+                    assert position[ref] <= position[key], graph
+
+
+def test_a_cycle_is_refused_after_six_changes_for_each_of_its_rows_whatever_the_graph_around_it(monkeypatch):
+    """A ring of three reports that read each other with alternating labels never settles: each read changes a label.
+    Two hundred other reports in a chain come first. The chain is read once per row, and the ring is refused at its
+    nineteenth read, one change past its budget of six for each of its three rows. The budget belongs to the cycle,
+    not to the graph.
+
+    Mutations: a budget for the whole graph (``len(component)`` made ``len(inputs)``: the ring is read about 1,400
+    times); a smaller factor (``len(RESTRICTED_DOMAINS) + 1`` made ``2`` or ``len(RESTRICTED_DOMAINS)``); refuse at
+    zero (``remaining_changes < 0`` made ``<= 0``).
+    """
+
+    from alicebot_api import vnext_derived_domain_backfill as repair
+
+    calls = 0
+    selector = repair.derived_domain
+
+    def counted(rows, *, fallback):
+        nonlocal calls
+        calls += 1
+        return selector(rows, fallback=fallback)
+
+    monkeypatch.setattr(repair, "derived_domain", counted)
+    chain = [f"c{index:04d}" for index in range(200)]
+    ring = ["r0", "r1", "r2"]
+    tables = {"generated_artifacts": [
+        *[_report(name, chain[index + 1:index + 2]) for index, name in enumerate(chain)],
+        *[{**_report(name, [ring[(index + 1) % 3]]), "domain": "health" if index % 2 == 0 else "legal"}
+          for index, name in enumerate(ring)],
+    ]}
+    with pytest.raises(repair.DerivedDomainRepairError, match="did not settle"):
+        repair.plan_relabels(tables)
+    assert calls == len(chain) + 3 * (len(repair.RESTRICTED_DOMAINS) + 1) + 1
