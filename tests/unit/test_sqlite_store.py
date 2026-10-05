@@ -433,32 +433,35 @@ def test_project_scoped_memory_and_rollup_queries_filter_before_limit() -> None:
         last_confirmed_at="2020-01-01T00:00:00Z",
         metadata_json={"project_scope": ["project-b"]},
     )
-    pending_a = _create_memory(
-        store,
-        status="candidate",
-        metadata_json={
-            "project_scope": ["project-a"],
-            "candidate_kind": "memory_rollup",
-            "rollup_digest": "digest-a",
-        },
-    )
-    _create_memory(
-        store,
-        status="candidate",
-        metadata_json={
-            "project_scope": ["project-b"],
-            "candidate_kind": "memory_rollup",
-            "rollup_digest": "digest-b",
-        },
-    )
-    accepted_a = _create_memory(
-        store,
-        metadata_json={
-            "project_scope": ["project-a"],
-            "candidate_kind": "memory_rollup",
-            "rollup_key": "topic:a",
-        },
-    )
+    from alicebot_api.vnext_label_writes import without_insert_floor
+    # This test exercises query ordering on existing, unstamped legacy cards.
+    with without_insert_floor():
+        pending_a = _create_memory(
+            store,
+            status="candidate",
+            metadata_json={
+                "project_scope": ["project-a"],
+                "candidate_kind": "memory_rollup",
+                "rollup_digest": "digest-a",
+            },
+        )
+        _create_memory(
+            store,
+            status="candidate",
+            metadata_json={
+                "project_scope": ["project-b"],
+                "candidate_kind": "memory_rollup",
+                "rollup_digest": "digest-b",
+            },
+        )
+        accepted_a = _create_memory(
+            store,
+            metadata_json={
+                "project_scope": ["project-a"],
+                "candidate_kind": "memory_rollup",
+                "rollup_key": "topic:a",
+            },
+        )
 
     assert [row["id"] for row in store.list_memories(projects=("project-a",), limit=1)] == [accepted_a["id"]]
     assert store.count_memories(status="active", projects=("project-a",)) == 2

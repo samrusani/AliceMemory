@@ -59,6 +59,7 @@ from alicebot_api.vnext_agent_control import (
 )
 from alicebot_api.vnext_project_scope import (
     is_global_scope,
+    project_floor_shape,
     project_scope_identity,
     project_scopes_overlap,
     source_project_scope,
@@ -624,7 +625,7 @@ def _memory_honours_fence(
     return (
         _matches_domains(row, effective_domains)
         and _matches_sensitivity(row, effective_sensitivity_allowed)
-        and _matches_project_scope(resource_scope, effective_project_scope)
+        and _matches_project_scope(resource_scope, effective_project_scope, floor=_brief_floor(row))
         and not _is_held_back(row, resource_scope, exclude_global_domains)
     )
 
@@ -676,10 +677,20 @@ def _matches_sensitivity(row: Mapping[str, object], sensitivity_allowed: tuple[s
     return (row.get("sensitivity") or "unknown") in sensitivity_allowed
 
 
-def _matches_project_scope(resource_scope: tuple[str, ...], project_scope: tuple[str, ...]) -> bool:
+def _brief_floor(row: Mapping[str, object]) -> tuple[str, ...]:
+    shape, floor = project_floor_shape(row)
+    return floor if shape == "list" else ()
+
+
+def _matches_project_scope(
+    resource_scope: tuple[str, ...],
+    project_scope: tuple[str, ...],
+    *,
+    floor: tuple[str, ...] = (),
+) -> bool:
     if not project_scope:
         return True
-    return project_scopes_overlap(resource_scope, project_scope)
+    return project_scopes_overlap(resource_scope, project_scope, floor=floor)
 
 
 # A fact used as the excerpt query is passed to the source search whole, and

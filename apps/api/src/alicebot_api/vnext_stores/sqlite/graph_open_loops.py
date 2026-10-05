@@ -828,6 +828,7 @@ def list_open_loops_view_partitions(
         text_expressions=("metadata_json", "project_id"),
         domain_expression="domain",
         global_excluded_domains=tuple(sorted(exclude_global_domains)),
+        floor_expression="alice_project_floor_identity(metadata_json)",
     )
     columns = ", ".join(f"l.{column}" for column in OPEN_LOOP_COLUMNS)
     rows = self._fetch_all(

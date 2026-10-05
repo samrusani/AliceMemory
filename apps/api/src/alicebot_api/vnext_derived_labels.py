@@ -15,6 +15,7 @@ from collections import deque
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from uuid import UUID
+from typing import Any, TypeVar, overload
 
 from alicebot_api.vnext_agent_control import RESTRICTED_DOMAINS
 from alicebot_api.vnext_derived_domain import derived_domain
@@ -911,7 +912,7 @@ def _changed(before: SettledLabel, after: SettledLabel) -> bool:
 
 def _weekly_parent_deps(
     labels: Mapping[tuple[str, str, str], SettledLabel],
-    own: Mapping[tuple[str, str, str], set[tuple[str, str, str]]],
+    own: dict[tuple[str, str, str], set[tuple[str, str, str]]],
     nodes: Sequence[tuple[SettledLabel, Mapping[str, object]]],
 ) -> None:
     """Old weekly candidates take the input lists of the artifact that names them."""
@@ -977,6 +978,11 @@ def settle_labels(
 
     own: dict[tuple[str, str, str], set[tuple[str, str, str]]] = {}
     problems: dict[tuple[str, str, str], str] = {}
+    stored_ids: dict[tuple[str, str, str], str] = {}
+    for label, _row in prepared:
+        previous_id = stored_ids.setdefault(label.key, label.stored_id)
+        if previous_id != label.stored_id:
+            problems[label.key] = "ambiguous_identity"
     for label, row in prepared:
         if not label.derived:
             continue
@@ -1012,13 +1018,13 @@ def settle_labels(
         return ref
 
     resolved: dict[tuple[str, str, str], set[tuple[str, str, str]]] = {}
-    for key, deps in own.items():
-        resolved[key] = {resolve_belief(ref) for ref in deps}
+    for key, own_refs in own.items():
+        resolved[key] = {resolve_belief(ref) for ref in own_refs}
 
-    for key, deps in resolved.items():
+    for key, resolved_refs in resolved.items():
         if key in problems and problems[key] not in {"", "no_record"}:
             continue
-        for ref in deps:
+        for ref in resolved_refs:
             if ref[0] in unavailable:
                 problems[key] = "missing_table"
                 break
@@ -1075,10 +1081,10 @@ def settle_labels(
         if same_stored_row:
             published.append(replace(settled, unverified=False, reason=None))
             continue
-        deps = [labels[ref] for ref in sorted(resolved.get(label.key, set())) if ref in labels]
+        settled_deps = [labels[ref] for ref in sorted(resolved.get(label.key, set())) if ref in labels]
         recomputed = _apply_dependencies(
             settled,
-            deps,
+            settled_deps,
             domain_fallback=label.stored_domain,
             sensitivity_fallback=label.stored_sensitivity,
             scope_fallback=label.stored_scope,
@@ -1238,7 +1244,8 @@ def stamp_derived_from(payload: dict[str, object], rows_by_kind: Mapping[str, ob
     record: dict[str, object] = {"v": 1}
     counts: dict[str, int] = {}
     for key in ("sources", "memories", "open_loops", "artifacts", "beliefs"):
-        rows = rows_by_kind.get(key) or []
+        raw_rows = rows_by_kind.get(key)
+        rows = raw_rows if isinstance(raw_rows, (list, tuple)) else []
         ids = [str(row.get("id")) for row in rows if isinstance(row, Mapping) and row.get("id") is not None]
         record[key] = ids
         counts[key] = len(ids)
@@ -1256,11 +1263,22 @@ def with_derived_from(metadata: Mapping[str, object], rows_by_kind: Mapping[str,
     return dict(stamped) if isinstance(stamped, Mapping) else {}
 
 
+_InputRow = TypeVar("_InputRow", bound=Mapping[str, object])
+
+
+@overload
+def admit_when_locked(kind: str, rows: Sequence[_InputRow], projects: tuple[str, ...] | None) -> list[_InputRow]: ...
+
+
+@overload
+def admit_when_locked(kind: str, rows: object, projects: tuple[str, ...] | None) -> list[Mapping[str, object]]: ...
+
+
 def admit_when_locked(
     kind: str,
     rows: object,
     projects: tuple[str, ...] | None,
-) -> list[Mapping[str, object]]:
+) -> list[Any]:
     """Keep every row when ``projects`` is None. Otherwise keep rows inside that binding."""
 
     items = list(rows) if isinstance(rows, (list, tuple)) else []

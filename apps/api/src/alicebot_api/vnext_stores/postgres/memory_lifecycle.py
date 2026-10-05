@@ -441,10 +441,13 @@ def update_memory(
         )
         if current is not None:
             stored = current.get("metadata_json")
+            patch_metadata = patch["metadata_json"]
+            if not isinstance(patch_metadata, dict):
+                raise ValueError("memory metadata must be an object")
             patch = dict(patch)
             patch["metadata_json"] = merge_protected_metadata(
                 stored if isinstance(stored, dict) else {},
-                patch["metadata_json"],
+                patch_metadata,
                 label_write=label_write,
             )
     row = self._fetch_one(
