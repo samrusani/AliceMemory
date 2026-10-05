@@ -12,6 +12,7 @@ from alicebot_api.store import ContinuityStore
 from alicebot_api.vnext_memory_commit import VNextMemoryCommitService, VNextMemoryCommitValidationError
 from alicebot_api.vnext_project_update_guard import PENDING_PROJECT_UPDATE_MEMORY_MUTATION_MESSAGE
 from alicebot_api.vnext_store import PostgresVNextStore
+from tests.integration.conftest import lock_label_fixture
 
 
 @pytest.mark.parametrize("marker", ["workflow", "memory_key"])
@@ -29,6 +30,7 @@ def test_postgres_pending_project_update_candidate_blocks_generic_memory_mutatio
             "Pending project guard",
         )
         store = PostgresVNextStore(conn)
+        lock_label_fixture(store)
         metadata: dict[str, object] = {"candidate": True}
         memory_key = f"ordinary.pending.{uuid4().hex}"
         if marker == "workflow":
