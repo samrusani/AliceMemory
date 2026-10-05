@@ -6,7 +6,7 @@ from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from typing import Any, cast
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import psycopg
 
@@ -596,6 +596,25 @@ class PostgresVNextStore:
                 return
             yield rows
             after = str(rows[-1]["id"])
+
+    def list_belief_ids_for_memories(self, ids: Sequence[str]) -> list[str]:
+        """Same-user belief aliases that make a memory an indirect report input."""
+
+        from alicebot_api.vnext_derived_labels import identifier
+
+        wanted = []
+        for value in ids:
+            try:
+                wanted.append(str(UUID(identifier(value))))
+            except ValueError:
+                continue
+        if not wanted:
+            return []
+        rows = self._fetch_all(
+            "SELECT id::text AS id FROM beliefs WHERE user_id = app.current_user_id() AND memory_id = ANY(%s::uuid[]) ORDER BY id",
+            (wanted,),
+        )
+        return [str(row["id"]) for row in rows]
 
     def _fetch_one(
         self,

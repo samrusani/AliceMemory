@@ -104,6 +104,8 @@ SQLITE_COLUMN_NAMES = (
     "OPEN_LOOP_COLUMNS",
 )
 
+# Reviewed label hooks: both open-loop updaters preserve protected metadata,
+# clamp derived labels and propagate a stricter label to later rows.
 SOURCE_RECEIPTS = {
     # Re-minted for the filter-before-cut fix (2026-10-03): ``list_open_loop_events`` takes ``domains`` and
     # ``sensitivity_allowed`` as required arguments, and the SQLite one applies them in the join before ``LIMIT``
@@ -111,7 +113,7 @@ SOURCE_RECEIPTS = {
     # the shared unscoped call site can state ``None`` for both, and it refuses anything else, since the Postgres
     # runtime resolves no project view (reviewed change, not drift).
     # The file hash now matches the carrier after the label lock. Previous receipt e4724ba1...
-    POSTGRES_CARRIER_PATH: "87aeac394e698a0b5709fd168abfa2a8a86af674ad42370f5a40decd773554df",
+    POSTGRES_CARRIER_PATH: "a9fecb0462324a46610f01134146fa73a2ab63692c7a6daa44ff56760840a812",
     # The SQLite carrier is re-minted, with its method AST manifest below, for
     # ``list_open_loops`` and ``list_open_loop_events``: they bind a query through
     # ``literal_match_operand`` and so refuse one past the LIKE operand limit.
@@ -130,15 +132,15 @@ SOURCE_RECEIPTS = {
     # change (reviewed change, not drift).
     # Re-minted for the combined floor-aware partition read and canonical source-reference batch lookup.
     # Previous receipt 9a2634be...
-    SQLITE_CARRIER_PATH: "394cc5ae868cd967160ef0d5cd0b3340e0ee19ba256ba28d98334f22ccf6754f",
+    SQLITE_CARRIER_PATH: "d80d53bc64e2395f9480eb6b06338f337c44b811b0eb86974b4dbc22308a88d0",
     POSTGRES_COLUMNS_PATH: "5b0d972a55abf8590ce14394a37fd71b9b88ba7ab3de82d61efc1bddfc022b71",
     SQLITE_COLUMNS_PATH: "be81b8628d0831d3d02b280b5455fb02333db5740ebef8d85d58024384ae6556",
 }
 EXPECTED_METHOD_AST_MANIFESTS = {
     # Postgres manifest matches the carrier after the label lock. Previous 25580884...
-    POSTGRES_CARRIER_PATH: "48064a91179463a20147a8e02442f3259976752000d9aafcb51647851227c46c",
+    POSTGRES_CARRIER_PATH: "69d4776f91829f5dc96f751c7d513c13149f851d878476c1c2c17c245d8cf0a3",
     # SQLite manifest includes the floor identity on the partition read. Previous 2850ba60...
-    SQLITE_CARRIER_PATH: "ed3a5a9d1ac3d98239191dbb4ced020525b404e7b3f25145ec9cade331be8838",
+    SQLITE_CARRIER_PATH: "a4da5f218817ad3c17ad887a2b4e643307e2f6f1c5b6bb16b0e15ccf25cb017f",
 }
 EXPECTED_METADATA_MANIFESTS = {
     POSTGRES_CARRIER_PATH: "6edb6a10e7a37dbbbbde97e5550422718a0112257666de8e23d49c60490fa13f",

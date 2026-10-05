@@ -51,3 +51,27 @@ def test_preview_does_not_count_a_row_already_unverified(monkeypatch):
     report = _report([source, _source(["alpha"])], ["alpha"])
     monkeypatch.setattr(writes, "walk_dependants", lambda *_: [report])
     assert writes.count_rows_hidden_by_scope_move(Store([source, report]), source, ["beta"]) == 0
+
+
+def test_belief_alias_is_an_intermediate_reverse_edge(monkeypatch):
+    source = _source(["alpha"])
+    report = _report([], ["alpha"])
+    belief_id = str(uuid4())
+    report["metadata_json"]["belief_ids"] = [belief_id]
+    store = Store([source, report])
+    store.list_belief_ids_for_memories = lambda ids: [belief_id] if source["id"] in ids else []
+    monkeypatch.setattr(writes, "list_dependants", lambda _store, ids: [report] if belief_id in ids else [])
+    assert writes.walk_dependants(store, [source["id"]]) == [report]
+
+
+def test_sqlite_reverse_walk_needs_no_unsupported_belief_table(tmp_path):
+    from alicebot_api.onramp import bootstrap_database
+    from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
+    from tests.unit.test_derived_domain_fence import USER
+    path = tmp_path / "labels.sqlite3"
+    bootstrap_database(path, user_id=USER, user_email="synthetic@example.test")
+    with sqlite_user_connection(path, USER) as conn:
+        store = SQLiteVNextStore(conn, USER)
+        source = store.create_source({"source_type": "note", "title": "synthetic", "content_hash": "synthetic", "domain": "project", "sensitivity": "public"})
+        copy = store.create_memory({"memory_key": "copy", "canonical_text": "synthetic", "domain": "project", "sensitivity": "public", "metadata_json": {"source_id": str(source["id"])}})
+        assert [row["id"] for row in writes.walk_dependants(store, [str(source["id"])])] == [str(copy["id"])]

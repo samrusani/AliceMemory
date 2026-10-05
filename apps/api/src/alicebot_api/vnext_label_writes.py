@@ -440,6 +440,14 @@ def walk_dependants(store: Any, roots: Sequence[str]) -> list[dict[str, object]]
             raise LabelPropagationTooLarge(f"label propagation stopped after {PROPAGATION_BOUND} rows")
         batch = pending[:200]
         pending = pending[200:]
+        belief_aliases = getattr(store, "list_belief_ids_for_memories", None)
+        if callable(belief_aliases):
+            for belief_id in belief_aliases(batch):
+                alias = identifier(belief_id)
+                if alias not in seen:
+                    seen.add(alias)
+                    seen.add(_compact_id(belief_id))
+                    pending.append(str(belief_id))
         matched: list[dict[str, object]] = []
         batch_ids = {identifier(item) for item in batch} | {_compact_id(item) for item in batch}
         for row in list_dependants(store, batch):
