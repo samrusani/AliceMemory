@@ -330,6 +330,11 @@ a whole word, or right after `source:` or `alice://sources/`. It is not found
 inside a URL, inside parentheses or before a `#chunk-0` suffix, because the
 saved-quote reader does not read it there.
 
+The lookup reads each memory once, for every source a command works on at the
+same time. `sources delete` and `sources prune --superseded` each make one pass
+over the memories for their preview and one for their receipt, however many
+replaced sources a prune removes.
+
 There is no restore command for sources. Import the old text with `--supersede`
 to make it live again. A pre-deletion export can conflict with rows in the same
 vault in both restore modes; restore into a fresh vault instead. An export made

@@ -17,6 +17,17 @@ id, and a proposal that cited its source so was left pending after a replacement
 they stand for. And nothing tested the user fences of the new text query, so a version that scrubbed another user's pending
 memory would have passed: each flow below now has a second user's memory that cites the same source and must stay as it is.
 
+The review of the head after that measured the cost. One lookup in a vault of 10,000 memories took 132 ms in English and
+240 ms with accented text, and 674 ms and 1,205 ms at 50,000. ``sources prune`` looked every memory over once for each
+replaced source in its preview and once for each in its receipt, so a prune of 50 sources took tens of seconds at 50,000
+memories. The narrowing is now one registered SQLite function, ``alice_citation_hits``, that reads each memory once for
+every source asked about at once, and the commands ask for all their sources together: a prune reads the memories once
+for its preview and once for its receipt. The test that bounded a delete at one second took 1.12 s on the CI runner
+under coverage, so the unit job was red; no test below measures time. The cost tests count what is read (the function is
+called once for each memory in each pass, and the reader is asked about the memories that cite a source and no others),
+and a count does not move with the speed of the machine. The user fences of the new statements each have a test that
+fails without that fence alone.
+
 Every test below goes through the real door the probe used (an agent proposal through the MCP handler) or plants the same
 row shape in the vault, then runs the real importer or the real ``sources`` commands.
 """
@@ -26,8 +37,7 @@ from __future__ import annotations
 import json
 import random
 import sqlite3
-import time
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from uuid import uuid4
 
 import pytest
@@ -38,7 +48,9 @@ from alicebot_api.sqlite_schema import bootstrap_sqlite_schema
 from alicebot_api.sqlite_store import SQLiteVNextStore, ensure_sqlite_user, sqlite_user_connection
 from alicebot_api.vnext_source_fence import cited_source_ids
 from alicebot_api.vnext_stores.sqlite import source_retirement
-from alicebot_api.vnext_stores.sqlite.source_retirement import _holds_digits_in_other_script, citing_memories
+from alicebot_api.vnext_stores.sqlite.source_retirement import (
+    _Probes, _citation_hits, _in_ascii_digits, _memories_by_id, citing_memories, citing_memories_by_source,
+)
 from tests.unit.test_importer_per_file_savepoint import USER_ID, _folder, _vault
 from tests.unit.test_saved_quote_ref_reading import _zero_led_id, _zero_led_spellings
 from tests.unit.test_source_commands import command
@@ -187,19 +199,14 @@ def test_replace_rejects_and_lists_a_proposal_that_cites_the_source_in_any_spell
     and the others fail.
 
     Mutations, each alone, in ``source_retirement.py`` (the saved original is copied back after each, and the file is
-    compared). In the SQL of the narrowing: skip the text half of ``citing_memories`` (``if canonical is not None:`` made
-    ``if False:``: every case fails); drop ``lower(`` from the searched text (the cases ``upper case``, ``selected ids``
-    and ``fullwidth digits`` fail); stop removing hyphens from it (the ten cases whose spelling has hyphens fail); search
-    for the hyphenated id in the raw text, so the compact form is gone (the case ``no hyphens`` fails); make
-    ``retire_dependents`` read no memories (every case here and in the delete and prune tests fails); drop both user
-    conditions of the text query (the ``m.user_id = ?`` of the ``WITH`` clause and the one of the join: every case fails,
-    because the second user's memory is rejected and listed). The two conditions say the same thing, since a memory id is
-    a primary key, so dropping only one of them changes nothing a test can see. For the digits of other scripts: make
-    ``_holds_digits_in_other_script`` return ``0``, or take its condition out of the query (the eight cases that write
-    the id in other digits fail); narrow its digit class to the Arabic-Indic digits (the six cases in the other scripts
-    fail); stop reading the pair of escapes JSON writes for a character beyond U+FFFF (the case with escaped
-    mathematical digits fails); stop collapsing runs of backslashes, stop decoding escapes, or skip every text that has an
-    escape (the two cases with a JSON ref of escaped digits fail).
+    compared byte for byte). In the pass: skip the text of the memory (``if len(hits) < len(probes.every):`` made
+    ``if False:``: every case fails); drop ``.lower()`` from it (the three cases ``upper case``, ``selected ids`` and
+    ``fullwidth digits`` fail); stop removing hyphens from it (the seventeen cases whose spelling has hyphens fail); never
+    read the digits of other scripts, or read every one as ``0`` (the eight cases that write the id in other digits fail);
+    make ``retire_dependents`` read no memories (every case here and in the delete and prune tests fails); drop both user
+    conditions, the one of the pass and the one of the read by id (every case fails, because the second user's memory is
+    rejected and listed). Dropping only one of the two changes nothing here, because a memory of the second user that
+    comes out of one is dropped by the other: the last tests of this file hold each fence alone.
     """
 
     db, folder, sid = seeded(tmp_path)
@@ -235,9 +242,9 @@ def test_delete_previews_scrubs_and_lists_memories_that_cite_the_source_in_any_s
     memory of a second user of the vault that cites the same id is neither counted, nor listed, nor scrubbed: every row
     stored for it is as it was written.
 
-    Mutations: the ones of the replacement test, and ``_preview`` in ``source_commands.py`` reading only the provenance
-    links (``citing_memories`` swapped for a query on ``provenance_links``: every case of this test and of the prune test
-    fails on the preview, and the receipt, which scrubs through ``retire_dependents``, is not what fails).
+    Mutations: the ones of the replacement test, and a ``_preview`` in ``source_commands.py`` that lists no citing
+    memory (``memories=[...]`` made ``memories=[]``: every case of this test and of the prune test fails on the preview,
+    and the receipt, which scrubs through ``retire_dependents``, is not what fails).
     """
 
     db, _folder_path, sid = seeded(tmp_path)
@@ -322,9 +329,9 @@ def test_every_stored_field_the_product_keeps_a_source_in_is_read():
     JSON columns written as the store writes them (characters as they are) and as ``json.dumps`` writes them by default
     (escapes).
 
-    Mutations: take the metadata out of the searched text (``lower(coalesce(m.metadata_json, '')`` made ``lower('')``:
-    the metadata placements fail); take the value out of it (``coalesce(m.value, '')`` made ``''``: the value
-    placements fail); read only ``_source_ids_named_by_memory_copies`` in ``memory_cited_source_ids`` (the top-level
+    Mutations: take the metadata out of the text the pass reads (``_text_of(metadata_json) + "\\n" + _text_of(value)`` made
+    ``_text_of(value)``: the metadata placements fail); take the value out of it (made ``_text_of(metadata_json)``: the
+    value placements fail); read only ``_source_ids_named_by_memory_copies`` in ``memory_cited_source_ids`` (the top-level
     keys fail); answer with ``cited.named`` and not ``cited.every`` (the free text placement fails).
     """
 
@@ -360,10 +367,11 @@ def test_text_that_only_looks_like_a_citation_is_not_one():
     the first, so the reader is what rejects them. (An id in a sentence under another key is a citation: see the test
     above.)
 
-    Mutations: make the check ``canonical in memory_cited_source_ids(row)`` always true (the memory ref, the longer run
-    and the quote rows are found, in fullwidth digits too: the narrowing keeps those rows and the reader is what rejects
-    them); read quotes and excerpts as references (``_TEXT_KEYS`` made empty: the quote and excerpt rows are found); skip
-    the JSON decode of the reader (``_json_container`` returning ``None``: the JSON quote rows are found).
+    Mutations: make the check ``if canonical[source_id] in named:`` of ``citing_memories_by_source`` always true (the
+    memory ref, the longer run and the quote rows are found, in fullwidth digits too: the pass keeps those rows and the
+    reader is what rejects them); read quotes and excerpts as references (``_TEXT_KEYS`` made empty: the quote and excerpt
+    rows are found); skip the JSON decode of the reader (``_json_container`` returning ``None``: the JSON quote rows are
+    found).
     """
 
     store = memory_store()
@@ -518,18 +526,20 @@ def test_the_lookup_finds_a_memory_exactly_when_the_reader_names_the_source():
     the JSON quote), and the JSON quote container is never accepted.
 
     Mutations, each alone, in ``source_retirement.py`` (the saved original is copied back after each, and the file is
-    compared): drop the Python confirm (the longer run of digits, the memory ref and the quote rows are found); drop
-    ``lower(`` (the upper case rows are missed); stop removing hyphens (every hyphenated row is missed); stop removing
-    underscores (the zero spellings with an underscore are missed); stop removing ``urn:`` (the spelling with ``urn:``
-    inside the digits is missed); stop removing ``uuid:`` (the spelling with ``uuid:`` inside the digits is missed);
-    search for the digits with their zeros (``.lstrip('0')`` removed: the zero spellings where whitespace, ``0x``
-    or a sign takes the place of the zeros are missed); drop the escape test (the JSON text with escapes is missed);
-    narrow the escape test to the escapes of digits (``\\u003[0-9]``: the hex letters and hyphens containers are
-    missed); narrow it to ``\\u00[3-7]`` (the hyphens container), to ``\\u00[2-6]`` (the ``u`` and ``r`` container) or to
-    ``\\u00[2-7][0-9]`` (the hyphens container: ``\\u002d``); take the metadata out of the searched text; read only the
-    reader's own fields in ``memory_cited_source_ids``. The mutations of the digits of other scripts are in the tests below. In
-    ``vnext_source_fence.py``: skip the JSON decode (``_json_container`` returning ``None``: the JSON text with escapes
-    is missed and the JSON quote row is found); read quotes as references (``_TEXT_KEYS`` made empty).
+    compared byte for byte): drop the Python confirm (the longer run of digits, the memory ref and the quote rows are
+    found); drop ``.lower()`` (the upper case rows are missed); stop removing hyphens (every hyphenated row is missed);
+    stop removing underscores (the zero spellings with an underscore are missed); stop removing ``urn:`` (the spelling
+    with ``urn:`` inside the digits is missed); stop removing ``uuid:`` (the spelling with ``uuid:`` inside the digits is
+    missed); search for the digits with their zeros (``.lstrip('0')`` removed: the zero spellings where whitespace,
+    ``0x`` or a sign takes the place of the zeros are missed); drop the rule for escaped ASCII characters (the JSON text
+    with escapes is missed); narrow the class of that rule to the second digit ``[3-7]``, to ``[2-6]``, or to the first
+    hex digit only (``[0-9]`` for ``[0-9a-f]``: the hyphens, the ``u`` and ``r`` and the hex letters containers are
+    missed); take the metadata out of the text; read only the reader's own fields in ``memory_cited_source_ids``; map
+    every kept memory to the first source (the lookup for all the ids is wrong where the lookup for each id alone is
+    right, which the comparison with the lookup for all five ids at once sees). The mutations of the digits of other
+    scripts are in the tests below. In ``vnext_source_fence.py``: skip the JSON decode (``_json_container`` returning
+    ``None``: the JSON text with escapes is missed and the JSON quote row is found); read quotes as references
+    (``_TEXT_KEYS`` made empty).
     """
 
     store = memory_store()
@@ -544,8 +554,10 @@ def test_the_lookup_finds_a_memory_exactly_when_the_reader_names_the_source():
     accepted: set[tuple[str, str]] = set()
     rejected: set[tuple[str, str]] = set()
     named = held_without_naming = 0
+    together = citing_memories_by_source(store, ids)
     for source_id in ids:
         returned = found(store, source_id)
+        assert {str(row["id"]) for row in together[source_id]} == returned, source_id
         for memory_id, (row_id, spelling_label, container_label, container) in rows.items():
             if row_id != source_id:
                 continue
@@ -568,6 +580,15 @@ def test_the_lookup_finds_a_memory_exactly_when_the_reader_names_the_source():
 # -- the digits of other scripts ---------------------------------------------------------------------------------------
 
 
+def text_hits(text, digits, *, in_value=False):
+    """Whether the pass keeps a memory whose metadata (or value) is ``text`` for a source whose id has ``digits``. The
+    pass reads the text as ``alice_citation_hits`` does: lower cased, once, for all the sources it is given."""
+
+    probes = _Probes([("no-such-source", digits)])
+    metadata, value = ("{}", text) if in_value else (text, "{}")
+    return _citation_hits(metadata, value, "[]", probes) == "0"
+
+
 def test_every_script_shape_names_the_source_to_the_reader():
     """The shapes of the replacement, delete and prune tests that write the id in the digits of another script are
     citations: the reader names the id in each and names nothing for another id, so a lookup that misses one is wrong
@@ -583,17 +604,21 @@ def test_every_script_shape_names_the_source_to_the_reader():
         assert sid not in cited_source_ids(build(str(uuid4()))).every, label
 
 
-def test_the_digit_test_reads_the_characters_and_escapes_that_int_reads_as_digits():
-    """The part of the narrowing that sees an id written in other scripts (``_holds_digits_in_other_script``), checked on
-    every code point up to U+2FFFF (the Unicode decimal digits all lie below it) and a sample of the rest: a character
-    that ``int(..., 16)`` reads as a digit, written as it is or as the JSON escape ``json.dumps`` writes for it (one
-    escape, or a pair for a character beyond U+FFFF), is found when the text holds the digit it stands for, and is not
-    found for any other digit; a character it does not read as a digit never is.
+def test_the_pass_reads_the_characters_and_escapes_that_int_reads_as_digits():
+    """The part of the pass that sees an id written in other scripts, checked on every code point up to U+2FFFF (the
+    Unicode decimal digits all lie below it) and a sample of the rest: a character that ``int(..., 16)`` reads as a digit,
+    written as it is, between two letters, or as the JSON escape ``json.dumps`` writes for it (one escape, or a pair for a
+    character beyond U+FFFF), keeps a source whose digits are the digit it stands for, and no other; a character that is not
+    read as a digit keeps nothing. A text of the escapes is repeated nine times, with nine digits to find, because the
+    hex digits of an escape are ASCII digits and one of them could be the digit asked for: no run of nine is.
 
-    Mutations: take the digit class to the Arabic-Indic digits alone (``_OTHER_SCRIPT_DIGIT`` made ``[\\u0660-\\u0669]``:
-    every other script fails); stop reading the pair of escapes (the first alternative of ``_JSON_ESCAPE`` made
-    ``(?!)``: the mathematical digits fail in their escaped form); map every digit to ``0`` (``str(int(...))`` made
-    ``'0'``: the found-for-its-own-digit check fails).
+    Mutations: take the digit class to the Arabic-Indic digits alone (``_OTHER_SCRIPT_DIGIT`` narrowed to the ten of
+    them: every other script fails); stop reading the pair of escapes (the pair alternative of ``_DIGIT_ESCAPE`` made
+    never match: the mathematical digits fail in their escaped form); narrow the single escape to the blocks that start
+    with ``0`` or ``1`` (``[01af]`` made ``[01]``: the fullwidth digits fail in their escaped form); map every digit to
+    ``0`` (``_ASCII_DIGIT[match[0]]`` made ``'0'``: the check for the digit it stands for fails); never read an escape
+    (the escape branch of ``_in_ascii_digits`` made false: every escaped digit fails); treat every text that is not ASCII
+    as holding no such digit (the Latin-1 test of ``_in_ascii_digits`` made ``True``: every raw digit fails).
     """
 
     sample = 97
@@ -609,64 +634,97 @@ def test_the_digit_test_reads_the_characters_and_escapes_that_int_reads_as_digit
         except ValueError:
             reads_as_digit = False
         if reads_as_digit:
-            for spelled in (char, escape, "x" + char + "x"):
-                assert _holds_digits_in_other_script(spelled, str(digit)) == 1, hex(code)
-                assert _holds_digits_in_other_script(spelled, str((digit + 1) % 10)) == 0, hex(code)
+            for spelled, copies in ((char, 1), ("x" + char + "x", 1), (escape, 9)):
+                assert text_hits(spelled * copies, str(digit) * copies), hex(code)
+                assert not text_hits(spelled * copies, str((digit + 1) % 10) * copies), hex(code)
+                assert text_hits(spelled * copies, str(digit) * copies, in_value=True), hex(code)
         else:
             for spelled in (char, escape):
-                assert _holds_digits_in_other_script(spelled, "1") == 0 and _holds_digits_in_other_script(spelled, "") == 0, hex(code)
-    assert _holds_digits_in_other_script("١", "1") == 1 and _holds_digits_in_other_script("\\ud835\\udfce", "0") == 1
+                assert not text_hits(spelled * 9, "1" * 9), hex(code)
+    assert text_hits("١", "1") and text_hits("\\ud835\\udfce", "0")
 
 
-def test_the_digit_test_reads_nested_escapes_and_ignores_what_the_id_ignores():
-    """The same function on the texts the rest of the lookup hands it: escapes at any depth of JSON text (the pair
-    ``json.dumps`` writes for the mathematical digits has its backslashes doubled at each depth), what ``uuid.UUID``
-    ignores inside an id (``urn:``, ``uuid:``, hyphens, underscores) taken out, text that is ASCII with no escape never
-    found, and an escape that is not a digit never found.
+def test_the_digit_reader_reads_nested_escapes_and_leaves_other_text_alone():
+    """The function that writes other scripts' digits as 0 to 9 (``_in_ascii_digits``), on the texts the pass hands it:
+    escapes at any depth of JSON text (the pair ``json.dumps`` writes for the mathematical digits has its backslashes
+    doubled at each depth), text that is ASCII with no escape never read, and an escape that is not a digit left as it
+    is. What ``uuid.UUID`` ignores inside an id (``urn:``, ``uuid:``, hyphens, underscores) is taken out by the pass
+    after this, so a run of digits split by them is still found.
 
-    Mutations: skip the collapse of backslash runs (``_BACKSLASH_RUN.sub(...)`` taken out: the nested pairs fail); take
-    ``"-"`` out of the ignored characters (the hyphen cases fail); take ``"uuid:"`` out of them (the ``uuid:`` case
-    fails); return ``0`` for every text that holds an escape (the ``escaped`` guard made ``not escaped and
-    text.isascii()`` into ``text.isascii()``: every escaped case fails).
+    Mutations: drop the run of backslashes from ``_DIGIT_ESCAPE`` (the nested pairs fail); take ``"-"`` out of
+    ``_IGNORED_IN_AN_ID`` (the hyphen cases fail); take ``"uuid:"`` out of it (the ``uuid:`` case fails); never read an
+    escape (the escape branch of ``_in_ascii_digits`` made false: every escaped case fails); read an escape that is not a
+    digit as the character (``_digit_escape`` returning ``char`` for every escape: the letter escape is changed).
     """
 
     mathematical = "\U0001d7ce\U0001d7cf\U0001d7d0"
     nested = json.dumps(mathematical)
     for depth in range(1, 6):
-        assert _holds_digits_in_other_script(nested, "012") == 1, depth
+        assert _in_ascii_digits(nested) is not None and "012" in _in_ascii_digits(nested), depth
+        assert text_hits(nested, "012"), depth
         nested = json.dumps(nested)
-    assert _holds_digits_in_other_script("a١-b٢_c٣", "a1b2c3") == 1
-    assert _holds_digits_in_other_script("urn:uuid:١٢", "12") == 1
-    assert _holds_digits_in_other_script("١urn:٢uuid:٣", "123") == 1
-    assert _holds_digits_in_other_script("\\u0661\\u0662", "12") == 1
-    assert _holds_digits_in_other_script("ascii 12 only \\u00e9 and \\u0041", "12") == 0
-    assert _holds_digits_in_other_script("plain ascii 123 without any escape", "123") == 0
-    assert _holds_digits_in_other_script("١٢", "13") == 0
-    assert _holds_digits_in_other_script(None, "1") == 0 and _holds_digits_in_other_script("١", None) == 0
+    assert text_hits("a١-b٢_c٣", "a1b2c3")
+    assert text_hits("urn:uuid:١٢", "12")
+    assert text_hits("١urn:٢uuid:٣", "123")
+    assert text_hits("\\u0661\\u0662", "12")
+    assert _in_ascii_digits("a١-b٢") == "a1-b2"
+    assert _in_ascii_digits("\\u0661\\u0662") == "12"
+    assert _in_ascii_digits("plain ascii 123 without any escape") is None
+    assert _in_ascii_digits("ascii 12 only \\u00e9 and \\u4e2d") is None
+    assert _in_ascii_digits("١ and \\u00e9") == "1 and \\u00e9"
+    assert not text_hits("ascii 12 only \\u00e9", "13")
+    assert not text_hits("١٢", "13")
+    assert not text_hits("", "1")
 
 
-# -- cost -----------------------------------------------------------------------------------------------------------
+def test_an_ascii_character_written_as_a_json_escape_keeps_every_source():
+    """A ref that is JSON text can write any character of an id as an escape (``\\u0061``) and the reader decodes it, so a
+    text with the escape of a printable ASCII character is kept for every source, whatever the digits. The escapes of
+    control characters, of the character after the last ASCII one and of letters outside ASCII are what ordinary text has
+    and keep nothing. The pass reads the metadata and the value alike.
 
-
-def test_delete_reads_only_the_candidates_and_stays_fast_on_a_large_vault(tmp_path, monkeypatch, capsys):
-    """A vault of 10,000 memories, two of which cite the source (one in fullwidth digits). Half of the others are written
-    in a language with digits of its own: dates and refs to other sources in Arabic-Indic and fullwidth digits. The delete
-    finishes in under a second, and the reader is asked about the memories the SQL narrowing keeps (the two, not the vault
-    and not the half that holds digits of another script). The count of reads is the guard that a slower machine cannot
-    flatter: on a development machine the whole delete takes about a third of a second, and reading all 10,000
-    memories in Python takes about half a second on its own, so the time alone would not fail a lookup that read
-    everything.
-
-    Mutations: drop the text condition of the second query in ``citing_memories`` (``(? IS NOT NULL OR ? IS NOT NULL)``
-    in its place: every memory is a candidate): the reader is asked about all 10,000 memories and the count fails. Keep
-    every memory that holds a digit of another script, whatever the id (the last line of ``_holds_digits_in_other_script``
-    made ``return 1``): the reader is asked about the 5,000 of them and the count fails.
+    Mutations: narrow the class to the second digit ``[3-7]`` (the space and ``-`` fail), to ``[2-6]`` (DEL fails) or to
+    ``[2-7][0-9]`` for the last two digits (the tilde and ``-`` fail); widen it to ``[0-7]`` (the control characters
+    fail) or to ``[2-9]`` (the escapes just above ASCII fail); drop the rule (the ``if escaped and ...`` of
+    ``_add_text_hits`` made ``if False``: every escape fails).
     """
 
-    db, _folder_path, sid = seeded(tmp_path)
+    nine = "f" * 9
+    for code in (0x20, 0x2D, 0x30, 0x41, 0x5F, 0x61, 0x7E, 0x7F):
+        for text in ("\\u%04x" % code, "x \\u%04X y" % code, "{\"source_id\": \"\\u%04x\"}" % code):
+            assert text_hits(text, nine), hex(code)
+            assert text_hits(text, nine, in_value=True), hex(code)
+    for code in (0x00, 0x09, 0x1F, 0x80, 0xE9, 0x4E2D):
+        assert not text_hits("\\u%04x" % code, nine), hex(code)
+    many = _Probes([("a", "f" * 9), ("b", None), ("c", "e" * 9)])
+    assert _citation_hits("\\u0061", "{}", "[]", many) == "0,2"
+
+
+# -- one pass, every source -------------------------------------------------------------------------------------------
+
+
+@pytest.fixture
+def reads(monkeypatch):
+    """Records each memory the pass is asked about (``alice_citation_hits`` is called with its metadata) and each memory
+    the reader is asked about."""
+
+    passes, readers = [], []
+    pass_original = source_retirement._citation_hits
+    reader_original = source_retirement.memory_cited_source_ids
+    monkeypatch.setattr(source_retirement, "_citation_hits",
+                        lambda metadata, *rest: passes.append(metadata) or pass_original(metadata, *rest))
+    monkeypatch.setattr(source_retirement, "memory_cited_source_ids",
+                        lambda row: readers.append(str(row["id"])) or reader_original(row))
+    return passes, readers
+
+
+def add_filler(db, count):
+    """``count`` active memories that cite nothing of the vault. Half are written in a language with digits of its own:
+    dates and refs to other sources in Arabic-Indic and fullwidth digits."""
+
     arabic, fullwidth = DIGIT_SCRIPTS["arabic-indic"], DIGIT_SCRIPTS["fullwidth"]
     rows = []
-    for index in range(10_000):
+    for index in range(count):
         other = str(uuid4())
         metadata = {"proposal_id": str(uuid4()), "source_refs": ["source:" + other, other.upper()],
                     "rationale": "Said in the standup on Thursday about the deploy cadence. " * 3}
@@ -681,17 +739,283 @@ def test_delete_reads_only_the_candidates_and_stays_fast_on_a_large_vault(tmp_pa
         conn.executemany(
             "INSERT INTO memories (id, user_id, memory_key, value, status, source_event_ids, metadata_json, canonical_text) "
             "VALUES (?, ?, ?, ?, 'active', '[]', ?, 'The team deploys on Thursdays.')", rows)
+
+
+def memory_count(db):
+    return _read(db, "SELECT count(*) FROM memories WHERE user_id=?", (USER_ID,))[0][0]
+
+
+def replaced_sources(tmp_path, count):
+    """A vault with ``count`` sources that an edit has replaced, as ``(db, ids in the order a prune takes them)``."""
+
+    db = _vault(tmp_path)
+    folder = _folder(tmp_path, **{f"note{index}": f"The older amber statement {index}." for index in range(count)})
+    run_import(db, folder)
+    for index in range(count):
+        (folder / f"note{index}.md").write_text(f"The current copper statement {index}.")
+    assert len(run_import(db, folder, supersede=True).superseded) == count
+    ids = [row[0] for row in _read(db, "SELECT id FROM sources WHERE deleted_at IS NOT NULL ORDER BY deleted_at, id")]
+    assert len(ids) == count
+    return db, ids
+
+
+def test_a_delete_reads_each_memory_once_for_the_preview_and_once_for_the_receipt(tmp_path, capsys, reads):
+    """A vault of 10,000 memories, two of which cite the source (one in fullwidth digits). Half of the others hold digits
+    of another script. ``sources delete`` reads every memory once for its preview and once more for its receipt, and the
+    reader is asked about the two memories that cite the source and no others (not the vault, and not the half that holds
+    digits of another script). The counts are what is checked, and no time: a count does not move with the speed of the
+    machine, and one pass over the memories does the work that took one pass per source.
+
+    Mutations: call the function twice for each memory (``_citation_function`` calling ``_citation_hits`` a second time:
+    the count of passes is twice the memories); keep every memory that holds a digit of another script, whatever the id
+    (``_add_text_hits`` made to add ``probes.every_text`` after it reads other digits: the reader is asked about the 5,000
+    of them); keep every memory (``_citation_hits`` answering for every source whatever the memory: the reader is asked
+    about all 10,000); look the source up again in the preview (``_preview`` calling ``citing_memories_by_source`` for
+    each row besides the lookup for all of them: the preview takes two passes); give ``scrub_source`` no ``citing_ids``
+    (each scrub looks again: the receipt takes two passes). The user fences have the tests at the end of the file.
+    """
+
+    db, _folder_path, sid = seeded(tmp_path)
+    add_filler(db, 10_000)
+    fullwidth = DIGIT_SCRIPTS["fullwidth"]
+    with sqlite_user_connection(db, USER_ID) as conn:
         store = SQLiteVNextStore(conn, USER_ID)
         candidate = plant(store, [in_script(sid.upper(), fullwidth)])
         kept = plant(store, ["source:" + sid.replace("-", "")], status="active", text="The amber record is active.")
-    reads = []
-    original = source_retirement.memory_cited_source_ids
-    monkeypatch.setattr(source_retirement, "memory_cited_source_ids", lambda row: reads.append(row["id"]) or original(row))
-    started = time.perf_counter()
+    total = memory_count(db)
+    assert total >= 10_002
+    passes, readers = reads
+    assert command(db, "delete", sid) == 2
+    preview = json.loads(capsys.readouterr().out)["would_delete"][0]
+    assert len(passes) == total and sorted(readers) == sorted([candidate, kept])
+    passes.clear()
+    readers.clear()
     assert command(db, "delete", sid, "--yes") == 0
-    elapsed = time.perf_counter() - started
     receipt = json.loads(capsys.readouterr().out)["deleted"][0]
-    assert receipt["candidate_memories"] == 1 and receipt["memories_citing_replaced"] == [kept]
+    assert len(passes) == total and sorted(readers) == sorted([candidate, kept])
+    for counts in (preview, receipt):
+        assert counts["candidate_memories"] == 1 and counts["memories_citing_replaced"] == [kept]
     assert_gone(db, candidate)
-    assert elapsed < 1.0, elapsed
-    assert len(reads) <= 4, len(reads)
+
+
+def test_a_prune_of_many_sources_reads_each_memory_once_for_the_preview_and_once_for_the_receipt(tmp_path, capsys, reads):
+    """Twelve replaced sources in a vault of 10,000 memories. Each source is cited by one pending proposal, in a spelling
+    that changes from source to source, and one more pending proposal cites two of them (the first and the last). ``sources
+    prune --superseded`` reads every memory once for its preview and once for its receipt, not once per source, and the
+    reader reads each proposal once, the one that cites two included.
+
+    Mutations: look the sources up one at a time (``citing_memories_by_source`` made to call ``_citation_candidates`` for
+    each source and merge the answers: the passes are twelve times the memories); look each source up again in the
+    preview (``_preview`` in ``source_commands.py`` calling ``citing_memories_by_source`` for each row besides the lookup
+    for all of them: the preview takes thirteen passes); give ``scrub_source`` no ``citing_ids`` (the argument in
+    ``run_sources`` made ``citing_ids=None``: each scrub looks again, and the receipt takes thirteen passes); ask the
+    reader once for each source a memory may cite (``named`` read inside the loop over its sources: the proposal that
+    cites two is read twice).
+    """
+
+    db, ids = replaced_sources(tmp_path, 12)
+    add_filler(db, 10_000)
+    shapes = list(ALL_SHAPES.values())
+    planted = []
+    with sqlite_user_connection(db, USER_ID) as conn:
+        store = SQLiteVNextStore(conn, USER_ID)
+        for index, sid in enumerate(ids):
+            planted.append(plant(store, [shapes[index % len(shapes)](sid)], text=f"Pending proposal {index}."))
+        planted.append(plant(store, [shapes[1](ids[0]), shapes[2](ids[-1])], text="Pending proposal that cites two."))
+    total = memory_count(db)
+    passes, readers = reads
+    assert command(db, "prune", "--superseded") == 2
+    preview = json.loads(capsys.readouterr().out)["would_delete"]
+    assert len(passes) == total and sorted(readers) == sorted(planted)
+    passes.clear()
+    readers.clear()
+    assert command(db, "prune", "--superseded", "--yes") == 0
+    receipt = json.loads(capsys.readouterr().out)["deleted"]
+    assert len(passes) == total and sorted(readers) == sorted(planted)
+    assert [row["id"] for row in preview] == [row["id"] for row in receipt] == ids
+    # The preview counts the proposal that cites two sources under each of them, as a lookup for each source did. The
+    # receipt counts it under the first, whose scrub redacts it before the last looks.
+    assert sum(row["candidate_memories"] for row in preview) == 14 and sum(row["candidate_memories"] for row in receipt) == 13
+    assert all(row["memories_citing_replaced"] == [] for row in preview + receipt)
+    for memory_id in planted:
+        assert_gone(db, memory_id)
+
+
+def stable_state(db):
+    """What the vault holds of every memory and revision that a scrub could change, without the clock."""
+
+    with sqlite_user_connection(db, USER_ID) as conn:
+        memories = [tuple(row.values()) for row in conn.execute(
+            "SELECT id, status, canonical_text, value, title, summary FROM memories ORDER BY id").fetchall()]
+        revisions = [tuple(row.values()) for row in conn.execute(
+            "SELECT memory_id, sequence_no, action, previous_value, new_value, text_before, text_after "
+            "FROM memory_revisions ORDER BY memory_id, sequence_no").fetchall()]
+    return memories, revisions
+
+
+def test_a_prune_of_many_sources_does_what_a_delete_of_each_source_does(tmp_path, capsys):
+    """Eight replaced sources whose pending proposals cite them in different spellings, a proposal that cites the first
+    two (so the scrub of the first redacts it before the second looks), an active memory that cites the last two, and a
+    second user's proposal that cites the first. The same vault is pruned in one command and then source by source with
+    ``sources delete`` in the order a prune takes them: the receipts are the same (what each source scrubbed and listed)
+    and so is everything stored for every memory and revision. That a memory the first scrub redacted is not counted again
+    by the second is the part a lookup made once for all the sources could get wrong.
+
+    Mutations: count a memory that an earlier scrub redacted (the ``is_redacted_memory`` test of ``retire_dependents`` made
+    ``True``: the second source counts the redacted proposal again, and the receipts differ); map every kept memory to the
+    first source (``ids[index]`` made ``ids[0]`` in ``citing_memories_by_source``: the sources after the first list
+    nothing).
+    """
+
+    db, ids = replaced_sources(tmp_path, 8)
+    shapes = list(ALL_SHAPES.values())
+    with sqlite_user_connection(db, USER_ID) as conn:
+        store = SQLiteVNextStore(conn, USER_ID)
+        for index, sid in enumerate(ids):
+            plant(store, [shapes[index](sid)], text=f"Pending proposal {index}.")
+        plant(store, [shapes[0](ids[0]), shapes[3](ids[1])], text="Pending proposal that cites two.")
+        plant(store, [ids[-2], ids[-1].upper()], status="active", text="Active memory that cites two.")
+    other_users = bystander(db, ids[0])
+    single = tmp_path / "single.db"
+    with closing(sqlite3.connect(db)) as source, closing(sqlite3.connect(single)) as copy:
+        source.backup(copy)
+    assert command(db, "prune", "--superseded", "--yes") == 0
+    batch = json.loads(capsys.readouterr().out)["deleted"]
+    one_by_one = []
+    for sid in ids:
+        assert command(single, "delete", sid, "--yes") == 0
+        one_by_one += json.loads(capsys.readouterr().out)["deleted"]
+    assert batch == one_by_one
+    assert sum(row["candidate_memories"] for row in batch) == 9 and batch[0]["candidate_memories"] == 2
+    assert batch[1]["candidate_memories"] == 1 and len(batch[-2]["memories_citing_replaced"]) == 1
+    assert stable_state(db) == stable_state(single)
+    assert_bystander_untouched(db, other_users)
+
+
+def test_the_lookup_for_many_sources_gives_each_the_answer_it_gives_alone():
+    """Ten sources, memories that cite one of them, two of them, none, by an event, and by text in a spelling that holds a
+    source's digits without naming it. One lookup for all ten returns for each source the memories the
+    reader and the links name for it, which are the ones a lookup for that source alone returns.
+
+    Mutations: map every kept memory to the first source (``ids[index]`` made ``ids[0]`` in ``citing_memories_by_source``:
+    the others list nothing). The provenance link branches of the same function are held by the source suites
+    (``test_chunk_only_links_are_counted_and_scrubbed``, ``test_replace_rejects_candidate_with_only_a_chunk_link`` and
+    the retained status tests).
+    """
+
+    store = memory_store()
+    ids = [str(uuid4()) for _ in range(10)]
+    expected = {sid: set() for sid in ids}
+    for index, sid in enumerate(ids):
+        expected[sid].add(insert_memory(store, metadata={"source_refs": [sid.upper() if index % 2 else "source:" + sid]}))
+    both = insert_memory(store, metadata={"source_refs": [ids[2], ids[7].replace("-", "")]})
+    expected[ids[2]].add(both)
+    expected[ids[7]].add(both)
+    by_event = insert_memory(store, events=[ids[4], ids[5]])
+    expected[ids[4]].add(by_event)
+    expected[ids[5]].add(by_event)
+    insert_memory(store, metadata={"source_refs": [str(uuid4())]})
+    insert_memory(store, metadata={"source_refs": ["ab" + ids[3].replace("-", "")]})
+    insert_memory(store, metadata={"source_refs": ["memory:" + ids[6]]})
+    insert_memory(store, metadata={"provenance": {"quote": ids[8], "source_id": str(uuid4())}})
+    found_together = citing_memories_by_source(store, ids)
+    assert list(found_together) == ids
+    for sid in ids:
+        assert {str(row["id"]) for row in found_together[sid]} == expected[sid], sid
+        assert [str(row["id"]) for row in found_together[sid]] == sorted(expected[sid])
+        assert found_together[sid] == citing_memories(store, sid)
+    assert citing_memories_by_source(store, []) == {}
+
+
+def test_source_event_ids_and_a_string_that_is_no_id_are_matched_as_written():
+    """The source event ids are matched by the id as written, and the stored list is read as the list it is: an id behind
+    a JSON escape is the id. A string that is no id has no digits to look for in a text, so no text names it and its
+    presence does not make the lookup keep every memory, but a list of source event ids that holds it is a citation.
+
+    Mutations: take the backslash rule out of ``_citation_hits`` (``"\\\\" in events`` made false: the escaped list is
+    missed); search the list for another spelling (``source_id in events`` made ``source_id.upper() in events``: the plain
+    list is missed); let a source with no digits into the text search (``_Probes.digits`` made to hold every source:
+    the lookup fails on ``None``).
+    """
+
+    store = memory_store()
+    sid = str(uuid4())
+    plain = insert_memory(store, events=[sid])
+    escaped_id = "".join("\\u%04x" % ord(char) if index % 3 == 0 else char for index, char in enumerate(sid))
+    escaped = str(uuid4())
+    store.conn.execute(
+        "INSERT INTO memories (id, user_id, memory_key, value, status, source_event_ids, metadata_json, canonical_text) "
+        "VALUES (?, ?, ?, '{}', 'candidate', ?, '{}', 'A record.')", (escaped, USER_ID, "key." + escaped, '["' + escaped_id + '"]'))
+    other_event = insert_memory(store, events=[str(uuid4())])
+    assert found(store, sid) == {plain, escaped}
+    assert other_event not in found(store, sid)
+    no_id = "not an id"
+    by_event = insert_memory(store, events=[no_id])
+    in_text = insert_memory(store, metadata={"source_refs": [no_id], "note": "not an id"})
+    result = citing_memories_by_source(store, [no_id, sid])
+    assert [str(row["id"]) for row in result[no_id]] == [by_event] and in_text not in {str(row["id"]) for row in result[no_id]}
+    assert {str(row["id"]) for row in result[sid]} == {plain, escaped}
+
+
+def test_the_pass_reads_only_the_memories_of_the_user(reads):
+    """A second user of the vault has memories that hold the source id in every spelling. The pass is never asked about
+    one of them: its metadata is never handed to the function. (A memory of another user that came out of the pass would
+    be dropped by the read by id below, so only this test sees the first fence alone.)
+
+    Mutation: take ``AND m.user_id = ?`` out of the pass (``WHERE m.user_id = ?`` made ``WHERE ? IS NOT NULL``: the
+    second user's memories are handed to the function).
+    """
+
+    passes, _readers = reads
+    store = memory_store()
+    sid = str(uuid4())
+    own = insert_memory(store, metadata={"source_refs": [sid.upper()]})
+    ensure_sqlite_user(store.conn, OTHER_USER_ID, "bystander@example.com")
+    for index, spelled in enumerate((sid, sid.upper(), sid.replace("-", ""), "source:" + sid, in_script(sid, DIGIT_SCRIPTS["fullwidth"]))):
+        store.conn.execute(
+            "INSERT INTO memories (id, user_id, memory_key, value, status, source_event_ids, metadata_json, canonical_text) "
+            "VALUES (?, ?, ?, '{}', 'candidate', ?, ?, 'A record.')",
+            (str(uuid4()), OTHER_USER_ID, f"other.{index}", json.dumps([sid]),
+             json.dumps({"marker": "second-user", "source_refs": [spelled]}, ensure_ascii=False)))
+    assert found(store, sid) == {own}
+    assert passes and not any("second-user" in metadata for metadata in passes)
+
+
+def test_a_read_by_id_returns_only_the_memories_of_the_user():
+    """The read of the memories the pass kept holds the second fence on its own: asked for the ids of both users, it
+    returns the user's.
+
+    Mutation: take ``m.user_id = ?`` out of ``_MEMORIES_BY_ID`` (``m.user_id = ? AND`` made ``? IS NOT NULL AND``: the
+    second user's memory comes back).
+    """
+
+    store = memory_store()
+    own = insert_memory(store, metadata={"source_refs": ["x"]})
+    ensure_sqlite_user(store.conn, OTHER_USER_ID, "bystander@example.com")
+    other = str(uuid4())
+    store.conn.execute(
+        "INSERT INTO memories (id, user_id, memory_key, value, status, source_event_ids, metadata_json, canonical_text) "
+        "VALUES (?, ?, ?, '{}', 'candidate', '[]', '{}', 'A record.')", (other, OTHER_USER_ID, "key." + other))
+    assert [str(row["id"]) for row in _memories_by_id(store, [other, own])] == [own]
+    assert _memories_by_id(store, []) == [] and _memories_by_id(store, [other]) == []
+
+
+def test_the_function_is_registered_once_and_survives_a_statement_that_is_still_open():
+    """SQLite will not replace a registered function while any statement of the connection is active, so the lookup
+    registers ``alice_citation_hits`` once per connection and never again. A caller that left a cursor half read on the
+    connection does not stop the next lookup, and the function is on the connection once.
+
+    Mutation: register the function on every lookup (``if not registered:`` made ``if True:`` in
+    ``_ensure_citation_function``: the second lookup fails with "Error creating function").
+    """
+
+    store = memory_store()
+    sid = str(uuid4())
+    cited = insert_memory(store, metadata={"source_refs": [sid]})
+    half_read = store.conn.execute("SELECT id FROM memories")
+    half_read.fetchone()
+    assert found(store, sid) == {cited}
+    assert found(store, sid) == {cited}
+    registered = store.conn.execute("SELECT count(*) FROM pragma_function_list WHERE name = 'alice_citation_hits'").fetchone()
+    assert registered[0] == 1
+    half_read.close()
