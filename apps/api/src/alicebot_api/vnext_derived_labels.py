@@ -15,7 +15,7 @@ from collections import deque
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from uuid import UUID
-from typing import TypeVar, overload
+from typing import Any, TypeVar, overload
 
 from alicebot_api.vnext_agent_control import RESTRICTED_DOMAINS
 from alicebot_api.vnext_derived_domain import derived_domain
@@ -1278,7 +1278,7 @@ def admit_when_locked(
     kind: str,
     rows: object,
     projects: tuple[str, ...] | None,
-) -> list[Mapping[str, object]]:
+) -> list[Any]:
     """Keep every row when ``projects`` is None. Otherwise keep rows inside that binding."""
 
     items = list(rows) if isinstance(rows, (list, tuple)) else []
