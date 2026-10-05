@@ -502,6 +502,16 @@ def _collect_metadata_ids(value: object, found: set[tuple[str, str]]) -> str:
                     elif isinstance(item, str):
                         found.add(("memory", identifier(item)))
                 continue
+            if key == "cluster_membership" and isinstance(child, list) and any(isinstance(item, list) for item in child):
+                # Consolidation records one list of member IDs per cluster.
+                # Keep its established nested JSON shape, but reject mixed or
+                # non-string membership rather than silently omitting inputs.
+                if any(not isinstance(cluster, list) or any(not isinstance(item, str) for item in cluster) for cluster in child):
+                    problem = problem or "malformed"
+                else:
+                    for cluster in child:
+                        _add_ids(found, "memory", _strings(cluster))
+                continue
             if key in _ID_KIND:
                 parsed = _as_string_list(child if isinstance(child, list) else [child] if isinstance(child, str) else child)
                 if parsed is None:
