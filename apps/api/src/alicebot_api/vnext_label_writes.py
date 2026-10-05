@@ -10,9 +10,8 @@ import json
 import re
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
-from contextvars import ContextVar
 from functools import wraps
-from dataclasses import dataclass, replace
+from dataclasses import replace
 from typing import Any
 
 from alicebot_api.vnext_agent_control import RESTRICTED_DOMAINS
@@ -60,67 +59,6 @@ RETRYABLE_DETAIL = (
 REFUSED_DETAIL = "the label change could not be applied to every dependent row; nothing was changed"
 
 
-@dataclass
-class _LabelWriteBatch:
-    conn: Any
-    transaction_id: str
-    rollback_counter: int
-    shared_lock: bool = True
-
-    @property
-    def key(self) -> tuple[str, int]:
-        return self.transaction_id, self.rollback_counter
-
-
-_LABEL_WRITE_BATCH: ContextVar[_LabelWriteBatch | None] = ContextVar("label_write_batch", default=None)
-
-
-def label_savepoint_rolled_back(store: Any) -> None:
-    """Invalidate a batch grant whenever the store rolls a savepoint back."""
-
-    conn = store.conn
-    counter = int(getattr(conn, "_alice_label_rollback_counter", 0)) + 1
-    conn._alice_label_rollback_counter = counter
-
-
-def _current_write_batch(store: Any) -> _LabelWriteBatch | None:
-    batch = _LABEL_WRITE_BATCH.get()
-    if batch is None or batch.conn is not getattr(store, "conn", None) or not _in_transaction(store):
-        return None
-    counter = int(getattr(batch.conn, "_alice_label_rollback_counter", 0))
-    if counter != batch.rollback_counter:
-        batch.rollback_counter = counter
-        batch.shared_lock = False
-    return batch
-
-
-@contextmanager
-def label_write_batch(store: Any) -> Iterator[None]:
-    """Reuse one shared grant for capture's bounded candidate writes.
-
-    The managed transaction forbids a commit inside this scope. Its actual
-    Postgres transaction id and the store's savepoint rollback counter key the
-    grant. No input labels are cached, and strict mode always takes a live lock.
-    """
-
-    conn = getattr(store, "conn", None)
-    if conn is None or _sqlite(store) or not callable(getattr(conn, "transaction", None)):
-        yield
-        return
-    with conn.transaction():
-        with conn.cursor() as cur:
-            cur.execute("SELECT pg_current_xact_id()::text AS transaction_id")
-            row = cur.fetchone()
-        transaction_id = str(row["transaction_id"] if isinstance(row, Mapping) else row[0])
-        store.lock_label_writes(exclusive=False)
-        batch = _LabelWriteBatch(conn, transaction_id, int(getattr(conn, "_alice_label_rollback_counter", 0)))
-        token = _LABEL_WRITE_BATCH.set(batch)
-        try:
-            yield
-        finally:
-            _LABEL_WRITE_BATCH.reset(token)
-
-
 def takes_label_lock(fn: Any) -> Any:
     """Take the shared label lock before a store method writes or row-locks a label table."""
 
@@ -128,11 +66,7 @@ def takes_label_lock(fn: Any) -> Any:
     def wrapper(self: Any, *args: Any, **kwargs: Any) -> Any:
         lock = getattr(self, "lock_label_writes", None)
         if callable(lock):
-            batch = _current_write_batch(self)
-            if STRICT_LOCK_ORDER or batch is None or not batch.shared_lock:
-                lock(exclusive=False)
-                if batch is not None:
-                    batch.shared_lock = True
+            lock(exclusive=False)
         return fn(self, *args, **kwargs)
 
     wrapper.__takes_label_lock__ = True  # type: ignore[attr-defined]

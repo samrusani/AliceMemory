@@ -3874,9 +3874,6 @@ class PostgresVNextStore:
         try:
             yield
         except BaseException:
-            from alicebot_api.vnext_label_writes import label_savepoint_rolled_back
-
-            label_savepoint_rolled_back(self)
             try:
                 self.conn.execute(f"ROLLBACK TO SAVEPOINT {name}")
                 self.conn.execute(f"RELEASE SAVEPOINT {name}")
