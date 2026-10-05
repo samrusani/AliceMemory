@@ -286,11 +286,13 @@ def test_sqlite_label_lookup_preserves_uuid_aliases_and_kinds(tmp_path: Path) ->
 def test_alias_twins_cannot_choose_a_public_source(tmp_path: Path) -> None:
     with _vault(tmp_path / "twins.sqlite3") as conn:
         store = SQLiteVNextStore(conn, USER)
-        restricted = store.create_source({"source_type": "note", "title": "restricted", "content_hash": "restricted", "domain": "health", "sensitivity": "confidential"})
-        public = store.create_source({"source_type": "note", "title": "public", "content_hash": "public", "domain": "project", "sensitivity": "public"})
+        restricted = store.create_source({"source_type": "note", "title": "restricted", "content_hash": "restricted", "domain": "health", "sensitivity": "confidential", "metadata_json": {"project_scope": [ALPHA]}})
+        public = store.create_source({"source_type": "note", "title": "public", "content_hash": "public", "domain": "project", "sensitivity": "public", "metadata_json": {"project_scope": ["prj_" + "b" * 16]}})
         conn.execute("UPDATE sources SET id = ? WHERE id = ?", (str(restricted["id"]).replace("-", "").upper(), public["id"]))
         copy = store.create_memory({"memory_key": "twins-copy", "canonical_text": "copy", "status": "active", "domain": "unknown", "sensitivity": "public", "metadata_json": {"source_id": str(restricted["id"])}})
     assert copy["sensitivity"] == "regulated"
+    assert copy["domain"] == "health"
+    assert set(copy["metadata_json"]["project_floor"]) == {ALPHA, "prj_" + "b" * 16}
 
 
 def test_relabel_regulates_legacy_summary_with_missing_ancestry(tmp_path: Path) -> None:
