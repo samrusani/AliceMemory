@@ -16,6 +16,7 @@ from alicebot_api.routers import vnext_projects, vnext_retrieval, vnext_review
 from alicebot_api.store import ContinuityStore
 from alicebot_api.vnext_agent_keys import create_agent_key
 from alicebot_api.vnext_brain import BrainArtifactRequest, VNextBrainService
+from alicebot_api.vnext_consolidation import MemoryConsolidationRequest, VNextConsolidationService, _clustering_options
 from alicebot_api.vnext_derived_labels import with_derived_from
 from alicebot_api.vnext_queue import VNextQueueService
 from alicebot_api.vnext_store import PostgresVNextStore
@@ -192,6 +193,7 @@ def test_input_selection_uses_effective_labels_including_the_owner_default_ceili
             "metadata_json": {"source_id": str(source["id"]), "project_scope": [alpha]}})
         promoted = next(row for label, kind, row in rows if label == "alpha" and kind == "memories"
                         and row["metadata_json"].get("source_artifact_id"))
+        prior_id = promoted["metadata_json"]["source_artifact_id"]
         derived_loop = store.create_open_loop({"title": "STALE_SOURCE_LOOP Atlas", "description": "STALE_SOURCE_LOOP secret",
             "source_id": str(source["id"]), "status": "open", "domain": "project", "sensitivity": "public",
             "due_at": "2026-10-04T12:00:00Z", "metadata_json": {"project_scope": [alpha],
@@ -212,6 +214,7 @@ def test_input_selection_uses_effective_labels_including_the_owner_default_ceili
         assert str(copy["id"]) not in text
         assert copy["canonical_text"] not in text
         assert str(promoted["id"]) not in text
+        assert str(prior_id) not in text
         assert str(source["id"]) not in text
         assert str(derived_loop["id"]) not in text
         assert "STALE_SOURCE_LOOP" not in text
@@ -251,3 +254,32 @@ def test_the_owner_keeps_the_cross_project_brief_and_bound_keys_cannot_read_it(m
         recalled = call_mcp_tool(MCPRuntimeContext(database_url=app_url, user_id=user_id), name="alice_recall",
                                  arguments={"query": "Atlas", "limit": 50})
         assert (memory_id in json.dumps(recalled, default=str)) == (key == unbound)
+
+
+def test_consolidation_admits_effective_memory_labels_before_the_embedding_provider(migrated_database_urls, monkeypatch):
+    app_url = migrated_database_urls["app"]
+    user_id, alpha, _beta, rows, _alpha_key, _beta_key, _unbound = seed_grid(app_url)
+    printed = []
+
+    class RecordingProvider:
+        def embed_batch(self, texts):
+            printed.extend(texts)
+            return [[1.0, 0.0, 0.0] for _ in texts]
+
+    with user_connection(app_url, user_id) as conn:
+        store = PostgresVNextStore(conn)
+        source = next(row for label, kind, row in rows if label == "alpha" and kind == "sources")
+        store.create_memory({"memory_key": "provider.stale.copy", "canonical_text": "PROVIDER_SECRET Atlas played Hollow Knight for 25 hours",
+            "title": "PROVIDER_SECRET", "status": "active", "domain": "project", "sensitivity": "public",
+            "metadata_json": {"source_id": str(source["id"]), "project_scope": [alpha]}})
+        conn.execute("UPDATE sources SET sensitivity='confidential' WHERE id=%s", (source["id"],))
+        # Synthetic vectors are local. Presence is forced for all selected rows so selection reaches the provider.
+        monkeypatch.setattr(store, "list_memory_ids_with_embeddings", lambda ids: set(ids))
+        service = VNextConsolidationService(store, embedding_provider=RecordingProvider())
+        service._cluster_memories(domains=None, sensitivity=["public", "internal", "private", "unknown"],
+            projects=(alpha,), all_of=(alpha,), options=_clustering_options(MemoryConsolidationRequest()))
+    text = json.dumps(printed)
+    assert printed
+    assert "SENTINEL_ALPHA memory" in text
+    assert "PROVIDER_SECRET" not in text
+    assert "SENTINEL_ALPHA prior report text" not in text
