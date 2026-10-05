@@ -70,6 +70,9 @@ def database_urls(monkeypatch):
     name = "alicebot_repair_" + uuid4().hex[:12]
     try:
         urls = _create_role_separated_database(name)
+        # CI preloads vector in its root database rather than template1.
+        with psycopg.connect(_role_urls(name)[-1], autocommit=True) as conn:
+            conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
         yield urls
     finally:
         close_connection_pools()
