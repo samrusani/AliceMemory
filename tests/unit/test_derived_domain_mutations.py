@@ -78,6 +78,12 @@ def fresh(check):
 
 
 def restore(directory, patch):
+    # This harness protects the frozen v2 repair. Its v3 successor must not
+    # mask a removed v2 guard; v3 has its own staged-restore mutation cases.
+    from alicebot_api import sqlite_schema, vnext_label_repair
+    patch.setattr(sqlite_schema, "_relabel_derived_labels", lambda conn: None)
+    patch.setattr(vnext_label_repair, "relabel_labels_sqlite", lambda conn, **kwargs: None)
+    patch.setattr(vnext_label_repair, "recorded_sqlite_label_repairs", lambda conn, user: {})
     review.test_restore_repairs_derived_rows_before_publication(directory, patch, True)
 
 

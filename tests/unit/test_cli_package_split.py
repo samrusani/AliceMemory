@@ -35,6 +35,7 @@ EXPECTED_MODULES = {
     "errors.py",
     "evals.py",
     "memories.py",
+    "labels.py",
     "models.py",
     "parser.py",
     "runner.py",
@@ -49,11 +50,13 @@ EXPECTED_MODULES = {
 # and again after adding it to `vnext sources capture-file`, `vnext connectors
 # browser-clipper capture` and `vnext agents ingest-output` (three more
 # actions, no new command).
+# The owner label check and repair commands add three parsers, four actions,
+# two leaves and two handlers under both flag states.
 # Both keys are updated together: leaving one at its old value is how the
 # other half silently rots.
 EXPECTED_PARSER_RECEIPTS = {
-    False: (159, 735, 122, 118),
-    True: (163, 768, 125, 121),
+    False: (162, 739, 124, 120),
+    True: (166, 772, 127, 123),
 }
 EXPECTED_PUBLIC_NAME_COUNT = 270
 EXPECTED_PUBLIC_NAMES_SHA256 = "8d97ffb088d5d8dea239c81589e9c109b81f7dc50b916d7bfb593ce13acae5fa"
@@ -68,6 +71,7 @@ CARRIER_ATTRIBUTE_NAMES = {
     "errors",
     "evals",
     "memories",
+    "labels",
     "models",
     "parser",
     "runner",
