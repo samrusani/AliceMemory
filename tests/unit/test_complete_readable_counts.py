@@ -107,6 +107,27 @@ def test_all_sql_prefiltered_rows_leave_zero_totals(monkeypatch):
     assert all(not sample["has_more"] for sample in body["samples"].values())
 
 
+def test_workspace_activity_and_nested_dashboard_share_the_guard(monkeypatch):
+    _quiet_services(monkeypatch)
+    store = PopulationStore()
+    visible = _row("visible-memory")
+    hidden = _row("hidden-memory", "confidential")
+    store.rows["memory"] = [visible, hidden]
+    store.events = [{"id": "visible-event", "target_type": "memory", "target_id": visible["id"], "event_type": "agent.policy_blocked"},
+                    {"id": "hidden-event", "target_type": "memory", "target_id": hidden["id"], "event_type": "agent.policy_blocked"}]
+    store.list_agent_events = lambda **kwargs: store.events
+    store.list_recent_agentic_commits = lambda **kwargs: [visible, hidden]
+    store.list_pending_inline_confirmations = lambda **kwargs: [visible, hidden]
+    body = workspaces._vnext_workspace_payload(store)
+    assert "hidden-memory" not in str(body)
+    assert "hidden-event" not in str(body)
+    activity = body["agent_activity"]
+    assert [row["id"] for row in activity["recent_commits"]] == [visible["id"]]
+    assert [row["id"] for row in activity["inline_confirmations"]] == [visible["id"]]
+    assert [row["id"] for row in activity["policy_blocks"]] == ["visible-event"]
+    assert body["dogfooding"]["sample_scope"]["memories"]["total_count"] == 1
+
+
 def test_dogfooding_counts_hidden_rows_beyond_500(monkeypatch):
     _quiet_services(monkeypatch)
     store = PopulationStore()

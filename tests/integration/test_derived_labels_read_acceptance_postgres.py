@@ -14,6 +14,7 @@ from alicebot_api.mcp.types import MCPRuntimeContext, MCPToolError
 from alicebot_api.routers import vnext_review, vnext_retrieval, vnext_projects, vnext_memories, workspaces
 from alicebot_api.store import ContinuityStore
 from alicebot_api.vnext_agent_control import ALL_SENSITIVITY
+from alicebot_api.vnext_event_log import append_event
 from alicebot_api.vnext_label_writes import without_insert_floor
 from alicebot_api.vnext_store import PostgresVNextStore
 from tests.unit.test_derived_labels_real_keys import READERS, expected_read, real_reader_key, seed_read_rows
@@ -130,3 +131,37 @@ def test_workspace_counts_full_population_with_sql_hidden_and_stale_rows(migrate
         batches = list(store.iter_label_rows("source", batch_size=100))
         assert [len(batch) for batch in batches] == [100, 100, 6]
         assert all("content_markdown" not in row and "title" not in row for batch in batches for row in batch)
+
+
+@pytest.mark.parametrize("reader", ("owner", "admin", "trusted"))
+def test_workspace_activity_uses_actual_key_and_current_targets(migrated_database_urls, monkeypatch, reader):
+    app_url = migrated_database_urls["app"]
+    user_id = _user(app_url)
+    monkeypatch.setattr(workspaces, "get_settings", lambda: Settings(database_url=app_url))
+    monkeypatch.setattr(workspaces.VNextDoctorService, "run", lambda self, **kwargs: {})
+    hidden_ids = []
+    visible_ids = []
+    with user_connection(app_url, user_id) as conn:
+        store = PostgresVNextStore(conn)
+        source = store.create_source({"source_type": "note", "title": "Cedar hidden parent", "content_hash": str(uuid4()), "domain": "project", "sensitivity": "confidential"})
+        for hidden in (False, True):
+            metadata = {"agentic_memory": {"kind": "agentic_memory_commit", "confirmation": {"status": "pending"}}}
+            if hidden:
+                metadata["source_id"] = str(source["id"])
+            with without_insert_floor():
+                memory = store.create_memory({"memory_key": f"activity-{hidden}", "canonical_text": "Cedar hidden activity" if hidden else "Public activity", "status": "needs_review", "confirmation_status": "unconfirmed", "domain": "project", "sensitivity": "public", "metadata_json": metadata})
+            (hidden_ids if hidden else visible_ids).append(str(memory["id"]))
+            event = append_event(store, event_type="agent.policy_blocked", actor_type="agent", actor_id="synthetic-reader", target_type="memory", target_id=str(memory["id"]), payload={"decision": {"decision": "blocked", "target_id": str(memory["id"])}})
+            (hidden_ids if hidden else visible_ids).append(str(event["id"]))
+        key = real_reader_key(store, user_id, reader)
+    response = workspaces.get_vnext_workspace(user_id, authorization=f"Bearer {key}" if key else None)
+    assert response.status_code == 200
+    rendered = response.body.decode()
+    assert all(identifier not in rendered for identifier in hidden_ids)
+    assert all(identifier in rendered for identifier in visible_ids)
+    assert "Cedar hidden" not in rendered
+    body = json.loads(rendered)
+    assert len(body["agent_activity"]["policy_blocks"]) == 1
+    assert len(body["agent_activity"]["recent_commits"]) == 1
+    assert len(body["agent_activity"]["inline_confirmations"]) == 1
+    assert body["dogfooding"]["sample_scope"]["memories"]["total_count"] == 1
