@@ -422,6 +422,25 @@ class FakeVNextCliStore:
         self.events.append(event)
         return event
 
+    def read_label_rows(self, kind: str, ids: list[str]) -> list[dict[str, object]]:
+        """Mirror narrow dependency reads for this fixture's stored rows."""
+
+        from alicebot_api.vnext_derived_labels import identifier
+
+        rows = {
+            "source": self.sources,
+            "memory": self.memories,
+            "open_loop": self.open_loops,
+            "artifact": list(self.artifacts.values()),
+            "project": list(self.projects.values()),
+        }.get(kind, [])
+        wanted = {identifier(value) for value in ids}
+        fields = ("id", "user_id", "domain", "sensitivity", "metadata_json", "value", "project_id", "source_id", "memory_id", "status", "memory_type", "artifact_type")
+        return [
+            {field: row[field] for field in fields if field in row}
+            for row in rows if identifier(row.get("id")) in wanted
+        ]
+
     def upsert_agent_identity(self, identity: dict[str, object], **_kwargs) -> dict[str, object]:
         row = {
             **identity,
@@ -1684,6 +1703,16 @@ def test_vnext_contradiction_and_belief_cli(monkeypatch) -> None:
         "sensitivity": "private",
         "memory_type": "belief",
     }
+
+    store.memories.append({
+        "id": "memory-belief-1",
+        "canonical_text": "Alice should auto-promote generated artifacts into memory.",
+        "memory_type": "belief",
+        "status": "active",
+        "domain": "project",
+        "sensitivity": "private",
+        "metadata_json": {},
+    })
 
     @contextmanager
     def fake_vnext_store_context(_ctx):
