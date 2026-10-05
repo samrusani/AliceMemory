@@ -1258,7 +1258,14 @@ def review_vnext_memory(
                         status_code=400, detail="vNext memory review text carries credential material"
                     )
 
-            updated = store.update_memory(memory_id=str(memory_id), patch=patch, actor_type=actor_type)
+            before_label = dict(existing)
+            updated = store.update_memory(
+                memory_id=str(memory_id), patch=patch, actor_type=actor_type, label_write=label_change,
+            )
+            if label_change:
+                from alicebot_api.vnext_label_writes import propagate_after_write
+
+                propagate_after_write(store, kind="memory", before=before_label, after=updated)
             if action in ("accept", "edit", "promote"):
                 memory_service.refresh_memory_derived_state(
                     updated,

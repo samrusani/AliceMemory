@@ -980,8 +980,10 @@ def test_postgres_store_signs_the_cut_label_and_lists_rows_whose_label_differs()
         content_sha256="digest",
         signature_version=2,
     )
-    cut_query, cut_params = connection.cursor_instance.queries[0]
-    plain_query, plain_params = connection.cursor_instance.queries[1]
+    writes = [(query, params) for query, params in connection.cursor_instance.queries if "UPDATE memories" in query]
+    assert len(writes) == 2
+    cut_query, cut_params = writes[0]
+    plain_query, plain_params = writes[1]
     assert cut_params[1].obj["truncated_to_chars"] == 1000  # type: ignore[attr-defined]
     assert "truncated_to_chars" not in plain_params[1].obj  # type: ignore[attr-defined]
     assert cut_query == plain_query
