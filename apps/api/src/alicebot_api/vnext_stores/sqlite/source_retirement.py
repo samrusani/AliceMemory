@@ -15,6 +15,7 @@ from alicebot_api.source_supersede import classification_refusal, eligible_sourc
 from alicebot_api.vnext_entities import ENTITY_MENTION_EDGE_TYPE
 from alicebot_api.vnext_project_scope import source_project_scope
 from alicebot_api.vnext_source_fence import memory_cited_source_ids
+from alicebot_api.vnext_stores.sqlite.open_loop_source_reference import open_loop_source_reference_sql
 from alicebot_api.vnext_stores.sqlite.primitives import _utc_now_iso
 
 REMOVAL_MARKER = "[removed by the owner]"
@@ -337,6 +338,31 @@ def close_mention_edges(self, from_type, from_id, now):
     return len(edges)
 
 
+def source_open_loop_count(self, source_id):
+    """How many open loops of the user name ``source_id``, by the one rule of the reverse lookup of a source
+    (``open_loop_source_reference_sql``): the ``source_id`` column, or the id or ``source:<id>`` under a reference key of
+    the loop's metadata. The delete preview and ``blank_open_loops`` count the same rows."""
+
+    reference, params = open_loop_source_reference_sql(source_id)
+    row = self._fetch_one(
+        'count the open loops of a source',
+        f"SELECT count(*) AS count FROM open_loops WHERE user_id = ? AND {reference}", (self.user_id, *params))
+    return int(row['count'])
+
+
+def blank_open_loops(self, source_id, *, now):
+    """Close every open loop that names ``source_id`` and blank its free text and metadata, in the caller's transaction.
+    Which loops is the one rule of ``open_loop_source_reference_sql``, so a loop named only in its metadata is blanked
+    as a loop named by its column is. Returns the number of loops."""
+
+    reference, params = open_loop_source_reference_sql(source_id)
+    return self._execute(
+        f"""UPDATE open_loops SET title = ?, description = ?, status = 'dismissed',
+        resolved_at = ?, closed_at = ?, resolution_note = ?, metadata_json = '{{}}', updated_at = ?
+        WHERE user_id = ? AND {reference}""",
+        (REMOVAL_MARKER, REMOVAL_MARKER, now, now, REMOVAL_MARKER, now, self.user_id, *params)).rowcount
+
+
 def retire_dependents(self, source_id, *, now, scrub_candidates=False, citing_ids=None):
     """Retire what a source owns. ``citing_ids`` are the ids of the memories an earlier lookup of this transaction found
     for the source (``citing_memories_by_source``): a caller that retires many sources looks once for all of them, and the
@@ -363,11 +389,7 @@ def retire_dependents(self, source_id, *, now, scrub_candidates=False, citing_id
             self.update_memory(memory_id=mid, patch={'status': 'rejected'}, actor_type='user')
             close_mention_edges(self, 'memory', mid, now)
     edges = close_mention_edges(self, 'source', source_id, now)
-    loops = self._execute(
-        """UPDATE open_loops SET title = ?, description = ?, status = 'dismissed',
-        resolved_at = ?, closed_at = ?, resolution_note = ?, metadata_json = '{}', updated_at = ?
-        WHERE source_id = ? AND user_id = ?""",
-        (REMOVAL_MARKER, REMOVAL_MARKER, now, now, REMOVAL_MARKER, now, source_id, self.user_id)).rowcount
+    loops = blank_open_loops(self, source_id, now=now)
     return {'candidate_memories': len(pending), 'mention_edges': edges, 'open_loops': loops,
             'memories_citing_replaced': retained}
 
