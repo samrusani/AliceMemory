@@ -361,12 +361,86 @@ def refuse_global_marker(scope: object, *, where: str) -> None:
         raise ValueError(f"{where} takes explicit project names only and does not accept the global marker")
 
 
-def project_scopes_overlap(resource_scope: object, requested_scope: object) -> bool:
+def project_floor(resource: Mapping[str, object] | None) -> tuple[str, ...]:
+    """Return the stored ``project_floor`` list, or ``()`` when the key is absent.
+
+    A present value that is not a list of strings is not a floor. Callers that
+    must refuse that shape ask :func:`project_floor_shape` first. This helper
+    returns ``()`` for it so a selection door does not treat a bad value as names.
+    """
+
+    shape, values = project_floor_shape(resource)
+    if shape != "list":
+        return ()
+    return values
+
+
+def project_floor_shape(resource: Mapping[str, object] | None) -> tuple[str, tuple[str, ...]]:
+    """Classify ``project_floor`` as ``absent``, ``list`` or ``malformed``.
+
+    ``list`` carries the stored spellings, ordered by identity, with no duplicates.
+    """
+
+    if resource is None:
+        return "absent", ()
+    containers: list[Mapping[str, object]] = [resource]
+    metadata = resource.get("metadata_json")
+    if isinstance(metadata, Mapping):
+        containers.append(metadata)
+    seen = False
+    raw: object = None
+    for container in containers:
+        if "project_floor" in container:
+            seen = True
+            raw = container.get("project_floor")
+            break
+    if not seen:
+        return "absent", ()
+    if not isinstance(raw, Sequence) or isinstance(raw, (str, bytes, bytearray)):
+        return "malformed", ()
+    if any(not isinstance(item, str) for item in raw):
+        return "malformed", ()
+    return "list", _ordered_scope(raw)
+
+
+def project_floor_within(floor: object, binding: object) -> bool:
+    """True when every project in ``floor`` is inside ``binding``, by identity.
+
+    An empty floor is inside every binding. A free-form name is inside only when
+    the binding names that same identity.
+    """
+
+    return set(project_scope_identity(floor)).issubset(set(project_scope_identity(binding)))
+
+
+def _ordered_scope(value: object) -> tuple[str, ...]:
+    """Stored spellings, first one kept, ordered by identity."""
+
+    chosen: dict[str, str] = {}
+    for item in normalize_project_scope(value):
+        identity = project_identifier_identity(item)
+        if identity and identity not in chosen:
+            chosen[identity] = item
+    return tuple(chosen[identity] for identity in sorted(chosen))
+
+
+def project_scopes_overlap(
+    resource_scope: object,
+    requested_scope: object,
+    *,
+    floor: object = (),
+) -> bool:
     """Does the resource's scope meet the requested tuple?
 
     The tuple may hold the reserved marker. The marker asks for a resource whose
     scope holds no Alice project id, and is never compared with a stored value.
     Every other entry is an identifier compared by identity.
+
+    ``floor`` is the row's project floor. It is consulted only on the global
+    branch: a row whose scope holds no Alice project id is in a view that asks
+    for global rows only when every Alice project id in the floor is in the
+    view. Free-form names in the floor do not hide the row. An empty floor keeps
+    the previous answer.
     """
 
     requested = set(project_scope_identity(requested_scope))
@@ -376,7 +450,9 @@ def project_scopes_overlap(resource_scope: object, requested_scope: object) -> b
     if GLOBAL_PROJECT_MARKER in requested:
         requested.discard(GLOBAL_PROJECT_MARKER)
         if not any(is_alice_project_id(item) for item in resource):
-            return True
+            floor_ids = {item for item in project_scope_identity(floor) if is_alice_project_id(item)}
+            if floor_ids.issubset(requested):
+                return True
     return bool(requested.intersection(resource))
 
 
@@ -391,6 +467,9 @@ __all__ = [
     "normalize_project_identifier",
     "normalize_project_scope",
     "ProjectScopeResolution",
+    "project_floor",
+    "project_floor_shape",
+    "project_floor_within",
     "project_identifier_identity",
     "project_scope_identity",
     "project_scopes_overlap",
