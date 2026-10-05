@@ -54,12 +54,16 @@ class FakeVNextStore:
         self.agent_api_keys: list[dict[str, object]] = []
         self.browser_clip_capabilities: dict[str, dict[str, object]] = {}
         self.revisions: list[dict[str, object]] = []
+        self.graph_locked = False
+        self.labels_locked = False
+        self.labels_exclusive = False
 
     def lock_graph_mutation(self) -> None:
-        return None
+        self.graph_locked = True
 
     def lock_label_writes(self, *, exclusive: bool = False) -> None:
-        return None
+        self.labels_locked = True
+        self.labels_exclusive |= exclusive
 
     def read_label_rows(self, kind: str, ids: list[str]) -> list[dict[str, object]]:
         collection = {"source": self.sources.values(), "memory": self.memories, "open_loop": self.open_loops,
@@ -900,6 +904,11 @@ class FakeVNextStore:
 def _install_fake_vnext_store(monkeypatch, store: FakeVNextStore) -> None:
     from alicebot_api import vnext_label_writes
     monkeypatch.setattr(vnext_label_writes, "acquire_exclusive_label_lock", lambda target: target.lock_label_writes(exclusive=True))
+    monkeypatch.setattr(
+        vnext_label_writes, "held_label_locks",
+        lambda target: (target.graph_locked, target.labels_locked, target.labels_exclusive),
+    )
+
     @contextmanager
     def fake_user_connection(database_url, current_user_id):
         assert database_url == "postgresql://db"
@@ -1219,7 +1228,7 @@ def test_vnext_route_inventory_fails_closed_without_route_local_policy() -> None
     }
     assert not (main_module._VNEXT_ROUTE_LOCAL_POLICY & main_module._VNEXT_CENTRAL_OPERATOR_ROUTES)
     assert (main_module._VNEXT_ROUTE_LOCAL_POLICY | main_module._VNEXT_CENTRAL_OPERATOR_ROUTES) == registered
-    assert len(registered) == 71
+    assert len(registered) == 72
 
     project_bound = main_module.AgentIdentity(
         agent_id="project-reader",
@@ -1368,6 +1377,7 @@ def test_vnext_memories_router_partitions_preserve_global_route_sequence() -> No
             vnext_memories_router.source_review_router,
             [
                 ("GET", "/v0/vnext/sources/{source_id}"),
+                ("POST", "/v0/vnext/sources/{source_id}/regenerate"),
                 ("POST", "/v0/vnext/sources/{source_id}/review"),
             ],
         ),
