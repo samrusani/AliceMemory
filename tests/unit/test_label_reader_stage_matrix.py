@@ -11,6 +11,7 @@ from alicebot_api.project_view import ProjectView
 from alicebot_api.session_briefing import compile_session_brief
 from alicebot_api.vnext_agent_control import AgentIdentity
 from alicebot_api.vnext_context_tree import ContextTreeRequest, VNextContextTreeService
+from alicebot_api.vnext_dogfooding import VNextDogfoodingService
 from alicebot_api.vnext_projects import ProjectAutomationRequest, VNextProjectService, VNextProjectValidationError
 from alicebot_api.vnext_retrieval import VNextRetrievalRequest, VNextRetrievalService, _ResolvedRetrievalScope, expand_provenance_once
 from alicebot_api.vnext_temporal_query import TemporalAnchor
@@ -143,3 +144,14 @@ def test_each_stage_uses_current_parent_label(stage, monkeypatch):
         assert any(identifier in str(visible) for identifier in (SOURCE, MEMORY, LOOP, ARTIFACT, PROJECT, str(store.belief["id"]))), (stage, visible)
     else:
         assert SECRET in visible
+
+
+@pytest.mark.parametrize("kind", ("sources", "memories", "artifacts", "open_loops", "events"))
+def test_each_dogfooding_sample_counts_only_currently_readable_rows(kind, monkeypatch):
+    _quiet_services(monkeypatch)
+    store = StageStore()
+    hidden = VNextDogfoodingService(store).dashboard(sensitivity_allowed=tuple(CEILING))
+    assert hidden["sample_scope"][kind]["returned_count"] == 0
+    store.rows["source"][0]["sensitivity"] = "public"
+    visible = VNextDogfoodingService(store).dashboard(sensitivity_allowed=tuple(CEILING))
+    assert visible["sample_scope"][kind]["returned_count"] == 1
