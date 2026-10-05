@@ -8,11 +8,22 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping, Sequence
+from typing import TypedDict
 
 from alicebot_api.vnext_derived_domain_backfill import DerivedDomainRepairError, require_changed
 from alicebot_api.vnext_derived_labels import labels_raised_payload, settle_labels
 from alicebot_api.vnext_event_log import build_event_log_record
 from alicebot_api.vnext_project_scope import project_scope_identity
+
+
+class LabelParts(TypedDict):
+    domain: str
+    sensitivity: str
+    project_scope: list[str]
+    project_floor: list[str]
+
+
+LabelRepair = tuple[str, str, str, LabelParts, LabelParts, dict[str, object]]
 
 REPAIR_STATE_KEY = "derived_labels_v3"
 _TABLE_KIND = {
@@ -26,12 +37,9 @@ _TABLE_KIND = {
 _WRITABLE = frozenset({"memories", "open_loops", "generated_artifacts", "projects"})
 INPUT_SELECTS_V3 = {
     "sources": "SELECT id, user_id, domain, sensitivity, metadata_json, deleted_at FROM sources",
-    "memories": (
-        "SELECT id, user_id, domain, sensitivity, metadata_json, value, project_id, deleted_at FROM memories"
-    ),
+    "memories": ("SELECT id, user_id, domain, sensitivity, metadata_json, value, project_id, deleted_at FROM memories"),
     "open_loops": (
-        "SELECT id, user_id, domain, sensitivity, metadata_json, project_id, source_id, memory_id "
-        "FROM open_loops"
+        "SELECT id, user_id, domain, sensitivity, metadata_json, project_id, source_id, memory_id FROM open_loops"
     ),
     "generated_artifacts": (
         "SELECT id, user_id, domain, sensitivity, metadata_json, artifact_type FROM generated_artifacts"
@@ -70,7 +78,7 @@ def _same(previous: Mapping[str, object], new: Mapping[str, object]) -> bool:
 
 def plan_label_repairs(
     tables: Mapping[str, Sequence[Mapping[str, object]]],
-) -> list[tuple[str, str, str, dict[str, object], dict[str, object], dict[str, object]]]:
+) -> list[LabelRepair]:
     """Label changes for derived rows whose stored label is below the inputs.
 
     A malformed record makes its row unverified and is not rewritten. A cycle
@@ -91,17 +99,17 @@ def plan_label_repairs(
             nodes.append(node)
             index.append((table, node))
     settled = settle_labels(nodes, on_cycle="raise")
-    changes = []
+    changes: list[LabelRepair] = []
     for (table, node), label in zip(index, settled.rows, strict=True):
         if not label.derived or label.unverified or table not in _WRITABLE:
             continue
-        previous = {
+        previous: LabelParts = {
             "domain": str(node.get("domain") or "unknown"),
             "sensitivity": str(node.get("sensitivity") or "unknown"),
             "project_scope": list(label.stored_scope),
             "project_floor": list(label.stored_floor),
         }
-        new = {
+        new: LabelParts = {
             "domain": label.domain,
             "sensitivity": label.sensitivity,
             "project_scope": list(label.project_scope),
@@ -141,7 +149,9 @@ def _load_tables(conn) -> dict[str, list[dict[str, object]]]:
 
 
 def _stamped(conn) -> bool:
-    return conn.execute("SELECT value FROM alice_schema_state WHERE key = ?", (REPAIR_STATE_KEY,)).fetchone() is not None
+    return (
+        conn.execute("SELECT value FROM alice_schema_state WHERE key = ?", (REPAIR_STATE_KEY,)).fetchone() is not None
+    )
 
 
 def relabel_labels_sqlite(conn, *, restoring: bool = False, explicit: bool = False) -> None:
@@ -166,9 +176,18 @@ def relabel_labels_sqlite(conn, *, restoring: bool = False, explicit: bool = Fal
             raw_metadata = node.get("_stored_metadata")
             changed = conn.execute(
                 _UPDATES[table],
-                (new["domain"], new["sensitivity"], json.dumps(metadata),
-                 label_project_id(new["project_scope"]), user, stored,
-                 previous["domain"], previous["sensitivity"], raw_metadata, node.get("project_id")),
+                (
+                    new["domain"],
+                    new["sensitivity"],
+                    json.dumps(metadata),
+                    label_project_id(new["project_scope"]),
+                    user,
+                    stored,
+                    previous["domain"],
+                    previous["sensitivity"],
+                    raw_metadata,
+                    node.get("project_id"),
+                ),
             ).rowcount
             require_changed(changed, table, stored)
         for table, user, stored, previous, new, _node in changes:
@@ -206,7 +225,7 @@ def relabel_labels_sqlite(conn, *, restoring: bool = False, explicit: bool = Fal
 
 def classify_stored_labels(
     tables: Mapping[str, Sequence[Mapping[str, object]]],
-) -> tuple[list[tuple[str, str, str, dict[str, object], dict[str, object], dict[str, object]]], dict[str, list[str]]]:
+) -> tuple[list[LabelRepair], dict[str, list[str]]]:
     """Rows below their inputs, and unverified ids grouped by reason.
 
     A cycle is reported as unverified instead of raising. ``labels check`` uses this.
@@ -226,7 +245,7 @@ def classify_stored_labels(
             nodes.append(node)
             index.append((table, node))
     settled = settle_labels(nodes, on_cycle="unverified")
-    below = []
+    below: list[LabelRepair] = []
     unverified: dict[str, list[str]] = {}
     for (table, node), label in zip(index, settled.rows, strict=True):
         if not label.derived:
@@ -237,13 +256,13 @@ def classify_stored_labels(
             continue
         if table not in _WRITABLE:
             continue
-        previous = {
+        previous: LabelParts = {
             "domain": str(node.get("domain") or "unknown"),
             "sensitivity": str(node.get("sensitivity") or "unknown"),
             "project_scope": list(label.stored_scope),
             "project_floor": list(label.stored_floor),
         }
-        new = {
+        new: LabelParts = {
             "domain": label.domain,
             "sensitivity": label.sensitivity,
             "project_scope": list(label.project_scope),
@@ -296,7 +315,9 @@ def label_gap_counts(store: object) -> tuple[int, int]:
     """
 
     conn = getattr(store, "conn", None)
-    module = type(conn).__module__ if conn is not None else ""
+    if conn is None:
+        raise LabelCheckUnavailable("derived label counts are unavailable for this store")
+    module = type(conn).__module__
     try:
         if module.startswith("sqlite3"):
             tables = _load_tables(conn)
@@ -350,9 +371,7 @@ def recorded_sqlite_label_repairs(conn, user_id: str) -> dict[tuple[str, str, st
             if not isinstance(previous, Mapping):
                 continue
             repairs.setdefault((table, row_id, "domain"), set()).add(str(previous.get("domain") or "unknown"))
-            repairs.setdefault((table, row_id, "sensitivity"), set()).add(
-                str(previous.get("sensitivity") or "unknown")
-            )
+            repairs.setdefault((table, row_id, "sensitivity"), set()).add(str(previous.get("sensitivity") or "unknown"))
             scope = previous.get("project_scope")
             floor = previous.get("project_floor")
             repairs.setdefault((table, row_id, "project_scope"), set()).add(
