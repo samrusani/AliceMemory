@@ -79,13 +79,14 @@ MAIN_PRUNED_BINDINGS = {
 }
 
 # Re-minted support/import receipts for effective-label workspace filtering.
+# The later typing repair adds Sequence and annotates _workspace_rows.
 # Two local helpers admit rows and check event targets; the payload uses them
 # before returning lists/counts. Route bodies, mounts and middleware are unchanged.
 EXPECTED_ROUTE_AST_SHA256 = "fb8925ebcda058598b0c6d5e7eca83abe18606a0126bdb6cde0fd1c22444a795"
-EXPECTED_SUPPORT_AST_SHA256 = "f5e8747a48d68e9916c7412c10bd2dea082bd4e34487842703b36cb2fba840b4"
+EXPECTED_SUPPORT_AST_SHA256 = "0e5708e69de1dd1358ca91709d4a60effeddcd262fc8beddb19ba490cab3b0f1"
 EXPECTED_ROUTE_NAME_MANIFEST_SHA256 = "225c57c08bd8314156c56352dd1c53ffed3f556ce285c666dd6fca125115d0b4"
 EXPECTED_OPERATION_MANIFEST_SHA256 = "c320979b62d7ee8de244fe38bde5bf3761a4f9d76f76bf3cd8576c30fce9857e"
-EXPECTED_IMPORT_MANIFEST_SHA256 = "6d6812ae6907dcbe9ee16ac9481c741241b256fac745133415ccd57813bc67bb"
+EXPECTED_IMPORT_MANIFEST_SHA256 = "4a9df193d620b33578f1e42760b118a4267d3e1c8ff01ad92bee1f1bba1c1e9f"
 EXPECTED_CARRIER_NAMES_SHA256 = "2c109fc234a05dd8f44e4c34bee49e797fbb5e49e92413391541a7e504da328b"
 # Re-pinned 2026-10-02 (DB-005, legacy /v0 routes). One definition changed,
 # found by a per-definition AST diff against the previous pin:
@@ -134,7 +135,7 @@ EXPECTED_ROUTE_NODE_SHA256 = {
 EXPECTED_SUPPORT_NODE_SHA256 = {
     "_vnext_status_counts": "0bf0ed228a14bd648a9d18fcd5f99ebf8c585bd29f4b5e81e1df17fe0201fd15",
     "_vnext_workspace_payload": "4b6e4a3d59d16538b0e859c425ede21207e9c80f11ab31c3af2ce4d604e14edf",
-    "_workspace_rows": "cc312a1300045147caf7340463b91d388c1932ba4edcf8f50fab22cf717999f6",
+    "_workspace_rows": "070bdfbd1eae10608bd8208b08367e1c0ea10e2064f03ad5a84121a190ed4cf0",
     "_workspace_event_visible": "8343c060909326a5cb69fa6f671ac62f160630ecf989f04d78e792ea74c0ea90",
 }
 EXPECTED_ROUTE_MANIFEST = [
@@ -482,7 +483,7 @@ def test_workspace_import_direction_pruning_timing_and_runtime_identities_are_ex
     main_definitions = _top_level_definitions(main_tree)
     router_imports = _import_manifest(router_tree)
 
-    assert len(router_imports) == 31
+    assert len(router_imports) == 32
     assert hashlib.sha256(json.dumps(router_imports, separators=(",", ":")).encode()).hexdigest() == (
         EXPECTED_IMPORT_MANIFEST_SHA256
     )
