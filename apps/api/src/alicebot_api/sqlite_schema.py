@@ -2014,6 +2014,28 @@ def _relabel_derived_domains(conn: sqlite3.Connection) -> None:
     relabel_sqlite(conn)
 
 
+def _relabel_derived_labels(conn: sqlite3.Connection) -> None:
+    """Repair derived labels. A failure leaves the vault open and the key unstamped."""
+
+    import logging
+
+    from alicebot_api.vnext_label_repair import relabel_labels_sqlite
+
+    conn.execute("SAVEPOINT alice_derived_labels_v3")
+    try:
+        relabel_labels_sqlite(conn)
+    except Exception as exc:
+        conn.execute("ROLLBACK TO SAVEPOINT alice_derived_labels_v3")
+        conn.execute("RELEASE SAVEPOINT alice_derived_labels_v3")
+        left = getattr(exc, "left", 0)
+        logging.getLogger(__name__).warning(
+            "alice-memory: label repair did not run, %s rows left to the read check; run alice-memory labels check",
+            left,
+        )
+        return
+    conn.execute("RELEASE SAVEPOINT alice_derived_labels_v3")
+
+
 def bootstrap_sqlite_schema(conn: sqlite3.Connection) -> None:
     """Create or upgrade the vNext SQLite schema. Safe to call repeatedly."""
     conn.execute("PRAGMA journal_mode=WAL")
@@ -2037,6 +2059,7 @@ def bootstrap_sqlite_schema(conn: sqlite3.Connection) -> None:
     # identifier on a tombstone (audit P1 #3); a no-op on healthy files.
     _repair_tombstone_lookup_value_holders(conn)
     _relabel_derived_domains(conn)
+    _relabel_derived_labels(conn)
     # The redaction flag row must exist before the append-only triggers
     # reference it, and it must be OFF: a crashed process must never leave
     # a database file with redaction mode stuck open.

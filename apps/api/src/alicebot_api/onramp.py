@@ -4106,9 +4106,11 @@ def _run_import_snapshot(
             # The whole graph is now present. Repair before the staged pages
             # become visible, even if the destination had already upgraded.
             from alicebot_api.vnext_derived_domain_backfill import relabel_sqlite
+            from alicebot_api.vnext_label_repair import relabel_labels_sqlite
 
             try:
                 relabel_sqlite(conn, restoring=True)
+                relabel_labels_sqlite(conn, restoring=True)
             except ValueError as exc:
                 raise _ImportError("the restored derived labels could not be settled") from exc
         if quarantine_ids:
