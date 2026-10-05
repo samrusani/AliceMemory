@@ -86,7 +86,7 @@ MAIN_PRUNED_BINDINGS = {
 # Re-pin 2026-10-06: workspace reads authenticate the protected identity and
 # admit rows through effective labels before totals or dashboard disclosure.
 EXPECTED_ROUTE_AST_SHA256 = "b99f1435de67d9499819acb9ed7ed61b588a3fb0ff037e782eeca070b39af742"
-EXPECTED_SUPPORT_AST_SHA256 = "8700f0ab3b8a87f9863a3e95132e834f87bf82725c6e8d33602345bc3253bce1"
+EXPECTED_SUPPORT_AST_SHA256 = "052f564a10f2f32c090f857142eda105f62d5e44b698d3e7475506c422a5ca47"
 EXPECTED_ROUTE_NAME_MANIFEST_SHA256 = "225c57c08bd8314156c56352dd1c53ffed3f556ce285c666dd6fca125115d0b4"
 EXPECTED_OPERATION_MANIFEST_SHA256 = "c320979b62d7ee8de244fe38bde5bf3761a4f9d76f76bf3cd8576c30fce9857e"
 EXPECTED_IMPORT_MANIFEST_SHA256 = "d8887934cacc6a4e5d52f080dae3c2c0d0cdf23d1518a4060a885a8c7f209c0c"
@@ -140,7 +140,7 @@ EXPECTED_ROUTE_NODE_SHA256 = {
 }
 EXPECTED_SUPPORT_NODE_SHA256 = {
     "_vnext_status_counts": "0bf0ed228a14bd648a9d18fcd5f99ebf8c585bd29f4b5e81e1df17fe0201fd15",
-    "_vnext_workspace_payload": "83bc100509fc21e950702cba190ac8d94f33efe7774df673809d49daa6864136",
+    "_vnext_workspace_payload": "c2d41b35c27496c469fd70ebdf6bba01d526dac24ed00bddf983cf6dee57022a",
     "_workspace_rows": "070bdfbd1eae10608bd8208b08367e1c0ea10e2064f03ad5a84121a190ed4cf0",
     "_workspace_event_visible": "8343c060909326a5cb69fa6f671ac62f160630ecf989f04d78e792ea74c0ea90",
 }
