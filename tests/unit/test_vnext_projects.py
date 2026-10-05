@@ -77,6 +77,25 @@ class InMemoryVNextProjectStore:
                 rows.append(event)
         return rows
 
+    def read_label_rows(self, kind: str, ids: list[str]) -> list[dict[str, object]]:
+        """Mirror narrow dependency reads for this fixture's stored rows."""
+
+        from alicebot_api.vnext_derived_labels import identifier
+
+        rows = {
+            "source": self.sources,
+            "memory": list(self.memories.values()),
+            "open_loop": list(self.open_loops.values()),
+            "artifact": list(self.artifacts.values()),
+            "project": list(self.projects.values()),
+        }.get(kind, [])
+        wanted = {identifier(value) for value in ids}
+        fields = ("id", "user_id", "domain", "sensitivity", "metadata_json", "value", "project_id", "source_id", "memory_id", "status", "memory_type", "artifact_type")
+        return [
+            {field: row[field] for field in fields if field in row}
+            for row in rows if identifier(row.get("id")) in wanted
+        ]
+
     def create_artifact(self, artifact: dict[str, object], **_kwargs) -> dict[str, object]:
         row = {**artifact, "id": f"artifact-{len(self.artifacts) + 1}"}
         self.artifacts[str(row["id"])] = row
@@ -1560,6 +1579,9 @@ def test_open_loop_extraction_and_review_support_source_owner_and_filters() -> N
     assert closed["status"] == "resolved"
     assert dashboard["project"]["id"] == "project-1"
     assert dashboard["counts"]["open_loops"] == 1
+
+
+
 
 
 def test_project_service_validation_errors() -> None:
