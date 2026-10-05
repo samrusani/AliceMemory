@@ -34,3 +34,13 @@ def test_a_missing_or_malformed_legacy_completeness_record_is_unverified(workflo
 def test_a_legitimate_empty_legacy_record_is_verified(workflow, lists, counts):
     row = legacy_report(workflow, lists, counts)
     assert settle_labels([row]).by_stored("artifact", "report").unverified is False
+
+
+@pytest.mark.parametrize("ids,count", ((["source", "source"], 1), ([""], 1), (["  "], 1)))
+def test_canonical_counts_and_identifiers_do_not_use_the_legacy_duplicate_exception(ids, count):
+    source = {"kind": "source", "id": "source", "domain": "project", "sensitivity": "public", "metadata_json": {}}
+    row = {"kind": "artifact", "id": "report", "metadata_json": {"derived_from": {
+        "v": 1, "sources": ids, "memories": [], "open_loops": [], "artifacts": [], "beliefs": [],
+        "counts": {"sources": count, "memories": 0, "open_loops": 0, "artifacts": 0, "beliefs": 0},
+    }}}
+    assert settle_labels([source, row]).by_stored("artifact", "report").unverified is True
