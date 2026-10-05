@@ -12,7 +12,7 @@ from uuid import UUID, uuid4
 import psycopg
 
 from alicebot_api.contracts import MemoryCandidateInput
-from alicebot_api.db import user_connection
+from alicebot_api.db import set_current_user, user_connection
 from alicebot_api.memory import admit_memory_candidate
 from alicebot_api.store import ContinuityStore
 
@@ -137,13 +137,15 @@ def _call_tool(client: MCPClient, *, name: str, arguments: dict[str, object]) ->
 
 def _set_temporal_timestamps(
     admin_database_url: str,
+    user_id: UUID,
     *,
     entity_id: UUID,
     edge_id: UUID,
     entity_created_at: datetime,
     edge_created_at: datetime,
 ) -> None:
-    with psycopg.connect(admin_database_url, autocommit=True) as conn:
+    with psycopg.connect(admin_database_url) as conn:
+        set_current_user(conn, user_id)
         with conn.cursor() as cur:
             cur.execute("UPDATE entities SET created_at = %s WHERE id = %s", (entity_created_at, entity_id))
             cur.execute(
@@ -214,6 +216,7 @@ def seed_temporal_entity_graph(database_url: str, admin_database_url: str) -> di
     midpoint = add_at + (update_at - add_at) / 2
     _set_temporal_timestamps(
         admin_database_url,
+        user_id=user_id,
         entity_id=entity["id"],
         edge_id=edge["id"],
         entity_created_at=add_at - timedelta(seconds=1),

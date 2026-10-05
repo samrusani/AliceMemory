@@ -297,6 +297,8 @@ def test_promoted_artifact_uuid_alias_repaired(database_urls):
     with without_insert_floor(), user_connection(database_urls["app"], user) as conn:
         ContinuityStore(conn).create_user(user, "alias@example.invalid", "Alias fixture")
         store = PostgresVNextStore(conn)
+        # Promotion takes the graph lock before any label-table writes.
+        store.lock_graph_mutation()
         memory = store.create_memory({"memory_key": "health", "canonical_text": "Private observation",
             "domain": "health", "sensitivity": "public", "status": "active"})
         artifact = store.create_artifact({"artifact_type": "daily_brief", "title": "Fixture brief",
