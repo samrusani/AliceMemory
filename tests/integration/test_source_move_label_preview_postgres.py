@@ -19,6 +19,12 @@ ALPHA = "prj_" + "a" * 16
 BETA = "prj_" + "b" * 16
 
 
+def test_regeneration_openapi_documents_creation_status():
+    responses = main.app.openapi()["paths"]["/v0/vnext/sources/{source_id}/regenerate"]["post"]["responses"]
+    assert "201" in responses
+    assert responses["201"]["content"]["application/json"]["schema"]["$ref"].endswith("RegenerateVnextSourceSuccessResponse")
+
+
 def _request(path, payload, raw_key):
     messages = []
     body = json.dumps(payload).encode()

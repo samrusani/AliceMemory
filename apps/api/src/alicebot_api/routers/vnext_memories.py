@@ -779,7 +779,7 @@ def get_vnext_source(source_id: UUID, user_id: UUID) -> JSONResponse:
     )
 
 
-@source_review_router.post("/v0/vnext/sources/{source_id}/regenerate", summary="Regenerate fresh candidates from a stored source", description="The local owner or an unbound admin can regenerate candidate memories and open loops from all stored chunks using the source's current labels. Existing sources and outputs remain unchanged. Rerun the report's generation route to rebuild a report.")
+@source_review_router.post("/v0/vnext/sources/{source_id}/regenerate", status_code=201, summary="Regenerate fresh candidates from a stored source", description="The local owner or an unbound admin can regenerate candidate memories and open loops from all stored chunks using the source's current labels. Existing sources and outputs remain unchanged. Rerun the report's generation route to rebuild a report.")
 def regenerate_vnext_source(source_id: UUID, request: VNextSourceRegenerateRequest, authorization: str | None = Header(default=None)) -> JSONResponse:
     from alicebot_api.vnext_label_writes import label_error_response
     from alicebot_api.vnext_source_regeneration import regenerate_source_inputs
