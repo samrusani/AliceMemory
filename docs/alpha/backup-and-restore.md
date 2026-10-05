@@ -299,7 +299,8 @@ upgraded without a restore gets the same repair once, the next time it opens. A
 portable backup carries no generated artifacts and the SQLite schema has no
 table for them, so a promoted copy whose only recorded input is a missing
 artifact cannot be repaired from that reference and keeps its label. Derived
-rows that record each other in a cycle whose labels never settle stop the import
+rows that record each other in a cycle whose labels do not settle within a
+bounded number of changes stop the import
 with `restore_failed` before publication, and nothing is written. What counts as
 a recorded input is under [Derived row domains](mcp-tools.md#derived-row-domains).
 
@@ -448,7 +449,7 @@ labels. The documented table owner, `alicebot_admin`, is
 on the tables it reads and writes (`sources`, `memories`, `open_loops`,
 `generated_artifacts`, `beliefs` and `event_log`) inside its own transaction and
 turns it back on before it commits. A failure, including derived rows in a cycle
-whose labels never settle, rolls the relabels, their audit events and the FORCE
+whose labels do not settle within a bounded number of changes, rolls the relabels, their audit events and the FORCE
 change back together. The downgrade keeps the repaired labels.
 
 ## Upgrade checkpoint
