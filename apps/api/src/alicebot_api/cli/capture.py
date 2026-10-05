@@ -41,6 +41,7 @@ from alicebot_api.vnext_scheduler import SchedulerRunRequest, default_schedule
 from alicebot_api.vnext_embeddings import DeferredMemoryEmbedding
 from alicebot_api.vnext_event_log import append_event
 from alicebot_api.vnext_store import PostgresVNextStore
+from alicebot_api.vnext_label_writes import takes_label_lock as _takes_label_lock
 from .constants import DEFAULT_VNEXT_DEMO_DATASET_PATH, DEMO_SECRET_MARKERS
 from .models import CLIContext
 from .arguments import _object_dict, _object_int, _object_list
@@ -394,6 +395,7 @@ def _demo_tag(dataset_id: str) -> JsonObject:
     return {"demo": True, "demo_dataset_id": dataset_id}
 
 
+@_takes_label_lock
 def _reset_vnext_demo_dataset(store: PostgresVNextStore, *, dataset_id: str) -> JsonObject:
     with store.conn.cursor() as cur:
         cur.execute(
@@ -507,6 +509,7 @@ def _tag_demo_candidate_memories(store: PostgresVNextStore, *, dataset_id: str, 
     return updated
 
 
+@_takes_label_lock
 def _tag_demo_artifact(store: PostgresVNextStore, *, artifact_id: str, dataset_id: str) -> None:
     artifact = store.get_artifact(artifact_id)
     if artifact is None:

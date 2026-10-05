@@ -6,7 +6,7 @@ from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from typing import Any, cast
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import psycopg
 
@@ -470,6 +470,7 @@ class PostgresVNextStore:
 
     def __init__(self, conn: UserConnection):
         self.conn = conn
+        self._label_floor_applied = False
 
     def lock_label_writes(self, *, exclusive: bool = False) -> None:
         """Shared label lock for a write, or the exclusive lock for a relabel.
@@ -483,6 +484,10 @@ class PostgresVNextStore:
             cur.execute(
                 f"SELECT {mode}(hashtext('vnext_labels'), hashtext(app.current_user_id()::text))"
             )
+        from alicebot_api.vnext_label_writes import _in_transaction, LabelLockOrderError
+
+        if not _in_transaction(self):
+            raise LabelLockOrderError("label writes require an open transaction")
 
     def read_label_rows(self, kind: str, ids: Sequence[str]) -> list[VNextRow]:
         """Narrow label rows for the insert floor. No text columns."""
@@ -509,7 +514,7 @@ class PostgresVNextStore:
             )
         extra = ""
         if table == "memories":
-            extra = ", value, project_id"
+            extra = ", value, project_id, source_event_ids, deleted_at, status"
         elif table == "open_loops":
             extra = ", project_id, source_id, memory_id"
         elif table == "beliefs":
@@ -524,6 +529,25 @@ class PostgresVNextStore:
                 """,
             (wanted,),
         )
+
+    def list_belief_ids_for_memories(self, ids: Sequence[str]) -> list[str]:
+        """Same-user belief aliases that make a memory an indirect report input."""
+
+        from alicebot_api.vnext_derived_labels import identifier
+
+        wanted = []
+        for value in ids:
+            try:
+                wanted.append(str(UUID(identifier(value))))
+            except ValueError:
+                continue
+        if not wanted:
+            return []
+        rows = self._fetch_all(
+            "SELECT id::text AS id FROM beliefs WHERE user_id = app.current_user_id() AND memory_id = ANY(%s::uuid[]) ORDER BY id",
+            (wanted,),
+        )
+        return [str(row["id"]) for row in rows]
 
     def _fetch_one(
         self,
@@ -1253,6 +1277,9 @@ class PostgresVNextStore:
 
     @takes_label_lock
     def update_source(self, *, source_id: str, patch: JsonObject, actor_type: str = "system") -> VNextRow:
+        from alicebot_api.vnext_label_writes import prepare_label_patch
+
+        patch = prepare_label_patch(self, "source", self.get_source(source_id), patch)
         with self.conn.cursor() as cur:
             cur.execute(
                 f"""
@@ -1447,6 +1474,19 @@ class PostgresVNextStore:
                 """,
             (source_id, bounded_limit),
         )
+
+    def read_source_chunks_for_regeneration(self, source_id: str) -> list[VNextRow]:
+        """Read the complete source, or refuse recovery before writing any output."""
+
+        from alicebot_api.vnext_derived_labels import PROPAGATION_BOUND, LabelPropagationTooLarge
+
+        rows = self._fetch_all(
+            f"SELECT {SOURCE_CHUNK_COLUMNS} FROM source_chunks WHERE source_id = %s::uuid ORDER BY chunk_index, id LIMIT %s",
+            (source_id, PROPAGATION_BOUND + 1),
+        )
+        if len(rows) > PROPAGATION_BOUND:
+            raise LabelPropagationTooLarge("source regeneration exceeded the source chunk bound")
+        return rows
 
     def search_source_chunks(
         self,
@@ -1726,6 +1766,9 @@ class PostgresVNextStore:
 
     @takes_label_lock
     def create_project(self, project: JsonObject, *, actor_type: str = "system") -> VNextRow:
+        from alicebot_api.vnext_label_writes import apply_insert_floor, remember_floor_event
+
+        project, floor_event = apply_insert_floor(self, "project", project)
         row = self._fetch_one(
             "create_project",
             f"""
@@ -1774,6 +1817,7 @@ class PostgresVNextStore:
             target_id=row["id"],
             payload={"operation": "create", "fields": _sorted_field_names(project)},
         )
+        remember_floor_event(self, floor_event, row["id"])
         return row
 
     def get_project(self, project_id: str) -> VNextRow | None:
@@ -1846,6 +1890,27 @@ class PostgresVNextStore:
 
     @takes_label_lock
     def update_project(self, *, project_id: str, patch: JsonObject, actor_type: str = "system") -> VNextRow:
+        from alicebot_api.vnext_label_writes import (
+            apply_insert_floor, merge_protected_metadata, prepare_label_patch,
+            propagate_after_write, remember_floor_event,
+        )
+
+        before = self.get_project(project_id)
+        patch = dict(patch)
+        metadata = patch.get("metadata_json")
+        floor_event = None
+        if isinstance(metadata, dict) and before is not None:
+            before_metadata = before.get("metadata_json")
+            patch["metadata_json"] = merge_protected_metadata(
+                before_metadata if isinstance(before_metadata, dict) else {},
+                metadata,
+                label_write="derived_from" in metadata,
+            )
+            if "derived_from" in metadata:
+                floored, floor_event = apply_insert_floor(self, "project", {**before, **patch})
+                for key in ("domain", "sensitivity", "metadata_json"):
+                    patch[key] = floored[key]
+        patch = prepare_label_patch(self, "project", before, patch)
         row = self._fetch_one(
             "update_project",
             f"""
@@ -1879,6 +1944,8 @@ class PostgresVNextStore:
             target_id=row["id"],
             payload={"operation": "update", "changes": patch},
         )
+        remember_floor_event(self, floor_event, row["id"])
+        propagate_after_write(self, kind="project", before=before, after=row)
         return row
 
     def create_person(self, person: JsonObject, *, actor_type: str = "system") -> VNextRow:

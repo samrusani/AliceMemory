@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from typing import cast
 
 from alicebot_api.store import ContinuityStoreInvariantError
+from alicebot_api.vnext_label_writes import takes_label_lock
 from alicebot_api.vnext_embeddings import (
     EMBEDDING_SIGNATURE_METADATA_KEY,
     memory_embedding_signature_is_current,
@@ -217,6 +218,7 @@ def list_memories_referencing_sources(
     return grouped
 
 
+@takes_label_lock
 def list_pending_derived_candidates_for_member(
     self,
     *,
