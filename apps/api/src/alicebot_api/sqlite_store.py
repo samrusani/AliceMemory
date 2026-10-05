@@ -422,14 +422,25 @@ class SQLiteVNextStore:
             extra = ", value, project_id"
         elif table == "open_loops":
             extra = ", project_id, source_id, memory_id"
+        from uuid import UUID
+        canonical = []
+        for item in wanted:
+            try:
+                canonical.append(UUID(item).hex)
+            except (ValueError, TypeError):
+                pass
         marks = ",".join("?" for _ in wanted)
+        alias_sql = ""
+        if canonical:
+            alias_marks = ",".join("?" for _ in canonical)
+            alias_sql = f" OR replace(replace(replace(replace(lower(id),'urn:uuid:',''),'-',''),'{{',''),'}}','') IN ({alias_marks})"
         return self._fetch_all(
             f"""
                 SELECT id, user_id, domain, sensitivity, metadata_json{extra}
                 FROM {table}
-                WHERE user_id = ? AND id IN ({marks})
+                WHERE user_id = ? AND (id IN ({marks}){alias_sql})
                 """,
-            (self.user_id, *wanted),
+            (self.user_id, *wanted, *canonical),
         )
 
     # -- fetch helpers (mirror PostgresVNextStore conventions) ------------

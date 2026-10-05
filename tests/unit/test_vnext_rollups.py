@@ -1240,20 +1240,23 @@ def test_sqlite_rollup_reads_are_exact_deduplicated_and_bounded() -> None:
     conn, store = _live_store()
 
     def create_row(name: str, *, status: str, metadata: JsonObject) -> JsonObject:
-        return store.create_memory(
-            {
-                "memory_key": f"memory.{name}",
-                "value": {"text": name},
-                "status": status,
-                "memory_type": "semantic",
-                "title": name,
-                "canonical_text": name,
-                "summary": name,
-                "domain": "personal",
-                "sensitivity": "internal",
-                "metadata_json": metadata,
-            }
-        )
+        from alicebot_api.vnext_label_writes import without_insert_floor
+        # Query contract fixture: existing unstamped cards retain their stored labels.
+        with without_insert_floor():
+            return store.create_memory(
+                {
+                    "memory_key": f"memory.{name}",
+                    "value": {"text": name},
+                    "status": status,
+                    "memory_type": "semantic",
+                    "title": name,
+                    "canonical_text": name,
+                    "summary": name,
+                    "domain": "personal",
+                    "sensitivity": "internal",
+                    "metadata_json": metadata,
+                }
+            )
 
     ordinary_active = create_row("ordinary-active", status="active", metadata={})
     ordinary_accepted = create_row("ordinary-accepted", status="accepted", metadata={})
