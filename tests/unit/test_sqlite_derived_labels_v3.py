@@ -181,15 +181,19 @@ def test_old_backup_with_cross_project_aggregates(tmp_path, monkeypatch):
     restricted_reads(target, ids, monkeypatch, project="alpha")
 
 
-def test_explicit_repair_ignores_completion_stamp(tmp_path, monkeypatch):
+def test_explicit_repair_ignores_completion_stamp(tmp_path, monkeypatch, capsys):
     path = tmp_path / "stamped.db"
     ids = old_vault(path, monkeypatch, domain="project")
     with sqlite3.connect(path) as conn:
         conn.execute("INSERT OR REPLACE INTO alice_schema_state VALUES (?, '1')", (repair.REPAIR_STATE_KEY,))
     assert onramp_main(["labels", "repair", "--db", str(path), "--user-id", USER]) == 0
-    rows, events, _ = read_stored_columns(path, ids)
+    assert "labels repair updated 1" in capsys.readouterr().out
+    rows, events, state = read_stored_columns(path, ids)
     assert rows[0][1] == "confidential", "explicit repair must revisit a stamped vault"
     assert len(events) == 1
+    assert onramp_main(["labels", "repair", "--db", str(path), "--user-id", USER]) == 0
+    assert "labels repair updated 0" in capsys.readouterr().out
+    assert read_stored_columns(path, ids) == (rows, events, state)
     restricted_reads(path, ids, monkeypatch, guard_off=True)
     restricted_reads(path, ids, monkeypatch)
 

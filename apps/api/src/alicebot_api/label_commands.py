@@ -68,9 +68,9 @@ def run_labels(args) -> int:
         return 1 if below or unverified or raised_on_next_open else 0
     try:
         with sqlite_user_connection(db, args.user_id) as conn:
-            relabel_labels_sqlite(conn, explicit=True)
+            changed = relabel_labels_sqlite(conn, explicit=True)
     except DerivedDomainRepairError as exc:
         print(f"labels repair failed: {exc}")
         return 2
-    print("labels repair finished")
+    print(f"labels repair updated {changed}")
     return 0

@@ -154,7 +154,7 @@ def _stamped(conn) -> bool:
     )
 
 
-def relabel_labels_sqlite(conn, *, restoring: bool = False, explicit: bool = False) -> None:
+def relabel_labels_sqlite(conn, *, restoring: bool = False, explicit: bool = False) -> int:
     """Raise stored derived labels once, or always for a restore or owner repair.
 
     When no transaction is open this begins one and reads the state key inside
@@ -169,7 +169,7 @@ def relabel_labels_sqlite(conn, *, restoring: bool = False, explicit: bool = Fal
         if not restoring and not explicit and _stamped(conn):
             if owns:
                 conn.commit()
-            return
+            return 0
         changes = plan_label_repairs(_load_tables(conn))
         for table, user, stored, previous, new, node in changes:
             metadata = {"project_scope": list(new["project_scope"]), "project_floor": list(new["project_floor"])}
@@ -217,6 +217,7 @@ def relabel_labels_sqlite(conn, *, restoring: bool = False, explicit: bool = Fal
         conn.execute("INSERT OR REPLACE INTO alice_schema_state (key, value) VALUES (?, ?)", (REPAIR_STATE_KEY, "1"))
         if owns:
             conn.commit()
+        return len(changes)
     except Exception:
         if owns:
             conn.rollback()
