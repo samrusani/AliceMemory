@@ -99,8 +99,10 @@ class InMemoryVNextRetrievalStore:
         entities: list[dict[str, object]] | None = None,
         edges: list[dict[str, object]] | None = None,
         source_chunks: list[dict[str, object]] | None = None,
+        stored_memories: list[dict[str, object]] | None = None,
     ) -> None:
         self.memories = memories
+        self.stored_memories = stored_memories or []
         self.sources = sources
         self.open_loops = open_loops or []
         self.provenance_links = provenance_links or []
@@ -120,6 +122,19 @@ class InMemoryVNextRetrievalStore:
         self.fts_limits: list[int] = []
         self.vector_limits: list[int] = []
         self.memory_bulk_reads = 0
+
+    def read_label_rows(self, kind: str, ids: list[str]) -> list[dict[str, object]]:
+        # Complete persisted ancestry, including rows outside the FTS match list.
+        collections = {
+            "memory": [*self.memories, *self.stored_memories, *(self.vector_memories or [])],
+            "source": self.sources, "open_loop": self.open_loops,
+            "belief": self.beliefs or [],
+        }
+        from alicebot_api.vnext_derived_labels import identifier
+
+        wanted = {identifier(item) for item in ids}
+        found = {str(row.get("id")): row for row in collections.get(kind, [])}
+        return [dict(row) for row in found.values() if identifier(row.get("id")) in wanted]
 
     def append_event(self, event: dict[str, object]) -> dict[str, object]:
         self.events.append(event)
@@ -649,7 +664,7 @@ def test_context_pack_degrades_to_fts_when_query_embedding_fails() -> None:
     assert pack["trace"]["stages"]["vector"]["candidate_count"] == 0
 
 
-def test_context_pack_filters_sensitive_memories_and_records_trace_exclusion() -> None:
+def test_context_pack_filters_sensitive_memories_before_recording_trace() -> None:
     store = InMemoryVNextRetrievalStore(
         memories=[
             _memory_row(
@@ -680,8 +695,9 @@ def test_context_pack_filters_sensitive_memories_and_records_trace_exclusion() -
     )
 
     assert [memory["id"] for memory in pack["relevant_memories"]] == ["memory-public"]
-    assert "sensitive_items_filtered" in pack["warnings"]
-    assert pack["trace"]["excluded_counts"] == {"sensitivity_filtered": 1}
+    assert pack["warnings"] == []
+    assert pack["trace"]["excluded_counts"] == {}
+    assert "memory-secret" not in json.dumps(pack["trace"])
     assert [record["target_id"] for record in pack["trace"]["selected"]] == ["memory-public"]
 
 
@@ -1120,7 +1136,10 @@ def test_strict_count_candidate_statistic_without_selected_rollup_stays_trace_on
             )
             for index in range(1, 4)
         ],
-        sources=[],
+        sources=[
+            {"id": f"source-{index}", "source_type": "note", "domain": "project",
+             "sensitivity": "private"} for index in range(1, 4)
+        ],
     )
 
     pack = VNextRetrievalService(store).compile_context_pack(
@@ -1958,14 +1977,12 @@ def test_scoped_pack_rejects_cross_project_source_metadata_and_derivations(monke
         source_fence=SourceReadFence.unfenced()
     )
 
-    assert source_resolver_results == [None]
+    assert source_resolver_results == []
+    assert pack["relevant_memories"] == []
     assert pack["sources"] == []
     assert pack["supporting_evidence"] == []
     assert "derived_values" not in pack
     assert all("event_time" not in memory for memory in pack["relevant_memories"])
-    first = pack["relevant_memories"][0]
-    assert "source_created_at" not in first
-    assert first["metadata_json"] == {"project_id": "alicebot", "source_refs": []}
     assert "source-hermes" not in json.dumps(pack, sort_keys=True)
 
 
@@ -2670,6 +2687,7 @@ def test_context_pack_populates_contradicting_evidence_from_active_beliefs() -> 
             )
         ],
         sources=[],
+        stored_memories=[_memory_row("memory-belief", "The deployment pipeline is ready for production launch.")],
         beliefs=[
             {
                 "id": "belief-1",
@@ -3447,7 +3465,10 @@ def test_contradictions_first_lets_contradictions_survive_a_budget_that_drops_th
     }
 
     def compile_with(strategy: str, max_tokens: int | None) -> dict[str, object]:
-        store = InMemoryVNextRetrievalStore(memories=[dict(memory)], sources=[], beliefs=[dict(belief)])
+        store = InMemoryVNextRetrievalStore(
+            memories=[dict(memory)], sources=[], beliefs=[dict(belief)],
+            stored_memories=[_memory_row("memory-belief", str(belief["claim"]))],
+        )
         return VNextRetrievalService(store).compile_context_pack(
             VNextRetrievalRequest(
                 query="deployment pipeline production launch",
@@ -3687,6 +3708,7 @@ def test_medium_depth_forces_contradictions_on_for_non_strategic_queries() -> No
         return InMemoryVNextRetrievalStore(
             memories=[_memory_row("memory-1", "The deployment pipeline is not ready for production launch.")],
             sources=[],
+            stored_memories=[_memory_row("memory-belief", "The deployment pipeline is ready for production launch.")],
             beliefs=[
                 {
                     "id": "belief-1",
@@ -4494,7 +4516,12 @@ def test_multi_clause_aggregation_backfills_clause_only_memory_into_freed_slots(
             for index in range(1, 25)
         ]
         swim = _memory_row("memory-swim", "Swimming laps review.", metadata_json={"source_id": "src-swim"})
-        return InMemoryVNextRetrievalStore(memories=[*fillers, swim], sources=[])
+        return InMemoryVNextRetrievalStore(
+            memories=[*fillers, swim],
+            sources=[{"id": source_id, "source_type": "note", "domain": "project",
+                      "sensitivity": "private"}
+                     for source_id in ["src-shared", *[f"src-{index:02d}" for index in range(3, 25)], "src-swim"]],
+        )
 
     control_store = build_store()
     with monkeypatch.context() as patch:
@@ -4729,7 +4756,11 @@ def test_naturally_selected_unrelated_rollup_does_not_turn_trace_count_into_answ
         ["actual-member-1", "actual-member-2", "actual-member-3"],
     )
     pack = VNextRetrievalService(
-        InMemoryVNextRetrievalStore(memories=[*unrelated, card], sources=[])
+        InMemoryVNextRetrievalStore(
+            memories=[*unrelated, card], sources=[],
+            stored_memories=[_memory_row(f"actual-member-{index}", f"A different activity {index}.")
+                             for index in range(1, 4)],
+        )
     ).compile_context_pack(
         VNextRetrievalRequest(
             query="How many times did I host board game night?",

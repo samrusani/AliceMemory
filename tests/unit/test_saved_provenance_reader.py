@@ -730,6 +730,7 @@ _QUOTE_WRITERS = {
     ("apps/api/src/alicebot_api/mcp/memories.py", "_handle_alice_vnext_commit_memory"): "passes the argument to commit",
     ("apps/api/src/alicebot_api/cli/memories.py", "_run_vnext_memory_commit"): "passes the argument to commit",
     ("apps/api/src/alicebot_api/vnext_capture.py", "_capture_source"): "link quote = the candidate's own text",
+    ("apps/api/src/alicebot_api/vnext_source_regeneration.py", "regenerate_source_inputs"): "fresh candidate quote; SavedProvenanceReader and row readers apply the source fence",
     ("apps/api/src/alicebot_api/vnext_connectors.py", "ingest_agent_output"): "link quote = the item title",
     ("apps/api/src/alicebot_api/vnext_retrieval.py", "_supporting_evidence"): "reads the link, fenced by admits_link",
     ("apps/api/src/alicebot_api/onramp.py", "_apply_import_quarantine"): "replaces a quote with a placeholder",

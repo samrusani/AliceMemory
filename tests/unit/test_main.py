@@ -312,7 +312,7 @@ def test_openapi_has_concrete_success_contracts_and_accurate_statuses() -> None:
     }
     operations = list(operations_by_key.values())
 
-    assert len(operations) == 183
+    assert len(operations) == 184
     assert all(operation.get("tags") for operation in operations)
     assert all(operation.get("description") for operation in operations)
     assert all("default" in operation["responses"] for operation in operations)
@@ -323,7 +323,7 @@ def test_openapi_has_concrete_success_contracts_and_accurate_statuses() -> None:
         if status.startswith("2")
         for json_body in [response.get("content", {}).get("application/json", {})]
     ]
-    assert len(success_schemas) == 187
+    assert len(success_schemas) == 188
     assert "APIJsonDocument" not in components
     assert all(document.get("$ref", "").startswith("#/components/schemas/") for document in success_schemas)
     resolved_success_schemas = [components[document["$ref"].rsplit("/", 1)[-1]] for document in success_schemas]
@@ -347,7 +347,7 @@ def test_openapi_has_concrete_success_contracts_and_accurate_statuses() -> None:
     assert exact_keys | set(operation_registry) == set(operations_by_key), coverage_report
     assert exact_keys.isdisjoint(operation_registry), coverage_report
     assert len(exact_keys) == 42
-    assert len(operation_registry) == 141
+    assert len(operation_registry) == 142
     assert 0 < len(polymorphic_operations) <= 3
     assert set(polymorphic_operations) <= set(operation_registry)
     assert all(reason.strip() for reason in polymorphic_operations.values())
@@ -645,7 +645,7 @@ def test_openapi_helper_backed_contracts_track_authoritative_response_types() ->
 
 def test_openapi_store_row_contracts_track_authoritative_column_sets() -> None:
     def column_fields(columns: str) -> set[str]:
-        return {column.strip() for column in columns.split(",") if column.strip()}
+        return {column.strip().rsplit(" AS ", 1)[-1] for column in columns.split(",") if column.strip()}
 
     row_contracts = {
         ("GET", "/v0/vnext/sources/{source_id}"): SOURCE_COLUMNS,
