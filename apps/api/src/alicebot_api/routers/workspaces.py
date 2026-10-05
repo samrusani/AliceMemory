@@ -158,7 +158,7 @@ def _vnext_workspace_payload(store: PostgresVNextStore, *, identity: AgentIdenti
     scheduler_status = {**scheduler_status, "daemon": daemon_status()}
     connector_health = VNextConnectorService(store).connector_health_all()
     dogfooding = VNextDogfoodingService(store).dashboard(sensitivity_allowed=tuple(sensitivity_allowed), label_guard=guard)
-    doctor = VNextDoctorService(store).run(ci=True)
+    doctor = VNextDoctorService(store).run(ci=True, include_content_diagnostics=False)
     policy_telemetry = summarize_agent_policy_telemetry(
         agent_events=agent_events,
         artifacts=artifacts,
