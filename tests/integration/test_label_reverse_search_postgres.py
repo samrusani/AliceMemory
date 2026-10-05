@@ -80,7 +80,7 @@ def test_multiple_frontier_batches_keep_memory_chains_and_both_direct_loop_colum
                 "sensitivity": "public",
             }
         )
-        roots = [str(uuid4()) for _ in range(220)]
+        roots = [str(uuid4()) for _ in range(2200)]
         conn.execute(
             """INSERT INTO memories(id,user_id,memory_key,value,source_event_ids,canonical_text,
                                     status,domain,sensitivity,metadata_json)
@@ -90,7 +90,7 @@ def test_multiple_frontier_batches_keep_memory_chains_and_both_direct_loop_colum
             (root, roots),
         )
         descendants = []
-        for index in (0, 199, 219):
+        for index in (0, 1999, 2199):
             row = store.create_memory(
                 {
                     "memory_key": f"descendant.{index}",
@@ -126,3 +126,49 @@ def test_multiple_frontier_batches_keep_memory_chains_and_both_direct_loop_colum
             store, "open_loops", "open_loop", [_compact_id(roots[-1])], with_value=False
         )
         assert str(direct_memory["id"]) in {row["id"] for row in memory_candidates}
+
+
+def test_large_uuid_frontiers_use_a_broader_superset_but_only_canonical_edges_enter_the_closure(migrated_database_urls):
+    user = uuid4()
+    roots = [str(uuid4()) for _ in range(32)]
+    with user_connection(migrated_database_urls["app"], user) as conn:
+        ContinuityStore(conn).create_user(user, f"broad-{user}@example.invalid", "Broad")
+        store = PostgresVNextStore(conn)
+        expected = set()
+        for index, reference in enumerate((roots[0], roots[-1].upper(), encoded_object("source_id", roots[1]))):
+            row = store.create_memory(
+                {
+                    "memory_key": f"broad.{index}",
+                    "canonical_text": "Synthetic dependency",
+                    "domain": "project",
+                    "sensitivity": "public",
+                    "metadata_json": {"source_id": reference},
+                }
+            )
+            expected.add(str(row["id"]))
+        unrelated = store.create_memory(
+            {
+                "memory_key": "unrelated.edge",
+                "canonical_text": "Synthetic unrelated",
+                "domain": "project",
+                "sensitivity": "public",
+                "metadata_json": {"source_id": str(uuid4())},
+            }
+        )
+        note = store.create_memory(
+            {
+                "memory_key": "unrelated.note",
+                "canonical_text": "Synthetic unrelated note",
+                "domain": "project",
+                "sensitivity": "public",
+                "metadata_json": {"note": roots[0]},
+            }
+        )
+        candidates = _postgres_dependants(
+            store, "memories", "memory", [_compact_id(root) for root in roots], with_value=True
+        )
+        candidate_ids = {str(row["id"]) for row in candidates}
+        assert expected <= candidate_ids
+        assert str(unrelated["id"]) in candidate_ids
+        assert str(note["id"]) in candidate_ids
+        assert {str(row["id"]) for row in walk_dependants(store, roots)} == expected
