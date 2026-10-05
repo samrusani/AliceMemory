@@ -16,7 +16,14 @@ Mutations, each alone, each named by the test that fails:
   ``test_the_same_backup_restores_again_into_the_repaired_vault`` fails on the second restore.
 * drop the zero-row refusal: ``test_a_zero_row_update_refuses_without_an_event_or_stamp`` (open and restore) fails.
 * write the events before every update has been checked: the same test fails on the event count.
-* update only the first stored spelling of a normalised id: ``test_every_spelling_of_one_id_is_relabelled`` fails.
+* plan from one stored row per normalised id, the last one (``plan_stored_relabels`` once left the earlier spelling at
+  its old label when the last row already held the planned label): ``test_every_spelling_of_one_id_is_relabelled`` and
+  ``test_the_earlier_spelling_is_relabelled_when_the_last_row_already_holds_the_planned_label`` fail. The first one:
+  ``test_every_spelling_of_one_id_is_relabelled`` fails.
+* record a spelling that already holds the planned label as a change: ``test_a_spelling_already_at_the_planned_label_is_left_alone``.
+* compare each spelling with the starting label of the id and not the label its own inputs give it:
+  ``test_no_spelling_changes_label_when_the_inputs_name_no_restricted_label`` fails (two restricted labels on two rows).
+* ``plan_stored_relabels`` reads an input's raw label: ``test_for_rows_with_unique_ids_the_stored_plan_is_the_plan`` fails.
 """
 
 from __future__ import annotations
@@ -146,17 +153,18 @@ def test_the_same_backup_restores_again_into_the_repaired_vault(tmp_path, monkey
     assert _rows(destination) == before
 
 
-def _twin_vault(path, monkeypatch, *, first_domain):
-    """Two derived memories that record one health input, stored under two spellings of one id: the first row (earlier
-    in the table) under the upper case spelling with ``first_domain``, the second under the canonical one, unlabelled.
-    Returns ``(upper, canonical)``."""
+def _twin_vault(path, monkeypatch, *, first_domain, last_domain="unknown", input_domain="health"):
+    """Two derived memories that record one input (a ``health`` one unless ``input_domain`` says otherwise), stored under
+    two spellings of one id: the first row (earlier in the table) under the upper case spelling with ``first_domain``,
+    the second, the last row of the table, under the canonical one with ``last_domain``. The planner reads the last
+    row of the two. Returns ``(upper, canonical)``."""
 
     with monkeypatch.context() as patch:
         patch.setattr(sqlite_schema, "_relabel_derived_domains", lambda conn: None)
         bootstrap_database(path, user_id=USER, user_email="local@alice")
         with sqlite_user_connection(path, USER) as conn:
             store = SQLiteVNextStore(conn, USER)
-            health = add_memory(store, key="health", text="A restricted observation", domain="health")
+            health = add_memory(store, key="health", text="A restricted observation", domain=input_domain)
             metadata = {"consolidation": {"cluster_member_ids": [health["id"]]}}
             first, second = (
                 str(
@@ -173,6 +181,7 @@ def _twin_vault(path, monkeypatch, *, first_domain):
             for table, column in (("memories", "id"), ("memory_revisions", "memory_id")):
                 raw.execute(f"UPDATE {table} SET {column} = ? WHERE {column} = ?", (second.upper(), first))
             raw.execute("UPDATE memories SET domain = ? WHERE id = ?", (first_domain, second.upper()))
+            raw.execute("UPDATE memories SET domain = ? WHERE id = ?", (last_domain, second))
             raw.execute("DELETE FROM alice_schema_state WHERE key LIKE 'derived_restricted_domains_%'")
         finally:
             raw.close()
@@ -201,6 +210,83 @@ def test_a_spelling_already_at_the_planned_label_is_left_alone(tmp_path, monkeyp
     domains, events, _ = _rows(path)
     assert domains == {upper: "health", canonical: "health"}
     assert [(target, json.loads(payload)["previous_domain"]) for target, payload in events] == [(canonical, "unknown")]
+
+
+def test_the_earlier_spelling_is_relabelled_when_the_last_row_already_holds_the_planned_label(tmp_path, monkeypatch):
+    """The planner reads the last row of two spellings of one id. When that row already holds the planned label, the plan
+    changes nothing for the id, and the earlier spelling would stay at its old label while the stamp says the vault is
+    repaired. Every stored spelling is compared with the label the recorded inputs give it.
+
+    Mutation: plan from the last row only (``plan_relabels`` and its stored ids, as before): this test fails on the
+    label of the upper case row.
+    """
+
+    path = tmp_path / "vault.sqlite3"
+    upper, canonical = _twin_vault(path, monkeypatch, first_domain="unknown", last_domain="health")
+    assert _rows(path)[0] == {upper: "unknown", canonical: "health"}
+    bootstrap_database(path, user_id=USER, user_email="local@alice")
+    domains, events, stamps = _rows(path)
+    assert domains == {upper: "health", canonical: "health"}
+    assert [(target, json.loads(payload)["previous_domain"]) for target, payload in events] == [(upper, "unknown")]
+    assert stamps == 1
+
+
+@pytest.mark.parametrize(("first", "last"), (("health", "unknown"), ("health", "legal"), ("legal", "health")))
+def test_no_spelling_changes_label_when_the_inputs_name_no_restricted_label(tmp_path, monkeypatch, first, last):
+    """The repair raises a label to the one its recorded inputs give and never moves a row for any other reason. Two
+    spellings of one id that hold different labels, with an input that is not restricted, keep both labels and write no
+    event, so a comparison with the label of the last row alone cannot lower a ``health`` row to ``unknown`` or move it
+    to the other row's restricted label.
+
+    Mutation: compare every stored spelling with the planner's starting label of the id (``labels[key]``) instead of the
+    label its own inputs give it.
+    """
+
+    path = tmp_path / "vault.sqlite3"
+    upper, canonical = _twin_vault(path, monkeypatch, first_domain=first, last_domain=last, input_domain="unknown")
+    bootstrap_database(path, user_id=USER, user_email="local@alice")
+    domains, events, stamps = _rows(path)
+    assert domains == {upper: first, canonical: last}
+    assert events == [] and stamps == 1
+
+
+def _parity_tables():
+    from tests.unit import test_derived_domain_review as review
+
+    settling_cycle = {
+        "sources": [{"id": "health", "user_id": "u", "domain": "health"}],
+        "generated_artifacts": [
+            {"id": "a", "user_id": "u", "domain": "unknown", "metadata_json": {"input_summary": {"artifact_ids": ["b"]}}},
+            {"id": "b", "user_id": "u", "domain": "unknown",
+             "metadata_json": {"input_summary": {"artifact_ids": ["a"], "source_ids": ["health"]}}},
+        ],
+    }
+    promoted = {
+        "sources": [{"id": "source", "user_id": "u", "domain": "health"}],
+        "generated_artifacts": [
+            {"id": "report", "user_id": "u", "domain": "unknown",
+             "metadata_json": {"input_summary": {"source_ids": ["source"]}}},
+        ],
+        "memories": [
+            {"id": "promoted", "user_id": "u", "domain": "unknown",
+             "value": {"kind": "promoted_artifact", "artifact_id": "report"}},
+        ],
+    }
+    return [settling_cycle, review._chain(8), promoted]
+
+
+def test_for_rows_with_unique_ids_the_stored_plan_is_the_plan():
+    """``plan_stored_relabels`` (the SQLite repair) and ``plan_relabels`` (the PostgreSQL migration) change the same rows
+    to the same labels when no id has two spellings, whatever the shape of the graph: a cycle that settles, a long chain
+    and a promoted copy.
+
+    Mutation: read an input's label from the raw column in ``plan_stored_relabels`` instead of its settled label.
+    """
+
+    for tables in _parity_tables():
+        planned = repair.plan_relabels(tables)
+        assert planned
+        assert [(table, user, row_id, domain) for table, user, row_id, _, domain in repair.plan_stored_relabels(tables)] == planned
 
 
 def test_a_zero_row_update_refuses_without_an_event_or_stamp(tmp_path, monkeypatch):

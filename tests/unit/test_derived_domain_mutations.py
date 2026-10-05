@@ -86,42 +86,42 @@ def test_derived_domain_guard_mutations():
         (domain, 'derived_domain', '-counts[domain]', 'counts[domain]', selector_check),
         (domain, 'derived_domain', 'min(counts, key=lambda domain: (-counts[domain], domain))', 'counts.most_common(1)[0][0]', selector_check),
         (domain, 'derived_domain', 'if counts else fallback', "if counts else 'unknown'", selector_check),
-        (backfill, 'plan_relabels', "if metadata.get('redacted') is True:", 'if False:', checks.test_recorded_input_shapes_chains_cycles_users_and_redaction),
+        (backfill, '_settle', "if metadata.get('redacted') is True:", 'if False:', checks.test_recorded_input_shapes_chains_cycles_users_and_redaction),
         (brain, '_artifact_domain', 'derived_domain(rows, fallback=request.domains[0])', 'request.domains[0]', checks.test_restricted_majority_ties_and_explicit_request),
         (brain, '_artifact_domain', 'derived_domain(rows, fallback="unknown")', '"unknown"', lambda: checks.test_every_report_producer_retains_restricted_inputs('daily_brief')),
         (consolidation, '_domain', 'derived_domain(rows, fallback=request.domains[0])', 'request.domains[0]', checks.test_restricted_majority_ties_and_explicit_request),
-        (backfill, 'plan_relabels', "(kind, user, row_id) for kind, row_id in refs", "(kind, 'missing-user', row_id) for kind, row_id in refs", checks.test_recorded_input_shapes_chains_cycles_users_and_redaction),
-        (backfill, 'plan_relabels', "and metadata.get('input_summary')", "and False", checks.test_recorded_input_shapes_chains_cycles_users_and_redaction),
-        (backfill, 'plan_relabels', "if dependant not in queued:", "if False:", review.test_a_cycle_that_settles_reads_its_rows_again),
-        (backfill, 'plan_relabels', "for component in _input_groups(inputs):", "for component in reversed(_input_groups(inputs)):", chain),
-        (backfill, 'plan_relabels', "dependants.get(key, set()) & members", "dependants.get(key, set())", chain),
+        (backfill, '_settle', "(kind, user, row_id) for kind, row_id in refs", "(kind, 'missing-user', row_id) for kind, row_id in refs", checks.test_recorded_input_shapes_chains_cycles_users_and_redaction),
+        (backfill, '_settle', "and metadata.get('input_summary')", "and False", checks.test_recorded_input_shapes_chains_cycles_users_and_redaction),
+        (backfill, '_settle', "if dependant not in queued:", "if False:", review.test_a_cycle_that_settles_reads_its_rows_again),
+        (backfill, '_settle', "for component in _input_groups(inputs):", "for component in reversed(_input_groups(inputs)):", chain),
+        (backfill, '_settle', "dependants.get(key, set()) & members", "dependants.get(key, set())", chain),
         (backfill, '_input_groups', "lowest[key] = min(lowest[key], index[ref])", "pass", unsettled_message),
         (backfill, '_input_groups', "lowest[parent] = min(lowest[parent], lowest[key])", "pass", unsettled_message),
         (backfill, '_input_groups', "lowest[key] = min(lowest[key], index[ref])", "lowest[key] = index[ref]",
          review.test_one_cycle_with_two_back_edges_is_one_group_and_settles),
         (backfill, '_input_groups', "if ref not in index:", "if ref not in on_stack:",
          lambda: fresh(lambda directory, patch: review.test_rows_that_share_inputs_are_each_read_once(patch))),
-        (backfill, 'plan_relabels', "remaining_changes = len(component) *", "remaining_changes = len(inputs) *", budget),
-        (backfill, 'plan_relabels', "len(component) * (len(RESTRICTED_DOMAINS) + 1)", "len(component) * 2", budget),
-        (backfill, 'plan_relabels', "len(component) * (len(RESTRICTED_DOMAINS) + 1)", "len(component) * len(RESTRICTED_DOMAINS)", budget),
-        (backfill, 'plan_relabels', "if remaining_changes < 0:", "if remaining_changes <= 0:", budget),
-        (backfill, 'plan_relabels', "ref[0] == 'beliefs' and ref in rows", 'False', checks.test_belief_reference_follows_a_repaired_derived_memory),
+        (backfill, '_settle', "remaining_changes = len(component) *", "remaining_changes = len(inputs) *", budget),
+        (backfill, '_settle', "len(component) * (len(RESTRICTED_DOMAINS) + 1)", "len(component) * 2", budget),
+        (backfill, '_settle', "len(component) * (len(RESTRICTED_DOMAINS) + 1)", "len(component) * len(RESTRICTED_DOMAINS)", budget),
+        (backfill, '_settle', "if remaining_changes < 0:", "if remaining_changes <= 0:", budget),
+        (backfill, '_settle', "ref[0] == 'beliefs' and ref in rows", 'False', checks.test_belief_reference_follows_a_repaired_derived_memory),
         (backfill, 'recorded_inputs', "elif key == 'source_refs':", 'elif False:', checks.test_recorded_input_shapes_chains_cycles_users_and_redaction),
     ]
     mutations.extend([
-        (backfill, "plan_relabels", "or _object(row.get('value')).get('kind') == 'promoted_artifact'", "or False",
+        (backfill, "_settle", "or _object(row.get('value')).get('kind') == 'promoted_artifact'", "or False",
          lambda: review.test_promoted_artifact_memory_follows_repaired_artifact("value")),
-        (backfill, "plan_relabels", "or isinstance(metadata.get('source_artifact_id'), str)", "or False",
+        (backfill, "_settle", "or isinstance(metadata.get('source_artifact_id'), str)", "or False",
          promoted_metadata_only),
         (backfill, "recorded_inputs", "if key in _ID_KEYS:", "if key in _ID_KEYS and key != 'artifact_id':",
          lambda: review.test_promoted_artifact_memory_follows_repaired_artifact("value")),
         (backfill, "recorded_inputs", "if key in _ID_KEYS:", "if key in _ID_KEYS and key != 'source_artifact_id':",
          lambda: review.test_promoted_artifact_memory_follows_repaired_artifact("metadata")),
-        (backfill, "plan_relabels", "if remaining_changes < 0:", "if False:",
+        (backfill, "_settle", "if remaining_changes < 0:", "if False:",
          lambda: fresh(lambda directory, patch: review.test_nonsettling_cycles_are_bounded_and_not_published(patch))),
-        (backfill, "plan_relabels", "sorted(row for row, count in changes.items() if count > 1)", "[]",
+        (backfill, "_settle", "sorted(row for row, count in changes.items() if count > 1)", "[]",
          unsettled_message),
-        (backfill, "plan_relabels", "raise DerivedDomainRepairError(", "raise ValueError(",
+        (backfill, "_settle", "raise DerivedDomainRepairError(", "raise ValueError(",
          unsettled_message),
         (backfill, "_unsettled_message", "Remove the circular input references from those rows, ", "",
          unsettled_message),
@@ -147,9 +147,17 @@ def test_derived_domain_guard_mutations():
          'event["target_type"],\n                _identifier(stored),', stored_open),
         (backfill, "relabel_sqlite", 'event["target_type"],\n                stored,',
          'event["target_type"],\n                _identifier(stored),', stored_second_restore),
-        (backfill, "relabel_sqlite", "for stored in stored_ids[table, user, row_id]",
-         "for stored in stored_ids[table, user, row_id][:1]", stored_twins),
-        (backfill, "relabel_sqlite", "if previous[table, user, stored] != domain", "if True", stored_settled_twin),
+        # Two stored spellings of one id are each compared with the label their own inputs give.
+        (backfill, "plan_stored_relabels", "for row in values:",
+         "for row in {_identifier(item['id']): item for item in values}.values():", stored_twins),
+        (backfill, "plan_stored_relabels", "for row in values:",
+         "for row in {_identifier(item['id']): item for item in reversed(values)}.values():", stored_twins),
+        (backfill, "plan_stored_relabels", "for row in values:",
+         "for row in {_identifier(item['id']): item for item in values}.values():", stored_last_row_planned),
+        (backfill, "plan_stored_relabels", "if domain in RESTRICTED_DOMAINS and domain != previous:",
+         "if domain in RESTRICTED_DOMAINS:", stored_settled_twin),
+        (backfill, "plan_stored_relabels", "fallback=str(previous)", "fallback=str(labels[key])", stored_no_change),
+        (backfill, "plan_stored_relabels", "{'domain': labels[ref]}", "{'domain': 'unknown'}", stored_parity),
         (backfill, "require_changed", "if changed == 0:", "if changed < 0:", stored_zero_row),
         (backfill, "require_changed", "raise DerivedDomainRepairError(", "raise ValueError(", stored_zero_row),
         (backfill, "relabel_sqlite", "(domain, user, stored)", "(domain, user, _identifier(stored))", stored_restore),
@@ -208,6 +216,21 @@ def stored_second_restore():
 
 def stored_twins():
     refusal_fails(lambda: fresh(stored_ids.test_every_spelling_of_one_id_is_relabelled))
+
+
+def stored_last_row_planned():
+    refusal_fails(lambda: fresh(stored_ids.test_the_earlier_spelling_is_relabelled_when_the_last_row_already_holds_the_planned_label))
+
+
+def stored_no_change():
+    for first, last in (("health", "unknown"), ("health", "legal"), ("legal", "health")):
+        refusal_fails(lambda: fresh(
+            lambda directory, patch: stored_ids.test_no_spelling_changes_label_when_the_inputs_name_no_restricted_label(
+                directory, patch, first, last)))
+
+
+def stored_parity():
+    stored_ids.test_for_rows_with_unique_ids_the_stored_plan_is_the_plan()
 
 
 def stored_settled_twin():

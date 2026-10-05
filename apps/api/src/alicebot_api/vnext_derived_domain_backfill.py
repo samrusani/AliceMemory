@@ -170,8 +170,8 @@ def _input_groups(inputs: Mapping[tuple[str, str, str], set[tuple[str, str, str]
     return groups
 
 
-def plan_relabels(tables: Mapping[str, Sequence[Mapping[str, object]]]) -> list[tuple[str, str, str, str]]:
-    """Return (table, user_id, id, domain) updates for the settled labels.
+def _settle(tables: Mapping[str, Sequence[Mapping[str, object]]]):
+    """Settle the labels of the derived rows: ``(rows, labels, inputs)``, all keyed by ``(table, user_id, normalised id)``.
 
     Rows are labelled in dependency order: each group of rows that record one
     another as inputs (a cycle, or one row on its own) is settled after every
@@ -179,7 +179,8 @@ def plan_relabels(tables: Mapping[str, Sequence[Mapping[str, object]]]) -> list[
     labels, however long the chain. Inside a cycle the rows are revisited until
     their labels settle. Refuse a cycle that does not settle within a bounded
     number of changes; callers must roll back rather than publish intermediate
-    labels.
+    labels. Two stored spellings of one id are one key here, and ``rows`` and the
+    starting label hold the last of them.
     """
     rows = {(table, str(row["user_id"]), _identifier(row["id"])): row for table, values in tables.items() for row in values}
     labels = {key: row.get("domain", "unknown") for key, row in rows.items()}
@@ -249,7 +250,44 @@ def plan_relabels(tables: Mapping[str, Sequence[Mapping[str, object]]]) -> list[
                 if dependant not in queued:
                     pending.append(dependant)
                     queued.add(dependant)
+    return rows, labels, inputs
+
+
+def plan_relabels(tables: Mapping[str, Sequence[Mapping[str, object]]]) -> list[tuple[str, str, str, str]]:
+    """Return (table, user_id, id, domain) updates for the settled labels, by normalised id.
+
+    ``_settle`` does the work and refuses a cycle that does not settle. A store whose id column cannot hold two spellings
+    of one id (the PostgreSQL ``uuid`` columns) updates by this id. A store that keeps an id as written uses
+    ``plan_stored_relabels``.
+    """
+    rows, labels, inputs = _settle(tables)
     return [(*key, str(labels[key])) for key in sorted(inputs) if labels[key] != rows[key].get("domain", "unknown")]
+
+
+def plan_stored_relabels(tables: Mapping[str, Sequence[Mapping[str, object]]]) -> list[tuple[str, str, str, object, str]]:
+    """Return (table, user_id, stored id, previous domain, domain) for every stored row whose label the inputs raise.
+
+    The graph is settled by normalised id (``_settle``), and each stored row is then judged by itself: the label its
+    settled inputs give it, with its own label as the fallback, against its own label. Two stored spellings of one id
+    (SQLite keeps capitals, missing hyphens, braces and ``urn:uuid:`` as written) are each compared, so a row is not left
+    at its old label because the other spelling already holds the planned one, and a row with a restricted label is not
+    lowered because the other spelling holds an unrestricted one. For rows with unique ids this is ``plan_relabels``.
+    """
+    _rows, labels, inputs = _settle(tables)
+    changes = []
+    for table, values in tables.items():
+        for row in values:
+            user, stored = str(row["user_id"]), str(row["id"])
+            key = (table, user, _identifier(stored))
+            if key not in inputs:
+                continue
+            previous = row.get("domain", "unknown")
+            domain = derived_domain(
+                ({"domain": labels[ref]} for ref in sorted(inputs[key]) if ref in labels), fallback=str(previous)
+            )
+            if domain in RESTRICTED_DOMAINS and domain != previous:
+                changes.append((table, user, stored, previous, domain))
+    return sorted(changes, key=lambda change: (change[0], change[1], _identifier(change[2]), change[2]))
 
 
 def relabel_event(table: str, user: str, row_id: str, previous: object, domain: str):
@@ -289,11 +327,12 @@ def recorded_sqlite_domain_repairs(conn, user_id: str) -> set[tuple[str, str, st
 def relabel_sqlite(conn, *, restoring: bool = False) -> None:
     """Upgrade once, or repair a complete staged restore before publication.
 
-    The plan matches rows and recorded inputs by a normalised id, so it names a row as ``_identifier`` writes it. SQLite
-    keeps an id as the text it was given (capitals, no hyphens, braces and ``urn:uuid:`` all stand), so each planned row
-    is updated and recorded under the id it is stored with, and two stored spellings of one id both take the planned
-    label. An update that changes no row stops the repair with ``DerivedDomainRepairError`` before any event or the
-    completion stamp is written; the caller's transaction is then rolled back by the upgrade or the restore it aborts.
+    The graph is matched by a normalised id (``_identifier``), but SQLite keeps an id as the text it was given (capitals,
+    no hyphens, braces and ``urn:uuid:`` all stand). ``plan_stored_relabels`` therefore plans each stored row by itself,
+    and each is updated and recorded under the id it is stored with; two stored spellings of one id are both compared
+    with the label their inputs give. An update that changes no row stops the repair with ``DerivedDomainRepairError``
+    before any event or the completion stamp is written; the caller's transaction is then rolled back by the upgrade or
+    the restore it aborts.
     """
     state_key = REPAIR_STATE_KEY
     if not restoring and conn.execute("SELECT value FROM alice_schema_state WHERE key = ?", (state_key,)).fetchone():
@@ -307,24 +346,13 @@ def relabel_sqlite(conn, *, restoring: bool = False) -> None:
         if table not in available:
             continue
         tables[table] = _fetch_dicts(conn.execute(statement))
-    previous = {}
-    stored_ids: dict[tuple[str, str, str], list[str]] = {}
-    for table, rows in tables.items():
-        for row in rows:
-            user, stored = str(row["user_id"]), str(row["id"])
-            previous[table, user, stored] = row.get("domain")
-            stored_ids.setdefault((table, user, _identifier(stored)), []).append(stored)
-    changes = [
-        (table, user, stored, domain)
-        for table, user, row_id, domain in plan_relabels(tables)
-        for stored in stored_ids[table, user, row_id]
-        if previous[table, user, stored] != domain
-    ]
+    # Each stored row is planned and updated under the id it is stored with, so the update finds it.
+    changes = plan_stored_relabels(tables)
     # Every update is made and checked before the first event is written.
-    for table, user, stored, domain in changes:
+    for table, user, stored, _previous, domain in changes:
         require_changed(conn.execute(_SQLITE_UPDATES[table], (domain, user, stored)).rowcount, table, stored)
-    for table, user, stored, domain in changes:
-        event = relabel_event(table, user, stored, previous[table, user, stored], domain)
+    for table, user, stored, previous, domain in changes:
+        event = relabel_event(table, user, stored, previous, domain)
         conn.execute(
             """INSERT INTO event_log (id, user_id, event_type, actor_type, target_type, target_id,
                occurred_at, payload_json, integrity_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
