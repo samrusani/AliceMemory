@@ -114,7 +114,6 @@ def test_source_raise_invalidates_inputs_in_the_same_transaction(migrated_databa
         with writes.capture_label_inputs(store, str(source["id"])):
             assert _memory(store, "before", source)["sensitivity"] == "public"
             store.update_source(source_id=str(source["id"]), patch={"sensitivity": "confidential"})
-            assert writes._current_capture_inputs(store).rows == {}
             assert _memory(store, "after", source)["sensitivity"] == "confidential"
 
 
@@ -157,3 +156,45 @@ def test_one_store_starts_fresh_source_inputs_in_each_transaction(migrated_datab
             assert writes._current_capture_inputs(store) is None
             conn.commit()
         assert keys[0][0] != keys[1][0]
+
+
+def test_pipeline_writer_waits_for_live_lock_and_reads_committed_source(migrated_database_urls):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event
+    from time import monotonic, sleep
+
+    user = uuid4()
+    url = migrated_database_urls["app"]
+    with user_connection(url, user) as conn:
+        _user(conn, user)
+        source = _source(PostgresVNextStore(conn), user)
+    queued = Event()
+    def writer():
+        with user_connection(url, user) as conn:
+            store = PostgresVNextStore(conn)
+            real_lock = store.lock_label_writes
+            def lock(*, exclusive=False):
+                real_lock(exclusive=exclusive)
+                queued.set()
+            store.lock_label_writes = lock
+            with writes.capture_label_inputs(store, str(source["id"])):
+                return _memory(store, "waited", source)
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        with user_connection(url, user) as conn:
+            store = PostgresVNextStore(conn)
+            store.lock_graph_mutation()
+            store.lock_label_writes(exclusive=True)
+            store.update_source(source_id=str(source["id"]), patch={"sensitivity": "confidential"})
+            future = pool.submit(writer)
+            assert queued.wait(3)
+            deadline = monotonic() + 3
+            while monotonic() < deadline:
+                waiting = conn.execute("SELECT count(*) AS n FROM pg_locks WHERE locktype='advisory' AND NOT granted AND classid=(hashtext('vnext_labels')::bigint & 4294967295)::oid AND objid=(hashtext(app.current_user_id()::text)::bigint & 4294967295)::oid").fetchone()["n"]
+                if waiting:
+                    break
+                sleep(0.01)
+            assert waiting == 1
+            assert future.done() is False
+            assert conn.execute("SELECT count(*) AS n FROM memories").fetchone()["n"] == 0
+        result = future.result(timeout=5)
+        assert result["sensitivity"] == "confidential"

@@ -122,7 +122,10 @@ def capture_label_inputs(store: Any, source_id: str) -> Iterator[None]:
         batch = _CaptureLabelInputs(conn, transaction_id, int(getattr(conn, "_alice_label_rollback_counter", 0)), identifier(source_id))
         token = _CAPTURE_LABEL_INPUTS.set(batch)
         try:
-            yield
+            # Every lock statement remains live and precedes its INSERT on the
+            # server. Fetching the INSERT result synchronizes the ordered queue.
+            with conn.pipeline():
+                yield
         finally:
             _CAPTURE_LABEL_INPUTS.reset(token)
 
