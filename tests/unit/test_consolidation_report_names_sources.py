@@ -407,3 +407,50 @@ def test_a_run_that_names_a_source_hashes_its_id_domain_and_sensitivity(monkeypa
     _run(store, mapping)
 
     assert seen[0]["named_sources"] == [{"id": str(source["id"]), "domain": "health", "sensitivity": "confidential"}]
+
+
+@pytest.mark.parametrize("shared_id", [False, True], ids=["distinct-ids", "source-shares-the-memory-id"])
+def test_a_source_that_shares_a_memory_id_never_stands_in_for_the_memory_label(tmp_path, shared_id):
+    """An id is unique only within its own table, so a public source may carry the id of a confidential memory. The
+    report prints the memory's text and names the source; its label is taken over both, so it stays confidential and
+    a trusted_local_agent key is refused, whether or not the two ids are equal. (Found by a review of #561 on real
+    SQLite stores.)
+
+    Mutation: count memories and sources in one map keyed by id (``labelled_rows`` built from one ``_one_row_per_id``
+    over the members, the roll-up rows and ``named_sources`` together: the source replaces the memory and the report
+    is internal).
+    """
+
+    from alicebot_api.onramp import bootstrap_database
+    from alicebot_api.routers._vnext_shared import _vnext_exact_resource_policy
+    from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
+    from alicebot_api.vnext_agent_control import AgentIdentity
+    from tests.unit.test_vnext_consolidation import MappedEmbeddingProvider, _seed_six_memories
+
+    user = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+    path = tmp_path / "shared-id.sqlite3"
+    bootstrap_database(path, user_id=user, user_email="probe@local")
+    with sqlite_user_connection(path, user) as conn:
+        store = SQLiteVNextStore(conn, user)
+        # SQLite has no artifact table; keep the payload the producer writes, label and all.
+        store.create_artifact = lambda payload, **kwargs: {"id": str(uuid4()), **payload}
+        mapping = {}
+        members, _ = _seed_six_memories(store, mapping)
+        protected = members[0]
+        memory_id = str(protected["id"])
+        source_id = memory_id if shared_id else str(uuid4())
+        store.create_source({"id": source_id, "source_type": "manual_text", "content_hash": "public-source",
+                             "title": "Public source", "domain": "project", "sensitivity": "public"})
+        store.update_memory(memory_id=memory_id, patch={
+            "sensitivity": "confidential", "domain": "project",
+            "metadata_json": {"source_refs": [f"source:{source_id}"]},
+        })
+        report = VNextConsolidationService(store, embedding_provider=MappedEmbeddingProvider(mapping)).generate_memory_consolidation(
+            MemoryConsolidationRequest(sensitivity_allowed=list(ALL_SENSITIVITY), propose_rollups=False,
+                                       create_candidate_memories=False))
+    assert source_id in json.dumps(report["metadata_json"]) and protected["canonical_text"] in report["content_markdown"]
+    assert (report["domain"], report["sensitivity"]) == ("project", "confidential")
+    access = _vnext_exact_resource_policy(
+        identity=AgentIdentity(agent_id="trusted-reader", permission_profile="trusted_local_agent", auth="api_key"),
+        action="artifact.lookup", resource=report)
+    assert access.decision == "blocked"
