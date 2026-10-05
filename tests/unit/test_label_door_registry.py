@@ -36,6 +36,8 @@ READS = {
     "list_events_for_source_trace", "list_recent_agentic_commits", "list_pending_inline_confirmations",
     "count_sources", "count_artifacts", "count_artifacts_by_status", "count_projects", "count_memories_by_status",
     "count_open_loops", "count_open_loops_by_status", "count_events", "iter_label_rows", "iter_label_events", "iter_label_ratings",
+    "list_agent_events", "list_agent_policy_artifacts", "list_agent_policy_memories",
+    "list_artifact_quality_ratings", "count_artifact_quality_ratings",
 }
 
 GUARD_CALLS = {
@@ -72,6 +74,8 @@ DOORS = {
     "routers/_vnext_shared.py:_vnext_load_source_trace": None,
     "routers/vnext_projects.py:list_vnext_projects": None,
     "routers/vnext_review.py:list_vnext_artifacts": None,
+    "routers/vnext_review.py:list_vnext_quality_evals": None,
+    "routers/vnext_projects.py:get_vnext_agent_policy_telemetry": None,
     "routers/vnext_review.py:get_vnext_belief_state": None,
     "routers/vnext_memories.py:get_vnext_dogfooding_dashboard": None,
     "vnext_projects.py:VNextProjectService.project_dashboard": None,
@@ -85,6 +89,7 @@ DOORS = {
     "session_briefing.py:_event_target_honours_fence": None,
     "session_briefing.py:_memory_honours_fence": None,
     "routers/workspaces.py:_vnext_workspace_payload": None,
+    "routers/workspaces.py:_workspace_event_visible": "_workspace_rows",
     "vnext_context_tree.py:VNextContextTreeService.build_tree": None,
     "vnext_dogfooding.py:VNextDogfoodingService.dashboard": None,
     "vnext_contradictions.py:VNextContradictionService.belief_state": None,
@@ -164,6 +169,7 @@ NOT_A_DOOR = {
     "vnext_connectors.py:VNextConnectorService.get_cursor": "connector cursor events only; no labelled targets",
     "vnext_connectors.py:VNextConnectorService.get_config": "connector configuration events only; no labelled targets",
     "vnext_connectors.py:VNextConnectorService.connector_health": "connector state telemetry only; no labels_raised events",
+    "vnext_dogfooding.py:VNextDogfoodingStore.list_artifact_quality_ratings": "store protocol declaration; no execution or response",
     "vnext_artifact_review.py:dispatch_vnext_artifact_review": "writer entry; calling route or MCP authorizes the artifact before dispatch",
     "vnext_memory_commit.py:VNextMemoryCommitService._guard_supersession_acyclic": "write validation traverses pointers without exposing their content",
 }
@@ -224,6 +230,11 @@ def _reader_names(node: ast.AST) -> set[str]:
         elif isinstance(child, ast.Call) and isinstance(child.func, ast.Name) and child.func.id == "getattr":
             if len(child.args) > 1 and isinstance(child.args[1], ast.Constant) and child.args[1].value in READS:
                 names.add(child.args[1].value)
+            elif len(child.args) > 1 and not isinstance(child.args[1], ast.Constant):
+                # Target-kind dispatch maps choose a method name dynamically.
+                # Resolve their possible reader names from this function's AST.
+                names.update(value.value for value in ast.walk(node) if isinstance(value, ast.Constant)
+                             and isinstance(value.value, str) and value.value in READS)
     return names
 
 
@@ -266,7 +277,8 @@ def test_every_scanned_reader_is_classified() -> None:
 
 
 def test_discovery_catches_new_direct_and_dynamic_readers() -> None:
-    for source in ("def added(store): return store.list_events()", "def added(store): return getattr(store, 'list_memories')()", "def added(store): return invoke(store.list_beliefs)"):
+    for source in ("def added(store): return store.list_events()", "def added(store): return getattr(store, 'list_memories')()", "def added(store): return invoke(store.list_beliefs)",
+                   "def added(store, kind):\n methods = {'memory': 'get_memory', 'artifact': 'get_artifact'}\n return getattr(store, methods[kind])()"):
         node = ast.parse(source).body[0]
         assert _reader_names(node)
         assert "added" not in DOORS and "added" not in NOT_A_DOOR
