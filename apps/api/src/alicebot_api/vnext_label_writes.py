@@ -487,10 +487,11 @@ def clamp_owner_patch(
     for key in ("domain", "sensitivity", "project_id"):
         if key in proposed_patch and proposed_patch[key] is not None:
             proposed[key] = proposed_patch[key]
-    if isinstance(proposed_patch.get("metadata_json"), dict):
+    patch_metadata = proposed_patch.get("metadata_json")
+    if isinstance(patch_metadata, dict):
         stored_meta = before.get("metadata_json")
         meta = dict(stored_meta) if isinstance(stored_meta, dict) else {}
-        meta.update(proposed_patch["metadata_json"])
+        meta.update(patch_metadata)
         proposed["metadata_json"] = meta
     proposed["kind"] = kind
     nodes, exceeded = collect_label_rows(store, [proposed], max_nodes=PROPAGATION_BOUND)
@@ -513,7 +514,8 @@ def clamp_owner_patch(
         return proposed_patch
     proposed_patch["domain"] = label.domain
     proposed_patch["sensitivity"] = label.sensitivity
-    metadata = dict(proposed.get("metadata_json") or {})
+    proposed_metadata = proposed.get("metadata_json")
+    metadata = dict(proposed_metadata) if isinstance(proposed_metadata, Mapping) else {}
     metadata["project_scope"] = list(label.project_scope)
     metadata["project_floor"] = list(label.project_floor)
     proposed_patch["metadata_json"] = metadata
@@ -644,7 +646,7 @@ def propagate(store: Any, changed: Sequence[tuple[str, str]], *, cause: str) -> 
     if exceeded:
         raise LabelPropagationTooLarge(f"label propagation stopped after {PROPAGATION_BOUND} rows")
     settled = settle_labels(nodes)
-    changes: list[tuple[Mapping[str, object], Any, tuple[str, str, tuple[str, ...], tuple[str, ...]]]] = []
+    changes: list[tuple[dict[str, object], Any, tuple[str, str, tuple[str, ...], tuple[str, ...]]]] = []
     for row in affected:
         label = settled.by_stored(str(row.get("kind")), str(row.get("id")))
         if label.unverified:
