@@ -286,7 +286,32 @@ def test_direct_column_loop_references_reach_real_read_guard(migrated_database_u
         assert count_guard.readable_status_counts("open_loop").get("open", 0) == int(source_sensitivity == "public")
     if key:
         monkeypatch.setenv("ALICE_AGENT_API_KEY", key)
-    result = call_mcp_tool(MCPRuntimeContext(database_url=app_url, user_id=user_id), name="alice_open_loops", arguments={"sensitivity_allowed": list(ALL_SENSITIVITY)})
-    rendered = json.dumps(result, default=str)
-    assert (str(loop["id"]) in rendered) is admitted
-    assert ("Direct loop sentinel" in rendered) is admitted
+    for tool in ("alice_open_loops", "alice_resume"):
+        result = call_mcp_tool(MCPRuntimeContext(database_url=app_url, user_id=user_id), name=tool, arguments={"sensitivity_allowed": list(ALL_SENSITIVITY)})
+        rendered = json.dumps(result, default=str)
+        assert (str(loop["id"]) in rendered) is admitted, tool
+        assert ("Direct loop sentinel" in rendered) is admitted, tool
+
+
+@pytest.mark.parametrize("reader", ("owner", "admin", "trusted"))
+def test_workspace_and_dashboard_original_loop_references_use_actual_key(migrated_database_urls, monkeypatch, reader):
+    app_url = migrated_database_urls["app"]
+    user_id = _user(app_url)
+    for module in (workspaces, vnext_projects, vnext_retrieval):
+        monkeypatch.setattr(module, "get_settings", lambda: Settings(database_url=app_url))
+    with user_connection(app_url, user_id) as conn:
+        store = PostgresVNextStore(conn)
+        project = store.create_project({"name": "Visible project", "slug": "visible-project", "domain": "project", "sensitivity": "public"})
+        project_id = str(project["id"])
+        source = store.create_source({"source_type": "note", "title": "Restricted parent", "content_hash": str(uuid4()), "domain": "project", "sensitivity": "confidential", "metadata_json": {"project_scope": [project_id]}})
+        visible_source = store.create_source({"source_type": "note", "title": "Visible source", "content_hash": str(uuid4()), "domain": "project", "sensitivity": "public", "metadata_json": {"project_scope": [project_id]}})
+        with without_insert_floor():
+            memory = store.create_memory({"memory_key": "hidden-backing", "canonical_text": "Restricted backing memory", "domain": "project", "sensitivity": "public", "metadata_json": {"source_id": str(source["id"]), "project_scope": [project_id]}})
+        loop = store.create_open_loop({"title": "Visible original loop", "source_id": str(visible_source["id"]), "memory_id": str(memory["id"]), "project_id": project_id, "domain": "project", "sensitivity": "public", "metadata_json": {"project_scope": [project_id]}})
+        key = real_reader_key(store, user_id, reader)
+    auth = f"Bearer {key}" if key else None
+    responses = (workspaces.get_vnext_workspace(user_id, authorization=auth), vnext_projects.get_vnext_project_dashboard(project_id, user_id, authorization=auth), vnext_retrieval.get_vnext_source_trace(UUID(str(visible_source["id"])), user_id, authorization=auth))
+    for response in responses:
+        assert response.status_code == 200, response.body
+        item = next(row for row in json.loads(response.body)["open_loops"] if str(row["id"]) == str(loop["id"]))
+        assert item["memory_id"] == (None if reader == "trusted" else str(memory["id"]))

@@ -66,7 +66,7 @@ class StageStore(PopulationStore):
 def _scope(scoped=False):
     return _ResolvedRetrievalScope(projects=frozenset((ALPHA,)) if scoped else frozenset(), people=frozenset(), window_start=None, window_end=None, exclude_global_domains=frozenset())
 
-STAGES = ("by_ids", "by_ids_fallback", "vector", "graph", "temporal", "provenance", "visibility", "contradictions", "scoped_contradictions", "recent_changes", "scoped_recent_changes", "session", "pack_open_loops", "context_projects", "context_memories", "context_open_loops", "context_artifacts", "context_sources", "project_resolution", "dashboard_lists", "loop_memory_reference", "entity_explain", "entity_backing", "workspace_projects", "workspace_memories", "workspace_open_loops", "workspace_artifacts", "workspace_beliefs")
+STAGES = ("by_ids", "by_ids_fallback", "vector", "graph", "temporal", "provenance", "visibility", "contradictions", "scoped_contradictions", "recent_changes", "scoped_recent_changes", "session", "pack_open_loops", "context_projects", "context_memories", "context_open_loops", "context_artifacts", "context_sources", "project_resolution", "dashboard_lists", "loop_memory_reference", "entity_explain", "entity_backing", "workspace_projects", "workspace_memories", "workspace_open_loops", "workspace_artifacts", "workspace_beliefs", "workspace_loop_refs", "dashboard_loop_refs")
 
 def _stage(stage, store):
     service = VNextRetrievalService(store, embedding_provider=SimpleNamespace(provider="synthetic", model="synthetic", base_url="http://synthetic.invalid"))
@@ -97,6 +97,13 @@ def _stage(stage, store):
     if stage == "dashboard_lists":
         result = VNextProjectService(store).project_dashboard(project_id=ALPHA, identity=AgentIdentity(agent_id="trusted", permission_profile="trusted_local_agent"))
         return [*result["memories"], *result["open_loops"], *result["artifacts"]]
+    if stage.endswith("loop_refs"):
+        store.rows["open_loop"][0].update(title="Visible original loop", memory_id=MEMORY, source_id=None, metadata_json={"project_scope": [ALPHA]})
+        if stage == "workspace_loop_refs":
+            body = workspaces._vnext_workspace_payload(store, identity=AgentIdentity(agent_id="trusted", permission_profile="trusted_local_agent"))
+        else:
+            body = VNextProjectService(store).project_dashboard(project_id=ALPHA, identity=AgentIdentity(agent_id="trusted", permission_profile="trusted_local_agent"))
+        return [body["open_loops"][0]["memory_id"]] if body["open_loops"][0]["memory_id"] else []
     if stage.startswith("workspace_"):
         field = stage.removeprefix("workspace_")
         if field == "memories":
