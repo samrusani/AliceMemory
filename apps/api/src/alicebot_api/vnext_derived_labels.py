@@ -1247,6 +1247,28 @@ def stamp_derived_from(payload: dict[str, object], rows_by_kind: Mapping[str, ob
     payload["metadata_json"] = meta
 
 
+def with_derived_from(metadata: Mapping[str, object], rows_by_kind: Mapping[str, object]) -> dict[str, object]:
+    """A copy of ``metadata`` with ``derived_from`` for the rows a producer used."""
+
+    payload: dict[str, object] = {"metadata_json": dict(metadata)}
+    stamp_derived_from(payload, rows_by_kind)
+    stamped = payload["metadata_json"]
+    return dict(stamped) if isinstance(stamped, Mapping) else {}
+
+
+def admit_when_locked(
+    kind: str,
+    rows: object,
+    projects: tuple[str, ...] | None,
+) -> list[Mapping[str, object]]:
+    """Keep every row when ``projects`` is None. Otherwise keep rows inside that binding."""
+
+    items = list(rows) if isinstance(rows, (list, tuple)) else []
+    if projects is None:
+        return [row for row in items if isinstance(row, Mapping)]
+    return [row for row in items if isinstance(row, Mapping) and input_admitted(kind, row, projects)]
+
+
 def scope_is_global(scope: object) -> bool:
     """True when a scope holds no Alice project id."""
 
@@ -1273,10 +1295,12 @@ __all__ = [
     "group_scope",
     "identifier",
     "infer_kind",
+    "admit_when_locked",
     "input_admitted",
     "intersect_scope",
     "is_derived",
     "locked_projects",
+    "with_derived_from",
     "labels_raised_payload",
     "ordered_identifiers",
     "row_class",

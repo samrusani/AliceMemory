@@ -172,6 +172,9 @@ from alicebot_api.vnext_stores.postgres.primitives import (
 )
 from alicebot_api.vnext_stores.postgres.query_predicates import (
     _ARTIFACT_SCOPE_PROJECT_SQL as _ARTIFACT_SCOPE_PROJECT_SQL,
+    _PROJECT_FLOOR_SQL as _PROJECT_FLOOR_SQL,
+    _MEMORY_GROUP_SCOPE_SQL as _MEMORY_GROUP_SCOPE_SQL,
+    _jsonb_string_array_identity_sql as _jsonb_string_array_identity_sql,
     _ASCII_PROJECT_LOWER as _ASCII_PROJECT_LOWER,
     _ASCII_PROJECT_UPPER as _ASCII_PROJECT_UPPER,
     _MEMORY_DIRECT_PEOPLE_SQL as _MEMORY_DIRECT_PEOPLE_SQL,
@@ -2260,7 +2263,8 @@ class PostgresVNextStore:
                 WHERE (%s::text IS NULL OR artifact_type = %s)
                   AND (%s::text[] IS NULL OR domain = ANY(%s::text[]) OR domain = 'unknown')
                   AND (%s::text[] IS NULL OR sensitivity = ANY(%s::text[]))
-                  AND (%s::text[] IS NULL OR ({_ARTIFACT_SCOPE_PROJECT_SQL}) ?| %s::text[])
+                  AND (%s::text[] IS NULL OR ({_ARTIFACT_SCOPE_PROJECT_SQL}) ?| %s::text[]
+                       OR ({_PROJECT_FLOOR_SQL}) ?| %s::text[])
                 ORDER BY created_at DESC, id DESC
                 LIMIT %s
                 """,
@@ -2271,6 +2275,7 @@ class PostgresVNextStore:
                 domains,
                 sensitivity_allowed,
                 sensitivity_allowed,
+                project_list,
                 project_list,
                 project_list,
                 limit,

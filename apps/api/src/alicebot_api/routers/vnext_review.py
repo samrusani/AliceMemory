@@ -566,11 +566,21 @@ def process_next_vnext_queue_task(request: VNextQueueProcessNextRequest) -> JSON
     )
 
 @review_router.get("/v0/vnext/artifacts")
-def list_vnext_artifacts(user_id: UUID, artifact_type: str | None = None, limit: int = 30) -> JSONResponse:
+def list_vnext_artifacts(
+    user_id: UUID,
+    artifact_type: str | None = None,
+    limit: int = 30,
+    project: str | None = None,
+) -> JSONResponse:
     settings = get_settings()
+    scope_projects = (project,) if isinstance(project, str) and project.strip() else ()
 
     with user_connection(settings.database_url, user_id) as conn:
-        payload = PostgresVNextStore(conn).list_artifacts(artifact_type=artifact_type, limit=limit)
+        payload = PostgresVNextStore(conn).list_artifacts(
+            artifact_type=artifact_type,
+            limit=limit,
+            scope_projects=scope_projects,
+        )
 
     return JSONResponse(
         status_code=200,

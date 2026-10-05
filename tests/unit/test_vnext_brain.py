@@ -155,6 +155,11 @@ def test_daily_brief_generates_dated_reviewable_artifact_with_sources_and_open_l
     assert store.open_loops[-1]["metadata_json"]["candidate"] is True
     assert store.events[-1]["event_type"] == "artifact.generated"
     assert store.events[-1]["payload_json"]["workflow"] == "daily_brief"
+    derived = artifact["metadata_json"]["derived_from"]
+    assert derived["counts"]["sources"] == len(derived["sources"]) == 1
+    assert derived["sources"] == ["source-1"]
+    assert "memory-1" in derived["memories"]
+    assert store.open_loops[-1]["metadata_json"]["derived_from"]["sources"] == ["source-1"]
 
 
 def test_daily_brief_respects_sensitivity_filtering() -> None:

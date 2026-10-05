@@ -31,6 +31,7 @@ from alicebot_api.vnext_stores.sqlite.query_predicates import (
     _fts_match_expression,
     CTE_MATERIALIZED_HINT,
     _project_view_partition_sql,
+    _split_view_request,
     _stated_exclusion,
     _sqlite_ascii_literal_contains_sql,
 )
@@ -1004,6 +1005,25 @@ def count_rollup_input_memories(
     return cast(int, row["count"])
 
 
+def _rollup_group_scope_clause(self, projects: Sequence[str] | None) -> tuple[str, list[object]]:
+    """Overlap of scope or floor. Used only by the roll-up candidate and card lookups."""
+
+    normalized = tuple(normalize_project_scope(projects or ()))
+    scope_sql, scope_params = self._project_clause(normalized)
+    if not scope_sql:
+        return "", []
+    ids, wants_global = _split_view_request(normalized)
+    if wants_global or not ids:
+        return scope_sql, list(scope_params)
+    predicate = scope_sql.removeprefix(" AND ")
+    floor_sql = (
+        "EXISTS (SELECT 1 FROM json_each(alice_project_floor_identity(metadata_json)) AS floor_project "
+        "WHERE CAST(floor_project.value AS TEXT) "
+        f"IN ({self._placeholders(list(ids))}))"
+    )
+    return f" AND ({predicate} OR {floor_sql})", [*scope_params, *ids]
+
+
 def list_pending_rollup_candidates(
     self,
     *,
@@ -1030,7 +1050,7 @@ def list_pending_rollup_candidates(
         params.extend(domains)
     sensitivity_placeholders = ", ".join("?" for _value in sensitivity_allowed)
     params.extend(sensitivity_allowed)
-    project_sql, project_params = self._project_clause(tuple(normalize_project_scope(projects or ())))
+    project_sql, project_params = _rollup_group_scope_clause(self, projects)
     params.extend(project_params)
     params.append(bounded_limit)
     return self._fetch_all(
@@ -1087,7 +1107,7 @@ def list_accepted_rollup_cards(
         params.extend(domains)
     sensitivity_placeholders = ", ".join("?" for _value in sensitivity_allowed)
     params.extend(sensitivity_allowed)
-    project_sql, project_params = self._project_clause(tuple(normalize_project_scope(projects or ())))
+    project_sql, project_params = _rollup_group_scope_clause(self, projects)
     params.extend(project_params)
     # An expired card is not the accepted card for its topic. The test sits
     # inside the ranking query, so an older card that is still open is ranked

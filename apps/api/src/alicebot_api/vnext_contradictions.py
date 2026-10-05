@@ -6,6 +6,7 @@ import re
 from typing import Callable, Protocol, Sequence, cast
 
 from alicebot_api.vnext_derived_domain import derived_domain
+from alicebot_api.vnext_derived_labels import with_derived_from
 from alicebot_api.vnext_agent_control import resource_project_scope
 from alicebot_api.vnext_event_log import append_event
 from alicebot_api.vnext_model_intelligence import (
@@ -665,6 +666,10 @@ class VNextContradictionService:
             prompt_hash = model_artifact.prompt_hash
             model_info_json = model_artifact.model_info
             metadata = {**metadata, **model_artifact.metadata}
+        metadata = with_derived_from(
+            metadata,
+            {"sources": sources, "memories": memories, "beliefs": beliefs},
+        )
         artifact_payload: JsonObject = {
             "artifact_type": "contradiction_report",
             "title": "Contradiction Report",

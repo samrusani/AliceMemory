@@ -28,6 +28,7 @@ from alicebot_api.vnext_capture import (
 )
 from alicebot_api.vnext_embeddings import DeferredMemoryEmbedding
 from alicebot_api.vnext_event_log import append_event
+from alicebot_api.vnext_derived_labels import with_derived_from
 from alicebot_api.vnext_project_scope import resolve_project_scope
 from alicebot_api.vnext_repositories import JsonObject
 from alicebot_api.vnext_secrets import (
@@ -1774,17 +1775,20 @@ class VNextConnectorService:
                 "domain": _as_optional_text(payload.get("domain")) or "project",
                 "sensitivity": _as_optional_text(payload.get("sensitivity")) or "private",
                 "generated_by": agent_id,
-                "metadata_json": {
-                    "connector_name": "agent_output",
-                    "agent_identity": agent_identity,
-                    "agent_id": agent_id,
-                    "agent_run_id": item.metadata_json.get("agent_run_id"),
-                    "project_scope": item.metadata_json.get("project_scope") or [],
-                    "source_id": source_id,
-                    "source_refs": [f"source:{source_id}"] if source_id else [],
-                    "output_type": _as_optional_text(payload.get("output_type")) or "general",
-                    "review_status": "needs_review",
-                },
+                "metadata_json": with_derived_from(
+                    {
+                        "connector_name": "agent_output",
+                        "agent_identity": agent_identity,
+                        "agent_id": agent_id,
+                        "agent_run_id": item.metadata_json.get("agent_run_id"),
+                        "project_scope": item.metadata_json.get("project_scope") or [],
+                        "source_id": source_id,
+                        "source_refs": [f"source:{source_id}"] if source_id else [],
+                        "output_type": _as_optional_text(payload.get("output_type")) or "general",
+                        "review_status": "needs_review",
+                    },
+                    {"sources": [{"id": source_id}] if source_id else []},
+                ),
             },
             actor_type="agent",
         )
@@ -1836,17 +1840,23 @@ class VNextConnectorService:
                     "project_id": proposal_scope[0] if len(proposal_scope) == 1 else None,
                     "created_by_agent_id": agent_id,
                     "run_id": item.metadata_json.get("agent_run_id"),
-                    "metadata_json": {
-                        "connector_name": "agent_output",
-                        "agent_identity": agent_identity,
-                        "agent_id": agent_id,
-                        "agent_run_id": item.metadata_json.get("agent_run_id"),
-                        "source_id": source_id,
-                        "artifact_id": artifact_id,
-                        "review_required": True,
-                        "policy_decision": policy_decision,
-                        **({"project_scope": list(proposal_scope)} if proposal_scope else {}),
-                    },
+                    "metadata_json": with_derived_from(
+                        {
+                            "connector_name": "agent_output",
+                            "agent_identity": agent_identity,
+                            "agent_id": agent_id,
+                            "agent_run_id": item.metadata_json.get("agent_run_id"),
+                            "source_id": source_id,
+                            "artifact_id": artifact_id,
+                            "review_required": True,
+                            "policy_decision": policy_decision,
+                            **({"project_scope": list(proposal_scope)} if proposal_scope else {}),
+                        },
+                        {
+                            "sources": [{"id": source_id}] if source_id else [],
+                            "artifacts": [{"id": artifact_id}] if artifact_id else [],
+                        },
+                    ),
                 },
                 actor_type="agent",
             )

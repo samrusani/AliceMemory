@@ -21,6 +21,7 @@ from alicebot_api.vnext_stores.postgres.embedding_cas import (
 from alicebot_api.vnext_stores.postgres.primitives import _json_list
 from alicebot_api.vnext_stores.postgres.query_predicates import (
     _MEMORY_DIRECT_PEOPLE_SQL,
+    _MEMORY_GROUP_SCOPE_SQL,
     _MEMORY_PROJECT_SCOPE_SQL,
     _MEMORY_SCOPE_EVENT_TIME_SQL,
     _escape_like_literal,
@@ -701,7 +702,7 @@ def list_pending_rollup_candidates(
                   AND metadata_json ->> 'rollup_digest' = ANY(%s::text[])
                   AND (%s::text[] IS NULL OR domain = ANY(%s::text[]) OR domain = 'unknown')
                   AND COALESCE(sensitivity, 'unknown') = ANY(%s::text[])
-                  AND (%s::text[] IS NULL OR ({_MEMORY_PROJECT_SCOPE_SQL}) ?| %s::text[])
+                  AND (%s::text[] IS NULL OR ({_MEMORY_GROUP_SCOPE_SQL}) ?| %s::text[])
                 ORDER BY metadata_json ->> 'rollup_digest', updated_at DESC, created_at DESC, id DESC
                 LIMIT %s
                 """,
@@ -748,7 +749,7 @@ def list_accepted_rollup_cards(
                   AND metadata_json ->> 'rollup_key' = ANY(%s::text[])
                   AND (%s::text[] IS NULL OR domain = ANY(%s::text[]) OR domain = 'unknown')
                   AND COALESCE(sensitivity, 'unknown') = ANY(%s::text[])
-                  AND (%s::text[] IS NULL OR ({_MEMORY_PROJECT_SCOPE_SQL}) ?| %s::text[])
+                  AND (%s::text[] IS NULL OR ({_MEMORY_GROUP_SCOPE_SQL}) ?| %s::text[])
                 ORDER BY
                   metadata_json ->> 'rollup_key',
                   CASE WHEN status = 'active' THEN 0 ELSE 1 END,

@@ -90,6 +90,7 @@ from alicebot_api.vnext_project_update_guard import (
     PENDING_PROJECT_UPDATE_MEMORY_MUTATION_MESSAGE,
     is_pending_project_update_memory,
 )
+from alicebot_api.vnext_derived_labels import group_scope
 from alicebot_api.vnext_project_scope import normalize_project_scope, project_scope_identity
 from alicebot_api.vnext_repositories import EventStore, JsonObject
 from alicebot_api.store import ContinuityStoreInvariantError
@@ -2104,10 +2105,8 @@ class VNextMemoryCommitService:
                     )
 
         if strict_snapshots and dependency_ids:
-            member_scope_keys = {
-                project_scope_identity(resource_project_scope(member)) for member in locked_members.values()
-            }
-            candidate_scope_key = project_scope_identity(resource_project_scope(memory))
+            member_scope_keys = {group_scope(member, kind="memory") for member in locked_members.values()}
+            candidate_scope_key = group_scope(memory, kind="memory")
             if len(member_scope_keys) != 1 or candidate_scope_key not in member_scope_keys:
                 raise VNextMemoryCommitValidationError(
                     "consolidation candidate crosses project scopes; regenerate it before acceptance"

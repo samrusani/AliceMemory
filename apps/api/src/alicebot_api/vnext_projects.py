@@ -8,6 +8,7 @@ from collections.abc import Mapping, Sequence
 from typing import Protocol, cast
 
 from alicebot_api.vnext_derived_domain import derived_domain
+from alicebot_api.vnext_derived_labels import input_admitted, locked_projects, with_derived_from
 from alicebot_api.credential_floor import refuse_credential_activation
 from alicebot_api.vnext_agent_control import resource_project_scope
 from alicebot_api.vnext_embeddings import DeferredMemoryEmbedding
@@ -551,8 +552,6 @@ class VNextProjectService:
         # defensive check at the workflow boundary so legacy adapters cannot
         # widen a project-scoped report by ignoring optional query arguments.
         project_id = str(project["id"])
-        from alicebot_api.vnext_derived_labels import input_admitted, locked_projects
-
         locked = locked_projects(request.agent_identity, (project_id,))
         if locked is not None:
             sources = [row for row in sources if input_admitted("source", row, locked)]
@@ -602,23 +601,24 @@ class VNextProjectService:
                 "domain": derived_domain([project, *sources, *memories], fallback=str(project.get("domain", "project"))),
                 "sensitivity": _highest_sensitivity([project, *sources, *memories]),
                 "project_id": project_id,
-                "metadata_json": {
-                    **request.metadata_json,
-                    "candidate": True,
-                    "workflow": "project_auto_update",
-                    "project_id": project.get("id"),
-                    "project_scope": [project_id],
-                    "automation_digest": automation_digest,
-                    "source_ids": _source_ids(sources),
-                    "memory_ids": _source_ids(memories),
-                    "generated_by": request.generated_by,
-                    "agent_identity": request.agent_identity,
-                    "agent_id": request.actor_id if request.generated_by == "agent" else None,
-                    "trace_id": request.trace_id,
-                    "policy_decision": request.policy_decision,
-                    "project_scope": [project_id],
-                    "automation_digest": automation_digest,
-                },
+                "metadata_json": with_derived_from(
+                    {
+                        **request.metadata_json,
+                        "candidate": True,
+                        "workflow": "project_auto_update",
+                        "project_id": project.get("id"),
+                        "source_ids": _source_ids(sources),
+                        "memory_ids": _source_ids(memories),
+                        "generated_by": request.generated_by,
+                        "agent_identity": request.agent_identity,
+                        "agent_id": request.actor_id if request.generated_by == "agent" else None,
+                        "trace_id": request.trace_id,
+                        "policy_decision": request.policy_decision,
+                        "project_scope": [project_id],
+                        "automation_digest": automation_digest,
+                    },
+                    {"sources": sources, "memories": memories},
+                ),
             },
             actor_type=request.generated_by,
         )
@@ -640,28 +640,29 @@ class VNextProjectService:
             "generated_by": request.generated_by if request.generated_by != "system" else "vnext_project_auto_updater",
             "prompt_hash": prompt_hash,
             "model_info_json": model_info_json,
-            "metadata_json": {
-                **request.metadata_json,
-                "workflow": "project_auto_update",
-                "workflow_type": "project_update_scan",
-                "project_id": project.get("id"),
-                "project_scope": [project_id],
-                "automation_digest": automation_digest,
-                "candidate_memory_id": candidate_memory.get("id"),
-                "suggested_current_state": suggested_current_state,
-                "source_ids": _source_ids(sources),
-                "source_refs": [f"source:{source_id}" for source_id in _source_ids(sources)],
-                "memory_ids": _source_ids(memories),
-                "generated_by": request.generated_by,
-                "agent_identity": request.agent_identity,
-                "agent_id": request.actor_id if request.generated_by == "agent" else None,
-                "agent_run_id": request.run_id if request.generated_by == "agent" else None,
-                "trace_id": request.trace_id,
-                "policy_decision": request.policy_decision,
-                **model_metadata,
-                "project_scope": [project_id],
-                "automation_digest": automation_digest,
-            },
+            "metadata_json": with_derived_from(
+                {
+                    **request.metadata_json,
+                    "workflow": "project_auto_update",
+                    "workflow_type": "project_update_scan",
+                    "project_id": project.get("id"),
+                    "automation_digest": automation_digest,
+                    "candidate_memory_id": candidate_memory.get("id"),
+                    "suggested_current_state": suggested_current_state,
+                    "source_ids": _source_ids(sources),
+                    "source_refs": [f"source:{source_id}" for source_id in _source_ids(sources)],
+                    "memory_ids": _source_ids(memories),
+                    "generated_by": request.generated_by,
+                    "agent_identity": request.agent_identity,
+                    "agent_id": request.actor_id if request.generated_by == "agent" else None,
+                    "agent_run_id": request.run_id if request.generated_by == "agent" else None,
+                    "trace_id": request.trace_id,
+                    "policy_decision": request.policy_decision,
+                    **model_metadata,
+                    "project_scope": [project_id],
+                },
+                {"sources": sources, "memories": [*memories, candidate_memory]},
+            ),
         }
         upsert_artifact = getattr(self.store, "upsert_artifact_by_workflow_digest", None)
         if callable(upsert_artifact):
@@ -992,11 +993,24 @@ class VNextProjectService:
             current_state,
             error=VNextProjectValidationError,
         )
-        if self.store.get_project_for_update(project_id) is None:
+        locked_project = self.store.get_project_for_update(project_id)
+        if locked_project is None:
             raise VNextProjectValidationError("project update candidate project was not found")
+        existing_meta = locked_project.get("metadata_json")
+        project_meta = dict(existing_meta) if isinstance(existing_meta, Mapping) else {}
+        recorded_sources = candidate_metadata.get("source_ids")
+        recorded_memories = candidate_metadata.get("memory_ids")
+        project_meta = with_derived_from(
+            project_meta,
+            {
+                "sources": [{"id": item} for item in recorded_sources] if isinstance(recorded_sources, list) else [],
+                "memories": [{"id": item} for item in recorded_memories] if isinstance(recorded_memories, list) else [],
+                "artifacts": [{"id": artifact_id}],
+            },
+        )
         self.store.update_project(
             project_id=project_id,
-            patch={"current_state": current_state},
+            patch={"current_state": current_state, "metadata_json": project_meta},
             actor_type=actor_type,
         )
         updated_memory = self.store.update_memory(

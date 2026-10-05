@@ -12,6 +12,7 @@ from typing import cast
 from alicebot_api.vnext_project_scope import (
     GLOBAL_PROJECT_MARKER,
     is_alice_project_id,
+    project_floor_shape,
     project_scope_identity,
     resolve_project_scope,
     resolve_source_metadata_project_scope,
@@ -67,6 +68,24 @@ def _source_project_scope_identity_json_sqlite(metadata_json: object) -> str:
     return json.dumps(identity, ensure_ascii=False, separators=(",", ":"))
 
 
+def _project_floor_identity_json_sqlite(metadata_json: object) -> str:
+    """Identity of ``project_floor`` when it is a list of strings, else ``[]``."""
+
+    if isinstance(metadata_json, Mapping):
+        metadata = dict(metadata_json)
+    elif isinstance(metadata_json, str):
+        try:
+            decoded = json.loads(metadata_json)
+        except (TypeError, ValueError):
+            decoded = {}
+        metadata = decoded if isinstance(decoded, dict) else {}
+    else:
+        metadata = {}
+    shape, floor = project_floor_shape({"metadata_json": metadata})
+    identity = project_scope_identity(floor) if shape == "list" else ()
+    return json.dumps(list(identity), ensure_ascii=False, separators=(",", ":"))
+
+
 def _ensure_project_scope_identity_sqlite(conn: sqlite3.Connection) -> None:
     """Install the deterministic project identity functions per connection."""
 
@@ -77,7 +96,8 @@ def _ensure_project_scope_identity_sqlite(conn: sqlite3.Connection) -> None:
         WHERE name IN (
           'alice_project_scope_value',
           'alice_project_scope_identity',
-          'alice_source_project_scope_identity'
+          'alice_source_project_scope_identity',
+          'alice_project_floor_identity'
         )
         """
     )
@@ -85,7 +105,7 @@ def _ensure_project_scope_identity_sqlite(conn: sqlite3.Connection) -> None:
         row = cursor.fetchone()
         if row is not None:
             count = next(iter(row.values())) if isinstance(row, Mapping) else row[0]
-            if int(count) == 3:
+            if int(count) == 4:
                 return
     finally:
         cursor.close()
@@ -105,6 +125,12 @@ def _ensure_project_scope_identity_sqlite(conn: sqlite3.Connection) -> None:
         "alice_source_project_scope_identity",
         1,
         _source_project_scope_identity_json_sqlite,
+        deterministic=True,
+    )
+    conn.create_function(
+        "alice_project_floor_identity",
+        1,
+        _project_floor_identity_json_sqlite,
         deterministic=True,
     )
 

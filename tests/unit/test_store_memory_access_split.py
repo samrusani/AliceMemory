@@ -27,8 +27,11 @@ SOURCE_RECEIPTS = {
     "apps/api/src/alicebot_api/vnext_stores/retrieval_common.py": (
         "fa1a3a90511b5c61754ba29560e91b7b3058a48d47c143b09d8505d52025b8cc"
     ),
+    # Re-minted for the roll-up group scope: a floor identity beside the scope
+    # identity, used only by the two roll-up lookups and the artifact list.
+    # Previous receipt f0ec9c7f...
     "apps/api/src/alicebot_api/vnext_stores/postgres/query_predicates.py": (
-        "f0ec9c7f13bc7bf93f5a3beaa86916a04e45200ef0296d6f9288eed3912be33d"
+        "f15f1bf2b3da73758c925b63dffaec707f91f00a6e153e53f562fb188859236d"
     ),
     # Re-minted for ``get_memory_by_key(include_deleted=...)`` (reviewed change, not drift; see the SQLite
     # entry below). Previous Postgres receipt 49748ecd...
@@ -36,16 +39,20 @@ SOURCE_RECEIPTS = {
     # deletion; reviewed change, not drift). Proof: the only difference from origin/main daa46ef5 is that one function,
     # which takes a keyword-only ``include_deleted`` (false by default, so every caller reads what it read before)
     # and drops the ``deleted_at IS NULL`` clause only when it is true. Previous Postgres receipt f642880f...
+    # Re-minted so the two roll-up lookups overlap scope united with floor.
+    # Every other statement still uses the scope expression. Previous receipt 46946cc0...
     "apps/api/src/alicebot_api/vnext_stores/postgres/memory_access.py": (
-        "46946cc087de35f54474adf47cadcd67b862685bfa67a38be277d8e58a00c47e"
+        "057f4f0c157223fc0d94ea3afe680b66200820533ddccab7211e211f29107157"
     ),
     # Re-minted for per-project memory S2 (2026-10-02): the project fence builders read the reserved global
     # marker and take the domains to leave out, and the single-scan partition SQL and the materialized-CTE hint
     # are new. The Postgres carrier is unchanged on purpose: the Postgres runtime resolves no project view.
     # Re-minted once more in the S2 review round (2026-10-02): a request that holds the marker and does not state which
     # global domains it leaves out raises (reviewed change, not drift).
+    # Re-minted for alice_project_floor_identity, the fourth identity function,
+    # used by the roll-up lookups. Previous receipt eab46f16...
     "apps/api/src/alicebot_api/vnext_stores/sqlite/query_predicates.py": (
-        "eab46f165564c212db21b6b6b621ecb447aaa86d48aba6512bd5f2e88f20bd82"
+        "8beae59c379c56033388a35b5a152f1f683f6b55c6e2fbd62925723566a12202"
     ),
     # Re-minted for the Phase 4 Stage 2 resident vector cache (reviewed
     # carrier change; the receipt guards unreviewed drift): the vector scan
@@ -76,8 +83,9 @@ SOURCE_RECEIPTS = {
     # reviewed change, not drift). Proof: the only difference from origin/main daa46ef5 is that one function, which
     # takes a keyword-only ``include_deleted`` (false by default) and drops the ``deleted_at IS NULL`` clause only when
     # it is true. Previous SQLite receipt 91636de9...
+    # Re-minted so the two roll-up lookups overlap scope or floor. Previous receipt 64f21989...
     "apps/api/src/alicebot_api/vnext_stores/sqlite/memory_access.py": (
-        "64f21989d3bb05d742dd712b310511d3c63f32b9a4d62af6b888ff2b367f0b3b"
+        "1580dca3a31fbbcf98539e71e81bad13935f30c59e8a7c75b0fc0b4472a6d5fa"
     ),
 }
 
@@ -165,6 +173,9 @@ POSTGRES_QUERY_EXPORTS = (
     "_jsonb_project_scope_leaf_values_sql",
     "_jsonb_source_project_scope_values_sql",
     "_MEMORY_PROJECT_SCOPE_SQL",
+    "_PROJECT_FLOOR_SQL",
+    "_MEMORY_GROUP_SCOPE_SQL",
+    "_jsonb_string_array_identity_sql",
     "_MEMORY_DIRECT_PEOPLE_SQL",
     "_MEMORY_SCOPE_EVENT_TIME_SQL",
     "_SCOPED_MEMORY_PROJECT_SQL",
@@ -200,7 +211,9 @@ EXPECTED_CLASS_ORDERS = {
     # Per-file importer savepoint (2026-10-02): one paired method more, ``savepoint``, appended last.
     # Previous receipt: (171, 526374782104a2a1...). Proof: the member list equals the list at origin/main
     # 040a2a10 with ``savepoint`` added at the end and nothing else moved (reviewed change, not drift).
-    "PostgresVNextStore": (172, "6f1a459fcf4319cf4281f6cc0d4e81679c3e05d851fd0a874a2d90298d7c2569"),
+    # Label lock: lock_label_writes and read_label_rows follow __init__. Dropping
+    # those two names restores the previous receipt (172, 6f1a459f...).
+    "PostgresVNextStore": (174, "095250b8a77d6c0a32d2783343916b947bcae8ae86e3a1693e47c2fb11802211"),
     # One SQLite-only method more, ``check_source_search_query``: the Postgres
     # source search has no expression-depth or LIKE-length limit to check.
     # Merge of #500 and #502 (2026-10-01): one more SQLite-only method,
@@ -215,7 +228,9 @@ EXPECTED_CLASS_ORDERS = {
     # 040a2a10 with ``savepoint`` added at the end and nothing else moved (reviewed change, not drift).
     # Proof: the replacement branch gains only scrub_source, source_inventory and
     # prunable_sources here; every pre-existing class member keeps its order.
-    "SQLiteVNextStore": (134, "1301272026897057cf071009cc21787543ddc326f1e06f1a75a763f3e344767e"),
+    # Label lock: lock_label_writes and read_label_rows follow __init__. Dropping
+    # those two names restores the previous receipt (134, 13012720...).
+    "SQLiteVNextStore": (136, "1d99dbaf69e4ea888ca7beb2389ac176650a2e573c067bf0686adc9e609132f5"),
 }
 
 
@@ -302,7 +317,7 @@ def test_memory_access_source_receipts_pin_sql_parameters_and_comments() -> None
     assert sqlite.count("user_id = ?") >= 20
     assert "Only compare vectors from the same endpoint fingerprint" in sqlite
     assert "resolve_project_scope" in sqlite_predicates
-    assert sqlite_predicates.count("create_function(") == 3
+    assert sqlite_predicates.count("create_function(") == 4
 
 
 def test_memory_access_methods_are_direct_grafts_in_native_backend_order() -> None:

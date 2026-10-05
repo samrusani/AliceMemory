@@ -9,6 +9,7 @@ import re
 from typing import Callable, Protocol, Sequence, cast
 
 from alicebot_api.vnext_derived_domain import derived_domain
+from alicebot_api.vnext_derived_labels import with_derived_from
 from alicebot_api.vnext_agent_control import resource_project_scope
 from alicebot_api.vnext_event_log import append_event
 from alicebot_api.vnext_model_intelligence import (
@@ -577,6 +578,10 @@ class VNextBrainService:
             prompt_hash = model_artifact.prompt_hash
             model_info_json = model_artifact.model_info
             metadata = {**metadata, **model_artifact.metadata}
+        metadata = with_derived_from(
+            metadata,
+            {"sources": sources, "memories": memories, "open_loops": open_loops, "artifacts": artifacts},
+        )
         artifact_payload: JsonObject = {
             "artifact_type": "daily_brief",
             "title": f"Daily Brief - {day.isoformat()}",
@@ -768,6 +773,10 @@ class VNextBrainService:
             prompt_hash = model_artifact.prompt_hash
             model_info_json = model_artifact.model_info
             metadata = {**metadata, **model_artifact.metadata}
+        metadata = with_derived_from(
+            metadata,
+            {"sources": sources, "memories": memories, "open_loops": open_loops, "artifacts": artifacts},
+        )
         artifact_payload: JsonObject = {
             "artifact_type": "weekly_synthesis",
             "title": f"Weekly Synthesis - {week_label}",
@@ -1016,6 +1025,10 @@ class VNextBrainService:
                     "workflow_digest": workflow_digest,
                 },
             }
+            loop_payload["metadata_json"] = with_derived_from(
+                cast(dict, loop_payload["metadata_json"]),
+                {"sources": [source]},
+            )
             if callable(upsert_open_loop):
                 loop = cast(Callable[..., JsonObject], upsert_open_loop)(
                     loop_payload,
@@ -1072,6 +1085,10 @@ class VNextBrainService:
                 "workflow_digest": workflow_digest,
             },
         }
+        memory_payload["metadata_json"] = with_derived_from(
+            cast(dict, memory_payload["metadata_json"]),
+            {"sources": sources, "memories": memories, "open_loops": open_loops},
+        )
         upsert_memory = getattr(self.store, "upsert_memory_by_key", None)
         if callable(upsert_memory):
             memory = cast(Callable[..., JsonObject], upsert_memory)(

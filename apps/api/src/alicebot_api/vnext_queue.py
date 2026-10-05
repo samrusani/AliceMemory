@@ -10,6 +10,7 @@ from alicebot_api.credential_floor import refuse_credential_material
 from alicebot_api.vnext_embeddings import DeferredMemoryEmbedding, attach_memory_embedding
 from alicebot_api.vnext_event_log import append_event
 from alicebot_api.vnext_agent_control import resource_project_scope
+from alicebot_api.vnext_derived_labels import with_derived_from
 from alicebot_api.vnext_project_update_guard import is_project_update_artifact
 from alicebot_api.vnext_repositories import JsonObject
 
@@ -471,11 +472,14 @@ class VNextQueueService:
                 "sensitivity": str(artifact.get("sensitivity") or "unknown"),
                 "project_id": scope[0] if len(scope) == 1 else None,
                 "source_event_ids": [],
-                "metadata_json": {
-                    "source_artifact_id": artifact_id,
-                    "project_scope": list(scope),
-                    "promotion_reviewed": True,
-                },
+                "metadata_json": with_derived_from(
+                    {
+                        "source_artifact_id": artifact_id,
+                        "project_scope": list(scope),
+                        "promotion_reviewed": True,
+                    },
+                    {"artifacts": [artifact]},
+                ),
             },
             actor_type=actor_type,
         )
