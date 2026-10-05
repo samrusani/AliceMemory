@@ -302,3 +302,15 @@ def test_depth_boundary_and_cache_are_independent_of_width() -> None:
     assert guard.effective_row("memory", within.rows[0])["unverified"] is False
     beyond = Chain(HOP_BOUND+1)
     assert LabelGuard(beyond, active=True).effective_row("memory", beyond.rows[0])["unverified"] is True
+
+
+def test_ambiguous_source_alias_blocks_locked_admin() -> None:
+    store = _LabelStore()
+    store.source["metadata_json"] = {"project_scope": ["prj_" + "b" * 16]}
+    twin = {**store.source, "id": "{" + SOURCE_ID + "}", "domain": "project", "sensitivity": "public", "metadata_json": {"project_scope": [ALPHA]}}
+    store.read_label_rows = lambda kind, ids: [store.source, twin] if kind == "source" else []
+    effective = LabelGuard(store, active=True).effective_row("artifact", store.artifact)
+    assert effective["unverified"] is True
+    identity = AgentIdentity(agent_id="locked-admin", permission_profile="admin", project_scope=(ALPHA,), project_scope_locked=True)
+    with pytest.raises(AgentPolicyBlockedError):
+        _vnext_authorized_artifact(store=store, identity=identity, artifact_id=ARTIFACT_ID, action="artifact.read", for_update=False)
