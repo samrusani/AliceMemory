@@ -261,7 +261,7 @@ def acquire_exclusive_label_lock(store: Any) -> None:
         finally:
             try:
                 cur.execute("SELECT set_config('lock_timeout', %s, true)", (str(previous),))
-            except Exception:
+            except Exception:  # nosec B110 # aborted transactions cannot restore local settings; rollback clears them
                 # A lock timeout aborts the transaction. Rollback drops the local setting.
                 pass
 
@@ -323,7 +323,7 @@ def _sqlite_dependants(store: Any, table: str, kind: str, compacts: Sequence[str
             SELECT id, user_id, domain, sensitivity, metadata_json{extra}
             FROM {table}
             WHERE user_id = ? AND ({text_clause}{value_sql}{column_sql})
-            """,
+            """,  # nosec B608 # internal literal table/columns; every external value is bound
         tuple(params),
     )
     for row in rows:
@@ -353,7 +353,7 @@ def _postgres_dependants(store: Any, table: str, kind: str, compacts: Sequence[s
             SELECT id::text AS id, user_id::text AS user_id, domain, sensitivity, metadata_json{extra}
             FROM {table}
             WHERE ({text_clause}{value_sql})
-            """,
+            """,  # nosec B608 # internal literal table/columns; every external value is bound
         tuple(params),
     )
     for row in rows:
@@ -439,7 +439,7 @@ def write_settled_label(
                 UPDATE {table}
                 SET domain = ?, sensitivity = ?, metadata_json = ?{project_sql}
                 WHERE id = ? AND user_id = ? AND domain = ? AND sensitivity = ?
-                """,
+                """,  # nosec B608 # table comes from the closed kind map; values are bound
             tuple(params),
         )
         require_changed(int(cursor.rowcount), table, str(row_id))
@@ -456,7 +456,7 @@ def write_settled_label(
             SET domain = %s, sensitivity = %s, metadata_json = %s::jsonb{project_sql}
             WHERE id = %s::uuid AND domain = %s AND sensitivity = %s
             RETURNING id
-            """,
+            """,  # nosec B608 # table comes from the closed kind map; values are bound
         tuple(params),
     )
 
