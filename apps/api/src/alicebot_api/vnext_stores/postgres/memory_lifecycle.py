@@ -204,6 +204,7 @@ def upsert_memory_by_key(self, memory: JsonObject, *, actor_type: str = "system"
             raise
         return existing
 
+@takes_label_lock
 def get_memory_for_update(self, memory_id: str) -> VNextRow | None:
     """Load and lock one memory for a review/lifecycle decision."""
     return self._fetch_optional_one(
@@ -217,6 +218,7 @@ def get_memory_for_update(self, memory_id: str) -> VNextRow | None:
         (memory_id,),
     )
 
+@takes_label_lock
 def get_memory_for_redaction(self, memory_id: str) -> VNextRow | None:
     """Lock a redaction target even after forget archived/tombstoned it."""
 
@@ -230,6 +232,7 @@ def get_memory_for_redaction(self, memory_id: str) -> VNextRow | None:
         (memory_id,),
     )
 
+@takes_label_lock
 def lock_project_update_artifacts_for_redaction(self, memory_id: str) -> list[VNextRow]:
     """Lock every artifact coupled to a candidate memory in UUID order."""
 
@@ -387,6 +390,7 @@ def list_memory_ids_with_embeddings(self, ids: "Sequence[str]") -> set[str]:
     )
     return {str(row["id"]) for row in rows}
 
+@takes_label_lock
 def update_memory_fact_keys(self, *, memory_id: str, fact_keys: str | None) -> VNextRow | None:
     """Store derived retrieval keys; the generated ``search_tsv`` column
         (migration ``20260707_0082``) re-indexes them at 'D' weight.
@@ -428,6 +432,7 @@ def list_memories_missing_fact_keys(self, *, limit: int = 100, after_id: str | N
 def update_memory(
     self, *, memory_id: str, patch: JsonObject, actor_type: str = "system", label_write: bool = False
 ) -> VNextRow:
+    before_label = self.get_memory(str(memory_id))
     refuse_updated_credential_activation(patch, lambda: self.get_memory(str(memory_id)))
     if "metadata_json" in patch and isinstance(patch.get("metadata_json"), dict):
         current = self._fetch_optional_one(
@@ -521,6 +526,10 @@ def update_memory(
         target_id=row["id"],
         payload={"operation": "update", "changes": patch},
     )
+    if not label_write:
+        from alicebot_api.vnext_label_writes import propagate_after_write
+
+        propagate_after_write(self, kind="memory", before=before_label, after=row)
     return row
 
 @contextmanager
@@ -541,6 +550,7 @@ def _redaction_mode(self) -> Iterator[None]:
             # (set_config assignments are transactional).
             pass
 
+@takes_label_lock
 def redact_memory_bundle(
     self,
     *,
@@ -914,6 +924,7 @@ def redact_memory_bundle(
         "idempotent_replay": not bundle_changed,
     }
 
+@takes_label_lock
 def redact_memory_content(self, *, memory_id: str, actor_type: str = "user") -> VNextRow:
     """Expunge a memory's content in place, keeping the skeleton.
 

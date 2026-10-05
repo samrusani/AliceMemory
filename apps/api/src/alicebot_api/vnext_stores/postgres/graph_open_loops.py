@@ -22,6 +22,7 @@ from alicebot_api.vnext_stores.postgres.primitives import (
     _json_object,
     _sorted_field_names,
 )
+from alicebot_api.vnext_label_writes import takes_label_lock
 from alicebot_api.vnext_stores.postgres.query_predicates import (
     _OPEN_LOOP_SCOPE_EVENT_TIME_SQL,
     _OPEN_LOOP_SCOPE_PEOPLE_SQL,
@@ -807,7 +808,11 @@ def update_belief_status(
     )
     return row
 
+@takes_label_lock
 def create_open_loop(self, loop: JsonObject, *, actor_type: str = "system") -> VNextRow:
+    from alicebot_api.vnext_label_writes import apply_insert_floor, remember_floor_event
+
+    loop, floor_event = apply_insert_floor(self, "open_loop", loop)
     row = self._fetch_one(
         "create_open_loop",
         f"""
@@ -885,6 +890,7 @@ def create_open_loop(self, loop: JsonObject, *, actor_type: str = "system") -> V
         target_id=row["id"],
         payload={"operation": "create", "fields": _sorted_field_names(loop)},
     )
+    remember_floor_event(self, floor_event, row["id"])
     return row
 
 def upsert_open_loop_by_automation_digest(
@@ -1198,6 +1204,7 @@ def list_open_loop_events(
         ),
     )
 
+@takes_label_lock
 def update_open_loop(self, *, loop_id: str, patch: JsonObject, actor_type: str = "system") -> VNextRow:
     row = self._fetch_one(
         "update_open_loop",
@@ -1238,6 +1245,7 @@ def update_open_loop(self, *, loop_id: str, patch: JsonObject, actor_type: str =
     )
     return row
 
+@takes_label_lock
 def update_open_loop_status(
     self,
     *,

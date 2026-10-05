@@ -30,6 +30,7 @@ from alicebot_api.vnext_stores.sqlite.primitives import (
     _utc_now_iso,
     _uuid_text,
 )
+from alicebot_api.vnext_label_writes import takes_label_lock
 from alicebot_api.vnext_stores.sqlite.query_predicates import (
     _project_scope_value_sqlite,
     CTE_MATERIALIZED_HINT,
@@ -518,7 +519,11 @@ def list_relationship_events(self, entity_id: str) -> list[VNextRow]:
         (str(entity_id), self.user_id),
     )
 
+@takes_label_lock
 def create_open_loop(self, loop: JsonObject, *, actor_type: str = "system") -> VNextRow:
+    from alicebot_api.vnext_label_writes import apply_insert_floor, remember_floor_event
+
+    loop, floor_event = apply_insert_floor(self, "open_loop", loop)
     loop_id = _new_id(loop.get("id"))
     now = _utc_now_iso()
     self._execute(
@@ -578,6 +583,7 @@ def create_open_loop(self, loop: JsonObject, *, actor_type: str = "system") -> V
         target_id=row["id"],
         payload={"operation": "create", "fields": _sorted_field_names(loop)},
     )
+    remember_floor_event(self, floor_event, row["id"])
     return row
 
 def upsert_open_loop_by_automation_digest(
@@ -969,6 +975,7 @@ def list_open_loop_events(
         tuple(params),
     )
 
+@takes_label_lock
 def update_open_loop(self, *, loop_id: str, patch: JsonObject, actor_type: str = "system") -> VNextRow:
     cursor = self._execute(
         """
@@ -1015,6 +1022,7 @@ def update_open_loop(self, *, loop_id: str, patch: JsonObject, actor_type: str =
     )
     return row
 
+@takes_label_lock
 def update_open_loop_status(
     self,
     *,

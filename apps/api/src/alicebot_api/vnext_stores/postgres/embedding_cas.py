@@ -15,6 +15,7 @@ from alicebot_api.vnext_embeddings import (
 from alicebot_api.vnext_recall_visibility import POSTGRES_UNEXPIRED_SQL
 from alicebot_api.vnext_repositories import JsonObject
 from alicebot_api.vnext_stores.postgres.columns import MEMORY_COLUMNS
+from alicebot_api.vnext_label_writes import takes_label_lock
 
 VNextRow = dict[str, object]
 
@@ -141,6 +142,7 @@ def _vector_literal(vector: list[float]) -> str:
     return "[" + ",".join(repr(value) for value in values) + "]"
 
 
+@takes_label_lock
 def update_memory_embedding(
     self,
     *,
@@ -202,6 +204,7 @@ def update_memory_embedding(
     )
 
 
+@takes_label_lock
 def clear_memory_embedding(self, *, memory_id: str) -> VNextRow | None:
     """Invalidate content-derived vector state before a text mutation.
 

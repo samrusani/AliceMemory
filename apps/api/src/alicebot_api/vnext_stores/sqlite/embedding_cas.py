@@ -21,6 +21,7 @@ from alicebot_api.vnext_embeddings import (
 from alicebot_api.vnext_stores.sqlite.columns import MEMORY_COLUMNS
 from alicebot_api.vnext_stores.sqlite.query_predicates import _expiry_clause
 from alicebot_api.vnext_stores.sqlite.vector_scan import bump_embedding_stamp
+from alicebot_api.vnext_label_writes import takes_label_lock
 
 VNextRow = dict[str, object]
 
@@ -126,6 +127,7 @@ def _ensure_embedding_input_cut_sqlite(conn: sqlite3.Connection) -> None:
     )
 
 
+@takes_label_lock
 def update_memory_embedding(
     self,
     *,
@@ -210,6 +212,7 @@ def update_memory_embedding(
     )
 
 
+@takes_label_lock
 def clear_memory_embedding(self, *, memory_id: str) -> VNextRow | None:
     """Invalidate an embedding derived from text that is about to change."""
     if not self.conn.in_transaction:

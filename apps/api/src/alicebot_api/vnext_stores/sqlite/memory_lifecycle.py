@@ -298,6 +298,7 @@ def memory_redaction_bundle_is_exact(self, memory_id: str, artifact_ids: Sequenc
 def update_memory(
     self, *, memory_id: str, patch: JsonObject, actor_type: str = "system", label_write: bool = False
 ) -> VNextRow:
+    before_label = self.get_memory(str(memory_id))
     refuse_updated_credential_activation(patch, lambda: self.get_memory(str(memory_id)))
     patch = _with_protected_metadata(self, memory_id, patch, label_write=label_write)
     # One clock reading for the write: an archive sets ``updated_at`` and ``deleted_at`` together.
@@ -388,6 +389,10 @@ def update_memory(
         target_id=row["id"],
         payload={"operation": "update", "changes": patch},
     )
+    if not label_write:
+        from alicebot_api.vnext_label_writes import propagate_after_write
+
+        propagate_after_write(self, kind="memory", before=before_label, after=row)
     return row
 
 def lock_graph_mutation(self) -> None:
@@ -424,6 +429,7 @@ def list_memory_ids_with_embeddings(self, ids: "Sequence[str]") -> set[str]:
         present.update(str(row["id"]) for row in rows)
     return present
 
+@takes_label_lock
 def update_memory_fact_keys(self, *, memory_id: str, fact_keys: str | None) -> VNextRow | None:
     """Store derived retrieval keys; the FTS sync triggers re-index them.
 
@@ -481,6 +487,7 @@ def _redaction_mode(self) -> Iterator[None]:
     finally:
         self._execute("UPDATE redaction_mode SET enabled = 0 WHERE id = 1")
 
+@takes_label_lock
 def redact_memory_bundle(
     self,
     *,
@@ -720,6 +727,7 @@ def redact_memory_bundle(
         "idempotent_replay": not changed,
     }
 
+@takes_label_lock
 def redact_memory_content(self, *, memory_id: str, actor_type: str = "user") -> VNextRow:
     """Expunge a memory's content in place, keeping the skeleton.
 

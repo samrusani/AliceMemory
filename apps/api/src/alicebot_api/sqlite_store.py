@@ -23,6 +23,8 @@ from __future__ import annotations
 import itertools
 import json
 import sqlite3
+
+from alicebot_api.vnext_label_writes import takes_label_lock
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from datetime import datetime
@@ -705,6 +707,7 @@ class SQLiteVNextStore:
     source_inventory = _source_inventory
     prunable_sources = _prunable_sources
 
+    @takes_label_lock
     def create_source(self, source: JsonObject, *, actor_type: str = "system") -> VNextRow:
         source_id = _new_id(source.get("id"))
         self._execute(
@@ -763,6 +766,7 @@ class SQLiteVNextStore:
     create_browser_clip_capability = _browser_clip_create_capability
     consume_browser_clip_capability = _browser_clip_consume_capability
 
+    @takes_label_lock
     def get_or_create_source(
         self,
         source: JsonObject,
@@ -915,6 +919,7 @@ class SQLiteVNextStore:
             (dedupe_key, self.user_id),
         )
 
+    @takes_label_lock
     def update_source(
         self,
         *,
@@ -1020,6 +1025,9 @@ class SQLiteVNextStore:
             target_id=row["id"],
             payload={"operation": "update", "changes": patch},
         )
+        from alicebot_api.vnext_label_writes import propagate_after_write
+
+        propagate_after_write(self, kind="source", before=current, after=row)
         return row
 
     def create_source_chunk(self, chunk: JsonObject, *, actor_type: str = "system") -> VNextRow:

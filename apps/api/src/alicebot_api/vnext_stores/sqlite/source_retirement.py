@@ -21,6 +21,7 @@ from alicebot_api.vnext_stores.sqlite.open_loop_source_reference import (
     open_loop_source_reference_params,
 )
 from alicebot_api.vnext_stores.sqlite.primitives import _utc_now_iso
+from alicebot_api.vnext_label_writes import takes_label_lock
 
 REMOVAL_MARKER = "[removed by the owner]"
 
@@ -395,6 +396,7 @@ def retire_dependents(self, source_id, *, now, scrub_candidates=False, citing_id
             'memories_citing_replaced': retained}
 
 
+@takes_label_lock
 def supersede_source(self, source_id, *, superseded_by, allow_looser_classification=False, dry_run=False):
     with self.savepoint():
         old = self.get_source(source_id)
@@ -413,6 +415,10 @@ def supersede_source(self, source_id, *, superseded_by, allow_looser_classificat
         # The sidecar goes first. A later rollback may lose proposals, which
         # can be generated again, but cannot leave retired evidence in it.
         prune_sleep_rows(self, {source_id}, dry_run=dry_run)
+        if not dry_run:
+            from alicebot_api.vnext_label_writes import raise_source_to_replacement
+
+            raise_source_to_replacement(self, old, new)
         counts = retire_dependents(self, source_id, now=now)
         metadata = {**old['metadata_json'], 'superseded_by': superseded_by,
                     'superseded_at': now, 'supersede_reason': 'markdown_reimport'}
@@ -476,6 +482,7 @@ def optimize_scrub_indexes(self):
     self._execute("INSERT INTO memories_fts(memories_fts) VALUES('optimize')")
 
 
+@takes_label_lock
 def scrub_source(self, source_id, *, optimize=True, citing_ids=None):
     with self.savepoint():
         self._execute("PRAGMA secure_delete=ON")

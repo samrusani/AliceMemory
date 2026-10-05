@@ -116,6 +116,7 @@ class VNextSourceReviewRequest(VNextAgentRequest):
     sensitivity: VNextSensitivity | None = None
     project_id: str | None = Field(default=None, min_length=1, max_length=120)
     review_note: str | None = Field(default=None, min_length=1, max_length=4000)
+    confirm_label_hide: bool = False
 
 
 class VNextConnectorSyncRequest(VNextAgentRequest):
@@ -765,6 +766,12 @@ def review_vnext_source(source_id: UUID, request: VNextSourceReviewRequest) -> J
     try:
         with user_connection(settings.database_url, request.user_id) as conn:
             store = PostgresVNextStore(conn)
+            label_change = request.domain is not None or request.sensitivity is not None or request.project_id is not None
+            if label_change:
+                store.lock_graph_mutation()
+                from alicebot_api.vnext_label_writes import acquire_exclusive_label_lock
+
+                acquire_exclusive_label_lock(store)
             existing = store.get_source(str(source_id))
             if existing is None:
                 return _vnext_public_error_response(status_code=404, detail="vNext source was not found")
@@ -812,6 +819,19 @@ def review_vnext_source(source_id: UUID, request: VNextSourceReviewRequest) -> J
                 patch["domain"] = request.domain
             if request.sensitivity is not None:
                 patch["sensitivity"] = request.sensitivity
+            if action == "assign_project" and request.project_id is not None:
+                from alicebot_api.vnext_label_writes import count_rows_hidden_by_scope_move
+
+                hidden = count_rows_hidden_by_scope_move(store, existing, [request.project_id])
+                if hidden and not request.confirm_label_hide:
+                    return JSONResponse(
+                        status_code=200,
+                        content={
+                            "preview": True,
+                            "derived_rows_hidden_from_project_keys": hidden,
+                            "confirm_required": True,
+                        },
+                    )
             updated = store.update_source(source_id=str(source_id), patch=patch, actor_type="user")
             if action == "assign_project":
                 store.create_edge(
@@ -846,6 +866,15 @@ def review_vnext_source(source_id: UUID, request: VNextSourceReviewRequest) -> J
             )
     except ContinuityStoreInvariantError as exc:
         return public_exception_response(exc, status_code=409)
+    except Exception as exc:
+        from alicebot_api.vnext_label_writes import label_error_response
+
+        mapped = label_error_response(exc)
+        if mapped is None:
+            raise
+        status, detail, retry_after = mapped
+        headers = {"Retry-After": retry_after} if retry_after else None
+        return JSONResponse(status_code=status, content={"detail": detail}, headers=headers)
 
     return JSONResponse(
         status_code=200, content=jsonable_encoder({"source": updated, "archived": False, "trace": trace})
@@ -972,300 +1001,321 @@ def review_vnext_memory(
             ),
         )
 
-    with user_connection(settings.database_url, request.user_id) as conn:
-        store = PostgresVNextStore(conn)
-        memory_service = VNextMemoryCommitService(store, defer_embeddings=True)
-        # Review can promote a consolidation candidate or mutate a member
-        # referenced by pending derived work. Establish the shared per-user
-        # graph boundary before the route takes any candidate/member row lock;
-        # delegated service calls may safely reacquire the transaction lock.
-        memory_service.lock_supersession_graph()
-        preview = store.get_memory(str(memory_id))
-        if preview is None:
-            return _vnext_public_error_response(status_code=404, detail="vNext memory was not found")
-        # Delegate consolidation approval before this adapter takes a row lock.
-        # The service reacquires the already-held transaction advisory lock
-        # (non-blocking/re-entrant) and then owns all candidate/member locks.
-        if is_pending_consolidation_candidate(preview):
-            if action == "edit" or any(
-                value is not None
-                for value in (
-                    request.title,
-                    request.canonical_text,
-                    request.summary,
-                    request.domain,
-                    request.sensitivity,
-                    request.project_id,
-                )
-            ):
-                return _vnext_public_error_response(
-                    status_code=400,
-                    detail=(
-                        "pending consolidation candidates cannot be edited during approval; "
-                        "regenerate the candidate or accept it unchanged"
-                    ),
-                )
-            if action in {"accept", "promote"}:
-                return _vnext_public_error_response(
-                    status_code=409,
-                    detail="vNext memory became a consolidation candidate during review; retry the approval",
-                )
-        get_memory_for_update = getattr(store, "get_memory_for_update", None)
-        existing = (
-            get_memory_for_update(str(memory_id))
-            if callable(get_memory_for_update)
-            else store.get_memory(str(memory_id))
-        )
-        if existing is None:
-            return _vnext_public_error_response(status_code=404, detail="vNext memory was not found")
-        # Re-authorize the locked record so a concurrent reassignment cannot
-        # move it outside the bound agent project between the first check and
-        # this mutation.
-        locked_scope = resource_project_scope(existing)
-        if action == "assign_project" and request.project_id is not None:
-            locked_scope = tuple(dict.fromkeys((*locked_scope, request.project_id)))
-        locked_decision = _vnext_policy_checked(
-            store=store,
-            identity=identity,
-            action="memory.review",
-            domains=(str(existing.get("domain") or "unknown"),),
-            sensitivity_allowed=(str(existing.get("sensitivity") or "unknown"),),
-            project_scope=locked_scope,
-            target_type="memory",
-            target_id=str(memory_id),
-            require_explicit_project_scope=True,
-        )
-        if locked_decision.decision == "blocked":
-            return _vnext_permission_response(locked_decision)
-        if str(existing.get("status") or "") in {"archived", "rejected", "superseded"}:
-            return _vnext_public_error_response(
-                status_code=409,
-                detail=f"vNext memory cannot be reviewed from status '{existing.get('status')}'",
+    try:
+        with user_connection(settings.database_url, request.user_id) as conn:
+            store = PostgresVNextStore(conn)
+            memory_service = VNextMemoryCommitService(store, defer_embeddings=True)
+            # Review can promote a consolidation candidate or mutate a member
+            # referenced by pending derived work. Establish the shared per-user
+            # graph boundary before the route takes any candidate/member row lock;
+            # delegated service calls may safely reacquire the transaction lock.
+            memory_service.lock_supersession_graph()
+            label_change = (
+                request.domain is not None
+                or request.sensitivity is not None
+                or request.project_id is not None
+                or action in {"private", "assign_project"}
             )
-        if is_pending_consolidation_candidate(existing):
-            if action == "edit" or any(
-                value is not None
-                for value in (
-                    request.title,
-                    request.canonical_text,
-                    request.summary,
-                    request.domain,
-                    request.sensitivity,
-                    request.project_id,
-                )
-            ):
-                return _vnext_public_error_response(
-                    status_code=400,
-                    detail=(
-                        "pending consolidation candidates cannot be edited during approval; "
-                        "regenerate the candidate or accept it unchanged"
-                    ),
-                )
-            if action in {"accept", "promote"}:
-                return _vnext_public_error_response(
-                    status_code=409,
-                    detail="vNext memory became a consolidation candidate during review; retry the approval",
-                )
-        if is_pending_project_update_memory(existing):
-            return _vnext_public_error_response(
-                status_code=409,
-                detail=PENDING_PROJECT_UPDATE_MEMORY_MUTATION_MESSAGE,
+            if label_change:
+                from alicebot_api.vnext_label_writes import acquire_exclusive_label_lock
+
+                acquire_exclusive_label_lock(store)
+            preview = store.get_memory(str(memory_id))
+            if preview is None:
+                return _vnext_public_error_response(status_code=404, detail="vNext memory was not found")
+            # Delegate consolidation approval before this adapter takes a row lock.
+            # The service reacquires the already-held transaction advisory lock
+            # (non-blocking/re-entrant) and then owns all candidate/member locks.
+            if is_pending_consolidation_candidate(preview):
+                if action == "edit" or any(
+                    value is not None
+                    for value in (
+                        request.title,
+                        request.canonical_text,
+                        request.summary,
+                        request.domain,
+                        request.sensitivity,
+                        request.project_id,
+                    )
+                ):
+                    return _vnext_public_error_response(
+                        status_code=400,
+                        detail=(
+                            "pending consolidation candidates cannot be edited during approval; "
+                            "regenerate the candidate or accept it unchanged"
+                        ),
+                    )
+                if action in {"accept", "promote"}:
+                    return _vnext_public_error_response(
+                        status_code=409,
+                        detail="vNext memory became a consolidation candidate during review; retry the approval",
+                    )
+            get_memory_for_update = getattr(store, "get_memory_for_update", None)
+            existing = (
+                get_memory_for_update(str(memory_id))
+                if callable(get_memory_for_update)
+                else store.get_memory(str(memory_id))
             )
-
-        existing_metadata_value = existing.get("metadata_json")
-        existing_metadata: dict[str, object] = (
-            existing_metadata_value if isinstance(existing_metadata_value, dict) else {}
-        )
-        reviewed_at = datetime.now(UTC).isoformat()
-        patch: dict[str, object] = {
-            "last_reviewed_at": reviewed_at,
-        }
-        revision_type = "edited"
-        if action == "accept":
-            patch["status"] = "active"
-            revision_type = "promoted"
-        elif action == "reject":
-            patch["status"] = "rejected"
-            patch["metadata_json"] = _vnext_terminal_review_metadata(
-                existing_metadata,
-                outcome="rejected",
-                terminal_at=reviewed_at,
-            )
-            revision_type = "rejected"
-        elif action == "private":
-            patch["status"] = "private_only"
-            patch["sensitivity"] = "private"
-        elif action == "promote":
-            patch["status"] = "active"
-            patch["confirmation_status"] = "confirmed"
-            revision_type = "promoted"
-        elif action == "assign_project":
-            if request.project_id is None:
-                return _vnext_public_error_response(status_code=400, detail="project_id is required")
-            # Keep every current scope representation in the same UPDATE.  A
-            # metadata-only project_id write leaves an older project_scope in
-            # place, and canonical retrieval correctly gives that array
-            # precedence over the legacy singular fallback.
-            patch["project_id"] = request.project_id
-            patch["metadata_json"] = {
-                **existing_metadata,
-                "project_id": request.project_id,
-                "project_scope": [request.project_id],
-                "assigned_from": "vnext_workspace",
-            }
-        else:
-            patch["status"] = "active"
-
-        if action in {"accept", "edit", "promote"}:
-            patch.update(
-                {
-                    "confirmation_status": "confirmed",
-                    "last_confirmed_at": reviewed_at,
-                    "metadata_json": _vnext_terminal_review_metadata(
-                        existing_metadata,
-                        outcome="confirmed",
-                        terminal_at=reviewed_at,
-                    ),
-                }
-            )
-
-        if request.title is not None:
-            patch["title"] = request.title
-        if request.canonical_text is not None:
-            patch["canonical_text"] = request.canonical_text
-            existing_value = existing.get("value")
-            patch["value"] = {
-                **(existing_value if isinstance(existing_value, dict) else {}),
-                "text": request.canonical_text,
-            }
-            # Capture-generated title/summary are denormalized views of the
-            # canonical text.  Editing only the body must not leave those
-            # user-visible fields describing the pre-edit value.
-            if request.title is None:
-                patch["title"] = (
-                    request.canonical_text
-                    if len(request.canonical_text) <= 120
-                    else request.canonical_text[:117].rstrip() + "..."
-                )
-            if request.summary is None:
-                patch["summary"] = (
-                    request.canonical_text
-                    if len(request.canonical_text) <= 280
-                    else request.canonical_text[:277].rstrip() + "..."
-                )
-        if request.summary is not None:
-            patch["summary"] = request.summary
-        if request.domain is not None:
-            patch["domain"] = request.domain
-        if request.sensitivity is not None:
-            patch["sensitivity"] = request.sensitivity
-
-        # The credential floor, on the row as it will be stored. This route
-        # writes the row itself rather than through a service method, so it
-        # calls the shared checks here. Until 2026-09-22 an edit rewrote
-        # title, text and summary with no credential check. A title-only edit
-        # is read against the stored body, because that is the row a reader
-        # will see; derived previews of the text are left out.
-        #
-        # accept, promote and edit move the row into a searchable status, so
-        # they take the shared activation check over the row and the reason
-        # (ruling C2). A reject always completes (ruling C6): a reason, or
-        # edited text, that carries credential material is stored as a fixed
-        # placeholder and the response says so. private and assign_project
-        # keep the plain check.
-        text_edit = any(value is not None for value in (request.title, request.canonical_text, request.summary))
-        stored_title = patch.get("title", existing.get("title"))
-        stored_text = patch.get("canonical_text", existing.get("canonical_text"))
-        stored_summary = patch.get("summary", existing.get("summary"))
-        review_reason = request.reason
-        rationale_withheld = False
-        text_withheld = False
-        if action == "reject":
-            review_reason, rationale_withheld = withhold_credential_text(request.reason)
-            if text_edit and carries_credential_material(request.title, request.canonical_text, request.summary):
-                for text_field in ("title", "canonical_text", "summary"):
-                    if text_field in patch:
-                        patch[text_field] = TEXT_WITHHELD_PLACEHOLDER
-                edited_value = patch.get("value")
-                if isinstance(edited_value, dict):
-                    patch["value"] = {**edited_value, "text": TEXT_WITHHELD_PLACEHOLDER}
-                text_withheld = True
-        elif patch.get("status") in SEARCHABLE_STATUSES:
-            try:
-                refuse_credential_activation(stored_title, stored_text, stored_summary, request.reason)
-            except CredentialActivationRefused:
-                return _vnext_public_error_response(
-                    status_code=400, detail="vNext memory review text carries credential material"
-                )
-        else:
-            review_fields: tuple[object, ...] = (request.reason,)
-            if text_edit:
-                review_fields = (*stored_text_fields(stored_title, stored_text, stored_summary), request.reason)
-            if carries_credential_material(*review_fields):
-                return _vnext_public_error_response(
-                    status_code=400, detail="vNext memory review text carries credential material"
-                )
-
-        updated = store.update_memory(memory_id=str(memory_id), patch=patch, actor_type=actor_type)
-        if action in ("accept", "edit", "promote"):
-            memory_service.refresh_memory_derived_state(
-                updated,
+            if existing is None:
+                return _vnext_public_error_response(status_code=404, detail="vNext memory was not found")
+            # Re-authorize the locked record so a concurrent reassignment cannot
+            # move it outside the bound agent project between the first check and
+            # this mutation.
+            locked_scope = resource_project_scope(existing)
+            if action == "assign_project" and request.project_id is not None:
+                locked_scope = tuple(dict.fromkeys((*locked_scope, request.project_id)))
+            locked_decision = _vnext_policy_checked(
+                store=store,
                 identity=identity,
-                stage=f"http_review_{action}",
+                action="memory.review",
+                domains=(str(existing.get("domain") or "unknown"),),
+                sensitivity_allowed=(str(existing.get("sensitivity") or "unknown"),),
+                project_scope=locked_scope,
+                target_type="memory",
+                target_id=str(memory_id),
+                require_explicit_project_scope=True,
             )
-        if action == "assign_project" and request.project_id is not None:
-            store.create_edge(
+            if locked_decision.decision == "blocked":
+                return _vnext_permission_response(locked_decision)
+            if str(existing.get("status") or "") in {"archived", "rejected", "superseded"}:
+                return _vnext_public_error_response(
+                    status_code=409,
+                    detail=f"vNext memory cannot be reviewed from status '{existing.get('status')}'",
+                )
+            if is_pending_consolidation_candidate(existing):
+                if action == "edit" or any(
+                    value is not None
+                    for value in (
+                        request.title,
+                        request.canonical_text,
+                        request.summary,
+                        request.domain,
+                        request.sensitivity,
+                        request.project_id,
+                    )
+                ):
+                    return _vnext_public_error_response(
+                        status_code=400,
+                        detail=(
+                            "pending consolidation candidates cannot be edited during approval; "
+                            "regenerate the candidate or accept it unchanged"
+                        ),
+                    )
+                if action in {"accept", "promote"}:
+                    return _vnext_public_error_response(
+                        status_code=409,
+                        detail="vNext memory became a consolidation candidate during review; retry the approval",
+                    )
+            if is_pending_project_update_memory(existing):
+                return _vnext_public_error_response(
+                    status_code=409,
+                    detail=PENDING_PROJECT_UPDATE_MEMORY_MUTATION_MESSAGE,
+                )
+
+            existing_metadata_value = existing.get("metadata_json")
+            existing_metadata: dict[str, object] = (
+                existing_metadata_value if isinstance(existing_metadata_value, dict) else {}
+            )
+            reviewed_at = datetime.now(UTC).isoformat()
+            patch: dict[str, object] = {
+                "last_reviewed_at": reviewed_at,
+            }
+            revision_type = "edited"
+            if action == "accept":
+                patch["status"] = "active"
+                revision_type = "promoted"
+            elif action == "reject":
+                patch["status"] = "rejected"
+                patch["metadata_json"] = _vnext_terminal_review_metadata(
+                    existing_metadata,
+                    outcome="rejected",
+                    terminal_at=reviewed_at,
+                )
+                revision_type = "rejected"
+            elif action == "private":
+                patch["status"] = "private_only"
+                patch["sensitivity"] = "private"
+            elif action == "promote":
+                patch["status"] = "active"
+                patch["confirmation_status"] = "confirmed"
+                revision_type = "promoted"
+            elif action == "assign_project":
+                if request.project_id is None:
+                    return _vnext_public_error_response(status_code=400, detail="project_id is required")
+                # Keep every current scope representation in the same UPDATE.  A
+                # metadata-only project_id write leaves an older project_scope in
+                # place, and canonical retrieval correctly gives that array
+                # precedence over the legacy singular fallback.
+                patch["project_id"] = request.project_id
+                patch["metadata_json"] = {
+                    **existing_metadata,
+                    "project_id": request.project_id,
+                    "project_scope": [request.project_id],
+                    "assigned_from": "vnext_workspace",
+                }
+            else:
+                patch["status"] = "active"
+
+            if action in {"accept", "edit", "promote"}:
+                patch.update(
+                    {
+                        "confirmation_status": "confirmed",
+                        "last_confirmed_at": reviewed_at,
+                        "metadata_json": _vnext_terminal_review_metadata(
+                            existing_metadata,
+                            outcome="confirmed",
+                            terminal_at=reviewed_at,
+                        ),
+                    }
+                )
+
+            if request.title is not None:
+                patch["title"] = request.title
+            if request.canonical_text is not None:
+                patch["canonical_text"] = request.canonical_text
+                existing_value = existing.get("value")
+                patch["value"] = {
+                    **(existing_value if isinstance(existing_value, dict) else {}),
+                    "text": request.canonical_text,
+                }
+                # Capture-generated title/summary are denormalized views of the
+                # canonical text.  Editing only the body must not leave those
+                # user-visible fields describing the pre-edit value.
+                if request.title is None:
+                    patch["title"] = (
+                        request.canonical_text
+                        if len(request.canonical_text) <= 120
+                        else request.canonical_text[:117].rstrip() + "..."
+                    )
+                if request.summary is None:
+                    patch["summary"] = (
+                        request.canonical_text
+                        if len(request.canonical_text) <= 280
+                        else request.canonical_text[:277].rstrip() + "..."
+                    )
+            if request.summary is not None:
+                patch["summary"] = request.summary
+            if request.domain is not None:
+                patch["domain"] = request.domain
+            if request.sensitivity is not None:
+                patch["sensitivity"] = request.sensitivity
+
+            # The credential floor, on the row as it will be stored. This route
+            # writes the row itself rather than through a service method, so it
+            # calls the shared checks here. Until 2026-09-22 an edit rewrote
+            # title, text and summary with no credential check. A title-only edit
+            # is read against the stored body, because that is the row a reader
+            # will see; derived previews of the text are left out.
+            #
+            # accept, promote and edit move the row into a searchable status, so
+            # they take the shared activation check over the row and the reason
+            # (ruling C2). A reject always completes (ruling C6): a reason, or
+            # edited text, that carries credential material is stored as a fixed
+            # placeholder and the response says so. private and assign_project
+            # keep the plain check.
+            text_edit = any(value is not None for value in (request.title, request.canonical_text, request.summary))
+            stored_title = patch.get("title", existing.get("title"))
+            stored_text = patch.get("canonical_text", existing.get("canonical_text"))
+            stored_summary = patch.get("summary", existing.get("summary"))
+            review_reason = request.reason
+            rationale_withheld = False
+            text_withheld = False
+            if action == "reject":
+                review_reason, rationale_withheld = withhold_credential_text(request.reason)
+                if text_edit and carries_credential_material(request.title, request.canonical_text, request.summary):
+                    for text_field in ("title", "canonical_text", "summary"):
+                        if text_field in patch:
+                            patch[text_field] = TEXT_WITHHELD_PLACEHOLDER
+                    edited_value = patch.get("value")
+                    if isinstance(edited_value, dict):
+                        patch["value"] = {**edited_value, "text": TEXT_WITHHELD_PLACEHOLDER}
+                    text_withheld = True
+            elif patch.get("status") in SEARCHABLE_STATUSES:
+                try:
+                    refuse_credential_activation(stored_title, stored_text, stored_summary, request.reason)
+                except CredentialActivationRefused:
+                    return _vnext_public_error_response(
+                        status_code=400, detail="vNext memory review text carries credential material"
+                    )
+            else:
+                review_fields: tuple[object, ...] = (request.reason,)
+                if text_edit:
+                    review_fields = (*stored_text_fields(stored_title, stored_text, stored_summary), request.reason)
+                if carries_credential_material(*review_fields):
+                    return _vnext_public_error_response(
+                        status_code=400, detail="vNext memory review text carries credential material"
+                    )
+
+            updated = store.update_memory(memory_id=str(memory_id), patch=patch, actor_type=actor_type)
+            if action in ("accept", "edit", "promote"):
+                memory_service.refresh_memory_derived_state(
+                    updated,
+                    identity=identity,
+                    stage=f"http_review_{action}",
+                )
+            if action == "assign_project" and request.project_id is not None:
+                store.create_edge(
+                    {
+                        "from_type": "memory",
+                        "from_id": str(memory_id),
+                        "to_type": "project",
+                        "to_id": request.project_id,
+                        "edge_type": "belongs_to_project",
+                        "confidence": 1.0,
+                        "explanation": "Assigned from live /vnext memory review.",
+                        "created_by": "user",
+                        "metadata_json": {"review_action": action},
+                    },
+                    actor_type=actor_type,
+                )
+            store.append_revision(
                 {
-                    "from_type": "memory",
-                    "from_id": str(memory_id),
-                    "to_type": "project",
-                    "to_id": request.project_id,
-                    "edge_type": "belongs_to_project",
-                    "confidence": 1.0,
-                    "explanation": "Assigned from live /vnext memory review.",
-                    "created_by": "user",
-                    "metadata_json": {"review_action": action},
+                    "memory_id": str(memory_id),
+                    "memory_key": str(updated["memory_key"]),
+                    "previous_value": existing.get("value"),
+                    "new_value": updated.get("value"),
+                    "source_event_ids": updated.get("source_event_ids"),
+                    "revision_type": revision_type,
+                    "action": f"memory_review_{action}",
+                    "text_before": existing.get("canonical_text"),
+                    "text_after": str(updated.get("canonical_text", "")),
+                    "reason": review_reason or f"vNext workspace memory review action: {action}",
+                    "actor_type": actor_type,
+                    "actor_id": actor_id,
+                    "metadata_json": {"action": action, "project_id": request.project_id},
                 },
                 actor_type=actor_type,
             )
-        store.append_revision(
-            {
-                "memory_id": str(memory_id),
-                "memory_key": str(updated["memory_key"]),
-                "previous_value": existing.get("value"),
-                "new_value": updated.get("value"),
-                "source_event_ids": updated.get("source_event_ids"),
-                "revision_type": revision_type,
-                "action": f"memory_review_{action}",
-                "text_before": existing.get("canonical_text"),
-                "text_after": str(updated.get("canonical_text", "")),
-                "reason": review_reason or f"vNext workspace memory review action: {action}",
-                "actor_type": actor_type,
-                "actor_id": actor_id,
-                "metadata_json": {"action": action, "project_id": request.project_id},
-            },
-            actor_type=actor_type,
-        )
-        review_event = {
-            "accept": "review.item_accepted",
-            "promote": "review.item_accepted",
-            "reject": "review.item_rejected",
-            "edit": "review.item_edited",
-            "private": "review.item_edited",
-            "assign_project": "review.item_edited",
-        }[action]
-        append_event(
-            store,
-            event_type=review_event,
-            actor_type=actor_type,
-            actor_id=actor_id,
-            target_type="memory",
-            target_id=str(memory_id),
-            payload={"action": action, "project_id": request.project_id},
-        )
-        # The row this route hands back is held to the caller's read fence: a memory that cites an archived source (or
-        # one above the caller's ceiling) is not returned with the quote it saved.
-        updated = SavedProvenanceReader(store, fence=SourceReadFence.for_identity(identity)).memory(updated)
+            review_event = {
+                "accept": "review.item_accepted",
+                "promote": "review.item_accepted",
+                "reject": "review.item_rejected",
+                "edit": "review.item_edited",
+                "private": "review.item_edited",
+                "assign_project": "review.item_edited",
+            }[action]
+            append_event(
+                store,
+                event_type=review_event,
+                actor_type=actor_type,
+                actor_id=actor_id,
+                target_type="memory",
+                target_id=str(memory_id),
+                payload={"action": action, "project_id": request.project_id},
+            )
+            # The row this route hands back is held to the caller's read fence: a memory that cites an archived source (or
+            # one above the caller's ceiling) is not returned with the quote it saved.
+            updated = SavedProvenanceReader(store, fence=SourceReadFence.for_identity(identity)).memory(updated)
+
+    except Exception as exc:
+        from alicebot_api.vnext_label_writes import label_error_response
+
+        mapped = label_error_response(exc)
+        if mapped is None:
+            raise
+        status, detail, retry_after = mapped
+        headers = {"Retry-After": retry_after} if retry_after else None
+        return JSONResponse(status_code=status, content={"detail": detail}, headers=headers)
 
     _persist_vnext_deferred_embeddings(
         database_url=settings.database_url,

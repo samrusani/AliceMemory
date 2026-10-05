@@ -10,6 +10,7 @@ from alicebot_api.vnext_event_log import build_event_log_record
 from alicebot_api.vnext_repositories import JsonObject
 from alicebot_api.vnext_stores.postgres.columns import EVENT_LOG_COLUMNS, REVISION_COLUMNS
 from alicebot_api.vnext_stores.postgres.primitives import _json_list, _json_object, _json_safe
+from alicebot_api.vnext_label_writes import takes_label_lock
 
 VNextRow = dict[str, object]
 
@@ -282,6 +283,7 @@ def count_events(
     return int(cast(int, row["count"]))
 
 
+@takes_label_lock
 def append_revision(self, revision: JsonObject, *, actor_type: str = "system") -> VNextRow:
     row = self._fetch_one(
         "append_revision",

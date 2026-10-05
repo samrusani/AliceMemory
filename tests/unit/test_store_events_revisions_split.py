@@ -50,7 +50,7 @@ EXPECTED_METHOD_AST_SHA256 = {
         "list_events_for_source_trace": "20f22e3b75c3612c02c4242bc973295b2535b01f95e5451a0a0bff1196f187c3",
         "list_project_update_events": "2bd457ee19535f203da5c31e557387f7717fefc27cbef2c546a62bbad74962d3",
         "count_events": "e740e4b09ecfda973ef6b84acd0ea808b26d118faf6984e4057d7e104e595fb5",
-        "append_revision": "a243976fc27fa6e7ae33c15169d407902e3258b842300df4705629e443a75740",
+        "append_revision": "6070b96a01a50072e4e898bfb64ddbbf253be0478fe63205f760d0fe016a109a",
         "list_revisions": "10a485935b59bda1fcb33b36ba48b8d86376b9fd180bf9ebf6358b5dfbd24f55",
     },
     "sqlite": {
@@ -148,14 +148,15 @@ EXPECTED_CLASS_KEY_SHA256 = {
     # Re-minted for the per-file importer savepoint (2026-10-02): ``savepoint`` is appended last on both façades.
     # Previous receipt: 650e2e0ff088d67c... Proof: the class key list equals the list at origin/main 040a2a10
     # plus ``savepoint`` before ``__dict__``, with every other key in the same order.
-    "postgres": "3d2cd1d2fbb766ea4b5f9bf700fe6c0ccdc5fea9705092f82ead06c3ab635e50",
+    "postgres": "dda7be1a316b3c525195f4682a608d0bab24b57f635db2a7aebc0c7ea187fc68",
     # Re-minted for the merge of #500 and #502: ``check_literal_match_query``.
     # Re-minted again for per-project memory S2 (2026-10-02): the two single-scan partition reads
     # ``list_memories_view_partitions`` and ``list_open_loops_view_partitions``, SQLite only on purpose
     # (the Postgres runtime resolves no project view).
     # Re-minted again for the per-file importer savepoint (2026-10-02), the same appended method.
     # Previous receipt: 365b7a01acf7a8b5... Proof: as for postgres, one added key and no other change.
-    "sqlite": "65301a20344d20bd6e20e6717f1f3db3fd4b16611964425d1d3f98736326f393",
+    # Re-minted for the derived-label lock: ``lock_label_writes`` and ``read_label_rows`` on both facades.
+    "sqlite": "3212a93f2011cecddb6b0002a3f9b3abe37819d3582b2a1173846871981a5ff9",
 }
 EXPECTED_SUPPORT_AST_SHA256 = {
     "postgres_columns": {

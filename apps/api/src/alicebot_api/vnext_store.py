@@ -23,6 +23,7 @@ from alicebot_api.vnext_embeddings import (
 )
 from alicebot_api.vnext_entity_names import ENTITY_IMMUTABLE_PATCH_FIELDS, normalize_entity_name
 from alicebot_api.vnext_json import json_safe
+from alicebot_api.vnext_label_writes import takes_label_lock
 from alicebot_api.vnext_project_scope import (
     expose_memory_project_scope,
     project_scope_identity,
@@ -1016,6 +1017,7 @@ class PostgresVNextStore:
             (domains, domains, sensitivity_allowed, sensitivity_allowed, limit),
         )
 
+    @takes_label_lock
     def create_source(self, source: JsonObject, *, actor_type: str = "system") -> VNextRow:
         row = self._fetch_one(
             "create_source",
@@ -1088,6 +1090,7 @@ class PostgresVNextStore:
         )
         return row
 
+    @takes_label_lock
     def get_or_create_source(
         self,
         source: JsonObject,
@@ -1238,6 +1241,7 @@ class PostgresVNextStore:
             (dedupe_key,),
         )
 
+    @takes_label_lock
     def update_source(self, *, source_id: str, patch: JsonObject, actor_type: str = "system") -> VNextRow:
         with self.conn.cursor() as cur:
             cur.execute(
@@ -1350,8 +1354,12 @@ class PostgresVNextStore:
             target_id=row["id"],
             payload={"operation": "update", "changes": patch},
         )
+        from alicebot_api.vnext_label_writes import propagate_after_write
+
+        propagate_after_write(self, kind="source", before=current, after=row)
         return row
 
+    @takes_label_lock
     def delete_source(self, *, source_id: str, actor_type: str = "system") -> VNextRow:
         row = self._fetch_one(
             "delete_source",
@@ -1706,6 +1714,7 @@ class PostgresVNextStore:
 
     expire_edge = _graph_expire_edge
 
+    @takes_label_lock
     def create_project(self, project: JsonObject, *, actor_type: str = "system") -> VNextRow:
         row = self._fetch_one(
             "create_project",
@@ -1767,6 +1776,7 @@ class PostgresVNextStore:
             (project_id,),
         )
 
+    @takes_label_lock
     def get_project_for_update(self, project_id: str) -> VNextRow | None:
         """Lock a project while an artifact review applies its state."""
 
@@ -1824,6 +1834,7 @@ class PostgresVNextStore:
             ),
         )
 
+    @takes_label_lock
     def update_project(self, *, project_id: str, patch: JsonObject, actor_type: str = "system") -> VNextRow:
         row = self._fetch_one(
             "update_project",
@@ -2026,7 +2037,11 @@ class PostgresVNextStore:
 
     update_open_loop_status = _graph_update_open_loop_status
 
+    @takes_label_lock
     def create_artifact(self, artifact: JsonObject, *, actor_type: str = "system") -> VNextRow:
+        from alicebot_api.vnext_label_writes import apply_insert_floor, remember_floor_event
+
+        artifact, floor_event = apply_insert_floor(self, "artifact", artifact)
         row = self._fetch_one(
             "create_artifact",
             f"""
@@ -2087,8 +2102,10 @@ class PostgresVNextStore:
             target_id=row["id"],
             payload={"operation": "create", "artifact_type": str(row["artifact_type"])},
         )
+        remember_floor_event(self, floor_event, row["id"])
         return row
 
+    @takes_label_lock
     def upsert_artifact_by_workflow_digest(
         self,
         artifact: JsonObject,
@@ -2116,6 +2133,9 @@ class PostgresVNextStore:
         )
         if existing is not None:
             return existing
+        from alicebot_api.vnext_label_writes import apply_insert_floor, remember_floor_event
+
+        artifact, floor_event = apply_insert_floor(self, "artifact", artifact)
         metadata_value = artifact.get("metadata_json")
         metadata: JsonObject = dict(metadata_value) if isinstance(metadata_value, dict) else {}
         metadata.update(
@@ -2196,6 +2216,7 @@ class PostgresVNextStore:
                 target_id=row["id"],
                 payload={"operation": "create", "artifact_type": str(row["artifact_type"])},
             )
+            remember_floor_event(self, floor_event, row["id"])
         return row
 
     def get_artifact(self, artifact_id: str) -> VNextRow | None:
@@ -2208,6 +2229,7 @@ class PostgresVNextStore:
             (artifact_id,),
         )
 
+    @takes_label_lock
     def get_artifact_for_update(self, artifact_id: str) -> VNextRow | None:
         """Lock one persisted artifact before an authorized side effect."""
 
@@ -2339,6 +2361,7 @@ class PostgresVNextStore:
             ),
         )
 
+    @takes_label_lock
     def update_artifact_status(
         self,
         *,
