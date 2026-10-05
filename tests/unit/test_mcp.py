@@ -33,6 +33,7 @@ import alicebot_api.mcp.synthesis as mcp_synthesis_module
 import alicebot_api.mcp.types as mcp_types_module
 import alicebot_api.mcp_server as mcp_server
 import alicebot_api.mcp_tools as mcp_tools_module
+from alicebot_api.vnext_derived_labels import with_derived_from
 import alicebot_api.vnext_retrieval as vnext_retrieval_module
 from alicebot_api.mcp_tools import MCPRuntimeContext, MCPToolError, MCPToolNotFoundError, call_mcp_tool, list_mcp_tools
 from alicebot_api.sqlite_schema import bootstrap_sqlite_schema
@@ -1316,6 +1317,19 @@ class FakeVNextMCPStore:
                 "memory_type": "belief",
             }
         }
+
+    def read_label_rows(self, kind: str, ids: list[str]) -> list[dict[str, object]]:
+        # The fake search methods expose fixed persisted rows as well as writes.
+        collections = {
+            "memory": [*self.search_memories(), *self.memories],
+            "source": [*self.search_sources(), *self.sources],
+            "artifact": list(self.artifacts.values()),
+            "open_loop": self.open_loops,
+            "project": list(self.projects.values()),
+            "belief": list(self.beliefs.values()),
+        }
+        found = {str(row.get("id")): row for row in collections.get(kind, [])}
+        return [dict(found[item]) for item in ids if item in found]
 
     @staticmethod
     def _is_live(row: dict[str, object]) -> bool:
@@ -3802,7 +3816,7 @@ def test_vnext_artifact_get_authorizes_persisted_scope_and_sensitivity(monkeypat
             "status": "needs_review",
             "domain": "project",
             "sensitivity": "private",
-            "metadata_json": {"project_id": "project-b"},
+            "metadata_json": with_derived_from({"project_id": "project-b"}, {}),
         }
     )
     artifact_id = str(artifact["id"])
@@ -3842,7 +3856,7 @@ def test_vnext_artifact_review_locks_and_authorizes_persisted_scope(monkeypatch,
             "status": "needs_review",
             "domain": "project",
             "sensitivity": "private",
-            "metadata_json": {"project_id": "project-b"},
+            "metadata_json": with_derived_from({"project_id": "project-b"}, {}),
         }
     )
     artifact_id = str(artifact["id"])
