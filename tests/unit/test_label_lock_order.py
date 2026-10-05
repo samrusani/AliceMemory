@@ -84,3 +84,21 @@ def test_compare_and_set_miss_refuses_the_whole_label_write():
     store = SimpleNamespace(_fetch_optional_one=lambda *_: None)
     with pytest.raises(DerivedDomainRepairError, match="changed no row"):
         writes.write_settled_label(store, kind="memory", row_id="missing", domain="health", sensitivity="confidential", metadata={}, project_id=None, expected_domain="project", expected_sensitivity="public")
+
+
+def test_strict_hook_checks_the_legacy_project_pointer_before_any_update(monkeypatch):
+    monkeypatch.setattr(writes, "STRICT_LOCK_ORDER", True)
+    store = _store()
+    before = {"domain": "project", "sensitivity": "public", "project_id": "11111111-1111-4111-8111-111111111111"}
+    with pytest.raises(writes.LabelLockOrderError, match="exclusive label lock"):
+        writes.prepare_label_patch(store, "memory", before, {"project_id": "22222222-2222-4222-8222-222222222222"})
+
+
+def test_named_refusal_causes_never_disclose_error_content():
+    from psycopg.errors import DivisionByZero, LockNotAvailable
+    from alicebot_api.vnext_derived_domain_backfill import DerivedDomainRepairError
+    for error, cause in ((writes.LabelPropagationTooLarge("synthetic-private-text"), "propagation_bound"), (DerivedDomainRepairError("changed no row: synthetic-private-text"), "row_changed"), (DerivedDomainRepairError("cycle: synthetic-private-text"), "dependency_cycle"), (writes.LabelLockOrderError("synthetic-private-text"), "lock_order"), (DivisionByZero("synthetic-private-text"), "database_error")):
+        status, detail, retry_after = writes.label_error_response(error)
+        assert status == 409 and detail.endswith("cause: " + cause) and retry_after is None
+        assert "synthetic-private-text" not in detail
+    assert writes.label_error_response(LockNotAvailable("synthetic-private-text")) == (503, writes.RETRYABLE_DETAIL, "2")
