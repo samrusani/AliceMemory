@@ -1509,6 +1509,8 @@ _OWN_SOURCE_SITES = {
     # The source was captured or ingested by this very call, so the caller named no id.
     ("vnext_capture.py", "_capture_source"),
     ("vnext_connectors.py", "ingest_agent_output"),
+    # Regeneration reads the authorized source and its chunks before making new rows.
+    ("vnext_source_regeneration.py", "regenerate_source_inputs"),
 }
 _NAMED_SOURCE_SITES = {
     # The caller named the id. Each is behind ``resolve_attachable_sources`` and the caller's ``SourceReadFence``.
@@ -1702,6 +1704,7 @@ _OWN_LOOP_SITES = {
     ("memory.py", "_create_open_loop_for_memory"),
     ("vnext_brain.py", "_create_candidate_open_loops"),
     ("vnext_projects.py", "extract_open_loops"),
+    ("vnext_source_regeneration.py", "regenerate_source_inputs"),
     ("vnext_scheduler.py", "_publish_mutation"),
     ("vnext_stores/postgres/graph_open_loops.py", "upsert_open_loop_by_automation_digest"),
     ("vnext_stores/sqlite/graph_open_loops.py", "upsert_open_loop_by_automation_digest"),

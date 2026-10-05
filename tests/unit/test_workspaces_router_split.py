@@ -126,7 +126,9 @@ EXPECTED_CARRIER_NAMES_SHA256 = "2c109fc234a05dd8f44e4c34bee49e797fbb5e49e924133
 # lone_surrogates.py and main.py only registers it, so it adds no definition
 # here. Earlier re-pin (2026-09-26): _rewrite_user_id_json_body writes the
 # rewritten JSON into request._body before call_next.
-EXPECTED_CARRIER_AST_SHA256 = "ab3fc6d61cb81a1b9c1a6573adc8e1e297cbbcf01e230effd4a0824dee2d8e2b"
+
+# Source regeneration adds one protected write route without new carrier definitions.
+EXPECTED_CARRIER_AST_SHA256 = "fcd6d722e2d6c3be28b138449555e703f6930168f52b8e94b41dacbcb937b605"
 EXPECTED_ROUTE_NODE_SHA256 = {
     "get_vnext_workspace": "6c2151bf38b1b1311f016c00d14394afc7077a6ea219f7ce3dcfd9b701474ae7",
     "bootstrap_v1_workspace": "07b1fe2a4cd03a5ba69abe76e258a457e85e92b0bfba592520ee02d01d759c4b",
@@ -593,7 +595,7 @@ def test_workspace_routes_preserve_mount_order_origins_and_operation_ids() -> No
         for method in sorted(getattr(route, "methods", None) or set())
         if method in {"GET", "POST", "PUT", "PATCH", "DELETE"}
     ]
-    expected_indices = (84, 224, 225) if main_module.LEGACY_SURFACES_ENABLED else (38, 175, 176)
+    expected_indices = (84, 225, 226) if main_module.LEGACY_SURFACES_ENABLED else (38, 176, 177)
     assert all(effective_pairs.count((method, path)) == 1 for method, path, _name in EXPECTED_ROUTE_MANIFEST)
     observed_indices = tuple(
         effective_pairs.index((method, path))

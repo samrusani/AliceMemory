@@ -94,7 +94,7 @@ print(json.dumps({
 @pytest.mark.parametrize("flag_value", [None, "", "0", "true", "yes", "on", "01", " 1"])
 def test_http_legacy_surface_gate_fails_closed_for_every_non_exact_value(flag_value: str | None) -> None:
     assert _isolated_http_inventory(flag_value) == {
-        "count": 183,
+        "count": 184,
         "legacy_count": 0,
         "removed_count": 0,
         "runtime_invoke_count": 1,
@@ -103,7 +103,7 @@ def test_http_legacy_surface_gate_fails_closed_for_every_non_exact_value(flag_va
 
 def test_http_legacy_surface_gate_mounts_exact_inventory_only_for_one() -> None:
     assert _isolated_http_inventory("1") == {
-        "count": 232,
+        "count": 233,
         "legacy_count": 49,
         "removed_count": 0,
         "runtime_invoke_count": 1,
@@ -161,7 +161,7 @@ print(json.dumps({"before": before, "after": after}))
         text=True,
     )
 
-    expected_inventory = {"count": 183, "legacy_count": 0}
+    expected_inventory = {"count": 184, "legacy_count": 0}
     assert json.loads(completed.stdout) == {
         "before": expected_inventory,
         "after": expected_inventory,
