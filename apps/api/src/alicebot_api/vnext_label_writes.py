@@ -179,7 +179,10 @@ def prepare_label_patch(
 
     proposed = dict(before or {})
     proposed.update({key: value for key, value in patch.items() if value is not None})
-    if before and _label_fields(before) != _label_fields(proposed):
+    proposed["kind"] = kind
+    old = _label_fields({**before, "kind": kind}) if before else None
+    new = _label_fields(proposed)
+    if old and (old[:2] != new[:2] or project_scope_identity(old[2]) != project_scope_identity(new[2]) or project_scope_identity(old[3]) != project_scope_identity(new[3])):
         require_exclusive_label_lock(store)
     return dict(patch)
 
@@ -467,7 +470,7 @@ def walk_dependants(store: Any, roots: Sequence[str]) -> list[dict[str, object]]
 def _label_fields(row: Mapping[str, object]) -> tuple[str, str, tuple[str, ...], tuple[str, ...]]:
     metadata = row.get("metadata_json")
     meta = metadata if isinstance(metadata, Mapping) else {}
-    scope = meta.get("project_scope", ())
+    scope = source_project_scope(row) if row.get("kind") == "source" or "source_type" in row else resolve_project_scope(row).values
     floor = meta.get("project_floor", ())
     return (
         str(row.get("domain") or "unknown"),
