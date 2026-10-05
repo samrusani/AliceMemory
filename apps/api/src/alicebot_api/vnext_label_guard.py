@@ -21,10 +21,10 @@ from alicebot_api.vnext_derived_labels import (
     HOP_BOUND,
     NODE_BOUND,
     canon_kind,
-    dependencies_of,
     is_derived,
     settle_labels,
 )
+from alicebot_api.vnext_label_closure import collect_label_rows
 from alicebot_api.vnext_project_scope import project_floor_shape, project_scopes_overlap, resolve_project_scope
 
 
@@ -52,7 +52,7 @@ class LabelGuard:
     domains: tuple[str, ...] = ()
     sensitivity_allowed: tuple[str, ...] = ()
     projects: tuple[str, ...] = ()
-    _nodes: dict[tuple[str, str], dict[str, object]] | None = None
+    _nodes: dict[tuple[str, str], list[dict[str, object]]] | None = None
 
     @classmethod
     def for_fence(cls, store: Any, fence: Any) -> LabelGuard:
@@ -161,35 +161,11 @@ class LabelGuard:
     def _collected(self, kind: str, row: Mapping[str, object]) -> list[dict[str, object]]:
         if self._nodes is None:
             self._nodes = {}
-        pending: list[tuple[str, Mapping[str, object]]] = [(canon_kind(kind), row)]
-        hops = 0
-        while pending and len(self._nodes) < NODE_BOUND and hops < HOP_BOUND:
-            hops += 1
-            name, current = pending.pop(0)
-            node_id = str(current.get("id") or "")
-            key = (name, node_id)
-            if key in self._nodes:
-                continue
-            node = dict(current)
-            node["kind"] = name
-            node["user_id"] = _GUARD_USER
-            self._nodes[key] = node
-            if not is_derived(name, node):
-                continue
-            grouped: dict[str, list[str]] = {}
-            for dep_kind, dep_id in dependencies_of(name, node):
-                grouped.setdefault(canon_kind(dep_kind), []).append(str(dep_id))
-            reader = getattr(self.store, "read_label_rows", None)
-            if not callable(reader):
-                continue
-            for dep_kind, ids in grouped.items():
-                missing = [item for item in ids if (dep_kind, item) not in self._nodes]
-                if not missing:
-                    continue
-                for found in reader(dep_kind, missing):
-                    if isinstance(found, Mapping):
-                        pending.append((dep_kind, found))
-        return list(self._nodes.values())
+        nodes, _exceeded = collect_label_rows(
+            self.store, [{**dict(row), "kind": canon_kind(kind)}],
+            max_nodes=NODE_BOUND, max_hops=HOP_BOUND, cache=self._nodes, user_id=_GUARD_USER,
+        )
+        return nodes
 
 
 def effective_row_for_fence(
