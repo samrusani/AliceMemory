@@ -412,6 +412,89 @@ def _label_fields(row: Mapping[str, object]) -> tuple[str, str, tuple[str, ...],
     )
 
 
+def clamp_owner_patch(
+    store: Any, *, kind: str, before: Mapping[str, object] | None, patch: Mapping[str, object]
+) -> JsonObject:
+    """Keep a derived row at or above its inputs when an edit would lower it.
+
+    The store writes the higher label, records ``labels_raised`` with cause
+    ``floor_clamped`` when the stored label changes, and sets
+    ``store._label_floor_applied`` so the review answer can name it.
+    """
+
+    store._label_floor_applied = False
+    proposed_patch = dict(patch)
+    if before is None or not is_derived(kind, before):
+        return proposed_patch
+    proposed = dict(before)
+    for key in ("domain", "sensitivity", "project_id"):
+        if key in proposed_patch and proposed_patch[key] is not None:
+            proposed[key] = proposed_patch[key]
+    if isinstance(proposed_patch.get("metadata_json"), dict):
+        stored_meta = before.get("metadata_json")
+        meta = dict(stored_meta) if isinstance(stored_meta, dict) else {}
+        meta.update(proposed_patch["metadata_json"])
+        proposed["metadata_json"] = meta
+    proposed["kind"] = kind
+    nodes, exceeded = collect_label_rows(store, [proposed], max_nodes=PROPAGATION_BOUND)
+    if exceeded:
+        return proposed_patch
+    try:
+        label = settle_labels(nodes).by_stored(kind, str(before.get("id") or ""))
+    except KeyError:
+        return proposed_patch
+    if label.unverified:
+        return proposed_patch
+    requested = _label_fields(proposed)
+    settled = (label.domain, label.sensitivity, tuple(label.project_scope), tuple(label.project_floor))
+    if (
+        requested[0] == settled[0]
+        and requested[1] == settled[1]
+        and project_scope_identity(requested[2]) == project_scope_identity(settled[2])
+        and project_scope_identity(requested[3]) == project_scope_identity(settled[3])
+    ):
+        return proposed_patch
+    proposed_patch["domain"] = label.domain
+    proposed_patch["sensitivity"] = label.sensitivity
+    metadata = dict(proposed.get("metadata_json") or {})
+    metadata["project_scope"] = list(label.project_scope)
+    metadata["project_floor"] = list(label.project_floor)
+    proposed_patch["metadata_json"] = metadata
+    stored = _label_fields(before)
+    if not (
+        stored[0] == settled[0]
+        and stored[1] == settled[1]
+        and project_scope_identity(stored[2]) == project_scope_identity(settled[2])
+        and project_scope_identity(stored[3]) == project_scope_identity(settled[3])
+    ):
+        event = build_event_log_record(
+            event_type=f"{kind}.labels_raised",
+            actor_type="system",
+            target_type=kind,
+            target_id=str(before.get("id") or ""),
+            payload=labels_raised_payload(
+                cause="floor_clamped",
+                previous={
+                    "domain": stored[0],
+                    "sensitivity": stored[1],
+                    "project_scope": list(stored[2]),
+                    "project_floor": list(stored[3]),
+                },
+                new={
+                    "domain": label.domain,
+                    "sensitivity": label.sensitivity,
+                    "project_scope": list(label.project_scope),
+                    "project_floor": list(label.project_floor),
+                },
+            ),
+        )
+        append = getattr(store, "append_event", None)
+        if callable(append):
+            append(event)
+    store._label_floor_applied = True
+    return proposed_patch
+
+
 def write_settled_label(
     store: Any,
     *,
@@ -642,6 +725,7 @@ __all__ = [
     "REFUSED_DETAIL",
     "RETRYABLE_DETAIL",
     "acquire_exclusive_label_lock",
+    "clamp_owner_patch",
     "count_rows_hidden_by_scope_move",
     "label_error_response",
     "propagate",
