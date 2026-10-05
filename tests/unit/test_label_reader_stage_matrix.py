@@ -12,7 +12,7 @@ from alicebot_api.session_briefing import compile_session_brief
 from alicebot_api.vnext_agent_control import AgentIdentity
 from alicebot_api.vnext_context_tree import ContextTreeRequest, VNextContextTreeService
 from alicebot_api.vnext_projects import ProjectAutomationRequest, VNextProjectService, VNextProjectValidationError
-from alicebot_api.vnext_retrieval import VNextRetrievalService, _ResolvedRetrievalScope, expand_provenance_once
+from alicebot_api.vnext_retrieval import VNextRetrievalRequest, VNextRetrievalService, _ResolvedRetrievalScope, expand_provenance_once
 from alicebot_api.vnext_temporal_query import TemporalAnchor
 from alicebot_api.vnext_open_loop_references import withhold_unreadable_references
 from alicebot_api.vnext_source_fence import SourceReadFence
@@ -66,12 +66,15 @@ class StageStore(PopulationStore):
 def _scope(scoped=False):
     return _ResolvedRetrievalScope(projects=frozenset((ALPHA,)) if scoped else frozenset(), people=frozenset(), window_start=None, window_end=None, exclude_global_domains=frozenset())
 
-STAGES = ("by_ids", "vector", "graph", "temporal", "provenance", "visibility", "contradictions", "scoped_contradictions", "recent_changes", "scoped_recent_changes", "session", "context_projects", "context_memories", "context_open_loops", "context_artifacts", "context_sources", "project_resolution", "dashboard_lists", "loop_memory_reference", "entity_explain", "entity_backing", "workspace_projects", "workspace_memories", "workspace_open_loops", "workspace_artifacts", "workspace_beliefs")
+STAGES = ("by_ids", "by_ids_fallback", "vector", "graph", "temporal", "provenance", "visibility", "contradictions", "scoped_contradictions", "recent_changes", "scoped_recent_changes", "session", "pack_open_loops", "context_projects", "context_memories", "context_open_loops", "context_artifacts", "context_sources", "project_resolution", "dashboard_lists", "loop_memory_reference", "entity_explain", "entity_backing", "workspace_projects", "workspace_memories", "workspace_open_loops", "workspace_artifacts", "workspace_beliefs")
 
 def _stage(stage, store):
     service = VNextRetrievalService(store, embedding_provider=SimpleNamespace(provider="synthetic", model="synthetic", base_url="http://synthetic.invalid"))
     kwargs = {"domains": ["project"], "sensitivity_allowed": CEILING, "limit": 10}
-    if stage == "by_ids": return list(service._memories_by_ids([MEMORY], domains=kwargs["domains"], sensitivity_allowed=CEILING).values())
+    if stage.startswith("by_ids"):
+        if stage == "by_ids_fallback":
+            store.get_memories_by_ids = None
+        return list(service._memories_by_ids([MEMORY], domains=kwargs["domains"], sensitivity_allowed=CEILING).values())
     if stage == "vector": return service._memory_vector_rows(query="Alice", query_vector=[0.1], query_embedding_status="enabled", **kwargs)[0]
     if stage == "graph": return service._memory_graph_rows(query="Alice", entity_read_fenced=True, **kwargs)[0]
     if stage == "temporal": return service._memory_temporal_rows(anchor=TemporalAnchor(datetime.now(UTC)-timedelta(days=1), datetime.now(UTC), "synthetic"), **kwargs)[0]
@@ -83,6 +86,8 @@ def _stage(stage, store):
     if "recent_changes" in stage:
         return service._recent_changes(domains=["project"], sensitivity_allowed=CEILING, scope=_scope(stage.startswith("scoped_")), person_linked_memory_ids=frozenset())
     if stage == "session": return compile_session_brief(store, effective_domains=("project",), effective_sensitivity_allowed=tuple(CEILING), effective_project_scope=(), project_view=ProjectView.unscoped(), exclude_global_domains=frozenset(), query=None)
+    if stage == "pack_open_loops":
+        return VNextRetrievalService(store).compile_context_pack(VNextRetrievalRequest(query="open loop", domains=("project",), sensitivity_allowed=tuple(CEILING), include_sources=False, include_contradictions=False), source_fence=SourceReadFence.unfenced())["open_loops"]
     if stage.startswith("context_"):
         tree = VNextContextTreeService(store).build_tree(ContextTreeRequest(domains=("project",), sensitivity_allowed=tuple(CEILING)))
         return next(root["children"] for root in tree["roots"] if root["id"] == "root:" + stage.removeprefix("context_"))
