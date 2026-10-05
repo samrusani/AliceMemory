@@ -68,7 +68,7 @@ def test_the_limitations_page_has_one_short_bullet_that_links_to_the_explanation
 
     Mutations, each one alone: delete ``keeps the label its inputs had when it was made``, ``follows its
     inputs when they are relabelled``, ``read only by the owner and an unbound admin key``, ``sensitivity
-    ceiling`` or the link from the bullet; point the link at ``#derived-rows``; add a ``## Derived`` heading
+    ceiling``, ``counting rows the caller may read`` or the link from the bullet; point the link at ``#derived-rows``; add a ``## Derived`` heading
     with a paragraph to the page.
     """
 
@@ -77,6 +77,7 @@ def test_the_limitations_page_has_one_short_bullet_that_links_to_the_explanation
     assert "follows its inputs when they are relabelled" in bullet
     assert "read only by the owner and an unbound admin key" in bullet
     assert "sensitivity ceiling" in bullet
+    assert "counting rows the caller may read" in bullet
     assert bullet.endswith(f"See [{HEADING}]({ANCHOR})")
     assert "\n## Derived" not in LIMITATIONS.read_text(encoding="utf-8")
 
@@ -152,6 +153,7 @@ def test_the_mcp_tools_section_states_the_label_rule_the_repair_and_the_changes_
     assert "apply no label" not in readers
 
     assert "every project of every input" in scope
+    assert "A restricted key's own reports are built only from inputs that key may read" in scope
     assert "not readable by every project" in scope
     assert "could potentially read a summary of other scopes" in scope
 
