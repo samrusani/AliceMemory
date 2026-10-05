@@ -1034,6 +1034,10 @@ def review_vnext_project_update_candidate(
             identity = _vnext_authenticated_agent_identity(
                 store, request, user_id=request.user_id, authorization=authorization
             )
+            store.lock_graph_mutation()
+            from alicebot_api.vnext_label_writes import acquire_exclusive_label_lock
+
+            acquire_exclusive_label_lock(store)
             _artifact, decision = _vnext_authorized_artifact(
                 store=store,
                 identity=identity,

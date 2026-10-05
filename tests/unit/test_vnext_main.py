@@ -2692,6 +2692,12 @@ def test_vnext_project_and_open_loop_endpoints(monkeypatch) -> None:
     update_response = vnext_review_router.generate_vnext_project_update_candidate(request)
     update_payload = json.loads(update_response.body)
     extract_response = vnext_projects_router.extract_vnext_open_loops(request)
+    original_row_locker = store.get_artifact_for_update
+    def checked_row_locker(artifact_id):
+        assert store.graph_locked is True
+        assert store.labels_exclusive is True
+        return original_row_locker(artifact_id)
+    monkeypatch.setattr(store, "get_artifact_for_update", checked_row_locker)
     review_update_response = vnext_review_router.review_vnext_project_update_candidate(
         update_payload["id"],
         vnext_review_router.VNextProjectUpdateReviewRequest(
