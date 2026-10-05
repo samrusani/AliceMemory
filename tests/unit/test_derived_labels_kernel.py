@@ -835,3 +835,14 @@ def test_distinct_stored_aliases_are_unverified_but_single_alias_and_other_kind_
     result = settle_labels([source, other_kind, report]).by_stored("artifact", "ambiguous")
     assert result.unverified is False
     assert result.domain == "health"
+
+
+def test_weekly_parent_backfill_cannot_clear_ambiguous_identity() -> None:
+    canonical = str(UUID(SOURCE_UUID))
+    one = _memory(canonical, metadata_json={"discovered_by": "vnext_weekly_synthesis"})
+    two = _memory("{" + canonical + "}", metadata_json={"discovered_by": "vnext_weekly_synthesis"})
+    parent = _brief("parent", sources=["s"])
+    _meta(parent, candidate_memory_ids=[canonical])
+    settled = settle_labels([_source("s"), one, two, parent])
+    assert settled.by_stored("memory", canonical).unverified is True
+    assert settled.by_stored("memory", "{" + canonical + "}").unverified is True
