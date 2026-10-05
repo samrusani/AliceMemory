@@ -8,7 +8,7 @@ import psycopg
 import pytest
 
 from alicebot_api import vnext_label_writes
-from alicebot_api.store import ContinuityStoreInvariantError
+from alicebot_api.vnext_derived_domain_backfill import require_changed
 from alicebot_api.vnext_brain import BrainArtifactRequest, VNextBrainService
 from alicebot_api.vnext_capture import VNextCaptureService
 from alicebot_api.vnext_projects import ProjectAutomationRequest, VNextProjectService
@@ -30,7 +30,7 @@ def test_a_failed_propagation_rolls_the_original_back_with_it(label_harness, mon
         attempts.append(kwargs["row_id"])
         if len(attempts) == 3:
             if failure_kind == "writer":
-                raise ContinuityStoreInvariantError("synthetic third dependant failure")
+                require_changed(0, "memories", kwargs["row_id"])
             # A genuine database exception must abort the transaction after two writes/events.
             store.conn.execute("SELECT 1 / 0")
         return original(store, **kwargs)
