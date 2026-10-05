@@ -90,9 +90,7 @@ def compile_local_vault_doctor(
     """Render the vault census for the acting local user."""
 
     if COMMITTED_MEMORY_STATUSES != ("active", "accepted"):
-        raise RuntimeError(
-            "committed-fact COUNT SQL is written for active and accepted only"
-        )
+        raise RuntimeError("committed-fact COUNT SQL is written for active and accepted only")
 
     resolved = Path(db_path).expanduser().resolve()
     with sqlite_user_connection(resolved, user_id) as connection:

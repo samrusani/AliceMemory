@@ -22,9 +22,7 @@ LOCAL_VNEXT_FRONTEND_ORIGINS = ("http://127.0.0.1:3000", "http://localhost:3000"
 # The workspace dashboard runs this doctor on every load. Stop and say so
 # rather than scanning the rest of a large source table in that request.
 _FLAGGED_SOURCE_SCAN_LIMIT = 10_000
-LOCAL_VNEXT_CORS_RECOMMENDED_FIX = (
-    "CORS_ALLOWED_ORIGINS=http://127.0.0.1:3000,http://localhost:3000"
-)
+LOCAL_VNEXT_CORS_RECOMMENDED_FIX = "CORS_ALLOWED_ORIGINS=http://127.0.0.1:3000,http://localhost:3000"
 PGVECTOR_MINIMUM_VERSION = (0, 8, 0)
 PGVECTOR_MINIMUM_VERSION_TEXT = ".".join(str(part) for part in PGVECTOR_MINIMUM_VERSION)
 
@@ -159,10 +157,7 @@ class VNextDoctorService:
                 f"pgvector {pgvector_version} satisfies the required "
                 f">= {PGVECTOR_MINIMUM_VERSION_TEXT} runtime contract."
             ),
-            message_fail=(
-                "pgvector is missing, unparseable, or older than "
-                f"{PGVECTOR_MINIMUM_VERSION_TEXT}."
-            ),
+            message_fail=(f"pgvector is missing, unparseable, or older than {PGVECTOR_MINIMUM_VERSION_TEXT}."),
             recommended_fix=(
                 "Install pgvector >= "
                 f"{PGVECTOR_MINIMUM_VERSION_TEXT}, run ALTER EXTENSION vector UPDATE, "
@@ -220,7 +215,9 @@ class VNextDoctorService:
         )
 
         scheduler = daemon_status()
-        scheduler_known = not bool(scheduler.get("stopped")) or "pid file" not in str(scheduler.get("message", "")).casefold()
+        scheduler_known = (
+            not bool(scheduler.get("stopped")) or "pid file" not in str(scheduler.get("message", "")).casefold()
+        )
         self._check(
             checks,
             name="scheduler_daemon",
@@ -232,7 +229,9 @@ class VNextDoctorService:
             details=cast(JsonObject, scheduler),
         )
 
-        health = VNextConnectorService(cast(Any, self.store), secret_provider=self.secret_provider).connector_health_all()
+        health = VNextConnectorService(
+            cast(Any, self.store), secret_provider=self.secret_provider
+        ).connector_health_all()
         failing_connectors = []
         for item in cast(list[JsonObject], health.get("items", [])):
             failed_value = item.get("items_failed", 0)
@@ -294,9 +293,7 @@ class VNextDoctorService:
         flagged_ids, stopped_early = _flagged_source_scan(self.store)
         remedy = _flagged_source_remedy(self.store)
         if flagged_ids:
-            message = (
-                f"{len(flagged_ids)} stored sources carry credential material. {remedy}"
-            )
+            message = f"{len(flagged_ids)} stored sources carry credential material. {remedy}"
         else:
             message = "No stored source carries credential material."
         if stopped_early:
@@ -411,9 +408,7 @@ def local_live_cors_status(
 ) -> JsonObject:
     merged_env = _merged_local_env(os.environ if env is None else env, cwd or Path.cwd())
     frontend_api_base_url = (
-        merged_env.get("NEXT_PUBLIC_ALICEBOT_API_BASE_URL")
-        or merged_env.get("ALICEBOT_API_BASE_URL")
-        or ""
+        merged_env.get("NEXT_PUBLIC_ALICEBOT_API_BASE_URL") or merged_env.get("ALICEBOT_API_BASE_URL") or ""
     ).strip()
     frontend_user_id = (
         merged_env.get("NEXT_PUBLIC_ALICEBOT_USER_ID") or merged_env.get("ALICEBOT_USER_ID") or ""
