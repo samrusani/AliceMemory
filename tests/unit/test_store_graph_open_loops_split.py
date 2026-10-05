@@ -133,7 +133,7 @@ SOURCE_RECEIPTS = {
     # Re-minted for the combined floor-aware partition read and canonical source-reference batch lookup.
     # Previous receipt 9a2634be...
     SQLITE_CARRIER_PATH: "d80d53bc64e2395f9480eb6b06338f337c44b811b0eb86974b4dbc22308a88d0",
-    POSTGRES_COLUMNS_PATH: "5b0d972a55abf8590ce14394a37fd71b9b88ba7ab3de82d61efc1bddfc022b71",
+    POSTGRES_COLUMNS_PATH: "1a782bf3eb87f68f67434508baab0f82d49cb40a0c547cde49bbc972e2f1d182",
     SQLITE_COLUMNS_PATH: "be81b8628d0831d3d02b280b5455fb02333db5740ebef8d85d58024384ae6556",
 }
 EXPECTED_METHOD_AST_MANIFESTS = {
