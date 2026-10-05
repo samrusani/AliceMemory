@@ -605,8 +605,10 @@ def _legacy_count_problem(kind: str, row: Mapping[str, object], meta: Mapping[st
 
 
 def _counts_against_lists(counts: object, lists: Mapping[str, object]) -> str:
-    if not isinstance(counts, Mapping):
+    if counts is None:
         return ""
+    if not isinstance(counts, Mapping):
+        return "malformed"
     present_lists: dict[str, list[object]] = {}
     for key, raw in lists.items():
         if raw is None:
@@ -616,11 +618,13 @@ def _counts_against_lists(counts: object, lists: Mapping[str, object]) -> str:
         present_lists[key] = list(raw)
     if any(len(values) != len(set(map(str, values))) for values in present_lists.values()):
         return ""
-    for key, values in present_lists.items():
+    for key in lists:
         if key not in counts:
             continue
         expected = counts.get(key)
-        if isinstance(expected, int) and not isinstance(expected, bool) and expected != len(values):
+        if not isinstance(expected, int) or isinstance(expected, bool) or expected < 0:
+            return "malformed"
+        if expected != len(present_lists.get(key, [])):
             return "counts_disagree"
     return ""
 
