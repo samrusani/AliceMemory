@@ -95,7 +95,8 @@ class LabelGuard:
         settled = settle_labels(nodes, on_cycle="unverified", max_hops=HOP_BOUND, max_nodes=NODE_BOUND)
         label = settled.by_stored(kind, str(row.get("id") or ""), user_id=_GUARD_USER)
         copy = dict(row)
-        metadata = dict(copy.get("metadata_json")) if isinstance(copy.get("metadata_json"), Mapping) else {}
+        raw_metadata = copy.get("metadata_json")
+        metadata = dict(raw_metadata) if isinstance(raw_metadata, Mapping) else {}
         if label.unverified:
             copy["domain"] = label.domain
             copy["sensitivity"] = "regulated"
