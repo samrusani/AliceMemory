@@ -22,6 +22,7 @@ from alicebot_api.vnext_consolidation import MemoryConsolidationRequest, VNextCo
 from alicebot_api.vnext_embeddings import pad_embedding_vector
 from alicebot_api.vnext_memory_commit import VNextMemoryCommitService
 from alicebot_api.vnext_store import PostgresVNextStore
+from tests.integration.conftest import lock_label_fixture
 
 
 def test_generate_memory_consolidation_persists_its_artifact(migrated_database_urls) -> None:
@@ -67,6 +68,7 @@ def test_rollup_candidate_round_trips_and_acceptance_promotes_it(
     with user_connection(migrated_database_urls["app"], user_id) as conn:
         ContinuityStore(conn).create_user(user_id, "rollups@example.invalid", "Rollups")
         store = PostgresVNextStore(conn)
+        lock_label_fixture(store)
         members = []
         for index, (text, day) in enumerate(
             (
