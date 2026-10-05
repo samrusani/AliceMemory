@@ -116,7 +116,11 @@ class VNextSourceReviewRequest(VNextAgentRequest):
     sensitivity: VNextSensitivity | None = None
     project_id: str | None = Field(default=None, min_length=1, max_length=120)
     review_note: str | None = Field(default=None, min_length=1, max_length=4000)
-    confirm_label_hide: bool = False
+    confirm_label_hide: bool = Field(default=False, description="Confirm a source project move after previewing the number of derived rows hidden from project-bound keys.")
+
+
+class VNextSourceRegenerateRequest(VNextAgentRequest):
+    user_id: UUID = Field(description="Owner of the stored source whose candidate memories and open loops are regenerated. Earlier rows keep their labels and provenance.")
 
 
 class VNextConnectorSyncRequest(VNextAgentRequest):
@@ -754,6 +758,32 @@ def get_vnext_source(source_id: UUID, user_id: UUID) -> JSONResponse:
         status_code=200,
         content=jsonable_encoder(payload),
     )
+
+
+@source_review_router.post("/v0/vnext/sources/{source_id}/regenerate", summary="Regenerate fresh candidates from a stored source", description="The local owner or an unbound admin can regenerate candidate memories and open loops from all stored chunks using the source's current labels. Existing sources and outputs remain unchanged. Rerun the report's generation route to rebuild a report.")
+def regenerate_vnext_source(source_id: UUID, request: VNextSourceRegenerateRequest, authorization: str | None = Header(default=None)) -> JSONResponse:
+    from alicebot_api.vnext_label_writes import label_error_response
+    from alicebot_api.vnext_source_regeneration import regenerate_source_inputs
+
+    settings = get_settings()
+    try:
+        with user_connection(settings.database_url, request.user_id) as conn:
+            store = PostgresVNextStore(conn)
+            identity = _vnext_authenticated_agent_identity(store, request, user_id=request.user_id, authorization=authorization)
+            if identity is not None and (identity.permission_profile != "admin_agent" or identity.project_scope_locked or identity.project_scope):
+                return _vnext_public_error_response(status_code=403, detail="source regeneration requires the owner or an unbound admin")
+            store.lock_label_writes()
+            source = store.get_source(str(source_id))
+            if source is None:
+                return _vnext_public_error_response(status_code=404, detail="vNext source was not found")
+            payload = regenerate_source_inputs(store, source)
+    except Exception as exc:
+        mapped = label_error_response(exc)
+        if mapped is None:
+            raise
+        status, detail, retry_after = mapped
+        return JSONResponse(status_code=status, content={"detail": detail}, headers={"Retry-After": retry_after} if retry_after else None)
+    return JSONResponse(status_code=201, content=jsonable_encoder(payload))
 
 
 @source_review_router.post("/v0/vnext/sources/{source_id}/review")

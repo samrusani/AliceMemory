@@ -467,6 +467,7 @@ class PostgresVNextStore:
 
     def __init__(self, conn: UserConnection):
         self.conn = conn
+        self._label_floor_applied = False
 
     def lock_label_writes(self, *, exclusive: bool = False) -> None:
         """Shared label lock for a write, or the exclusive lock for a relabel.
@@ -1452,6 +1453,19 @@ class PostgresVNextStore:
             (source_id, bounded_limit),
         )
 
+    def read_source_chunks_for_regeneration(self, source_id: str) -> list[VNextRow]:
+        """Read the complete source, or refuse recovery before writing any output."""
+
+        from alicebot_api.vnext_derived_labels import PROPAGATION_BOUND, LabelPropagationTooLarge
+
+        rows = self._fetch_all(
+            f"SELECT {SOURCE_CHUNK_COLUMNS} FROM source_chunks WHERE source_id = %s::uuid ORDER BY chunk_index, id LIMIT %s",
+            (source_id, PROPAGATION_BOUND + 1),
+        )
+        if len(rows) > PROPAGATION_BOUND:
+            raise LabelPropagationTooLarge("source regeneration exceeded the source chunk bound")
+        return rows
+
     def search_source_chunks(
         self,
         *,
@@ -1864,8 +1878,9 @@ class PostgresVNextStore:
         metadata = patch.get("metadata_json")
         floor_event = None
         if isinstance(metadata, dict) and before is not None:
+            before_metadata = before.get("metadata_json")
             patch["metadata_json"] = merge_protected_metadata(
-                before.get("metadata_json") if isinstance(before.get("metadata_json"), dict) else {},
+                before_metadata if isinstance(before_metadata, dict) else {},
                 metadata,
                 label_write="derived_from" in metadata,
             )
