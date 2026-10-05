@@ -25,6 +25,7 @@ from alicebot_api.vnext_derived_labels import (
     generation_domain,
     identifier,
     is_derived,
+    input_admitted,
     labels_raised_payload,
     settle_labels,
     stored_scope,
@@ -125,6 +126,62 @@ def _in_transaction(store: Any) -> bool:
     if isinstance(in_transaction, bool):
         return in_transaction
     return True
+
+
+def held_label_locks(store: Any) -> tuple[bool, bool, bool]:
+    """Read the live S, L and exclusive L grants, including savepoint rollback."""
+
+    with store.conn.cursor() as cur:
+        cur.execute("""
+            SELECT
+              coalesce(bool_or(classid = (hashtext('vnext_supersession')::bigint & 4294967295)::oid), false) AS graph,
+              coalesce(bool_or(classid = (hashtext('vnext_labels')::bigint & 4294967295)::oid), false) AS labels,
+              coalesce(bool_or(classid = (hashtext('vnext_labels')::bigint & 4294967295)::oid
+                AND mode = 'ExclusiveLock'), false) AS exclusive
+            FROM pg_locks
+            WHERE locktype = 'advisory' AND pid = pg_backend_pid() AND granted
+              AND objsubid = 2
+              AND objid = (hashtext(app.current_user_id()::text)::bigint & 4294967295)::oid
+        """)
+        row = cur.fetchone()
+    if isinstance(row, Mapping):
+        return bool(row["graph"]), bool(row["labels"]), bool(row["exclusive"])
+    return bool(row[0]), bool(row[1]), bool(row[2])
+
+
+def before_graph_lock(store: Any) -> None:
+    """Strict tests refuse S after L using the current database grants."""
+
+    if STRICT_LOCK_ORDER:
+        graph, labels, _exclusive = held_label_locks(store)
+        if labels and not graph:
+            raise LabelLockOrderError("the graph lock must precede the label lock")
+
+
+def require_exclusive_label_lock(store: Any) -> None:
+    """A changing hook must hold exclusive L before taking any row lock."""
+
+    if _sqlite(store):
+        store.lock_label_writes(exclusive=True)
+        return
+    _graph, _labels, exclusive = held_label_locks(store)
+    if exclusive:
+        return
+    if STRICT_LOCK_ORDER:
+        raise LabelLockOrderError("the label change requires the exclusive label lock before row locks")
+    acquire_exclusive_label_lock(store)
+
+
+def prepare_label_patch(
+    store: Any, kind: str, before: Mapping[str, object] | None, patch: Mapping[str, object]
+) -> JsonObject:
+    """Check a proposed label change before its UPDATE or FOR UPDATE statement."""
+
+    proposed = dict(before or {})
+    proposed.update({key: value for key, value in patch.items() if value is not None})
+    if before and _label_fields(before) != _label_fields(proposed):
+        require_exclusive_label_lock(store)
+    return dict(patch)
 
 
 def _label_tuple(payload: Mapping[str, object]) -> tuple[str, str, tuple[str, ...], tuple[str, ...]]:
@@ -467,6 +524,7 @@ def clamp_owner_patch(
         and project_scope_identity(stored[2]) == project_scope_identity(settled[2])
         and project_scope_identity(stored[3]) == project_scope_identity(settled[3])
     ):
+        require_exclusive_label_lock(store)
         event = build_event_log_record(
             event_type=f"{kind}.labels_raised",
             actor_type="system",
@@ -510,7 +568,7 @@ def write_settled_label(
     """Label-only update. A statement that changes no row refuses the whole relabel."""
 
     table = {"memory": "memories", "open_loop": "open_loops", "artifact": "generated_artifacts", "project": "projects"}[kind]
-    blob = json.dumps(dict(metadata))
+    blob = json.dumps({key: metadata[key] for key in ("project_scope", "project_floor") if key in metadata})
     if _sqlite(store):
         project_sql = ", project_id = ?" if table in {"memories", "open_loops"} else ""
         params: list[object] = [domain, sensitivity, blob]
@@ -520,7 +578,7 @@ def write_settled_label(
         cursor = store._execute(
             f"""
                 UPDATE {table}
-                SET domain = ?, sensitivity = ?, metadata_json = ?{project_sql}
+                SET domain = ?, sensitivity = ?, metadata_json = json_patch(metadata_json, ?){project_sql}
                 WHERE id = ? AND user_id = ? AND domain = ? AND sensitivity = ?
                 """,  # nosec B608 # table comes from the closed kind map; values are bound
             tuple(params),
@@ -532,22 +590,47 @@ def write_settled_label(
     if project_sql:
         params.append(project_id)
     params.extend([str(row_id), expected_domain, expected_sensitivity])
-    store._fetch_one(
-        "write_settled_label",
+    row = store._fetch_optional_one(
         f"""
             UPDATE {table}
-            SET domain = %s, sensitivity = %s, metadata_json = %s::jsonb{project_sql}
+            SET domain = %s, sensitivity = %s, metadata_json = metadata_json || %s::jsonb{project_sql}
             WHERE id = %s::uuid AND domain = %s AND sensitivity = %s
             RETURNING id
             """,  # nosec B608 # table comes from the closed kind map; values are bound
         tuple(params),
     )
+    require_changed(int(row is not None), table, str(row_id))
+
+
+LABEL_TABLE_ORDER = ("generated_artifacts", "projects", "open_loops", "memories")
+_LABEL_TABLES = {"artifact": "generated_artifacts", "project": "projects", "open_loop": "open_loops", "memory": "memories"}
+
+
+def lock_settled_label_rows(store: Any, changes: Sequence[Mapping[str, object]]) -> None:
+    """Lock exactly the changed rows in a stable table and UUID order."""
+
+    if _sqlite(store):
+        return
+    grouped: dict[str, set[str]] = {}
+    for row in changes:
+        grouped.setdefault(_LABEL_TABLES[str(row["kind"])], set()).add(str(row["id"]))
+    with store.conn.cursor() as cur:
+        for table in LABEL_TABLE_ORDER:
+            ids = sorted(grouped.get(table, ()))
+            if ids:
+                cur.execute(
+                    f"SELECT id FROM {table} WHERE id = ANY(%s::uuid[]) ORDER BY id FOR UPDATE",  # nosec B608 # closed internal table map
+                    (ids,),
+                )
+                locked = cur.fetchall()
+                if len(locked) != len(ids):
+                    raise DerivedDomainRepairError("a planned label row disappeared before it could be locked")
 
 
 def propagate(store: Any, changed: Sequence[tuple[str, str]], *, cause: str) -> int:
     """Recompute dependants of ``changed`` rows and write the ones that rise."""
 
-    store.lock_label_writes(exclusive=True)
+    require_exclusive_label_lock(store)
     roots = [row_id for _kind, row_id in changed]
     affected = walk_dependants(store, roots)
     if not affected:
@@ -561,7 +644,7 @@ def propagate(store: Any, changed: Sequence[tuple[str, str]], *, cause: str) -> 
     if exceeded:
         raise LabelPropagationTooLarge(f"label propagation stopped after {PROPAGATION_BOUND} rows")
     settled = settle_labels(nodes)
-    written = 0
+    changes: list[tuple[Mapping[str, object], Any, tuple[str, str, tuple[str, ...], tuple[str, ...]]]] = []
     for row in affected:
         label = settled.by_stored(str(row.get("kind")), str(row.get("id")))
         if label.unverified:
@@ -586,6 +669,10 @@ def propagate(store: Any, changed: Sequence[tuple[str, str]], *, cause: str) -> 
             and project_scope_identity(previous[3]) == project_scope_identity(current[3])
         ):
             continue
+        changes.append((row, label, previous))
+    lock_settled_label_rows(store, [row for row, _label, _previous in changes])
+    written = 0
+    for row, label, previous in sorted(changes, key=lambda item: (LABEL_TABLE_ORDER.index(_LABEL_TABLES[str(item[0]["kind"])]), str(item[0]["id"]))):
         raw_metadata = row.get("metadata_json")
         metadata = dict(raw_metadata) if isinstance(raw_metadata, Mapping) else {}
         metadata["project_scope"] = list(label.project_scope)
@@ -660,15 +747,21 @@ def count_rows_hidden_by_scope_move(store: Any, source: Mapping[str, object], ne
     metadata = dict(raw_metadata) if isinstance(raw_metadata, Mapping) else {}
     metadata["project_scope"] = list(new_scope)
     moved["metadata_json"] = metadata
-    before = settle_labels([current, *[dict(row) for row in affected]])
-    after = settle_labels([moved, *[dict(row) for row in affected]])
+    nodes, exceeded = collect_label_rows(store, [current, *[dict(row) for row in affected]], max_nodes=PROPAGATION_BOUND)
+    if exceeded:
+        raise LabelPropagationTooLarge("the source move preview exceeded the label propagation bound")
+    before = settle_labels(nodes, on_cycle="unverified")
+    moved_nodes = [moved if str(row.get("kind")) == "source" and str(row.get("id")) == source_id else row for row in nodes]
+    after = settle_labels(moved_nodes, on_cycle="unverified")
     hidden = 0
     for row in affected:
         old = before.by_stored(str(row.get("kind")), str(row.get("id")))
         new = after.by_stored(str(row.get("kind")), str(row.get("id")))
-        old_ids = set(project_scope_identity(old.project_scope))
-        new_ids = set(project_scope_identity(new.project_scope))
-        if old_ids - new_ids:
+        if old.unverified or not old.project_scope:
+            continue
+        binding = project_scope_identity([*old.project_scope, *old.project_floor])
+        new_row = {**row, "metadata_json": {"project_scope": list(new.project_scope), "project_floor": list(new.project_floor)}}
+        if new.unverified or not new.project_scope or not input_admitted(str(row["kind"]), new_row, binding):
             hidden += 1
     return hidden
 
@@ -695,10 +788,17 @@ def raise_source_to_replacement(store: Any, old: Mapping[str, object], replaceme
 def label_error_response(exc: BaseException) -> tuple[int, str, str | None] | None:
     """``(status, detail, retry_after)`` for a relabel failure, or None."""
 
-    if isinstance(exc, (LabelPropagationTooLarge, DerivedDomainRepairError)):
-        return 409, REFUSED_DETAIL, None
+    if isinstance(exc, LabelPropagationTooLarge):
+        return 409, REFUSED_DETAIL + "; cause: propagation_bound", None
+    if isinstance(exc, DerivedDomainRepairError):
+        cause = "row_changed" if "changed no row" in str(exc) or "disappeared" in str(exc) else "dependency_cycle"
+        return 409, REFUSED_DETAIL + "; cause: " + cause, None
+    if isinstance(exc, LabelLockOrderError):
+        return 409, REFUSED_DETAIL + "; cause: lock_order", None
     if type(exc).__name__ in {"LockNotAvailable", "DeadlockDetected", "SerializationFailure"}:
         return 503, RETRYABLE_DETAIL, "2"
+    if type(exc).__module__.startswith("psycopg"):
+        return 409, REFUSED_DETAIL + "; cause: database_error", None
     return None
 
 
