@@ -411,6 +411,9 @@ def corpus_support(
     *,
     domains: Sequence[str] | None = None,
     sensitivity_allowed: Sequence[str] | None = None,
+    allow_entity_lookup: bool = True,
+    admitted_entity_names: Sequence[str] = (),
+    admitted_entity_ids: Sequence[str] = (),
 ) -> dict[str, bool] | None:
     """Per-entity corpus support; ``None`` when the store cannot be checked.
 
@@ -424,16 +427,19 @@ def corpus_support(
     names = [str(name) for name in entities if str(name).strip()]
     if not names:
         return {}
-    support: dict[str, bool] = dict.fromkeys(names, False)
-    checked_any = False
+    admitted = {normalize_entity_name(name) for name in admitted_entity_names}
+    support: dict[str, bool] = {name: normalize_entity_name(name) in admitted for name in names}
+    checked_any = any(support.values())
 
-    if store_supports_entity_linking(store):
+    if (allow_entity_lookup or admitted_entity_ids) and store_supports_entity_linking(store):
         normalized_by_name = {name: normalize_entity_name(name) for name in names}
         lookup_keys = tuple(dict.fromkeys(key for key in normalized_by_name.values() if key))
         known: set[str] = set()
         try:
             entity_rows = store.find_entities_by_names(lookup_keys) if lookup_keys else []
             for row in entity_rows:
+                if not allow_entity_lookup and str(row.get("id")) not in admitted_entity_ids:
+                    continue
                 known.add(str(row.get("normalized_name")))
                 aliases = row.get("aliases")
                 if isinstance(aliases, (list, tuple)):
@@ -472,6 +478,9 @@ def compute_query_grounding(
     *,
     domains: Sequence[str] | None = None,
     sensitivity_allowed: Sequence[str] | None = None,
+    allow_entity_lookup: bool = True,
+    admitted_entity_names: Sequence[str] = (),
+    admitted_entity_ids: Sequence[str] = (),
 ) -> JsonObject | None:
     """The ``pack["grounding"]`` payload, or ``None`` (the common case).
 
@@ -488,7 +497,9 @@ def compute_query_grounding(
     if not names:
         return None
     support = corpus_support(
-        names, store, domains=domains, sensitivity_allowed=sensitivity_allowed
+        names, store, domains=domains, sensitivity_allowed=sensitivity_allowed,
+        allow_entity_lookup=allow_entity_lookup, admitted_entity_names=admitted_entity_names,
+        admitted_entity_ids=admitted_entity_ids,
     )
     if not support:
         return None

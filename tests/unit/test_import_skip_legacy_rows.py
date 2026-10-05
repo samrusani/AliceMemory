@@ -437,6 +437,8 @@ _FILLS_A_COLUMN_FROM_THE_ROW = {
     "_backfill_memory_agent_attribution",
 }
 _DOES_NOT_FILL_A_COLUMN_FROM_THE_ROW = {
+    # A one-time cross-row repair from recorded inputs, not a row-local import backfill.
+    "_relabel_derived_domains",
     # Rebuild or add schema, or index existing content.
     "_ensure_current_memories_status_constraint",
     "_ensure_additive_columns",

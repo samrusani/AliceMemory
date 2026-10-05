@@ -12,6 +12,7 @@ from typing import Protocol, TypedDict, cast
 from uuid import uuid4
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from alicebot_api.vnext_derived_domain import derived_domain
 from alicebot_api.vnext_agent_control import (
     AgentIdentity,
     PolicyDecision,
@@ -1466,8 +1467,8 @@ class VNextSchedulerService:
                 "title": f"Staleness Sweep - {generated_for}",
                 "content_markdown": content,
                 "status": "needs_review",
-                "domain": request.domains[0] if len(request.domains) == 1 else "unknown",
-                "sensitivity": "unknown",
+                "domain": derived_domain(marked, fallback=request.domains[0] if len(request.domains) == 1 else "unknown"),
+                "sensitivity": self._highest_sensitivity(marked),
                 "generated_by": "scheduler",
                 "metadata_json": {
                     **metadata,
@@ -1670,7 +1671,7 @@ class VNextSchedulerService:
             "title": f"Open Loop Review - {request.generated_for or datetime.now(UTC).date().isoformat()}",
             "content_markdown": content,
             "status": "needs_review",
-            "domain": request.domains[0] if len(request.domains) == 1 else "unknown",
+            "domain": derived_domain(loops, fallback=request.domains[0] if len(request.domains) == 1 else "unknown"),
             "sensitivity": self._highest_sensitivity(loops),
             "generated_by": "scheduler",
             "prompt_hash": prompt_hash,

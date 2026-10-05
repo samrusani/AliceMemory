@@ -3715,7 +3715,10 @@ def _import_records(
     apply the newest one to the project scoping switch (see
     ``project_scoping.apply_imported_scoping``).
     """
+    from alicebot_api.vnext_derived_domain_backfill import recorded_sqlite_domain_repairs
+
     quarantine_plan = plan if plan is not None else _EMPTY_QUARANTINE_PLAN
+    domain_repairs = recorded_sqlite_domain_repairs(conn, str(store.user_id))
     counts: dict[str, dict[str, int]] = {}
     probe = _BackfillProbe()
     try:
@@ -3752,6 +3755,13 @@ def _import_records(
                     candidates = [values]
                     if claim_rewritten:
                         candidates.append(_normalized_import_values(store, columns, record))
+                    if table == "memories":
+                        domain_index = columns.index("domain")
+                        for candidate in tuple(candidates):
+                            if (row_id, str(candidate[domain_index]), str(existing["domain"])) in domain_repairs:
+                                repaired = list(candidate)
+                                repaired[domain_index] = existing["domain"]
+                                candidates.append(tuple(repaired))
                     if not _stored_row_matches(
                         dict(existing),
                         columns,
@@ -4082,6 +4092,14 @@ def _run_import_snapshot(
                 scoping_events=scoping_events,
             )
             imported_scoping = apply_imported_scoping(conn, scoping_events)
+            # The whole graph is now present. Repair before the staged pages
+            # become visible, even if the destination had already upgraded.
+            from alicebot_api.vnext_derived_domain_backfill import relabel_sqlite
+
+            try:
+                relabel_sqlite(conn, restoring=True)
+            except ValueError as exc:
+                raise _ImportError("the restored derived labels could not be settled") from exc
         if quarantine_ids:
             # The spool still holds the file. Scan the rewritten rows before
             # publication deletes that spool. Never include the matched text.

@@ -8,6 +8,7 @@ import json
 import re
 from typing import Callable, Protocol, Sequence, cast
 
+from alicebot_api.vnext_derived_domain import derived_domain
 from alicebot_api.vnext_agent_control import resource_project_scope
 from alicebot_api.vnext_event_log import append_event
 from alicebot_api.vnext_model_intelligence import (
@@ -360,11 +361,11 @@ def _highest_sensitivity(rows: list[JsonObject]) -> str:
 
 def _artifact_domain(request: BrainArtifactRequest, rows: list[JsonObject]) -> str:
     if len(request.domains) == 1:
-        return request.domains[0]
+        return derived_domain(rows, fallback=request.domains[0])
     domains = {row.get("domain") for row in rows if isinstance(row.get("domain"), str)}
     if len(domains) == 1:
         return str(next(iter(domains)))
-    return "unknown"
+    return derived_domain(rows, fallback="unknown")
 
 
 def _section(title: str, lines: list[str]) -> str:
@@ -1046,6 +1047,7 @@ class VNextBrainService:
             "metadata_json": {
                 "candidate": True,
                 "discovered_by": "vnext_weekly_synthesis",
+                "input_summary": _input_summary(sources=sources, memories=memories, open_loops=open_loops, artifacts=[]),
                 "generated_by": request.generated_by,
                 "agent_identity": request.agent_identity,
                 "scheduler_run_id": request.run_id if request.generated_by == "scheduler" else None,

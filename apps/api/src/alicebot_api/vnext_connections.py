@@ -6,6 +6,7 @@ import inspect
 import re
 from typing import Callable, Protocol, Sequence, cast
 
+from alicebot_api.vnext_derived_domain import derived_domain
 from alicebot_api.vnext_agent_control import resource_project_scope
 from alicebot_api.vnext_event_log import append_event
 from alicebot_api.vnext_model_intelligence import (
@@ -620,7 +621,7 @@ class VNextConnectionService:
             "title": "Connection Report",
             "content_markdown": content,
             "status": "needs_review",
-            "domain": request.domains[0] if len(request.domains) == 1 else "unknown",
+            "domain": derived_domain([*sources, *memories], fallback=request.domains[0] if len(request.domains) == 1 else "unknown"),
             "sensitivity": self._highest_sensitivity([*sources, *memories]),
             "generated_by": request.generated_by if request.generated_by != "system" else "vnext_connection_finder",
             "prompt_hash": prompt_hash,
