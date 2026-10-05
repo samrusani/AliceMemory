@@ -1051,16 +1051,17 @@ def review_vnext_memory(
             # graph boundary before the route takes any candidate/member row lock;
             # delegated service calls may safely reacquire the transaction lock.
             memory_service.lock_supersession_graph()
+            # A status-only review can also raise stale derived labels at the
+            # owner floor, so acquire the label lock before reading for update.
+            from alicebot_api.vnext_label_writes import acquire_exclusive_label_lock
+
+            acquire_exclusive_label_lock(store)
             label_change = (
                 request.domain is not None
                 or request.sensitivity is not None
                 or request.project_id is not None
                 or action in {"private", "assign_project"}
             )
-            if label_change:
-                from alicebot_api.vnext_label_writes import acquire_exclusive_label_lock
-
-                acquire_exclusive_label_lock(store)
             preview = store.get_memory(str(memory_id))
             if preview is None:
                 return _vnext_public_error_response(status_code=404, detail="vNext memory was not found")
