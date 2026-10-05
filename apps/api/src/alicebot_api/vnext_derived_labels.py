@@ -977,6 +977,11 @@ def settle_labels(
 
     own: dict[tuple[str, str, str], set[tuple[str, str, str]]] = {}
     problems: dict[tuple[str, str, str], str] = {}
+    stored_ids: dict[tuple[str, str, str], str] = {}
+    for label, _row in prepared:
+        previous_id = stored_ids.setdefault(label.key, label.stored_id)
+        if previous_id != label.stored_id:
+            problems[label.key] = "ambiguous_identity"
     for label, row in prepared:
         if not label.derived:
             continue
