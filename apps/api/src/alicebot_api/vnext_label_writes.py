@@ -162,6 +162,11 @@ def apply_insert_floor(store: Any, kind: str, payload: Mapping[str, object]) -> 
     nodes, exceeded = collect_label_rows(store, [own], max_nodes=PROPAGATION_BOUND)
     if exceeded:
         raise LabelPropagationTooLarge(f"label propagation stopped after {PROPAGATION_BOUND} rows")
+    if not user_id:
+        tenants = {str(node.get("user_id")) for node in nodes if node.get("user_id")}
+        if len(tenants) == 1:
+            user_id = tenants.pop()
+            nodes[0]["user_id"] = user_id
     settled = settle_labels(nodes, on_cycle="unverified").by_stored(kind, own_id, user_id=user_id or None)
     domain = settled.domain
     if settled.unverified:
