@@ -399,6 +399,37 @@ class SQLiteVNextStore:
         _ensure_embedding_content_sha256_sqlite(self.conn)
         _ensure_project_scope_identity_sqlite(self.conn)
 
+    def lock_label_writes(self, *, exclusive: bool = False) -> None:
+        """The SQLite writer lock is the label lock. Begin it when none is open."""
+
+        del exclusive
+        if not self.conn.in_transaction:
+            self.conn.execute("BEGIN IMMEDIATE")
+
+    def read_label_rows(self, kind: str, ids: Sequence[str]) -> list[VNextRow]:
+        """Narrow label rows for the insert floor. No text columns."""
+
+        wanted = [str(item) for item in ids if str(item)]
+        if not wanted:
+            return []
+        table = {"source": "sources", "memory": "memories", "open_loop": "open_loops"}.get(kind)
+        if table is None:
+            return []
+        extra = ""
+        if table == "memories":
+            extra = ", value, project_id"
+        elif table == "open_loops":
+            extra = ", project_id, source_id, memory_id"
+        marks = ",".join("?" for _ in wanted)
+        return self._fetch_all(
+            f"""
+                SELECT id, user_id, domain, sensitivity, metadata_json{extra}
+                FROM {table}
+                WHERE user_id = ? AND id IN ({marks})
+                """,
+            (self.user_id, *wanted),
+        )
+
     # -- fetch helpers (mirror PostgresVNextStore conventions) ------------
 
     def _execute(self, query: str, params: tuple[object, ...] = ()) -> sqlite3.Cursor:

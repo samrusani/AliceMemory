@@ -22,6 +22,7 @@ from tests.unit import test_derived_domain_fence as checks
 from tests.unit import test_derived_domain_review as review
 from tests.unit import test_derived_domain_stored_ids as stored_ids
 from alicebot_api import onramp, sqlite_schema
+from alicebot_api.vnext_label_writes import without_insert_floor
 
 
 def kill(owner, name, before, after, check):
@@ -177,12 +178,12 @@ def test_derived_domain_guard_mutations():
     from alicebot_api import vnext_rollups as rollups
     for module, check in [(rollups, checks.test_real_sqlite_rollup_keeps_restricted_input_domain),
                           (consolidation, checks.test_consolidation_report_includes_rollup_input_domains)]:
-        with pytest.MonkeyPatch.context() as patch:
+        with pytest.MonkeyPatch.context() as patch, without_insert_floor():
             patch.setattr(module, 'derived_domain', lambda rows, *, fallback: fallback)
             with pytest.raises(AssertionError):
                 check(patch)
         print('KILLED producer selector:', module.__name__)
-    with tempfile.TemporaryDirectory() as directory, pytest.MonkeyPatch.context() as patch:
+    with tempfile.TemporaryDirectory() as directory, pytest.MonkeyPatch.context() as patch, without_insert_floor():
         patch.setattr(sqlite_schema, '_relabel_derived_domains', lambda conn: None)
         with pytest.raises(AssertionError):
             checks.test_sqlite_upgrade_relabels_existing_derived_memory_only(Path(directory))

@@ -467,6 +467,53 @@ class PostgresVNextStore:
     def __init__(self, conn: UserConnection):
         self.conn = conn
 
+    def lock_label_writes(self, *, exclusive: bool = False) -> None:
+        """Shared label lock for a write, or the exclusive lock for a relabel.
+
+        The lock is transaction scoped. A session that already holds it takes
+        the same statement again, which Postgres grants without waiting.
+        """
+
+        mode = "pg_advisory_xact_lock" if exclusive else "pg_advisory_xact_lock_shared"
+        with self.conn.cursor() as cur:
+            cur.execute(
+                f"SELECT {mode}(hashtext('vnext_labels'), hashtext(app.current_user_id()::text))"
+            )
+
+    def read_label_rows(self, kind: str, ids: Sequence[str]) -> list[VNextRow]:
+        """Narrow label rows for the insert floor. No text columns."""
+
+        wanted = [str(item) for item in ids if str(item)]
+        if not wanted:
+            return []
+        table = {
+            "source": "sources",
+            "memory": "memories",
+            "open_loop": "open_loops",
+            "artifact": "generated_artifacts",
+            "project": "projects",
+            "belief": "beliefs",
+        }.get(kind)
+        if table is None:
+            return []
+        extra = ""
+        if table == "memories":
+            extra = ", value, project_id"
+        elif table == "open_loops":
+            extra = ", project_id, source_id, memory_id"
+        elif table == "beliefs":
+            extra = ", memory_id"
+        elif table == "generated_artifacts":
+            extra = ", artifact_type"
+        return self._fetch_all(
+            f"""
+                SELECT id, user_id, domain, sensitivity, metadata_json{extra}
+                FROM {table}
+                WHERE id = ANY(%s::uuid[])
+                """,
+            (wanted,),
+        )
+
     def _fetch_one(
         self,
         operation_name: str,

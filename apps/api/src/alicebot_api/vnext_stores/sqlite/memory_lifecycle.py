@@ -11,6 +11,12 @@ from alicebot_api.store import ContinuityStoreInvariantError
 from alicebot_api.vnext_event_log import build_event_log_record
 from alicebot_api.vnext_project_scope import canonical_memory_metadata
 from alicebot_api.vnext_repositories import JsonObject
+from alicebot_api.vnext_label_writes import (
+    apply_insert_floor,
+    merge_protected_metadata,
+    remember_floor_event,
+    takes_label_lock,
+)
 from alicebot_api.vnext_stores.memory_lifecycle_common import (
     REDACTED_JSON_VALUE,
     REDACTION_MARKER,
@@ -34,7 +40,31 @@ from alicebot_api.vnext_stores.sqlite.vector_scan import bump_embedding_stamp
 
 VNextRow = dict[str, object]
 
+
+def _with_protected_metadata(self, memory_id: str, patch: JsonObject, *, label_write: bool) -> JsonObject:
+    """Re-read metadata inside the label lock and keep label and marker keys."""
+
+    if "metadata_json" not in patch or not isinstance(patch.get("metadata_json"), dict):
+        return patch
+    current = self._fetch_optional_one(
+        "SELECT metadata_json FROM memories WHERE id = ? AND user_id = ?",
+        (str(memory_id), self.user_id),
+    )
+    if current is None:
+        return patch
+    stored = current.get("metadata_json")
+    merged = dict(patch)
+    merged["metadata_json"] = merge_protected_metadata(
+        stored if isinstance(stored, dict) else {},
+        patch["metadata_json"],
+        label_write=label_write,
+    )
+    return merged
+
+
+@takes_label_lock
 def create_memory(self, memory: JsonObject, *, actor_type: str = "system") -> VNextRow:
+    memory, floor_event = apply_insert_floor(self, "memory", memory)
     refuse_created_credential_activation(memory)
     memory_id = _new_id(memory.get("id"))
     # One clock reading for the whole write. ``first_seen_at`` and ``last_seen_at`` default to it, so
@@ -140,6 +170,7 @@ def create_memory(self, memory: JsonObject, *, actor_type: str = "system") -> VN
         target_id=row["id"],
         payload={"operation": "create", "fields": _sorted_field_names(memory)},
     )
+    remember_floor_event(self, floor_event, row["id"])
     return row
 
 def upsert_memory_by_key(self, memory: JsonObject, *, actor_type: str = "system") -> VNextRow:
@@ -263,8 +294,12 @@ def memory_redaction_bundle_is_exact(self, memory_id: str, artifact_ids: Sequenc
     )
     return bool(row.get("exact"))
 
-def update_memory(self, *, memory_id: str, patch: JsonObject, actor_type: str = "system") -> VNextRow:
+@takes_label_lock
+def update_memory(
+    self, *, memory_id: str, patch: JsonObject, actor_type: str = "system", label_write: bool = False
+) -> VNextRow:
     refuse_updated_credential_activation(patch, lambda: self.get_memory(str(memory_id)))
+    patch = _with_protected_metadata(self, memory_id, patch, label_write=label_write)
     # One clock reading for the write: an archive sets ``updated_at`` and ``deleted_at`` together.
     now = _utc_now_iso()
     cursor = self._execute(

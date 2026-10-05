@@ -11,6 +11,12 @@ from alicebot_api.store import ContinuityStoreInvariantError
 from alicebot_api.vnext_event_log import build_event_log_record
 from alicebot_api.vnext_project_scope import canonical_memory_metadata
 from alicebot_api.vnext_repositories import JsonObject
+from alicebot_api.vnext_label_writes import (
+    apply_insert_floor,
+    merge_protected_metadata,
+    remember_floor_event,
+    takes_label_lock,
+)
 from alicebot_api.vnext_stores.memory_lifecycle_common import (
     REDACTED_JSON_VALUE,
     REDACTION_MARKER,
@@ -34,7 +40,9 @@ from alicebot_api.vnext_stores.postgres.primitives import (
 
 VNextRow = dict[str, object]
 
+@takes_label_lock
 def create_memory(self, memory: JsonObject, *, actor_type: str = "system") -> VNextRow:
+    memory, floor_event = apply_insert_floor(self, "memory", memory)
     refuse_created_credential_activation(memory)
     row = self._fetch_one(
         "create_memory",
@@ -171,6 +179,7 @@ def create_memory(self, memory: JsonObject, *, actor_type: str = "system") -> VN
         target_id=row["id"],
         payload={"operation": "create", "fields": _sorted_field_names(memory)},
     )
+    remember_floor_event(self, floor_event, row["id"])
     return row
 
 def upsert_memory_by_key(self, memory: JsonObject, *, actor_type: str = "system") -> VNextRow:
@@ -415,8 +424,24 @@ def list_memories_missing_fact_keys(self, *, limit: int = 100, after_id: str | N
         (after_id, after_id, limit),
     )
 
-def update_memory(self, *, memory_id: str, patch: JsonObject, actor_type: str = "system") -> VNextRow:
+@takes_label_lock
+def update_memory(
+    self, *, memory_id: str, patch: JsonObject, actor_type: str = "system", label_write: bool = False
+) -> VNextRow:
     refuse_updated_credential_activation(patch, lambda: self.get_memory(str(memory_id)))
+    if "metadata_json" in patch and isinstance(patch.get("metadata_json"), dict):
+        current = self._fetch_optional_one(
+            "SELECT metadata_json FROM memories WHERE id = %s::uuid",
+            (memory_id,),
+        )
+        if current is not None:
+            stored = current.get("metadata_json")
+            patch = dict(patch)
+            patch["metadata_json"] = merge_protected_metadata(
+                stored if isinstance(stored, dict) else {},
+                patch["metadata_json"],
+                label_write=label_write,
+            )
     row = self._fetch_one(
         "update_memory",
         f"""
