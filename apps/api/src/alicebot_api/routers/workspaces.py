@@ -92,9 +92,9 @@ def _vnext_workspace_payload(store: PostgresVNextStore, *, identity: AgentIdenti
     ceiling = sensitivity_ceiling(identity)
     if ceiling is not None:
         sensitivity_allowed = [value for value in sensitivity_allowed if value in ceiling]
-    projects = identity.project_scope if identity is not None else ()
-    all_of = projects if identity is not None and identity.project_scope_locked else None
-    guard = LabelGuard.for_filters(store, (), sensitivity_allowed, projects, all_of=all_of)
+    requested_projects = identity.project_scope if identity is not None else ()
+    all_of = requested_projects if identity is not None and identity.project_scope_locked else None
+    guard = LabelGuard.for_filters(store, (), sensitivity_allowed, requested_projects, all_of=all_of)
     review_statuses = ["candidate", "needs_review", "private_only", "accepted", "rejected"]
     fetched_sources = store.list_sources(sensitivity_allowed=sensitivity_allowed, limit=20)
     sources = guard.admit_rows("source", fetched_sources)
@@ -152,7 +152,7 @@ def _vnext_workspace_payload(store: PostgresVNextStore, *, identity: AgentIdenti
         if callable(list_pending_inline_confirmations)
         else memory_commit_service.inline_confirmations(limit=20)
     )
-    recent_memory_commits = guard.admit_rows("memory", recent_memory_commits)
+    recent_memory_commits = guard.admit_rows("memory", recent_memory_commits if isinstance(recent_memory_commits, list) else [])
     inline_confirmations = guard.admit_rows("memory", inline_confirmations)
     scheduler_status = VNextSchedulerService(store).status()
     scheduler_status = {**scheduler_status, "daemon": daemon_status()}
