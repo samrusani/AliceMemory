@@ -334,6 +334,33 @@ def test_another_users_loop_that_names_the_source_is_left_alone(tmp_path, capsys
     assert _read(db, "SELECT title FROM open_loops WHERE user_id = '%s'" % USER_ID) == [(REMOVAL_MARKER,)]
 
 
+def test_cached_loop_ids_cannot_blank_another_users_loop(tmp_path):
+    """The scrub checks the user even when its cached ids include another user's row.
+
+    Mutation: remove the ``user_id`` condition from ``_BLANK_OPEN_LOOPS_SQL``.
+    """
+
+    from alicebot_api.vnext_stores.sqlite.source_retirement import blank_open_loops
+
+    db = _vault(tmp_path)
+    sid = run_import(db, _folder(tmp_path, note="The cobalt door opens on Monday.")).source_ids[0]
+    other, neighbour = str(uuid4()), str(uuid4())
+    with closing(sqlite3.connect(db)) as conn:
+        conn.execute("INSERT INTO users (id, email) VALUES (?, ?)", (other, "other@example.invalid"))
+        conn.execute(
+            "INSERT INTO open_loops (id, user_id, title, status, metadata_json) VALUES (?, ?, ?, 'open', ?)",
+            (neighbour, other, "zebraneighbour", json.dumps({"source_id": sid})),
+        )
+        conn.commit()
+    before = _read(db, "SELECT * FROM open_loops WHERE id = '%s'" % neighbour)
+    with sqlite_user_connection(db, USER_ID) as conn:
+        store = SQLiteVNextStore(conn, USER_ID)
+        mine = _create_loop(store, "zebramine", metadata={"source_id": sid})
+        assert blank_open_loops(store, sid, now="2026-10-05T00:00:00Z", loop_ids=[mine, neighbour]) == 1
+    assert _read(db, "SELECT title FROM open_loops WHERE id = '%s'" % mine) == [(REMOVAL_MARKER,)]
+    assert _read(db, "SELECT * FROM open_loops WHERE id = '%s'" % neighbour) == before
+
+
 # Spellings ``cited_source_ids`` names. Each is the only reference on its loop.
 NAMED_SPELLINGS = {
     "upper": lambda sid: {"source_id": sid.upper()},
@@ -344,6 +371,17 @@ NAMED_SPELLINGS = {
     "braced": lambda sid: {"source_id": "{" + sid + "}"},
     "urn": lambda sid: {"source_id": f"urn:uuid:{sid}"},
     "spaced": lambda sid: {"source_id": f" {sid} "},
+    "repeated_prefix": lambda sid: {"source_id": f"source: SOURCE:{sid}"},
+    "chunk_suffix": lambda sid: {"source_ref": f"source:{sid}#chunk-1"},
+    "alice_url": lambda sid: {"source_refs": f"alice://sources/{sid}#chunk-1"},
+    "id_object": lambda sid: {"source_refs": [{"id": sid}]},
+    "ref_object": lambda sid: {"source_refs": {"ref": sid}},
+    "token_list": lambda sid: {"source_ids": f"{sid}; source:{sid}"},
+    "source_sentence": lambda sid: {"source_refs": f"See source:{sid} for the note"},
+    "sources_alias": lambda sid: {"sources": [sid]},
+    "case_key": lambda sid: {"SOURCE_REFS": [sid]},
+    "escaped_all": lambda sid: {"source_refs": '{"source_id": "' + "".join("\\u%04x" % ord(c) for c in sid) + '"}'},
+    "duplicate_key": lambda sid: {"source_refs": '{"source_id": "' + sid + '", "source_id": "' + sid + '"}'},
 }
 
 
@@ -398,7 +436,7 @@ def test_each_spelling_is_blanked_on_delete_and_on_replace(tmp_path, capsys):
 
 
 def test_a_prune_reads_the_loops_once_for_the_preview_and_once_for_the_receipt(tmp_path, capsys, monkeypatch):
-    """Twelve replaced sources. The preview reads the user's loops once, and the receipt reads them once, not once per source.
+    """Every spelling on its own replaced source. The preview and receipt each read the user's loops once.
 
     Mutation: ``_preview`` or ``run_sources`` calls ``open_loops_naming_sources`` inside the per-source loop.
     """
@@ -406,16 +444,18 @@ def test_a_prune_reads_the_loops_once_for_the_preview_and_once_for_the_receipt(t
     from alicebot_api.vnext_stores.sqlite import source_retirement
 
     db = _vault(tmp_path)
-    folder = _folder(tmp_path, **{f"note{index}": f"The older amber statement {index}." for index in range(12)})
+    spellings = {**NAMED_SPELLINGS, "escaped": _escaped_json}
+    count = max(12, len(spellings))
+    folder = _folder(tmp_path, **{f"note{index}": f"The older amber statement {index}." for index in range(count)})
     run_import(db, folder)
-    for index in range(12):
+    for index in range(count):
         (folder / f"note{index}.md").write_text(f"The current copper statement {index}.")
-    assert len(run_import(db, folder, supersede=True).superseded) == 12
+    assert len(run_import(db, folder, supersede=True).superseded) == count
     ids = [row[0] for row in _read(db, "SELECT id FROM sources WHERE deleted_at IS NOT NULL ORDER BY deleted_at, id")]
     with sqlite_user_connection(db, USER_ID) as conn:
         store = SQLiteVNextStore(conn, USER_ID)
         for index, sid in enumerate(ids):
-            builder = list(NAMED_SPELLINGS.values())[index % len(NAMED_SPELLINGS)]
+            builder = list(spellings.values())[index % len(spellings)]
             _create_loop(store, f"zebraprune{index}", metadata=builder(sid))
         for index in range(40):
             _create_loop(store, f"zebrafiller{index}")
@@ -430,12 +470,49 @@ def test_a_prune_reads_the_loops_once_for_the_preview_and_once_for_the_receipt(t
     assert _command(db, "prune", "--superseded") == 2
     preview = json.loads(capsys.readouterr().out)["would_delete"]
     assert len(calls) == 1
-    assert sum(row["open_loops"] for row in preview) == 12
+    assert sum(row["open_loops"] for row in preview) == count
     calls.clear()
     assert _command(db, "prune", "--superseded", "--yes") == 0
     receipt = json.loads(capsys.readouterr().out)["deleted"]
     assert len(calls) == 1
-    assert sum(row["open_loops"] for row in receipt) == sum(row["open_loops"] for row in preview) == 12
+    assert sum(row["open_loops"] for row in receipt) == sum(row["open_loops"] for row in preview) == count
+    assert _read(db, "SELECT count(*) FROM open_loops WHERE title LIKE 'zebraprune%'") == [(0,)]
+    assert _read(db, "SELECT count(*) FROM open_loops WHERE title LIKE 'zebrafiller%'") == [(40,)]
+
+
+def test_replacement_reads_all_source_loops_once(tmp_path, monkeypatch):
+    """A multi-file replacement blanks every spelling using one loop pass for the whole import.
+
+    Mutation: stop passing cached ``loop_ids`` to ``supersede_source`` in the capture service.
+    """
+
+    from alicebot_api.vnext_stores.sqlite import source_retirement
+
+    db = _vault(tmp_path)
+    spellings = {**NAMED_SPELLINGS, "escaped": _escaped_json}
+    folder = _folder(tmp_path, **{f"note{index}": f"The older amber statement {index}." for index in range(len(spellings))})
+    source_ids = run_import(db, folder).source_ids
+    with sqlite_user_connection(db, USER_ID) as conn:
+        store = SQLiteVNextStore(conn, USER_ID)
+        for index, (sid, builder) in enumerate(zip(source_ids, spellings.values(), strict=True)):
+            _create_loop(store, f"zebrareplaced{index}", metadata=builder(sid))
+    for index in range(len(spellings)):
+        (folder / f"note{index}.md").write_text(f"The current copper statement {index}.")
+    calls = []
+    original = source_retirement._user_open_loops
+
+    def _counting(store):
+        calls.append(store.user_id)
+        return original(store)
+
+    monkeypatch.setattr(source_retirement, "_user_open_loops", _counting)
+    result = run_import(db, folder, supersede=True)
+    assert len(result.superseded) == len(spellings)
+    assert len(calls) == 1
+    assert _read(db, "SELECT count(*) FROM open_loops WHERE title LIKE 'zebrareplaced%'") == [(0,)]
+    events = _read(db, "SELECT payload_json FROM event_log WHERE event_type = 'source.superseded'")
+    assert len(events) == len(spellings)
+    assert all(json.loads(payload)["open_loops"] == 1 for payload, in events)
 
 
 def test_the_scrub_matches_exactly_what_the_reader_lists(tmp_path, capsys):
