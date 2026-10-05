@@ -2,15 +2,16 @@
 
 ``export``, ``sources list``, the ``sources delete`` and ``sources prune`` previews and
 ``import-markdown --dry-run`` copy the vault into a folder under the temp directory and
-read the copy. A normal exit or an exception removes the folder. A SIGKILL or a power
-loss skips that cleanup and leaves a plaintext copy of the vault behind.
+read the copy. ``import`` copies the file it is about to read into a folder there too.
+A normal exit or an exception removes the folder. A SIGKILL or a power loss skips that
+cleanup and leaves a plaintext copy of the vault, or of the import file, behind.
 
 Each folder therefore carries a small marker file that names the process that made it
 (its PID and its start time). Before it makes a new folder, every one of those commands
 removes the folders of processes that are gone. The sweep is deliberately narrow. It
 only touches a folder that is all of these:
 
-* directly under the temp directory, with one of the two name prefixes in ``SNAPSHOT_PREFIXES``;
+* directly under the temp directory, with one of the name prefixes in ``SNAPSHOT_PREFIXES``;
 * a real directory (never a symlink), owned by the current user, with mode 0700;
 * holding a marker, a small file with valid contents; and
 * named by a marker whose process is gone, or whose PID now belongs to a process that
@@ -38,7 +39,8 @@ logger = logging.getLogger(__name__)
 
 EXPORT_SNAPSHOT_PREFIX = "alice-memory-export-snapshot-"
 IMPORT_PREVIEW_PREFIX = "alice-import-preview-"
-SNAPSHOT_PREFIXES = (EXPORT_SNAPSHOT_PREFIX, IMPORT_PREVIEW_PREFIX)
+IMPORT_SNAPSHOT_PREFIX = "alice-memory-import-snapshot-"
+SNAPSHOT_PREFIXES = (EXPORT_SNAPSHOT_PREFIX, IMPORT_PREVIEW_PREFIX, IMPORT_SNAPSHOT_PREFIX)
 OWNER_MARKER_NAME = ".alice-snapshot-owner"
 OWNER_MARKER_VERSION = 1
 
@@ -283,6 +285,7 @@ def sweep_orphaned_snapshots(temp_dir: Path | str | None = None, *, uid: int | N
 __all__ = [
     "EXPORT_SNAPSHOT_PREFIX",
     "IMPORT_PREVIEW_PREFIX",
+    "IMPORT_SNAPSHOT_PREFIX",
     "OWNER_MARKER_NAME",
     "OWNER_MARKER_VERSION",
     "SNAPSHOT_PREFIXES",

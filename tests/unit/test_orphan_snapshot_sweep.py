@@ -2,14 +2,16 @@
 
 ``alice-memory`` copies the vault into a private folder under the temp directory for
 ``export``, ``sources list``, the ``sources delete`` and ``sources prune`` previews and
-``import-markdown --dry-run``. A normal exit or an exception removes that copy. A SIGKILL
-or a power loss skips the cleanup, so the copy stayed until the system cleaned the temp
-directory. Each copy now names its owner process in a marker file, and the next command
-that makes a copy first removes the copies of processes that are gone.
+``import-markdown --dry-run``, and copies the file it reads into one for ``import``. A
+normal exit or an exception removes that copy. A SIGKILL or a power loss skips the
+cleanup, so the copy stayed until the system cleaned the temp directory. Each copy now
+names its owner process in a marker file, and the next command that makes a copy first
+removes the copies of processes that are gone.
 
-The first block kills a real child process inside each of the two helpers, then runs a
+The first block kills a real child process inside each of the three helpers, then runs a
 command and looks at what is left. The rest pins what the sweep must leave alone and how
-it fails. Every test names the edit that makes it fail.
+it fails, including the two places a FIFO could make it block. Every test names the edit
+that makes it fail.
 """
 
 from __future__ import annotations
@@ -34,6 +36,7 @@ from alicebot_api.onramp import main as cli
 from alicebot_api.snapshot_sweep import (
     EXPORT_SNAPSHOT_PREFIX,
     IMPORT_PREVIEW_PREFIX,
+    IMPORT_SNAPSHOT_PREFIX,
     OWNER_MARKER_NAME,
     parse_linux_stat,
     private_snapshot_directory,
@@ -42,7 +45,12 @@ from alicebot_api.snapshot_sweep import (
 from alicebot_api.vault_sleep import sleep_proposals_path
 from tests.unit.test_importer_per_file_savepoint import USER_ID, _folder, _import, _read, _vault
 
-PREFIX_BY_HELPER = {"export": EXPORT_SNAPSHOT_PREFIX, "preview": IMPORT_PREVIEW_PREFIX}
+PREFIX_BY_HELPER = {
+    "export": EXPORT_SNAPSHOT_PREFIX,
+    "preview": IMPORT_PREVIEW_PREFIX,
+    "import": IMPORT_SNAPSHOT_PREFIX,
+}
+HELPERS = tuple(PREFIX_BY_HELPER)
 ROOT = Path(__file__).resolve().parents[2]
 
 _CHILD = """
@@ -54,6 +62,8 @@ from alicebot_api import onramp
 helper, database, user, action = sys.argv[1:5]
 if helper == "export":
     manager = onramp._prepared_export_connection(Path(database), UUID(user))
+elif helper == "import":
+    manager = onramp._immutable_import_copy(Path(database))
 else:
     arguments = argparse.Namespace(dry_run=True, db=None, user_id=UUID(user), user_email="local@alice")
     manager = onramp._markdown_import_database(Path(database), arguments)
@@ -80,6 +90,16 @@ def vault(tmp_path: Path) -> Path:
     database = _vault(tmp_path)
     _import(database, _folder(tmp_path, note="The kestrelplum lantern hangs in the loft."))
     return database
+
+
+@pytest.fixture
+def backup(vault: Path, scratch_tmp: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> Path:
+    """An export of the vault, made before any orphan exists, for the ``import`` command to read."""
+    path = tmp_path / "backup.jsonl"
+    assert cli(["export", "--db", str(vault), "--user-id", USER_ID, "--out", str(path)]) == 0
+    capsys.readouterr()
+    assert list(scratch_tmp.iterdir()) == [], "the export left nothing behind"
+    return path
 
 
 @pytest.fixture
@@ -146,10 +166,21 @@ def _release(child: subprocess.Popen[str]) -> None:
 
 
 def _commands(database: Path, tmp_path: Path) -> dict[str, list[str]]:
+    """Each command that makes a snapshot. ``import`` reads ``tmp_path / "backup.jsonl"``, so a
+    test that runs it uses the ``backup`` fixture."""
     source_id = str(_read(database, "SELECT id FROM sources")[0][0])
     base = ["--db", str(database), "--user-id", USER_ID]
     return {
         "export": ["export", *base, "--out", str(tmp_path / "out" / "backup.jsonl")],
+        "import": [
+            "import",
+            "--db",
+            str(tmp_path / "restored" / "memory.db"),
+            "--user-id",
+            USER_ID,
+            "--in",
+            str(tmp_path / "backup.jsonl"),
+        ],
         "sources-list": ["sources", "list", *base],
         "sources-delete-preview": ["sources", "delete", source_id, *base],
         "sources-prune-preview": ["sources", "prune", "--superseded", *base],
@@ -157,15 +188,23 @@ def _commands(database: Path, tmp_path: Path) -> dict[str, list[str]]:
     }
 
 
-COMMAND_NAMES = ("export", "sources-list", "sources-delete-preview", "sources-prune-preview", "import-markdown-dry-run")
+COMMAND_NAMES = (
+    "export",
+    "import",
+    "sources-list",
+    "sources-delete-preview",
+    "sources-prune-preview",
+    "import-markdown-dry-run",
+)
 
 
 @pytest.mark.parametrize("command_name", COMMAND_NAMES)
-@pytest.mark.parametrize("helper", ["export", "preview"])
+@pytest.mark.parametrize("helper", HELPERS)
 def test_a_snapshot_left_by_a_killed_process_is_removed_by_the_next_command(
     helper: str,
     command_name: str,
     vault: Path,
+    backup: Path,
     scratch_tmp: Path,
     tmp_path: Path,
     children: list[subprocess.Popen[str]],
@@ -173,9 +212,14 @@ def test_a_snapshot_left_by_a_killed_process_is_removed_by_the_next_command(
 ) -> None:
     """Mutations, each alone: delete the ``sweep_orphaned_snapshots()`` call in
     ``private_snapshot_directory``; delete the ``_write_owner_marker(directory)`` call there
-    (a folder with no marker is never swept)."""
+    (a folder with no marker is never swept); in ``_immutable_import_copy`` use
+    ``tempfile.TemporaryDirectory(prefix=IMPORT_SNAPSHOT_PREFIX)`` in place of
+    ``private_snapshot_directory`` (the ``import`` command then sweeps nothing and its own
+    folder has no marker)."""
     orphan = _kill_inside(helper, vault, children)
-    assert any(orphan.glob("snapshot-*.db")) or (orphan / "memory.db").exists(), "the orphan holds a vault copy"
+    assert (
+        any(orphan.glob("snapshot-*.db")) or (orphan / "memory.db").exists() or (orphan / "import.jsonl").exists()
+    ), "the orphan holds a copy of the vault"
 
     cli(_commands(vault, tmp_path)[command_name])
     capsys.readouterr()
@@ -183,7 +227,7 @@ def test_a_snapshot_left_by_a_killed_process_is_removed_by_the_next_command(
     assert not orphan.exists(), f"{orphan.name} survived {command_name}"
 
 
-@pytest.mark.parametrize("helper", ["export", "preview"])
+@pytest.mark.parametrize("helper", HELPERS)
 def test_a_running_process_keeps_its_snapshot_and_removes_it_itself_on_a_normal_exit(
     helper: str,
     vault: Path,
@@ -206,7 +250,7 @@ def test_a_running_process_keeps_its_snapshot_and_removes_it_itself_on_a_normal_
     assert not snapshot.exists(), "a normal exit still removes its own snapshot"
 
 
-@pytest.mark.parametrize("helper", ["export", "preview"])
+@pytest.mark.parametrize("helper", HELPERS)
 def test_a_snapshot_whose_pid_now_belongs_to_a_process_that_started_at_another_time_is_removed(
     helper: str,
     vault: Path,
@@ -266,16 +310,20 @@ def _state(path: Path) -> object:
     if stat.S_ISDIR(info.st_mode):
         entries = sorted(os.listdir(path))
         return ("dir", stat.S_IMODE(info.st_mode), [(name, _state(path / name)) for name in entries])
+    if not stat.S_ISREG(info.st_mode):
+        return ("special", stat.S_IFMT(info.st_mode), stat.S_IMODE(info.st_mode))  # a FIFO must never be read
     return ("file", stat.S_IMODE(info.st_mode), path.read_bytes())
 
 
 def test_an_orphan_is_removed_whole_with_everything_in_it(scratch_tmp: Path, dead_pid: int) -> None:
-    """Mutation: make ``_empty_directory`` remove every entry with ``os.unlink``, so the sub-folder
-    stays and ``os.rmdir`` meets a folder that is not empty."""
+    """Mutations, each alone: make ``_empty_directory`` remove every entry with ``os.unlink``, so the
+    sub-folder stays and ``os.rmdir`` meets a folder that is not empty; delete
+    ``IMPORT_SNAPSHOT_PREFIX`` from ``SNAPSHOT_PREFIXES``."""
     first = _orphan(scratch_tmp, EXPORT_SNAPSHOT_PREFIX + "aaaa", dead_pid)
     second = _orphan(scratch_tmp, IMPORT_PREVIEW_PREFIX + "bbbb", dead_pid)
-    assert sweep_orphaned_snapshots(scratch_tmp) == 2
-    assert not first.exists() and not second.exists()
+    third = _orphan(scratch_tmp, IMPORT_SNAPSHOT_PREFIX + "cccc", dead_pid)
+    assert sweep_orphaned_snapshots(scratch_tmp) == 3
+    assert not first.exists() and not second.exists() and not third.exists()
 
 
 def _no_marker(root: Path, pid: int) -> list[Path]:
@@ -357,12 +405,10 @@ def _other_names(root: Path, pid: int) -> list[Path]:
     ]
 
 
-def _other_snapshot_kinds(root: Path, pid: int) -> list[Path]:
-    """The import-file copy and the source replica have their own prefixes and are not swept."""
-    return [
-        _orphan(root, "alice-memory-import-snapshot-aaaa", pid),
-        _orphan(root, "alice-memory-source-replica-aaaa", pid),
-    ]
+def _source_replica(root: Path, pid: int) -> list[Path]:
+    """The source replica has its own prefix, is made next to the database it copies and not in the
+    temp directory, and is not swept."""
+    return [_orphan(root, "alice-memory-source-replica-aaaa", pid)]
 
 
 def _unrelated_temp_file(root: Path, pid: int) -> list[Path]:
@@ -383,7 +429,7 @@ LEAVE_ALONE: dict[str, Callable[[Path, int], list[Path]]] = {
     "marker that is a symlink": _marker_that_is_a_symlink,
     "marker that is a folder": _marker_that_is_a_folder,
     "other names": _other_names,
-    "other snapshot kinds": _other_snapshot_kinds,
+    "the source replica": _source_replica,
     "an unrelated temp file": _unrelated_temp_file,
 }
 
@@ -394,7 +440,7 @@ def test_the_sweep_leaves_alone_everything_that_is_not_a_proven_orphan(
 ) -> None:
     """Every case with a marker has one that names a dead process, so only the named guard keeps
     the folder. Mutations, each alone: ``mode`` drops the ``S_IMODE`` test in ``_sweep_entry``;
-    ``other names`` and ``other snapshot kinds`` drop the prefix test in ``_sweep_root``;
+    ``other names`` and ``the source replica`` drop the prefix test in ``_sweep_root``;
     ``symlink`` and ``marker that is a symlink`` set ``_FILE_FLAGS = 0``; ``no marker`` makes
     ``_read_owner_marker`` return a marker for a process that is not running when the file is
     missing. A marker that is a folder, and a regular file with the prefix, are also kept by an
@@ -547,6 +593,79 @@ def test_a_folder_swapped_for_a_link_after_it_was_checked_is_not_followed(
     assert orphan.is_symlink(), "the link in its place is left"
 
 
+_SWEEP_CHILD = """
+import sys
+from alicebot_api.snapshot_sweep import sweep_orphaned_snapshots
+
+print(sweep_orphaned_snapshots(sys.argv[1]))
+"""
+_SWEEP_DEADLINE_SECONDS = 15
+
+
+def _sweep_with_a_deadline(root: Path) -> int:
+    """Run the sweep in its own process under a hard timeout, so a sweep that blocks fails the test
+    (the child is killed) and does not hang the suite. Returns what the sweep returned."""
+    environment = dict(os.environ)
+    environment["PYTHONPATH"] = os.pathsep.join(entry for entry in sys.path if entry)
+    try:
+        done = subprocess.run(
+            [sys.executable, "-c", _SWEEP_CHILD, str(root)],
+            capture_output=True,
+            text=True,
+            timeout=_SWEEP_DEADLINE_SECONDS,
+            env=environment,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        pytest.fail(f"the sweep was still running after {_SWEEP_DEADLINE_SECONDS} seconds, blocked on a FIFO")
+    assert done.returncode == 0, done.stderr
+    return int(done.stdout.strip())
+
+
+def test_a_fifo_with_a_snapshot_name_does_not_block_the_sweep(scratch_tmp: Path, dead_pid: int) -> None:
+    """Opening a FIFO for reading waits for a writer. The folder open uses ``O_DIRECTORY``, so a
+    FIFO is refused at once and the sweep goes on to the real orphan beside it. Mutation: delete
+    ``os.O_DIRECTORY`` from the ``os.open`` call in ``_sweep_entry``."""
+    fifo = scratch_tmp / (EXPORT_SNAPSHOT_PREFIX + "fifo")
+    os.mkfifo(fifo, 0o700)
+    orphan = _orphan(scratch_tmp, IMPORT_SNAPSHOT_PREFIX + "real", dead_pid)
+    before = _state(fifo)
+    assert isinstance(before, tuple) and before[:2] == ("special", stat.S_IFIFO)
+
+    assert _sweep_with_a_deadline(scratch_tmp) == 1
+
+    assert _state(fifo) == before, "the FIFO is left alone"
+    assert not orphan.exists(), "the sweep went past the FIFO to the real orphan"
+
+
+@pytest.mark.parametrize("writer_attached", [False, True], ids=["no writer", "a writer holds it open"])
+def test_a_fifo_named_as_the_marker_does_not_block_the_sweep(
+    writer_attached: bool, scratch_tmp: Path, dead_pid: int
+) -> None:
+    """The folder is real, owned by this user and 0700, so the sweep reaches the marker. Opening a
+    FIFO for reading blocks when nothing writes to it, and reading one blocks when a writer holds
+    it open and sends nothing. ``O_NONBLOCK`` makes the open return and the read fail at once, so
+    the folder is kept as one with no valid marker. Mutation: delete ``os.O_NONBLOCK`` from the
+    ``os.open`` call in ``_read_owner_marker`` (the first case blocks in the open, the second in
+    the read)."""
+    folder = scratch_tmp / (EXPORT_SNAPSHOT_PREFIX + "fifomarker")
+    folder.mkdir(mode=0o700)
+    _populate(folder)
+    marker = folder / OWNER_MARKER_NAME
+    os.mkfifo(marker, 0o600)
+    orphan = _orphan(scratch_tmp, IMPORT_PREVIEW_PREFIX + "real", dead_pid)
+    before = _state(folder)
+    writer = os.open(marker, os.O_RDWR | os.O_NONBLOCK) if writer_attached else None
+    try:
+        assert _sweep_with_a_deadline(scratch_tmp) == 1
+    finally:
+        if writer is not None:
+            os.close(writer)
+
+    assert _state(folder) == before, "the folder with a FIFO for a marker is left alone"
+    assert not orphan.exists(), "the sweep went past it to the real orphan"
+
+
 def test_a_sweep_that_cannot_run_does_not_fail_the_command(
     vault: Path,
     scratch_tmp: Path,
@@ -566,7 +685,7 @@ def test_a_sweep_that_cannot_run_does_not_fail_the_command(
     assert sweep_orphaned_snapshots(scratch_tmp / "does-not-exist") == 0
 
 
-def test_one_real_command_removes_both_kinds_of_orphan_and_nothing_else(
+def test_one_real_command_removes_every_kind_of_orphan_and_nothing_else(
     vault: Path,
     scratch_tmp: Path,
     tmp_path: Path,
@@ -574,11 +693,10 @@ def test_one_real_command_removes_both_kinds_of_orphan_and_nothing_else(
     dead_pid: int,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """A real orphan of each kind, and a decoy for every guard, then one real command. Only the two
+    """A real orphan of each kind, and a decoy for every guard, then one real command. Only the
     orphans go. Mutation: widen the sweep to every folder under the temp directory by dropping the
     prefix test in ``_sweep_root``."""
-    export_orphan = _kill_inside("export", vault, children)
-    preview_orphan = _kill_inside("preview", vault, children)
+    orphans = [_kill_inside(helper, vault, children) for helper in HELPERS]
     protected: list[Path] = []
     for build in LEAVE_ALONE.values():
         protected.extend(build(scratch_tmp, dead_pid))
@@ -587,8 +705,32 @@ def test_one_real_command_removes_both_kinds_of_orphan_and_nothing_else(
     cli(_commands(vault, tmp_path)["sources-list"])
     capsys.readouterr()
 
-    assert not export_orphan.exists() and not preview_orphan.exists()
+    assert all(not orphan.exists() for orphan in orphans)
     assert [_state(path) for path in protected] == before
+
+
+def test_a_command_that_fails_inside_the_helper_still_removes_the_orphans_it_found(
+    vault: Path,
+    scratch_tmp: Path,
+    tmp_path: Path,
+    children: list[subprocess.Popen[str]],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The sweep runs before the copy is made, not after the command, so an error in the middle of
+    the command does not skip it. ``export`` with a user id that is not in the vault fails inside
+    ``_prepared_export_connection``, after its own snapshot exists. Mutations, each alone: move the
+    ``sweep_orphaned_snapshots()`` call in ``private_snapshot_directory`` to just after the
+    ``yield directory`` line; move it to after the ``with`` block."""
+    orphans = [_kill_inside(helper, vault, children) for helper in HELPERS]
+    unknown_user = "00000000-0000-4000-8000-00000000dead"
+    assert unknown_user != USER_ID
+
+    code = cli(["export", "--db", str(vault), "--user-id", unknown_user, "--out", str(tmp_path / "out" / "x.jsonl")])
+
+    assert code != 0, "the export failed, which is the point of this test"
+    assert json.loads(capsys.readouterr().err)["error"]["code"] == "export_failed"
+    assert all(not orphan.exists() for orphan in orphans), [orphan.name for orphan in orphans if orphan.exists()]
+    assert list(scratch_tmp.iterdir()) == [], "the failed command removed its own snapshot as well"
 
 
 # --- the folder the helper makes ------------------------------------------------------------
@@ -718,8 +860,10 @@ def test_the_linux_stat_parser_refuses_text_that_is_not_a_stat_line(text: str) -
 
 
 def test_the_docs_say_an_interrupted_command_can_leave_a_snapshot_and_the_next_one_removes_it() -> None:
-    """Mutation: delete the sentence from ``docs/alpha/backup-and-restore.md``."""
+    """Mutations, each alone: delete the sentence from ``docs/alpha/backup-and-restore.md``; take
+    ``alice-memory import`` out of it."""
     text = (ROOT / "docs/alpha/backup-and-restore.md").read_text(encoding="utf-8")
     sentence = next((line for line in text.split("\n\n") if "interrupted" in line and "snapshot" in line), "")
     assert sentence.startswith("Unreleased (on main, not in v0.20.0):"), sentence
     assert "removes" in sentence and "next" in sentence
+    assert "alice-memory import" in sentence, "the import file copy is swept too"

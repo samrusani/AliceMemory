@@ -141,6 +141,7 @@ from alicebot_api.project_view import VIEW_CHOICES, ProjectView
 from alicebot_api.snapshot_sweep import (
     EXPORT_SNAPSHOT_PREFIX,
     IMPORT_PREVIEW_PREFIX,
+    IMPORT_SNAPSHOT_PREFIX,
     private_snapshot_directory,
 )
 from alicebot_api.sqlite_schema import ROW_BACKFILL_TABLES, apply_row_backfills, bootstrap_sqlite_schema
@@ -3897,9 +3898,7 @@ def _print_import_summary(
 @contextmanager
 def _immutable_import_copy(source_path: Path) -> Iterator[Path]:
     """Yield an owner-only snapshot read from one stable source handle."""
-    with tempfile.TemporaryDirectory(prefix="alice-memory-import-snapshot-") as raw_dir:
-        snapshot_dir = Path(raw_dir)
-        os.chmod(snapshot_dir, 0o700)
+    with private_snapshot_directory(IMPORT_SNAPSHOT_PREFIX) as snapshot_dir:
         snapshot_path = snapshot_dir / "import.jsonl"
         with source_path.open("rb") as source, snapshot_path.open("xb") as destination:
             before = os.fstat(source.fileno())
