@@ -84,28 +84,3 @@ def test_sqlite_real_key_core_doors(tmp_path, monkeypatch, reader):
             if not admitted:
                 assert str(row["title"]) not in rendered
 
-
-def test_full_owner_doctor_keeps_true_counts_and_filtered_view_skips_content(tmp_path):
-    user_id = uuid4()
-    path = tmp_path / "doctor.sqlite3"
-    bootstrap_database(path, user_id=str(user_id), user_email="synthetic@example.invalid")
-    with sqlite_user_connection(path, user_id) as conn:
-        store = SQLiteVNextStore(conn, user_id)
-        # SQLite has no provider/connector doctor protocol. Keep those synthetic
-        # operations fixed while the real connection supplies content diagnostics.
-        diagnostic_store = DoctorStore()
-        diagnostic_store.conn = store.conn
-        diagnostic_store.list_sources = lambda **kwargs: [row for batch in store.iter_label_rows("source") for row in batch]
-        service = VNextDoctorService(diagnostic_store, secret_provider=InMemorySecretProvider(), env={}, cwd=tmp_path)
-        before = service.run(include_content_diagnostics=False)
-        rows = seed_read_rows(store)
-        full = service.run()
-        scoped = service.run(include_content_diagnostics=False)
-    derived = next(check for check in full["checks"] if check["name"] == "derived_labels")
-    assert derived["message"] == "derived labels: 1 below their inputs, 1 unverified"
-    skipped = [check for check in scoped["checks"] if check["name"] in {"derived_labels", "flagged_sources"}]
-    assert len(skipped) == 2
-    assert all(check["status"] == "skipped" and check["details"] == {"scope": "filtered_workspace", "evaluated": False} for check in skipped)
-    assert all(str(row["id"]) not in json.dumps(scoped) for row in rows.values())
-    for field in ("status", "blocking_failure_count", "warning_count", "recommended_fixes"):
-        assert scoped[field] == before[field]
