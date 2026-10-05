@@ -61,6 +61,8 @@ from alicebot_api.vnext_agent_control import (
 )
 from alicebot_api.vnext_agent_keys import (
     AgentKeyAuthenticationError,
+    agent_key_from_authorization,
+    resolve_protected_agent_identity,
 )
 from alicebot_api.vnext_capture import (
     VNextCaptureService,
