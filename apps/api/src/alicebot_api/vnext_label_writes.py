@@ -10,8 +10,9 @@ import json
 import re
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
+from contextvars import ContextVar
 from functools import wraps
-from dataclasses import replace
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from alicebot_api.vnext_agent_control import RESTRICTED_DOMAINS
@@ -57,6 +58,73 @@ RETRYABLE_DETAIL = (
     "the label change was not applied because another change was running; nothing was changed; try again"
 )
 REFUSED_DETAIL = "the label change could not be applied to every dependent row; nothing was changed"
+
+
+@dataclass
+class _CaptureLabelInputs:
+    conn: Any
+    transaction_id: str
+    rollback_counter: int
+    source_id: str
+    rows: dict[tuple[str, str], list[dict[str, object]]] = field(default_factory=dict)
+
+    @property
+    def key(self) -> tuple[str, int]:
+        return self.transaction_id, self.rollback_counter
+
+
+_CAPTURE_LABEL_INPUTS: ContextVar[_CaptureLabelInputs | None] = ContextVar("capture_label_inputs", default=None)
+
+
+def invalidate_capture_label_inputs(store: Any) -> None:
+    batch = _CAPTURE_LABEL_INPUTS.get()
+    if batch is not None and batch.conn is getattr(store, "conn", None):
+        batch.rows.clear()
+
+
+def label_savepoint_rolled_back(store: Any) -> None:
+    """Invalidate capture inputs whenever the store rolls a savepoint back."""
+
+    conn = store.conn
+    conn._alice_label_rollback_counter = int(getattr(conn, "_alice_label_rollback_counter", 0)) + 1
+    invalidate_capture_label_inputs(store)
+
+
+def _current_capture_inputs(store: Any) -> _CaptureLabelInputs | None:
+    batch = _CAPTURE_LABEL_INPUTS.get()
+    if batch is None or batch.conn is not getattr(store, "conn", None) or not _in_transaction(store):
+        return None
+    counter = int(getattr(batch.conn, "_alice_label_rollback_counter", 0))
+    if counter != batch.rollback_counter:
+        batch.rows.clear()
+        batch.rollback_counter = counter
+    return batch
+
+
+@contextmanager
+def capture_label_inputs(store: Any, source_id: str) -> Iterator[None]:
+    """Reuse only the new source's label row during capture's candidate loop.
+
+    A managed transaction fixes the actual transaction id for this synchronous
+    loop. Savepoint rollback and label updates invalidate its input rows. Every
+    writer still executes its advisory lock, and no grant is memoized.
+    """
+
+    conn = getattr(store, "conn", None)
+    if conn is None or _sqlite(store) or not callable(getattr(conn, "transaction", None)):
+        yield
+        return
+    with conn.transaction():
+        with conn.cursor() as cur:
+            cur.execute("SELECT pg_current_xact_id()::text AS transaction_id")
+            row = cur.fetchone()
+        transaction_id = str(row["transaction_id"] if isinstance(row, Mapping) else row[0])
+        batch = _CaptureLabelInputs(conn, transaction_id, int(getattr(conn, "_alice_label_rollback_counter", 0)), identifier(source_id))
+        token = _CAPTURE_LABEL_INPUTS.set(batch)
+        try:
+            yield
+        finally:
+            _CAPTURE_LABEL_INPUTS.reset(token)
 
 
 def takes_label_lock(fn: Any) -> Any:
@@ -177,6 +245,7 @@ def prepare_label_patch(
 ) -> JsonObject:
     """Check a proposed label change before its UPDATE or FOR UPDATE statement."""
 
+    invalidate_capture_label_inputs(store)
     proposed = dict(before or {})
     proposed.update({key: value for key, value in patch.items() if value is not None})
     proposed["kind"] = kind
@@ -220,7 +289,14 @@ def apply_insert_floor(store: Any, kind: str, payload: Mapping[str, object]) -> 
     own["kind"] = kind
     own["id"] = own_id
     own["user_id"] = user_id
-    nodes, exceeded = collect_label_rows(store, [own], max_nodes=PROPAGATION_BOUND)
+    batch = _current_capture_inputs(store)
+    cache = batch.rows if batch is not None else None
+    nodes, exceeded = collect_label_rows(store, [own], max_nodes=PROPAGATION_BOUND, cache=cache)
+    if batch is not None:
+        # Keep only this capture's source. Other dependencies are read afresh.
+        for key in list(batch.rows):
+            if key != ("source", batch.source_id):
+                del batch.rows[key]
     if exceeded:
         raise LabelPropagationTooLarge(f"label propagation stopped after {PROPAGATION_BOUND} rows")
     if not user_id:
@@ -601,6 +677,7 @@ def write_settled_label(
 ) -> None:
     """Label-only update. A statement that changes no row refuses the whole relabel."""
 
+    invalidate_capture_label_inputs(store)
     table = {"memory": "memories", "open_loop": "open_loops", "artifact": "generated_artifacts", "project": "projects"}[kind]
     blob = json.dumps({key: metadata[key] for key in ("project_scope", "project_floor") if key in metadata})
     if _sqlite(store):
