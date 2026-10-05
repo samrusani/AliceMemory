@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import asyncio
 from uuid import UUID, uuid4
 
 import pytest
@@ -200,3 +201,51 @@ def test_telemetry_and_quality_ratings_use_current_target_labels(migrated_databa
         assert "Cedar hidden feedback" not in ratings.body.decode()
     else:
         assert all(identifier in ratings.body.decode() for identifier in hidden_ids)
+
+
+def test_real_trusted_http_workspace_omits_full_content_doctor_counts(migrated_database_urls, monkeypatch):
+    from alicebot_api import main
+
+    app_url = migrated_database_urls["app"]
+    user_id = _user(app_url)
+    settings = Settings(database_url=app_url)
+    monkeypatch.setattr(workspaces, "get_settings", lambda: settings)
+    monkeypatch.setattr(main, "get_settings", lambda: settings)
+    with user_connection(app_url, user_id) as conn:
+        store = PostgresVNextStore(conn)
+        key = real_reader_key(store, user_id, "trusted")
+    headers = {"Authorization": f"Bearer {key}"}
+    async def request_workspace():
+        messages = []
+        request_sent = False
+        async def receive():
+            nonlocal request_sent
+            if not request_sent:
+                request_sent = True
+                return {"type": "http.request", "body": b"", "more_body": False}
+            await asyncio.Event().wait()
+        async def send(message):
+            messages.append(message)
+        scope = {"type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1", "method": "GET",
+                 "scheme": "http", "path": "/v0/vnext/workspace", "raw_path": b"/v0/vnext/workspace", "root_path": "",
+                 "query_string": f"user_id={user_id}".encode(), "headers": [(name.lower().encode(), value.encode()) for name, value in headers.items()],
+                 "client": ("127.0.0.1", 1), "server": ("127.0.0.1", 80)}
+        await main.app(scope, receive, send)
+        status = next(message["status"] for message in messages if message["type"] == "http.response.start")
+        body = b"".join(message.get("body", b"") for message in messages if message["type"] == "http.response.body")
+        return status, json.loads(body), body.decode()
+    before = asyncio.run(request_workspace())
+    assert before[0] == 200, before[2]
+    with user_connection(app_url, user_id) as conn:
+        rows = seed_read_rows(PostgresVNextStore(conn))
+    after = asyncio.run(request_workspace())
+    assert after[0] == 200, after[2]
+    assert all(str(rows[state]["id"]) not in after[2] for state in ("verified_confidential", "unverified"))
+    diagnostic = after[1]["doctor"]
+    for check in diagnostic["checks"]:
+        if check["name"] in {"derived_labels", "flagged_sources"}:
+            assert check["status"] == "skipped"
+            assert check["details"] == {"scope": "filtered_workspace", "evaluated": False}
+            assert "below their inputs" not in check["message"]
+    for field in ("status", "warning_count", "blocking_failure_count", "recommended_fixes"):
+        assert diagnostic[field] == before[1]["doctor"][field]

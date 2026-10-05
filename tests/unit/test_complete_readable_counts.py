@@ -7,9 +7,12 @@ from types import SimpleNamespace
 import pytest
 
 from alicebot_api.routers import _vnext_shared, workspaces
+from alicebot_api.mcp.retrieval import _resume_event_honours_policy_fence
+from alicebot_api.session_briefing import _event_target_honours_fence
 from alicebot_api.vnext_agent_control import ALL_SENSITIVITY, AgentIdentity
 from alicebot_api.vnext_dogfooding import VNextDogfoodingService
 from alicebot_api.vnext_label_guard import LabelGuard
+from alicebot_api.vnext_context_tree import _tree_event_visible
 
 
 class PopulationStore:
@@ -46,6 +49,9 @@ class PopulationStore:
     def __getattr__(self, name):
         kinds = {"sources": "source", "artifacts": "artifact", "projects": "project", "open_loops": "open_loop"}
         suffix = name.removeprefix("list_")
+        if name.startswith("get_") and name.removeprefix("get_") in self.rows:
+            kind = name.removeprefix("get_")
+            return lambda identifier: next((row for row in self.rows[kind] if row["id"] == identifier), None)
         if suffix in kinds:
             def listed(**kwargs):
                 rows = self.rows[kinds[suffix]]
@@ -181,3 +187,49 @@ def test_trace_event_completeness_uses_admitted_targets(monkeypatch):
     )
     assert [row["id"] for row in admitted] == ["0", "1"]
     assert complete is True
+
+
+@pytest.mark.parametrize("kind", ("source", "memory", "open_loop", "artifact", "project"))
+def test_context_events_use_current_effective_target_of_every_kind(kind):
+    store = PopulationStore()
+    source_id = "11111111-1111-4111-8111-111111111111"
+    row_id = source_id if kind == "source" else "22222222-2222-4222-8222-222222222222"
+    store.rows["source"] = [_row(source_id, "confidential")]
+    if kind != "source":
+        refs = {"sources": [source_id], "memories": [], "open_loops": [], "artifacts": [], "beliefs": []}
+        store.rows[kind] = [_row(row_id, metadata_json={"derived_from": {"v": 1, **refs, "counts": {name: len(ids) for name, ids in refs.items()}}})]
+        if kind == "open_loop":
+            store.rows[kind][0]["metadata_json"]["discovered_by"] = "vnext_daily_brief"
+            store.rows[kind][0]["metadata_json"]["source_id"] = source_id
+    event = {"target_type": kind, "target_id": row_id, "event_type": f"{kind}.labels_raised", "payload_json": {"cause": "repair_v3"}}
+    trusted = ["public", "internal", "private", "unknown"]
+    assert _tree_event_visible(store, event, None, trusted, ()) is False
+    assert _tree_event_visible(store, event, None, list(ALL_SENSITIVITY), ()) is True
+    store.rows[kind] = [_row(row_id)]
+    assert _tree_event_visible(store, event, None, trusted, ()) is True
+
+
+def test_context_event_missing_and_unknown_label_targets_fail_closed():
+    store = PopulationStore()
+    sensitivities = ["public", "internal", "private", "unknown"]
+    for kind in ("source", "memory", "open_loop", "artifact", "project", "not-a-label-kind"):
+        event = {"target_type": kind, "target_id": "missing", "event_type": f"{kind}.labels_raised"}
+        assert _tree_event_visible(store, event, None, sensitivities, ()) is False
+    assert _tree_event_visible(store, {"target_type": "connector", "event_type": "connector.heartbeat"}, None, sensitivities, ()) is True
+
+
+@pytest.mark.parametrize("kind", ("memory", "open_loop"))
+@pytest.mark.parametrize("reader", (_resume_event_honours_policy_fence, _event_target_honours_fence))
+def test_resume_and_session_events_use_current_target_labels(kind, reader):
+    store = PopulationStore()
+    source_id = "11111111-1111-4111-8111-111111111111"
+    row_id = "22222222-2222-4222-8222-222222222222"
+    store.rows["source"] = [_row(source_id, "confidential")]
+    store.rows[kind] = [_row(row_id, metadata_json={"source_id": source_id})]
+    if kind == "open_loop":
+        store.rows[kind][0]["metadata_json"]["discovered_by"] = "vnext_daily_brief"
+    event = {"target_type": kind, "target_id": row_id, "event_type": f"{kind}.labels_raised", "payload_json": {"cause": "repair_v3"}}
+    arguments = {"effective_domains": ("project", "health"), "effective_sensitivity_allowed": ("public", "internal", "private", "unknown"), "effective_project_scope": (), "exclude_global_domains": frozenset()}
+    assert reader(store, event, **arguments) is False
+    arguments["effective_sensitivity_allowed"] = ALL_SENSITIVITY
+    assert reader(store, event, **arguments) is True

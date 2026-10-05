@@ -126,7 +126,7 @@ class VNextDoctorService:
     def local_live_cors_status(self, settings: Settings | None = None) -> JsonObject:
         return local_live_cors_status(settings=settings or get_settings(), env=self.env, cwd=self.cwd)
 
-    def run(self, *, fix_safe: bool = False, ci: bool = False) -> JsonObject:
+    def run(self, *, fix_safe: bool = False, ci: bool = False, include_content_diagnostics: bool = True) -> JsonObject:
         if fix_safe:
             VNextConnectorService(cast(Any, self.store), secret_provider=self.secret_provider).ensure_default_settings()
 
@@ -262,6 +262,34 @@ class VNextDoctorService:
             details=cast(JsonObject, local_cors),
         )
 
+        if include_content_diagnostics:
+            self._content_checks(checks)
+        else:
+            for name in ("flagged_sources", "derived_labels"):
+                checks.append(DoctorCheck(
+                    name=name, status="skipped", severity="info",
+                    message="Content diagnostics are omitted from this filtered workspace view. Run doctor for a full report.",
+                    details={"scope": "filtered_workspace", "evaluated": False},
+                ))
+
+        blocking = [check for check in checks if check.status == "fail" and check.severity == "blocking"]
+        warnings = [check for check in checks if check.status == "fail" and check.severity == "warning"]
+        payload = {
+            "status": "fail" if blocking else "warn" if warnings else "pass",
+            "fix_safe_applied": fix_safe,
+            "ci_mode": ci,
+            "blocking_failure_count": len(blocking),
+            "warning_count": len(warnings),
+            "checks": [check.to_record() for check in checks],
+            "recommended_fixes": [
+                check.recommended_fix for check in checks if check.status == "fail" and check.recommended_fix is not None
+            ],
+            "migration_status": migration_status,
+            "connector_health": health,
+        }
+        return cast(JsonObject, payload)
+
+    def _content_checks(self, checks: list[DoctorCheck]) -> None:
         flagged_ids, stopped_early = _flagged_source_scan(self.store)
         remedy = _flagged_source_remedy(self.store)
         if flagged_ids:
@@ -304,25 +332,6 @@ class VNextDoctorService:
             message_fail=label_line,
             recommended_fix="alicebot vnext labels repair",
         )
-
-        blocking = [check for check in checks if check.status == "fail" and check.severity == "blocking"]
-        warnings = [check for check in checks if check.status == "fail" and check.severity == "warning"]
-        payload = {
-            "status": "fail" if blocking else "warn" if warnings else "pass",
-            "fix_safe_applied": fix_safe,
-            "ci_mode": ci,
-            "blocking_failure_count": len(blocking),
-            "warning_count": len(warnings),
-            "checks": [check.to_record() for check in checks],
-            "recommended_fixes": [
-                check.recommended_fix
-                for check in checks
-                if check.status == "fail" and check.recommended_fix is not None
-            ],
-            "migration_status": migration_status,
-            "connector_health": health,
-        }
-        return cast(JsonObject, payload)
 
 
 def _flagged_source_remedy(store: object) -> str:
