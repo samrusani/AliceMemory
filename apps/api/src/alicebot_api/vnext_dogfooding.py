@@ -3,13 +3,15 @@ from __future__ import annotations
 from collections import Counter
 from datetime import UTC, datetime, timedelta
 from statistics import mean
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from alicebot_api.vnext_connectors import VNextConnectorService, VNextConnectorStore
 from alicebot_api.vnext_event_log import append_event
 from alicebot_api.vnext_repositories import JsonObject
 from alicebot_api.vnext_store import is_redacted_project_update_artifact
 
+if TYPE_CHECKING:
+    from alicebot_api.vnext_label_guard import LabelGuard
 
 class VNextDogfoodingStore(VNextConnectorStore, Protocol):
     def append_event(self, event: JsonObject) -> JsonObject: ...
@@ -170,9 +172,9 @@ class VNextDogfoodingService:
     def __init__(self, store: VNextDogfoodingStore) -> None:
         self.store = store
 
-    def dashboard(self, *, sensitivity_allowed: tuple[str, ...] | None = None) -> JsonObject:
+    def dashboard(self, *, sensitivity_allowed: tuple[str, ...] | None = None, label_guard: LabelGuard | None = None) -> JsonObject:
         from alicebot_api.vnext_agent_control import ALL_SENSITIVITY
-        from alicebot_api.vnext_label_guard import LabelGuard, admit_loaded
+        from alicebot_api.vnext_label_guard import LabelGuard
 
         sources = self.store.list_sources(limit=500)
         try:
@@ -185,17 +187,11 @@ class VNextDogfoodingService:
         # None is the owner and an admin key: every sensitivity, so the guard
         # reads nothing and the lists stay as the store returned them.
         ceiling = sensitivity_allowed if sensitivity_allowed is not None else ALL_SENSITIVITY
-        guard = LabelGuard.for_filters(self.store, (), ceiling, ())
-        sources = admit_loaded(self.store, kind="source", rows=sources, domains=(), sensitivity_allowed=ceiling, projects=())
-        memories = admit_loaded(
-            self.store, kind="memory", rows=memories, domains=(), sensitivity_allowed=ceiling, projects=()
-        )
-        artifacts = admit_loaded(
-            self.store, kind="artifact", rows=artifacts, domains=(), sensitivity_allowed=ceiling, projects=()
-        )
-        open_loops = admit_loaded(
-            self.store, kind="open_loop", rows=open_loops, domains=(), sensitivity_allowed=ceiling, projects=()
-        )
+        guard = label_guard if label_guard is not None else LabelGuard.for_filters(self.store, (), ceiling, ())
+        sources = guard.admit_rows("source", sources)
+        memories = guard.admit_rows("memory", memories)
+        artifacts = guard.admit_rows("artifact", artifacts)
+        open_loops = guard.admit_rows("open_loop", open_loops)
         memory_status_counts = guard.readable_status_counts("memory")
         try:
             events = self.store.list_events(limit=5_000)

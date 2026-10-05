@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from uuid import UUID
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Header, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 import psycopg
@@ -18,13 +18,14 @@ from alicebot_api.local_workspace import (
 )
 from alicebot_api.public_errors import public_exception_response
 from alicebot_api.routers._api_shared import _resolve_authenticated_v1_user_id
-from alicebot_api.routers._vnext_shared import _vnext_int, _vnext_source_trace
+from alicebot_api.routers._vnext_shared import _vnext_agent_auth_error_response, _vnext_int, _vnext_source_trace
 from alicebot_api.routers.providers import (
     _discover_provider_capability,
     _persist_discovered_provider_capability,
     _seed_workspace_provider_configs,
 )
-from alicebot_api.vnext_agent_control import summarize_agent_policy_telemetry
+from alicebot_api.vnext_agent_control import AgentIdentity, summarize_agent_policy_telemetry
+from alicebot_api.vnext_agent_keys import AgentKeyAuthenticationError, agent_key_from_authorization, resolve_protected_agent_identity
 from alicebot_api.vnext_connectors import VNextConnectorService
 from alicebot_api.vnext_dogfooding import VNextDogfoodingService
 from alicebot_api.vnext_doctor import VNextDoctorService
@@ -84,14 +85,19 @@ def _workspace_rows(store: PostgresVNextStore, kind: str, rows: Sequence[Mapping
     )
 
 
-def _vnext_workspace_payload(store: PostgresVNextStore) -> dict[str, object]:
-    from alicebot_api.vnext_label_guard import LabelGuard
+def _vnext_workspace_payload(store: PostgresVNextStore, *, identity: AgentIdentity | None = None) -> dict[str, object]:
+    from alicebot_api.vnext_label_guard import LabelGuard, sensitivity_ceiling
 
     sensitivity_allowed = ["public", "internal", "private", "unknown"]
-    guard = LabelGuard.for_filters(store, (), sensitivity_allowed, ())
+    ceiling = sensitivity_ceiling(identity)
+    if ceiling is not None:
+        sensitivity_allowed = [value for value in sensitivity_allowed if value in ceiling]
+    projects = identity.project_scope if identity is not None else ()
+    all_of = projects if identity is not None and identity.project_scope_locked else None
+    guard = LabelGuard.for_filters(store, (), sensitivity_allowed, projects, all_of=all_of)
     review_statuses = ["candidate", "needs_review", "private_only", "accepted", "rejected"]
     fetched_sources = store.list_sources(sensitivity_allowed=sensitivity_allowed, limit=20)
-    sources = _workspace_rows(store, "source", fetched_sources, sensitivity_allowed)
+    sources = guard.admit_rows("source", fetched_sources)
     source_count = sum(guard.readable_status_counts("source").values())
     list_memories_by_statuses = getattr(store, "list_memories_by_statuses", None)
     if callable(list_memories_by_statuses):
@@ -104,11 +110,11 @@ def _vnext_workspace_payload(store: PostgresVNextStore) -> dict[str, object]:
         fetched_memories = [
             memory for memory in store.list_memories(status=None) if str(memory.get("status")) in set(review_statuses)
         ][:30]
-    review_memories = _workspace_rows(store, "memory", fetched_memories, sensitivity_allowed)
+    review_memories = guard.admit_rows("memory", fetched_memories)
     memory_status_counts = guard.readable_status_counts("memory")
     review_memory_total = sum(memory_status_counts.get(status, 0) for status in review_statuses)
     fetched_artifacts = store.list_artifacts(sensitivity_allowed=sensitivity_allowed, limit=30)
-    artifacts = _workspace_rows(store, "artifact", fetched_artifacts, sensitivity_allowed)
+    artifacts = guard.admit_rows("artifact", fetched_artifacts)
     artifact_status_counts = guard.readable_status_counts("artifact")
     artifact_count = sum(artifact_status_counts.values())
     quality_evals = guard.admit_related_rows(store.list_artifact_quality_ratings(limit=50), kind="artifact", field="artifact_id")
@@ -117,22 +123,22 @@ def _vnext_workspace_payload(store: PostgresVNextStore) -> dict[str, object]:
         for batch in store.iter_label_ratings()
     )
     fetched_projects = store.list_projects(status=None, sensitivity_allowed=sensitivity_allowed, limit=20)
-    projects = _workspace_rows(store, "project", fetched_projects, sensitivity_allowed)
+    projects = guard.admit_rows("project", fetched_projects)
     project_count = sum(guard.readable_status_counts("project").values())
     fetched_loops = store.list_open_loops(status=None, sensitivity_allowed=sensitivity_allowed, limit=30)
-    open_loops = _workspace_rows(store, "open_loop", fetched_loops, sensitivity_allowed)
+    open_loops = guard.admit_rows("open_loop", fetched_loops)
     open_loop_status_counts = guard.readable_status_counts("open_loop")
     open_loop_count = open_loop_status_counts.get("open", 0)
     people = store.list_people(sensitivity_allowed=sensitivity_allowed, limit=12)
     fetched_beliefs = store.list_beliefs(status=None, sensitivity_allowed=sensitivity_allowed, limit=12)
-    beliefs = LabelGuard.for_filters(store, (), sensitivity_allowed, ()).admit_beliefs(fetched_beliefs)
+    beliefs = guard.admit_beliefs(fetched_beliefs)
     tasks = store.list_tasks(status=None, limit=12)
     fetched_events = store.list_events(limit=20)
     recent_events = guard.admit_events(fetched_events)
     event_count = guard.readable_event_count()
     agent_identities = store.list_agent_identities(limit=20)
     agent_count = store.count_agent_identities()
-    agent_events = store.list_agent_events(limit=50)
+    agent_events = guard.admit_events(store.list_agent_events(limit=50))
     list_recent_agentic_commits = getattr(store, "list_recent_agentic_commits", None)
     list_pending_inline_confirmations = getattr(store, "list_pending_inline_confirmations", None)
     memory_commit_service = VNextMemoryCommitService(store)
@@ -146,10 +152,12 @@ def _vnext_workspace_payload(store: PostgresVNextStore) -> dict[str, object]:
         if callable(list_pending_inline_confirmations)
         else memory_commit_service.inline_confirmations(limit=20)
     )
+    recent_memory_commits = guard.admit_rows("memory", recent_memory_commits)
+    inline_confirmations = guard.admit_rows("memory", inline_confirmations)
     scheduler_status = VNextSchedulerService(store).status()
     scheduler_status = {**scheduler_status, "daemon": daemon_status()}
     connector_health = VNextConnectorService(store).connector_health_all()
-    dogfooding = VNextDogfoodingService(store).dashboard()
+    dogfooding = VNextDogfoodingService(store).dashboard(sensitivity_allowed=tuple(sensitivity_allowed), label_guard=guard)
     doctor = VNextDoctorService(store).run(ci=True)
     policy_telemetry = summarize_agent_policy_telemetry(
         agent_events=agent_events,
@@ -160,7 +168,7 @@ def _vnext_workspace_payload(store: PostgresVNextStore) -> dict[str, object]:
     project_dashboards: list[dict[str, object]] = []
     for project in projects[:5]:
         try:
-            project_dashboards.append(project_service.project_dashboard(project_id=str(project["id"])))
+            project_dashboards.append(project_service.project_dashboard(project_id=str(project["id"]), identity=identity))
         except VNextProjectValidationError:
             continue
     trace_items = [
@@ -291,11 +299,18 @@ def _vnext_workspace_payload(store: PostgresVNextStore) -> dict[str, object]:
 
 
 @core_router.get("/v0/vnext/workspace")
-def get_vnext_workspace(user_id: UUID) -> JSONResponse:
+def get_vnext_workspace(user_id: UUID, authorization: str | None = Header(default=None)) -> JSONResponse:
     settings = get_settings()
 
-    with user_connection(settings.database_url, user_id) as conn:
-        payload = _vnext_workspace_payload(PostgresVNextStore(conn))
+    try:
+        with user_connection(settings.database_url, user_id) as conn:
+            store = PostgresVNextStore(conn)
+            identity = resolve_protected_agent_identity(
+                store, user_id=user_id, raw_key=agent_key_from_authorization(authorization), payload={},
+            )
+            payload = _vnext_workspace_payload(store, identity=identity)
+    except AgentKeyAuthenticationError as exc:
+        return _vnext_agent_auth_error_response(exc)
 
     return JSONResponse(status_code=200, content=jsonable_encoder(payload))
 
