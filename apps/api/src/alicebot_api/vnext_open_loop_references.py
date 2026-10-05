@@ -277,6 +277,8 @@ def _collect_ids(value: object, found: set[str], referenced: set[str], *, at_ref
         return
     if isinstance(value, str):
         ids = _ids_in_text(value)
+        if at_reference:
+            ids |= set(cited_source_ids(value).named)
         found.update(ids)
         if at_reference:
             referenced.update(ids)

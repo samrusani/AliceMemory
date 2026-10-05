@@ -15,11 +15,8 @@ from alicebot_api.source_supersede import classification_refusal, eligible_sourc
 from alicebot_api.vnext_entities import ENTITY_MENTION_EDGE_TYPE
 from alicebot_api.vnext_project_scope import source_project_scope
 from alicebot_api.vnext_source_fence import memory_cited_source_ids
-from alicebot_api.vnext_stores.sqlite.open_loop_source_reference import (
-    OPEN_LOOP_SOURCE_BLANK_SQL,
-    OPEN_LOOP_SOURCE_COUNT_SQL,
-    open_loop_source_reference_params,
-)
+from alicebot_api.vnext_stores.sqlite.columns import OPEN_LOOP_COLUMNS
+from alicebot_api.vnext_stores.sqlite.open_loop_source_reference import named_source_ids
 from alicebot_api.vnext_stores.sqlite.primitives import _utc_now_iso
 from alicebot_api.vnext_label_writes import takes_label_lock
 
@@ -343,29 +340,77 @@ def close_mention_edges(self, from_type, from_id, now):
     return len(edges)
 
 
-def source_open_loop_count(self, source_id):
-    """How many loops of the user, in any status, name ``source_id``, by the one rule of the reverse lookup of a source
-    (``open_loop_source_reference_sql``): the ``source_id`` column, or the id or ``source:<id>`` under a reference key of
-    the loop's metadata. The delete preview and ``blank_open_loops`` count the same rows."""
+# One read of the user's loops. The column list is a module constant, and the user id is bound.
+_USER_OPEN_LOOPS_SQL = (
+    f"SELECT {', '.join(OPEN_LOOP_COLUMNS)} FROM open_loops WHERE user_id = ? "  # nosec B608
+    "ORDER BY updated_at DESC, created_at DESC, id DESC"
+)
+_BLANK_OPEN_LOOPS_SQL = """UPDATE open_loops SET title = ?, description = ?, status = 'dismissed',
+resolved_at = ?, closed_at = ?, resolution_note = ?, metadata_json = '{}', updated_at = ?
+WHERE user_id = ? AND id IN (SELECT value FROM json_each(?))"""
 
-    row = self._fetch_one(
-        'count the open loops of a source', OPEN_LOOP_SOURCE_COUNT_SQL,
-        (self.user_id, *open_loop_source_reference_params(source_id)))
-    return int(row['count'])
+
+def _user_open_loops(self):
+    """Every open loop of the user, newest first. One call is one pass."""
+
+    return self._fetch_all(_USER_OPEN_LOOPS_SQL, (self.user_id,))
 
 
-def blank_open_loops(self, source_id, *, now):
-    """Dismiss every loop that names ``source_id``, whether it is open, resolved or dismissed, and blank its free text and
-    metadata, in the caller's transaction. Which loops is the one rule of ``open_loop_source_reference_sql``, so a loop
-    named only in its metadata is blanked as a loop named by its column is. Returns the number of loops."""
+def open_loops_naming_sources(self, source_ids):
+    """``{source id: [loop rows]}`` for the loops of the user that name each source.
 
+    One pass over the user's loops answers for every source. A loop names a source when ``named_source_ids`` says so,
+    which is every spelling ``cited_source_ids`` names. The lists keep the read order.
+    """
+
+    ids = list(dict.fromkeys(str(source_id) for source_id in source_ids))
+    found = {source_id: [] for source_id in ids}
+    if not ids:
+        return found
+    wanted: dict[str, list[str]] = {}
+    for source_id in ids:
+        try:
+            canonical = str(UUID(source_id))
+        except ValueError:
+            canonical = source_id
+        wanted.setdefault(canonical, []).append(source_id)
+    for row in _user_open_loops(self):
+        for canonical in named_source_ids(row):
+            for source_id in wanted.get(canonical, ()):
+                found[source_id].append(row)
+    return found
+
+
+def source_open_loop_count(self, source_id, *, named=None):
+    """How many loops of the user, in any status, name ``source_id``.
+
+    ``named`` is the answer of ``open_loops_naming_sources`` for every source of one command, so a preview asks once.
+    """
+
+    if named is None:
+        named = open_loops_naming_sources(self, [source_id])
+    return len(named[str(source_id)])
+
+
+def blank_open_loops(self, source_id, *, now, loop_ids=None):
+    """Dismiss every loop that names ``source_id`` and blank its free text and metadata.
+
+    ``loop_ids`` are the ids an earlier pass of this command found. Without them the loops are read here. An empty
+    list is an answer and does not read again. Returns the number of loops.
+    """
+
+    if loop_ids is None:
+        loop_ids = [str(row["id"]) for row in open_loops_naming_sources(self, [source_id])[str(source_id)]]
+    loop_ids = [str(loop_id) for loop_id in loop_ids]
+    if not loop_ids:
+        return 0
     return self._execute(
-        OPEN_LOOP_SOURCE_BLANK_SQL,
-        (REMOVAL_MARKER, REMOVAL_MARKER, now, now, REMOVAL_MARKER, now, self.user_id,
-         *open_loop_source_reference_params(source_id))).rowcount
+        _BLANK_OPEN_LOOPS_SQL,
+        (REMOVAL_MARKER, REMOVAL_MARKER, now, now, REMOVAL_MARKER, now, self.user_id, json.dumps(loop_ids)),
+    ).rowcount
 
 
-def retire_dependents(self, source_id, *, now, scrub_candidates=False, citing_ids=None):
+def retire_dependents(self, source_id, *, now, scrub_candidates=False, citing_ids=None, loop_ids=None):
     """Retire what a source owns. ``citing_ids`` are the ids of the memories an earlier lookup of this transaction found
     for the source (``citing_memories_by_source``): a caller that retires many sources looks once for all of them, and the
     memories are read again here as they are stored now, so one that an earlier retirement redacted is left alone, as it
@@ -391,13 +436,13 @@ def retire_dependents(self, source_id, *, now, scrub_candidates=False, citing_id
             self.update_memory(memory_id=mid, patch={'status': 'rejected'}, actor_type='user')
             close_mention_edges(self, 'memory', mid, now)
     edges = close_mention_edges(self, 'source', source_id, now)
-    loops = blank_open_loops(self, source_id, now=now)
+    loops = blank_open_loops(self, source_id, now=now, loop_ids=loop_ids)
     return {'candidate_memories': len(pending), 'mention_edges': edges, 'open_loops': loops,
             'memories_citing_replaced': retained}
 
 
 @takes_label_lock
-def supersede_source(self, source_id, *, superseded_by, allow_looser_classification=False, dry_run=False):
+def supersede_source(self, source_id, *, superseded_by, allow_looser_classification=False, dry_run=False, loop_ids=None):
     with self.savepoint():
         old = self.get_source(source_id)
         new = self.get_source(superseded_by)
@@ -419,7 +464,7 @@ def supersede_source(self, source_id, *, superseded_by, allow_looser_classificat
             from alicebot_api.vnext_label_writes import raise_source_to_replacement
 
             raise_source_to_replacement(self, old, new)
-        counts = retire_dependents(self, source_id, now=now)
+        counts = retire_dependents(self, source_id, now=now, loop_ids=loop_ids)
         metadata = {**old['metadata_json'], 'superseded_by': superseded_by,
                     'superseded_at': now, 'supersede_reason': 'markdown_reimport'}
         self._execute("UPDATE sources SET deleted_at = ?, metadata_json = ? WHERE id = ? AND user_id = ?",
@@ -483,7 +528,7 @@ def optimize_scrub_indexes(self):
 
 
 @takes_label_lock
-def scrub_source(self, source_id, *, optimize=True, citing_ids=None):
+def scrub_source(self, source_id, *, optimize=True, citing_ids=None, loop_ids=None):
     with self.savepoint():
         self._execute("PRAGMA secure_delete=ON")
         rows = self.get_sources_by_ids([source_id], include_deleted=True)
@@ -504,7 +549,7 @@ def scrub_source(self, source_id, *, optimize=True, citing_ids=None):
             OR EXISTS (SELECT 1 FROM source_chunks c WHERE c.user_id = provenance_links.user_id
                        AND c.id = provenance_links.source_chunk_id AND c.source_id = ?))""",
             (REMOVAL_MARKER, self.user_id, source_id, source_id)).rowcount
-        counts = retire_dependents(self, source_id, now=now, scrub_candidates=True, citing_ids=citing_ids)
+        counts = retire_dependents(self, source_id, now=now, scrub_candidates=True, citing_ids=citing_ids, loop_ids=loop_ids)
         counts.update({'chunks':chunks, 'provenance_quotes':quotes, 'sleep_proposals':sleep_count})
         self._append_mutation_event(event_type='source.deleted', target_type='source', target_id=source_id,
             actor_type='user', payload={'operation':'scrub', **counts})

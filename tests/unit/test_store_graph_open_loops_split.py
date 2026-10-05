@@ -125,13 +125,12 @@ SOURCE_RECEIPTS = {
     # to ``None`` ("not stated", which raises when the request holds the marker) and the single-scan reader takes the
     # domain filter and the sensitivity ceiling as required arguments (reviewed change, not drift).
     # Re-minted for the source scrub of open loops (2026-10-05): ``list_open_loops_referencing_source`` reads the rule
-    # "this loop names this source" from ``open_loop_source_reference_sql`` instead of holding its own copy, so the
-    # delete preview and the scrub count and blank the same loops. The rule text moved unchanged to
-    # ``vnext_stores/sqlite/open_loop_source_reference.py``; only the reader function and the receipt of the file
+    # "this loop names this source" from ``open_loops_naming_sources`` instead of holding its own copy, so the
+    # delete preview and the scrub count and blank the same loops. The reader function and the receipt of the file
     # change (reviewed change, not drift).
-    # Re-minted so the open-loop partition read passes the floor identity.
+    # Re-minted for the combined floor-aware partition read and canonical source-reference batch lookup.
     # Previous receipt 9a2634be...
-    SQLITE_CARRIER_PATH: "c05ac13285a25bd59a2f22d12a7f56e2ac81f063af0949aa7adc82e43f643454",
+    SQLITE_CARRIER_PATH: "394cc5ae868cd967160ef0d5cd0b3340e0ee19ba256ba28d98334f22ccf6754f",
     POSTGRES_COLUMNS_PATH: "5b0d972a55abf8590ce14394a37fd71b9b88ba7ab3de82d61efc1bddfc022b71",
     SQLITE_COLUMNS_PATH: "be81b8628d0831d3d02b280b5455fb02333db5740ebef8d85d58024384ae6556",
 }
@@ -139,11 +138,11 @@ EXPECTED_METHOD_AST_MANIFESTS = {
     # Postgres manifest matches the carrier after the label lock. Previous 25580884...
     POSTGRES_CARRIER_PATH: "48064a91179463a20147a8e02442f3259976752000d9aafcb51647851227c46c",
     # SQLite manifest includes the floor identity on the partition read. Previous 2850ba60...
-    SQLITE_CARRIER_PATH: "54112e01f88e048b63731252d3fc0e34918db8575f70ab6b54b0a551699d1483",
+    SQLITE_CARRIER_PATH: "ed3a5a9d1ac3d98239191dbb4ced020525b404e7b3f25145ec9cade331be8838",
 }
 EXPECTED_METADATA_MANIFESTS = {
     POSTGRES_CARRIER_PATH: "6edb6a10e7a37dbbbbde97e5550422718a0112257666de8e23d49c60490fa13f",
-    SQLITE_CARRIER_PATH: "da4c86fd17190805004670b0bec8a40e03a4a9a29a262efa961d3bc62abea644",
+    SQLITE_CARRIER_PATH: "121ed7dcea3f8565c181e844e49e0bc229098f6dc6c9124d03bb12e6062ab562",
 }
 EXPECTED_COMMENT_MANIFESTS = {
     POSTGRES_CARRIER_PATH: (9, "bb34d175e716f5a929fa1ee5e7e30ba0e0b25be285cda3556a0c709719316c4e"),

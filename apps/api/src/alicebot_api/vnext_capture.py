@@ -1346,11 +1346,14 @@ class VNextCaptureService:
                 return replace(result, kept_reason="matches_other_live_source")
             retired = []
             citing = []
+            cached = getattr(self, "_open_loop_names", None)
             for row in matches:
                 if str(row['id']) == str(result.source_id):
                     continue
+                loop_ids = None if cached is None else [str(loop["id"]) for loop in cached.get(str(row["id"]), [])]
                 counts = getattr(self.store, "supersede_source")(str(row['id']), superseded_by=result.source_id,
-                    allow_looser_classification=policy.allow_looser_classification, dry_run=policy.dry_run)
+                    allow_looser_classification=policy.allow_looser_classification, dry_run=policy.dry_run,
+                    loop_ids=loop_ids)
                 retired.append({"id": str(row['id']), "title": printed_source_label(row.get('title'))})
                 citing.extend(counts['memories_citing_replaced'])
             return replace(result, superseded=tuple(retired), memories_citing_replaced=tuple(dict.fromkeys(citing)))
@@ -1845,6 +1848,11 @@ class VNextCaptureService:
             scan = getattr(self.store, "markdown_sources_by_path", None)
             with self.store.savepoint() if callable(scan) or dry_run else nullcontext():
                 self._markdown_path_index = scan() if callable(scan) else {}
+                self._open_loop_names = None
+                if policy.mode != "off":
+                    from alicebot_api.vnext_stores.sqlite.source_retirement import open_loops_naming_sources
+                    indexed = [str(row["id"]) for rows in self._markdown_path_index.values() for row in rows]
+                    self._open_loop_names = open_loops_naming_sources(self.store, indexed)
                 result = self._import_markdown_folder(folder, domain=domain, sensitivity=sensitivity,
                     max_file_bytes=max_file_bytes, policy=policy)
                 if dry_run:
@@ -1853,6 +1861,7 @@ class VNextCaptureService:
             return replace(result, dry_run=True)
         finally:
             self._markdown_path_index = None
+            self._open_loop_names = None
         return result
 
     def _import_markdown_folder(

@@ -1113,15 +1113,10 @@ def test_the_reference_keys_include_every_key_the_reverse_lookup_of_a_source_rea
     """
 
     from alicebot_api.vnext_open_loop_references import SOURCE_REFERENCE_KEYS
-    from alicebot_api.vnext_stores.sqlite.open_loop_source_reference import OPEN_LOOP_SOURCE_REFERENCE_SQL
+    from alicebot_api.vnext_stores.sqlite.open_loop_source_reference import NAMED_REFERENCE_KEYS, named_source_ids
 
-    # The rule the lookup, the delete preview and the scrub share lives in one statement (the lookup reads it from there).
-    text = OPEN_LOOP_SOURCE_REFERENCE_SQL
-    keys_in_sql = {
-        part.strip().strip("'")
-        for part in text[text.index("ref.key IN (") + len("ref.key IN (") : text.index(")", text.index("ref.key IN ("))].split(",")
-    }
-    assert keys_in_sql and keys_in_sql <= SOURCE_REFERENCE_KEYS, keys_in_sql
+    assert NAMED_REFERENCE_KEYS and NAMED_REFERENCE_KEYS <= SOURCE_REFERENCE_KEYS
+    assert "cited_source_ids" in named_source_ids.__code__.co_names
 
 
 # -- 5. every reader of a loop, classified ----------------------------------------------------------------------
