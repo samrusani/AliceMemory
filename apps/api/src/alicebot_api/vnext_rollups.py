@@ -2734,7 +2734,7 @@ class VNextRollupService:
             "grouping_input_count": grouping_input_count,
             "grouping_input_total": grouping_input_total,
             "grouping_input_total_exact": grouping_input_total_exact,
-            "member_ids": member_ids,
+            "member_ids": list(member_ids),
             "instances": instances,
         }
         if revises_memory_id is not None:
@@ -2899,7 +2899,7 @@ class VNextRollupService:
                 "rollup_key": group.rollup_key,
                 "group_kind": group.group_kind,
                 "label": group.label,
-                "member_ids": member_ids,
+                "member_ids": list(member_ids),
                 "rollup_digest": rollup_digest,
                 "aggregation": group.utility.to_record(),
             }
