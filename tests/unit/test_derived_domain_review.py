@@ -370,3 +370,119 @@ def test_promoted_artifact_uuid_aliases_resolve(reference):
     tables = {"generated_artifacts": [{"id": identifier, "user_id": "u", "domain": "health"}],
               "memories": [memory]}
     assert plan_relabels(tables) == [("memories", "u", "copy", "health")]
+
+
+def _chain(size):
+    """Each row reads the next one and the labels alternate, with no cycle. The ids sort in reading order, which is the
+    order in which a repair that revisits a row after each change to its input needs the most changes."""
+    keys = [f"row{index:05d}" for index in range(size)]
+    return {
+        "generated_artifacts": [
+            {
+                "id": key,
+                "user_id": "u",
+                "domain": "health" if index % 2 == 0 else "legal",
+                "metadata_json": {"input_summary": {"artifact_ids": keys[index + 1:index + 2]}},
+            }
+            for index, key in enumerate(keys)
+        ]
+    }
+
+
+@pytest.mark.parametrize("size", (16, 3000))
+def test_a_chain_without_a_cycle_settles_reading_each_row_once(monkeypatch, size):
+    """An outside review of #554 found a chain of 16 derived rows with alternating labels refused as a cycle: the repair
+    revisited each row after every change to its input and counted the changes against a bound for the whole graph,
+    so a long chain ran out of changes. Each row is now labelled after the row it reads, once, so every row of a chain of
+    any length takes the label at its end and the selector is called once for each row.
+
+    Mutations: label the groups in reverse (``reversed(_input_groups(inputs))``: each row takes its input's label before
+    that input is final); revisit rows outside the group (``& members`` dropped: a row is read again before its own
+    group); go back to one bound for the whole graph with no groups (the chain of 16 is refused as before).
+    """
+
+    from alicebot_api import vnext_derived_domain_backfill as repair
+
+    selector = repair.derived_domain
+    calls = 0
+
+    def counted_selector(rows, *, fallback):
+        nonlocal calls
+        calls += 1
+        return selector(rows, fallback=fallback)
+
+    monkeypatch.setattr(repair, "derived_domain", counted_selector)
+    tables = _chain(size)
+    final = "health" if (size - 1) % 2 == 0 else "legal"
+    updates = repair.plan_relabels(tables)
+    assert updates == [("generated_artifacts", "u", row["id"], final)
+                       for row in tables["generated_artifacts"] if row["domain"] != final]
+    assert calls == size
+
+
+def test_a_cycle_that_settles_reads_its_rows_again():
+    """Two reports record each other as inputs and the second also reads a health source. Both settle on health, which
+    needs the first to be read again after the second changes.
+
+    Mutation: never read a row again (``if dependant not in queued:`` made ``if False:``: the first stays unknown).
+    """
+
+    tables = {
+        "sources": [{"id": "health", "user_id": "u", "domain": "health"}],
+        "generated_artifacts": [
+            {"id": "a", "user_id": "u", "domain": "unknown", "metadata_json": {"input_summary": {"artifact_ids": ["b"]}}},
+            {"id": "b", "user_id": "u", "domain": "unknown",
+             "metadata_json": {"input_summary": {"artifact_ids": ["a"], "source_ids": ["health"]}}},
+        ],
+    }
+    assert {item[2]: item[3] for item in plan_relabels(tables)} == {"a": "health", "b": "health"}
+
+
+def _seed_memory_chain(path, size=16):
+    """A vault whose derived memories form the chain of the outside review: each records the next as its consolidation
+    input, the labels alternate, and there is no cycle."""
+
+    from uuid import UUID
+
+    bootstrap_database(path, user_id=USER, user_email="local@alice")
+    ids = [str(UUID(int=1000 + index)) for index in range(size)]
+    with sqlite_user_connection(path, USER) as conn:
+        store = SQLiteVNextStore(conn, USER)
+        for index, memory_id in enumerate(ids):
+            store.create_memory({
+                "id": memory_id, "memory_key": f"chain.{index}", "memory_type": "semantic",
+                "canonical_text": f"Derived observation {index}.", "status": "active",
+                "domain": "health" if index % 2 == 0 else "legal",
+                "metadata_json": {"consolidation": {"cluster_member_ids": ids[index + 1:index + 2]}},
+            })
+    return ids
+
+
+def test_a_vault_holding_a_long_chain_opens_after_upgrade_and_settles(tmp_path):
+    """The vault of the outside review, opened as a vault from before the repair: it opens, and every row of the chain
+    takes the label at its end (legal), with one audit event for each row that changed."""
+
+    from alicebot_api.vnext_derived_domain_backfill import REPAIR_STATE_KEY
+
+    path = tmp_path / "chain.sqlite3"
+    ids = _seed_memory_chain(path)
+    with sqlite3.connect(path) as conn:
+        # A vault from before the repair has no stamp, so opening it runs the repair.
+        conn.execute("DELETE FROM alice_schema_state WHERE key = ?", (REPAIR_STATE_KEY,))
+    bootstrap_database(path, user_id=USER, user_email="local@alice")
+    with sqlite3.connect(path) as conn:
+        assert {row[0] for row in conn.execute("SELECT domain FROM memories WHERE id IN (%s)" % ",".join("?" * len(ids)), ids)} == {"legal"}
+        assert conn.execute("SELECT count(*) FROM event_log WHERE event_type = 'memory.domain_relabelled'").fetchone()[0] == 8
+
+
+def test_a_backup_holding_a_long_chain_restores(tmp_path):
+    """The backup of that vault restores into a fresh file, and the restored chain is settled."""
+
+    source = tmp_path / "source.sqlite3"
+    destination = tmp_path / "restored.sqlite3"
+    backup = tmp_path / "backup.jsonl"
+    ids = _seed_memory_chain(source)
+    assert onramp_main(["export", "--db", str(source), "--user-id", USER, "--out", str(backup)]) == 0
+    assert onramp_main(["import", "--db", str(destination), "--user-id", USER, "--in", str(backup)]) == 0
+    with sqlite3.connect(destination) as conn:
+        assert {row[0] for row in conn.execute("SELECT domain FROM memories WHERE id IN (%s)" % ",".join("?" * len(ids)), ids)} == {"legal"}

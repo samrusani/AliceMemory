@@ -61,6 +61,10 @@ def selector_check():
     assert domain.derived_domain([{'domain': 'project'}], fallback='professional') == 'professional'
 
 
+def chain():
+    fresh(lambda directory, patch: review.test_a_chain_without_a_cycle_settles_reading_each_row_once(patch, 16))
+
+
 def fresh(check):
     with tempfile.TemporaryDirectory() as directory, pytest.MonkeyPatch.context() as patch:
         check(Path(directory), patch)
@@ -82,7 +86,11 @@ def test_derived_domain_guard_mutations():
         (consolidation, '_domain', 'derived_domain(rows, fallback=request.domains[0])', 'request.domains[0]', checks.test_restricted_majority_ties_and_explicit_request),
         (backfill, 'plan_relabels', "(kind, user, row_id) for kind, row_id in refs", "(kind, 'missing-user', row_id) for kind, row_id in refs", checks.test_recorded_input_shapes_chains_cycles_users_and_redaction),
         (backfill, 'plan_relabels', "and metadata.get('input_summary')", "and False", checks.test_recorded_input_shapes_chains_cycles_users_and_redaction),
-        (backfill, 'plan_relabels', "if dependant not in queued:", "if False:", lambda: review.test_repair_uses_settled_input_labels_independently_of_id_order("a")),
+        (backfill, 'plan_relabels', "if dependant not in queued:", "if False:", review.test_a_cycle_that_settles_reads_its_rows_again),
+        (backfill, 'plan_relabels', "for component in _input_groups(inputs):", "for component in reversed(_input_groups(inputs)):", chain),
+        (backfill, 'plan_relabels', "dependants.get(key, set()) & members", "dependants.get(key, set())", chain),
+        (backfill, '_input_groups', "lowest[key] = min(lowest[key], index[ref])", "pass", unsettled_message),
+        (backfill, '_input_groups', "lowest[parent] = min(lowest[parent], lowest[key])", "pass", unsettled_message),
         (backfill, 'plan_relabels', "ref[0] == 'beliefs' and ref in rows", 'False', checks.test_belief_reference_follows_a_repaired_derived_memory),
         (backfill, 'recorded_inputs', "elif key == 'source_refs':", 'elif False:', checks.test_recorded_input_shapes_chains_cycles_users_and_redaction),
     ]

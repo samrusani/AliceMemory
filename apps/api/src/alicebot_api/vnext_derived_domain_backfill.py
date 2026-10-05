@@ -109,13 +109,64 @@ def recorded_inputs(value: object) -> set[tuple[str, str]]:
     return found
 
 
-def plan_relabels(tables: Mapping[str, Sequence[Mapping[str, object]]]) -> list[tuple[str, str, str, str]]:
-    """Return (table, user_id, id, domain) updates in dependency order.
+def _input_groups(inputs: Mapping[tuple[str, str, str], set[tuple[str, str, str]]]) -> list[list[tuple[str, str, str]]]:
+    """The derived rows in groups that record one another as inputs, each group after every group it reads.
 
-    Revisit dependants whenever an input label changes. Return only settled
-    final labels, independent of the traversal order for a dependency chain.
-    Refuse a graph that does not settle within a bounded number of changes;
-    callers must roll back rather than publish intermediate labels.
+    Tarjan's strongly connected components, without recursion so a long chain
+    cannot exhaust the stack. A row that is in no cycle is a group of its own.
+    Rows and their inputs are visited in sorted order, so the result is the same
+    on every run.
+    """
+    index: dict[tuple[str, str, str], int] = {}
+    lowest: dict[tuple[str, str, str], int] = {}
+    stack: list[tuple[str, str, str]] = []
+    on_stack: set[tuple[str, str, str]] = set()
+    groups: list[list[tuple[str, str, str]]] = []
+    for root in sorted(inputs):
+        if root in index:
+            continue
+        index[root] = lowest[root] = len(index)
+        stack.append(root)
+        on_stack.add(root)
+        work = [(root, iter(sorted(ref for ref in inputs[root] if ref in inputs)))]
+        while work:
+            key, refs = work[-1]
+            for ref in refs:
+                if ref not in index:
+                    index[ref] = lowest[ref] = len(index)
+                    stack.append(ref)
+                    on_stack.add(ref)
+                    work.append((ref, iter(sorted(nested for nested in inputs[ref] if nested in inputs))))
+                    break
+                if ref in on_stack:
+                    lowest[key] = min(lowest[key], index[ref])
+            else:
+                work.pop()
+                if work:
+                    parent = work[-1][0]
+                    lowest[parent] = min(lowest[parent], lowest[key])
+                if lowest[key] == index[key]:
+                    group = []
+                    while True:
+                        member = stack.pop()
+                        on_stack.remove(member)
+                        group.append(member)
+                        if member == key:
+                            break
+                    groups.append(sorted(group))
+    return groups
+
+
+def plan_relabels(tables: Mapping[str, Sequence[Mapping[str, object]]]) -> list[tuple[str, str, str, str]]:
+    """Return (table, user_id, id, domain) updates for the settled labels.
+
+    Rows are labelled in dependency order: each group of rows that record one
+    another as inputs (a cycle, or one row on its own) is settled after every
+    row it reads, so a row outside a cycle is labelled once, from final input
+    labels, however long the chain. Inside a cycle the rows are revisited until
+    their labels settle. Refuse a cycle that does not settle within a bounded
+    number of changes; callers must roll back rather than publish intermediate
+    labels.
     """
     rows = {(table, str(row["user_id"]), _identifier(row["id"])): row for table, values in tables.items() for row in values}
     labels = {key: row.get("domain", "unknown") for key, row in rows.items()}
@@ -160,28 +211,31 @@ def plan_relabels(tables: Mapping[str, Sequence[Mapping[str, object]]]) -> list[
     for key, linked_inputs in inputs.items():
         for ref in linked_inputs:
             dependants.setdefault(ref, set()).add(key)
-    pending = deque(sorted(inputs))
-    queued = set(inputs)
-    remaining_changes = max(1, len(inputs)) * (len(RESTRICTED_DOMAINS) + 1)
-    changes: Counter[tuple[str, str, str]] = Counter()
-    while pending:
-        key = pending.popleft()
-        queued.remove(key)
-        domain = derived_domain(
-            ({"domain": labels[ref]} for ref in sorted(inputs[key]) if ref in labels),
-            fallback=str(labels[key]),
-        )
-        if domain not in RESTRICTED_DOMAINS or domain == labels[key]:
-            continue
-        remaining_changes -= 1
-        changes[key] += 1
-        if remaining_changes < 0:
-            raise DerivedDomainRepairError(_unsettled_message(sorted(row for row, count in changes.items() if count > 1)))
-        labels[key] = domain
-        for dependant in sorted(dependants.get(key, ())):
-            if dependant not in queued:
-                pending.append(dependant)
-                queued.add(dependant)
+    # A group is settled once every group it reads is final. A row in no cycle is one group and is read once.
+    for component in _input_groups(inputs):
+        members = set(component)
+        pending = deque(component)
+        queued = set(component)
+        remaining_changes = len(component) * (len(RESTRICTED_DOMAINS) + 1)
+        changes: Counter[tuple[str, str, str]] = Counter()
+        while pending:
+            key = pending.popleft()
+            queued.remove(key)
+            domain = derived_domain(
+                ({"domain": labels[ref]} for ref in sorted(inputs[key]) if ref in labels),
+                fallback=str(labels[key]),
+            )
+            if domain not in RESTRICTED_DOMAINS or domain == labels[key]:
+                continue
+            remaining_changes -= 1
+            changes[key] += 1
+            if remaining_changes < 0:
+                raise DerivedDomainRepairError(_unsettled_message(sorted(row for row, count in changes.items() if count > 1)))
+            labels[key] = domain
+            for dependant in sorted(dependants.get(key, set()) & members):
+                if dependant not in queued:
+                    pending.append(dependant)
+                    queued.add(dependant)
     return [(*key, str(labels[key])) for key in sorted(inputs) if labels[key] != rows[key].get("domain", "unknown")]
 
 
