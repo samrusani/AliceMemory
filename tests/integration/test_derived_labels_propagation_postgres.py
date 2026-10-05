@@ -95,6 +95,7 @@ def _build_chain(h, *, source=None, project=None, label=("project", "public")):
             ("memory", str(update["metadata_json"]["candidate_memory_id"])),
             ("project", str(project["id"])),
         ]
+        rows.extend(("memory", str(row_id)) for row_id in weekly["metadata_json"]["candidate_memory_ids"])
         loops = store.list_open_loops(status=None, sensitivity_allowed=list(request.sensitivity_allowed))
         loops = [row for row in loops if str(row.get("source_id")) == str(source["id"])]
         assert loops, "daily producer must create a candidate loop"
