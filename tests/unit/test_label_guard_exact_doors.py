@@ -285,3 +285,20 @@ def test_belief_dependency_loads_backing_memory_ancestry() -> None:
     assert effective["unverified"] is False
     assert effective["domain"] == "health"
     assert effective["sensitivity"] == "confidential"
+
+
+def test_depth_boundary_and_cache_are_independent_of_width() -> None:
+    from alicebot_api.vnext_derived_labels import HOP_BOUND
+    # Extracted memories recursively reference memories through consolidation markers.
+    class Chain:
+        def __init__(self, length):
+            self.rows = [{"id": str(i), "domain": "project", "sensitivity": "public", "metadata_json": {"consolidation": {"cluster_member_ids": [str(i+1)]}}} for i in range(length)]
+            self.rows.append({"id": str(length), "domain": "project", "sensitivity": "public", "metadata_json": {}})
+        def read_label_rows(self, kind, ids):
+            return [row for row in self.rows if row["id"] in ids] if kind == "memory" else []
+    within = Chain(HOP_BOUND)
+    guard = LabelGuard(within, active=True)
+    assert guard.effective_row("memory", within.rows[0])["unverified"] is False
+    assert guard.effective_row("memory", within.rows[0])["unverified"] is False
+    beyond = Chain(HOP_BOUND+1)
+    assert LabelGuard(beyond, active=True).effective_row("memory", beyond.rows[0])["unverified"] is True
