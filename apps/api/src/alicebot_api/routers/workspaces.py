@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from uuid import UUID
 
 from fastapi import APIRouter, Request
@@ -71,7 +71,7 @@ def _workspace_event_visible(store: PostgresVNextStore, event: dict[str, object]
     return bool(_workspace_rows(store, kind, [row], sensitivity))
 
 
-def _workspace_rows(store: PostgresVNextStore, kind: str, rows: list[dict[str, object]], sensitivity: list[str]):
+def _workspace_rows(store: PostgresVNextStore, kind: str, rows: Sequence[Mapping[str, object]], sensitivity: list[str]):
     from alicebot_api.vnext_label_guard import admit_loaded
 
     return admit_loaded(

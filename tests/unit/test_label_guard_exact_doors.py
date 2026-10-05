@@ -232,3 +232,85 @@ def test_a_cited_memory_is_judged_by_its_source() -> None:
     store = _LabelStore()
     with pytest.raises(MemoryRefNotFoundError):
         resolve_attachable_memory_id(store, MEMORY_ID, fence=SourceReadFence.for_identity(_trusted()))
+
+
+from uuid import UUID
+
+def provenance(sources=(), memories=()):
+    refs = {'sources': list(sources), 'memories': list(memories), 'open_loops': [], 'artifacts': [], 'beliefs': []}
+    return {'v': 1, **refs, 'counts': {k: len(v) for k, v in refs.items()}}
+
+
+class ArtifactStore:
+    def __init__(self, n):
+        self.sources = [dict(id=str(UUID(int=i + 1)), domain='project', sensitivity='public', metadata_json={}) for i in range(n)]
+        self.artifact = dict(id=str(UUID(int=10000)), artifact_type='daily_brief', domain='project', sensitivity='public', content_markdown='Public report', metadata_json={'workflow': 'daily_brief', 'derived_from': provenance(sources=[s['id'] for s in self.sources])})
+    def read_label_rows(self, kind, ids):
+        return [s for s in self.sources if s['id'] in ids] if kind == 'source' else []
+    def get_artifact(self, artifact_id):
+        return self.artifact
+    def upsert_agent_identity(self, *args, **kwargs):
+        pass
+    def append_event(self, event):
+        return event
+
+
+@pytest.mark.parametrize('n', [31, 32, 100])
+def test_public_report_fanout_remains_readable(n):
+    store = ArtifactStore(n)
+    result = _vnext_authorized_artifact(store=store, identity=AgentIdentity(agent_id='trusted-key', permission_profile='trusted_local_agent'), artifact_id=store.artifact['id'], action='artifact.read', for_update=False)
+    assert result is not None
+
+
+def test_cached_guard_keeps_each_roots_independent_budget() -> None:
+    store = ArtifactStore(100)
+    guard = LabelGuard(store, active=True)
+    assert guard.effective_row("artifact", store.artifact)["unverified"] is False
+    assert guard.effective_row("artifact", store.artifact)["unverified"] is False
+
+
+def test_belief_dependency_loads_backing_memory_ancestry() -> None:
+    store = _LabelStore()
+    belief_id = str(UUID(int=55))
+    belief = {"id": belief_id, "memory_id": MEMORY_ID, "domain": "unknown", "sensitivity": "public", "metadata_json": {}}
+    artifact = dict(store.artifact)
+    artifact["metadata_json"] = {"workflow": "daily_brief", "derived_from": provenance()}
+    artifact["metadata_json"]["derived_from"]["beliefs"] = [belief_id]
+    artifact["metadata_json"]["derived_from"]["counts"]["beliefs"] = 1
+    def reader(kind, ids):
+        rows = {"source": [store.source], "memory": [store.memory], "belief": [belief]}.get(kind, [])
+        return [row for row in rows if row["id"] in ids]
+    store.read_label_rows = reader
+    effective = LabelGuard(store, active=True).effective_row("artifact", artifact)
+    assert effective["unverified"] is False
+    assert effective["domain"] == "health"
+    assert effective["sensitivity"] == "confidential"
+
+
+def test_depth_boundary_and_cache_are_independent_of_width() -> None:
+    from alicebot_api.vnext_derived_labels import HOP_BOUND
+    # Extracted memories recursively reference memories through consolidation markers.
+    class Chain:
+        def __init__(self, length):
+            self.rows = [{"id": str(i), "domain": "project", "sensitivity": "public", "metadata_json": {"consolidation": {"cluster_member_ids": [str(i+1)]}}} for i in range(length)]
+            self.rows.append({"id": str(length), "domain": "project", "sensitivity": "public", "metadata_json": {}})
+        def read_label_rows(self, kind, ids):
+            return [row for row in self.rows if row["id"] in ids] if kind == "memory" else []
+    within = Chain(HOP_BOUND)
+    guard = LabelGuard(within, active=True)
+    assert guard.effective_row("memory", within.rows[0])["unverified"] is False
+    assert guard.effective_row("memory", within.rows[0])["unverified"] is False
+    beyond = Chain(HOP_BOUND+1)
+    assert LabelGuard(beyond, active=True).effective_row("memory", beyond.rows[0])["unverified"] is True
+
+
+def test_ambiguous_source_alias_blocks_locked_admin() -> None:
+    store = _LabelStore()
+    store.source["metadata_json"] = {"project_scope": ["prj_" + "b" * 16]}
+    twin = {**store.source, "id": "{" + SOURCE_ID + "}", "domain": "project", "sensitivity": "public", "metadata_json": {"project_scope": [ALPHA]}}
+    store.read_label_rows = lambda kind, ids: [store.source, twin] if kind == "source" else []
+    effective = LabelGuard(store, active=True).effective_row("artifact", store.artifact)
+    assert effective["unverified"] is True
+    identity = AgentIdentity(agent_id="locked-admin", permission_profile="admin", project_scope=(ALPHA,), project_scope_locked=True)
+    with pytest.raises(AgentPolicyBlockedError):
+        _vnext_authorized_artifact(store=store, identity=identity, artifact_id=ARTIFACT_ID, action="artifact.read", for_update=False)

@@ -11,6 +11,7 @@ import re
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from functools import wraps
+from dataclasses import replace
 from typing import Any
 
 from alicebot_api.vnext_agent_control import RESTRICTED_DOMAINS
@@ -26,9 +27,12 @@ from alicebot_api.vnext_derived_labels import (
     is_derived,
     labels_raised_payload,
     settle_labels,
+    stored_scope,
+    union_floor,
 )
+from alicebot_api.vnext_label_closure import collect_label_rows
 from alicebot_api.vnext_event_log import build_event_log_record, integrity_hash_for_event
-from alicebot_api.vnext_project_scope import project_scope_identity, resolve_project_scope, source_project_scope
+from alicebot_api.vnext_project_scope import project_floor_shape, project_scope_identity, resolve_project_scope, source_project_scope
 from alicebot_api.vnext_repositories import JsonObject
 
 LABEL_METADATA_KEYS = ("project_scope", "project_floor", "derived_from")
@@ -151,38 +155,37 @@ def apply_insert_floor(store: Any, kind: str, payload: Mapping[str, object]) -> 
     if not _in_transaction(store):
         raise LabelLockOrderError("the insert floor requires an open transaction")
     user_id = str(getattr(store, "user_id", body.get("user_id") or ""))
-    nodes: list[dict[str, object]] = []
-    grouped: dict[str, list[str]] = {}
-    for dep_kind, dep_id in dependencies_of(kind, body):
-        grouped.setdefault(dep_kind, []).append(dep_id)
-    reader = getattr(store, "read_label_rows", None)
-    if callable(reader):
-        for dep_kind, ids in grouped.items():
-            for row in reader(dep_kind, ids):
-                copied = dict(row)
-                copied["kind"] = dep_kind
-                copied.setdefault("user_id", user_id)
-                nodes.append(copied)
-    if not user_id and nodes:
-        user_id = str(nodes[0].get("user_id") or "")
     own_id = str(body.get("id") or "new-derived-row")
     own = dict(body)
     own["kind"] = kind
     own["id"] = own_id
     own["user_id"] = user_id
-    nodes.append(own)
-    settled = settle_labels(nodes).by_stored(kind, own_id, user_id=user_id or None)
-    if settled.unverified:
-        return body, None
+    nodes, exceeded = collect_label_rows(store, [own], max_nodes=PROPAGATION_BOUND)
+    if exceeded:
+        raise LabelPropagationTooLarge(f"label propagation stopped after {PROPAGATION_BOUND} rows")
+    if not user_id:
+        tenants = {str(node.get("user_id")) for node in nodes if node.get("user_id")}
+        if len(tenants) == 1:
+            user_id = tenants.pop()
+            nodes[0]["user_id"] = user_id
+    settled = settle_labels(nodes, on_cycle="unverified").by_stored(kind, own_id, user_id=user_id or None)
     domain = settled.domain
+    if settled.unverified:
+        domain = generation_domain(str(body.get("domain") or "unknown"), [str(node.get("domain") or "unknown") for node in nodes])
     if str(body.get("domain") or "unknown") in RESTRICTED_DOMAINS:
         domain = generation_domain(str(body.get("domain")), [settled.domain])
-    metadata = dict(body.get("metadata_json")) if isinstance(body.get("metadata_json"), Mapping) else {}
+    raw_metadata = body.get("metadata_json")
+    metadata = dict(raw_metadata) if isinstance(raw_metadata, Mapping) else {}
     metadata["project_scope"] = list(settled.project_scope)
     metadata["project_floor"] = list(settled.project_floor)
+    if settled.unverified:
+        metadata["project_floor"] = list(union_floor(settled.project_floor, [
+            *(stored_scope(str(node["kind"]), node) for node in nodes),
+            *(project_floor_shape(node)[1] for node in nodes),
+        ]))
     updated = dict(body)
     updated["domain"] = domain
-    updated["sensitivity"] = settled.sensitivity
+    updated["sensitivity"] = "regulated" if settled.unverified else settled.sensitivity
     updated["metadata_json"] = metadata
     if len(project_scope_identity(settled.project_scope)) != 1:
         updated["project_id"] = None
@@ -205,8 +208,8 @@ def apply_insert_floor(store: Any, kind: str, payload: Mapping[str, object]) -> 
             new={
                 "domain": after[0],
                 "sensitivity": after[1],
-                "project_scope": list(settled.project_scope),
-                "project_floor": list(settled.project_floor),
+                "project_scope": list(after[2]),
+                "project_floor": list(after[3]),
             },
         ),
     )
@@ -258,7 +261,7 @@ def acquire_exclusive_label_lock(store: Any) -> None:
         finally:
             try:
                 cur.execute("SELECT set_config('lock_timeout', %s, true)", (str(previous),))
-            except Exception:
+            except Exception:  # nosec B110 # aborted transactions cannot restore local settings; rollback clears them
                 # A lock timeout aborts the transaction. Rollback drops the local setting.
                 pass
 
@@ -320,7 +323,7 @@ def _sqlite_dependants(store: Any, table: str, kind: str, compacts: Sequence[str
             SELECT id, user_id, domain, sensitivity, metadata_json{extra}
             FROM {table}
             WHERE user_id = ? AND ({text_clause}{value_sql}{column_sql})
-            """,
+            """,  # nosec B608 # internal literal table/columns; every external value is bound
         tuple(params),
     )
     for row in rows:
@@ -350,7 +353,7 @@ def _postgres_dependants(store: Any, table: str, kind: str, compacts: Sequence[s
             SELECT id::text AS id, user_id::text AS user_id, domain, sensitivity, metadata_json{extra}
             FROM {table}
             WHERE ({text_clause}{value_sql})
-            """,
+            """,  # nosec B608 # internal literal table/columns; every external value is bound
         tuple(params),
     )
     for row in rows:
@@ -409,6 +412,89 @@ def _label_fields(row: Mapping[str, object]) -> tuple[str, str, tuple[str, ...],
     )
 
 
+def clamp_owner_patch(
+    store: Any, *, kind: str, before: Mapping[str, object] | None, patch: Mapping[str, object]
+) -> JsonObject:
+    """Keep a derived row at or above its inputs when an edit would lower it.
+
+    The store writes the higher label, records ``labels_raised`` with cause
+    ``floor_clamped`` when the stored label changes, and sets
+    ``store._label_floor_applied`` so the review answer can name it.
+    """
+
+    store._label_floor_applied = False
+    proposed_patch = dict(patch)
+    if before is None or not is_derived(kind, before):
+        return proposed_patch
+    proposed = dict(before)
+    for key in ("domain", "sensitivity", "project_id"):
+        if key in proposed_patch and proposed_patch[key] is not None:
+            proposed[key] = proposed_patch[key]
+    if isinstance(proposed_patch.get("metadata_json"), dict):
+        stored_meta = before.get("metadata_json")
+        meta = dict(stored_meta) if isinstance(stored_meta, dict) else {}
+        meta.update(proposed_patch["metadata_json"])
+        proposed["metadata_json"] = meta
+    proposed["kind"] = kind
+    nodes, exceeded = collect_label_rows(store, [proposed], max_nodes=PROPAGATION_BOUND)
+    if exceeded:
+        return proposed_patch
+    try:
+        label = settle_labels(nodes).by_stored(kind, str(before.get("id") or ""))
+    except KeyError:
+        return proposed_patch
+    if label.unverified:
+        return proposed_patch
+    requested = _label_fields(proposed)
+    settled = (label.domain, label.sensitivity, tuple(label.project_scope), tuple(label.project_floor))
+    if (
+        requested[0] == settled[0]
+        and requested[1] == settled[1]
+        and project_scope_identity(requested[2]) == project_scope_identity(settled[2])
+        and project_scope_identity(requested[3]) == project_scope_identity(settled[3])
+    ):
+        return proposed_patch
+    proposed_patch["domain"] = label.domain
+    proposed_patch["sensitivity"] = label.sensitivity
+    metadata = dict(proposed.get("metadata_json") or {})
+    metadata["project_scope"] = list(label.project_scope)
+    metadata["project_floor"] = list(label.project_floor)
+    proposed_patch["metadata_json"] = metadata
+    stored = _label_fields(before)
+    if not (
+        stored[0] == settled[0]
+        and stored[1] == settled[1]
+        and project_scope_identity(stored[2]) == project_scope_identity(settled[2])
+        and project_scope_identity(stored[3]) == project_scope_identity(settled[3])
+    ):
+        event = build_event_log_record(
+            event_type=f"{kind}.labels_raised",
+            actor_type="system",
+            target_type=kind,
+            target_id=str(before.get("id") or ""),
+            payload=labels_raised_payload(
+                cause="floor_clamped",
+                previous={
+                    "domain": stored[0],
+                    "sensitivity": stored[1],
+                    "project_scope": list(stored[2]),
+                    "project_floor": list(stored[3]),
+                },
+                new={
+                    "domain": label.domain,
+                    "sensitivity": label.sensitivity,
+                    "project_scope": list(label.project_scope),
+                    "project_floor": list(label.project_floor),
+                },
+            ),
+        )
+        append = getattr(store, "append_event", None)
+        if callable(append):
+            append(event)
+    store._label_floor_applied = True
+    return proposed_patch
+
+
 def write_settled_label(
     store: Any,
     *,
@@ -436,7 +522,7 @@ def write_settled_label(
                 UPDATE {table}
                 SET domain = ?, sensitivity = ?, metadata_json = ?{project_sql}
                 WHERE id = ? AND user_id = ? AND domain = ? AND sensitivity = ?
-                """,
+                """,  # nosec B608 # table comes from the closed kind map; values are bound
             tuple(params),
         )
         require_changed(int(cursor.rowcount), table, str(row_id))
@@ -453,7 +539,7 @@ def write_settled_label(
             SET domain = %s, sensitivity = %s, metadata_json = %s::jsonb{project_sql}
             WHERE id = %s::uuid AND domain = %s AND sensitivity = %s
             RETURNING id
-            """,
+            """,  # nosec B608 # table comes from the closed kind map; values are bound
         tuple(params),
     )
 
@@ -466,32 +552,31 @@ def propagate(store: Any, changed: Sequence[tuple[str, str]], *, cause: str) -> 
     affected = walk_dependants(store, roots)
     if not affected:
         return 0
-    nodes: list[dict[str, object]] = []
+    roots_rows = [dict(row) for row in affected]
     reader = getattr(store, "read_label_rows", None)
     if callable(reader):
         for kind, row_id in changed:
-            for row in reader(kind, [row_id]):
-                copied = dict(row)
-                copied["kind"] = kind
-                nodes.append(copied)
-    needed: dict[str, list[str]] = {}
-    for row in affected:
-        for dep_kind, dep_id in dependencies_of(str(row.get("kind")), row):
-            needed.setdefault(dep_kind, []).append(dep_id)
-    if callable(reader):
-        for dep_kind, dep_ids in needed.items():
-            for row in reader(dep_kind, dep_ids):
-                copied = dict(row)
-                copied["kind"] = dep_kind
-                nodes.append(copied)
-    for row in affected:
-        nodes.append(dict(row))
+            roots_rows.extend({**dict(row), "kind": kind} for row in reader(kind, [identifier(row_id)]))
+    nodes, exceeded = collect_label_rows(store, roots_rows, max_nodes=PROPAGATION_BOUND)
+    if exceeded:
+        raise LabelPropagationTooLarge(f"label propagation stopped after {PROPAGATION_BOUND} rows")
     settled = settle_labels(nodes)
     written = 0
     for row in affected:
         label = settled.by_stored(str(row.get("kind")), str(row.get("id")))
         if label.unverified:
-            continue
+            ancestry, exceeded = collect_label_rows(store, [row], max_nodes=PROPAGATION_BOUND)
+            if exceeded:
+                raise LabelPropagationTooLarge(f"label propagation stopped after {PROPAGATION_BOUND} rows")
+            label = replace(
+                label,
+                domain=generation_domain(label.domain, [str(node.get("domain") or "unknown") for node in ancestry]),
+                sensitivity="regulated",
+                project_floor=union_floor(label.project_floor, [
+                    *(stored_scope(str(node["kind"]), node) for node in ancestry),
+                    *(project_floor_shape(node)[1] for node in ancestry),
+                ]),
+            )
         previous = _label_fields(row)
         current = (label.domain, label.sensitivity, tuple(label.project_scope), tuple(label.project_floor))
         if (
@@ -501,7 +586,8 @@ def propagate(store: Any, changed: Sequence[tuple[str, str]], *, cause: str) -> 
             and project_scope_identity(previous[3]) == project_scope_identity(current[3])
         ):
             continue
-        metadata = dict(row.get("metadata_json")) if isinstance(row.get("metadata_json"), Mapping) else {}
+        raw_metadata = row.get("metadata_json")
+        metadata = dict(raw_metadata) if isinstance(raw_metadata, Mapping) else {}
         metadata["project_scope"] = list(label.project_scope)
         metadata["project_floor"] = list(label.project_floor)
         project_id = label.project_scope[0] if len(project_scope_identity(label.project_scope)) == 1 else None
@@ -570,7 +656,8 @@ def count_rows_hidden_by_scope_move(store: Any, source: Mapping[str, object], ne
     current["kind"] = "source"
     moved = dict(source)
     moved["kind"] = "source"
-    metadata = dict(source.get("metadata_json")) if isinstance(source.get("metadata_json"), Mapping) else {}
+    raw_metadata = source.get("metadata_json")
+    metadata = dict(raw_metadata) if isinstance(raw_metadata, Mapping) else {}
     metadata["project_scope"] = list(new_scope)
     moved["metadata_json"] = metadata
     before = settle_labels([current, *[dict(row) for row in affected]])
@@ -638,6 +725,7 @@ __all__ = [
     "REFUSED_DETAIL",
     "RETRYABLE_DETAIL",
     "acquire_exclusive_label_lock",
+    "clamp_owner_patch",
     "count_rows_hidden_by_scope_move",
     "label_error_response",
     "propagate",

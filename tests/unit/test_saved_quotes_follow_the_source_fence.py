@@ -204,6 +204,21 @@ class _Vault:
         rows = self.sql("SELECT id, canonical_text FROM memories WHERE status = 'candidate' ORDER BY created_at DESC")
         return str(next(row["id"] for row in rows if text.split(":")[0] in str(row["canonical_text"])))
 
+    def _original_quote_fixture(self, memory_id: str) -> None:
+        """Keep every saved quote/link while isolating original-row quote projection.
+
+        Captured copies now inherit source labels and can be refused as a whole.
+        These older projection tests need a readable original row with saved provenance.
+        """
+        path = _sqlite_path_from_url(self.context.database_url)
+        with sqlite_user_connection(path, _USER_ID) as conn:
+            row = SQLiteVNextStore(conn, _USER_ID).get_memory(memory_id)
+            metadata = dict(row["metadata_json"])
+            metadata.pop("source_id", None)
+            metadata.pop("derived_from", None)
+            metadata["project_floor"] = []
+            conn.execute("UPDATE memories SET metadata_json = ? WHERE id = ? AND user_id = ?", (json.dumps(metadata), memory_id, _USER_ID))
+
     def edit_and_approve(self, source_id: str, tag: str = "") -> tuple[str, str]:
         """``metadata_json.provenance`` and the link quote. Returns the memory id and a query that finds it."""
 
@@ -219,6 +234,7 @@ class _Vault:
             who=self.reviewer,
         )
         assert done["is_error"] is False, done
+        self._original_quote_fixture(candidate)
         return candidate, "kiln schedule Mondays"
 
     def supersede(self, source_id: str, tag: str = "") -> tuple[str, str]:
@@ -239,6 +255,7 @@ class _Vault:
         )
         assert done["is_error"] is False, done
         replacement = done["payload"]["replacement_object"]  # type: ignore[index]
+        self._original_quote_fixture(str(replacement["id"]))
         return str(replacement["id"]), "glaze shelf reorganised Saturday"
 
     def http_commit(self, source_id: str, tag: str = "") -> tuple[str, str]:
@@ -1165,3 +1182,17 @@ def test_a_source_with_no_project_is_outside_the_fence_of_a_key_bound_to_a_proje
         assert (vault.explain(who, candidate)["is_error"] is False) is readable, ("explain agrees", who)
 
 
+
+
+def test_current_derived_copy_is_denied_as_a_whole_after_source_relabel(vault: _Vault) -> None:
+    source_id = vault.capture_source()
+    memory_id, _query = vault.edit_and_approve(source_id)
+    row = vault.sql("SELECT metadata_json FROM memories WHERE id = ?", (memory_id,))[0]
+    metadata = json.loads(row["metadata_json"])
+    metadata["source_id"] = source_id
+    vault.sql("UPDATE memories SET metadata_json = ? WHERE id = ?", (json.dumps(metadata), memory_id))
+    vault.reclassify(source_id, "confidential")
+    result = vault.review("trusted", memory_id)
+    assert result["is_error"] is True
+    assert _WORD_A not in json.dumps(result, default=str)
+    assert vault.review("admin", memory_id)["is_error"] is False

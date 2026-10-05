@@ -107,6 +107,7 @@ from alicebot_api.vnext_lifecycle import RETIRED_STATUSES
 from alicebot_api.vnext_promotion_policy import memory_write_provenance
 from alicebot_api.vnext_project_scope import (
     is_global_scope,
+    project_floor_shape,
     project_scope_identity,
     project_scopes_overlap,
     resolve_project_scope,
@@ -947,16 +948,31 @@ def _row_scope_event_time(row: Mapping[str, object]) -> datetime | None:
     return parse_event_datetime(row.get("captured_at"))
 
 
-def _project_scope_meets(row_scope: set[str], requested: Collection[str]) -> bool:
+def _row_floor(row: Mapping[str, object]) -> tuple[str, ...]:
+    shape, floor = project_floor_shape(row)
+    return floor if shape == "list" else ()
+
+
+def _project_scope_meets(
+    row_scope: set[str],
+    requested: Collection[str],
+    *,
+    floor: Collection[str] = (),
+) -> bool:
     """Does a row's resolved project scope meet the requested tuple?
 
     The tuple may hold the reserved global marker (spec 6.1): it asks for a row
     whose scope holds no Alice project id. The one predicate in
     ``vnext_project_scope`` decides, so a request without the marker keeps the
-    plain intersection it always had.
+    plain intersection it always had. On that global branch the row's floor
+    must also sit inside the view.
     """
 
-    return project_scopes_overlap(tuple(sorted(row_scope)), tuple(sorted(requested)))
+    return project_scopes_overlap(
+        tuple(sorted(row_scope)),
+        tuple(sorted(requested)),
+        floor=tuple(floor),
+    )
 
 
 def _is_held_back_global(
@@ -985,7 +1001,11 @@ def _row_matches_scope(
         if source_scope_envelope
         else _row_project_scope_values(row)
     )
-    if scope.projects and not _project_scope_meets(project_scope, scope.projects):
+    if scope.projects and not _project_scope_meets(
+        project_scope,
+        scope.projects,
+        floor=_row_floor(row),
+    ):
         return False
     if scope.exclude_global_domains and _is_held_back_global(
         row, project_scope, scope.exclude_global_domains
@@ -1230,7 +1250,11 @@ def _graph_memory_admissible(
     if memory_types and row.get("memory_type") not in memory_types:
         return False
     if projects:
-        if not _project_scope_meets(_row_project_scope_values(row), projects):
+        if not _project_scope_meets(
+            _row_project_scope_values(row),
+            projects,
+            floor=_row_floor(row),
+        ):
             return False
     if created_by_agent_ids and row.get("created_by_agent_id") not in created_by_agent_ids:
         return False

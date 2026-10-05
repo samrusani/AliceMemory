@@ -1417,6 +1417,7 @@ class VNextSchedulerService:
             domains=list(request.domains) if request.domains else None,
             sensitivity_allowed=list(request.sensitivity_allowed),
             projects=projects,
+            all_of=bound,
         )
         for memory in memories:
             if len(expired_marked) + len(unconfirmed_marked) >= mark_limit:
@@ -1598,6 +1599,7 @@ class VNextSchedulerService:
             domains=domains,
             sensitivity_allowed=list(request.sensitivity_allowed),
             projects=projects,
+            all_of=bound,
         )
         # The report copies the id of each loop's source into its text and its ``source_refs``, and a later reader of
         # the artifact is shown them, so a source the run's own identity may not read is left out.
