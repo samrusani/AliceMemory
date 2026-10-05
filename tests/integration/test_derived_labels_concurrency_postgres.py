@@ -170,6 +170,28 @@ def test_a_scheduler_plan_staged_before_a_relabel_is_floored_at_publish(label_ha
         assert_raised(store.get_artifact(str(published["id"])))
 
 
+def test_scheduler_direct_create_takes_the_shared_publish_lock(label_harness):
+    h = label_harness
+    source = h.source()
+    with h.store() as store:
+        staged = _StagedSchedulerStore(store)
+        artifact = staged.create_artifact(
+            {
+                "artifact_type": "daily_brief",
+                "title": "Synthetic staged report",
+                "content_markdown": "Synthetic staged report",
+                "domain": "project",
+                "sensitivity": "public",
+                "metadata_json": {"workflow": "daily_brief", "source_refs": [str(source["id"])]},
+            }
+        )
+        plan = staged.plan(artifact)
+    assert h.relabel("source", source["id"], domain="health", sensitivity="confidential")[0] == 200
+    with h.store() as store:
+        assert_raised(plan.publish(store))
+        assert any(row["mode"] == "ShareLock" and row["granted"] for row in h.label_locks())
+
+
 def test_a_staged_staleness_mark_cannot_undo_a_relabel(label_harness):
     h = label_harness
     alpha, beta = "prj_" + "a" * 16, "prj_" + "b" * 16
