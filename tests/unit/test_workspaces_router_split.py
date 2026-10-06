@@ -82,11 +82,14 @@ MAIN_PRUNED_BINDINGS = {
 # The later typing repair adds Sequence and annotates _workspace_rows.
 # Two local helpers admit rows and check event targets; the payload uses them
 # before returning lists/counts. Route bodies, mounts and middleware are unchanged.
-EXPECTED_ROUTE_AST_SHA256 = "fb8925ebcda058598b0c6d5e7eca83abe18606a0126bdb6cde0fd1c22444a795"
-EXPECTED_SUPPORT_AST_SHA256 = "0e5708e69de1dd1358ca91709d4a60effeddcd262fc8beddb19ba490cab3b0f1"
+
+# Re-pin 2026-10-06: workspace reads authenticate the protected identity and
+# admit rows through effective labels before totals or dashboard disclosure.
+EXPECTED_ROUTE_AST_SHA256 = "b99f1435de67d9499819acb9ed7ed61b588a3fb0ff037e782eeca070b39af742"
+EXPECTED_SUPPORT_AST_SHA256 = "052f564a10f2f32c090f857142eda105f62d5e44b698d3e7475506c422a5ca47"
 EXPECTED_ROUTE_NAME_MANIFEST_SHA256 = "225c57c08bd8314156c56352dd1c53ffed3f556ce285c666dd6fca125115d0b4"
 EXPECTED_OPERATION_MANIFEST_SHA256 = "c320979b62d7ee8de244fe38bde5bf3761a4f9d76f76bf3cd8576c30fce9857e"
-EXPECTED_IMPORT_MANIFEST_SHA256 = "4a9df193d620b33578f1e42760b118a4267d3e1c8ff01ad92bee1f1bba1c1e9f"
+EXPECTED_IMPORT_MANIFEST_SHA256 = "d8887934cacc6a4e5d52f080dae3c2c0d0cdf23d1518a4060a885a8c7f209c0c"
 EXPECTED_CARRIER_NAMES_SHA256 = "2c109fc234a05dd8f44e4c34bee49e797fbb5e49e92413391541a7e504da328b"
 # Re-pinned 2026-10-02 (DB-005, legacy /v0 routes). One definition changed,
 # found by a per-definition AST diff against the previous pin:
@@ -126,15 +129,17 @@ EXPECTED_CARRIER_NAMES_SHA256 = "2c109fc234a05dd8f44e4c34bee49e797fbb5e49e924133
 # lone_surrogates.py and main.py only registers it, so it adds no definition
 # here. Earlier re-pin (2026-09-26): _rewrite_user_id_json_body writes the
 # rewritten JSON into request._body before call_next.
-EXPECTED_CARRIER_AST_SHA256 = "ab3fc6d61cb81a1b9c1a6573adc8e1e297cbbcf01e230effd4a0824dee2d8e2b"
+
+# Source regeneration adds one protected write route without new carrier definitions.
+EXPECTED_CARRIER_AST_SHA256 = "fcd6d722e2d6c3be28b138449555e703f6930168f52b8e94b41dacbcb937b605"
 EXPECTED_ROUTE_NODE_SHA256 = {
-    "get_vnext_workspace": "6c2151bf38b1b1311f016c00d14394afc7077a6ea219f7ce3dcfd9b701474ae7",
+    "get_vnext_workspace": "52c12b20d7bb33759f8dafa2249b2d775b54666130402c0c75045e9ad57ed587",
     "bootstrap_v1_workspace": "07b1fe2a4cd03a5ba69abe76e258a457e85e92b0bfba592520ee02d01d759c4b",
     "get_v1_workspace_bootstrap_status": "2849d7126ee37b6e3ffd9ebe84b2a8e719eb0f811da750a29f7e0a0798305faa",
 }
 EXPECTED_SUPPORT_NODE_SHA256 = {
     "_vnext_status_counts": "0bf0ed228a14bd648a9d18fcd5f99ebf8c585bd29f4b5e81e1df17fe0201fd15",
-    "_vnext_workspace_payload": "4b6e4a3d59d16538b0e859c425ede21207e9c80f11ab31c3af2ce4d604e14edf",
+    "_vnext_workspace_payload": "c2d41b35c27496c469fd70ebdf6bba01d526dac24ed00bddf983cf6dee57022a",
     "_workspace_rows": "070bdfbd1eae10608bd8208b08367e1c0ea10e2064f03ad5a84121a190ed4cf0",
     "_workspace_event_visible": "8343c060909326a5cb69fa6f671ac62f160630ecf989f04d78e792ea74c0ea90",
 }
@@ -483,7 +488,7 @@ def test_workspace_import_direction_pruning_timing_and_runtime_identities_are_ex
     main_definitions = _top_level_definitions(main_tree)
     router_imports = _import_manifest(router_tree)
 
-    assert len(router_imports) == 32
+    assert len(router_imports) == 38
     assert hashlib.sha256(json.dumps(router_imports, separators=(",", ":")).encode()).hexdigest() == (
         EXPECTED_IMPORT_MANIFEST_SHA256
     )
@@ -512,6 +517,12 @@ def test_workspace_import_direction_pruning_timing_and_runtime_identities_are_ex
     assert MAIN_PRUNED_BINDINGS.isdisjoint(main_imports)
     assert MAIN_PRUNED_BINDINGS <= router_import_bindings
     assert main_imports & router_import_bindings == {
+        "AgentIdentity",
+        "AgentKeyAuthenticationError",
+        "Header",
+        "_vnext_agent_auth_error_response",
+        "agent_key_from_authorization",
+        "resolve_protected_agent_identity",
         "JSONResponse",
         "PostgresVNextStore",
         "Request",
@@ -524,9 +535,9 @@ def test_workspace_import_direction_pruning_timing_and_runtime_identities_are_ex
     main_loads = {
         node.id for node in ast.walk(main_tree) if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load)
     }
-    # /v1 agent-key authentication resolves the bound user in main, so no
-    # shared binding is a re-export-only import any more.
-    assert (main_imports & router_import_bindings) - main_loads == set()
+    # Workspace auth now consumes Header; the carrier retains its historical
+    # Header import while the other shared bindings remain runtime dependencies.
+    assert (main_imports & router_import_bindings) - main_loads == {"Header"}
 
     provider_module_imports = [
         node
@@ -593,7 +604,7 @@ def test_workspace_routes_preserve_mount_order_origins_and_operation_ids() -> No
         for method in sorted(getattr(route, "methods", None) or set())
         if method in {"GET", "POST", "PUT", "PATCH", "DELETE"}
     ]
-    expected_indices = (84, 224, 225) if main_module.LEGACY_SURFACES_ENABLED else (38, 175, 176)
+    expected_indices = (84, 225, 226) if main_module.LEGACY_SURFACES_ENABLED else (38, 176, 177)
     assert all(effective_pairs.count((method, path)) == 1 for method, path, _name in EXPECTED_ROUTE_MANIFEST)
     observed_indices = tuple(
         effective_pairs.index((method, path))

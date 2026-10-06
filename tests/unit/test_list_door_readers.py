@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from uuid import UUID
+import pytest
 
 from alicebot_api.mcp.retrieval import _resume_event_honours_policy_fence
 from alicebot_api.routers import vnext_review
@@ -125,16 +126,29 @@ def _identity(profile: str) -> AgentIdentity:
     return AgentIdentity(agent_id="reader", agent_type="unknown", permission_profile=profile)
 
 
-def test_fts_stage_drops_a_public_copy_of_a_confidential_source() -> None:
+@pytest.mark.parametrize("stage", ("strict", "or_fallback", "legacy"))
+def test_fts_stage_drops_a_public_copy_of_a_confidential_source(stage) -> None:
     store = _LabelStore()
+    if stage == "or_fallback":
+        store.search_memories_fts = lambda **kwargs: [store.memory] if kwargs.get("match_any") else []
+    elif stage == "legacy":
+        store.search_memories_fts = None
+        store.search_memories = lambda **kwargs: [store.memory]
     rows, _status = VNextRetrievalService(store)._memory_fts_rows(
-        query="sentinel",
+        query="sentinel fact" if stage == "or_fallback" else "sentinel",
         domains=["project"],
         sensitivity_allowed=["public", "internal", "private", "unknown"],
         limit=10,
     )
     assert rows == []
     assert SECRET not in str(rows)
+    read_rows = store.read_label_rows
+    store.read_label_rows = lambda kind, ids: [{**_source(), "domain": "project", "sensitivity": "public"}] if kind == "source" else read_rows(kind, ids)
+    visible, _status = VNextRetrievalService(store)._memory_fts_rows(
+        query="sentinel fact" if stage == "or_fallback" else "sentinel", domains=["project"],
+        sensitivity_allowed=["public", "internal", "private", "unknown"], limit=10,
+    )
+    assert [row["id"] for row in visible] == [MEMORY_ID]
 
 
 def test_operator_screens_hide_a_confidential_row_from_a_trusted_key() -> None:

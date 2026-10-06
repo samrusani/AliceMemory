@@ -309,6 +309,7 @@ def _vnext_load_source_trace(
 
     from alicebot_api.vnext_agent_control import AgentIdentity
     from alicebot_api.vnext_label_guard import apply_sensitivity_ceiling
+    from alicebot_api.vnext_open_loop_references import withhold_unreadable_references
 
     caller = identity if isinstance(identity, AgentIdentity) else None
     if not apply_sensitivity_ceiling(store, kind="source", rows=[source], identity=caller):
@@ -323,6 +324,7 @@ def _vnext_load_source_trace(
     open_loops, open_loops_complete = _vnext_readable_trace_rows(
         store, "open_loop", lambda limit: store.list_open_loops_referencing_source(source_id=source_id, limit=limit), caller
     )
+    open_loops = withhold_unreadable_references(store, open_loops, fence=SourceReadFence.for_identity(caller))
     kept_ids = {str(row.get("id")) for row in (*memories, *artifacts, *open_loops)}
     kept_ids.add(source_id)
     events, direct_events_complete = _vnext_readable_trace_rows(

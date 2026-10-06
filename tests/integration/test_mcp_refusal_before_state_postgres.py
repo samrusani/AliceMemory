@@ -30,6 +30,7 @@ from alicebot_api.vnext_source_fence import AttachableSources
 from alicebot_api.vnext_store import PostgresVNextStore
 
 from tests.integration.test_vnext_live_workspace_api import invoke_request, seed_user
+from tests.integration.conftest import lock_label_fixture
 
 _FIXED_MESSAGE = "The tool request could not be processed"
 _OWN_PROJECT = "alicebot"
@@ -63,6 +64,7 @@ def _states(app_url: str, user_id: UUID) -> dict[str, str]:
 
     with user_connection(app_url, user_id) as conn:
         store = PostgresVNextStore(conn)
+        lock_label_fixture(store)
         ordinary = _memory(store)
         pending = _memory(
             store,

@@ -172,7 +172,7 @@ BELIEF_COLUMNS = """
 OPEN_LOOP_COLUMNS = """
                   id,
                   user_id,
-                  memory_id,
+                  memory_id::text AS memory_id,
                   title,
                   status,
                   opened_at,
@@ -185,7 +185,7 @@ OPEN_LOOP_COLUMNS = """
                   priority,
                   project_id,
                   person_id,
-                  source_id,
+                  source_id::text AS source_id,
                   closed_at,
                   domain,
                   sensitivity,

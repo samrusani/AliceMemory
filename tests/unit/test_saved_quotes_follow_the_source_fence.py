@@ -1161,8 +1161,8 @@ def test_a_source_with_no_project_is_outside_the_fence_of_a_key_bound_to_a_proje
     what ``alice_explain`` has always done for such a key. A key bound to no project reads it. On v0.20.0 the review
     returned all three to a key bound to a project. The release notes say this in one sentence.
 
-    The memory is planted with the two writes a review makes (the metadata copy and a link), as the lifecycle tests of the
-    review door do.
+    The memory is an original row with the two saved provenance copies that a review makes, as the lifecycle tests of
+    this projection do. The derived-copy control below separately verifies refusal of the whole captured copy.
 
     Mutation: pass ``require_explicit_project_scope=False`` in ``SourceReadFence._admits``: the keys bound to ``alpha``
     read the link, the quote and the id again, and disagree with explain.
@@ -1173,6 +1173,7 @@ def test_a_source_with_no_project_is_outside_the_fence_of_a_key_bound_to_a_proje
     assert json.loads(row["metadata_json"])["project_scope"] == [], "the owner's capture belongs to no project"
     candidate = vault._candidate("Projectlessnote: the alpha kiln shelf is cleaned on Fridays")
     _plant_saved_quote(vault, candidate, source_id)
+    vault._original_quote_fixture(candidate)
     for who in _KEY_SPECS:
         answer = vault.review(who, candidate)
         assert answer["is_error"] is False, (who, answer)
@@ -1182,6 +1183,18 @@ def test_a_source_with_no_project_is_outside_the_fence_of_a_key_bound_to_a_proje
         assert (vault.explain(who, candidate)["is_error"] is False) is readable, ("explain agrees", who)
 
 
+
+
+def test_a_derived_copy_of_a_projectless_source_is_denied_to_bound_keys(vault: _Vault) -> None:
+    source_id = vault.capture_source(as_owner=True)
+    candidate = vault._candidate("Projectlesscopy: the alpha kiln shelf is cleaned on Fridays")
+    _plant_saved_quote(vault, candidate, source_id)
+    for who in _KEY_SPECS:
+        answer = vault.review(who, candidate)
+        readable = who == "unbound"
+        assert answer["is_error"] is not readable, (who, answer)
+        assert _holds_quote(answer) is readable, who
+        assert _holds_source_id(answer, source_id) is readable, who
 
 
 def test_current_derived_copy_is_denied_as_a_whole_after_source_relabel(vault: _Vault) -> None:

@@ -38,6 +38,7 @@ from alicebot_api.vnext_agent_control import AgentIdentity
 from alicebot_api.vnext_retrieval import VNextRetrievalRequest, VNextRetrievalService
 from alicebot_api.vnext_source_fence import SavedProvenanceReader, SourceReadFence
 from alicebot_api.vnext_store import PostgresVNextStore
+from tests.integration.conftest import lock_label_fixture
 
 _QUOTE = "zinnwald-quote-8841 cone ten firing kiln log marlin-oxide-5520"
 
@@ -84,6 +85,7 @@ def _read(store: PostgresVNextStore, memory_id: str, fence: SourceReadFence) -> 
 def run_lifecycle(store: PostgresVNextStore) -> None:
     """The lifecycle over one store: save a quote, make the source confidential, archive it, read it three ways."""
 
+    lock_label_fixture(store)
     source = store.create_source(
         {
             "source_type": "document",
@@ -198,6 +200,7 @@ def _pack_for(store: PostgresVNextStore, fence: SourceReadFence) -> dict[str, ob
 def run_linkless_and_sibling_lifecycle(store: PostgresVNextStore) -> None:
     """A memory with no link and a memory with two links of the same quote, read before and after a source changes."""
 
+    lock_label_fixture(store)
     refused = _make_source(store, "Alpha held log")
     kept = _make_source(store, "Alpha second log")
     linkless = store.create_memory(
@@ -309,6 +312,7 @@ def test_a_memory_with_no_link_and_a_sibling_quote_are_withheld_on_postgres(migr
 def run_nested_reference_lifecycle(store: PostgresVNextStore) -> None:
     """Two memories that cite a readable source and one that is reclassified, in one ref, read before and after."""
 
+    lock_label_fixture(store)
     readable = _make_source(store, "Alpha second log")
     refused = _make_source(store, "Alpha nested log")
     shapes = {

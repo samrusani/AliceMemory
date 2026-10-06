@@ -398,8 +398,40 @@ def test_parser_preserves_explicit_vnext_sensitivity_filter() -> None:
     assert cli_module._vnext_sensitivity_allowed(omitted) == ("public", "internal", "private", "unknown")
 
 
+class FakeVNextCliLockCursor:
+    def __init__(self, conn) -> None:
+        self.conn = conn
+
+    def execute(self, query: str, params=None) -> None:
+        if query == "SELECT current_setting('lock_timeout') AS lock_timeout":
+            assert params is None
+        elif query == "SET LOCAL lock_timeout = '3s'":
+            assert params is None
+            self.conn.lock_timeout = "3s"
+        else:
+            assert query == "SELECT set_config('lock_timeout', %s, true)"
+            assert params == ("0",)
+            self.conn.lock_timeout = params[0]
+
+    def fetchone(self):
+        return {"lock_timeout": self.conn.lock_timeout}
+
+
+class FakeVNextCliLockConnection:
+    def __init__(self) -> None:
+        self.lock_timeout = "0"
+
+    @contextmanager
+    def cursor(self):
+        yield FakeVNextCliLockCursor(self)
+
+
 class FakeVNextCliStore:
     def __init__(self) -> None:
+        self.conn = FakeVNextCliLockConnection()
+        self.graph_locked = False
+        self.labels_exclusive = False
+        self.lock_calls: list[str] = []
         self.sources: list[dict[str, object]] = []
         self.chunks: list[dict[str, object]] = []
         self.memories: list[dict[str, object]] = []
@@ -418,9 +450,39 @@ class FakeVNextCliStore:
         self.scheduler_workflows: dict[str, dict[str, object]] = {}
         self.scheduler_runs: list[dict[str, object]] = []
 
+    def lock_graph_mutation(self) -> None:
+        self.graph_locked = True
+        self.lock_calls.append("graph")
+
+    def lock_label_writes(self, *, exclusive: bool = False) -> None:
+        assert self.graph_locked
+        if exclusive:
+            assert self.conn.lock_timeout == "3s"
+        self.labels_exclusive |= exclusive
+        self.lock_calls.append("exclusive_labels" if exclusive else "shared_labels")
+
     def append_event(self, event: dict[str, object]) -> dict[str, object]:
         self.events.append(event)
         return event
+
+    def read_label_rows(self, kind: str, ids: list[str]) -> list[dict[str, object]]:
+        """Mirror narrow dependency reads for this fixture's stored rows."""
+
+        from alicebot_api.vnext_derived_labels import identifier
+
+        rows = {
+            "source": self.sources,
+            "memory": self.memories,
+            "open_loop": self.open_loops,
+            "artifact": list(self.artifacts.values()),
+            "project": list(self.projects.values()),
+        }.get(kind, [])
+        wanted = {identifier(value) for value in ids}
+        fields = ("id", "user_id", "domain", "sensitivity", "metadata_json", "value", "project_id", "source_id", "memory_id", "status", "memory_type", "artifact_type")
+        return [
+            {field: row[field] for field in fields if field in row}
+            for row in rows if identifier(row.get("id")) in wanted
+        ]
 
     def upsert_agent_identity(self, identity: dict[str, object], **_kwargs) -> dict[str, object]:
         row = {
@@ -493,6 +555,9 @@ class FakeVNextCliStore:
         return self.get_memory(memory_id)
 
     def get_memory_for_redaction(self, memory_id: str) -> dict[str, object] | None:
+        assert self.graph_locked
+        assert self.labels_exclusive
+        self.lock_calls.append("redaction_row")
         return self.get_memory(memory_id)
 
     def lock_project_update_artifacts_for_redaction(self, memory_id: str) -> list[dict[str, object]]:
@@ -1685,6 +1750,16 @@ def test_vnext_contradiction_and_belief_cli(monkeypatch) -> None:
         "memory_type": "belief",
     }
 
+    store.memories.append({
+        "id": "memory-belief-1",
+        "canonical_text": "Alice should auto-promote generated artifacts into memory.",
+        "memory_type": "belief",
+        "status": "active",
+        "domain": "project",
+        "sensitivity": "private",
+        "metadata_json": {},
+    })
+
     @contextmanager
     def fake_vnext_store_context(_ctx):
         yield store
@@ -1793,6 +1868,15 @@ def test_vnext_project_and_open_loop_cli(monkeypatch) -> None:
     assert store.projects["project-1"]["current_state"] == "Project automation reviewed."
     assert review_loop_payload["due_at"] == "2026-05-12T09:00:00Z"
     assert dashboard_payload["counts"]["open_loops"] == 1
+
+    # The CLI must keep the dashboard's current-input admission checks.
+    store.sources[0]["domain"] = "health"
+    store.sources[0]["sensitivity"] = "regulated"
+    restricted = json.loads(dashboard_args.handler(ctx, dashboard_args))
+    assert restricted["counts"]["open_loops"] == 0
+    store.sources.clear()
+    missing = json.loads(dashboard_args.handler(ctx, dashboard_args))
+    assert missing["counts"]["open_loops"] == 0
 
 
 def test_vnext_queue_cli_add_process_review_and_export(monkeypatch, tmp_path: Path) -> None:
@@ -2468,12 +2552,17 @@ def test_cli_memory_redact_is_positive_and_strictly_idempotent(monkeypatch) -> N
     )
 
     first = json.loads(cli_module._run_vnext_memory_redact(context, args))
+    assert store.lock_calls[:3] == ["graph", "exclusive_labels", "redaction_row"]
+    assert store.conn.lock_timeout == "0"
     assert first["status"] == "redacted"
     assert first["forgotten_first"] is True
     assert first["idempotent_replay"] is False
     frozen = deepcopy((store.memories, store.artifacts, store.revisions, store.events))
 
+    previous_lock_count = len(store.lock_calls)
     second = json.loads(cli_module._run_vnext_memory_redact(context, args))
+    assert store.lock_calls[previous_lock_count:][:3] == ["graph", "exclusive_labels", "redaction_row"]
+    assert store.conn.lock_timeout == "0"
     assert second["status"] == "redacted"
     assert second["forgotten_first"] is False
     assert second["idempotent_replay"] is True
@@ -2687,6 +2776,9 @@ def test_cli_generic_memory_mutations_cannot_strand_pending_project_update_candi
     )
     assert (store.projects, store.memories, store.artifacts, store.revisions) == state_before
     assert [event.get("event_type") for event in store.events] == event_types_before
+    if operation == "redact":
+        assert store.lock_calls[-3:] == ["graph", "exclusive_labels", "redaction_row"]
+        assert store.conn.lock_timeout == "0"
 
 
 def _apply_supported_cli_memory_lifecycle(
