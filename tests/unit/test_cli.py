@@ -455,9 +455,10 @@ class FakeVNextCliStore:
         self.lock_calls.append("graph")
 
     def lock_label_writes(self, *, exclusive: bool = False) -> None:
-        assert self.graph_locked
         if exclusive:
+            assert self.graph_locked
             assert self.conn.lock_timeout == "3s"
+        # A read can hold shared L alone. Label-changing writes take S first.
         self.labels_exclusive |= exclusive
         self.lock_calls.append("exclusive_labels" if exclusive else "shared_labels")
 

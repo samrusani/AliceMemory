@@ -693,13 +693,10 @@ def test_a_value_that_is_only_an_id_with_hyphens_in_other_places_is_read_as_an_i
     assert out[0]["source_id"] == odd and out[0]["metadata_json"] is metadata
 
 
-def test_an_id_with_hyphens_in_other_places_inside_longer_text_is_not_read_and_is_returned_as_stored() -> None:
-    """The limit the module docstring, the docs and the CHANGELOG state: inside text only the hyphenated layout (8, 4, 4,
-    4 and 12 digits) and a run of 32 digits are read. The 32 digits with hyphens in groups of four, in a URL or a
-    sentence, are not read, under a reference key or under another key. Reading them was the cause of the false
-    positive above, and reading them is not what the tower spec asks for.
-
-    Mutation: let hyphens stand anywhere among the 32 digits in ``_BARE_ID`` (the values are then cut).
+def test_an_id_with_irregular_hyphens_is_withheld_when_the_reference_reader_names_it() -> None:
+    """The shared reference reader names irregular hyphens in prose, while an
+    unrelated URL remains opaque. After text scrubbing, its parser is the final
+    authority on whether a refused id remains in the returned projection.
     """
 
     store, identifier = _state("source", "refused")
@@ -710,7 +707,11 @@ def test_an_id_with_hyphens_in_other_places_inside_longer_text_is_not_read_and_i
     }
     out = withhold_unreadable_references(store, [_loop(source_id=identifier, metadata_json=metadata)], fence=_FENCE)
     assert out[0]["source_id"] is None
-    assert out[0]["metadata_json"] == metadata
+    assert out[0]["metadata_json"] == {
+        "source_refs": [f"https://example.test/{odd}"],
+        "evidence": {"all": []},
+    }
+    assert metadata["source_refs"] == [f"see {odd} now", f"https://example.test/{odd}"]
 
 
 @pytest.mark.parametrize("dense", ["a-" * 20000, "ab-" * 20000, "0123-4567-89ab-cdef-" * 2000, "-".join(["0f"] * 30000)])

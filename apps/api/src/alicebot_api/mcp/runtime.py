@@ -62,6 +62,7 @@ def _store_context(context: MCPRuntimeContext):
 def _vnext_store_context(context: MCPRuntimeContext):
     from alicebot_api.vnext_label_guard import label_read_scope
 
+    store: SQLiteVNextStore | PostgresVNextStore
     if _is_sqlite_backend(context):
         sqlite_path = _sqlite_path_from_url(context.database_url)
         with sqlite_user_connection(sqlite_path, context.user_id) as conn:

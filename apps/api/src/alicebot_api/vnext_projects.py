@@ -866,7 +866,9 @@ class VNextProjectService:
             if action in {"accept", "edit"}:
                 acquire_exclusive_label_lock(self.store)
             else:
-                self.store.lock_label_writes()
+                lock_labels = getattr(self.store, "lock_label_writes", None)
+                if callable(lock_labels):
+                    lock_labels()
         # The artifact is the review decision's serialization point.  Every
         # accept/edit/reject path must inspect and transition the same locked
         # row so stale reviewers cannot split project, memory, and artifact

@@ -1229,13 +1229,18 @@ class VNextConsolidationService:
                 return not (parsed.named - admitted or parsed.incidental & refused)
             # Only copies used to render this run change. Stored members and
             # their provenance remain available to their authorized readers.
-            clusters_for_proposals = [[{
-                **member, "metadata_json": {
-                    **(member.get("metadata_json") or {}),
-                    "source_refs": [ref for ref in (member.get("metadata_json") or {}).get("source_refs", [])
-                                    if readable_reference(ref)],
-                },
-            } for member in members] for members in clusters_for_proposals]
+            def readable_member(member: JsonObject) -> JsonObject:
+                metadata = member.get("metadata_json")
+                if not isinstance(metadata, dict):
+                    return member
+                refs = metadata.get("source_refs")
+                if not isinstance(refs, list):
+                    return member
+                return {**member, "metadata_json": {
+                    **metadata, "source_refs": [ref for ref in refs if readable_reference(ref)],
+                }}
+            clusters_for_proposals = [[readable_member(member) for member in members]
+                                      for members in clusters_for_proposals]
         # The report copies the ``source_refs`` of each proposed cluster member as stored, and the candidate memories
         # copy them too. The refs are not dropped: they are the provenance. But the report is read behind its label
         # alone, so the label has to be at least as strict as every source they name. The list printed is made here,
