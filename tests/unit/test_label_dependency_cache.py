@@ -110,6 +110,7 @@ def test_distinct_source_copy_reuse_keeps_parent_labels_and_alias_refusal(varian
     store = Store(rows)
     with label_read_scope(store):
         guard = LabelGuard(store, active=True)
+        guard.admit_rows("memory", [first, second])
         assert effective(guard, "memory", first)[-1] is False
         reused = effective(guard, "memory", second)
     fresh = effective(LabelGuard(store, active=True), "memory", deepcopy(second))
