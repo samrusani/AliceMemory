@@ -1302,12 +1302,6 @@ def scope_is_global(scope: object) -> bool:
     return is_global_scope(scope)
 
 
-
-
-
-
-
-
 __all__ = [
     "DERIVED_ARTIFACT_TYPES",
     "DERIVED_WORKFLOWS",
