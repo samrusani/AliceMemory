@@ -71,7 +71,7 @@ def test_daily_brief_keeps_a_free_form_project_out_of_the_uuid_column(migrated_d
             sensitivity_allowed=list(ALL_SENSITIVITY),
             limit=20,
         )
-    by_scope = {tuple(row["metadata_json"]["project_scope"]): str(row.get("project_id") or "") for row in loops}
+    by_scope = {tuple(sorted(row["metadata_json"]["project_scope"])): str(row.get("project_id") or "") for row in loops}
     assert by_scope[("Alice",)] == ""
     assert by_scope[(project_id,)] == project_id
     assert by_scope[("Alice", "Bob")] == ""
