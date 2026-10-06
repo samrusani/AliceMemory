@@ -107,7 +107,7 @@ def test_derived_label_kernel_guard_mutations():
     )
     kill(
         labels,
-        "dependency_record",
+        "_dependency_record",
         "if not problem and not _record_present(meta, row) and not found:",
         "if not problem and not found:",
         checks.test_every_unverified_case_is_unverified,
