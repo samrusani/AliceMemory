@@ -11,8 +11,8 @@ from alicebot_api.vnext_derived_labels import group_scope
 from alicebot_api.vnext_memory_commit import VNextMemoryCommitService, VNextMemoryCommitValidationError
 from alicebot_api.vnext_rollups import VNextRollupService
 from alicebot_api.vnext_store import PostgresVNextStore
-from tests.unit.test_group_scope_sqlite import ALPHA, seed_members, seed_promoted_members
 from tests.integration.conftest import lock_label_fixture
+from tests.unit.test_group_scope_sqlite import ALPHA, seed_members, seed_promoted_members
 
 
 @pytest.mark.parametrize("accept", (False, True))
