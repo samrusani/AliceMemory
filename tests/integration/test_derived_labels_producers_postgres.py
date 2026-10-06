@@ -63,6 +63,7 @@ def seed_grid(app_url):
             rows.extend(((label, "memories", backing), (label, "beliefs", belief)))
             loop = store.create_open_loop({"title": marker + " loop Atlas", "description": marker + " loop text",
                 "status": "open", "domain": "project", "sensitivity": "public", "due_at": "2026-10-04T12:00:00Z",
+                "opened_at": "2026-10-05T09:00:00Z",
                 "metadata_json": {"project_scope": scope}})
             rows.append((label, "open_loops", loop))
             artifact = store.create_artifact({"artifact_type": "research_brief", "title": marker + " artifact Atlas",
@@ -210,10 +211,11 @@ def test_input_selection_uses_effective_labels_including_the_owner_default_ceili
         prior_id = promoted["metadata_json"]["source_artifact_id"]
         derived_loop = store.create_open_loop({"title": "STALE_SOURCE_LOOP Atlas", "description": "STALE_SOURCE_LOOP secret",
             "source_id": str(source["id"]), "status": "open", "domain": "project", "sensitivity": "public",
+            "opened_at": "2026-10-05T09:00:00Z",
             "due_at": "2026-10-04T12:00:00Z", "metadata_json": {"project_scope": [alpha],
                 "discovered_by": "vnext_daily_brief", "source_id": str(source["id"])}})
         conn.execute("UPDATE sources SET sensitivity='confidential' WHERE id=%s", (source["id"],))
-        conn.execute("UPDATE memories SET created_at='2026-10-05T09:00:00Z' WHERE id=%s", (copy["id"],))
+        conn.execute("UPDATE memories SET created_at='2026-10-05T09:00:00Z', updated_at='2026-10-05T09:00:00Z', first_seen_at='2026-10-05T09:00:00Z', last_seen_at='2026-10-05T09:00:00Z' WHERE id=%s", (copy["id"],))
         if producer == "staleness":
             conn.execute("UPDATE memories SET valid_to='2026-10-04T12:00:00Z'")
         assert store.get_memory(str(copy["id"]))["sensitivity"] == "public"
