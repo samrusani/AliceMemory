@@ -66,7 +66,7 @@ def test_unique_metadata_and_text_share_one_settlement_but_never_admission(monke
 
 @pytest.mark.parametrize("variant", ["self", "ancestor", "alias", "belief", "malformed", "missing", "floor", "class"])
 def test_reused_signature_agrees_with_fresh_kernel_for_boundary_variants(variant):
-    source = row(SOURCE)
+    source = row(SOURCE, sensitivity="confidential")
     parent = row(PARENT, {"source_id": SOURCE})
     first = row(ROOT, {"source_id": SOURCE, "observation": 1})
     second = row("44444444-4444-4444-8444-444444444444", {"source_id": SOURCE, "observation": 2})
@@ -75,11 +75,11 @@ def test_reused_signature_agrees_with_fresh_kernel_for_boundary_variants(variant
         first["metadata_json"] = second["metadata_json"] = {"derived_from": stamp("memories", second["id"])}
     elif variant in {"ancestor", "alias"}:
         first["metadata_json"] = second["metadata_json"] = {"derived_from": stamp("memories", PARENT)}
-        second["id"] = PARENT.upper() if variant == "alias" else PARENT
+        second["id"] = "urn:uuid:" + PARENT if variant == "alias" else PARENT
     elif variant == "belief":
         belief = row("55555555-5555-4555-8555-555555555555", memory_id=second["id"])
         first["metadata_json"] = second["metadata_json"] = {"derived_from": stamp("beliefs", belief["id"])}
-        rows.extend([("belief", belief), ("memory", row(second["id"]))])
+        rows.extend([("belief", belief), ("memory", row(second["id"], sensitivity="confidential"))])
     elif variant == "malformed":
         second["metadata_json"]["derived_from"] = {"sources": [SOURCE], "counts": {"sources": 99}}
     elif variant == "missing":
@@ -89,7 +89,7 @@ def test_reused_signature_agrees_with_fresh_kernel_for_boundary_variants(variant
     elif variant == "class":
         second["metadata_json"]["workflow"] = "project_auto_update"
     if variant == "self":
-        rows.append(("memory", row(second["id"])))
+        rows.append(("memory", row(second["id"], sensitivity="confidential")))
     store = Store(rows)
     guard = LabelGuard(store, active=True)
     with label_read_scope(store):
@@ -101,7 +101,10 @@ def test_reused_signature_agrees_with_fresh_kernel_for_boundary_variants(variant
 
 def test_implicit_weekly_candidate_parent_is_not_shared_between_candidate_ids():
     weekly = row("66666666-6666-4666-8666-666666666666",
-                 {"candidate_memory_ids": [ROOT], "derived_from": stamp("sources", SOURCE)}, artifact_type="weekly_synthesis")
+                 {"candidate_memory_ids": [ROOT], "derived_from": stamp("sources", SOURCE),
+                  "input_summary": {"source_ids": [SOURCE], "memory_ids": [], "open_loop_ids": [], "artifact_ids": [],
+                                    "counts": {"sources": 1, "memories": 0, "open_loops": 0, "artifacts": 0}}},
+                 artifact_type="weekly_synthesis")
     first = row(ROOT, {"discovered_by": "vnext_weekly_synthesis", "source_artifact_id": weekly["id"]})
     second = row(PARENT, deepcopy(first["metadata_json"]))
     store = Store([("artifact", weekly), ("source", row(SOURCE, sensitivity="confidential"))])
