@@ -298,17 +298,6 @@ def apply_insert_floor(store: Any, kind: str, payload: Mapping[str, object]) -> 
     own["kind"] = kind
     own["id"] = own_id
     own["user_id"] = user_id
-    # A copy selected under an earlier source scope still contains that
-    # source's earlier text. Preserve its selected scope before rereading the
-    # current parent, which may already have moved to another project.
-    from alicebot_api.vnext_derived_labels import row_class
-    if row_class(kind, own) == "copy":
-        raw_meta = own.get("metadata_json")
-        selected_meta = dict(raw_meta) if isinstance(raw_meta, Mapping) else {}
-        selected_meta["project_floor"] = list(union_floor(
-            project_floor_shape(own)[1], [stored_scope(kind, own)],
-        ))
-        own["metadata_json"] = selected_meta
     batch = _current_capture_inputs(store)
     cache = batch.rows if batch is not None else None
     nodes, exceeded = collect_label_rows(store, [own], max_nodes=PROPAGATION_BOUND, cache=cache)

@@ -33,6 +33,7 @@ def regenerate_source_inputs(store: Any, source: JsonObject) -> JsonObject:
             "source_chunk_index": candidate.source_chunk_index,
             "extraction_rule": candidate.extraction_rule,
             "project_scope": list(scope),
+            "project_floor": list(scope),
             "regeneration_id": generation,
             **({"provenance_role": candidate.provenance_role, "assertion_class": candidate.assertion_class} if candidate.provenance_role is not None else {}),
         }, {"sources": [source]})

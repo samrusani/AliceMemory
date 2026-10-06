@@ -1054,6 +1054,7 @@ class VNextBrainService:
                     "discovered_by": "vnext_daily_brief",
                     "source_id": str(source["id"]),
                     "project_scope": list(project_scope),
+                    "project_floor": list(source_project_scope(source)),
                     "automation_digest": automation_digest,
                     "workflow_digest": workflow_digest,
                 },

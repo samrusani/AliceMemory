@@ -468,6 +468,7 @@ def _open_loop_candidates(source: JsonObject) -> list[JsonObject]:
                         "loop_type": loop_type,
                         "owner": owner,
                         "source_captured_at": source.get("captured_at"),
+                        "project_floor": list(source_project_scope(source)),
                         "discovered_by": "vnext_project_automation",
                     }, {"sources": [source]}),
                 }
