@@ -289,11 +289,24 @@ def is_derived(kind: object, row: Mapping[str, object]) -> bool:
     does not count, so a forged ``value.kind`` does not make the row derived.
     """
 
-    meta = _metadata(row)
-    if meta.get("redacted") is True:
-        return False
     name = canon_kind(kind)
     if name in {"source", "belief"}:
+        return False
+    cache = _READ_METADATA.get()
+    raw = row.get("metadata_json")
+    key = ("derived", name, id(raw), repr(row.get("source_id")), repr(row.get("artifact_type")))
+    cached = cache.get(key) if cache is not None else None
+    if cached is not None and cached[0] is raw:
+        return cached[1]
+    result = _is_derived(name, row)
+    if cache is not None:
+        cache[key] = (raw, result)
+    return result
+
+
+def _is_derived(name: str, row: Mapping[str, object]) -> bool:
+    meta = _metadata(row)
+    if meta.get("redacted") is True:
         return False
     if name == "project":
         return "derived_from" in meta
@@ -729,6 +742,23 @@ def dependency_record(kind: object, row: Mapping[str, object]) -> tuple[frozense
     An empty record is sound. A missing record on a derived row is ``no_record``.
     """
 
+    # Closure walks and settlement revisit the same raw metadata within one
+    # guarded snapshot. Cache parsing, never labels or admission. The top-level
+    # fields used by this parser remain part of the key, including presence.
+    cache = _READ_METADATA.get()
+    raw = row.get("metadata_json")
+    key = ("dependencies", canon_kind(kind), id(raw), *((field in row, repr(row.get(field)))
+           for field in ("value", "source_id", "artifact_type", "project_floor")))
+    cached = cache.get(key) if cache is not None else None
+    if cached is not None and cached[0] is raw:
+        return cached[1]
+    result = _dependency_record(kind, row)
+    if cache is not None:
+        cache[key] = (raw, result)
+    return result
+
+
+def _dependency_record(kind: object, row: Mapping[str, object]) -> tuple[frozenset[tuple[str, str]], str]:
     if not is_derived(kind, row):
         return frozenset(), ""
     meta = _metadata(row)

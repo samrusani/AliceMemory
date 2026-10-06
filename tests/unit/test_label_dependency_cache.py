@@ -10,6 +10,32 @@ from alicebot_api.vnext_agent_control import ALL_SENSITIVITY
 from alicebot_api.vnext_label_guard import LabelGuard, invalidate_read_labels, label_read_scope
 from alicebot_api.vnext_derived_labels import identifier, with_derived_from
 
+
+@pytest.mark.parametrize("field,initial,changed", [
+    ("value", {"source_id": "first-input"}, {"source_id": "second-input"}),
+    ("source_id", "first-input", "second-input"),
+    ("project_floor", [], None),
+    ("artifact_type", "daily_brief", "note"),
+])
+def test_pure_parsing_cache_keeps_top_level_variants_and_write_invalidation(field, initial, changed):
+    from alicebot_api.vnext_derived_labels import dependency_record, is_derived
+
+    kind = "artifact" if field == "artifact_type" else "open_loop" if field == "source_id" else "memory"
+    metadata = {"discovered_by": "open_loop_extraction"} if kind == "open_loop" else {} if kind == "artifact" else {"source_id": "metadata-input"}
+    first = {"id": "first", "metadata_json": metadata, field: initial}
+    second = {**first, "id": "second", field: changed}
+    expected = [(is_derived(kind, item), dependency_record(kind, item)) for item in (first, second)]
+    assert expected[0] != expected[1]
+    store = Store([])
+    with label_read_scope(store):
+        for _ in range(2):
+            assert [(is_derived(kind, item), dependency_record(kind, item)) for item in (first, second)] == expected
+        metadata["source_id"] = "new-input-after-write"
+        invalidate_read_labels(store)
+        after_write = (is_derived(kind, first), dependency_record(kind, first))
+    assert after_write == (is_derived(kind, first), dependency_record(kind, first))
+    assert ("source", "new-input-after-write") in after_write[1][0]
+
 SOURCE = "11111111-1111-4111-8111-111111111111"
 PARENT = "22222222-2222-4222-8222-222222222222"
 ROOT = "33333333-3333-4333-8333-333333333333"

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- The web package pins `sharp` to 0.35.5, including the patched librsvg binaries, for GHSA-wq5f-xc86-pv6w. Earlier pins below 0.35.5 fail the production dependency audit.
+
 - Unreleased (on main, not in v0.20.0): October 6 round-two corrections recover a per-user open-loop digest on both stores after a project reassignment or stale duplicate extraction, and weekly candidates record the report inputs before insert so their stored floor matches the weekly artifact in the same transaction. Read-time labels reuse verified dependency signatures within one request; original rows are counted in SQL, and the derived partition still receives the kernel guard. PostgreSQL event filtering uses an indexed guarded UUID comparison. SQLite filters definitely hidden direct parents before its event limit, then applies the full effective-label guard. The legacy review list also rechecks saved quotes on original or imported candidates against the current source fence. CI compares unique-metadata, varied-parent and repaired fixtures against pinned main 48873b03. No migration is required.
 
 
