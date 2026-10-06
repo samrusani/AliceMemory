@@ -66,7 +66,9 @@ def test_exact_entrypoint_checks_effective_floor(migrated_database_urls, monkeyp
 
             def checked(store, *args, _original=original, **kwargs):
                 locks = held_label_locks(store)
-                assert locks == (True, True, True), (door, locks)
+                # Accept, approve and redact change status/content only.
+                # They still hold S and L before the row lock, with L shared.
+                assert locks == (True, True, False), (door, locks)
                 mutation_locks.append(locks)
                 return _original(store, *args, **kwargs)
 
