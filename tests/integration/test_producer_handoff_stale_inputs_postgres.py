@@ -56,7 +56,12 @@ def test_real_producer_payloads_and_stale_uuid_source_floor(label_harness, monke
             monkeypatch.setattr(store, "search_sources", lambda **_kwargs: [deepcopy(stale)])
             VNextProjectService(store).extract_open_loops(ProjectAutomationRequest(agent_identity=None, project_id=alpha))
         else:
-            regenerate_source_inputs(store, stale)
+            regenerated = regenerate_source_inputs(store, stale)
+            assert regenerated["memory_ids"]
+            for memory in store.read_label_rows("memory", regenerated["memory_ids"]):
+                assert memory["domain"] == "health"
+                assert memory["sensitivity"] == "confidential"
+                assert set(memory["metadata_json"]["project_floor"]) == {alpha, beta}
         assert "open_loop" in observed
         loops = store.list_open_loops(status=None, sensitivity_allowed=["confidential"], limit=50)
         assert loops
