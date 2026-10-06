@@ -90,6 +90,34 @@ def test_unique_metadata_and_text_share_one_settlement_but_never_admission(monke
         assert len(calls) == 3
 
 
+@pytest.mark.parametrize("variant", ["hidden", "scope", "floor", "scrubbed", "alias"])
+def test_distinct_source_copy_reuse_keeps_parent_labels_and_alias_refusal(variant):
+    first_parent = row(SOURCE, {"project_scope": ["alpha"]}, sensitivity="regulated" if variant == "alias" else "public")
+    second_parent = row(PARENT, {"project_scope": ["alpha"]}, sensitivity=first_parent["sensitivity"])
+    if variant == "hidden":
+        second_parent["sensitivity"] = "confidential"
+    elif variant == "scope":
+        second_parent["metadata_json"]["project_scope"] = ["beta"]
+    elif variant == "floor":
+        second_parent["metadata_json"]["project_floor"] = ["beta"]
+    elif variant == "scrubbed":
+        second_parent["metadata_json"]["scrubbed"] = True
+    first = row(ROOT, {"source_id": SOURCE, "project_scope": ["alpha"]})
+    second = row("44444444-4444-4444-8444-444444444444", {"source_id": PARENT, "project_scope": ["alpha"]})
+    rows = [("source", first_parent), ("source", second_parent)]
+    if variant == "alias":
+        rows.append(("source", {**deepcopy(second_parent), "id": "urn:uuid:" + PARENT}))
+    store = Store(rows)
+    with label_read_scope(store):
+        guard = LabelGuard(store, active=True)
+        assert effective(guard, "memory", first)[-1] is False
+        reused = effective(guard, "memory", second)
+    fresh = effective(LabelGuard(store, active=True), "memory", deepcopy(second))
+    assert reused == fresh
+    if variant == "alias":
+        assert reused[-1] is True
+
+
 @pytest.mark.parametrize("variant", ["self", "ancestor", "alias", "belief", "malformed", "missing", "floor", "class"])
 def test_reused_signature_agrees_with_fresh_kernel_for_boundary_variants(variant):
     source = row(SOURCE, sensitivity="confidential")

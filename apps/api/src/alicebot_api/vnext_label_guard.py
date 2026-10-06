@@ -55,6 +55,7 @@ class _RequestLabels:
     counts: dict = field(default_factory=dict)
     dependency_labels: dict = field(default_factory=dict)
     dependency_ancestry: dict = field(default_factory=dict)
+    source_copies: dict = field(default_factory=dict)
     signatures: dict = field(default_factory=dict)
     parsed_signatures: dict = field(default_factory=dict)
     row_sets: dict = field(default_factory=dict)
@@ -70,6 +71,7 @@ class _RequestLabels:
         self.counts.clear()
         self.dependency_labels.clear()
         self.dependency_ancestry.clear()
+        self.source_copies.clear()
         self.signatures.clear()
         self.parsed_signatures.clear()
         self.row_sets.clear()
@@ -212,8 +214,23 @@ class LabelGuard:
             label = state.dependency_labels.get(template)
         if label is None:
             nodes = self._collected(kind, row)
-            settled = settle_labels(nodes, on_cycle="unverified", max_hops=HOP_BOUND, max_nodes=NODE_BOUND)
-            label = settled.by_stored(kind, str(row.get("id") or ""), user_id=_GUARD_USER)
+            copy_template = None
+            # A copy with exactly one original source has no recursive input
+            # graph. First collect each root to check missing/ambiguous source
+            # spellings and the independent bounds, then reuse only a verified
+            # kernel result for identical root and parent label semantics.
+            if len(nodes) == 2 and template[3] == "copy" and not template[2] and len(template[1]) == 1:
+                parent = nodes[1]
+                ref = next(iter(template[1]))
+                if ref[0] == "source" and parent.get("kind") == "source" and identifier(parent.get("id")) == ref[1]:
+                    parent_template = self._signature("source", parent, key=self._key("source", parent))
+                    copy_template = (template[:1] + template[2:], parent_template)
+                    label = state.source_copies.get(copy_template)
+            if label is None:
+                settled = settle_labels(nodes, on_cycle="unverified", max_hops=HOP_BOUND, max_nodes=NODE_BOUND)
+                label = settled.by_stored(kind, str(row.get("id") or ""), user_id=_GUARD_USER)
+            if copy_template is not None and not label.unverified:
+                state.source_copies[copy_template] = label
             ancestry = frozenset(
                 [*(ref for node in nodes for ref in dependencies_of(str(node["kind"]), node)),
                  *((str(node["kind"]), identifier(node.get("id"))) for node in nodes[1:]),
