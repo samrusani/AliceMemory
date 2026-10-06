@@ -20,7 +20,7 @@ from alicebot_api.vnext_agent_control import ALL_SENSITIVITY, DEFAULT_AGENT_SENS
 USER = "11111111-1111-4111-8111-111111111111"
 
 
-def seed_varied(store, *, postgres=False, count=5000, source_count=300, mixed=True, repaired=False, plain=False, all_hidden=False):
+def seed_varied(store, *, postgres=False, count=5000, source_count=300, mixed=True, repaired=False, plain=False, all_hidden=False, unique_metadata=True):
     sources = [store.create_source({"source_type": "note", "title": "Synthetic budget input",
                "content_hash": str(uuid4()), "domain": "project",
                "sensitivity": "confidential" if all_hidden or i % 2 else "public"}) for i in range(source_count)]
@@ -29,7 +29,9 @@ def seed_varied(store, *, postgres=False, count=5000, source_count=300, mixed=Tr
     for i, row_id in enumerate(ids):
         parent_index = i % source_count
         source_id = str(sources[parent_index]["id"])
-        metadata = {"observation_index": i, "project_scope": [], "project_floor": []}
+        metadata = {"project_scope": [], "project_floor": []}
+        if unique_metadata:
+            metadata["observation_index"] = i
         if not plain:
             metadata["source_id"] = source_id
             if mixed and i >= source_count:
@@ -76,7 +78,7 @@ def assert_budgets(backend, location, user, keys):
     for profile, key in keys.items():
         baseline = probe(main, backend, location, user, profile, key)
         head = probe(repo, backend, location, user, profile, key)
-        print(json.dumps({"store": backend, "profile": profile, "main": baseline, "head": head}))
+        print(json.dumps({"store": backend, "case": os.environ.get("ALICE_READ_BUDGET_CASE", "unspecified"), "profile": profile, "main": baseline, "head": head}))
         for action in ("pack", "recall"):
             for clock in ("minimum_wall", "minimum_cpu"):
                 assert head[action][clock] <= 2 * baseline[action][clock] + .1, (action, clock, head, baseline)
@@ -92,14 +94,15 @@ def complete_count(store, ceiling):
     return first
 
 
-@pytest.mark.parametrize("case,repaired", [("mixed", False), ("mixed", True), ("many-hidden", False), ("many-hidden", True), ("one-hidden", False)])
-def test_sqlite_varied_read_budget(tmp_path, case, repaired):
+@pytest.mark.parametrize("case,repaired", [("mixed", False), ("mixed", True), ("many-hidden", False), ("many-hidden", True), ("one-hidden", False), ("identical", False)])
+def test_sqlite_varied_read_budget(tmp_path, monkeypatch, case, repaired):
+    monkeypatch.setenv("ALICE_READ_BUDGET_CASE", case + ("-repaired" if repaired else ""))
     path = tmp_path / "round2.db"
     bootstrap_database(path, user_id=USER, user_email="budget@example.invalid")
     with sqlite_user_connection(path, USER) as conn:
         keys = seed_varied(SQLiteVNextStore(conn, USER), repaired=repaired,
-                           source_count=1 if case == "one-hidden" else 3000 if case == "many-hidden" else 300,
-                           all_hidden=case != "mixed", mixed=case == "mixed")
+                           source_count=1 if case in {"one-hidden", "identical"} else 3000 if case == "many-hidden" else 300,
+                           all_hidden=case != "mixed", mixed=case == "mixed", unique_metadata=case != "identical")
         store = SQLiteVNextStore(conn, USER)
         for profile in keys:
             ceiling = ALL_SENSITIVITY if profile == "admin_agent" else DEFAULT_AGENT_SENSITIVITY
