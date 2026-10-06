@@ -525,7 +525,8 @@ def test_ci_action_dependency_carrier_uses_exact_atomic_pins() -> None:
         workflows,
     )
 
-    # 28 since real-host-ci.yml checks out once for the pinned job, once
+    # 29 since round-two read budgets add one pinned baseline checkout.
+    # Previously 28 since real-host-ci.yml checks out once for the pinned job, once
     # for the weekly canary, once for the dispatch-only hook trial, once
     # for the dispatch-only plugin hook trial, once for the
     # dispatch-only marketplace check, and once for the dispatch-only
@@ -539,7 +540,7 @@ def test_ci_action_dependency_carrier_uses_exact_atomic_pins() -> None:
     # rather than absorbed.
     assert checkout_refs == [
         "3d3c42e5aac5ba805825da76410c181273ba90b1"
-    ] * 28
+    ] * 29
     assert codeql_refs == [
         "ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd"
     ] * 3

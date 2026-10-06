@@ -33,6 +33,7 @@ from alicebot_api.vnext_repositories import JsonObject as VNextJsonObject
 from alicebot_api.vnext_retrieval import MEMORY_ENTITY_EDGE_TYPES
 from alicebot_api.vnext_source_fence import (
     EXPLAIN_DISCLOSURE_ACTION,
+    SavedProvenanceReader,
     SourceReadFence,
     cited_source_ids_in_memory_audit,
     source_rows_including_archived,
@@ -755,6 +756,9 @@ def _handle_alice_vnext_review_items(context: MCPRuntimeContext, arguments: Mapp
                 if len(items) >= limit or len(rows) < prefix:
                     break
                 prefix *= 2
+            # Original/imported candidates may carry saved quotes without a
+            # derived marker. Judge their provenance against today's fence too.
+            items = SavedProvenanceReader(store, fence=fence).memories(items)
     return _json_object({"items": items, "count": len(items)})
 
 

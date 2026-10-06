@@ -414,6 +414,17 @@ def _direct_source_hint(raw: object) -> str | None:
         return source_id
 
 
+def _ensure_direct_source_hint(conn: sqlite3.Connection) -> None:
+    """Register once: SQLite refuses to replace a UDF with live statements."""
+    cursor = conn.execute("SELECT 1 FROM pragma_function_list WHERE name='alice_direct_source_hint' AND narg=1 LIMIT 1")
+    try:
+        registered = cursor.fetchone() is not None
+    finally:
+        cursor.close()
+    if not registered:
+        conn.create_function("alice_direct_source_hint", 1, _direct_source_hint, deterministic=True)
+
+
 class SQLiteVNextStore:
     """SQLite-backed vNext repository facade for the second-brain kernel."""
 
@@ -427,7 +438,7 @@ class SQLiteVNextStore:
         self.user_id = str(user_id)
         _ensure_embedding_content_sha256_sqlite(self.conn)
         _ensure_project_scope_identity_sqlite(self.conn)
-        self.conn.create_function("alice_direct_source_hint", 1, _direct_source_hint, deterministic=True)
+        _ensure_direct_source_hint(self.conn)
 
     def lock_label_writes(self, *, exclusive: bool = False) -> None:
         """The SQLite writer lock is the label lock. Begin it when none is open."""

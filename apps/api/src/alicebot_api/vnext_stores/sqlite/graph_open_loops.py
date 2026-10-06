@@ -615,10 +615,10 @@ def upsert_open_loop_by_automation_digest(
     try:
         return self.create_open_loop(record, actor_type=actor_type)
     except sqlite3.IntegrityError:
+        # The unique digest belongs to the user; propagation may have cleared
+        # the mutable project/person columns since the first extraction.
         existing = self.find_open_loop_by_automation_digest(
             digest=normalized_digest,
-            project_id=str(loop["project_id"]) if loop.get("project_id") is not None else None,
-            person_id=str(loop["person_id"]) if loop.get("person_id") is not None else None,
         )
         if existing is None:
             raise

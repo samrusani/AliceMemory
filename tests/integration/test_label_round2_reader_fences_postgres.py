@@ -8,7 +8,7 @@ from alicebot_api.mcp.types import MCPRuntimeContext
 from tests.integration.derived_labels_postgres_support import label_harness
 
 
-@pytest.mark.parametrize("profile,bound", [("trusted_local_agent", False), ("admin_agent", False), ("trusted_local_agent", True), ("admin_agent", True)])
+@pytest.mark.parametrize("profile,bound", [("trusted_local_agent", False), ("admin_agent", False), ("trusted_local_agent", True), ("admin_agent", True), ("read_only_agent", False), ("read_only_agent", True)])
 def test_source_get_uses_the_callers_entire_fence(label_harness, profile, bound):
     h = label_harness
     alpha, beta = str(uuid4()), str(uuid4())
@@ -18,18 +18,43 @@ def test_source_get_uses_the_callers_entire_fence(label_harness, profile, bound)
     visible = h.source(scope=(alpha,))
     private = h.source(scope=(alpha,), sensitivity="confidential")
     other = h.source(scope=(beta,))
+    restricted_domain = h.source(scope=(alpha,))
+    assert h.relabel("source", restricted_domain["id"], domain="health")[0] == 200
     # The owner's control precedes key provisioning, as the real key gate requires.
-    for source in (visible, private, other):
+    for source in (visible, private, other, restricted_domain):
         status, body, _ = h.request("GET", "/v0/vnext/sources/" + str(source["id"]))
         assert status == 200 and str(body["id"]) == str(source["id"])
     key = h.key(profile, project=alpha if bound else None)
     status, body, _ = h.request("GET", "/v0/vnext/sources/" + str(visible["id"]), key=key)
     assert status == 200 and str(body["id"]) == str(visible["id"])
-    for source, permitted in ((private, profile == "admin_agent"), (other, not bound)):
+    for source, permitted in ((private, profile == "admin_agent"), (other, not bound), (restricted_domain, profile in {"trusted_local_agent", "admin_agent"})):
         status, body, _ = h.request("GET", "/v0/vnext/sources/" + str(source["id"]), key=key)
         assert status == (200 if permitted else 404), (profile, bound, body)
         if not permitted:
             assert body == {"detail": f"vNext source {source['id']} was not found"}
+    missing = str(uuid4())
+    status, body, _ = h.request("GET", "/v0/vnext/sources/" + missing, key=key)
+    assert status == 404 and body == {"detail": f"vNext source {missing} was not found"}
+
+
+@pytest.mark.parametrize("profile", ["trusted_local_agent", "admin_agent"])
+def test_legacy_review_list_rechecks_saved_quotes_postgres(label_harness, profile):
+    import json
+    h = label_harness
+    quote = "Synthetic PostgreSQL saved-quote sentinel"
+    source = h.source()
+    with h.store() as store:
+        memory = store.create_memory({"memory_key": str(uuid4()), "canonical_text": "Original synthetic candidate", "status": "candidate",
+                                      "domain": "project", "sensitivity": "public",
+                                      "metadata_json": {"provenance": {"source_id": str(source["id"]), "quote": quote}}})
+    context = MCPRuntimeContext(database_url=h.urls["app"], user_id=h.user_id)
+    arguments = {"limit": 20, "agent_id": "reader", "permission_profile": profile}
+    assert quote in json.dumps(call_mcp_tool(context, name="alice_vnext_review_items", arguments=arguments))
+    assert h.relabel("source", source["id"], sensitivity="confidential")[0] == 200
+    result = call_mcp_tool(context, name="alice_vnext_review_items", arguments=arguments)
+    assert [str(row["id"]) for row in result["items"]] == [str(memory["id"])]
+    assert (quote in json.dumps(result)) is (profile == "admin_agent")
+    assert quote in json.dumps(call_mcp_tool(context, name="alice_vnext_review_items", arguments={"limit": 20}))
 
 
 @pytest.mark.parametrize("profile,nested", [("trusted_local_agent", False), ("trusted_local_agent", True), ("admin_agent", False), ("read_only_agent", True)])

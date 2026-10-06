@@ -208,6 +208,8 @@ SQLITE_QUERY_EXPORTS = (
     "_fts_match_any_expression",
 )
 
+# Round two adds count_original_label_statuses after read_label_rows on both
+# facades; all existing members retain their relative order.
 EXPECTED_CLASS_ORDERS = {
     # Reviewed additions: label/event enumeration, PG ratings, belief aliases and source recovery.
     # Existing facade members retain their relative order.
@@ -220,7 +222,7 @@ EXPECTED_CLASS_ORDERS = {
     # 040a2a10 with ``savepoint`` added at the end and nothing else moved (reviewed change, not drift).
     # Label lock: lock_label_writes and read_label_rows follow __init__. Dropping
     # those two names restores the previous receipt (172, 6f1a459f...).
-    "PostgresVNextStore": (179, "71998141cd00c0639209285accbc29faa775b2e0250422c96101ee2f144df832"),
+    "PostgresVNextStore": (180, "98a0c0e5668366e07420aae305e3dd49f042e62a8cde9f0a27abb0ed9caf03e7"),
     # One SQLite-only method more, ``check_source_search_query``: the Postgres
     # source search has no expression-depth or LIKE-length limit to check.
     # Merge of #500 and #502 (2026-10-01): one more SQLite-only method,
@@ -237,7 +239,7 @@ EXPECTED_CLASS_ORDERS = {
     # prunable_sources here; every pre-existing class member keeps its order.
     # Label lock: lock_label_writes and read_label_rows follow __init__. Dropping
     # those two names restores the previous receipt (134, 13012720...).
-    "SQLiteVNextStore": (138, "783c07140c4015bcf8e43a3c68f3c2837ad14ce3525f8bd56a6f9c319d38eada"),
+    "SQLiteVNextStore": (139, "d90f82579ad45d50bd22e9270d46e0b1ce50529e5ebfaf7047fb2f54799a6c54"),
 }
 
 

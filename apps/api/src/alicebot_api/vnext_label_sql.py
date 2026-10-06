@@ -13,7 +13,7 @@ def original_label_sql(kind: str, *, sqlite: bool = False) -> str:
     markers = ",".join("'" + key + "'" for key in sorted(MARKER_KEYS))
     if sqlite:
         safe = "CASE WHEN json_valid(metadata_json) THEN metadata_json ELSE 'null' END"
-        predicate = f"(json_type({safe}) = 'object' AND NOT EXISTS (SELECT 1 FROM json_each({safe}) WHERE key IN ({markers})))"
+        predicate = f"(json_type({safe}) = 'object' AND NOT EXISTS (SELECT 1 FROM json_each({safe}) WHERE key IN ({markers})))"  # nosec B608 - closed module constants, no caller input
     else:
         predicate = f"(jsonb_typeof(metadata_json) = 'object' AND NOT (metadata_json ?| ARRAY[{markers}]::text[]))"
     if kind == "artifact":

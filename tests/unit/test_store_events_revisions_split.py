@@ -138,6 +138,7 @@ EXPECTED_PRIMITIVE_METADATA = {
         "_json_list_text": ("(value: 'object | None') -> 'str'", None),
     },
 }
+# Round two adds the conservative original-row SQL count on both facades.
 EXPECTED_CLASS_KEY_SHA256 = {
     # Reviewed additions: label/event enumeration, PG ratings, belief aliases and source recovery.
     # Existing facade members retain their relative order.
@@ -150,7 +151,7 @@ EXPECTED_CLASS_KEY_SHA256 = {
     # Re-minted for the per-file importer savepoint (2026-10-02): ``savepoint`` is appended last on both façades.
     # Previous receipt: 650e2e0ff088d67c... Proof: the class key list equals the list at origin/main 040a2a10
     # plus ``savepoint`` before ``__dict__``, with every other key in the same order.
-    "postgres": "3751e3fd145562485233765a14ae4e7bc7f396e6e72356a079e266fd98025839",
+    "postgres": "2a91ba3efd288f45d88d8eebd590ec76659e29b3d3223e818cc7828661807249",
     # Re-minted for the merge of #500 and #502: ``check_literal_match_query``.
     # Re-minted again for per-project memory S2 (2026-10-02): the two single-scan partition reads
     # ``list_memories_view_partitions`` and ``list_open_loops_view_partitions``, SQLite only on purpose
@@ -158,7 +159,7 @@ EXPECTED_CLASS_KEY_SHA256 = {
     # Re-minted again for the per-file importer savepoint (2026-10-02), the same appended method.
     # Previous receipt: 365b7a01acf7a8b5... Proof: as for postgres, one added key and no other change.
     # Re-minted for the derived-label lock: ``lock_label_writes`` and ``read_label_rows`` on both facades.
-    "sqlite": "265db9bfe184e712eb3bbb64356c7a9601b130c93ca847962697c35f68b84ecd",
+    "sqlite": "50d5aad840a245b6d01b72527ed559c97faad3b8cbbfbcb06982e1e9dce1f270",
 }
 EXPECTED_SUPPORT_AST_SHA256 = {
     "postgres_columns": {

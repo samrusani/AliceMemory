@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import time
 from uuid import uuid4
 
 import pytest
@@ -12,6 +13,9 @@ from alicebot_api.onramp import bootstrap_database
 from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
 from alicebot_api.vnext_agent_keys import create_agent_key
 from alicebot_api.vnext_derived_labels import with_derived_from
+from alicebot_api.vnext_label_repair import label_gap_counts
+from alicebot_api.vnext_label_guard import LabelGuard, label_read_request
+from alicebot_api.vnext_agent_control import ALL_SENSITIVITY, DEFAULT_AGENT_SENSITIVITY
 
 USER = "11111111-1111-4111-8111-111111111111"
 
@@ -48,6 +52,8 @@ def seed_varied(store, *, postgres=False, count=5000, source_count=300, mixed=Tr
     else:
         store.conn.executemany("INSERT INTO memories(id,user_id,memory_key,canonical_text,metadata_json,sensitivity,value,source_event_ids,status,domain) VALUES(?,?,?,?,?,?,'{}','[]','active','project')", values)
         store.conn.executemany("INSERT INTO event_log(id,user_id,target_id,event_type,actor_type,target_type,payload_json) VALUES(?,?,?,'memory.created','system','memory','{}')", [(str(uuid4()), values[0][1], row_id) for row_id in ids])
+    if repaired:
+        assert label_gap_counts(store) == (0, 0), "post-repair budget must measure rows whose stored labels equal effective labels"
     keys = {}
     for profile in ("trusted_local_agent", "admin_agent"):
         _, keys[profile] = create_agent_key(store, user_id=store.user_id if not postgres else sources[0]["user_id"],
@@ -78,6 +84,14 @@ def assert_budgets(backend, location, user, keys):
             assert head[action]["minimum_wall"] <= 1, (action, head)
 
 
+@label_read_request
+def complete_count(store, ceiling):
+    guard = LabelGuard.for_filters(store, (), ceiling)
+    first = guard.readable_status_counts("memory")
+    assert guard.readable_status_counts("memory") == first
+    return first
+
+
 @pytest.mark.parametrize("case,repaired", [("mixed", False), ("mixed", True), ("many-hidden", False), ("many-hidden", True), ("one-hidden", False)])
 def test_sqlite_varied_read_budget(tmp_path, case, repaired):
     path = tmp_path / "round2.db"
@@ -86,4 +100,17 @@ def test_sqlite_varied_read_budget(tmp_path, case, repaired):
         keys = seed_varied(SQLiteVNextStore(conn, USER), repaired=repaired,
                            source_count=1 if case == "one-hidden" else 3000 if case == "many-hidden" else 300,
                            all_hidden=case != "mixed", mixed=case == "mixed")
+        store = SQLiteVNextStore(conn, USER)
+        for profile in keys:
+            ceiling = ALL_SENSITIVITY if profile == "admin_agent" else DEFAULT_AGENT_SENSITIVITY
+            expected = 5000 if profile == "admin_agent" else 2500 if case == "mixed" else 0
+            walls, cpus = [], []
+            for _ in range(3):
+                wall_start, cpu_start = time.perf_counter(), time.process_time()
+                assert complete_count(store, ceiling) == ({"active": expected} if expected else {})
+                walls.append(time.perf_counter() - wall_start)
+                cpus.append(time.process_time() - cpu_start)
+            print(json.dumps({"count_case": case, "repaired": repaired, "profile": profile,
+                              "minimum_wall": min(walls), "minimum_cpu": min(cpus), "admitted": expected}))
+            assert min(walls) <= 1 and min(cpus) <= 1
     assert_budgets("sqlite", "sqlite:///" + str(path), USER, keys)

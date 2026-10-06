@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+import pytest
 
 from alicebot_api.vnext_brain import _matches_report_scope
 from alicebot_api.vnext_derived_labels import input_admitted, locked_projects, stamp_derived_from
@@ -45,6 +46,21 @@ def test_a_locked_brief_scope_rejects_a_shared_row() -> None:
     ) is False
 
 
+@pytest.mark.parametrize("producer", ["brain", "connections", "contradictions"])
+def test_empty_projects_still_apply_the_locked_input_gate(producer):
+    from alicebot_api import vnext_connections, vnext_contradictions
+    row = {"id": "beta", "metadata_json": {"project_scope": [BETA]}, "captured_at": "2026-10-06T09:00:00Z"}
+    identity = {"project_scope_locked": True, "project_scope": [ALPHA]}
+    all_of = locked_projects(identity, ())
+    if producer == "brain":
+        start = datetime(2026, 10, 6, tzinfo=UTC)
+        assert not _matches_report_scope(row, kind="source", projects=(), all_of=all_of,
+                                         window_start=start, window_end=start + timedelta(days=1))
+    else:
+        module = vnext_connections if producer == "connections" else vnext_contradictions
+        assert not module._matches_projects(row, (), source_row=True, all_of=all_of)
+
+
 def test_stamp_derived_from_counts_match_the_lists() -> None:
     payload: dict[str, object] = {"metadata_json": {"workflow": "daily_brief"}}
     stamp_derived_from(
@@ -63,7 +79,6 @@ def test_stamp_derived_from_counts_match_the_lists() -> None:
     assert record["counts"]["memories"] == 1
 
 
-import pytest
 from uuid import UUID
 from alicebot_api.vnext_agent_control import AgentIdentity, AgentPolicyBlockedError
 from alicebot_api.routers._vnext_shared import _vnext_authorized_artifact
