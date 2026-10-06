@@ -38,6 +38,9 @@ def collect_label_rows(
             exceeded = True
             continue
         seen.add(stored_key)
+        # Tag and alias-raise only this walk's copy. Cached raw rows keep
+        # their tenant and stored label across origins in the same request.
+        row = dict(row)
         row["kind"] = kind
         if user_id is not None:
             row["user_id"] = user_id

@@ -1,9 +1,11 @@
 """Ordinary reviews share the label lock; label changes give a retryable refusal."""
 import time
+from argparse import Namespace
 
 import pytest
 
 from alicebot_api.cli.automation import _run_vnext_artifact_review
+from alicebot_api.cli.memories import _run_vnext_memory_redact
 from alicebot_api.cli.models import CLIContext
 from alicebot_api.config import Settings
 from alicebot_api.mcp.registry import call_mcp_tool
@@ -13,7 +15,7 @@ from alicebot_api.vnext_projects import ProjectAutomationRequest, VNextProjectSe
 from tests.integration.derived_labels_postgres_support import label_harness, today
 
 
-@pytest.mark.parametrize("entry", ["memory", "artifact", "mcp_memory", "mcp_artifact", "project_reject"])
+@pytest.mark.parametrize("entry", ["memory", "artifact", "mcp_memory", "mcp_artifact", "project_reject", "source", "http_redact", "mcp_redact", "cli_redact"])
 def test_non_label_review_succeeds_while_shared_label_lock_is_held(label_harness, entry):
     h = label_harness
     source = h.source()
@@ -34,6 +36,19 @@ def test_non_label_review_succeeds_while_shared_label_lock_is_held(label_harness
         if entry == "memory":
             result = h.request("POST", f"/v0/vnext/memories/{memory['id']}/review", payload={"action": "accept"})
             assert result[0] == 200, result
+        elif entry == "source":
+            result = h.request("POST", f"/v0/vnext/sources/{source['id']}/review", payload={"action": "review"})
+            assert result[0] == 200, result
+        elif entry == "http_redact":
+            result = h.request("POST", "/v0/vnext/memories/redact", payload={"memory_id": str(memory["id"]), "reason": "synthetic regression"})
+            assert result[0] == 200, result
+        elif entry == "mcp_redact":
+            result = call_mcp_tool(context, name="alice_memory_manage", arguments={"action": "redact", "memory_id": str(memory["id"]), "reason": "synthetic regression"})
+            assert result["status"] == "redacted", result
+        elif entry == "cli_redact":
+            result = _run_vnext_memory_redact(CLIContext(settings=Settings(database_url=h.urls["app"]), database_url=h.urls["app"], user_id=h.user_id),
+                                             Namespace(memory_id=str(memory["id"]), reason="synthetic regression", agent_id=None))
+            assert '"redacted"' in result, result
         elif entry == "mcp_memory":
             result = call_mcp_tool(context, name="alice_memory_correct", arguments={"review_item_id": str(memory["id"]), "action": "approve"})
         elif entry == "mcp_artifact":

@@ -179,13 +179,3 @@ def lock_label_fixture(store) -> None:
 
     store.lock_graph_mutation()
     acquire_exclusive_label_lock(store)
-
-
-def assert_append_only_mutation_refused(conn, *, snapshot_sql, mutation_sql, params) -> None:
-    """Prove refusal under both forced RLS and the append-only trigger."""
-    before = conn.execute(snapshot_sql, params).fetchall()
-    assert before, "the synthetic target must be visible before attempting its mutation"
-    with pytest.raises(psycopg.Error, match="append-only"):
-        with conn.transaction():
-            conn.execute(mutation_sql, params)
-    assert conn.execute(snapshot_sql, params).fetchall() == before

@@ -1505,8 +1505,20 @@ class VNextConnectorService:
         }
 
     def connector_health_all(self) -> JsonObject:
+        from copy import deepcopy
+        from alicebot_api.vnext_label_guard import request_row_cache
+
+        # Workspace, dogfooding and doctor render the same connector snapshot
+        # in one guarded request. Keep this raw census request-local, with the
+        # same store/write invalidation as label input rows.
+        cache = request_row_cache(self.store, "connector_health_all")
+        if cache is not None and "result" in cache:
+            return deepcopy(cache["result"])
         items = [self.connector_health(definition.name) for definition in list_connector_definitions()]
-        return {"items": items, "count": len(items), "order": [str(item["connector_name"]) for item in items]}
+        result: JsonObject = {"items": items, "count": len(items), "order": [str(item["connector_name"]) for item in items]}
+        if cache is not None:
+            cache["result"] = deepcopy(result)
+        return result
 
     def set_connector_secret(self, connector_name: str, *, secret_ref: str, secret_value: str) -> JsonObject:
         definition = get_connector_definition(connector_name)

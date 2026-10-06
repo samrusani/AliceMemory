@@ -55,16 +55,18 @@ def test_reverse_lookup_limit_order_and_canonical_source_id(tmp_path):
         store = SQLiteVNextStore(conn, USER_ID)
         old = _create_loop(store, "old", metadata={"source_id": sid})
         new = _create_loop(store, "new", metadata={"source_id": sid})
-        conn.execute("UPDATE open_loops SET opened_at='2020-01-01T00:00:00Z', created_at='2020-01-01T00:00:00Z' WHERE id=?", (old,))
-        conn.execute("UPDATE open_loops SET opened_at='2021-01-01T00:00:00Z', created_at='2021-01-01T00:00:00Z' WHERE id=?", (new,))
-        assert [row["id"] for row in store.list_open_loops_referencing_source(source_id=UUID(sid).hex.upper(), limit=1)] == [new]
+        conn.execute("UPDATE open_loops SET opened_at='2020-01-01T00:00:00Z', created_at='2020-01-01T00:00:00Z', updated_at='2022-01-01T00:00:00Z' WHERE id=?", (old,))
+        conn.execute("UPDATE open_loops SET opened_at='2021-01-01T00:00:00Z', created_at='2021-01-01T00:00:00Z', updated_at='2021-01-01T00:00:00Z' WHERE id=?", (new,))
+        assert [row["id"] for row in store.list_open_loops_referencing_source(source_id=UUID(sid).hex.upper(), limit=1)] == [old]
         with pytest.raises(ValueError):
             store.list_open_loops_referencing_source(source_id=sid, limit=0)
 
 
 def test_plain_import_does_not_scan_loops(tmp_path, monkeypatch):
     db = _vault(tmp_path)
+    folder = _folder(tmp_path, note="Synthetic source.")
+    assert run_import(db, folder).imported_count == 1
     def refuse(_store):
         raise AssertionError("plain import scanned open loops")
     monkeypatch.setattr(source_retirement, "_user_open_loops", refuse)
-    assert run_import(db, _folder(tmp_path, note="Synthetic source.")).imported_count == 1
+    assert run_import(db, folder).imported_count == 0

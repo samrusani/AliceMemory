@@ -25,6 +25,9 @@ from alicebot_api.vnext_derived_labels import (
     NODE_BOUND,
     canon_kind,
     dependencies_of,
+    dependency_label_signature,
+    dependency_syntax_key,
+    label_metadata_cache,
     identifier,
     is_derived,
     input_admitted,
@@ -39,8 +42,8 @@ _Row = TypeVar("_Row", bound=Mapping[str, object])
 
 
 def _row_label_key(kind: str, row: Mapping[str, object]) -> tuple:
-    return (kind, *(repr(row.get(field)) for field in (
-        "id", "user_id", "domain", "sensitivity", "metadata_json", "value", "project_id", "source_id", "artifact_type", "project_scope", "project_floor",
+    return (kind, *((field in row, repr(row.get(field))) for field in (
+        "id", "user_id", "domain", "sensitivity", "metadata_json", "value", "project_id", "project", "projects", "scope_json", "source_id", "artifact_type", "project_scope", "project_floor",
     )))
 
 
@@ -50,20 +53,30 @@ class _RequestLabels:
     labels: dict = field(default_factory=dict)
     targets: dict = field(default_factory=dict)
     counts: dict = field(default_factory=dict)
-    source_copies: dict = field(default_factory=dict)
+    dependency_labels: dict = field(default_factory=dict)
+    dependency_ancestry: dict = field(default_factory=dict)
+    signatures: dict = field(default_factory=dict)
+    parsed_signatures: dict = field(default_factory=dict)
     row_sets: dict = field(default_factory=dict)
     dependencies: dict = field(default_factory=dict)
     source_admission: dict = field(default_factory=dict)
+    normalized_metadata: dict = field(default_factory=dict)
+    row_keys: dict = field(default_factory=dict)
 
     def clear(self):
         self.nodes.clear()
         self.labels.clear()
         self.targets.clear()
         self.counts.clear()
-        self.source_copies.clear()
+        self.dependency_labels.clear()
+        self.dependency_ancestry.clear()
+        self.signatures.clear()
+        self.parsed_signatures.clear()
         self.row_sets.clear()
         self.dependencies.clear()
         self.source_admission.clear()
+        self.normalized_metadata.clear()
+        self.row_keys.clear()
 
 
 _REQUEST_LABELS: ContextVar[tuple[Any, _RequestLabels] | None] = ContextVar("request_labels", default=None)
@@ -89,9 +102,11 @@ def label_read_scope(store):
     if current is not None and current[0] is store:
         yield
         return
-    token = _REQUEST_LABELS.set((store, _RequestLabels()))
+    state = _RequestLabels()
+    token = _REQUEST_LABELS.set((store, state))
     try:
-        yield
+        with label_metadata_cache(state.normalized_metadata):
+            yield
     finally:
         _REQUEST_LABELS.reset(token)
 
@@ -189,25 +204,34 @@ class LabelGuard:
         state = self._state()
         # Distinct projections and stored aliases are settled separately.
         # Only labels, never caller admission, are shared in this request.
-        key = _row_label_key(kind, row)
+        key = self._key(kind, row)
         label = state.labels.get(key)
-        template = (key[0], *key[2:])
-        if label is None:
-            label = state.source_copies.get(template)
+        template = self._signature(kind, row, key=key)
+        root = (canon_kind(kind), identifier(row.get("id")))
+        if label is None and root not in state.dependency_ancestry.get(template, ()):
+            label = state.dependency_labels.get(template)
         if label is None:
             nodes = self._collected(kind, row)
             settled = settle_labels(nodes, on_cycle="unverified", max_hops=HOP_BOUND, max_nodes=NODE_BOUND)
             label = settled.by_stored(kind, str(row.get("id") or ""), user_id=_GUARD_USER)
-            # Copies of the same original sources have identical effective
-            # labels. No derived parent, alias, missing parent or root cycle
-            # is allowed in this shortcut; those retain an independent walk.
-            refs = dependencies_of(kind, row)
-            if refs and all(
-                ref_kind == "source" and len(state.nodes.get((ref_kind, ref_id), [])) == 1
-                and not is_derived(ref_kind, state.nodes[(ref_kind, ref_id)][0])
-                for ref_kind, ref_id in refs
-            ):
-                state.source_copies[template] = label
+            ancestry = frozenset(
+                [*(ref for node in nodes for ref in dependencies_of(str(node["kind"]), node)),
+                 *((str(node["kind"]), identifier(node.get("id"))) for node in nodes[1:]),
+                 *(("memory", identifier(node["memory_id"])) for node in nodes
+                   if node.get("kind") == "belief" and node.get("memory_id"))]
+            )
+            implicit_parent = False
+            for node in nodes:
+                metadata = node.get("metadata_json")
+                if node.get("kind") == "artifact" and isinstance(metadata, Mapping) and metadata.get("candidate_memory_ids"):
+                    implicit_parent = True
+                    break
+            # Complete verified ancestry has already passed the per-root hop,
+            # node, alias and missing-parent checks. Only another root outside
+            # that ancestry can reuse this same dependency signature.
+            if not label.unverified and root not in ancestry and not implicit_parent:
+                state.dependency_labels[template] = label
+                state.dependency_ancestry[template] = ancestry
         state.labels[key] = label
         copy = dict(row)
         raw_metadata = copy.get("metadata_json")
@@ -244,13 +268,9 @@ class LabelGuard:
         for row in rows:
             if isinstance(row, Mapping):
                 state.targets[(kind, str(row.get("id")))] = row
-                dependency_key = (kind, *(repr(row.get(field)) for field in (
-                    "metadata_json", "value", "source_id", "source_artifact_id", "artifact_id", "memory_id", "artifact_type",
-                )))
-                refs = state.dependencies.get(dependency_key)
-                if refs is None:
-                    refs = dependencies_of(kind, row)
-                    state.dependencies[dependency_key] = refs
+                if not is_derived(kind, row):
+                    continue
+                refs = self._signature(kind, row, key=self._key(kind, row))[1]
                 for ref_kind, ref_id in refs:
                     if (ref_kind, ref_id) not in state.nodes:
                         wanted.setdefault(ref_kind, set()).add(ref_id)
@@ -266,16 +286,22 @@ class LabelGuard:
         for row in rows:
             if not isinstance(row, Mapping):
                 continue
-            key = _row_label_key(kind, row)
-            template = (key[0], *key[2:])
+            if not is_derived(kind, row):
+                if self._admits_effective(row, kind=kind):
+                    kept.append(row)
+                continue
+            key = self._key(kind, row)
+            template = self._signature(kind, row, key=key)
             admission_key = (template, self.domains, self.sensitivity_allowed, self.projects, self.all_of)
-            if template in state.source_copies and admission_key in state.source_admission:
+            root = (canon_kind(kind), identifier(row.get("id")))
+            reusable = template in state.dependency_labels and root not in state.dependency_ancestry.get(template, ())
+            if reusable and admission_key in state.source_admission:
                 if state.source_admission[admission_key]:
                     kept.append(row)
                 continue
             effective = self.effective_row(kind, row)
             admitted = isinstance(effective, Mapping) and self._admits_effective(effective, kind=kind)
-            if template in state.source_copies:
+            if reusable:
                 state.source_admission[admission_key] = admitted
             if admitted:
                 kept.append(row)
@@ -296,8 +322,14 @@ class LabelGuard:
         key = (kind, self.domains, self.sensitivity_allowed, self.projects, self.all_of)
         if key in state.counts:
             return dict(state.counts[key])
-        counts: dict[str, int] = {}
-        for batch in iterator(kind):
+        plain_counter = getattr(self.store, "count_original_label_statuses", None)
+        if callable(getattr(type(self.store), "count_original_label_statuses", None)) and callable(plain_counter) and not self.projects and self.all_of is None:
+            counts = plain_counter(kind, domains=self.domains, sensitivity_allowed=self.sensitivity_allowed)
+            batches = iterator(kind, derived_only=True)
+        else:
+            counts = {}
+            batches = iterator(kind)
+        for batch in batches:
             for row in self.admit_rows(kind, batch):
                 status = str(row.get("status", "unknown"))
                 counts[status] = counts.get(status, 0) + 1
@@ -396,6 +428,25 @@ class LabelGuard:
             max_nodes=NODE_BOUND, max_hops=HOP_BOUND, cache=self._nodes, user_id=_GUARD_USER,
         )
         return nodes
+
+    def _key(self, kind: str, row: Mapping[str, object]) -> tuple:
+        current = _REQUEST_LABELS.get()
+        if current is None or current[0] is not self.store:
+            return _row_label_key(kind, row)
+        keys = current[1].row_keys
+        raw_key = (kind, id(row))
+        if raw_key not in keys or keys[raw_key][0] is not row:
+            keys[raw_key] = (row, _row_label_key(kind, row))
+        return keys[raw_key][1]
+
+    def _signature(self, kind: str, row: Mapping[str, object], *, key: tuple) -> tuple:
+        state = self._state()
+        if key not in state.signatures:
+            syntax = dependency_syntax_key(kind, row)
+            if syntax not in state.parsed_signatures:
+                state.parsed_signatures[syntax] = dependency_label_signature(kind, row)
+            state.signatures[key] = state.parsed_signatures[syntax]
+        return state.signatures[key]
 
 
 def admit_loaded(

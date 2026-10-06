@@ -13,6 +13,8 @@ from __future__ import annotations
 import json
 from collections import deque
 from collections.abc import Iterable, Mapping, Sequence
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, replace
 from uuid import UUID
 from typing import Any, TypeVar, overload
@@ -210,12 +212,39 @@ def _object(value: object) -> Mapping[str, object]:
     return value if isinstance(value, Mapping) else {}
 
 
+_READ_METADATA: ContextVar[dict | None] = ContextVar("label_read_metadata", default=None)
+
+
+@contextmanager
+def label_metadata_cache(cache: dict):
+    """Reuse pure decoding only inside a guarded store snapshot.
+
+    The caller owns invalidation on label writes and rollback. Strong raw
+    references prevent object-id reuse; exiting the request drops every entry.
+    """
+    token = _READ_METADATA.set(cache)
+    try:
+        yield
+    finally:
+        _READ_METADATA.reset(token)
+
+
 def _metadata(row: Mapping[str, object]) -> Mapping[str, object]:
-    return _object(_uuid_strings(_object(row.get("metadata_json"))))
+    raw = row.get("metadata_json")
+    cache = _READ_METADATA.get()
+    cached = cache.get(id(raw)) if cache is not None else None
+    if cached is not None and cached[0] is raw:
+        return cached[1]
+    normalized = _object(_uuid_strings(_object(raw)))
+    if cache is not None:
+        cache[id(raw)] = (raw, normalized)
+    return normalized
 
 
 def _uuid_strings(value: object) -> object:
     """Database UUID objects and JSON strings name the same recorded input."""
+    if value is None or type(value) in (str, int, float, bool):
+        return value
     if isinstance(value, UUID):
         return str(value)
     if isinstance(value, Mapping):
@@ -866,6 +895,57 @@ def _node_label(kind: str, row: Mapping[str, object]) -> SettledLabel:
         derived=is_derived(kind, row),
         row_class=row_class(kind, row),
     )
+
+
+def dependency_syntax_key(kind: str, row: Mapping[str, object]) -> tuple:
+    """Memoize parsing without allowing incidental scalar metadata to split it.
+
+    Keep every marker, reference, count, scope alias and value dependency. Walk
+    unknown containers as the dependency parser does; their scalar text cannot
+    name an input. This is only a parsing key, never a settled label or grant.
+    """
+    relevant = MARKER_KEYS | _ID_KIND.keys() | {
+        "redacted", "scrubbed", "project_scope", "project_floor", "project_id", "project", "projects",
+        "scope_json", "metadata_json", "agent_identity", "agentic_memory", "consolidation",
+    }
+
+    def metadata_key(value: object) -> tuple:
+        if isinstance(value, Mapping):
+            parts: list[tuple[str, object]] = []
+            for key, child in value.items():
+                if not isinstance(key, str):
+                    continue
+                if key in relevant:
+                    parts.append((key, repr(child)))
+                elif isinstance(child, (Mapping, list)):
+                    nested = metadata_key(child)
+                    if nested:
+                        parts.append((key, nested))
+            return tuple(sorted(parts))
+        if isinstance(value, list):
+            return tuple(nested for child in value if isinstance(child, (Mapping, list))
+                         and (nested := metadata_key(child)))
+        return ()
+
+    fields = ("user_id", "domain", "sensitivity", "value", "project_id", "project", "projects", "scope_json",
+              "source_id", "artifact_type", "project_scope", "project_floor")
+    return (canon_kind(kind), isinstance(row.get("metadata_json"), Mapping), metadata_key(_metadata(row)),
+            *((field in row, repr(row.get(field))) for field in fields))
+
+
+def dependency_label_signature(kind: str, row: Mapping[str, object]) -> tuple:
+    """Fields that determine a root label, excluding identity and incidental text.
+
+    A caller may share a verified settlement only when the root is outside its
+    cached ancestry and no implicit per-candidate parent rule is involved.
+    Structural errors are part of the signature, never normalized into validity.
+    """
+    name = canon_kind(kind)
+    deps, problem = dependency_record(name, row)
+    label = _node_label(name, row)
+    return (name, deps, problem, label.row_class, label.stored_domain,
+            label.stored_sensitivity, label.stored_scope, label.stored_floor,
+            label.carries_scope, str(row.get("user_id") or ""))
 
 
 def _copy_scope(stored: tuple[str, ...], parents: Sequence[SettledLabel]) -> tuple[str, ...]:

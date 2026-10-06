@@ -535,7 +535,21 @@ class PostgresVNextStore:
             (wanted,),
         )
 
-    def iter_label_rows(self, kind: str, *, batch_size: int = 200) -> Iterator[list[VNextRow]]:
+    def count_original_label_statuses(self, kind: str, *, domains=(), sensitivity_allowed=()) -> dict[str, int]:
+        """Count the definitely-original, unscoped partition using stored labels."""
+        from alicebot_api.vnext_label_sql import original_label_sql
+        table = {"source": "sources", "memory": "memories", "open_loop": "open_loops", "artifact": "generated_artifacts", "project": "projects"}[kind]
+        status = "status" if kind != "source" else "'unknown'"
+        predicate = original_label_sql(kind, sqlite=False)
+        live = " AND deleted_at IS NULL" if kind in {"source", "memory"} else ""
+        rows = self._fetch_all(f"SELECT {status} AS status, COUNT(*) AS count FROM {table} WHERE {predicate}{live} "
+            "AND (%s::text[] IS NULL OR domain=ANY(%s::text[]) OR domain='unknown') "
+            "AND (%s::text[] IS NULL OR sensitivity=ANY(%s::text[])) "
+            "GROUP BY 1", (list(domains) or None, list(domains) or None,
+                                  list(sensitivity_allowed) or None, list(sensitivity_allowed) or None))
+        return {str(row["status"]): int(cast(int, row["count"])) for row in rows}
+
+    def iter_label_rows(self, kind: str, *, batch_size: int = 1000, derived_only: bool = False) -> Iterator[list[VNextRow]]:
         """Complete counted population, in narrow keyset batches under tenant RLS."""
 
         if batch_size < 1:
@@ -554,6 +568,9 @@ class PostgresVNextStore:
         elif kind == "project":
             extra = ", status"
         live = " AND deleted_at IS NULL" if kind in {"source", "memory"} else ""
+        from alicebot_api.vnext_label_sql import original_label_sql
+        if derived_only:
+            live += " AND NOT COALESCE(" + original_label_sql(kind, sqlite=False) + ", FALSE)"
         after: str | None = None
         while True:
             rows = self._fetch_all(
@@ -568,7 +585,7 @@ class PostgresVNextStore:
             yield rows
             after = str(rows[-1]["id"])
 
-    def iter_label_events(self, *, batch_size: int = 200) -> Iterator[list[VNextRow]]:
+    def iter_label_events(self, *, batch_size: int = 1000) -> Iterator[list[VNextRow]]:
         """Complete event targets for readable counts, without event payloads."""
 
         if batch_size < 1:
@@ -585,7 +602,7 @@ class PostgresVNextStore:
             yield rows
             after = str(rows[-1]["id"])
 
-    def iter_label_ratings(self, *, batch_size: int = 200) -> Iterator[list[VNextRow]]:
+    def iter_label_ratings(self, *, batch_size: int = 1000) -> Iterator[list[VNextRow]]:
         """Complete rating targets for counts, without feedback text."""
 
         if batch_size < 1:
@@ -791,7 +808,10 @@ class PostgresVNextStore:
                   NOT (m.sensitivity = ANY(%s::text[]))
                   AND NOT EXISTS (
                     SELECT 1 FROM sources parent
-                    WHERE parent.id::text = m.metadata_json->>'source_id'
+                    WHERE parent.id = CASE
+                      WHEN m.metadata_json->>'source_id' ~* '^(?:[0-9a-f]{{32}}|[0-9a-f]{{8}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-[0-9a-f]{{12}})$'
+                      THEN (m.metadata_json->>'source_id')::uuid
+                    END
                       AND m.metadata_json->>'redacted' IS DISTINCT FROM 'true'
                       AND parent.sensitivity = ANY(%s::text[])
                   )

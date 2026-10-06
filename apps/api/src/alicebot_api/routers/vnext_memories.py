@@ -764,11 +764,23 @@ def run_vnext_doctor(request: VNextDoctorRunRequest) -> JSONResponse:
 
 
 @source_review_router.get("/v0/vnext/sources/{source_id}")
-def get_vnext_source(source_id: UUID, user_id: UUID) -> JSONResponse:
+def get_vnext_source(source_id: UUID, user_id: UUID, authorization: str | None = Header(default=None)) -> JSONResponse:
+    from alicebot_api.vnext_label_guard import effective_row_for_fence
+    from alicebot_api.vnext_source_fence import SourceReadFence
     settings = get_settings()
-
-    with user_connection(settings.database_url, user_id) as conn:
-        payload = PostgresVNextStore(conn).get_source(str(source_id))
+    try:
+        with user_connection(settings.database_url, user_id) as conn:
+            store = PostgresVNextStore(conn)
+            identity = resolve_protected_agent_identity(
+                store, user_id=user_id,
+                raw_key=agent_key_from_authorization(authorization if isinstance(authorization, str) else None), payload={})
+            payload = store.get_source(str(source_id))
+            if payload is not None and not SourceReadFence.for_identity(identity).admits(
+                effective_row_for_fence(store, identity, "source", payload)
+            ):
+                payload = None
+    except AgentKeyAuthenticationError as exc:
+        return _vnext_agent_auth_error_response(exc)
 
     if payload is None:
         return JSONResponse(status_code=404, content={"detail": f"vNext source {source_id} was not found"})

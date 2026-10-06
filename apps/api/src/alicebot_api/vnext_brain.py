@@ -728,6 +728,7 @@ class VNextBrainService:
             sources,
             memories,
             open_loops,
+            artifacts,
             workflow_digest=workflow_digest,
         )
         all_rows = [*sources, *memories, *open_loops, *artifacts]
@@ -1083,6 +1084,7 @@ class VNextBrainService:
         sources: list[JsonObject],
         memories: list[JsonObject],
         open_loops: list[JsonObject],
+        artifacts: list[JsonObject],
         *,
         workflow_digest: str,
     ) -> list[JsonObject]:
@@ -1105,12 +1107,12 @@ class VNextBrainService:
             "confidence": 0.6,
             "canonical_text": insight,
             "summary": insight,
-            "domain": _artifact_domain(request, [*sources, *memories, *open_loops]),
-            "sensitivity": _highest_sensitivity([*sources, *memories, *open_loops]),
+            "domain": _artifact_domain(request, [*sources, *memories, *open_loops, *artifacts]),
+            "sensitivity": _highest_sensitivity([*sources, *memories, *open_loops, *artifacts]),
             "metadata_json": {
                 "candidate": True,
                 "discovered_by": "vnext_weekly_synthesis",
-                "input_summary": _input_summary(sources=sources, memories=memories, open_loops=open_loops, artifacts=[]),
+                "input_summary": _input_summary(sources=sources, memories=memories, open_loops=open_loops, artifacts=artifacts),
                 "generated_by": request.generated_by,
                 "agent_identity": request.agent_identity,
                 "scheduler_run_id": request.run_id if request.generated_by == "scheduler" else None,
@@ -1121,7 +1123,7 @@ class VNextBrainService:
         }
         memory_payload["metadata_json"] = with_derived_from(
             cast(dict, memory_payload["metadata_json"]),
-            {"sources": sources, "memories": memories, "open_loops": open_loops},
+            {"sources": sources, "memories": memories, "open_loops": open_loops, "artifacts": artifacts},
         )
         upsert_memory = getattr(self.store, "upsert_memory_by_key", None)
         if callable(upsert_memory):

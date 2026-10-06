@@ -29,7 +29,9 @@ nothing is: a reference to a source that is protected, deleted, missing or not a
   git sha or a 64-digit digest is never cut into an id, and neither is the id of a row the reader may read when hex
   digits follow it after a hyphen (``<id>-20261003``). A string that is only an id is read as the link writer reads it
   (``UUID()``, which also ignores hyphens in other places). Inside longer text only ASCII hex digits in those two
-  layouts are read, and an id with its hyphens in other places, split or otherwise encoded is not an id to this scan.
+  layouts are read by that scan. A second, source-only pass uses the canonical saved-quote parser and withholds
+  strings naming refused sources in its wider spellings, including JSON escapes. Irregular or non-ASCII memory-prefixed
+  ids in longer text and whitespace-based source URI spellings can remain; see the draft security note.
   The hyphenated layout is read with no boundary, so hex digits glued to an id in that layout can form a second window
   that names no row: a hyphen and groups of 4, 4, 4 and 12 digits right after an id, or groups of 8, 4, 4 and 4 digits
   and a hyphen right before a 32-digit id. Under a reference key that window is cut, and with it part of an id the

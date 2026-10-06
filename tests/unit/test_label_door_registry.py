@@ -55,6 +55,8 @@ GUARD_CALLS = {
 
 # function -> helper that holds the guard call, or None when the function calls it
 DOORS = {
+    "routers/vnext_memories.py:get_vnext_source": None,
+    "mcp/evidence_artifacts.py:_handle_alice_vnext_review_items": None,
     "routers/_vnext_shared.py:_vnext_authorized_artifact": None,
     "vnext_source_fence.py:resolve_attachable_memory_id": None,
     "vnext_open_loop_references.py:withhold_unreadable_references": None,
@@ -121,7 +123,6 @@ DOORS = {
 NOT_A_DOOR = {
     "vnext_artifact_review.py:lock_artifact_review_labels": "write lock classification only; the adapter authorizes before the dispatcher mutates",
     "routers/vnext_memories.py:regenerate_vnext_source": "operator-only regeneration rejects every profile except owner and unbound admin before the source lookup; real-profile rejection tests pin this gate",
-    "mcp/evidence_artifacts.py:_handle_alice_vnext_review_items": "legacy review list has no policy check",
     "vnext_projects.py:VNextProjectService.review_project_update": "write path; the route authorizes before this mutation",
     "vnext_projects.py:VNextProjectService.review_open_loop": "write path; the route and the open-loop tool settle the loop first",
     "vnext_memory_commit.py:VNextMemoryCommitService.confirm": "write path; _write_policy_decision settles the row",
@@ -143,7 +144,6 @@ NOT_A_DOOR = {
     "vnext_queue.py:VNextQueueService._promote_artifact": "the HTTP review route authorizes through _vnext_authorized_artifact first",
     "vnext_queue.py:VNextQueueService.export_artifact_markdown": "the HTTP export route authorizes through _vnext_authorized_artifact first",
     "mcp/evidence_artifacts.py:_authorize_memory_audit_provenance": "original source pointers use SourceReadFence.admits before disclosure",
-    "routers/vnext_memories.py:get_vnext_source": "original source operator route; existing domain and project exemptions are preserved",
     "routers/vnext_memories.py:get_vnext_connector_status": "operator connector telemetry; original-source labels retain existing behavior",
     "routers/vnext_memories.py:review_vnext_source": "write path over an original source; existing exact policy applies",
     "routers/vnext_memories.py:delete_vnext_source": "owner mutation of an original source",

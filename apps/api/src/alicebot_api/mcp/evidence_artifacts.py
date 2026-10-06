@@ -734,12 +734,27 @@ def _handle_alice_vnext_memory_audit(context: MCPRuntimeContext, arguments: Mapp
 
 
 def _handle_alice_vnext_review_items(context: MCPRuntimeContext, arguments: Mapping[str, object]) -> JsonObject:
+    from alicebot_api.vnext_label_guard import LabelGuard, label_read_scope
+    identity = _agent_identity_from_arguments(context, arguments)
+    fence = SourceReadFence.for_identity(identity)
+    limit = _parse_int(arguments, key="limit", default=20, minimum=1, maximum=100)
     with _vnext_store_context(context) as store:
-        items = [
-            row
-            for row in store.list_memories(status=None)
-            if str(row.get("status")) in {"candidate", "needs_review", "private_only"}
-        ][: _parse_int(arguments, key="limit", default=20, minimum=1, maximum=100)]
+        lock = getattr(store, "lock_label_writes", None)
+        if callable(lock):
+            lock()
+        with label_read_scope(store):
+            guard = LabelGuard.for_fence(store, fence)
+            items = []
+            prefix = max(50, limit)
+            while True:
+                rows = store.list_memories(status=None, limit=prefix)
+                items = [row for row in rows
+                         if str(row.get("status")) in {"candidate", "needs_review", "private_only"}
+                         and isinstance(effective := guard.effective_row("memory", row), Mapping)
+                         and fence.admits_memory(effective)][:limit]
+                if len(items) >= limit or len(rows) < prefix:
+                    break
+                prefix *= 2
     return _json_object({"items": items, "count": len(items)})
 
 

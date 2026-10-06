@@ -390,6 +390,30 @@ def sqlite_user_connection(path: str | Path, user_id: UUID | str, *, repair_labe
         conn.close()
 
 
+def _direct_source_hint(raw: object) -> str | None:
+    """A direct parent for a conservative prefilter, never an admission grant.
+
+    Decode like the store and kernel, including JSON strings and duplicate or
+    escaped keys. Aliases the exact SQLite index cannot find fall through to
+    the complete read-time guard.
+    """
+    try:
+        metadata = json.loads(raw) if isinstance(raw, str) else raw
+        if isinstance(metadata, str):
+            metadata = json.loads(metadata)
+    except (ValueError, TypeError):
+        return None
+    if not isinstance(metadata, Mapping) or metadata.get("redacted") is True:
+        return None
+    source_id = metadata.get("source_id")
+    if not isinstance(source_id, str) or not source_id.strip():
+        return None
+    try:
+        return str(UUID(source_id))
+    except (ValueError, TypeError):
+        return source_id
+
+
 class SQLiteVNextStore:
     """SQLite-backed vNext repository facade for the second-brain kernel."""
 
@@ -403,6 +427,7 @@ class SQLiteVNextStore:
         self.user_id = str(user_id)
         _ensure_embedding_content_sha256_sqlite(self.conn)
         _ensure_project_scope_identity_sqlite(self.conn)
+        self.conn.create_function("alice_direct_source_hint", 1, _direct_source_hint, deterministic=True)
 
     def lock_label_writes(self, *, exclusive: bool = False) -> None:
         """The SQLite writer lock is the label lock. Begin it when none is open."""
@@ -446,7 +471,25 @@ class SQLiteVNextStore:
             (self.user_id, *wanted, *canonical),
         )
 
-    def iter_label_rows(self, kind: str, *, batch_size: int = 200) -> Iterator[list[VNextRow]]:
+    def count_original_label_statuses(self, kind: str, *, domains=(), sensitivity_allowed=()) -> dict[str, int]:
+        """Count the definitely-original, unscoped partition using stored labels."""
+        from alicebot_api.vnext_label_sql import original_label_sql
+        table = {"source": "sources", "memory": "memories", "open_loop": "open_loops"}[kind]
+        status = "status" if kind != "source" else "'unknown'"
+        predicate = original_label_sql(kind, sqlite=True)
+        live = " AND deleted_at IS NULL" if kind in {"source", "memory"} else ""
+        params = [self.user_id]
+        where = "user_id=? AND " + predicate + live
+        if domains:
+            where += " AND (domain IN (" + ",".join("?" for _ in domains) + ") OR domain='unknown')"
+            params.extend(domains)
+        if sensitivity_allowed:
+            where += " AND sensitivity IN (" + ",".join("?" for _ in sensitivity_allowed) + ")"
+            params.extend(sensitivity_allowed)
+        rows = self._fetch_all(f"SELECT {status} AS status, COUNT(*) AS count FROM {table} WHERE {where} GROUP BY {status}", tuple(params))
+        return {str(row["status"]): int(cast(int, row["count"])) for row in rows}
+
+    def iter_label_rows(self, kind: str, *, batch_size: int = 500, derived_only: bool = False) -> Iterator[list[VNextRow]]:
         """Complete counted population, in narrow tenant-bound keyset batches."""
 
         if batch_size < 1:
@@ -460,6 +503,9 @@ class SQLiteVNextStore:
         elif kind == "open_loop":
             extra = ", status, project_id, source_id, memory_id"
         live = " AND deleted_at IS NULL" if kind in {"source", "memory"} else ""
+        from alicebot_api.vnext_label_sql import original_label_sql
+        if derived_only:
+            live += " AND NOT COALESCE(" + original_label_sql(kind, sqlite=True) + ", FALSE)"
         after = ""
         while True:
             rows = self._fetch_all(
@@ -693,6 +739,7 @@ class SQLiteVNextStore:
         scope_person_memory_ids: tuple[str, ...] = (),
         scope_window_start: datetime | None = None,
         scope_window_end: datetime | None = None,
+        sensitivity_allowed: Sequence[str] | None = None,
         limit: int = 20,
     ) -> list[VNextRow]:
         """Memory events whose target row matches scope before LIMIT."""
@@ -706,6 +753,17 @@ class SQLiteVNextStore:
         if event_type_prefix is not None:
             prefix_sql = " AND e.event_type LIKE ?"
             params.append(f"{event_type_prefix}%")
+        from alicebot_api.vnext_derived_labels import SENSITIVITY_RANK
+        ceiling = max((SENSITIVITY_RANK.get(value, 0) for value in sensitivity_allowed or ()), default=0)
+        blocked = [value for value, rank in SENSITIVITY_RANK.items() if rank > ceiling] if sensitivity_allowed else []
+        label_sql = ""
+        if blocked:
+            marks = self._placeholders(blocked)
+            label_sql = f""" AND m.sensitivity NOT IN ({marks}) AND NOT EXISTS (
+                SELECT 1 FROM sources parent WHERE parent.user_id=m.user_id
+                AND parent.id=alice_direct_source_hint(m.metadata_json)
+                AND parent.sensitivity IN ({marks}))"""
+            params.extend((*blocked, *blocked))
         params.extend(project_params)
         people_sql = ""
         if people or person_ids:
@@ -746,6 +804,7 @@ class SQLiteVNextStore:
                 WHERE e.user_id = ?
                   AND m.deleted_at IS NULL
                   {prefix_sql}
+                  {label_sql}
                   {project_sql}
                   {people_sql}
                   {window_sql}

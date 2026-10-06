@@ -2304,6 +2304,12 @@ jobs:
           --health-retries 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Paired read-budget baseline (main at the round-two handoff)
+        if: matrix.integration_check == 'Integration tests (Postgres + pgvector, role separation)'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: 48873b038013f4cf548099fcc4610a150972eedd
+          path: .read-budget-baseline
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
@@ -2329,12 +2335,19 @@ jobs:
         env:
           DATABASE_URL: postgresql://alicebot_app:ci@localhost:5432/alicebot
           DATABASE_ADMIN_URL: postgresql://alicebot_admin:ci@localhost:5432/alicebot
+          ALICE_READ_MAIN_CHECKOUT: ${{ github.workspace }}/.read-budget-baseline
         # --timeout=180 names one test that runs that long. The cancelled
         # jobs were slow database setup, not a gap near 180s, so that flag
         # would not have fired. --session-timeout=1500 is checked between
         # tests, stops the run, and prints --durations before the 30 minute
         # job cancel.
         run: ALICE_LEGACY_SURFACES=1 ./.venv/bin/python -m pytest tests/integration -q -p no:cacheprovider --durations=20 --timeout=180 --session-timeout=1500
+
+      - name: SQLite varied-parent read budgets against the same baseline
+        if: matrix.integration_check == 'Integration tests (Postgres + pgvector, role separation)'
+        env:
+          ALICE_READ_MAIN_CHECKOUT: ${{ github.workspace }}/.read-budget-baseline
+        run: ./.venv/bin/python -m pytest tests/performance/test_label_round2_read_budget.py -q --timeout=180 --session-timeout=240
 
       - name: Default-surface core round-trip
         if: matrix.integration_check == 'Default surface integration smoke (Postgres)'
