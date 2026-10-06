@@ -3647,7 +3647,7 @@ def _seed_pending_project_update_mcp_candidate(
     classifier: str,
 ) -> tuple[str, str]:
     artifact = mcp_tools_module.VNextProjectService(store).generate_project_update_candidate(
-        mcp_tools_module.ProjectAutomationRequest(project_id="project-1", domains=("project",))
+        mcp_tools_module.ProjectAutomationRequest(agent_identity=None, project_id="project-1", domains=("project",))
     )
     artifact_id = str(artifact["id"])
     artifact_metadata = artifact["metadata_json"]
@@ -3929,7 +3929,7 @@ def test_vnext_artifact_review_locks_and_authorizes_persisted_scope(monkeypatch,
 def test_generic_mcp_artifact_review_preserves_applied_project_update_state(monkeypatch, legacy_tools_enabled) -> None:
     store = FakeVNextMCPStore()
     artifact = mcp_tools_module.VNextProjectService(store).generate_project_update_candidate(
-        mcp_tools_module.ProjectAutomationRequest(project_id="project-1", domains=("project",))
+        mcp_tools_module.ProjectAutomationRequest(agent_identity=None, project_id="project-1", domains=("project",))
     )
     artifact_id = str(artifact["id"])
     metadata = artifact["metadata_json"]
@@ -3997,7 +3997,7 @@ def _apply_supported_mcp_memory_lifecycle(
 def _accept_later_mcp_project_update(store: FakeVNextMCPStore, *, first_artifact_id: str) -> None:
     service = mcp_tools_module.VNextProjectService(store)
     later = service.generate_project_update_candidate(
-        mcp_tools_module.ProjectAutomationRequest(project_id="project-1", domains=("project",))
+        mcp_tools_module.ProjectAutomationRequest(agent_identity=None, project_id="project-1", domains=("project",))
     )
     assert later["id"] != first_artifact_id
     service.review_project_update(
@@ -4114,7 +4114,7 @@ def test_mcp_project_update_review_rejects_forced_terminal_status_without_mutati
 ) -> None:
     store = FakeVNextMCPStore()
     artifact = mcp_tools_module.VNextProjectService(store).generate_project_update_candidate(
-        mcp_tools_module.ProjectAutomationRequest(project_id="project-1", domains=("project",))
+        mcp_tools_module.ProjectAutomationRequest(agent_identity=None, project_id="project-1", domains=("project",))
     )
     artifact["status"] = forced_status
     artifact_id = str(artifact["id"])
@@ -4140,7 +4140,7 @@ def test_mcp_project_update_review_rejects_terminal_clone_after_true_redaction_w
 ) -> None:
     store = FakeVNextMCPStore()
     artifact = mcp_tools_module.VNextProjectService(store).generate_project_update_candidate(
-        mcp_tools_module.ProjectAutomationRequest(project_id="project-1", domains=("project",))
+        mcp_tools_module.ProjectAutomationRequest(agent_identity=None, project_id="project-1", domains=("project",))
     )
     artifact_id = str(artifact["id"])
     _patch_vnext_store(monkeypatch, store)
@@ -4174,7 +4174,7 @@ def test_mcp_project_update_review_keeps_consistent_terminal_outcomes_idempotent
 ) -> None:
     store = FakeVNextMCPStore()
     artifact = mcp_tools_module.VNextProjectService(store).generate_project_update_candidate(
-        mcp_tools_module.ProjectAutomationRequest(project_id="project-1", domains=("project",))
+        mcp_tools_module.ProjectAutomationRequest(agent_identity=None, project_id="project-1", domains=("project",))
     )
     artifact_id = str(artifact["id"])
     _patch_vnext_store(monkeypatch, store)
@@ -4207,7 +4207,7 @@ def test_mcp_project_update_terminal_replay_rejects_every_coupled_competing_deci
 ) -> None:
     store = FakeVNextMCPStore()
     artifact = mcp_tools_module.VNextProjectService(store).generate_project_update_candidate(
-        mcp_tools_module.ProjectAutomationRequest(project_id="project-1", domains=("project",))
+        mcp_tools_module.ProjectAutomationRequest(agent_identity=None, project_id="project-1", domains=("project",))
     )
     artifact_id = str(artifact["id"])
     _patch_vnext_store(monkeypatch, store)
@@ -4234,7 +4234,7 @@ def test_mcp_accepted_project_update_replay_survives_supported_memory_lifecycle(
 ) -> None:
     store = FakeVNextMCPStore()
     artifact = mcp_tools_module.VNextProjectService(store).generate_project_update_candidate(
-        mcp_tools_module.ProjectAutomationRequest(project_id="project-1", domains=("project",))
+        mcp_tools_module.ProjectAutomationRequest(agent_identity=None, project_id="project-1", domains=("project",))
     )
     artifact_id = str(artifact["id"])
     _patch_vnext_store(monkeypatch, store)
@@ -4258,7 +4258,7 @@ def test_mcp_accepted_project_update_replay_preserves_a_genuine_later_project_up
 ) -> None:
     store = FakeVNextMCPStore()
     artifact = mcp_tools_module.VNextProjectService(store).generate_project_update_candidate(
-        mcp_tools_module.ProjectAutomationRequest(project_id="project-1", domains=("project",))
+        mcp_tools_module.ProjectAutomationRequest(agent_identity=None, project_id="project-1", domains=("project",))
     )
     artifact_id = str(artifact["id"])
     _patch_vnext_store(monkeypatch, store)
@@ -4278,7 +4278,7 @@ def test_mcp_accepted_project_update_replay_preserves_a_genuine_later_project_up
 def test_dedicated_mcp_project_review_schema_attributes_payload_agent(monkeypatch, legacy_tools_enabled) -> None:
     store = FakeVNextMCPStore()
     artifact = mcp_tools_module.VNextProjectService(store).generate_project_update_candidate(
-        mcp_tools_module.ProjectAutomationRequest(project_id="project-1", domains=("project",))
+        mcp_tools_module.ProjectAutomationRequest(agent_identity=None, project_id="project-1", domains=("project",))
     )
     artifact_id = str(artifact["id"])
     _patch_vnext_store(monkeypatch, store)
@@ -4323,7 +4323,7 @@ def test_dedicated_mcp_project_review_schema_attributes_payload_agent(monkeypatc
 def test_generic_memory_rejection_is_blocked_before_project_artifact_review(monkeypatch, legacy_tools_enabled) -> None:
     store = FakeVNextMCPStore()
     artifact = mcp_tools_module.VNextProjectService(store).generate_project_update_candidate(
-        mcp_tools_module.ProjectAutomationRequest(project_id="project-1", domains=("project",))
+        mcp_tools_module.ProjectAutomationRequest(agent_identity=None, project_id="project-1", domains=("project",))
     )
     artifact_id = str(artifact["id"])
     artifact_metadata = artifact["metadata_json"]

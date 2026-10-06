@@ -178,7 +178,7 @@ class MemoryConsolidationRequest:
     generated_by: str = "system"
     trace_id: str | None = None
     run_id: str | None = None
-    agent_identity: JsonObject | None = None
+    agent_identity: JsonObject | None = field(kw_only=True)
     policy_decision: JsonObject | None = None
     metadata_json: JsonObject = field(default_factory=dict)
     generation_mode: str = "deterministic"
@@ -1112,7 +1112,7 @@ class VNextConsolidationService:
     # -- report ---------------------------------------------------------------
 
     def generate_memory_consolidation(self, request: MemoryConsolidationRequest | None = None) -> JsonObject:
-        request = request or MemoryConsolidationRequest()
+        request = request or MemoryConsolidationRequest(agent_identity=None, )
         _validate_request(request)
         options = _clustering_options(request)
         # Parsed before any write so invalid roll-up options fail the run
@@ -1215,6 +1215,27 @@ class VNextConsolidationService:
         ]
         brain_charter = self._brain_charter()
         clusters_for_proposals = clustering.clusters[: options.max_clusters]
+        if all_of is not None:
+            from alicebot_api.vnext_source_fence import cited_source_ids
+            refs = [ref for members in clusters_for_proposals for ref in _member_source_refs(members)]
+            sources = sources_named_by_refs(self.store, refs)
+            admitted = {str(row["id"]) for row in admit_loaded(
+                self.store, kind="source", rows=sources, domains=domains,
+                sensitivity_allowed=sensitivity, projects=projects, all_of=all_of,
+            )}
+            refused = {str(row["id"]) for row in sources} - admitted
+            def readable_reference(ref):
+                parsed = cited_source_ids([ref])
+                return not (parsed.named - admitted or parsed.incidental & refused)
+            # Only copies used to render this run change. Stored members and
+            # their provenance remain available to their authorized readers.
+            clusters_for_proposals = [[{
+                **member, "metadata_json": {
+                    **(member.get("metadata_json") or {}),
+                    "source_refs": [ref for ref in (member.get("metadata_json") or {}).get("source_refs", [])
+                                    if readable_reference(ref)],
+                },
+            } for member in members] for members in clusters_for_proposals]
         # The report copies the ``source_refs`` of each proposed cluster member as stored, and the candidate memories
         # copy them too. The refs are not dropped: they are the provenance. But the report is read behind its label
         # alone, so the label has to be at least as strict as every source they name. The list printed is made here,

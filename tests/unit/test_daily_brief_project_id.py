@@ -32,13 +32,16 @@ def test_a_free_form_name_is_not_a_stored_project_id() -> None:
     assert _stored_open_loop_project_id(("Alice",)) is None
     assert _stored_open_loop_project_id(("prj_0123456789abcdef",)) is None
     assert _stored_open_loop_project_id(("Alice", "Bob")) is None
-    canonical = "11111111-1111-1111-1111-111111111111"
+    assert _stored_open_loop_project_id(()) is None
+    canonical = "abcdef01-2345-6789-abcd-ef0123456789"
+    assert _stored_open_loop_project_id((canonical, "abcdef02-2345-6789-abcd-ef0123456789")) is None
     assert _stored_open_loop_project_id((canonical.upper(),)) == canonical
+    assert _stored_open_loop_project_id((canonical.replace("-", "").upper(),)) == canonical
     assert _stored_open_loop_project_id((str(UUID(canonical)),)) == canonical
 
     store = _Store()
     VNextBrainService(store)._create_candidate_open_loops(
-        BrainArtifactRequest(),
+        BrainArtifactRequest(agent_identity=None, ),
         [("publish the note", _source(["Alice"]))],
         workflow_digest="digest",
     )

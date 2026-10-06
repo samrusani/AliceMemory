@@ -310,7 +310,7 @@ def test_project_update_true_redaction_scrubs_the_role_separated_coupled_graph(
         )
         service = VNextProjectService(store)
         candidate = service.generate_project_update_candidate(
-            ProjectAutomationRequest(
+            ProjectAutomationRequest(agent_identity=None,
                 project_id=project_id,
                 domains=("project",),
                 metadata_json={"redaction_test_secret": sentinel},
@@ -814,7 +814,7 @@ def test_project_update_terminal_replay_survives_authorized_true_redaction(
         )
         service = VNextProjectService(store)
         candidate = service.generate_project_update_candidate(
-            ProjectAutomationRequest(project_id=project_id, domains=("project",))
+            ProjectAutomationRequest(agent_identity=None, project_id=project_id, domains=("project",))
         )
         artifact_id = str(candidate["id"])
         reviewed = service.review_project_update(artifact_id=artifact_id, action=action)
@@ -1036,7 +1036,7 @@ def test_project_update_terminal_replay_rejects_competing_postgres_decision_with
         )
         service = VNextProjectService(store)
         candidate = service.generate_project_update_candidate(
-            ProjectAutomationRequest(project_id=project_id, domains=("project",))
+            ProjectAutomationRequest(agent_identity=None, project_id=project_id, domains=("project",))
         )
         artifact_id = str(candidate["id"])
         reviewed = service.review_project_update(artifact_id=artifact_id, action=action)

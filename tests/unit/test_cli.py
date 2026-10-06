@@ -556,7 +556,7 @@ class FakeVNextCliStore:
 
     def get_memory_for_redaction(self, memory_id: str) -> dict[str, object] | None:
         assert self.graph_locked
-        assert self.labels_exclusive
+        assert "shared_labels" in self.lock_calls or "exclusive_labels" in self.lock_calls
         self.lock_calls.append("redaction_row")
         return self.get_memory(memory_id)
 
@@ -2552,7 +2552,7 @@ def test_cli_memory_redact_is_positive_and_strictly_idempotent(monkeypatch) -> N
     )
 
     first = json.loads(cli_module._run_vnext_memory_redact(context, args))
-    assert store.lock_calls[:3] == ["graph", "exclusive_labels", "redaction_row"]
+    assert store.lock_calls[:3] == ["graph", "shared_labels", "redaction_row"]
     assert store.conn.lock_timeout == "0"
     assert first["status"] == "redacted"
     assert first["forgotten_first"] is True
@@ -2561,7 +2561,7 @@ def test_cli_memory_redact_is_positive_and_strictly_idempotent(monkeypatch) -> N
 
     previous_lock_count = len(store.lock_calls)
     second = json.loads(cli_module._run_vnext_memory_redact(context, args))
-    assert store.lock_calls[previous_lock_count:][:3] == ["graph", "exclusive_labels", "redaction_row"]
+    assert store.lock_calls[previous_lock_count:][:3] == ["graph", "shared_labels", "redaction_row"]
     assert store.conn.lock_timeout == "0"
     assert second["status"] == "redacted"
     assert second["forgotten_first"] is False
@@ -2701,7 +2701,7 @@ def _cli_project_update_review_fixture() -> tuple[FakeVNextCliStore, dict[str, o
         }
     )
     artifact = cli_module.VNextProjectService(store).generate_project_update_candidate(
-        cli_module.ProjectAutomationRequest(project_id="project-1", domains=("project",))
+        cli_module.ProjectAutomationRequest(agent_identity=None, project_id="project-1", domains=("project",))
     )
     return store, artifact
 
@@ -2777,7 +2777,7 @@ def test_cli_generic_memory_mutations_cannot_strand_pending_project_update_candi
     assert (store.projects, store.memories, store.artifacts, store.revisions) == state_before
     assert [event.get("event_type") for event in store.events] == event_types_before
     if operation == "redact":
-        assert store.lock_calls[-3:] == ["graph", "exclusive_labels", "redaction_row"]
+        assert store.lock_calls[-3:] == ["graph", "shared_labels", "redaction_row"]
         assert store.conn.lock_timeout == "0"
 
 
@@ -2815,7 +2815,7 @@ def _apply_supported_cli_memory_lifecycle(
 def _accept_later_cli_project_update(store: FakeVNextCliStore, *, first_artifact_id: str) -> None:
     service = cli_module.VNextProjectService(store)
     later = service.generate_project_update_candidate(
-        cli_module.ProjectAutomationRequest(project_id="project-1", domains=("project",))
+        cli_module.ProjectAutomationRequest(agent_identity=None, project_id="project-1", domains=("project",))
     )
     assert later["id"] != first_artifact_id
     service.review_project_update(

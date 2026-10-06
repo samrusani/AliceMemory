@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import replace
 from alicebot_api.project_view import ProjectView
 from alicebot_api.store import JsonObject
 from alicebot_api.vnext_brain import (
@@ -20,6 +21,7 @@ from alicebot_api.vnext_contradictions import (
 
 from .shared import (
     MCPRuntimeContext,
+    _agent_identity_from_arguments,
     _json_object,
     _mcp_agent_policy_preflight,
     _parse_bool,
@@ -40,7 +42,7 @@ def _brain_artifact_request_from_arguments(arguments: Mapping[str, object]) -> B
         "private",
         "unknown",
     )
-    return BrainArtifactRequest(
+    return BrainArtifactRequest(agent_identity=None,
         domains=_parse_string_list(arguments, "domains"),
         projects=_parse_string_list(arguments, "project_scope") or _parse_string_list(arguments, "projects"),
         sensitivity_allowed=sensitivity_allowed,
@@ -56,17 +58,32 @@ def _brain_artifact_request_from_arguments(arguments: Mapping[str, object]) -> B
 
 
 def _handle_alice_generate_daily_brief(context: MCPRuntimeContext, arguments: Mapping[str, object]) -> JsonObject:
+    request = _authorized_brain_request(context, arguments)
     with _vnext_store_context(context) as store:
         return _json_object(
-            VNextBrainService(store).generate_daily_brief(_brain_artifact_request_from_arguments(arguments))
+            VNextBrainService(store).generate_daily_brief(request)
         )
 
 
 def _handle_alice_generate_weekly_synthesis(context: MCPRuntimeContext, arguments: Mapping[str, object]) -> JsonObject:
+    request = _authorized_brain_request(context, arguments)
     with _vnext_store_context(context) as store:
         return _json_object(
-            VNextBrainService(store).generate_weekly_synthesis(_brain_artifact_request_from_arguments(arguments))
+            VNextBrainService(store).generate_weekly_synthesis(request)
         )
+
+
+def _authorized_brain_request(context: MCPRuntimeContext, arguments: Mapping[str, object]) -> BrainArtifactRequest:
+    request = _brain_artifact_request_from_arguments(arguments)
+    decision = _mcp_agent_policy_preflight(
+        context, arguments, action="artifact.generate", domains=request.domains,
+        sensitivity_allowed=request.sensitivity_allowed, project_scope=request.projects,
+        project_view=ProjectView.unscoped(),
+    )
+    identity = _agent_identity_from_arguments(context, arguments)
+    return replace(request, agent_identity=identity.to_record() if identity is not None else None,
+                   domains=decision.effective_domains, projects=decision.effective_project_scope,
+                   sensitivity_allowed=decision.effective_sensitivity_allowed)
 
 
 def _connection_request_from_arguments(arguments: Mapping[str, object]) -> ConnectionFinderRequest:
@@ -77,7 +94,7 @@ def _connection_request_from_arguments(arguments: Mapping[str, object]) -> Conne
         "unknown",
     )
     auto_accept_threshold = _parse_optional_float(arguments, "auto_accept_threshold")
-    return ConnectionFinderRequest(
+    return ConnectionFinderRequest(agent_identity=None,
         query=_parse_optional_text(arguments, "query") or "",
         domains=_parse_string_list(arguments, "domains"),
         projects=_parse_string_list(arguments, "project_scope") or _parse_string_list(arguments, "projects"),
@@ -99,7 +116,8 @@ def _handle_alice_generate_connections(context: MCPRuntimeContext, arguments: Ma
         project_scope=_parse_string_list(arguments, "project_scope") or _parse_string_list(arguments, "projects"),
         project_view=ProjectView.unscoped(),
     )
-    request = ConnectionFinderRequest(
+    identity = _agent_identity_from_arguments(context, arguments)
+    request = ConnectionFinderRequest(agent_identity=identity.to_record() if identity is not None else None,
         query=request.query,
         domains=decision.effective_domains,
         projects=decision.effective_project_scope,
@@ -143,7 +161,7 @@ def _contradiction_request_from_arguments(arguments: Mapping[str, object]) -> Co
         "private",
         "unknown",
     )
-    return ContradictionFinderRequest(
+    return ContradictionFinderRequest(agent_identity=None,
         query=_parse_optional_text(arguments, "query") or "",
         domains=_parse_string_list(arguments, "domains"),
         projects=_parse_string_list(arguments, "project_scope") or _parse_string_list(arguments, "projects"),
@@ -164,7 +182,8 @@ def _handle_alice_generate_contradictions(context: MCPRuntimeContext, arguments:
         project_scope=_parse_string_list(arguments, "project_scope") or _parse_string_list(arguments, "projects"),
         project_view=ProjectView.unscoped(),
     )
-    request = ContradictionFinderRequest(
+    identity = _agent_identity_from_arguments(context, arguments)
+    request = ContradictionFinderRequest(agent_identity=identity.to_record() if identity is not None else None,
         query=request.query,
         domains=decision.effective_domains,
         projects=decision.effective_project_scope,

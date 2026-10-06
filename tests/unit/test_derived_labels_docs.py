@@ -87,7 +87,7 @@ def test_the_pages_name_the_v3_repair_and_the_seven_table_migration() -> None:
     notes = _text("docs/release/v0.20.0-release-notes.md")
     assert "> **Correction (2026-10-05):**" in notes
     assert "listed under known limitations" in notes
-    assert "raised once" in notes
+    assert "Unreleased (on main, not in v0.20.0):" in _text("docs/runbooks/disaster-recovery.md")
 
     changelog = _text("CHANGELOG.md")
     assert "keeps such a row at its old label until a restore" not in changelog

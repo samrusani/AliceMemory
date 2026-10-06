@@ -546,11 +546,11 @@ def test_the_finders_the_retrieval_service_and_the_context_tree_get_the_typed_er
 
         with pytest.raises(SourceSearchQueryTooLarge):
             VNextContradictionService(store).generate_contradiction_report(  # type: ignore[arg-type]
-                ContradictionFinderRequest(query=query, sensitivity_allowed=sensitivity)
+                ContradictionFinderRequest(agent_identity=None, query=query, sensitivity_allowed=sensitivity)
             )
         with pytest.raises(SourceSearchQueryTooLarge):
             VNextConnectionService(store).generate_connection_report(  # type: ignore[arg-type]
-                ConnectionFinderRequest(query=query, sensitivity_allowed=sensitivity)
+                ConnectionFinderRequest(agent_identity=None, query=query, sensitivity_allowed=sensitivity)
             )
         with pytest.raises(SourceSearchQueryTooLarge):
             VNextContextTreeService(TreeStore(store)).build_tree(  # type: ignore[arg-type]

@@ -56,7 +56,7 @@ def test_a_brief_drops_a_public_copy_of_a_confidential_source() -> None:
 
     store.read_label_rows = read_label_rows  # type: ignore[attr-defined]
     artifact = VNextBrainService(store).generate_daily_brief(
-        BrainArtifactRequest(generated_for="2026-05-10", domains=("project",))
+        BrainArtifactRequest(agent_identity=None, generated_for="2026-05-10", domains=("project",))
     )
     assert "SENTINEL confidential fact" not in artifact["content_markdown"]
     derived = artifact["metadata_json"]["derived_from"]

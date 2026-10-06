@@ -119,6 +119,7 @@ DOORS = {
 }
 
 NOT_A_DOOR = {
+    "vnext_artifact_review.py:lock_artifact_review_labels": "write lock classification only; the adapter authorizes before the dispatcher mutates",
     "routers/vnext_memories.py:regenerate_vnext_source": "operator-only regeneration rejects every profile except owner and unbound admin before the source lookup; real-profile rejection tests pin this gate",
     "mcp/evidence_artifacts.py:_handle_alice_vnext_review_items": "legacy review list has no policy check",
     "vnext_projects.py:VNextProjectService.review_project_update": "write path; the route authorizes before this mutation",

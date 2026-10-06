@@ -747,7 +747,7 @@ def test_consolidation_workflow_runs_semantic_tier_and_discloses() -> None:
 
     artifact = VNextConsolidationService(
         store, embedding_provider=(provider := MappedEmbeddingProvider(mapping))
-    ).generate_memory_consolidation(MemoryConsolidationRequest())
+    ).generate_memory_consolidation(MemoryConsolidationRequest(agent_identity=None, ))
 
     rollups_metadata = artifact["metadata_json"]["rollups"]
     assert rollups_metadata["enabled"] is True
@@ -782,7 +782,7 @@ def test_consolidation_without_provider_keeps_rollups_dormant() -> None:
     mapping: dict[str, list[float]] = {}
     _seed(store, mapping, KITCHEN_SPECS, KITCHEN_VECTORS)
     artifact = VNextConsolidationService(store, embedding_provider=None).generate_memory_consolidation(
-        MemoryConsolidationRequest()
+        MemoryConsolidationRequest(agent_identity=None, )
     )
     rollups_metadata = artifact["metadata_json"]["rollups"]
     assert rollups_metadata["enabled"] is True

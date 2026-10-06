@@ -86,10 +86,10 @@ MAIN_PRUNED_BINDINGS = {
 # Re-pin 2026-10-06: workspace reads authenticate the protected identity and
 # admit rows through effective labels before totals or dashboard disclosure.
 EXPECTED_ROUTE_AST_SHA256 = "b99f1435de67d9499819acb9ed7ed61b588a3fb0ff037e782eeca070b39af742"
-EXPECTED_SUPPORT_AST_SHA256 = "052f564a10f2f32c090f857142eda105f62d5e44b698d3e7475506c422a5ca47"
+EXPECTED_SUPPORT_AST_SHA256 = "000d3a03afeff74c5c7fbca8bfc5195553de4fec6dd962ea94aa9b7bfb58ad90"
 EXPECTED_ROUTE_NAME_MANIFEST_SHA256 = "225c57c08bd8314156c56352dd1c53ffed3f556ce285c666dd6fca125115d0b4"
 EXPECTED_OPERATION_MANIFEST_SHA256 = "c320979b62d7ee8de244fe38bde5bf3761a4f9d76f76bf3cd8576c30fce9857e"
-EXPECTED_IMPORT_MANIFEST_SHA256 = "d8887934cacc6a4e5d52f080dae3c2c0d0cdf23d1518a4060a885a8c7f209c0c"
+EXPECTED_IMPORT_MANIFEST_SHA256 = "e8c18d6831ca012b55b22f46c9b2151d62575773a2452ef0d0f2e869cabc8abb"
 EXPECTED_CARRIER_NAMES_SHA256 = "2c109fc234a05dd8f44e4c34bee49e797fbb5e49e92413391541a7e504da328b"
 # Re-pinned 2026-10-02 (DB-005, legacy /v0 routes). One definition changed,
 # found by a per-definition AST diff against the previous pin:
@@ -140,7 +140,7 @@ EXPECTED_ROUTE_NODE_SHA256 = {
 }
 EXPECTED_SUPPORT_NODE_SHA256 = {
     "_vnext_status_counts": "0bf0ed228a14bd648a9d18fcd5f99ebf8c585bd29f4b5e81e1df17fe0201fd15",
-    "_vnext_workspace_payload": "c2d41b35c27496c469fd70ebdf6bba01d526dac24ed00bddf983cf6dee57022a",
+    "_vnext_workspace_payload": "762ce1dc4c0d85bb48a56730d5c9ced74230c87a5b50ec1e1cd65cd25851ba96",
     "_workspace_rows": "070bdfbd1eae10608bd8208b08367e1c0ea10e2064f03ad5a84121a190ed4cf0",
     "_workspace_event_visible": "8343c060909326a5cb69fa6f671ac62f160630ecf989f04d78e792ea74c0ea90",
 }
@@ -489,7 +489,7 @@ def test_workspace_import_direction_pruning_timing_and_runtime_identities_are_ex
     main_definitions = _top_level_definitions(main_tree)
     router_imports = _import_manifest(router_tree)
 
-    assert len(router_imports) == 38
+    assert len(router_imports) == 39
     assert hashlib.sha256(json.dumps(router_imports, separators=(",", ":")).encode()).hexdigest() == (
         EXPECTED_IMPORT_MANIFEST_SHA256
     )

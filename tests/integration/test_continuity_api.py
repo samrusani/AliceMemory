@@ -12,7 +12,7 @@ import psycopg
 import alicebot_api.main as main_module
 from alicebot_api.routers import memories_legacy as memories_legacy_router
 from alicebot_api.config import Settings
-from alicebot_api.db import set_current_user, user_connection
+from alicebot_api.db import user_connection
 from alicebot_api.store import ContinuityStore
 
 
@@ -103,14 +103,12 @@ def seed_user_with_continuity(database_url: str, *, email: str) -> dict[str, obj
 
 def set_thread_timestamps(
     admin_database_url: str,
-    user_id: UUID,
     *,
     thread_id: UUID,
     created_at: datetime,
     updated_at: datetime,
 ) -> None:
-    with psycopg.connect(admin_database_url) as conn:
-        set_current_user(conn, user_id)
+    with psycopg.connect(admin_database_url, autocommit=True) as conn:
         with conn.cursor() as cur:
             cur.execute(
                 "UPDATE threads SET created_at = %s, updated_at = %s WHERE id = %s",
@@ -120,15 +118,13 @@ def set_thread_timestamps(
 
 def set_session_timestamps(
     admin_database_url: str,
-    user_id: UUID,
     *,
     session_id: UUID,
     started_at: datetime,
     ended_at: datetime | None,
     created_at: datetime,
 ) -> None:
-    with psycopg.connect(admin_database_url) as conn:
-        set_current_user(conn, user_id)
+    with psycopg.connect(admin_database_url, autocommit=True) as conn:
         with conn.cursor() as cur:
             cur.execute(
                 "UPDATE sessions SET started_at = %s, ended_at = %s, created_at = %s WHERE id = %s",
@@ -223,28 +219,24 @@ def test_thread_continuity_endpoints_create_list_detail_sessions_and_events(
 
     set_thread_timestamps(
         migrated_database_urls["admin"],
-        user_id=seeded["user_id"],
         thread_id=seeded["first_thread"]["id"],
         created_at=shared_created_at,
         updated_at=shared_created_at,
     )
     set_thread_timestamps(
         migrated_database_urls["admin"],
-        user_id=seeded["user_id"],
         thread_id=seeded["second_thread"]["id"],
         created_at=shared_created_at,
         updated_at=shared_created_at,
     )
     set_thread_timestamps(
         migrated_database_urls["admin"],
-        user_id=seeded["user_id"],
         thread_id=api_thread_id,
         created_at=newer_created_at,
         updated_at=newer_created_at,
     )
     set_session_timestamps(
         migrated_database_urls["admin"],
-        user_id=seeded["user_id"],
         session_id=seeded["first_session"]["id"],
         started_at=first_session_start,
         ended_at=first_session_end,
@@ -252,7 +244,6 @@ def test_thread_continuity_endpoints_create_list_detail_sessions_and_events(
     )
     set_session_timestamps(
         migrated_database_urls["admin"],
-        user_id=seeded["user_id"],
         session_id=seeded["second_session"]["id"],
         started_at=second_session_start,
         ended_at=None,

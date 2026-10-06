@@ -13,7 +13,7 @@ import alicebot_api.main as main_module
 from alicebot_api.routers import legacy_gated as legacy_gated_router
 from alicebot_api.config import Settings
 import alicebot_api.calendar as calendar_module
-from alicebot_api.db import set_current_user, user_connection
+from alicebot_api.db import user_connection
 from alicebot_api.store import ContinuityStore
 
 
@@ -251,7 +251,6 @@ def test_calendar_account_endpoints_connect_list_detail_and_isolate(
     assert '"access_token":' not in json.dumps(detail_payload)
 
     with psycopg.connect(migrated_database_urls["admin"]) as conn:
-        set_current_user(conn, owner["user_id"])
         with conn.cursor() as cur:
             cur.execute(
                 """

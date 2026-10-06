@@ -9,6 +9,7 @@ from alicebot_api.vnext_connectors import VNextConnectorService, VNextConnectorS
 from alicebot_api.vnext_event_log import append_event
 from alicebot_api.vnext_repositories import JsonObject
 from alicebot_api.vnext_store import is_redacted_project_update_artifact
+from alicebot_api.vnext_label_guard import label_read_request
 
 if TYPE_CHECKING:
     from alicebot_api.vnext_label_guard import LabelGuard
@@ -172,6 +173,7 @@ class VNextDogfoodingService:
     def __init__(self, store: VNextDogfoodingStore) -> None:
         self.store = store
 
+    @label_read_request
     def dashboard(self, *, sensitivity_allowed: tuple[str, ...] | None = None, label_guard: LabelGuard | None = None) -> JsonObject:
         from alicebot_api.vnext_agent_control import ALL_SENSITIVITY
         from alicebot_api.vnext_label_guard import LabelGuard

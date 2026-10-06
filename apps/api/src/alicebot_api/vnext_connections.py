@@ -137,7 +137,7 @@ class ConnectionFinderRequest:
     actor_id: str | None = None
     trace_id: str | None = None
     run_id: str | None = None
-    agent_identity: JsonObject | None = None
+    agent_identity: JsonObject | None = field(kw_only=True)
     policy_decision: JsonObject | None = None
     metadata_json: JsonObject = field(default_factory=dict)
     generation_mode: str = "deterministic"
@@ -199,12 +199,12 @@ def _supports_parameter(method: object, name: str) -> bool:
 def _matches_projects(
     row: JsonObject, projects: tuple[str, ...], *, source_row: bool, all_of: tuple[str, ...] | None = None
 ) -> bool:
-    if not projects:
-        return True
     if all_of is not None:
         from alicebot_api.vnext_derived_labels import input_admitted
 
         return input_admitted("source" if source_row else "memory", row, all_of)
+    if not projects:
+        return True
     row_scope = source_project_scope(row) if source_row else resource_project_scope(row)
     return project_scopes_overlap(row_scope, projects)
 
@@ -219,11 +219,18 @@ def _project_scoped_search(
     source_rows: bool = False,
     all_of: tuple[str, ...] | None = None,
 ) -> list[JsonObject]:
-    if not projects:
+    if not projects and all_of is None:
         return list(method(limit=limit, **kwargs))
     if _supports_parameter(method, project_parameter):
-        rows = method(limit=limit, **kwargs, **{project_parameter: projects})
-        return [row for row in rows if _matches_projects(row, projects, source_row=source_rows, all_of=all_of)]
+        fetch_limit = limit
+        while True:
+            rows = method(limit=fetch_limit, **kwargs, **{project_parameter: projects})
+            selected = [row for row in rows if _matches_projects(row, projects, source_row=source_rows, all_of=all_of)]
+            if all_of is None or len(selected) >= limit or len(rows) < fetch_limit:
+                return selected[:limit]
+            if fetch_limit >= MAX_LEGACY_PROJECT_SCOPE_ROWS:
+                raise VNextConnectionValidationError("locked input selection could not prove complete project scope")
+            fetch_limit = min(fetch_limit * 2, MAX_LEGACY_PROJECT_SCOPE_ROWS)
     rows = list(method(limit=MAX_LEGACY_PROJECT_SCOPE_ROWS + 1, **kwargs))
     if len(rows) > MAX_LEGACY_PROJECT_SCOPE_ROWS:
         raise VNextConnectionValidationError("legacy connection store could not prove complete project scope")
@@ -411,7 +418,7 @@ class VNextConnectionService:
         self.store = store
 
     def generate_connection_report(self, request: ConnectionFinderRequest | None = None) -> JsonObject:
-        request = request or ConnectionFinderRequest()
+        request = request or ConnectionFinderRequest(agent_identity=None, )
         _validate_request(request)
         domains = list(request.domains) if request.domains else None
         sensitivity_allowed = list(request.sensitivity_allowed)

@@ -145,7 +145,7 @@ class BrainArtifactRequest:
     actor_id: str | None = None
     trace_id: str | None = None
     run_id: str | None = None
-    agent_identity: JsonObject | None = None
+    agent_identity: JsonObject | None = field(kw_only=True)
     policy_decision: JsonObject | None = None
     metadata_json: JsonObject = field(default_factory=dict)
     generation_mode: str = "deterministic"
@@ -241,16 +241,15 @@ def _matches_report_scope(
     window_end: datetime,
     all_of: tuple[str, ...] | None = None,
 ) -> bool:
-    if projects:
-        if all_of is not None:
-            from alicebot_api.vnext_derived_labels import input_admitted
+    if all_of is not None:
+        from alicebot_api.vnext_derived_labels import input_admitted
 
-            if not input_admitted(kind, row, all_of):
-                return False
-        else:
-            row_scope = source_project_scope(row) if kind == "source" else resource_project_scope(row)
-            if not project_scopes_overlap(row_scope, projects):
-                return False
+        if not input_admitted(kind, row, all_of):
+            return False
+    elif projects:
+        row_scope = source_project_scope(row) if kind == "source" else resource_project_scope(row)
+        if not project_scopes_overlap(row_scope, projects):
+            return False
     event_time = _row_event_time(row, kind=kind)
     return event_time is not None and window_start <= event_time < window_end
 
@@ -466,7 +465,7 @@ class VNextBrainService:
         self.store = store
 
     def generate_daily_brief(self, request: BrainArtifactRequest | None = None) -> JsonObject:
-        request = request or BrainArtifactRequest()
+        request = request or BrainArtifactRequest(agent_identity=None, )
         _validate_request(request)
         day = _parse_generated_for(request.generated_for)
         window_start, window_end = _report_window(day, days=1)
@@ -657,7 +656,7 @@ class VNextBrainService:
         return artifact
 
     def generate_weekly_synthesis(self, request: BrainArtifactRequest | None = None) -> JsonObject:
-        request = request or BrainArtifactRequest()
+        request = request or BrainArtifactRequest(agent_identity=None, )
         _validate_request(request)
         day = _parse_generated_for(request.generated_for)
         week_label = _iso_week_label(day)
@@ -1046,14 +1045,14 @@ class VNextBrainService:
                 "description": f"Candidate open loop discovered in {_title(source, 'source')}.",
                 "status": "open",
                 "priority": "normal",
-                "source_id": source.get("id"),
+                "source_id": str(source["id"]),
                 "project_id": _stored_open_loop_project_id(project_scope),
                 "domain": source.get("domain", "unknown"),
                 "sensitivity": source.get("sensitivity", "unknown"),
                 "metadata_json": {
                     "candidate": True,
                     "discovered_by": "vnext_daily_brief",
-                    "source_id": source.get("id"),
+                    "source_id": str(source["id"]),
                     "project_scope": list(project_scope),
                     "automation_digest": automation_digest,
                     "workflow_digest": workflow_digest,

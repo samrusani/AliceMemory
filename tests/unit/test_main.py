@@ -5325,16 +5325,16 @@ def test_vnext_memory_review_defers_embedding_until_primary_transaction_closes(m
 
         def lock_label_writes(self, *, exclusive: bool = False) -> None:
             assert transaction_depth == 1
-            assert exclusive is True
+            assert exclusive is False
             assert lock_calls == ["graph"]
-            lock_calls.append("exclusive_labels")
+            lock_calls.append("shared_labels")
 
         def get_memory(self, _memory_id: str):
             return memory
 
         def get_memory_for_update(self, _memory_id: str):
             assert transaction_depth == 1
-            assert lock_calls == ["graph", "exclusive_labels"]
+            assert lock_calls == ["graph", "shared_labels"]
             lock_calls.append("row")
             return memory
 
@@ -5389,7 +5389,7 @@ def test_vnext_memory_review_defers_embedding_until_primary_transaction_closes(m
 
     assert response.status_code == 200
     assert calls == ["refresh", "embedding"]
-    assert lock_calls == ["graph", "exclusive_labels", "row"]
+    assert lock_calls == ["graph", "shared_labels", "row"]
 
 
 def test_vnext_consolidation_defers_embedding_until_primary_transaction_closes(monkeypatch) -> None:

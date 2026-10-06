@@ -211,11 +211,31 @@ def _object(value: object) -> Mapping[str, object]:
 
 
 def _metadata(row: Mapping[str, object]) -> Mapping[str, object]:
-    return _object(row.get("metadata_json"))
+    return _object(_uuid_strings(_object(row.get("metadata_json"))))
+
+
+def _uuid_strings(value: object) -> object:
+    """Database UUID objects and JSON strings name the same recorded input."""
+    if isinstance(value, UUID):
+        return str(value)
+    if isinstance(value, Mapping):
+        return {key: _uuid_strings(child) for key, child in value.items()}
+    if isinstance(value, list):
+        return [_uuid_strings(child) for child in value]
+    return value
 
 
 def _nonempty_str(value: object) -> bool:
-    return isinstance(value, str) and bool(value.strip())
+    return isinstance(value, UUID) or isinstance(value, str) and bool(value.strip())
+
+
+def _marker_in(value: object, choices: Iterable[str]) -> bool:
+    return isinstance(value, str) and value in choices
+
+
+def _malformed_marker(kind: str, meta: Mapping[str, object]) -> bool:
+    key = "workflow" if kind == "artifact" else "candidate_kind" if kind == "memory" else None
+    return key is not None and key in meta and not isinstance(meta[key], str)
 
 
 def _scrubbed(row: Mapping[str, object]) -> bool:
@@ -240,15 +260,17 @@ def is_derived(kind: object, row: Mapping[str, object]) -> bool:
     does not count, so a forged ``value.kind`` does not make the row derived.
     """
 
-    if _metadata(row).get("redacted") is True:
+    meta = _metadata(row)
+    if meta.get("redacted") is True:
         return False
     name = canon_kind(kind)
-    meta = _metadata(row)
     if name in {"source", "belief"}:
         return False
     if name == "project":
         return "derived_from" in meta
     if name == "open_loop":
+        if "derived_from" in meta:
+            return True
         discovered = meta.get("discovered_by")
         if not _nonempty_str(discovered):
             return False
@@ -256,14 +278,14 @@ def is_derived(kind: object, row: Mapping[str, object]) -> bool:
     if name == "artifact":
         if "derived_from" in meta:
             return True
-        if meta.get("workflow") in DERIVED_WORKFLOWS:
+        if _malformed_marker(name, meta) or _marker_in(meta.get("workflow"), DERIVED_WORKFLOWS):
             return True
         if str(row.get("artifact_type") or "") in DERIVED_ARTIFACT_TYPES:
             return True
         return meta.get("connector_name") == "agent_output"
     if isinstance(meta.get("consolidation"), Mapping):
         return True
-    if meta.get("candidate_kind") in {"memory_consolidation", "memory_rollup"}:
+    if _malformed_marker(name, meta) or _marker_in(meta.get("candidate_kind"), {"memory_consolidation", "memory_rollup"}):
         return True
     if meta.get("discovered_by") == "vnext_weekly_synthesis":
         return True
@@ -294,7 +316,7 @@ def row_class(kind: object, row: Mapping[str, object]) -> str:
         or meta.get("discovered_by") == "vnext_weekly_synthesis"
         or meta.get("workflow") == "project_auto_update"
         or isinstance(meta.get("consolidation"), Mapping)
-        or meta.get("candidate_kind") in {"memory_consolidation", "memory_rollup"}
+        or _marker_in(meta.get("candidate_kind"), {"memory_consolidation", "memory_rollup"})
     ):
         return "aggregate"
     return "copy"
@@ -415,8 +437,7 @@ def _source_ids_from(value: object) -> tuple[str, set[str]]:
         elif value.strip() and not named:
             # A sentence is not a source id. cited_source_ids already kept the
             # explicit ones. A whole token that is not a uuid still counts.
-            if _plain_token(value):
-                named.add(identifier(value))
+            pass
     elif isinstance(value, Mapping):
         for key, child in value.items():
             key_text = key.lower() if isinstance(key, str) else ""
@@ -448,7 +469,10 @@ def _source_token(value: str) -> str | None:
         return None
     if ":" in text or "/" in text:
         return None
-    return identifier(text)
+    try:
+        return str(UUID(text))
+    except (ValueError, AttributeError, TypeError):
+        return None
 
 
 def _typed_refs(value: object) -> set[tuple[str, str]]:
@@ -490,7 +514,16 @@ def _collect_metadata_ids(value: object, found: set[tuple[str, str]]) -> str:
                 continue
             if key == "derived_from":
                 continue
-            if key == "source_refs" or key in {"source_id", "source_ids"}:
+            if key in {"source_id", "source_ids"}:
+                if isinstance(child, (str, list)):
+                    child_problem, source_ids = _source_ids_from(child)
+                    problem = problem or child_problem
+                    source_ids.update(item for item in _strings(child) if _plain_token(item))
+                    _add_ids(found, "source", source_ids)
+                else:
+                    problem = problem or "malformed"
+                continue
+            if key == "source_refs":
                 child_problem, source_ids = _source_ids_from(child)
                 problem = problem or child_problem
                 _add_ids(found, "source", source_ids)
@@ -671,7 +704,8 @@ def dependency_record(kind: object, row: Mapping[str, object]) -> tuple[frozense
         return frozenset(), ""
     meta = _metadata(row)
     found: set[tuple[str, str]] = set()
-    problem = _collect_metadata_ids(meta, found)
+    problem = "malformed_marker" if _malformed_marker(canon_kind(kind), meta) else ""
+    problem = problem or _collect_metadata_ids(meta, found)
     if "derived_from" in meta:
         derived_problem, derived_deps = _derived_from_deps(meta.get("derived_from"))
         problem = problem or derived_problem
@@ -695,7 +729,7 @@ def dependency_record(kind: object, row: Mapping[str, object]) -> tuple[frozense
 
 
 def _value_dependencies(row: Mapping[str, object]) -> set[tuple[str, str]]:
-    value = _object(row.get("value"))
+    value = _object(_uuid_strings(_object(row.get("value"))))
     found: set[tuple[str, str]] = set()
     if _nonempty_str(value.get("source_id")):
         found.add(("source", identifier(value.get("source_id"))))

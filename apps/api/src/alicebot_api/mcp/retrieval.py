@@ -225,6 +225,9 @@ def _handle_alice_recall(context: MCPRuntimeContext, arguments: Mapping[str, obj
     with _vnext_store_context(context) as store:
         # Reuse the hybrid retrieval stages (Postgres FTS + pgvector) that back
         # vNext context packs so recall and context packs rank identically.
+        lock = getattr(store, "lock_label_writes", None)
+        if callable(lock):
+            lock()
         service = VNextRetrievalService(store)
         # Recall always searches sources (include_sources only gates whether the
         # excerpts come back), so a query the source search cannot take is

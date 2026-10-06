@@ -11,6 +11,7 @@ from psycopg.rows import dict_row
 
 from alicebot_api.config import get_settings
 from alicebot_api.db import user_connection
+from alicebot_api.vnext_label_guard import label_read_request
 from alicebot_api.local_workspace import (
     ensure_local_workspace,
     get_local_workspace,
@@ -85,6 +86,7 @@ def _workspace_rows(store: PostgresVNextStore, kind: str, rows: Sequence[Mapping
     )
 
 
+@label_read_request
 def _vnext_workspace_payload(store: PostgresVNextStore, *, identity: AgentIdentity | None = None) -> dict[str, object]:
     from alicebot_api.vnext_label_guard import LabelGuard, sensitivity_ceiling
     from alicebot_api.vnext_open_loop_references import withhold_unreadable_references

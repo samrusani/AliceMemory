@@ -221,7 +221,7 @@ def test_input_selection_uses_effective_labels_including_the_owner_default_ceili
         assert store.get_memory(str(copy["id"]))["sensitivity"] == "public"
         assert store.get_memory(str(promoted["id"]))["sensitivity"] == "public"
         _, trusted = create_agent_key(store, user_id=user_id, agent_id="trusted-alpha", permission_profile="trusted_local_agent", project_scope=alpha)
-        owner = VNextBrainService(store).generate_daily_brief(BrainArtifactRequest(generated_for="2026-10-05",
+        owner = VNextBrainService(store).generate_daily_brief(BrainArtifactRequest(agent_identity=None, generated_for="2026-10-05",
             source_limit=50, memory_limit=50, artifact_limit=50, open_loop_limit=50, discover_open_loops=False,
             create_candidate_memories=False))
     bound, _ = generate(producer, user_id, alpha, trusted)
@@ -245,7 +245,7 @@ def test_the_owner_keeps_the_cross_project_brief_and_bound_keys_cannot_read_it(m
     user_id, alpha, beta, rows, alpha_key, beta_key, unbound = seed_grid(app_url)
     with user_connection(app_url, user_id) as conn:
         store = PostgresVNextStore(conn)
-        owner = VNextBrainService(store).generate_daily_brief(BrainArtifactRequest(generated_for="2026-10-05",
+        owner = VNextBrainService(store).generate_daily_brief(BrainArtifactRequest(agent_identity=None, generated_for="2026-10-05",
             source_limit=50, memory_limit=50, artifact_limit=50, open_loop_limit=50, discover_open_loops=False,
             create_candidate_memories=False))
     text = json.dumps(owner, default=str)
@@ -293,7 +293,7 @@ def test_consolidation_admits_effective_memory_labels_before_the_embedding_provi
         monkeypatch.setattr(store, "list_memory_ids_with_embeddings", lambda ids: set(ids))
         service = VNextConsolidationService(store, embedding_provider=RecordingProvider())
         service._cluster_memories(domains=None, sensitivity=["public", "internal", "private", "unknown"],
-            projects=(alpha,), all_of=(alpha,), options=_clustering_options(MemoryConsolidationRequest()))
+            projects=(alpha,), all_of=(alpha,), options=_clustering_options(MemoryConsolidationRequest(agent_identity=None, )))
     text = json.dumps(printed)
     assert printed
     assert "SENTINEL_ALPHA memory" in text

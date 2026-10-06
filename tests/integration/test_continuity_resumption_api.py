@@ -12,7 +12,7 @@ import psycopg
 import alicebot_api.main as main_module
 from alicebot_api.routers import continuity as continuity_router
 from alicebot_api.config import Settings
-from alicebot_api.db import set_current_user, user_connection
+from alicebot_api.db import user_connection
 from alicebot_api.store import ContinuityStore
 
 
@@ -74,13 +74,11 @@ def seed_user(database_url: str, *, email: str) -> UUID:
 
 def set_continuity_timestamps(
     admin_database_url: str,
-    user_id: UUID,
     *,
     continuity_object_id: UUID,
     created_at: datetime,
 ) -> None:
-    with psycopg.connect(admin_database_url) as conn:
-        set_current_user(conn, user_id)
+    with psycopg.connect(admin_database_url, autocommit=True) as conn:
         with conn.cursor() as cur:
             cur.execute(
                 "UPDATE continuity_objects SET created_at = %s, updated_at = %s WHERE id = %s",
@@ -90,13 +88,11 @@ def set_continuity_timestamps(
 
 def set_continuity_lifecycle_flags(
     admin_database_url: str,
-    user_id: UUID,
     *,
     continuity_object_id: UUID,
     is_promotable: bool,
 ) -> None:
-    with psycopg.connect(admin_database_url) as conn:
-        set_current_user(conn, user_id)
+    with psycopg.connect(admin_database_url, autocommit=True) as conn:
         with conn.cursor() as cur:
             cur.execute(
                 "UPDATE continuity_objects SET is_promotable = %s WHERE id = %s",
@@ -180,25 +176,21 @@ def test_continuity_resumption_api_returns_required_sections(
 
     set_continuity_timestamps(
         migrated_database_urls["admin"],
-        user_id=user_id,
         continuity_object_id=decision_object["id"],
         created_at=datetime(2026, 3, 29, 9, 0, tzinfo=UTC),
     )
     set_continuity_timestamps(
         migrated_database_urls["admin"],
-        user_id=user_id,
         continuity_object_id=waiting_object["id"],
         created_at=datetime(2026, 3, 29, 10, 0, tzinfo=UTC),
     )
     set_continuity_timestamps(
         migrated_database_urls["admin"],
-        user_id=user_id,
         continuity_object_id=next_object["id"],
         created_at=datetime(2026, 3, 29, 10, 5, tzinfo=UTC),
     )
     set_continuity_timestamps(
         migrated_database_urls["admin"],
-        user_id=user_id,
         continuity_object_id=latest_decision_object["id"],
         created_at=datetime(2026, 3, 29, 10, 10, tzinfo=UTC),
     )
@@ -271,7 +263,6 @@ def test_continuity_resumption_api_returns_explicit_empty_states(
 
     set_continuity_timestamps(
         migrated_database_urls["admin"],
-        user_id=user_id,
         continuity_object_id=continuity_object["id"],
         created_at=datetime(2026, 3, 29, 9, 0, tzinfo=UTC),
     )
@@ -385,20 +376,17 @@ def test_continuity_resumption_api_selects_latest_sections_beyond_recall_limit(
     for index, continuity_object_id in enumerate(historical_object_ids):
         set_continuity_timestamps(
             migrated_database_urls["admin"],
-            user_id=user_id,
             continuity_object_id=continuity_object_id,
             created_at=base_time + timedelta(minutes=index),
         )
 
     set_continuity_timestamps(
         migrated_database_urls["admin"],
-        user_id=user_id,
         continuity_object_id=latest_decision_object["id"],
         created_at=base_time + timedelta(minutes=200),
     )
     set_continuity_timestamps(
         migrated_database_urls["admin"],
-        user_id=user_id,
         continuity_object_id=latest_next_action_object["id"],
         created_at=base_time + timedelta(minutes=201),
     )
@@ -477,19 +465,16 @@ def test_continuity_resumption_api_uses_promotable_facts_by_default_with_overrid
 
     set_continuity_lifecycle_flags(
         migrated_database_urls["admin"],
-        user_id=user_id,
         continuity_object_id=fact_object["id"],
         is_promotable=False,
     )
     set_continuity_timestamps(
         migrated_database_urls["admin"],
-        user_id=user_id,
         continuity_object_id=fact_object["id"],
         created_at=datetime(2026, 3, 29, 10, 0, tzinfo=UTC),
     )
     set_continuity_timestamps(
         migrated_database_urls["admin"],
-        user_id=user_id,
         continuity_object_id=decision_object["id"],
         created_at=datetime(2026, 3, 29, 10, 5, tzinfo=UTC),
     )

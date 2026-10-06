@@ -1,4 +1,5 @@
 from __future__ import annotations
+from alicebot_api.vnext_label_writes import label_http_errors
 
 from uuid import UUID
 
@@ -641,6 +642,7 @@ def get_vnext_artifact(
     )
 
 @review_router.post("/v0/vnext/artifacts/{artifact_id}/review")
+@label_http_errors
 def review_vnext_artifact(
     artifact_id: UUID,
     request: VNextArtifactReviewRequest,
@@ -663,9 +665,9 @@ def review_vnext_artifact(
                 store, request, user_id=request.user_id, authorization=authorization
             )
             store.lock_graph_mutation()
-            from alicebot_api.vnext_label_writes import acquire_exclusive_label_lock
+            from alicebot_api.vnext_artifact_review import lock_artifact_review_labels
 
-            acquire_exclusive_label_lock(store)
+            lock_artifact_review_labels(store, artifact_id=str(artifact_id), action=request.action)
             _artifact, decision = _vnext_authorized_artifact(
                 store=store,
                 identity=identity,
@@ -1013,6 +1015,7 @@ def generate_vnext_project_update_candidate(
     return JSONResponse(status_code=201, content=jsonable_encoder(payload))
 
 @review_router.post("/v0/vnext/projects/update-candidates/{artifact_id}/review")
+@label_http_errors
 def review_vnext_project_update_candidate(
     artifact_id: str,
     request: VNextProjectUpdateReviewRequest,
@@ -1035,9 +1038,9 @@ def review_vnext_project_update_candidate(
                 store, request, user_id=request.user_id, authorization=authorization
             )
             store.lock_graph_mutation()
-            from alicebot_api.vnext_label_writes import acquire_exclusive_label_lock
+            from alicebot_api.vnext_artifact_review import lock_artifact_review_labels
 
-            acquire_exclusive_label_lock(store)
+            lock_artifact_review_labels(store, artifact_id=str(artifact_id), action=request.action)
             _artifact, decision = _vnext_authorized_artifact(
                 store=store,
                 identity=identity,

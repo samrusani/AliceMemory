@@ -662,7 +662,7 @@ def test_round2_c2_project_update_accept_refuses_a_credential_state(migrated_dat
             }
         )
         candidate = VNextProjectService(store).generate_project_update_candidate(
-            ProjectAutomationRequest(project_id=project_id, domains=("project",))
+            ProjectAutomationRequest(agent_identity=None, project_id=project_id, domains=("project",))
         )
     artifact_id = str(candidate["id"])
     memory_id = str(candidate["metadata_json"]["candidate_memory_id"])  # type: ignore[index]

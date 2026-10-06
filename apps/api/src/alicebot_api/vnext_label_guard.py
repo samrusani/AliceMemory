@@ -8,8 +8,11 @@ effective label.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, replace, field
 from typing import Any, TypeVar
+from contextvars import ContextVar
+from functools import wraps
+from contextlib import contextmanager
 
 from alicebot_api.vnext_agent_control import (
     ALL_SENSITIVITY,
@@ -21,6 +24,8 @@ from alicebot_api.vnext_derived_labels import (
     HOP_BOUND,
     NODE_BOUND,
     canon_kind,
+    dependencies_of,
+    identifier,
     is_derived,
     input_admitted,
     settle_labels,
@@ -31,6 +36,80 @@ from alicebot_api.vnext_project_scope import project_floor_shape, project_scope_
 
 _GUARD_USER = "label-guard"
 _Row = TypeVar("_Row", bound=Mapping[str, object])
+
+
+def _row_label_key(kind: str, row: Mapping[str, object]) -> tuple:
+    return (kind, *(repr(row.get(field)) for field in (
+        "id", "user_id", "domain", "sensitivity", "metadata_json", "value", "project_id", "source_id", "artifact_type", "project_scope", "project_floor",
+    )))
+
+
+@dataclass
+class _RequestLabels:
+    nodes: dict = field(default_factory=dict)
+    labels: dict = field(default_factory=dict)
+    targets: dict = field(default_factory=dict)
+    counts: dict = field(default_factory=dict)
+    source_copies: dict = field(default_factory=dict)
+    row_sets: dict = field(default_factory=dict)
+    dependencies: dict = field(default_factory=dict)
+    source_admission: dict = field(default_factory=dict)
+
+    def clear(self):
+        self.nodes.clear()
+        self.labels.clear()
+        self.targets.clear()
+        self.counts.clear()
+        self.source_copies.clear()
+        self.row_sets.clear()
+        self.dependencies.clear()
+        self.source_admission.clear()
+
+
+_REQUEST_LABELS: ContextVar[tuple[Any, _RequestLabels] | None] = ContextVar("request_labels", default=None)
+
+
+def invalidate_read_labels(store: Any) -> None:
+    current = _REQUEST_LABELS.get()
+    if current is not None and current[0] is store:
+        current[1].clear()
+
+
+def request_row_cache(store: Any, namespace: str) -> dict | None:
+    """Raw rows may be reused only within the active request, before admission."""
+    current = _REQUEST_LABELS.get()
+    if current is None or current[0] is not store:
+        return None
+    return current[1].row_sets.setdefault(namespace, {})
+
+
+@contextmanager
+def label_read_scope(store):
+    current = _REQUEST_LABELS.get()
+    if current is not None and current[0] is store:
+        yield
+        return
+    token = _REQUEST_LABELS.set((store, _RequestLabels()))
+    try:
+        yield
+    finally:
+        _REQUEST_LABELS.reset(token)
+
+
+def label_read_request(fn):
+    """Share ancestry only for one synchronous read, including nested services."""
+    @wraps(fn)
+    def wrapped(first, *args, **kwargs):
+        store = getattr(first, "store", first)
+        # Keep current label writers outside the request's cached snapshot.
+        # These services read label tables and write only traces or telemetry.
+        if getattr(store, "conn", None) is not None:
+            lock = getattr(store, "lock_label_writes", None)
+            if callable(lock):
+                lock()
+        with label_read_scope(store):
+            return fn(first, *args, **kwargs)
+    return wrapped
 
 
 def _filters_admit_every(
@@ -56,6 +135,16 @@ class LabelGuard:
     projects: tuple[str, ...] = ()
     all_of: tuple[str, ...] | None = None
     _nodes: dict[tuple[str, str], list[dict[str, object]]] | None = None
+    _request: _RequestLabels | None = None
+
+    def _state(self) -> _RequestLabels:
+        current = _REQUEST_LABELS.get()
+        state = current[1] if current is not None and current[0] is self.store else self._request
+        if state is None:
+            state = _RequestLabels()
+        self._request = state
+        self._nodes = state.nodes
+        return state
 
     @classmethod
     def for_fence(cls, store: Any, fence: Any) -> LabelGuard:
@@ -97,9 +186,29 @@ class LabelGuard:
             return row
         if not is_derived(kind, row):
             return row
-        nodes = self._collected(kind, row)
-        settled = settle_labels(nodes, on_cycle="unverified", max_hops=HOP_BOUND, max_nodes=NODE_BOUND)
-        label = settled.by_stored(kind, str(row.get("id") or ""), user_id=_GUARD_USER)
+        state = self._state()
+        # Distinct projections and stored aliases are settled separately.
+        # Only labels, never caller admission, are shared in this request.
+        key = _row_label_key(kind, row)
+        label = state.labels.get(key)
+        template = (key[0], *key[2:])
+        if label is None:
+            label = state.source_copies.get(template)
+        if label is None:
+            nodes = self._collected(kind, row)
+            settled = settle_labels(nodes, on_cycle="unverified", max_hops=HOP_BOUND, max_nodes=NODE_BOUND)
+            label = settled.by_stored(kind, str(row.get("id") or ""), user_id=_GUARD_USER)
+            # Copies of the same original sources have identical effective
+            # labels. No derived parent, alias, missing parent or root cycle
+            # is allowed in this shortcut; those retain an independent walk.
+            refs = dependencies_of(kind, row)
+            if refs and all(
+                ref_kind == "source" and len(state.nodes.get((ref_kind, ref_id), [])) == 1
+                and not is_derived(ref_kind, state.nodes[(ref_kind, ref_id)][0])
+                for ref_kind, ref_id in refs
+            ):
+                state.source_copies[template] = label
+        state.labels[key] = label
         copy = dict(row)
         raw_metadata = copy.get("metadata_json")
         metadata = dict(raw_metadata) if isinstance(raw_metadata, Mapping) else {}
@@ -129,12 +238,46 @@ class LabelGuard:
 
         if not self.active:
             return [row for row in rows if isinstance(row, Mapping)]
+        state = self._state()
+        reader = getattr(self.store, "read_label_rows", None)
+        wanted: dict[str, set[str]] = {}
+        for row in rows:
+            if isinstance(row, Mapping):
+                state.targets[(kind, str(row.get("id")))] = row
+                dependency_key = (kind, *(repr(row.get(field)) for field in (
+                    "metadata_json", "value", "source_id", "source_artifact_id", "artifact_id", "memory_id", "artifact_type",
+                )))
+                refs = state.dependencies.get(dependency_key)
+                if refs is None:
+                    refs = dependencies_of(kind, row)
+                    state.dependencies[dependency_key] = refs
+                for ref_kind, ref_id in refs:
+                    if (ref_kind, ref_id) not in state.nodes:
+                        wanted.setdefault(ref_kind, set()).add(ref_id)
+        if callable(reader):
+            for ref_kind, ids in wanted.items():
+                for ref_id in ids:
+                    state.nodes[(ref_kind, ref_id)] = []
+                for found in reader(ref_kind, sorted(ids)):
+                    canonical = identifier(found.get("id"))
+                    if canonical in ids:
+                        state.nodes[(ref_kind, canonical)].append(dict(found))
         kept: list[_Row] = []
         for row in rows:
             if not isinstance(row, Mapping):
                 continue
+            key = _row_label_key(kind, row)
+            template = (key[0], *key[2:])
+            admission_key = (template, self.domains, self.sensitivity_allowed, self.projects, self.all_of)
+            if template in state.source_copies and admission_key in state.source_admission:
+                if state.source_admission[admission_key]:
+                    kept.append(row)
+                continue
             effective = self.effective_row(kind, row)
-            if isinstance(effective, Mapping) and self._admits_effective(effective, kind=kind):
+            admitted = isinstance(effective, Mapping) and self._admits_effective(effective, kind=kind)
+            if template in state.source_copies:
+                state.source_admission[admission_key] = admitted
+            if admitted:
                 kept.append(row)
         return kept
 
@@ -149,11 +292,16 @@ class LabelGuard:
         iterator = getattr(self.store, "iter_label_rows", None)
         if not callable(iterator):
             raise TypeError("readable counts require complete label enumeration")
+        state = self._state()
+        key = (kind, self.domains, self.sensitivity_allowed, self.projects, self.all_of)
+        if key in state.counts:
+            return dict(state.counts[key])
         counts: dict[str, int] = {}
         for batch in iterator(kind):
             for row in self.admit_rows(kind, batch):
                 status = str(row.get("status", "unknown"))
                 counts[status] = counts.get(status, 0) + 1
+        state.counts[key] = dict(counts)
         return counts
 
     def admit_related_rows(self, rows: Sequence[_Row], *, kind: str, field: str) -> list[_Row]:
@@ -165,7 +313,11 @@ class LabelGuard:
         if not callable(reader):
             return []
         ids = list(dict.fromkeys(str(row.get(field)) for row in rows if row.get(field)))
-        found = list(reader(kind, ids)) if ids else []
+        state = self._state()
+        missing = [row_id for row_id in ids if (kind, row_id) not in state.targets]
+        for row in reader(kind, missing) if missing else []:
+            state.targets[(kind, str(row.get("id")))] = row
+        found = [state.targets[(kind, row_id)] for row_id in ids if (kind, row_id) in state.targets]
         admitted = {str(row.get("id")) for row in (
             self.admit_beliefs(found) if kind == "belief" else self.admit_rows(kind, found)
         )}
@@ -238,8 +390,7 @@ class LabelGuard:
         return True
 
     def _collected(self, kind: str, row: Mapping[str, object]) -> list[dict[str, object]]:
-        if self._nodes is None:
-            self._nodes = {}
+        self._state()
         nodes, _exceeded = collect_label_rows(
             self.store, [{**dict(row), "kind": canon_kind(kind)}],
             max_nodes=NODE_BOUND, max_hops=HOP_BOUND, cache=self._nodes, user_id=_GUARD_USER,

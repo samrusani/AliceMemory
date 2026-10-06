@@ -75,7 +75,7 @@ def _build_chain(h, *, source=None, project=None, label=("project", "public")):
             for row in copies
         ]
         brain = VNextBrainService(store)
-        request = BrainArtifactRequest(
+        request = BrainArtifactRequest(agent_identity=None,
             generated_for=today(),
             projects=(str(project["id"]),),
             sensitivity_allowed=("public", "internal", "private", "confidential", "regulated", "unknown"),
@@ -88,7 +88,7 @@ def _build_chain(h, *, source=None, project=None, label=("project", "public")):
             artifact_id=str(weekly["id"]), actor_type="user", actor_id=str(h.user_id), trace_id=None, run_id=None
         )
         update = VNextProjectService(store, defer_embeddings=True).generate_project_update_candidate(
-            ProjectAutomationRequest(project_id=str(project["id"]), sensitivity_allowed=request.sensitivity_allowed)
+            ProjectAutomationRequest(agent_identity=None, project_id=str(project["id"]), sensitivity_allowed=request.sensitivity_allowed)
         )
         VNextProjectService(store, defer_embeddings=True).review_project_update(
             artifact_id=str(update["id"]), action="accept", actor_type="user"

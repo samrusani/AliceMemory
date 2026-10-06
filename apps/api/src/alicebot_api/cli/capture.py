@@ -705,7 +705,7 @@ def _run_vnext_demo_load(ctx: CLIContext, args: argparse.Namespace) -> str:
             created_open_loop_ids.append(str(loop["id"]))
 
         daily = VNextBrainService(store).generate_daily_brief(
-            BrainArtifactRequest(
+            BrainArtifactRequest(agent_identity=None,
                 domains=("project",),
                 sensitivity_allowed=("public", "internal", "private", "unknown"),
                 generated_for="2026-05-12",
@@ -730,7 +730,7 @@ def _run_vnext_demo_load(ctx: CLIContext, args: argparse.Namespace) -> str:
         )
         if project_id is not None:
             project_update = VNextProjectService(store).generate_project_update_candidate(
-                ProjectAutomationRequest(
+                ProjectAutomationRequest(agent_identity=None,
                     domains=("project",),
                     sensitivity_allowed=("public", "internal", "private", "unknown"),
                     project_id=project_id,

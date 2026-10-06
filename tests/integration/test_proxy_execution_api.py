@@ -11,7 +11,7 @@ import psycopg
 import alicebot_api.main as main_module
 from alicebot_api.routers import legacy_gated as legacy_gated_router
 from alicebot_api.config import Settings
-from alicebot_api.db import set_current_user, user_connection
+from alicebot_api.db import user_connection
 from alicebot_api.store import ContinuityStore
 
 
@@ -167,13 +167,11 @@ def create_execution_budget(
 
 def set_execution_executed_at(
     admin_database_url: str,
-    user_id: UUID,
     *,
     execution_id: UUID,
     executed_at_sql: str,
 ) -> None:
     with psycopg.connect(admin_database_url) as conn:
-        set_current_user(conn, user_id)
         conn.execute(
             f"UPDATE tool_executions SET executed_at = {executed_at_sql} WHERE id = %s",
             (execution_id,),
@@ -183,13 +181,11 @@ def set_execution_executed_at(
 
 def set_approval_request_thread_id(
     admin_database_url: str,
-    user_id: UUID,
     *,
     approval_id: UUID,
     request_thread_id: str,
 ) -> None:
     with psycopg.connect(admin_database_url) as conn:
-        set_current_user(conn, user_id)
         conn.execute(
             """
             UPDATE approvals
@@ -855,7 +851,6 @@ def test_execute_approved_proxy_endpoint_fail_closes_when_runtime_context_is_inv
 
     set_approval_request_thread_id(
         migrated_database_urls["admin"],
-        user_id=owner["user_id"],
         approval_id=UUID(create_payload["approval"]["id"]),
         request_thread_id="not-a-uuid",
     )
@@ -1322,7 +1317,6 @@ def test_execute_approved_proxy_endpoint_excludes_old_window_history_and_keeps_c
 
     set_execution_executed_at(
         migrated_database_urls["admin"],
-        user_id=owner["user_id"],
         execution_id=owner_first_execution_id,
         executed_at_sql="clock_timestamp() - interval '2 hours'",
     )

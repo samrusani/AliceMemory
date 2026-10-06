@@ -74,7 +74,7 @@ def test_postgres_derived_domain_upgrade_and_generation(database_urls):
         }
         assert store.get_artifact(str(report["id"]))["domain"] == "health"
         fresh = VNextBrainService(store).generate_daily_brief(
-            BrainArtifactRequest(sensitivity_allowed=ALL_SENSITIVITY, discover_open_loops=False)
+            BrainArtifactRequest(agent_identity=None, sensitivity_allowed=ALL_SENSITIVITY, discover_open_loops=False)
         )
         assert fresh["domain"] == "health"
     # The data-only downgrade retains safe labels, and repeating the upgrade is harmless.

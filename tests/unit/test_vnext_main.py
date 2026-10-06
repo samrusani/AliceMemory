@@ -3003,7 +3003,7 @@ def test_generic_artifact_review_preserves_applied_project_update_state(monkeypa
     _install_fake_vnext_store(monkeypatch, store)
     user_id = uuid4()
     artifact = VNextProjectService(store).generate_project_update_candidate(
-        vnext_automation.ProjectAutomationRequest(project_id="project-1", domains=("project",))
+        vnext_automation.ProjectAutomationRequest(agent_identity=None, project_id="project-1", domains=("project",))
     )
     artifact_id = str(artifact["id"])
     candidate_memory_id = str(artifact["metadata_json"]["candidate_memory_id"])
@@ -3052,7 +3052,7 @@ def _http_project_update_review_fixture() -> tuple[FakeVNextStore, dict[str, obj
         },
     }
     artifact = VNextProjectService(store).generate_project_update_candidate(
-        vnext_automation.ProjectAutomationRequest(project_id="project-1", domains=("project",))
+        vnext_automation.ProjectAutomationRequest(agent_identity=None, project_id="project-1", domains=("project",))
     )
     return store, artifact
 
@@ -3109,7 +3109,7 @@ def _apply_supported_http_memory_lifecycle(
 def _accept_later_http_project_update(store: FakeVNextStore, *, first_artifact_id: str) -> None:
     service = VNextProjectService(store)
     later = service.generate_project_update_candidate(
-        vnext_automation.ProjectAutomationRequest(project_id="project-1", domains=("project",))
+        vnext_automation.ProjectAutomationRequest(agent_identity=None, project_id="project-1", domains=("project",))
     )
     assert later["id"] != first_artifact_id
     service.review_project_update(

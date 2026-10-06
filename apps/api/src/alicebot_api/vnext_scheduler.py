@@ -1775,6 +1775,7 @@ class VNextSchedulerService:
                 policy_decision_value = metadata.get("policy_decision")
                 return VNextProjectService(self.store).generate_project_update_candidate(
                     ProjectAutomationRequest(
+                        agent_identity=_logical_agent_identity(request.agent_identity),
                         domains=request.domains,
                         sensitivity_allowed=request.sensitivity_allowed,
                         project_id=str(projects[0]["id"]),

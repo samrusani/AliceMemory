@@ -93,7 +93,7 @@ def _stage(stage, store):
         tree = VNextContextTreeService(store).build_tree(ContextTreeRequest(domains=("project",), sensitivity_allowed=tuple(CEILING)))
         return next(root["children"] for root in tree["roots"] if root["id"] == "root:" + stage.removeprefix("context_"))
     if stage == "project_resolution":
-        try: return [VNextProjectService(store)._resolve_project(ProjectAutomationRequest(domains=("project",), sensitivity_allowed=tuple(CEILING)))]
+        try: return [VNextProjectService(store)._resolve_project(ProjectAutomationRequest(agent_identity=None, domains=("project",), sensitivity_allowed=tuple(CEILING)))]
         except VNextProjectValidationError: return []
     if stage == "dashboard_lists":
         result = VNextProjectService(store).project_dashboard(project_id=ALPHA, identity=AgentIdentity(agent_id="trusted", permission_profile="trusted_local_agent"))

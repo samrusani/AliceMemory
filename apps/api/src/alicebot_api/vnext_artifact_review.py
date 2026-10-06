@@ -40,9 +40,7 @@ def dispatch_vnext_artifact_review(
     lock_graph = getattr(store, "lock_graph_mutation", None)
     if callable(lock_graph):
         lock_graph()
-        from alicebot_api.vnext_label_writes import acquire_exclusive_label_lock
-
-        acquire_exclusive_label_lock(store)
+        lock_artifact_review_labels(store, artifact_id=artifact_id, action=action)
     target = store.get_artifact_for_update(artifact_id)
     if target is None:
         raise VNextQueueNotFoundError(f"artifact {artifact_id} was not found")
@@ -73,6 +71,24 @@ def dispatch_vnext_artifact_review(
         artifact=reviewed,
         deferred_embedding_inputs=queue_service.deferred_embedding_inputs,
     )
+
+
+def lock_artifact_review_labels(store, *, artifact_id: str, action: str) -> None:
+    """Project acceptance changes labels; ordinary artifact review does not."""
+    from alicebot_api.vnext_label_writes import acquire_exclusive_label_lock
+
+    if not callable(getattr(store, "lock_label_writes", None)):
+        return
+    getter = getattr(store, "get_artifact", None)
+    target = getter(artifact_id) if callable(getter) else None
+    # Older adapters expose only the locking read. Until that read establishes
+    # the type, acceptance may change a project label and needs exclusivity.
+    if (target is None or is_project_update_artifact(target)) and action in {"accept", "edit", "promote"}:
+        acquire_exclusive_label_lock(store)
+    else:
+        lock = getattr(store, "lock_label_writes", None)
+        if callable(lock):
+            lock()
 
 
 __all__ = [

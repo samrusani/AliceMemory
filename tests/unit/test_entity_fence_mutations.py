@@ -25,7 +25,7 @@ from alicebot_api.mcp import registry
 
 def kill(owner, name, before, after, check):
     original = getattr(owner, name)
-    function = original.fget if isinstance(original, property) else original
+    function = inspect.unwrap(original.fget if isinstance(original, property) else original)
     source = textwrap.dedent(inspect.getsource(function))
     assert before in source, f'mutation no longer matches: {name}: {before}'
     namespace = dict(function.__globals__)

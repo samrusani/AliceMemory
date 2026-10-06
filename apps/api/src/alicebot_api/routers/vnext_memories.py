@@ -816,11 +816,13 @@ def review_vnext_source(source_id: UUID, request: VNextSourceReviewRequest) -> J
         with user_connection(settings.database_url, request.user_id) as conn:
             store = PostgresVNextStore(conn)
             label_change = request.domain is not None or request.sensitivity is not None or request.project_id is not None
+            store.lock_graph_mutation()
             if label_change:
-                store.lock_graph_mutation()
                 from alicebot_api.vnext_label_writes import acquire_exclusive_label_lock
 
                 acquire_exclusive_label_lock(store)
+            else:
+                store.lock_label_writes()
             existing = store.get_source(str(source_id))
             if existing is None:
                 return _vnext_public_error_response(status_code=404, detail="vNext source was not found")
@@ -1068,17 +1070,18 @@ def review_vnext_memory(
             # graph boundary before the route takes any candidate/member row lock;
             # delegated service calls may safely reacquire the transaction lock.
             memory_service.lock_supersession_graph()
-            # A status-only review can also raise stale derived labels at the
-            # owner floor, so acquire the label lock before reading for update.
-            from alicebot_api.vnext_label_writes import acquire_exclusive_label_lock
-
-            acquire_exclusive_label_lock(store)
             label_change = (
                 request.domain is not None
                 or request.sensitivity is not None
                 or request.project_id is not None
                 or action in {"private", "assign_project"}
             )
+            from alicebot_api.vnext_label_writes import acquire_exclusive_label_lock
+
+            if label_change:
+                acquire_exclusive_label_lock(store)
+            else:
+                store.lock_label_writes()
             preview = store.get_memory(str(memory_id))
             if preview is None:
                 return _vnext_public_error_response(status_code=404, detail="vNext memory was not found")

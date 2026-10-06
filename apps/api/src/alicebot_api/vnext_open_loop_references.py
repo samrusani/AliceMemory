@@ -133,7 +133,7 @@ def withhold_unreadable_references(
             memory_ids.add(memory)
             referenced.add(memory)
         named = cited_source_ids(row.get("metadata_json")).named
-        metadata_ids.update(named)
+        metadata_ids.update(cited_source_ids(row.get("metadata_json")).every)
         referenced.update(named)
         _collect_ids(row.get("metadata_json"), metadata_ids, referenced, at_reference=False, depth=0)
     source_rows = _rows_by_id(store, sorted(source_ids | metadata_ids), bulk="get_sources_by_ids", single="get_source")
@@ -376,17 +376,20 @@ def _scrub_text(text: str, *, withheld: frozenset[str]) -> object:
     return "".join(pieces)
 
 
-def _scrub(value: object, *, depth: int, withheld: frozenset[str]) -> object:
+def _scrub(value: object, *, depth: int, withheld: frozenset[str], at_reference: bool = False) -> object:
     if depth > _METADATA_MAX_DEPTH:
         return _DROPPED
     if isinstance(value, str):
         decoded = _json_container(value)
         if decoded is not None:
-            checked = _scrub(decoded, depth=depth + 1, withheld=withheld)
+            checked = _scrub(decoded, depth=depth + 1, withheld=withheld, at_reference=at_reference)
             if checked is _DROPPED:
                 return _DROPPED
             return value if checked == decoded else json.dumps(checked)
-        return _scrub_text(value, withheld=withheld)
+        cut = _scrub_text(value, withheld=withheld)
+        if isinstance(cut, str) and cited_source_ids(cut).every & withheld:
+            return _DROPPED
+        return cut
     if isinstance(value, Mapping):
         output: dict[object, object] = {}
         for key, nested in value.items():
@@ -395,13 +398,16 @@ def _scrub(value: object, *, depth: int, withheld: frozenset[str]) -> object:
                 new_key = _scrub_text(key, withheld=withheld)
                 if new_key is _DROPPED:
                     continue
-            new_value = _scrub(nested, depth=depth + 1, withheld=withheld)
+                if cited_source_ids(new_key).every & withheld:
+                    continue
+            names_reference = isinstance(key, str) and key.lower() in _REFERENCE_KEYS | {"sources"}
+            new_value = _scrub(nested, depth=depth + 1, withheld=withheld, at_reference=at_reference or names_reference)
             if new_value is _DROPPED:
                 continue
             output[new_key] = new_value
         return output
     if isinstance(value, Sequence) and not isinstance(value, (bytes, bytearray)):
-        items = (_scrub(nested, depth=depth + 1, withheld=withheld) for nested in value)
+        items = (_scrub(nested, depth=depth + 1, withheld=withheld, at_reference=at_reference) for nested in value)
         return [item for item in items if item is not _DROPPED]
     return value
 

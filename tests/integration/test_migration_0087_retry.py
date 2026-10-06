@@ -5,7 +5,6 @@ import psycopg
 import pytest
 
 from alicebot_api.migrations import make_alembic_config
-from tests.integration.test_migrations import _set_fixture_identity
 
 
 _PARTIALLY_COMMITTED_SCHEMA = (
@@ -91,7 +90,6 @@ def test_0087_retries_after_committed_ddl_and_invalid_concurrent_unique_index(
 
     user_id = "00000000-0000-0000-0000-000000008701"
     with psycopg.connect(database_url) as conn:
-        _set_fixture_identity(conn, user_id=user_id)
         with conn.cursor() as cur:
             for statement in _PARTIALLY_COMMITTED_SCHEMA:
                 cur.execute(statement)
@@ -131,7 +129,6 @@ def test_0087_retries_after_committed_ddl_and_invalid_concurrent_unique_index(
     # catalog row. This models an operator correcting the build cause before
     # rerunning the still-unapplied Alembic revision.
     with psycopg.connect(database_url) as conn:
-        _set_fixture_identity(conn, user_id=user_id)
         with conn.cursor() as cur:
             cur.execute(
                 """

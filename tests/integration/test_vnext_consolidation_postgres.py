@@ -95,7 +95,7 @@ def test_rollup_candidate_round_trips_and_acceptance_promotes_it(
             )
 
         artifact = VNextConsolidationService(store).generate_memory_consolidation(
-            MemoryConsolidationRequest()
+            MemoryConsolidationRequest(agent_identity=None, )
         )
         rollups = artifact["metadata_json"]["rollups"]
         assert rollups["enabled"] is True

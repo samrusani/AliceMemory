@@ -141,7 +141,7 @@ def test_daily_brief_generates_dated_reviewable_artifact_with_sources_and_open_l
     store = _seed_store()
 
     artifact = VNextBrainService(store).generate_daily_brief(
-        BrainArtifactRequest(generated_for="2026-05-10", domains=("project",))
+        BrainArtifactRequest(agent_identity=None, generated_for="2026-05-10", domains=("project",))
     )
 
     assert artifact["artifact_type"] == "daily_brief"
@@ -176,7 +176,7 @@ def test_daily_brief_respects_sensitivity_filtering() -> None:
     )
 
     artifact = VNextBrainService(store).generate_daily_brief(
-        BrainArtifactRequest(
+        BrainArtifactRequest(agent_identity=None,
             generated_for="2026-05-10",
             domains=("project",),
             sensitivity_allowed=("public", "private"),
@@ -191,7 +191,7 @@ def test_weekly_synthesis_creates_candidate_memory_without_auto_promotion() -> N
     store = _seed_store()
 
     artifact = VNextBrainService(store).generate_weekly_synthesis(
-        BrainArtifactRequest(generated_for="2026-05-10", domains=("project",))
+        BrainArtifactRequest(agent_identity=None, generated_for="2026-05-10", domains=("project",))
     )
 
     assert artifact["artifact_type"] == "weekly_synthesis"
@@ -211,7 +211,7 @@ def test_weekly_synthesis_can_skip_candidate_memory_creation() -> None:
     store = _seed_store()
 
     artifact = VNextBrainService(store).generate_weekly_synthesis(
-        BrainArtifactRequest(
+        BrainArtifactRequest(agent_identity=None,
             generated_for="2026-05-10",
             domains=("project",),
             create_candidate_memories=False,
@@ -226,7 +226,7 @@ def test_daily_brief_model_backed_mode_stores_provider_metadata_and_review_only_
     store = _seed_store()
 
     artifact = VNextBrainService(store).generate_daily_brief(
-        BrainArtifactRequest(
+        BrainArtifactRequest(agent_identity=None,
             generated_for="2026-05-10",
             domains=("project",),
             generation_mode="model_backed",
@@ -250,7 +250,7 @@ def test_weekly_synthesis_model_backed_mode_keeps_candidate_memory_reviewable() 
     store = _seed_store()
 
     artifact = VNextBrainService(store).generate_weekly_synthesis(
-        BrainArtifactRequest(
+        BrainArtifactRequest(agent_identity=None,
             generated_for="2026-05-10",
             domains=("project",),
             generation_mode="model_backed",
@@ -284,14 +284,14 @@ def test_daily_and_weekly_reports_use_true_half_open_time_windows() -> None:
         )
 
     daily = VNextBrainService(store).generate_daily_brief(
-        BrainArtifactRequest(
+        BrainArtifactRequest(agent_identity=None,
             generated_for="2026-05-10",
             domains=("project",),
             discover_open_loops=False,
         )
     )
     weekly = VNextBrainService(store).generate_weekly_synthesis(
-        BrainArtifactRequest(
+        BrainArtifactRequest(agent_identity=None,
             generated_for="2026-05-10",
             domains=("project",),
             create_candidate_memories=False,
@@ -334,7 +334,7 @@ def test_daily_brief_applies_project_scope_before_bounded_legacy_limit() -> None
     )
 
     artifact = VNextBrainService(store).generate_daily_brief(
-        BrainArtifactRequest(
+        BrainArtifactRequest(agent_identity=None,
             generated_for="2026-05-10",
             domains=("project",),
             projects=("project-a",),
@@ -365,14 +365,14 @@ def test_brain_source_scope_uses_complete_persisted_envelope_for_filtering_and_d
     scoped_store = InMemoryVNextBrainStore()
     scoped_store.sources.extend((source("empty-source", []), source("real-source", ["real"])))
     real = VNextBrainService(scoped_store).generate_daily_brief(
-        BrainArtifactRequest(
+        BrainArtifactRequest(agent_identity=None,
             generated_for="2026-05-10",
             projects=("real",),
             discover_open_loops=False,
         )
     )
     stale = VNextBrainService(scoped_store).generate_daily_brief(
-        BrainArtifactRequest(
+        BrainArtifactRequest(agent_identity=None,
             generated_for="2026-05-10",
             projects=("stale",),
             discover_open_loops=False,
@@ -385,7 +385,7 @@ def test_brain_source_scope_uses_complete_persisted_envelope_for_filtering_and_d
     daily_store = InMemoryVNextBrainStore()
     daily_store.sources.extend((source("empty-source", []), source("real-source", ["real"])))
     daily = VNextBrainService(daily_store).generate_daily_brief(
-        BrainArtifactRequest(generated_for="2026-05-10")
+        BrainArtifactRequest(agent_identity=None, generated_for="2026-05-10")
     )
     loops_by_source = {row["source_id"]: row for row in daily_store.open_loops}
 
@@ -396,7 +396,7 @@ def test_brain_source_scope_uses_complete_persisted_envelope_for_filtering_and_d
     weekly_store = InMemoryVNextBrainStore()
     weekly_store.sources.extend((source("empty-source", []), source("real-source", ["real"])))
     weekly = VNextBrainService(weekly_store).generate_weekly_synthesis(
-        BrainArtifactRequest(generated_for="2026-05-10")
+        BrainArtifactRequest(agent_identity=None, generated_for="2026-05-10")
     )
 
     assert weekly["metadata_json"]["project_scope"] == ["real"]
@@ -407,7 +407,7 @@ def test_brain_request_validation_rejects_bad_dates_and_limits() -> None:
     service = VNextBrainService(InMemoryVNextBrainStore())
 
     with pytest.raises(VNextBrainValidationError, match="generated_for"):
-        service.generate_daily_brief(BrainArtifactRequest(generated_for="10-05-2026"))
+        service.generate_daily_brief(BrainArtifactRequest(agent_identity=None, generated_for="10-05-2026"))
 
     with pytest.raises(VNextBrainValidationError, match="source_limit"):
-        service.generate_weekly_synthesis(BrainArtifactRequest(source_limit=0))
+        service.generate_weekly_synthesis(BrainArtifactRequest(agent_identity=None, source_limit=0))

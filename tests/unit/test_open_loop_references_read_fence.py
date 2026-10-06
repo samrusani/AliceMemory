@@ -1293,7 +1293,7 @@ _LOOP_READERS: dict[tuple[str, str, str], str] = {
     ("list_open_loops", "vnext_scheduler.py", "_generate_open_loop_review_artifact"): _FENCED,
     ("list_open_loops_referencing_source", "routers/_vnext_shared.py", "_vnext_load_source_trace"): _FENCED,
     ("project_dashboard", "cli/automation.py", "_run_vnext_project_dashboard"): _OPERATOR,
-    ("project_dashboard", "mcp/projects.py", "_handle_alice_project_dashboard"): _OWNER,
+    ("project_dashboard", "mcp/projects.py", "_handle_alice_project_dashboard"): _SENSITIVITY,
     ("project_dashboard", "routers/vnext_projects.py", "get_vnext_project_dashboard"): _SENSITIVITY,
     ("project_dashboard", "routers/workspaces.py", "_vnext_workspace_payload"): _FENCED,
     ("review_open_loop", "cli/automation.py", "_run_vnext_open_loop_review"): _OPERATOR,

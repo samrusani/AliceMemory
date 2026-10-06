@@ -57,11 +57,14 @@ def test_daily_brief_keeps_a_free_form_project_out_of_the_uuid_column(migrated_d
             actor_type="user",
         )
         project_id = str(project["id"])
+        second = store.create_project({"name": "Second", "slug": "second", "domain": "project", "sensitivity": "internal"})
+        second_id = str(second["id"])
+        _source(store, projects=[project_id, second_id], title="Two UUID projects", line="TODO: publish both uuid projects")
         _source(store, projects=["Alice"], title="Named project", line="TODO: publish the named note")
         _source(store, projects=[project_id], title="Uuid project", line="TODO: publish the uuid note")
         _source(store, projects=["Alice", "Bob"], title="Two projects", line="TODO: publish the pair")
         VNextBrainService(store).generate_daily_brief(
-            BrainArtifactRequest(sensitivity_allowed=ALL_SENSITIVITY, discover_open_loops=True)
+            BrainArtifactRequest(agent_identity=None, sensitivity_allowed=ALL_SENSITIVITY, discover_open_loops=True)
         )
         loops = store.list_open_loops(
             status="open",
@@ -72,3 +75,4 @@ def test_daily_brief_keeps_a_free_form_project_out_of_the_uuid_column(migrated_d
     assert by_scope[("Alice",)] == ""
     assert by_scope[(project_id,)] == project_id
     assert by_scope[("Alice", "Bob")] == ""
+    assert by_scope[tuple(sorted((project_id, second_id)))] == ""

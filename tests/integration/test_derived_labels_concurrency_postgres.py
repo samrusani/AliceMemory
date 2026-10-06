@@ -50,7 +50,7 @@ def test_a_report_built_from_stale_inputs_is_floored_at_insert(label_harness, mo
         start = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
         stale = deepcopy(
             VNextBrainService(store)._load_inputs(
-                BrainArtifactRequest(generated_for=today()), window_start=start, window_end=start + timedelta(days=1)
+                BrainArtifactRequest(agent_identity=None, generated_for=today()), window_start=start, window_end=start + timedelta(days=1)
             )
         )
     assert str(source["id"]) in [str(row["id"]) for row in stale[0]]
@@ -59,7 +59,7 @@ def test_a_report_built_from_stale_inputs_is_floored_at_insert(label_harness, mo
     status, body, _ = h.request(
         "POST",
         "/v0/vnext/artifacts/generate/daily-brief",
-        payload={"options": {"generated_for": today(), "discover_open_loops": False}},
+        payload={"options": {"generated_for": today(), "discover_open_loops": True}},
         key=reader,
     )
     assert status == 201, body
@@ -67,6 +67,11 @@ def test_a_report_built_from_stale_inputs_is_floored_at_insert(label_harness, mo
     # The 201 is the read made at selection; the durable row has the current floor.
     with h.store() as store:
         assert_raised(store.get_artifact(str(body["id"])))
+        loops = store.list_open_loops(status=None, sensitivity_allowed=["confidential", "regulated"], limit=50)
+        assert loops
+        for loop in loops:
+            assert_raised(loop)
+            assert "project_floor" in loop["metadata_json"]
     assert h.request("GET", f"/v0/vnext/artifacts/{body['id']}", key=reader)[0] == 403
 
 
@@ -76,7 +81,7 @@ def test_a_relabel_waits_for_an_open_generation_and_then_labels_its_report(label
     response = []
     with h.store() as store:
         report = VNextBrainService(store).generate_daily_brief(
-            BrainArtifactRequest(generated_for=today(), discover_open_loops=False)
+            BrainArtifactRequest(agent_identity=None, generated_for=today(), discover_open_loops=False)
         )
         thread, failures = _thread(
             lambda: response.append(h.relabel("source", source["id"], domain="health", sensitivity="confidential"))
@@ -116,7 +121,7 @@ def test_a_relabel_behind_a_slow_provider_call_answers_retryable_and_changes_not
         with h.store() as store:
             generated.append(
                 VNextBrainService(store).generate_daily_brief(
-                    BrainArtifactRequest(generated_for=today(), generation_mode="model_backed")
+                    BrainArtifactRequest(agent_identity=None, generated_for=today(), generation_mode="model_backed")
                 )
             )
 
@@ -158,7 +163,7 @@ def test_a_scheduler_plan_staged_before_a_relabel_is_floored_at_publish(label_ha
     with h.store() as store:
         staged = _StagedSchedulerStore(store)
         report = VNextBrainService(staged).generate_daily_brief(
-            BrainArtifactRequest(generated_for=today(), discover_open_loops=False)
+            BrainArtifactRequest(agent_identity=None, generated_for=today(), discover_open_loops=False)
         )
         plan = staged.plan(report)
     assert h.relabel("source", source["id"], domain="health", sensitivity="confidential")[0] == 200
@@ -261,11 +266,11 @@ def test_every_entry_point_that_locks_a_row_and_a_relabel_never_deadlock(label_h
                     source_id=str(source["id"]), patch={"metadata_json": {"project_scope": [str(project["id"])]}}
                 )
                 artifact = VNextProjectService(store).generate_project_update_candidate(
-                    ProjectAutomationRequest(project_id=str(project["id"]))
+                    ProjectAutomationRequest(agent_identity=None, project_id=str(project["id"]))
                 )
             else:
                 artifact = VNextBrainService(store).generate_daily_brief(
-                    BrainArtifactRequest(generated_for=today(), discover_open_loops=False)
+                    BrainArtifactRequest(agent_identity=None, generated_for=today(), discover_open_loops=False)
                 )
         row_locked, release = Event(), Event()
 
@@ -367,7 +372,7 @@ def test_each_row_locker_holds_the_shared_label_lock(label_harness, method):
     with h.store() as store:
         project = store.create_project({"name": "Synthetic locker", "slug": "synthetic-locker"})
         artifact = VNextBrainService(store).generate_daily_brief(
-            BrainArtifactRequest(generated_for=today(), discover_open_loops=False)
+            BrainArtifactRequest(agent_identity=None, generated_for=today(), discover_open_loops=False)
         )
     row_id = {
         "get_artifact_for_update": artifact["id"],

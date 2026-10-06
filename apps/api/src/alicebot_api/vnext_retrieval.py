@@ -102,7 +102,7 @@ from alicebot_api.vnext_embeddings import (
 from alicebot_api.vnext_event_log import append_event
 from alicebot_api.vnext_grounding import compute_query_grounding
 from alicebot_api.vnext_json import json_safe
-from alicebot_api.vnext_label_guard import LabelGuard, admit_loaded
+from alicebot_api.vnext_label_guard import LabelGuard, admit_loaded, label_read_request
 from alicebot_api.vnext_lifecycle import RETIRED_STATUSES
 from alicebot_api.vnext_promotion_policy import memory_write_provenance
 from alicebot_api.vnext_project_scope import (
@@ -2714,20 +2714,28 @@ class VNextRetrievalService:
         normalized_ids = tuple(dict.fromkeys(str(memory_id) for memory_id in memory_ids if memory_id))
         if not normalized_ids:
             return {}
+        from alicebot_api.vnext_label_guard import request_row_cache
+
+        cached = request_row_cache(self.store, "retrieval_memories")
+        requested_ids = tuple(item for item in normalized_ids if cached is None or item not in cached)
         bulk = getattr(self.store, "get_memories_by_ids", None)
         if callable(bulk):
             rows = [
                 row
-                for start in range(0, len(normalized_ids), MEMORY_ID_LOOKUP_BATCH_SIZE)
-                for row in bulk(normalized_ids[start : start + MEMORY_ID_LOOKUP_BATCH_SIZE])
+                for start in range(0, len(requested_ids), MEMORY_ID_LOOKUP_BATCH_SIZE)
+                for row in bulk(requested_ids[start : start + MEMORY_ID_LOOKUP_BATCH_SIZE])
             ]
         else:
             get_memory = getattr(self.store, "get_memory", None)
             rows = (
-                [row for memory_id in normalized_ids if (row := get_memory(memory_id)) is not None]
+                [row for memory_id in requested_ids if (row := get_memory(memory_id)) is not None]
                 if callable(get_memory)
                 else []
             )
+        if cached is not None:
+            cached.update({item: None for item in requested_ids})
+            cached.update({str(row.get("id")): row for row in rows})
+            rows = [cached[item] for item in normalized_ids if cached.get(item) is not None]
         rows = admit_loaded(
             self.store,
             kind="memory",
@@ -4052,6 +4060,7 @@ class VNextRetrievalService:
         )
         return excerpts, stage_record
 
+    @label_read_request
     def compile_context_pack(self, request: VNextRetrievalRequest, *, source_fence: SourceReadFence) -> JsonObject:
         """Compile one context pack for a caller.
 
@@ -5415,6 +5424,11 @@ class VNextRetrievalService:
             "scope_window_end",
         )
         use_scoped_events = _supports_explicit_parameters(list_memory_events, scoped_event_parameters)
+        event_ceiling = (
+            {"sensitivity_allowed": sensitivity_allowed}
+            if _supports_explicit_parameters(list_memory_events, ("sensitivity_allowed",))
+            else {}
+        )
 
         def _fetch_events(row_limit: int) -> tuple[list[JsonObject], str]:
             # The store applies project, person and time scope before its LIMIT.
@@ -5434,6 +5448,7 @@ class VNextRetrievalService:
                             scope_person_memory_ids=tuple(sorted(person_linked_memory_ids)),
                             scope_window_start=scope.window_start,
                             scope_window_end=scope.window_end,
+                            **event_ceiling,
                             limit=row_limit,
                         )
                     ),

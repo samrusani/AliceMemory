@@ -12,9 +12,8 @@ import pytest
 import alicebot_api.main as main_module
 from alicebot_api.routers import memories_legacy as memories_legacy_router
 from alicebot_api.config import Settings
-from alicebot_api.db import set_current_user, user_connection
+from alicebot_api.db import user_connection
 from alicebot_api.store import ContinuityStore
-from tests.integration.conftest import assert_append_only_mutation_refused
 
 
 def invoke_compile_context(payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
@@ -663,13 +662,9 @@ def test_compile_context_endpoint_persists_trace_and_trace_events(migrated_datab
     assert trace_events[-1]["payload"]["excluded_entity_edge_limit_count"] == 1
 
     with psycopg.connect(migrated_database_urls["admin"]) as conn:
-        set_current_user(conn, user_id)
-        assert_append_only_mutation_refused(
-            conn,
-            snapshot_sql="SELECT * FROM trace_events WHERE trace_id = %s ORDER BY id",
-            mutation_sql="UPDATE trace_events SET kind = 'mutated' WHERE trace_id = %s",
-            params=(trace_id,),
-        )
+        with conn.cursor() as cur:
+            with pytest.raises(psycopg.Error, match="append-only"):
+                cur.execute("UPDATE trace_events SET kind = 'mutated' WHERE trace_id = %s", (trace_id,))
 
 
 def test_compile_context_prefers_updated_active_memory_within_same_transaction(

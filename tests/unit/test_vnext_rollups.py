@@ -1630,7 +1630,7 @@ def test_consolidation_run_proposes_rollups_and_stays_review_only(monkeypatch) -
     shim = ArtifactShim(store)
     members = _seed_live_game_memories(store)
     artifact = VNextConsolidationService(shim, embedding_provider=None).generate_memory_consolidation(
-        MemoryConsolidationRequest()
+        MemoryConsolidationRequest(agent_identity=None, )
     )
 
     candidates = _rollup_candidates(store)
@@ -1667,7 +1667,7 @@ def test_consolidation_run_with_rollups_disabled_creates_none(monkeypatch) -> No
 
     _seed_live_game_memories(store)
     artifact = VNextConsolidationService(ArtifactShim(store), embedding_provider=None).generate_memory_consolidation(
-        MemoryConsolidationRequest(propose_rollups=False)
+        MemoryConsolidationRequest(agent_identity=None, propose_rollups=False)
     )
     assert _rollup_candidates(store) == []
     assert artifact["metadata_json"]["rollups"] == {"enabled": False}

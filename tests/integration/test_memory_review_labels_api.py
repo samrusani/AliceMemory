@@ -13,10 +13,9 @@ import alicebot_api.main as main_module
 from alicebot_api.routers import memories_legacy as memories_legacy_router
 from alicebot_api.config import Settings
 from alicebot_api.contracts import MemoryCandidateInput
-from alicebot_api.db import set_current_user, user_connection
+from alicebot_api.db import user_connection
 from alicebot_api.memory import admit_memory_candidate
 from alicebot_api.store import ContinuityStore
-from tests.integration.conftest import assert_append_only_mutation_refused
 
 
 def invoke_request(
@@ -297,22 +296,20 @@ def test_memory_review_labels_reject_update_and_delete_at_database_level(migrate
         )
 
     with psycopg.connect(migrated_database_urls["admin"]) as conn:
-        set_current_user(conn, UUID(seeded["user_id"]))
-        assert_append_only_mutation_refused(
-            conn,
-            snapshot_sql="SELECT * FROM memory_review_labels WHERE id = %s",
-            mutation_sql="UPDATE memory_review_labels SET label = 'incorrect' WHERE id = %s",
-            params=(label['id'],),
-        )
+        with pytest.raises(psycopg.Error, match="append-only"):
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE memory_review_labels SET label = 'incorrect' WHERE id = %s",
+                    (label["id"],),
+                )
 
     with psycopg.connect(migrated_database_urls["admin"]) as conn:
-        set_current_user(conn, UUID(seeded["user_id"]))
-        assert_append_only_mutation_refused(
-            conn,
-            snapshot_sql="SELECT * FROM memory_review_labels WHERE id = %s",
-            mutation_sql='DELETE FROM memory_review_labels WHERE id = %s',
-            params=(label['id'],),
-        )
+        with pytest.raises(psycopg.Error, match="append-only"):
+            with conn.cursor() as cur:
+                cur.execute(
+                    "DELETE FROM memory_review_labels WHERE id = %s",
+                    (label["id"],),
+                )
 
 
 def test_memory_review_label_endpoints_enforce_per_user_isolation_and_not_found_behavior(

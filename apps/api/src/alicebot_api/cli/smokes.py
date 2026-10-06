@@ -654,7 +654,7 @@ def _run_vnext_smoke_capture_to_brief(ctx: CLIContext, _args: argparse.Namespace
             source_fence=_SourceReadFence.unfenced()
         )
         artifact = VNextBrainService(store).generate_daily_brief(
-            BrainArtifactRequest(
+            BrainArtifactRequest(agent_identity=None,
                 domains=("project",), sensitivity_allowed=("private", "unknown"), generated_for="2026-05-11"
             )
         )
@@ -818,7 +818,7 @@ def _run_vnext_smoke_operator_console(ctx: CLIContext, _args: argparse.Namespace
             actor_type="user",
         )
         artifact = VNextBrainService(store).generate_daily_brief(
-            BrainArtifactRequest(
+            BrainArtifactRequest(agent_identity=None,
                 domains=("project",),
                 sensitivity_allowed=("private", "unknown"),
                 generated_for="2026-05-12",

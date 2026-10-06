@@ -45,7 +45,7 @@ def _project_request_from_arguments(arguments: Mapping[str, object]) -> ProjectA
         "private",
         "unknown",
     )
-    return ProjectAutomationRequest(
+    return ProjectAutomationRequest(agent_identity=None,
         domains=_parse_string_list(arguments, "domains"),
         sensitivity_allowed=sensitivity_allowed,
         project_id=_parse_optional_text(arguments, "project_id"),
@@ -113,6 +113,11 @@ def _handle_alice_project_update_review(context: MCPRuntimeContext, arguments: M
     actor_id: str | None = None
     trace_id: str | None = None
     with _vnext_store_context(context) as store:
+        from alicebot_api.vnext_artifact_review import lock_artifact_review_labels
+        lock_graph = getattr(store, "lock_graph_mutation", None)
+        if callable(lock_graph):
+            lock_graph()
+        lock_artifact_review_labels(store, artifact_id=artifact_id, action=_parse_required_text(arguments, "action"))
         _target, actor_type, actor_id, decision = _authorize_vnext_artifact_target(
             store,
             identity=identity,
@@ -172,6 +177,7 @@ def _handle_alice_project_dashboard(context: MCPRuntimeContext, arguments: Mappi
             VNextProjectService(store).project_dashboard(
                 project_id=_parse_required_text(arguments, "project_id"),
                 sensitivity_allowed=decision.effective_sensitivity_allowed,
+                identity=_agent_identity_from_arguments(context, arguments),
             )
         )
 

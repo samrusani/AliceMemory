@@ -29,8 +29,8 @@ def _run_vnext_labels_check(ctx: CLIContext, args: object) -> str:
         print(f"labels check failed: {exc}")
         raise SystemExit(1) from exc
     text = format_label_check(below, unverified)
-    print(text)
     if below or unverified:
+        print(text)
         raise SystemExit(1)
     return text
 
@@ -132,9 +132,11 @@ def _run_vnext_labels_repair(ctx: CLIContext, args: object) -> str:
         print(f"labels repair failed: {exc}")
         raise SystemExit(2) from exc
     except Exception as exc:
-        message = str(exc).lower()
-        if "lock" in message and "timeout" in message:
-            print("labels repair waited for the label lock and changed nothing")
+        from alicebot_api.vnext_label_writes import label_error_response
+
+        answer = label_error_response(exc)
+        if answer is not None and answer[0] == 503:
+            print(f"{answer[1]}; HTTP 503; Retry-After: 2")
             raise SystemExit(3) from exc
         raise
     return f"labels repair updated {applied}"

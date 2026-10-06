@@ -412,9 +412,7 @@ def redact_memory_flow(
         raise VNextMemoryCommitValidationError("reason is required to redact a memory")
     memory_service = VNextMemoryCommitService(store)
     memory_service.lock_supersession_graph()
-    from alicebot_api.vnext_label_writes import acquire_exclusive_label_lock
-
-    acquire_exclusive_label_lock(store)
+    store.lock_label_writes()
     memory = store.get_memory_for_redaction(memory_id)
     if memory is None:
         raise MemoryNotFoundError("memory was not found")

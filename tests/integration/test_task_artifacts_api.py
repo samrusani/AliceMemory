@@ -18,7 +18,7 @@ from alicebot_api.routers import legacy_gated as legacy_gated_router
 from alicebot_api.routers import memories_legacy as memories_legacy_router
 from alicebot_api.config import Settings
 from alicebot_api.artifacts import TASK_ARTIFACT_CHUNK_RETRIEVAL_MATCHING_RULE
-from alicebot_api.db import set_current_user, user_connection
+from alicebot_api.db import user_connection
 from alicebot_api.store import ContinuityStore
 
 
@@ -1742,7 +1742,6 @@ def test_task_artifact_ingestion_enforces_rooted_workspace_paths(
     assert register_status == 201
 
     with psycopg.connect(migrated_database_urls["admin"]) as conn:
-        set_current_user(conn, owner["user_id"])
         with conn.cursor() as cur:
             cur.execute(
                 """
@@ -1822,7 +1821,6 @@ def test_task_artifact_docx_ingestion_enforces_rooted_workspace_paths(
     assert register_status == 201
 
     with psycopg.connect(migrated_database_urls["admin"]) as conn:
-        set_current_user(conn, owner["user_id"])
         with conn.cursor() as cur:
             cur.execute(
                 """
@@ -1902,7 +1900,6 @@ def test_task_artifact_rfc822_ingestion_enforces_rooted_workspace_paths(
     assert register_status == 201
 
     with psycopg.connect(migrated_database_urls["admin"]) as conn:
-        set_current_user(conn, owner["user_id"])
         with conn.cursor() as cur:
             cur.execute(
                 """

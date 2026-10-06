@@ -402,20 +402,20 @@ def _service(store, mapping) -> VNextConsolidationService:
 def test_invalid_similarity_threshold_is_rejected() -> None:
     service = VNextConsolidationService(FakeConsolidationStore(), embedding_provider=None)
     with pytest.raises(VNextConsolidationValidationError):
-        service.generate_memory_consolidation(MemoryConsolidationRequest(similarity_threshold=1.5))
+        service.generate_memory_consolidation(MemoryConsolidationRequest(agent_identity=None, similarity_threshold=1.5))
     with pytest.raises(VNextConsolidationValidationError):
-        service.generate_memory_consolidation(MemoryConsolidationRequest(similarity_threshold=0.0))
+        service.generate_memory_consolidation(MemoryConsolidationRequest(agent_identity=None, similarity_threshold=0.0))
 
 
 def test_invalid_metadata_option_overrides_are_rejected() -> None:
     service = VNextConsolidationService(FakeConsolidationStore(), embedding_provider=None)
     with pytest.raises(VNextConsolidationValidationError):
         service.generate_memory_consolidation(
-            MemoryConsolidationRequest(metadata_json={"consolidation_options": {"similarity_threshold": "high"}})
+            MemoryConsolidationRequest(agent_identity=None, metadata_json={"consolidation_options": {"similarity_threshold": "high"}})
         )
     with pytest.raises(VNextConsolidationValidationError):
         service.generate_memory_consolidation(
-            MemoryConsolidationRequest(metadata_json={"consolidation_options": {"max_embedded_memories": 50000}})
+            MemoryConsolidationRequest(agent_identity=None, metadata_json={"consolidation_options": {"max_embedded_memories": 50000}})
         )
 
 
@@ -423,7 +423,7 @@ def test_max_embedded_memories_request_field_cannot_exceed_hard_cap() -> None:
     service = VNextConsolidationService(FakeConsolidationStore(), embedding_provider=None)
     with pytest.raises(VNextConsolidationValidationError):
         service.generate_memory_consolidation(
-            MemoryConsolidationRequest(max_embedded_memories=MAX_EMBEDDED_MEMORIES_HARD_CAP + 1)
+            MemoryConsolidationRequest(agent_identity=None, max_embedded_memories=MAX_EMBEDDED_MEMORIES_HARD_CAP + 1)
         )
 
 
@@ -443,7 +443,7 @@ def test_near_duplicates_produce_one_dedup_candidate_with_correct_members() -> N
     near_dups, distinct = _seed_six_memories(store, mapping)
     provider = MappedEmbeddingProvider(mapping)
     artifact = VNextConsolidationService(store, embedding_provider=provider).generate_memory_consolidation(
-        MemoryConsolidationRequest()
+        MemoryConsolidationRequest(agent_identity=None, )
     )
 
     candidates = _consolidation_candidates(store)
@@ -521,7 +521,7 @@ def test_consolidation_never_admits_a_single_link_bridge_chain() -> None:
     ]
 
     artifact = _service(store, mapping).generate_memory_consolidation(
-        MemoryConsolidationRequest(
+        MemoryConsolidationRequest(agent_identity=None,
             similarity_threshold=0.70,
             create_candidate_memories=False,
             propose_rollups=False,
@@ -551,7 +551,7 @@ def test_similarity_work_uses_float32_blocks_instead_of_a_dense_matrix() -> None
         )
 
     artifact = _service(store, mapping).generate_memory_consolidation(
-        MemoryConsolidationRequest(
+        MemoryConsolidationRequest(agent_identity=None,
             max_embedded_memories=member_count,
             create_candidate_memories=False,
             propose_rollups=False,
@@ -571,8 +571,8 @@ def test_rerun_with_same_input_set_creates_no_duplicate_candidate() -> None:
     mapping: dict[str, list[float]] = {}
     _seed_six_memories(store, mapping)
     service = _service(store, mapping)
-    first = service.generate_memory_consolidation(MemoryConsolidationRequest())
-    second = service.generate_memory_consolidation(MemoryConsolidationRequest())
+    first = service.generate_memory_consolidation(MemoryConsolidationRequest(agent_identity=None, ))
+    second = service.generate_memory_consolidation(MemoryConsolidationRequest(agent_identity=None, ))
 
     candidates = _consolidation_candidates(store)
     assert len(candidates) == 1
@@ -626,13 +626,13 @@ def test_exact_report_idempotency_survives_decoys_and_tracks_behavior_config() -
             }
         )
     service = _service(store, mapping)
-    request = MemoryConsolidationRequest(propose_rollups=False, max_clusters=20)
+    request = MemoryConsolidationRequest(agent_identity=None, propose_rollups=False, max_clusters=20)
 
     first = service.generate_memory_consolidation(request)
     candidate_count = len(_consolidation_candidates(store))
     second = service.generate_memory_consolidation(request)
     changed = service.generate_memory_consolidation(
-        MemoryConsolidationRequest(propose_rollups=False, max_clusters=19)
+        MemoryConsolidationRequest(agent_identity=None, propose_rollups=False, max_clusters=19)
     )
 
     assert second["id"] == first["id"]
@@ -646,7 +646,7 @@ def test_without_embedding_provider_clustering_is_skipped_review_only() -> None:
     mapping: dict[str, list[float]] = {}
     _seed_six_memories(store, mapping)
     service = VNextConsolidationService(store, embedding_provider=None)
-    artifact = service.generate_memory_consolidation(MemoryConsolidationRequest())
+    artifact = service.generate_memory_consolidation(MemoryConsolidationRequest(agent_identity=None, ))
 
     assert _consolidation_candidates(store) == []
     assert "no_embedding_provider_configured" in artifact["metadata_json"]["consolidation"]["skipped"]
@@ -666,7 +666,7 @@ def test_embedding_presence_failure_uses_static_skip_reason() -> None:
 
     artifact = VNextConsolidationService(
         store, embedding_provider=MappedEmbeddingProvider(mapping)
-    ).generate_memory_consolidation(MemoryConsolidationRequest())
+    ).generate_memory_consolidation(MemoryConsolidationRequest(agent_identity=None, ))
 
     skipped = artifact["metadata_json"]["consolidation"]["skipped"]
     assert "embedding_presence_read_failed" in skipped
@@ -686,7 +686,7 @@ def test_embedding_provider_failure_uses_static_skip_reason() -> None:
 
     artifact = VNextConsolidationService(
         store, embedding_provider=FailingProvider(mapping)
-    ).generate_memory_consolidation(MemoryConsolidationRequest())
+    ).generate_memory_consolidation(MemoryConsolidationRequest(agent_identity=None, ))
 
     skipped = artifact["metadata_json"]["consolidation"]["skipped"]
     assert "embedding_provider_failed" in skipped
@@ -707,7 +707,7 @@ def test_embedded_rows_are_counted_even_when_the_ann_probe_misses_them() -> None
     near_dups, _distinct = _seed_six_memories(store, mapping)
     provider = MappedEmbeddingProvider(mapping)
     artifact = VNextConsolidationService(store, embedding_provider=provider).generate_memory_consolidation(
-        MemoryConsolidationRequest()
+        MemoryConsolidationRequest(agent_identity=None, )
     )
 
     candidates = _consolidation_candidates(store)
@@ -738,7 +738,7 @@ def test_memories_without_stored_embeddings_are_excluded() -> None:
     )
     provider = MappedEmbeddingProvider(mapping)
     artifact = VNextConsolidationService(store, embedding_provider=provider).generate_memory_consolidation(
-        MemoryConsolidationRequest()
+        MemoryConsolidationRequest(agent_identity=None, )
     )
     candidates = _consolidation_candidates(store)
     assert len(candidates) == 1
@@ -756,7 +756,7 @@ def test_cap_bound_is_applied_and_logged(caplog: pytest.LogCaptureFixture) -> No
     _seed_six_memories(store, mapping)
     with caplog.at_level(logging.INFO, logger="alicebot_api.vnext_consolidation"):
         artifact = _service(store, mapping).generate_memory_consolidation(
-            MemoryConsolidationRequest(max_embedded_memories=2)
+            MemoryConsolidationRequest(agent_identity=None, max_embedded_memories=2)
         )
     assert artifact["metadata_json"]["consolidation"]["bounded"] is True
     assert artifact["metadata_json"]["input_counts"]["active_memories"] == 6
@@ -782,7 +782,7 @@ def test_clustering_does_not_materialize_triangle_or_pair_index_lists(monkeypatc
     monkeypatch.setattr(np, "triu", _forbidden)
     monkeypatch.setattr(np, "where", _forbidden)
     artifact = _service(store, mapping).generate_memory_consolidation(
-        MemoryConsolidationRequest(propose_rollups=False)
+        MemoryConsolidationRequest(agent_identity=None, propose_rollups=False)
     )
 
     assert artifact["metadata_json"]["input_counts"]["clusters"] == 1
@@ -796,7 +796,7 @@ def test_threshold_override_via_metadata_json_options() -> None:
     mapping: dict[str, list[float]] = {}
     _seed_six_memories(store, mapping)
     artifact = _service(store, mapping).generate_memory_consolidation(
-        MemoryConsolidationRequest(metadata_json={"consolidation_options": {"similarity_threshold": 0.9999}})
+        MemoryConsolidationRequest(agent_identity=None, metadata_json={"consolidation_options": {"similarity_threshold": 0.9999}})
     )
     assert _consolidation_candidates(store) == []
     assert artifact["metadata_json"]["consolidation"]["similarity_threshold"] == 0.9999
@@ -820,7 +820,7 @@ def test_near_duplicate_clusters_are_partitioned_by_exact_project_scope() -> Non
         store,
         embedding_provider=MappedEmbeddingProvider(mapping),
     ).generate_memory_consolidation(
-        MemoryConsolidationRequest(min_cluster_size=2, propose_rollups=False)
+        MemoryConsolidationRequest(agent_identity=None, min_cluster_size=2, propose_rollups=False)
     )
 
     candidates = _consolidation_candidates(store)
@@ -866,7 +866,7 @@ def test_project_scoped_consolidation_filters_decoys_before_corpus_limit() -> No
     }
 
     artifact = _service(store, mapping).generate_memory_consolidation(
-        MemoryConsolidationRequest(
+        MemoryConsolidationRequest(agent_identity=None,
             projects=("project-a",),
             max_embedded_memories=2,
             min_cluster_size=2,
@@ -904,7 +904,7 @@ def test_preference_cluster_spanning_three_sources_is_reported_review_only() -> 
             source_event_ids=[f"event-{index}"],
             source_id=f"source-{index}",
         )
-    artifact = _service(store, mapping).generate_memory_consolidation(MemoryConsolidationRequest())
+    artifact = _service(store, mapping).generate_memory_consolidation(MemoryConsolidationRequest(agent_identity=None, ))
     reinforced = artifact["metadata_json"]["consolidation"]["reinforced_preferences"]
     assert len(reinforced) == 1
     assert reinforced[0]["distinct_source_count"] >= 3
@@ -931,7 +931,7 @@ def test_distinct_event_ids_do_not_count_as_independent_sources() -> None:
         )
 
     artifact = _service(store, mapping).generate_memory_consolidation(
-        MemoryConsolidationRequest(propose_rollups=False)
+        MemoryConsolidationRequest(agent_identity=None, propose_rollups=False)
     )
 
     assert artifact["metadata_json"]["consolidation"]["reinforced_preferences"] == []
@@ -941,7 +941,7 @@ def test_non_preference_cluster_is_not_reported_as_reinforced() -> None:
     store = FakeConsolidationStore()
     mapping: dict[str, list[float]] = {}
     _seed_six_memories(store, mapping)  # memory_type semantic
-    artifact = _service(store, mapping).generate_memory_consolidation(MemoryConsolidationRequest())
+    artifact = _service(store, mapping).generate_memory_consolidation(MemoryConsolidationRequest(agent_identity=None, ))
     assert artifact["metadata_json"]["consolidation"]["reinforced_preferences"] == []
 
 
@@ -962,7 +962,7 @@ def test_model_backed_merge_uses_stub_provider_and_records_provenance() -> None:
         merge_provider=stub,
     )
     artifact = service.generate_memory_consolidation(
-        MemoryConsolidationRequest(
+        MemoryConsolidationRequest(agent_identity=None,
             generation_mode="model_backed",
             model_route_mode="cloud_allowed",
             model_provider="mock",
@@ -990,7 +990,7 @@ def test_model_backed_with_deterministic_route_falls_back_to_dedup() -> None:
     near_dups, _ = _seed_six_memories(store, mapping)
     service = _service(store, mapping)
     service.generate_memory_consolidation(
-        MemoryConsolidationRequest(generation_mode="model_backed", sensitivity_allowed=("public", "internal"))
+        MemoryConsolidationRequest(agent_identity=None, generation_mode="model_backed", sensitivity_allowed=("public", "internal"))
     )
     candidates = _consolidation_candidates(store)
     assert len(candidates) == 1
@@ -1010,7 +1010,7 @@ def test_model_backed_approval_required_route_fails_before_any_writes() -> None:
     memory_count = len(store.memories)
     with pytest.raises(VNextModelIntelligenceError):
         _service(store, mapping).generate_memory_consolidation(
-            MemoryConsolidationRequest(
+            MemoryConsolidationRequest(agent_identity=None,
                 generation_mode="model_backed",
                 model_route_mode="cloud_requires_approval",
                 sensitivity_allowed=("public", "internal"),
@@ -1025,7 +1025,7 @@ def test_create_candidate_memories_false_lists_proposals_without_writes() -> Non
     mapping: dict[str, list[float]] = {}
     _seed_six_memories(store, mapping)
     artifact = _service(store, mapping).generate_memory_consolidation(
-        MemoryConsolidationRequest(create_candidate_memories=False)
+        MemoryConsolidationRequest(agent_identity=None, create_candidate_memories=False)
     )
     assert _consolidation_candidates(store) == []
     proposals = artifact["metadata_json"]["consolidation"]["proposals"]
@@ -1039,7 +1039,7 @@ def test_rollup_pass_skips_groups_covered_by_near_duplicate_clusters() -> None:
     store = FakeConsolidationStore()
     mapping: dict[str, list[float]] = {}
     _seed_six_memories(store, mapping)
-    artifact = _service(store, mapping).generate_memory_consolidation(MemoryConsolidationRequest())
+    artifact = _service(store, mapping).generate_memory_consolidation(MemoryConsolidationRequest(agent_identity=None, ))
 
     rollups = artifact["metadata_json"]["rollups"]
     assert rollups["enabled"] is True
@@ -1085,7 +1085,7 @@ def test_rollup_quality_gate_drops_junk_groups_and_is_disclosed() -> None:
             }
         )
     artifact = VNextConsolidationService(store, embedding_provider=None).generate_memory_consolidation(
-        MemoryConsolidationRequest()
+        MemoryConsolidationRequest(agent_identity=None, )
     )
 
     rollups = artifact["metadata_json"]["rollups"]
@@ -1102,7 +1102,7 @@ def test_propose_rollups_false_discloses_disabled_state() -> None:
     mapping: dict[str, list[float]] = {}
     _seed_six_memories(store, mapping)
     artifact = _service(store, mapping).generate_memory_consolidation(
-        MemoryConsolidationRequest(propose_rollups=False)
+        MemoryConsolidationRequest(agent_identity=None, propose_rollups=False)
     )
     assert artifact["metadata_json"]["rollups"] == {"enabled": False}
     assert artifact["metadata_json"]["input_counts"]["rollup_proposals"] == 0
@@ -1118,7 +1118,7 @@ def test_invalid_rollup_options_fail_before_any_writes() -> None:
     memory_count = len(store.memories)
     with pytest.raises(VNextRollupValidationError):
         _service(store, mapping).generate_memory_consolidation(
-            MemoryConsolidationRequest(metadata_json={"rollup_options": {"min_members": 1}})
+            MemoryConsolidationRequest(agent_identity=None, metadata_json={"rollup_options": {"min_members": 1}})
         )
     assert len(store.memories) == memory_count
     assert store.artifacts == []
@@ -1214,7 +1214,7 @@ def test_live_sqlite_smoke_clusters_near_duplicates_idempotently() -> None:
     near_dup_ids = sorted(str(row["id"]) for row in rows[:3])
 
     service = VNextConsolidationService(store, embedding_provider=MappedEmbeddingProvider(mapping))
-    artifact = service.generate_memory_consolidation(MemoryConsolidationRequest())
+    artifact = service.generate_memory_consolidation(MemoryConsolidationRequest(agent_identity=None, ))
 
     candidates = _consolidation_candidates(sqlite_store)
     assert len(candidates) == 1
@@ -1230,7 +1230,7 @@ def test_live_sqlite_smoke_clusters_near_duplicates_idempotently() -> None:
     assert self_distance is not None and self_distance < 1e-6
 
     # Idempotent rerun: same input set, no duplicate candidate.
-    second = service.generate_memory_consolidation(MemoryConsolidationRequest())
+    second = service.generate_memory_consolidation(MemoryConsolidationRequest(agent_identity=None, ))
     assert len(_consolidation_candidates(sqlite_store)) == 1
     assert second["metadata_json"]["candidate_memory_ids"] == artifact["metadata_json"]["candidate_memory_ids"]
     assert second["metadata_json"]["consolidation"]["proposals"][0]["candidate_state"] == "existing"
@@ -1288,7 +1288,7 @@ def test_accepting_the_dedup_candidate_executes_supersessions_on_live_sqlite(mon
         rows.append(row)
 
     service = VNextConsolidationService(store, embedding_provider=MappedEmbeddingProvider(mapping))
-    service.generate_memory_consolidation(MemoryConsolidationRequest())
+    service.generate_memory_consolidation(MemoryConsolidationRequest(agent_identity=None, ))
     candidates = _consolidation_candidates(sqlite_store)
     assert len(candidates) == 1
     candidate_id = str(candidates[0]["id"])

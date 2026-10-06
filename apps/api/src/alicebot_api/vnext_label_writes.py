@@ -55,7 +55,7 @@ class LabelLockOrderError(RuntimeError):
 
 
 RETRYABLE_DETAIL = (
-    "the label change was not applied because another change was running; nothing was changed; try again"
+    "the action was not applied because another change was running; nothing was changed; try again"
 )
 REFUSED_DETAIL = "the label change could not be applied to every dependent row; nothing was changed"
 
@@ -77,6 +77,9 @@ _CAPTURE_LABEL_INPUTS: ContextVar[_CaptureLabelInputs | None] = ContextVar("capt
 
 
 def invalidate_capture_label_inputs(store: Any) -> None:
+    from alicebot_api.vnext_label_guard import invalidate_read_labels
+
+    invalidate_read_labels(store)
     batch = _CAPTURE_LABEL_INPUTS.get()
     if batch is not None and batch.conn is getattr(store, "conn", None):
         batch.rows.clear()
@@ -135,6 +138,9 @@ def takes_label_lock(fn: Any) -> Any:
 
     @wraps(fn)
     def wrapper(self: Any, *args: Any, **kwargs: Any) -> Any:
+        from alicebot_api.vnext_label_guard import invalidate_read_labels
+
+        invalidate_read_labels(self)
         lock = getattr(self, "lock_label_writes", None)
         if callable(lock):
             lock(exclusive=False)
@@ -292,6 +298,17 @@ def apply_insert_floor(store: Any, kind: str, payload: Mapping[str, object]) -> 
     own["kind"] = kind
     own["id"] = own_id
     own["user_id"] = user_id
+    # A copy selected under an earlier source scope still contains that
+    # source's earlier text. Preserve its selected scope before rereading the
+    # current parent, which may already have moved to another project.
+    from alicebot_api.vnext_derived_labels import row_class
+    if row_class(kind, own) == "copy":
+        raw_meta = own.get("metadata_json")
+        selected_meta = dict(raw_meta) if isinstance(raw_meta, Mapping) else {}
+        selected_meta["project_floor"] = list(union_floor(
+            project_floor_shape(own)[1], [stored_scope(kind, own)],
+        ))
+        own["metadata_json"] = selected_meta
     batch = _current_capture_inputs(store)
     cache = batch.rows if batch is not None else None
     nodes, exceeded = collect_label_rows(store, [own], max_nodes=PROPAGATION_BOUND, cache=cache)
@@ -599,6 +616,17 @@ def clamp_owner_patch(
     store._label_floor_applied = False
     proposed_patch = dict(patch)
     if before is None or not is_derived(kind, before):
+        return proposed_patch
+    # Status, content and audit metadata writes do not repair stored labels.
+    # Their readers still enforce the effective floor. An explicit label edit
+    # owns that repair and takes exclusive L before any row lock.
+    patch_meta = proposed_patch.get("metadata_json")
+    old_meta = before.get("metadata_json")
+    meta_changes_labels = isinstance(patch_meta, Mapping) and any(
+        key in patch_meta and patch_meta[key] != (old_meta.get(key) if isinstance(old_meta, Mapping) else None)
+        for key in ("project_scope", "project_floor")
+    )
+    if not meta_changes_labels and not any(proposed_patch.get(key) is not None for key in ("domain", "sensitivity", "project_id")):
         return proposed_patch
     proposed = dict(before)
     for key in ("domain", "sensitivity", "project_id"):
@@ -920,6 +948,24 @@ def label_error_response(exc: BaseException) -> tuple[int, str, str | None] | No
     if type(exc).__module__.startswith("psycopg"):
         return 409, REFUSED_DETAIL + "; cause: database_error", None
     return None
+
+
+def label_http_errors(fn):
+    """Give review routes the same atomic refusal as the relabel route."""
+    @wraps(fn)
+    def wrapped(*args, **kwargs):
+        try:
+            return fn(*args, **kwargs)
+        except Exception as exc:
+            answer = label_error_response(exc)
+            if answer is None:
+                raise
+            from fastapi.responses import JSONResponse
+
+            status, detail, retry_after = answer
+            return JSONResponse(status_code=status, content={"detail": detail},
+                                headers={"Retry-After": retry_after} if retry_after else None)
+    return wrapped
 
 
 def remember_floor_event(store: Any, event: JsonObject | None, target_id: object) -> None:

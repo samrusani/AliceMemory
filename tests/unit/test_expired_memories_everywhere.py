@@ -851,7 +851,7 @@ def test_consolidation_sends_the_text_of_open_memories_only_and_counts_only_them
         _seed_embedded_then_expire(store, ("e", "f"))
         seeded = len(server.texts)
         artifact = VNextConsolidationService(_ArtifactShim(store)).generate_memory_consolidation(  # type: ignore[arg-type]
-            MemoryConsolidationRequest(metadata_json={"consolidation_options": {"max_embedded_memories": 4}})
+            MemoryConsolidationRequest(agent_identity=None, metadata_json={"consolidation_options": {"max_embedded_memories": 4}})
         )
         assert _received(server, seeded) == ["a", "b", "c", "d"]
         counts = artifact["metadata_json"]["input_counts"]
@@ -886,7 +886,7 @@ def test_consolidation_drops_an_expired_row_from_a_store_that_cannot_filter(monk
         seeded = len(server.texts)
         adapter = OldAdapter(store)
         assert "include_expired" not in inspect.signature(adapter.list_memories).parameters
-        VNextConsolidationService(adapter).generate_memory_consolidation(MemoryConsolidationRequest())  # type: ignore[arg-type]
+        VNextConsolidationService(adapter).generate_memory_consolidation(MemoryConsolidationRequest(agent_identity=None, ))  # type: ignore[arg-type]
         assert _received(server, seeded) == ["a", "b", "c", "d"]
 
 

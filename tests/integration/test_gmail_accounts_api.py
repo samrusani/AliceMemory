@@ -14,7 +14,7 @@ import alicebot_api.main as main_module
 from alicebot_api.routers import legacy_gated as legacy_gated_router
 from alicebot_api.config import Settings
 import alicebot_api.gmail as gmail_module
-from alicebot_api.db import set_current_user, user_connection
+from alicebot_api.db import user_connection
 from alicebot_api.store import ContinuityStore
 
 
@@ -273,7 +273,6 @@ def test_gmail_account_endpoints_connect_list_detail_and_isolate(
     assert '"client_secret":' not in json.dumps(create_payload)
 
     with psycopg.connect(migrated_database_urls["admin"]) as conn:
-        set_current_user(conn, owner["user_id"])
         with conn.cursor() as cur:
             cur.execute(
                 """
@@ -496,7 +495,6 @@ def test_gmail_message_ingestion_endpoint_renews_expired_access_token(
     assert '"client_secret":' not in json.dumps(ingest_payload)
 
     with psycopg.connect(migrated_database_urls["admin"]) as conn:
-        set_current_user(conn, owner["user_id"])
         with conn.cursor() as cur:
             cur.execute(
                 """
@@ -638,7 +636,6 @@ def test_gmail_message_ingestion_endpoint_persists_rotated_refresh_token(
     assert '"client_secret":' not in json.dumps(ingest_payload)
 
     with psycopg.connect(migrated_database_urls["admin"]) as conn:
-        set_current_user(conn, owner["user_id"])
         with conn.cursor() as cur:
             cur.execute(
                 """
@@ -760,7 +757,6 @@ def test_gmail_message_ingestion_endpoint_fails_deterministically_when_rotated_c
         assert store.list_task_artifacts_for_task(owner["task_id"]) == []
 
     with psycopg.connect(migrated_database_urls["admin"]) as conn:
-        set_current_user(conn, owner["user_id"])
         with conn.cursor() as cur:
             cur.execute(
                 """
@@ -895,7 +891,6 @@ def test_gmail_message_ingestion_endpoint_rejects_missing_protected_credentials_
     )
 
     with psycopg.connect(migrated_database_urls["admin"]) as conn:
-        set_current_user(conn, owner["user_id"])
         with conn.cursor() as cur:
             cur.execute(
                 "DELETE FROM gmail_account_credentials WHERE gmail_account_id = %s",
@@ -969,7 +964,6 @@ def test_gmail_message_ingestion_endpoint_rejects_missing_external_secret_withou
     )
 
     with psycopg.connect(migrated_database_urls["admin"]) as conn:
-        set_current_user(conn, owner["user_id"])
         with conn.cursor() as cur:
             cur.execute(
                 """

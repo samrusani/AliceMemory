@@ -185,10 +185,7 @@ def assert_append_only_mutation_refused(conn, *, snapshot_sql, mutation_sql, par
     """Prove refusal under both forced RLS and the append-only trigger."""
     before = conn.execute(snapshot_sql, params).fetchall()
     assert before, "the synthetic target must be visible before attempting its mutation"
-    try:
+    with pytest.raises(psycopg.Error, match="append-only"):
         with conn.transaction():
-            changed = conn.execute(mutation_sql, params).rowcount
-            assert changed == 0, "an append-only row was changed"
-    except psycopg.Error as error:
-        assert "append-only" in str(error)
+            conn.execute(mutation_sql, params)
     assert conn.execute(snapshot_sql, params).fetchall() == before

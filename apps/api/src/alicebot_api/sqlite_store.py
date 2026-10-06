@@ -363,7 +363,7 @@ def ensure_sqlite_user(
 
 
 @contextmanager
-def sqlite_user_connection(path: str | Path, user_id: UUID | str) -> Iterator[sqlite3.Connection]:
+def sqlite_user_connection(path: str | Path, user_id: UUID | str, *, repair_labels: bool = True) -> Iterator[sqlite3.Connection]:
     """Open a bootstrapped SQLite connection wrapped in one transaction.
 
     Mirrors ``alicebot_api.db.user_connection`` semantics: dict rows, the
@@ -376,7 +376,10 @@ def sqlite_user_connection(path: str | Path, user_id: UUID | str) -> Iterator[sq
     conn = sqlite3.connect(str(path))
     conn.row_factory = _dict_row_factory
     try:
-        bootstrap_sqlite_schema(conn)
+        if repair_labels:
+            bootstrap_sqlite_schema(conn)
+        else:
+            bootstrap_sqlite_schema(conn, repair_labels=False)
         conn.commit()
         yield conn
         conn.commit()

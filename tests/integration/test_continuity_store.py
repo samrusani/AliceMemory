@@ -9,7 +9,6 @@ import pytest
 
 from alicebot_api.db import set_current_user, user_connection
 from alicebot_api.store import ContinuityStore
-from tests.integration.conftest import assert_append_only_mutation_refused
 
 
 def test_thread_session_and_event_persistence(migrated_database_urls):
@@ -41,13 +40,12 @@ def test_thread_session_and_event_persistence(migrated_database_urls):
     assert events[0]["payload"]["text"] == "hello"
 
     with psycopg.connect(migrated_database_urls["admin"]) as conn:
-        set_current_user(conn, user_id)
-        assert_append_only_mutation_refused(
-            conn,
-            snapshot_sql="SELECT * FROM events WHERE id = %s",
-            mutation_sql="UPDATE events SET kind = 'message.mutated' WHERE id = %s",
-            params=(first_event['id'],),
-        )
+        with pytest.raises(psycopg.Error, match="append-only"):
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE events SET kind = 'message.mutated' WHERE id = %s",
+                    (first_event["id"],),
+                )
 
 
 def test_event_deletes_are_rejected_at_database_level(migrated_database_urls):
@@ -61,13 +59,9 @@ def test_event_deletes_are_rejected_at_database_level(migrated_database_urls):
         event = store.append_event(thread["id"], session["id"], "message.user", {"text": "keep"})
 
     with psycopg.connect(migrated_database_urls["admin"]) as conn:
-        set_current_user(conn, user_id)
-        assert_append_only_mutation_refused(
-            conn,
-            snapshot_sql="SELECT * FROM events WHERE id = %s",
-            mutation_sql='DELETE FROM events WHERE id = %s',
-            params=(event['id'],),
-        )
+        with pytest.raises(psycopg.Error, match="append-only"):
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM events WHERE id = %s", (event["id"],))
 
 
 def test_continuity_rls_blocks_cross_user_access(migrated_database_urls):

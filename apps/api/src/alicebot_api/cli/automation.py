@@ -18,7 +18,7 @@ from .shared import (
 
 
 def _connection_finder_request_from_args(args: argparse.Namespace) -> ConnectionFinderRequest:
-    return ConnectionFinderRequest(
+    return ConnectionFinderRequest(agent_identity=None,
         query=getattr(args, "query", "") or "",
         domains=tuple(args.domain),
         projects=tuple(getattr(args, "project", ())),
@@ -48,7 +48,7 @@ def _run_vnext_graph_neighborhood(ctx: CLIContext, args: argparse.Namespace) -> 
 
 
 def _contradiction_finder_request_from_args(args: argparse.Namespace) -> ContradictionFinderRequest:
-    return ContradictionFinderRequest(
+    return ContradictionFinderRequest(agent_identity=None,
         query=getattr(args, "query", "") or "",
         domains=tuple(args.domain),
         projects=tuple(getattr(args, "project", ())),
@@ -84,7 +84,7 @@ def _run_vnext_belief_state(ctx: CLIContext, args: argparse.Namespace) -> str:
 
 
 def _project_automation_request_from_args(args: argparse.Namespace) -> ProjectAutomationRequest:
-    return ProjectAutomationRequest(
+    return ProjectAutomationRequest(agent_identity=None,
         domains=tuple(args.domain),
         sensitivity_allowed=_vnext_sensitivity_allowed(args),
         project_id=getattr(args, "project_id", None),

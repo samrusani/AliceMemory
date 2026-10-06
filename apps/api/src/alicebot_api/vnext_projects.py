@@ -217,7 +217,7 @@ class ProjectAutomationRequest:
     actor_id: str | None = None
     trace_id: str | None = None
     run_id: str | None = None
-    agent_identity: JsonObject | None = None
+    agent_identity: JsonObject | None = field(kw_only=True)
     policy_decision: JsonObject | None = None
     metadata_json: JsonObject = field(default_factory=dict)
     generation_mode: str = "deterministic"
@@ -460,16 +460,16 @@ def _open_loop_candidates(source: JsonObject) -> list[JsonObject]:
                     "title": title[:240],
                     "description": f"Candidate {loop_type} discovered from {source_label}.",
                     "priority": "high" if loop_type == "project_blocker" else "normal",
-                    "source_id": source.get("id"),
+                    "source_id": str(source["id"]),
                     "domain": source.get("domain", "unknown"),
                     "sensitivity": source.get("sensitivity", "unknown"),
-                    "metadata_json": {
+                    "metadata_json": with_derived_from({
                         "candidate": True,
                         "loop_type": loop_type,
                         "owner": owner,
                         "source_captured_at": source.get("captured_at"),
                         "discovered_by": "vnext_project_automation",
-                    },
+                    }, {"sources": [source]}),
                 }
             )
     return candidates
@@ -529,7 +529,7 @@ class VNextProjectService:
         return is_project_update_artifact(artifact)
 
     def generate_project_update_candidate(self, request: ProjectAutomationRequest | None = None) -> JsonObject:
-        request = request or ProjectAutomationRequest()
+        request = request or ProjectAutomationRequest(agent_identity=None, )
         _validate_request(request)
         project = self._resolve_project(request)
         domains = list(request.domains) if request.domains else None
@@ -771,7 +771,7 @@ class VNextProjectService:
         )
 
     def extract_open_loops(self, request: ProjectAutomationRequest | None = None) -> list[JsonObject]:
-        request = request or ProjectAutomationRequest()
+        request = request or ProjectAutomationRequest(agent_identity=None, )
         _validate_request(request)
         domains = list(request.domains) if request.domains else None
         sources = self.store.search_sources(
@@ -862,8 +862,10 @@ class VNextProjectService:
         if callable(lock_graph):
             lock_graph()
             from alicebot_api.vnext_label_writes import acquire_exclusive_label_lock
-
-            acquire_exclusive_label_lock(self.store)
+            if action in {"accept", "edit"}:
+                acquire_exclusive_label_lock(self.store)
+            else:
+                self.store.lock_label_writes()
         # The artifact is the review decision's serialization point.  Every
         # accept/edit/reject path must inspect and transition the same locked
         # row so stale reviewers cannot split project, memory, and artifact

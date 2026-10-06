@@ -188,7 +188,7 @@ def test_connection_report_creates_candidate_edges_artifact_and_logs_each_edge()
     store = _seed_store()
 
     artifact = VNextConnectionService(store).generate_connection_report(
-        ConnectionFinderRequest(domains=("project",), max_connections=2)
+        ConnectionFinderRequest(agent_identity=None, domains=("project",), max_connections=2)
     )
 
     assert artifact["artifact_type"] == "connection_report"
@@ -220,7 +220,7 @@ def test_connection_report_filters_sensitivity_and_can_auto_accept_high_confiden
     )
 
     artifact = VNextConnectionService(store).generate_connection_report(
-        ConnectionFinderRequest(
+        ConnectionFinderRequest(agent_identity=None,
             domains=("project",),
             sensitivity_allowed=("public", "private"),
             max_connections=3,
@@ -261,7 +261,7 @@ def test_connection_report_enforces_project_scope_before_candidate_limits() -> N
         )
 
     artifact = VNextConnectionService(store).generate_connection_report(
-        ConnectionFinderRequest(
+        ConnectionFinderRequest(agent_identity=None,
             domains=("project",),
             projects=("project-a",),
             max_connections=2,
@@ -304,7 +304,7 @@ def test_connection_report_source_filter_honors_embedded_canonical_envelope() ->
     )
 
     artifact = VNextConnectionService(store).generate_connection_report(
-        ConnectionFinderRequest(projects=("real",), max_connections=2)
+        ConnectionFinderRequest(agent_identity=None, projects=("real",), max_connections=2)
     )
 
     assert artifact["metadata_json"]["source_ids"] == ["source-real"]
@@ -316,7 +316,7 @@ def test_connection_report_model_backed_mode_preserves_candidate_edges_and_metad
     store = _seed_store()
 
     artifact = VNextConnectionService(store).generate_connection_report(
-        ConnectionFinderRequest(
+        ConnectionFinderRequest(agent_identity=None,
             domains=("project",),
             max_connections=2,
             generation_mode="model_backed",
@@ -365,7 +365,7 @@ def test_connection_report_logical_retry_replays_artifact_and_edges() -> None:
 def test_connection_edge_review_and_graph_neighborhood() -> None:
     store = _seed_store()
     service = VNextConnectionService(store)
-    service.generate_connection_report(ConnectionFinderRequest(domains=("project",), max_connections=1))
+    service.generate_connection_report(ConnectionFinderRequest(agent_identity=None, domains=("project",), max_connections=1))
 
     accepted = service.review_edge(edge_id="edge-1", action="accept")
     neighborhood = service.graph_neighborhood(target_id="source-1")
@@ -385,7 +385,7 @@ def test_connection_request_validation() -> None:
     service = VNextConnectionService(InMemoryVNextConnectionStore())
 
     with pytest.raises(VNextConnectionValidationError, match="max_connections"):
-        service.generate_connection_report(ConnectionFinderRequest(max_connections=0))
+        service.generate_connection_report(ConnectionFinderRequest(agent_identity=None, max_connections=0))
 
     with pytest.raises(VNextConnectionValidationError, match="edge review action"):
         service.review_edge(edge_id="edge-1", action="ship")
@@ -397,7 +397,7 @@ def test_connection_edges_carry_event_time_from_the_source() -> None:
     store.sources[0]["captured_at"] = "2026-07-01T00:00:00Z"
 
     VNextConnectionService(store).generate_connection_report(
-        ConnectionFinderRequest(domains=("project",), max_connections=2)
+        ConnectionFinderRequest(agent_identity=None, domains=("project",), max_connections=2)
     )
 
     edge = store.edges["edge-1"]
@@ -412,7 +412,7 @@ def test_connection_edges_fall_back_to_captured_at_then_now_for_event_time() -> 
     captured_only = _seed_store()
     captured_only.sources[0]["captured_at"] = "2026-07-01T00:00:00Z"
     VNextConnectionService(captured_only).generate_connection_report(
-        ConnectionFinderRequest(domains=("project",), max_connections=1)
+        ConnectionFinderRequest(agent_identity=None, domains=("project",), max_connections=1)
     )
     edge = captured_only.edges["edge-1"]
     assert edge["observed_at"] == "2026-07-01T00:00:00Z"
@@ -423,7 +423,7 @@ def test_connection_edges_fall_back_to_captured_at_then_now_for_event_time() -> 
     # fallback is noted on the edge so as-of readers can tell them apart.
     bare = _seed_store()
     VNextConnectionService(bare).generate_connection_report(
-        ConnectionFinderRequest(domains=("project",), max_connections=1)
+        ConnectionFinderRequest(agent_identity=None, domains=("project",), max_connections=1)
     )
     edge = bare.edges["edge-1"]
     assert isinstance(edge["observed_at"], str) and edge["observed_at"].endswith("Z")
