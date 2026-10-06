@@ -7,9 +7,11 @@ import json
 import threading
 from types import SimpleNamespace
 from uuid import uuid4
+from urllib.parse import quote, urlsplit, urlunsplit
 
 from alembic import command, op
 import psycopg
+from psycopg import sql
 import pytest
 
 import alicebot_api.main as main_module
@@ -29,11 +31,61 @@ from alicebot_api.vnext_label_guard import LabelGuard
 from alicebot_api.vnext_label_writes import without_insert_floor
 from alicebot_api.vnext_store import PostgresVNextStore
 from tests.integration.test_vnext_omitted_domains_api import invoke_request
-from tests.integration.conftest import _create_role_separated_database, _drop_database
-from urllib.parse import urlsplit
+from tests.integration.conftest import _create_role_separated_database, _drop_database, _role_urls
 
 TABLES = ("sources", "memories", "open_loops", "generated_artifacts", "beliefs", "event_log", "projects")
 SENTINEL = "Violet private migration sentinel"
+
+
+@pytest.fixture
+def database_urls(monkeypatch):
+    """Run migration acceptance with an owner that cannot bypass forced RLS.
+
+    CI uses a superuser administrator for historical migrations. These tests
+    deliberately use a separate restricted owner for the current acceptance.
+    """
+    admin_root, _app, lifecycle_root, *_ = _role_urls("unused")
+    role_name = None
+    with psycopg.connect(admin_root) as conn:
+        posture = conn.execute(
+            "SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname=current_user"
+        ).fetchone()
+    if posture != (False, False):
+        role_name = "alicebot_repair_owner_" + uuid4().hex[:12]
+        password = uuid4().hex
+        with psycopg.connect(lifecycle_root, autocommit=True) as conn:
+            conn.execute(
+                sql.SQL("CREATE ROLE {} LOGIN PASSWORD {} NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS").format(
+                    sql.Identifier(role_name), sql.Literal(password)
+                )
+            )
+        parsed = urlsplit(admin_root)
+        server = parsed.netloc.rsplit("@", 1)[-1]
+        strict_url = urlunsplit(
+            (parsed.scheme, f"{quote(role_name)}:{quote(password)}@{server}", parsed.path, parsed.query, parsed.fragment)
+        )
+        # Preserve the original bootstrap actor when no explicit lifecycle URL is set.
+        monkeypatch.setenv("DATABASE_LIFECYCLE_URL", lifecycle_root)
+        monkeypatch.setenv("DATABASE_ADMIN_URL", strict_url)
+    name = "alicebot_repair_" + uuid4().hex[:12]
+    try:
+        urls = _create_role_separated_database(name)
+        # CI preloads vector in its root database rather than template1.
+        with psycopg.connect(_role_urls(name)[-1], autocommit=True) as conn:
+            conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
+        yield urls
+    finally:
+        close_connection_pools()
+        _drop_database(name)
+        if role_name is not None:
+            with psycopg.connect(lifecycle_root, autocommit=True) as conn:
+                conn.execute(sql.SQL("DROP ROLE {}").format(sql.Identifier(role_name)))
+
+
+@pytest.fixture
+def migrated_database_urls(database_urls):
+    command.upgrade(make_alembic_config(database_urls["admin"]), "head")
+    return database_urls
 
 
 @contextmanager
