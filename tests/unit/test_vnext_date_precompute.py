@@ -248,6 +248,13 @@ class _PrecomputeStubStore:
         del target_type, target_id
         return []
 
+    def read_label_rows(self, kind: str, ids: list[str]) -> list[dict[str, object]]:
+        if kind == "source":
+            return [self.source_rows_by_id[row_id] for row_id in ids if row_id in self.source_rows_by_id]
+        if kind == "memory":
+            return [row for row in self.memories if str(row.get("id")) in ids]
+        return []
+
     def get_source(self, source_id: str):
         self.get_source_calls += 1
         return self.source_rows_by_id.get(str(source_id))

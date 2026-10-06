@@ -15,7 +15,7 @@ import pytest
 
 import alicebot_api.main as main_module
 from alicebot_api.config import Settings, WorkspaceProviderConfig
-from alicebot_api.db import user_connection
+from alicebot_api.db import set_current_user, set_current_user_account, user_connection
 from alicebot_api.provider_configuration import provider_config_fingerprint
 from alicebot_api.public_errors import UPSTREAM_FAILURE
 from alicebot_api.provider_secrets import decode_provider_secret_ref, resolve_provider_api_key
@@ -148,6 +148,8 @@ def _bootstrap_local_workspace(email: str) -> tuple[str, str, str]:
 def _seed_thread_for_user(*, admin_db_url: str, user_id: str, email: str) -> str:
     thread_id = str(uuid4())
     with psycopg.connect(admin_db_url) as conn:
+        set_current_user(conn, UUID(user_id))
+        set_current_user_account(conn, UUID(user_id))
         with conn.cursor() as cur:
             cur.execute(
                 """
@@ -842,6 +844,8 @@ def test_openai_compatible_registration_still_works(migrated_database_urls, monk
     assert any(record["url"] == "https://provider.example/v1/models" for record in captured_requests)
 
     with psycopg.connect(migrated_database_urls["admin"]) as conn:
+        set_current_user(conn, UUID(user_id))
+        set_current_user_account(conn, UUID(user_id))
         with conn.cursor() as cur:
             cur.execute(
                 """
@@ -929,6 +933,8 @@ def test_openai_compatible_no_auth_update_omits_auth_for_test_and_runtime(
     assert len(captured_requests) == 4
     assert all("authorization" not in {str(key).lower() for key in record["headers"]} for record in captured_requests)
     with psycopg.connect(migrated_database_urls["admin"]) as conn:
+        set_current_user(conn, UUID(user_id))
+        set_current_user_account(conn, UUID(user_id))
         with conn.cursor() as cur:
             cur.execute(
                 "SELECT auth_mode, api_key FROM model_providers WHERE id = %s AND workspace_id = %s",
@@ -965,6 +971,8 @@ def test_provider_update_uses_atomic_cas_and_hides_stale_capability(
         migrated_database_urls["admin"],
         row_factory=psycopg.rows.dict_row,
     ) as conn:
+        set_current_user(conn, UUID(user_id))
+        set_current_user_account(conn, UUID(user_id))
         store = ContinuityStore(conn)
         original = store.get_model_provider_for_workspace_optional(
             provider_id=provider_id,
@@ -1017,6 +1025,8 @@ def test_provider_update_uses_atomic_cas_and_hides_stale_capability(
         migrated_database_urls["admin"],
         row_factory=psycopg.rows.dict_row,
     ) as conn:
+        set_current_user(conn, UUID(user_id))
+        set_current_user_account(conn, UUID(user_id))
         lost_update = ContinuityStore(conn).update_model_provider(
             provider_id=provider_id,
             workspace_id=UUID(workspace_id),
@@ -1460,6 +1470,8 @@ def test_provider_invocation_telemetry_persists_for_test_and_runtime(
     assert provider_secret not in caplog.text
 
     with psycopg.connect(migrated_database_urls["admin"]) as conn:
+        set_current_user(conn, UUID(user_id))
+        set_current_user_account(conn, UUID(user_id))
         with conn.cursor() as cur:
             cur.execute(
                 """
@@ -1680,6 +1692,8 @@ def test_azure_provider_registration_test_and_no_plaintext_storage(
     assert test_payload["result"]["usage"]["total_tokens"] == 14
 
     with psycopg.connect(migrated_database_urls["admin"]) as conn:
+        set_current_user(conn, UUID(user_id))
+        set_current_user_account(conn, UUID(user_id))
         with conn.cursor() as cur:
             cur.execute(
                 """
@@ -1738,6 +1752,8 @@ def test_azure_auth_mode_rotation_requires_new_compatible_secret(
     provider_id = register_payload["provider"]["id"]
 
     with psycopg.connect(migrated_database_urls["admin"]) as conn:
+        set_current_user(conn, UUID(user_id))
+        set_current_user_account(conn, UUID(user_id))
         with conn.cursor() as cur:
             cur.execute(
                 """
@@ -1777,6 +1793,8 @@ def test_azure_auth_mode_rotation_requires_new_compatible_secret(
     assert updated_payload["capabilities"]["snapshot"]["azure_auth_mode"] == ("azure_ad_token")
 
     with psycopg.connect(migrated_database_urls["admin"]) as conn:
+        set_current_user(conn, UUID(user_id))
+        set_current_user_account(conn, UUID(user_id))
         with conn.cursor() as cur:
             cur.execute(
                 """
@@ -1997,6 +2015,8 @@ def test_provider_dns_rejection_leaves_no_durable_configuration(
     }
 
     with psycopg.connect(migrated_database_urls["admin"]) as conn:
+        set_current_user(conn, UUID(user_id))
+        set_current_user_account(conn, UUID(user_id))
         with conn.cursor() as cur:
             cur.execute(
                 """
@@ -2019,7 +2039,7 @@ def test_provider_test_and_runtime_reject_disallowed_target_without_outbound(
     user_id, workspace_id, user_account_id = _bootstrap_local_workspace("provider-security-blocked-runtime@example.com")
     urlopen_call_count = 0
 
-    def fake_urlopen(_request, _timeout):
+    def fake_urlopen(_request, timeout, enforce_public_peer):
         nonlocal urlopen_call_count
         urlopen_call_count += 1
         raise AssertionError("outbound request should not be attempted for blocked targets")
@@ -2042,6 +2062,8 @@ def test_provider_test_and_runtime_reject_disallowed_target_without_outbound(
     provider_id = register_payload["provider"]["id"]
 
     with psycopg.connect(migrated_database_urls["admin"]) as conn:
+        set_current_user(conn, UUID(user_id))
+        set_current_user_account(conn, UUID(user_id))
         with conn.cursor() as cur:
             cur.execute(
                 """
@@ -2117,6 +2139,8 @@ def test_provider_rejects_userinfo_and_redacts_legacy_rows(
 
     legacy_provider_id: str
     with psycopg.connect(migrated_database_urls["admin"]) as conn:
+        set_current_user(conn, UUID(user_id))
+        set_current_user_account(conn, UUID(user_id))
         with conn.cursor() as cur:
             cur.execute(
                 """
@@ -2235,6 +2259,8 @@ def test_provider_error_reflection_and_persistence_are_sanitized(
     assert sensitive_detail not in json.dumps(test_payload)
 
     with psycopg.connect(migrated_database_urls["admin"]) as conn:
+        set_current_user(conn, UUID(user_id))
+        set_current_user_account(conn, UUID(user_id))
         with conn.cursor() as cur:
             cur.execute(
                 """
@@ -2272,6 +2298,8 @@ def test_provider_error_reflection_and_persistence_are_sanitized(
     assert sensitive_detail not in json.dumps(runtime_payload)
 
     with psycopg.connect(migrated_database_urls["admin"]) as conn:
+        set_current_user(conn, UUID(user_id))
+        set_current_user_account(conn, UUID(user_id))
         with conn.cursor() as cur:
             cur.execute(
                 """

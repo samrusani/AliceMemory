@@ -30,6 +30,7 @@ from alicebot_api.vnext_projects import (
     VNextProjectTerminalConsistencyError,
 )
 from alicebot_api.vnext_store import PostgresVNextStore
+from tests.integration.conftest import lock_label_fixture
 
 
 def invoke_request(
@@ -282,6 +283,7 @@ def test_project_update_true_redaction_scrubs_the_role_separated_coupled_graph(
 
     with user_connection(migrated_database_urls["app"], user_id) as conn:
         store = PostgresVNextStore(conn)
+        lock_label_fixture(store)
         project = store.create_project(
             {
                 "name": f"Option A {action} {sentinel}",
@@ -785,6 +787,7 @@ def test_project_update_terminal_replay_survives_authorized_true_redaction(
     )
     with user_connection(migrated_database_urls["app"], user_id) as conn:
         store = PostgresVNextStore(conn)
+        lock_label_fixture(store)
         project = store.create_project(
             {
                 "name": f"{terminal_status.title()} redaction replay",
@@ -1006,6 +1009,7 @@ def test_project_update_terminal_replay_rejects_competing_postgres_decision_with
     )
     with user_connection(migrated_database_urls["app"], user_id) as conn:
         store = PostgresVNextStore(conn)
+        lock_label_fixture(store)
         project = store.create_project(
             {
                 "name": f"{action.title()} competing decision",

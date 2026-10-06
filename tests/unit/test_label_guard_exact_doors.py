@@ -195,6 +195,18 @@ def test_a_memory_review_decision_uses_the_input_label() -> None:
     assert decision.decision == "blocked"
 
 
+def test_bound_admin_review_uses_the_effective_input_project_floor() -> None:
+    from alicebot_api.vnext_memory_commit import VNextMemoryCommitService
+
+    store = _LabelStore()
+    store.source["metadata_json"]["project_scope"] = ["prj_" + "b" * 16]
+    identity = _locked_admin()
+    service = VNextMemoryCommitService(store)
+    assert service._write_policy_decision(identity=identity, action="memory.review", memory=store.memory).decision == "blocked"
+    store.source["metadata_json"]["project_scope"] = [ALPHA]
+    assert service._write_policy_decision(identity=identity, action="memory.review", memory=store.memory).decision != "blocked"
+
+
 def test_an_open_loop_update_uses_the_input_label() -> None:
     from alicebot_api.vnext_memory_commit import VNextMemoryCommitService
 

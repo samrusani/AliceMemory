@@ -10,8 +10,9 @@ import json
 import re
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
+from contextvars import ContextVar
 from functools import wraps
-from dataclasses import replace
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from alicebot_api.vnext_agent_control import RESTRICTED_DOMAINS
@@ -57,6 +58,76 @@ RETRYABLE_DETAIL = (
     "the label change was not applied because another change was running; nothing was changed; try again"
 )
 REFUSED_DETAIL = "the label change could not be applied to every dependent row; nothing was changed"
+
+
+@dataclass
+class _CaptureLabelInputs:
+    conn: Any
+    transaction_id: str
+    rollback_counter: int
+    source_id: str
+    rows: dict[tuple[str, str], list[dict[str, object]]] = field(default_factory=dict)
+
+    @property
+    def key(self) -> tuple[str, int]:
+        return self.transaction_id, self.rollback_counter
+
+
+_CAPTURE_LABEL_INPUTS: ContextVar[_CaptureLabelInputs | None] = ContextVar("capture_label_inputs", default=None)
+
+
+def invalidate_capture_label_inputs(store: Any) -> None:
+    batch = _CAPTURE_LABEL_INPUTS.get()
+    if batch is not None and batch.conn is getattr(store, "conn", None):
+        batch.rows.clear()
+
+
+def label_savepoint_rolled_back(store: Any) -> None:
+    """Invalidate capture inputs whenever the store rolls a savepoint back."""
+
+    conn = store.conn
+    conn._alice_label_rollback_counter = int(getattr(conn, "_alice_label_rollback_counter", 0)) + 1
+    invalidate_capture_label_inputs(store)
+
+
+def _current_capture_inputs(store: Any) -> _CaptureLabelInputs | None:
+    batch = _CAPTURE_LABEL_INPUTS.get()
+    if batch is None or batch.conn is not getattr(store, "conn", None) or not _in_transaction(store):
+        return None
+    counter = int(getattr(batch.conn, "_alice_label_rollback_counter", 0))
+    if counter != batch.rollback_counter:
+        batch.rows.clear()
+        batch.rollback_counter = counter
+    return batch
+
+
+@contextmanager
+def capture_label_inputs(store: Any, source_id: str) -> Iterator[None]:
+    """Reuse only the new source's label row during capture's candidate loop.
+
+    A managed transaction fixes the actual transaction id for this synchronous
+    loop. Savepoint rollback and label updates invalidate its input rows. Every
+    writer still executes its advisory lock, and no grant is memoized.
+    """
+
+    conn = getattr(store, "conn", None)
+    if conn is None or _sqlite(store) or not callable(getattr(conn, "transaction", None)):
+        yield
+        return
+    with conn.transaction():
+        with conn.cursor() as cur:
+            cur.execute("SELECT pg_current_xact_id()::text AS transaction_id")
+            row = cur.fetchone()
+        transaction_id = str(row["transaction_id"] if isinstance(row, Mapping) else row[0])
+        batch = _CaptureLabelInputs(conn, transaction_id, int(getattr(conn, "_alice_label_rollback_counter", 0)), identifier(source_id))
+        token = _CAPTURE_LABEL_INPUTS.set(batch)
+        try:
+            # Every lock statement remains live and precedes its INSERT on the
+            # server. Fetching the INSERT result synchronizes the ordered queue.
+            with conn.pipeline():
+                yield
+        finally:
+            _CAPTURE_LABEL_INPUTS.reset(token)
 
 
 def takes_label_lock(fn: Any) -> Any:
@@ -177,6 +248,7 @@ def prepare_label_patch(
 ) -> JsonObject:
     """Check a proposed label change before its UPDATE or FOR UPDATE statement."""
 
+    invalidate_capture_label_inputs(store)
     proposed = dict(before or {})
     proposed.update({key: value for key, value in patch.items() if value is not None})
     proposed["kind"] = kind
@@ -220,7 +292,14 @@ def apply_insert_floor(store: Any, kind: str, payload: Mapping[str, object]) -> 
     own["kind"] = kind
     own["id"] = own_id
     own["user_id"] = user_id
-    nodes, exceeded = collect_label_rows(store, [own], max_nodes=PROPAGATION_BOUND)
+    batch = _current_capture_inputs(store)
+    cache = batch.rows if batch is not None else None
+    nodes, exceeded = collect_label_rows(store, [own], max_nodes=PROPAGATION_BOUND, cache=cache)
+    if batch is not None:
+        # Keep only this capture's source. Other dependencies are read afresh.
+        for key in list(batch.rows):
+            if key != ("source", batch.source_id):
+                del batch.rows[key]
     if exceeded:
         raise LabelPropagationTooLarge(f"label propagation stopped after {PROPAGATION_BOUND} rows")
     if not user_id:
@@ -366,11 +445,14 @@ def _sqlite_dependants(store: Any, table: str, kind: str, compacts: Sequence[str
     if table == "memories":
         extra = ", value, project_id, NULL AS source_id, NULL AS memory_id"
     text_clause, _ = _like_clause("metadata_json", len(compacts), qmark=True)
+    # A nested JSON string may encode every character of an id. Keep all
+    # escaped candidates for the canonical dependency parser below.
+    text_clause += " OR instr(coalesce(metadata_json, ''), char(92)) > 0"
     params: list[object] = [store.user_id, *[f"%{item}%" for item in compacts]]
     value_sql = ""
     if with_value:
         value_clause, _ = _like_clause("value", len(compacts), qmark=True)
-        value_sql = f" OR {value_clause}"
+        value_sql = f" OR {value_clause} OR instr(coalesce(value, ''), char(92)) > 0"
         params.extend(f"%{item}%" for item in compacts)
     column_sql = ""
     if table == "open_loops":
@@ -396,23 +478,46 @@ def _postgres_dependants(store: Any, table: str, kind: str, compacts: Sequence[s
     if table == "memories":
         extra = ", value, project_id"
     elif table == "open_loops":
-        extra = ", NULL::jsonb AS value, project_id, source_id, memory_id"
+        extra = ", NULL::jsonb AS value, project_id, source_id::text AS source_id, memory_id::text AS memory_id"
     elif table == "generated_artifacts":
         extra = ", NULL::jsonb AS value, artifact_type"
     else:
         extra = ", NULL::jsonb AS value"
-    text_clause, _ = _like_clause("metadata_json::text", len(compacts), qmark=False)
-    params: list[object] = [f"%{item}%" for item in compacts]
+    # Normalize each column once per row, rather than once per frontier id.
+    # This remains only a superset lookup; the canonical parser selects exact edges.
+    if len(compacts) >= 32 and all(re.fullmatch(r"[0-9a-f]{32}", item) for item in compacts):
+        # A constant pattern avoids constructing a large automaton for UUID
+        # frontiers. More candidates are safe because exact edges are parsed below.
+        pattern = r"[0-9a-f]{32}"
+    else:
+        pattern = "(?:" + "|".join(re.escape(item) for item in compacts) + ")"
+
+    def candidate_clause(column: str) -> str:
+        return (
+            "replace(replace(replace(replace(lower(coalesce("
+            + column
+            + ",'')),'-',''),'{',''),'}',''),' ','') ~ %s"
+        )
+
+    text_clause = candidate_clause("metadata_json::text")
+    text_clause += " OR strpos(coalesce(metadata_json::text, ''), chr(92)) > 0"
+    params: list[object] = [pattern]
     value_sql = ""
     if with_value:
-        value_clause, _ = _like_clause("value::text", len(compacts), qmark=False)
-        value_sql = f" OR {value_clause}"
-        params.extend(f"%{item}%" for item in compacts)
+        value_clause = candidate_clause("value::text")
+        value_sql = f" OR {value_clause} OR strpos(coalesce(value::text, ''), chr(92)) > 0"
+        params.append(pattern)
+    column_sql = ""
+    if table == "open_loops":
+        for column in ("source_id", "memory_id"):
+            clause = candidate_clause(f"{column}::text")
+            column_sql += f" OR {clause}"
+            params.append(pattern)
     rows = store._fetch_all(
         f"""
             SELECT id::text AS id, user_id::text AS user_id, domain, sensitivity, metadata_json{extra}
             FROM {table}
-            WHERE ({text_clause}{value_sql})
+            WHERE ({text_clause}{value_sql}{column_sql})
             """,  # nosec B608 # internal literal table/columns; every external value is bound
         tuple(params),
     )
@@ -441,8 +546,9 @@ def walk_dependants(store: Any, roots: Sequence[str]) -> list[dict[str, object]]
     while pending:
         if len(seen) > PROPAGATION_BOUND:
             raise LabelPropagationTooLarge(f"label propagation stopped after {PROPAGATION_BOUND} rows")
-        batch = pending[:200]
-        pending = pending[200:]
+        batch_size = 200 if _sqlite(store) else 2000
+        batch = pending[:batch_size]
+        pending = pending[batch_size:]
         belief_aliases = getattr(store, "list_belief_ids_for_memories", None)
         if callable(belief_aliases):
             for belief_id in belief_aliases(batch):
@@ -580,6 +686,7 @@ def write_settled_label(
 ) -> None:
     """Label-only update. A statement that changes no row refuses the whole relabel."""
 
+    invalidate_capture_label_inputs(store)
     table = {"memory": "memories", "open_loop": "open_loops", "artifact": "generated_artifacts", "project": "projects"}[kind]
     blob = json.dumps({key: metadata[key] for key in ("project_scope", "project_floor") if key in metadata})
     if _sqlite(store):

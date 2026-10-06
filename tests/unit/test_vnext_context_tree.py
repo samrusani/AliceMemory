@@ -150,6 +150,16 @@ class ContextTreeStore:
         limit = kwargs.get("limit")
         return rows[:limit] if isinstance(limit, int) else rows
 
+    def read_label_rows(self, kind: str, ids: list[str]) -> list[dict[str, object]]:
+        groups = {
+            "project": self.projects,
+            "memory": self.memories,
+            "source": self.sources,
+            "open_loop": self.open_loops,
+            "artifact": self.artifacts,
+        }
+        return [row for row in groups.get(kind, []) if str(row.get("id")) in ids]
+
     def append_event(self, event: dict[str, object]) -> dict[str, object]:
         self.events.append(event)
         return event

@@ -1372,6 +1372,8 @@ class VNextProjectService:
     ) -> JsonObject:
         from alicebot_api.vnext_agent_control import AgentIdentity
         from alicebot_api.vnext_label_guard import admit_loaded, apply_sensitivity_ceiling
+        from alicebot_api.vnext_open_loop_references import withhold_unreadable_references
+        from alicebot_api.vnext_source_fence import SourceReadFence
 
         project = self.store.get_project(project_id)
         if project is None:
@@ -1421,6 +1423,7 @@ class VNextProjectService:
             sensitivity_allowed=sensitivity_allowed,
             projects=(project_id,),
         )
+        open_loops = withhold_unreadable_references(self.store, open_loops, fence=SourceReadFence.for_identity(caller))
         artifacts = admit_loaded(
             self.store,
             kind="artifact",

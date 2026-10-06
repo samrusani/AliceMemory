@@ -11,7 +11,7 @@ import pytest
 import alicebot_api.main as main_module
 from alicebot_api.routers import memories_legacy as memories_legacy_router
 from alicebot_api.config import Settings
-from alicebot_api.db import user_connection
+from alicebot_api.db import set_current_user, user_connection
 from alicebot_api.store import ContinuityStore
 
 
@@ -240,6 +240,7 @@ def test_admit_memory_endpoint_persists_add_update_and_delete_revisions(
     assert revisions[2]["new_value"] is None
 
     with psycopg.connect(migrated_database_urls["admin"]) as conn:
+        set_current_user(conn, user_id)
         with conn.cursor() as cur:
             with pytest.raises(psycopg.Error, match="append-only"):
                 cur.execute(

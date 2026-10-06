@@ -87,6 +87,8 @@ def _workspace_rows(store: PostgresVNextStore, kind: str, rows: Sequence[Mapping
 
 def _vnext_workspace_payload(store: PostgresVNextStore, *, identity: AgentIdentity | None = None) -> dict[str, object]:
     from alicebot_api.vnext_label_guard import LabelGuard, sensitivity_ceiling
+    from alicebot_api.vnext_open_loop_references import withhold_unreadable_references
+    from alicebot_api.vnext_source_fence import SourceReadFence
 
     sensitivity_allowed = ["public", "internal", "private", "unknown"]
     ceiling = sensitivity_ceiling(identity)
@@ -127,6 +129,7 @@ def _vnext_workspace_payload(store: PostgresVNextStore, *, identity: AgentIdenti
     project_count = sum(guard.readable_status_counts("project").values())
     fetched_loops = store.list_open_loops(status=None, sensitivity_allowed=sensitivity_allowed, limit=30)
     open_loops = guard.admit_rows("open_loop", fetched_loops)
+    open_loops = withhold_unreadable_references(store, open_loops, fence=SourceReadFence.for_identity(identity))
     open_loop_status_counts = guard.readable_status_counts("open_loop")
     open_loop_count = open_loop_status_counts.get("open", 0)
     people = store.list_people(sensitivity_allowed=sensitivity_allowed, limit=12)

@@ -12,7 +12,7 @@ import psycopg
 import alicebot_api.main as main_module
 from alicebot_api.routers import continuity as continuity_router
 from alicebot_api.config import Settings
-from alicebot_api.db import user_connection
+from alicebot_api.db import set_current_user, user_connection
 from alicebot_api.store import ContinuityStore
 
 
@@ -70,11 +70,13 @@ def seed_user(database_url: str, *, email: str) -> UUID:
 
 def set_continuity_timestamps(
     admin_database_url: str,
+    user_id: UUID,
     *,
     continuity_object_id: UUID,
     created_at: datetime,
 ) -> None:
-    with psycopg.connect(admin_database_url, autocommit=True) as conn:
+    with psycopg.connect(admin_database_url) as conn:
+        set_current_user(conn, user_id)
         with conn.cursor() as cur:
             cur.execute(
                 "UPDATE continuity_objects SET created_at = %s, updated_at = %s WHERE id = %s",
@@ -84,6 +86,7 @@ def set_continuity_timestamps(
 
 def set_continuity_lifecycle_flags(
     admin_database_url: str,
+    user_id: UUID,
     *,
     continuity_object_id: UUID,
     is_searchable: bool | None = None,
@@ -101,7 +104,8 @@ def set_continuity_lifecycle_flags(
         return
 
     values.append(continuity_object_id)
-    with psycopg.connect(admin_database_url, autocommit=True) as conn:
+    with psycopg.connect(admin_database_url) as conn:
+        set_current_user(conn, user_id)
         with conn.cursor() as cur:
             cur.execute(
                 f"UPDATE continuity_objects SET {', '.join(assignments)} WHERE id = %s",
@@ -170,11 +174,13 @@ def test_continuity_recall_api_returns_provenance_backed_scoped_results(
 
     set_continuity_timestamps(
         migrated_database_urls["admin"],
+        user_id=user_id,
         continuity_object_id=primary_object["id"],
         created_at=datetime(2026, 3, 29, 10, 0, tzinfo=UTC),
     )
     set_continuity_timestamps(
         migrated_database_urls["admin"],
+        user_id=user_id,
         continuity_object_id=other_object["id"],
         created_at=datetime(2026, 3, 29, 9, 0, tzinfo=UTC),
     )
@@ -316,6 +322,7 @@ def test_continuity_recall_debug_api_persists_and_exposes_trace(
 
     set_continuity_timestamps(
         migrated_database_urls["admin"],
+        user_id=user_id,
         continuity_object_id=continuity_object["id"],
         created_at=datetime(2026, 3, 29, 10, 0, tzinfo=UTC),
     )
@@ -393,6 +400,7 @@ def test_continuity_resumption_debug_api_includes_underlying_retrieval_trace(
 
     set_continuity_timestamps(
         migrated_database_urls["admin"],
+        user_id=user_id,
         continuity_object_id=decision["id"],
         created_at=datetime(2026, 3, 29, 10, 0, tzinfo=UTC),
     )
@@ -486,16 +494,19 @@ def test_continuity_recall_api_prefers_confirmed_fresh_active_truth_over_superse
 
     set_continuity_timestamps(
         migrated_database_urls["admin"],
+        user_id=user_id,
         continuity_object_id=current_object["id"],
         created_at=datetime(2026, 3, 29, 10, 0, tzinfo=UTC),
     )
     set_continuity_timestamps(
         migrated_database_urls["admin"],
+        user_id=user_id,
         continuity_object_id=stale_object["id"],
         created_at=datetime(2026, 3, 20, 9, 0, tzinfo=UTC),
     )
     set_continuity_timestamps(
         migrated_database_urls["admin"],
+        user_id=user_id,
         continuity_object_id=superseded_object["id"],
         created_at=datetime(2026, 3, 10, 8, 0, tzinfo=UTC),
     )
@@ -573,16 +584,19 @@ def test_continuity_recall_api_excludes_preserved_but_non_searchable_objects(
 
     set_continuity_lifecycle_flags(
         migrated_database_urls["admin"],
+        user_id=user_id,
         continuity_object_id=hidden_object["id"],
         is_searchable=False,
     )
     set_continuity_timestamps(
         migrated_database_urls["admin"],
+        user_id=user_id,
         continuity_object_id=hidden_object["id"],
         created_at=datetime(2026, 3, 29, 10, 0, tzinfo=UTC),
     )
     set_continuity_timestamps(
         migrated_database_urls["admin"],
+        user_id=user_id,
         continuity_object_id=visible_object["id"],
         created_at=datetime(2026, 3, 29, 10, 5, tzinfo=UTC),
     )
@@ -637,6 +651,7 @@ def test_continuity_lifecycle_debug_endpoints_expose_flags(
 
     set_continuity_lifecycle_flags(
         migrated_database_urls["admin"],
+        user_id=user_id,
         continuity_object_id=continuity_object["id"],
         is_promotable=False,
     )

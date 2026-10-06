@@ -26,7 +26,7 @@ from alicebot_api.vnext_derived_labels import (
     settle_labels,
 )
 from alicebot_api.vnext_label_closure import collect_label_rows
-from alicebot_api.vnext_project_scope import project_floor_shape, project_scopes_overlap, resolve_project_scope
+from alicebot_api.vnext_project_scope import project_floor_shape, project_scope_identity, project_scopes_overlap, resolve_project_scope
 
 
 _GUARD_USER = "label-guard"
@@ -226,7 +226,12 @@ class LabelGuard:
         if self.projects:
             from alicebot_api.vnext_project_scope import source_project_scope
 
-            scope = source_project_scope(row) if canon_kind(kind) == "source" else resolve_project_scope(row).values
+            resolution = resolve_project_scope(row)
+            scope = source_project_scope(row) if canon_kind(kind) == "source" else resolution.values
+            if canon_kind(kind) == "project" and not resolution.present and not is_derived(kind, row):
+                # Original project rows are selected by ID, slug or name. A
+                # canonical or effective derived scope remains authoritative.
+                scope = project_scope_identity([*scope, str(row.get("id") or ""), row.get("slug"), row.get("name")])
             _shape, floor = project_floor_shape(row)
             if not project_scopes_overlap(scope, self.projects, floor=floor):
                 return False

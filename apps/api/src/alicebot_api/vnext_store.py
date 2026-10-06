@@ -516,7 +516,7 @@ class PostgresVNextStore:
         if table == "memories":
             extra = ", value, project_id, source_event_ids, deleted_at, status"
         elif table == "open_loops":
-            extra = ", project_id, source_id, memory_id"
+            extra = ", project_id, source_id::text AS source_id, memory_id::text AS memory_id"
         elif table == "beliefs":
             extra = ", memory_id"
         elif table == "generated_artifacts":
@@ -543,7 +543,7 @@ class PostgresVNextStore:
         if kind == "memory":
             extra = ", status, value, project_id, source_event_ids, deleted_at"
         elif kind == "open_loop":
-            extra = ", status, project_id, source_id, memory_id"
+            extra = ", status, project_id, source_id::text AS source_id, memory_id::text AS memory_id"
         elif kind == "artifact":
             extra = ", status, artifact_type"
         elif kind == "project":
@@ -3874,6 +3874,9 @@ class PostgresVNextStore:
         try:
             yield
         except BaseException:
+            from alicebot_api.vnext_label_writes import label_savepoint_rolled_back
+
+            label_savepoint_rolled_back(self)
             try:
                 self.conn.execute(f"ROLLBACK TO SAVEPOINT {name}")
                 self.conn.execute(f"RELEASE SAVEPOINT {name}")

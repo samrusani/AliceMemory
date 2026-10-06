@@ -15,6 +15,7 @@ from alicebot_api.vnext_capture import (
     content_hash_for_text,
 )
 from alicebot_api.vnext_store import PostgresVNextStore
+from tests.integration.conftest import lock_label_fixture
 
 
 def test_two_connections_claim_one_source_dedupe_identity(
@@ -144,6 +145,7 @@ def test_source_scope_mutation_rotates_postgres_identity_and_releases_old_captur
             "Capture mutation",
         )
         store = PostgresVNextStore(conn)
+        lock_label_fixture(store)
         service = VNextCaptureService(store)
         text = "Fact: Reviewed source scope changes must rotate identity atomically."
         first = service.capture_text(
@@ -209,6 +211,7 @@ def test_source_scope_mutation_collision_rolls_back_postgres_row(
             "Capture collision",
         )
         store = PostgresVNextStore(conn)
+        lock_label_fixture(store)
         service = VNextCaptureService(store)
         text = "Fact: Collision rollback leaves both source identities intact."
         alpha = service.capture_text(

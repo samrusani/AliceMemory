@@ -22,6 +22,7 @@ import pytest
 
 from alicebot_api.sqlite_schema import bootstrap_sqlite_schema
 from alicebot_api.sqlite_store import SQLiteVNextStore, ensure_sqlite_user
+from alicebot_api.vnext_derived_labels import identifier
 from alicebot_api.vnext_embeddings import memory_embedding_text
 from alicebot_api.vnext_repositories import JsonObject
 from alicebot_api.vnext_rollups import (
@@ -60,6 +61,13 @@ class SemanticFakeStore:
 
     def list_memories(self, *, status: str | None = None) -> list[JsonObject]:
         return [dict(row) for row in self.memories if status is None or row.get("status") == status]
+
+    def read_label_rows(self, kind: str, ids) -> list[JsonObject]:
+        """Expose recorded inputs so an existing card's label can be verified."""
+        if kind != "memory":
+            return []
+        wanted = {identifier(item) for item in ids}
+        return [dict(row) for row in self.memories if identifier(row.get("id")) in wanted]
 
     @staticmethod
     def _in_scope(
