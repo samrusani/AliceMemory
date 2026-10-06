@@ -213,7 +213,19 @@ class LabelGuard:
         if label is None and root not in state.dependency_ancestry.get(template, ()):
             label = state.dependency_labels.get(template)
         if label is None:
-            nodes = self._collected(kind, row)
+            refs = template[1]
+            direct_ref = next(iter(refs)) if len(refs) == 1 else None
+            parents = state.nodes.get(direct_ref, ()) if direct_ref is not None else ()
+            if (template[3] == "copy" and not template[2] and direct_ref is not None
+                    and direct_ref[0] == "source" and len(parents) == 1
+                    and identifier(parents[0].get("id")) == direct_ref[1]
+                    and NODE_BOUND >= 2 and HOP_BOUND >= 1):
+                # A single original source terminates this walk. Ambiguous or
+                # absent parents still take the complete canonical collector.
+                nodes = [{**dict(row), "kind": canon_kind(kind), "user_id": _GUARD_USER},
+                         {**dict(parents[0]), "kind": "source", "user_id": _GUARD_USER}]
+            else:
+                nodes = self._collected(kind, row)
             copy_template = None
             # A copy with exactly one original source has no recursive input
             # graph. First collect each root to check missing/ambiguous source
@@ -364,6 +376,12 @@ class LabelGuard:
         ids = list(dict.fromkeys(str(row.get(field)) for row in rows if row.get(field)))
         state = self._state()
         missing = [row_id for row_id in ids if (kind, row_id) not in state.targets]
+        if kind == "source":
+            for row_id in missing:
+                cached = state.nodes.get((kind, identifier(row_id)), ())
+                if len(cached) == 1 and str(cached[0].get("id")) == row_id:
+                    state.targets[(kind, row_id)] = cached[0]
+            missing = [row_id for row_id in missing if (kind, row_id) not in state.targets]
         for row in reader(kind, missing) if missing else []:
             state.targets[(kind, str(row.get("id")))] = row
         found = [state.targets[(kind, row_id)] for row_id in ids if (kind, row_id) in state.targets]

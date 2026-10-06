@@ -118,6 +118,26 @@ def test_distinct_source_copy_reuse_keeps_parent_labels_and_alias_refusal(varian
         assert reused[-1] is True
 
 
+def test_parent_source_event_reuse_applies_each_callers_filters_after_write():
+    source = row(SOURCE, {"project_scope": ["beta"]}, sensitivity="confidential")
+    store = Store([("source", source)])
+    copy = row(ROOT, {"source_id": SOURCE})
+    event = {"target_type": "source", "target_id": SOURCE, "event_type": "source.created"}
+    with label_read_scope(store):
+        restricted = LabelGuard.for_filters(store, (), ("public",))
+        assert restricted.admit_rows("memory", [copy]) == []
+        assert restricted.admit_events([event]) == []
+        admin = replace(restricted, sensitivity_allowed=ALL_SENSITIVITY)
+        assert admin.admit_events([event]) == [event]
+        bound = replace(admin, all_of=("alpha",))
+        assert bound.admit_events([event]) == []
+        source["sensitivity"] = "public"
+        source["metadata_json"]["project_scope"] = ["alpha"]
+        invalidate_read_labels(store)
+        assert restricted.admit_events([event]) == [event]
+        assert bound.admit_events([event]) == [event]
+
+
 @pytest.mark.parametrize("variant", ["self", "ancestor", "alias", "belief", "malformed", "missing", "floor", "class"])
 def test_reused_signature_agrees_with_fresh_kernel_for_boundary_variants(variant):
     source = row(SOURCE, sensitivity="confidential")
