@@ -171,6 +171,7 @@ NOT_A_DOOR = {
     "vnext_connectors.py:VNextConnectorService.get_cursor": "connector cursor events only; no labelled targets",
     "vnext_connectors.py:VNextConnectorService.get_config": "connector configuration events only; no labelled targets",
     "vnext_connectors.py:VNextConnectorService.connector_health": "connector state telemetry only; no labels_raised events",
+    "vnext_connectors.py:VNextConnectorService._connector_events": "raw connector event cache; the query is constrained to connector targets and preserves the existing configuration/cursor telemetry readers",
     "vnext_dogfooding.py:VNextDogfoodingStore.list_artifact_quality_ratings": "store protocol declaration; no execution or response",
     "vnext_artifact_review.py:dispatch_vnext_artifact_review": "writer entry; calling route or MCP authorizes the artifact before dispatch",
     "vnext_memory_commit.py:VNextMemoryCommitService._guard_supersession_acyclic": "write validation traverses pointers without exposing their content",

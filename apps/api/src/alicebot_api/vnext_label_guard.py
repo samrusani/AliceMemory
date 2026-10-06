@@ -215,7 +215,7 @@ class LabelGuard:
         if label is None:
             refs = template[1]
             direct_ref = next(iter(refs)) if len(refs) == 1 else None
-            parents = state.nodes.get(direct_ref, ()) if direct_ref is not None else ()
+            parents: Sequence[Mapping[str, object]] = state.nodes.get(direct_ref, ()) if direct_ref is not None else ()
             if (template[3] == "copy" and not template[2] and direct_ref is not None
                     and direct_ref[0] == "source" and len(parents) == 1
                     and identifier(parents[0].get("id")) == direct_ref[1]
