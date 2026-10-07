@@ -1221,6 +1221,7 @@ def search_memories_fts(
     domains: list[str] | None = None,
     sensitivity_allowed: list[str] | None = None,
     limit: int = 50,
+    offset: int = 0,
     memory_types: tuple[str, ...] = (),
     projects: tuple[str, ...] = (),
     created_by_agent_ids: tuple[str, ...] = (),
@@ -1269,7 +1270,7 @@ def search_memories_fts(
     params.extend(run_params)
     params.extend(expiry_params)
     params.extend(scope_params)
-    params.append(limit)
+    params.extend((limit, offset))
     try:
         # Column weights follow the Postgres search_tsv setweights:
         # title 1.0 (A), canonical_text 0.4 (B), summary 0.2 (C),
@@ -1287,7 +1288,7 @@ def search_memories_fts(
                       AND {label_sql}
                       AND m.status IN {_MEMORY_SEARCHABLE_STATUSES_SQL}{domain_sql}{sensitivity_sql}{type_sql}{project_sql}{created_by_sql}{run_sql}{expiry_sql}{scope_sql}
                     ORDER BY fts_score DESC, m.updated_at DESC, m.created_at DESC, m.id DESC
-                    LIMIT ?
+                    LIMIT ? OFFSET ?
                     """,
             tuple(params),
         )

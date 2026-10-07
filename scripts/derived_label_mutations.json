@@ -259,10 +259,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_retrieval.py",
-          "line": 3129,
-          "before": "target=limit, initial_limit=limit,",
-          "after": "target=0, initial_limit=limit,",
-          "sha256": "b02277ef68d6f34a47d13de237d09e48e13c8f75f74a2c7e3cdae8cf7a2ccdb3"
+          "line": 3142,
+          "before": "if len(selected) >= limit or len(raw) < page_limit:",
+          "after": "if True:",
+          "sha256": "15822c3a1613735c72782119a83403d44813b8425a8df3c12ed239d51a81b902"
         }
       ],
       "pytest": [

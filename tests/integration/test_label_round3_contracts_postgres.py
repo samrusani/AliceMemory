@@ -102,3 +102,20 @@ def test_fenced_workspace_keeps_diagnostics_omitted(label_harness):
         checks = {row["name"]: row for row in payload["doctor"]["checks"]}
         assert checks["flagged_sources"]["status"] == "skipped"
         assert checks["derived_labels"]["status"] == "skipped"
+
+
+def test_native_memory_refill_crosses_the_legacy_ceiling(label_harness, monkeypatch):
+    from alicebot_api.vnext_retrieval import VNextRetrievalService
+    from alicebot_api.vnext_derived_labels import with_derived_from
+    from alicebot_api.vnext_label_writes import without_insert_floor
+    monkeypatch.setattr("alicebot_api.vnext_retrieval.LEGACY_SCOPED_SCAN_MAX_ROWS", 16)
+    h = label_harness
+    public, hidden = h.source(), h.source(sensitivity="confidential")
+    with h.store() as store, without_insert_floor():
+        visible = [store.create_memory({"memory_key": str(uuid4()), "canonical_text": "refill observation", "domain": "project", "sensitivity": "public", "status": "active"}) for _ in range(8)]
+        metadata = with_derived_from({"workflow": "project_auto_update"}, {"sources": [public, hidden]})
+        metadata["derived_from"]["sources"] = [str(public["id"]), str(hidden["id"])]
+        for _ in range(100):
+            store.create_memory({"memory_key": str(uuid4()), "title": "refill observation", "canonical_text": "refill observation", "domain": "project", "sensitivity": "public", "status": "active", "metadata_json": metadata})
+        rows, _ = VNextRetrievalService(store)._memory_fts_rows(query="refill observation", domains=[], sensitivity_allowed=["public", "internal"], limit=8)
+        assert {str(row["id"]) for row in rows} == {str(row["id"]) for row in visible}

@@ -13,7 +13,7 @@ import pytest
 from alicebot_api.onramp import bootstrap_database
 from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
 from alicebot_api.vnext_agent_keys import create_agent_key
-from alicebot_api.vnext_derived_labels import with_derived_from
+from alicebot_api.vnext_derived_labels import with_derived_from, is_derived, dependencies_of
 from alicebot_api.vnext_label_repair import label_gap_counts, relabel_labels_sqlite
 
 USER = "11111111-1111-4111-8111-111111111111"
@@ -66,8 +66,10 @@ def seed_grid(store, *, postgres=False, count=5000, source_count=300, case="half
     if case == "extra-rows":
         for i in range(400):
             source = rng.choice(sources)
-            store.create_open_loop({"title": "Synthetic loop " + str(i), "status": "open", "source_id": str(source["id"]),
-                "domain": "project", "sensitivity": "public", "metadata_json": {"observation_index": i}})
+            loop = store.create_open_loop({"title": "Synthetic loop " + str(i), "status": "open", "source_id": str(source["id"]),
+                "domain": "project", "sensitivity": "public", "metadata_json": with_derived_from({"observation_index": i, "discovered_by": "vnext_project_open_loop_extraction"}, {"sources": [source]})})
+            assert is_derived("open_loop", loop)
+            assert ("source", str(source["id"])) in dependencies_of("open_loop", loop)
         if postgres:
             for i in range(500):
                 store.create_artifact({"artifact_type": "weekly_synthesis", "title": "Synthetic artifact " + str(i),

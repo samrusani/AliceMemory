@@ -859,6 +859,7 @@ def search_memories_fts(
     domains: list[str] | None = None,
     sensitivity_allowed: list[str] | None = None,
     limit: int = 50,
+    offset: int = 0,
     memory_types: tuple[str, ...] = (),
     projects: tuple[str, ...] = (),
     created_by_agent_ids: tuple[str, ...] = (),
@@ -929,7 +930,7 @@ def search_memories_fts(
                   )
                   AND search_tsv @@ {tsquery_sql}
                 ORDER BY fts_score DESC, updated_at DESC, created_at DESC, id DESC
-                LIMIT %s
+                LIMIT %s OFFSET %s
                 """,
         (
             tsquery_text,
@@ -959,6 +960,7 @@ def search_memories_fts(
             scope_window_end,
             tsquery_text,
             limit,
+            offset,
         ),
     )
 

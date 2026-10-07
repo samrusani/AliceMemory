@@ -17,6 +17,7 @@ USER = "11111111-1111-4111-8111-111111111111"
 
 @pytest.mark.parametrize("tool", ["alice_recall", "alice_context_pack"])
 def test_hidden_later_inputs_do_not_underfill_ranked_memory_reads(tmp_path, monkeypatch, tool):
+    monkeypatch.setattr("alicebot_api.vnext_retrieval.LEGACY_SCOPED_SCAN_MAX_ROWS", 16)
     path = tmp_path / "refill.db"
     bootstrap_database(path, user_id=USER, user_email="synthetic@example.invalid")
     with sqlite_user_connection(path, USER) as conn, without_insert_floor():

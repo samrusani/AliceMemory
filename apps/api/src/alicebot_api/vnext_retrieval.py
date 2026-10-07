@@ -3120,14 +3120,34 @@ class VNextRetrievalService:
             raw = rows if prefix_limit == limit else active_search(limit=prefix_limit, **options)
             return raw, source
 
-        selected, source = _fetch_filtered_prefix(
-            fetch,
-            select_rows=lambda raw: admit_loaded(
+        def select_rows(raw):
+            return admit_loaded(
                 self.store, kind="memory", rows=raw, domains=domains,
                 sensitivity_allowed=sensitivity_allowed, projects=projects,
-            ),
-            target=limit, initial_limit=limit,
-        )
+            )
+
+        if fts and getattr(self.store, "memory_fts_offset_paging", False) is True:
+            # Native stores page their ranked SQL result to actual exhaustion.
+            # Only legacy prefix adapters have the 16,384-row compatibility
+            # ceiling. Do not turn that ceiling into a native false negative.
+            selected = []
+            seen: set[str] = set()
+            offset, page_limit, raw = 0, limit, rows
+            while True:
+                fresh = [row for row in _dedupe_retrieval_rows(raw) if str(row.get("id")) not in seen]
+                if raw and not fresh:
+                    raise VNextRetrievalCompletenessError("native memory search returned a non-progressing page")
+                seen.update(str(row.get("id")) for row in fresh)
+                selected.extend(select_rows(fresh))
+                if len(selected) >= limit or len(raw) < page_limit:
+                    break
+                offset += len(raw)
+                page_limit = min(max(limit, 128), 1024)
+                raw = active_search(limit=page_limit, offset=offset, **options)
+        else:
+            selected, source = _fetch_filtered_prefix(
+                fetch, select_rows=select_rows, target=limit, initial_limit=limit,
+            )
         selected = selected[:limit]
         return (_stabilize_scored_rows(selected) if fts else selected), source
 

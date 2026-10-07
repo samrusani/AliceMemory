@@ -468,6 +468,8 @@ SCHEDULER_RUN_COLUMNS = """
 class PostgresVNextStore:
     """SQL-backed vNext repository facade for the second-brain kernel."""
 
+    memory_fts_offset_paging = True
+
     def __init__(self, conn: UserConnection):
         self.conn = conn
         self._label_floor_applied = False

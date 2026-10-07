@@ -465,6 +465,7 @@ class SQLiteVNextStore:
 
     #: Retrieval-trace label for the full-text stage (FTS5, not Postgres tsvector).
     fts_stage_source = "sqlite_fts"
+    memory_fts_offset_paging = True
 
     def __init__(self, conn: sqlite3.Connection, user_id: UUID | str):
         if str(user_id).strip() == "":
