@@ -588,21 +588,6 @@ class LabelGuard:
         ids = list(dict.fromkeys(str(row.get(field)) for row in rows if row.get(field)))
         state = self._state()
         missing = [row_id for row_id in ids if (kind, row_id) not in state.targets]
-        current = _REQUEST_LABELS.get()
-        if kind == "memory" and current is not None and current[0] is self.store:
-            for row_id in missing:
-                native = state.native_labels.get((kind, identifier(row_id)))
-                if native is None:
-                    continue
-                raw, _label = native
-                if type(raw.get("id")) is UUID and str(raw.get("id")) == row_id:
-                    # A verified native count row has the same complete label
-                    # projection as read_label_rows. Reuse the raw input only;
-                    # this caller still applies its own admission below. Exact
-                    # stored spelling preserves target lookup behavior, and
-                    # writes/rollback clear both maps in this locked request.
-                    state.targets[(kind, row_id)] = raw
-            missing = [row_id for row_id in missing if (kind, row_id) not in state.targets]
         if kind == "source":
             for row_id in missing:
                 cached = state.nodes.get((kind, identifier(row_id)), ())
@@ -637,8 +622,24 @@ class LabelGuard:
         iterator = getattr(self.store, "iter_label_events", None)
         if not callable(iterator):
             raise TypeError("readable counts require complete event enumeration")
-        prefilter = {"reject_sensitivity_allowed": self.sensitivity_allowed} if getattr(type(self.store), "label_count_input_prefilter", False) else {}
-        return sum(len(self.admit_events(batch)) for batch in iterator(**prefilter))
+        prefilter: dict[str, Any] = {"reject_sensitivity_allowed": self.sensitivity_allowed} if self.active and getattr(type(self.store), "label_count_input_prefilter", False) else {}
+        canonical = getattr(type(self.store), "label_count_canonical_unique_ids", False)
+        counter = getattr(self.store, "count_source_label_events", None)
+        source_count = 0
+        if canonical and callable(counter) and self.active and not self.projects and self.all_of is None:
+            # Sources are original inputs, so this unscoped count has no
+            # ancestry to settle. The native counter preserves exact target
+            # spelling, current tenant, domains and sensitivity. Scoped and
+            # inactive callers keep the complete per-target path below.
+            source_count = counter(domains=self.domains, sensitivity_allowed=self.sensitivity_allowed)
+            prefilter["exclude_source_targets"] = True
+        if canonical:
+            # Native UUID stores already read up to 5,000 event targets in
+            # each SQL page. Admit that complete page together instead of
+            # splitting its missing source reads into five database trips.
+            # Every target still goes through its current effective guard.
+            prefilter["batch_size"] = 5000
+        return source_count + sum(len(self.admit_events(batch)) for batch in iterator(**prefilter))
 
     def admit_beliefs(self, beliefs: Sequence[_Row]) -> list[_Row]:
         """Beliefs whose backing memory the filters admit. One batched read."""

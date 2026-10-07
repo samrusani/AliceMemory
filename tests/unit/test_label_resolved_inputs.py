@@ -352,6 +352,47 @@ def test_native_count_targets_keep_spelling_filters_and_refresh_after_writes():
         assert len(store.reads) > before + 1
 
 
+def test_native_event_counts_batch_sources_without_changing_admission():
+    sources = [{"kind": "source", "id": UUID(int=i + 1), "domain": "project",
+                "sensitivity": "confidential" if i % 2 else "public", "metadata_json": {}}
+               for i in range(3000)]
+    events = [{"target_type": "source", "target_id": str(source["id"]), "event_type": "source.created"}
+              for source in sources for _ in range(3)]
+    events.extend([
+        {"target_type": "source", "target_id": str(UUID(int=10000)), "event_type": "source.created"},
+        {"target_type": "source", "target_id": str(sources[0]["id"]).replace("-", ""), "event_type": "source.created"},
+        {"target_type": "source_chunk", "event_type": "source_chunk.labels_raised"},
+        {"target_type": "source_chunk", "event_type": "source_chunk.created"},
+    ])
+
+    class NativeEvents(Rows):
+        label_count_canonical_unique_ids = True
+
+        def __init__(self, rows):
+            super().__init__(rows)
+            self.reads = 0
+
+        def read_label_rows(self, kind, ids):
+            self.reads += 1
+            return super().read_label_rows(kind, ids)
+
+        def iter_label_events(self, *, batch_size=1000):
+            for start in range(0, len(events), batch_size):
+                yield events[start:start + batch_size]
+
+    store = NativeEvents(sources)
+    with label_read_scope(store):
+        guard = LabelGuard(store, active=True, sensitivity_allowed=("public",))
+        assert guard.readable_event_count() == 4501
+        assert store.reads <= 2
+        assert replace(guard, domains=("health",)).readable_event_count() == 1
+        before_write = store.reads
+        sources[0]["sensitivity"] = "confidential"
+        invalidate_read_labels(store)
+        assert guard.readable_event_count() == 4498
+        assert store.reads - before_write <= 2
+
+
 def test_text_identifiers_keep_case_while_uuid_aliases_share_an_origin():
     canonical = str(UUID(int=0xABCDEF))
     sources = [

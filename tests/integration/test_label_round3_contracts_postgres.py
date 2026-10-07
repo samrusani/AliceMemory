@@ -80,6 +80,61 @@ def test_memory_event_target_set_preserves_exact_target_matching(label_harness):
         assert [event["id"] for event in actual] == [event["id"] for event in baseline]
 
 
+def test_native_source_event_counts_match_the_complete_per_target_guard(label_harness):
+    from alicebot_api.vnext_label_guard import LabelGuard, label_read_scope
+    from alicebot_api.store import ContinuityStore
+    from tests.integration.derived_labels_postgres_support import LabelHarness
+
+    h = label_harness
+    sources = [h.source(scope=("P1" if i % 2 == 0 else "P2",), sensitivity=value)
+               for i, value in enumerate(("public", "public", "internal", "confidential", "private", "regulated", "unknown", "public"))]
+    foreign = LabelHarness(h.urls, uuid4())
+    with foreign.store() as store:
+        ContinuityStore(store.conn).create_user(foreign.user_id, "foreign@example.invalid", "Synthetic foreign tenant")
+    foreign_source = foreign.source()
+    h.memory(source=sources[3])
+    with h.store() as store:
+        for source, domain in zip(sources, ("project", "health", "unknown", "project", "legal", "project", "project", "project"), strict=True):
+            store.conn.execute("UPDATE sources SET domain=%s WHERE id=%s", (domain, source["id"]))
+        store.conn.execute("UPDATE sources SET deleted_at=now() WHERE id=%s", (sources[-1]["id"],))
+        fixed = store.create_source({"id": str(UUID(int=0xABCDEF)), "source_type": "note", "title": "Synthetic canonical target",
+                                     "content_hash": str(uuid4()), "domain": "project", "sensitivity": "public",
+                                     "metadata_json": {"project_scope": ["P1"]}})
+        canonical = str(fixed["id"])
+        for target in (canonical.upper(), canonical.replace("-", ""), " " + canonical, "urn:uuid:" + canonical,
+                       "source:" + canonical, "legacy-not-a-uuid", str(uuid4()), str(foreign_source["id"])):
+            store.conn.execute(
+                "INSERT INTO event_log(id,user_id,event_type,actor_type,target_type,target_id,payload_json) "
+                "VALUES(%s,%s,'source.updated','system','source',%s,'{}')", (uuid4(), h.user_id, target))
+        store.append_event(build_event_log_record(event_type="source_chunk.created", actor_type="system", payload={}))
+        store.append_event(build_event_log_record(event_type="unknown.labels_raised", actor_type="system", payload={}))
+
+        class PerTarget:
+            def read_label_rows(self, kind, ids):
+                return store.read_label_rows(kind, ids)
+
+            def iter_label_events(self):
+                return store.iter_label_events()
+
+        oracle = PerTarget()
+        filters = [
+            {"sensitivity_allowed": ("public",)},
+            {"domains": ("health",), "sensitivity_allowed": ("public", "internal")},
+            {"domains": ("legal",), "sensitivity_allowed": ("private", "unknown")},
+            {"sensitivity_allowed": ("public", "internal", "private", "unknown")},
+            {"sensitivity_allowed": ("public",), "projects": ("P1",)},
+            {"sensitivity_allowed": ("public",), "all_of": ("P1",)},
+            {},
+        ]
+        for active in (True, False):
+            for options in filters:
+                with label_read_scope(oracle):
+                    expected = LabelGuard(oracle, active=active, **options).readable_event_count()
+                with label_read_scope(store):
+                    actual = LabelGuard(store, active=active, **options).readable_event_count()
+                assert actual == expected, (active, options, actual, expected)
+
+
 @pytest.mark.parametrize("profile", ["owner", "admin_agent"])
 @pytest.mark.parametrize("component", ["trace", "workspace"])
 def test_unfenced_source_trace_and_workspace_preserve_main(label_harness, profile, component):

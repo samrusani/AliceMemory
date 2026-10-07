@@ -596,7 +596,27 @@ class PostgresVNextStore:
             if len(rows) < query_size:
                 return
 
-    def iter_label_events(self, *, batch_size: int = 1000, reject_sensitivity_allowed: Sequence[str] = ()) -> Iterator[list[VNextRow]]:
+    def count_source_label_events(self, *, domains=(), sensitivity_allowed=()) -> int:
+        """Original-source events for an active, unscoped label guard.
+
+        Match the reader's canonical stored target text without casting legacy
+        event IDs. Deleted source rows remain readable by the label reader.
+        RLS and the explicit tenant join preserve the same input population.
+        """
+        row = self._fetch_one(
+            "count_source_label_events",
+            """SELECT COUNT(*) AS count FROM event_log AS e
+               JOIN sources AS s ON s.user_id = e.user_id AND e.target_id = s.id::text
+               WHERE e.target_type = 'source'
+                 AND (%s::text[] IS NULL OR COALESCE(NULLIF(s.domain, ''), 'unknown') = ANY(%s::text[])
+                      OR COALESCE(NULLIF(s.domain, ''), 'unknown') = 'unknown')
+                 AND (%s::text[] IS NULL OR COALESCE(NULLIF(s.sensitivity, ''), 'unknown') = ANY(%s::text[]))""",
+            (list(domains) or None, list(domains) or None,
+             list(sensitivity_allowed) or None, list(sensitivity_allowed) or None),
+        )
+        return int(cast(int, row["count"]))
+
+    def iter_label_events(self, *, batch_size: int = 1000, reject_sensitivity_allowed: Sequence[str] = (), exclude_source_targets: bool = False) -> Iterator[list[VNextRow]]:
         """Complete event targets for readable counts, without event payloads."""
 
         if batch_size < 1:
@@ -608,8 +628,10 @@ class PostgresVNextStore:
         while True:
             rows = self._fetch_all(
                 f"""SELECT id, target_type, target_id, event_type FROM event_log
-                   WHERE (%s::uuid IS NULL OR id > %s::uuid) AND {label_sql} ORDER BY id LIMIT %s""",
-                (after, after, query_size),
+                   WHERE (%s::uuid IS NULL OR id > %s::uuid) AND {label_sql}
+                     AND (NOT %s::boolean OR COALESCE(target_type, '') <> 'source')
+                   ORDER BY id LIMIT %s""",
+                (after, after, exclude_source_targets, query_size),
             )
             if not rows:
                 return
