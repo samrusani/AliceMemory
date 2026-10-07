@@ -141,7 +141,14 @@ def paired_budgets(backend, location, user, keys, *, case, source_count, repaire
                    "memories": 5000, "mix": ({"source_copy": 5000} if case == "identical-copies" else {"source_copy": 1500, "stamped_report": 1250, "consolidation": 1250, "weekly": 1000}),
                    "artifacts": 500 if backend == "postgres" and case == "extra-rows" else 0,
                    "derived_loops": 400 if case == "extra-rows" else 0, "real_repair_zero_check": repaired, **measurements}
-            print(json.dumps(row), flush=True)
+            encoded_row = json.dumps(row)
+            print(encoded_row, flush=True)
+            evidence_path = os.environ.get("ALICE_READ_BUDGET_EVIDENCE")
+            if evidence_path:
+                evidence = Path(evidence_path)
+                evidence.parent.mkdir(parents=True, exist_ok=True)
+                with evidence.open("a") as output:
+                    output.write(encoded_row + "\n")
             for action in ("pack", "recall"):
                 for clock in ("minimum_wall", "minimum_cpu"):
                     if measurements["head"][action][clock] > 2 * measurements["main"][action][clock] + .1:
