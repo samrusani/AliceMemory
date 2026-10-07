@@ -144,7 +144,7 @@
           "line": 347,
           "before": "semantic = (template[:1] + template[2:], semantic_parents)",
           "after": "semantic = (template[:1] + template[2:], ())",
-          "sha256": "4f372e9a9d228d2e18d27b8c48374501501f61a282c71f185a62d89c4033f879"
+          "sha256": "b6542485b899edf0e8e39aa7b923ec3364337a7e2d76edf6512a5bfa4ceac121"
         }
       ],
       "pytest": [
@@ -160,7 +160,7 @@
           "line": 347,
           "before": "semantic = (template[:1] + template[2:], semantic_parents)",
           "after": "semantic = (template[:1] + template[2:], tuple(sorted(set(semantic_parents))))",
-          "sha256": "4f372e9a9d228d2e18d27b8c48374501501f61a282c71f185a62d89c4033f879"
+          "sha256": "b6542485b899edf0e8e39aa7b923ec3364337a7e2d76edf6512a5bfa4ceac121"
         }
       ],
       "pytest": [
@@ -176,7 +176,7 @@
           "line": 334,
           "before": "if len(raw) != 1 or identifier(raw[0].get(\"id\")) != parent_id:",
           "after": "if not raw or identifier(raw[0].get(\"id\")) != parent_id:",
-          "sha256": "4f372e9a9d228d2e18d27b8c48374501501f61a282c71f185a62d89c4033f879"
+          "sha256": "b6542485b899edf0e8e39aa7b923ec3364337a7e2d76edf6512a5bfa4ceac121"
         }
       ],
       "pytest": [
@@ -194,7 +194,7 @@
           "line": 342,
           "before": "if depth > HOP_BOUND or len(ancestry) > NODE_BOUND:",
           "after": "if False:",
-          "sha256": "4f372e9a9d228d2e18d27b8c48374501501f61a282c71f185a62d89c4033f879"
+          "sha256": "b6542485b899edf0e8e39aa7b923ec3364337a7e2d76edf6512a5bfa4ceac121"
         }
       ],
       "pytest": [
@@ -212,7 +212,7 @@
           "line": 318,
           "before": "if problem or has_implicit_weekly_inputs(kind, row):",
           "after": "if problem:",
-          "sha256": "4f372e9a9d228d2e18d27b8c48374501501f61a282c71f185a62d89c4033f879"
+          "sha256": "b6542485b899edf0e8e39aa7b923ec3364337a7e2d76edf6512a5bfa4ceac121"
         }
       ],
       "pytest": [
@@ -227,10 +227,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
-          "line": 449,
+          "line": 462,
           "before": "if not self.active and callable(native):",
           "after": "if False:",
-          "sha256": "4f372e9a9d228d2e18d27b8c48374501501f61a282c71f185a62d89c4033f879"
+          "sha256": "b6542485b899edf0e8e39aa7b923ec3364337a7e2d76edf6512a5bfa4ceac121"
         }
       ],
       "pytest": [
@@ -246,7 +246,7 @@
           "line": 17,
           "before": "if not blocked:",
           "after": "if True:",
-          "sha256": "06c2349106e6bf5c61dfaaf41f3b285f388a501c7fe367a6394e71728fa49e9b"
+          "sha256": "f733e792850cd192b5615d1a309af2ab1fe466fce0b95469d790828c6a820b92"
         }
       ],
       "pytest": [
@@ -278,7 +278,7 @@
           "line": 371,
           "before": "        self._prefetch_inputs(kind, rows)",
           "after": "        pass  # removed batched ancestry reads",
-          "sha256": "4f372e9a9d228d2e18d27b8c48374501501f61a282c71f185a62d89c4033f879"
+          "sha256": "b6542485b899edf0e8e39aa7b923ec3364337a7e2d76edf6512a5bfa4ceac121"
         }
       ],
       "pytest": [

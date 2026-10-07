@@ -8,7 +8,7 @@ from uuid import UUID
 import pytest
 
 from alicebot_api.vnext_derived_labels import identifier, settle_labels, with_derived_from
-from alicebot_api.vnext_label_guard import LabelGuard, label_read_scope
+from alicebot_api.vnext_label_guard import LabelGuard, invalidate_read_labels, label_read_scope
 
 
 class Rows:
@@ -88,6 +88,27 @@ def test_dependency_frontier_batches_many_independent_origins():
     kept = LabelGuard(store, active=True, sensitivity_allowed=("public",)).admit_rows("memory", roots)
     assert {row["id"] for row in kept} == {row["id"] for row in roots[::2]}
     assert store.calls <= 2
+
+
+def test_partial_prefetch_keeps_per_origin_floors_and_refreshes_after_writes(monkeypatch):
+    # The combined frontier exceeds this bound; every individual graph fits.
+    monkeypatch.setattr("alicebot_api.vnext_label_guard.NODE_BOUND", 3)
+    sources = [{"kind": "source", "id": str(UUID(int=i + 1)), "domain": "project",
+                "sensitivity": "confidential" if i == 1 else "public", "metadata_json": {}}
+               for i in range(3)]
+    parents = [{"kind": "memory", "id": str(UUID(int=i + 100)), "domain": "project", "sensitivity": "public",
+                "metadata_json": {"source_id": source["id"]}} for i, source in enumerate(sources)]
+    roots = [{"kind": "memory", "id": str(UUID(int=i + 200)), "domain": "project", "sensitivity": "public",
+              "metadata_json": {"consolidation": {"cluster_member_ids": [parent["id"]]}}}
+             for i, parent in enumerate(parents)]
+    store = Rows(sources + parents)
+    with label_read_scope(store):
+        guard = LabelGuard(store, active=True, sensitivity_allowed=("public",))
+        for _ in range(2):
+            assert [row["id"] for row in guard.admit_rows("memory", roots)] == [roots[0]["id"], roots[2]["id"]]
+        sources[0]["sensitivity"] = "confidential"
+        invalidate_read_labels(store)
+        assert [row["id"] for row in guard.admit_rows("memory", roots)] == [roots[2]["id"]]
 
 
 @pytest.mark.parametrize("variant", ["alias", "cycle", "missing", "malformed", "hop-bound", "node-bound", "implicit-weekly", "implicit-weekly-json"])

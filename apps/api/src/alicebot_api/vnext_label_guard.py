@@ -405,15 +405,24 @@ class LabelGuard:
         if not callable(reader):
             return
         state = self._state()
+        prefetched = state.row_sets.setdefault("prefetched-input-expansions", {})
         frontier = [(kind, row) for row in rows if isinstance(row, Mapping)]
         expanded: set[tuple[str, str]] = set()
         for _ in range(HOP_BOUND + 1):
             refs: set[tuple[str, str]] = set()
+            pending: list[tuple] = []
             for row_kind, row in frontier:
                 if is_derived(row_kind, row):
-                    refs.update(self._signature(row_kind, row, key=self._key(row_kind, row))[1])
+                    key = self._key(row_kind, row)
+                    if key in prefetched:
+                        continue
+                    refs.update(self._signature(row_kind, row, key=key)[1])
+                    pending.append(key)
             refs.difference_update(expanded)
-            if not refs or len(expanded | refs) > NODE_BOUND:
+            if len(expanded | refs) > NODE_BOUND:
+                return
+            if not refs:
+                prefetched.update(dict.fromkeys(pending))
                 return
             expanded.update(refs)
             wanted: dict[str, set[str]] = {}
@@ -427,6 +436,10 @@ class LabelGuard:
                     canonical = identifier(found.get("id"))
                     if canonical in ids:
                         state.nodes[(ref_kind, canonical)].append(dict(found))
+            # Mark only after these immediate inputs have actually been read.
+            # A bounded/partial frontier still uses per-origin settlement;
+            # this raw-row reuse never supplies a label or an admission grant.
+            prefetched.update(dict.fromkeys(pending))
             frontier = [(ref_kind, row) for ref_kind, ref_id in refs
                         for row in state.nodes[(ref_kind, ref_id)]]
 

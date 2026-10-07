@@ -16,7 +16,7 @@ def hidden_memory_input_sql(sensitivity_allowed, *, sqlite: bool, alias: str = "
     blocked = [value for value, rank in SENSITIVITY_RANK.items() if rank > ceiling] if sensitivity_allowed else []
     if not blocked:
         return "TRUE"
-    names = ",".join("'" + value + "'" for value in blocked)  # closed kernel constants
+    names = ",".join("'" + value + "'" for value in blocked)  # Closed kernel constants and whitelisted aliases are the only SQL inputs.
     if sqlite:
         source = f"alice_direct_source_hint({alias}.metadata_json)"
         memory = f"alice_direct_memory_hint({alias}.metadata_json)"
@@ -46,7 +46,7 @@ def hidden_memory_input_sql(sensitivity_allowed, *, sqlite: bool, alias: str = "
                         AND label_source.id={parent_source}
                     WHERE {input_not_redacted} AND label_source.sensitivity IN ({names})
                 ), FALSE)
-            )))"""
+            )))"""  # nosec B608
     return f"""({alias}.sensitivity NOT IN ({names}) AND NOT (
         {not_redacted} AND (EXISTS (
             SELECT 1 FROM sources label_source WHERE label_source.user_id={alias}.user_id
@@ -56,7 +56,7 @@ def hidden_memory_input_sql(sensitivity_allowed, *, sqlite: bool, alias: str = "
             ON label_source.user_id=label_input.user_id AND label_source.id={parent_source}
             WHERE label_input.user_id={alias}.user_id AND label_input.id={memory}
             AND {input_not_redacted} AND label_source.sensitivity IN ({names})
-        ))))"""
+        ))))"""  # nosec B608
 
 
 def original_label_sql(kind: str, *, sqlite: bool = False) -> str:
