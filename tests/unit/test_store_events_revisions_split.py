@@ -141,6 +141,8 @@ EXPECTED_PRIMITIVE_METADATA = {
     },
 }
 # Round two adds the conservative original-row SQL count on both facades.
+# Round three adds only the unscoped original-source event counter to Postgres.
+# Runtime metadata and every grafted method remain pinned below.
 EXPECTED_CLASS_KEY_SHA256 = {
     # Reviewed additions: label/event enumeration, PG ratings, belief aliases and source recovery.
     # Existing facade members retain their relative order.
@@ -153,7 +155,7 @@ EXPECTED_CLASS_KEY_SHA256 = {
     # Re-minted for the per-file importer savepoint (2026-10-02): ``savepoint`` is appended last on both façades.
     # Previous receipt: 650e2e0ff088d67c... Proof: the class key list equals the list at origin/main 040a2a10
     # plus ``savepoint`` before ``__dict__``, with every other key in the same order.
-    "postgres": "062e8006f55e3df7f369aac5173a32305a9850537e078c093bff71f5c5c5187c",
+    "postgres": "cc43f69fcf43c87332e24786f58cbddb6b64bce2af9d1f559d02eb5e4f18f288",
     # Re-minted for the merge of #500 and #502: ``check_literal_match_query``.
     # Re-minted again for per-project memory S2 (2026-10-02): the two single-scan partition reads
     # ``list_memories_view_partitions`` and ``list_open_loops_view_partitions``, SQLite only on purpose
