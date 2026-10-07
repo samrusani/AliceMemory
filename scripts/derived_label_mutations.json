@@ -477,6 +477,38 @@
         "tests/unit/test_label_resolved_inputs.py::test_native_projection_reuse_keeps_filters_and_refreshes_after_writes"
       ],
       "expected_failure": "test_native_projection_reuse_keeps_filters_and_refreshes_after_writes"
+    },
+    {
+      "name": "sqlite-hint-full-input",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/sqlite_store.py",
+          "before": "    key = (\"sqlite-parent-hints\", raw)",
+          "after": "    key = (\"sqlite-parent-hints\", \"\")",
+          "sha256": "461f288fd66bb5c80a3408fc450f7169d9206a6609a8d6891d742819a01f8329",
+          "line": 423
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_label_count_partition.py::test_cached_parent_hints_keep_the_complete_json_and_original_decoding_depth"
+      ],
+      "expected_failure": "test_cached_parent_hints_keep_the_complete_json_and_original_decoding_depth"
+    },
+    {
+      "name": "canonical-identifier-grammar",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_derived_labels.py",
+          "before": "    elif type(value) is str and _CANONICAL_SOURCE_UUID.fullmatch(value):",
+          "after": "    elif type(value) is str:",
+          "sha256": "398581751be87665c48c8ed33ba9fe5b1254125022b69f00d2879751443a17f6",
+          "line": 207
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_label_resolved_inputs.py::test_text_identifiers_keep_case_while_uuid_aliases_share_an_origin"
+      ],
+      "expected_failure": "test_text_identifiers_keep_case_while_uuid_aliases_share_an_origin"
     }
   ]
 }

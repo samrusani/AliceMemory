@@ -307,3 +307,21 @@ def test_native_projection_reuse_keeps_filters_and_refreshes_after_writes():
         source["sensitivity"] = "confidential"
         invalidate_read_labels(store)
         assert guard.admit_rows("memory", [deepcopy(reloaded)]) == []
+
+
+def test_text_identifiers_keep_case_while_uuid_aliases_share_an_origin():
+    canonical = str(UUID(int=0xABCDEF))
+    sources = [
+        {"kind": "source", "id": "Source-A", "domain": "project", "sensitivity": "public", "metadata_json": {}},
+        {"kind": "source", "id": "source-a", "domain": "project", "sensitivity": "confidential", "metadata_json": {}},
+        {"kind": "source", "id": canonical, "domain": "project", "sensitivity": "public", "metadata_json": {}},
+        {"kind": "source", "id": "urn:uuid:" + canonical, "domain": "project", "sensitivity": "confidential", "metadata_json": {}},
+    ]
+    roots = [{"kind": "memory", "id": "root-" + str(i), "domain": "project", "sensitivity": "public",
+              "metadata_json": {"source_id": value}} for i, value in enumerate(("Source-A", "source-a", canonical.upper()))]
+    store = Rows(sources)
+    with label_read_scope(store):
+        guard = LabelGuard(store, active=True, sensitivity_allowed=("public",))
+        assert guard.admit_rows("memory", roots) == [roots[0]]
+        assert guard.effective_row("memory", roots[1])["sensitivity"] == "confidential"
+        assert guard.effective_row("memory", roots[2])["unverified"] is True

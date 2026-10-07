@@ -46,6 +46,7 @@ from alicebot_api.vnext_capture import (
     capture_dedupe_key_for_source,
     source_capture_raw_text,
 )
+from alicebot_api.vnext_derived_labels import _read_metadata_cache, identifier
 from alicebot_api.vnext_embeddings import (
     EMBEDDING_SIGNATURE_METADATA_KEY,
     EMBEDDING_VECTOR_DIMENSIONS,
@@ -390,7 +391,7 @@ def sqlite_user_connection(path: str | Path, user_id: UUID | str, *, repair_labe
         conn.close()
 
 
-def _direct_source_hint(raw: object) -> str | None:
+def _direct_source_hint_uncached(raw: object) -> str | None:
     """A direct parent for a conservative prefilter, never an admission grant.
 
     Decode like the store and kernel, including JSON strings and duplicate or
@@ -414,10 +415,28 @@ def _direct_source_hint(raw: object) -> str | None:
         # A named source in a canonical record is an input even when another
         # input makes the row unverified. This is rejection only, never a grant.
         source_id = sources[0]
-    try:
-        return str(UUID(source_id))
-    except (ValueError, TypeError):
-        return source_id
+    return identifier(source_id)
+
+
+def _cached_direct_parent_hints(raw: str, cache: dict) -> tuple[str | None, str | None]:
+    """Share pure JSON/ID decoding, never a parent's current label or grant."""
+    key = ("sqlite-parent-hints", raw)
+    if key not in cache:
+        try:
+            metadata = json.loads(raw)
+            if isinstance(metadata, str):
+                metadata = json.loads(metadata)
+        except (ValueError, TypeError):
+            metadata = None
+        cache[key] = (_direct_source_hint_uncached(metadata), _direct_memory_hint_uncached(metadata)) if isinstance(metadata, Mapping) else (None, None)
+    return cast(tuple[str | None, str | None], cache[key])
+
+
+def _direct_source_hint(raw: object) -> str | None:
+    cache = _read_metadata_cache()
+    if cache is not None and type(raw) is str:
+        return _cached_direct_parent_hints(raw, cache)[0]
+    return _direct_source_hint_uncached(raw)
 
 
 def _ensure_direct_source_hint(conn: sqlite3.Connection) -> None:
@@ -438,7 +457,7 @@ def _ensure_direct_source_hint(conn: sqlite3.Connection) -> None:
         conn.create_function("alice_direct_memory_hint", 1, _direct_memory_hint, deterministic=True)
 
 
-def _direct_memory_hint(raw: object) -> str | None:
+def _direct_memory_hint_uncached(raw: object) -> str | None:
     try:
         metadata = json.loads(raw) if isinstance(raw, str) else raw
         if isinstance(metadata, str):
@@ -454,10 +473,14 @@ def _direct_memory_hint(raw: object) -> str | None:
         members = record.get("memories") if isinstance(record, Mapping) else None
     if not isinstance(members, list) or not members or not isinstance(members[0], str):
         return None
-    try:
-        return str(UUID(members[0]))
-    except (ValueError, TypeError):
-        return members[0]
+    return identifier(members[0])
+
+
+def _direct_memory_hint(raw: object) -> str | None:
+    cache = _read_metadata_cache()
+    if cache is not None and type(raw) is str:
+        return _cached_direct_parent_hints(raw, cache)[1]
+    return _direct_memory_hint_uncached(raw)
 
 
 class SQLiteVNextStore:

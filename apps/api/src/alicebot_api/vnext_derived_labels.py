@@ -204,6 +204,8 @@ def identifier(value: object) -> str:
         return cache[key]
     if isinstance(value, UUID):
         result = str(value)
+    elif type(value) is str and _CANONICAL_SOURCE_UUID.fullmatch(value):
+        result = value.lower()
     else:
         try:
             result = str(UUID(str(value)))
@@ -224,6 +226,10 @@ def _object(value: object) -> Mapping[str, object]:
 
 
 _READ_METADATA: ContextVar[dict | None] = ContextVar("label_read_metadata", default=None)
+
+
+def _read_metadata_cache() -> dict | None:
+    return _READ_METADATA.get()
 
 
 @contextmanager
