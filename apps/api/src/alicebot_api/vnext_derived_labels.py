@@ -11,6 +11,7 @@ A derived row is found by a marker the server wrote, never by reading text.
 from __future__ import annotations
 
 import json
+import re
 from collections import deque
 from collections.abc import Iterable, Mapping, Sequence
 from contextlib import contextmanager
@@ -239,6 +240,30 @@ def label_metadata_cache(cache: dict):
         _READ_METADATA.reset(token)
 
 
+def _cache_native_json_metadata(rows: Iterable[Mapping[str, object]]) -> None:
+    """Reuse standard PostgreSQL JSON-decoder output in a locked request.
+
+    Only native database read sites call this: their JSON objects cannot
+    contain Python UUID instances. JSON strings and all other input forms
+    still take the canonical decoding/UUID-normalization path.
+    """
+    cache = _READ_METADATA.get()
+    if cache is None:
+        return
+    for row in rows:
+        raw = row.get("metadata_json")
+        if type(raw) is dict:
+            cache[id(raw)] = (raw, raw)
+
+
+def _share_metadata_decode(raw: object, projection: object) -> None:
+    """A shallow metadata copy has exactly the same pure decoding result."""
+    cache = _READ_METADATA.get()
+    cached = cache.get(id(raw)) if cache is not None else None
+    if cache is not None and type(raw) is dict and type(projection) is dict and cached is not None and cached[0] is raw:
+        cache[id(projection)] = (projection, cached[1])
+
+
 def _metadata(row: Mapping[str, object]) -> Mapping[str, object]:
     raw = row.get("metadata_json")
     cache = _READ_METADATA.get()
@@ -254,6 +279,8 @@ def _metadata(row: Mapping[str, object]) -> Mapping[str, object]:
 def _uuid_strings(value: object) -> object:
     """Database UUID objects and JSON strings name the same recorded input."""
     if value is None or type(value) in (str, int, float, bool):
+        return value
+    if type(value) is dict and not value:
         return value
     if isinstance(value, UUID):
         return str(value)
@@ -481,6 +508,9 @@ def _as_string_list(value: object) -> tuple[str, list[str]] | None:
     return ("", _strings(value))
 
 
+_CANONICAL_SOURCE_UUID = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
+
+
 def _source_ids_from(value: object) -> tuple[str, set[str]]:
     """Named source ids, including every spelling the saved-quote reader names."""
 
@@ -489,10 +519,8 @@ def _source_ids_from(value: object) -> tuple[str, set[str]]:
     # An exact canonical UUID contains one source and no surrounding text.
     # Every other shape still runs the complete saved-quote parser, including
     # encoded/split references and text naming more than one source.
-    if type(value) is str and len(value) == 36:
-        token = _source_token(value)
-        if token is not None and token == value.lower():
-            return "", {token}
+    if type(value) is str and _CANONICAL_SOURCE_UUID.fullmatch(value):
+        return "", {value.lower()}
     named = {identifier(item) for item in cited_source_ids(value).named}
     problem = ""
     if isinstance(value, list):

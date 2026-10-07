@@ -692,6 +692,9 @@ class PostgresVNextStore:
         with self.conn.cursor() as cur:
             cur.execute(query, params)
             rows = cur.fetchall()
+        if isinstance(self.conn, psycopg.Connection):
+            from alicebot_api.vnext_derived_labels import _cache_native_json_metadata
+            _cache_native_json_metadata(rows)
         return [expose_memory_project_scope(cast(VNextRow, row)) for row in rows]
 
     _append_mutation_event = _events_append_mutation_event

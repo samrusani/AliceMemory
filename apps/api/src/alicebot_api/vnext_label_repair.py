@@ -7,11 +7,12 @@ because a published vault must not stay unrepaired.
 from __future__ import annotations
 
 import json
+import psycopg
 from collections.abc import Mapping, Sequence
 from typing import TypedDict
 
 from alicebot_api.vnext_derived_domain_backfill import DerivedDomainRepairError, require_changed
-from alicebot_api.vnext_derived_labels import labels_raised_payload, settle_labels
+from alicebot_api.vnext_derived_labels import _cache_native_json_metadata, _share_metadata_decode, labels_raised_payload, settle_labels
 from alicebot_api.vnext_event_log import build_event_log_record
 from alicebot_api.vnext_project_scope import project_scope_identity
 
@@ -94,6 +95,7 @@ def plan_label_repairs(
             node["kind"] = kind
             node["_stored_metadata"] = row.get("metadata_json")
             node["metadata_json"] = _json_object(row.get("metadata_json"))
+            _share_metadata_decode(row.get("metadata_json"), node["metadata_json"])
             if isinstance(row.get("value"), str):
                 node["value"] = _json_object(row.get("value"))
             nodes.append(node)
@@ -241,6 +243,7 @@ def classify_stored_labels(
             node["kind"] = kind
             node["_stored_metadata"] = row.get("metadata_json")
             node["metadata_json"] = _json_object(row.get("metadata_json"))
+            _share_metadata_decode(row.get("metadata_json"), node["metadata_json"])
             if isinstance(row.get("value"), str):
                 node["value"] = _json_object(row.get("value"))
             nodes.append(node)
@@ -311,6 +314,8 @@ def load_postgres_label_tables(conn) -> dict[str, list[dict[str, object]]]:
         cursor = conn.execute(statement)
         names = [column[0] for column in cursor.description]
         tables[table] = [row if isinstance(row, dict) else dict(zip(names, row)) for row in cursor.fetchall()]
+        if isinstance(conn, psycopg.Connection):
+            _cache_native_json_metadata(tables[table])
     return tables
 
 

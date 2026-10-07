@@ -356,8 +356,21 @@ def _flagged_source_scan(store: object) -> tuple[list[str], bool]:
         rows = list(lister())
         stopped_early = False
     ids: list[str] = []
+    empty_metadata_verdicts: dict[tuple[object, ...], bool] = {}
     for row in rows:
-        if not source_row_is_flagged(row):
+        verdict = None
+        if isinstance(row, Mapping) and type(row.get("metadata_json")) is dict and not row["metadata_json"]:
+            fields = tuple(row.get(key) for key in ("title", "author", "uri", "raw_path", "external_id"))
+            if all(value is None or type(value) is str for value in fields):
+                if fields not in empty_metadata_verdicts:
+                    empty_metadata_verdicts[fields] = source_row_is_flagged(row)
+                verdict = empty_metadata_verdicts[fields]
+        # The classifier reads these five fields and the complete metadata.
+        # Only exact empty metadata and equal immutable scalar inputs share a
+        # verdict in this scan. Every other row uses the full commit-door scan.
+        if verdict is None:
+            verdict = source_row_is_flagged(row)
+        if not verdict:
             continue
         source_id = row.get("id") if isinstance(row, Mapping) else None
         if source_id is not None:

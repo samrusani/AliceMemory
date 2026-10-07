@@ -250,3 +250,28 @@ def test_native_bulk_count_does_not_reuse_a_distinct_projection():
         guard._settle_native_count_batch("memory", [root])
         assert guard._key("memory", root) not in state.labels
         assert labels(guard.effective_row("memory", root))[1] == "public"
+
+
+def test_native_json_decode_cache_preserves_recorded_reference_forms_and_refresh():
+    from alicebot_api.vnext_derived_labels import _cache_native_json_metadata
+    source = {"kind": "source", "id": UUID(int=1), "domain": "health", "sensitivity": "confidential", "metadata_json": {}}
+    source_id = str(source["id"])
+    encoded = source_id.replace("-", "%2d")
+    roots = [{"kind": "memory", "id": UUID(int=100 + i), "domain": "project", "sensitivity": "public",
+              "metadata_json": {"source_refs": [ref], "derived_from": {"v": 1, "sources": [], "counts": {}}}}
+             for i, ref in enumerate((source_id, "SOURCE:" + source_id.upper(), "quoted source:" + encoded))]
+    # A JSON string containing metadata is not a decoded JSON object and must
+    # retain the canonical parser; source-reference text must never disappear.
+    roots.append({**roots[0], "id": UUID(int=200), "metadata_json": json.dumps(roots[0]["metadata_json"])})
+    rows = [source, *roots]
+    expected_rows = settle_labels([{**row, "user_id": "label-guard"} for row in rows], on_cycle="unverified").rows
+    store = Rows(rows)
+    with label_read_scope(store):
+        _cache_native_json_metadata(rows)
+        guard = LabelGuard(store, active=True)
+        for root, expected_label in zip(roots, expected_rows[1:], strict=True):
+            assert labels(guard.effective_row("memory", root)) == expected(expected_label)
+        source["sensitivity"] = "regulated"
+        invalidate_read_labels(store)
+        _cache_native_json_metadata(rows)
+        assert guard.effective_row("memory", roots[0])["sensitivity"] == "regulated"

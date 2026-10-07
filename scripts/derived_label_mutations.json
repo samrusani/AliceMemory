@@ -413,6 +413,38 @@
         "tests/unit/test_label_resolved_inputs.py::test_native_bulk_count_does_not_reuse_a_distinct_projection"
       ],
       "expected_failure": "test_native_bulk_count_does_not_reuse_a_distinct_projection"
+    },
+    {
+      "name": "doctor-verdict-fields",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_doctor.py",
+          "before": "            fields = tuple(row.get(key) for key in (\"title\", \"author\", \"uri\", \"raw_path\", \"external_id\"))",
+          "after": "            fields = tuple(row.get(key) for key in (\"title\",))",
+          "line": 363,
+          "sha256": "7bcb4f4fe4c67d9ea58d73bc4affbe28c62c64a8de0191b3d4b0532ed24281d5"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_vnext_doctor.py::test_shared_empty_metadata_scan_preserves_every_flagged_id_and_field"
+      ],
+      "expected_failure": "test_shared_empty_metadata_scan_preserves_every_flagged_id_and_field"
+    },
+    {
+      "name": "doctor-verdict-metadata",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_doctor.py",
+          "before": "        if isinstance(row, Mapping) and type(row.get(\"metadata_json\")) is dict and not row[\"metadata_json\"]:",
+          "after": "        if isinstance(row, Mapping) and type(row.get(\"metadata_json\")) is dict:",
+          "line": 362,
+          "sha256": "7bcb4f4fe4c67d9ea58d73bc4affbe28c62c64a8de0191b3d4b0532ed24281d5"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_vnext_doctor.py::test_shared_empty_metadata_scan_preserves_every_flagged_id_and_field"
+      ],
+      "expected_failure": "test_shared_empty_metadata_scan_preserves_every_flagged_id_and_field"
     }
   ]
 }
