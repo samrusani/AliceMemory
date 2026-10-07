@@ -71,6 +71,7 @@ class _RequestLabels:
     row_keys: dict = field(default_factory=dict)
     resolved_inputs: dict = field(default_factory=dict)
     parent_labels: dict = field(default_factory=dict)
+    native_labels: dict = field(default_factory=dict)
 
     def clear(self):
         self.nodes.clear()
@@ -90,6 +91,7 @@ class _RequestLabels:
         self.row_keys.clear()
         self.resolved_inputs.clear()
         self.parent_labels.clear()
+        self.native_labels.clear()
 
 
 _REQUEST_LABELS: ContextVar[tuple[Any, _RequestLabels] | None] = ContextVar("request_labels", default=None)
@@ -450,6 +452,10 @@ class LabelGuard:
                     key = self._key(row_kind, row)
                     if key in prefetched or key in state.labels or key in state.parent_labels:
                         continue
+                    native = self._native_label_for_projection(row_kind, row, key=key)
+                    if native is not None:
+                        state.labels[key] = native
+                        continue
                     refs.update(dependencies_of(row_kind, row))
                     pending.append(key)
             refs.difference_update(expanded)
@@ -553,6 +559,23 @@ class LabelGuard:
             label = settled.get((canon_kind(kind), _GUARD_USER, identifier(row["id"])))
             if label is not None and not label.unverified:
                 state.labels[self._key(kind, row)] = label
+                state.native_labels[(canon_kind(kind), identifier(row["id"]))] = (row, label)
+
+    def _native_label_for_projection(self, kind: str, row: Mapping[str, object], *, key: tuple) -> SettledLabel | None:
+        """Reuse one verified UUID origin only for equivalent label semantics."""
+        current = _REQUEST_LABELS.get()
+        if current is None or current[0] is not self.store or type(row.get("id")) is not UUID:
+            return None
+        entry = current[1].native_labels.get((canon_kind(kind), identifier(row["id"])))
+        if entry is None:
+            return None
+        raw, label = entry
+        if self._signature(kind, row, key=key) != self._signature(kind, raw, key=self._key(kind, raw)):
+            return None
+        # Same origin, same direct inputs and stored semantics in this locked
+        # snapshot: its alias/cycle/bound proof remains the same. Caller filters
+        # are checked separately; writes and rollback clear this map together.
+        return label
 
     def admit_related_rows(self, rows: Sequence[_Row], *, kind: str, field: str) -> list[_Row]:
         """Admit an event or rating by its target's current effective label."""

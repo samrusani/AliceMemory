@@ -275,3 +275,35 @@ def test_native_json_decode_cache_preserves_recorded_reference_forms_and_refresh
         invalidate_read_labels(store)
         _cache_native_json_metadata(rows)
         assert guard.effective_row("memory", roots[0])["sensitivity"] == "regulated"
+
+
+def test_native_projection_reuse_keeps_filters_and_refreshes_after_writes():
+    source = {"kind": "source", "id": UUID(int=1), "domain": "project", "sensitivity": "public",
+              "metadata_json": {"project_scope": ["P1"]}}
+    hidden = {**deepcopy(source), "id": UUID(int=3), "sensitivity": "confidential"}
+    root = {"kind": "memory", "id": UUID(int=2), "domain": "project", "sensitivity": "public", "status": "active",
+            "metadata_json": {"source_id": str(source["id"]), "project_scope": ["P1"], "project_floor": ["P1"]}}
+
+    class NativeRows(Rows):
+        label_count_canonical_unique_ids = True
+
+        def count_original_label_statuses(self, *args, **kwargs):
+            return {}
+
+        def iter_label_rows(self, kind, **kwargs):
+            yield [root]
+
+    store = NativeRows([source, hidden, root])
+    with label_read_scope(store):
+        guard = LabelGuard(store, active=True, sensitivity_allowed=("public",))
+        assert guard.readable_status_counts("memory") == {"active": 1}
+        reloaded = {**deepcopy(root), "canonical_text": "Reloaded display row", "memory_key": "display"}
+        assert guard.admit_rows("memory", [reloaded]) == [reloaded]
+        assert replace(guard, domains=("health",)).admit_rows("memory", [reloaded]) == []
+        assert replace(guard, projects=("P2",), all_of=("P2",)).admit_rows("memory", [reloaded]) == []
+        assert replace(guard, projects=("P1",), all_of=("P1",)).admit_rows("memory", [reloaded]) == [reloaded]
+        changed = {**deepcopy(root), "metadata_json": {**root["metadata_json"], "source_id": str(hidden["id"])}}
+        assert guard.admit_rows("memory", [changed]) == []
+        source["sensitivity"] = "confidential"
+        invalidate_read_labels(store)
+        assert guard.admit_rows("memory", [deepcopy(reloaded)]) == []
