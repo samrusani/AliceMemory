@@ -146,13 +146,14 @@ def test_profile_cases_have_distinct_directories_and_incomplete_captures_fail(mo
     for case, repaired in (("all-visible", False), ("extra-rows", True)):
         evidence.unlink(missing_ok=True)
         events.clear()
-        with pytest.raises(AssertionError) as caught:
+        with pytest.raises(AssertionError):
             budgets.paired_budgets("postgres", "synthetic-database", budgets.USER, KEYS,
                                    case=case, source_count=3000, repaired=repaired)
-        assert "captures" in str(caught.value)
+        assert len(evidence.read_text().splitlines()) == 2
     summaries = list((tmp_path / "profiles").rglob("capture-summary.json"))
     assert len(summaries) == 8
     assert all(json.loads(path.read_text())["status"] == "incomplete" for path in summaries)
+    assert all(len(json.loads(path.read_text())["captures"]) == 2 for path in summaries)
     assert {path.parent.parent.name for path in summaries} == set(KEYS)
     assert {path.parent.name for path in summaries} == set(REVISIONS)
     assert {path.parent.parent.parent.name for path in summaries} == {
