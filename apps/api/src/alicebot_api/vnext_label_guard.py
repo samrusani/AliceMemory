@@ -620,7 +620,13 @@ class LabelGuard:
         keys = current[1].row_keys
         raw_key = (kind, id(row))
         if raw_key not in keys or keys[raw_key][0] is not row:
-            keys[raw_key] = (row, _row_label_key(kind, row))
+            # This locked request already pins each raw projection and clears
+            # all entries on writes/rollback. A compact object key avoids
+            # repeatedly hashing full UUID/metadata representations. Strong
+            # references prevent id reuse, and distinct loaded projections
+            # never share an identity cache entry. Outside a snapshot the
+            # content key above still detects changes between guard calls.
+            keys[raw_key] = (row, raw_key)
         return keys[raw_key][1]
 
     def _signature(self, kind: str, row: Mapping[str, object], *, key: tuple) -> tuple:

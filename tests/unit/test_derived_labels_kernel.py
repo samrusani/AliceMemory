@@ -22,6 +22,7 @@ from alicebot_api.vnext_derived_labels import (
     labels_raised_payload,
     row_class,
     settle_labels,
+    with_derived_from,
 )
 from alicebot_api.vnext_project_scope import GLOBAL_PROJECT_MARKER, project_floor_within, project_scopes_overlap
 
@@ -102,7 +103,7 @@ def _memory(row_id: str, **fields: object) -> dict[str, object]:
 
 
 def test_a_chain_settles_in_one_pass(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A chain of any length is labelled from the leaf inward, each row once."""
+    """Visit the chain once and compute each equivalent parent-label set once."""
 
     calls: list[str] = []
     real = __import__("alicebot_api.vnext_derived_labels", fromlist=["_apply_dependencies"])._apply_dependencies
@@ -125,10 +126,13 @@ def test_a_chain_settles_in_one_pass(monkeypatch: pytest.MonkeyPatch) -> None:
             previous = f"n{index}"
         settled = settle_labels(rows)
         derived_ids = [row.stored_id for row in settled.derived_rows()]
-        assert calls == derived_ids
+        assert derived_ids == [f"n{index}" for index in range(size)]
+        assert calls == ["n0", "n1"]  # source parent, then equivalent report parents
         for row in settled.derived_rows():
             assert row.domain == "health"
             assert row.sensitivity == "confidential"
+            assert row.project_scope == (ALPHA,)
+            assert row.project_floor == (ALPHA,)
             assert row.unverified is False
 
 
@@ -151,6 +155,28 @@ def test_a_diamond_settles_once(monkeypatch: pytest.MonkeyPatch) -> None:
     settled = settle_labels(rows)
     assert calls.count("c") == 1
     assert settled.by_stored("artifact", "c").domain == "legal"
+
+
+def test_shared_effective_parts_preserve_each_roots_labels_and_identity() -> None:
+    """Grouped rows agree with separately settled roots across label variants."""
+    parents = [
+        _source("public", domain="project", scope=[ALPHA]),
+        _source("private", domain="health", sensitivity="private", scope=[BETA]),
+        _source("scrubbed", domain="project", scope=[BETA], scrubbed=True),
+        _memory("plain", domain="project", sensitivity="public", metadata_json={"project_scope": [ALPHA]}),
+    ]
+    roots = []
+    for index, parent in enumerate(parents):
+        for kind in ("memory", "artifact"):
+            for scope, floor in (([], []), ([ALPHA], []), ([ALPHA], [BETA])):
+                row_id = f"{kind}-{index}-{len(roots)}"
+                metadata = with_derived_from({"project_scope": scope, "project_floor": floor},
+                                            {"sources" if parent["kind"] == "source" else "memories": [parent]})
+                roots.append(_row(kind, row_id, domain="project", sensitivity="public", metadata_json=metadata))
+    grouped = settle_labels([*parents, *roots])
+    for root in roots:
+        separate = settle_labels([*parents, root]).by_stored(str(root["kind"]), str(root["id"]))
+        assert grouped.by_stored(str(root["kind"]), str(root["id"])) == separate
 
 
 def test_a_cycle_that_does_not_settle_is_refused() -> None:

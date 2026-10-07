@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 import math
 import re
-from typing import Mapping, Sequence
+from collections.abc import Mapping, Sequence
 
 from alicebot_api.vnext_repositories import JsonObject
 
@@ -168,20 +168,22 @@ def resolve_project_scope(resource: Mapping[str, object] | None) -> ProjectScope
         return ProjectScopeResolution(present=False, values=())
 
     def canonical_values(value: object) -> tuple[str, ...]:
+        if type(value) in (list, tuple) and not value:
+            return ()
         if not isinstance(value, Sequence) or isinstance(value, (str, bytes, bytearray)):
             return ()
         return normalize_project_scope(value)
 
-    containers = tuple(
-        container
-        for container_key in ("metadata_json", "scope_json")
-        if isinstance((container := resource.get(container_key)), Mapping)
-    )
     if "project_scope" in resource:
         return ProjectScopeResolution(
             present=True,
             values=canonical_values(resource.get("project_scope")),
         )
+    containers = tuple(
+        container
+        for container_key in ("metadata_json", "scope_json")
+        if isinstance((container := resource.get(container_key)), Mapping)
+    )
     for container in containers:
         if "project_scope" in container:
             return ProjectScopeResolution(
@@ -240,6 +242,8 @@ def resolve_source_metadata_project_scope(
 
     if not isinstance(metadata_json, Mapping):
         return ProjectScopeResolution(present=False, values=())
+    if type(metadata_json) is dict and not metadata_json:
+        return ProjectScopeResolution(present=False, values=())
 
     resource = dict(metadata_json)
     stored_container = resource.get("metadata_json")
@@ -266,6 +270,10 @@ def source_project_scope(source: Mapping[str, object]) -> tuple[str, ...]:
     """
 
     metadata_json = source.get("metadata_json")
+    if type(metadata_json) is dict and not metadata_json and not any(
+        key in source for key in ("project_scope", "scope_json", "project_id", "project", "projects")
+    ):
+        return ()
     resolution = resolve_source_metadata_project_scope(metadata_json if isinstance(metadata_json, Mapping) else None)
     if resolution.present or resolution.values:
         return resolution.values

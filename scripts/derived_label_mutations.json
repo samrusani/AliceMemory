@@ -144,7 +144,7 @@
           "line": 352,
           "before": "semantic = (template[:1] + template[2:], semantic_parents)",
           "after": "semantic = (template[:1] + template[2:], ())",
-          "sha256": "b06fac8dbf66a9678bef2ef8b7d4adf724400bdf9288688f6cf70ac399be0d76"
+          "sha256": "12c1e16eef9573699ddf7a80948b175dabf23b3b818178c3caae83d75097c06b"
         }
       ],
       "pytest": [
@@ -160,7 +160,7 @@
           "line": 352,
           "before": "semantic = (template[:1] + template[2:], semantic_parents)",
           "after": "semantic = (template[:1] + template[2:], tuple(sorted(set(semantic_parents))))",
-          "sha256": "b06fac8dbf66a9678bef2ef8b7d4adf724400bdf9288688f6cf70ac399be0d76"
+          "sha256": "12c1e16eef9573699ddf7a80948b175dabf23b3b818178c3caae83d75097c06b"
         }
       ],
       "pytest": [
@@ -176,7 +176,7 @@
           "line": 339,
           "before": "if len(raw) != 1 or identifier(raw[0].get(\"id\")) != parent_id:",
           "after": "if not raw or identifier(raw[0].get(\"id\")) != parent_id:",
-          "sha256": "b06fac8dbf66a9678bef2ef8b7d4adf724400bdf9288688f6cf70ac399be0d76"
+          "sha256": "12c1e16eef9573699ddf7a80948b175dabf23b3b818178c3caae83d75097c06b"
         }
       ],
       "pytest": [
@@ -194,7 +194,7 @@
           "line": 347,
           "before": "if depth > HOP_BOUND or len(ancestry) > NODE_BOUND:",
           "after": "if False:",
-          "sha256": "b06fac8dbf66a9678bef2ef8b7d4adf724400bdf9288688f6cf70ac399be0d76"
+          "sha256": "12c1e16eef9573699ddf7a80948b175dabf23b3b818178c3caae83d75097c06b"
         }
       ],
       "pytest": [
@@ -212,7 +212,7 @@
           "line": 323,
           "before": "if problem or has_implicit_weekly_inputs(kind, row):",
           "after": "if problem:",
-          "sha256": "b06fac8dbf66a9678bef2ef8b7d4adf724400bdf9288688f6cf70ac399be0d76"
+          "sha256": "12c1e16eef9573699ddf7a80948b175dabf23b3b818178c3caae83d75097c06b"
         }
       ],
       "pytest": [
@@ -230,7 +230,7 @@
           "line": 487,
           "before": "if not self.active and callable(native):",
           "after": "if False:",
-          "sha256": "b06fac8dbf66a9678bef2ef8b7d4adf724400bdf9288688f6cf70ac399be0d76"
+          "sha256": "12c1e16eef9573699ddf7a80948b175dabf23b3b818178c3caae83d75097c06b"
         }
       ],
       "pytest": [
@@ -246,7 +246,7 @@
           "line": 17,
           "before": "if not blocked:",
           "after": "if True:",
-          "sha256": "eca0734b71faf9d0a7b961b92ff31fedf6b262850ba81c47c53f399842e7973a"
+          "sha256": "75729810b88316a6ff0611dfe01e1e214036226e19c57fa41bbe00f3c163870b"
         }
       ],
       "pytest": [
@@ -278,7 +278,7 @@
           "line": 376,
           "before": "        self._prefetch_inputs(kind, rows)",
           "after": "        pass  # removed batched ancestry reads",
-          "sha256": "b06fac8dbf66a9678bef2ef8b7d4adf724400bdf9288688f6cf70ac399be0d76"
+          "sha256": "12c1e16eef9573699ddf7a80948b175dabf23b3b818178c3caae83d75097c06b"
         }
       ],
       "pytest": [
@@ -358,7 +358,7 @@
           "before": "row_admission_key = (key, self.domains, self.sensitivity_allowed, self.projects, self.all_of)",
           "after": "row_admission_key = (key,)",
           "line": 386,
-          "sha256": "b06fac8dbf66a9678bef2ef8b7d4adf724400bdf9288688f6cf70ac399be0d76"
+          "sha256": "12c1e16eef9573699ddf7a80948b175dabf23b3b818178c3caae83d75097c06b"
         }
       ],
       "pytest": [
@@ -374,7 +374,7 @@
           "before": "        self.row_admission.clear()",
           "after": "        pass  # removed admission invalidation",
           "line": 88,
-          "sha256": "b06fac8dbf66a9678bef2ef8b7d4adf724400bdf9288688f6cf70ac399be0d76"
+          "sha256": "12c1e16eef9573699ddf7a80948b175dabf23b3b818178c3caae83d75097c06b"
         }
       ],
       "pytest": [

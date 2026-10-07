@@ -304,7 +304,9 @@ def is_derived(kind: object, row: Mapping[str, object]) -> bool:
         return False
     cache = _READ_METADATA.get()
     raw = row.get("metadata_json")
-    key = ("derived", name, id(raw), repr(row.get("source_id")), repr(row.get("artifact_type")))
+    key = ("derived", name, id(raw),
+           repr(row.get("source_id")) if name == "open_loop" else None,
+           repr(row.get("artifact_type")) if name == "artifact" else None)
     cached = cache.get(key) if cache is not None else None
     if cached is not None and cached[0] is raw:
         return cached[1]
@@ -395,7 +397,13 @@ def _floor_of(row: Mapping[str, object]) -> tuple[str, tuple[str, ...]]:
 
     if "project_floor" in row:
         return project_floor_shape(row)
-    return project_floor_shape({"metadata_json": _metadata(row)})
+    metadata = _metadata(row)
+    if "project_floor" not in metadata:
+        return "absent", ()
+    floor = metadata.get("project_floor")
+    if type(floor) in (list, tuple) and not floor:
+        return "list", ()
+    return project_floor_shape({"metadata_json": metadata})
 
 
 def group_scope(row: Mapping[str, object], *, kind: str | None = None) -> tuple[str, ...]:
@@ -423,6 +431,16 @@ def stored_scope(kind: object, row: Mapping[str, object]) -> tuple[str, ...]:
             return ()
         return source_project_scope(row)
     if name == "project":
+        return ()
+    # Canonical presence is authoritative. The common native empty scope
+    # needs no alias/container resolution, but malformed and legacy shapes
+    # still use the canonical resolver. Metadata precedes scope_json.
+    if "project_scope" in row:
+        raw_scope = row.get("project_scope")
+    else:
+        raw_metadata = row.get("metadata_json")
+        raw_scope = raw_metadata.get("project_scope") if isinstance(raw_metadata, Mapping) else None
+    if type(raw_scope) in (list, tuple) and not raw_scope:
         return ()
     return resolve_project_scope(row).values
 
@@ -468,6 +486,13 @@ def _source_ids_from(value: object) -> tuple[str, set[str]]:
 
     if value is None:
         return "", set()
+    # An exact canonical UUID contains one source and no surrounding text.
+    # Every other shape still runs the complete saved-quote parser, including
+    # encoded/split references and text naming more than one source.
+    if type(value) is str and len(value) == 36:
+        token = _source_token(value)
+        if token is not None and token == value.lower():
+            return "", {token}
     named = {identifier(item) for item in cited_source_ids(value).named}
     problem = ""
     if isinstance(value, list):
@@ -768,8 +793,8 @@ def dependency_record(kind: object, row: Mapping[str, object]) -> tuple[frozense
     # fields used by this parser remain part of the key, including presence.
     cache = _READ_METADATA.get()
     raw = row.get("metadata_json")
-    key = ("dependencies", canon_kind(kind), id(raw), *((field in row, repr(row.get(field)))
-           for field in ("value", "source_id", "artifact_type", "project_floor")))
+    key = ("dependencies", canon_kind(kind), id(raw), *((field, repr(row[field]))
+           for field in ("value", "source_id", "artifact_type", "project_floor") if field in row))
     cached = cache.get(key) if cache is not None else None
     if cached is not None and cached[0] is raw:
         return cached[1]
@@ -984,7 +1009,8 @@ def dependency_syntax_key(kind: str, row: Mapping[str, object]) -> tuple:
         return ()
 
     return (canon_kind(kind), isinstance(row.get("metadata_json"), Mapping), metadata_key(_metadata(row)),
-            *((field in row, repr(row.get(field))) for field in _DEPENDENCY_SYNTAX_FIELDS))
+            *((field, ("uuid", row[field]) if type(row[field]) is UUID else repr(row[field]))
+              for field in _DEPENDENCY_SYNTAX_FIELDS if field in row))
 
 
 def dependency_label_signature(kind: str, row: Mapping[str, object]) -> tuple:
@@ -1062,7 +1088,9 @@ def _apply_dependencies(
     fallback_domain = current.domain if domain_fallback is None else domain_fallback
     fallback_sensitivity = current.sensitivity if sensitivity_fallback is None else sensitivity_fallback
     base = current
-    if scope_fallback is not None or floor_fallback is not None:
+    if ((scope_fallback is not None and scope_fallback != current.stored_scope)
+            or (floor_fallback is not None and floor_fallback != current.stored_floor)
+            or fallback_domain != current.domain or fallback_sensitivity != current.sensitivity):
         base = replace(
             current,
             stored_scope=current.stored_scope if scope_fallback is None else scope_fallback,
@@ -1082,6 +1110,9 @@ def _apply_dependencies(
     if base.row_class == "project_state":
         floor = ()
     scope = _effective_scope(base, deps, floor)
+    if (base.domain == str(domain) and base.sensitivity == sensitivity
+            and base.project_scope == scope and base.project_floor == floor):
+        return base
     return replace(base, domain=str(domain), sensitivity=sensitivity, project_scope=scope, project_floor=floor)
 
 
@@ -1285,7 +1316,8 @@ def settle_labels(
             and settled.stored_floor == label.stored_floor
         )
         if same_stored_row:
-            published.append(replace(settled, unverified=False, reason=None))
+            published.append(settled if not settled.unverified and settled.reason is None
+                             else replace(settled, unverified=False, reason=None))
             continue
         settled_deps = [labels[ref] for ref in sorted(resolved.get(label.key, set())) if ref in labels]
         recomputed = _apply_dependencies(
@@ -1367,6 +1399,7 @@ def _iterate(
     problems: dict[tuple[str, str, str], str],
 ) -> None:
     dependants: dict[tuple[str, str, str], set[tuple[str, str, str]]] = {}
+    effective_parts: dict[tuple, tuple[str, str, tuple[str, ...], tuple[str, ...]]] = {}
     for key, refs in inputs.items():
         for ref in refs:
             dependants.setdefault(ref, set()).add(key)
@@ -1381,14 +1414,30 @@ def _iterate(
             queued.remove(key)
             current = labels[key]
             deps = [labels[ref] for ref in sorted(inputs[key]) if ref in labels]
-            updated = _apply_dependencies(
-                current,
-                deps,
-                domain_fallback=current.stored_domain,
-                sensitivity_fallback=current.stored_sensitivity,
-                scope_fallback=current.stored_scope,
-                floor_fallback=current.stored_floor,
-            )
+            # The graph has already checked every identity, missing input and
+            # bound. Share only the pure rule's four outputs for equal stored
+            # root semantics and equal, ordered, current parent label sets.
+            # Cycles still revisit each member; a changed parent changes this
+            # key. No identity, row data or admission grant is shared.
+            semantic = (current.kind, current.row_class, current.derived,
+                        current.stored_domain, current.stored_sensitivity,
+                        current.stored_scope, current.stored_floor,
+                        tuple((item.kind, item.domain, item.sensitivity, item.project_scope,
+                               item.project_floor, item.carries_scope) for item in deps))
+            parts = effective_parts.get(semantic)
+            if parts is None:
+                updated = _apply_dependencies(
+                    current, deps, domain_fallback=current.stored_domain,
+                    sensitivity_fallback=current.stored_sensitivity,
+                    scope_fallback=current.stored_scope, floor_fallback=current.stored_floor,
+                )
+                effective_parts[semantic] = (updated.domain, updated.sensitivity,
+                                             updated.project_scope, updated.project_floor)
+            else:
+                updated = current if (current.domain, current.sensitivity, current.project_scope,
+                                      current.project_floor) == parts else replace(
+                    current, domain=parts[0], sensitivity=parts[1],
+                    project_scope=parts[2], project_floor=parts[3])
             if not _changed(current, updated):
                 continue
             remaining_changes -= 1
