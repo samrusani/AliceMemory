@@ -144,7 +144,7 @@
           "line": 352,
           "before": "semantic = (template[:1] + template[2:], semantic_parents)",
           "after": "semantic = (template[:1] + template[2:], ())",
-          "sha256": "12c1e16eef9573699ddf7a80948b175dabf23b3b818178c3caae83d75097c06b"
+          "sha256": "3376123a4ef4fc86a4f7544bff7ae5a152506d8aa67b3dd70d7befecbb863fc7"
         }
       ],
       "pytest": [
@@ -160,7 +160,7 @@
           "line": 352,
           "before": "semantic = (template[:1] + template[2:], semantic_parents)",
           "after": "semantic = (template[:1] + template[2:], tuple(sorted(set(semantic_parents))))",
-          "sha256": "12c1e16eef9573699ddf7a80948b175dabf23b3b818178c3caae83d75097c06b"
+          "sha256": "3376123a4ef4fc86a4f7544bff7ae5a152506d8aa67b3dd70d7befecbb863fc7"
         }
       ],
       "pytest": [
@@ -176,7 +176,7 @@
           "line": 339,
           "before": "if len(raw) != 1 or identifier(raw[0].get(\"id\")) != parent_id:",
           "after": "if not raw or identifier(raw[0].get(\"id\")) != parent_id:",
-          "sha256": "12c1e16eef9573699ddf7a80948b175dabf23b3b818178c3caae83d75097c06b"
+          "sha256": "3376123a4ef4fc86a4f7544bff7ae5a152506d8aa67b3dd70d7befecbb863fc7"
         }
       ],
       "pytest": [
@@ -194,7 +194,7 @@
           "line": 347,
           "before": "if depth > HOP_BOUND or len(ancestry) > NODE_BOUND:",
           "after": "if False:",
-          "sha256": "12c1e16eef9573699ddf7a80948b175dabf23b3b818178c3caae83d75097c06b"
+          "sha256": "3376123a4ef4fc86a4f7544bff7ae5a152506d8aa67b3dd70d7befecbb863fc7"
         }
       ],
       "pytest": [
@@ -212,7 +212,7 @@
           "line": 323,
           "before": "if problem or has_implicit_weekly_inputs(kind, row):",
           "after": "if problem:",
-          "sha256": "12c1e16eef9573699ddf7a80948b175dabf23b3b818178c3caae83d75097c06b"
+          "sha256": "3376123a4ef4fc86a4f7544bff7ae5a152506d8aa67b3dd70d7befecbb863fc7"
         }
       ],
       "pytest": [
@@ -227,10 +227,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
-          "line": 487,
+          "line": 496,
           "before": "if not self.active and callable(native):",
           "after": "if False:",
-          "sha256": "12c1e16eef9573699ddf7a80948b175dabf23b3b818178c3caae83d75097c06b"
+          "sha256": "3376123a4ef4fc86a4f7544bff7ae5a152506d8aa67b3dd70d7befecbb863fc7"
         }
       ],
       "pytest": [
@@ -276,9 +276,9 @@
         {
           "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
           "line": 376,
-          "before": "        self._prefetch_inputs(kind, rows)",
-          "after": "        pass  # removed batched ancestry reads",
-          "sha256": "12c1e16eef9573699ddf7a80948b175dabf23b3b818178c3caae83d75097c06b"
+          "before": "        self._prefetch_inputs(kind, rows)\n        kept: list[_Row] = []",
+          "after": "        pass  # removed batched ancestry reads\n        kept: list[_Row] = []",
+          "sha256": "3376123a4ef4fc86a4f7544bff7ae5a152506d8aa67b3dd70d7befecbb863fc7"
         }
       ],
       "pytest": [
@@ -358,7 +358,7 @@
           "before": "row_admission_key = (key, self.domains, self.sensitivity_allowed, self.projects, self.all_of)",
           "after": "row_admission_key = (key,)",
           "line": 386,
-          "sha256": "12c1e16eef9573699ddf7a80948b175dabf23b3b818178c3caae83d75097c06b"
+          "sha256": "3376123a4ef4fc86a4f7544bff7ae5a152506d8aa67b3dd70d7befecbb863fc7"
         }
       ],
       "pytest": [
@@ -374,13 +374,45 @@
           "before": "        self.row_admission.clear()",
           "after": "        pass  # removed admission invalidation",
           "line": 88,
-          "sha256": "12c1e16eef9573699ddf7a80948b175dabf23b3b818178c3caae83d75097c06b"
+          "sha256": "3376123a4ef4fc86a4f7544bff7ae5a152506d8aa67b3dd70d7befecbb863fc7"
         }
       ],
       "pytest": [
         "tests/unit/test_label_resolved_inputs.py::test_repeated_admission_keeps_caller_filters_projections_and_write_refresh"
       ],
       "expected_failure": "test_repeated_admission_keeps_caller_filters_projections_and_write_refresh"
+    },
+    {
+      "name": "cached-unverified-admission",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
+          "line": 392,
+          "before": "            if settled is not None and not settled.unverified:",
+          "after": "            if settled is not None:",
+          "sha256": "3376123a4ef4fc86a4f7544bff7ae5a152506d8aa67b3dd70d7befecbb863fc7"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_label_resolved_inputs.py::test_cached_unverified_result_still_uses_regulated_admission"
+      ],
+      "expected_failure": "test_cached_unverified_result_still_uses_regulated_admission"
+    },
+    {
+      "name": "native-bulk-projection",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
+          "line": 540,
+          "before": "            if len(stored) != 1 or (stored[0] is not row and _row_label_key(kind, stored[0]) != _row_label_key(kind, row)):",
+          "after": "            if len(stored) != 1:",
+          "sha256": "3376123a4ef4fc86a4f7544bff7ae5a152506d8aa67b3dd70d7befecbb863fc7"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_label_resolved_inputs.py::test_native_bulk_count_does_not_reuse_a_distinct_projection"
+      ],
+      "expected_failure": "test_native_bulk_count_does_not_reuse_a_distinct_projection"
     }
   ]
 }

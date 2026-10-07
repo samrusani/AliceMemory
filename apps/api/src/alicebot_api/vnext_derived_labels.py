@@ -606,7 +606,7 @@ def _collect_metadata_ids(value: object, found: set[tuple[str, str]]) -> str:
                 if isinstance(child, (str, list)):
                     child_problem, source_ids = _source_ids_from(child)
                     problem = problem or child_problem
-                    source_ids.update(item for item in _strings(child) if _plain_token(item))
+                    source_ids.update(item for item in _strings(child) if item not in source_ids and _plain_token(item))
                     _add_ids(found, "source", source_ids)
                 else:
                     problem = problem or "malformed"

@@ -61,7 +61,8 @@ def test_postgres_matrix_has_a_required_flag_off_default_surface_row() -> None:
     assert "name: ${{ matrix.integration_check }}" in integration_job
     assert (
         'integration_check: ["Integration tests (Postgres + pgvector, role separation)", '
-        '"Default surface integration smoke (Postgres)"]'
+        '"Default surface integration smoke (Postgres)", '
+        '"Read-budget maximum workload smoke (Postgres)"]'
     ) in integration_job
     assert (
         "if: matrix.integration_check == "

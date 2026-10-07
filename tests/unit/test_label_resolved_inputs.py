@@ -171,3 +171,82 @@ def test_unproved_inputs_keep_the_complete_graph_fallback(monkeypatch, variant):
     # Same collector, same canonical kernel bounds, with optimization disabled.
     monkeypatch.setattr(module.LabelGuard, "_settled_inputs", lambda *args: None)
     assert labels(actual) == labels(LabelGuard(store, active=True).effective_row("memory", root))
+
+
+@pytest.mark.parametrize("variant", ["mixed", "deep", "missing", "malformed", "cycle", "alias", "implicit-weekly"])
+def test_native_bulk_count_matches_independent_root_admission(variant):
+    sources = [{"kind": "source", "id": UUID(int=i + 1), "domain": "project",
+                "sensitivity": "confidential" if i % 2 else "public", "metadata_json": {"project_scope": ["P1"]}}
+               for i in range(8)]
+    roots = []
+    for i in range(32):
+        parents = roots[max(0, i - 2):i] if variant == "deep" and i else [sources[i % 8]]
+        meta = with_derived_from({"observation_index": i}, {"sources": [p for p in parents if p["kind"] == "source"],
+            "memories": [p for p in parents if p["kind"] == "memory"]})
+        if i % 4 == 1:
+            meta["workflow"] = "project_auto_update"
+        elif i % 4 == 2:
+            meta["candidate_kind"] = "memory_consolidation"
+        elif i % 4 == 3:
+            meta["discovered_by"] = "vnext_weekly_synthesis"
+        roots.append({"kind": "memory", "id": UUID(int=100 + i), "domain": "project", "sensitivity": "public",
+                      "status": "active", "metadata_json": meta})
+    rows = sources + roots
+    if variant == "missing":
+        rows = roots
+    elif variant == "malformed":
+        roots[0]["metadata_json"]["derived_from"]["counts"]["sources"] += 1
+    elif variant == "cycle":
+        roots[0]["metadata_json"] = with_derived_from({}, {"memories": [roots[1]]})
+        roots[1]["metadata_json"] = with_derived_from({}, {"memories": [roots[0]], "sources": [sources[1]]})
+    elif variant == "alias":
+        rows.append({**deepcopy(sources[0]), "id": "urn:uuid:" + str(sources[0]["id"])})
+    elif variant == "implicit-weekly":
+        artifact = {"kind": "artifact", "id": UUID(int=300), "domain": "project", "sensitivity": "public",
+                    "artifact_type": "weekly_synthesis", "metadata_json": {"candidate_memory_ids": [str(roots[0]["id"])],
+                        "input_summary": {"source_ids": [str(sources[1]["id"])]}}}
+        rows.append(artifact)
+        roots[0]["metadata_json"] = {"discovered_by": "vnext_weekly_synthesis", "source_artifact_id": str(artifact["id"])}
+
+    class NativeRows(Rows):
+        label_count_canonical_unique_ids = True
+
+        def count_original_label_statuses(self, *args, **kwargs):
+            return {}
+
+        def iter_label_rows(self, kind, **kwargs):
+            yield roots
+
+    independent = LabelGuard(Rows(rows), active=True, sensitivity_allowed=("public",))
+    expected_ids = {row["id"] for row in independent.admit_rows("memory", roots)}
+    store = NativeRows(rows)
+    with label_read_scope(store):
+        guard = LabelGuard(store, active=True, sensitivity_allowed=("public",))
+        assert guard.readable_status_counts("memory") == ({"active": len(expected_ids)} if expected_ids else {})
+        assert {row["id"] for row in guard.admit_rows("memory", roots)} == expected_ids
+        for row in roots:
+            assert labels(guard.effective_row("memory", row)) == labels(independent.effective_row("memory", row))
+
+
+def test_cached_unverified_result_still_uses_regulated_admission():
+    root = {"kind": "memory", "id": "root", "domain": "project", "sensitivity": "public",
+            "metadata_json": {"source_id": "missing"}}
+    store = Rows([])
+    with label_read_scope(store):
+        guard = LabelGuard(store, active=True, sensitivity_allowed=("public",))
+        assert guard.effective_row("memory", root)["unverified"] is True
+        assert guard.admit_rows("memory", [root]) == []
+
+
+def test_native_bulk_count_does_not_reuse_a_distinct_projection():
+    source = {"kind": "source", "id": UUID(int=1), "domain": "project", "sensitivity": "public", "metadata_json": {}}
+    root = {"kind": "memory", "id": UUID(int=2), "domain": "project", "sensitivity": "public",
+            "metadata_json": {"source_id": str(source["id"])}}
+    store = Rows([source])
+    with label_read_scope(store):
+        guard = LabelGuard(store, active=True)
+        state = guard._state()
+        state.nodes[("memory", str(root["id"]))] = [{**root, "sensitivity": "confidential"}]
+        guard._settle_native_count_batch("memory", [root])
+        assert guard._key("memory", root) not in state.labels
+        assert labels(guard.effective_row("memory", root))[1] == "public"

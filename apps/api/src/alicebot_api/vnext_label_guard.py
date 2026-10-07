@@ -388,6 +388,15 @@ class LabelGuard:
                 if state.row_admission[row_admission_key]:
                     kept.append(row)
                 continue
+            settled = state.labels.get(key)
+            if settled is not None and not settled.unverified:
+                admitted = self._admits_effective({"domain": settled.domain, "sensitivity": settled.sensitivity,
+                    "project_scope": settled.project_scope, "project_floor": settled.project_floor,
+                    "unverified": settled.unverified}, kind=kind)
+                state.row_admission[row_admission_key] = admitted
+                if admitted:
+                    kept.append(row)
+                continue
             template = self._signature(kind, row, key=key)
             admission_key = (template, self.domains, self.sensitivity_allowed, self.projects, self.all_of)
             root = (canon_kind(kind), identifier(row.get("id")))
@@ -441,7 +450,7 @@ class LabelGuard:
                     key = self._key(row_kind, row)
                     if key in prefetched or key in state.labels or key in state.parent_labels:
                         continue
-                    refs.update(self._signature(row_kind, row, key=key)[1])
+                    refs.update(dependencies_of(row_kind, row))
                     pending.append(key)
             refs.difference_update(expanded)
             if len(expanded | refs) > NODE_BOUND:
@@ -507,11 +516,43 @@ class LabelGuard:
                 for row in batch:
                     if isinstance(row.get("id"), UUID):
                         state.nodes.setdefault((canon_kind(kind), str(row["id"])), [row])
+                self._settle_native_count_batch(kind, batch)
             for row in self.admit_rows(kind, batch):
                 status = str(row.get("status", "unknown"))
                 counts[status] = counts.get(status, 0) + 1
         state.counts[key] = dict(counts)
         return counts
+
+    def _settle_native_count_batch(self, kind: str, rows: Sequence[Mapping[str, object]]) -> None:
+        """The complete UUID-native population uses the canonical bulk kernel.
+
+        Raw inputs are still loaded through the same bounded frontier. Cache
+        only verified results for these exact count projections: incomplete
+        ancestry, implicit weekly parents and every unverified row retain the
+        ordinary per-origin collector. Text-ID stores never enter this path.
+        """
+        if not rows or any(type(row.get("id")) is not UUID for row in rows):
+            return
+        self._prefetch_inputs(kind, rows)
+        state = self._state()
+        for row in rows:
+            stored = state.nodes.get((canon_kind(kind), identifier(row["id"])), ())
+            if len(stored) != 1 or (stored[0] is not row and _row_label_key(kind, stored[0]) != _row_label_key(kind, row)):
+                return
+        nodes: list[dict[str, object]] = []
+        for (node_kind, _node_id), found in state.nodes.items():
+            if len(found) != 1:
+                return
+            row = found[0]
+            if has_implicit_weekly_inputs(node_kind, row) or node_kind == "belief":
+                return
+            nodes.append({**row, "kind": node_kind, "user_id": _GUARD_USER})
+        result = settle_labels(nodes, on_cycle="unverified", max_hops=HOP_BOUND, max_nodes=NODE_BOUND)
+        settled = {label.key: label for label in result.rows}
+        for row in rows:
+            label = settled.get((canon_kind(kind), _GUARD_USER, identifier(row["id"])))
+            if label is not None and not label.unverified:
+                state.labels[self._key(kind, row)] = label
 
     def admit_related_rows(self, rows: Sequence[_Row], *, kind: str, field: str) -> list[_Row]:
         """Admit an event or rating by its target's current effective label."""

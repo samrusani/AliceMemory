@@ -257,6 +257,12 @@ def classify_stored_labels(
             continue
         if table not in _WRITABLE:
             continue
+        if (label.stored_domain == label.domain and label.stored_sensitivity == label.sensitivity
+                and label.stored_scope == label.project_scope and label.stored_floor == label.project_floor):
+            # Exact equality already implies the canonical identity equality
+            # below. Keep the full comparison and repair evidence for every
+            # changed or merely equivalent spelling.
+            continue
         previous: LabelParts = {
             "domain": str(node.get("domain") or "unknown"),
             "sensitivity": str(node.get("sensitivity") or "unknown"),
