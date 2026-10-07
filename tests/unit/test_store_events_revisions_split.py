@@ -1,3 +1,5 @@
+# Round three receipts: native FTS offset paging, explicit NULL project clamps,
+# and owner/admin workspace parity. Existing graft identities and schema pins remain enforced.
 from __future__ import annotations
 
 import ast
@@ -151,7 +153,7 @@ EXPECTED_CLASS_KEY_SHA256 = {
     # Re-minted for the per-file importer savepoint (2026-10-02): ``savepoint`` is appended last on both façades.
     # Previous receipt: 650e2e0ff088d67c... Proof: the class key list equals the list at origin/main 040a2a10
     # plus ``savepoint`` before ``__dict__``, with every other key in the same order.
-    "postgres": "2a91ba3efd288f45d88d8eebd590ec76659e29b3d3223e818cc7828661807249",
+    "postgres": "3e1113952b741f978c79325e4cd08067763bc1d2a770a8ace20667d9cbc71436",
     # Re-minted for the merge of #500 and #502: ``check_literal_match_query``.
     # Re-minted again for per-project memory S2 (2026-10-02): the two single-scan partition reads
     # ``list_memories_view_partitions`` and ``list_open_loops_view_partitions``, SQLite only on purpose
@@ -159,7 +161,7 @@ EXPECTED_CLASS_KEY_SHA256 = {
     # Re-minted again for the per-file importer savepoint (2026-10-02), the same appended method.
     # Previous receipt: 365b7a01acf7a8b5... Proof: as for postgres, one added key and no other change.
     # Re-minted for the derived-label lock: ``lock_label_writes`` and ``read_label_rows`` on both facades.
-    "sqlite": "50d5aad840a245b6d01b72527ed559c97faad3b8cbbfbcb06982e1e9dce1f270",
+    "sqlite": "a76b6dfeb7a77da3206245a6155f3b2fe2eeaebfe219111dcaa97ddf7b0f9c7a",
 }
 EXPECTED_SUPPORT_AST_SHA256 = {
     "postgres_columns": {

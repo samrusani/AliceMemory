@@ -64,4 +64,6 @@ for line in sys.stdin:
     measurement = {"wall": time.perf_counter() - wall_start, "cpu": time.process_time() - cpu_start}
     if name == "recall":
         measurement["memories"] = len(result["results"])
+    elif name == "pack":
+        measurement["memories"] = len(result["memories"])
     print(json.dumps(measurement), flush=True)

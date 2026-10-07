@@ -1,3 +1,5 @@
+# Round three receipts: native FTS offset paging, explicit NULL project clamps,
+# and owner/admin workspace parity. Existing graft identities and schema pins remain enforced.
 from __future__ import annotations
 
 import ast
@@ -43,7 +45,7 @@ SOURCE_RECEIPTS = {
     # Re-minted so the two roll-up lookups overlap scope united with floor.
     # Every other statement still uses the scope expression. Previous receipt 46946cc0...
     "apps/api/src/alicebot_api/vnext_stores/postgres/memory_access.py": (
-        "ad6a1a81f077fbdaf13ec414558d43a8b6ad085350aec416e8a5e856a227d7c0"
+        "ea1e4a4ce9f58968e4e10ac66830822798aa26118207a39fb465b4f26da74aea"
     ),
     # Re-minted for per-project memory S2 (2026-10-02): the project fence builders read the reserved global
     # marker and take the domains to leave out, and the single-scan partition SQL and the materialized-CTE hint
@@ -90,7 +92,7 @@ SOURCE_RECEIPTS = {
     # Re-minted so the memory partition read passes the floor identity.
     # Previous receipt 1580dca3...
     "apps/api/src/alicebot_api/vnext_stores/sqlite/memory_access.py": (
-        "58e22342c6aaf4ed73aa78e5f2ee85af1d8deeb7cbad6a3abe06f78fb8f9a0ac"
+        "345262de6a46660a7156dbdc4c8ff41effcf5861e513bb8717365d53d880bd4f"
     ),
 }
 
@@ -222,7 +224,7 @@ EXPECTED_CLASS_ORDERS = {
     # 040a2a10 with ``savepoint`` added at the end and nothing else moved (reviewed change, not drift).
     # Label lock: lock_label_writes and read_label_rows follow __init__. Dropping
     # those two names restores the previous receipt (172, 6f1a459f...).
-    "PostgresVNextStore": (180, "98a0c0e5668366e07420aae305e3dd49f042e62a8cde9f0a27abb0ed9caf03e7"),
+    "PostgresVNextStore": (181, "5f3acdf8872b9bd81ef550ea96d645680ad35a1e4018451cae45778d0ef82449"),
     # One SQLite-only method more, ``check_source_search_query``: the Postgres
     # source search has no expression-depth or LIKE-length limit to check.
     # Merge of #500 and #502 (2026-10-01): one more SQLite-only method,
@@ -239,7 +241,7 @@ EXPECTED_CLASS_ORDERS = {
     # prunable_sources here; every pre-existing class member keeps its order.
     # Label lock: lock_label_writes and read_label_rows follow __init__. Dropping
     # those two names restores the previous receipt (134, 13012720...).
-    "SQLiteVNextStore": (139, "d90f82579ad45d50bd22e9270d46e0b1ce50529e5ebfaf7047fb2f54799a6c54"),
+    "SQLiteVNextStore": (140, "2bd805be8a616fdc10839fa7abcf0c3e286dc3faef67757ba08810eca174cca7"),
 }
 
 

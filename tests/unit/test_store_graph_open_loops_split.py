@@ -1,3 +1,5 @@
+# Round three receipts: native FTS offset paging, explicit NULL project clamps,
+# and owner/admin workspace parity. Existing graft identities and schema pins remain enforced.
 from __future__ import annotations
 
 import ast
@@ -165,7 +167,7 @@ EXPECTED_CLASS_ORDERS = {
     # Previous receipt: (171, 526374782104a2a1...). Proof: the member list equals the list at origin/main
     # 040a2a10 with ``savepoint`` added at the end and nothing else moved (reviewed change, not drift).
     # lock_label_writes and read_label_rows follow __init__. Previous receipt (172, 6f1a459f...).
-    "PostgresVNextStore": (180, "98a0c0e5668366e07420aae305e3dd49f042e62a8cde9f0a27abb0ed9caf03e7"),
+    "PostgresVNextStore": (181, "5f3acdf8872b9bd81ef550ea96d645680ad35a1e4018451cae45778d0ef82449"),
     # One SQLite-only method more, ``check_source_search_query``: the Postgres
     # source search has no expression-depth or LIKE-length limit to check.
     # Merge of #500 and #502 (2026-10-01): one more SQLite-only method,
@@ -181,7 +183,7 @@ EXPECTED_CLASS_ORDERS = {
     # Proof: the replacement branch gains only scrub_source, source_inventory and
     # prunable_sources here; every pre-existing class member keeps its order.
     # lock_label_writes and read_label_rows follow __init__. Previous receipt (134, 13012720...).
-    "SQLiteVNextStore": (139, "d90f82579ad45d50bd22e9270d46e0b1ce50529e5ebfaf7047fb2f54799a6c54"),
+    "SQLiteVNextStore": (140, "2bd805be8a616fdc10839fa7abcf0c3e286dc3faef67757ba08810eca174cca7"),
 }
 EXPECTED_COLUMN_AST = {
     POSTGRES_COLUMNS_PATH: {

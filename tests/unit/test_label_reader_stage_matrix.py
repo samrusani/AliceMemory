@@ -112,7 +112,9 @@ def _stage(stage, store):
         if field == "memories":
             store.rows["memory"][0]["status"] = "candidate"
             field = "review_memories"
-        return workspaces._vnext_workspace_payload(store)[field]
+        return workspaces._vnext_workspace_payload(
+            store, identity=AgentIdentity(agent_id="trusted", permission_profile="trusted_local_agent")
+        )[field]
     trusted = AgentIdentity(agent_id="trusted", permission_profile="trusted_local_agent")
     if stage == "loop_memory_reference":
         shown = withhold_unreadable_references(store, [{"id": LOOP, "memory_id": MEMORY, "metadata_json": {}}], fence=SourceReadFence.for_identity(trusted))

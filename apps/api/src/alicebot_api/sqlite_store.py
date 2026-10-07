@@ -497,6 +497,25 @@ class SQLiteVNextStore:
             extra = ", value, project_id, source_event_ids, deleted_at, status"
         elif table == "open_loops":
             extra = ", project_id, source_id, memory_id"
+        from alicebot_api.vnext_label_guard import request_row_cache
+        from alicebot_api.vnext_derived_labels import identifier
+
+        cache = request_row_cache(self, "sqlite-label-id-map")
+        if cache is not None:
+            if kind not in cache:
+                aliases: dict[str, list[str]] = {}
+                for stored in self._fetch_all(f"SELECT id FROM {table} WHERE user_id = ?", (self.user_id,)):
+                    stored_id = str(stored["id"])
+                    aliases.setdefault(identifier(stored_id), []).append(stored_id)
+                cache[kind] = aliases
+            resolved = set(wanted)
+            for item in wanted:
+                resolved.update(cache[kind].get(identifier(item), ()))
+            marks = ",".join("?" for _ in resolved)
+            return self._fetch_all(
+                f"SELECT id, user_id, domain, sensitivity, metadata_json{extra} FROM {table} WHERE user_id = ? AND id IN ({marks})",
+                (self.user_id, *sorted(resolved)),
+            )
         from uuid import UUID
         canonical = []
         for item in wanted:

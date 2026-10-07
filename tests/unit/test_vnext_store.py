@@ -1918,6 +1918,7 @@ def test_fts_search_builds_websearch_tsquery_with_pushed_down_filters() -> None:
         None,
         "Alice provenance retrieval",
         25,
+        0,  # first ranked page
     )
 
 
@@ -1969,6 +1970,7 @@ def test_fts_search_pushes_down_memory_type_project_agent_run_and_expiry_filters
         None,
         "Alice provenance retrieval",
         25,
+        0,  # first ranked page
     )
 
 
@@ -1992,7 +1994,7 @@ def test_fts_search_pushes_people_and_time_scope_before_ranked_limit() -> None:
     assert "jsonb_path_query" in query
     assert "id::text = ANY" in query
     assert "COALESCE(valid_from, last_seen_at, updated_at, first_seen_at, created_at)" in query
-    assert params[-9:] == (
+    assert params[-10:] == (
         ["sam"],
         [linked_memory_id],
         ["sam"],
@@ -2002,6 +2004,7 @@ def test_fts_search_pushes_people_and_time_scope_before_ranked_limit() -> None:
         window_end,
         "deployment",
         1,
+        0,
     )
 
 
@@ -2962,7 +2965,7 @@ def test_update_memory_reassigns_first_class_and_canonical_project_scope_togethe
     )
 
     query, params = next((query, params) for query, params in cursor.statements if "UPDATE memories" in query)
-    assert "project_id = COALESCE(%s, project_id)" in query
+    assert "project_id = CASE WHEN %s THEN %s ELSE project_id END" in query
     assert params is not None
     metadata_param = next(param for param in params if isinstance(param, Jsonb))
     assert metadata_param.obj["project_scope"] == ["project-new"]

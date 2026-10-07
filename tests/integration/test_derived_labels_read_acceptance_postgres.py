@@ -14,7 +14,7 @@ from alicebot_api.mcp.registry import call_mcp_tool
 from alicebot_api.mcp.types import MCPRuntimeContext, MCPToolError
 from alicebot_api.routers import vnext_review, vnext_retrieval, vnext_projects, vnext_memories, workspaces
 from alicebot_api.store import ContinuityStore
-from alicebot_api.vnext_agent_control import ALL_SENSITIVITY
+from alicebot_api.vnext_agent_control import ALL_SENSITIVITY, AgentIdentity
 from alicebot_api.vnext_agent_keys import resolve_agent_identity
 from alicebot_api.vnext_event_log import append_event
 from alicebot_api.vnext_label_guard import LabelGuard
@@ -123,7 +123,9 @@ def test_workspace_counts_full_population_with_sql_hidden_and_stale_rows(migrate
                 store.create_memory({"memory_key": f"hidden-{index}", "canonical_text": "Cedar hidden", "status": "candidate", "domain": "project", "sensitivity": "public", "metadata_json": {"source_id": str(secret["id"])}})
         store.create_artifact({"artifact_type": "daily_brief", "title": "Cedar hidden", "content_markdown": "Cedar hidden", "domain": "project", "sensitivity": "confidential", "metadata_json": {"derived_from": {"v": 1, "sources": [], "memories": [], "open_loops": [], "artifacts": [], "beliefs": [], "counts": {"sources": 0, "memories": 0, "open_loops": 0, "artifacts": 0, "beliefs": 0}}}})
         store.create_project({"name": "Cedar hidden", "slug": "hidden", "domain": "project", "sensitivity": "confidential"})
-        body = workspaces._vnext_workspace_payload(store)
+        body = workspaces._vnext_workspace_payload(
+            store, identity=AgentIdentity(agent_id="trusted", permission_profile="trusted_local_agent")
+        )
         assert body["summary"]["source_count"] == 205
         assert body["summary"]["candidate_memory_count"] == 35
         assert body["summary"]["artifact_count"] == 0
@@ -158,14 +160,19 @@ def test_workspace_activity_uses_actual_key_and_current_targets(migrated_databas
     response = workspaces.get_vnext_workspace(user_id, authorization=f"Bearer {key}" if key else None)
     assert response.status_code == 200
     rendered = response.body.decode()
-    assert all(identifier not in rendered for identifier in hidden_ids)
+    if reader == "trusted":
+        assert all(identifier not in rendered for identifier in hidden_ids)
+        assert "Cedar hidden" not in rendered
+    else:
+        assert all(identifier in rendered for identifier in hidden_ids)
+        assert "Cedar hidden" in rendered
     assert all(identifier in rendered for identifier in visible_ids)
-    assert "Cedar hidden" not in rendered
     body = json.loads(rendered)
-    assert len(body["agent_activity"]["policy_blocks"]) == 1
-    assert len(body["agent_activity"]["recent_commits"]) == 1
-    assert len(body["agent_activity"]["inline_confirmations"]) == 1
-    assert body["dogfooding"]["sample_scope"]["memories"]["total_count"] == 1
+    expected_count = 1 if reader == "trusted" else 2
+    assert len(body["agent_activity"]["policy_blocks"]) == expected_count
+    assert len(body["agent_activity"]["recent_commits"]) == expected_count
+    assert len(body["agent_activity"]["inline_confirmations"]) == expected_count
+    assert body["dogfooding"]["sample_scope"]["memories"]["total_count"] == expected_count
 
 
 @pytest.mark.parametrize("reader", ("owner", "admin", "trusted"))

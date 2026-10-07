@@ -8,11 +8,37 @@ from alicebot_api.mcp.types import MCPRuntimeContext
 from alicebot_api.onramp import bootstrap_database
 from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
 from alicebot_api.vnext_derived_labels import with_derived_from
-from alicebot_api.vnext_label_guard import LabelGuard
+from alicebot_api.vnext_label_guard import LabelGuard, label_read_scope
 from alicebot_api.vnext_label_repair import label_gap_counts
 from alicebot_api.vnext_label_writes import without_insert_floor
 
 USER = "11111111-1111-4111-8111-111111111111"
+
+
+def test_request_id_map_keeps_ambiguous_aliases_and_refreshes_after_writes(tmp_path):
+    path = tmp_path / "aliases.db"
+    bootstrap_database(path, user_id=USER, user_email="synthetic@example.invalid")
+    canonical = str(uuid4())
+    with sqlite_user_connection(path, USER) as conn:
+        store = SQLiteVNextStore(conn, USER)
+        store.create_source({"id": canonical.upper(), "source_type": "note", "title": "First",
+                             "content_hash": "first", "sensitivity": "public", "domain": "project"})
+        # The facade also accepts ordinary tuple-returning SQLite connections.
+        conn.row_factory = None
+        with label_read_scope(store):
+            assert {row["id"] for row in store.read_label_rows("source", [canonical])} == {canonical.upper()}
+            store.create_source({"id": canonical, "source_type": "note", "title": "Alias",
+                                 "content_hash": "alias", "sensitivity": "confidential", "domain": "project"})
+            aliases = store.read_label_rows("source", [canonical])
+            assert {row["id"] for row in aliases} == {canonical, canonical.upper()}
+            # A canonical collision must remain visible to the guard, which refuses it.
+            effective = LabelGuard(store, active=True).effective_row("memory", {
+                "id": str(uuid4()), "user_id": USER, "domain": "project", "sensitivity": "public",
+                "metadata_json": {"source_id": canonical},
+            })
+            assert effective["unverified"] is True
+        with label_read_scope(store):
+            assert len(store.read_label_rows("source", [canonical])) == 2
 
 
 @pytest.mark.parametrize("tool", ["alice_recall", "alice_context_pack"])
@@ -55,7 +81,7 @@ def test_native_sql_prefilter_rejects_hidden_inputs_before_limit(tmp_path):
         for i in range(12):
             parent = store.create_memory({"memory_key": str(uuid4()), "canonical_text": "other", "status": "active", "domain": "project",
                                           "sensitivity": "public", "metadata_json": {"source_id": hidden["id"]}})
-            store.create_memory({"memory_key": str(uuid4()), "canonical_text": "prefilter observation", "status": "active", "domain": "project",
+            store.create_memory({"memory_key": str(uuid4()), "title": "prefilter observation", "canonical_text": "prefilter observation", "status": "active", "domain": "project",
                                  "sensitivity": "public", "metadata_json": {"consolidation": {"cluster_member_ids": [parent["id"]]}}})
         rows = store.search_memories_fts(query="prefilter observation", sensitivity_allowed=["public", "internal"], limit=1)
         assert [row["id"] for row in rows] == [visible["id"]]

@@ -823,18 +823,6 @@ _INDEX_AND_TRIGGER_STATEMENTS: tuple[str, ...] = (
       ON sources (user_id, captured_at DESC, id DESC)
     """,
     """
-    CREATE INDEX IF NOT EXISTS sources_user_label_alias_idx
-      ON sources (user_id, replace(replace(replace(replace(lower(id),'urn:uuid:',''),'-',''),'{',''),'}',''))
-    """,
-    """
-    CREATE INDEX IF NOT EXISTS memories_user_label_alias_idx
-      ON memories (user_id, replace(replace(replace(replace(lower(id),'urn:uuid:',''),'-',''),'{',''),'}',''))
-    """,
-    """
-    CREATE INDEX IF NOT EXISTS open_loops_user_label_alias_idx
-      ON open_loops (user_id, replace(replace(replace(replace(lower(id),'urn:uuid:',''),'-',''),'{',''),'}',''))
-    """,
-    """
     CREATE INDEX IF NOT EXISTS source_chunks_source_index_idx
       ON source_chunks (source_id, chunk_index)
     """,

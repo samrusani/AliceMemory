@@ -1332,7 +1332,8 @@ def test_the_docs_state_the_spellings_the_per_response_rule_and_the_residual() -
         "and so is an id the reader may read that has a hyphen and more hex digits after it (`<id>-20261003`).",
         "One layout of glued digits is cut under a reference key:",
         "An id without hyphens inside a URL or a sentence is withheld like the hyphenated one.",
-        "Inside longer text an id with its hyphens in other places, a split id and an encoded id are not recognised.",
+        "a second source-only pass now withholds irregular, split and encoded source ids inside longer text.",
+        "Irregular or non-ASCII MEMORY-prefixed ids and unnamed SOURCE whitespace forms can remain;",
         "Not changed here: the free-text columns of a loop (`title`, `description`, `resolution_note`), which are returned as stored and are not scanned for ids.",
         "It now writes `a source with no title`.",
         "`tests/unit/test_open_loop_ids_every_spelling_and_after_delete.py`",
@@ -1344,7 +1345,7 @@ def test_the_docs_state_the_spellings_the_per_response_rule_and_the_residual() -
         "A run of 32 hex digits is an id only when no hex digit stands next to it",
         "and so is an id the reader may read that has a hyphen and more hex digits after it.",
         "One layout of glued digits is cut under a reference key:",
-        "Inside longer text an id with its hyphens in other places, a split id and an encoded id are not recognised.",
+        "a second source-only pass withholds irregular, split and encoded source ids inside longer text.",
         "The free-text columns of a loop (`title`, `description`, `resolution_note`) are returned as stored and are not scanned.",
         "The extractor of candidate loops no longer writes the id of a source with no title into the `description`",
         # Moved here from the limitations page, which keeps one short statement of the rule.
