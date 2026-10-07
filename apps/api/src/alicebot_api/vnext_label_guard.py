@@ -65,6 +65,7 @@ class _RequestLabels:
     row_sets: dict = field(default_factory=dict)
     dependencies: dict = field(default_factory=dict)
     source_admission: dict = field(default_factory=dict)
+    row_admission: dict = field(default_factory=dict)
     normalized_metadata: dict = field(default_factory=dict)
     row_keys: dict = field(default_factory=dict)
     resolved_inputs: dict = field(default_factory=dict)
@@ -83,6 +84,7 @@ class _RequestLabels:
         self.row_sets.clear()
         self.dependencies.clear()
         self.source_admission.clear()
+        self.row_admission.clear()
         self.normalized_metadata.clear()
         self.row_keys.clear()
         self.resolved_inputs.clear()
@@ -378,16 +380,27 @@ class LabelGuard:
                     kept.append(row)
                 continue
             key = self._key(kind, row)
+            row_admission_key = (key, self.domains, self.sensitivity_allowed, self.projects, self.all_of)
+            if row_admission_key in state.row_admission:
+                if state.row_admission[row_admission_key]:
+                    kept.append(row)
+                continue
             template = self._signature(kind, row, key=key)
             admission_key = (template, self.domains, self.sensitivity_allowed, self.projects, self.all_of)
             root = (canon_kind(kind), identifier(row.get("id")))
             reusable = template in state.dependency_labels and root not in state.dependency_ancestry.get(template, ())
             if reusable and admission_key in state.source_admission:
-                if state.source_admission[admission_key]:
+                admitted = state.source_admission[admission_key]
+                state.row_admission[row_admission_key] = admitted
+                if admitted:
                     kept.append(row)
                 continue
             effective = self.effective_row(kind, row)
             admitted = isinstance(effective, Mapping) and self._admits_effective(effective, kind=kind)
+            # This is caller admission, separate from shared label settlement.
+            # Full label projections and every filter distinguish grants; all
+            # request caches are cleared together on writes and rollback.
+            state.row_admission[row_admission_key] = admitted
             if reusable:
                 state.source_admission[admission_key] = admitted
             if admitted:
@@ -414,7 +427,7 @@ class LabelGuard:
             for row_kind, row in frontier:
                 if is_derived(row_kind, row):
                     key = self._key(row_kind, row)
-                    if key in prefetched:
+                    if key in prefetched or key in state.labels or key in state.parent_labels:
                         continue
                     refs.update(self._signature(row_kind, row, key=key)[1])
                     pending.append(key)
@@ -466,7 +479,8 @@ class LabelGuard:
         plain_counter = getattr(self.store, "count_original_label_statuses", None)
         if callable(getattr(type(self.store), "count_original_label_statuses", None)) and callable(plain_counter) and not self.projects and self.all_of is None:
             counts = plain_counter(kind, domains=self.domains, sensitivity_allowed=self.sensitivity_allowed)
-            batches = iterator(kind, derived_only=True)
+            prefilter = {"reject_sensitivity_allowed": self.sensitivity_allowed} if getattr(type(self.store), "label_count_input_prefilter", False) else {}
+            batches = iterator(kind, derived_only=True, **prefilter)
         else:
             counts = {}
             batches = iterator(kind)
@@ -522,7 +536,8 @@ class LabelGuard:
         iterator = getattr(self.store, "iter_label_events", None)
         if not callable(iterator):
             raise TypeError("readable counts require complete event enumeration")
-        return sum(len(self.admit_events(batch)) for batch in iterator())
+        prefilter = {"reject_sensitivity_allowed": self.sensitivity_allowed} if getattr(type(self.store), "label_count_input_prefilter", False) else {}
+        return sum(len(self.admit_events(batch)) for batch in iterator(**prefilter))
 
     def admit_beliefs(self, beliefs: Sequence[_Row]) -> list[_Row]:
         """Beliefs whose backing memory the filters admit. One batched read."""

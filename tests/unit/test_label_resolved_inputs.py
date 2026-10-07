@@ -111,6 +111,27 @@ def test_partial_prefetch_keeps_per_origin_floors_and_refreshes_after_writes(mon
         assert [row["id"] for row in guard.admit_rows("memory", roots)] == [roots[2]["id"]]
 
 
+def test_repeated_admission_keeps_caller_filters_projections_and_write_refresh():
+    source = {"kind": "source", "id": "source", "domain": "project", "sensitivity": "public",
+              "metadata_json": {"project_scope": ["P1"]}}
+    root = {"kind": "memory", "id": "root", "domain": "project", "sensitivity": "public",
+            "metadata_json": {"source_id": "source", "project_scope": ["P1"]}}
+    store = Rows([source])
+    with label_read_scope(store):
+        public = LabelGuard(store, active=True, sensitivity_allowed=("public",))
+        for _ in range(2):
+            assert public.admit_rows("memory", [root]) == [root]
+            assert replace(public, domains=("health",)).admit_rows("memory", [root]) == []
+            assert replace(public, projects=("P2",), all_of=("P2",)).admit_rows("memory", [root]) == []
+            assert replace(public, projects=("P1",), all_of=("P1",)).admit_rows("memory", [root]) == [root]
+        # The same ID with a different stored label is a different projection.
+        assert public.admit_rows("memory", [{**root, "sensitivity": "confidential"}]) == []
+        source["sensitivity"] = "confidential"
+        invalidate_read_labels(store)
+        assert public.admit_rows("memory", [root]) == []
+        assert replace(public, sensitivity_allowed=("public", "confidential")).admit_rows("memory", [root]) == [root]
+
+
 @pytest.mark.parametrize("variant", ["alias", "cycle", "missing", "malformed", "hop-bound", "node-bound", "implicit-weekly", "implicit-weekly-json"])
 def test_unproved_inputs_keep_the_complete_graph_fallback(monkeypatch, variant):
     import alicebot_api.vnext_label_guard as module

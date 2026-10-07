@@ -131,10 +131,11 @@ def list_events(
     occurred_at_start: datetime | None = None,
     occurred_at_end: datetime | None = None,
     limit: int | None = None,
+    reject_sensitivity_allowed: Sequence[str] = (),
 ) -> list[VNextRow]:
     if limit is not None and limit < 1:
         raise ValueError("limit must be positive")
-    if target_type is None and target_id is None and occurred_at_start is None and occurred_at_end is None:
+    if not reject_sensitivity_allowed and target_type is None and target_id is None and occurred_at_start is None and occurred_at_end is None:
         limit_sql = ""
         params: list[object] = []
         if limit is not None:
@@ -153,6 +154,9 @@ def list_events(
         "(%s::text IS NULL OR target_id = %s)",
     ]
     params = [target_type, target_type, target_id, target_id]
+    if reject_sensitivity_allowed:
+        from alicebot_api.vnext_label_sql import hidden_memory_event_sql
+        clauses.append(hidden_memory_event_sql(reject_sensitivity_allowed, sqlite=False))
     if occurred_at_start is not None:
         clauses.append("occurred_at >= %s::timestamptz")
         params.append(occurred_at_start)

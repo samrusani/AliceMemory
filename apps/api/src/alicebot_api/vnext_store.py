@@ -469,6 +469,7 @@ class PostgresVNextStore:
     """SQL-backed vNext repository facade for the second-brain kernel."""
 
     memory_fts_offset_paging = True
+    label_count_input_prefilter = True
 
     def __init__(self, conn: UserConnection):
         self.conn = conn
@@ -551,7 +552,7 @@ class PostgresVNextStore:
                                   list(sensitivity_allowed) or None, list(sensitivity_allowed) or None))
         return {str(row["status"]): int(cast(int, row["count"])) for row in rows}
 
-    def iter_label_rows(self, kind: str, *, batch_size: int = 1000, derived_only: bool = False) -> Iterator[list[VNextRow]]:
+    def iter_label_rows(self, kind: str, *, batch_size: int = 1000, derived_only: bool = False, reject_sensitivity_allowed: Sequence[str] = ()) -> Iterator[list[VNextRow]]:
         """Complete counted population, in narrow keyset batches under tenant RLS."""
 
         if batch_size < 1:
@@ -573,6 +574,10 @@ class PostgresVNextStore:
         from alicebot_api.vnext_label_sql import original_label_sql
         if derived_only:
             live += " AND NOT COALESCE(" + original_label_sql(kind, sqlite=False) + ", FALSE)"
+        if kind == "memory" and reject_sensitivity_allowed:
+            from alicebot_api.vnext_label_sql import hidden_memory_input_sql
+            live += " AND " + hidden_memory_input_sql(reject_sensitivity_allowed, sqlite=False, alias="memories")
+        query_size = max(batch_size, 5000) if reject_sensitivity_allowed else batch_size
         after: str | None = None
         while True:
             rows = self._fetch_all(
@@ -580,29 +585,38 @@ class PostgresVNextStore:
                     FROM {table}
                     WHERE (%s::uuid IS NULL OR id > %s::uuid){live}
                     ORDER BY id LIMIT %s""",
-                (after, after, batch_size),
+                (after, after, query_size),
             )
             if not rows:
                 return
-            yield rows
+            for start in range(0, len(rows), batch_size):
+                yield rows[start:start + batch_size]
             after = str(rows[-1]["id"])
+            if len(rows) < query_size:
+                return
 
-    def iter_label_events(self, *, batch_size: int = 1000) -> Iterator[list[VNextRow]]:
+    def iter_label_events(self, *, batch_size: int = 1000, reject_sensitivity_allowed: Sequence[str] = ()) -> Iterator[list[VNextRow]]:
         """Complete event targets for readable counts, without event payloads."""
 
         if batch_size < 1:
             raise ValueError("batch_size must be positive")
+        from alicebot_api.vnext_label_sql import hidden_memory_event_sql
+        label_sql = hidden_memory_event_sql(reject_sensitivity_allowed, sqlite=False)
+        query_size = max(batch_size, 5000) if reject_sensitivity_allowed else batch_size
         after: str | None = None
         while True:
             rows = self._fetch_all(
-                """SELECT id, target_type, target_id, event_type FROM event_log
-                   WHERE (%s::uuid IS NULL OR id > %s::uuid) ORDER BY id LIMIT %s""",
-                (after, after, batch_size),
+                f"""SELECT id, target_type, target_id, event_type FROM event_log
+                   WHERE (%s::uuid IS NULL OR id > %s::uuid) AND {label_sql} ORDER BY id LIMIT %s""",
+                (after, after, query_size),
             )
             if not rows:
                 return
-            yield rows
+            for start in range(0, len(rows), batch_size):
+                yield rows[start:start + batch_size]
             after = str(rows[-1]["id"])
+            if len(rows) < query_size:
+                return
 
     def iter_label_ratings(self, *, batch_size: int = 1000) -> Iterator[list[VNextRow]]:
         """Complete rating targets for counts, without feedback text."""

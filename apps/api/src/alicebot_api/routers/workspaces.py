@@ -141,7 +141,10 @@ def _vnext_workspace_payload(store: PostgresVNextStore, *, identity: AgentIdenti
     fetched_beliefs = store.list_beliefs(status=None, sensitivity_allowed=sensitivity_allowed, limit=12)
     beliefs = guard.admit_beliefs(fetched_beliefs)
     tasks = store.list_tasks(status=None, limit=12)
-    fetched_events = store.list_events(limit=20)
+    if getattr(type(store), "label_count_input_prefilter", False):
+        fetched_events = store.list_events(limit=20, reject_sensitivity_allowed=guard.sensitivity_allowed)
+    else:
+        fetched_events = store.list_events(limit=20)
     recent_events = guard.admit_events(fetched_events)
     event_count = store.count_events() if unfenced else guard.readable_event_count()
     agent_identities = store.list_agent_identities(limit=20)

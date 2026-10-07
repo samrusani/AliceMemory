@@ -114,3 +114,41 @@ def test_unfenced_status_counts_use_the_native_total():
             raise AssertionError("unfenced counts must not enumerate the population")
 
     assert LabelGuard(Native(), active=False).readable_status_counts("memory") == {"active": 5000}
+
+
+def assert_native_count_prefilter_matches_complete_effective_admission(store):
+    visible = store.create_source({"source_type": "note", "title": "Visible", "content_hash": str(uuid4()), "sensitivity": "public", "domain": "project"})
+    hidden = store.create_source({"source_type": "note", "title": "Hidden", "content_hash": str(uuid4()), "sensitivity": "confidential", "domain": "project"})
+    with without_insert_floor():
+        public = store.create_memory({"memory_key": str(uuid4()), "canonical_text": "Visible observation", "status": "active", "domain": "project", "sensitivity": "public", "metadata_json": {"source_id": str(visible["id"])}})
+        private = store.create_memory({"memory_key": str(uuid4()), "canonical_text": "Hidden observation", "status": "active", "domain": "project", "sensitivity": "public", "metadata_json": {"source_id": str(hidden["id"])}})
+        metadata = with_derived_from({"workflow": "project_auto_update"}, {"sources": [visible, hidden]})
+        metadata["derived_from"]["sources"] = [str(visible["id"]), str(hidden["id"])]
+        later = store.create_memory({"memory_key": str(uuid4()), "canonical_text": "Later hidden input", "status": "active", "domain": "project", "sensitivity": "public", "metadata_json": metadata})
+    allowed = ("public", "internal")
+    raw = [row for batch in store.iter_label_rows("memory", reject_sensitivity_allowed=allowed) for row in batch]
+    assert str(private["id"]) not in {str(row["id"]) for row in raw}
+    assert {str(public["id"]), str(later["id"])} <= {str(row["id"]) for row in raw}
+    # A public first-parent hint is inconclusive. Admission must still discover
+    # the later hidden input rather than treating SQL as an admission grant.
+    all_rows = [row for batch in store.iter_label_rows("memory") for row in batch]
+    all_events = store.list_events()
+    with label_read_scope(store):
+        guard = LabelGuard(store, active=True, sensitivity_allowed=allowed)
+        expected_rows = guard.admit_rows("memory", all_rows)
+        expected_events = guard.admit_events(all_events)
+    with label_read_scope(store):
+        guard = LabelGuard(store, active=True, sensitivity_allowed=allowed)
+        assert guard.readable_status_counts("memory") == {"active": len(expected_rows)}
+        assert guard.readable_event_count() == len(expected_events)
+        events = guard.admit_events(store.list_events(reject_sensitivity_allowed=allowed))
+        assert {str(row["id"]) for row in events} == {str(row["id"]) for row in expected_events}
+        assert {str(row["id"]) for row in guard.admit_rows("memory", raw)} == {str(public["id"])}
+    assert len(store.list_events()) == len(all_events)
+
+
+def test_native_count_prefilter_matches_complete_effective_admission(tmp_path):
+    path = tmp_path / "count-prefilter.db"
+    bootstrap_database(path, user_id=USER, user_email="synthetic@example.invalid")
+    with sqlite_user_connection(path, USER) as conn:
+        assert_native_count_prefilter_matches_complete_effective_admission(SQLiteVNextStore(conn, USER))

@@ -59,6 +59,18 @@ def hidden_memory_input_sql(sensitivity_allowed, *, sqlite: bool, alias: str = "
         ))))"""  # nosec B608
 
 
+def hidden_memory_event_sql(sensitivity_allowed, *, sqlite: bool) -> str:
+    """Reject an event only when its same-tenant memory floor proves it hidden."""
+    if not sensitivity_allowed:
+        return "TRUE"
+    label_sql = hidden_memory_input_sql(sensitivity_allowed, sqlite=sqlite)
+    memory_id = "m.id" if sqlite else "m.id::text"
+    # Both identifiers are closed literals; label_sql uses only kernel ranks.
+    return ("(target_type IS NULL OR target_type <> 'memory' OR "  # nosec B608
+            "(user_id, target_id) NOT IN (SELECT m.user_id, " + memory_id +
+            " FROM memories m WHERE NOT (" + label_sql + ")))")  # nosec B608
+
+
 def original_label_sql(kind: str, *, sqlite: bool = False) -> str:
     """Only rows definitely original by is_derived may be counted in SQL.
 

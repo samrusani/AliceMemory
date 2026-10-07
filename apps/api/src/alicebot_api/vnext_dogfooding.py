@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import Counter
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from statistics import mean
 from typing import TYPE_CHECKING, Protocol
@@ -23,6 +24,7 @@ class VNextDogfoodingStore(VNextConnectorStore, Protocol):
         target_type: str | None = None,
         target_id: str | None = None,
         limit: int | None = None,
+        reject_sensitivity_allowed: Sequence[str] = (),
     ) -> list[JsonObject]: ...
 
     def list_sources(
@@ -196,7 +198,10 @@ class VNextDogfoodingService:
         open_loops = guard.admit_rows("open_loop", open_loops)
         memory_status_counts = guard.readable_status_counts("memory")
         try:
-            events = self.store.list_events(limit=5_000)
+            if getattr(type(self.store), "label_count_input_prefilter", False):
+                events = self.store.list_events(limit=5_000, reject_sensitivity_allowed=guard.sensitivity_allowed)
+            else:
+                events = self.store.list_events(limit=5_000)
         except TypeError:  # Compatibility for external/test stores on the old protocol.
             events = self.store.list_events()[:5_000]
         events = guard.admit_events(events)

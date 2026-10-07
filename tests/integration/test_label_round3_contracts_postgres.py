@@ -16,6 +16,12 @@ from alicebot_api.routers.workspaces import _vnext_workspace_payload
 from tests.integration.derived_labels_postgres_support import label_harness
 
 
+def test_native_count_prefilter_matches_complete_effective_admission(label_harness):
+    from tests.unit.test_label_round3_sqlite_reads import assert_native_count_prefilter_matches_complete_effective_admission
+    with label_harness.store() as store:
+        assert_native_count_prefilter_matches_complete_effective_admission(store)
+
+
 @pytest.mark.parametrize("profile", ["owner", "admin_agent"])
 @pytest.mark.parametrize("component", ["trace", "workspace"])
 def test_unfenced_source_trace_and_workspace_preserve_main(label_harness, profile, component):
