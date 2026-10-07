@@ -35,7 +35,7 @@ def hidden_memory_input_sql(sensitivity_allowed, *, sqlite: bool, alias: str = "
         # JSON. Exact text membership accepts the same case-insensitive forms
         # as the former guarded UUID cast. Tenant identity stays in every set;
         # the parent partition also uses a hash instead of a per-row join.
-        source_set = f"SELECT user_id, unnest(ARRAY[id::text, replace(id::text, '-', '')]) FROM sources WHERE sensitivity IN ({names})"
+        source_set = f"SELECT user_id, unnest(ARRAY[id::text, replace(id::text, '-', '')]) FROM sources WHERE sensitivity IN ({names})"  # nosec B608 - closed kernel sensitivity constants only
         return f"""({alias}.sensitivity NOT IN ({names}) AND NOT (
             {not_redacted} AND (
                 COALESCE(({alias}.user_id, {source}) IN (
