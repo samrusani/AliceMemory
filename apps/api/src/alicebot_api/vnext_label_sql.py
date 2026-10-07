@@ -24,27 +24,29 @@ def hidden_memory_input_sql(sensitivity_allowed, *, sqlite: bool, alias: str = "
     else:
         def source_hint(meta):
             return f"COALESCE({meta}->>'source_id', CASE WHEN jsonb_typeof({meta}->'derived_from'->'sources')='array' AND jsonb_typeof({meta}->'derived_from'->'sources'->0)='string' THEN {meta}->'derived_from'->'sources'->>0 END)"
-        def uuid_hint(value):
-            return f"CASE WHEN ({value}) ~* '^(?:[0-9a-f]{{32}}|[0-9a-f]{{8}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-[0-9a-f]{{12}})$' THEN ({value})::uuid END"
         meta = f"{alias}.metadata_json"
-        source = uuid_hint(source_hint(meta))
-        memory = uuid_hint(f"COALESCE(CASE WHEN jsonb_typeof({meta}->'consolidation'->'cluster_member_ids')='array' AND jsonb_typeof({meta}->'consolidation'->'cluster_member_ids'->0)='string' THEN {meta}->'consolidation'->'cluster_member_ids'->>0 END, CASE WHEN jsonb_typeof({meta}->'derived_from'->'memories')='array' AND jsonb_typeof({meta}->'derived_from'->'memories'->0)='string' THEN {meta}->'derived_from'->'memories'->>0 END)")
-        parent_source = uuid_hint(source_hint("label_input.metadata_json"))
+        source = "lower(" + source_hint(meta) + ")"
+        memory = f"lower(COALESCE(CASE WHEN jsonb_typeof({meta}->'consolidation'->'cluster_member_ids')='array' AND jsonb_typeof({meta}->'consolidation'->'cluster_member_ids'->0)='string' THEN {meta}->'consolidation'->'cluster_member_ids'->>0 END, CASE WHEN jsonb_typeof({meta}->'derived_from'->'memories')='array' AND jsonb_typeof({meta}->'derived_from'->'memories'->0)='string' THEN {meta}->'derived_from'->'memories'->>0 END))"
+        parent_source = "lower(" + source_hint("label_input.metadata_json") + ")"
     not_redacted = "TRUE" if sqlite else f"{alias}.metadata_json->'redacted' IS DISTINCT FROM 'true'::jsonb"
     input_not_redacted = "TRUE" if sqlite else "label_input.metadata_json->'redacted' IS DISTINCT FROM 'true'::jsonb"
     if not sqlite:
-        # Uncorrelated row-valued sets are hashed once by PostgreSQL. Include
-        # tenant identity in each set rather than scanning parents per row.
+        # Hash canonical and compact UUID spellings without casting untrusted
+        # JSON. Exact text membership accepts the same case-insensitive forms
+        # as the former guarded UUID cast. Tenant identity stays in every set;
+        # the parent partition also uses a hash instead of a per-row join.
+        source_set = f"SELECT user_id, unnest(ARRAY[id::text, replace(id::text, '-', '')]) FROM sources WHERE sensitivity IN ({names})"
         return f"""({alias}.sensitivity NOT IN ({names}) AND NOT (
             {not_redacted} AND (
                 COALESCE(({alias}.user_id, {source}) IN (
-                    SELECT user_id, id FROM sources WHERE sensitivity IN ({names})
+                    {source_set}
                 ), FALSE)
                 OR COALESCE(({alias}.user_id, {memory}) IN (
-                    SELECT label_input.user_id, label_input.id FROM memories label_input
-                    JOIN sources label_source ON label_source.user_id=label_input.user_id
-                        AND label_source.id={parent_source}
-                    WHERE {input_not_redacted} AND label_source.sensitivity IN ({names})
+                    SELECT label_input.user_id, unnest(ARRAY[label_input.id::text, replace(label_input.id::text, '-', '')])
+                    FROM memories label_input
+                    WHERE {input_not_redacted} AND COALESCE((label_input.user_id, {parent_source}) IN (
+                        {source_set}
+                    ), FALSE)
                 ), FALSE)
             )))"""  # nosec B608
     return f"""({alias}.sensitivity NOT IN ({names}) AND NOT (

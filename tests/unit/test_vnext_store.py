@@ -1236,7 +1236,13 @@ def test_resume_store_queries_apply_admission_predicates_before_limit() -> None:
     assert "event.payload_json ->> 'text'" not in loop_event_query
     assert "event.payload_json::text" not in loop_event_query
     assert "event_type_prefix" not in shared_event_query
-    assert "JOIN memories m" in shared_event_query
+    assert "COALESCE((e.user_id, e.target_id) IN (" in shared_event_query
+    assert "SELECT m.user_id, m.id::text FROM memories m" in shared_event_query
+    assert shared_event_query.index("m.deleted_at IS NULL") < shared_event_query.index("LIMIT %s")
+    assert shared_event_query.index("SELECT m.user_id, m.id::text") < shared_event_query.index("ORDER BY e.occurred_at DESC")
+    assert cursor.statements[4][1] == (
+        None, None, ["project a"], ["project a"], None, None, None, since, since, until, until, 2,
+    )
 
 
 def test_project_update_event_lookup_is_one_bounded_target_and_payload_query() -> None:

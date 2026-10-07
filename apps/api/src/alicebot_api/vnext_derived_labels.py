@@ -197,16 +197,17 @@ def canon_kind(kind: object) -> str:
 def identifier(value: object) -> str:
     """Normalize any spelling ``uuid.UUID`` accepts. Anything else is kept as text."""
 
-    if isinstance(value, UUID):
-        return str(value)
     cache = _READ_METADATA.get()
-    key = ("identifier", value) if isinstance(value, str) else None
+    key = ("identifier", value) if isinstance(value, str) else ("uuid-identifier", value) if type(value) is UUID else None
     if cache is not None and key is not None and key in cache:
         return cache[key]
-    try:
-        result = str(UUID(str(value)))
-    except (ValueError, AttributeError, TypeError):
+    if isinstance(value, UUID):
         result = str(value)
+    else:
+        try:
+            result = str(UUID(str(value)))
+        except (ValueError, AttributeError, TypeError):
+            result = str(value)
     if cache is not None and key is not None:
         cache[key] = result
     return result
@@ -510,6 +511,17 @@ def _plain_token(value: str) -> bool:
 
 
 def _source_token(value: str) -> str | None:
+    cache = _READ_METADATA.get()
+    key = ("source-token", value)
+    if cache is not None and key in cache:
+        return cache[key]
+    result = _parse_source_token(value)
+    if cache is not None:
+        cache[key] = result
+    return result
+
+
+def _parse_source_token(value: str) -> str | None:
     text = value.strip()
     lowered = text.lower()
     for prefix in ("urn:uuid:", "source:", "uuid:"):
@@ -936,6 +948,16 @@ def _node_label(kind: str, row: Mapping[str, object]) -> SettledLabel:
     )
 
 
+_DEPENDENCY_SYNTAX_KEYS = MARKER_KEYS | _ID_KIND.keys() | {
+    "redacted", "scrubbed", "project_scope", "project_floor", "project_id", "project", "projects",
+    "scope_json", "metadata_json", "agent_identity", "agentic_memory", "consolidation",
+}
+_DEPENDENCY_SYNTAX_FIELDS = (
+    "user_id", "domain", "sensitivity", "value", "project_id", "project", "projects", "scope_json",
+    "source_id", "artifact_type", "project_scope", "project_floor",
+)
+
+
 def dependency_syntax_key(kind: str, row: Mapping[str, object]) -> tuple:
     """Memoize parsing without allowing incidental scalar metadata to split it.
 
@@ -943,18 +965,13 @@ def dependency_syntax_key(kind: str, row: Mapping[str, object]) -> tuple:
     unknown containers as the dependency parser does; their scalar text cannot
     name an input. This is only a parsing key, never a settled label or grant.
     """
-    relevant = MARKER_KEYS | _ID_KIND.keys() | {
-        "redacted", "scrubbed", "project_scope", "project_floor", "project_id", "project", "projects",
-        "scope_json", "metadata_json", "agent_identity", "agentic_memory", "consolidation",
-    }
-
     def metadata_key(value: object) -> tuple:
         if isinstance(value, Mapping):
             parts: list[tuple[str, object]] = []
             for key, child in value.items():
                 if not isinstance(key, str):
                     continue
-                if key in relevant:
+                if key in _DEPENDENCY_SYNTAX_KEYS:
                     parts.append((key, repr(child)))
                 elif isinstance(child, (Mapping, list)):
                     nested = metadata_key(child)
@@ -966,10 +983,8 @@ def dependency_syntax_key(kind: str, row: Mapping[str, object]) -> tuple:
                          and (nested := metadata_key(child)))
         return ()
 
-    fields = ("user_id", "domain", "sensitivity", "value", "project_id", "project", "projects", "scope_json",
-              "source_id", "artifact_type", "project_scope", "project_floor")
     return (canon_kind(kind), isinstance(row.get("metadata_json"), Mapping), metadata_key(_metadata(row)),
-            *((field in row, repr(row.get(field))) for field in fields))
+            *((field in row, repr(row.get(field))) for field in _DEPENDENCY_SYNTAX_FIELDS))
 
 
 def dependency_label_signature(kind: str, row: Mapping[str, object]) -> tuple:
@@ -981,10 +996,12 @@ def dependency_label_signature(kind: str, row: Mapping[str, object]) -> tuple:
     """
     name = canon_kind(kind)
     deps, problem = dependency_record(name, row)
-    label = _node_label(name, row)
-    return (name, deps, problem, label.row_class, label.stored_domain,
-            label.stored_sensitivity, label.stored_scope, label.stored_floor,
-            label.carries_scope, str(row.get("user_id") or ""))
+    floor_shape, floor = _floor_of(row)
+    # A signature excludes row identity. Construct only its label semantics,
+    # rather than allocating a full node label and normalizing unused IDs.
+    return (name, deps, problem, row_class(name, row), str(row.get("domain") or "unknown"),
+            str(row.get("sensitivity") or "unknown"), stored_scope(name, row),
+            floor if floor_shape == "list" else (), carries_scope(name, row), str(row.get("user_id") or ""))
 
 
 def has_implicit_weekly_inputs(kind: str, row: Mapping[str, object]) -> bool:

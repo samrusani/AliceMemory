@@ -311,11 +311,13 @@ class LabelGuard:
         state = self._state()
         key = self._key(kind, row)
         cached = state.parent_labels.get(key)
-        root = (canon_kind(kind), identifier(row.get("id")))
-        if root in trail or len(trail) > HOP_BOUND or kind == "belief":
+        if len(trail) > HOP_BOUND or kind == "belief":
             return None
         if cached is not None:
             return None if cached[1] & trail else cached
+        root = (canon_kind(kind), identifier(row.get("id")))
+        if root in trail:
+            return None
         template = self._signature(kind, row, key=key)
         refs, problem = template[1:3]
         if problem or has_implicit_weekly_inputs(kind, row):

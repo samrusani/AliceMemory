@@ -22,6 +22,46 @@ def test_native_count_prefilter_matches_complete_effective_admission(label_harne
         assert_native_count_prefilter_matches_complete_effective_admission(store)
 
 
+def test_native_source_floor_sets_preserve_aliases_and_inconclusive_inputs(label_harness):
+    from alicebot_api.vnext_label_guard import LabelGuard, label_read_scope
+    from alicebot_api.vnext_label_sql import hidden_memory_input_sql
+    from alicebot_api.vnext_label_writes import without_insert_floor
+
+    h = label_harness
+    hidden = h.source(sensitivity="confidential")
+    with h.store() as store, without_insert_floor():
+        parent = store.create_memory({"memory_key": str(uuid4()), "canonical_text": "Hidden parent", "status": "active",
+                                      "domain": "project", "sensitivity": "public", "metadata_json": {"source_id": str(hidden["id"])}})
+        rejected, inconclusive = [], []
+        for target_kind, target in (("source", hidden), ("memory", parent)):
+            canonical = str(target["id"])
+            for spelling in (canonical, canonical.upper(), canonical.replace("-", ""), canonical.replace("-", "").upper(), "not-a-uuid", " " + canonical, "' OR TRUE --"):
+                metadata = {"source_id": spelling} if target_kind == "source" else {"consolidation": {"cluster_member_ids": [spelling]}}
+                row = store.create_memory({"memory_key": str(uuid4()), "canonical_text": "Floor-set observation", "status": "active",
+                                           "domain": "project", "sensitivity": "public", "metadata_json": metadata})
+                (rejected if spelling in (canonical, canonical.upper(), canonical.replace("-", ""), canonical.replace("-", "").upper()) else inconclusive).append(row)
+        redacted = store.create_memory({"memory_key": str(uuid4()), "canonical_text": "Redacted original", "status": "active",
+                                       "domain": "project", "sensitivity": "public", "metadata_json": {"source_id": str(hidden["id"]), "redacted": True}})
+        allowed = ("public", "internal")
+        predicate = hidden_memory_input_sql(allowed, sqlite=False)
+        prefetched = store._fetch_all("SELECT m.id FROM memories m WHERE " + predicate)
+        kept_ids = {str(row["id"]) for row in prefetched}
+        assert not ({str(row["id"]) for row in rejected} & kept_ids)
+        assert {str(row["id"]) for row in [*inconclusive, redacted]} <= kept_ids
+        # A SQL miss remains inconclusive and still goes through the canonical
+        # kernel. Preserve its behavior for unrecognised free text as well.
+        population = [row for batch in store.iter_label_rows("memory") for row in batch]
+        with label_read_scope(store):
+            full = LabelGuard(store, active=True, sensitivity_allowed=allowed).admit_rows("memory", population)
+        filtered = [row for batch in store.iter_label_rows("memory", reject_sensitivity_allowed=allowed) for row in batch]
+        with label_read_scope(store):
+            narrowed = LabelGuard(store, active=True, sensitivity_allowed=allowed).admit_rows("memory", filtered)
+        admitted = {str(row["id"]) for row in full}
+        assert {str(row["id"]) for row in narrowed} == admitted
+        assert not ({str(row["id"]) for row in rejected} & admitted)
+        assert str(redacted["id"]) in admitted
+
+
 def test_memory_event_target_set_preserves_exact_target_matching(label_harness):
     h = label_harness
     visible = h.memory()
