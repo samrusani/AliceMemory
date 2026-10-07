@@ -99,6 +99,46 @@ def repair_fixture(backend, location, user):
     return applied
 
 
+def capture_read_profiles(backend, location, user, keys, *, case, source_count, repaired, revisions, main, repo, script):
+    """Run optional diagnostics only after every profile's budget samples are retained."""
+    trace = os.environ.get("ALICE_READ_PROFILE")
+    if not trace or backend != "postgres":
+        return []
+    failures = []
+    for profile, key in keys.items():
+        for revision, checkout in (("main", main), ("head", repo)):
+            directory = Path(trace) / backend / f"{case}-{source_count}-{'repaired' if repaired else 'unrepaired'}" / profile / revision
+            directory.mkdir(parents=True, exist_ok=True)
+            context = {"store": backend, "case": case, "source_count": source_count, "repaired": repaired,
+                       "profile": profile, "revision_label": revision, "revision": revisions[revision]}
+            env = {**os.environ, "ALICE_READ_PROFILE": str(directory), "ALICE_READ_PROFILE_CONTEXT": json.dumps(context)}
+            receipt = {**context, "status": "error", "captures": []}
+            try:
+                completed = subprocess.run(
+                    [sys.executable, str(script), str(checkout), backend, location, str(user), profile, key],
+                    input="workspace\nprofile:workspace\ndogfooding\nprofile:dogfooding\nstop\n",
+                    capture_output=True, text=True, timeout=60, env=env,
+                )
+                receipt["exit_code"] = completed.returncode
+                if completed.returncode == 0:
+                    messages = [json.loads(line) for line in completed.stdout.splitlines()]
+                    captures = [message for message in messages if message.get("diagnostic") is True]
+                    receipt["captures"] = captures
+                    if (len(captures) == 2 and {item.get("action") for item in captures} == {"workspace", "dogfooding"}
+                            and all(item.get("status") == "complete" and item.get("revision") == revisions[revision]
+                                    for item in captures)):
+                        receipt["status"] = "complete"
+                    else:
+                        receipt["status"] = "incomplete"
+            except (OSError, subprocess.SubprocessError, ValueError, AttributeError) as exc:
+                # Do not persist exception text, child stderr, keys, or database URLs.
+                receipt["error_type"] = type(exc).__name__
+            (directory / "capture-summary.json").write_text(json.dumps(receipt) + "\n", encoding="utf-8")
+            if receipt["status"] != "complete":
+                failures.append(receipt)
+    return failures
+
+
 def paired_budgets(backend, location, user, keys, *, case, source_count, repaired, samples=10, assert_budget=True):
     assert samples >= 10
     repo = Path(__file__).resolve().parents[2]
@@ -163,8 +203,11 @@ def paired_budgets(backend, location, user, keys, *, case, source_count, repaire
                     process.stdin.write("stop\n")
                     process.stdin.flush()
                 process.communicate(timeout=30)
+    profile_failures = capture_read_profiles(backend, location, user, keys, case=case, source_count=source_count,
+                                            repaired=repaired, revisions=revisions, main=main, repo=repo, script=script)
     if assert_budget:
         assert not failures, failures
+    assert not profile_failures, profile_failures
     return failures
 
 

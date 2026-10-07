@@ -7,6 +7,7 @@ effective label.
 
 from __future__ import annotations
 
+from collections import deque
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace, field
 from typing import Any, TypeVar
@@ -29,6 +30,7 @@ from alicebot_api.vnext_derived_labels import (
     canon_kind,
     dependencies_of,
     dependency_label_signature,
+    dependency_record,
     dependency_syntax_key,
     label_metadata_cache,
     identifier,
@@ -37,6 +39,7 @@ from alicebot_api.vnext_derived_labels import (
     input_admitted,
     settle_labels,
     settle_verified_inputs,
+    _mark_dependency_bounds,
 )
 from alicebot_api.vnext_label_closure import collect_label_rows
 from alicebot_api.vnext_project_scope import project_floor_shape, project_scope_identity, project_scopes_overlap, resolve_project_scope
@@ -50,6 +53,21 @@ def _row_label_key(kind: str, row: Mapping[str, object]) -> tuple:
     return (kind, *((field, repr(row[field])) for field in (
         "id", "user_id", "domain", "sensitivity", "metadata_json", "value", "project_id", "project", "projects", "scope_json", "source_id", "artifact_type", "project_scope", "project_floor",
     ) if field in row))
+
+
+def _rank_projection_supported(row: Mapping[str, object]) -> bool:
+    """Only canonical empty scope/floor shapes use a reduced admission proof."""
+    metadata = row.get("metadata_json")
+    if type(metadata) is not dict:
+        return False
+    for container in (row, metadata):
+        for name in ("project_scope", "project_floor"):
+            if name in container and (type(container[name]) not in (list, tuple) or container[name]):
+                return False
+        for name in ("project_id", "project", "projects", "scope_json", "agent_identity", "agentic_memory"):
+            if name in container and container[name] is not None:
+                return False
+    return True
 
 
 @dataclass
@@ -72,6 +90,9 @@ class _RequestLabels:
     resolved_inputs: dict = field(default_factory=dict)
     parent_labels: dict = field(default_factory=dict)
     native_labels: dict = field(default_factory=dict)
+    rank_rows: dict = field(default_factory=dict)
+    rank_origins: dict = field(default_factory=dict)
+    rank_admission: dict = field(default_factory=dict)
 
     def clear(self):
         self.nodes.clear()
@@ -92,6 +113,9 @@ class _RequestLabels:
         self.resolved_inputs.clear()
         self.parent_labels.clear()
         self.native_labels.clear()
+        self.rank_rows.clear()
+        self.rank_origins.clear()
+        self.rank_admission.clear()
 
 
 _REQUEST_LABELS: ContextVar[tuple[Any, _RequestLabels] | None] = ContextVar("request_labels", default=None)
@@ -368,6 +392,7 @@ class LabelGuard:
         if not self.active:
             return [row for row in rows if isinstance(row, Mapping)]
         state = self._state()
+        rank_ceiling = self._rank_ceiling()
         if self.sensitivity_allowed:
             highest = max(SENSITIVITY_RANK.get(value, SENSITIVITY_RANK["unknown"]) for value in self.sensitivity_allowed)
             rows = [row for row in rows if isinstance(row, Mapping)
@@ -379,6 +404,14 @@ class LabelGuard:
         kept: list[_Row] = []
         for row in rows:
             if not isinstance(row, Mapping):
+                continue
+            rank = self._native_rank_for_projection(kind, row) if rank_ceiling is not None else None
+            if rank_ceiling is not None and rank is not None:
+                grant_key = (self._key(kind, row), self.domains, self.sensitivity_allowed, self.projects, self.all_of)
+                if grant_key not in state.rank_admission:
+                    state.rank_admission[grant_key] = rank <= rank_ceiling
+                if state.rank_admission[grant_key]:
+                    kept.append(row)
                 continue
             if not is_derived(kind, row):
                 if self._admits_effective(row, kind=kind):
@@ -443,6 +476,9 @@ class LabelGuard:
         state = self._state()
         prefetched = state.row_sets.setdefault("prefetched-input-expansions", {})
         frontier = [(kind, row) for row in rows if isinstance(row, Mapping)]
+        if self._rank_ceiling() is not None and state.rank_origins:
+            frontier = [(row_kind, row) for row_kind, row in frontier
+                        if self._native_rank_for_projection(row_kind, row) is None]
         expanded: set[tuple[str, str]] = set()
         for _ in range(HOP_BOUND + 1):
             refs: set[tuple[str, str]] = set()
@@ -541,6 +577,8 @@ class LabelGuard:
             return
         self._prefetch_inputs(kind, rows)
         state = self._state()
+        if self._settle_native_rank_batch(kind, rows):
+            return
         for row in rows:
             stored = state.nodes.get((canon_kind(kind), identifier(row["id"])), ())
             if len(stored) != 1 or (stored[0] is not row and _row_label_key(kind, stored[0]) != _row_label_key(kind, row)):
@@ -560,6 +598,111 @@ class LabelGuard:
             if label is not None and not label.unverified:
                 state.labels[self._key(kind, row)] = label
                 state.native_labels[(canon_kind(kind), identifier(row["id"]))] = (row, label)
+
+    def _rank_ceiling(self) -> int | None:
+        """A complete rank prefix may use a verified sensitivity-only proof."""
+        current = _REQUEST_LABELS.get()
+        if (not self.active or self.domains or self.projects or self.all_of is not None
+                or current is None or current[0] is not self.store
+                or not getattr(type(self.store), "label_count_canonical_unique_ids", False)):
+            return None
+        allowed = frozenset(self.sensitivity_allowed)
+        if not allowed or not allowed.issubset(SENSITIVITY_RANK):
+            return None
+        ceiling = max(SENSITIVITY_RANK[value] for value in allowed)
+        if allowed != frozenset(value for value, rank in SENSITIVITY_RANK.items() if rank <= ceiling):
+            return None
+        return ceiling
+
+    def _settle_native_rank_batch(self, kind: str, rows: Sequence[Mapping[str, object]]) -> bool:
+        """Prove a complete native DAG before publishing any reduced result.
+
+        Canonical syntax, source-kind rules and independent origin bounds stay
+        authoritative. Any unsupported graph uses the full label kernel.
+        These ranks never enter a full-label or effective-row cache.
+        """
+        if self._rank_ceiling() is None:
+            return False
+        state = self._state()
+        for row in rows:
+            found = state.nodes.get((canon_kind(kind), identifier(row["id"])), ())
+            if len(found) != 1 or (found[0] is not row and _row_label_key(kind, found[0]) != _row_label_key(kind, row)):
+                return False
+        graph: dict[tuple[str, str, str], frozenset[tuple[str, str, str]]] = {}
+        ranks: dict[tuple[str, str, str], int] = {}
+        origins: list[tuple[str, str, str]] = []
+        for (node_kind, node_id), found in state.nodes.items():
+            node_kind = canon_kind(node_kind)
+            if len(found) != 1:
+                return False
+            row = found[0]
+            if type(row.get("id")) is not UUID or identifier(row["id"]) != node_id:
+                return False
+            if (node_kind == "belief" or has_implicit_weekly_inputs(node_kind, row)
+                    or not _rank_projection_supported(row)):
+                return False
+            sensitivity = str(row.get("sensitivity") or "unknown")
+            if sensitivity not in SENSITIVITY_RANK:
+                return False
+            key = (node_kind, _GUARD_USER, node_id)
+            if key in graph:
+                return False
+            derived = is_derived(node_kind, row)
+            refs, problem = dependency_record(node_kind, row) if derived else (frozenset(), "")
+            if problem:
+                return False
+            graph[key] = frozenset((ref_kind, _GUARD_USER, ref_id) for ref_kind, ref_id in refs)
+            ranks[key] = SENSITIVITY_RANK[sensitivity]
+            if derived:
+                origins.append(key)
+        if any(ref not in graph for refs in graph.values() for ref in refs):
+            return False
+        pending_count = {key: len(refs) for key, refs in graph.items()}
+        dependants: dict[tuple[str, str, str], list[tuple[str, str, str]]] = {}
+        for node_key, input_keys in graph.items():
+            for input_key in input_keys:
+                dependants.setdefault(input_key, []).append(node_key)
+        pending = deque(key for key, count in pending_count.items() if not count)
+        visited = 0
+        while pending:
+            key = pending.popleft()
+            visited += 1
+            for child in dependants.get(key, ()):
+                ranks[child] = max(ranks[child], ranks[key])
+                pending_count[child] -= 1
+                if not pending_count[child]:
+                    pending.append(child)
+        if visited != len(graph):
+            return False
+        problems: dict[tuple[str, str, str], str] = {}
+        _mark_dependency_bounds(origins, graph, problems, max_hops=HOP_BOUND, max_nodes=NODE_BOUND)
+        if problems:
+            return False
+        for row in rows:
+            canonical = (canon_kind(kind), identifier(row["id"]))
+            rank = ranks[(canonical[0], _GUARD_USER, canonical[1])]
+            state.rank_rows[self._key(kind, row)] = rank
+            state.rank_origins[canonical] = (row, rank)
+        return True
+
+    def _native_rank_for_projection(self, kind: str, row: Mapping[str, object]) -> int | None:
+        """A reduced proof belongs to one supported origin and its semantics."""
+        current = _REQUEST_LABELS.get()
+        if current is None or current[0] is not self.store or type(row.get("id")) is not UUID:
+            return None
+        state = current[1]
+        entry = state.rank_origins.get((canon_kind(kind), identifier(row["id"])))
+        if entry is None or not _rank_projection_supported(row):
+            return None
+        key = self._key(kind, row)
+        if key in state.rank_rows:
+            return state.rank_rows[key]
+        raw, rank = entry
+        projection_signature = self._signature(kind, row, key=key)
+        if projection_signature != self._signature(kind, raw, key=self._key(kind, raw)):
+            return None
+        state.rank_rows[key] = rank
+        return rank
 
     def _native_label_for_projection(self, kind: str, row: Mapping[str, object], *, key: tuple) -> SettledLabel | None:
         """Reuse one verified UUID origin only for equivalent label semantics."""

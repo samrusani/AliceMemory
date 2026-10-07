@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 import re
 from collections import deque
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence, Set
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, replace
@@ -390,7 +390,12 @@ def row_class(kind: object, row: Mapping[str, object]) -> str:
 
     if not is_derived(kind, row):
         return "original"
-    name = canon_kind(kind)
+    return _derived_row_class(canon_kind(kind), row)
+
+
+def _derived_row_class(name: str, row: Mapping[str, object]) -> str:
+    """Classify a row whose canonical kind and derived marker are already known."""
+
     if name == "project":
         return "project_state"
     if name == "artifact":
@@ -841,23 +846,28 @@ def dependency_record(kind: object, row: Mapping[str, object]) -> tuple[frozense
 def _dependency_record(kind: object, row: Mapping[str, object]) -> tuple[frozenset[tuple[str, str]], str]:
     if not is_derived(kind, row):
         return frozenset(), ""
+    return _derived_dependency_record(canon_kind(kind), row)
+
+
+def _derived_dependency_record(name: str, row: Mapping[str, object]) -> tuple[frozenset[tuple[str, str]], str]:
+    """The canonical parser after the caller has checked this row is derived."""
+
     meta = _metadata(row)
     found: set[tuple[str, str]] = set()
-    problem = "malformed_marker" if _malformed_marker(canon_kind(kind), meta) else ""
+    problem = "malformed_marker" if _malformed_marker(name, meta) else ""
     problem = problem or _collect_metadata_ids(meta, found)
     if "derived_from" in meta:
         derived_problem, derived_deps = _derived_from_deps(meta.get("derived_from"))
         problem = problem or derived_problem
         found |= derived_deps
-    if is_derived(kind, row):
-        found |= _value_dependencies(row)
-    if canon_kind(kind) == "open_loop" and _nonempty_str(row.get("source_id")):
+    found |= _value_dependencies(row)
+    if name == "open_loop" and _nonempty_str(row.get("source_id")):
         found.add(("source", identifier(row.get("source_id"))))
     floor_shape, _floor = _floor_of(row)
     if floor_shape == "malformed":
         problem = problem or "malformed_floor"
     if not problem:
-        problem = _legacy_count_problem(canon_kind(kind), row, meta)
+        problem = _legacy_count_problem(name, row, meta)
     if not problem and not _record_present(meta, row) and not found:
         # A weekly candidate may still be completed from its parent artifact
         # inside settle_labels. The structural pass says no_record until then.
@@ -986,6 +996,7 @@ def _node_label(kind: str, row: Mapping[str, object]) -> SettledLabel:
     scope = stored_scope(kind, row)
     domain = str(row.get("domain") or "unknown")
     sensitivity = str(row.get("sensitivity") or "unknown")
+    derived = is_derived(kind, row)
     return SettledLabel(
         kind=kind,
         user_id=str(row.get("user_id") or ""),
@@ -1002,8 +1013,8 @@ def _node_label(kind: str, row: Mapping[str, object]) -> SettledLabel:
         unverified=False,
         reason=None,
         carries_scope=carries_scope(kind, row),
-        derived=is_derived(kind, row),
-        row_class=row_class(kind, row),
+        derived=derived,
+        row_class=_derived_row_class(kind, row) if derived else "original",
     )
 
 
@@ -1221,6 +1232,7 @@ def settle_labels(
     on_cycle: str = "raise",
     max_hops: int | None = None,
     max_nodes: int | None = None,
+    one_pass: bool = False,
 ) -> SettleResult:
     """Settle every derived row in ``nodes``.
 
@@ -1228,6 +1240,8 @@ def settle_labels(
     Originals are fixed inputs. A cycle that does not settle raises
     ``DerivedDomainRepairError`` unless ``on_cycle`` is ``unverified``.
     ``max_hops`` and ``max_nodes`` bound a read. The repair leaves them unset.
+    A fresh full classification may set ``one_pass`` to avoid dependency-cache
+    setup. Ordinary closure reads keep their request parsing cache by default.
     """
 
     if on_cycle not in {"raise", "unverified"}:
@@ -1252,7 +1266,10 @@ def settle_labels(
     for label, row in prepared:
         if not label.derived:
             continue
-        deps, problem = dependency_record(label.kind, row)
+        if one_pass:
+            deps, problem = _derived_dependency_record(label.kind, row)
+        else:
+            deps, problem = dependency_record(label.kind, row)
         if problem == "no_record" and label.row_class == "aggregate":
             # Filled from the parent artifact below when one names this row.
             problem = ""
@@ -1404,8 +1421,24 @@ def _mark_bounds(
 ) -> None:
     """Mark a derived row unverified when the walk from that row passes a bound."""
 
-    for origin, label in labels.items():
-        if not label.derived or origin in problems:
+    _mark_dependency_bounds(
+        (origin for origin, label in labels.items() if label.derived),
+        resolved, problems, max_hops=max_hops, max_nodes=max_nodes,
+    )
+
+
+def _mark_dependency_bounds(
+    origins: Iterable[tuple[str, str, str]],
+    resolved: Mapping[tuple[str, str, str], Set[tuple[str, str, str]]],
+    problems: dict[tuple[str, str, str], str],
+    *,
+    max_hops: int | None,
+    max_nodes: int | None,
+) -> None:
+    """Apply the canonical per-origin BFS bounds to an already-parsed graph."""
+
+    for origin in origins:
+        if origin in problems:
             continue
         pending: deque[tuple[tuple[str, str, str], int]] = deque([(origin, 0)])
         seen: set[tuple[str, str, str]] = set()

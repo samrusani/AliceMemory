@@ -2358,6 +2358,7 @@ jobs:
           DATABASE_ADMIN_URL: postgresql://alicebot_admin:ci@localhost:5432/alicebot
           ALICE_READ_MAIN_CHECKOUT: ${{ github.workspace }}/.read-budget-baseline
           ALICE_READ_BUDGET_EVIDENCE: ${{ runner.temp }}/round3-postgres-read-budgets.jsonl
+          ALICE_READ_PROFILE: ${{ runner.temp }}/round3-read-profiles
         run: >-
           ALICE_LEGACY_SURFACES=1 ./.venv/bin/python -m pytest -q -s --timeout=180
           'tests/integration/test_label_round3_read_budget_postgres.py::test_postgres_round3_random_read_budgets[False-3000-all-visible]'
@@ -2367,10 +2368,11 @@ jobs:
         if: always() && matrix.integration_check != 'Default surface integration smoke (Postgres)'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: round3-paired-read-budgets-${{ strategy.job-index }}
+          name: round3-paired-read-budgets-${{ strategy.job-index }}-attempt-${{ github.run_attempt }}
           path: |
             ${{ runner.temp }}/round3-postgres-read-budgets.jsonl
             ${{ runner.temp }}/round3-sqlite-read-budgets.jsonl
+            ${{ runner.temp }}/round3-read-profiles/
           if-no-files-found: error
           retention-days: 7
 

@@ -248,7 +248,7 @@ def classify_stored_labels(
                 node["value"] = _json_object(row.get("value"))
             nodes.append(node)
             index.append((table, node))
-    settled = settle_labels(nodes, on_cycle="unverified")
+    settled = settle_labels(nodes, on_cycle="unverified", one_pass=True)
     below: list[LabelRepair] = []
     unverified: dict[str, list[str]] = {}
     for (table, node), label in zip(index, settled.rows, strict=True):
