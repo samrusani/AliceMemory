@@ -2357,7 +2357,11 @@ class FakeVNextMCPStore:
         occurred_at_start: datetime | None = None,
         occurred_at_end: datetime | None = None,
         limit: int | None = None,
+        reject_sensitivity_allowed: Sequence[str] = (),
     ) -> list[dict[str, object]]:
+        # The SQL hint is an optional optimization. This fake returns the
+        # complete candidates; callers still perform effective admission.
+        del reject_sensitivity_allowed
         rows = [
             event
             for event in self.events
