@@ -22,6 +22,24 @@ def test_native_count_prefilter_matches_complete_effective_admission(label_harne
         assert_native_count_prefilter_matches_complete_effective_admission(store)
 
 
+def test_memory_event_target_set_preserves_exact_target_matching(label_harness):
+    h = label_harness
+    visible = h.memory()
+    hidden = h.memory(source=h.source(sensitivity="confidential"))
+    with h.store() as store:
+        baseline = store.list_memory_events(sensitivity_allowed=["public", "internal"], limit=100)
+        assert any(event["target_id"] == str(visible["id"]) for event in baseline)
+        assert all(event["target_id"] != str(hidden["id"]) for event in baseline)
+        for target in ("legacy-not-a-uuid", str(visible["id"]).upper(), str(visible["id"]).replace("-", "")):
+            store.conn.execute(
+                "INSERT INTO event_log(id,user_id,event_type,actor_type,target_type,target_id,payload_json) "
+                "VALUES(%s,%s,'memory.updated','system','memory',%s,'{}')",
+                (uuid4(), h.user_id, target),
+            )
+        actual = store.list_memory_events(sensitivity_allowed=["public", "internal"], limit=100)
+        assert [event["id"] for event in actual] == [event["id"] for event in baseline]
+
+
 @pytest.mark.parametrize("profile", ["owner", "admin_agent"])
 @pytest.mark.parametrize("component", ["trace", "workspace"])
 def test_unfenced_source_trace_and_workspace_preserve_main(label_harness, profile, component):

@@ -470,6 +470,7 @@ class PostgresVNextStore:
 
     memory_fts_offset_paging = True
     label_count_input_prefilter = True
+    label_count_canonical_unique_ids = True
 
     def __init__(self, conn: UserConnection):
         self.conn = conn
@@ -800,6 +801,9 @@ class PostgresVNextStore:
         prefix_pattern = f"{event_type_prefix}%" if event_type_prefix is not None else None
         from alicebot_api.vnext_label_sql import hidden_memory_input_sql
         label_sql = hidden_memory_input_sql(sensitivity_allowed, sqlite=False)
+        # An uncorrelated target set is hashed once, including tenant identity.
+        # A join can rescan every memory for every event on fresh tenants whose
+        # planner statistics underestimate both tables. Keep exact text IDs.
         return self._fetch_all(
             f"""
                 SELECT
@@ -816,19 +820,18 @@ class PostgresVNextStore:
                   e.run_id,
                   e.integrity_hash
                 FROM event_log e
-                JOIN memories m
-                  ON e.target_type = 'memory'
-                 AND e.target_id = m.id::text
-                 AND {label_sql}
-                 AND e.user_id = m.user_id
-                WHERE m.deleted_at IS NULL
+                WHERE e.target_type = 'memory'
                   AND (%s::text IS NULL OR e.event_type LIKE %s)
+                  AND COALESCE((e.user_id, e.target_id) IN (
+                    SELECT m.user_id, m.id::text FROM memories m
+                    WHERE m.deleted_at IS NULL AND {label_sql}
                   AND (%s::text[] IS NULL OR ({_SCOPED_MEMORY_PROJECT_SQL}) ?| %s::text[])
                   AND (
                     %s::text[] IS NULL
                     OR m.id::text = ANY(%s::text[])
                     OR {_SCOPED_MEMORY_DIRECT_PEOPLE_SQL}
                   )
+                  ), FALSE)
                   AND (%s::timestamptz IS NULL OR e.occurred_at >= %s::timestamptz)
                   AND (%s::timestamptz IS NULL OR e.occurred_at <= %s::timestamptz)
                 ORDER BY e.occurred_at DESC, e.id DESC

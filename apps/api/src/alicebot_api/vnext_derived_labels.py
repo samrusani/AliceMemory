@@ -197,10 +197,19 @@ def canon_kind(kind: object) -> str:
 def identifier(value: object) -> str:
     """Normalize any spelling ``uuid.UUID`` accepts. Anything else is kept as text."""
 
-    try:
-        return str(UUID(str(value)))
-    except (ValueError, AttributeError, TypeError):
+    if isinstance(value, UUID):
         return str(value)
+    cache = _READ_METADATA.get()
+    key = ("identifier", value) if isinstance(value, str) else None
+    if cache is not None and key is not None and key in cache:
+        return cache[key]
+    try:
+        result = str(UUID(str(value)))
+    except (ValueError, AttributeError, TypeError):
+        result = str(value)
+    if cache is not None and key is not None:
+        cache[key] = result
+    return result
 
 
 def _object(value: object) -> Mapping[str, object]:

@@ -107,6 +107,8 @@ def project_identifier_identity(value: object) -> str:
 
 
 def normalize_project_scope(value: object) -> tuple[str, ...]:
+    if value is None or type(value) in (list, tuple) and not value:
+        return ()
     values: list[str] = []
 
     def add(item: object) -> None:
@@ -396,6 +398,8 @@ def project_floor_shape(resource: Mapping[str, object] | None) -> tuple[str, tup
             break
     if not seen:
         return "absent", ()
+    if type(raw) in (list, tuple) and not raw:
+        return "list", ()
     if not isinstance(raw, Sequence) or isinstance(raw, (str, bytes, bytearray)):
         return "malformed", ()
     if any(not isinstance(item, str) for item in raw):

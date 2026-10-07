@@ -13,6 +13,7 @@ from typing import Any, TypeVar
 from contextvars import ContextVar
 from functools import wraps
 from contextlib import contextmanager
+from uuid import UUID
 
 from alicebot_api.vnext_agent_control import (
     ALL_SENSITIVITY,
@@ -46,9 +47,9 @@ _Row = TypeVar("_Row", bound=Mapping[str, object])
 
 
 def _row_label_key(kind: str, row: Mapping[str, object]) -> tuple:
-    return (kind, *((field in row, repr(row.get(field))) for field in (
+    return (kind, *((field, repr(row[field])) for field in (
         "id", "user_id", "domain", "sensitivity", "metadata_json", "value", "project_id", "project", "projects", "scope_json", "source_id", "artifact_type", "project_scope", "project_floor",
-    )))
+    ) if field in row))
 
 
 @dataclass
@@ -395,8 +396,17 @@ class LabelGuard:
                 if admitted:
                     kept.append(row)
                 continue
-            effective = self.effective_row(kind, row)
-            admitted = isinstance(effective, Mapping) and self._admits_effective(effective, kind=kind)
+            direct = self._settled_inputs(kind, row, frozenset()) if not self.projects and self.all_of is None else None
+            if direct is not None:
+                # A count or unscoped list needs only the two settled labels.
+                # Scope-sensitive callers still use the complete effective
+                # projection, including its floor and malformed-input checks.
+                label = direct[0]
+                state.labels[key] = label
+                admitted = self._admits_effective({"domain": label.domain, "sensitivity": label.sensitivity}, kind=kind)
+            else:
+                effective = self.effective_row(kind, row)
+                admitted = isinstance(effective, Mapping) and self._admits_effective(effective, kind=kind)
             # This is caller admission, separate from shared label settlement.
             # Full label projections and every filter distinguish grants; all
             # request caches are cleared together on writes and rollback.
@@ -480,11 +490,21 @@ class LabelGuard:
         if callable(getattr(type(self.store), "count_original_label_statuses", None)) and callable(plain_counter) and not self.projects and self.all_of is None:
             counts = plain_counter(kind, domains=self.domains, sensitivity_allowed=self.sensitivity_allowed)
             prefilter = {"reject_sensitivity_allowed": self.sensitivity_allowed} if getattr(type(self.store), "label_count_input_prefilter", False) else {}
-            batches = iterator(kind, derived_only=True, **prefilter)
+            unique_ids = getattr(type(self.store), "label_count_canonical_unique_ids", False)
+            batches = iterator(kind, derived_only=True, **prefilter, **({"batch_size": 5000} if unique_ids else {}))
         else:
             counts = {}
+            unique_ids = False
             batches = iterator(kind)
         for batch in batches:
+            if unique_ids:
+                # PostgreSQL stores canonical UUID primary keys. These complete
+                # native label rows already contain the parent projection, so
+                # resolving a counted parent need not fetch it again. Text-ID
+                # stores must still load all aliases through their reader.
+                for row in batch:
+                    if isinstance(row.get("id"), UUID):
+                        state.nodes.setdefault((canon_kind(kind), str(row["id"])), [row])
             for row in self.admit_rows(kind, batch):
                 status = str(row.get("status", "unknown"))
                 counts[status] = counts.get(status, 0) + 1
