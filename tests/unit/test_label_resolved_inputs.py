@@ -309,6 +309,49 @@ def test_native_projection_reuse_keeps_filters_and_refreshes_after_writes():
         assert guard.admit_rows("memory", [deepcopy(reloaded)]) == []
 
 
+def test_native_count_targets_keep_spelling_filters_and_refresh_after_writes():
+    source = {"kind": "source", "id": UUID(int=1), "domain": "project", "sensitivity": "public",
+              "metadata_json": {"project_scope": ["P1"]}}
+    root = {"kind": "memory", "id": UUID(int=0xABCDEF), "domain": "project", "sensitivity": "public", "status": "active",
+            "metadata_json": {"source_id": str(source["id"]), "project_scope": ["P1"], "project_floor": ["P1"]}}
+
+    class NativeRows(Rows):
+        label_count_canonical_unique_ids = True
+
+        def __init__(self, rows):
+            super().__init__(rows)
+            self.reads = []
+
+        def read_label_rows(self, kind, ids):
+            self.reads.append((kind, tuple(ids)))
+            return super().read_label_rows(kind, ids)
+
+        def count_original_label_statuses(self, *args, **kwargs):
+            return {}
+
+        def iter_label_rows(self, kind, **kwargs):
+            yield [root]
+
+    store = NativeRows([source, root])
+    event = {"target_id": str(root["id"])}
+    with label_read_scope(store):
+        guard = LabelGuard(store, active=True, sensitivity_allowed=("public",))
+        assert guard.readable_status_counts("memory") == {"active": 1}
+        before = len(store.reads)
+        assert guard.admit_related_rows([event], kind="memory", field="target_id") == [event]
+        assert len(store.reads) == before
+        assert replace(guard, domains=("health",)).admit_related_rows([event], kind="memory", field="target_id") == []
+        assert replace(guard, projects=("P2",), all_of=("P2",)).admit_related_rows([event], kind="memory", field="target_id") == []
+        assert replace(guard, projects=("P1",), all_of=("P1",)).admit_related_rows([event], kind="memory", field="target_id") == [event]
+        alias = {"target_id": str(root["id"]).upper()}
+        assert guard.admit_related_rows([alias], kind="memory", field="target_id") == []
+        assert len(store.reads) == before + 1
+        source["sensitivity"] = "confidential"
+        invalidate_read_labels(store)
+        assert guard.admit_related_rows([event], kind="memory", field="target_id") == []
+        assert len(store.reads) > before + 1
+
+
 def test_text_identifiers_keep_case_while_uuid_aliases_share_an_origin():
     canonical = str(UUID(int=0xABCDEF))
     sources = [

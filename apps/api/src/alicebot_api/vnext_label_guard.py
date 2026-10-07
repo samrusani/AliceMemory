@@ -588,6 +588,21 @@ class LabelGuard:
         ids = list(dict.fromkeys(str(row.get(field)) for row in rows if row.get(field)))
         state = self._state()
         missing = [row_id for row_id in ids if (kind, row_id) not in state.targets]
+        current = _REQUEST_LABELS.get()
+        if kind == "memory" and current is not None and current[0] is self.store:
+            for row_id in missing:
+                native = state.native_labels.get((kind, identifier(row_id)))
+                if native is None:
+                    continue
+                raw, _label = native
+                if type(raw.get("id")) is UUID and str(raw.get("id")) == row_id:
+                    # A verified native count row has the same complete label
+                    # projection as read_label_rows. Reuse the raw input only;
+                    # this caller still applies its own admission below. Exact
+                    # stored spelling preserves target lookup behavior, and
+                    # writes/rollback clear both maps in this locked request.
+                    state.targets[(kind, row_id)] = raw
+            missing = [row_id for row_id in missing if (kind, row_id) not in state.targets]
         if kind == "source":
             for row_id in missing:
                 cached = state.nodes.get((kind, identifier(row_id)), ())

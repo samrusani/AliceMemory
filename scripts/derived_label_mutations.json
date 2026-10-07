@@ -144,7 +144,7 @@
           "line": 354,
           "before": "semantic = (template[:1] + template[2:], semantic_parents)",
           "after": "semantic = (template[:1] + template[2:], ())",
-          "sha256": "41c479f7a30158065c2ad25f878d40337d58686246dd3a346f05292a94b5e6cf"
+          "sha256": "1cce5c12319a8c7e18b52d0a19a62e35898b4ae67fe2d53750e274c1f84a0326"
         }
       ],
       "pytest": [
@@ -160,7 +160,7 @@
           "line": 354,
           "before": "semantic = (template[:1] + template[2:], semantic_parents)",
           "after": "semantic = (template[:1] + template[2:], tuple(sorted(set(semantic_parents))))",
-          "sha256": "41c479f7a30158065c2ad25f878d40337d58686246dd3a346f05292a94b5e6cf"
+          "sha256": "1cce5c12319a8c7e18b52d0a19a62e35898b4ae67fe2d53750e274c1f84a0326"
         }
       ],
       "pytest": [
@@ -176,7 +176,7 @@
           "line": 341,
           "before": "if len(raw) != 1 or identifier(raw[0].get(\"id\")) != parent_id:",
           "after": "if not raw or identifier(raw[0].get(\"id\")) != parent_id:",
-          "sha256": "41c479f7a30158065c2ad25f878d40337d58686246dd3a346f05292a94b5e6cf"
+          "sha256": "1cce5c12319a8c7e18b52d0a19a62e35898b4ae67fe2d53750e274c1f84a0326"
         }
       ],
       "pytest": [
@@ -194,7 +194,7 @@
           "line": 349,
           "before": "if depth > HOP_BOUND or len(ancestry) > NODE_BOUND:",
           "after": "if False:",
-          "sha256": "41c479f7a30158065c2ad25f878d40337d58686246dd3a346f05292a94b5e6cf"
+          "sha256": "1cce5c12319a8c7e18b52d0a19a62e35898b4ae67fe2d53750e274c1f84a0326"
         }
       ],
       "pytest": [
@@ -212,7 +212,7 @@
           "line": 325,
           "before": "if problem or has_implicit_weekly_inputs(kind, row):",
           "after": "if problem:",
-          "sha256": "41c479f7a30158065c2ad25f878d40337d58686246dd3a346f05292a94b5e6cf"
+          "sha256": "1cce5c12319a8c7e18b52d0a19a62e35898b4ae67fe2d53750e274c1f84a0326"
         }
       ],
       "pytest": [
@@ -230,7 +230,7 @@
           "line": 502,
           "before": "if not self.active and callable(native):",
           "after": "if False:",
-          "sha256": "41c479f7a30158065c2ad25f878d40337d58686246dd3a346f05292a94b5e6cf"
+          "sha256": "1cce5c12319a8c7e18b52d0a19a62e35898b4ae67fe2d53750e274c1f84a0326"
         }
       ],
       "pytest": [
@@ -278,7 +278,7 @@
           "line": 378,
           "before": "        self._prefetch_inputs(kind, rows)\n        kept: list[_Row] = []",
           "after": "        pass  # removed batched ancestry reads\n        kept: list[_Row] = []",
-          "sha256": "41c479f7a30158065c2ad25f878d40337d58686246dd3a346f05292a94b5e6cf"
+          "sha256": "1cce5c12319a8c7e18b52d0a19a62e35898b4ae67fe2d53750e274c1f84a0326"
         }
       ],
       "pytest": [
@@ -358,7 +358,7 @@
           "before": "row_admission_key = (key, self.domains, self.sensitivity_allowed, self.projects, self.all_of)",
           "after": "row_admission_key = (key,)",
           "line": 388,
-          "sha256": "41c479f7a30158065c2ad25f878d40337d58686246dd3a346f05292a94b5e6cf"
+          "sha256": "1cce5c12319a8c7e18b52d0a19a62e35898b4ae67fe2d53750e274c1f84a0326"
         }
       ],
       "pytest": [
@@ -374,7 +374,7 @@
           "before": "        self.row_admission.clear()",
           "after": "        pass  # removed admission invalidation",
           "line": 89,
-          "sha256": "41c479f7a30158065c2ad25f878d40337d58686246dd3a346f05292a94b5e6cf"
+          "sha256": "1cce5c12319a8c7e18b52d0a19a62e35898b4ae67fe2d53750e274c1f84a0326"
         }
       ],
       "pytest": [
@@ -390,7 +390,7 @@
           "line": 394,
           "before": "            if settled is not None and not settled.unverified:",
           "after": "            if settled is not None:",
-          "sha256": "41c479f7a30158065c2ad25f878d40337d58686246dd3a346f05292a94b5e6cf"
+          "sha256": "1cce5c12319a8c7e18b52d0a19a62e35898b4ae67fe2d53750e274c1f84a0326"
         }
       ],
       "pytest": [
@@ -406,7 +406,7 @@
           "line": 546,
           "before": "            if len(stored) != 1 or (stored[0] is not row and _row_label_key(kind, stored[0]) != _row_label_key(kind, row)):",
           "after": "            if len(stored) != 1:",
-          "sha256": "41c479f7a30158065c2ad25f878d40337d58686246dd3a346f05292a94b5e6cf"
+          "sha256": "1cce5c12319a8c7e18b52d0a19a62e35898b4ae67fe2d53750e274c1f84a0326"
         }
       ],
       "pytest": [
@@ -454,7 +454,7 @@
           "before": "        self.native_labels.clear()",
           "after": "        pass  # removed native projection invalidation",
           "line": 94,
-          "sha256": "41c479f7a30158065c2ad25f878d40337d58686246dd3a346f05292a94b5e6cf"
+          "sha256": "1cce5c12319a8c7e18b52d0a19a62e35898b4ae67fe2d53750e274c1f84a0326"
         }
       ],
       "pytest": [
@@ -470,7 +470,7 @@
           "before": "        if self._signature(kind, row, key=key) != self._signature(kind, raw, key=self._key(kind, raw)):\n            return None",
           "after": "        pass  # removed native projection signature equality",
           "line": 573,
-          "sha256": "41c479f7a30158065c2ad25f878d40337d58686246dd3a346f05292a94b5e6cf"
+          "sha256": "1cce5c12319a8c7e18b52d0a19a62e35898b4ae67fe2d53750e274c1f84a0326"
         }
       ],
       "pytest": [
@@ -509,6 +509,22 @@
         "tests/unit/test_label_resolved_inputs.py::test_text_identifiers_keep_case_while_uuid_aliases_share_an_origin"
       ],
       "expected_failure": "test_text_identifiers_keep_case_while_uuid_aliases_share_an_origin"
+    },
+    {
+      "name": "native-target-stored-spelling",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
+          "before": "if type(raw.get(\"id\")) is UUID and str(raw.get(\"id\")) == row_id:",
+          "after": "if type(raw.get(\"id\")) is UUID:",
+          "line": 598,
+          "sha256": "1cce5c12319a8c7e18b52d0a19a62e35898b4ae67fe2d53750e274c1f84a0326"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_label_resolved_inputs.py::test_native_count_targets_keep_spelling_filters_and_refresh_after_writes"
+      ],
+      "expected_failure": "test_native_count_targets_keep_spelling_filters_and_refresh_after_writes"
     }
   ]
 }
