@@ -978,6 +978,11 @@ def dependency_label_signature(kind: str, row: Mapping[str, object]) -> tuple:
             label.carries_scope, str(row.get("user_id") or ""))
 
 
+def has_implicit_weekly_inputs(kind: str, row: Mapping[str, object]) -> bool:
+    """Recognize implicit candidate ancestry through canonical metadata decoding."""
+    return canon_kind(kind) == "artifact" and bool(_metadata(row).get("candidate_memory_ids"))
+
+
 def _copy_scope(stored: tuple[str, ...], parents: Sequence[SettledLabel]) -> tuple[str, ...]:
     live = [item for item in parents if item.carries_scope]
     if not parents:
@@ -1061,6 +1066,28 @@ def _changed(before: SettledLabel, after: SettledLabel) -> bool:
         or project_scope_identity(before.project_scope) != project_scope_identity(after.project_scope)
         or project_scope_identity(before.project_floor) != project_scope_identity(after.project_floor)
     )
+
+
+def settle_verified_inputs(kind: str, row: Mapping[str, object], parents: Sequence[SettledLabel]) -> SettledLabel:
+    """Apply the kernel rule to a complete, verified direct input set.
+
+    The read guard separately proves unique stored identities, acyclic ancestry
+    and the per-origin bounds. Implicit weekly artifact inputs must use the
+    complete graph kernel. This helper does not accept partial input lists.
+    """
+
+    label = _node_label(canon_kind(kind), row)
+    if not label.derived:
+        if parents:
+            raise ValueError("original labels have no inputs")
+        return label
+    refs, problem = dependency_record(kind, row)
+    supplied = {(item.kind, item.normalized_id) for item in parents}
+    if problem or supplied != set(refs) or any(item.unverified or item.user_id != label.user_id for item in parents):
+        raise ValueError("verified labels require the complete input set")
+    return _apply_dependencies(label, parents, domain_fallback=label.stored_domain,
+                               sensitivity_fallback=label.stored_sensitivity,
+                               scope_fallback=label.stored_scope, floor_fallback=label.stored_floor)
 
 
 def _weekly_parent_deps(

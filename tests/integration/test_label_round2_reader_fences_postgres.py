@@ -8,7 +8,7 @@ from alicebot_api.mcp.types import MCPRuntimeContext
 from tests.integration.derived_labels_postgres_support import label_harness
 
 
-@pytest.mark.parametrize("profile,bound", [("trusted_local_agent", False), ("admin_agent", False), ("trusted_local_agent", True), ("admin_agent", True), ("read_only_agent", False), ("read_only_agent", True)])
+@pytest.mark.parametrize("profile,bound", [("trusted_local_agent", False), ("admin_agent", False), ("trusted_local_agent", True), ("admin_agent", True), ("read_only_agent", False), ("read_only_agent", True), ("project_scoped_agent", True), ("memory_proposal_agent", False)])
 def test_source_get_uses_the_callers_entire_fence(label_harness, profile, bound):
     h = label_harness
     alpha, beta = str(uuid4()), str(uuid4())
@@ -25,6 +25,12 @@ def test_source_get_uses_the_callers_entire_fence(label_harness, profile, bound)
         status, body, _ = h.request("GET", "/v0/vnext/sources/" + str(source["id"]))
         assert status == 200 and str(body["id"]) == str(source["id"])
     key = h.key(profile, project=alpha if bound else None)
+    if bound or profile not in {"trusted_local_agent", "admin_agent"}:
+        for source_id in [*(str(source["id"]) for source in (visible, private, other, restricted_domain)), str(uuid4())]:
+            status, body, _ = h.request("GET", "/v0/vnext/sources/" + source_id, key=key)
+            assert status == 403, (profile, bound, body)
+            assert "raw_text" not in body
+        return
     status, body, _ = h.request("GET", "/v0/vnext/sources/" + str(visible["id"]), key=key)
     assert status == 200 and str(body["id"]) == str(visible["id"])
     for source, permitted in ((private, profile == "admin_agent"), (other, not bound), (restricted_domain, profile in {"trusted_local_agent", "admin_agent"})):

@@ -774,6 +774,9 @@ def get_vnext_source(source_id: UUID, user_id: UUID, authorization: str | None =
             identity = resolve_protected_agent_identity(
                 store, user_id=user_id,
                 raw_key=agent_key_from_authorization(authorization if isinstance(authorization, str) else None), payload={})
+            operator = _vnext_policy_checked(store=store, identity=identity, action="http.operator.access")
+            if operator.decision == "blocked":
+                return _vnext_permission_response(operator)
             payload = store.get_source(str(source_id))
             if payload is not None and not SourceReadFence.for_identity(identity).admits(
                 effective_row_for_fence(store, identity, "source", payload)
@@ -1337,7 +1340,9 @@ def review_vnext_memory(
                     identity=identity,
                     stage=f"http_review_{action}",
                 )
-            if action == "assign_project" and request.project_id is not None:
+            from alicebot_api.vnext_project_scope import resolve_project_scope
+
+            if action == "assign_project" and request.project_id is not None and request.project_id in resolve_project_scope(updated).values:
                 store.create_edge(
                     {
                         "from_type": "memory",

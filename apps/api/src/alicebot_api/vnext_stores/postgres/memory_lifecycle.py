@@ -458,6 +458,10 @@ def update_memory(
 
         patch = prepare_label_patch(self, "memory", before_label, patch)
         patch = clamp_owner_patch(self, kind="memory", before=before_label, patch=patch)
+    project_metadata = patch.get("metadata_json")
+    project_patch_present = patch.get("project_id") is not None or (
+        "project_id" in patch and isinstance(project_metadata, dict) and "project_scope" in project_metadata
+    )
     row = self._fetch_one(
         "update_memory",
         f"""
@@ -486,7 +490,7 @@ def update_memory(
                     last_seen_at = COALESCE(%s, last_seen_at),
                     last_reviewed_at = COALESCE(%s, last_reviewed_at),
                     metadata_json = COALESCE(%s, metadata_json),
-                    project_id = COALESCE(%s, project_id),
+                    project_id = CASE WHEN %s THEN %s ELSE project_id END,
                     superseded_by = COALESCE(%s::uuid, superseded_by),
                     supersedes = COALESCE(%s::uuid, supersedes),
                     updated_at = clock_timestamp(),
@@ -523,6 +527,7 @@ def update_memory(
             patch.get("last_seen_at"),
             patch.get("last_reviewed_at"),
             _json_object(patch["metadata_json"]) if "metadata_json" in patch else None,
+            project_patch_present,
             patch.get("project_id"),
             patch.get("superseded_by"),
             patch.get("supersedes"),

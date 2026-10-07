@@ -1,0 +1,354 @@
+{
+  "schema": 1,
+  "scope": "Round-three guard removals, each replayed from a green candidate in an isolated commit archive.",
+  "cases": [
+    {
+      "name": "source-operator-gate",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
+          "line": 778,
+          "before": "if operator.decision == \"blocked\":",
+          "after": "if False:",
+          "sha256": "860d8d74b5356ba0efe157186949f41bbedd7c56ffbd4335ca8740dbd1c150d9"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_label_round2_reader_fences_postgres.py::test_source_get_uses_the_callers_entire_fence"
+      ],
+      "expected_failure": "test_source_get_uses_the_callers_entire_fence"
+    },
+    {
+      "name": "source-caller-fence",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
+          "line": 781,
+          "before": "if payload is not None and not SourceReadFence.for_identity(identity).admits(",
+          "after": "if False and payload is not None and not SourceReadFence.for_identity(identity).admits(",
+          "sha256": "860d8d74b5356ba0efe157186949f41bbedd7c56ffbd4335ca8740dbd1c150d9"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_label_round2_reader_fences_postgres.py::test_source_get_uses_the_callers_entire_fence"
+      ],
+      "expected_failure": "test_source_get_uses_the_callers_entire_fence"
+    },
+    {
+      "name": "unfenced-trace-events",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/routers/_vnext_shared.py",
+          "line": 339,
+          "before": "if SourceReadFence.for_identity(caller).entity_read_fenced else None,",
+          "after": "if True else None,",
+          "sha256": "17d1e4a84950e9646d7d41b044c0a691a0d077b589d46a44533978e944f35036"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_label_round3_contracts_postgres.py::test_unfenced_source_trace_and_workspace_preserve_main",
+        "-k",
+        "trace"
+      ],
+      "expected_failure": "test_unfenced_source_trace_and_workspace_preserve_main"
+    },
+    {
+      "name": "unfenced-workspace-parity",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/routers/workspaces.py",
+          "line": 102,
+          "before": "unfenced = not SourceReadFence.for_identity(identity).entity_read_fenced",
+          "after": "unfenced = False",
+          "sha256": "adf4c06a8434451f6de670ac2772ddd6d3f061e69b0d4ca56bafd36e4cd4ed13"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_label_round3_contracts_postgres.py::test_unfenced_source_trace_and_workspace_preserve_main",
+        "-k",
+        "workspace"
+      ],
+      "expected_failure": "test_unfenced_source_trace_and_workspace_preserve_main"
+    },
+    {
+      "name": "clamp-requested-scope-alias",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_label_writes.py",
+          "line": 639,
+          "before": "proposed[field] = meta[field]",
+          "after": "pass  # removed requested scope alias",
+          "sha256": "a5ea46f1a0033b20b59851290352b052f5a92e46a70a21ba862cb015cda552ae"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_label_round3_contracts_postgres.py::test_owner_scope_assignment_clamps_to_weekly_floor"
+      ],
+      "expected_failure": "test_owner_scope_assignment_clamps_to_weekly_floor"
+    },
+    {
+      "name": "clamp-unchanged-attempt-event",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_label_writes.py",
+          "line": 674,
+          "before": "if requested != settled:",
+          "after": "if False:",
+          "sha256": "a5ea46f1a0033b20b59851290352b052f5a92e46a70a21ba862cb015cda552ae"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_label_round3_contracts_postgres.py::test_owner_scope_assignment_clamps_to_weekly_floor"
+      ],
+      "expected_failure": "test_owner_scope_assignment_clamps_to_weekly_floor"
+    },
+    {
+      "name": "postgres-clamped-project-null",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_stores/postgres/memory_lifecycle.py",
+          "line": 530,
+          "before": "            project_patch_present,",
+          "after": "            False,",
+          "sha256": "2b540dc4b52e74d564ef22ce9f9ec98a527d4e5a74f00497c33ab29d37bce109"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_label_round3_contracts_postgres.py::test_owner_scope_assignment_clamps_to_weekly_floor",
+        "-k",
+        "True"
+      ],
+      "expected_failure": "test_owner_scope_assignment_clamps_to_weekly_floor"
+    },
+    {
+      "name": "sqlite-clamped-project-null",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_stores/sqlite/memory_lifecycle.py",
+          "line": 381,
+          "before": "            project_patch_present,",
+          "after": "            False,",
+          "sha256": "0e8c2d50857d1064fc94b703c7cc05da234df63d4c278bc08a062fc90d450c3d"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_label_round3_sqlite_reads.py::test_scope_clamp_clears_the_legacy_project_alias_and_records_the_attempt"
+      ],
+      "expected_failure": "test_scope_clamp_clears_the_legacy_project_alias_and_records_the_attempt"
+    },
+    {
+      "name": "resolved-parent-label-key",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
+          "line": 347,
+          "before": "semantic = (template[:1] + template[2:], semantic_parents)",
+          "after": "semantic = (template[:1] + template[2:], ())",
+          "sha256": "4f372e9a9d228d2e18d27b8c48374501501f61a282c71f185a62d89c4033f879"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_label_resolved_inputs.py::test_random_mixed_deep_inputs_match_full_kernel_and_keep_distinct_domains"
+      ],
+      "expected_failure": "test_random_mixed_deep_inputs_match_full_kernel_and_keep_distinct_domains"
+    },
+    {
+      "name": "resolved-parent-multiplicity",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
+          "line": 347,
+          "before": "semantic = (template[:1] + template[2:], semantic_parents)",
+          "after": "semantic = (template[:1] + template[2:], tuple(sorted(set(semantic_parents))))",
+          "sha256": "4f372e9a9d228d2e18d27b8c48374501501f61a282c71f185a62d89c4033f879"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_label_resolved_inputs.py::test_parent_label_multiplicity_changes_restricted_domain_selection"
+      ],
+      "expected_failure": "test_parent_label_multiplicity_changes_restricted_domain_selection"
+    },
+    {
+      "name": "ambiguous-parent-refusal",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
+          "line": 334,
+          "before": "if len(raw) != 1 or identifier(raw[0].get(\"id\")) != parent_id:",
+          "after": "if not raw or identifier(raw[0].get(\"id\")) != parent_id:",
+          "sha256": "4f372e9a9d228d2e18d27b8c48374501501f61a282c71f185a62d89c4033f879"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_label_resolved_inputs.py::test_unproved_inputs_keep_the_complete_graph_fallback",
+        "-k",
+        "alias"
+      ],
+      "expected_failure": "test_unproved_inputs_keep_the_complete_graph_fallback"
+    },
+    {
+      "name": "per-origin-ancestry-bounds",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
+          "line": 342,
+          "before": "if depth > HOP_BOUND or len(ancestry) > NODE_BOUND:",
+          "after": "if False:",
+          "sha256": "4f372e9a9d228d2e18d27b8c48374501501f61a282c71f185a62d89c4033f879"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_label_resolved_inputs.py::test_unproved_inputs_keep_the_complete_graph_fallback",
+        "-k",
+        "bound"
+      ],
+      "expected_failure": "test_unproved_inputs_keep_the_complete_graph_fallback"
+    },
+    {
+      "name": "implicit-weekly-fallback",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
+          "line": 318,
+          "before": "if problem or has_implicit_weekly_inputs(kind, row):",
+          "after": "if problem:",
+          "sha256": "4f372e9a9d228d2e18d27b8c48374501501f61a282c71f185a62d89c4033f879"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_label_resolved_inputs.py::test_unproved_inputs_keep_the_complete_graph_fallback",
+        "-k",
+        "implicit"
+      ],
+      "expected_failure": "test_unproved_inputs_keep_the_complete_graph_fallback"
+    },
+    {
+      "name": "unfenced-native-total",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
+          "line": 449,
+          "before": "if not self.active and callable(native):",
+          "after": "if False:",
+          "sha256": "4f372e9a9d228d2e18d27b8c48374501501f61a282c71f185a62d89c4033f879"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_label_round3_sqlite_reads.py::test_unfenced_status_counts_use_the_native_total"
+      ],
+      "expected_failure": "test_unfenced_status_counts_use_the_native_total"
+    },
+    {
+      "name": "hidden-input-sql-prefilter",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_label_sql.py",
+          "line": 17,
+          "before": "if not blocked:",
+          "after": "if True:",
+          "sha256": "06c2349106e6bf5c61dfaaf41f3b285f388a501c7fe367a6394e71728fa49e9b"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_label_round3_sqlite_reads.py::test_native_sql_prefilter_rejects_hidden_inputs_before_limit"
+      ],
+      "expected_failure": "test_native_sql_prefilter_rejects_hidden_inputs_before_limit"
+    },
+    {
+      "name": "effective-ranked-refill",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_retrieval.py",
+          "line": 3129,
+          "before": "target=limit, initial_limit=limit,",
+          "after": "target=0, initial_limit=limit,",
+          "sha256": "b02277ef68d6f34a47d13de237d09e48e13c8f75f74a2c7e3cdae8cf7a2ccdb3"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_label_round3_sqlite_reads.py::test_hidden_later_inputs_do_not_underfill_ranked_memory_reads"
+      ],
+      "expected_failure": "test_hidden_later_inputs_do_not_underfill_ranked_memory_reads"
+    },
+    {
+      "name": "batched-parent-frontier",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
+          "line": 371,
+          "before": "        self._prefetch_inputs(kind, rows)",
+          "after": "        pass  # removed batched ancestry reads",
+          "sha256": "4f372e9a9d228d2e18d27b8c48374501501f61a282c71f185a62d89c4033f879"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_label_resolved_inputs.py::test_dependency_frontier_batches_many_independent_origins"
+      ],
+      "expected_failure": "test_dependency_frontier_batches_many_independent_origins"
+    },
+    {
+      "name": "october-six-new-doctor-disclosure",
+      "edits": [
+        {
+          "file": "docs/release/v0.20.0-release-notes.md",
+          "line": 6,
+          "before": "Doctor's derived-label check counts are new in this set, absent from v0.20.0 and baseline main 48873b03, and remain outside the caller's sensitivity ceiling.",
+          "after": "",
+          "sha256": "1eef1e5173dd7603edbc40a40b6256ce4838c4628324bbe3ad6b92d7a9ef7f0b"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_derived_labels_docs.py::test_october_six_correction_distinguishes_the_new_doctor_counts"
+      ],
+      "expected_failure": "test_october_six_correction_distinguishes_the_new_doctor_counts"
+    },
+    {
+      "name": "known-limits-outside-ceiling",
+      "edits": [
+        {
+          "file": "docs/alpha/known-limitations.md",
+          "line": 78,
+          "before": "while graph edge explanations and the new doctor label counts remain outside that ceiling (see the [draft security note](../release/derived-labels-security-note-draft.md))",
+          "after": "",
+          "sha256": "07044fd637c3c831865fab916de610b33f1c0151658719ca4d2f521f2de82512"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_derived_labels_docs.py::test_known_limitations_discloses_graph_and_new_doctor_counts_outside_ceiling"
+      ],
+      "expected_failure": "test_known_limitations_discloses_graph_and_new_doctor_counts_outside_ceiling"
+    },
+    {
+      "name": "draft-note-new-doctor-disclosure",
+      "edits": [
+        {
+          "file": "docs/release/derived-labels-security-note-draft.md",
+          "line": 5,
+          "before": "Doctor's aggregate derived-label check counts are new in this set, absent from v0.20.0 and baseline main 48873b03, and remain outside the caller's sensitivity ceiling and visible to trusted keys.",
+          "after": "",
+          "sha256": "e1f5bd6c281d4e5c5c8a858a4f9cc5adbbd2e525b54f8151a5cf76cc14497bdb"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_derived_labels_docs.py::test_draft_security_note_distinguishes_baseline_graph_from_new_doctor_counts"
+      ],
+      "expected_failure": "test_draft_security_note_distinguishes_baseline_graph_from_new_doctor_counts"
+    },
+    {
+      "name": "changelog-new-doctor-ceiling",
+      "edits": [
+        {
+          "file": "CHANGELOG.md",
+          "line": 12,
+          "before": "doctor label counts are new in this set and remain outside that ceiling",
+          "after": "doctor label counts are new in this set",
+          "sha256": "1bc64441c09f82aaa4f1147563121b97f33115fc0790f59e167116aa0bc2b74d"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_derived_labels_docs.py::test_source_get_operator_gate_and_doctor_ceiling_are_explicit_in_changelog"
+      ],
+      "expected_failure": "test_source_get_operator_gate_and_doctor_ceiling_are_explicit_in_changelog"
+    }
+  ]
+}

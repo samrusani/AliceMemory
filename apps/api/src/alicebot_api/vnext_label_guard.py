@@ -23,15 +23,19 @@ from alicebot_api.vnext_agent_control import (
 from alicebot_api.vnext_derived_labels import (
     HOP_BOUND,
     NODE_BOUND,
+    SENSITIVITY_RANK,
+    SettledLabel,
     canon_kind,
     dependencies_of,
     dependency_label_signature,
     dependency_syntax_key,
     label_metadata_cache,
     identifier,
+    has_implicit_weekly_inputs,
     is_derived,
     input_admitted,
     settle_labels,
+    settle_verified_inputs,
 )
 from alicebot_api.vnext_label_closure import collect_label_rows
 from alicebot_api.vnext_project_scope import project_floor_shape, project_scope_identity, project_scopes_overlap, resolve_project_scope
@@ -63,6 +67,8 @@ class _RequestLabels:
     source_admission: dict = field(default_factory=dict)
     normalized_metadata: dict = field(default_factory=dict)
     row_keys: dict = field(default_factory=dict)
+    resolved_inputs: dict = field(default_factory=dict)
+    parent_labels: dict = field(default_factory=dict)
 
     def clear(self):
         self.nodes.clear()
@@ -79,6 +85,8 @@ class _RequestLabels:
         self.source_admission.clear()
         self.normalized_metadata.clear()
         self.row_keys.clear()
+        self.resolved_inputs.clear()
+        self.parent_labels.clear()
 
 
 _REQUEST_LABELS: ContextVar[tuple[Any, _RequestLabels] | None] = ContextVar("request_labels", default=None)
@@ -210,6 +218,10 @@ class LabelGuard:
         label = state.labels.get(key)
         template = self._signature(kind, row, key=key)
         root = (canon_kind(kind), identifier(row.get("id")))
+        if label is None:
+            direct = self._settled_inputs(kind, row, frozenset())
+            if direct is not None:
+                label = direct[0]
         if label is None and root not in state.dependency_ancestry.get(template, ()):
             label = state.dependency_labels.get(template)
         if label is None:
@@ -251,8 +263,7 @@ class LabelGuard:
             )
             implicit_parent = False
             for node in nodes:
-                metadata = node.get("metadata_json")
-                if node.get("kind") == "artifact" and isinstance(metadata, Mapping) and metadata.get("candidate_memory_ids"):
+                if has_implicit_weekly_inputs(str(node["kind"]), node):
                     implicit_parent = True
                     break
             # Complete verified ancestry has already passed the per-root hop,
@@ -286,31 +297,78 @@ class LabelGuard:
             copy["project_id"] = None
         return copy
 
+    def _settled_inputs(self, kind: str, row: Mapping[str, object], trail: frozenset) -> tuple[SettledLabel, frozenset, int] | None:
+        """Settle verified acyclic parents once, sharing only label semantics.
+
+        Missing/ambiguous inputs, cycles, implicit weekly parents and exceeded
+        per-origin bounds fall back to the complete canonical graph walk.
+        Admission remains caller-specific and is never stored in this cache.
+        """
+
+        state = self._state()
+        key = self._key(kind, row)
+        cached = state.parent_labels.get(key)
+        root = (canon_kind(kind), identifier(row.get("id")))
+        if root in trail or len(trail) > HOP_BOUND or kind == "belief":
+            return None
+        if cached is not None:
+            return None if cached[1] & trail else cached
+        template = self._signature(kind, row, key=key)
+        refs, problem = template[1:3]
+        if problem or has_implicit_weekly_inputs(kind, row):
+            return None
+        reader = getattr(self.store, "read_label_rows", None)
+        if refs and not callable(reader):
+            return None
+        parents = []
+        ancestry = {root}
+        depth = 0
+        for parent_kind, parent_id in sorted(refs):
+            if parent_kind == "belief":
+                return None
+            parent_key = (parent_kind, parent_id)
+            if parent_key not in state.nodes and callable(reader):
+                state.nodes[parent_key] = [dict(found) for found in reader(parent_kind, [parent_id])
+                                           if identifier(found.get("id")) == parent_id]
+            raw = state.nodes[parent_key]
+            if len(raw) != 1 or identifier(raw[0].get("id")) != parent_id:
+                return None
+            parent = self._settled_inputs(parent_kind, raw[0], trail | {root})
+            if parent is None or root in parent[1]:
+                return None
+            parents.append(parent[0])
+            ancestry.update(parent[1])
+            depth = max(depth, parent[2] + 1)
+            if depth > HOP_BOUND or len(ancestry) > NODE_BOUND:
+                return None
+        semantic_parents = tuple((parent.kind, parent.domain, parent.sensitivity, parent.project_scope,
+                                  parent.project_floor, parent.carries_scope) for parent in parents)
+        # Root rule and stored labels plus resolved input labels, excluding IDs.
+        semantic = (template[:1] + template[2:], semantic_parents)
+        label = state.resolved_inputs.get(semantic)
+        if label is None:
+            label = settle_verified_inputs(kind, {**dict(row), "user_id": _GUARD_USER}, parents)
+            state.resolved_inputs[semantic] = label
+        else:
+            label = replace(label, stored_id=str(row.get("id") or ""), normalized_id=root[1])
+        result = (label, frozenset(ancestry), depth)
+        state.parent_labels[key] = result
+        return result
+
     def admit_rows(self, kind: str, rows: Sequence[_Row]) -> list[_Row]:
         """Rows whose effective labels pass this guard's filters. Originals of the rows, not copies."""
 
         if not self.active:
             return [row for row in rows if isinstance(row, Mapping)]
         state = self._state()
-        reader = getattr(self.store, "read_label_rows", None)
-        wanted: dict[str, set[str]] = {}
+        if self.sensitivity_allowed:
+            highest = max(SENSITIVITY_RANK.get(value, SENSITIVITY_RANK["unknown"]) for value in self.sensitivity_allowed)
+            rows = [row for row in rows if isinstance(row, Mapping)
+                    and SENSITIVITY_RANK.get(str(row.get("sensitivity") or "unknown"), SENSITIVITY_RANK["unknown"]) <= highest]
         for row in rows:
             if isinstance(row, Mapping):
                 state.targets[(kind, str(row.get("id")))] = row
-                if not is_derived(kind, row):
-                    continue
-                refs = self._signature(kind, row, key=self._key(kind, row))[1]
-                for ref_kind, ref_id in refs:
-                    if (ref_kind, ref_id) not in state.nodes:
-                        wanted.setdefault(ref_kind, set()).add(ref_id)
-        if callable(reader):
-            for ref_kind, ids in wanted.items():
-                for ref_id in ids:
-                    state.nodes[(ref_kind, ref_id)] = []
-                for found in reader(ref_kind, sorted(ids)):
-                    canonical = identifier(found.get("id"))
-                    if canonical in ids:
-                        state.nodes[(ref_kind, canonical)].append(dict(found))
+        self._prefetch_inputs(kind, rows)
         kept: list[_Row] = []
         for row in rows:
             if not isinstance(row, Mapping):
@@ -336,6 +394,42 @@ class LabelGuard:
                 kept.append(row)
         return kept
 
+    def _prefetch_inputs(self, kind: str, rows: Sequence[Mapping[str, object]]) -> None:
+        """Load ancestry by frontier; each origin is still verified separately.
+
+        This cache contains raw rows including every stored alias. A bounded
+        batch stops prefetching rather than changing the kernel's per-root
+        hop/node limits; unresolved inputs use the normal collector.
+        """
+        reader = getattr(self.store, "read_label_rows", None)
+        if not callable(reader):
+            return
+        state = self._state()
+        frontier = [(kind, row) for row in rows if isinstance(row, Mapping)]
+        expanded: set[tuple[str, str]] = set()
+        for _ in range(HOP_BOUND + 1):
+            refs: set[tuple[str, str]] = set()
+            for row_kind, row in frontier:
+                if is_derived(row_kind, row):
+                    refs.update(self._signature(row_kind, row, key=self._key(row_kind, row))[1])
+            refs.difference_update(expanded)
+            if not refs or len(expanded | refs) > NODE_BOUND:
+                return
+            expanded.update(refs)
+            wanted: dict[str, set[str]] = {}
+            for ref_kind, ref_id in refs:
+                if (ref_kind, ref_id) not in state.nodes:
+                    wanted.setdefault(ref_kind, set()).add(ref_id)
+            for ref_kind, ids in wanted.items():
+                for ref_id in ids:
+                    state.nodes[(ref_kind, ref_id)] = []
+                for found in reader(ref_kind, sorted(ids)):
+                    canonical = identifier(found.get("id"))
+                    if canonical in ids:
+                        state.nodes[(ref_kind, canonical)].append(dict(found))
+            frontier = [(ref_kind, row) for ref_kind, ref_id in refs
+                        for row in state.nodes[(ref_kind, ref_id)]]
+
     def readable_status_counts(self, kind: str) -> dict[str, int]:
         """Count the complete population through the same effective admission.
 
@@ -351,6 +445,11 @@ class LabelGuard:
         key = (kind, self.domains, self.sensitivity_allowed, self.projects, self.all_of)
         if key in state.counts:
             return dict(state.counts[key])
+        native = getattr(self.store, "count_" + {"memory": "memories", "artifact": "artifacts", "open_loop": "open_loops"}.get(kind, kind) + "_by_status", None)
+        if not self.active and callable(native):
+            counts = native()
+            state.counts[key] = dict(counts)
+            return counts
         plain_counter = getattr(self.store, "count_original_label_statuses", None)
         if callable(getattr(type(self.store), "count_original_label_statuses", None)) and callable(plain_counter) and not self.projects and self.all_of is None:
             counts = plain_counter(kind, domains=self.domains, sensitivity_allowed=self.sensitivity_allowed)

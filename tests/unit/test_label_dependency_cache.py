@@ -67,11 +67,12 @@ def test_unique_metadata_and_text_share_one_settlement_but_never_admission(monke
     source = row(SOURCE, {"project_scope": ["alpha"]}, sensitivity="confidential")
     store = Store([("source", source)])
     calls = []
-    original = module.settle_labels
+    original = module.settle_verified_inputs
     def counted(*args, **kwargs):
-        calls.append(1)
+        if args[0] == "memory":
+            calls.append(1)
         return original(*args, **kwargs)
-    monkeypatch.setattr(module, "settle_labels", counted)
+    monkeypatch.setattr(module, "settle_verified_inputs", counted)
     with label_read_scope(store):
         restricted = LabelGuard.for_filters(store, (), ("public",))
         copies = [row(str(UUID(int=i + 10)), {"source_id": SOURCE, "observation": i}, canonical_text=str(i)) for i in range(30)]

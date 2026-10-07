@@ -183,3 +183,36 @@ def test_source_move_docs_name_the_proved_recovery_and_failure_contract() -> Non
     assert "HTTP 409 with the cause" in tools
     for cause in ("propagation_bound", "row_changed", "dependency_cycle", "lock_order", "database_error"):
         assert f"`{cause}`" in tools
+
+
+def test_october_six_correction_distinguishes_the_new_doctor_counts() -> None:
+    notes = _text("docs/release/v0.20.0-release-notes.md")
+    correction = notes.split("> **Correction (2026-10-06):**", 1)[1].split("\n", 1)[0]
+    assert "Doctor's derived-label check counts are new in this set, absent from v0.20.0 and baseline main 48873b03" in correction
+    assert "outside the caller's sensitivity ceiling" in correction
+    assert "These limits also occur in v0.20.0" not in correction
+
+
+def test_known_limitations_discloses_graph_and_new_doctor_counts_outside_ceiling() -> None:
+    limits = _text("docs/alpha/known-limitations.md")
+    assert "graph edge explanations and the new doctor label counts remain outside that ceiling" in limits
+    assert "derived-labels-security-note-draft.md" in limits
+
+
+def test_draft_security_note_distinguishes_baseline_graph_from_new_doctor_counts() -> None:
+    note = _text("docs/release/derived-labels-security-note-draft.md")
+    assert "Graph neighborhood still returns edge explanations outside that ceiling; that behavior predates this set" in note
+    assert "Doctor's aggregate derived-label check counts are new in this set, absent from v0.20.0 and baseline main 48873b03" in note
+    assert "remain outside the caller's sensitivity ceiling and visible to trusted keys" in note
+    assert "These behaviors also occur on the baseline" not in note
+
+
+def test_source_get_operator_gate_and_doctor_ceiling_are_explicit_in_changelog() -> None:
+    changelog = _text("CHANGELOG.md")
+    assert "Source GET retains its operator gate before applying the full caller fence" in changelog
+    assert "doctor label counts are new in this set and remain outside that ceiling" in changelog
+    tools = _text("docs/alpha/mcp-tools.md")
+    assert "Source GET evaluates `http.operator.access` before its source fence" in tools
+    assert "Other profiles and project-bound keys receive HTTP 403, including for missing ids" in tools
+    note = _text("docs/release/derived-labels-security-note-draft.md")
+    assert "source GET keeps the operator gate" in note

@@ -99,10 +99,13 @@ def _vnext_workspace_payload(store: PostgresVNextStore, *, identity: AgentIdenti
     requested_projects = identity.project_scope if identity is not None else ()
     all_of = requested_projects if identity is not None and identity.project_scope_locked else None
     guard = LabelGuard.for_filters(store, (), sensitivity_allowed, requested_projects, all_of=all_of)
+    unfenced = not SourceReadFence.for_identity(identity).entity_read_fenced
+    if unfenced:
+        guard = LabelGuard(store=store, active=False)
     review_statuses = ["candidate", "needs_review", "private_only", "accepted", "rejected"]
     fetched_sources = store.list_sources(sensitivity_allowed=sensitivity_allowed, limit=20)
     sources = guard.admit_rows("source", fetched_sources)
-    source_count = sum(guard.readable_status_counts("source").values())
+    source_count = store.count_sources() if unfenced else sum(guard.readable_status_counts("source").values())
     list_memories_by_statuses = getattr(store, "list_memories_by_statuses", None)
     if callable(list_memories_by_statuses):
         fetched_memories = list_memories_by_statuses(
@@ -115,24 +118,24 @@ def _vnext_workspace_payload(store: PostgresVNextStore, *, identity: AgentIdenti
             memory for memory in store.list_memories(status=None) if str(memory.get("status")) in set(review_statuses)
         ][:30]
     review_memories = guard.admit_rows("memory", fetched_memories)
-    memory_status_counts = guard.readable_status_counts("memory")
+    memory_status_counts = store.count_memories_by_status(sensitivity_allowed=sensitivity_allowed) if unfenced else guard.readable_status_counts("memory")
     review_memory_total = sum(memory_status_counts.get(status, 0) for status in review_statuses)
     fetched_artifacts = store.list_artifacts(sensitivity_allowed=sensitivity_allowed, limit=30)
     artifacts = guard.admit_rows("artifact", fetched_artifacts)
-    artifact_status_counts = guard.readable_status_counts("artifact")
+    artifact_status_counts = store.count_artifacts_by_status() if unfenced else guard.readable_status_counts("artifact")
     artifact_count = sum(artifact_status_counts.values())
     quality_evals = guard.admit_related_rows(store.list_artifact_quality_ratings(limit=50), kind="artifact", field="artifact_id")
-    quality_eval_count = sum(
+    quality_eval_count = store.count_artifact_quality_ratings() if unfenced else sum(
         len(guard.admit_related_rows(batch, kind="artifact", field="artifact_id"))
         for batch in store.iter_label_ratings()
     )
     fetched_projects = store.list_projects(status=None, sensitivity_allowed=sensitivity_allowed, limit=20)
     projects = guard.admit_rows("project", fetched_projects)
-    project_count = sum(guard.readable_status_counts("project").values())
+    project_count = store.count_projects() if unfenced else sum(guard.readable_status_counts("project").values())
     fetched_loops = store.list_open_loops(status=None, sensitivity_allowed=sensitivity_allowed, limit=30)
     open_loops = guard.admit_rows("open_loop", fetched_loops)
     open_loops = withhold_unreadable_references(store, open_loops, fence=SourceReadFence.for_identity(identity))
-    open_loop_status_counts = guard.readable_status_counts("open_loop")
+    open_loop_status_counts = store.count_open_loops_by_status() if unfenced else guard.readable_status_counts("open_loop")
     open_loop_count = open_loop_status_counts.get("open", 0)
     people = store.list_people(sensitivity_allowed=sensitivity_allowed, limit=12)
     fetched_beliefs = store.list_beliefs(status=None, sensitivity_allowed=sensitivity_allowed, limit=12)
@@ -140,7 +143,7 @@ def _vnext_workspace_payload(store: PostgresVNextStore, *, identity: AgentIdenti
     tasks = store.list_tasks(status=None, limit=12)
     fetched_events = store.list_events(limit=20)
     recent_events = guard.admit_events(fetched_events)
-    event_count = guard.readable_event_count()
+    event_count = store.count_events() if unfenced else guard.readable_event_count()
     agent_identities = store.list_agent_identities(limit=20)
     agent_count = store.count_agent_identities()
     agent_events = guard.admit_events(store.list_agent_events(limit=50))
@@ -162,8 +165,8 @@ def _vnext_workspace_payload(store: PostgresVNextStore, *, identity: AgentIdenti
     scheduler_status = VNextSchedulerService(store).status()
     scheduler_status = {**scheduler_status, "daemon": daemon_status()}
     connector_health = VNextConnectorService(store).connector_health_all()
-    dogfooding = VNextDogfoodingService(store).dashboard(sensitivity_allowed=tuple(sensitivity_allowed), label_guard=guard)
-    doctor = VNextDoctorService(store).run(ci=True, include_content_diagnostics=False)
+    dogfooding = VNextDogfoodingService(store).dashboard() if unfenced else VNextDogfoodingService(store).dashboard(sensitivity_allowed=tuple(sensitivity_allowed), label_guard=guard)
+    doctor = VNextDoctorService(store).run(ci=True, include_content_diagnostics=unfenced)
     policy_telemetry = summarize_agent_policy_telemetry(
         agent_events=agent_events,
         artifacts=artifacts,

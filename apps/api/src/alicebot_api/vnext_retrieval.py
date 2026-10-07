@@ -2710,6 +2710,7 @@ class VNextRetrievalService:
         domains: Sequence[str] | None = None,
         sensitivity_allowed: Sequence[str] | None = None,
         projects: Sequence[str] | None = None,
+        effective: bool = True,
     ) -> dict[str, JsonObject]:
         normalized_ids = tuple(dict.fromkeys(str(memory_id) for memory_id in memory_ids if memory_id))
         if not normalized_ids:
@@ -2743,7 +2744,7 @@ class VNextRetrievalService:
             domains=domains,
             sensitivity_allowed=sensitivity_allowed,
             projects=projects,
-        )
+        ) if effective else rows
         return {str(row.get("id")): row for row in rows}
 
     def _sources_by_ids(self, source_ids: Sequence[str]) -> dict[str, JsonObject]:
@@ -3079,7 +3080,7 @@ class VNextRetrievalService:
         filters = _optional_search_filters(memory_types, projects, created_by_agent_ids, run_id)
         scope_filters: dict[str, object] = {}
         search_memories_fts = getattr(self.store, "search_memories_fts", None)
-        active_search = search_memories_fts if callable(search_memories_fts) else self.store.search_memories
+        active_search = cast(Callable[..., list[JsonObject]], search_memories_fts if callable(search_memories_fts) else self.store.search_memories)
         effective_people = tuple(sorted(scope.people)) if scope is not None else scope_people
         effective_window_start = scope.window_start if scope is not None else scope_window_start
         effective_window_end = scope.window_end if scope is not None else scope_window_end
@@ -3101,82 +3102,34 @@ class VNextRetrievalService:
                 "scope_window_start": effective_window_start,
                 "scope_window_end": effective_window_end,
             }
-        if callable(search_memories_fts):
-            rows = search_memories_fts(
-                query=query,
-                domains=domains or None,
-                sensitivity_allowed=sensitivity_allowed,
-                limit=limit,
-                **filters,
-                **scope_filters,
-            )
-            # Display-only trace label; SQLite stores override it via
-            # ``fts_stage_source`` so traces do not claim a Postgres stage.
-            fts_source = str(getattr(self.store, "fts_stage_source", "postgres_fts"))
-            if not rows and len(fts_fallback_tokens(query)) >= 2:
-                # Strict AND semantics found nothing for a multi-word query.
-                # With no embeddings configured (the default first-hour
-                # setup) FTS is the whole recall path, so a natural-language
-                # question would return zero results against memories a
-                # keyword query finds instantly. Retry once with OR
-                # semantics; the source string keeps the trace honest about
-                # the relaxed pass, and fallback rows join RRF fusion
-                # exactly like strict FTS rows. Single-token queries skip
-                # the retry (OR and AND are identical there), and a strict
-                # hit above never reaches this branch.
-                try:
-                    rows = search_memories_fts(
-                        query=query,
-                        domains=domains or None,
-                        sensitivity_allowed=sensitivity_allowed,
-                        limit=limit,
-                        match_any=True,
-                        **filters,
-                        **scope_filters,
-                    )
-                except TypeError:
-                    # Store predates the match_any kwarg; keep the strict
-                    # (empty) result rather than guessing.
-                    return [], fts_source
-                rows = admit_loaded(
-                    self.store,
-                    kind="memory",
-                    rows=rows,
-                    domains=domains,
-                    sensitivity_allowed=sensitivity_allowed,
-                    projects=projects,
-                )
-                return _stabilize_scored_rows(rows), f"{fts_source}_or_fallback"
-            rows = admit_loaded(
-                self.store,
-                kind="memory",
-                rows=rows,
-                domains=domains,
-                sensitivity_allowed=sensitivity_allowed,
-                projects=projects,
-            )
-            return _stabilize_scored_rows(rows), fts_source
-        legacy_search = cast(
-            Callable[..., list[JsonObject]],
-            getattr(self.store, "search_memories"),
+        options = {"query": query, "domains": domains or None,
+                   "sensitivity_allowed": sensitivity_allowed, **filters, **scope_filters}
+        fts = callable(search_memories_fts)
+        source = str(getattr(self.store, "fts_stage_source", "postgres_fts")) if fts else "store_lexical"
+        rows = active_search(limit=limit, **options)
+        if fts and not rows and len(fts_fallback_tokens(query)) >= 2:
+            # Preserve the strict-AND to OR fallback and its disclosed stage.
+            try:
+                options["match_any"] = True
+                rows = active_search(limit=limit, **options)
+            except TypeError:
+                return [], source
+            source += "_or_fallback"
+
+        def fetch(prefix_limit):
+            raw = rows if prefix_limit == limit else active_search(limit=prefix_limit, **options)
+            return raw, source
+
+        selected, source = _fetch_filtered_prefix(
+            fetch,
+            select_rows=lambda raw: admit_loaded(
+                self.store, kind="memory", rows=raw, domains=domains,
+                sensitivity_allowed=sensitivity_allowed, projects=projects,
+            ),
+            target=limit, initial_limit=limit,
         )
-        rows = legacy_search(
-            query=query,
-            domains=domains or None,
-            sensitivity_allowed=sensitivity_allowed,
-            limit=limit,
-            **filters,
-            **scope_filters,
-        )
-        rows = admit_loaded(
-            self.store,
-            kind="memory",
-            rows=rows,
-            domains=domains,
-            sensitivity_allowed=sensitivity_allowed,
-            projects=projects,
-        )
-        return list(rows), "store_lexical"
+        selected = selected[:limit]
+        return (_stabilize_scored_rows(selected) if fts else selected), source
 
     def _query_embedding(self, query: str) -> tuple[list[float] | None, str]:
         if self.embedding_provider is None:
@@ -5389,7 +5342,7 @@ class VNextRetrievalService:
                 )
             ]
             targets = self._memories_by_ids(
-                [str(event.get("target_id") or "") for event in eligible]
+                [str(event.get("target_id") or "") for event in eligible], effective=False
             )
             admitted_targets = {
                 str(row.get("id"))

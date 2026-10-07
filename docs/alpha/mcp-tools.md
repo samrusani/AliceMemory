@@ -834,8 +834,9 @@ before a 32-digit id, read as a hyphenated id that names no row, so part of an i
 the reader may read is withheld there and wherever the same response repeats it.
 No id the reader may not read is shown by it. A value that
 is only an id is read the way the link writer reads it, which also takes hyphens
-in other places. Inside longer text an id with its hyphens in other places, a
-split id and an encoded id are not recognised. The free-text columns of a loop
+in other places. Unreleased (on main, not in v0.20.0): a second source-only pass withholds
+irregular, split and encoded source ids inside longer text. Irregular or
+non-ASCII MEMORY-prefixed ids and unnamed SOURCE whitespace forms can remain. The free-text columns of a loop
 (`title`, `description`, `resolution_note`) are returned as stored and are not
 scanned. The extractor of candidate loops no longer writes the id of a source
 with no title into the `description` (it says the source has no title), and a
@@ -945,9 +946,11 @@ the provenance links of artifacts are not held to this fence; the operator
 routes `GET /v0/vnext/memories/{id}/audit`,
 `GET /v0/vnext/memories/recent-commits` and `GET /v0/vnext/sources/{id}`, which
 only the owner and a `trusted_local_agent` or `admin_agent` key bound to no
-project reach, return what was stored; and on an install with no agent keys, a
+project reach, return what was stored subject to each route's current read fence; and on an install with no agent keys, a
 call that declares a restricted profile is held to it by `alice_memory_review` by
 id but not by `alice_explain`.
+
+Unreleased (on main, not in v0.20.0): Source GET evaluates `http.operator.access` before its source fence. Only the owner and unbound trusted or admin keys reach the source lookup. Other profiles and project-bound keys receive HTTP 403, including for missing ids. Admitted callers receive the same HTTP 404 for a source outside their full domain, sensitivity and locked project fence as for a missing source. Owner and unbound admin source traces retain chunk and extraction events. Their workspace retains main's displayed rows, complete totals, unfiltered embedded dogfooding and full doctor diagnostics; fenced workspaces omit content diagnostics.
 
 ## Domains a profile may read
 

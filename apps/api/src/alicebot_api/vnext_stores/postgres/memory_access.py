@@ -889,12 +889,15 @@ def search_memories_fts(
     else:
         tsquery_sql = "websearch_to_tsquery('english', %s)"
         tsquery_text = query
+    from alicebot_api.vnext_label_sql import hidden_memory_input_sql
+    label_sql = hidden_memory_input_sql(sensitivity_allowed, sqlite=False, alias="memories")
     return self._fetch_all(
         f"""
                 SELECT {MEMORY_COLUMNS},
                   ts_rank(search_tsv, {tsquery_sql}) AS fts_score
                 FROM memories
                 WHERE deleted_at IS NULL
+                  AND {label_sql}
                   AND status IN {_MEMORY_SEARCHABLE_STATUSES_SQL}
                   AND (%s::text[] IS NULL OR domain = ANY(%s::text[]) OR domain = 'unknown')
                   AND (%s::text[] IS NULL OR sensitivity = ANY(%s::text[]))

@@ -407,7 +407,13 @@ def _direct_source_hint(raw: object) -> str | None:
         return None
     source_id = metadata.get("source_id")
     if not isinstance(source_id, str) or not source_id.strip():
-        return None
+        record = metadata.get("derived_from")
+        sources = record.get("sources") if isinstance(record, Mapping) else None
+        if not isinstance(sources, list) or not sources or not isinstance(sources[0], str):
+            return None
+        # A named source in a canonical record is an input even when another
+        # input makes the row unverified. This is rejection only, never a grant.
+        source_id = sources[0]
     try:
         return str(UUID(source_id))
     except (ValueError, TypeError):
@@ -423,6 +429,35 @@ def _ensure_direct_source_hint(conn: sqlite3.Connection) -> None:
         cursor.close()
     if not registered:
         conn.create_function("alice_direct_source_hint", 1, _direct_source_hint, deterministic=True)
+    cursor = conn.execute("SELECT 1 FROM pragma_function_list WHERE name='alice_direct_memory_hint' AND narg=1 LIMIT 1")
+    try:
+        memory_registered = cursor.fetchone() is not None
+    finally:
+        cursor.close()
+    if not memory_registered:
+        conn.create_function("alice_direct_memory_hint", 1, _direct_memory_hint, deterministic=True)
+
+
+def _direct_memory_hint(raw: object) -> str | None:
+    try:
+        metadata = json.loads(raw) if isinstance(raw, str) else raw
+        if isinstance(metadata, str):
+            metadata = json.loads(metadata)
+    except (ValueError, TypeError):
+        return None
+    if not isinstance(metadata, Mapping) or metadata.get("redacted") is True:
+        return None
+    consolidation = metadata.get("consolidation")
+    members = consolidation.get("cluster_member_ids") if isinstance(consolidation, Mapping) else None
+    if not isinstance(members, list) or not members:
+        record = metadata.get("derived_from")
+        members = record.get("memories") if isinstance(record, Mapping) else None
+    if not isinstance(members, list) or not members or not isinstance(members[0], str):
+        return None
+    try:
+        return str(UUID(members[0]))
+    except (ValueError, TypeError):
+        return members[0]
 
 
 class SQLiteVNextStore:
@@ -764,17 +799,8 @@ class SQLiteVNextStore:
         if event_type_prefix is not None:
             prefix_sql = " AND e.event_type LIKE ?"
             params.append(f"{event_type_prefix}%")
-        from alicebot_api.vnext_derived_labels import SENSITIVITY_RANK
-        ceiling = max((SENSITIVITY_RANK.get(value, 0) for value in sensitivity_allowed or ()), default=0)
-        blocked = [value for value, rank in SENSITIVITY_RANK.items() if rank > ceiling] if sensitivity_allowed else []
-        label_sql = ""
-        if blocked:
-            marks = self._placeholders(blocked)
-            label_sql = f""" AND m.sensitivity NOT IN ({marks}) AND NOT EXISTS (
-                SELECT 1 FROM sources parent WHERE parent.user_id=m.user_id
-                AND parent.id=alice_direct_source_hint(m.metadata_json)
-                AND parent.sensitivity IN ({marks}))"""
-            params.extend((*blocked, *blocked))
+        from alicebot_api.vnext_label_sql import hidden_memory_input_sql
+        label_sql = " AND " + hidden_memory_input_sql(sensitivity_allowed, sqlite=True)
         params.extend(project_params)
         people_sql = ""
         if people or person_ids:

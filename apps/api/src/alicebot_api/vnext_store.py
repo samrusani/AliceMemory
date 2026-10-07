@@ -782,9 +782,8 @@ class PostgresVNextStore:
         people_list = [str(value).strip().casefold() for value in scope_people if str(value).strip()] or None
         person_memory_ids = [str(value) for value in scope_person_memory_ids if str(value)] or None
         prefix_pattern = f"{event_type_prefix}%" if event_type_prefix is not None else None
-        from alicebot_api.vnext_derived_labels import SENSITIVITY_RANK
-        ceiling = max((SENSITIVITY_RANK.get(value, 0) for value in sensitivity_allowed or ()), default=0)
-        blocked = [value for value, rank in SENSITIVITY_RANK.items() if rank > ceiling] if sensitivity_allowed else None
+        from alicebot_api.vnext_label_sql import hidden_memory_input_sql
+        label_sql = hidden_memory_input_sql(sensitivity_allowed, sqlite=False)
         return self._fetch_all(
             f"""
                 SELECT
@@ -804,18 +803,7 @@ class PostgresVNextStore:
                 JOIN memories m
                   ON e.target_type = 'memory'
                  AND e.target_id = m.id::text
-                AND (%s::text[] IS NULL OR (
-                  NOT (m.sensitivity = ANY(%s::text[]))
-                  AND NOT EXISTS (
-                    SELECT 1 FROM sources parent
-                    WHERE parent.id = CASE
-                      WHEN m.metadata_json->>'source_id' ~* '^(?:[0-9a-f]{{32}}|[0-9a-f]{{8}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-[0-9a-f]{{12}})$'
-                      THEN (m.metadata_json->>'source_id')::uuid
-                    END
-                      AND m.metadata_json->>'redacted' IS DISTINCT FROM 'true'
-                      AND parent.sensitivity = ANY(%s::text[])
-                  )
-                ))
+                 AND {label_sql}
                  AND e.user_id = m.user_id
                 WHERE m.deleted_at IS NULL
                   AND (%s::text IS NULL OR e.event_type LIKE %s)
@@ -831,9 +819,6 @@ class PostgresVNextStore:
                 LIMIT %s
                 """,
             (
-                blocked,
-                blocked,
-                blocked,
                 prefix_pattern,
                 prefix_pattern,
                 project_list,

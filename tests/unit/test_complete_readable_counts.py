@@ -91,7 +91,7 @@ def test_workspace_counts_sql_hidden_and_beyond_display_page(monkeypatch):
         store.rows[kind] += [_row(f"{kind}-hidden-{index}", "confidential") for index in range(205)]
     store.rows["open_loop"] = [{**row, "status": "open"} for row in store.rows["open_loop"]]
     store.events = [{"id": str(index), "target_type": "memory", "target_id": row["id"], "event_type": "memory.labels_raised"} for index, row in enumerate(store.rows["memory"])]
-    body = workspaces._vnext_workspace_payload(store)
+    body = workspaces._vnext_workspace_payload(store, identity=AgentIdentity(agent_id="reader", permission_profile="trusted_local_agent"))
     summary = body["summary"]
     for field in ("source_count", "artifact_count", "project_count", "open_loop_count", "event_count", "candidate_memory_count"):
         assert summary[field] == 35, (field, summary[field])
@@ -107,7 +107,7 @@ def test_all_sql_prefiltered_rows_leave_zero_totals(monkeypatch):
     store = PopulationStore()
     for kind in store.rows:
         store.rows[kind] = [_row(f"{kind}-hidden", "confidential")]
-    body = workspaces._vnext_workspace_payload(store)
+    body = workspaces._vnext_workspace_payload(store, identity=AgentIdentity(agent_id="reader", permission_profile="trusted_local_agent"))
     for field in ("source_count", "artifact_count", "project_count", "open_loop_count", "candidate_memory_count"):
         assert body["summary"][field] == 0
     assert all(not sample["has_more"] for sample in body["samples"].values())
@@ -124,7 +124,7 @@ def test_workspace_activity_and_nested_dashboard_share_the_guard(monkeypatch):
     store.list_agent_events = lambda **kwargs: store.events
     store.list_recent_agentic_commits = lambda **kwargs: [visible, hidden]
     store.list_pending_inline_confirmations = lambda **kwargs: [visible, hidden]
-    body = workspaces._vnext_workspace_payload(store)
+    body = workspaces._vnext_workspace_payload(store, identity=AgentIdentity(agent_id="reader", permission_profile="trusted_local_agent"))
     assert "hidden-memory" not in str(body)
     assert "hidden-event" not in str(body)
     activity = body["agent_activity"]

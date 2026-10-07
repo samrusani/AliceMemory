@@ -335,7 +335,8 @@ def _vnext_load_source_trace(
             open_loop_ids=[str(open_loop["id"]) for open_loop in open_loops],
             limit=limit,
         ), caller,
-        admit=lambda rows: [event for event in rows if str(event.get("target_id") or "") in kept_ids],
+        admit=(lambda rows: [event for event in rows if str(event.get("target_id") or "") in kept_ids])
+        if SourceReadFence.for_identity(caller).entity_read_fenced else None,
     )
     events_complete = direct_events_complete and memories_complete and artifacts_complete and open_loops_complete
     return _vnext_source_trace(

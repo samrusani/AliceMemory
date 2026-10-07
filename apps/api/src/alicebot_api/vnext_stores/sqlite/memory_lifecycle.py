@@ -308,6 +308,10 @@ def update_memory(
         from alicebot_api.vnext_label_writes import clamp_owner_patch
 
         patch = clamp_owner_patch(self, kind="memory", before=before_label, patch=patch)
+    project_metadata = patch.get("metadata_json")
+    project_patch_present = patch.get("project_id") is not None or (
+        "project_id" in patch and isinstance(project_metadata, dict) and "project_scope" in project_metadata
+    )
     # One clock reading for the write: an archive sets ``updated_at`` and ``deleted_at`` together.
     now = _utc_now_iso()
     cursor = self._execute(
@@ -337,7 +341,7 @@ def update_memory(
                     last_seen_at = COALESCE(?, last_seen_at),
                     last_reviewed_at = COALESCE(?, last_reviewed_at),
                     metadata_json = COALESCE(?, metadata_json),
-                    project_id = COALESCE(?, project_id),
+                    project_id = CASE WHEN ? THEN ? ELSE project_id END,
                     superseded_by = COALESCE(?, superseded_by),
                     supersedes = COALESCE(?, supersedes),
                     updated_at = ?,
@@ -374,6 +378,7 @@ def update_memory(
             _iso_or_none(patch.get("last_seen_at")),
             _iso_or_none(patch.get("last_reviewed_at")),
             _json_object_text(patch["metadata_json"]) if "metadata_json" in patch else None,
+            project_patch_present,
             patch.get("project_id"),
             _uuid_text(patch.get("superseded_by")),
             _uuid_text(patch.get("supersedes")),

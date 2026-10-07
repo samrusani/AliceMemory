@@ -257,6 +257,11 @@ def prepare_label_patch(
     invalidate_capture_label_inputs(store)
     proposed = dict(before or {})
     proposed.update({key: value for key, value in patch.items() if value is not None})
+    metadata = patch.get("metadata_json")
+    if isinstance(metadata, Mapping):
+        for field in ("project_scope", "project_floor"):
+            if field in metadata:
+                proposed[field] = metadata[field]
     proposed["kind"] = kind
     old = _label_fields({**before, "kind": kind}) if before else None
     new = _label_fields(proposed)
@@ -598,7 +603,7 @@ def clamp_owner_patch(
     """Keep a derived row at or above its inputs when an edit would lower it.
 
     The store writes the higher label, records ``labels_raised`` with cause
-    ``floor_clamped`` when the stored label changes, and sets
+    ``floor_clamped`` when an assignment is refused, and sets
     ``store._label_floor_applied`` so the review answer can name it.
     """
 
@@ -627,6 +632,11 @@ def clamp_owner_patch(
         meta = dict(stored_meta) if isinstance(stored_meta, dict) else {}
         meta.update(patch_metadata)
         proposed["metadata_json"] = meta
+        # Store projections expose these aliases at the root, where the scope
+        # resolver reads them first. Judge the requested labels, not old ones.
+        for field in ("project_scope", "project_floor"):
+            if field in patch_metadata:
+                proposed[field] = meta[field]
     proposed["kind"] = kind
     nodes, exceeded = collect_label_rows(store, [proposed], max_nodes=PROPAGATION_BOUND)
     if exceeded:
@@ -653,13 +663,15 @@ def clamp_owner_patch(
     metadata["project_scope"] = list(label.project_scope)
     metadata["project_floor"] = list(label.project_floor)
     proposed_patch["metadata_json"] = metadata
+    from alicebot_api.vnext_label_repair import label_project_id
+
+    proposed_patch["project_id"] = label_project_id(label.project_scope)
+    if "project_id" in metadata:
+        metadata["project_id"] = proposed_patch["project_id"]
     stored = _label_fields(before)
-    if not (
-        stored[0] == settled[0]
-        and stored[1] == settled[1]
-        and project_scope_identity(stored[2]) == project_scope_identity(settled[2])
-        and project_scope_identity(stored[3]) == project_scope_identity(settled[3])
-    ):
+    # A refused assignment is auditable even when the existing label was
+    # already settled and the clamp therefore preserves it exactly.
+    if requested != settled:
         require_exclusive_label_lock(store)
         event = build_event_log_record(
             event_type=f"{kind}.labels_raised",

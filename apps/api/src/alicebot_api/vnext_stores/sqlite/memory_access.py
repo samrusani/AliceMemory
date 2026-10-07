@@ -1258,6 +1258,8 @@ def search_memories_fts(
         prefix="m.",
     )
     prefixed_columns = ", ".join(f"m.{column}" for column in MEMORY_COLUMNS)
+    from alicebot_api.vnext_label_sql import hidden_memory_input_sql
+    label_sql = hidden_memory_input_sql(sensitivity_allowed, sqlite=True)
     params: list[object] = [match_expression, self.user_id]
     params.extend(domain_params)
     params.extend(sensitivity_params)
@@ -1282,6 +1284,7 @@ def search_memories_fts(
                     WHERE memories_fts MATCH ?
                       AND m.user_id = ?
                       AND m.deleted_at IS NULL
+                      AND {label_sql}
                       AND m.status IN {_MEMORY_SEARCHABLE_STATUSES_SQL}{domain_sql}{sensitivity_sql}{type_sql}{project_sql}{created_by_sql}{run_sql}{expiry_sql}{scope_sql}
                     ORDER BY fts_score DESC, m.updated_at DESC, m.created_at DESC, m.id DESC
                     LIMIT ?

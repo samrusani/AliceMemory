@@ -2283,7 +2283,7 @@ jobs:
   python-integration:
     name: ${{ matrix.integration_check }}
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
@@ -2304,7 +2304,7 @@ jobs:
           --health-retries 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - name: Paired read-budget baseline (main at the round-two handoff)
+      - name: Paired read-budget baseline (main at the round-three handoff)
         if: matrix.integration_check == 'Integration tests (Postgres + pgvector, role separation)'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -2337,17 +2337,17 @@ jobs:
           DATABASE_ADMIN_URL: postgresql://alicebot_admin:ci@localhost:5432/alicebot
           ALICE_READ_MAIN_CHECKOUT: ${{ github.workspace }}/.read-budget-baseline
         # --timeout=180 names one test that runs that long. The cancelled
-        # jobs were slow database setup, not a gap near 180s, so that flag
-        # would not have fired. --session-timeout=1500 is checked between
-        # tests, stops the run, and prints --durations before the 30 minute
-        # job cancel.
-        run: ALICE_LEGACY_SURFACES=1 ./.venv/bin/python -m pytest tests/integration -q -p no:cacheprovider --durations=20 --timeout=180 --session-timeout=1500
+        # jobs were slow database setup, not a gap near 180s. The round-three
+        # grid includes 30 paired fixtures with ten interleaved samples per
+        # action and profile. Session bounds allow that grid to finish while
+        # each measured request retains its unchanged acceptance gate.
+        run: ALICE_LEGACY_SURFACES=1 ./.venv/bin/python -m pytest tests/integration -q -p no:cacheprovider --durations=20 --timeout=180 --session-timeout=3000
 
-      - name: SQLite varied-parent read budgets against the same baseline
+      - name: SQLite random mixed-parent and keyless read budgets against the same baseline
         if: matrix.integration_check == 'Integration tests (Postgres + pgvector, role separation)'
         env:
           ALICE_READ_MAIN_CHECKOUT: ${{ github.workspace }}/.read-budget-baseline
-        run: ./.venv/bin/python -m pytest tests/performance/test_label_round2_read_budget.py -q --timeout=180 --session-timeout=240
+        run: ./.venv/bin/python -m pytest tests/performance/test_label_round3_read_budget.py tests/performance/test_label_read_handoff_budget.py -q --timeout=180 --session-timeout=1800
 
       - name: Default-surface core round-trip
         if: matrix.integration_check == 'Default surface integration smoke (Postgres)'
