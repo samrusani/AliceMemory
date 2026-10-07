@@ -31,7 +31,7 @@ def main() -> int:
     args.output.mkdir(parents=True, exist_ok=True)
     results = []
     with tempfile.TemporaryDirectory(prefix="alice-label-mutants-") as directory:
-        root = Path(directory)
+        root = Path(directory).resolve()
         archive = root / "source.tar"
         with archive.open("wb") as destination:
             subprocess.run(["git", "-C", str(repository), "archive", revision], stdout=destination, check=True)
