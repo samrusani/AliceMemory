@@ -1216,7 +1216,7 @@ def update_open_loop(self, *, loop_id: str, patch: JsonObject, actor_type: str =
             before.get("metadata_json") if isinstance(before.get("metadata_json"), dict) else {},
             metadata, label_write=False,
         )
-    patch = prepare_label_patch(self, "open_loop", before, patch)
+    patch = prepare_label_patch(self, "open_loop", before, patch, clamp_follows=True)
     patch = clamp_owner_patch(self, kind="open_loop", before=before, patch=patch)
     row = self._fetch_one(
         "update_open_loop",
