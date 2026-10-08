@@ -340,6 +340,7 @@ class LabelGuard:
         if len(trail) > HOP_BOUND or kind == "belief":
             return None
         if cached is not None:
+            # Redundant: a cached row is acyclic (the root-in-trail and root-in-ancestry refusals below ran when it was settled), so its ancestry cannot meet the trail.
             return None if cached[1] & trail else cached
         root = (canon_kind(kind), identifier(row.get("id")))
         if root in trail:
@@ -435,6 +436,7 @@ class LabelGuard:
             template = self._signature(kind, row, key=key)
             admission_key = (template, self.domains, self.sensitivity_allowed, self.projects, self.all_of)
             root = (canon_kind(kind), identifier(row.get("id")))
+            # The ancestry term is redundant: a root among the shared inputs' ancestors is on their cycle and settles to the same label as the root that stored it.
             reusable = template in state.dependency_labels and root not in state.dependency_ancestry.get(template, ())
             if reusable and admission_key in state.source_admission:
                 admitted = state.source_admission[admission_key]
@@ -581,6 +583,7 @@ class LabelGuard:
             return
         for row in rows:
             stored = state.nodes.get((canon_kind(kind), identifier(row["id"])), ())
+            # The length and identity terms are redundant (the caller seeds each row, the node loop below refuses duplicates, identity implies equal keys); the key comparison stays.
             if len(stored) != 1 or (stored[0] is not row and _row_label_key(kind, stored[0]) != _row_label_key(kind, row)):
                 return
         nodes: list[dict[str, object]] = []
@@ -626,6 +629,7 @@ class LabelGuard:
         state = self._state()
         for row in rows:
             found = state.nodes.get((canon_kind(kind), identifier(row["id"])), ())
+            # The length and identity terms are redundant (the caller seeds each row, the node loop below refuses duplicates, identity implies equal keys); the key comparison stays.
             if len(found) != 1 or (found[0] is not row and _row_label_key(kind, found[0]) != _row_label_key(kind, row)):
                 return False
         graph: dict[tuple[str, str, str], frozenset[tuple[str, str, str]]] = {}
@@ -655,6 +659,7 @@ class LabelGuard:
             ranks[key] = SENSITIVITY_RANK[sensitivity]
             if derived:
                 origins.append(key)
+        # Redundant: a missing input never completes, so the visited count below refuses the graph as well.
         if any(ref not in graph for refs in graph.values() for ref in refs):
             return False
         pending_count = {key: len(refs) for key, refs in graph.items()}
@@ -707,6 +712,7 @@ class LabelGuard:
     def _native_label_for_projection(self, kind: str, row: Mapping[str, object], *, key: tuple) -> SettledLabel | None:
         """Reuse one verified UUID origin only for equivalent label semantics."""
         current = _REQUEST_LABELS.get()
+        # The UUID term is redundant: a native store keeps one canonical UUID per row (label_count_canonical_unique_ids), so a string spelling names the same row.
         if current is None or current[0] is not self.store or type(row.get("id")) is not UUID:
             return None
         entry = current[1].native_labels.get((canon_kind(kind), identifier(row["id"])))
@@ -842,6 +848,7 @@ class LabelGuard:
             return _row_label_key(kind, row)
         keys = current[1].row_keys
         raw_key = (kind, id(row))
+        # The identity test is redundant: the strong reference kept in keys pins this id, so a stored key always names this same row.
         if raw_key not in keys or keys[raw_key][0] is not row:
             # This locked request already pins each raw projection and clears
             # all entries on writes/rollback. A compact object key avoids
@@ -891,6 +898,29 @@ def effective_row_for_fence(
     guard = LabelGuard.for_fence(store, SourceReadFence.for_identity(identity))
     settled = guard.effective_row(kind, row)
     return settled if isinstance(settled, Mapping) else row
+
+
+def readable_rows(store: Any, identity: AgentIdentity | None, rows: Sequence[_Row]) -> list[_Row]:
+    """The rows this caller may read now, judged on their effective labels. Each row carries its own ``kind``.
+
+    A count, a preview or any other answer built from rows must be built from these, so that the caller cannot learn
+    how many rows exist above their limits. The owner and an unbound admin key are not limited and get every row.
+    """
+
+    from alicebot_api.vnext_source_fence import SourceReadFence
+
+    fence = SourceReadFence.for_identity(identity)
+    guard = LabelGuard.for_fence(store, fence)
+    if not guard.active:
+        return [row for row in rows if isinstance(row, Mapping)]
+    kept: list[_Row] = []
+    for row in rows:
+        if not isinstance(row, Mapping):
+            continue
+        effective = guard.effective_row(str(row.get("kind") or ""), row)
+        if isinstance(effective, Mapping) and fence.admits_memory(effective):
+            kept.append(row)
+    return kept
 
 
 def policy_labels(

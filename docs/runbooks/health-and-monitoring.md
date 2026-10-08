@@ -31,7 +31,10 @@ process, database-file availability, free disk space, backup age, and periodic
 `GET /v0/vnext/doctor?ci=true` and `POST /v0/vnext/doctor/run` provide the
 application readiness checks. `GET /v0/vnext/connectors/health` reports
 connector telemetry. These vNext routes obey the normal Alice user/agent-key
-boundary; monitoring clients must authenticate once keys exist.
+boundary; monitoring clients must authenticate once keys exist. A monitoring key with a
+ceiling (a trusted key) receives the `flagged_sources` and `derived_labels` checks as
+`skipped`; the owner and an unbound admin key receive them (see
+[Doctor](../alpha/doctor.md)).
 
 Treat a doctor `fail` or nonzero blocking-failure count as an operator action.
 A `warn` is not automatically an outage: inspect the named check and its

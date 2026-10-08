@@ -456,7 +456,7 @@ def update_memory(
     if before_label is not None:
         from alicebot_api.vnext_label_writes import clamp_owner_patch, prepare_label_patch
 
-        patch = prepare_label_patch(self, "memory", before_label, patch)
+        patch = prepare_label_patch(self, "memory", before_label, patch, clamp_follows=True)
         patch = clamp_owner_patch(self, kind="memory", before=before_label, patch=patch)
     project_metadata = patch.get("metadata_json")
     project_patch_present = patch.get("project_id") is not None or (

@@ -30,7 +30,7 @@ def test_stored_scope_unchanged_floor_move_still_counts_hidden_row(monkeypatch):
     store = Store([source, report])
     original = deepcopy(store.rows)
     monkeypatch.setattr(writes, "walk_dependants", lambda *_: [report])
-    assert writes.count_rows_hidden_by_scope_move(store, source, ["beta"]) == 1
+    assert writes.count_rows_hidden_by_scope_move(store, source, ["beta"], identity=None) == 1
     assert store.rows == original
 
 
@@ -41,7 +41,7 @@ def test_preview_reads_the_other_parent_and_its_ancestry(monkeypatch):
     report["metadata_json"]["artifact_ids"] = [parent["id"]]
     store = Store([moved, other, parent, report])
     monkeypatch.setattr(writes, "walk_dependants", lambda *_: [report])
-    assert writes.count_rows_hidden_by_scope_move(store, moved, ["beta"]) == 1
+    assert writes.count_rows_hidden_by_scope_move(store, moved, ["beta"], identity=None) == 1
     assert any(other["id"] in ids for _kind, ids in store.reads)
     assert any(parent["id"] in ids for _kind, ids in store.reads)
 
@@ -50,7 +50,7 @@ def test_preview_does_not_count_a_row_already_unverified(monkeypatch):
     source = _source(["alpha"])
     report = _report([source, _source(["alpha"])], ["alpha"])
     monkeypatch.setattr(writes, "walk_dependants", lambda *_: [report])
-    assert writes.count_rows_hidden_by_scope_move(Store([source, report]), source, ["beta"]) == 0
+    assert writes.count_rows_hidden_by_scope_move(Store([source, report]), source, ["beta"], identity=None) == 0
 
 
 def test_belief_alias_is_an_intermediate_reverse_edge(monkeypatch):
@@ -75,3 +75,14 @@ def test_sqlite_reverse_walk_needs_no_unsupported_belief_table(tmp_path):
         source = store.create_source({"source_type": "note", "title": "synthetic", "content_hash": "synthetic", "domain": "project", "sensitivity": "public"})
         copy = store.create_memory({"memory_key": "copy", "canonical_text": "synthetic", "domain": "project", "sensitivity": "public", "metadata_json": {"source_id": str(source["id"])}})
         assert [row["id"] for row in writes.walk_dependants(store, [str(source["id"])])] == [str(copy["id"])]
+
+
+def test_the_caller_is_a_required_argument_of_the_count():
+    """A caller that leaves the identity out must fail loudly, not be counted as the owner."""
+    import inspect
+
+    parameter = inspect.signature(writes.count_rows_hidden_by_scope_move).parameters["identity"]
+    assert parameter.kind is inspect.Parameter.KEYWORD_ONLY
+    assert parameter.default is inspect.Parameter.empty
+    with pytest.raises(TypeError):
+        writes.count_rows_hidden_by_scope_move(Store([]), _source(["alpha"]), ["beta"])

@@ -31,7 +31,7 @@ def test_an_encoded_source_is_previewed_and_raised_without_losing_its_reference(
         before = {table: list(conn.execute(f"SELECT * FROM {table} ORDER BY id")) for table in ("sources", "memories", "event_log", "provenance_links")}
         assert ("source", str(source["id"])) in dependencies_of("memory", copy)
         assert {str(row["id"]) for row in walk_dependants(store, [str(source["id"])])} == {str(copy["id"])}
-        assert count_rows_hidden_by_scope_move(store, source, [BETA]) == 1
+        assert count_rows_hidden_by_scope_move(store, source, [BETA], identity=None) == 1
         assert {table: list(conn.execute(f"SELECT * FROM {table} ORDER BY id")) for table in before} == before
         store.update_source(source_id=str(source["id"]), patch={"sensitivity": "confidential", "metadata_json": {"project_scope": [BETA]}})
         stored = store.get_memory(str(copy["id"]))
