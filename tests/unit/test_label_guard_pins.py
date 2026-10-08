@@ -6,8 +6,9 @@ refuses, while the rest of the suite stays green. Every test here is the one
 that fails when its condition goes. scripts/derived_label_mutations.json holds
 the exact edit for each, replayed by scripts/verify_derived_label_mutations.py.
 
-Nothing here depends on set or hash order: rows are settled in an explicit
-order and every answer is compared with the kernel, never with a constant.
+Nothing here depends on set or hash order. Rows are settled in an explicit
+order, and wherever a label is at stake it is compared with the canonical
+kernel as well as with the expected admission.
 """
 from __future__ import annotations
 
@@ -31,7 +32,6 @@ from alicebot_api.vnext_label_guard import (
 USER = "label-guard"
 CEILING = ("public", "internal", "private", "unknown")
 P1 = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
-P2 = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
 
 
 def uid(number: int) -> str:
@@ -138,7 +138,7 @@ def shortcut_rows():
     return [origin, *members, *roots], roots
 
 
-# --- M2.1: depth > HOP_BOUND for a cached parent --------------------------------
+# --- the hop and node bounds hold for a parent that is already cached -----------
 
 
 @pytest.mark.parametrize("warm", ["bottom-up", "mid-chain"])
@@ -193,7 +193,7 @@ def test_cached_parents_cannot_carry_a_row_past_the_node_bound(monkeypatch, warm
         assert guard.admit_rows("memory", [first, second]) == [first, second]
 
 
-# --- M2.3: parent carries_scope in the settled-inputs memo key ------------------
+# --- a scrubbed source and a global source do not share a settled label ----------
 
 
 @pytest.mark.parametrize("order", ["scrubbed-first", "global-first"])
@@ -217,7 +217,7 @@ def test_memo_does_not_merge_a_scrubbed_source_with_a_global_one(order):
         assert replace(guard, projects=("P1",)).admit_rows("memory", pair) == [from_scrubbed]
 
 
-# --- M2.6: _rank_ceiling is for an unscoped guard of its own store --------------
+# --- the reduced rank proof is for an unscoped guard of its own store -----------
 
 
 def native_store():
@@ -253,7 +253,7 @@ def test_a_guard_outside_its_store_scope_has_no_rank_ceiling():
         assert LabelGuard(other, active=True, sensitivity_allowed=CEILING)._rank_ceiling() is None
 
 
-# --- M2.6: no admission grant crosses caller filters ----------------------------
+# --- no admission grant crosses caller filters ----------------------------------
 
 # Each pair is (limits that admit the row, limits that refuse it). They differ in one term.
 GRANT_CASES = {
@@ -311,7 +311,7 @@ def test_a_shared_source_admission_stays_with_the_filters_that_earned_it(monkeyp
             assert allow.admit_rows("memory", roots[2:]) == roots[2:]
 
 
-# --- M2.7: the request caches belong to the store that opened the scope ---------
+# --- the request caches belong to the store that opened the scope ---------------
 
 
 def twin_stores():
@@ -419,7 +419,7 @@ def test_rank_batch_refuses_a_row_that_differs_from_the_loaded_projection():
         assert not state.rank_origins and not state.rank_rows
 
 
-# --- minor 5: the bulk count never runs on a graph the per-root path would walk differently ---
+# --- the bulk count never runs on a graph the per-root path would walk differently ---
 
 
 def per_root_admission(rows, roots, **limits):
@@ -480,7 +480,7 @@ def test_bulk_count_leaves_beliefs_to_the_per_root_path(monkeypatch):
         assert guard.admit_rows("memory", roots) == expected
 
 
-# --- M2.8: invalidation clears every request cache -----------------------------
+# --- invalidation clears every request cache ------------------------------------
 
 
 def test_invalidation_empties_every_request_cache_field():
@@ -549,7 +549,7 @@ def test_a_cached_signature_is_dropped_by_invalidation_for_a_reused_row_identity
         assert guard.effective_row("memory", row)["sensitivity"] == "confidential"
 
 
-# --- M2.9: len(trail) > HOP_BOUND on the cold path ------------------------------
+# --- a long chain requested alone is bounded on the cold path --------------------
 
 
 def test_a_very_long_chain_requested_alone_is_refused_without_recursing():
