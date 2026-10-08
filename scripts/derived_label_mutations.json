@@ -1218,6 +1218,22 @@
         "tests/unit/test_source_route_limits_docs.py::test_the_security_note_covers_disclosure_modification_and_deletion"
       ],
       "expected_failure": "test_the_security_note_covers_disclosure_modification_and_deletion"
+    },
+    {
+      "name": "source-move-preview-identity-required",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_label_writes.py",
+          "line": 883,
+          "before": "new_scope: Sequence[str], *, identity: AgentIdentity | None\n)",
+          "after": "new_scope: Sequence[str], *, identity: AgentIdentity | None = None\n)",
+          "sha256": "c73b025dbfa77e494ad5c9ebe931acee9f39e4287f328a03368248c8fd422ef9"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_source_move_label_preview.py::test_the_caller_is_a_required_argument_of_the_count"
+      ],
+      "expected_failure": "test_the_caller_is_a_required_argument_of_the_count"
     }
   ]
 }

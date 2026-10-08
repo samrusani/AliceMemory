@@ -75,3 +75,14 @@ def test_sqlite_reverse_walk_needs_no_unsupported_belief_table(tmp_path):
         source = store.create_source({"source_type": "note", "title": "synthetic", "content_hash": "synthetic", "domain": "project", "sensitivity": "public"})
         copy = store.create_memory({"memory_key": "copy", "canonical_text": "synthetic", "domain": "project", "sensitivity": "public", "metadata_json": {"source_id": str(source["id"])}})
         assert [row["id"] for row in writes.walk_dependants(store, [str(source["id"])])] == [str(copy["id"])]
+
+
+def test_the_caller_is_a_required_argument_of_the_count():
+    """A caller that leaves the identity out must fail loudly, not be counted as the owner."""
+    import inspect
+
+    parameter = inspect.signature(writes.count_rows_hidden_by_scope_move).parameters["identity"]
+    assert parameter.kind is inspect.Parameter.KEYWORD_ONLY
+    assert parameter.default is inspect.Parameter.empty
+    with pytest.raises(TypeError):
+        writes.count_rows_hidden_by_scope_move(Store([]), _source(["alpha"]), ["beta"])
