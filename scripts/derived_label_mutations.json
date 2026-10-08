@@ -485,7 +485,7 @@
           "file": "apps/api/src/alicebot_api/sqlite_store.py",
           "before": "    key = (\"sqlite-parent-hints\", raw)",
           "after": "    key = (\"sqlite-parent-hints\", \"\")",
-          "sha256": "461f288fd66bb5c80a3408fc450f7169d9206a6609a8d6891d742819a01f8329",
+          "sha256": "6e6c9a24e10f618a3ba06b6ba29fd2f96b28cc8696e3823adee45037ff458828",
           "line": 423
         }
       ],
@@ -911,6 +911,257 @@
         "tests/integration/test_label_round4_regressions_postgres.py::test_source_view_audit_and_id_check_per_profile"
       ],
       "expected_failure": "test_source_view_audit_and_id_check_per_profile"
+    },
+    {
+      "name": "rank-belief-refusal",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
+          "line": 641,
+          "before": "(node_kind == \"belief\" or has_implicit_weekly_inputs(node_kind, row)",
+          "after": "(has_implicit_weekly_inputs(node_kind, row)",
+          "sha256": "709fe6008d367346257112b118a7be18a5e5d3c6e49d36c041de710e9b6e5d5e"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_label_kernel_pins.py::test_a_belief_input_is_never_proved_by_the_reduced_rank_pass"
+      ],
+      "expected_failure": "test_a_belief_input_is_never_proved_by_the_reduced_rank_pass"
+    },
+    {
+      "name": "rank-belief-refusal-postgres",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
+          "line": 641,
+          "before": "(node_kind == \"belief\" or has_implicit_weekly_inputs(node_kind, row)",
+          "after": "(has_implicit_weekly_inputs(node_kind, row)",
+          "sha256": "709fe6008d367346257112b118a7be18a5e5d3c6e49d36c041de710e9b6e5d5e"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_label_kernel_pins_postgres.py::test_a_belief_input_is_not_proved_by_the_reduced_rank_pass_on_postgres"
+      ],
+      "expected_failure": "test_a_belief_input_is_not_proved_by_the_reduced_rank_pass_on_postgres"
+    },
+    {
+      "name": "bulk-count-hop-bound",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
+          "line": 594,
+          "before": "result = settle_labels(nodes, on_cycle=\"unverified\", max_hops=HOP_BOUND, max_nodes=NODE_BOUND)",
+          "after": "result = settle_labels(nodes, on_cycle=\"unverified\", max_hops=None, max_nodes=NODE_BOUND)",
+          "sha256": "709fe6008d367346257112b118a7be18a5e5d3c6e49d36c041de710e9b6e5d5e"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_label_kernel_pins.py::test_the_bulk_count_kernel_keeps_the_hop_bound"
+      ],
+      "expected_failure": "test_the_bulk_count_kernel_keeps_the_hop_bound"
+    },
+    {
+      "name": "bulk-count-hop-bound-postgres",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
+          "line": 594,
+          "before": "result = settle_labels(nodes, on_cycle=\"unverified\", max_hops=HOP_BOUND, max_nodes=NODE_BOUND)",
+          "after": "result = settle_labels(nodes, on_cycle=\"unverified\", max_hops=None, max_nodes=NODE_BOUND)",
+          "sha256": "709fe6008d367346257112b118a7be18a5e5d3c6e49d36c041de710e9b6e5d5e"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_label_kernel_pins_postgres.py::test_the_bulk_count_kernel_keeps_the_hop_bound_on_postgres"
+      ],
+      "expected_failure": "test_the_bulk_count_kernel_keeps_the_hop_bound_on_postgres"
+    },
+    {
+      "name": "iterate-memo-stored-domain",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_derived_labels.py",
+          "line": 1490,
+          "before": "                        current.stored_domain, current.stored_sensitivity,",
+          "after": "                        current.stored_sensitivity,",
+          "sha256": "529ef81c4c4fcf4d5a756535b98334dd03ee45da7c9e1b8308d23e8a11e65e71"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_label_kernel_pins.py::test_equal_rows_with_different_stored_domains_keep_their_own_domain"
+      ],
+      "expected_failure": "test_equal_rows_with_different_stored_domains_keep_their_own_domain"
+    },
+    {
+      "name": "iterate-memo-stored-sensitivity",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_derived_labels.py",
+          "line": 1490,
+          "before": "                        current.stored_domain, current.stored_sensitivity,",
+          "after": "                        current.stored_domain,",
+          "sha256": "529ef81c4c4fcf4d5a756535b98334dd03ee45da7c9e1b8308d23e8a11e65e71"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_label_kernel_pins.py::test_equal_rows_with_different_stored_sensitivities_keep_their_own_sensitivity"
+      ],
+      "expected_failure": "test_equal_rows_with_different_stored_sensitivities_keep_their_own_sensitivity"
+    },
+    {
+      "name": "iterate-memo-parent-scope",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_derived_labels.py",
+          "line": 1492,
+          "before": "item.sensitivity, item.project_scope,\n                               item.project_floor, item.carries_scope) for item in deps))",
+          "after": "item.sensitivity,\n                               item.project_floor, item.carries_scope) for item in deps))",
+          "sha256": "529ef81c4c4fcf4d5a756535b98334dd03ee45da7c9e1b8308d23e8a11e65e71"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_label_kernel_pins.py::test_equal_copies_of_sources_with_different_scopes_keep_their_own_scope_and_floor"
+      ],
+      "expected_failure": "test_equal_copies_of_sources_with_different_scopes_keep_their_own_scope_and_floor"
+    },
+    {
+      "name": "iterate-memo-parent-carries-scope",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_derived_labels.py",
+          "line": 1493,
+          "before": "item.project_floor, item.carries_scope) for item in deps))",
+          "after": "item.project_floor) for item in deps))",
+          "sha256": "529ef81c4c4fcf4d5a756535b98334dd03ee45da7c9e1b8308d23e8a11e65e71"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_label_kernel_pins.py::test_a_scrubbed_source_and_a_global_source_give_their_copies_different_scopes"
+      ],
+      "expected_failure": "test_a_scrubbed_source_and_a_global_source_give_their_copies_different_scopes"
+    },
+    {
+      "name": "iterate-memo-parent-floor",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_derived_labels.py",
+          "line": 1492,
+          "before": "item.project_scope,\n                               item.project_floor, item.carries_scope) for item in deps))",
+          "after": "item.project_scope,\n                               item.carries_scope) for item in deps))",
+          "sha256": "529ef81c4c4fcf4d5a756535b98334dd03ee45da7c9e1b8308d23e8a11e65e71"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_label_kernel_pins.py::test_equal_reports_over_parents_with_different_floors_keep_their_own_floor"
+      ],
+      "expected_failure": "test_equal_reports_over_parents_with_different_floors_keep_their_own_floor"
+    },
+    {
+      "name": "iterate-memo-parent-kind",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_derived_labels.py",
+          "line": 1492,
+          "before": "tuple((item.kind, item.domain, item.sensitivity, item.project_scope,",
+          "after": "tuple((item.domain, item.sensitivity, item.project_scope,",
+          "sha256": "529ef81c4c4fcf4d5a756535b98334dd03ee45da7c9e1b8308d23e8a11e65e71"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_label_kernel_pins.py::test_a_source_parent_and_a_memory_parent_with_equal_labels_give_different_scopes"
+      ],
+      "expected_failure": "test_a_source_parent_and_a_memory_parent_with_equal_labels_give_different_scopes"
+    },
+    {
+      "name": "sqlite-repair-stored-domain",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_derived_labels.py",
+          "line": 1490,
+          "before": "                        current.stored_domain, current.stored_sensitivity,",
+          "after": "                        current.stored_sensitivity,",
+          "sha256": "529ef81c4c4fcf4d5a756535b98334dd03ee45da7c9e1b8308d23e8a11e65e71"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_label_kernel_pins.py::test_sqlite_repair_never_lowers_or_raises_a_stored_label_that_equal_rows_share",
+        "-k",
+        "domain"
+      ],
+      "expected_failure": "test_sqlite_repair_never_lowers_or_raises_a_stored_label_that_equal_rows_share"
+    },
+    {
+      "name": "sqlite-repair-stored-sensitivity",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_derived_labels.py",
+          "line": 1490,
+          "before": "                        current.stored_domain, current.stored_sensitivity,",
+          "after": "                        current.stored_domain,",
+          "sha256": "529ef81c4c4fcf4d5a756535b98334dd03ee45da7c9e1b8308d23e8a11e65e71"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_label_kernel_pins.py::test_sqlite_repair_never_lowers_or_raises_a_stored_label_that_equal_rows_share",
+        "tests/unit/test_label_kernel_pins.py::test_sqlite_repair_raises_only_the_row_below_its_input_among_equal_rows",
+        "-k",
+        "sensitivity or raises_only"
+      ],
+      "expected_failure": "test_sqlite_repair_never_lowers_or_raises_a_stored_label_that_equal_rows_share"
+    },
+    {
+      "name": "postgres-repair-stored-domain",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_derived_labels.py",
+          "line": 1490,
+          "before": "                        current.stored_domain, current.stored_sensitivity,",
+          "after": "                        current.stored_sensitivity,",
+          "sha256": "529ef81c4c4fcf4d5a756535b98334dd03ee45da7c9e1b8308d23e8a11e65e71"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_label_kernel_pins_postgres.py::test_repair_never_lowers_or_raises_a_stored_label_that_equal_rows_share",
+        "-k",
+        "domain"
+      ],
+      "expected_failure": "test_repair_never_lowers_or_raises_a_stored_label_that_equal_rows_share"
+    },
+    {
+      "name": "postgres-repair-stored-sensitivity",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_derived_labels.py",
+          "line": 1490,
+          "before": "                        current.stored_domain, current.stored_sensitivity,",
+          "after": "                        current.stored_domain,",
+          "sha256": "529ef81c4c4fcf4d5a756535b98334dd03ee45da7c9e1b8308d23e8a11e65e71"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_label_kernel_pins_postgres.py::test_repair_never_lowers_or_raises_a_stored_label_that_equal_rows_share",
+        "tests/integration/test_label_kernel_pins_postgres.py::test_repair_raises_only_the_row_below_its_input_among_equal_rows",
+        "-k",
+        "sensitivity or raises_only"
+      ],
+      "expected_failure": "test_repair_never_lowers_or_raises_a_stored_label_that_equal_rows_share"
+    },
+    {
+      "name": "sqlite-savepoint-rollback-invalidation",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/sqlite_store.py",
+          "line": 1954,
+          "before": "            invalidate_read_labels(self)",
+          "after": "            pass",
+          "sha256": "6e6c9a24e10f618a3ba06b6ba29fd2f96b28cc8696e3823adee45037ff458828"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_label_kernel_pins.py::test_sqlite_savepoint_rollback_clears_the_request_admission_cache",
+        "tests/unit/test_label_kernel_pins.py::test_sqlite_savepoint_rollback_clears_the_request_counts"
+      ],
+      "expected_failure": "test_sqlite_savepoint_rollback_clears_the_request_admission_cache"
     }
   ]
 }
