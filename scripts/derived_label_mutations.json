@@ -2504,6 +2504,22 @@
       "expected_failure": "test_scoped_graphs_publish_the_ranks_of_the_complete_kernel"
     },
     {
+      "name": "native-rank-scope-tuple-shape",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
+          "before": "            if name in container and type(container[name]) not in (list, tuple):",
+          "after": "            if name in container and type(container[name]) is not list:",
+          "line": 70,
+          "sha256": "b79420babc13c535f21b3ebff6511de36ebd0cee54a39c6b883043b213548689"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_label_native_rank_admission.py::test_scoped_graphs_publish_the_ranks_of_the_complete_kernel"
+      ],
+      "expected_failure": "test_scoped_graphs_publish_the_ranks_of_the_complete_kernel[tuple"
+    },
+    {
       "name": "budget-returned-count-floor",
       "edits": [
         {

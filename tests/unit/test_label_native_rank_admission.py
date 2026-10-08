@@ -104,16 +104,24 @@ SCOPES = ([], ["P1"], ["P2"], ["P1", "P2"], ["P1", "P1", " p2 "])
 
 
 @pytest.mark.parametrize("seed", range(40))
-def test_scoped_graphs_publish_the_ranks_of_the_complete_kernel(seed):
+@pytest.mark.parametrize("shape", [list, tuple], ids=["list", "tuple"])
+def test_scoped_graphs_publish_the_ranks_of_the_complete_kernel(shape, seed):
     """A project scope or floor never changes a sensitivity, so a scoped graph keeps its reduced proof.
 
-    Mutation: refuse a non-empty scope or floor again (a vault with project-scoped sources has them).
+    A scope or floor held as a tuple is a canonical shape too: the complete kernel reads it like a
+    list. No store hands one back (stored JSON gives lists), but a row built in process can carry one.
+
+    Mutations: refuse a non-empty scope or floor again (a vault with project-scoped sources has them),
+    or accept only a list (the tuple cases).
     """
     rng = random.Random(seed)
     sources, roots = mixed_rows()
     for row in (*sources, *roots):
-        row["metadata_json"]["project_scope"] = list(rng.choice(SCOPES))
-        row["metadata_json"]["project_floor"] = list(rng.choice(SCOPES))
+        row["metadata_json"]["project_scope"] = shape(rng.choice(SCOPES))
+        row["metadata_json"]["project_floor"] = shape(rng.choice(SCOPES))
+        if shape is tuple:
+            row["project_scope"] = row["metadata_json"]["project_scope"]
+            row["project_floor"] = row["metadata_json"]["project_floor"]
     expected = full_labels(sources + roots)
     by_id = {label.normalized_id: label for label in expected.rows if label.kind == "memory"}
     assert any(label.project_scope or label.project_floor for label in by_id.values())
