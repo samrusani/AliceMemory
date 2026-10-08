@@ -458,7 +458,10 @@ class AliceFastAPI(FastAPI):
         for component_name, component_schema in live_registry.values():
             components[component_name] = component_schema
         for component_name, contract in live_exact_contracts.values():
-            contract_schema = TypeAdapter(contract).json_schema(
+            # The registry holds each contract as a plain object; TypeAdapter
+            # accepts any type form at run time.
+            contract_form: Any = contract
+            contract_schema = TypeAdapter(contract_form).json_schema(
                 ref_template="#/components/schemas/{model}",
             )
             definitions = contract_schema.pop("$defs", {})

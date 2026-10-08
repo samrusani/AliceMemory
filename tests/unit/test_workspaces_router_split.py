@@ -137,7 +137,7 @@ EXPECTED_CARRIER_NAMES_SHA256 = "2c109fc234a05dd8f44e4c34bee49e797fbb5e49e924133
 # Re-pin 2026-10-06: source regeneration is a new protected write route in the
 # central vNext route policy; the app carrier keeps the same definitions.
 # Round two moves source GET to the route-local full fence; definitions are unchanged.
-EXPECTED_CARRIER_AST_SHA256 = "b634b5cab5c2821bad5cc4a3eb718c5a825eee246fa4397c2c8add6336e9b718"
+EXPECTED_CARRIER_AST_SHA256 = "7aade286308c3e4aeb2775eaa350eb739681f3e68d7f20435adf5495bede2c60"
 EXPECTED_ROUTE_NODE_SHA256 = {
     "get_vnext_workspace": "52c12b20d7bb33759f8dafa2249b2d775b54666130402c0c75045e9ad57ed587",
     "bootstrap_v1_workspace": "07b1fe2a4cd03a5ba69abe76e258a457e85e92b0bfba592520ee02d01d759c4b",

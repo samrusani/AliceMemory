@@ -96,6 +96,12 @@ from alicebot_api.vnext_project_update_guard import (
     PENDING_PROJECT_UPDATE_MEMORY_MUTATION_MESSAGE,
     is_pending_project_update_memory,
 )
+from alicebot_api.vnext_project_scope import (
+    project_edge_target,
+    project_identifier_identity,
+    project_scope_identity,
+    resolve_project_scope,
+)
 from alicebot_api.vnext_store import PostgresVNextStore
 
 
@@ -995,13 +1001,16 @@ def review_vnext_source(
                         },
                     )
             updated = store.update_source(source_id=str(source_id), patch=patch, actor_type="user")
-            if action == "assign_project":
+            # The edge target is the normalized project id, so the project's neighborhood
+            # finds the source however the caller spelled the id. A blank id names no project.
+            source_edge_target = project_edge_target(request.project_id)
+            if action == "assign_project" and source_edge_target:
                 store.create_edge(
                     {
                         "from_type": "source",
                         "from_id": str(source_id),
                         "to_type": "project",
-                        "to_id": request.project_id,
+                        "to_id": source_edge_target,
                         "edge_type": "belongs_to_project",
                         "confidence": 1.0,
                         "explanation": "Assigned from live /vnext source review.",
@@ -1453,15 +1462,10 @@ def review_vnext_memory(
                     identity=identity,
                     stage=f"http_review_{action}",
                 )
-            from alicebot_api.vnext_project_scope import (
-                project_identifier_identity,
-                project_scope_identity,
-                resolve_project_scope,
-            )
-
             # The edge records an assignment that stood. A refused (clamped)
             # assignment leaves the project out of the stored scope. Compare
             # identities: the stored scope is normalized and the request may not be.
+            # The target is the normalized project id too, never the request's spelling.
             if (
                 action == "assign_project"
                 and request.project_id is not None
@@ -1472,7 +1476,7 @@ def review_vnext_memory(
                         "from_type": "memory",
                         "from_id": str(memory_id),
                         "to_type": "project",
-                        "to_id": request.project_id,
+                        "to_id": project_edge_target(request.project_id),
                         "edge_type": "belongs_to_project",
                         "confidence": 1.0,
                         "explanation": "Assigned from live /vnext memory review.",

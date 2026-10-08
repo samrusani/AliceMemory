@@ -18,6 +18,7 @@ from alicebot_api.vnext_repositories import JsonObject
 #: string that happens to read ``~global`` is an ordinary free-form name.
 GLOBAL_PROJECT_MARKER = "~global"
 _ALICE_PROJECT_ID_PATTERN = re.compile(r"prj_[0-9a-f]{16}")
+_HYPHENATED_UUID_PATTERN = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 
 _ASCII_PROJECT_WHITESPACE = frozenset(" \t\n\r\f\v")
 _ASCII_PROJECT_CASE_TRANSLATION = str.maketrans(
@@ -103,6 +104,28 @@ def project_identifier_identity(value: object) -> str:
     normalized = normalize_project_identifier(value)
     if normalized.isascii():
         return normalized.translate(_ASCII_PROJECT_CASE_TRANSLATION)
+    return normalized
+
+
+def project_edge_target(value: object) -> str:
+    """Return the text a project edge stores as its target for ``value``.
+
+    A project named by its UUID has one spelling here, the lower-case hyphenated
+    form, so the project's own neighborhood finds every edge however the caller
+    typed the id (upper case, padded). Any other identifier keeps the text
+    :func:`normalize_project_identifier` gives, which is the text the stored scope
+    holds. Only the hyphenated 36-character spelling is read as a UUID: the other
+    spellings ``uuid.UUID`` accepts (braces, ``urn:uuid:``, no hyphens) are not
+    the same identity in :func:`project_identifier_identity`, so they stay a name.
+
+    Returns ``""`` when nothing is left after normalization. A caller writes no
+    edge then, because no project was named.
+    """
+
+    normalized = normalize_project_identifier(value)
+    folded = normalized.translate(_ASCII_PROJECT_CASE_TRANSLATION)
+    if _HYPHENATED_UUID_PATTERN.fullmatch(folded) is not None:
+        return folded
     return normalized
 
 
@@ -482,6 +505,7 @@ __all__ = [
     "project_floor",
     "project_floor_shape",
     "project_floor_within",
+    "project_edge_target",
     "project_identifier_identity",
     "project_scope_identity",
     "project_scopes_overlap",
