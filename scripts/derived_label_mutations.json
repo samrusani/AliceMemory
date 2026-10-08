@@ -727,7 +727,7 @@
           "line": 5,
           "before": "Doctor's aggregate derived-label check counts are new in this set, absent from v0.20.0 and baseline main 48873b03, and remain outside the caller's sensitivity ceiling and visible to trusted keys.",
           "after": "",
-          "sha256": "e1f5bd6c281d4e5c5c8a858a4f9cc5adbbd2e525b54f8151a5cf76cc14497bdb"
+          "sha256": "62e9935e3874880ee7f5e6d0e9aecb28e68e19159e847a83ae066ad2dc8946e3"
         }
       ],
       "pytest": [
@@ -1563,6 +1563,557 @@
         "tests/unit/test_label_kernel_pins.py::test_sqlite_savepoint_rollback_clears_the_request_counts"
       ],
       "expected_failure": "test_sqlite_savepoint_rollback_clears_the_request_admission_cache"
+    },
+    {
+      "name": "per-origin-ancestry-bounds",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
+          "line": 373,
+          "before": "if depth > HOP_BOUND or len(ancestry) > NODE_BOUND:",
+          "after": "if False:",
+          "sha256": "03f73f13178477d1cccd9b11ac7c1b4c1af0dbfb33b29dfa7bb8b9ba0854705b"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_label_resolved_inputs.py::test_unproved_inputs_keep_the_complete_graph_fallback",
+        "-k",
+        "bound"
+      ],
+      "expected_failure": "test_unproved_inputs_keep_the_complete_graph_fallback"
+    },
+    {
+      "name": "source-routes-fence-admits",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
+          "line": 777,
+          "before": "if source is not None and not SourceReadFence.for_identity(identity).admits(",
+          "after": "if False and source is not None and not SourceReadFence.for_identity(identity).admits(",
+          "sha256": "c95b2a31ad9ef7302468cc96459409b8119b13ab8534b04e58ab5b427f202dc0"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_source_routes_limits_postgres.py::test_every_profile_verb_and_source[trusted-review]",
+        "tests/integration/test_source_routes_limits_postgres.py::test_every_profile_verb_and_source[trusted-delete]"
+      ],
+      "expected_failure": "test_every_profile_verb_and_source"
+    },
+    {
+      "name": "source-review-fence-call",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
+          "line": 900,
+          "before": "existing = _vnext_readable_source(store, identity, source_id)\n            if existing is None:\n                if not SourceReadFence.for_identity(identity).entity_read_fenced:",
+          "after": "existing = store.get_source(str(source_id))\n            if existing is None:\n                if not SourceReadFence.for_identity(identity).entity_read_fenced:",
+          "sha256": "c95b2a31ad9ef7302468cc96459409b8119b13ab8534b04e58ab5b427f202dc0"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_source_routes_limits_postgres.py::test_every_profile_verb_and_source[trusted-update]"
+      ],
+      "expected_failure": "test_every_profile_verb_and_source"
+    },
+    {
+      "name": "source-review-fence-registry",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
+          "line": 900,
+          "before": "existing = _vnext_readable_source(store, identity, source_id)\n            if existing is None:\n                if not SourceReadFence.for_identity(identity).entity_read_fenced:",
+          "after": "existing = store.get_source(str(source_id))\n            if existing is None:\n                if not SourceReadFence.for_identity(identity).entity_read_fenced:",
+          "sha256": "c95b2a31ad9ef7302468cc96459409b8119b13ab8534b04e58ab5b427f202dc0"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_label_door_registry.py::test_every_exact_door_calls_the_guard"
+      ],
+      "expected_failure": "test_every_exact_door_calls_the_guard"
+    },
+    {
+      "name": "source-delete-fence-call",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
+          "line": 1026,
+          "before": "existing = _vnext_readable_source(store, identity, source_id)\n            if existing is None:\n                return _vnext_source_not_found(source_id)\n            payload = store.delete_source(",
+          "after": "existing = store.get_source(str(source_id))\n            if existing is None:\n                return _vnext_source_not_found(source_id)\n            payload = store.delete_source(",
+          "sha256": "c95b2a31ad9ef7302468cc96459409b8119b13ab8534b04e58ab5b427f202dc0"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_source_routes_limits_postgres.py::test_every_profile_verb_and_source[trusted-delete]"
+      ],
+      "expected_failure": "test_every_profile_verb_and_source"
+    },
+    {
+      "name": "source-delete-fence-registry",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
+          "line": 1026,
+          "before": "existing = _vnext_readable_source(store, identity, source_id)\n            if existing is None:\n                return _vnext_source_not_found(source_id)\n            payload = store.delete_source(",
+          "after": "existing = store.get_source(str(source_id))\n            if existing is None:\n                return _vnext_source_not_found(source_id)\n            payload = store.delete_source(",
+          "sha256": "c95b2a31ad9ef7302468cc96459409b8119b13ab8534b04e58ab5b427f202dc0"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_label_door_registry.py::test_every_exact_door_calls_the_guard"
+      ],
+      "expected_failure": "test_every_exact_door_calls_the_guard"
+    },
+    {
+      "name": "source-review-identity",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
+          "line": 889,
+          "before": "identity = _vnext_source_route_identity(\n                store, user_id=request.user_id, authorization=authorization, request=request\n            )",
+          "after": "identity = None",
+          "sha256": "c95b2a31ad9ef7302468cc96459409b8119b13ab8534b04e58ab5b427f202dc0"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_source_routes_limits_postgres.py::test_every_profile_verb_and_source[trusted-review]"
+      ],
+      "expected_failure": "test_every_profile_verb_and_source"
+    },
+    {
+      "name": "source-delete-identity",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
+          "line": 1022,
+          "before": "identity = _vnext_source_route_identity(store, user_id=user_id, authorization=authorization)",
+          "after": "identity = None",
+          "sha256": "c95b2a31ad9ef7302468cc96459409b8119b13ab8534b04e58ab5b427f202dc0"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_source_routes_limits_postgres.py::test_every_profile_verb_and_source[trusted-delete]"
+      ],
+      "expected_failure": "test_every_profile_verb_and_source"
+    },
+    {
+      "name": "source-review-declared-claims",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
+          "line": 890,
+          "before": "authorization=authorization, request=request\n            )",
+          "after": "authorization=authorization, request=None\n            )",
+          "sha256": "c95b2a31ad9ef7302468cc96459409b8119b13ab8534b04e58ab5b427f202dc0"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_source_routes_limits_postgres.py::test_a_profile_declared_on_an_install_without_keys_is_held_to_it[trusted_local_agent-404]"
+      ],
+      "expected_failure": "test_a_profile_declared_on_an_install_without_keys_is_held_to_it"
+    },
+    {
+      "name": "source-review-identity-claims",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
+          "line": 991,
+          "before": "detail=\"vNext agent identity claims are invalid\"",
+          "after": "detail=\"invalid\"",
+          "sha256": "c95b2a31ad9ef7302468cc96459409b8119b13ab8534b04e58ab5b427f202dc0"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_source_routes_limits_postgres.py::test_claims_that_contradict_each_other_are_refused_before_anything_changes"
+      ],
+      "expected_failure": "test_claims_that_contradict_each_other_are_refused_before_anything_changes"
+    },
+    {
+      "name": "source-route-in-process-owner",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
+          "line": 802,
+          "before": "if authorization is not None and not isinstance(authorization, str):",
+          "after": "if False:",
+          "sha256": "c95b2a31ad9ef7302468cc96459409b8119b13ab8534b04e58ab5b427f202dc0"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_source_routes_limits_postgres.py::test_a_call_inside_the_process_without_a_header_is_the_owner_and_http_without_a_key_is_refused"
+      ],
+      "expected_failure": "test_a_call_inside_the_process_without_a_header_is_the_owner_and_http_without_a_key_is_refused"
+    },
+    {
+      "name": "source-review-trace-identity",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
+          "line": 871,
+          "before": "trace = _vnext_load_source_trace(store=store, source=source, identity=identity)",
+          "after": "trace = _vnext_load_source_trace(store=store, source=source, identity=None)",
+          "sha256": "c95b2a31ad9ef7302468cc96459409b8119b13ab8534b04e58ab5b427f202dc0"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_source_routes_limits_postgres.py::test_every_profile_verb_and_source[trusted-review]"
+      ],
+      "expected_failure": "test_every_profile_verb_and_source"
+    },
+    {
+      "name": "source-review-trace-empty-on-raise",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
+          "line": 872,
+          "before": "return trace if trace is not None else {}",
+          "after": "return trace",
+          "sha256": "c95b2a31ad9ef7302468cc96459409b8119b13ab8534b04e58ab5b427f202dc0"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_source_routes_limits_postgres.py::test_a_trusted_key_that_raises_its_own_source_above_its_ceiling_gets_no_trace"
+      ],
+      "expected_failure": "test_a_trusted_key_that_raises_its_own_source_above_its_ceiling_gets_no_trace"
+    },
+    {
+      "name": "source-delete-label-lock",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
+          "line": 1025,
+          "before": "store.lock_label_writes()\n            existing = _vnext_readable_source(store, identity, source_id)\n            if existing is None:\n                return _vnext_source_not_found(source_id)\n            payload = store.delete_source(",
+          "after": "existing = _vnext_readable_source(store, identity, source_id)\n            if existing is None:\n                return _vnext_source_not_found(source_id)\n            payload = store.delete_source(",
+          "sha256": "c95b2a31ad9ef7302468cc96459409b8119b13ab8534b04e58ab5b427f202dc0"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_source_routes_limits_postgres.py::test_a_delete_waits_for_a_relabel_in_flight_and_then_judges_the_new_label"
+      ],
+      "expected_failure": "test_a_delete_waits_for_a_relabel_in_flight_and_then_judges_the_new_label"
+    },
+    {
+      "name": "source-regenerate-gate",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
+          "line": 846,
+          "before": "if identity is not None and (identity.permission_profile != \"admin_agent\" or identity.project_scope_locked",
+          "after": "if identity is not None and (False or identity.project_scope_locked",
+          "sha256": "c95b2a31ad9ef7302468cc96459409b8119b13ab8534b04e58ab5b427f202dc0"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_source_routes_limits_postgres.py::test_every_profile_verb_and_source[trusted-regenerate]"
+      ],
+      "expected_failure": "test_every_profile_verb_and_source"
+    },
+    {
+      "name": "source-review-not-found-body",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
+          "line": 906,
+          "before": "return _vnext_source_not_found(source_id)\n            if action == \"archive\":",
+          "after": "return _vnext_public_error_response(status_code=404, detail=\"vNext source was not found\")\n            if action == \"archive\":",
+          "sha256": "c95b2a31ad9ef7302468cc96459409b8119b13ab8534b04e58ab5b427f202dc0"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_source_routes_limits_postgres.py::test_the_denial_is_the_answer_of_the_single_source_view[review]"
+      ],
+      "expected_failure": "test_the_denial_is_the_answer_of_the_single_source_view"
+    },
+    {
+      "name": "source-fence-over-blocks",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
+          "line": 780,
+          "before": "        return None\n    return source\n\n\ndef _vnext_source_not_found",
+          "after": "        return None\n    return source if identity is None else None\n\n\ndef _vnext_source_not_found",
+          "sha256": "c95b2a31ad9ef7302468cc96459409b8119b13ab8534b04e58ab5b427f202dc0"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_source_routes_limits_postgres.py::test_a_trusted_key_can_still_review_and_move_a_readable_source_into_a_project"
+      ],
+      "expected_failure": "test_a_trusted_key_can_still_review_and_move_a_readable_source_into_a_project"
+    },
+    {
+      "name": "source-fence-refuses-owner",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
+          "line": 780,
+          "before": "        return None\n    return source\n\n\ndef _vnext_source_not_found",
+          "after": "        return None\n    return source if identity is not None else None\n\n\ndef _vnext_source_not_found",
+          "sha256": "c95b2a31ad9ef7302468cc96459409b8119b13ab8534b04e58ab5b427f202dc0"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_source_routes_limits_postgres.py::test_the_owner_changes_a_confidential_source_and_a_key_is_refused_it_afterwards"
+      ],
+      "expected_failure": "test_the_owner_changes_a_confidential_source_and_a_key_is_refused_it_afterwards"
+    },
+    {
+      "name": "source-trace-route-ceiling",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/routers/_vnext_shared.py",
+          "line": 315,
+          "before": "if not apply_sensitivity_ceiling(store, kind=\"source\", rows=[source], identity=caller):",
+          "after": "if False:",
+          "sha256": "17d1e4a84950e9646d7d41b044c0a691a0d077b589d46a44533978e944f35036"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_source_routes_limits_postgres.py::test_the_source_trace_route_applies_the_same_limits[trusted]"
+      ],
+      "expected_failure": "test_the_source_trace_route_applies_the_same_limits"
+    },
+    {
+      "name": "source-routes-tool-reference",
+      "edits": [
+        {
+          "file": "docs/alpha/mcp-tools.md",
+          "line": 964,
+          "before": "A call answered HTTP 404 changes nothing",
+          "after": "A call answered HTTP 404 may change a thing",
+          "sha256": "3668da1079bc2404a247d3c147db62af1d7796eb2bfd2fbbd5f4e54d8dcd30f6"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_source_route_limits_docs.py::test_the_tool_reference_says_who_may_change_or_delete_a_source_by_id"
+      ],
+      "expected_failure": "test_the_tool_reference_says_who_may_change_or_delete_a_source_by_id"
+    },
+    {
+      "name": "source-routes-changelog",
+      "edits": [
+        {
+          "file": "CHANGELOG.md",
+          "line": 5,
+          "before": "stays refused to every key but an unbound `admin_agent`",
+          "after": "stays refused",
+          "sha256": "22a15d8cff0d98681a25e152043b47ede7254f44b2c90d75193392658d7a9b4e"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_source_route_limits_docs.py::test_the_changelog_has_one_entry_for_the_source_routes"
+      ],
+      "expected_failure": "test_the_changelog_has_one_entry_for_the_source_routes"
+    },
+    {
+      "name": "source-routes-security-note",
+      "edits": [
+        {
+          "file": "docs/release/derived-labels-security-note-draft.md",
+          "line": 7,
+          "before": "disclosure, unauthorized modification and unauthorized deletion",
+          "after": "disclosure",
+          "sha256": "62e9935e3874880ee7f5e6d0e9aecb28e68e19159e847a83ae066ad2dc8946e3"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_source_route_limits_docs.py::test_the_security_note_covers_disclosure_modification_and_deletion"
+      ],
+      "expected_failure": "test_the_security_note_covers_disclosure_modification_and_deletion"
+    },
+    {
+      "name": "source-move-preview-filter",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_label_writes.py",
+          "line": 897,
+          "before": "affected = readable_rows(store, identity, walk_dependants(store, [source_id]))",
+          "after": "affected = walk_dependants(store, [source_id])",
+          "sha256": "c73b025dbfa77e494ad5c9ebe931acee9f39e4287f328a03368248c8fd422ef9"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_source_routes_limits_postgres.py::test_the_move_preview_does_not_count_rows_above_the_callers_ceiling[1]",
+        "tests/integration/test_source_routes_limits_postgres.py::test_the_move_preview_counts_only_the_rows_the_caller_may_read"
+      ],
+      "expected_failure": "test_the_move_preview_does_not_count_rows_above_the_callers_ceiling"
+    },
+    {
+      "name": "source-move-preview-identity",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
+          "line": 951,
+          "before": "[request.project_id], identity=identity)",
+          "after": "[request.project_id], identity=None)",
+          "sha256": "c95b2a31ad9ef7302468cc96459409b8119b13ab8534b04e58ab5b427f202dc0"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_source_routes_limits_postgres.py::test_the_move_preview_does_not_count_rows_above_the_callers_ceiling[1]",
+        "tests/integration/test_source_routes_limits_postgres.py::test_the_move_preview_counts_only_the_rows_the_caller_may_read"
+      ],
+      "expected_failure": "test_the_move_preview_does_not_count_rows_above_the_callers_ceiling"
+    },
+    {
+      "name": "source-move-preview-over-blocks",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
+          "line": 914,
+          "before": "if isinstance(effective, Mapping) and fence.admits_memory(effective):",
+          "after": "if isinstance(effective, Mapping) and fence.admits_memory(effective) and False:",
+          "sha256": "03f73f13178477d1cccd9b11ac7c1b4c1af0dbfb33b29dfa7bb8b9ba0854705b"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_source_routes_limits_postgres.py::test_the_move_preview_counts_only_the_rows_the_caller_may_read"
+      ],
+      "expected_failure": "test_the_move_preview_counts_only_the_rows_the_caller_may_read"
+    },
+    {
+      "name": "source-move-preview-unlimited-exact",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
+          "line": 907,
+          "before": "    if not guard.active:\n        return [row for row in rows if isinstance(row, Mapping)]\n    kept: list[_Row] = []",
+          "after": "    if not guard.active:\n        return []\n    kept: list[_Row] = []",
+          "sha256": "03f73f13178477d1cccd9b11ac7c1b4c1af0dbfb33b29dfa7bb8b9ba0854705b"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_source_routes_limits_postgres.py::test_the_owner_and_an_unbound_admin_see_the_exact_preview_count[owner]",
+        "tests/integration/test_source_routes_limits_postgres.py::test_the_owner_and_an_unbound_admin_see_the_exact_preview_count[admin]"
+      ],
+      "expected_failure": "test_the_owner_and_an_unbound_admin_see_the_exact_preview_count"
+    },
+    {
+      "name": "source-move-preview-effective-labels",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
+          "line": 913,
+          "before": "effective = guard.effective_row(str(row.get(\"kind\") or \"\"), row)",
+          "after": "effective = row",
+          "sha256": "03f73f13178477d1cccd9b11ac7c1b4c1af0dbfb33b29dfa7bb8b9ba0854705b"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_source_routes_limits_postgres.py::test_the_move_preview_judges_a_row_on_its_effective_labels"
+      ],
+      "expected_failure": "test_the_move_preview_judges_a_row_on_its_effective_labels"
+    },
+    {
+      "name": "source-review-missing-text-unlimited",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
+          "line": 902,
+          "before": "if not SourceReadFence.for_identity(identity).entity_read_fenced:",
+          "after": "if False:",
+          "sha256": "c95b2a31ad9ef7302468cc96459409b8119b13ab8534b04e58ab5b427f202dc0"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_source_routes_limits_postgres.py::test_a_missing_source_keeps_the_text_the_owner_and_an_unbound_admin_always_had",
+        "tests/integration/test_source_routes_limits_postgres.py::test_every_profile_verb_and_source[owner-review]"
+      ],
+      "expected_failure": "test_a_missing_source_keeps_the_text_the_owner_and_an_unbound_admin_always_had"
+    },
+    {
+      "name": "source-review-missing-text-fenced",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
+          "line": 902,
+          "before": "if not SourceReadFence.for_identity(identity).entity_read_fenced:",
+          "after": "if True:",
+          "sha256": "c95b2a31ad9ef7302468cc96459409b8119b13ab8534b04e58ab5b427f202dc0"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_source_routes_limits_postgres.py::test_a_missing_source_keeps_the_text_the_owner_and_an_unbound_admin_always_had"
+      ],
+      "expected_failure": "test_a_missing_source_keeps_the_text_the_owner_and_an_unbound_admin_always_had"
+    },
+    {
+      "name": "source-routes-tool-403-event",
+      "edits": [
+        {
+          "file": "docs/alpha/mcp-tools.md",
+          "line": 964,
+          "before": "the only row it adds is the policy event that the operator gate records for its own refusal",
+          "after": "it adds no row",
+          "sha256": "3668da1079bc2404a247d3c147db62af1d7796eb2bfd2fbbd5f4e54d8dcd30f6"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_source_route_limits_docs.py::test_the_tool_reference_says_who_may_change_or_delete_a_source_by_id"
+      ],
+      "expected_failure": "test_the_tool_reference_says_who_may_change_or_delete_a_source_by_id"
+    },
+    {
+      "name": "source-routes-tool-preview-count",
+      "edits": [
+        {
+          "file": "docs/alpha/mcp-tools.md",
+          "line": 964,
+          "before": "counts only the derived rows the caller may read now",
+          "after": "counts the derived rows",
+          "sha256": "3668da1079bc2404a247d3c147db62af1d7796eb2bfd2fbbd5f4e54d8dcd30f6"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_source_route_limits_docs.py::test_the_tool_reference_says_who_may_change_or_delete_a_source_by_id"
+      ],
+      "expected_failure": "test_the_tool_reference_says_who_may_change_or_delete_a_source_by_id"
+    },
+    {
+      "name": "source-routes-changelog-preview-count",
+      "edits": [
+        {
+          "file": "CHANGELOG.md",
+          "line": 5,
+          "before": "counts only the derived rows the caller may read now",
+          "after": "counts the derived rows",
+          "sha256": "22a15d8cff0d98681a25e152043b47ede7254f44b2c90d75193392658d7a9b4e"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_source_route_limits_docs.py::test_the_changelog_has_one_entry_for_the_source_routes"
+      ],
+      "expected_failure": "test_the_changelog_has_one_entry_for_the_source_routes"
+    },
+    {
+      "name": "source-routes-note-preview-count",
+      "edits": [
+        {
+          "file": "docs/release/derived-labels-security-note-draft.md",
+          "line": 7,
+          "before": "the count now covers only the rows the caller may read",
+          "after": "the count now covers every row",
+          "sha256": "62e9935e3874880ee7f5e6d0e9aecb28e68e19159e847a83ae066ad2dc8946e3"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_source_route_limits_docs.py::test_the_security_note_covers_disclosure_modification_and_deletion"
+      ],
+      "expected_failure": "test_the_security_note_covers_disclosure_modification_and_deletion"
+    },
+    {
+      "name": "source-move-preview-identity-required",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_label_writes.py",
+          "line": 883,
+          "before": "new_scope: Sequence[str], *, identity: AgentIdentity | None\n)",
+          "after": "new_scope: Sequence[str], *, identity: AgentIdentity | None = None\n)",
+          "sha256": "c73b025dbfa77e494ad5c9ebe931acee9f39e4287f328a03368248c8fd422ef9"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_source_move_label_preview.py::test_the_caller_is_a_required_argument_of_the_count"
+      ],
+      "expected_failure": "test_the_caller_is_a_required_argument_of_the_count"
     }
   ]
 }

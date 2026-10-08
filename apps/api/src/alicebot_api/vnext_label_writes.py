@@ -15,7 +15,7 @@ from functools import wraps
 from dataclasses import dataclass, field, replace
 from typing import Any
 
-from alicebot_api.vnext_agent_control import RESTRICTED_DOMAINS
+from alicebot_api.vnext_agent_control import RESTRICTED_DOMAINS, AgentIdentity
 from alicebot_api.vnext_derived_domain_backfill import DerivedDomainRepairError, require_changed
 from alicebot_api.vnext_derived_labels import (
     MARKER_KEYS,
@@ -919,13 +919,22 @@ def propagate_after_write(store: Any, *, kind: str, before: Mapping[str, object]
     return propagate(store, [(kind, str(after.get("id")))], cause=cause)
 
 
-def count_rows_hidden_by_scope_move(store: Any, source: Mapping[str, object], new_scope: Sequence[str]) -> int:
-    """How many derived rows a project-bound key would lose if ``source`` moved."""
+def count_rows_hidden_by_scope_move(
+    store: Any, source: Mapping[str, object], new_scope: Sequence[str], *, identity: AgentIdentity | None
+) -> int:
+    """How many derived rows a project-bound key would lose if ``source`` moved, among the rows ``identity`` may read.
+
+    ``identity`` is the caller and has no default: None is the owner, who is not limited. A caller with a sensitivity
+    ceiling or a domain limit is counted only the rows it may read now, so the number says nothing of the rows above
+    its limits. The owner and an unbound admin key get the exact count.
+    """
+
+    from alicebot_api.vnext_label_guard import readable_rows
 
     source_id = str(source.get("id") or "")
     if not source_id:
         return 0
-    affected = walk_dependants(store, [source_id])
+    affected = readable_rows(store, identity, walk_dependants(store, [source_id]))
     if not affected:
         return 0
     current = dict(source)
