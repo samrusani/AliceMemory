@@ -4,7 +4,7 @@ from dataclasses import replace
 from datetime import UTC
 import ipaddress
 import json
-from typing import Any, Awaitable, Callable, Literal, TypedDict, cast
+from typing import Any, Awaitable, Callable, Literal, TypedDict
 from uuid import UUID
 from fastapi import (
     FastAPI,
@@ -458,9 +458,10 @@ class AliceFastAPI(FastAPI):
         for component_name, component_schema in live_registry.values():
             components[component_name] = component_schema
         for component_name, contract in live_exact_contracts.values():
-            # The registry holds each contract as a plain object, so it is passed
-            # on as Any: TypeAdapter accepts any type form at run time.
-            contract_schema = TypeAdapter(cast(Any, contract)).json_schema(
+            # The registry holds each contract as a plain object; TypeAdapter
+            # accepts any type form at run time.
+            contract_form: Any = contract
+            contract_schema = TypeAdapter(contract_form).json_schema(
                 ref_template="#/components/schemas/{model}",
             )
             definitions = contract_schema.pop("$defs", {})
