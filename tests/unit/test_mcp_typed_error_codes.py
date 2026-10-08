@@ -927,12 +927,12 @@ def test_a_key_bound_agent_cannot_tell_a_refused_id_from_a_missing_one(
     tools. ``not_permitted`` stays for a row the key may read and the policy still refuses, which
     ``test_mcp_refusal_is_independent_of_state.py`` pins.
 
-    Mutations, each one alone: in ``VNextMemoryCommitService._record_write_decision`` (``vnext_memory_commit.py``) raise
-    ``AgentPolicyBlockedError`` in place of ``RefusedAsMissingError`` (the ``forget`` and ``unexpire`` outside rows fail
-    with ``not_permitted``); in ``_vnext_memory_review`` (``mcp/review.py``) set ``hide_the_row`` to ``False`` (the
-    ``review`` row fails); in ``_vnext_memory_correct`` set ``hide_the_row`` to ``False`` after the first policy check
-    (the ``correct`` row fails); in ``_handle_alice_vnext_memory_audit`` delete the key-bound branch (the explain rows
-    fail with ``not_found``).
+    Mutations, each one alone: in ``vnext_memory_commit.py`` delete the ``_answer_as_missing_if_unreadable`` call in
+    ``refuse_unauthorized_write`` or in ``_policy_checked_write`` (the ``forget`` and ``unexpire`` outside rows fail with
+    ``not_permitted``); in ``_vnext_memory_review`` (``mcp/review.py``) delete ``or outside_caller_limits(store, identity,
+    "memory", memory)`` (the ``review`` row fails); in ``_vnext_memory_correct`` delete it after the first read (the
+    ``correct`` row fails); in ``_handle_alice_vnext_memory_audit`` delete the key-bound branch (the explain rows fail
+    with ``not_found``).
     """
 
     from alicebot_api.mcp.runtime import _vnext_store_context

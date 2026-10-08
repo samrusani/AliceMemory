@@ -7,8 +7,9 @@ reason, gives a real key of each profile, and calls every door with every id tha
 
 For each call:
 
-* the call changes exactly the tables a missing id changes, which for a door that acts on a row is none, and for a
-  door that only cites a row in a new one is the table of that new row;
+* the call adds and removes exactly the rows a missing id does, in every stored table and with generated ids and instants
+  replaced. The event log and the agent records are tables of their own here, because a key reads them back in its own
+  telemetry. For a door that acts on a row that is nothing, and for a door that only cites a row it is the new row;
 * nothing of the row (its title, text, summary, raw text, chunk or claim) comes back;
 * the answer is the one a missing id gets: the same status and the same body, or for a tool the same error. A door
   that names the row to act on does not answer a row above the caller's limits with the policy refusal (HTTP 403, or
