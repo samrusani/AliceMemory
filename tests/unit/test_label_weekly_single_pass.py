@@ -4,8 +4,8 @@ The label kernel used to scan every node once per named weekly candidate, which
 is quadratic on a vault with hundreds of weekly reports. These tests keep the
 earlier scan as the oracle and compare it with the single pass on random graphs.
 
-Mutations: scan every node once per named weekly candidate again, or let the last
-row with a key answer for it instead of the first.
+Mutations: scan every node once per named weekly candidate again (the large-graph
+test), or let the last row with a key answer for it instead of the first.
 """
 from __future__ import annotations
 
@@ -100,13 +100,8 @@ def test_the_weekly_worlds_really_merge_artifact_inputs_into_candidates(duplicat
     assert merged >= 30, merged
 
 
-def test_a_scan_of_a_large_graph_visits_each_node_once_not_once_per_candidate(monkeypatch):
-    """Thirty named candidates over 2,000 rows must not read 60,000 node keys."""
-    rows = weekly_world(7, duplicate=False)
-    filler = [{"kind": "source", "id": str(UUID(int=10_000 + i)), "user_id": "u", "domain": "project",
-               "sensitivity": "public", "metadata_json": {}} for i in range(2000)]
-    prepared = [(_node_label(canon_kind(row["kind"]), row), row) for row in rows + filler]
-    labels = {label.key: label for label, _row in prepared}
+def key_reads(monkeypatch, run):
+    """How many node keys `run` reads."""
     reads = 0
     original = SettledLabel.key
 
@@ -115,6 +110,33 @@ def test_a_scan_of_a_large_graph_visits_each_node_once_not_once_per_candidate(mo
         reads += 1
         return original.fget(self)
 
-    monkeypatch.setattr(SettledLabel, "key", property(counting))
-    derived._weekly_parent_deps(labels, {}, prepared)
-    assert reads <= 3 * len(prepared), reads
+    with monkeypatch.context() as patch:
+        patch.setattr(SettledLabel, "key", property(counting))
+        run()
+    return reads
+
+
+def test_a_scan_of_a_large_graph_visits_each_node_once_not_once_per_candidate(monkeypatch):
+    """Named candidates behind 2,000 other rows must not cost one scan of the rows each.
+
+    The filler comes first on purpose. The earlier scan stopped at the first row that
+    carried a key, so filler placed after the world rows would never be read and the
+    quadratic cost would not show.
+    """
+    rows = weekly_world(2, duplicate=False)
+    filler = [{"kind": "source", "id": str(UUID(int=10_000 + i)), "user_id": "u", "domain": "project",
+               "sensitivity": "public", "metadata_json": {}} for i in range(2000)]
+    prepared = [(_node_label(canon_kind(row["kind"]), row), row) for row in filler + rows]
+    labels = {label.key: label for label, _row in prepared}
+    base = {label.key: {("source", label.user_id, label.stored_id)} for label, _row in prepared if label.derived}
+    expected = {key: set(value) for key, value in base.items()}
+    actual = {key: set(value) for key, value in base.items()}
+    bound = 3 * len(prepared)
+
+    old_reads = key_reads(monkeypatch, lambda: old_weekly_parent_deps(labels, expected, prepared))
+    new_reads = key_reads(monkeypatch, lambda: derived._weekly_parent_deps(labels, actual, prepared))
+
+    assert actual == expected
+    assert any(actual[key] != base[key] for key in actual)
+    assert old_reads > bound, (old_reads, bound)  # this graph does expose the per-candidate scan
+    assert new_reads <= bound, (new_reads, bound)

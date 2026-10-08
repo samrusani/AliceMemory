@@ -2456,6 +2456,22 @@
       "expected_failure": "test_single_pass_weekly_inputs_equal_the_per_candidate_scan"
     },
     {
+      "name": "weekly-candidate-scan-per-candidate",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_derived_labels.py",
+          "before": "    for label, row in nodes:\n        key = label.key\n        if key in wanted and key not in discovered:\n            discovered[key] = _metadata(row).get(\"discovered_by\")\n",
+          "after": "    for key in wanted:\n        for label, row in nodes:\n            if label.key == key:\n                discovered[key] = _metadata(row).get(\"discovered_by\")\n                break\n",
+          "line": 1221,
+          "sha256": "2f8db87cf8028b8714d9720917d9abacf33dd07275b9d8e84c41663b462f6fa1"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_label_weekly_single_pass.py::test_a_scan_of_a_large_graph_visits_each_node_once_not_once_per_candidate"
+      ],
+      "expected_failure": "test_a_scan_of_a_large_graph_visits_each_node_once_not_once_per_candidate"
+    },
+    {
       "name": "workspace-transaction-without-jit",
       "edits": [
         {
