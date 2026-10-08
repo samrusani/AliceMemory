@@ -34,6 +34,8 @@ from alicebot_api.routers._vnext_shared import (
     _vnext_permission_response,
     _vnext_policy_checked,
     _vnext_public_error_response,
+    _vnext_readable_belief,
+    _vnext_readable_edge,
     _vnext_string_list,
 )
 from alicebot_api.vnext_agent_control import (
@@ -886,15 +888,31 @@ def export_vnext_artifact(
     )
 
 @review_router.post("/v0/vnext/graph/edges/{edge_id}/review")
-def review_vnext_graph_edge(edge_id: str, request: VNextGraphEdgeReviewRequest) -> JSONResponse:
+def review_vnext_graph_edge(
+    edge_id: str,
+    request: VNextGraphEdgeReviewRequest,
+    authorization: str | None = Header(default=None),
+) -> JSONResponse:
     settings = get_settings()
 
     try:
         with user_connection(settings.database_url, request.user_id) as conn:
-            payload = VNextConnectionService(PostgresVNextStore(conn)).review_edge(
+            store = PostgresVNextStore(conn)
+            identity = _vnext_authenticated_agent_identity(
+                store, request, user_id=request.user_id, authorization=authorization
+            )
+            # An edge joins rows, and its explanation is made from their text. A caller with limits may review it only
+            # if it may read both ends; an edge it may not read gets the answer a missing edge gets.
+            if _vnext_readable_edge(store, identity, edge_id) is None:
+                return _vnext_public_error_response(status_code=404, detail="vNext graph edge was not found")
+            payload = VNextConnectionService(store).review_edge(
                 edge_id=edge_id,
                 action=request.action,
             )
+    except AgentIdentityValidationError:
+        return _vnext_public_error_response(status_code=400, detail="vNext agent identity claims are invalid")
+    except AgentKeyAuthenticationError as exc:
+        return _vnext_agent_auth_error_response(exc)
     except VNextConnectionValidationError:
         return _vnext_public_error_response(status_code=400, detail="vNext graph edge review request is invalid")
 
@@ -916,17 +934,36 @@ def get_vnext_graph_neighborhood(target_id: str, user_id: UUID) -> JSONResponse:
     )
 
 @review_router.post("/v0/vnext/beliefs/{belief_id}/review")
-def review_vnext_belief(belief_id: str, request: VNextBeliefReviewRequest) -> JSONResponse:
+def review_vnext_belief(
+    belief_id: str,
+    request: VNextBeliefReviewRequest,
+    authorization: str | None = Header(default=None),
+) -> JSONResponse:
     settings = get_settings()
 
     try:
         with user_connection(settings.database_url, request.user_id) as conn:
-            payload = VNextContradictionService(PostgresVNextStore(conn)).review_belief(
+            store = PostgresVNextStore(conn)
+            identity = _vnext_authenticated_agent_identity(
+                store, request, user_id=request.user_id, authorization=authorization
+            )
+            # A belief is read through the memory behind it. A caller with limits may change it only if it may read that
+            # memory, and the belief it would be replaced by is held to the same rule; anything else gets the answer a
+            # missing belief gets.
+            if _vnext_readable_belief(store, identity, belief_id) is None or (
+                request.superseded_by is not None and _vnext_readable_belief(store, identity, request.superseded_by) is None
+            ):
+                return _vnext_public_error_response(status_code=404, detail="vNext belief was not found")
+            payload = VNextContradictionService(store).review_belief(
                 belief_id=belief_id,
                 action=request.action,
                 confidence=request.confidence,
                 superseded_by=request.superseded_by,
             )
+    except AgentIdentityValidationError:
+        return _vnext_public_error_response(status_code=400, detail="vNext agent identity claims are invalid")
+    except AgentKeyAuthenticationError as exc:
+        return _vnext_agent_auth_error_response(exc)
     except VNextContradictionValidationError:
         return _vnext_public_error_response(status_code=400, detail="vNext belief review request is invalid")
 

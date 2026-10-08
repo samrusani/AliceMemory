@@ -113,6 +113,18 @@ def create_edge(self, edge: JsonObject, *, actor_type: str = "system") -> VNextR
     )
     return row
 
+def get_edge(self, edge_id: str) -> VNextRow | None:
+    """One graph edge by id, whatever its status, or None when there is no such edge."""
+
+    return self._fetch_optional_one(
+        f"""
+                SELECT {GRAPH_EDGE_COLUMNS}
+                FROM graph_edges
+                WHERE id = %s::uuid
+                """,
+        (edge_id,),
+    )
+
 def find_edge_by_idempotency_digest(self, *, digest: str) -> VNextRow | None:
     """Resolve one workflow-produced graph edge by its logical identity."""
 

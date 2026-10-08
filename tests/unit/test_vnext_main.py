@@ -658,6 +658,9 @@ class FakeVNextStore:
         self.edges[str(row["id"])] = row
         return row
 
+    def get_edge(self, edge_id: str) -> dict[str, object] | None:
+        return self.edges.get(edge_id)
+
     def update_edge_status(self, *, edge_id: str, status: str) -> dict[str, object]:
         edge = self.edges[edge_id]
         metadata = edge.get("metadata_json")

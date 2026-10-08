@@ -85,6 +85,7 @@ from alicebot_api.vnext_stores.postgres.events_revisions import (
 )
 from alicebot_api.vnext_stores.postgres.graph_open_loops import (
     create_edge as _graph_create_edge,
+    get_edge as _graph_get_edge,
     find_edge_by_idempotency_digest as _graph_find_edge_by_idempotency_digest,
     upsert_edge_by_idempotency_digest as _graph_upsert_edge_by_idempotency_digest,
     list_edges as _graph_list_edges,
@@ -1886,6 +1887,8 @@ class PostgresVNextStore:
         )
 
     create_edge = _graph_create_edge
+
+    get_edge = _graph_get_edge
 
     find_edge_by_idempotency_digest = _graph_find_edge_by_idempotency_digest
 

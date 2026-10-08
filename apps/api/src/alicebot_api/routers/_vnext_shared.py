@@ -25,7 +25,7 @@ from alicebot_api.vnext_agent_keys import (
     agent_key_from_authorization,
     resolve_protected_agent_identity,
 )
-from alicebot_api.vnext_label_guard import LabelGuard, apply_unverified_rule, policy_labels
+from alicebot_api.vnext_label_guard import LabelGuard, apply_unverified_rule, effective_row_for_fence, policy_labels
 from alicebot_api.vnext_project_scope import source_project_scope
 from alicebot_api.vnext_source_fence import SourceReadFence
 from alicebot_api.vnext_queue import VNextQueueNotFoundError
@@ -551,3 +551,75 @@ def _vnext_authorized_artifact(
     if decision.decision == "blocked":
         raise AgentPolicyBlockedError(decision)
     return artifact, decision
+
+
+def _vnext_readable_memory(
+    store: PostgresVNextStore, identity: AgentIdentity | None, memory_id: object
+) -> dict[str, object] | None:
+    """The stored memory when this caller may read it now, otherwise None.
+
+    A memory that is missing, deleted or outside the caller's read fence (its sensitivity, domain, project or an
+    unverified label) is the same None for a caller with limits. The owner and an unbound admin key are not limited, so
+    for them only a missing memory is None.
+    """
+
+    memory = store.get_memory(str(memory_id)) if memory_id is not None else None
+    if memory is None:
+        return None
+    fence = SourceReadFence.for_identity(identity)
+    if fence.entity_read_fenced and not fence.admits_memory(effective_row_for_fence(store, identity, "memory", memory)):
+        return None
+    return memory
+
+
+def _vnext_readable_belief(
+    store: PostgresVNextStore, identity: AgentIdentity | None, belief_id: object
+) -> dict[str, object] | None:
+    """The stored belief when this caller may read the memory behind it, otherwise None.
+
+    A belief has no labels of its own: it is read through the memory it was made from. A belief whose memory the
+    caller may not read is the same None as a belief that does not exist.
+    """
+
+    belief = store.get_belief(str(belief_id)) if belief_id is not None else None
+    if belief is None:
+        return None
+    if SourceReadFence.for_identity(identity).entity_read_fenced:
+        if _vnext_readable_memory(store, identity, belief.get("memory_id")) is None:
+            return None
+    return belief
+
+
+def _vnext_readable_edge(
+    store: PostgresVNextStore, identity: AgentIdentity | None, edge_id: object
+) -> dict[str, object] | None:
+    """The stored graph edge when this caller may read both of its ends, otherwise None.
+
+    An edge has no labels of its own, and its explanation is made from the text of the rows it joins, so a caller with
+    limits may act on it only when it may read every labelled row at its ends. A source, a memory and a belief are checked
+    the way their own doors check them; an entity has no label. An end of any other kind, or an end that no longer
+    exists, cannot be shown to be readable and the edge is None for a caller with limits.
+    """
+
+    edge = store.get_edge(str(edge_id)) if edge_id is not None else None
+    if edge is None:
+        return None
+    if not SourceReadFence.for_identity(identity).entity_read_fenced:
+        return edge
+    from alicebot_api.routers.vnext_memories import _vnext_readable_source
+
+    for side in ("from", "to"):
+        kind, end_id = str(edge.get(f"{side}_type") or ""), edge.get(f"{side}_id")
+        if kind == "entity":
+            continue
+        if kind == "source":
+            readable = _vnext_readable_source(store, identity, end_id)  # type: ignore[arg-type]
+        elif kind == "memory":
+            readable = _vnext_readable_memory(store, identity, end_id)
+        elif kind == "belief":
+            readable = _vnext_readable_belief(store, identity, end_id)
+        else:
+            readable = None
+        if readable is None:
+            return None
+    return edge
