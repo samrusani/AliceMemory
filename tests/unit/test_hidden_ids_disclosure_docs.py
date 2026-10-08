@@ -36,6 +36,8 @@ def test_the_security_note_states_the_hidden_id_exception() -> None:
     assert "This is a known exception, not a way of meeting the requirement to filter hidden ids." in paragraph
     for field in ("candidate_memory_ids", "derived_from", "input_summary", "source_ids", "memory_ids", "source_refs", "stale_marked_memory_ids", "content_markdown"):
         assert f"`{field}`" in paragraph, field
+    assert "a 16-character digest of its title, text, summary and value (`member_snapshots`)" in paragraph
+    assert "none of these is the member's text" in paragraph
     assert "The artifact get and artifact trace routes return these lists as stored to any key whose limits admit the report" in paragraph
     assert "a read-only, project-scoped or project-bound key included" in paragraph
     assert "The artifact list, source trace, workspace and project dashboard are operator routes" in paragraph
