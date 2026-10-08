@@ -6,7 +6,7 @@ from uuid import uuid4
 import pytest
 
 from alicebot_api.vnext_derived_labels import with_derived_from
-from alicebot_api.vnext_project_scope import project_identifier_identity, project_scope_identity
+from alicebot_api.vnext_project_scope import project_identifier_identity
 from tests.integration.conftest import lock_label_fixture
 from tests.integration.derived_labels_postgres_support import label_harness  # noqa: F401
 
@@ -193,11 +193,50 @@ def _project_edges(h, row_id):
         return [edge for edge in store.list_edges(from_id=row_id) if edge["edge_type"] == "belongs_to_project"]
 
 
-@pytest.mark.parametrize("spelling", ["{uuid}", " {uuid} ", "  alpha-team  ", "\talpha-team\n", "ALPHA-TEAM", "alpha   team"])
-def test_a_plain_assignment_writes_the_project_edge_for_every_spelling(label_harness, spelling):
+def _assign_source_over_http(h, source_id, project_id):
+    status, body, _ = h.request("POST", f"/v0/vnext/sources/{source_id}/review",
+                                payload={"action": "assign_project", "project_id": project_id, "confirm_label_hide": True})
+    assert status == 200, body
+    return body
+
+
+def _source_project_edges(h, source_id):
+    with h.store() as store:
+        return [edge for edge in store.list_edges(from_id=source_id) if edge["edge_type"] == "belongs_to_project"]
+
+
+def _neighborhood_members(h, target):
+    """The ids that have an edge into ``target``, read through the mounted neighborhood route."""
+    status, body, _ = h.request("GET", f"/v0/vnext/graph/neighborhood/{target}")
+    assert status == 200, body
+    assert body["target_id"] == target
+    return [edge["from_id"] for edge in body["to_edges"]]
+
+
+# (request spelling, stored edge target). "{uuid}" is the project's canonical id, "{upper}" its upper-case form.
+# A UUID spelling is stored as the canonical id. Any other name keeps the text the stored scope holds.
+UUID_SPELLINGS = [
+    ("{uuid}", "{uuid}"),
+    ("{upper}", "{uuid}"),
+    (" {uuid} ", "{uuid}"),
+    ("\t{upper}\n", "{uuid}"),
+    ("  {upper}  ", "{uuid}"),
+]
+SLUG_SPELLINGS = [
+    ("alpha-team", "alpha-team"),
+    ("  alpha-team  ", "alpha-team"),
+    ("\talpha-team\n", "alpha-team"),
+    ("ALPHA-TEAM", "ALPHA-TEAM"),
+    ("alpha   team", "alpha team"),
+]
+
+
+@pytest.mark.parametrize("spelling,target", UUID_SPELLINGS + SLUG_SPELLINGS)
+def test_a_plain_assignment_writes_the_project_edge_for_every_spelling(label_harness, spelling, target):
     h = label_harness
     project_id = _project_with_slug(h)
-    requested = spelling.format(uuid=project_id)
+    fields = {"uuid": project_id, "upper": project_id.upper()}
+    requested, expected = spelling.format(**fields), target.format(**fields)
     with h.store() as store:
         memory = store.create_memory({"memory_key": str(uuid4()), "canonical_text": "plain candidate", "status": "candidate",
                                       "domain": "project", "sensitivity": "public", "metadata_json": {}})
@@ -208,10 +247,54 @@ def test_a_plain_assignment_writes_the_project_edge_for_every_spelling(label_har
     assert [project_identifier_identity(item) for item in stored] == [project_identifier_identity(requested)]
     edges = _project_edges(h, row_id)
     assert len(edges) == 1
-    assert project_scope_identity(edges[0]["to_id"]) == project_scope_identity(requested)
+    # The stored text itself, not a normalized copy of it.
+    assert edges[0]["to_id"] == expected
+    assert edges[0]["to_type"] == "project"
+    # Retrieval from the project's side: the neighborhood of the id the edge names holds the memory.
+    assert _neighborhood_members(h, expected) == [row_id]
 
 
-@pytest.mark.parametrize("spelling", ["{uuid}", " {uuid} "])
+@pytest.mark.parametrize("spelling,target", UUID_SPELLINGS + SLUG_SPELLINGS)
+def test_a_source_assignment_writes_one_project_edge_with_the_normalized_target(label_harness, spelling, target):
+    h = label_harness
+    project_id = _project_with_slug(h)
+    fields = {"uuid": project_id, "upper": project_id.upper()}
+    requested, expected = spelling.format(**fields), target.format(**fields)
+    source_id = str(h.source()["id"])
+    _assign_source_over_http(h, source_id, requested)
+    edges = _source_project_edges(h, source_id)
+    assert len(edges) == 1
+    assert edges[0]["to_id"] == expected
+    assert (edges[0]["from_type"], edges[0]["to_type"]) == ("source", "project")
+    assert _neighborhood_members(h, expected) == [source_id]
+
+
+def test_every_uuid_spelling_lands_in_the_one_project_neighborhood(label_harness):
+    h = label_harness
+    project_id = _project_with_slug(h)
+    fields = {"uuid": project_id, "upper": project_id.upper()}
+    memory_ids, source_ids = [], []
+    for index, (spelling, _target) in enumerate(UUID_SPELLINGS):
+        with h.store() as store:
+            memory = store.create_memory({"memory_key": str(uuid4()), "canonical_text": "plain candidate", "status": "candidate",
+                                          "domain": "project", "sensitivity": "public", "metadata_json": {}})
+        memory_ids.append(str(memory["id"]))
+        _assign_over_http(h, memory_ids[-1], spelling.format(**fields))
+        # A distinct text per source: a moved source's identity includes its text and project.
+        source_ids.append(str(h.source(text=f"Synthetic note {index}")["id"]))
+        _assign_source_over_http(h, source_ids[-1], spelling.format(**fields))
+    assert sorted(_neighborhood_members(h, project_id)) == sorted(memory_ids + source_ids)
+
+
+@pytest.mark.parametrize("spelling", [" ", "\t\n  "])
+def test_a_blank_source_project_id_writes_no_edge(label_harness, spelling):
+    h = label_harness
+    source_id = str(h.source()["id"])
+    _assign_source_over_http(h, source_id, spelling)
+    assert _source_project_edges(h, source_id) == []
+
+
+@pytest.mark.parametrize("spelling", ["{uuid}", " {uuid} ", "{upper}"])
 def test_a_refused_assignment_writes_no_project_edge(label_harness, spelling):
     h = label_harness
     projects = [str(uuid4()), str(uuid4())]
@@ -223,11 +306,12 @@ def test_a_refused_assignment_writes_no_project_edge(label_harness, spelling):
         memory = store.create_memory({"memory_key": str(uuid4()), "canonical_text": "Synthetic weekly summary", "status": "candidate",
                                       "domain": "project", "sensitivity": "public", "metadata_json": metadata})
     row_id = str(memory["id"])
-    body = _assign_over_http(h, row_id, spelling.format(uuid=projects[0]))
+    body = _assign_over_http(h, row_id, spelling.format(uuid=projects[0], upper=projects[0].upper()))
     assert body.get("label_floor_applied") is True
     with h.store() as store:
         assert store.get_memory(row_id)["project_scope"] == []
     assert _project_edges(h, row_id) == []
+    assert _neighborhood_members(h, projects[0]) == []
 
 
 def _audit(h):

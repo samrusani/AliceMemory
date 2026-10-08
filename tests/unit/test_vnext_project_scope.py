@@ -7,6 +7,7 @@ from alicebot_api.vnext_project_scope import (
     memory_project_scope,
     normalize_project_identifier,
     normalize_project_scope,
+    project_edge_target,
     project_identifier_identity,
     project_scope_identity,
     resolve_project_scope,
@@ -314,3 +315,65 @@ def test_source_metadata_adapter_exposes_envelope_and_direct_legacy_nested_forms
             "agentic_memory": {"project_scope": ["stale-direct-agentic"]},
         }
     ).values == ("scope-container-canonical",)
+
+
+PROJECT_UUID = "0fcdd69c-67e1-47c9-a2fe-2f873c484e68"
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        PROJECT_UUID,
+        PROJECT_UUID.upper(),
+        "0FCDD69C-67e1-47C9-a2fe-2F873c484E68",
+        f" {PROJECT_UUID} ",
+        f"\t{PROJECT_UUID.upper()}\n",
+        f"\r\n  {PROJECT_UUID.upper()}\f\v",
+    ],
+)
+def test_project_edge_target_folds_a_hyphenated_uuid_to_its_canonical_form(value: str) -> None:
+    assert project_edge_target(value) == PROJECT_UUID
+    # The edge names the same project identity the stored scope holds for that spelling.
+    assert project_identifier_identity(project_edge_target(value)) == project_identifier_identity(value)
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        ("alpha-team", "alpha-team"),
+        ("  alpha-team  ", "alpha-team"),
+        ("\talpha-team\n", "alpha-team"),
+        ("ALPHA-TEAM", "ALPHA-TEAM"),
+        ("alpha   team", "alpha team"),
+        ("prj_0123456789abcdef", "prj_0123456789abcdef"),
+        ("Café", "Café"),
+        ("\u00a0alpha\u00a0", "\u00a0alpha\u00a0"),
+    ],
+)
+def test_project_edge_target_keeps_the_stored_scope_text_for_any_other_name(value: str, expected: str) -> None:
+    assert project_edge_target(value) == expected
+    assert normalize_project_scope([value]) == (expected,)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "{" + PROJECT_UUID.upper() + "}",
+        "URN:UUID:" + PROJECT_UUID.upper(),
+        PROJECT_UUID.upper().replace("-", ""),
+        PROJECT_UUID.upper()[:-1],
+        PROJECT_UUID.upper() + "0",
+        "Z" + PROJECT_UUID.upper()[1:],
+        "xx " + PROJECT_UUID.upper(),
+    ],
+)
+def test_project_edge_target_reads_only_the_hyphenated_spelling_as_a_uuid(value: str) -> None:
+    # Any other spelling is a different identity in the scope helpers, so it stays the text the scope holds.
+    assert project_edge_target(value) == normalize_project_identifier(value)
+    assert project_edge_target(value) != value.lower()
+
+
+@pytest.mark.parametrize("value", ["", " ", "\t\n  ", None])
+def test_project_edge_target_is_empty_when_no_project_is_named(value: object) -> None:
+    assert project_edge_target(value) == ""
+
