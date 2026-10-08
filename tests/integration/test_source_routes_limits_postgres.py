@@ -177,7 +177,9 @@ def test_every_profile_verb_and_source(label_harness, profile, verb):
         assert status == want, (profile, verb, kind, body)
         if want == 404:
             # Regenerate is refused to every limited caller before the lookup, so only the owner and an unbound admin see its 404.
-            expected_body = {"detail": "vNext source was not found"} if verb == "regenerate" else _not_found(world.ids[kind])
+            # A review of a missing source keeps the owner's and the unbound admin's earlier text; a key with a ceiling gets the GET body.
+            plain = verb == "regenerate" or (verb != "delete" and profile in {"owner", "admin"})
+            expected_body = {"detail": "vNext source was not found"} if plain else _not_found(world.ids[kind])
             assert body == expected_body, (profile, verb, kind)
         if want in {403, 404}:
             if kind != "missing":
@@ -404,3 +406,161 @@ def test_claims_that_contradict_each_other_are_refused_before_anything_changes(l
     )
     assert status == 400 and body == {"detail": "vNext agent identity claims are invalid"}
     assert _snapshot(h) == before
+
+
+def _movable_source(h, tag: str, alpha: str, *, readable: int, hidden: int) -> str:
+    """A public source in alpha, ``readable`` public memories that name it and ``hidden`` confidential rows that name it.
+
+    The hidden rows are memories and artifacts in turn, the two kinds a source move counts. Every text is unique, so no two sources collide.
+    """
+    with h.store() as store:
+        row = store.create_source(
+            {
+                "source_type": "note", "title": f"MOVE-{tag}", "content_hash": str(uuid4()), "domain": "project",
+                "sensitivity": "public", "metadata_json": {"project_scope": [alpha], "raw_text": f"RAW-MOVE-{tag}"},
+            }
+        )
+        source_id = str(row["id"])
+        for index in range(readable):
+            store.create_memory(
+                {
+                    "memory_key": str(uuid4()), "canonical_text": f"MOVE-OPEN-{tag}-{index}", "status": "candidate",
+                    "domain": "project", "sensitivity": "public",
+                    "metadata_json": {"project_scope": [alpha], "source_id": source_id},
+                }
+            )
+        for index in range(hidden):
+            if index % 2 == 0:
+                store.create_memory(
+                    {
+                        "memory_key": str(uuid4()), "canonical_text": f"MOVE-SECRET-{tag}-{index}", "status": "candidate",
+                        "domain": "project", "sensitivity": "confidential",
+                        "metadata_json": {"project_scope": [alpha], "source_id": source_id},
+                    }
+                )
+            else:
+                store.create_artifact(
+                    {
+                        "artifact_type": "daily_brief", "title": f"MOVE-SECRET-{tag}-{index}",
+                        "content_markdown": f"MOVE-SECRET-{tag}-{index}", "domain": "project", "sensitivity": "confidential",
+                        "metadata_json": {"project_scope": [alpha], "source_ids": [source_id]},
+                    }
+                )
+    return source_id
+
+
+def _projects(h) -> tuple[str, str]:
+    alpha, beta = str(uuid4()), str(uuid4())
+    with h.store() as store:
+        for identifier in (alpha, beta):
+            store.create_project({"id": identifier, "name": identifier, "slug": identifier})
+    return alpha, beta
+
+
+def _move(h, source_id: str, beta: str, key, *, confirm: bool = False):
+    payload = {"action": "assign_project", "project_id": beta}
+    if confirm:
+        payload["confirm_label_hide"] = True
+    return h.request("POST", f"/v0/vnext/sources/{source_id}/review", payload=payload, key=key)
+
+
+def _answer_without_source(body: dict) -> dict:
+    return {name: value for name, value in body.items() if name not in {"source", "trace"}}
+
+
+@pytest.mark.parametrize("hidden", [1, 2, 3, 5])
+def test_the_move_preview_does_not_count_rows_above_the_callers_ceiling(label_harness, hidden):
+    """A source with no readable dependant moves plainly whatever it has above the ceiling, so the answer holds no count."""
+    h = label_harness
+    alpha, beta = _projects(h)
+    key = h.key("trusted_local_agent")
+    reference = _movable_source(h, f"ref-{hidden}", alpha, readable=0, hidden=0)
+    with_hidden = _movable_source(h, f"hid-{hidden}", alpha, readable=0, hidden=hidden)
+    first = _move(h, reference, beta, key)
+    second = _move(h, with_hidden, beta, key)
+    assert first[0] == second[0] == 200
+    assert _answer_without_source(first[1]) == _answer_without_source(second[1]) == {"archived": False}
+    assert "preview" not in second[1] and "derived_rows_hidden_from_project_keys" not in json.dumps(second[1])
+    assert _stored(h, with_hidden)["metadata_json"]["project_scope"] == [beta]
+    assert "MOVE-SECRET" not in json.dumps(second[1])
+
+
+def test_the_move_preview_counts_only_the_rows_the_caller_may_read(label_harness):
+    h = label_harness
+    alpha, beta = _projects(h)
+    key = h.key("trusted_local_agent")
+    source_id = _movable_source(h, "mixed", alpha, readable=2, hidden=3)
+    before = _snapshot(h)
+    status, body, _ = _move(h, source_id, beta, key)
+    assert status == 200
+    assert body == {"preview": True, "derived_rows_hidden_from_project_keys": 2, "confirm_required": True}
+    assert _snapshot(h) == before
+    assert "MOVE-SECRET" not in json.dumps(body)
+    status, body, _ = _move(h, source_id, beta, key, confirm=True)
+    assert status == 200 and body["source"]["metadata_json"]["project_scope"] == [beta]
+    assert "MOVE-SECRET" not in json.dumps(body)
+    assert "MOVE-OPEN-mixed" in json.dumps(body["trace"])
+
+
+@pytest.mark.parametrize("profile", ["owner", "admin"])
+def test_the_owner_and_an_unbound_admin_see_the_exact_preview_count(label_harness, profile):
+    h = label_harness
+    alpha, beta = _projects(h)
+    key = None if profile == "owner" else h.key("admin_agent")
+    source_id = _movable_source(h, f"exact-{profile}", alpha, readable=2, hidden=3)
+    before = _snapshot(h)
+    status, body, _ = _move(h, source_id, beta, key)
+    assert status == 200
+    assert body == {"preview": True, "derived_rows_hidden_from_project_keys": 5, "confirm_required": True}
+    assert _snapshot(h) == before
+    status, body, _ = _move(h, source_id, beta, key, confirm=True)
+    assert status == 200 and body["source"]["metadata_json"]["project_scope"] == [beta]
+    assert any("MOVE-SECRET" in json.dumps(row) for row in body["trace"]["candidate_memories"])
+
+
+def test_a_missing_source_keeps_the_text_the_owner_and_an_unbound_admin_always_had(label_harness):
+    h = label_harness
+    missing = str(uuid4())
+    # The owner calls before any key exists; once an install has keys, a call with none is refused.
+    status, body, _ = h.request("POST", f"/v0/vnext/sources/{missing}/review", payload={"action": "review"})
+    assert status == 404 and body == {"detail": "vNext source was not found"}
+    status, body, _ = h.request(
+        "POST", f"/v0/vnext/sources/{missing}/review", payload={"action": "review"}, key=h.key("admin_agent")
+    )
+    assert status == 404 and body == {"detail": "vNext source was not found"}
+    status, body, _ = h.request(
+        "POST", f"/v0/vnext/sources/{missing}/review", payload={"action": "review"}, key=h.key("trusted_local_agent")
+    )
+    assert status == 404 and body == _not_found(missing)
+
+
+def test_the_move_preview_judges_a_row_on_its_effective_labels(label_harness):
+    """A report stored as public that also names a confidential source is above the ceiling, and is not counted."""
+    h = label_harness
+    alpha, beta = _projects(h)
+    key = h.key("trusted_local_agent")
+    source_id = _movable_source(h, "effective", alpha, readable=1, hidden=0)
+    with h.store() as store:
+        other = store.create_source(
+            {
+                "source_type": "note", "title": "MOVE-SECRET-other", "content_hash": str(uuid4()), "domain": "project",
+                "sensitivity": "confidential", "metadata_json": {"project_scope": [alpha], "raw_text": "RAW-MOVE-other"},
+            }
+        )
+        report = store.create_artifact(
+            {
+                "artifact_type": "daily_brief", "title": "MOVE-SECRET-report", "content_markdown": "MOVE-SECRET-report",
+                "domain": "project", "sensitivity": "confidential",
+                "metadata_json": {"project_scope": [alpha], "source_ids": [source_id, str(other["id"])]},
+            }
+        )
+        # The stored label is public; only the label settled from its inputs puts it above the ceiling.
+        with store.conn.cursor() as cur:
+            cur.execute("UPDATE generated_artifacts SET sensitivity = 'public' WHERE id = %s::uuid", (str(report["id"]),))
+        assert store.get_artifact(str(report["id"]))["sensitivity"] == "public"
+    status, body, _ = _move(h, source_id, beta, key)
+    assert status == 200
+    assert body == {"preview": True, "derived_rows_hidden_from_project_keys": 1, "confirm_required": True}
+    status, body, _ = _move(h, source_id, beta, h.key("admin_agent"))
+    assert status == 200
+    assert body == {"preview": True, "derived_rows_hidden_from_project_keys": 2, "confirm_required": True}
