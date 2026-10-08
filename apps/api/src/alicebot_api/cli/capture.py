@@ -361,7 +361,7 @@ def _run_vnext_dogfooding_dashboard(ctx: CLIContext, _args: argparse.Namespace) 
 
 def _run_vnext_doctor(ctx: CLIContext, args: argparse.Namespace) -> str:
     with _vnext_store_context(ctx) as store:
-        payload = VNextDoctorService(store).run(fix_safe=args.fix_safe, ci=args.ci)
+        payload = VNextDoctorService(store).run(fix_safe=args.fix_safe, ci=args.ci, record_label_check=True)
     output = _json_dumps(payload)
     if _object_int(payload.get("blocking_failure_count")) > 0:
         print(output)

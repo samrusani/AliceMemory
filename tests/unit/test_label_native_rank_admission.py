@@ -100,6 +100,37 @@ def test_native_rank_dag_matches_complete_kernel_and_keeps_full_projections():
         assert_only_full_labels(state)
 
 
+SCOPES = ([], ["P1"], ["P2"], ["P1", "P2"], ["P1", "P1", " p2 "])
+
+
+@pytest.mark.parametrize("seed", range(40))
+def test_scoped_graphs_publish_the_ranks_of_the_complete_kernel(seed):
+    """A project scope or floor never changes a sensitivity, so a scoped graph keeps its reduced proof.
+
+    Mutation: refuse a non-empty scope or floor again (a vault with project-scoped sources has them).
+    """
+    rng = random.Random(seed)
+    sources, roots = mixed_rows()
+    for row in (*sources, *roots):
+        row["metadata_json"]["project_scope"] = list(rng.choice(SCOPES))
+        row["metadata_json"]["project_floor"] = list(rng.choice(SCOPES))
+    expected = full_labels(sources + roots)
+    by_id = {label.normalized_id: label for label in expected.rows if label.kind == "memory"}
+    assert any(label.project_scope or label.project_floor for label in by_id.values())
+    visible = {row["id"] for row in roots if not by_id[str(row["id"])].unverified and by_id[str(row["id"])].sensitivity == "public"}
+    store = NativeRows(sources + roots, roots)
+    with guards.label_read_scope(store):
+        guard = guards.LabelGuard(store, active=True, sensitivity_allowed=("public",))
+        assert guard.readable_status_counts("memory") == ({"active": len(visible)} if visible else {})
+        assert {row["id"] for row in guard.admit_rows("memory", roots)} == visible
+        state = guard._state()
+        assert len(state.rank_origins) == len(roots)
+        assert not state.labels and not state.native_labels
+        for row in roots:
+            assert state.rank_origins[("memory", str(row["id"]))][1] == SENSITIVITY_RANK[by_id[str(row["id"])].sensitivity]
+        assert_only_full_labels(state)
+
+
 CEILINGS = [tuple(value for value, rank in SENSITIVITY_RANK.items() if rank <= high) for high in range(1, 7)]
 CEILINGS += [("public", "internal"), ("public", "unknown"), ("public", "confidential"),
              ("public", "internal", "unknown", "private", "confidential", "highly_sensitive", "sacred"),
@@ -122,7 +153,8 @@ def test_all_rank_boundaries_and_split_allowances_match_full_labels(sensitivity,
 
 
 @pytest.mark.parametrize("variant", ("missing", "malformed-counts", "malformed-marker", "floor-null", "scope-null",
-    "scoped", "cycle", "alias", "implicit-weekly", "implicit-weekly-json", "node-bound", "hop-bound"))
+    "scope-string", "floor-mapping", "legacy-alias", "cycle", "alias", "implicit-weekly", "implicit-weekly-json",
+    "node-bound", "hop-bound"))
 def test_unsupported_graphs_use_full_kernel_without_publishing_ranks(monkeypatch, variant):
     sources, roots = mixed_rows()
     rows = sources + roots
@@ -136,8 +168,12 @@ def test_unsupported_graphs_use_full_kernel_without_publishing_ranks(monkeypatch
         roots[0]["metadata_json"]["project_floor"] = None
     elif variant == "scope-null":
         roots[0]["metadata_json"]["project_scope"] = None
-    elif variant == "scoped":
-        sources[0]["metadata_json"]["project_scope"] = ["P1"]
+    elif variant == "scope-string":
+        sources[0]["metadata_json"]["project_scope"] = "P1"
+    elif variant == "floor-mapping":
+        roots[0]["metadata_json"]["project_floor"] = {"P1": True}
+    elif variant == "legacy-alias":
+        sources[0]["metadata_json"]["project_id"] = "P1"
     elif variant == "cycle":
         roots[0]["metadata_json"] = with_derived_from({}, {"memories": [roots[1]]})
         roots[1]["metadata_json"] = with_derived_from({}, {"memories": [roots[0]], "sources": [sources[1]]})
