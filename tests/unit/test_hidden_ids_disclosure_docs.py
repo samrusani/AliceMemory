@@ -73,7 +73,8 @@ def test_the_known_limitations_page_lists_both_limits() -> None:
     page = _text("docs/alpha/known-limitations.md")
     paragraph = _paragraph(page, f"- {IDS}")
     assert "such as the candidate memory a report made or a source archived since" in paragraph
-    assert "The ids reveal that the row exists and grant no access" in paragraph
+    assert "The ids grant no access and show that the row exists" in paragraph
+    assert "which can repeat the row's labels" in paragraph
     assert "a known exception, not a way of meeting the requirement to filter hidden ids" in paragraph
     assert "withholding them is tracked for v0.21.0" in paragraph
     assert "(see the [draft security note](../release/derived-labels-security-note-draft.md))" in paragraph
@@ -85,7 +86,7 @@ def test_the_known_limitations_page_lists_both_limits() -> None:
 def test_the_changelog_has_one_entry_for_each() -> None:
     entries = [line.removeprefix("- ") for line in _text("CHANGELOG.md").splitlines() if line.startswith("- ")]
     for start, phrases in (
-        (IDS, ("and the notes now say so", "any key whose limits admit the report", "they grant no access", "This is a known exception, not a way of meeting the requirement to filter hidden ids", "is tracked for v0.21.0")),
+        (IDS, ("and the notes now say so", "any key whose limits admit the report", "they grant no access", "can repeat its domain, sensitivity and project scope", "This is a known exception, not a way of meeting the requirement to filter hidden ids", "is tracked for v0.21.0")),
         (VECTOR, ("fewer results than exist, down to none", "Tracked for v0.21.0")),
         (BELIEF + " apply the caller's limits", ("In v0.19.2, in v0.20.0 and on main until now", "change the stored row", "where it raised a server error")),
     ):

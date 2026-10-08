@@ -16,6 +16,9 @@ For each call:
   is the known exception that the security note names, and this list is its boundary: a door that is not on it must
   answer a hidden id exactly as it answers a missing one, and a door on it must still refuse.
 
+A search door takes the id as the text of a query. A query is read for dates, and a random id that holds a year asks for
+that year's memories, so two ids can honestly get different results. A search door is held to the first two rules only.
+
 A positive control runs the same doors on rows the profile may read, so the matrix cannot pass because every door
 refuses everything.
 """
@@ -84,7 +87,7 @@ def test_a_hidden_id_gives_no_access_through_any_door(label_harness, monkeypatch
             leaked = [word for word in vault.secrets.get((kind, reason), []) if word in got.body]
             if leaked:
                 failures.append(f"{label}: answered with {leaked}")
-            if got != missing and not (door.name in POLICY_REFUSAL_DOORS and got.refused):
+            if not door.search and got != missing and not (door.name in POLICY_REFUSAL_DOORS and got.refused):
                 failures.append(f"{label}: {got} differs from a missing id: {missing}")
     assert calls == len(DOOR_GROUPS[group]) * len(hidden), calls
     assert not failures, "\n".join(failures[:25])

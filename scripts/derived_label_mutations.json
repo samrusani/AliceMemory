@@ -310,7 +310,7 @@
           "line": 78,
           "before": "while graph edge explanations and the new doctor label counts remain outside that ceiling (see the [draft security note](../release/derived-labels-security-note-draft.md))",
           "after": "",
-          "sha256": "7c8f43e6fe0b4e3f8ca40dfa5358aa9c7de43a38b13421459867bbfd0344f366"
+          "sha256": "78462d50bb30bd351f96944432012d8b371a5dbd84bded56d408825f65331cce"
         }
       ],
       "pytest": [
@@ -342,7 +342,7 @@
           "line": 17,
           "before": "doctor label counts are new in this set and remain outside that ceiling",
           "after": "doctor label counts are new in this set",
-          "sha256": "1910746feac0adb4d196180f189e5c085ac95546ed43b4abc42c99be96eb3f20"
+          "sha256": "95610c9ae9d52b9304c0267e1cec26925d1864eb0c2bb3c7ad8e1c083d209e5e"
         }
       ],
       "pytest": [
@@ -1015,7 +1015,7 @@
           "line": 5,
           "before": "stays refused to every key but an unbound `admin_agent`",
           "after": "stays refused",
-          "sha256": "1910746feac0adb4d196180f189e5c085ac95546ed43b4abc42c99be96eb3f20"
+          "sha256": "95610c9ae9d52b9304c0267e1cec26925d1864eb0c2bb3c7ad8e1c083d209e5e"
         }
       ],
       "pytest": [
@@ -1335,7 +1335,7 @@
           "line": 79,
           "before": "withholding them is tracked for v0.21.0",
           "after": "withholding them is tracked",
-          "sha256": "7c8f43e6fe0b4e3f8ca40dfa5358aa9c7de43a38b13421459867bbfd0344f366"
+          "sha256": "78462d50bb30bd351f96944432012d8b371a5dbd84bded56d408825f65331cce"
         }
       ],
       "pytest": [
@@ -1351,7 +1351,7 @@
           "line": 80,
           "before": "down to none; tracked for v0.21.0",
           "after": "down to none",
-          "sha256": "7c8f43e6fe0b4e3f8ca40dfa5358aa9c7de43a38b13421459867bbfd0344f366"
+          "sha256": "78462d50bb30bd351f96944432012d8b371a5dbd84bded56d408825f65331cce"
         }
       ],
       "pytest": [
@@ -1383,7 +1383,7 @@
           "line": 6,
           "before": "where it raised a server error",
           "after": "",
-          "sha256": "1910746feac0adb4d196180f189e5c085ac95546ed43b4abc42c99be96eb3f20"
+          "sha256": "95610c9ae9d52b9304c0267e1cec26925d1864eb0c2bb3c7ad8e1c083d209e5e"
         }
       ],
       "pytest": [

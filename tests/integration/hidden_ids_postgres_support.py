@@ -205,9 +205,18 @@ def snapshot(h) -> dict[str, list[str]]:
 
 @dataclass(frozen=True)
 class Door:
+    """One way a key can name an id. A search door takes the id as the text of a query.
+
+    The text of a query is read for dates and words as well as ids. A random UUID that happens to hold a year such as 2026
+    asks for the memories of that year, so two random ids can honestly get different results from a search. A search door
+    is therefore held to the rule that nothing of the row comes back and nothing changes, and not to an answer equal to
+    the one for a missing id.
+    """
+
     name: str
     write: bool
     call: object  # (env, key, row_id) -> Answer
+    search: bool = False
 
 
 class Env:
@@ -265,11 +274,11 @@ READ_DOORS = (
     Door("tool explain entity_id", False, tool_door("alice_explain", lambda i: {"entity_id": i})),
     Door("tool review item", False, tool_door("alice_memory_review", lambda i: {"review_item_id": i})),
     Door("tool review object", False, tool_door("alice_memory_review", lambda i: {"continuity_object_id": i})),
-    Door("tool recall by id", False, tool_door("alice_recall", lambda i: {"query": i})),
-    Door("tool context pack by id", False, tool_door("alice_context_pack", lambda i: {"query": i})),
-    Door("POST context pack by id", False, http_door("POST", "/v0/vnext/context-packs", lambda i: {"query": i})),
-    Door("tool resume by id", False, tool_door("alice_resume", lambda i: {"query": i})),
-    Door("tool recent decisions by id", False, tool_door("alice_recent_decisions", lambda i: {"query": i})),
+    Door("tool recall by id", False, tool_door("alice_recall", lambda i: {"query": i}), search=True),
+    Door("tool context pack by id", False, tool_door("alice_context_pack", lambda i: {"query": i}), search=True),
+    Door("POST context pack by id", False, http_door("POST", "/v0/vnext/context-packs", lambda i: {"query": i}), search=True),
+    Door("tool resume by id", False, tool_door("alice_resume", lambda i: {"query": i}), search=True),
+    Door("tool recent decisions by id", False, tool_door("alice_recent_decisions", lambda i: {"query": i}), search=True),
     Door("tool open loops list", False, tool_door("alice_open_loops", lambda i: {"action": "list", "loop_id": i})),
 )
 

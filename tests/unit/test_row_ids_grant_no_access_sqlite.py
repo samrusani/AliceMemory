@@ -3,8 +3,10 @@
 SQLite has no HTTP route and no artifact table, so the doors a key reaches are the tools. Each case builds a vault with
 sources, memories and open loops hidden for each reason, gives a real key of each profile, and calls every tool that
 takes an id with every id that profile may not read. The rules are those of the PostgreSQL matrix in
-``tests/integration/test_row_ids_grant_no_access_postgres.py``: the call changes exactly what a missing id changes, nothing of the row comes
-back, and the answer is the one a missing id gets, except at the doors named in ``POLICY_REFUSAL_DOORS``.
+``tests/integration/test_row_ids_grant_no_access_postgres.py``: the call changes exactly what a missing id changes,
+nothing of the row comes back, and the answer is the one a missing id gets, except at the doors named in
+``POLICY_REFUSAL_DOORS`` and at the search doors, which take the id as query text and are held to the first two rules
+only.
 """
 from __future__ import annotations
 
@@ -172,7 +174,7 @@ def test_a_hidden_id_gives_no_access_through_any_tool(tmp_path, monkeypatch, pro
             leaked = [word for word in secrets.get((kind, reason), []) if word in got.body]
             if leaked:
                 failures.append(f"{label}: answered with {leaked}")
-            if got != missing and not (door.name in POLICY_REFUSAL_DOORS and got.refused):
+            if not door.search and got != missing and not (door.name in POLICY_REFUSAL_DOORS and got.refused):
                 failures.append(f"{label}: {got} differs from a missing id: {missing}")
     assert calls > 100, calls
     assert not failures, "\n".join(failures[:25])
