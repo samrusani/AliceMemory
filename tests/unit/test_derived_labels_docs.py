@@ -196,7 +196,7 @@ def test_october_six_correction_distinguishes_the_new_doctor_counts() -> None:
 
 def test_known_limitations_discloses_graph_outside_ceiling_and_doctor_omission() -> None:
     limits = _text("docs/alpha/known-limitations.md")
-    assert "the doctor routes omit their content checks for callers with limits, while graph edge explanations remain outside that ceiling" in limits
+    assert "and doctor omits content checks for keys with limits, but graph edge explanations remain outside that ceiling" in limits
     assert "new doctor label counts" not in limits
     assert "derived-labels-security-note-draft.md" in limits
 
