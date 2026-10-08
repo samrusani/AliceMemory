@@ -189,30 +189,48 @@ def test_october_six_correction_distinguishes_the_new_doctor_counts() -> None:
     notes = _text("docs/release/v0.20.0-release-notes.md")
     correction = notes.split("> **Correction (2026-10-06):**", 1)[1].split("\n", 1)[0]
     assert "Doctor's derived-label check counts are new in this set, absent from v0.20.0 and baseline main 48873b03" in correction
-    assert "outside the caller's sensitivity ceiling" in correction
+    assert "and the doctor routes omit them for callers with limits" in correction
+    assert "outside the caller's sensitivity ceiling" not in correction
     assert "These limits also occur in v0.20.0" not in correction
 
 
-def test_known_limitations_discloses_graph_and_new_doctor_counts_outside_ceiling() -> None:
+def test_known_limitations_discloses_graph_outside_ceiling_and_doctor_omission() -> None:
     limits = _text("docs/alpha/known-limitations.md")
-    assert "graph edge explanations and the new doctor label counts remain outside that ceiling" in limits
+    assert "and doctor omits content checks for keys with limits, but graph edge explanations remain outside that ceiling" in limits
+    assert "new doctor label counts" not in limits
     assert "derived-labels-security-note-draft.md" in limits
 
 
-def test_draft_security_note_distinguishes_baseline_graph_from_new_doctor_counts() -> None:
+def test_draft_security_note_distinguishes_baseline_graph_from_doctor_content_checks() -> None:
     note = _text("docs/release/derived-labels-security-note-draft.md")
     assert "Graph neighborhood still returns edge explanations outside that ceiling; that behavior predates this set" in note
-    assert "Doctor's aggregate derived-label check counts are new in this set, absent from v0.20.0 and baseline main 48873b03" in note
-    assert "remain outside the caller's sensitivity ceiling and visible to trusted keys" in note
+    assert "Doctor's aggregate derived-label check counts are new in this set, absent from v0.20.0 and baseline main 48873b03." in note
+    assert "now omit their content diagnostics for callers with limits" in note
+    assert "The flagged-source ids were returned to trusted keys in v0.20.0 and baseline main 48873b03" in note
+    assert "visible to trusted keys" not in note
+    assert "remain outside the caller's sensitivity ceiling" not in note
     assert "These behaviors also occur on the baseline" not in note
 
 
-def test_source_get_operator_gate_and_doctor_ceiling_are_explicit_in_changelog() -> None:
+def test_source_get_operator_gate_and_doctor_omission_are_explicit_in_changelog() -> None:
     changelog = _text("CHANGELOG.md")
     assert "Source GET retains its operator gate before applying the full caller fence" in changelog
-    assert "doctor label counts are new in this set and remain outside that ceiling" in changelog
+    assert "doctor label counts are new in this set and remain outside that ceiling" not in changelog
+    assert "omit content diagnostics for a caller with limits" in changelog
+    assert "v0.20.0 and the 48873b03 baseline returned the `flagged_sources` ids to a trusted key" in changelog
     tools = _text("docs/alpha/mcp-tools.md")
     assert "Source GET evaluates `http.operator.access` before its source fence" in tools
     assert "Other profiles and project-bound keys receive HTTP 403, including for missing ids" in tools
     note = _text("docs/release/derived-labels-security-note-draft.md")
     assert "source GET keeps the operator gate" in note
+
+
+def test_doctor_page_and_runbook_say_who_receives_the_content_checks() -> None:
+    doctor = " ".join(_text("docs/alpha/doctor.md").split())
+    assert "run them only for the owner and an unbound admin key" in doctor
+    assert "it receives both with status `skipped`" in doctor
+    assert 'the message "Content diagnostics are available to the owner and an unbound admin key."' in doctor
+    assert "Other profiles and project-bound keys are refused by the gate (HTTP 403)" in doctor
+    assert "In v0.20.0 the routes returned the `flagged_sources` ids to a trusted key." in doctor
+    runbook = " ".join(_text("docs/runbooks/health-and-monitoring.md").split())
+    assert "receives the `flagged_sources` and `derived_labels` checks as `skipped`" in runbook
