@@ -435,7 +435,7 @@ def test_a_source_with_a_leading_zero_named_with_whitespace_keeps_its_quote_from
 
     Mutation: in ``_uuid_text`` (``vnext_source_fence.py``) read only the stripped text (``for candidate in (text.strip(),)``):
     every case fails; read only ``text`` in ``_whole_id`` (``for whole in (text,)``): the newline case fails; let
-    ``_SOURCE_PREFIXES`` take the whitespace after the prefix again: the cases with ``source:`` and a space or tab fail.
+    ``_source_prefixes_end`` take the whitespace after the prefix again: the cases with ``source:`` and a space or tab fail.
     """
 
     allowed, restricted = _two_sources_with_a_zero_led_b(vault, zeros)
