@@ -184,13 +184,20 @@ def test_a_hidden_id_gives_no_access_through_any_tool(tmp_path, monkeypatch, pro
     for door in doors:
         before = snapshot(path)
         missing = door.call(env, key, str(uuid4()))
-        missing_changed = changes(before, snapshot(path))
+        missing_changed = changes(before, snapshot(path), search=door.search)
         for (kind, reason), row_id in hidden.items():
             before = snapshot(path)
             got = door.call(env, key, row_id)
             calls += 1
             label = f"{profile} / {door.name} / {kind} hidden as {reason}"
-            changed = changes(before, snapshot(path))
+            after = snapshot(path)
+            changed = changes(before, after, search=door.search)
+            if door.search:
+                # A search door is compared by the kind of row it wrote, so the words of the row are looked for in what it wrote.
+                written = json.dumps(changes(before, after), default=str)
+                wrote = [word for word in secrets.get((kind, reason), []) if word in written]
+                if wrote:
+                    failures.append(f"{label}: wrote {wrote}")
             if changed != missing_changed:
                 failures.append(
                     f"{label}: changed {json.dumps(changed)[:300]} where a missing id changes {json.dumps(missing_changed)[:300]}"

@@ -490,11 +490,39 @@ ALL_DOORS = READ_DOORS + WRITE_DOORS + REFERENCE_DOORS
 ROWS_THAT_ARE_UPDATED_BY_EVERY_CALL = frozenset({"agent_identities"})
 
 
-def changes(before: dict[str, list[str]], after: dict[str, list[str]]) -> dict[str, list[str]]:
+# A search door takes the id as the text of a query. A random id that reads as a date, a number or a word of a stored row gets
+# a different pack: other counts, a different token estimate, a warning that nothing relevant was selected. 70 vaults of 16
+# ids each gave 9 ids whose pack was 764 tokens where a missing id's was 1,054, and one whose pack had no warning where a
+# missing id's had one. So the rows a search door's call writes are compared by their kind: an event by its type, its actor
+# and its target type, and the rows of any other table with their numbers replaced.
+_NUMBER = re.compile(r"(?<![\w.<])-?\d+(?:\.\d+)?(?![\w.>])")
+_EVENT_TABLES = ("event_log", "events")
+
+
+def _event_kind(row: str) -> str:
+    """An event row written by a search door, reduced to its type, actor and target type (the sign stays)."""
+    sign, body = row[0], row[1:]
+    try:
+        data = json.loads(body)
+        if isinstance(data, str):  # ``normalize`` wrote the row's own JSON text as a JSON string
+            data = json.loads(data)
+    except ValueError:
+        return row
+    if isinstance(data, dict):  # a PostgreSQL row, as row_to_json wrote it
+        fields = (data.get("event_type"), data.get("actor_type"), data.get("target_type"))
+    elif isinstance(data, list) and len(data) > 5:  # a SQLite row: id, user, event type, actor type, actor id, target type
+        fields = (data[2], data[3], data[5])
+    else:
+        return row
+    return sign + "|".join(str(field) for field in fields)
+
+
+def changes(before: dict[str, list[str]], after: dict[str, list[str]], *, search: bool = False) -> dict[str, list[str]]:
     """What a call did: for each table, the rows it added or removed, with generated ids and instants replaced.
 
     Two calls that did the same thing give the same answer, whatever the ids they made, so a call on a hidden id can be
-    compared with a call on a missing id row by row and not only table by table.
+    compared with a call on a missing id row by row and not only table by table. For a search door (``search``) the rows are
+    compared by their kind, as described above.
     """
     result = {}
     for table in before:
@@ -504,7 +532,10 @@ def changes(before: dict[str, list[str]], after: dict[str, list[str]]) -> dict[s
         if table in ROWS_THAT_ARE_UPDATED_BY_EVERY_CALL:
             result[table] = ["updated"]  # the row of a key records when it was last seen, so a repeat call rewrites it
         else:
-            result[table] = sorted(["+" + normalize(row) for row in added] + ["-" + normalize(row) for row in removed])
+            rows = sorted(["+" + normalize(row) for row in added] + ["-" + normalize(row) for row in removed])
+            if search:
+                rows = sorted(_event_kind(row) if table in _EVENT_TABLES else _NUMBER.sub("<N>", row) for row in rows)
+            result[table] = rows
     return result
 
 

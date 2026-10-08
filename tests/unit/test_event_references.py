@@ -348,7 +348,7 @@ PAYLOAD_IDS_WITHOUT_A_LABEL = {
     "provenance_link_id": "a link row: it carries no text and its ends are the target and the memory",
     "quality_rating_id": "a rating row; the artifact it rates is the target",
     "relationship_event_id": "an event row",
-    "reviewer_id": "a reviewer name",
+    "reviewer_id": "the name given with a rating",
     "revision_id": "a revision row of the target memory",
     "run_id": "a run",
     "scheduler_run_id": "a scheduler run",
