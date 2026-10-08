@@ -36,6 +36,7 @@ SQLITE_CARRIER_PATH = REPO_ROOT / "apps/api/src/alicebot_api/vnext_stores/sqlite
 
 POSTGRES_METHODS = (
     "create_edge",
+    "get_edge",
     "find_edge_by_idempotency_digest",
     "upsert_edge_by_idempotency_digest",
     "list_edges",
@@ -117,7 +118,8 @@ SOURCE_RECEIPTS = {
     # the shared unscoped call site can state ``None`` for both, and it refuses anything else, since the Postgres
     # runtime resolves no project view (reviewed change, not drift).
     # The file hash now matches the carrier after the label lock. Previous receipt e4724ba1...
-    POSTGRES_CARRIER_PATH: "dda88f24e77df21886653e337ff8afdf325cd66dd62cee311eeb3bab31d0b86f",
+    # Re-minted for ``get_edge`` (2026-10-08), one new reader beside ``create_edge``. Previous receipt dda88f24...
+    POSTGRES_CARRIER_PATH: "b40208dc32a48e0d67f08825cc7e6a9d66db8fb05e45b11fb87b26b863902fb6",
     # The SQLite carrier is re-minted, with its method AST manifest below, for
     # ``list_open_loops`` and ``list_open_loop_events``: they bind a query through
     # ``literal_match_operand`` and so refuse one past the LIKE operand limit.
@@ -142,12 +144,12 @@ SOURCE_RECEIPTS = {
 }
 EXPECTED_METHOD_AST_MANIFESTS = {
     # Postgres manifest matches the carrier after the label lock. Previous 25580884...
-    POSTGRES_CARRIER_PATH: "4de0ce4dc69301b45a8438db993f45178bf30f013f456223aa01011395905fbd",
+    POSTGRES_CARRIER_PATH: "e6820e23edba60420cf4abd7d87d7861c7267d9f0b6a6fab1331a3114cb53e49",
     # SQLite manifest includes the floor identity on the partition read. Previous 2850ba60...
     SQLITE_CARRIER_PATH: "e66e08ea2a973a5dcbb61cdaa493485d1b16291ded5e460343100484940acffe",
 }
 EXPECTED_METADATA_MANIFESTS = {
-    POSTGRES_CARRIER_PATH: "6edb6a10e7a37dbbbbde97e5550422718a0112257666de8e23d49c60490fa13f",
+    POSTGRES_CARRIER_PATH: "ee8cffdc30aba2db26d81a1bfcf7bddcf13240b814213f374950b3d20fbda314",
     SQLITE_CARRIER_PATH: "121ed7dcea3f8565c181e844e49e0bc229098f6dc6c9124d03bb12e6062ab562",
 }
 EXPECTED_COMMENT_MANIFESTS = {
@@ -169,7 +171,9 @@ EXPECTED_CLASS_ORDERS = {
     # Previous receipt: (171, 526374782104a2a1...). Proof: the member list equals the list at origin/main
     # 040a2a10 with ``savepoint`` added at the end and nothing else moved (reviewed change, not drift).
     # lock_label_writes and read_label_rows follow __init__. Previous receipt (172, 6f1a459f...).
-    "PostgresVNextStore": (184, "e5bb6fbb9a63e4027d028928a9fafb6f4a65e64e85c15bbb48f0a605b9326511"),
+    # One Postgres-only method more, ``get_edge``, after ``create_edge`` (2026-10-08): the edge review route reads one edge
+    # by id before it judges its ends. Previous receipt (184, e5bb6fbb...). Every other member keeps its order.
+    "PostgresVNextStore": (185, "f3c9a2f37c8f697df1b30ae72d4bf40abd965b0844779eeffe0afc6514b0761c"),
     # One SQLite-only method more, ``check_source_search_query``: the Postgres
     # source search has no expression-depth or LIKE-length limit to check.
     # Merge of #500 and #502 (2026-10-01): one more SQLite-only method,

@@ -1313,6 +1313,7 @@ def update_open_loop_status(
 
 for _method in (
     create_edge,
+    get_edge,
     find_edge_by_idempotency_digest,
     upsert_edge_by_idempotency_digest,
     list_edges,
