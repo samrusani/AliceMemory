@@ -5,8 +5,9 @@ from typing import Literal, Mapping
 from uuid import UUID
 
 from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel as PydanticBaseModel, ConfigDict, Field
+from pydantic import BaseModel as PydanticBaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 
 from alicebot_api.public_errors import public_exception_response
 from alicebot_api.vnext_agent_control import (
@@ -418,6 +419,40 @@ def _vnext_permission_response(decision: PolicyDecision) -> JSONResponse:
             }
         ),
     )
+
+
+def _vnext_operator_gate(
+    store: PostgresVNextStore, identity: AgentIdentity | None, *, route_path: str
+) -> PolicyDecision | None:
+    """Gate an operator route from inside its handler, as the central gate does.
+
+    Returns the refusal, recorded against the route, or ``None`` when the
+    caller may go on. An allowed call writes nothing: it appends no policy
+    event and records no agent identity. A keyless local call is the owner.
+    """
+
+    if identity is None:
+        return None
+    decision = evaluate_agent_policy(identity=identity, action="http.operator.access")
+    if decision.decision != "blocked":
+        return None
+    append_policy_events(store, identity=identity, decision=decision, target_type="http_route", target_id=route_path)
+    return decision
+
+
+def _vnext_path_uuid(name: str, raw: str) -> UUID:
+    """Parse a path id that the handler checks after its own gate.
+
+    The 422 has the framework's body for a UUID path parameter, so a caller that
+    passes the gate sees the answer it saw before the gate moved into the handler.
+    """
+
+    try:
+        return TypeAdapter(UUID).validate_python(raw)
+    except ValidationError as exc:
+        raise RequestValidationError(
+            [{**error, "loc": ("path", name, *error["loc"])} for error in exc.errors(include_url=False)]
+        ) from None
 
 
 def _vnext_agent_actor(identity: AgentIdentity | None, *, fallback: str = "user") -> tuple[str, str | None]:

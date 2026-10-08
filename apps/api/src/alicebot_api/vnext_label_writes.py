@@ -250,9 +250,20 @@ def require_exclusive_label_lock(store: Any) -> None:
 
 
 def prepare_label_patch(
-    store: Any, kind: str, before: Mapping[str, object] | None, patch: Mapping[str, object]
+    store: Any,
+    kind: str,
+    before: Mapping[str, object] | None,
+    patch: Mapping[str, object],
+    *,
+    clamp_follows: bool = False,
 ) -> JsonObject:
-    """Check a proposed label change before its UPDATE or FOR UPDATE statement."""
+    """Check a proposed label change before its UPDATE or FOR UPDATE statement.
+
+    ``clamp_follows`` is for a store method that calls ``clamp_owner_patch`` on
+    the result, right after. That call settles an edit to a derived row and
+    takes exclusive L only when the stored label changes, so this check leaves
+    the decision to it.
+    """
 
     invalidate_capture_label_inputs(store)
     proposed = dict(before or {})
@@ -265,7 +276,11 @@ def prepare_label_patch(
     proposed["kind"] = kind
     old = _label_fields({**before, "kind": kind}) if before else None
     new = _label_fields(proposed)
-    if old and (old[:2] != new[:2] or project_scope_identity(old[2]) != project_scope_identity(new[2]) or project_scope_identity(old[3]) != project_scope_identity(new[3])):
+    if old and not _same_labels(old, new):
+        if clamp_follows and before and is_derived(kind, before) and is_label_edit(before, patch):
+            # An edit that is refused and leaves the stored label alone must not
+            # upgrade a shared grant, so the clamp decides.
+            return dict(patch)
         require_exclusive_label_lock(store)
     return dict(patch)
 
@@ -597,6 +612,33 @@ def _label_fields(row: Mapping[str, object]) -> tuple[str, str, tuple[str, ...],
     )
 
 
+def _same_labels(
+    left: tuple[str, str, tuple[str, ...], tuple[str, ...]], right: tuple[str, str, tuple[str, ...], tuple[str, ...]]
+) -> bool:
+    return (
+        left[0] == right[0]
+        and left[1] == right[1]
+        and project_scope_identity(left[2]) == project_scope_identity(right[2])
+        and project_scope_identity(left[3]) == project_scope_identity(right[3])
+    )
+
+
+def is_label_edit(before: Mapping[str, object], patch: Mapping[str, object]) -> bool:
+    """True when a patch names a label, which clamp_owner_patch then judges.
+
+    Status, content and audit metadata writes do not repair stored labels.
+    Their readers still enforce the effective floor.
+    """
+
+    patch_meta = patch.get("metadata_json")
+    old_meta = before.get("metadata_json")
+    meta_changes_labels = isinstance(patch_meta, Mapping) and any(
+        key in patch_meta and patch_meta[key] != (old_meta.get(key) if isinstance(old_meta, Mapping) else None)
+        for key in ("project_scope", "project_floor")
+    )
+    return meta_changes_labels or any(patch.get(key) is not None for key in ("domain", "sensitivity", "project_id"))
+
+
 def clamp_owner_patch(
     store: Any, *, kind: str, before: Mapping[str, object] | None, patch: Mapping[str, object]
 ) -> JsonObject:
@@ -613,14 +655,9 @@ def clamp_owner_patch(
         return proposed_patch
     # Status, content and audit metadata writes do not repair stored labels.
     # Their readers still enforce the effective floor. An explicit label edit
-    # owns that repair and takes exclusive L before any row lock.
-    patch_meta = proposed_patch.get("metadata_json")
-    old_meta = before.get("metadata_json")
-    meta_changes_labels = isinstance(patch_meta, Mapping) and any(
-        key in patch_meta and patch_meta[key] != (old_meta.get(key) if isinstance(old_meta, Mapping) else None)
-        for key in ("project_scope", "project_floor")
-    )
-    if not meta_changes_labels and not any(proposed_patch.get(key) is not None for key in ("domain", "sensitivity", "project_id")):
+    # owns that repair. It takes exclusive L before any row lock, and only
+    # when the label it stores differs from the stored one.
+    if not is_label_edit(before, proposed_patch):
         return proposed_patch
     proposed = dict(before)
     for key in ("domain", "sensitivity", "project_id"):
@@ -638,23 +675,24 @@ def clamp_owner_patch(
             if field in patch_metadata:
                 proposed[field] = meta[field]
     proposed["kind"] = kind
-    nodes, exceeded = collect_label_rows(store, [proposed], max_nodes=PROPAGATION_BOUND)
-    if exceeded:
-        return proposed_patch
-    try:
-        label = settle_labels(nodes).by_stored(kind, str(before.get("id") or ""))
-    except KeyError:
-        return proposed_patch
-    if label.unverified:
-        return proposed_patch
     requested = _label_fields(proposed)
+    stored = _label_fields(before)
+    nodes, exceeded = collect_label_rows(store, [proposed], max_nodes=PROPAGATION_BOUND)
+    label = None
+    if not exceeded:
+        try:
+            label = settle_labels(nodes).by_stored(kind, str(before.get("id") or ""))
+        except KeyError:
+            label = None
+    if label is None or label.unverified:
+        # Nothing to clamp against: the request is the label that is stored.
+        if not _same_labels(stored, requested):
+            require_exclusive_label_lock(store)
+        return proposed_patch
     settled = (label.domain, label.sensitivity, tuple(label.project_scope), tuple(label.project_floor))
-    if (
-        requested[0] == settled[0]
-        and requested[1] == settled[1]
-        and project_scope_identity(requested[2]) == project_scope_identity(settled[2])
-        and project_scope_identity(requested[3]) == project_scope_identity(settled[3])
-    ):
+    if _same_labels(requested, settled):
+        if not _same_labels(stored, requested):
+            require_exclusive_label_lock(store)
         return proposed_patch
     proposed_patch["domain"] = label.domain
     proposed_patch["sensitivity"] = label.sensitivity
@@ -668,11 +706,13 @@ def clamp_owner_patch(
     proposed_patch["project_id"] = label_project_id(label.project_scope)
     if "project_id" in metadata:
         metadata["project_id"] = proposed_patch["project_id"]
-    stored = _label_fields(before)
+    # The clamp stores the settled label. Only a change to the stored label
+    # needs exclusive L: a refused assignment that leaves it alone does not.
+    if not _same_labels(stored, settled):
+        require_exclusive_label_lock(store)
     # A refused assignment is auditable even when the existing label was
     # already settled and the clamp therefore preserves it exactly.
     if requested != settled:
-        require_exclusive_label_lock(store)
         event = build_event_log_record(
             event_type=f"{kind}.labels_raised",
             actor_type="system",

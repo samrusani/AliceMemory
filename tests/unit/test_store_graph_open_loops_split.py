@@ -117,7 +117,8 @@ SOURCE_RECEIPTS = {
     # the shared unscoped call site can state ``None`` for both, and it refuses anything else, since the Postgres
     # runtime resolves no project view (reviewed change, not drift).
     # The file hash now matches the carrier after the label lock. Previous receipt e4724ba1...
-    POSTGRES_CARRIER_PATH: "dda88f24e77df21886653e337ff8afdf325cd66dd62cee311eeb3bab31d0b86f",
+    # Re-minted for the ``clamp_follows`` argument of the label hook in ``update_open_loop``. Previous receipt dda88f24...
+    POSTGRES_CARRIER_PATH: "af3aac495e040c2f90778082ec34fbc09c11f84fd0aaf08a88f7e88c650cf750",
     # The SQLite carrier is re-minted, with its method AST manifest below, for
     # ``list_open_loops`` and ``list_open_loop_events``: they bind a query through
     # ``literal_match_operand`` and so refuse one past the LIKE operand limit.
@@ -136,15 +137,18 @@ SOURCE_RECEIPTS = {
     # change (reviewed change, not drift).
     # Re-minted for the combined floor-aware partition read and canonical source-reference batch lookup.
     # Previous receipt 9a2634be...
-    SQLITE_CARRIER_PATH: "cb4e420e905feb7416df16d3cd66365799e816e953ff9d4d440a5e8930f572ab",
+    # Re-minted for the ``clamp_follows`` argument of the label hook in ``update_open_loop``. Previous receipt cb4e420e...
+    SQLITE_CARRIER_PATH: "6e80249b8e41625e9b3d8d41a97e5d8eb2cc492e00b932dde8ea47e3f6b7f54d",
     POSTGRES_COLUMNS_PATH: "1a782bf3eb87f68f67434508baab0f82d49cb40a0c547cde49bbc972e2f1d182",
     SQLITE_COLUMNS_PATH: "be81b8628d0831d3d02b280b5455fb02333db5740ebef8d85d58024384ae6556",
 }
 EXPECTED_METHOD_AST_MANIFESTS = {
     # Postgres manifest matches the carrier after the label lock. Previous 25580884...
-    POSTGRES_CARRIER_PATH: "4de0ce4dc69301b45a8438db993f45178bf30f013f456223aa01011395905fbd",
+    # Previous 4de0ce4d..., before the ``clamp_follows`` argument of the label hook.
+    POSTGRES_CARRIER_PATH: "ff8fb6eb8a64b8fe48c0324c11c8a74c7a294c563e82c87caf54a34df300d252",
     # SQLite manifest includes the floor identity on the partition read. Previous 2850ba60...
-    SQLITE_CARRIER_PATH: "e66e08ea2a973a5dcbb61cdaa493485d1b16291ded5e460343100484940acffe",
+    # Previous e66e08ea..., before the ``clamp_follows`` argument of the label hook.
+    SQLITE_CARRIER_PATH: "eac532906f9a576c528968bbcd2dd2b006af56e8cf091d400f70cf6299293f3d",
 }
 EXPECTED_METADATA_MANIFESTS = {
     POSTGRES_CARRIER_PATH: "6edb6a10e7a37dbbbbde97e5550422718a0112257666de8e23d49c60490fa13f",

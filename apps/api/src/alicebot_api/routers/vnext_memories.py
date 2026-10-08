@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from datetime import UTC, datetime
-from typing import Literal
+from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Header, Query
+from fastapi import APIRouter, Header, Path, Query
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 from pydantic import Field
@@ -46,6 +46,8 @@ from alicebot_api.routers._vnext_shared import (
     _vnext_exact_resource_policy,
     _vnext_load_source_trace,
     _vnext_metadata,
+    _vnext_operator_gate,
+    _vnext_path_uuid,
     _vnext_permission_response,
     _vnext_policy_checked,
     _vnext_public_error_response,
@@ -764,7 +766,13 @@ def run_vnext_doctor(request: VNextDoctorRunRequest) -> JSONResponse:
 
 
 @source_review_router.get("/v0/vnext/sources/{source_id}")
-def get_vnext_source(source_id: UUID, user_id: UUID, authorization: str | None = Header(default=None)) -> JSONResponse:
+def get_vnext_source(
+    # Declared as text so the operator gate runs before the id is parsed, as the
+    # central gate ran before validation. The schema still says uuid.
+    source_id: Annotated[str, Path(json_schema_extra={"format": "uuid"})],
+    user_id: UUID,
+    authorization: str | None = Header(default=None),
+) -> JSONResponse:
     from alicebot_api.vnext_label_guard import effective_row_for_fence
     from alicebot_api.vnext_source_fence import SourceReadFence
     settings = get_settings()
@@ -774,10 +782,11 @@ def get_vnext_source(source_id: UUID, user_id: UUID, authorization: str | None =
             identity = resolve_protected_agent_identity(
                 store, user_id=user_id,
                 raw_key=agent_key_from_authorization(authorization if isinstance(authorization, str) else None), payload={})
-            operator = _vnext_policy_checked(store=store, identity=identity, action="http.operator.access")
-            if operator.decision == "blocked":
+            operator = _vnext_operator_gate(store, identity, route_path="/v0/vnext/sources/{source_id}")
+            if operator is not None:
                 return _vnext_permission_response(operator)
-            payload = store.get_source(str(source_id))
+            source_uuid = _vnext_path_uuid("source_id", source_id)
+            payload = store.get_source(str(source_uuid))
             if payload is not None and not SourceReadFence.for_identity(identity).admits(
                 effective_row_for_fence(store, identity, "source", payload)
             ):
@@ -786,7 +795,7 @@ def get_vnext_source(source_id: UUID, user_id: UUID, authorization: str | None =
         return _vnext_agent_auth_error_response(exc)
 
     if payload is None:
-        return JSONResponse(status_code=404, content={"detail": f"vNext source {source_id} was not found"})
+        return JSONResponse(status_code=404, content={"detail": f"vNext source {source_uuid} was not found"})
 
     return JSONResponse(
         status_code=200,
@@ -1340,9 +1349,20 @@ def review_vnext_memory(
                     identity=identity,
                     stage=f"http_review_{action}",
                 )
-            from alicebot_api.vnext_project_scope import resolve_project_scope
+            from alicebot_api.vnext_project_scope import (
+                project_identifier_identity,
+                project_scope_identity,
+                resolve_project_scope,
+            )
 
-            if action == "assign_project" and request.project_id is not None and request.project_id in resolve_project_scope(updated).values:
+            # The edge records an assignment that stood. A refused (clamped)
+            # assignment leaves the project out of the stored scope. Compare
+            # identities: the stored scope is normalized and the request may not be.
+            if (
+                action == "assign_project"
+                and request.project_id is not None
+                and project_identifier_identity(request.project_id) in project_scope_identity(resolve_project_scope(updated).values)
+            ):
                 store.create_edge(
                     {
                         "from_type": "memory",
