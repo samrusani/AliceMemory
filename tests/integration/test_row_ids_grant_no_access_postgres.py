@@ -173,30 +173,46 @@ def test_the_belief_and_edge_doors_apply_the_callers_limits(label_harness, monke
 
 
 def test_an_edge_with_an_end_the_caller_cannot_read_or_find_is_not_the_callers_to_review(label_harness):
+    """Each kind of end is checked: a source, a memory and a belief by their own fence, and an end nobody can show."""
     h = label_harness
     vault = build_vault(h)
-    with h.store() as store:
-        dangling = store.create_edge(
-            {
-                "from_type": "source", "from_id": vault.ids[("source", "visible")], "to_type": "memory",
-                "to_id": str(uuid4()), "edge_type": "similar_to", "confidence": 0.5, "explanation": "EDGE-dangling",
-                "created_by": "vnext_connection_finder", "metadata_json": {"status": "candidate", "candidate": True},
-            }
-        )
-        beyond = store.create_edge(
-            {
-                "from_type": "source", "from_id": vault.ids[("source", "visible")], "to_type": "memory",
-                "to_id": vault.ids[("memory", "unverified")], "edge_type": "similar_to", "confidence": 0.5,
-                "explanation": "EDGE-unverified", "created_by": "vnext_connection_finder",
-                "metadata_json": {"status": "candidate", "candidate": True},
-            }
-        )
+    visible_source, visible_memory = vault.ids[("source", "visible")], vault.ids[("memory", "visible")]
+
+    def edge(from_type, from_id, to_type, to_id, note):
+        with h.store() as store:
+            return store.create_edge(
+                {
+                    "from_type": from_type, "from_id": from_id, "to_type": to_type, "to_id": to_id,
+                    "edge_type": "similar_to", "confidence": 0.5, "explanation": f"EDGE-{note}",
+                    "created_by": "vnext_connection_finder", "metadata_json": {"status": "candidate", "candidate": True},
+                }
+            )
+
+    refused = {
+        "source end above the ceiling": edge("source", vault.ids[("source", "confidential")], "memory", visible_memory, "a"),
+        "memory end above the ceiling": edge("source", visible_source, "memory", vault.ids[("memory", "confidential")], "b"),
+        "belief end above the ceiling": edge("source", visible_source, "belief", vault.ids[("belief", "confidential")], "c"),
+        "unverified memory end": edge("source", visible_source, "memory", vault.ids[("memory", "unverified")], "d"),
+        "memory end that does not exist": edge("source", visible_source, "memory", str(uuid4()), "e"),
+        "source end that does not exist": edge("source", str(uuid4()), "memory", visible_memory, "f"),
+        "end of a kind with no check": edge("source", visible_source, "artifact", vault.ids[("artifact", "visible")], "g"),
+    }
     trusted = h.key("trusted_local_agent")
-    for edge in (dangling, beyond):
+    for name, row in refused.items():
         before = snapshot(h)
-        status, body, _ = h.request("POST", f"/v0/vnext/graph/edges/{edge['id']}/review", payload={"action": "reject"}, key=trusted)
-        assert (status, body) == (404, {"detail": "vNext graph edge was not found"})
-        assert snapshot(h) == before
+        status, body, _ = h.request("POST", f"/v0/vnext/graph/edges/{row['id']}/review", payload={"action": "reject"}, key=trusted)
+        assert (status, body) == (404, {"detail": "vNext graph edge was not found"}), name
+        assert snapshot(h) == before, name
+    # Readable ends, and an end that is an entity (which has no label), are the caller's to review.
+    with h.store() as store:
+        entity = store.create_entity({"name": "Atlas", "entity_type": "project"})
+    served = {
+        "readable ends": vault.ids[("edge", "visible")],
+        "entity end": str(edge("source", visible_source, "entity", str(entity["id"]), "h")["id"]),
+    }
+    for name, edge_id in served.items():
+        status, body, _ = h.request("POST", f"/v0/vnext/graph/edges/{edge_id}/review", payload={"action": "accept"}, key=trusted)
+        assert status == 200, (name, body)
 
 
 def test_the_owner_keeps_review_of_every_belief_and_edge(label_harness):
