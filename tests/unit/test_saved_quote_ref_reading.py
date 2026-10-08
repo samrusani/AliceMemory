@@ -623,7 +623,7 @@ def test_every_spelling_of_an_id_with_leading_zeros_that_the_link_writer_reads_i
     Mutations, each alone, in ``vnext_source_fence.py``: read only ``text.strip()`` in ``_uuid_text`` (the cases with a
     space or a newline in the place of a zero fail); in ``_whole_id`` try only ``text`` and not ``text.strip()`` (the
     cases where the writer strips before it removes the prefix fail: a newline after the id, with ``source:`` and a
-    space in front); let ``_SOURCE_PREFIXES`` take the whitespace after the prefix again, ``\\s*(?:source:\\s*)*`` (the
+    space in front); let ``_source_prefixes_end`` take the whitespace after the prefix again (skip whitespace after each prefix as well as before it) (the
     cases with ``source:`` and a space or a tab in place of the zero fail).
     """
 

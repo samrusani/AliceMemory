@@ -255,7 +255,7 @@ def test_a_ref_in_any_shape_that_names_b_withholds_the_quote_from_a_key_that_may
     Mutations, each alone, in ``vnext_source_fence.py``: drop ``selected_source_ids`` from ``SOURCE_REFERENCE_KEYS`` (the
     ``selected_source_ids`` rows fail); drop the ``.lower()`` of ``UUID(candidate.lower())`` in ``_uuid_text`` (no row here fails, because
     an id that is not read as named is then found as an incidental one and judged, as ``b``'s row exists; the shape table of
-    ``test_saved_quote_copies_reader.py`` fails on its ``URN:UUID:`` row); make the ``source:`` prefix case sensitive in ``_SOURCE_PREFIXES`` (the
+    ``test_saved_quote_copies_reader.py`` fails on its ``URN:UUID:`` row); make the ``source:`` prefix case sensitive in ``_SOURCE_PREFIX`` (the
     upper case ``SOURCE:`` and ``Source:`` rows fail); iterate only the first entry of a list in
     ``cited_source_ids`` (every row with a second id fails); make ``_json_container`` return None (the JSON row fails when
     ``b`` is archived); drop the ``cited.incidental`` set from ``refused`` in ``SavedProvenanceReader._refused`` (the incidental rows fail, the
