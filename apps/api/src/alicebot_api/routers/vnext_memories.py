@@ -763,10 +763,53 @@ def run_vnext_doctor(request: VNextDoctorRunRequest) -> JSONResponse:
     return JSONResponse(status_code=200, content=jsonable_encoder(payload))
 
 
+def _vnext_readable_source(store: PostgresVNextStore, identity: AgentIdentity | None, source_id: UUID) -> dict[str, object] | None:
+    """The stored source when this caller may read it now, otherwise None.
+
+    A source that is missing, archived or outside the caller's read fence (its sensitivity ceiling, its domains, its
+    project) is the same None, so the answer built from it is the same for all three. The owner has no identity and is
+    not limited. Every route that returns or changes one source by id asks here before it reads or writes anything.
+    """
+
+    from alicebot_api.vnext_label_guard import effective_row_for_fence
+
+    source = store.get_source(str(source_id))
+    if source is not None and not SourceReadFence.for_identity(identity).admits(
+        effective_row_for_fence(store, identity, "source", source)
+    ):
+        return None
+    return source
+
+
+def _vnext_source_not_found(source_id: UUID) -> JSONResponse:
+    return JSONResponse(status_code=404, content={"detail": f"vNext source {source_id} was not found"})
+
+
+def _vnext_source_route_identity(
+    store: PostgresVNextStore,
+    *,
+    user_id: UUID,
+    authorization: object,
+    request: VNextAgentRequest | None = None,
+) -> AgentIdentity | None:
+    """Who is calling a source route: the agent the key names, or None for the owner.
+
+    The web framework always passes the Authorization header, None when it is absent, and an install with agent keys
+    refuses that. A call from inside the process that leaves the argument out is the owner's, the way the command line
+    and the tests make it; it cannot happen over HTTP.
+    """
+
+    if authorization is not None and not isinstance(authorization, str):
+        return None
+    if request is not None:
+        return _vnext_authenticated_agent_identity(store, request, user_id=user_id, authorization=authorization)
+    return resolve_protected_agent_identity(
+        store, user_id=user_id, raw_key=agent_key_from_authorization(authorization), payload={}
+    )
+
+
 @source_review_router.get("/v0/vnext/sources/{source_id}")
 def get_vnext_source(source_id: UUID, user_id: UUID, authorization: str | None = Header(default=None)) -> JSONResponse:
-    from alicebot_api.vnext_label_guard import effective_row_for_fence
-    from alicebot_api.vnext_source_fence import SourceReadFence
     settings = get_settings()
     try:
         with user_connection(settings.database_url, user_id) as conn:
@@ -777,16 +820,12 @@ def get_vnext_source(source_id: UUID, user_id: UUID, authorization: str | None =
             operator = _vnext_policy_checked(store=store, identity=identity, action="http.operator.access")
             if operator.decision == "blocked":
                 return _vnext_permission_response(operator)
-            payload = store.get_source(str(source_id))
-            if payload is not None and not SourceReadFence.for_identity(identity).admits(
-                effective_row_for_fence(store, identity, "source", payload)
-            ):
-                payload = None
+            payload = _vnext_readable_source(store, identity, source_id)
     except AgentKeyAuthenticationError as exc:
         return _vnext_agent_auth_error_response(exc)
 
     if payload is None:
-        return JSONResponse(status_code=404, content={"detail": f"vNext source {source_id} was not found"})
+        return _vnext_source_not_found(source_id)
 
     return JSONResponse(
         status_code=200,
@@ -820,8 +859,25 @@ def regenerate_vnext_source(source_id: UUID, request: VNextSourceRegenerateReque
     return JSONResponse(status_code=201, content=jsonable_encoder(payload))
 
 
+def _vnext_trace_for_caller(
+    store: PostgresVNextStore, source: dict[str, object], identity: AgentIdentity | None
+) -> dict[str, object]:
+    """The source trace embedded in a review answer, limited to what the caller may read.
+
+    A caller who changes a source to a label above their own ceiling is not shown the trace of it afterwards (the trace
+    loader answers None for it), so the answer carries an empty trace and nothing the caller had not already read.
+    """
+
+    trace = _vnext_load_source_trace(store=store, source=source, identity=identity)
+    return trace if trace is not None else {}
+
+
 @source_review_router.post("/v0/vnext/sources/{source_id}/review")
-def review_vnext_source(source_id: UUID, request: VNextSourceReviewRequest) -> JSONResponse:
+def review_vnext_source(
+    source_id: UUID,
+    request: VNextSourceReviewRequest,
+    authorization: str | None = Header(default=None),
+) -> JSONResponse:
     settings = get_settings()
     action = request.action.strip().casefold()
     if action not in {"review", "update", "assign_project", "archive"}:
@@ -830,6 +886,9 @@ def review_vnext_source(source_id: UUID, request: VNextSourceReviewRequest) -> J
     try:
         with user_connection(settings.database_url, request.user_id) as conn:
             store = PostgresVNextStore(conn)
+            identity = _vnext_source_route_identity(
+                store, user_id=request.user_id, authorization=authorization, request=request
+            )
             label_change = request.domain is not None or request.sensitivity is not None or request.project_id is not None
             store.lock_graph_mutation()
             if label_change:
@@ -838,9 +897,9 @@ def review_vnext_source(source_id: UUID, request: VNextSourceReviewRequest) -> J
                 acquire_exclusive_label_lock(store)
             else:
                 store.lock_label_writes()
-            existing = store.get_source(str(source_id))
+            existing = _vnext_readable_source(store, identity, source_id)
             if existing is None:
-                return _vnext_public_error_response(status_code=404, detail="vNext source was not found")
+                return _vnext_source_not_found(source_id)
             if action == "archive":
                 archived = store.delete_source(source_id=str(source_id), actor_type="user")
                 append_event(
@@ -851,10 +910,7 @@ def review_vnext_source(source_id: UUID, request: VNextSourceReviewRequest) -> J
                     target_id=str(source_id),
                     payload={"action": action, "review_note": request.review_note},
                 )
-                trace = _vnext_load_source_trace(
-                    store=store,
-                    source=archived,
-                )
+                trace = _vnext_trace_for_caller(store, archived, identity)
                 return JSONResponse(
                     status_code=200,
                     content=jsonable_encoder({"source": archived, "archived": True, "trace": trace}),
@@ -926,10 +982,11 @@ def review_vnext_source(source_id: UUID, request: VNextSourceReviewRequest) -> J
                 target_id=str(source_id),
                 payload={"action": action, "project_id": request.project_id, "review_note": request.review_note},
             )
-            trace = _vnext_load_source_trace(
-                store=store,
-                source=updated,
-            )
+            trace = _vnext_trace_for_caller(store, updated, identity)
+    except AgentIdentityValidationError:
+        return _vnext_public_error_response(status_code=400, detail="vNext agent identity claims are invalid")
+    except AgentKeyAuthenticationError as exc:
+        return _vnext_agent_auth_error_response(exc)
     except ContinuityStoreInvariantError as exc:
         return public_exception_response(exc, status_code=409)
     except Exception as exc:
@@ -948,15 +1005,26 @@ def review_vnext_source(source_id: UUID, request: VNextSourceReviewRequest) -> J
 
 
 @source_delete_router.delete("/v0/vnext/sources/{source_id}")
-def delete_vnext_source(source_id: UUID, user_id: UUID) -> JSONResponse:
+def delete_vnext_source(
+    source_id: UUID,
+    user_id: UUID,
+    authorization: str | None = Header(default=None),
+) -> JSONResponse:
     settings = get_settings()
 
-    with user_connection(settings.database_url, user_id) as conn:
-        store = PostgresVNextStore(conn)
-        existing = store.get_source(str(source_id))
-        if existing is None:
-            return JSONResponse(status_code=404, content={"detail": f"vNext source {source_id} was not found"})
-        payload = store.delete_source(source_id=str(source_id))
+    try:
+        with user_connection(settings.database_url, user_id) as conn:
+            store = PostgresVNextStore(conn)
+            identity = _vnext_source_route_identity(store, user_id=user_id, authorization=authorization)
+            # A relabel holds the label lock exclusively. Waiting on it first means the check below and the delete see
+            # one label, so a source made confidential meanwhile is refused and its row is not handed back.
+            store.lock_label_writes()
+            existing = _vnext_readable_source(store, identity, source_id)
+            if existing is None:
+                return _vnext_source_not_found(source_id)
+            payload = store.delete_source(source_id=str(source_id))
+    except AgentKeyAuthenticationError as exc:
+        return _vnext_agent_auth_error_response(exc)
 
     return JSONResponse(
         status_code=200,

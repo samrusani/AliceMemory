@@ -952,6 +952,17 @@ id but not by `alice_explain`.
 
 Unreleased (on main, not in v0.20.0): Source GET evaluates `http.operator.access` before its source fence. Only the owner and unbound trusted or admin keys reach the source lookup. Other profiles and project-bound keys receive HTTP 403, including for missing ids. Admitted callers receive the same HTTP 404 for a source outside their full domain, sensitivity and locked project fence as for a missing source. Owner and unbound admin source traces retain chunk and extraction events. Their workspace retains main's displayed rows, complete totals, unfiltered embedded dogfooding and full doctor diagnostics; fenced workspaces omit content diagnostics.
 
+Unreleased (on main, not in v0.20.0): the routes that review, update, assign, archive or delete one source by id apply the same operator gate and the same source fence as the source GET. They are `POST /v0/vnext/sources/{id}/review`, with the actions `review`, `update`, `assign_project` and `archive`, and `DELETE /v0/vnext/sources/{id}`. Who may use them:
+
+| Caller | Review, update, assign, archive and delete by id |
+|---|---|
+| The owner (no agent key) | Every stored source, as before. |
+| `admin_agent` bound to no project | Every stored source, as before. |
+| `trusted_local_agent` bound to no project | A source it may read now. A source above its sensitivity ceiling (`confidential`, `highly_sensitive`, `sacred` or `regulated`) answers HTTP 404 with the body of a missing source, `{"detail": "vNext source <id> was not found"}`. |
+| `read_only_agent`, `memory_proposal_agent`, `project_scoped_agent`, or any key bound to a project | HTTP 403 for every source, a missing id included. |
+
+A refused call changes nothing: no field of the source, no chunk, no memory, no open loop and no event, and the answer holds no title, text or chunk of the source. A source that is above the ceiling and a source that does not exist give one answer, so an id says nothing about the row behind it; a review of a missing source now carries the id in its text, as the source GET does, and a review whose agent claims contradict each other answers HTTP 400 with a fixed message. In v0.19.2, in v0.20.0 and on main before this change, a `trusted_local_agent` key could read the whole source (its title and `metadata_json.raw_text`), rename it, move it to a project, archive it and delete it through these two routes when it was above the key's ceiling. The trace inside a review answer is the one `GET /v0/vnext/traces/sources/{id}` gives the same caller: memories, artifacts and open loops that name the source and sit above the caller's ceiling are left out of it, and the owner and an unbound admin key still get the whole trace. A key that moves its own source above its ceiling gets an empty trace. A delete waits for a relabel that is in flight and then judges the new label, so a source made confidential during a delete is refused and its row is not handed back. `POST /v0/vnext/sources/{id}/regenerate` is unchanged: only the owner and an unbound `admin_agent` key may call it, and every other key receives HTTP 403 before the source is looked up. The SQLite install has no HTTP route for these verbs; its `sources delete` and `sources prune` commands are owner commands.
+
 ## Domains a profile may read
 
 Every permission profile except `trusted_local_agent` and `admin_agent` is held
