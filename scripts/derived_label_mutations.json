@@ -141,10 +141,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
-          "line": 378,
+          "line": 379,
           "before": "semantic = (template[:1] + template[2:], semantic_parents)",
           "after": "semantic = (template[:1] + template[2:], ())",
-          "sha256": "709fe6008d367346257112b118a7be18a5e5d3c6e49d36c041de710e9b6e5d5e"
+          "sha256": "741f76664b33a1897bcc0e0344fced5066636fc6645c12cf0da644568efe631c"
         }
       ],
       "pytest": [
@@ -157,10 +157,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
-          "line": 378,
+          "line": 379,
           "before": "semantic = (template[:1] + template[2:], semantic_parents)",
           "after": "semantic = (template[:1] + template[2:], tuple(sorted(set(semantic_parents))))",
-          "sha256": "709fe6008d367346257112b118a7be18a5e5d3c6e49d36c041de710e9b6e5d5e"
+          "sha256": "741f76664b33a1897bcc0e0344fced5066636fc6645c12cf0da644568efe631c"
         }
       ],
       "pytest": [
@@ -173,10 +173,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
-          "line": 365,
+          "line": 366,
           "before": "if len(raw) != 1 or identifier(raw[0].get(\"id\")) != parent_id:",
           "after": "if not raw or identifier(raw[0].get(\"id\")) != parent_id:",
-          "sha256": "709fe6008d367346257112b118a7be18a5e5d3c6e49d36c041de710e9b6e5d5e"
+          "sha256": "741f76664b33a1897bcc0e0344fced5066636fc6645c12cf0da644568efe631c"
         }
       ],
       "pytest": [
@@ -187,32 +187,433 @@
       "expected_failure": "test_unproved_inputs_keep_the_complete_graph_fallback"
     },
     {
-      "name": "per-origin-ancestry-bounds",
+      "name": "per-origin-hop-bound",
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
-          "line": 373,
+          "line": 374,
           "before": "if depth > HOP_BOUND or len(ancestry) > NODE_BOUND:",
-          "after": "if False:",
-          "sha256": "709fe6008d367346257112b118a7be18a5e5d3c6e49d36c041de710e9b6e5d5e"
+          "after": "if len(ancestry) > NODE_BOUND:",
+          "sha256": "741f76664b33a1897bcc0e0344fced5066636fc6645c12cf0da644568efe631c"
         }
       ],
       "pytest": [
-        "tests/unit/test_label_resolved_inputs.py::test_unproved_inputs_keep_the_complete_graph_fallback",
-        "-k",
-        "bound"
+        "tests/unit/test_label_guard_pins.py::test_cached_parent_cannot_carry_a_row_past_the_hop_bound"
       ],
-      "expected_failure": "test_unproved_inputs_keep_the_complete_graph_fallback"
+      "expected_failure": "test_cached_parent_cannot_carry_a_row_past_the_hop_bound"
+    },
+    {
+      "name": "per-origin-node-bound",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
+          "line": 374,
+          "before": "if depth > HOP_BOUND or len(ancestry) > NODE_BOUND:",
+          "after": "if depth > HOP_BOUND:",
+          "sha256": "741f76664b33a1897bcc0e0344fced5066636fc6645c12cf0da644568efe631c"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_label_guard_pins.py::test_cached_parents_cannot_carry_a_row_past_the_node_bound"
+      ],
+      "expected_failure": "test_cached_parents_cannot_carry_a_row_past_the_node_bound"
+    },
+    {
+      "name": "cold-path-trail-bound",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
+          "line": 340,
+          "before": "if len(trail) > HOP_BOUND or kind == \"belief\":",
+          "after": "if kind == \"belief\":",
+          "sha256": "741f76664b33a1897bcc0e0344fced5066636fc6645c12cf0da644568efe631c"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_label_guard_pins.py::test_a_very_long_chain_requested_alone_is_refused_without_recursing"
+      ],
+      "expected_failure": "test_a_very_long_chain_requested_alone_is_refused_without_recursing"
+    },
+    {
+      "name": "resolved-parent-carries-scope",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
+          "line": 377,
+          "before": "parent.project_floor, parent.carries_scope) for parent in parents)",
+          "after": "parent.project_floor) for parent in parents)",
+          "sha256": "741f76664b33a1897bcc0e0344fced5066636fc6645c12cf0da644568efe631c"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_label_guard_pins.py::test_memo_does_not_merge_a_scrubbed_source_with_a_global_one"
+      ],
+      "expected_failure": "test_memo_does_not_merge_a_scrubbed_source_with_a_global_one"
+    },
+    {
+      "name": "rank-ceiling-projects",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
+          "line": 608,
+          "before": "if (not self.active or self.domains or self.projects or self.all_of is not None",
+          "after": "if (not self.active or self.domains or self.all_of is not None",
+          "sha256": "741f76664b33a1897bcc0e0344fced5066636fc6645c12cf0da644568efe631c"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_label_guard_pins.py::test_project_bound_guard_never_takes_the_reduced_rank_proof"
+      ],
+      "expected_failure": "test_project_bound_guard_never_takes_the_reduced_rank_proof"
+    },
+    {
+      "name": "rank-ceiling-all-of",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
+          "line": 608,
+          "before": "if (not self.active or self.domains or self.projects or self.all_of is not None",
+          "after": "if (not self.active or self.domains or self.projects",
+          "sha256": "741f76664b33a1897bcc0e0344fced5066636fc6645c12cf0da644568efe631c"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_label_guard_pins.py::test_project_bound_guard_never_takes_the_reduced_rank_proof"
+      ],
+      "expected_failure": "test_project_bound_guard_never_takes_the_reduced_rank_proof"
+    },
+    {
+      "name": "rank-ceiling-store",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
+          "line": 609,
+          "before": "                or current is None or current[0] is not self.store\n",
+          "after": "                or current is None\n",
+          "sha256": "741f76664b33a1897bcc0e0344fced5066636fc6645c12cf0da644568efe631c"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_label_guard_pins.py::test_a_guard_outside_its_store_scope_has_no_rank_ceiling"
+      ],
+      "expected_failure": "test_a_guard_outside_its_store_scope_has_no_rank_ceiling"
+    },
+    {
+      "name": "row-admission-key-projects",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
+          "line": 422,
+          "before": "row_admission_key = (key, self.domains, self.sensitivity_allowed, self.projects, self.all_of)",
+          "after": "row_admission_key = (key, self.domains, self.sensitivity_allowed, self.all_of)",
+          "sha256": "741f76664b33a1897bcc0e0344fced5066636fc6645c12cf0da644568efe631c"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_label_guard_pins.py::test_a_stored_row_admission_stays_with_the_filters_that_earned_it"
+      ],
+      "expected_failure": "test_a_stored_row_admission_stays_with_the_filters_that_earned_it"
+    },
+    {
+      "name": "row-admission-key-all-of",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
+          "line": 422,
+          "before": "row_admission_key = (key, self.domains, self.sensitivity_allowed, self.projects, self.all_of)",
+          "after": "row_admission_key = (key, self.domains, self.sensitivity_allowed, self.projects)",
+          "sha256": "741f76664b33a1897bcc0e0344fced5066636fc6645c12cf0da644568efe631c"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_label_guard_pins.py::test_a_stored_row_admission_stays_with_the_filters_that_earned_it"
+      ],
+      "expected_failure": "test_a_stored_row_admission_stays_with_the_filters_that_earned_it"
+    },
+    {
+      "name": "source-admission-key-domains",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
+          "line": 437,
+          "before": "admission_key = (template, self.domains, self.sensitivity_allowed, self.projects, self.all_of)",
+          "after": "admission_key = (template, self.sensitivity_allowed, self.projects, self.all_of)",
+          "sha256": "741f76664b33a1897bcc0e0344fced5066636fc6645c12cf0da644568efe631c"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_label_guard_pins.py::test_a_shared_source_admission_stays_with_the_filters_that_earned_it"
+      ],
+      "expected_failure": "test_a_shared_source_admission_stays_with_the_filters_that_earned_it"
+    },
+    {
+      "name": "source-admission-key-sensitivity",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
+          "line": 437,
+          "before": "admission_key = (template, self.domains, self.sensitivity_allowed, self.projects, self.all_of)",
+          "after": "admission_key = (template, self.domains, self.projects, self.all_of)",
+          "sha256": "741f76664b33a1897bcc0e0344fced5066636fc6645c12cf0da644568efe631c"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_label_guard_pins.py::test_a_shared_source_admission_stays_with_the_filters_that_earned_it"
+      ],
+      "expected_failure": "test_a_shared_source_admission_stays_with_the_filters_that_earned_it"
+    },
+    {
+      "name": "source-admission-key-projects",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
+          "line": 437,
+          "before": "admission_key = (template, self.domains, self.sensitivity_allowed, self.projects, self.all_of)",
+          "after": "admission_key = (template, self.domains, self.sensitivity_allowed, self.all_of)",
+          "sha256": "741f76664b33a1897bcc0e0344fced5066636fc6645c12cf0da644568efe631c"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_label_guard_pins.py::test_a_shared_source_admission_stays_with_the_filters_that_earned_it"
+      ],
+      "expected_failure": "test_a_shared_source_admission_stays_with_the_filters_that_earned_it"
+    },
+    {
+      "name": "source-admission-key-all-of",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
+          "line": 437,
+          "before": "admission_key = (template, self.domains, self.sensitivity_allowed, self.projects, self.all_of)",
+          "after": "admission_key = (template, self.domains, self.sensitivity_allowed, self.projects)",
+          "sha256": "741f76664b33a1897bcc0e0344fced5066636fc6645c12cf0da644568efe631c"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_label_guard_pins.py::test_a_shared_source_admission_stays_with_the_filters_that_earned_it"
+      ],
+      "expected_failure": "test_a_shared_source_admission_stays_with_the_filters_that_earned_it"
+    },
+    {
+      "name": "request-row-cache-store",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
+          "line": 133,
+          "before": "    if current is None or current[0] is not store:\n        return None\n    return current[1].row_sets",
+          "after": "    if current is None:\n        return None\n    return current[1].row_sets",
+          "sha256": "741f76664b33a1897bcc0e0344fced5066636fc6645c12cf0da644568efe631c"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_label_guard_pins.py::test_request_row_cache_belongs_to_the_store_that_opened_the_scope",
+        "tests/unit/test_label_guard_pins.py::test_two_sqlite_stores_under_one_scope_never_share_cached_rows",
+        "tests/integration/test_label_guard_pins_postgres.py::test_second_tenant_never_receives_the_first_tenants_cached_rows"
+      ],
+      "expected_failure": "test_request_row_cache_belongs_to_the_store_that_opened_the_scope"
+    },
+    {
+      "name": "guard-state-store",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
+          "line": 196,
+          "before": "state = current[1] if current is not None and current[0] is self.store else self._request",
+          "after": "state = current[1] if current is not None else self._request",
+          "sha256": "741f76664b33a1897bcc0e0344fced5066636fc6645c12cf0da644568efe631c"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_label_guard_pins.py::test_guard_state_belongs_to_the_store_that_opened_the_scope",
+        "tests/integration/test_label_guard_pins_postgres.py::test_second_tenant_never_receives_the_first_tenants_cached_rows"
+      ],
+      "expected_failure": "test_guard_state_belongs_to_the_store_that_opened_the_scope"
+    },
+    {
+      "name": "request-scope-store",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
+          "line": 141,
+          "before": "    if current is not None and current[0] is store:\n        yield\n        return",
+          "after": "    if current is not None:\n        yield\n        return",
+          "sha256": "741f76664b33a1897bcc0e0344fced5066636fc6645c12cf0da644568efe631c"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_label_guard_pins.py::test_a_second_store_gets_its_own_scope_and_its_own_invalidation"
+      ],
+      "expected_failure": "test_a_second_store_gets_its_own_scope_and_its_own_invalidation"
+    },
+    {
+      "name": "identity-key-store",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
+          "line": 847,
+          "before": "        if current is None or current[0] is not self.store:\n            return _row_label_key(kind, row)",
+          "after": "        if current is None:\n            return _row_label_key(kind, row)",
+          "sha256": "741f76664b33a1897bcc0e0344fced5066636fc6645c12cf0da644568efe631c"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_label_guard_pins.py::test_a_guard_outside_its_store_scope_leaves_the_scope_identity_map_alone"
+      ],
+      "expected_failure": "test_a_guard_outside_its_store_scope_leaves_the_scope_identity_map_alone"
+    },
+    {
+      "name": "native-label-store",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
+          "line": 716,
+          "before": "if current is None or current[0] is not self.store or type(row.get(\"id\")) is not UUID:\n            return None\n        entry = current[1].native_labels",
+          "after": "if current is None or type(row.get(\"id\")) is not UUID:\n            return None\n        entry = current[1].native_labels",
+          "sha256": "741f76664b33a1897bcc0e0344fced5066636fc6645c12cf0da644568efe631c"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_label_guard_pins.py::test_a_native_label_settled_for_one_store_is_never_reused_for_another"
+      ],
+      "expected_failure": "test_a_native_label_settled_for_one_store_is_never_reused_for_another"
+    },
+    {
+      "name": "rank-batch-projection",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
+          "line": 633,
+          "before": "if len(found) != 1 or (found[0] is not row and _row_label_key(kind, found[0]) != _row_label_key(kind, row)):",
+          "after": "if len(found) != 1:",
+          "sha256": "741f76664b33a1897bcc0e0344fced5066636fc6645c12cf0da644568efe631c"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_label_guard_pins.py::test_rank_batch_refuses_a_row_that_differs_from_the_loaded_projection"
+      ],
+      "expected_failure": "test_rank_batch_refuses_a_row_that_differs_from_the_loaded_projection"
+    },
+    {
+      "name": "bulk-count-weekly",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
+          "line": 594,
+          "before": "if has_implicit_weekly_inputs(node_kind, row) or node_kind == \"belief\":",
+          "after": "if node_kind == \"belief\":",
+          "sha256": "741f76664b33a1897bcc0e0344fced5066636fc6645c12cf0da644568efe631c"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_label_guard_pins.py::test_bulk_count_leaves_implicit_weekly_artifacts_to_the_per_root_path"
+      ],
+      "expected_failure": "test_bulk_count_leaves_implicit_weekly_artifacts_to_the_per_root_path"
+    },
+    {
+      "name": "bulk-count-belief",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
+          "line": 594,
+          "before": "if has_implicit_weekly_inputs(node_kind, row) or node_kind == \"belief\":",
+          "after": "if has_implicit_weekly_inputs(node_kind, row):",
+          "sha256": "741f76664b33a1897bcc0e0344fced5066636fc6645c12cf0da644568efe631c"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_label_guard_pins.py::test_bulk_count_leaves_beliefs_to_the_per_root_path"
+      ],
+      "expected_failure": "test_bulk_count_leaves_beliefs_to_the_per_root_path"
+    },
+    {
+      "name": "request-cache-clear-counts",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
+          "line": 101,
+          "before": "        self.counts.clear()",
+          "after": "        pass  # removed status count invalidation",
+          "sha256": "741f76664b33a1897bcc0e0344fced5066636fc6645c12cf0da644568efe631c"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_label_guard_pins.py::test_a_cached_status_count_is_dropped_by_invalidation"
+      ],
+      "expected_failure": "test_a_cached_status_count_is_dropped_by_invalidation"
+    },
+    {
+      "name": "request-cache-clear-dependency-labels",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
+          "line": 102,
+          "before": "        self.dependency_labels.clear()",
+          "after": "        pass  # removed dependency label invalidation",
+          "sha256": "741f76664b33a1897bcc0e0344fced5066636fc6645c12cf0da644568efe631c"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_label_guard_pins.py::test_a_shared_dependency_label_is_dropped_by_invalidation"
+      ],
+      "expected_failure": "test_a_shared_dependency_label_is_dropped_by_invalidation"
+    },
+    {
+      "name": "request-cache-clear-source-admission",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
+          "line": 109,
+          "before": "        self.source_admission.clear()",
+          "after": "        pass  # removed shared admission invalidation",
+          "sha256": "741f76664b33a1897bcc0e0344fced5066636fc6645c12cf0da644568efe631c"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_label_guard_pins.py::test_a_shared_admission_is_dropped_by_invalidation"
+      ],
+      "expected_failure": "test_a_shared_admission_is_dropped_by_invalidation"
+    },
+    {
+      "name": "request-cache-clear-signatures",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
+          "line": 105,
+          "before": "        self.signatures.clear()",
+          "after": "        pass  # removed signature invalidation",
+          "sha256": "741f76664b33a1897bcc0e0344fced5066636fc6645c12cf0da644568efe631c"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_label_guard_pins.py::test_a_cached_signature_is_dropped_by_invalidation_for_a_reused_row_identity"
+      ],
+      "expected_failure": "test_a_cached_signature_is_dropped_by_invalidation_for_a_reused_row_identity"
+    },
+    {
+      "name": "request-cache-clear-every-field",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
+          "line": 104,
+          "before": "        self.source_copies.clear()",
+          "after": "        pass  # removed single-source copy invalidation",
+          "sha256": "741f76664b33a1897bcc0e0344fced5066636fc6645c12cf0da644568efe631c"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_label_guard_pins.py::test_invalidation_empties_every_request_cache_field"
+      ],
+      "expected_failure": "test_invalidation_empties_every_request_cache_field"
     },
     {
       "name": "implicit-weekly-fallback",
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
-          "line": 349,
+          "line": 350,
           "before": "if problem or has_implicit_weekly_inputs(kind, row):",
           "after": "if problem:",
-          "sha256": "709fe6008d367346257112b118a7be18a5e5d3c6e49d36c041de710e9b6e5d5e"
+          "sha256": "741f76664b33a1897bcc0e0344fced5066636fc6645c12cf0da644568efe631c"
         }
       ],
       "pytest": [
@@ -227,10 +628,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
-          "line": 538,
+          "line": 540,
           "before": "if not self.active and callable(native):",
           "after": "if False:",
-          "sha256": "709fe6008d367346257112b118a7be18a5e5d3c6e49d36c041de710e9b6e5d5e"
+          "sha256": "741f76664b33a1897bcc0e0344fced5066636fc6645c12cf0da644568efe631c"
         }
       ],
       "pytest": [
@@ -275,10 +676,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
-          "line": 403,
+          "line": 404,
           "before": "        self._prefetch_inputs(kind, rows)\n        kept: list[_Row] = []",
           "after": "        pass  # removed batched ancestry reads\n        kept: list[_Row] = []",
-          "sha256": "709fe6008d367346257112b118a7be18a5e5d3c6e49d36c041de710e9b6e5d5e"
+          "sha256": "741f76664b33a1897bcc0e0344fced5066636fc6645c12cf0da644568efe631c"
         }
       ],
       "pytest": [
@@ -357,8 +758,8 @@
           "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
           "before": "row_admission_key = (key, self.domains, self.sensitivity_allowed, self.projects, self.all_of)",
           "after": "row_admission_key = (key,)",
-          "line": 421,
-          "sha256": "709fe6008d367346257112b118a7be18a5e5d3c6e49d36c041de710e9b6e5d5e"
+          "line": 422,
+          "sha256": "741f76664b33a1897bcc0e0344fced5066636fc6645c12cf0da644568efe631c"
         }
       ],
       "pytest": [
@@ -374,7 +775,7 @@
           "before": "        self.row_admission.clear()",
           "after": "        pass  # removed admission invalidation",
           "line": 110,
-          "sha256": "709fe6008d367346257112b118a7be18a5e5d3c6e49d36c041de710e9b6e5d5e"
+          "sha256": "741f76664b33a1897bcc0e0344fced5066636fc6645c12cf0da644568efe631c"
         }
       ],
       "pytest": [
@@ -387,10 +788,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
-          "line": 427,
+          "line": 428,
           "before": "            if settled is not None and not settled.unverified:",
           "after": "            if settled is not None:",
-          "sha256": "709fe6008d367346257112b118a7be18a5e5d3c6e49d36c041de710e9b6e5d5e"
+          "sha256": "741f76664b33a1897bcc0e0344fced5066636fc6645c12cf0da644568efe631c"
         }
       ],
       "pytest": [
@@ -403,10 +804,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
-          "line": 584,
+          "line": 587,
           "before": "            if len(stored) != 1 or (stored[0] is not row and _row_label_key(kind, stored[0]) != _row_label_key(kind, row)):",
           "after": "            if len(stored) != 1:",
-          "sha256": "709fe6008d367346257112b118a7be18a5e5d3c6e49d36c041de710e9b6e5d5e"
+          "sha256": "741f76664b33a1897bcc0e0344fced5066636fc6645c12cf0da644568efe631c"
         }
       ],
       "pytest": [
@@ -454,7 +855,7 @@
           "before": "        self.native_labels.clear()",
           "after": "        pass  # removed native projection invalidation",
           "line": 115,
-          "sha256": "709fe6008d367346257112b118a7be18a5e5d3c6e49d36c041de710e9b6e5d5e"
+          "sha256": "741f76664b33a1897bcc0e0344fced5066636fc6645c12cf0da644568efe631c"
         }
       ],
       "pytest": [
@@ -469,8 +870,8 @@
           "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
           "before": "        if self._signature(kind, row, key=key) != self._signature(kind, raw, key=self._key(kind, raw)):\n            return None",
           "after": "        pass  # removed native projection signature equality",
-          "line": 716,
-          "sha256": "709fe6008d367346257112b118a7be18a5e5d3c6e49d36c041de710e9b6e5d5e"
+          "line": 722,
+          "sha256": "741f76664b33a1897bcc0e0344fced5066636fc6645c12cf0da644568efe631c"
         }
       ],
       "pytest": [
@@ -517,8 +918,8 @@
           "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
           "before": "prefilter[\"batch_size\"] = 5000",
           "after": "prefilter[\"batch_size\"] = 1000",
-          "line": 784,
-          "sha256": "709fe6008d367346257112b118a7be18a5e5d3c6e49d36c041de710e9b6e5d5e"
+          "line": 790,
+          "sha256": "741f76664b33a1897bcc0e0344fced5066636fc6645c12cf0da644568efe631c"
         }
       ],
       "pytest": [
@@ -565,8 +966,8 @@
           "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
           "before": "if canonical and callable(counter) and self.active and not self.projects and self.all_of is None:",
           "after": "if canonical and callable(counter) and self.active:",
-          "line": 772,
-          "sha256": "709fe6008d367346257112b118a7be18a5e5d3c6e49d36c041de710e9b6e5d5e"
+          "line": 778,
+          "sha256": "741f76664b33a1897bcc0e0344fced5066636fc6645c12cf0da644568efe631c"
         }
       ],
       "pytest": [
@@ -601,8 +1002,8 @@
           "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
           "before": "if allowed != frozenset(value for value, rank in SENSITIVITY_RANK.items() if rank <= ceiling):",
           "after": "if False:",
-          "sha256": "709fe6008d367346257112b118a7be18a5e5d3c6e49d36c041de710e9b6e5d5e",
-          "line": 613
+          "sha256": "741f76664b33a1897bcc0e0344fced5066636fc6645c12cf0da644568efe631c",
+          "line": 616
         }
       ]
     },
@@ -617,8 +1018,8 @@
           "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
           "before": "_mark_dependency_bounds(origins, graph, problems, max_hops=HOP_BOUND, max_nodes=NODE_BOUND)",
           "after": "pass  # removed independent origin bounds",
-          "sha256": "709fe6008d367346257112b118a7be18a5e5d3c6e49d36c041de710e9b6e5d5e",
-          "line": 678
+          "sha256": "741f76664b33a1897bcc0e0344fced5066636fc6645c12cf0da644568efe631c",
+          "line": 683
         }
       ]
     },
@@ -633,8 +1034,8 @@
           "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
           "before": "if visited != len(graph):",
           "after": "if False:",
-          "sha256": "709fe6008d367346257112b118a7be18a5e5d3c6e49d36c041de710e9b6e5d5e",
-          "line": 675
+          "sha256": "741f76664b33a1897bcc0e0344fced5066636fc6645c12cf0da644568efe631c",
+          "line": 680
         }
       ]
     },
@@ -649,8 +1050,8 @@
           "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
           "before": "if entry is None or not _rank_projection_supported(row):",
           "after": "if entry is None:",
-          "sha256": "709fe6008d367346257112b118a7be18a5e5d3c6e49d36c041de710e9b6e5d5e",
-          "line": 695
+          "sha256": "741f76664b33a1897bcc0e0344fced5066636fc6645c12cf0da644568efe631c",
+          "line": 700
         }
       ]
     },
@@ -665,8 +1066,8 @@
           "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
           "before": "if projection_signature != self._signature(kind, raw, key=self._key(kind, raw)):",
           "after": "if False:",
-          "sha256": "709fe6008d367346257112b118a7be18a5e5d3c6e49d36c041de710e9b6e5d5e",
-          "line": 702
+          "sha256": "741f76664b33a1897bcc0e0344fced5066636fc6645c12cf0da644568efe631c",
+          "line": 707
         }
       ]
     },
@@ -681,7 +1082,7 @@
           "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
           "before": "        self.rank_rows.clear()\n        self.rank_origins.clear()\n        self.rank_admission.clear()",
           "after": "        pass  # removed reduced-proof invalidation",
-          "sha256": "709fe6008d367346257112b118a7be18a5e5d3c6e49d36c041de710e9b6e5d5e",
+          "sha256": "741f76664b33a1897bcc0e0344fced5066636fc6645c12cf0da644568efe631c",
           "line": 116
         }
       ]
@@ -697,8 +1098,8 @@
           "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
           "before": "grant_key = (self._key(kind, row), self.domains, self.sensitivity_allowed, self.projects, self.all_of)",
           "after": "grant_key = (self._key(kind, row),)",
-          "sha256": "709fe6008d367346257112b118a7be18a5e5d3c6e49d36c041de710e9b6e5d5e",
-          "line": 410
+          "sha256": "741f76664b33a1897bcc0e0344fced5066636fc6645c12cf0da644568efe631c",
+          "line": 411
         }
       ]
     }
