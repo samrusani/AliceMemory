@@ -3490,6 +3490,22 @@
         }
       ],
       "pytest": [
+        "tests/unit/test_event_references.py::test_every_listed_payload_field_is_read_as_the_kind_of_row_it_names"
+      ],
+      "expected_failure": "test_every_listed_payload_field_is_read_as_the_kind_of_row_it_names"
+    },
+    {
+      "name": "event-superseded-members-field-unlisted",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_label_sql.py",
+          "line": 84,
+          "before": "    \"superseded_member_ids\": \"memory\",\n",
+          "after": "",
+          "sha256": "95b7d5e18e4c1b88623dece958064ac73921c3d1993d90abc70b0af5eb4f3864"
+        }
+      ],
+      "pytest": [
         "tests/unit/test_event_references.py::test_every_id_field_an_event_writer_puts_in_a_payload_is_classified"
       ],
       "expected_failure": "test_every_id_field_an_event_writer_puts_in_a_payload_is_classified"

@@ -89,6 +89,13 @@ def test_payload_fields_name_a_row_whatever_the_target_is():
         assert sorted(event_references(event)) == sorted(expected), event["event_type"]
 
 
+def test_every_listed_payload_field_is_read_as_the_kind_of_row_it_names():
+    """One field at a time, in an event whose target says nothing, so that removing a field from the list fails here."""
+    for key, kind in EVENT_PAYLOAD_REFERENCES.items():
+        value = [SRC] if key.endswith("s") else SRC
+        assert event_references(_event("entity.updated", "entity", MEM, **{key: value})) == [(kind, SRC)], key
+
+
 def test_a_replacement_names_the_kind_of_row_the_event_is_about():
     assert event_references(_event("source.superseded", "source", SRC, superseded_by=MEM)) == [("source", SRC), ("source", MEM)]
     assert event_references(_event("belief.superseded", "belief", SRC, superseded_by=MEM)) == [("belief", SRC), ("belief", MEM)]
