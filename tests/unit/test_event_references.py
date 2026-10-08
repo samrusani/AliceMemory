@@ -89,9 +89,21 @@ def test_payload_fields_name_a_row_whatever_the_target_is():
         assert sorted(event_references(event)) == sorted(expected), event["event_type"]
 
 
+LISTED_PAYLOAD_FIELDS = {
+    "source_id": "source", "source_ids": "source", "memory_id": "memory", "candidate_memory_id": "memory",
+    "candidate_memory_ids": "memory", "rollup_candidate_ids": "memory", "expired_memory_ids": "memory",
+    "superseded_member_ids": "memory", "member_id": "memory", "artifact_id": "artifact", "artifact_ids": "artifact",
+    "belief_id": "belief", "project_id": "project", "project_ids": "project",
+}
+
+
 def test_every_listed_payload_field_is_read_as_the_kind_of_row_it_names():
-    """One field at a time, in an event whose target says nothing, so that removing a field from the list fails here."""
-    for key, kind in EVENT_PAYLOAD_REFERENCES.items():
+    """One field at a time, in an event whose target says nothing, so that removing a field from the list fails here.
+
+    The list is written out here as well as in the module: a test that walks the module's own list cannot see a field go.
+    """
+    assert EVENT_PAYLOAD_REFERENCES == LISTED_PAYLOAD_FIELDS
+    for key, kind in LISTED_PAYLOAD_FIELDS.items():
         value = [SRC] if key.endswith("s") else SRC
         assert event_references(_event("entity.updated", "entity", MEM, **{key: value})) == [(kind, SRC)], key
 
