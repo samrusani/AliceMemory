@@ -268,7 +268,7 @@ class VNextDoctorService:
             for name in ("flagged_sources", "derived_labels"):
                 checks.append(DoctorCheck(
                     name=name, status="skipped", severity="info",
-                    message="Content diagnostics are omitted from this filtered workspace view. Run doctor for a full report.",
+                    message="Content diagnostics are available to the owner and an unbound admin key.",
                     details={"scope": "filtered_workspace", "evaluated": False},
                 ))
 

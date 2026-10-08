@@ -118,8 +118,9 @@ SOURCE_RECEIPTS = {
     # the shared unscoped call site can state ``None`` for both, and it refuses anything else, since the Postgres
     # runtime resolves no project view (reviewed change, not drift).
     # The file hash now matches the carrier after the label lock. Previous receipt e4724ba1...
-    # Re-minted for ``get_edge`` (2026-10-08), one new reader beside ``create_edge``. Previous receipt dda88f24...
-    POSTGRES_CARRIER_PATH: "b40208dc32a48e0d67f08825cc7e6a9d66db8fb05e45b11fb87b26b863902fb6",
+    # Re-minted for ``get_edge`` (2026-10-08), one new reader beside ``create_edge``, and for the ``clamp_follows`` argument of the
+    # label hook in ``update_open_loop``. Previous receipt dda88f24...
+    POSTGRES_CARRIER_PATH: "38b13366fd353d459ec46b2926d5c8983bdf20495c1e82351e6195141466dab2",
     # The SQLite carrier is re-minted, with its method AST manifest below, for
     # ``list_open_loops`` and ``list_open_loop_events``: they bind a query through
     # ``literal_match_operand`` and so refuse one past the LIKE operand limit.
@@ -138,15 +139,18 @@ SOURCE_RECEIPTS = {
     # change (reviewed change, not drift).
     # Re-minted for the combined floor-aware partition read and canonical source-reference batch lookup.
     # Previous receipt 9a2634be...
-    SQLITE_CARRIER_PATH: "cb4e420e905feb7416df16d3cd66365799e816e953ff9d4d440a5e8930f572ab",
+    # Re-minted for the ``clamp_follows`` argument of the label hook in ``update_open_loop``. Previous receipt cb4e420e...
+    SQLITE_CARRIER_PATH: "6e80249b8e41625e9b3d8d41a97e5d8eb2cc492e00b932dde8ea47e3f6b7f54d",
     POSTGRES_COLUMNS_PATH: "1a782bf3eb87f68f67434508baab0f82d49cb40a0c547cde49bbc972e2f1d182",
     SQLITE_COLUMNS_PATH: "be81b8628d0831d3d02b280b5455fb02333db5740ebef8d85d58024384ae6556",
 }
 EXPECTED_METHOD_AST_MANIFESTS = {
     # Postgres manifest matches the carrier after the label lock. Previous 25580884...
-    POSTGRES_CARRIER_PATH: "e6820e23edba60420cf4abd7d87d7861c7267d9f0b6a6fab1331a3114cb53e49",
+    # Previous 4de0ce4d..., before ``get_edge`` and the ``clamp_follows`` argument of the label hook.
+    POSTGRES_CARRIER_PATH: "c7943bb62caade72d357c3394338aa3e7a35cb610a2e542a8bff20e3e23bd3a2",
     # SQLite manifest includes the floor identity on the partition read. Previous 2850ba60...
-    SQLITE_CARRIER_PATH: "e66e08ea2a973a5dcbb61cdaa493485d1b16291ded5e460343100484940acffe",
+    # Previous e66e08ea..., before the ``clamp_follows`` argument of the label hook.
+    SQLITE_CARRIER_PATH: "eac532906f9a576c528968bbcd2dd2b006af56e8cf091d400f70cf6299293f3d",
 }
 EXPECTED_METADATA_MANIFESTS = {
     POSTGRES_CARRIER_PATH: "ee8cffdc30aba2db26d81a1bfcf7bddcf13240b814213f374950b3d20fbda314",

@@ -467,9 +467,8 @@ _ID_IN_TEXT = re.compile(
     r"(?:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|[0-9a-fA-F]{32})"
     r"(?![0-9a-fA-F])"
 )
-# The ``source:`` prefixes (any case, any number, whitespace allowed before each) a ref may start with. The whitespace
-# after the last prefix is not part of the match: it can be a character of the id (see ``_uuid_text``).
-_SOURCE_PREFIXES = re.compile(r"(?:\s*source:)*", re.IGNORECASE)
+# One ``source:`` prefix, in any case. ``_source_prefixes_end`` reads the run of them a ref may start with.
+_SOURCE_PREFIX = re.compile(r"source:", re.IGNORECASE)
 _ALICE_SOURCE_URL = "alice://sources/"
 # A ``memory:`` ref (the rollups and the consolidation write them into ``source_refs``) names a memory, so its id is
 # not read as a source id at all.
@@ -539,6 +538,27 @@ def _uuid_text(text: str) -> str | None:
     return None
 
 
+def _source_prefixes_end(text: str) -> int:
+    """Where the ``source:`` prefixes at the start of ``text`` end, or 0 when it starts with none.
+
+    The prefixes are in any case and any number, with whitespace allowed before each. The whitespace after the last
+    prefix is not part of them: it can be a character of the id (see ``_uuid_text``). This is the end of a match of
+    ``(?:\\s*source:)*`` (ignoring case) at the start of ``text``, read by a loop over one fixed pattern, so the time is
+    linear in the length of ``text`` however much whitespace it holds. ``str.isspace`` is the test ``\\s`` makes.
+    """
+
+    end = 0
+    position = 0
+    length = len(text)
+    while True:
+        while position < length and text[position].isspace():
+            position += 1
+        prefix = _SOURCE_PREFIX.match(text, position)
+        if prefix is None:
+            return end
+        position = end = prefix.end()
+
+
 def _whole_id(text: str) -> str | None:
     """The id ``text`` is, in every way the link writer reads one and more.
 
@@ -551,7 +571,7 @@ def _whole_id(text: str) -> str | None:
     """
 
     for whole in (text, text.strip()):
-        found = _uuid_text(whole[_SOURCE_PREFIXES.match(whole).end() :])  # type: ignore[union-attr]
+        found = _uuid_text(whole[_source_prefixes_end(whole) :])
         if found is not None:
             return found
     return None
@@ -565,7 +585,7 @@ def _word_id(word: str) -> tuple[str | None, bool]:
     ``(id, True)``: the word says it names a source. A word that holds no id at its start gives ``(None, False)``.
     """
 
-    start = _SOURCE_PREFIXES.match(word).end()  # type: ignore[union-attr]
+    start = _source_prefixes_end(word)
     if start == 0 and word[: len(_ALICE_SOURCE_URL)].lower() == _ALICE_SOURCE_URL:
         start = len(_ALICE_SOURCE_URL)
     if start == 0:

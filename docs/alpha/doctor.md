@@ -30,6 +30,16 @@ warning. A failed read is never reported as zero rows. Run the store's `labels
 check` command to inspect the cause, then `labels repair` for stale labels;
 missing inputs need restoring or regeneration.
 
+Unreleased (on main, not in v0.20.0): two checks read the content of the vault, `flagged_sources` (the ids of
+stored sources that carry credential material) and `derived_labels` (the counts above). `GET /v0/vnext/doctor` and
+`POST /v0/vnext/doctor/run` run them only for the owner and an unbound admin key. A trusted key passes the operator
+gate with a ceiling below confidential, so it receives both with status `skipped`, the message "Content diagnostics
+are available to the owner and an unbound admin key." and no id, count or text taken from the vault. Its `status`,
+`warning_count` and `recommended_fixes` leave them out, and every other check is the same for every caller. Other
+profiles and project-bound keys are refused by the gate (HTTP 403). The `doctor` field of the workspace response
+follows the same rule. The `alicebot vnext doctor` command reads the local vault as its owner and is not limited.
+In v0.20.0 the routes returned the `flagged_sources` ids to a trusted key.
+
 Common fixes:
 
 ```bash

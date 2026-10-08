@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from datetime import UTC, datetime
-from typing import Literal
+from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Header, Query
+from fastapi import APIRouter, Header, Path, Query
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 from pydantic import Field
@@ -46,6 +46,8 @@ from alicebot_api.routers._vnext_shared import (
     _vnext_exact_resource_policy,
     _vnext_load_source_trace,
     _vnext_metadata,
+    _vnext_operator_gate,
+    _vnext_path_uuid,
     _vnext_permission_response,
     _vnext_policy_checked,
     _vnext_public_error_response,
@@ -747,19 +749,46 @@ def get_vnext_dogfooding_dashboard(
     return JSONResponse(status_code=200, content=jsonable_encoder(payload))
 
 
+def _doctor_content_visible(store: PostgresVNextStore, *, user_id: UUID, authorization: str | None) -> bool:
+    """True when the caller has no limits, so the doctor may read the vault's content for it.
+
+    The content checks list the ids of sources that carry credential material and count derived rows, whatever
+    their label. Only the owner and an unbound admin key are shown them. This is the workspace's condition.
+    """
+
+    from alicebot_api.vnext_source_fence import SourceReadFence
+
+    identity = resolve_protected_agent_identity(
+        store, user_id=user_id, raw_key=agent_key_from_authorization(authorization), payload={}
+    )
+    return not SourceReadFence.for_identity(identity).entity_read_fenced
+
+
 @connectors_router.get("/v0/vnext/doctor")
-def get_vnext_doctor(user_id: UUID, ci: bool = True) -> JSONResponse:
+def get_vnext_doctor(user_id: UUID, ci: bool = True, authorization: str | None = Header(default=None)) -> JSONResponse:
     settings = get_settings()
-    with user_connection(settings.database_url, user_id) as conn:
-        payload = VNextDoctorService(PostgresVNextStore(conn)).run(ci=ci)
+    try:
+        with user_connection(settings.database_url, user_id) as conn:
+            store = PostgresVNextStore(conn)
+            content_visible = _doctor_content_visible(store, user_id=user_id, authorization=authorization)
+            payload = VNextDoctorService(store).run(ci=ci, include_content_diagnostics=content_visible)
+    except AgentKeyAuthenticationError as exc:
+        return _vnext_agent_auth_error_response(exc)
     return JSONResponse(status_code=200, content=jsonable_encoder(payload))
 
 
 @connectors_router.post("/v0/vnext/doctor/run")
-def run_vnext_doctor(request: VNextDoctorRunRequest) -> JSONResponse:
+def run_vnext_doctor(request: VNextDoctorRunRequest, authorization: str | None = Header(default=None)) -> JSONResponse:
     settings = get_settings()
-    with user_connection(settings.database_url, request.user_id) as conn:
-        payload = VNextDoctorService(PostgresVNextStore(conn)).run(fix_safe=request.fix_safe, ci=request.ci)
+    try:
+        with user_connection(settings.database_url, request.user_id) as conn:
+            store = PostgresVNextStore(conn)
+            content_visible = _doctor_content_visible(store, user_id=request.user_id, authorization=authorization)
+            payload = VNextDoctorService(store).run(
+                fix_safe=request.fix_safe, ci=request.ci, include_content_diagnostics=content_visible
+            )
+    except AgentKeyAuthenticationError as exc:
+        return _vnext_agent_auth_error_response(exc)
     return JSONResponse(status_code=200, content=jsonable_encoder(payload))
 
 
@@ -809,7 +838,13 @@ def _vnext_source_route_identity(
 
 
 @source_review_router.get("/v0/vnext/sources/{source_id}")
-def get_vnext_source(source_id: UUID, user_id: UUID, authorization: str | None = Header(default=None)) -> JSONResponse:
+def get_vnext_source(
+    # Declared as text so the operator gate runs before the id is parsed, as the
+    # central gate ran before validation. The schema still says uuid.
+    source_id: Annotated[str, Path(json_schema_extra={"format": "uuid"})],
+    user_id: UUID,
+    authorization: str | None = Header(default=None),
+) -> JSONResponse:
     settings = get_settings()
     try:
         with user_connection(settings.database_url, user_id) as conn:
@@ -817,15 +852,16 @@ def get_vnext_source(source_id: UUID, user_id: UUID, authorization: str | None =
             identity = resolve_protected_agent_identity(
                 store, user_id=user_id,
                 raw_key=agent_key_from_authorization(authorization if isinstance(authorization, str) else None), payload={})
-            operator = _vnext_policy_checked(store=store, identity=identity, action="http.operator.access")
-            if operator.decision == "blocked":
+            operator = _vnext_operator_gate(store, identity, route_path="/v0/vnext/sources/{source_id}")
+            if operator is not None:
                 return _vnext_permission_response(operator)
-            payload = _vnext_readable_source(store, identity, source_id)
+            source_uuid = _vnext_path_uuid("source_id", source_id)
+            payload = _vnext_readable_source(store, identity, source_uuid)
     except AgentKeyAuthenticationError as exc:
         return _vnext_agent_auth_error_response(exc)
 
     if payload is None:
-        return _vnext_source_not_found(source_id)
+        return _vnext_source_not_found(source_uuid)
 
     return JSONResponse(
         status_code=200,
@@ -1417,9 +1453,20 @@ def review_vnext_memory(
                     identity=identity,
                     stage=f"http_review_{action}",
                 )
-            from alicebot_api.vnext_project_scope import resolve_project_scope
+            from alicebot_api.vnext_project_scope import (
+                project_identifier_identity,
+                project_scope_identity,
+                resolve_project_scope,
+            )
 
-            if action == "assign_project" and request.project_id is not None and request.project_id in resolve_project_scope(updated).values:
+            # The edge records an assignment that stood. A refused (clamped)
+            # assignment leaves the project out of the stored scope. Compare
+            # identities: the stored scope is normalized and the request may not be.
+            if (
+                action == "assign_project"
+                and request.project_id is not None
+                and project_identifier_identity(request.project_id) in project_scope_identity(resolve_project_scope(updated).values)
+            ):
                 store.create_edge(
                     {
                         "from_type": "memory",

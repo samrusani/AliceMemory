@@ -88,7 +88,9 @@ SQLITE_METHODS = (
 # and the memory update checks exclusive L before changing labels.
 SOURCE_RECEIPTS = {
     COMMON_PATH: "8fc077dc71f0e631a2df81de2ebeec1fb6c768f341c2e7891309e4753eef7bb5",
-    POSTGRES_CARRIER_PATH: "2b540dc4b52e74d564ef22ce9f9ec98a527d4e5a74f00497c33ab29d37bce109",
+    # Re-minted for the ``clamp_follows`` argument of the label hook in ``update_memory`` (reviewed change).
+    # Previous postgres receipt 2b540dc4..., method AST d9f50023...; the metadata manifest is unchanged.
+    POSTGRES_CARRIER_PATH: "a0865fb842918ba015477748675395d1050e766ab3363d633dd70b9c321cdba4",
     # SQLite carrier re-minted for the Phase 4 Stage 2 resident vector cache
     # (reviewed change): redaction paths that NULL a live embedding now bump
     # the embedding_stamp token in the same transaction (prompt eviction).
@@ -102,7 +104,7 @@ SOURCE_RECEIPTS = {
     SQLITE_CARRIER_PATH: "0e8c2d50857d1064fc94b703c7cc05da234df63d4c278bc08a062fc90d450c3d",
 }
 EXPECTED_METHOD_AST_MANIFESTS = {
-    "postgres": "d9f5002319353a3ebe08cbdd8273faf2b2a11d79fcdf6d7cf779d157d8aae5e6",
+    "postgres": "b092e14fa637bf779fd97e76de5f4c551a35104df46b12823c71f81da4c1bfba",
     "sqlite": "e5eecd8cc9b7922957adcf1a04b6238efa1fafb9e39eeefb310da86c4760ae24",
 }
 EXPECTED_METADATA_MANIFESTS = {
