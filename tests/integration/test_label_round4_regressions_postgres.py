@@ -174,24 +174,6 @@ def test_a_stored_label_change_still_needs_the_exclusive_lock(label_harness, mon
         assert _clamp_events(store, accepted) == []
 
 
-def test_a_derived_project_edit_by_a_shared_holder_is_not_deferred(label_harness):
-    """Only a store method that clamps next may leave the lock to the clamp."""
-    import alicebot_api.vnext_label_writes as writes
-    h = label_harness
-    source = h.source()
-    project_id = str(uuid4())
-    with h.store() as store:
-        lock_label_fixture(store)
-        store.create_project({"id": project_id, "name": "Derived state", "slug": "derived-state",
-                              "metadata_json": with_derived_from({}, {"sources": [source]})})
-    with h.store() as store:
-        assert writes.is_derived("project", store.get_project(project_id))
-        store.lock_graph_mutation()
-        store.lock_label_writes()
-        with pytest.raises(writes.LabelLockOrderError):
-            store.update_project(project_id=project_id, patch={"sensitivity": "confidential"})
-
-
 def _project_with_slug(h):
     project_id = str(uuid4())
     with h.store() as store:

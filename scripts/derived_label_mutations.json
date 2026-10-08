@@ -796,9 +796,9 @@
         }
       ],
       "pytest": [
-        "tests/integration/test_label_round4_regressions_postgres.py::test_a_derived_project_edit_by_a_shared_holder_is_not_deferred"
+        "tests/unit/test_label_clamp_follows.py::test_prepare_leaves_a_derived_label_edit_to_the_clamp_only_when_one_follows"
       ],
-      "expected_failure": "test_a_derived_project_edit_by_a_shared_holder_is_not_deferred"
+      "expected_failure": "test_prepare_leaves_a_derived_label_edit_to_the_clamp_only_when_one_follows"
     },
     {
       "name": "clamp-follows-pairing",
