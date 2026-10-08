@@ -14,9 +14,9 @@ may not read the row at all (it is in another project, above the caller's ceilin
 back from) hears ``not_found`` in every state, the same as for an id that does not exist, and the call writes what a
 call on a missing id writes, which is nothing: the policy events and the agent record are events a key reads back in its
 own telemetry. That replaces the earlier ruling that such a caller may learn from ``not_permitted`` that an id it holds
-exists outside its scope. A refusal for a row the caller can read is audited as before, and so is a refused ``redact``
-of an archived or redacted row, which is read on purpose. ``alice_explain`` stays one opaque ``tool_request_failed`` for
-a key-bound caller.
+exists outside its scope. A refusal for a row the caller can read is audited as before. A refused ``redact`` of an
+archived or redacted row, which no other verb reads, is answered ``not_found`` and writes nothing, as an id the vault
+never held does. ``alice_explain`` stays one opaque ``tool_request_failed`` for a key-bound caller.
 
 Each test names the mutation that must fail it. A mutation is made in a scratch edit of the source file, the test is
 seen to fail, and the file is restored by copying the saved file back.
@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import json
 import logging
+import sqlite3
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass
 from io import BytesIO
@@ -343,7 +344,7 @@ def test_a_caller_the_project_scope_refuses_hears_the_same_answer_in_every_state
     in ``undo`` before the same call for the successor (the replacement row), in ``confirm`` (the answered
     confirmation cells of ``manage confirm`` and ``commit`` fail); in ``mcp/memories.py`` delete the
     ``refuse_unauthorized_write`` call in ``redact_memory_flow`` (``manage redact`` fails in the pending project
-    update state) or delete its ``deleted_at`` branch (``manage redact`` fails for ``archived`` and ``redacted``).
+    update state).
     """
 
     anchor_key = _mint_key(context, profile="admin_agent", project=_OWN_PROJECT, agent_id="anchor-builder")
@@ -629,28 +630,59 @@ def _blocked_decision(event: Mapping[str, object]) -> Mapping[str, object]:
     return decision
 
 
-def test_a_refused_redact_of_an_archived_or_redacted_row_is_audited_and_answered_not_found(
+def _tables(ctx: MCPRuntimeContext) -> dict[str, list[str]]:
+    """Every row of every table a verb can change, as text. The event log and the agent records are in it."""
+
+    connection = sqlite3.connect(_sqlite_path_from_url(ctx.database_url))
+    try:
+        names = [
+            row[0]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
+            )
+        ]
+        return {
+            name: sorted(json.dumps([str(value) for value in row]) for row in connection.execute(f'SELECT * FROM "{name}"'))  # noqa: S608
+            for name in names
+            if name != "agent_api_keys" and "fts" not in name  # the key table records when a key was last used
+        }
+    finally:
+        connection.close()
+
+
+def _written_by(ctx: MCPRuntimeContext, call: Callable[[], object]) -> tuple[object, dict[str, int]]:
+    """The result of a call and, for each table, how many rows it added or removed."""
+
+    before = _tables(ctx)
+    result = call()
+    after = _tables(ctx)
+    return result, {
+        name: len(set(after[name]) ^ set(before[name])) for name in before if set(after[name]) != set(before[name])
+    }
+
+
+def test_a_refused_redact_of_an_archived_or_redacted_row_is_answered_not_found_and_writes_nothing(
     context: MCPRuntimeContext,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A refused ``redact`` leaves one ``agent.policy_blocked`` row for every state of the row that the key may know of.
+    """A refused ``redact`` of a deleted row leaves the store as a refused ``redact`` of an id that does not exist.
 
-    A live row of another project is not the key's to read, so it is answered as a row that does not exist and writes
-    nothing. A live row the key may read and its profile refuses, and an archived or redacted row whoever asks, leave the
-    row.
+    A key reads the policy events and the agent records back in its own telemetry, so a recorded refusal on a deleted row
+    would tell the key which ids were deleted: a redacted memory can stay listed in a report the key reads. Redact is the
+    one verb that reads an archived or redacted row, to scrub and to replay it, and it used to record the refusal
+    before it answered ``not_found``. Now a caller the policy refuses on a deleted row, whatever its limits, is
+    answered ``not_found`` before anything is recorded, and every table is as a call on a missing id leaves it.
 
-    Redact reads an archived or redacted row on purpose, and a refused caller is answered ``not_found`` for it. The
-    answer is raised after the refusal is recorded, and the whole call used to roll back with it: v0.20.0 recorded the
-    refusal of a live and of an archived row (answered ``not_permitted``) and the first version of the follow-up wrote
-    no row for an archived one. A refused replay of a redacted row wrote none in v0.20.0 either, and now writes one, so
-    each of the three states here has exactly one row naming the caller, the action and the reason, whatever the
-    answer. Two refusals are read: a key bound to another project (scope) and a trusted agent bound to the row's own
-    project (permission profile, which refuses redact).
+    Callers: an admin key bound to another project (scope refuses), and a trusted, a read-only and a project-scoped
+    agent bound to the row's own project (their permission profile refuses redact). For the three states of a row (live,
+    archived, redacted) the answer, the rows the call added or removed in every table, and the policy rows on the
+    target are read. The live row is the control for the profile callers: they read it, so they are refused with
+    ``not_permitted`` and the refusal is recorded. A caller the policy allows still redacts the deleted row.
 
-    Mutations, each one alone, in ``mcp/memories.py``: in ``redact_memory_flow`` raise ``MemoryNotFoundError`` in place
-    of ``RefusedOnDeletedMemoryError`` (the archived and redacted cells of both callers have no audit row); in
-    ``_handle_alice_vnext_redact_memory`` set ``hide_the_row`` false always (the deleted cells answer ``not_permitted``)
-    or true always (the live cell answers ``not_found``).
+    Mutations: in ``_answer_as_missing_if_unreadable`` (``vnext_memory_commit.py``) delete the ``deleted_at`` branch (the
+    archived and redacted cells of the three profile callers answer ``not_permitted`` or write policy rows); in
+    ``redact_memory_flow`` (``mcp/memories.py``) take ``refuse_unauthorized_write`` away (the archived and redacted
+    cells answer ``ok``).
     """
 
     targets = {
@@ -659,41 +691,39 @@ def test_a_refused_redact_of_an_archived_or_redacted_row_is_audited_and_answered
         "redacted": _DELETED_STATES["redacted"],
     }
     callers = (
-        # (label, profile, key bound to, project of the rows, reason the policy gives)
-        ("scope", "admin_agent", _OWN_PROJECT, _OTHER_PROJECT, "project_scope_binding_violation"),
-        ("profile", "trusted_local_agent", _OTHER_PROJECT, _OTHER_PROJECT, "human_or_admin_review_required"),
+        # (label, profile, key bound to, project of the rows)
+        ("scope", "admin_agent", _OWN_PROJECT, _OTHER_PROJECT),
+        ("trusted", "trusted_local_agent", _OTHER_PROJECT, _OTHER_PROJECT),
+        ("read-only", "read_only_agent", _OTHER_PROJECT, _OTHER_PROJECT),
+        ("project-scoped", "project_scoped_agent", _OTHER_PROJECT, _OTHER_PROJECT),
     )
-    cells: dict[tuple[str, str], tuple[str, list[dict[str, object]], str]] = {}
-    for label, profile, bound_to, rows_in, _reason in callers:
+    for label, profile, bound_to, rows_in in callers:
         rows = {state: build(context, rows_in, "internal") for state, build in targets.items()}
         key = _mint_key(context, profile=profile, project=bound_to, agent_id=f"audited-{label}")
         monkeypatch.setenv(_KEY_ENV, key)
-        for state, row in rows.items():
-            answer = _answer(
-                context, "alice_memory_manage", {"action": "redact", "memory_id": row.memory_id, "reason": "no"}
-            )
-            cells[(label, state)] = (answer, _blocked_events(context, row.memory_id), row.memory_id)
-        monkeypatch.delenv(_KEY_ENV)
 
-    for label, _profile, _bound_to, _rows_in, reason in callers:
-        for state in targets:
-            answer, events, _memory_id = cells[(label, state)]
-            # The key bound to another project may not read the row at all; the trusted agent reads it and is refused
-            # by its profile, which a live row tells it.
-            assert answer == ("not_permitted" if state == "live" and label == "profile" else "not_found"), (
-                label, state, answer,
-            )
-            if label == "scope" and state == "live":
-                # A live row of another project is a row that does not exist for this key, which writes nothing. An
-                # archived or redacted row is audited whoever asks, because redact reads it on purpose.
-                assert events == [], (label, state, events)
+        def redact(memory_id: str) -> str:
+            return _answer(context, "alice_memory_manage", {"action": "redact", "memory_id": memory_id, "reason": "no"})
+
+        redact(str(uuid4()))  # the first call of a key writes its agent record
+        missing, missing_written = _written_by(context, lambda: redact(str(uuid4())))
+        assert missing == "not_found" and missing_written == {}, (label, missing, missing_written)
+        for state, row in rows.items():
+            answer, written = _written_by(context, lambda: redact(row.memory_id))
+            events = _blocked_events(context, row.memory_id)
+            if state == "live" and label != "scope":
+                # A row the key may read, refused by its profile: the refusal is recorded and says so.
+                assert answer == "not_permitted", (label, state, answer)
+                assert len(events) == 1, (label, state, events)
+                assert events[0]["actor_id"] == f"audited-{label}", (label, state)
+                decision = _blocked_decision(events[0])
+                assert decision["action"] == "memory.redact" and decision["decision"] == "blocked", (label, state)
+                assert written, (label, state)
                 continue
-            assert len(events) == 1, (label, state, events)
-            assert events[0]["actor_id"] == f"audited-{label}", (label, state)
-            decision = _blocked_decision(events[0])
-            assert decision["action"] == "memory.redact", (label, state)
-            assert decision["decision"] == "blocked", (label, state)
-            assert reason in decision["reasons"], (label, state, decision["reasons"])  # type: ignore[operator]
+            assert answer == "not_found", (label, state, answer)
+            assert events == [], (label, state, events)
+            assert written == missing_written, (label, state, written)
+        monkeypatch.delenv(_KEY_ENV)
 
     # The control: a caller the policy allows redacts the deleted row and is never audited as refused.
     admin = _mint_key(context, profile="admin_agent", project=_OTHER_PROJECT, agent_id="audited-in-scope")
@@ -706,23 +736,19 @@ def test_a_refused_redact_of_an_archived_or_redacted_row_is_audited_and_answered
     assert _blocked_events(context, archived.memory_id) == []
 
 
-def test_the_http_redact_route_audits_a_refusal_and_answers_404_for_a_deleted_row(
+def test_the_http_redact_route_answers_404_for_a_deleted_row_and_writes_what_a_missing_id_writes(
     context: MCPRuntimeContext,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The route twin of the MCP test, on the SQLite store through the real route function and a real key.
 
-    The route's connection is the SQLite one, which commits on a clean exit and rolls back on an exception, as the
-    Postgres one does. A refused redact answers 403 for a live row and 404 for an archived or a redacted row, the
-    answer for an id the vault never held, and each of the three leaves its ``agent.policy_blocked`` row. A plain
-    not-found error would answer the same 404 and roll that row back, so the rows are read after the call. A key bound
-    to another project may not read the live row either, so it is told 404 for it; a trusted agent bound to the row's own
-    project reads it and is refused by its profile with 403.
+    A refused redact answers 403 for a live row the key may read, and 404 for a live row of another project, an archived
+    row, a redacted row and an id the vault never held. The 404s write nothing in any table (the event log and the agent
+    records included); the 403 records its refusal.
 
-    Mutations, each one alone: in ``routers/vnext_memories.py`` delete the ``except RefusedOnDeletedMemoryError``
-    clause of ``redact_vnext_memory`` (the archived and redacted rows answer 403); in ``redact_memory_flow``
-    (``mcp/memories.py``) raise ``MemoryNotFoundError`` in place of ``RefusedOnDeletedMemoryError`` (those rows answer 404
-    and have no audit row); in the route, answer 404 for every refusal (the live row answers 404).
+    Mutations, each one alone: in ``_answer_as_missing_if_unreadable`` (``vnext_memory_commit.py``) delete the
+    ``deleted_at`` branch (the trusted agent's archived and redacted rows answer 403 and write policy rows); in the
+    route answer 404 for every refusal (the live row of the trusted agent answers 404).
     """
 
     from contextlib import contextmanager
@@ -757,26 +783,31 @@ def test_the_http_redact_route_audits_a_refusal_and_answers_404_for_a_deleted_ro
         )
         return response.status_code
 
-    statuses = {state: post(row.memory_id, key) for state, row in rows.items()}
-    statuses["missing"] = post(missing, key)
+    for bearer in (key, trusted):
+        post(missing, bearer)  # the first call of a key writes its agent record
 
     # A key bound to another project may not read any of the rows, so it is told 404 for each, as for an id the vault
-    # never held. A trusted agent bound to the rows' project reads the live row and is refused by its profile (403).
-    assert statuses == {"live": 404, "archived": 404, "redacted": 404, "missing": 404}
-    # The live row is not the key's to read and writes nothing; the deleted rows are audited, because redact reads them.
-    assert {state: len(_blocked_events(context, row.memory_id)) for state, row in rows.items()} == {
-        "live": 0,
-        "archived": 1,
-        "redacted": 1,
-    }
-    assert _blocked_events(context, missing) == []
-    in_scope = {state: post(row.memory_id, trusted) for state, row in rows.items()}
-    assert in_scope == {"live": 403, "archived": 404, "redacted": 404}
+    # never held, and nothing is written. A trusted agent bound to the rows' project reads the live row and is refused
+    # by its profile (403, recorded); the deleted rows and the missing id are 404 and write nothing.
+    for bearer, expected in (
+        (key, {"live": 404, "archived": 404, "redacted": 404}),
+        (trusted, {"live": 403, "archived": 404, "redacted": 404}),
+    ):
+        absent_status, absent_written = _written_by(context, lambda: post(missing, bearer))
+        assert absent_status == 404 and absent_written == {}
+        for state, row in rows.items():
+            status, written = _written_by(context, lambda: post(row.memory_id, bearer))
+            assert status == expected[state], (state, status)
+            if expected[state] == 404:
+                assert written == absent_written, (state, written)
+            else:
+                assert written, (state, written)
     assert {state: len(_blocked_events(context, row.memory_id)) for state, row in rows.items()} == {
         "live": 1,
-        "archived": 2,
-        "redacted": 2,
+        "archived": 0,
+        "redacted": 0,
     }
+    assert _blocked_events(context, missing) == []
 
 
 # --- The permission profile is a refusal dimension too --------------------------------------------------------------

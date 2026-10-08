@@ -17,6 +17,7 @@ from uuid import UUID, uuid4
 
 import pytest
 
+from alicebot_api.mcp.memories import redact_memory_flow
 from alicebot_api.mcp.registry import call_mcp_tool
 from alicebot_api.mcp.types import MCPRuntimeContext, MCPToolError
 from alicebot_api.onramp import bootstrap_database, sqlite_url_for_path
@@ -43,6 +44,10 @@ REASONS = {
     "beta": ("public", "project", BETA),
     "unverified": ("public", "project", ALPHA),
 }
+# Memories that were deleted after they were made: archived by an update of their status, or redacted. No tool reads
+# them but redact. The alpha ones may be redacted by an admin key bound to alpha, the beta one only by an unbound admin
+# key, so ``HIDDEN_FOR`` leaves those keys out.
+DELETED = {"deleted": ALPHA, "redacted": ALPHA, "redacted_beta": BETA}
 # Tables a tool can change. The key table records when a key was last used. The event log and the agent records are
 # compared: a key reads them back in its own telemetry, so a call on a hidden id must write what a call on a missing id
 # writes.
@@ -134,6 +139,22 @@ def build(tmp_path, monkeypatch, profile):
             secrets[("memory", reason)] = [f"TITLE-memory-{tag}", f"TEXT-memory-{tag}"]
             ids[("loop", reason)] = str(loop["id"])
             secrets[("loop", reason)] = [f"TITLE-loop-{tag}", f"TEXT-loop-{tag}"]
+        for reason, project in DELETED.items():
+            with without_insert_floor():
+                memory = store.create_memory(
+                    {
+                        "memory_key": str(uuid4()), "title": f"TITLE-memory-{reason.upper()}",
+                        "canonical_text": f"TEXT-memory-{reason.upper()}", "status": "active", "domain": "project",
+                        "sensitivity": "public", "metadata_json": {"project_scope": [project]},
+                    }
+                )
+            ids[("memory", reason)] = str(memory["id"])
+            secrets[("memory", reason)] = [f"TITLE-memory-{reason.upper()}", f"TEXT-memory-{reason.upper()}"]
+            if reason == "deleted":
+                store.update_memory(memory_id=str(memory["id"]), patch={"status": "archived"}, actor_type="system")
+            else:
+                redact_memory_flow(store, memory_id=str(memory["id"]), reason="synthetic")
+            assert store.get_memory(str(memory["id"])) is None  # deleted rows are not returned by the plain read
         permission, bound = PROFILES[profile]
         _record, key = create_agent_key(
             store, user_id=user_id, agent_id=profile, permission_profile=permission, project_scope=ALPHA if bound else None

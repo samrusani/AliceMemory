@@ -8,7 +8,11 @@ delete ``They grant no access`` from the security note; delete ``is answered exa
 note; delete the sentence that names the graph neighborhood route from the security note; delete ``withholding them is
 tracked for v0.21.0`` from the known limitations; delete ``The full-text stage does refill until its limit is met.`` from
 the security note; delete ``where it raised a server error`` from the changelog; delete ``return them for a derived
-memory`` from the tool reference; delete ``holds `project_id` to the caller's project binding`` from the security note.
+memory`` from the tool reference; delete ``holds `project_id` to the caller's project binding`` from the security note;
+delete ``Ids are not the only thing a report keeps`` (or the sentence that names a redacted memory's text) from the
+security note, or ``a report keeps the words it was made with`` from the known limitations, or ``A report also keeps the words it was made with`` from the tool reference,
+or ``keeps the title, text or quote of a row`` from the changelog; delete the sentence about an archived or redacted
+memory from the security note, the changelog or the tool reference.
 """
 
 from __future__ import annotations
@@ -18,6 +22,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 MARK = "Unreleased (on main, not in v0.20.0):"
 IDS = f"{MARK} rows a key can read may list in their metadata the ids of rows it cannot read"
+KEPT = f"{MARK} a report keeps the words it was made with"
 VECTOR = f"{MARK} the vector stage of recall and of the context pack does not yet refill after hiding rows"
 BELIEF = f"{MARK} belief review and graph edge review"
 EXACT = f"{MARK} the doors that act on one row by id answer a row above"
@@ -53,7 +58,17 @@ def test_the_security_note_states_the_hidden_id_exception() -> None:
     assert "They reveal that the row exists and how a report links to it. They grant no access." in paragraph
     assert "is answered exactly as for a missing id: the same status and body, or the same tool error, and no stored row changes." in paragraph
     assert "is tracked for v0.21.0" in paragraph
-    assert "a report keeps the words of a source that was archived later" in paragraph
+    assert "a report keeps the words of a source that was archived later" not in paragraph  # it moved into its own sentences
+    # The report keeps more than ids, and the note says what: the printed lines, the quoted fields, the roll-up card and
+    # the digest of a consolidation member, and that a redaction does not reach the reports that copied the memory.
+    assert "Ids are not the only thing a report keeps." in paragraph
+    assert "the words of a row that was archived or redacted after the report was made stay in it" in paragraph
+    assert "The `content_markdown` of a daily brief, a weekly synthesis, an open-loop review and a project update prints the lines of the rows it used." in paragraph
+    assert "The `explanation` of a connection holds the title and shared terms of a source, the `quote_new` of a contradiction holds its text, and the `suggested_current_state` of a project update holds its claim." in paragraph
+    assert "A roll-up card keeps the text, label and amounts of every memory it rolled up (`value.rollup.instances`)" in paragraph
+    assert "a consolidation candidate keeps the 16-character digest of each member's title, text, summary and value as it was when the candidate was made (`member_snapshots`)" in paragraph
+    assert "Redacting a memory scrubs the memory, its revisions, its events, its quoted provenance and the project update artifacts coupled to it, and does not rewrite the reports and cards that printed or copied it, so a redacted memory's text can still be read in them." in paragraph
+    assert "withholding these words for a caller with limits is tracked for v0.21.0 with the ids" in paragraph
 
 
 def test_the_security_note_names_the_three_answers_that_show_more_than_a_missing_id() -> None:
@@ -82,6 +97,11 @@ def test_the_security_note_says_the_exact_doors_answer_a_hidden_row_as_a_missing
     assert "The `alice_explain` tool stops at the same point for each row it would expand" in paragraph
     assert "A refusal for a row the key may read is recorded and answered as before, and it repeats only labels the key can read." in paragraph
     assert "The owner and an unbound admin key are unchanged." in paragraph
+    assert (
+        "An archived or redacted memory is read by no door but redact, and it is outside the limits of every key that has any, so a "
+        "refused redact of one is answered and written exactly as a redact of a missing id is: HTTP 404 or the tool's not-found "
+        "error, and no policy event and no agent record."
+    ) in paragraph
     assert "so a refused confirm keeps its refusal" in paragraph
     assert "(the event log and the agent records included), with those of a missing id, and read the key's own telemetry before and after" in paragraph
 
@@ -124,6 +144,12 @@ def test_the_known_limitations_page_lists_both_limits() -> None:
     assert "a known exception, not a way of meeting the requirement to filter hidden ids" in paragraph
     assert "withholding them is tracked for v0.21.0" in paragraph
     assert "(see the [draft security note](../release/derived-labels-security-note-draft.md))" in paragraph
+
+    kept = _paragraph(page, f"- {KEPT}")
+    assert ", so the title, text or quote of a row that was archived or redacted after the report was made stays in the report's text" in kept
+    assert "in a roll-up card and as the digest of a consolidation member, and redacting a memory does not rewrite the reports that printed it" in kept
+    assert "a key that can read the report reads those words, and hiding them from a caller with limits is tracked for v0.21.0" in kept
+    assert "(see the [draft security note](../release/derived-labels-security-note-draft.md))" in kept
     vector = _paragraph(page, f"- {VECTOR}")
     assert "a restricted caller can get fewer results than exist, down to none" in vector
     assert "tracked for v0.21.0" in vector
@@ -132,8 +158,8 @@ def test_the_known_limitations_page_lists_both_limits() -> None:
 def test_the_changelog_has_one_entry_for_each() -> None:
     entries = [line.removeprefix("- ") for line in _text("CHANGELOG.md").splitlines() if line.startswith("- ")]
     for start, phrases in (
-        (IDS, ("and the notes now say so", "any key whose limits admit the report", "they grant no access", "is answered as a missing id is, with the same status and body or the same tool error", "This is a known exception, not a way of meeting the requirement to filter hidden ids", "is tracked for v0.21.0", "Three answers show a little more")),
-        (EXACT, ("repeated the row's domain, sensitivity and project scope", "carried the id of a project outside its binding", "writes what a call on a missing id writes, which is nothing", "no policy event and no agent record", "A row the key may read keeps its refusals", "superseding memory was not found")),
+        (IDS, ("and the notes now say so", "any key whose limits admit the report", "they grant no access", "is answered as a missing id is, with the same status and body or the same tool error", "This is a known exception, not a way of meeting the requirement to filter hidden ids", "is tracked for v0.21.0", "Three answers show a little more", "it also keeps the words and values it was made with, so a report keeps the title, text or quote of a row that was archived or redacted after the report was made", "redacting a memory does not rewrite the reports that printed it")),
+        (EXACT, ("repeated the row's domain, sensitivity and project scope", "carried the id of a project outside its binding", "writes what a call on a missing id writes, which is nothing", "no policy event and no agent record", "A row the key may read keeps its refusals", "superseding memory was not found", "An archived or redacted memory is read by no door but redact, and it is outside the limits of every key that has any, so a refused redact of one is answered and written exactly as a redact of a missing id is")),
         (LOOP_PROJECT, ("a database error (HTTP 500)", "vNext project was not found", "write nothing")),
         (VECTOR, ("fewer results than exist, down to none", "Tracked for v0.21.0")),
         (BELIEF + " apply the caller's limits", ("In v0.19.2, in v0.20.0 and on main until now", "change the stored row", "where it raised a server error", "an id that is not a well-formed id")),
@@ -162,9 +188,12 @@ def test_the_tool_reference_states_both() -> None:
     assert "is answered as a missing id is, with the same status and body or the same tool error, and nothing is changed" in ids
     assert "Three answers show a little more and are named in the release security note" in ids
     assert "This is a known exception to the rule that a hidden id is not shown, tracked for v0.21.0." in ids
+    assert "A report also keeps the words it was made with, so the title, text or quote of a row that was archived or redacted after the report was made stays in the report's text" in ids
+    assert "and redacting a memory does not rewrite the reports that printed it" in ids
     exact = _paragraph(tools, f"{MARK} the doors that act on one row by id answer a row above the key's limits as a row that does not exist.")
     assert "Until now these doors answered HTTP 403 with the policy decision" in exact
     assert "The call now writes what a call on a missing id writes, which is nothing: no policy event and no agent record" in exact
     assert "A row the key may read keeps its refusals." in exact
+    assert "An archived or redacted memory is read by no door but redact, and it is outside the limits of every key that has any" in exact
     loop = _paragraph(tools, f"{MARK} `POST /v0/vnext/open-loops` holds `project_id` to the key's project binding.")
     assert "vNext project was not found" in loop

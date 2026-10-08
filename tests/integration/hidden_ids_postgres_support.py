@@ -6,6 +6,12 @@ must not be more than the answer for an id that does not exist, and a write must
 Each row is hidden for one reason. A reason hides the row from some profiles and not from others, and ``HIDDEN_FOR``
 says which. A forgotten memory is not hidden: explain and review still show its history to a caller who may read its
 labels, so it is a control and not a hidden row.
+
+A deleted memory (archived by a lifecycle update, or redacted) is hidden from every caller that may not redact. Redact
+reads such a row on purpose, to scrub and to replay it, so an admin key allowed to redact it is not held to the answer of
+a missing id on that door, and the rows are hidden from the other profiles only. A report can keep listing a redacted
+memory, so the ids of these rows must give a key with limits no more than a missing id does on any door, the telemetry of
+the key included.
 """
 from __future__ import annotations
 
@@ -39,10 +45,19 @@ HIDDEN_FOR = {
     "unverified": EVERYONE - {"admin"},
     "archived": EVERYONE,
     "forgotten": frozenset(),
+    # A deleted memory of the alpha project: an admin key (bound to alpha or not) may redact it. Of the beta project: only
+    # an admin key with no binding may.
+    "deleted": EVERYONE - {"admin", "admin_bound"},
+    "redacted": EVERYONE - {"admin", "admin_bound"},
+    "redacted_beta": EVERYONE - {"admin"},
 }
 KINDS = ("source", "memory", "loop", "artifact")
-# A source is always an original, so it is never unverified. Only a source can be archived and a memory forgotten.
-KINDS_FOR = {"archived": ("source",), "forgotten": ("memory",), "unverified": ("memory", "loop", "artifact")}
+# A source is always an original, so it is never unverified. Only a source can be archived and a memory forgotten. A memory
+# is deleted by an archive or a redaction.
+KINDS_FOR = {
+    "archived": ("source",), "forgotten": ("memory",), "unverified": ("memory", "loop", "artifact"),
+    "deleted": ("memory",), "redacted": ("memory",), "redacted_beta": ("memory",),
+}
 # reason -> (sensitivity, domain, project)
 REASONS = {
     "visible": ("public", "project", "alpha"),
@@ -53,6 +68,9 @@ REASONS = {
     "unverified": ("public", "project", "alpha"),
     "archived": ("public", "project", "alpha"),
     "forgotten": ("public", "project", "alpha"),
+    "deleted": ("public", "project", "alpha"),
+    "redacted": ("public", "project", "alpha"),
+    "redacted_beta": ("public", "project", "beta"),
 }
 TABLES = (
     "sources", "source_chunks", "memories", "memory_revisions", "open_loops", "generated_artifacts", "projects", "beliefs",
@@ -180,6 +198,24 @@ def build_vault(h) -> Vault:
     # An archived source is read by nobody. A forgotten memory stays readable by its history.
     with h.store() as store:
         store.delete_source(source_id=vault.ids[("source", "archived")], actor_type="user")
+        # An archived memory has ``deleted_at`` set, as a redacted one does; no door but redact reads either.
+        store.update_memory(memory_id=vault.ids[("memory", "deleted")], patch={"status": "archived"}, actor_type="system")
+    for reason in ("redacted", "redacted_beta"):
+        status, body, _ = h.request(
+            "POST", "/v0/vnext/memories/redact", payload={"memory_id": vault.ids[("memory", reason)], "reason": "synthetic"}
+        )
+        assert status == 200, body
+    with h.store() as store, store.conn.cursor() as cur:
+        cur.execute(
+            "SELECT id::text AS id, status, deleted_at IS NOT NULL AS deleted FROM memories WHERE id = ANY(%s::uuid[])",
+            ([vault.ids[("memory", reason)] for reason in ("deleted", "redacted", "redacted_beta")],),
+        )
+        assert {row["status"] for row in cur.fetchall()} == {"archived"}
+        cur.execute(
+            "SELECT count(*) AS n FROM memories WHERE id = ANY(%s::uuid[]) AND deleted_at IS NOT NULL",
+            ([vault.ids[("memory", reason)] for reason in ("deleted", "redacted", "redacted_beta")],),
+        )
+        assert cur.fetchone()["n"] == 3
     status, body, _ = h.request(
         "POST", "/v0/vnext/memories/forget", payload={"memory_id": vault.ids[("memory", "forgotten")], "reason": "synthetic"}
     )
@@ -465,3 +501,31 @@ def changes(before: dict[str, list[str]], after: dict[str, list[str]]) -> dict[s
             result[table] = sorted(["+" + normalize(row) for row in added] + ["-" + normalize(row) for row in removed])
     return result
 
+
+
+def counts(value, path=""):
+    """Every number in a telemetry summary, keyed by where it stands and what it counts.
+
+    A list of objects is keyed by the text fields of each object (an agent id), and the numbers inside it, the count and the
+    count of each action, by their names, so a count that grows is the same key before and after.
+    """
+    if isinstance(value, bool):
+        return {}
+    if isinstance(value, int):
+        return {path: value}
+    result = {}
+    if isinstance(value, dict):
+        for key, child in value.items():
+            result.update(counts(child, f"{path}/{key}"))
+    elif isinstance(value, list):
+        for child in value:
+            if isinstance(child, dict):
+                label = json.dumps({k: v for k, v in child.items() if isinstance(v, str)}, sort_keys=True)
+                result.update(counts(child, f"{path}[{label}]"))
+    return result
+
+
+def moved(before, after):
+    """How far each count of the telemetry moved between two reads of it."""
+    first, second = counts(before), counts(after)
+    return {key: second.get(key, 0) - first.get(key, 0) for key in {*first, *second} if second.get(key, 0) != first.get(key, 0)}

@@ -39,6 +39,7 @@ from tests.integration.hidden_ids_postgres_support import (
     Env,
     build_vault,
     changes,
+    moved,
     normalize,
     snapshot,
 )
@@ -95,28 +96,6 @@ def test_a_hidden_id_gives_no_access_through_any_door(label_harness, monkeypatch
     assert not failures, "\n".join(failures[:25])
 
 
-def _counts(value, path=""):
-    """Every number in a telemetry summary, keyed by where it stands and what it counts."""
-    if isinstance(value, bool):
-        return {}
-    if isinstance(value, int):
-        return {path: value}
-    result = {}
-    if isinstance(value, dict):
-        for key, child in value.items():
-            result.update(_counts(child, f"{path}/{key}"))
-    elif isinstance(value, list):
-        for child in value:
-            label = json.dumps({k: v for k, v in child.items() if k != "count"}, sort_keys=True) if isinstance(child, dict) else str(child)
-            result.update(_counts(child.get("count") if isinstance(child, dict) and "count" in child else child, f"{path}[{label}]"))
-    return result
-
-
-def _moved(before, after):
-    first, second = _counts(before), _counts(after)
-    return {key: second.get(key, 0) - first.get(key, 0) for key in {*first, *second} if second.get(key, 0) != first.get(key, 0)}
-
-
 def test_a_call_on_a_hidden_id_moves_the_keys_telemetry_as_a_call_on_a_missing_id_does(label_harness, monkeypatch, tmp_path):
     """The policy events and the agent record are events a key reads back in its own telemetry.
 
@@ -148,12 +127,113 @@ def test_a_call_on_a_hidden_id_moves_the_keys_telemetry_as_a_call_on_a_missing_i
         for row_id in hidden:
             door.call(env, trusted, row_id)
     t2 = telemetry()
-    assert _moved(t1, t2) == _moved(t0, t1)
+    assert moved(t1, t2) == moved(t0, t1)
     # The control: the same key is refused on a row it may read, and the counts move by more.
     doors_by_name = {door.name: door for door in doors}
     assert str(doors_by_name["memory review accept"].call(env, trusted, vault.ids[("memory", "visible")]).status) == "403"
     t3 = telemetry()
-    assert _moved(t2, t3) != _moved(t1, t2)
+    assert moved(t2, t3) != moved(t1, t2)
+
+
+DELETED_MEMORIES = ("deleted", "redacted", "redacted_beta")
+REDACT_DOORS = ("memory redact", "tool manage redact")
+
+
+@pytest.mark.parametrize("profile", ["trusted", "read_only", "memory_proposal", "trusted_bound", "alpha_only", "admin_bound"])
+def test_a_refused_redact_of_a_deleted_memory_writes_what_a_redact_of_a_missing_id_writes(
+    label_harness, monkeypatch, tmp_path, profile
+):
+    """Redact is the one verb that reads a deleted memory (archived or redacted), to scrub it and to replay it.
+
+    A report can keep listing a redacted memory, so a key can hold its id. A caller the policy refuses on such a row is
+    answered as for a missing id, and it must also leave what a missing id leaves: the policy events and the agent
+    record are events a key reads back in its own telemetry, and a count that moved would tell the key that the id was a
+    deleted memory. The test calls the HTTP route and the tool three times with a missing id and three times with each
+    deleted memory the profile may not redact, and compares the answer, the rows added to or removed from every table,
+    and how far the telemetry moved. The unbound admin key and the admin key bound to the memory's own project are not
+    held to this: the policy allows them to redact, and the next test checks that they still do.
+    """
+    h = label_harness
+    vault = build_vault(h)
+    key = _key(h, vault, profile)
+    observer = h.key("trusted_local_agent")
+    env = Env(h, monkeypatch, h.urls["app"], str(tmp_path), vault=vault)
+    doors = {door.name: door for door in ALL_DOORS}
+    deleted = {reason: vault.ids[("memory", reason)] for reason in DELETED_MEMORIES if profile in HIDDEN_FOR[reason]}
+    assert deleted, profile
+    assert profile != "admin_bound" or set(deleted) == {"redacted_beta"}
+
+    def telemetry():
+        status, body, _ = h.request("GET", "/v0/vnext/agents/policy-telemetry", key=observer)
+        assert status == 200, body
+        return body["summary"]
+
+    missing_answers = {name: doors[name].call(env, key, str(uuid4())) for name in REDACT_DOORS}  # the key's first calls
+    for name, answer in missing_answers.items():
+        assert str(answer.status) in {"404", "tool-error:MCPReferenceNotFoundError"}, (profile, name, answer)
+    telemetry()  # the observer's own first call
+    t0 = telemetry()
+    missing_changes = {}
+    for name in REDACT_DOORS:
+        for _ in range(3):
+            before = snapshot(h)
+            assert doors[name].call(env, key, str(uuid4())) == missing_answers[name]
+            missing_changes[name] = changes(before, snapshot(h))
+    t1 = telemetry()
+    assert moved(t0, t1) == {}, "a call on a missing id moves the telemetry"
+    for reason, row_id in deleted.items():
+        for name in REDACT_DOORS:
+            for _ in range(3):
+                before = snapshot(h)
+                answer = doors[name].call(env, key, row_id)
+                assert answer == missing_answers[name], (profile, name, reason, answer, missing_answers[name])
+                assert changes(before, snapshot(h)) == missing_changes[name], (profile, name, reason)
+    t2 = telemetry()
+    assert moved(t1, t2) == {}, (profile, moved(t1, t2))
+
+
+def test_a_key_the_policy_allows_still_redacts_a_deleted_memory(label_harness):
+    """The control of the test above: the answer for a deleted memory is a missing id's only for a key that is refused.
+
+    An admin key bound to alpha redacts an archived alpha memory (it scrubs the text) and replays the redaction of a redacted
+    one. It is answered as for a missing id for a beta memory, which it may not read, and the unbound admin key then replays
+    that one. So the pre-check does not refuse every call on a deleted row, and the fence that refuses a deleted row to a key
+    with limits does not stop a key the policy allows.
+    """
+    h = label_harness
+    vault = build_vault(h)
+    admin = h.key("admin_agent")
+    bound = h.key("admin_agent", project=vault.alpha)
+
+    def redact(row_id, key):
+        return h.request("POST", "/v0/vnext/memories/redact", payload={"memory_id": row_id, "reason": "synthetic"}, key=key)
+
+    def blocked_events():
+        with h.store() as store, store.conn.cursor() as cur:
+            cur.execute("SELECT count(*) AS n FROM event_log WHERE event_type = 'agent.policy_blocked'")
+            return cur.fetchone()["n"]
+
+    archived = vault.ids[("memory", "deleted")]
+    with h.store() as store, store.conn.cursor() as cur:
+        cur.execute("SELECT canonical_text FROM memories WHERE id = %s", (archived,))
+        assert cur.fetchone()["canonical_text"] == "TEXT-memory-DELETED"
+    # The key is bound, so it has limits and the fence refuses a deleted row to it; the policy allows the call all the same.
+    status, body, _ = redact(archived, bound)
+    assert status == 200 and body["status"] == "redacted" and not body["idempotent_replay"], body
+    with h.store() as store, store.conn.cursor() as cur:
+        cur.execute("SELECT canonical_text FROM memories WHERE id = %s", (archived,))
+        assert cur.fetchone()["canonical_text"] == "[REDACTED]"
+    status, body, _ = redact(vault.ids[("memory", "redacted")], bound)
+    assert status == 200 and body["idempotent_replay"] is True, body
+    before = snapshot(h)
+    gone = redact(str(uuid4()), bound)
+    assert gone[0] == 404
+    status, body, _ = redact(vault.ids[("memory", "redacted_beta")], bound)
+    assert (status, body) == gone[:2], (status, body)
+    assert changes(before, snapshot(h)) == {}
+    status, body, _ = redact(vault.ids[("memory", "redacted_beta")], admin)
+    assert status == 200 and body["idempotent_replay"] is True, body
+    assert blocked_events() == 0
 
 
 CONTROLS = (

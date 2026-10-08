@@ -116,7 +116,7 @@ def test_a_key_bound_to_another_project_is_refused_on_every_http_route_whatever_
     Mutations, each one alone: in ``vnext_memory_commit.py`` delete the ``refuse_unauthorized_write`` call in ``forget``,
     ``undo`` or ``correct`` (that route answers 400 for the pending project update); in ``mcp/memories.py`` delete the
     ``refuse_unauthorized_write`` call in ``redact_memory_flow`` (redact answers 400 for the pending update and for the
-    open artifact) or its ``deleted_at`` branch (redact answers 403 for the redacted row).
+    open artifact).
     """
 
     app_url = migrated_database_urls["app"]

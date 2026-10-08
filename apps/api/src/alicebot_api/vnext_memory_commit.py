@@ -309,19 +309,6 @@ class MemoryNotFoundError(VNextMemoryCommitValidationError):
     """
 
 
-class RefusedOnDeletedMemoryError(AgentPolicyBlockedError):
-    """The policy refused a redact of an archived or redacted row, which the caller must hear as "not found".
-
-    Redact reads such a row on purpose, to scrub and to replay it, while every other verb reads it as absent. A
-    refused caller is told "not found" for it, as for an id the vault never held, or redact would tell it which ids
-    were deleted. The refusal itself is still a refusal: the decision was recorded and is audited like any other, and
-    a surface that catches ``AgentPolicyBlockedError`` leaves its transaction normally so that audit row is
-    committed. Raising a plain ``MemoryNotFoundError`` there would roll the audit row back with the call. The surface
-    then turns this class into its own "not found" (``not_found`` over MCP, 404 over HTTP) instead of its refusal
-    (``not_permitted``, 403). A surface that does not know the class, the command line, answers the refusal.
-    """
-
-
 class MemoryStateError(VNextMemoryCommitValidationError):
     """The row exists and the caller may act on it, but its state forbids the call.
 
@@ -2598,12 +2585,15 @@ class VNextMemoryCommitService:
         The decision is built from the labels of the target and a refusal would repeat them, so the caller is answered as
         for an id that does not exist, and nothing is recorded: the policy events and the agent record are events a key
         can read back, and a key must not be able to tell the id from one that names no row. A decision that allows the
-        call is not touched. A deleted row is not judged here: ``redact`` reads one on purpose and answers its refusal as
-        "not found" itself (``RefusedOnDeletedMemoryError``), recording it. A door that names its target by something other
-        than the id of a row (a confirmation token, an idempotency key) passes ``answer_as_missing=False``.
+        call is not touched. A deleted row (archived or redacted) is outside the limits of every caller that has any,
+        because the read fence admits no row with ``deleted_at`` set, so a caller refused on one is answered as for a
+        missing id and nothing is recorded. ``redact`` is the one verb that reads such a row on purpose, to scrub and to
+        replay it, and it relies on this: a recorded refusal on a deleted row would tell a key which ids were deleted,
+        and a redacted memory can stay listed in a report the key reads. A door that names its target by something
+        other than the id of a row (a confirmation token, an idempotency key) passes ``answer_as_missing=False``.
         """
 
-        if not answer_as_missing or decision.decision != "blocked" or memory.get("deleted_at") is not None:
+        if not answer_as_missing or decision.decision != "blocked":
             return
         from alicebot_api.vnext_label_guard import outside_caller_limits
 
