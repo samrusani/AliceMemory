@@ -999,7 +999,7 @@
           "line": 964,
           "before": "A refused call changes nothing",
           "after": "A refused call may change a thing",
-          "sha256": "3aa0976585fd3ac566bf509ecb9a772e00e947aad17fee7d5daf7712fae75efc"
+          "sha256": "b4dfd8d271aca5c9c7c4d25dd96ad8f5e4626f4667c41946135e7b909299fbbf"
         }
       ],
       "pytest": [
@@ -1367,7 +1367,7 @@
           "line": 968,
           "before": "The memory tools return none.",
           "after": "",
-          "sha256": "3aa0976585fd3ac566bf509ecb9a772e00e947aad17fee7d5daf7712fae75efc"
+          "sha256": "b4dfd8d271aca5c9c7c4d25dd96ad8f5e4626f4667c41946135e7b909299fbbf"
         }
       ],
       "pytest": [
