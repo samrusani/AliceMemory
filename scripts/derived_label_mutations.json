@@ -3451,10 +3451,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
-          "line": 0,
-          "before": "            if all(row_id in admitted[kind] for kind, row_id in references)",
-          "after": "            if (not references or any(row_id in admitted[kind] for kind, row_id in references))",
-          "sha256": ""
+          "line": 893,
+          "before": "                if row_id not in admitted[kind]:",
+          "after": "                if row_id not in admitted[kind] and len(references) == 1:",
+          "sha256": "bc480cf4c058a70909d042dfbf6e77eb11c303e8cc2bff811a5fdd6c2868a3b6"
         }
       ],
       "pytest": [
