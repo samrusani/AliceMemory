@@ -7,10 +7,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
-          "line": 778,
+          "line": 805,
           "before": "if operator.decision == \"blocked\":",
           "after": "if False:",
-          "sha256": "860d8d74b5356ba0efe157186949f41bbedd7c56ffbd4335ca8740dbd1c150d9"
+          "sha256": "11318de1d549a5b2820202cd23487de7b8af327629d8bc878dafef3de610397e"
         }
       ],
       "pytest": [
@@ -23,10 +23,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
-          "line": 781,
+          "line": 808,
           "before": "if payload is not None and not SourceReadFence.for_identity(identity).admits(",
           "after": "if False and payload is not None and not SourceReadFence.for_identity(identity).admits(",
-          "sha256": "860d8d74b5356ba0efe157186949f41bbedd7c56ffbd4335ca8740dbd1c150d9"
+          "sha256": "11318de1d549a5b2820202cd23487de7b8af327629d8bc878dafef3de610397e"
         }
       ],
       "pytest": [
@@ -292,9 +292,9 @@
         {
           "file": "docs/release/v0.20.0-release-notes.md",
           "line": 6,
-          "before": "Doctor's derived-label check counts are new in this set, absent from v0.20.0 and baseline main 48873b03, and remain outside the caller's sensitivity ceiling.",
+          "before": "Doctor's derived-label check counts are new in this set, absent from v0.20.0 and baseline main 48873b03, and the doctor routes omit them for callers with limits.",
           "after": "",
-          "sha256": "1eef1e5173dd7603edbc40a40b6256ce4838c4628324bbe3ad6b92d7a9ef7f0b"
+          "sha256": "b47f0df5fffde7c18d206f142ad010c5e8f7c9d1d3dfec89390dc4e5dea29bbe"
         }
       ],
       "pytest": [
@@ -308,15 +308,15 @@
         {
           "file": "docs/alpha/known-limitations.md",
           "line": 78,
-          "before": "while graph edge explanations and the new doctor label counts remain outside that ceiling (see the [draft security note](../release/derived-labels-security-note-draft.md))",
+          "before": "and doctor omits content checks for keys with limits, but graph edge explanations remain outside that ceiling (see the [draft security note](../release/derived-labels-security-note-draft.md))",
           "after": "",
-          "sha256": "07044fd637c3c831865fab916de610b33f1c0151658719ca4d2f521f2de82512"
+          "sha256": "3507a12bd531f670d393c37262c268132d2a743de212c6fe9ba612e30de4e0af"
         }
       ],
       "pytest": [
-        "tests/unit/test_derived_labels_docs.py::test_known_limitations_discloses_graph_and_new_doctor_counts_outside_ceiling"
+        "tests/unit/test_derived_labels_docs.py::test_known_limitations_discloses_graph_outside_ceiling_and_doctor_omission"
       ],
-      "expected_failure": "test_known_limitations_discloses_graph_and_new_doctor_counts_outside_ceiling"
+      "expected_failure": "test_known_limitations_discloses_graph_outside_ceiling_and_doctor_omission"
     },
     {
       "name": "draft-note-new-doctor-disclosure",
@@ -324,31 +324,31 @@
         {
           "file": "docs/release/derived-labels-security-note-draft.md",
           "line": 5,
-          "before": "Doctor's aggregate derived-label check counts are new in this set, absent from v0.20.0 and baseline main 48873b03, and remain outside the caller's sensitivity ceiling and visible to trusted keys.",
+          "before": "`GET /v0/vnext/doctor` and `POST /v0/vnext/doctor/run` now omit their content diagnostics for callers with limits: the owner and an unbound admin key receive the flagged-source ids and the derived-label counts, and a trusted key receives both checks as skipped, with no id, count or message taken from the vault. The flagged-source ids were returned to trusted keys in v0.20.0 and baseline main 48873b03.",
           "after": "",
-          "sha256": "e1f5bd6c281d4e5c5c8a858a4f9cc5adbbd2e525b54f8151a5cf76cc14497bdb"
+          "sha256": "857d9b5f93cee9c679f67298748d1805bc896c4c96fc55b4d9aa50e72146abd3"
         }
       ],
       "pytest": [
-        "tests/unit/test_derived_labels_docs.py::test_draft_security_note_distinguishes_baseline_graph_from_new_doctor_counts"
+        "tests/unit/test_derived_labels_docs.py::test_draft_security_note_distinguishes_baseline_graph_from_doctor_content_checks"
       ],
-      "expected_failure": "test_draft_security_note_distinguishes_baseline_graph_from_new_doctor_counts"
+      "expected_failure": "test_draft_security_note_distinguishes_baseline_graph_from_doctor_content_checks"
     },
     {
       "name": "changelog-new-doctor-ceiling",
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 12,
-          "before": "doctor label counts are new in this set and remain outside that ceiling",
-          "after": "doctor label counts are new in this set",
-          "sha256": "eaca6f2b2b12766a0551baf8bb70cc261f044a3861432145a2cb8ed7cff94193"
+          "line": 56,
+          "before": "omit content diagnostics for a caller with limits",
+          "after": "show content diagnostics to a caller",
+          "sha256": "48de11a2b514228eea474331408172d9f1bc207d98456351ecd0e25a07f5f4df"
         }
       ],
       "pytest": [
-        "tests/unit/test_derived_labels_docs.py::test_source_get_operator_gate_and_doctor_ceiling_are_explicit_in_changelog"
+        "tests/unit/test_derived_labels_docs.py::test_source_get_operator_gate_and_doctor_omission_are_explicit_in_changelog"
       ],
-      "expected_failure": "test_source_get_operator_gate_and_doctor_ceiling_are_explicit_in_changelog"
+      "expected_failure": "test_source_get_operator_gate_and_doctor_omission_are_explicit_in_changelog"
     },
     {
       "name": "row-admission-caller-filters",
@@ -422,7 +422,7 @@
           "before": "            fields = tuple(row.get(key) for key in (\"title\", \"author\", \"uri\", \"raw_path\", \"external_id\"))",
           "after": "            fields = tuple(row.get(key) for key in (\"title\",))",
           "line": 363,
-          "sha256": "7bcb4f4fe4c67d9ea58d73bc4affbe28c62c64a8de0191b3d4b0532ed24281d5"
+          "sha256": "eb0b764eb37964bbcdba3f9cc63ef7f6e5f186c80300d7a8f771e2e9c269c201"
         }
       ],
       "pytest": [
@@ -438,7 +438,7 @@
           "before": "        if isinstance(row, Mapping) and type(row.get(\"metadata_json\")) is dict and not row[\"metadata_json\"]:",
           "after": "        if isinstance(row, Mapping) and type(row.get(\"metadata_json\")) is dict:",
           "line": 362,
-          "sha256": "7bcb4f4fe4c67d9ea58d73bc4affbe28c62c64a8de0191b3d4b0532ed24281d5"
+          "sha256": "eb0b764eb37964bbcdba3f9cc63ef7f6e5f186c80300d7a8f771e2e9c269c201"
         }
       ],
       "pytest": [
@@ -701,6 +701,138 @@
           "line": 410
         }
       ]
+    },
+    {
+      "name": "doctor-page-who-receives-content-checks",
+      "edits": [
+        {
+          "file": "docs/alpha/doctor.md",
+          "line": 35,
+          "before": "run them only for the owner and an unbound admin key",
+          "after": "run them for every caller",
+          "sha256": "7883e234cda060093916094dd143d77b010135ebf45ac3bd7439e1af316e9aa3"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_derived_labels_docs.py::test_doctor_page_and_runbook_say_who_receives_the_content_checks"
+      ],
+      "expected_failure": "test_doctor_page_and_runbook_say_who_receives_the_content_checks"
+    },
+    {
+      "name": "doctor-route-caller-condition",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
+          "line": 762,
+          "before": "    return not SourceReadFence.for_identity(identity).entity_read_fenced",
+          "after": "    return True",
+          "sha256": "11318de1d549a5b2820202cd23487de7b8af327629d8bc878dafef3de610397e"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_doctor_content_diagnostics_postgres.py::test_unbound_trusted_key_receives_content_checks_as_skipped"
+      ],
+      "expected_failure": "test_unbound_trusted_key_receives_content_checks_as_skipped"
+    },
+    {
+      "name": "doctor-route-unbound-admin",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
+          "line": 762,
+          "before": "    return not SourceReadFence.for_identity(identity).entity_read_fenced",
+          "after": "    return identity is None",
+          "sha256": "11318de1d549a5b2820202cd23487de7b8af327629d8bc878dafef3de610397e"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_doctor_content_diagnostics_postgres.py::test_owner_and_unbound_admin_receive_the_full_doctor"
+      ],
+      "expected_failure": "test_owner_and_unbound_admin_receive_the_full_doctor"
+    },
+    {
+      "name": "doctor-route-reads-the-key",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
+          "line": 759,
+          "before": "    identity = resolve_protected_agent_identity(\n        store, user_id=user_id, raw_key=agent_key_from_authorization(authorization), payload={}\n    )\n    return not SourceReadFence",
+          "after": "    identity = resolve_protected_agent_identity(\n        store, user_id=user_id, raw_key=None, payload={}\n    )\n    return not SourceReadFence",
+          "sha256": "11318de1d549a5b2820202cd23487de7b8af327629d8bc878dafef3de610397e"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_doctor_content_diagnostics_postgres.py::test_unbound_trusted_key_receives_content_checks_as_skipped"
+      ],
+      "expected_failure": "test_unbound_trusted_key_receives_content_checks_as_skipped"
+    },
+    {
+      "name": "doctor-get-route-flag",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
+          "line": 772,
+          "before": "payload = VNextDoctorService(store).run(ci=ci, include_content_diagnostics=content_visible)",
+          "after": "payload = VNextDoctorService(store).run(ci=ci)",
+          "sha256": "11318de1d549a5b2820202cd23487de7b8af327629d8bc878dafef3de610397e"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_doctor_content_diagnostics_postgres.py::test_unbound_trusted_key_receives_content_checks_as_skipped",
+        "-k",
+        "get"
+      ],
+      "expected_failure": "test_unbound_trusted_key_receives_content_checks_as_skipped"
+    },
+    {
+      "name": "doctor-run-route-flag",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
+          "line": 786,
+          "before": "                fix_safe=request.fix_safe, ci=request.ci, include_content_diagnostics=content_visible",
+          "after": "                fix_safe=request.fix_safe, ci=request.ci",
+          "sha256": "11318de1d549a5b2820202cd23487de7b8af327629d8bc878dafef3de610397e"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_doctor_content_diagnostics_postgres.py::test_unbound_trusted_key_receives_content_checks_as_skipped",
+        "-k",
+        "post"
+      ],
+      "expected_failure": "test_unbound_trusted_key_receives_content_checks_as_skipped"
+    },
+    {
+      "name": "doctor-skipped-message",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_doctor.py",
+          "line": 271,
+          "before": "message=\"Content diagnostics are available to the owner and an unbound admin key.\",",
+          "after": "message=\"Content diagnostics are omitted.\",",
+          "sha256": "eb0b764eb37964bbcdba3f9cc63ef7f6e5f186c80300d7a8f771e2e9c269c201"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_doctor_content_diagnostics_postgres.py::test_unbound_trusted_key_receives_content_checks_as_skipped"
+      ],
+      "expected_failure": "test_unbound_trusted_key_receives_content_checks_as_skipped"
+    },
+    {
+      "name": "doctor-route-inventory",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/routers/workspaces.py",
+          "line": 172,
+          "before": "doctor = VNextDoctorService(store).run(ci=True, include_content_diagnostics=unfenced)",
+          "after": "doctor = VNextDoctorService(store).run(ci=True)",
+          "sha256": "3c6e6b909576c78fe78a5b2e2908a314bdf84db9d6d46ced22730263ea725b2c"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_doctor_route_content_fence.py::test_every_router_call_to_the_doctor_chooses_content_diagnostics_for_its_caller"
+      ],
+      "expected_failure": "test_every_router_call_to_the_doctor_chooses_content_diagnostics_for_its_caller"
     }
   ]
 }
