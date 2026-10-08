@@ -80,12 +80,16 @@ TABLES = (
 _UUID = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
 _TIME = re.compile(r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?")
 _HASH = re.compile(r"\b[0-9a-f]{64}\b")
+# A context pack records how many items it selected. The query is read for dates and for numbers as well as words, so a
+# random id that happens to read as one selects a different number of items (about one id in three hundred does). The
+# search doors are held to "nothing of the row comes back and the same kinds of row are written", not to the same count.
+_SELECTED = re.compile(r"selected_count[\\\"]*:\d+")
 
 
 def normalize(value: object) -> str:
     """The answer with every generated id, instant and digest replaced, so two answers compare by what they say."""
     text = json.dumps(value, sort_keys=True, default=str)
-    return _HASH.sub("<HASH>", _TIME.sub("<TIME>", _UUID.sub("<ID>", text)))
+    return _SELECTED.sub("selected_count:<N>", _HASH.sub("<HASH>", _TIME.sub("<TIME>", _UUID.sub("<ID>", text))))
 
 
 @dataclass
