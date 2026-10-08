@@ -260,6 +260,25 @@ def test_events_that_name_a_row_the_caller_cannot_read_are_not_shown_and_not_cou
     assert len(shown) >= 10 and len(withheld) >= 12
 
 
+def test_on_sqlite_an_event_that_names_an_artifact_a_belief_or_a_project_is_not_shown_to_a_caller_with_limits(world):
+    """The SQLite store reads the labels of sources, memories and open loops only, so it cannot show that these are readable.
+
+    The changelog says so. A caller without limits is shown the events as before.
+    """
+    store = world
+    events = [
+        _append(store, event_type="queue.task_completed", target_type="task", target_id=str(uuid4()), payload={"artifact_id": str(uuid4())}),
+        _append(store, event_type="contradiction.candidate_edge_logged", target_type="entity", target_id=str(uuid4()), payload={"belief_id": str(uuid4())}),
+        _append(store, event_type="source.assigned_project", target_type="entity", target_id=str(uuid4()), payload={"project_id": str(uuid4())}),
+    ]
+    with label_read_scope(store):
+        limited = LabelGuard(store, active=True, sensitivity_allowed=("public",))
+        assert not set(events) & _row_ids(limited.admit_events(store.list_events()))
+        assert limited.readable_event_count() == len(limited.admit_events(store.list_events()))
+        unlimited = LabelGuard(store, active=False)
+        assert set(events) <= _row_ids(unlimited.admit_events(store.list_events()))
+
+
 def test_a_caller_bound_to_a_project_sees_a_chunk_only_for_a_source_in_that_project(world):
     store = world
     inside = store.create_source({"source_type": "note", "title": "In", "content_hash": str(uuid4()), "sensitivity": "public", "domain": "project", "metadata_json": {"project_scope": ["P1"]}})
